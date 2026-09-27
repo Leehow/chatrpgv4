@@ -1,10 +1,10 @@
-"""Contract §139.13 (docs/specs/npc-acts-first-tickets/14-pursuit-after-the-flight-turn.md), over the emitted kernel.
+"""Contract §143.13 (docs/specs/npc-acts-first-tickets/14-pursuit-after-the-flight-turn.md), over the emitted kernel.
 
 Table `npc-acts-c`, turns 4 and 5. Knott's generated act bound as a flight; the engine stamped him `fled` and ended the
 fight, and the Keeper -- as the flight hint said -- wrote `apply npc to: away` in the same turn. On turn 5 the player
 ran after him down the stairs. The Keeper's `resolve chase:start target: Steven Knott` was refused `unknown_entity:
 Steven Knott is not in the current scene`, and the same call without a target was told "a chase needs a pursuer with a
-stat block present in the scene". §139.12's standing flight had ended at the `to` the hint itself asked for, so the
+stat block present in the scene". §143.12's standing flight had ended at the `to` the hint itself asked for, so the
 pursuer was always a turn late.
 
 Now a flight stands through its own turn and the next one, whatever the Keeper wrote about where the person went: a
@@ -135,7 +135,7 @@ def test_a_turn_later_the_window_has_closed_and_he_is_not_here(fight):
 def test_a_person_still_here_after_the_window_is_no_longer_running(fight):
     """The window is the same whether or not the Keeper moved him: Corbitt fled and was never written anywhere. On
     turn 2 a `flee` at him is still the pursuit; on turn 3 his flight has lapsed, and `flee` at him is the
-    investigator running from him (§139.12's shape with no standing flight)."""
+    investigator running from him (§143.12's shape with no standing flight)."""
     flight_turn(fight, away=False)
     assert presence(fight)[CORBITT] == SCENE
     narrate(fight, "t2-c1", "He hesitates at the foot of the stairs.")

@@ -178,9 +178,9 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
     const turn = number(record.turn);
     for (const receipt of array(record.receipts)) {
         const kind = receipt.kind;
-        // Contract §138.3: a receipt that reports a result of what a person was trying to do carries `intent`, whatever
+        // Contract §142.3: a receipt that reports a result of what a person was trying to do carries `intent`, whatever
         // its kind -- the roll that tried it, the clock it moved, the Keeper's own account of it. Fold it before the
-        // kind's own fields, which may `continue` past the rest of the loop body. §139.6: the row the table's own act
+        // kind's own fields, which may `continue` past the rest of the loop body. §143.6: the row the table's own act
         // opened is marked `generated`.
         const intent = row(receipt.intent);
         if (typeof intent.ref === 'string') {
@@ -188,7 +188,7 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
             if (id)
                 foldIntent(entry(ledger, id), intent, turn, receipt.id, receiptGenerated(receipt));
         }
-        // §139.8: the stakes die names its person as `actor` but is no interaction with anyone.
+        // §143.8: the stakes die names its person as `actor` but is no interaction with anyone.
         if (kind === 'roll' && !isStakesRoll(receipt)) {
             const against = npcId(graph, receipt.npc), actor = npcId(graph, receipt.actor);
             const family = ['social', 'combat', 'chase', 'psychology'].includes(receipt.family || receipt.roll_kind) ? receipt.family || receipt.roll_kind : null;

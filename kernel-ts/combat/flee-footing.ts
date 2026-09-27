@@ -1,5 +1,5 @@
 /**
- * Contract §139.9: who cannot flee, and what the flight itself ends, read from the ruleset's combat table
+ * Contract §143.9: who cannot flee, and what the flight itself ends, read from the ruleset's combat table
  * (`combat.json` `flee`) and matched against a combat participant in one place.
  *
  * Two readers need the same answer: the engine's `resolveFlee`, which refuses a flight the list blocks, and the session

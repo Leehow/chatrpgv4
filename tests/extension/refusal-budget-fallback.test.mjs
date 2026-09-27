@@ -75,15 +75,15 @@ test("§135.11.3: a run already delivered by the floor steer's own recovery is n
 });
 
 /**
- * §139.11: the fallback narrate is dispatched on the kernel refusal's `details.reason`. A refusal the kernel lets through
- * on the same turn's next delivery of the same text -- §138.7's owed result, like §139.10's markup -- sends the same text
+ * §143.11: the fallback narrate is dispatched on the kernel refusal's `details.reason`. A refusal the kernel lets through
+ * on the same turn's next delivery of the same text -- §142.7's owed result, like §143.10's markup -- sends the same text
  * again, once, and it lands; §113 D's `repeated_line` is refused every time, so it is never sent again and the ordinary
  * undelivered path stands. Both refusals carry the kernel's reason on the row.
  */
 const kernelRefusal = (reason) => ({ code: "needs", message: `refused for ${reason}`, fix: "deliver again", details: { reason } });
 const fallbackRows = (table) => table.telemetry().filter((row) => row.event === undefined && row.tool === "narrate" && row.lane === "delivery");
 
-test("§135.11.3 + §139.11: a fallback narrate refused intent_result_owed is sent again once, and lands", async (t) => {
+test("§135.11.3 + §143.11: a fallback narrate refused intent_result_owed is sent again once, and lands", async (t) => {
 	const table = await openTable({ env: { FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": kernelRefusal("intent_result_owed") }), FAKE_KERNEL_ERRORS_ONCE: "1" },
 		responses: [barrage] });
 	t.after(() => table.dispose());
@@ -99,7 +99,7 @@ test("§135.11.3 + §139.11: a fallback narrate refused intent_result_owed is se
 	assert.equal(releaseCalls(table).some((row) => row.params?.release === "stranded"), false, "delivered, never stranded");
 });
 
-test("§135.11.3 + §139.11: a fallback narrate refused repeated_line is not sent again", async (t) => {
+test("§135.11.3 + §143.11: a fallback narrate refused repeated_line is not sent again", async (t) => {
 	const table = await openTable({ env: { FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": kernelRefusal("repeated_line") }), FAKE_KERNEL_ERRORS_ONCE: "1" },
 		responses: [barrage] });
 	t.after(() => table.dispose());

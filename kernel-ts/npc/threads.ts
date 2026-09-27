@@ -1,13 +1,13 @@
 /**
- * Contract §139.24 (docs/specs/npc-acts-first-tickets/25-the-keepers-added-lines-pass-the-same-gate.md): the rows a
+ * Contract §143.24 (docs/specs/npc-acts-first-tickets/25-the-keepers-added-lines-pass-the-same-gate.md): the rows a
  * delivery's spoken lines may say again.
  *
- * §139.5 and §139.14 keep the table's generated act of a person from being the same thing twice; the lines the Keeper
+ * §143.5 and §143.14 keep the table's generated act of a person from being the same thing twice; the lines the Keeper
  * gives that person in the prose were never held to it (live table B2, turn 9). For a delivery's text this answers who
  * speaks in it by the Keeper's own say tokens -- resolved exactly as `table.narrate` resolves them (§40.1's
  * `speakerResolver`), a span the host wrapped (§128.3) left out -- whether the table acted for that person this turn or
- * they are in the conversation (§139.20), and their rows that were never carried out: under way since an earlier turn,
- * or given up. Whether a line is the same purpose as one of those rows is the host's Jev question (§139.14's wording);
+ * they are in the conversation (§143.20), and their rows that were never carried out: under way since an earlier turn,
+ * or given up. Whether a line is the same purpose as one of those rows is the host's Jev question (§143.14's wording);
  * the kernel lists the rows (`npc.threads`) and, at delivery, checks that a row the host names is one of them.
  *
  * Structure only: a handle from the say token, a status and turn numbers from the ledger's fold, a receipt's `intent`
@@ -30,7 +30,7 @@ export interface SpeakerThreads {
     npc: string;
     /** The name the delivery's token resolved to (the table's word for them, §79). */
     name: string;
-    /** Why their lines are held to their rows: the table's own act of theirs this turn, or the conversation (§139.20). */
+    /** Why their lines are held to their rows: the table's own act of theirs this turn, or the conversation (§143.20). */
     trigger: 'act' | 'conversation';
     /** Their spoken words in this delivery, text order, tokens stripped (`speech[].text`). */
     lines: string[];
@@ -43,8 +43,8 @@ export interface SpeakerThreads {
  * - under way (`attempted`) since an earlier turn -- a row set out this turn, the table's act or the Keeper's own, is
  *   what the prose renders now, not something said again;
  * - given up (`abandoned`), whenever: a person who put something down without doing it does not say it again.
- * A row settled by a result (`done`, `failed`) is not one: saying it again in a new situation is lawful, as §139.14 has
- * it for an act. Status and turns only. (An earlier row cannot be written `attempted` again on a later turn, §138.7's
+ * A row settled by a result (`done`, `failed`) is not one: saying it again in a new situation is lawful, as §143.14 has
+ * it for an act. Status and turns only. (An earlier row cannot be written `attempted` again on a later turn, §142.7's
  * `refuseRepeat`, so a row under way since an earlier turn has had nothing of this turn but a roll still to come.)
  */
 function threadsOf(rows: Row[], n: number): Row[] {

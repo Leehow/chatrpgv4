@@ -1,4 +1,4 @@
-"""Contract §139.23 (docs/specs/npc-acts-first-tickets/24-who-the-words-were-said-to.md), over the emitted kernel.
+"""Contract §143.23 (docs/specs/npc-acts-first-tickets/24-who-the-words-were-said-to.md), over the emitted kernel.
 
 Live table B2, turn 10: the player told Arthur "then give me back my five dollars" -- the money had been with him since
 his lines the turn before -- and the compile could not say who "you" was (`unclear` 0.83), because its state held the

@@ -1,20 +1,23 @@
 # NPC 先行动，再落参数
 
-Status: 01–06、09–13 landed（集成分支 `claude/npc-as-actor-20260926` @ f1cfe0192，契约 §139.1–139.12）；07 in progress；08 ready-for-human
-Branch: `claude/npc-as-actor-20260926`（基于集成线 `claude/integ-single-loop-20260923@6eac0c2f9`）；契约落地写 §139
-Parent: `docs/specs/npc-as-actor.md`（§138：意图行有状态、NPC 的一轮是一次操作、写入面）。本 spec 不撤它，只把「谁来决定 NPC 做什么」倒过来
+Status: 01–06、09–13 landed（集成分支 `claude/npc-as-actor-20260926` @ f1cfe0192，契约 §143.1–139.12）；07 in progress；08 ready-for-human
+Branch: `claude/npc-as-actor-20260926`（基于集成线 `claude/integ-single-loop-20260923@6eac0c2f9`）；契约落地写 §143
+Parent: `docs/specs/npc-as-actor.md`（§142：意图行有状态、NPC 的一轮是一次操作、写入面）。本 spec 不撤它，只把「谁来决定 NPC 做什么」倒过来
 Related: `docs/specs/pi-native-single-loop.md`（§135.28 参数绑定不过 LLM；§135.32 后果候选影子执行）、`docs/specs/jev-driven-steps.md`（D1 `npc_reaction`）、§11.5.3（NPC 常备动作）、§40.7（口吻面具：NPC 不需要自己的人格）、记忆 `npc-action-generated-first-then-bound`
 Evidence: 两桌真桌 `npc-actor-gate-a`（12 回合）、`npc-actor-gate-a2`（10 回合），2026-09-26，鬼屋，KP `opencode-go/deepseek-v4.1-flash` 思考 off，单循环 `hybrid-v1`；逐回合复核页与本会话 scratchpad 的 `review/gates.json`
 
+
+> **Section numbers (2026-09-26).** This spec's contract sections were written as §138 (npc-as-actor) and §139 (this spec). Before merging line-2, which already holds its own §138–§141, they were renumbered to §142 and §143. The text below uses the new numbers; commit messages and scratchpad records from before the change say §138/§139.
+
 ## 一、问题
 
-§138 落地后两桌真桌，按用户 09-26 的口径（重复看内容，不看手上动作）都不过：
+§142 落地后两桌真桌，按用户 09-26 的口径（重复看内容，不看手上动作）都不过：
 
 - A 桌 T6、T7、T8 诺特连续三回合喊人（撞电话、砸电话、砸台灯各不同，喊的内容一样）；T3 的登报威胁没有下文；T10 差人下楼叫人、T11 自己把人打发走，账上没有这件事。
 - A2 桌「楼下有看门的」说了 5 次（T1、T2、T4、T5、T8），手按铃 T2–T4 三回合一次没响，T5 意图记为放弃、T6 正文里又去够铃；看门老头最后只作为付钱的人出场。
 - 用户的判词：「一个正常人被莫名其妙打了，反应肯定不是这样的，根本不像正常人。」
 
-§138 给了 NPC 的行动一个账本和一道欠账闸门，但账本只记 KP **选择**记的那几条（两桌 22 回合，`intent` 收据 7 条），NPC 每一回合做什么仍然由系统参数在前、散文在后决定。
+§142 给了 NPC 的行动一个账本和一道欠账闸门，但账本只记 KP **选择**记的那几条（两桌 22 回合，`intent` 收据 7 条），NPC 每一回合做什么仍然由系统参数在前、散文在后决定。
 
 ## 二、裁定（2026-09-26，用户）
 
@@ -24,9 +27,9 @@ Evidence: 两桌真桌 `npc-actor-gate-a`（12 回合）、`npc-actor-gate-a2`�
 
 1. **每一回合 NPC 做什么，由一个 LLM 步骤按他此刻的处境写出来**，一句话，自然语言，不预设种类。
 2. **系统的工作是把那句话绑到它能结算的方式上**（检定、逃、打、钟、有人到场、立场、只说话），绑不上就登记为只有意图的行动。参数侧只做绑定与拒绝，不做选择。
-3. **生成的那句话就是意图**（§138 的行），自动登记；下一回合生成时它和它的结果都在输入里。口头宣布的事从此不再只活在散文里。
+3. **生成的那句话就是意图**（§142 的行），自动登记；下一回合生成时它和它的结果都在输入里。口头宣布的事从此不再只活在散文里。
 
-评桌口径同日裁定：同一 NPC 连续两轮不做内容相同的事，手上动作不同不算不同；宣布的事下一轮要有结果；NPC 的反应要像人。§138 预注册的「宣布→无结果→再宣布」口径作废。
+评桌口径同日裁定：同一 NPC 连续两轮不做内容相同的事，手上动作不同不算不同；宣布的事下一轮要有结果；NPC 的反应要像人。§142 预注册的「宣布→无结果→再宣布」口径作废。
 
 与既有裁定的关系：
 - §40.7「NPC 不需要自己的人格」不变。本 spec 加的是一个**反应步骤**（给一份处境，答一句「他现在做什么」），没有跨回合的自我、没有工具、没有对话；人格仍只是投影里那几行字。
@@ -40,11 +43,11 @@ Evidence: 两桌真桌 `npc-actor-gate-a`（12 回合）、`npc-actor-gate-a2`�
 
 | 出口 | 现状 | 两桌读数 |
 |---|---|---|
-| NPC advice 车道（`extensions/npc/index.ts:69`，`runtime/jev/npc-responses.ts`） | 每回合对应对库的行问 Jev 13 个问题选一行 | 22 回合 **5 次 ready**；A2 桌 T2–T7 六回合零建议（5 次 `no_suitable_candidate`、1 次 `unsupported_selected_premise`）；A 桌 T5、T6 送的是**同一行** `intent:steven-knott:8a9b7862a5b6`（KP 没回写 ref，`tried` 标不上，§138.4 的同行过滤没触发） |
+| NPC advice 车道（`extensions/npc/index.ts:69`，`runtime/jev/npc-responses.ts`） | 每回合对应对库的行问 Jev 13 个问题选一行 | 22 回合 **5 次 ready**；A2 桌 T2–T7 六回合零建议（5 次 `no_suitable_candidate`、1 次 `unsupported_selected_premise`）；A 桌 T5、T6 送的是**同一行** `intent:steven-knott:8a9b7862a5b6`（KP 没回写 ref，`tried` 标不上，§142.4 的同行过滤没触发） |
 | 应对库（`kernel-ts/npc/responses.ts`） | 一个 pi-agent 作者按 `instruction`（:68）写「条件→意图」行 | A2 桌终版 10 行全是委托剧情的条件（交报告、要地契、要加钱、不进屋……），没有一行是「现在被打了怎么办」；重算基底（:17 `basis`）只含 scope、场景、人格、知识、信念，`npcPerspective`（`kernel-ts/npc/perspective.ts`）也不带收据、会话、HP、立场——作者对「正在挨打」是盲的；A2 桌 10 回合重算 5 次仍旧盲 |
-| 倾向表 + 书记员（`npc-combat-disposition.json`，`runtime/jev/candidates.ts:176`） | 按 HP 比例、被围、立场出 attack / hold / flee | 只有三个词；A 桌 §138.14 之前每回合强制攻击，喊人、砸电话只能叠在散文里；A2 桌 `avoids_fighting` 下诺特 HP 9→1 才爬出门 |
+| 倾向表 + 书记员（`npc-combat-disposition.json`，`runtime/jev/candidates.ts:176`） | 按 HP 比例、被围、立场出 attack / hold / flee | 只有三个词；A 桌 §142.14 之前每回合强制攻击，喊人、砸电话只能叠在散文里；A2 桌 `avoids_fighting` 下诺特 HP 9→1 才爬出门 |
 
-**所以 KP 每回合拿到的是：一个（多半空的）建议、一个攻击/不动/逃的词、一段散文自由度。** 他用威胁把 NPC 的一轮填上，是这套形状的自然产物，不是这个模型的毛病。§138 的欠账闸门只看得见 KP 记下的意图（22 回合 7 条），看不见 15 回合的散文。
+**所以 KP 每回合拿到的是：一个（多半空的）建议、一个攻击/不动/逃的词、一段散文自由度。** 他用威胁把 NPC 的一轮填上，是这套形状的自然产物，不是这个模型的毛病。§142 的欠账闸门只看得见 KP 记下的意图（22 回合 7 条），看不见 15 回合的散文。
 
 ## 四、设计
 
@@ -55,9 +58,9 @@ Evidence: 两桌真桌 `npc-actor-gate-a`（12 回合）、`npc-actor-gate-a2`�
 - **他是谁**：`npcPerspective.view` 的 personality / goals / fears / commitments（已有）；书上的战斗倾向词只作一句描述（「他是遇事躲开的人」），不再是决定。
 - **刚发生在他身上的事**（本回合与上一回合的收据，主语或对象是他）：被打中/没打中（roll + delta）、被夺走的东西（item/cash 负数）、被施压（coercion）、被叫到（compile 的 addressee 特征命中他）、玩家对他说了什么（本回合 player_text，当 addressee 是他）。由 `composedArguments` 同一套代码拼成短句，不是原始 JSON（记忆 `reader-tools-not-raw-json`）。
 - **他的状态**：HP 分数、conditions、立场（§17.3）、在不在会话里、轮到他没有。
-- **手边有什么**：§138.8 的 holdings、场景 view 的 objects/exits、在场的人（含调查员）。
-- **他已经做过什么**：`intentsView(entry)`（§138.1，最近 N 行带结果）+ 最近六句自己的话（`recent_speech`，已有）。这一段是「不重复」的依据。
-- **他在局中形成的打算**不是单独一段：那就是 §138 的意图行，已在「做过什么」里带着状态（一条 `attempted` 的行就是他还想做的事）。
+- **手边有什么**：§142.8 的 holdings、场景 view 的 objects/exits、在场的人（含调查员）。
+- **他已经做过什么**：`intentsView(entry)`（§142.1，最近 N 行带结果）+ 最近六句自己的话（`recent_speech`，已有）。这一段是「不重复」的依据。
+- **他在局中形成的打算**不是单独一段：那就是 §142 的意图行，已在「做过什么」里带着状态（一条 `attempted` 的行就是他还想做的事）。
 - **书和 Mod 的约束**：书上预定的反应（`preordained`）、Mod 的接触检定行（`pending_contacts`）、场景义务对他的要求。
 - **不放进去的**：其他 NPC 的秘密、调查员的卡、KP 视角的导演信号。
 
@@ -70,7 +73,7 @@ Evidence: 两桌真桌 `npc-actor-gate-a`（12 回合）、`npc-actor-gate-a2`�
 - 形状：**零工具、单次补全**（和 §32 准入车道、§40 口吻车道同一形状，`docs/pi-host-contract.md` L348），不是 `authorNpc` 那种带工具的作者任务；输入 = D1 的包 + 指令文件 `content/setup/npc-act.md`；输出 = `{act: string}`，一句话，≤ 200 字符，写「他做什么」（可以是说话：「朝楼梯口喊有人打人」也是行动），不写正文、不写调查员的反应。
 - 模型：`resolveLaneModel(ctx, 'PI_COC_NPC_ACT_MODEL')`（`extensions/lanes/subsession.ts:66`：环境变量 → 快模型设置 → 本桌模型；记忆 `fast-model-one-setting-for-all-quick-lanes`）。
 - 指令的要点（写进文件，不写进代码）：只看包里的事实；回答「此刻他会做的一件事」；已经试过且没结果的事不再原样做——要么做成它、要么放弃它、要么换一件；说过一次没人理的威胁不再说第二次，兑现或作罢；不列可选动作，不解释。
-- **不重复是两道**：结构一道，生成的行 digest 等于他任一未结的 `intent` ref → 视为「继续那件事」，绑定时带该 ref（§138.15 的 `{intent_ref, intent_outcome}` 语义），不新开行；语义一道，一个 Jev 问题「这句和他最近 N 行里的哪一行是同一件事 / 都不是」（闭合选项，选项就是那 N 行），选中某行且该行无终态 → 重问一次生成器，包里加一句「他已经做过 X，没有结果；这次要么给它结果，要么做别的」，第二次仍同 → 按「继续 X」绑定并把 X 结成 `abandoned`，不再重问。禁止词表、禁止文本相似度（`Agents.md` 禁令；记忆 `never hardcode semantic lists`）。
+- **不重复是两道**：结构一道，生成的行 digest 等于他任一未结的 `intent` ref → 视为「继续那件事」，绑定时带该 ref（§142.15 的 `{intent_ref, intent_outcome}` 语义），不新开行；语义一道，一个 Jev 问题「这句和他最近 N 行里的哪一行是同一件事 / 都不是」（闭合选项，选项就是那 N 行），选中某行且该行无终态 → 重问一次生成器，包里加一句「他已经做过 X，没有结果；这次要么给它结果，要么做别的」，第二次仍同 → 按「继续 X」绑定并把 X 结成 `abandoned`，不再重问。禁止词表、禁止文本相似度（`Agents.md` 禁令；记忆 `never hardcode semantic lists`）。
 - 触发（何时跑，见 D4）；失败（模型不可用、超时、格式坏）→ 不生成，回合照旧交给 KP，遥测 `lane: npc-act ok:false reason`，不是错误。
 
 ### D3 绑定：内核枚举，Jev 选路，规则缺省，永不问 LLM
@@ -80,14 +83,14 @@ Evidence: 两桌真桌 `npc-actor-gate-a`（12 回合）、`npc-actor-gate-a2`�
 | 方式 | 条件 | 落到 |
 |---|---|---|
 | `attack {target ∈ 在场对手, weapon ∈ 他的武器/unarmed}` | 会话中且轮到他 | §11.5 战斗 resolve，`actor` 为他 |
-| `flee` | 会话中且轮到他 | §138.10 `combat:flee` |
-| `first_blow {target}` | 会话外 | §138.11 |
-| `check {skill ∈ 他 profile 或钉过的技能}` | 任何时候 | `resolveSkillCheck` NPC actor（§138.6），会话中带 `spend_turn` |
-| `coercion {skill ∈ 四社交技能, investigator}` | 会话外或会话中 | §138.13 |
-| `clock {mint \| name}` | 任何时候 | §138.9 |
-| `walk_on {name}` | 任何时候 | §138.12（ticket 07 的运行时人物） |
+| `flee` | 会话中且轮到他 | §142.10 `combat:flee` |
+| `first_blow {target}` | 会话外 | §142.11 |
+| `check {skill ∈ 他 profile 或钉过的技能}` | 任何时候 | `resolveSkillCheck` NPC actor（§142.6），会话中带 `spend_turn` |
+| `coercion {skill ∈ 四社交技能, investigator}` | 会话外或会话中 | §142.13 |
+| `clock {mint \| name}` | 任何时候 | §142.9 |
+| `walk_on {name}` | 任何时候 | §142.12（ticket 07 的运行时人物） |
 | `stance {word}` / `leave` | 任何时候 | `apply npc stance / to: away` |
-| `intention_only` | 总在 | `apply npc intends`（§138 兜底，`outcome: attempted`） |
+| `intention_only` | 总在 | `apply npc intends`（§142 兜底，`outcome: attempted`） |
 
 Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式的闭合参数问题（目标、技能）；置信闸同 §135.2；`unknown` 或 `none` → `intention_only`。数值（难度、伤害）由规则缺省（§135.28）——本线没有 band-then-roll（它在 `0.9.5a`），合并后再接。**所有绑出的收据带 `intent: {ref, text: act, outcome}`**，`intent.generated: true`。
 
@@ -95,20 +98,20 @@ Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式�
 
 ### D4 触发：轮到他，或他刚被作用
 
-- **会话中**：轮到 NPC 的那一步（`candidates.ts:176` 的常备动作段）改为：先 D2 生成，再 D3 绑定执行。常备动作表退为 D1 里的一句描述；`attack` 不再是书记员的默认；§138.14 的「有进行中意图时不强制攻击」被它取代（那条是给参数在前的形状打的补丁）。`pending_defense` 的常备防御（§11.5.2）**不动**：防御是对一次攻击的机械应答，不是「他做什么」。
+- **会话中**：轮到 NPC 的那一步（`candidates.ts:176` 的常备动作段）改为：先 D2 生成，再 D3 绑定执行。常备动作表退为 D1 里的一句描述；`attack` 不再是书记员的默认；§142.14 的「有进行中意图时不强制攻击」被它取代（那条是给参数在前的形状打的补丁）。`pending_defense` 的常备防御（§11.5.2）**不动**：防御是对一次攻击的机械应答，不是「他做什么」。
 - **会话外**：玩家的声明结算之后（书记员 `settled` 之后、compose 之前），对**本回合被作用的在场 NPC**各跑一次：被作用 = 本回合有收据以他为对象，或 compile 的 addressee 特征命中他（§135.30）。没被作用的人不跑（成本）。一回合最多 N 个（命名默认值 2，`host-budgets.json`）。
 - **不在 run 里跑的情形**：预算已过（§135.25 `overRun`）→ 跳过并记 `skipped_budget`；legacy 引擎 → 不跑（本 spec 只做 hybrid）。
 
 ### D5 应对库与每回合的 advice 选择整体退役
 
 - 每回合选择退役：`evaluateNpcResponses` 的 13 问选行、`coc-npc-advice` 消息、`before_agent_start` 的 1250 ms 等待（`extensions/npc/index.ts:69–88`）、`no_suitable_candidate` 触发的重算（`:173`）。它每回合花一次 Jev 换来 5/22 的建议，且送重复行。
-- 应对库退役（不是降级）：`npc.responses.job` / `npc.responses.submit`、`npc/responses/<digest>.json`、`extensions/npc` 里 `kind: 'responses'` 的作者任务、§138.4 的续期与 `host-budgets.json` 的 `npc_responses.min_open_rows`、`openResponseRows` / `bankRows` 及其投影。理由见 D1 末段：它是提前猜的条件表，处境包里有的它没有，它有的处境包不需要。**人格任务（`npc.job` / `personality`）保留**：那是「他是谁」的描述，不是条件。
-- 旧战役：已存在的库文件不读、不删；契约在 §138.3、§138.4 加带日期的退役注。
-- 投影：KP 在胶囊 `present[].history.intents`（§138.2）和当回合收据里看到**已经发生的**行动；`director.offer` 的 `npc.intents` 行（§138.3）照旧。不再有「他可能会」的面板（记忆 `give-the-kp-a-chain-not-more-panels`）。
+- 应对库退役（不是降级）：`npc.responses.job` / `npc.responses.submit`、`npc/responses/<digest>.json`、`extensions/npc` 里 `kind: 'responses'` 的作者任务、§142.4 的续期与 `host-budgets.json` 的 `npc_responses.min_open_rows`、`openResponseRows` / `bankRows` 及其投影。理由见 D1 末段：它是提前猜的条件表，处境包里有的它没有，它有的处境包不需要。**人格任务（`npc.job` / `personality`）保留**：那是「他是谁」的描述，不是条件。
+- 旧战役：已存在的库文件不读、不删；契约在 §142.3、§142.4 加带日期的退役注。
+- 投影：KP 在胶囊 `present[].history.intents`（§142.2）和当回合收据里看到**已经发生的**行动；`director.offer` 的 `npc.intents` 行（§142.3）照旧。不再有「他可能会」的面板（记忆 `give-the-kp-a-chain-not-more-panels`）。
 
 ### D6 欠账与结果
 
-- §138.7 的 narrate 欠账闸门不变。生成步骤自己就是最早的还账者：下一回合 D1 的包里带着「上回合他做了 X，结果 Y / 没有结果」，生成器要么写 X 的结果，要么换事——两者都通过 D3 落收据。
+- §142.7 的 narrate 欠账闸门不变。生成步骤自己就是最早的还账者：下一回合 D1 的包里带着「上回合他做了 X，结果 Y / 没有结果」，生成器要么写 X 的结果，要么换事——两者都通过 D3 落收据。
 - `intention_only` 的行下一回合仍是 `attempted`；连续两回合 `intention_only` 且 Jev 判同一件事 → 第二次结为 `abandoned`（D2 第二道），KP 看到「他放弃了 X」。
 
 ### D7 老板的否决权与正文
@@ -123,7 +126,7 @@ Jev 一个闭合问题：「这句行动由上面哪一种结算」+ 各方式�
 - 不给 NPC 跨回合的 agent、记忆、工具、对话；一个包、一句话、一次调用。
 - 不动 `pending_defense`、不动玩家的任何闸门。
 - 不做 legacy 引擎。
-- 语言：`act` 用 play_language 写（§138.14 教训：指令要求英文让正文滑成英文）。
+- 语言：`act` 用 play_language 写（§142.14 教训：指令要求英文让正文滑成英文）。
 
 ### D9 无准备局面的威胁骰（2026-09-26，用户追加）
 
@@ -228,11 +231,11 @@ C4 T10 的诊断：威胁骰按设计出了 severe（calm 基础档 + 被打 + H
 | A2 T10：「诺特先生昨天就打过招呼」与本桌时间线不合 | 观察（连续性复核放行了；车道质量，不立票） |
 | A T1/T3：「我十一点还有个约」8 字逐字重复 | 观察（低于 §113 D 的 12 字门槛，短语重复正常，不动） |
 
-契约：新 §139（一节写完，不改 §138 的编号），修订 §11.5.3、§138.14、§135.32 的 `npc_reaction` 段各加一段带日期的注。
+契约：新 §143（一节写完，不改 §142 的编号），修订 §11.5.3、§142.14、§135.32 的 `npc_reaction` 段各加一段带日期的注。
 
 ## 八、实现记录（2026-09-26）
 
-全部在分支 `claude/npc-as-actor-20260926`（基于集成线 `6eac0c2f9`，该提交是 line-2 `claude/integ-single-loop-2-20260926` 的祖先；**未合回、未打包**）。契约 §139.1–139.12。每张票各自 worktree、各自分支，串行合入；每票的关键写入都做了复制还原式的变异检查，全部被用例逮住。
+全部在分支 `claude/npc-as-actor-20260926`（基于集成线 `6eac0c2f9`，该提交是 line-2 `claude/integ-single-loop-2-20260926` 的祖先；**未合回、未打包**）。契约 §143.1–139.12。每张票各自 worktree、各自分支，串行合入；每票的关键写入都做了复制还原式的变异检查，全部被用例逮住。
 
 | 票 | 合入 | 落地 |
 |---|---|---|
@@ -245,8 +248,8 @@ C4 T10 的诊断：威胁骰按设计出了 severe（calm 基础档 + 被打 + H
 | 11 | 3860ffeb7 | 正文标记闸门（`</text>` 是模型写进 narrate 参数的，仓库无包装可模仿）；已知边界：短横线对白行被拒一次 |
 | 03+04 | f098fdae6 | `npc.act.options`、`npc_act` 步骤（会话内外两个触发、每回合上限 2）、一次 Jev 闭合绑定、书记员执行、两道不重复、攻击的戳带到防御骰；合并后修正 f1e9b66c7 |
 | 12 | f1c7eb6ed | steer 用完后被拒的隐式稿按 reason 重发或退回第一稿 |
-| 13 | f1cfe0192 | 追逐引擎认 NPC 当猎物；§138.10 提示改回真话 |
-| 07 | f4643e4da | 回放探针 `tests/play/npc-act-probe.mjs`：像人 23/23；同一件事 9（探针不执行绑定，账本空，量不到 §139.5 那道门）；超时 4/27 → 上限改 12 s；只有意图 65%（多是口头行动） |
+| 13 | f1cfe0192 | 追逐引擎认 NPC 当猎物；§142.10 提示改回真话 |
+| 07 | f4643e4da | 回放探针 `tests/play/npc-act-probe.mjs`：像人 23/23；同一件事 9（探针不执行绑定，账本空，量不到 §143.5 那道门）；超时 4/27 → 上限改 12 s；只有意图 65%（多是口头行动） |
 
 **全量套件（leehow-pc，ba550f13e）：** test:ext 3365/3365，loop 221/221，pytest 1832 通过 / 2 跳过。中间几轮在 box 满载（load 40–90）时出现过的失败全是 30 s 内核无应答、source task deadlocked 一类，空闲复跑为零。
 
@@ -343,7 +346,7 @@ C4 T10 的诊断：威胁骰按设计出了 severe（calm 基础档 + 被打 + H
 
 **原因（工单 21）：** 会话外的扫描要等书记员步骤落地才跑，纯对话回合什么都没落地；点名靠 compile 的 addressee，而当面说话常不点名。于是一旦不动手，NPC 就退回了「参数在前、KP 自己写」，重复也跟着回来——只是这次是 KP 的散文在重复。另记：T1 玩家对克兰的话被喂给了亚瑟、开场克兰的生成行动是英文（工单 22）；建卡引导员头两段写成英文（建卡流程，不在本 spec）。
 
-### B2 桌（`npc-acts-b2`，mystery-house，同台本重跑；01–23 与 §139.21 修正已落地，bceb3037a）
+### B2 桌（`npc-acts-b2`，mystery-house，同台本重跑；01–23 与 §143.21 修正已落地，bceb3037a）
 
 预注册在 scratchpad `gate-b2-preregistration.md`。建卡 5 回合（这次第二句话就出了卡），开场与 10 回合游玩。意图与 B 桌同序，措辞跟着场面走（亚瑟这回在楼下问「名字、身份、要看什么」）。
 

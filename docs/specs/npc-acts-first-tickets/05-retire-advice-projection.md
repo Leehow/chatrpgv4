@@ -6,15 +6,15 @@ Spec: docs/specs/npc-acts-first.md（D5）
 ## Scope
 
 - 每回合选择退役：`extensions/npc/index.ts` 的 `before_agent_start` 建议（:69–88）、`coc-npc-advice` 消息与其 `context` 过滤（:91）、`evaluateNpcResponses` 的每回合调用与 `no_suitable_candidate` 触发的重算（:173）；`runtime/jev/npc-responses.ts` 删除；`PI_COC_NPC_ADVICE_*` 环境变量删除并在契约记退役。
-- 应对库退役：内核方法 `npc.responses.job` / `npc.responses.submit` 变回未知方法；`kernel-ts/npc/responses.ts` 里的作者 packet、`instruction`、`basis`、`stored`、`openResponseRows` / `bankRows`、§138.4 续期删除；`host-budgets.json` 删 `npc_responses`；`extensions/npc/index.ts` 的作者循环只剩 `kind: 'personality'`。`kernel-ts/npc/intents.ts` 里只服务于库的函数删除，`intentsView` / `foldIntent` / `owedIntents` 保留（§138 的账本不动）。
+- 应对库退役：内核方法 `npc.responses.job` / `npc.responses.submit` 变回未知方法；`kernel-ts/npc/responses.ts` 里的作者 packet、`instruction`、`basis`、`stored`、`openResponseRows` / `bankRows`、§142.4 续期删除；`host-budgets.json` 删 `npc_responses`；`extensions/npc/index.ts` 的作者循环只剩 `kind: 'personality'`。`kernel-ts/npc/intents.ts` 里只服务于库的函数删除，`intentsView` / `foldIntent` / `owedIntents` 保留（§142 的账本不动）。
 - 旧战役：`npc/responses/*.json` 不读、不删。
-- 投影：胶囊 `present[].history.intents`（§138.2）带 `generated: true` 的行标 `by: table`；当回合收据里的 NPC 行动已可见（无新面板）。`director.offer` 的 `npc.intents` 行不改；§138.3 里「advice 车道的候选集」一句退役。
-- 契约：§138.3、§138.4 各加带日期的退役注；§139 记理由（开集不枚举）。
+- 投影：胶囊 `present[].history.intents`（§142.2）带 `generated: true` 的行标 `by: table`；当回合收据里的 NPC 行动已可见（无新面板）。`director.offer` 的 `npc.intents` 行不改；§142.3 里「advice 车道的候选集」一句退役。
+- 契约：§142.3、§142.4 各加带日期的退役注；§143 记理由（开集不枚举）。
 - 遥测：`lane: npc` 的 `advice`/`finalized`/`responses` 行停发，`lane: npc-act` 接替。
 
 ## Not in scope
 
-- 人格任务（`npc.job` / `personality`）；§138 的账本、闸门、写入面。
+- 人格任务（`npc.job` / `personality`）；§142 的账本、闸门、写入面。
 
 ## Acceptance
 

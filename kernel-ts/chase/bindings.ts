@@ -12,7 +12,7 @@ import { CHASE_OUTCOMES, DEFAULT_GAP, DEFAULT_LOCATION_COUNT, generateLocationCh
 export { presentOpponents } from '../resolve/context.js';
 /**
  * The intents a chase decision answers (§11.5): the rule graph gives every chase decision but the start `flee`, `move`
- * and `combat`, and `restrict` admits the same three implicitly while a chase runs. Contract §139.12 admits them for
+ * and `combat`, and `restrict` admits the same three implicitly while a chase runs. Contract §143.12 admits them for
  * `chase:start` too, read by the side the actor takes: a pursuer may declare any of them, a quarry flees.
  */
 export const CHASE_INTENTS = ['flee', 'move', 'combat'];
@@ -23,13 +23,13 @@ type Flight = {
     moved: boolean;
 };
 /**
- * Contracts §139.12 and §139.13: every flight that still stands, by the person who fled. A flight is the last receipt
+ * Contracts §143.12 and §143.13: every flight that still stands, by the person who fled. A flight is the last receipt
  * that gained a person `fled` (a combat flight, or the Keeper's `apply npc` condition). It stands through the turn it
  * was written in and the next one -- the turn in which the player answers it -- and is over from the turn after that
  * (lapsed unused), or earlier when a fight or a chase begins after it (a chase that runs after them consumes it) or the
  * acting investigator flees after it. Where the Keeper wrote them to go (`apply npc to`, in either turn) does not end
  * it: the pursuit is the player's answer to the flight, and the Keeper writes where the person went in the flight's own
- * turn (§139.13, table `npc-acts-c` turns 4 and 5). Receipts are read in order with the turn each belongs to: the
+ * turn (§143.13, table `npc-acts-c` turns 4 and 5). Receipts are read in order with the turn each belongs to: the
  * committed turns, then the open turn, then this call's.
  */
 function standingFlights(context: SettleContext): Map<string, Flight> {
@@ -56,12 +56,12 @@ function standingFlights(context: SettleContext): Map<string, Flight> {
             standing.delete(handle);
     return standing;
 }
-/** Contract §139.12, windowed by §139.13: the receipt id of `handle`'s flight that still stands, or null. */
+/** Contract §143.12, windowed by §143.13: the receipt id of `handle`'s flight that still stands, or null. */
 export function standingFlight(context: SettleContext, handle: string): string | null {
     return standingFlights(context).get(handle)?.receipt ?? null;
 }
 /**
- * Contract §139.13: the people a pursuit from here can still reach -- their flight stands, and they ran from where the
+ * Contract §143.13: the people a pursuit from here can still reach -- their flight stands, and they ran from where the
  * investigators are: still present here, or written somewhere else (`apply npc to`) since they fled. Handle to the
  * flight's receipt id, in handle order. A person the Keeper stamped `fled` somewhere else and never moved is not one.
  */
@@ -73,8 +73,8 @@ export function fledFromHere(context: SettleContext): Map<string, string> {
         .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
 }
 /**
- * Contract §139.13: a chase start by an investigator that names no one. A pursuit names whom: `move` or `combat` is
- * refused `quarry_does_not_flee` (§139.12), whose options now carry whoever ran from here as well as the people here
+ * Contract §143.13: a chase start by an investigator that names no one. A pursuit names whom: `move` or `combat` is
+ * refused `quarry_does_not_flee` (§143.12), whose options now carry whoever ran from here as well as the people here
  * with a stat block. A `flee` that names no one while someone who ran from here can still be chased is asked whom
  * (`chase_names_no_one`), rather than read as the investigator running from whoever is still here -- the Keeper of
  * table `npc-acts-c` turn 5 wrote exactly that call for a pursuit. A `flee` with no one named and no one who ran from
@@ -125,12 +125,12 @@ export type ChaseRoles = {
     flight: string | null;
 };
 /**
- * Contract §139.12: who runs in the chase this `chase:start` opens. A person other than an investigator acting is the
- * pursuer and the investigator the quarry (§139.9, unchanged). An investigator acting against a person named in
+ * Contract §143.12: who runs in the chase this `chase:start` opens. A person other than an investigator acting is the
+ * pursuer and the investigator the quarry (§143.9, unchanged). An investigator acting against a person named in
  * `action.target` runs after them -- that person is the quarry -- when their flight still stands, or when the
  * investigator's own intent is not a flight (`move`, `combat`); an investigator who declares `flee` at a person with no
  * standing flight runs from them, and with no one named the investigator flees whoever is here (both unchanged). The
- * flight stands for the window of §139.13, whether or not the Keeper has written where the person went.
+ * flight stands for the window of §143.13, whether or not the Keeper has written where the person went.
  */
 export function chaseRoles(context: SettleContext): ChaseRoles {
     const action = context.action;
@@ -148,7 +148,7 @@ export function chaseRoles(context: SettleContext): ChaseRoles {
     return { quarry: 'npc', handle, node, basis: 'intent', flight: null };
 }
 /**
- * The chase participant of a person who runs from the investigators (§139.12), read through the same readers as a
+ * The chase participant of a person who runs from the investigators (§143.12), read through the same readers as a
  * pursuer's (`npcCombatParticipant`, `participantFromCombatSpec`). Every number the chase reads of them that a reader
  * would otherwise assume is required: the characteristics the builder needs (STR, CON, SIZ, DEX -- the speed roll is
  * CON, the order DEX) and MOV, which the reader would set to 8. Dodge and Fighting fall to the rulebook's base chances
@@ -282,7 +282,7 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
                 fix: 'continue it with chase decisions'
             });
         const roles = chaseRoles(context);
-        // Contract §139.12: the investigator runs after the person named in action.target. The pursuer is the acting
+        // Contract §143.12: the investigator runs after the person named in action.target. The pursuer is the acting
         // investigator (the one named, or the table's only one when actor is absent: `resolveActor`'s rule).
         if (roles.quarry === 'npc') {
             const quarry = await quarryParticipant(context, roles.handle, roles.node);
@@ -306,7 +306,7 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
             };
         }
         // The acting investigator is the quarry, and a quarry flees: move or combat is a pursuit, which names whom; and
-        // a flee that names no one while someone who ran from here can still be chased is asked whom (§139.13).
+        // a flee that names no one while someone who ran from here can still be chased is asked whom (§143.13).
         askWhomTheChaseIsAfter(context);
         let opponents = presentOpponents(context).filter((value): value is [
             string,

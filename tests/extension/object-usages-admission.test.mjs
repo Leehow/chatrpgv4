@@ -62,7 +62,7 @@ test('an entailed pickup and usage are admitted together before preparation with
 });
 
 test('an unavailable usage review fails closed before generation',async t=>{
-  // §139.15: a malformed answer is asked once more; two of them are the lane's failure.
+  // §143.15: a malformed answer is asked once more; two of them are the lane's failure.
   const table=await openTable({responses:responses([prepare]),laneResponses:{admission:[fauxAssistantMessage('not a verdict'),fauxAssistantMessage('not a verdict')]}});
   t.after(()=>table.dispose());
   let preparations=0;

@@ -202,7 +202,7 @@ test("§135.31 at a pending defence: the defender's card and the session view, b
 test("§135.31 with a session active: carried before every model step it changed for, never repeated unchanged; a Keeper look is recorded with its arguments and step, and the turn record keeps them beside the digest", async (t) => {
 	const table = await hybridTable({
 		prepareWorkspace: knottFight(),
-		// §139.4: his own turn is his act -- he hits back (the fixture generation), bound to the fight's attack.
+		// §143.4: his own turn is his act -- he hits back (the fixture generation), bound to the fight's attack.
 		npcAct: createFixtureNpcActPort({ "steven-knott": "他反手一拳砸过来。" }),
 		decide: (batch) => batch.family === NPC_ACT_BIND_FAMILY ? answered(batch, (question) => question.key === "way" ? "attack" : undefined)
 			: batch.family === BIND_FAMILY

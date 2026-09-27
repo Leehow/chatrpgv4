@@ -1,10 +1,10 @@
 /**
- * Contract §139.23 (ticket 24, docs/specs/npc-acts-first.md section 9, table B2 turn 10): the newest committed turn on
+ * Contract §143.23 (ticket 24, docs/specs/npc-acts-first.md section 9, table B2 turn 10): the newest committed turn on
  * the campaign's line, and the exchange it holds while the investigators still stand where it closed -- the player's
  * words that turn and the lines the delivery's speech markers attributed to a person (the record's `speech`,
  * §40.3/§128). `table.status` carries it as `last_exchange` for the host's compile (§135.30), whose addressee question
  * reads a word that points at a person instead of naming them by who was just talking with the investigator.
- * `npc.situation` and `npc.act.options` read the same newest turn and the same "still there" test (§139.1, §139.20).
+ * `npc.situation` and `npc.act.options` read the same newest turn and the same "still there" test (§143.1, §143.20).
  *
  * Structure only: nothing here reads what anyone said, and nothing is written. A line whose speaker the markers did not
  * resolve to a person is not the exchange of anyone the compile can name.
@@ -46,7 +46,7 @@ export function committedOnLine(campaign: CampaignSnapshot, all: Row[] = campaig
 
 /**
  * Whether the investigators still stand where a committed turn closed: its record's scene is the active scene. Leaving
- * that scene ends the exchange (§139.20's conversation, and this section's `last_exchange`).
+ * that scene ends the exchange (§143.20's conversation, and this section's `last_exchange`).
  */
 export function stillWhereItClosed(graph: ModuleGraph, world: Row, record: Row | null): boolean {
     const active = string(world.active_scene);
@@ -72,7 +72,7 @@ export function exchangeOf(world: Row, record: Row): Row | null {
 }
 
 /**
- * `table.status`'s `last_exchange` (§139.23): the exchange of the newest committed turn on the line before this one,
+ * `table.status`'s `last_exchange` (§143.23): the exchange of the newest committed turn on the line before this one,
  * while the investigators still stand where it closed; null otherwise. It is context for a model's judgement, never a
  * gate, so a turns directory that cannot be read is no exchange rather than a failed status read (the card of a turn
  * that could not be delivered is drawn from `table.status`, §50).

@@ -26,7 +26,7 @@ export function pacingThreats(graph: ModuleGraph, scene: Row, present: Row[]): R
     return [...related, ...graph.kind("threat").filter(threat => !seen.has(threat.node_id) && string(recordOf(threat).scope) === "scenario")];
 }
 export function threatSymptoms(graph: ModuleGraph, world: Row, scene: Row, present: Row[]): Row[] {
-    // §138.9: this table's own clocks, beside the book's. The book writes no symptoms for them; `next` names what a full
+    // §142.9: this table's own clocks, beside the book's. The book writes no symptoms for them; `next` names what a full
     // clock means, so the offer can put one in the Keeper's hand the way it does the book's.
     const minted = tableThreats(world).map(value => {
         const handle = string(value.handle), current = tableThreatSegment(world, handle), total = number(value.length);

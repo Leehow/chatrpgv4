@@ -1,4 +1,4 @@
-"""Contract §138.9 (docs/specs/npc-as-actor.md ticket 06), over the emitted kernel.
+"""Contract §142.9 (docs/specs/npc-as-actor.md ticket 06), over the emitted kernel.
 
 A consequence the book never paced -- the neighbours who heard the fight, the police someone telephoned -- becomes a
 clock of this table: the Keeper states its length and what a full clock means, the kernel keeps the count beside the

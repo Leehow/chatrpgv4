@@ -42,7 +42,7 @@ const QUESTIONS: Readonly<Record<FeatureFamily, {target: string; instructions: s
     none: 'The declared action goes to none of the listed places.', unclear: 'The input does not tell whether, or where, the investigator goes.'},
   addressee: {target: 'who among the people present the declared action is directed at',
     instructions: 'Select the listed person present that the player\'s declared action is directed at: spoken to, asked, shown something or acted on. '
-      // §139.23 (ticket 24): a word that points at a person is read by who was just talking with the investigator.
+      // §143.23 (ticket 24): a word that points at a person is read by who was just talking with the investigator.
       + 'Read a word that points at a person without naming them (you, he, this gentleman) by last_exchange when the state has it: '
       + 'who was just talking with the investigator, and about what. '
       + 'Choose none when it is directed at none of them. Choose unclear when the input does not tell.',
@@ -189,7 +189,7 @@ const acceptAllows = (cleared: Cleared, people: string[]): boolean => !cleared.a
 const acceptClues = (candidate: Candidate): string[] => isAccept(candidate)
   ? (Array.isArray(candidate.bound.effects) ? candidate.bound.effects : []).map(object).filter(effect => effect.kind === 'clue').map(effect => text(effect.clue)).filter(Boolean) : [];
 /**
- * §139.16 (NAF-17): the investigator's own step of a running fight -- an action the session issues for the investigator on
+ * §143.16 (NAF-17): the investigator's own step of a running fight -- an action the session issues for the investigator on
  * their turn (clerk `session_step`, family `combat`, not forced, no `actor`: the actor a resolve defaults to). Its decision is
  * one of the compile's `act` rows there (§135.30's table). An NPC's steps carry their actor; a pending defence is forced.
  */
@@ -198,20 +198,20 @@ export function fightStep(candidate: Candidate): boolean {
     && typeof candidate.bound.decision === 'string';
 }
 /**
- * §139.25 (NAF-26): the fight actions among the compile's `act` rows. Outside a fight the rows are the resolve tool's closed
+ * §143.25 (NAF-26): the fight actions among the compile's `act` rows. Outside a fight the rows are the resolve tool's closed
  * intents, of which `combat` and `flee` are the fight's; in a running fight they are the session's decisions, and a
  * decision is a fight action when the read issued it as the investigator's fight step (`fightStep`) or as the first blow.
- * (The person a running fight's action is aimed at is its participant, whom the scan never runs, §139.4.)
+ * (The person a running fight's action is aimed at is its participant, whom the scan never runs, §143.4.)
  */
 export const FIGHT_INTENTS: readonly string[] = Object.freeze(['combat', 'flee']);
 export function fightAct(row: string, candidates: readonly Candidate[]): boolean {
   return FIGHT_INTENTS.includes(row)
     || candidates.some(candidate => (fightStep(candidate) || candidate.clerk === 'first_blow') && candidate.bound.decision === row);
 }
-/** §139.25: the candidate families of a clerk step that settles a declared fight action (the first blow and the investigator's fight steps are `combat`; a chase's are `chase`). */
+/** §143.25: the candidate families of a clerk step that settles a declared fight action (the first blow and the investigator's fight steps are `combat`; a chase's are `chase`). */
 export const FIGHT_FAMILIES: readonly string[] = Object.freeze(['combat', 'chase']);
 /**
- * §139.16: the route may select an investigator's fight step only when a compile of this run cleared `act` on that step's own
+ * §143.16: the route may select an investigator's fight step only when a compile of this run cleared `act` on that step's own
  * decision (`acts`: the act rows the run's compiles cleared, `RunView.declaredActs`). Otherwise the step is gated: its `need`
  * question is asked and recorded, it selects nothing, and after a complete route it is the Keeper's for the run.
  */
@@ -265,7 +265,7 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
   {name: 'attack', features: ['act', 'target'], askable: rows => has(rows, 'act') && has(rows, 'target'),
     reads: candidate => fightStep(candidate) && candidate.bound.decision === 'combat:attack',
     // An act other than the attack settles it; the attack with no cleared target is left to the route and the attack's own bind
-    // -- since §139.16 only when the act cleared on the attack (`actGated`): the route never punches for a declaration the
+    // -- since §143.16 only when the act cleared on the attack (`actGated`): the route never punches for a declaration the
     // compile did not read as one.
     decided: cleared => !!cleared.act && (cleared.act.row !== 'combat:attack' || !!cleared.target),
     fires: (candidate, cleared) => {
@@ -273,7 +273,7 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
       if (cleared.act?.row !== 'combat:attack' || !target || !attackTargets(candidate).includes(target)) return undefined;
       return typeof candidate.bound.target === 'string' ? {} : {bound: {target}};
     }},
-  // §139.16 (NAF-17): the investigator's other issued fight steps (the flee; a manoeuvre or an ending is never issued to the
+  // §143.16 (NAF-17): the investigator's other issued fight steps (the flee; a manoeuvre or an ending is never issued to the
   // clerk, §135.28). The compile reads them so a read that issues one owes a compile over it; this predicate neither decides nor
   // selects: a step whose own act the compile cleared is the route's to select as before, any other is gated (`actGated`).
   {name: 'fight_step', features: ['act'], askable: rows => has(rows, 'act'),
@@ -385,7 +385,7 @@ export function compileBatch(view: CompileView, scope: ScopeBinding, readSet: Re
   for (;;) {
     const materials = view.materials.map((value, index) => ({alias: `material_${index + 1}`, kind: value.kind, label: value.label,
       ...(index < previews ? {content: Array.from(value.preview).slice(0, previewChars).join('')} : {})}));
-    // §139.23: the last exchange (the newest committed turn's words and attributed lines, while the party is still where it
+    // §143.23: the last exchange (the newest committed turn's words and attributed lines, while the party is still where it
     // closed), as the kernel gave it; absent when the read had none.
     const state = {purpose: 'read the player\'s declared action into typed features', player_input: view.rawInput,
       now: {scene: view.context.scene, clock: view.context.clock, present: view.context.present},

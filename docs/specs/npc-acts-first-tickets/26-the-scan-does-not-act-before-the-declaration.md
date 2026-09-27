@@ -1,6 +1,6 @@
 Status: landed @ 6607e5b13 + 891340596（2026-09-26；真桌 D T3 发现；工单 21 带来的回退）
 Spec: docs/specs/npc-acts-first.md（D4；第九节「D 桌」）
-Contract: §139.25（新）；修 §139.20 的扫描时机
+Contract: §143.25（新）；修 §143.20 的扫描时机
 
 # 26 — 扫描不抢在调查员的动作之前
 
@@ -10,9 +10,9 @@ Contract: §139.25（新）；修 §139.20 的扫描时机
 
 ## Scope
 
-1. 扫描在 KP 第一次模型步之前跑（§139.20）的前提加一条结构判据：**这回合 compile 的 `act` 过闸读成了战斗动作（combat / flee，内核的封闭动作词表），而这回合没有书记员的战斗步骤落地**时，声明指向的那个人（compile 的 addressee / target 过闸点名的人，或 `acted_on`）不在模型步之前行动——他的反应走他自己的战斗回合（§138 的 forced turn）或落地步骤之后的扫描。其他在场的人照常。
+1. 扫描在 KP 第一次模型步之前跑（§143.20）的前提加一条结构判据：**这回合 compile 的 `act` 过闸读成了战斗动作（combat / flee，内核的封闭动作词表），而这回合没有书记员的战斗步骤落地**时，声明指向的那个人（compile 的 addressee / target 过闸点名的人，或 `acted_on`）不在模型步之前行动——他的反应走他自己的战斗回合（§142 的 forced turn）或落地步骤之后的扫描。其他在场的人照常。
 2. 不读散文、不列词：判据只用 compile 的封闭 `act` 行与已有的落地记录。
-3. 契约 §139.25；§139.20 加带日期的注。
+3. 契约 §143.25；§143.20 加带日期的注。
 
 ## Acceptance
 
@@ -31,7 +31,7 @@ Contract: §139.25（新）；修 §139.20 的扫描时机
 - `tests/extension/single-loop-turn-budget.test.mjs`：the pure policy: a spent time budget…、a model step that crosses the budget…
 - `tests/extension/host-state-not-fiction.test.mjs`：a delivery made under an adaptation wait carries the host's own notice（`said once per delivered turn: []`）
 
-**设计更正（本工单一并做）：** §139.20 的「KP 第一次模型步之前扫描一次」实现成了「第一次 `infer` 之前」，其中包括书记员中途交给模型的 **LLM 绑定**（`purpose: bind`）。扫描应当在 KP 写这回合的模型步（adjudicate / compose）之前，不在书记员工作中途的绑定之前；再加上正文的战斗动作判据。然后逐条过上面这些用例：设计变了的，按新设计改断言并在交接里逐条写理由（夹具里写 `npcScanned: []` 表示「这条用例不关心扫描」也行，但要说明）；行为错了的修代码。不许整体放宽断言。适应等待那条要查清是扫描吞了提示还是别的原因。
+**设计更正（本工单一并做）：** §143.20 的「KP 第一次模型步之前扫描一次」实现成了「第一次 `infer` 之前」，其中包括书记员中途交给模型的 **LLM 绑定**（`purpose: bind`）。扫描应当在 KP 写这回合的模型步（adjudicate / compose）之前，不在书记员工作中途的绑定之前；再加上正文的战斗动作判据。然后逐条过上面这些用例：设计变了的，按新设计改断言并在交接里逐条写理由（夹具里写 `npcScanned: []` 表示「这条用例不关心扫描」也行，但要说明）；行为错了的修代码。不许整体放宽断言。适应等待那条要查清是扫描吞了提示还是别的原因。
 
 ## 落地记录（2026-09-26）
 

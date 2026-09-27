@@ -28,4 +28,4 @@ Spec: docs/specs/npc-as-actor.md（D5）
 
 ## Comments
 
-**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §138.8. The frozen Python oracle comparison projects the added scores out (cb1739d7a). Test: test_director_scoring.py; mutation killed.
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §142.8. The frozen Python oracle comparison projects the added scores out (cb1739d7a). Test: test_director_scoring.py; mutation killed.

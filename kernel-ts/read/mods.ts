@@ -723,7 +723,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
 /**
  * The capsule's `mods.pending_contacts` and `mods.relationships` rows before their cap: for every check an active Mod
  * contributes, every investigator and every one of `people`, either the first impression on record or the contact still
- * to come. One computation for the capsule and for `npc.situation`'s constraints (§139.1).
+ * to come. One computation for the capsule and for `npc.situation`'s constraints (§143.1).
  */
 export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active: Row[], people: Row[]): { contacts: Row[]; relationships: Row[] } {
     const checks = new Map<string, Row>();

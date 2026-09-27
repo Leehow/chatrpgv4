@@ -27,7 +27,7 @@ export interface OfferSources {
     pressures: Row[];
     obligations?: Row[];
     previous?: Row | null;
-    /** Contract §138.3: what the people present set out to do and have no result for yet. */
+    /** Contract §142.3: what the people present set out to do and have no result for yet. */
     intents?: Row[];
 }
 /** Clip at a word boundary and mark the cut: a line the Keeper reads must not end mid-word. */
@@ -117,7 +117,7 @@ function pressureRows(pacing: Row | null | undefined, pressures: Row[], obligati
     return [...clocks, ...other, ...continuations];
 }
 /**
- * Contract §138.3: an intention under way is the most owed consequence there is -- someone started something and the
+ * Contract §142.3: an intention under way is the most owed consequence there is -- someone started something and the
  * world has not answered. The line says the three ways it can end; `ref` is what the result is written against.
  */
 function intentRows(intents: Row[]): Row[] {

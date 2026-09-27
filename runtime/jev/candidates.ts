@@ -80,11 +80,11 @@ const DEFENSE_OPTIONS: Readonly<Record<string, string>> = Object.freeze({
  * Three shapes. An NPC's pending defence is forced (the kernel accepts nothing else next) and its option is the
  * standing defence the kernel issues with it (§11.5.2), so it runs directly; only a pending defence without a
  * standing falls back to a Jev bind over the options. An NPC's own turn of a fight is forced too -- the initiative
- * order says it acts now -- and it is the person's own act (§139.4, `npc_act`): generated from their situation, then
+ * order says it acts now -- and it is the person's own act (§143.4, `npc_act`): generated from their situation, then
  * bound to what the kernel settles (`runtime/jev/npc-act-step.ts`); the standing action of §11.5.3 no longer binds
  * anything. An NPC's turn of a chase is a closed Jev bind over its issued actions (`variants`); a Jev "unknown" hands
  * the choice to the Keeper. The investigator's turn offers each issued action to the compile and the route question, keyed
- * without the round, so the action the player declared is carried out once per turn. Offered is not selected (§139.16,
+ * without the round, so the action the player declared is carried out once per turn. Offered is not selected (§143.16,
  * NAF-17): the clerk takes one only when the compile's `act` read the declaration as that action (`actGated` in
  * `route-compile.ts`); a demand, a question or an aside in a fight is the Keeper's turn, and these rows stay in the
  * session view the Keeper reads.
@@ -176,12 +176,12 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
   // No combat disposition yet (§11.5.3 source 2): its card, read for this turn, carries the four closed words and the
   // person's own parameters. Inferring one is a forced closed bind (Jev), written once for the campaign by the clerk;
   // below the gate the Keeper completes the same write. The disposition is a description of the person (the stakes
-  // table's base rung reads it, §139.8), never what they do this turn.
+  // table's base rung reads it, §143.8), never what they do this turn.
   const inference = dispositionInference(actor, label(actor), fighter, relationships, situation);
   if (inference) return [inference];
-  // §139.4 (docs/specs/npc-acts-first.md D4): the NPC's own turn of a fight is their own act -- generated first, then bound
+  // §143.4 (docs/specs/npc-acts-first.md D4): the NPC's own turn of a fight is their own act -- generated first, then bound
   // by the clerk to what the kernel settles (`npc_act`). This replaced SL-08's standing action as the clerk's step: an
-  // `attack` standing is no longer run by default, `hold` and `flee` no longer hand the turn over unbound, and §138.14's
+  // `attack` standing is no longer run by default, `hold` and `flee` no longer hand the turn over unbound, and §142.14's
   // release (no forced blow while an intention is under way) went with it. The standing, when the kernel issues one,
   // rides on the basis as a fact about the person; the pending defence above is untouched.
   if (kind === 'combat') {

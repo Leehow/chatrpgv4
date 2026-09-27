@@ -119,7 +119,7 @@ export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) 
     if (typeof player === 'string' && player.trim())
         committed.push(`Player declared: ${words(player)}`);
     for (const r of receipts) {
-        // §139.8: the stakes die is no check anyone made; no fact is committed from it.
+        // §143.8: the stakes die is no check anyone made; no fact is committed from it.
         if (isStakesRoll(r))
             continue;
         if (r.kind === 'roll') {
@@ -354,7 +354,7 @@ export function directorAdoption(graph: ModuleGraph, turn: Row, snapshot: Row, c
         const hit = o.kind === 'route' ? receipts.some(r => r.kind === 'move' && string(r.to) === where)
             : o.kind === 'person' ? receipts.some(r => (r.kind === 'clue' && truth(r.from) && sameName(graph, string(r.from), who)) || (r.kind === 'npc' && sameName(graph, string(r.name || r.handle), who)) || (r.kind === 'roll' && truth(r.npc) && sameName(graph, string(r.npc), who)))
             : o.kind === 'pressure' ? ticked.has(clockTargetKey(target))
-            // §138.3: an intention under way is taken when a receipt of this turn reports its next result.
+            // §142.3: an intention under way is taken when a receipt of this turn reports its next result.
             : o.kind === 'consequence' && truth(o.ref) ? receipts.some(r => row(r.intent).ref === o.ref)
             : false;
         if (hit)

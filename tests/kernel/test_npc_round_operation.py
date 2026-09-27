@@ -1,4 +1,4 @@
-"""Contract §138.2, §138.5-138.6 (docs/specs/npc-as-actor.md ticket 02), over the emitted kernel.
+"""Contract §142.2, §142.5-138.6 (docs/specs/npc-as-actor.md ticket 02), over the emitted kernel.
 
 An NPC's own turn of a fight is an operation with a receipt, whatever they spend it on. Before this, nothing but an
 attack, a manoeuvre, aim, reload or flight could pass an NPC's turn, so a person who did anything else left the fight
@@ -82,7 +82,7 @@ def test_an_npcs_roll_in_a_fight_is_their_own_check_not_an_attack(fight):
     n = corbitts_turn(fight)
     rolled = resolve(fight, f"t1-c{n}", actor="Walter Corbitt", intent="investigate", skill="Spot Hidden",
                      goal="find the lantern's flame", method="scan the dark")
-    assert rolled["decision"] == "core-check:ordinary-check", "before §138.6 this settled as decision:coc7:combat:attack"
+    assert rolled["decision"] == "core-check:ordinary-check", "before §142.6 this settled as decision:coc7:combat:attack"
     roll = next(r for r in fight.table("status")["receipts"] if r["kind"] == "roll" and r.get("call_id") == f"t1-c{n}")
     assert roll["actor_is_investigator"] is False
     assert fight.table("look", focus="session")["session"]["turn_of"] == CORBITT, "a roll alone does not spend the turn"
@@ -120,15 +120,15 @@ def test_any_effect_can_be_the_result_of_someone_elses_intention(fight):
 
 
 def test_an_npc_who_flees_flees_and_the_pursuit_is_the_investigators_choice(fight):
-    """§138.10: the view issues flee on an NPC's turn, and a Keeper's `intent: flee` for him settles as a flight --
+    """§142.10: the view issues flee on an NPC's turn, and a Keeper's `intent: flee` for him settles as a flight --
     before this it settled as `decision:coc7:combat:attack`, a punch instead of a run."""
     n = corbitts_turn(fight)
     actions = fight.table("look", focus="session")["session"]["actions"]
     assert {"decision": "combat:flee", "actor": CORBITT} in actions
     fled = resolve(fight, f"t1-c{n}", actor="Walter Corbitt", intent="flee", goal="get away", method="run for the stairs")
     assert fled["decision"].endswith("combat:flee")
-    # §139.12 (2026-09-26): a chase admits him as its quarry, so the hint names the investigators still able to run
-    # after him and the call the pursuer opens it with (§139.9 had withdrawn it while the chase knew only the
+    # §143.12 (2026-09-26): a chase admits him as its quarry, so the hint names the investigators still able to run
+    # after him and the call the pursuer opens it with (§143.9 had withdrawn it while the chase knew only the
     # investigator as quarry); otherwise where he went is an `apply npc to`. The call itself: test_chase_npc_quarry.py.
     named = [hint for hint in fled["hints"] if CORBITT in hint]
     assert len(named) == 1, fled["hints"]
@@ -142,7 +142,7 @@ def test_an_npc_who_flees_flees_and_the_pursuit_is_the_investigators_choice(figh
 
 
 def test_every_refusal_of_a_ref_says_where_refs_are_and_lists_the_options(fight):
-    """§139.7 (docs/specs/npc-acts-first.md ticket 06). Live gate A, T12: the Keeper wrote
+    """§143.7 (docs/specs/npc-acts-first.md ticket 06). Live gate A, T12: the Keeper wrote
     `intent_ref: "@intent-placeholder"` for an intention it had started in the same batch. Every refusal of a ref now
     says where refs come from and carries the options -- the person's intentions under way, or for a ref that names
     nobody, the table's with whose each is."""

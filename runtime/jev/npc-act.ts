@@ -1,11 +1,11 @@
 /**
- * The NPC's act, written before anything is bound to it (contract §139.2; docs/specs/npc-acts-first.md D2, ticket 02).
+ * The NPC's act, written before anything is bound to it (contract §143.2; docs/specs/npc-acts-first.md D2, ticket 02).
  *
  * The owner's ruling of 2026-09-26: a model first writes what this person does right now, one sentence in the table's
- * play language, from the situation the kernel assembles for them (`npc.situation`, §139.1); only then does the host bind
- * that sentence to something it can settle (§139.3). This module is the first half and nothing else. It writes an act,
- * never a parameter (§135.28 stands), and it does not decide when it runs (§139.3) or whether the act repeats one
- * already made (§139.4).
+ * play language, from the situation the kernel assembles for them (`npc.situation`, §143.1); only then does the host bind
+ * that sentence to something it can settle (§143.3). This module is the first half and nothing else. It writes an act,
+ * never a parameter (§135.28 stands), and it does not decide when it runs (§143.3) or whether the act repeats one
+ * already made (§143.4).
  *
  * Shape: one zero-tool completion through the session's model registry (`runLane`), the shape of the admission lane
  * (§32) and the voice check (§40), on the lane's own model variable `PI_COC_NPC_ACT_MODEL`, then the fast-model setting,
@@ -15,7 +15,7 @@
  * the kernel added.
  *
  * The answer is checked for structure only -- `{act, produces?}`: `act` a non-empty string on one line of at most 200
- * characters; `produces` (§139.19, spec D10) the one thing the act brings out that no one knew this person had, a
+ * characters; `produces` (§143.19, spec D10) the one thing the act brings out that no one knew this person had, a
  * non-empty string on one line of at most 60 characters, taken only when the packet's stakes die allowed a surprise
  * (`stakes.surprise === true`) -- otherwise it is dropped, said on the row (`produces_dropped`), and never retried.
  * Whether it is one sentence, in the play language, and something a person would do belongs to the instruction and the
@@ -40,7 +40,7 @@ export const NPC_ACT_LANE = 'npc-act';
 export const NPC_ACT_MODEL_ENV = 'PI_COC_NPC_ACT_MODEL';
 /** The act's bound, in characters (code points), as the instruction states it. */
 export const NPC_ACT_MAX_CHARS = 200;
-/** §139.19: the bound of `produces`, the thing an act brings out, in characters (code points). */
+/** §143.19: the bound of `produces`, the thing an act brings out, in characters (code points). */
 export const NPC_PRODUCES_MAX_CHARS = 60;
 /** Two attempts is one retry, and only for an answer of the wrong shape. */
 const MAX_ATTEMPTS = 2;
@@ -52,7 +52,7 @@ const MAX_ATTEMPTS = 2;
 export type NpcActUnavailable = 'model_unavailable' | 'model_error' | 'bad_output' | 'timeout' | 'cancelled' | 'lane_error';
 
 /**
- * The situation packet of §139.1 (`npc.situation {campaign, name}`), as ticket 01 returns it. The generation sends it
+ * The situation packet of §143.1 (`npc.situation {campaign, name}`), as ticket 01 returns it. The generation sends it
  * whole; this type names only what the host itself reads (`npc`, for the telemetry row) and documents the rest.
  */
 export interface NpcSituation {
@@ -63,7 +63,7 @@ export interface NpcSituation {
   happened: string[];
   state: {hp: number | null; hp_max: number | null; conditions: string[]; stance: string | null; in_session: boolean; my_turn: boolean};
   /**
-   * §139.29: `brought_out`, present only when there is something, is what an earlier act of theirs brought out that they
+   * §143.29: `brought_out`, present only when there is something, is what an earlier act of theirs brought out that they
    * still hold -- the name `holdings` gives it, the turn it came out, and that act's row `ref` and `status` when the act
    * named one.
    */
@@ -74,14 +74,14 @@ export interface NpcSituation {
   recent_speech: string[];
   constraints: string[];
   truncated: string[];
-  /** §139.8 / §139.19: this turn's stakes die for them, or null. `surprise` lets the act bring out one unknown thing. */
+  /** §143.8 / §143.19: this turn's stakes die for them, or null. `surprise` lets the act bring out one unknown thing. */
   stakes?: {rung: string | null; outcome: string | null; line: string | null; surprise?: boolean; surprise_line?: string | null} | null;
   [extra: string]: unknown;
 }
 
 /**
- * §139.19: whether this situation lets the act bring out something no one knew this person had -- the stakes die of
- * §139.8 said `surprise` for them this turn. Structure only; absent stakes is no surprise. The one gate of `produces`,
+ * §143.19: whether this situation lets the act bring out something no one knew this person had -- the stakes die of
+ * §143.8 said `surprise` for them this turn. Structure only; absent stakes is no surprise. The one gate of `produces`,
  * shared by the lane (which drops it and says so on its row) and the act step (which binds nothing the gate refused, so
  * a port that answers verbatim, like the fixture, is held to it too).
  */
@@ -106,7 +106,7 @@ export interface NpcActMeta {
   /** The answered attempt's provider usage, for the run's budget summary. */
   usage?: ProviderUsage;
   detail?: string;
-  /** §139.19: the answer named something it brings out without a surprise to allow it, and it was dropped. */
+  /** §143.19: the answer named something it brings out without a surprise to allow it, and it was dropped. */
   producesDropped?: boolean;
 }
 
@@ -131,7 +131,7 @@ function oneLine(field: string, raw: string, limit: number): {ok: true; value: s
 
 /**
  * Structure only: an object whose `act` is a non-empty string, on one line, of at most 200 characters; and `produces`
- * (§139.19), when the answer names one and a surprise allows it (`mayProduce`), a non-empty string on one line of at
+ * (§143.19), when the answer names one and a surprise allows it (`mayProduce`), a non-empty string on one line of at
  * most 60 characters. `produces` absent, null or blank is no `produces`. Present without a surprise to allow it, it is
  * dropped whatever its shape (`producesDropped`): the act stands, nothing is asked again.
  */
@@ -177,7 +177,7 @@ export interface NpcActLaneOptions {
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value : undefined);
 
 /**
- * §139.21 (ticket 22): the play language's English name, beside its tag in the lane's input. The runtime names it
+ * §143.21 (ticket 22): the play language's English name, beside its tag in the lane's input. The runtime names it
  * (`Intl.DisplayNames`, the one source of language names Agents.md allows -- no table, no branch on a tag); a tag the
  * runtime cannot name, or names only by repeating it, adds nothing. Why: the situation is the host's English, so a packet
  * with no player words in it (the opening; a person the declaration was not said to) gave the model nothing but a bare
@@ -192,7 +192,7 @@ export function playLanguageName(tag: string): string | undefined {
   }
 }
 
-/** The lane's input: the play language (tag, and its name when the runtime has one) and the packet, whole (§139.2). */
+/** The lane's input: the play language (tag, and its name when the runtime has one) and the packet, whole (§143.2). */
 export function npcActLaneInput(input: Pick<NpcActInput, 'packet' | 'play_language'>): string {
   const name = typeof input.play_language === 'string' ? playLanguageName(input.play_language) : undefined;
   return JSON.stringify({play_language: input.play_language, ...(name ? {play_language_name: name} : {}), situation: input.packet});
@@ -282,7 +282,7 @@ export function createNpcActLane(pi: ExtensionAPI, options: NpcActLaneOptions): 
   };
 }
 
-/** A fixture answer: the act alone, the act with what it brings out (§139.19), or an unavailable reason. */
+/** A fixture answer: the act alone, the act with what it brings out (§143.19), or an unavailable reason. */
 export type NpcActFixtureAnswer = string | {act: string; produces?: string} | {unavailable: NpcActUnavailable};
 
 export interface NpcActFixture extends NpcActPort {

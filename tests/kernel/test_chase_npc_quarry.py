@@ -1,13 +1,13 @@
-"""Contract §139.12 (docs/specs/npc-acts-first-tickets/13-chase-with-an-npc-quarry.md), over the emitted kernel.
+"""Contract §143.12 (docs/specs/npc-acts-first-tickets/13-chase-with-an-npc-quarry.md), over the emitted kernel.
 
 Ticket 10 measured the chase binding on the Corbitt fixture and found it had one shape: every present opponent with
-a stat block a pursuer, the investigator always the quarry, `intent` only `flee`. So §138.10's hint for an NPC who
+a stat block a pursuer, the investigator always the quarry, `intent` only `flee`. So §142.10's hint for an NPC who
 fled -- "if the investigators give chase, resolve chase:start with target <npc>" -- opened a chase in which the
 investigator ran from the man who had just run from him (`[thomas-hayes quarry, walter-corbitt pursuer]`), and an
 investigator could never chase anyone. Now `chase:start` with an investigator acting and a person named in `target`
 makes that person the quarry when their flight still stands (a `fled` gained since the last fight or chase began and
 since they were last moved), or when the investigator's own intent is not a flight (`move`, `combat`). A person who
-acts is still the pursuer of an investigator (§139.9), an investigator who declares `flee` at someone with no flight
+acts is still the pursuer of an investigator (§143.9), an investigator who declares `flee` at someone with no flight
 still runs from them, and with no one named the investigator still flees whoever is here.
 
 The quarry's numbers come from his stat block through the pursuer's readers; a number the chase reads that a reader

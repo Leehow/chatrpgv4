@@ -64,7 +64,7 @@ export function intentOfRecord(record?: Row | null): string {
 }
 export function lastRollOf(record?: Row | null): string {
     for (const receipt of [...array(record?.receipts)].reverse())
-        // §139.8: the stakes die passes and fails nothing, so it is never the last roll.
+        // §143.8: the stakes die passes and fails nothing, so it is never the last roll.
         if (receipt.kind === "roll" && receipt.form !== "dice" && !isStakesRoll(receipt))
             return ["critical", "fumble"].includes(receipt.level) ? receipt.level : truth(receipt.passed) ? "passed" : "failed";
     return "none";
@@ -178,7 +178,7 @@ export function score(dg: DirectorGraph, sig: Row, scene: Row, options: {
     const because = SIGNALS.filter(name => Object.hasOwn(sig, name)).map(name => `${name} = ${string(sig[name])}`),
         digits = number(dg.threshold("score-precision-digits"));
     const override = sig.session !== "none" ? "session" : sig.hp_state === "dying" ? "dying" : sig.last_roll === "fumble" ? "fumble" : sig.pending_choice ? "pending_choice" : null;
-    // Contract §138.8: a live session hands the rules to the subsystem, not the whole scene. The session still decides
+    // Contract §142.8: a live session hands the rules to the subsystem, not the whole scene. The session still decides
     // the beat, but the other beats are scored as ever and ride in `scores`, so a stalled fight (RECOVER's four signals)
     // is visible to the Keeper instead of being cut off before it is counted.
     if (override && override !== "session") {

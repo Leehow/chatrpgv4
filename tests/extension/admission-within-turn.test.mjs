@@ -613,7 +613,7 @@ test("SL-31 (§135.28): long gate #2's STR shape -- the binder's difficulty `unk
 	});
 });
 
-// ---- §139.15 (ticket 16): the lane failed on the investigator's own declared action -----------------------------------
+// ---- §143.15 (ticket 16): the lane failed on the investigator's own declared action -----------------------------------
 
 /**
  * Live table C3, turn 3's malformed answer: the grounds open on an ASCII quote of the player's words, which fails the lane's
@@ -656,7 +656,7 @@ const clerkPunch = (table) => table.telemetry("test-camp").find((row) => row.too
 const brawl = (table) => table.mechanics().flatMap((entry) => entry.mechanics ?? [])
 	.filter((row) => row.kind === "roll" && row.skill === "Fighting (Brawl)" && row.actor_is_investigator === true);
 
-test("§139.15: the player's punch, two malformed answers -- the host runs the one resend at once, the fresh review admits it and the attack is rolled", async (t) => {
+test("§143.15: the player's punch, two malformed answers -- the host runs the one resend at once, the fresh review admits it and the attack is rolled", async (t) => {
 	const table = await hybrid(t, { prepare: knottAtHisDesk, engine: { decision: firstBlowJev }, tamper: targetUnderGate, responses: narrateOnly("你一拳打在他脸上。"),
 		laneResponses: { admission: [malformed(), malformed(), laneVerdict({ verdict: "authorized", grounds: "the player said they walk over and punch him in the face" })] } });
 	await table.session.prompt(PUNCH);
@@ -682,7 +682,7 @@ test("§139.15: the player's punch, two malformed answers -- the host runs the o
 	assert.equal(table.entries("coc-admission-status").length, 0, "no outage");
 });
 
-test("§139.15: the resend fails too (four malformed answers) -- §32.2's refusal, counted once; nothing admitted on a failure", async (t) => {
+test("§143.15: the resend fails too (four malformed answers) -- §32.2's refusal, counted once; nothing admitted on a failure", async (t) => {
 	const table = await hybrid(t, { prepare: knottAtHisDesk, engine: { decision: firstBlowJev }, tamper: targetUnderGate, responses: narrateOnly("他挡开了你的手。"),
 		laneResponses: { admission: [malformed(), malformed(), malformed(), malformed()] } });
 	await table.session.prompt(PUNCH);
@@ -718,7 +718,7 @@ function typedAnswers(t, verdict, confidence) {
 	return requests;
 }
 
-test("§139.15: the route-selected move, two malformed answers, the typed reading authorized at 0.80 -- admitted typed_late on §32.12.2's rule, no resend", async (t) => {
+test("§143.15: the route-selected move, two malformed answers, the typed reading authorized at 0.80 -- admitted typed_late on §32.12.2's rule, no resend", async (t) => {
 	const typed = typedAnswers(t, "authorized", 0.8);
 	const table = await hybrid(t, { prepare: tookTheJob, compile: () => undefined, responses: narrateOnly("你到了报馆。"), env: { EXT_JEV_APIKEY: "test-jev-key" },
 		engine: { compile: false, decision: { decide: async (batch) => complete(Object.fromEntries(batch.questions.map((question) => {
@@ -739,7 +739,7 @@ test("§139.15: the route-selected move, two malformed answers, the typed readin
 	assert.ok(move?.ok, "the declared move landed");
 });
 
-test("§139.15: declaredAction reads the host origin's clerk authority only -- the declared clerks, never a consequence, a person's act, a Keeper or a host call", () => {
+test("§143.15: declaredAction reads the host origin's clerk authority only -- the declared clerks, never a consequence, a person's act, a Keeper or a host call", () => {
 	for (const clerk of ["declared_bookkeeping", "declared_check", "stated_obligation", "first_blow", "session_step", "mod_contact"])
 		assert.equal(declaredAction({ origin: "policy", clerk }), true, clerk);
 	for (const clerk of ["consequence_bookkeeping", "npc_act", "disposition_inference", undefined])

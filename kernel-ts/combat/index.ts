@@ -44,7 +44,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
             const done = () => ({ semantic, extras: { _host_session_binding: binding } });
             if (suffix === 'defend') {
                 const pending = snapshot?.pending_attack;
-                // §139.18: a refusal's fix is executed literally, so it never proposes a different fight action for the actor.
+                // §143.18: a refusal's fix is executed literally, so it never proposes a different fight action for the actor.
                 if (!isJsonObject(pending))
                     throw new RpcError('turn_state', 'no attack awaits a defense', { fix: NOTHING_TO_ANSWER });
                 const defender = string(pending.target_actor_id), options = defenseOptions(pending);
@@ -146,7 +146,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     else if (MANEUVER_GOALS.has(wanted) || Object.hasOwn(MANEUVER_ALIASES, wanted))
                         semantic.goal = wanted;
                     else
-                        // §139.18 (C4 turn 8): this fix used to end "to simply hit instead, resolve the attack rather than the
+                        // §143.18 (C4 turn 8): this fix used to end "to simply hit instead, resolve the attack rather than the
                         // maneuver", and the Keeper did exactly that to a player who had only demanded his money.
                         throw new RpcError('needs', 'a maneuver is one of the rulebook\'s four, and action.goal names which', {
                             fix: MANEUVER_ONLY_WHEN_DECLARED,
@@ -194,7 +194,7 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     result[key] = payload[key];
             if (action === 'attack' && context.action.defense === 'none')
                 result.unopposed = true;
-            // §138.11: the Keeper's ruling that the target did not see the first blow coming. Read beside `defense` for
+            // §142.11: the Keeper's ruling that the target did not see the first blow coming. Read beside `defense` for
             // the same reason: a fact about the action, not a compiled slot; only the first blow reads it.
             if (action === 'attack' && context.action.surprise === true)
                 result.surprise = true;

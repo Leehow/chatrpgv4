@@ -139,7 +139,7 @@ export function establishPerson(context:Pick<ApplyContext,'graph'|'world'|'turn'
  *  person against the scene's known people rather than an exact match. */
 const establishedOf=(established:false|'table'|'passage',fromPassage:Row|undefined,resolvedFrom?:string):Row=>
     ({...(established?{established,...(fromPassage?{from_passage:fromPassage}:{})}:{}),...(resolvedFrom?{resolved_from:resolvedFrom}:{})});
-/** §138.5: this person's own turn of the running fight, or the refusal that says whose it is. */
+/** §142.5: this person's own turn of the running fight, or the refusal that says whose it is. */
 async function ownTurn(context:ApplyContext,node:Row,handle:string,field:string):Promise<Row>{
     const fight=fightTurn(row(await context.campaign.readSave('combat.json')));
     const who=context.graph.displayName(node);
@@ -157,7 +157,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // the model never sends it, and it never changes who the effect is about, only what the receipt says about it.
     const resolvedFrom=typeof effect._resolved_from==='string'&&effect._resolved_from.trim()?effect._resolved_from.trim():undefined;
     const handle=graph.handle(node),{to,stance,dead}=effect;
-    // Contract §138.2: what this person is trying to do, and how it went -- the Keeper's own account of a result no
+    // Contract §142.2: what this person is trying to do, and how it went -- the Keeper's own account of a result no
     // other effect or roll carries (an announcement, a shout nobody answers, a plan dropped). Its own variant, like
     // `defense`: it changes no world value, only where the intention stands.
     // `intent_ref` alone does not open this variant: beside `to`, `stance` and the rest it names whose intention the effect
@@ -175,12 +175,12 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const resolved=await resolveIntent(context,node,{intends:effect.intends,intent_ref:effect.intent_ref},'npc');
         await refuseSettled(context,node,resolved,'npc');
         refuseRepeat(context,node,resolved,outcome as string,'npc');
-        // §139.3: the host's `_generated` marks the table's own act of this person (host-only; `true` or absent).
+        // §143.3: the host's `_generated` marks the table's own act of this person (host-only; `true` or absent).
         const generated=generatedOf(effect._generated,'npc._generated');
-        // §139.14: the intention variant settles nothing by itself -- a table act is not made done or failed by saying so.
+        // §143.14: the intention variant settles nothing by itself -- a table act is not made done or failed by saying so.
         refuseSaidDone(context,node,resolved,outcome as string,'npc.outcome',{generated,settles:false});
         const intent=intentStamp(handle,resolved,outcome as string,generated);
-        // §138.5: in a fight, on this person's own turn, the thing they try is what they spend the turn on.
+        // §142.5: in a fight, on this person's own turn, the thing they try is what they spend the turn on.
         let passes:Row|null=null;
         if(effect.spend_turn!=null){
             if(effect.spend_turn!==true)throw new RpcError('invalid_params','npc.spend_turn is true or absent',{fix:'send spend_turn: true when this person spends their own turn of the fight on it; leave it out otherwise',details:{field:'npc.spend_turn'}});
@@ -189,7 +189,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),intent,previous:resolved.status,...(passes?{passes_turn:passes}:{}),...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
         return {receipt,event:{type:'npc-changed',data:{npc:handle,intent:{ref:intent.ref,text:intent.text,outcome},why}}};
     }
-    // §139.3 / spec D9, §139.19 / spec D10: what this person brings out, host-only -- a rulebook weapon (`_draws`), or
+    // §143.3 / spec D9, §143.19 / spec D10: what this person brings out, host-only -- a rulebook weapon (`_draws`), or
     // any other thing, the book's or the table's own (`_produces`); the act step sends either only on a surprise of the
     // stakes die, and the kernel extension strips both from every other call.
     if(effect._draws!=null)return stageDraw(context,effect,node,handle);
@@ -246,7 +246,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
             if(combat.status!=='active')throw new RpcError('invalid_params','npc.action hold holds back for this round of a fight, and no fight is running',{fix:'write hold on the round the person holds back; outside a fight, just narrate it',details:{field:'npc.action'}});
             if(!array(combat.participants).some(participant=>string(row(participant).actor_id)===handle))throw new RpcError('invalid_params',`${graph.displayName(node)} is not in this fight`,{fix:'write hold for a participant of the running fight',details:{field:'npc.name',actor:handle}});
             scope={combat_id:string(combat.combat_id),round:number(combat.current_round)};
-            // §138.5: holding back on one's own turn is how that turn is spent; before this the fight stayed on them.
+            // §142.5: holding back on one's own turn is how that turn is spent; before this the fight stayed on them.
             const fight=fightTurn(combat);
             if(fight&&fight.turn_of===handle&&!fight.pending)scope={...scope,passes_turn:{combat_id:fight.combat_id,round:fight.round}};
         }

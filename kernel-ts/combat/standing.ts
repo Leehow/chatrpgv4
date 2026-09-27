@@ -83,7 +83,7 @@ export interface StandingAction { action: string; basis: ActionBasis; dispositio
 export interface FightState { hp_fraction: number; outnumbered: boolean; stance: string | null }  // stance null: unreadable
 /**
  * The tables a standing action reads: the stance ledger's (§17.3) and the combat disposition table; and, for the
- * session view's issued actions, the ruleset's flight rules (§139.9: who is not issued `combat:flee`).
+ * session view's issued actions, the ruleset's flight rules (§143.9: who is not issued `combat:flee`).
  */
 export interface StandingTables { stance: Row; disposition: Row; flee: FleeRules }
 

@@ -1,6 +1,6 @@
 """Ticket 07 of docs/specs/npc-as-actor.md (owner ruling 2026-09-26: a walk-on is a runtime person, not a graph node),
 over the emitted kernel. On this line §87's table people already are exactly that; this test pins the chain the ruling
-asked for, end to end with an intention (§138): Knott shouts for help, and on the next turn the porter he called comes
+asked for, end to end with an intention (§142): Knott shouts for help, and on the next turn the porter he called comes
 up the stairs -- a person the book never had -- as the result of that shout.
 """
 

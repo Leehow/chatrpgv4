@@ -27,4 +27,4 @@ Spec: docs/specs/npc-as-actor.md（D4）；契约 §32.9 与 `kernel-ts/combat/e
 
 ## Comments
 
-**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §138.11 per the rulebook's "Striking the First Blow (Surprise)": out of DEX order; `surprise: true` is an unopposed attack with one bonus die, otherwise a first-blow pending attack the investigator defends; the blow spends no one's turn. Tests: `tests/kernel/test_npc_first_blow.py`; five mutations killed. Not exercised on a live table.
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §142.11 per the rulebook's "Striking the First Blow (Surprise)": out of DEX order; `surprise: true` is an unopposed attack with one bonus die, otherwise a first-blow pending attack the investigator defends; the blow spends no one's turn. Tests: `tests/kernel/test_npc_first_blow.py`; five mutations killed. Not exercised on a live table.

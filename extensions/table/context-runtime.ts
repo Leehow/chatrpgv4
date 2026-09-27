@@ -379,7 +379,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     });
     pi.on('context', async (event, ctx) => {
         const ticket = generation;
-        // §139.6: NPC advice is retired; a copy a session recorded before that never reaches the model.
+        // §143.6: NPC advice is retired; a copy a session recorded before that never reaches the model.
         const requestMessages=event.messages.filter(message=>message.role!=='custom'||message.customType!==NPC_ADVICE_TYPE);
         let snapshot = await prepare();
         // A concurrent input may replace a generation while its optional work is awaiting I/O.

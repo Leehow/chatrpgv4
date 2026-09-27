@@ -108,7 +108,7 @@ test("a read that reports gate #7's prescreen (7 calls, 10.1 s, then 4 calls) sp
 		advance: { read: 10_166, "decide:route": 2_000 },
 		decide: (batch, count) => count === 1 ? route(batch, ["Go to the Globe"]) : route(batch, [], "finish"),
 		infer: () => prose("You arrive at the Globe.") });
-	// §139.4: the clerk's move landed, so the people it acted on act before the compose (the `npc_act` scan, no Jev call).
+	// §143.4: the clerk's move landed, so the people it acted on act before the compose (the `npc_act` scan, no Jev call).
 	assert.deepEqual(log, ["read", "decide:route", "clerk:apply:move:globe", "decide:route", "clerk:npc_act:scan:1", "infer:compose", "turn_close"]);
 	assert.deepEqual(inferSteps.map((step) => step.reason), ["finish"], "no compose for a spent Jev budget");
 });
@@ -121,7 +121,7 @@ test("a spent decision budget composes once; after it the Keeper's own batches c
 		advance: { "decide:route": 1_500 },
 		decide: (batch) => route(batch, [], "ask_llm"),
 		infer: (index) => index === 0 ? batchOf("a") : index === 1 ? batchOf("b") : index === 2 ? batchOf("c") : prose("Done.") });
-	// §139.20/§139.25: Knott is present, so the scan of the people present runs once, before the Keeper's first adjudication.
+	// §143.20/§143.25: Knott is present, so the scan of the people present runs once, before the Keeper's first adjudication.
 	assert.deepEqual(log, ["read", "decide:route", "clerk:npc_act:scan:0", "infer:adjudicate", "model:apply:a", "infer:compose", "model:apply:b", "infer:adjudicate",
 		"model:apply:c", "infer:adjudicate", "turn_close"]);
 	assert.deepEqual(inferSteps.map((step) => `${step.purpose}:${step.reason}`),

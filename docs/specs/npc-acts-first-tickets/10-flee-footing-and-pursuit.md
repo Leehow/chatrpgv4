@@ -12,9 +12,9 @@ Spec: docs/specs/npc-acts-first.md（第七节「复核漏报的处置」）
 
 ## Scope
 
-- **躺着的人逃不了**：规则数据（`combat.json` 或条件目录里加 `flee_blocked_by: [...]`，从 `engine.ts:17` 的 `VALID_CONDITIONS` 里挑规则书说不能移动的：`prone`、`unconscious`、`dying`、`dead`、`grappled`——按规则书核对后写进数据，内核不写名单）；`resolveFlee` 对带这些条件的 actor 返回 `needs`，`fix` 指出先脱离该状态（起身是一个回合的事：`hold` / 对 NPC 是 §138.5 的 `spend_turn`）。战斗结束条件不变。
+- **躺着的人逃不了**：规则数据（`combat.json` 或条件目录里加 `flee_blocked_by: [...]`，从 `engine.ts:17` 的 `VALID_CONDITIONS` 里挑规则书说不能移动的：`prone`、`unconscious`、`dying`、`dead`、`grappled`——按规则书核对后写进数据，内核不写名单）；`resolveFlee` 对带这些条件的 actor 返回 `needs`，`fix` 指出先脱离该状态（起身是一个回合的事：`hold` / 对 NPC 是 §142.5 的 `spend_turn`）。战斗结束条件不变。
 - **玩家逃跑不自动开追逐**：调查员 `combat:flee` 成功后，引擎不再执行 `chase:start` 的 continuation，改为和 NPC 逃跑同形的提示（谁可能追、怎么开追逐）；追逐由追的人开：调查员追 NPC 用 `chase:start`（现状），NPC 追调查员是 03 的 `pursue` 绑定或 KP 的 `resolve chase:start actor:<npc>`。`session:combat-end fled` 照旧。
-- 契约 §139.9；§11.5 追逐段加带日期的注。
+- 契约 §143.9；§11.5 追逐段加带日期的注。
 
 ## Not in scope
 

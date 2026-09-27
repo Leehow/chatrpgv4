@@ -1,4 +1,4 @@
-"""Contract §139.10: player-facing prose carries no markup.
+"""Contract §143.10: player-facing prose carries no markup.
 
 A syntax check over the text `narrate` renders, after the host's own say tokens and mechanics markers are stripped:
 an XML/HTML-shaped tag, or a line opening with a markdown list or heading marker. The first delivery of a turn that
@@ -6,7 +6,7 @@ carries it is refused `needs` with the steer and `details.reason = "markup_in_pr
 refusal (`markup_gate`); a later delivery in the same turn is delivered as written with a `warnings` row. Both are
 counted on the `lane: "delivery"` telemetry row. Through the RPC seam.
 
-§139.17 (ticket 18): on that second delivery, markup that is only a bare wrapper -- a tag at the text's very start or
+§143.17 (ticket 18): on that second delivery, markup that is only a bare wrapper -- a tag at the text's very start or
 end, or a matching pair around all of it -- is taken off before rendering, and the finding and the delivered row say
 `stripped: true`. A tag inside the prose, a list line, or a wrapper beside either go out as written."""
 
@@ -33,7 +33,7 @@ def test_a_closing_tag_is_refused_once_then_the_turn_is_delivered_with_a_finding
     assert error["code"] == "needs" and error["message"].startswith(STEER)
     assert error["details"] == {"reason": "markup_in_prose", "tags": ["</text>"], "lines": []}
     assert read_json(campaign_dir(kernel.workspace) / "turn.json")["markup_gate"] == {"call_id": "t1-c1"}
-    # The second delivery this turn goes out; the trailing tag is a bare wrapper, so it comes off first (§139.17).
+    # The second delivery this turn goes out; the trailing tag is a bare wrapper, so it comes off first (§143.17).
     delivered = narrate(kernel, "t1-c2", tagged)
     assert delivered["rendered_text"] == "「钥匙你自己捡。」门外的走廊里没人来。"
     assert record(kernel, 1)["text"] == f"{{{{say:{KNOTT}}}}}「钥匙你自己捡。」{{{{/say}}}}门外的走廊里没人来。"

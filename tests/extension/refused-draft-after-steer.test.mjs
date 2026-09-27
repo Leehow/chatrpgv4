@@ -1,11 +1,11 @@
 /**
- * Contract §139.11 (docs/specs/npc-acts-first-tickets/12-refused-implicit-draft-after-steer.md) through the product path:
+ * Contract §143.11 (docs/specs/npc-acts-first-tickets/12-refused-implicit-draft-after-steer.md) through the product path:
  * the real kernel extension's implicit close against the emitted kernel, on the legacy engine and on the hybrid engine's
  * driven run (where the `turn_close` row is written). A turn has one steer (§135.11). Once it is spent, a kernel refusal
  * of an implicit draft could never be handed back as a repair, and the draft was lost:
  *
- * - `intent_result_owed` (§138.7), which the kernel lets through on the same turn's next delivery of the same draft, is
- *   re-sent once (`intent_result_owed_resent`) and delivered with its `warnings` row, as §139.10 already did for markup;
+ * - `intent_result_owed` (§142.7), which the kernel lets through on the same turn's next delivery of the same draft, is
+ *   re-sent once (`intent_result_owed_resent`) and delivered with its `warnings` row, as §143.10 already did for markup;
  * - a draft the kernel refused for it while the steer was still unspent is held, so a repair leg that brings nothing, or
  *   one the kernel refuses, falls back to it;
  * - `repeated_line` (§113 D) is refused every time, so it is never re-sent: the steered leg it refuses falls back to the
@@ -42,7 +42,7 @@ function kernelSteps(workspace, steps) {
 const opening = ["table.narrate", { call_id: "t0-c1", text: `诺特把钥匙推过来。{{say:${KNOTT}}}${LINE}{{/say}}` }];
 /** The opening closed on Knott's line: the player speaks next, at turn 1. */
 const opened = (workspace) => kernelSteps(workspace, [["table.open", {}], opening]);
-/** The same, and on turn 1 Knott set out to shout for help (§138.1): at turn 2 that intention is owed a result (§138.7). */
+/** The same, and on turn 1 Knott set out to shout for help (§142.1): at turn 2 that intention is owed a result (§142.7). */
 const owing = (workspace) => kernelSteps(workspace, [["table.open", {}], opening,
 	["table.player_input", { text: "我不坐，站着看他。" }],
 	["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: KNOTT, intends: SHOUT, outcome: "attempted", why: "he backs toward the stairwell" }] }],

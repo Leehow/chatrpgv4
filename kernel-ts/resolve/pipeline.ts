@@ -104,7 +104,7 @@ export function resolveActor(party: Row[], graph: SettleContext['graph'], sessio
         const handle = graph.handle(node);
         const session = active(sessions.combat) ? sessions.combat : active(sessions.chase) ? sessions.chase : null;
         const participants = array(session?.participants).filter(isJsonObject).map(value => string(value.actor_id));
-        // Contract §138.6: only a fight action of a person in the fight is the fight's. Anything else they try while it
+        // Contract §142.6: only a fight action of a person in the fight is the fight's. Anything else they try while it
         // runs -- a shout, a grab for the telephone, a word to talk the visitor down -- is their own roll (§11.5.9), which
         // before this was silently turned into an attack (`decision:coc7:combat:attack`) whatever the Keeper asked for.
         const decision = string(action.decision || '');
@@ -200,7 +200,7 @@ export class ResolvePipeline {
         });
     }
     /**
-     * Contract §139.13: the person named in `action.target` who is not in the current scene but ran from here and can
+     * Contract §143.13: the person named in `action.target` who is not in the current scene but ran from here and can
      * still be chased (`fledFromHere`), with their flight's receipt id. Only a chase start reaches them (`run`).
      */
     fledTarget: { handle: string; node: Row; flight: string } | null = null;
@@ -222,7 +222,7 @@ export class ResolvePipeline {
             return null;
         const handle = this.context.graph.handle(node);
         if (row(this.context.world.npc_presence)[handle] !== this.context.world.active_scene) {
-            // Contract §139.13: a person in the running chase is where the chase is, whatever the world has them at (a
+            // Contract §143.13: a person in the running chase is where the chase is, whatever the world has them at (a
             // quarry the Keeper wrote away in their flight's turn is still grabbed by the pursuer).
             if (active(this.sessions.chase) && array(this.sessions.chase!.participants).some(p => isJsonObject(p) && string(p.actor_id) === handle))
                 return node;
@@ -244,7 +244,7 @@ export class ResolvePipeline {
         return node;
     }
     /**
-     * Contract §139.13: anything but a chase start at a person who ran from here is refused, and the refusal says the
+     * Contract §143.13: anything but a chase start at a person who ran from here is refused, and the refusal says the
      * one thing that reaches them -- told apart from `unknown_entity`'s "not in the current scene".
      */
     private fledFromHereRefusal(fled: { handle: string; node: Row; flight: string }): never {
@@ -261,7 +261,7 @@ export class ResolvePipeline {
         });
     }
     /**
-     * Contract §139.13: the rule graph's `chase.start.ready` counts the people here with a stat block. A person who ran
+     * Contract §143.13: the rule graph's `chase.start.ready` counts the people here with a stat block. A person who ran
      * from here and is named as the quarry is on the chase's track though the world has them gone, so their stat block
      * counts too; without one the rule graph still withholds the start and the quarry's own refusal answers.
      */
@@ -321,7 +321,7 @@ export class ResolvePipeline {
             if(!truth(action.spell))throw new RpcError('needs',"casting needs the spell's name",{fix:'set action.spell',details:{needs:{field:'spell',options:knownSpells(await readMagicState(this.context,this.context.actorId),this.context.clockMinutes)}}});
             return ['decision:coc7:magic:cast-spell'];
         }
-        // §138.10: an NPC in the fight who flees flees. The session's default (an attack) came first here, so a Keeper's
+        // §142.10: an NPC in the fight who flees flees. The session's default (an attack) came first here, so a Keeper's
         // `intent: flee` for Corbitt settled as `decision:coc7:combat:attack` and he threw a punch instead of running.
         if (this.intent === 'combat' || this.npcInSession && this.intent !== 'flee')
             return this.withSanityOffer(['decision:coc7:combat:attack']);
@@ -654,13 +654,13 @@ export class ResolvePipeline {
         if(candidates.length===1&&candidates[0]==='decision:coc7:magic:cast-spell')throw new RpcError('needs',`${repr(this.action.spell)} is not a spell this investigator knows`,{fix:'set action.spell to a known spell (details.needs.options), or learn it first',details:{needs:{field:'spell',options:knownSpells(await readMagicState(this.context,this.context.actorId),this.context.clockMinutes)},unmet}});
         if(candidates.length===1&&candidates[0]==='decision:coc7:magic:learn-spell')throw new RpcError('needs',`no authored source teaches ${repr(this.action.spell)} here`,{fix:'target a tome, teacher or entity that carries the spell (details.needs.options)',details:{needs:{field:'target',options:Object.keys(magicLearningSources(this.context)).sort()},unmet}});
         if(candidates.length===1&&candidates[0]===CHASE_START){
-            // Contract §139.12: each refusal of a chase start says what is missing. Before, a pursuer's `move` or `combat`
+            // Contract §143.12: each refusal of a chase start says what is missing. Before, a pursuer's `move` or `combat`
             // was answered "a chase needs a pursuer with a stat block" while listing that very pursuer as the option.
             if(offIntent.includes(CHASE_START))throw new RpcError('needs',`chase:start answers a flight or a pursuit, not intent ${repr(this.intent)}`,{fix:'set action.intent to flee when the actor runs, or to move or combat when the actor gives chase (and name whom in action.target)',details:{reason:'chase_intent',needs:{field:'intent',options:[...CHASE_INTENTS]},unmet}});
             if(array(unmet[CHASE_START]).some(value=>value.path==='chase.session.inactive'))throw new RpcError('turn_state','a chase is already underway',{fix:'continue it with chase decisions (see session.actions)',details:{unmet}});
             const roles=chaseRoles(this.context);
             if(roles.quarry==='npc')await quarryParticipant(this.context,roles.handle,roles.node);
-            // Contract §139.13: a chase start that names no one is asked whom -- a pursuit always, a flight when someone
+            // Contract §143.13: a chase start that names no one is asked whom -- a pursuit always, a flight when someone
             // who ran from here can still be chased -- never told it needs a pursuer present.
             else askWhomTheChaseIsAfter(this.context);
             const present=presentOpponents(this.context);throw new RpcError('needs','a chase needs a pursuer with a stat block present in the scene',{fix:'establish the pursuer here first (an NPC whose module record carries mechanics.profile), or narrate the flight without dice',details:{needs:{field:'target',options:present.filter(([, ,profile])=>truth(profile)).map(([name])=>name).sort()},present:present.map(([name])=>name).sort(),unmet}});
@@ -742,7 +742,7 @@ export class ResolvePipeline {
         const cards: Row[] = [];
         const withheld: Row[] = [];
         const offIntent: string[] = [];
-        // Contract §139.12: the rule graph's chase:start answers `flee` only, while every other chase decision answers
+        // Contract §143.12: the rule graph's chase:start answers `flee` only, while every other chase decision answers
         // the three chase intents (§11.5). A pursuer's `move` or `combat` answers the same flight, so the start card is
         // admitted under any of the three; which side the actor then takes is the binding's (`chaseRoles`).
         const answers = (card: Row): boolean => card.answers_declared_intent !== false
@@ -811,7 +811,7 @@ export class ResolvePipeline {
         tagNpcReceipts(context, chosen.family, npc, shaped.outcome);
         if (selectedCard.decision_source)
             shaped.decision_source = selectedCard.decision_source;
-        // Contract §139.9: an investigator's successful flight no longer starts a chase here. The settlement executed
+        // Contract §143.9: an investigator's successful flight no longer starts a chase here. The settlement executed
         // `chase:start` as a continuation of `combat:flee`, so a pursuit nobody had decided on was rolled in the same call
         // (table npc-actor-gate-a, turn 12: the receipts held a chase while the prose had the pursuer stay seated). The
         // flight's result carries the pursuit as a hint instead (`combat/execution.ts`), exactly as an NPC's flight

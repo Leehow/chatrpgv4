@@ -408,7 +408,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         // end, and a Keeper who loses the threat clock still has a table, while a Keeper who loses
         // this one has the thirty hours of §89 back.
         pressures: [...incapacitationClocks(party, id => campaign.healing(id), number(row(world.clock).minutes)), ...clocks, ...threatPressures(graph, world, scene, present),
-            // §138.13: an investigator pressed by a person present, with the penalty die their refusal would owe.
+            // §142.13: an investigator pressed by a person present, with the penalty die their refusal would owe.
             ...coercionPressures(graph, allReceipts(campaign.records, turn), party)],
         obligations,
         director,
@@ -507,7 +507,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         pressures: array(capsule.pressures),
         obligations: array(capsule.obligations),
         previous: previous ?? null,
-        // Contract §138.3: what the people present set out to do and have no result for yet, read from the ledger, not
+        // Contract §142.3: what the people present set out to do and have no result for yet, read from the ledger, not
         // from present[] (whose rows the budget may already have cut).
         intents: present.flatMap(node => openIntents(row(row(campaign.jsonFiles.get("npc-ledger.json"))[string(node.node_id)]))
             .map(item => ({who: graph.displayName(node), ref: item.ref, intent: item.text, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null})))

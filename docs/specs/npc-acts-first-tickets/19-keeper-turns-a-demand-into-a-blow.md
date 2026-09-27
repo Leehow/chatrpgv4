@@ -17,7 +17,7 @@ Spec: docs/specs/npc-acts-first.md（第九节「C4 桌」）
 
 1. **fix 不教它改成攻击。** `combat:maneuver` 缺目标时的 `fix` 改为：列出四种战技目标；「if the player's words are not one of these, this is not a maneuver; a blow is resolved only when the player declared one」——不再建议「改成攻击」。全仓扫一遍 combat 族 `needs` 的 fix 文本，凡是建议把一种战斗动作换成另一种的，同样改成「以玩家声明为准」。
 2. **准入复核 KP 替投资者发起的战斗动作。** 查清 C4 T8 为什么没有 admission 行（投资者在自己回合的 `combat:attack` 是否被当作 session 步骤豁免、或攻击声明只在防御结算时复核）；KP 发起（`origin: model`）、actor 是投资者的 `combat:attack` / `combat:maneuver` 必须过准入车道，用玩家原话判 `not_authorized`。compile 已判 `act: none`（已记录）时，这可以直接作为 typed 证据拒绝，不必等车道。
-3. 契约 §139.18；§32 与 §11.5 加带日期的注。
+3. 契约 §143.18；§32 与 §11.5 加带日期的注。
 
 ## Not in scope
 

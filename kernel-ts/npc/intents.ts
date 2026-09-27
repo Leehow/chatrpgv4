@@ -1,9 +1,9 @@
 /**
- * What a person is trying to do, and how it went (docs/specs/npc-as-actor.md D1, contract §138).
+ * What a person is trying to do, and how it went (docs/specs/npc-as-actor.md D1, contract §142).
  *
  * An intention is one line of Keeper-facing English -- "shout for help and get the man thrown out" -- that belongs to
  * one person. Its identity is the person's handle and a digest of the line itself, so the same line written twice, by
- * the Keeper or by the table's own act of that person (§139), is one intention, and the ledger can be rebuilt from the
+ * the Keeper or by the table's own act of that person (§143), is one intention, and the ledger can be rebuilt from the
  * turn records alone.
  *
  * The truth of where an intention stands is the receipts: every receipt that carries `intent: {ref, npc, text, outcome}`
@@ -43,8 +43,8 @@ export function intentOf(entry: Row, ref: string): Row | null {
 }
 
 /**
- * §139.6: whether a receipt is the table's own act of a person -- one the generation step wrote and the host bound
- * (§139, ticket 03), not one the Keeper wrote. Read from the `intent` stamp's `generated` (never from `basis`, which is
+ * §143.6: whether a receipt is the table's own act of a person -- one the generation step wrote and the host bound
+ * (§143, ticket 03), not one the Keeper wrote. Read from the `intent` stamp's `generated` (never from `basis`, which is
  * the string `"stated"` / `"keeper"` of §136.22 on damage, time, threat, flag and cash receipts).
  */
 export function receiptGenerated(receipt: unknown): boolean {
@@ -53,7 +53,7 @@ export function receiptGenerated(receipt: unknown): boolean {
 
 /**
  * Fold one receipt's `intent` into a ledger entry. A fold, not a check: the writer refused anything unlawful.
- * `generated` (§139.6) marks the row when the receipt that opens it is the table's own act; it says who set the
+ * `generated` (§143.6) marks the row when the receipt that opens it is the table's own act; it says who set the
  * intention out, so a later result -- the Keeper settling it, or the table continuing it -- never changes it.
  */
 export function foldIntent(item: Row, intent: Row, turn: number, receipt: unknown, generated = false): void {
@@ -71,8 +71,8 @@ export function foldIntent(item: Row, intent: Row, turn: number, receipt: unknow
 }
 
 /**
- * The card's view (§138.3): every intention still under way, then the most recently settled ones, newest first. The
- * `ref` is what a writer names to report the next result. `by: "table"` (§139.6) marks one the table's own act of
+ * The card's view (§142.3): every intention still under way, then the most recently settled ones, newest first. The
+ * `ref` is what a writer names to report the next result. `by: "table"` (§143.6) marks one the table's own act of
  * this person set out; one the Keeper set out carries no `by`.
  */
 export function intentsView(entry: Row): Row[] {

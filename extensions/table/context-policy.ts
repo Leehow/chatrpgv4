@@ -19,7 +19,7 @@ export const DIAGNOSTIC_TYPE = 'coc-context-status';
 /** Transport-only KIC workspace (contract §19.2): injected per request, never persisted. */
 export const WORKSPACE_TYPE = 'coc-workspace';
 export const PRESCREEN_TYPE = 'coc-prescreen';
-/** Retired (contract §139.6): no session writes it any more; a copy an older session recorded is dropped, never sent. */
+/** Retired (contract §143.6): no session writes it any more; a copy an older session recorded is dropped, never sent. */
 export const NPC_ADVICE_TYPE = 'coc-npc-advice';
 /** The single-loop run's own note to the Keeper (contract §135.8): the clerk's steps of this turn and what it asks. */
 export const CLERK_TYPE = 'coc-clerk';

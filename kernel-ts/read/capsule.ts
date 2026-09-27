@@ -342,7 +342,7 @@ function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
     const result: Row = {},
         seen = row(ledger.turns_present),
         disclosed = array(ledger.disclosed).filter(item => truth(item.clue)).map(item => string(item.clue));
-    // Contract §138.3: what this person set out to do and where each stands -- under way first, then the latest settled.
+    // Contract §142.3: what this person set out to do and where each stands -- under way first, then the latest settled.
     const intents = intentsView(ledger);
     if (intents.length)
         result.intents = intents;
@@ -484,7 +484,7 @@ export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledge
         memories.set(string(value.id),prior&&memoryOccurrenceKey(prior)!==memoryOccurrenceKey(value)
             ? {kind:'promise',status:'candidate',statement:null,authority:'conversation_report',fulfillment:{status:'unavailable',terms:[]}} : value);
     }
-    // §138.3: someone with an intention under way owes the table a result this turn, as a promise does.
+    // §142.3: someone with an intention under way owes the table a result this turn, as a promise does.
     const rank = (entry: Row) => truth(row(entry.history).promises) || array(row(entry.history).intents).some(item => row(item).status === "attempted") ? 0 : truth(row(entry.history).met_turns) || truth(entry.toward_party) ? 1 : truth(entry.wants) ? 2 : 3;
     return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records,options.scope)).sort((a, b) => rank(a) - rank(b));
 }

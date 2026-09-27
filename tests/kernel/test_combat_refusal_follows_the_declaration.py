@@ -1,4 +1,4 @@
-"""Contract §139.18 (docs/specs/npc-acts-first-tickets/19-keeper-turns-a-demand-into-a-blow.md), over the emitted kernel.
+"""Contract §143.18 (docs/specs/npc-acts-first-tickets/19-keeper-turns-a-demand-into-a-blow.md), over the emitted kernel.
 
 Live table C4 (`npc-acts-c4`), turn 8: the player demanded his twenty dollars in a running fight; the Keeper resolved a
 `combat:maneuver` whose goal was the demand, and the kernel's refusal ended "to simply hit instead, resolve the attack
@@ -9,7 +9,7 @@ propose a different fight action in its place: what the investigator does is wha
 The structure, not the wording: for each refusal of an investigator's fight action reached here, the `fix` names no
 combat decision other than the one refused -- neither as `combat:<name>` nor as the bare name -- where the decisions are
 the kernel's own list (`table.resolve.options` `decisions`, family `combat`), never a list written here. An NPC's
-refusal may name that person's own way on (their initiative is the Keeper's, §32.1; §139.9 pins a held person's escape).
+refusal may name that person's own way on (their initiative is the Keeper's, §32.1; §143.9 pins a held person's escape).
 """
 
 import re
@@ -45,7 +45,7 @@ def named_decisions(fix, decisions):
 
 
 def hayes_turn(client):
-    """Corbitt's turn after the swing and his dodge; his hold passes it (§138.5): it is the investigator's turn."""
+    """Corbitt's turn after the swing and his dodge; his hold passes it (§142.5): it is the investigator's turn."""
     n = corbitts_turn(client)
     held = client.table("apply", call_id=f"t1-c{n}", effects=[{"kind": "npc", "name": "Walter Corbitt", "action": "hold", "why": "he backs off"}])
     session = client.table("look", focus="session")["session"]
@@ -69,7 +69,7 @@ def defence_with_nothing_to_answer(client):
 
 
 def blow_out_of_turn(client):
-    """His turn, not the investigator's: the stuck-turn refusal (§138.5)."""
+    """His turn, not the investigator's: the stuck-turn refusal (§142.5)."""
     n = corbitts_turn(client)
     return "combat:attack", resolve_err(client, f"t1-c{n}", intent="combat", goal="hit him", method="fists", target="Walter Corbitt", weapon="unarmed")
 
@@ -82,7 +82,7 @@ def blow_while_a_defence_is_owed(client):
 
 
 def flight_while_held(client):
-    """§139.9's hold, on the investigator: the flight is refused, and the way free is the player's to declare."""
+    """§143.9's hold, on the investigator: the flight is refused, and the way free is the player's to declare."""
     n = hayes_turn(client)
     edit_fight(client, investigator={"conditions": ["grappled"]})
     return "combat:flee", resolve_err(client, f"t1-c{n}", intent="flee", decision="combat:flee", goal="get away", method="run for the stairs")
@@ -122,7 +122,7 @@ def test_the_maneuver_refusal_still_names_the_four_and_changes_nothing(fight):
 
 
 def test_an_npcs_held_flight_still_names_his_way_free(fight):
-    """The NPC side is unchanged (§139.9): his escape is the Keeper's to take for him, and the fix names it."""
+    """The NPC side is unchanged (§143.9): his escape is the Keeper's to take for him, and the fix names it."""
     n = corbitts_turn(fight)
     edit_fight(fight, corbitt={"conditions": ["grappled"]})
     error = resolve_err(fight, f"t1-c{n}", actor="Walter Corbitt", intent="flee", goal="get away", method="run for the stairs")

@@ -163,7 +163,7 @@ export interface HybridEngineOptions {
   /** §135.30: the typed-feature compile before a route that has an uncompiled reachable candidate (default true). `false` is the SL-12 policy: the replays' control arm, and tests whose subject is the route. */
   compile?: boolean;
   /**
-   * §139.3: the generation of a person's act (§139.2). Defaults to the product lane (`createNpcActLane` on the session's
+   * §143.3: the generation of a person's act (§143.2). Defaults to the product lane (`createNpcActLane` on the session's
    * model registry); tests pass `createFixtureNpcActPort`; `null` generates nothing (every act is `model_unavailable`).
    */
   npcAct?: NpcActPort | null;
@@ -249,7 +249,7 @@ export function emptyTurnContext(): TurnContext {
 }
 
 /**
- * The table context and the Jev scope binding from two read-only kernel reads. §139.23: the status's `last_exchange`, when
+ * The table context and the Jev scope binding from two read-only kernel reads. §143.23: the status's `last_exchange`, when
  * the kernel gives one, rides on the context as it is (the compile's state carries it); nothing here reads what was said.
  */
 export function readTable(capsule: Row, status: Row): {context: TurnContext; scope?: ScopeBinding; readSet?: ReadSet; turn?: number; binding?: ContextBinding} {
@@ -452,22 +452,22 @@ interface RunState {
   /** SL-76: the latest read's D1 candidates and scene context, held for the turn-close route (never asked mid-read: see `routeConsequences`'s call site). */
   consequenceCandidates: ConsequenceCandidate[];
   consequenceContext?: TurnContext;
-  /** §139.4: the people present in the latest read (the capsule's order), whom an `npc_act` scan asks about. */
+  /** §143.4: the people present in the latest read (the capsule's order), whom an `npc_act` scan asks about. */
   present: string[];
   /**
-   * §139.21: the people present at the run's first read -- when the declaration was put. A person the scan runs who was
+   * §143.21: the people present at the run's first read -- when the declaration was put. A person the scan runs who was
    * not among them, after a move landed this turn, heard the declaration nowhere (`declared_before_move`).
    */
   firstPresent?: string[];
-  /** §139.4: who already acted (or was skipped) this run, and how many acted outside a fight (the per-turn cap). */
+  /** §143.4: who already acted (or was skipped) this run, and how many acted outside a fight (the per-turn cap). */
   npcSeen: Set<string>;
   npcCount: {acted: number};
-  /** §139.4: an NPC's turn of the fight the table's act did not settle (the Keeper is told once, in the next note). */
+  /** §143.4: an NPC's turn of the fight the table's act did not settle (the Keeper is told once, in the next note). */
   npcTurnLeft?: {key: string; npc: string; status: string; reason: string | null; act: string | null};
-  /** §139.4: a scan the time budget skipped was recorded (`skipped_budget`), once per run. */
+  /** §143.4: a scan the time budget skipped was recorded (`skipped_budget`), once per run. */
   npcBudgetSkipped?: boolean;
   /**
-   * §139.28 (NAF-29): the fight hold the latest scan put (§139.25) -- the handles it held back, and the ids of this turn's
+   * §143.28 (NAF-29): the fight hold the latest scan put (§143.25) -- the handles it held back, and the ids of this turn's
    * receipts on the table when it was put. While it stands, every fresh read asks whether a blow has struck one of them since
    * (`struckHeld`); the first that has ends it.
    */
@@ -482,7 +482,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   /** §135.29's SL-69 addendum: the per-call cap Pi's session should enforce on every Keeper provider call, and the callback told when it fires. */
   keeperCallCapMs: number; onKeeperCallCap: (phase: 'first_byte' | 'streaming', capMs: number) => void} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
-  /** §139.3: the product's npc-act lane, made when the extension loads, on the session context the latest event gave. */
+  /** §143.3: the product's npc-act lane, made when the extension loads, on the session context the latest event gave. */
   let npcActLane: NpcActPort | undefined, sessionCtx: any;
   const NO_ACT: NpcActPort = {generate: async () => ({unavailable: 'model_unavailable', detail: 'no npc-act generation on this engine'})};
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
@@ -524,7 +524,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     run.scene = table.context.scene;
     run.sessionView = Object.hasOwn(context, 'session') ? (active(context.session) ? {session: context.session, pending_choice: context.pending_choice ?? null} : undefined)
       : active(object(capsule.where).session) ? 'read' : undefined;
-    // §139.4: who is present, in the capsule's order (an `npc_act` scan reads each of them).
+    // §143.4: who is present, in the capsule's order (an `npc_act` scan reads each of them).
     run.present = array(capsule.present).map(person => text(object(person).name)).filter(Boolean);
     run.firstPresent ??= [...run.present];
     const party = object(capsule.known).investigator;
@@ -547,13 +547,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const freshOf = (run: RunState, stepId?: string) => tableReads(run).then(async read => {
     const candidates = read.candidates();
     run.issued = candidates;
-    // §139.28: a blow that struck a person the fight hold held back rides on the fresh read (the policy owes them the scan).
+    // §143.28: a blow that struck a person the fight hold held back rides on the fresh read (the policy owes them the scan).
     const struck = await struckHeld(run, stepId);
     return {context: read.table.context, candidates, rows: read.rows(), ...(struck.length ? {struck} : {})};
   }, () => undefined);
 
   /**
-   * §139.28 (NAF-29, live table D2 turns 5, 10, 12, 13): while the fight hold holds someone back (§139.25), the receipts of
+   * §143.28 (NAF-29, live table D2 turns 5, 10, 12, 13): while the fight hold holds someone back (§143.25), the receipts of
    * this turn that struck them since it was put -- done to them by the kernel's own reading (`npc.act.options`' `acted_on`)
    * and a blow (a fight wrote it, or they lost hit points: `struckReceipts`). The Keeper settled the punch the clerk did not
    * (its own resolve or damage, or the pending defence the kernel forced after it): the first such receipt ends the hold
@@ -806,7 +806,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const unavailable = {status: 'unavailable' as const, reason: 'operation_gateway_unavailable',
       artifact: {kind: 'execute', executed: {ok: false, summary: {origin: 'policy', refused: 'operation_gateway_unavailable'}}}};
     if (!run.session || !gateway || !bridge?.campaign) return unavailable;
-    // §139.3/§139.4: a person's own act is its own step: generated, bound, then written through this same gateway.
+    // §143.3/§143.4: a person's own act is its own step: generated, bound, then written through this same gateway.
     if (isNpcAct(candidate)) return npcActStep(run, candidate, invocation);
     const {tool, args} = keeperCall(candidate, extra);
     // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
@@ -838,7 +838,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }
 
   /**
-   * §139.3/§139.4: a person's own act (`npc_act`) -- on their turn of a fight (`trigger: turn`), or for every person
+   * §143.3/§143.4: a person's own act (`npc_act`) -- on their turn of a fight (`trigger: turn`), or for every person
    * present the declaration acted on (`trigger: acted_on`, `runNpcScan`, at most `npc_act.max_per_turn` a turn). Each
    * act is generated (the npc-act lane), bound by one closed Jev batch under its own lease (never the policy's decision
    * budget: §135.28's clerk bind exception), and written through the same gateway as every clerk step with authority
@@ -869,21 +869,21 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       runId: run.runId, stepId: invocation.stepId, turn: run.turn ?? 0, gate: DEFAULT_CONFIDENCE_GATE, budget, signal: invocation.signal,
     };
     let outcomes: NpcActOutcome[];
-    // §139.25: the people a pending fight action held back from this scan (never an npc_act row: they did not act).
+    // §143.25: the people a pending fight action held back from this scan (never an npc_act row: they did not act).
     const held: Json[] = [];
     if (trigger === 'turn') {
       const npc = text(candidate.bound.npc);
       run.npcSeen.add(npc);
       outcomes = [await runNpcAct(deps, npc, 'turn')];
-      // An NPC's turn the act did not pass is the Keeper's; the next note says so once (§139.4).
+      // An NPC's turn the act did not pass is the Keeper's; the next note says so once (§143.4).
       const [outcome] = outcomes, round = object(object(candidate.basis).row).round;
       if (outcome.passedTurn !== true) run.npcTurnLeft = {key: `${npc}:r${String(round ?? '')}`, npc, status: outcome.status, reason: outcome.reason ?? null, act: outcome.act ?? null};
     } else {
       const pending = object(candidate.bound.fight_pending);
       outcomes = await runNpcScan(deps, {present: run.present, addressees: array(candidate.bound.addressees).map(text).filter(Boolean), seen: run.npcSeen, count: run.npcCount,
-        // §139.21: a move this turn (the declaration precedes every write of its turn) and who was here when it was put.
+        // §143.21: a move this turn (the declaration precedes every write of its turn) and who was here when it was put.
         firstPresent: run.firstPresent ?? [], moved: run.turnReceipts.some(receipt => receipt.kind === 'move'),
-        // §139.25: a declared fight action no clerk step has settled yet.
+        // §143.25: a declared fight action no clerk step has settled yet.
         ...(Object.hasOwn(object(candidate.bound), 'fight_pending') ? {fightPending: {named: array(pending.named).map(text).filter(Boolean)}} : {}), held: held as Row[]});
     }
     // What the table's acts did this turn reaches the Keeper beside the clerk's other steps (§135.11's clerk_did).
@@ -892,9 +892,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         call_id: outcome.calls[0]?.call_id ?? null, status: outcome.status, receipts: outcome.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
         result: {npc: outcome.handle ?? outcome.npc, trigger: outcome.trigger, act: outcome.act ?? null, way: outcome.way ?? null, params: (outcome.params ?? {}) as Json,
           ref: outcome.ref ?? null, continued: outcome.continued ?? null, abandoned: outcome.abandoned ?? null, reason: outcome.reason ?? null} as Json});
-    // §139.20: a scan that ran nobody wrote nothing (the scan now runs every turn), so there is nothing to read again.
+    // §143.20: a scan that ran nobody wrote nothing (the scan now runs every turn), so there is nothing to read again.
     const read = outcomes.length ? await freshOf(run, invocation.stepId) : undefined;
-    // §139.28: the hold this scan put is the run's hold now (a scan that held no one ends any earlier one), with the receipts
+    // §143.28: the hold this scan put is the run's hold now (a scan that held no one ends any earlier one), with the receipts
     // already on the table: a blow after it -- whoever settles the punch the clerk did not -- lets them act once.
     if (trigger !== 'turn') run.npcHeld = held.length
       ? {names: held.map(value => text(object(value).npc)).filter(Boolean), before: run.turnReceipts.map(receipt => text(receipt.id)).filter(Boolean)} : undefined;
@@ -1004,7 +1004,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       // Every answer's distribution is retained (spec user story 28): the gates can be re-read from a live table.
       const offered = array(question.offered) as Candidate[];
       const settled = array(question.settled).map(String);
-      // §139.16 (NAF-17): the acts the run's compiles cleared, so the row's `selected` is the policy's (a gated fight step selects nothing).
+      // §143.16 (NAF-17): the acts the run's compiles cleared, so the row's `selected` is the policy's (a gated fight step selects nothing).
       const declaredActs = array(question.declaredActs).map(String);
       const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true, settled, declaredActs} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
       const actGatedKeys = request.purpose === 'route' ? offered.filter(candidate => actGated(candidate, declaredActs)).map(candidate => candidate.key) : [];
@@ -1185,7 +1185,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.26 (owner ruling Q5): a clerk step that crossed an open obligation's guard, one line each, beside "clerk did".
     const crossings = fresh.map(value => value.obligation_open).filter((value): value is string => !!value);
     if (crossings.length) content.obligation_open = crossings;
-    // §139.4: an NPC's turn of the fight whose own act the table did not settle (no act was generated, it was not bound,
+    // §143.4: an NPC's turn of the fight whose own act the table did not settle (no act was generated, it was not bound,
     // or a write was refused) is the Keeper's; the note says so once per NPC turn, with the standing the kernel issues
     // (a fact about the person, §11.5.3) and what the table recorded.
     const fight = object(run.fight), turnKey = `${text(fight.turn_of)}:r${String(fight.round ?? '')}`, left = run.npcTurnLeft;
@@ -1238,7 +1238,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     return {...policy, next(driver) {
       const request = policy.next(driver), budget = driver.policyState.view.budget;
       run.decision = {...budget};
-      // §139.4: a person's own act the time budget left undone is recorded, never run past the budget.
+      // §143.4: a person's own act the time budget left undone is recorded, never run past the budget.
       if (overRun(budget) && request.kind === 'infer') {
         const view = driver.policyState.view;
         for (const item of view.pending) if (item.candidate?.clerk === 'npc_act' && !run.npcSeen.has(text(item.candidate.bound.npc))) {
@@ -1310,7 +1310,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         if (active.includes('submit_plan_packet')) pi.setActiveTools(active.filter(name => name !== 'submit_plan_packet'));
       } catch { /* No tool surface yet. */ }
     };
-    // §139.3: the npc-act lane runs on the session's own model registry; the context is the latest one an event gave.
+    // §143.3: the npc-act lane runs on the session's own model registry; the context is the latest one an event gave.
     if (options.npcAct === undefined && typeof pi.on === 'function')
       npcActLane = createNpcActLane(pi, {ctx: () => sessionCtx, campaign: () => bridge?.campaign});
     pi.on('session_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; announce(); withoutPlanTool(); });

@@ -51,7 +51,7 @@ for (const verdict of ['not_player_action', 'not_authorized', 'uncertain', 'forc
         call('narrate', {text: 'You have a moment to take stock.'}),
         fauxAssistantMessage('after'),
       ],
-      // §139.15: an unrecognized verdict is a malformed answer, which the round asks for once more; `forced` answers twice.
+      // §143.15: an unrecognized verdict is a malformed answer, which the round asks for once more; `forced` answers twice.
       laneResponses: {admission: Array.from({length: verdict === 'forced' ? 2 : 1}, () => fauxAssistantMessage(JSON.stringify({
         verdict, grounds: 'Scripted boundary check, not a semantic judgment',
         ...(['not_authorized', 'uncertain'].includes(verdict) ? {missing: 'whether to accept the commitment'} : {}),

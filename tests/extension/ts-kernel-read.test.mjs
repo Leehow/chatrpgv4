@@ -236,7 +236,7 @@ test('Director signals and authored scoring match the Python decision table',asy
     {label:'session override precedes dying',signals:{...quiet,session:'combat',hp_state:'dying',last_roll:'fumble'}},
     ...dg.structureTypes.map(structure_type=>({label:`weighted stalled transition ${structure_type}`,signals:{...quiet,structure_type,intent:'stuck',stalled_turns:4,turns_in_scene:5,pushed_fail_pending:true}}))]
     .map(c=>({...c,scene:sceneId,canMove:true,overlap:c.signals.intent==='stuck'?2:0,pressureAvailable:true}));
-  // The frozen oracle predates §138.8: a live session still decides the beat, and the other beats' scores now ride
+  // The frozen oracle predates §142.8: a live session still decides the beat, and the other beats' scores now ride
   // beside SUBSYSTEM's. Compare everything the oracle has; the added scores are asserted in test_director_scoring.py.
   const withoutSessionScores=section=>section.override==='session'?{...section,scores:{SUBSYSTEM:section.scores.SUBSYSTEM}}:section;
   await rows(t,scored,oracle('director',{cases:scored}),c=>withoutSessionScores(api.score(dg,c.signals,scene,c)));
@@ -497,7 +497,7 @@ test('saved session views match Python without constructing engine writers',asyn
     }
   }
   const expected=oracle('sessions',{cases});
-  // The frozen oracle predates §138.10: an NPC's own turn now issues `combat:flee` too. Compare everything else; the new
+  // The frozen oracle predates §142.10: an NPC's own turn now issues `combat:flee` too. Compare everything else; the new
   // action is asserted in tests/kernel/test_npc_round_operation.py.
   const npcTurnFlee=session=>session&&Array.isArray(session.actions)&&session.turn_of&&session.turn_of!=='alice'
     ?{...session,actions:session.actions.filter(action=>action.decision!=='combat:flee')}:session;

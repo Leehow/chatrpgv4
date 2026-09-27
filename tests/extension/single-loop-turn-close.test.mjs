@@ -110,7 +110,7 @@ test("§135.11: a step that called narrate itself is unchanged: its own result i
 	assert.equal(runEnd(table.events).status, "delivered");
 	assert.equal(runEnd(table.events).reason, "delivery_accepted");
 	assert.equal(turnCloses(table.events).length, 0);
-	// §139.20 (ticket 21): people are present, so the `npc_act` scan runs before the run's first model step every turn,
+	// §143.20 (ticket 21): people are present, so the `npc_act` scan runs before the run's first model step every turn,
 	// landed step or not (the second operate); nobody here is acted on, addressed or in a conversation, so it runs no one.
 	assert.deepEqual(table.events.filter((event) => event.type === "step_start").map((event) => event.kind), ["operate", "decide", "operate", "infer", "operate", "finish"]);
 	assert.equal(kernel(table.table, "table.narrate")[0].params.implicit, undefined);

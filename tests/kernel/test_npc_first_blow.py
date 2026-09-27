@@ -1,4 +1,4 @@
-"""Contract §138.11 (docs/specs/npc-as-actor.md ticket 05), over the emitted kernel.
+"""Contract §142.11 (docs/specs/npc-as-actor.md ticket 05), over the emitted kernel.
 
 A person present can strike the first blow at an investigator. Before this "An NPC cannot open the round itself":
 nothing an NPC did could start a fight, so a cornered Knott swinging a chair, or Corbitt lunging out of the dark, could

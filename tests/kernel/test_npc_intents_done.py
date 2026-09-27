@@ -1,11 +1,11 @@
-"""Contract §139.14 (ticket 15 of docs/specs/npc-acts-first-tickets/, live table C3), over the emitted kernel.
+"""Contract §143.14 (ticket 15 of docs/specs/npc-acts-first-tickets/, live table C3), over the emitted kernel.
 
-What the table's own act of a person set out -- a ledger row the clerk opened with the host's `_generated` (§139.3,
-§139.6) -- is settled only by the dice, a clock, an arrival or a departure, or given up. On live table C3 the Keeper
+What the table's own act of a person set out -- a ledger row the clerk opened with the host's `_generated` (§143.3,
+§143.6) -- is settled only by the dice, a clock, an arrival or a departure, or given up. On live table C3 the Keeper
 made "grab the telephone" `done` with a clue's `intent_ref` and a threat `done` with the intention variant, so the
 situation packet told the generator every turn that the telephone was dealt with and the same threat came back four
 times. Now `done` or `failed` on such a row by a write that is not the table's own and does not itself settle it is
-`invalid_params` with the ticket's `fix`; `abandoned` stays open (spec D7); a Keeper-written row keeps §138.2's rules.
+`invalid_params` with the ticket's `fix`; `abandoned` stays open (spec D7); a Keeper-written row keeps §142.2's rules.
 
 Knott is the person (the starter prints no numbers for him: the table pins an archetype first, §34.10).
 """
@@ -38,7 +38,7 @@ def ref_of(client, line):
 
 
 def table_act(client, call_id, line):
-    """The clerk's opener of a generated act bound `intention_only` (§139.3 write 1, the host's mark set)."""
+    """The clerk's opener of a generated act bound `intention_only` (§143.3 write 1, the host's mark set)."""
     client.table("apply", call_id=call_id, effects=[{"kind": "npc", "name": KNOTT, "intends": line, "outcome": "attempted", "_generated": True}])
     return ref_of(client, line)
 
@@ -114,7 +114,7 @@ def test_a_clock_an_arrival_and_a_departure_settle_a_table_act(knott):
 
 
 def test_the_tables_own_stance_write_settles_its_act_and_the_keepers_does_not(knott):
-    """The binding's `stance` way (§139.3) is the table's own write; the same effect from the Keeper is saying so."""
+    """The binding's `stance` way (§143.3) is the table's own write; the same effect from the Keeper is saying so."""
     glare = table_act(knott, "t1-c2", "诺特冷下脸来，盯着海斯不说话。")
     unsettled(knott.table_err("apply", call_id="t1-c3", effects=[{"kind": "npc", "name": KNOTT, "stance": "hostile", "intent_ref": glare, "intent_outcome": "done"}]),
               glare, "effects[0].intent_outcome")

@@ -288,8 +288,8 @@ export async function openTable({
 		// unavailable, so every table here gets a provider of its own that admits by default;
 		// a test about admission scripts its verdicts through `table.lanes.admission`.
 		PI_COC_ADMISSION_MODEL: "admission/a1",
-		// The NPC act generation (contract §139.2) runs on the hybrid engine for a person's own turn of a fight and for the
-		// people a declaration acts on (§139.4). It gets a provider of its own whose unscripted answer is not an act, so a
+		// The NPC act generation (contract §143.2) runs on the hybrid engine for a person's own turn of a fight and for the
+		// people a declaration acts on (§143.4). It gets a provider of its own whose unscripted answer is not an act, so a
 		// table whose subject is something else sees `bad_output` (the turn goes on to the Keeper) and never takes the
 		// Keeper's scripted replies; a test about the act scripts it through `table.lanes.npcAct` or a fixture port.
 		PI_COC_NPC_ACT_MODEL: "npcact/n1",

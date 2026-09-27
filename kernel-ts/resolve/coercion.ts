@@ -1,5 +1,5 @@
 /**
- * Contract §138.13: a person present uses Charm, Fast Talk, Intimidate or Persuade on an investigator.
+ * Contract §142.13: a person present uses Charm, Fast Talk, Intimidate or Persuade on an investigator.
  *
  * CoC 7e, "When Used on Player Characters": when one of these four skills is successfully used on an investigator, by
  * an NPC or another investigator, the player is not compelled to follow the wishes of the other party; if the player
@@ -58,7 +58,7 @@ export function spendCoercion(receipts: Row[], id: unknown, investigatorId: stri
 export function coercionStamp(shape: CoercionShape, difficulty: string, passed: boolean): Row {
     return {npc: shape.npc, investigator: string(shape.investigator.id), skill: shape.skill, difficulty, pressed: passed, rule: RULE};
 }
-/** Contract §138.13: the capsule's pressure rows for pressed coercions still unspent. */
+/** Contract §142.13: the capsule's pressure rows for pressed coercions still unspent. */
 export function coercionPressures(graph: ModuleGraph, receipts: Row[], party: Row[]): Row[] {
     return party.flatMap(sheet => openCoercions(receipts, string(sheet.id)).map(value => {
         const coercion = row(value.coercion), node = graph.actor(string(coercion.npc)), who = node ? graph.displayName(node) : string(coercion.npc);

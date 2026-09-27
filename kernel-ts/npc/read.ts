@@ -16,8 +16,8 @@ export async function npcViews(input:{campaign:string;graph:ModuleGraph;world:Ro
     const memory=withPromiseFulfillment(input.memory,{campaign:input.campaign,world,receipts:canonicalMemoryReceipts(records,array(turn.receipts))});
     const contextRevision=jsonDigest({campaign:input.campaign,world,turn});
     return Promise.all(nodes.map(async node=>{
-        // Contract §138.3: what this person already set out to do and where each stands, from the ledger. (The response
-        // bank this view also carried, §138.4, is retired: §139.6.)
+        // Contract §142.3: what this person already set out to do and where each stands, from the ledger. (The response
+        // bank this view also carried, §142.4, is retired: §143.6.)
         const entry=row(ledger[string(node.node_id)]);
         const projected=npcPerspective(graph,world,node,memory,records,scope);
         const tried=intentsView(entry);

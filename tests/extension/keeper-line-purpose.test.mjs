@@ -1,13 +1,13 @@
 /**
- * Contract §139.24 (docs/specs/npc-acts-first-tickets/25-the-keepers-added-lines-pass-the-same-gate.md; the spec's
+ * Contract §143.24 (docs/specs/npc-acts-first-tickets/25-the-keepers-added-lines-pass-the-same-gate.md; the spec's
  * section 九, table B2) through the product path: the hybrid engine's table on the emitted kernel, the kernel
  * extension's explicit narrate and implicit close, the real shared decision adapter behind a controlled typed endpoint
  * (`fetch` answers the pinned Jev URL the way the typed API does), and the fixture generation port.
  *
  * Table B2, turn 9: the table's act of Arty was a silent one (keys in his pocket, a hand on the light switch, a stare),
  * and the Keeper added a line of its own -- "yesterday's word stands: bring the papers" -- the same purpose a third time.
- * §139.5/§139.14 held only the generated act to "not the same thing twice". Now the lines the Keeper wraps in a
- * person's say token are asked §139.14's purpose question against that person's rows never carried out, once per
+ * §143.5/§143.14 held only the generated act to "not the same thing twice". Now the lines the Keeper wraps in a
+ * person's say token are asked §143.14's purpose question against that person's rows never carried out, once per
  * delivery; a row it names refuses the delivery once, with a fix that names the row, and the next delivery goes out.
  *
  * Whether a line is the same purpose is the model's judgement, not this file's: the endpoint's answers are scripted.
@@ -140,7 +140,7 @@ const shownText = (table) => (table.session.messages.filter((message) => message
 	.filter((block) => block.type === "text").map((block) => block.text).join("");
 const npcActRows = (table) => table.telemetry(CAMPAIGN).filter((row) => row.lane === "run" && row.event === "npc_act");
 
-/** The Keeper gives the papers row up (the overrule of §139.7): a function step, so it names the ref the ledger holds. */
+/** The Keeper gives the papers row up (the overrule of §143.7): a function step, so it names the ref the ledger holds. */
 const giveUp = (workspace) => () => fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name: "Arty Wilmot",
 	intent_ref: ledgerRef(workspace.path, PAPERS), intent_outcome: "abandoned", why: "他不再提纸的事，只按着灯等人走" }] })], { stopReason: "toolUse" });
 const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
@@ -167,13 +167,13 @@ test("B2 T9: a silent act this turn and the Keeper's added line asking for the p
 	assert.equal(npcAct.calls.length, 1);
 	assert.deepEqual(npcActRows(table).map((row) => [row.trigger, row.status, row.way, row.act]), [["engaged", "bound", "intention_only", SILENT]]);
 
-	// One batch per delivery: the first reads the added line against the papers row, by §139.14's own question.
+	// One batch per delivery: the first reads the added line against the papers row, by §143.14's own question.
 	assert.equal(asked.length, 2, "one batch for each of the two deliveries");
 	const [first] = asked;
 	assert.deepEqual(Object.keys(first.questions), ["same_1"]);
 	assert.equal(first.state.speakers.speaker_1.person, ARTY);
 	assert.deepEqual(first.state.speakers.speaker_1.act, ["「侦探执照。」", "「楼要锁了。昨天的话不变：带纸来，带人来，随你挑。」"], "his lines, from his say tokens");
-	assert.equal(first.questions.same_1.instructions.instruction, SAME_QUESTION.instructions, "the purpose question §139.14 asks of an act, word for word");
+	assert.equal(first.questions.same_1.instructions.instruction, SAME_QUESTION.instructions, "the purpose question §143.14 asks of an act, word for word");
 	assert.deepEqual(first.questions.same_1.criteria, { row_1: { intent: PAPERS, status: "attempted" }, none: SAME_QUESTION.none },
 		"only the row never carried out; this turn's silent act is what the prose renders");
 	assert.ok(!JSON.stringify(first.state).includes("按住电灯开关"), "no prose outside his lines is shown");

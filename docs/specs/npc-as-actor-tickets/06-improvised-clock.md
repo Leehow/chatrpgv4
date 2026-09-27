@@ -27,4 +27,4 @@ Spec: docs/specs/npc-as-actor.md（D4）；契约 §30.9
 
 ## Comments
 
-**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §138.9 with `length` for the clock's size (the ticket's `segments` keeps its meaning of how far to advance). Tests: `tests/kernel/test_table_clocks.py`; five mutations killed. Not used by the Keeper on either live table.
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §142.9 with `length` for the clock's size (the ticket's `segments` keeps its meaning of how far to advance). Tests: `tests/kernel/test_table_clocks.py`; five mutations killed. Not used by the Keeper on either live table.

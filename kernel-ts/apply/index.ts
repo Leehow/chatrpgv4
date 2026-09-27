@@ -261,7 +261,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     }
                     if (amounts)
                         stampBasis(receipt, bound);
-                    // §138.2: an effect that is the result of what someone set out to do says whose and which.
+                    // §142.2: an effect that is the result of what someone set out to do says whose and which.
                     if (effect.intent_ref != null && !isJsonObject(receipt.intent))
                         receipt.intent = await effectIntent(context, effect, `effects[${index}]`);
                     receipts.push(receipt);
@@ -352,9 +352,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 staged.index_scenes = [...new Set([...array(staged.index_scenes).filter(value => typeof value === 'string'), ...landedHere.map(entry => entry.focus)])];
             await commitInventorySheets(context,stagedSheets);
             await campaign.writeWorld(staged);
-            // §138.5: a person who spent their own turn of the fight on this batch's hold or intention passes it, once the
+            // §142.5: a person who spent their own turn of the fight on this batch's hold or intention passes it, once the
             // whole batch has landed -- a refused batch passes nothing. The writer already checked it is their turn.
-            // §139.3 (spec D9): a weapon a person in the running fight drew is in their hands there too.
+            // §143.3 (spec D9): a weapon a person in the running fight drew is in their hands there too.
             await armDrawn(context, receipts);
             const passedTurns: Row[] = [];
             for (const receipt of receipts)

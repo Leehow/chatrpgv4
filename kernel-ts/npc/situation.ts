@@ -1,11 +1,11 @@
 /**
- * Contract §139.1 (docs/specs/npc-acts-first.md D1, ticket 01): `npc.situation {campaign, name}` -- what one person
- * faces right now, for the step that generates what they do next (§139.2).
+ * Contract §143.1 (docs/specs/npc-acts-first.md D1, ticket 01): `npc.situation {campaign, name}` -- what one person
+ * faces right now, for the step that generates what they do next (§143.2).
  *
  * Facts only. Who they are is `npcPerspective`'s rows; what just happened to them is composed by code from the receipts
  * of this turn and the last; their body, their stance, what is at hand, what they already set out to do and how it went,
  * and what the book and the active Mods require of them; and, when `npc.stakes` rolled for them this turn, that die's
- * rung, outcome and degree line, and whether it allows a surprise with its permission line (§139.8, §139.19: read from
+ * rung, outcome and degree line, and whether it allows a surprise with its permission line (§143.8, §143.19: read from
  * its receipt, never rolled here). Nothing here reads what a line
  * means, chooses a verb from content or advises: each clause is worded by its receipt's kind and fields, and the
  * engine's closed words (a level, a combat action, a resource, a condition, a stance) are quoted as they are. Nothing is
@@ -41,7 +41,7 @@ const SENTENCE_MAX = 400, WHY_MAX = 160, ELLIPSIS = '...';
 const OPEN_STATES = ['open', 'acting'];
 
 // Absent is empty: `string()` renders null as Python's "None", which an opening turn with no player words once put in the
-// packet as the investigator's declaration (`declared: "None"`, found 2026-09-26 when §139.21's reading widened).
+// packet as the investigator's declaration (`declared: "None"`, found 2026-09-26 when §143.21's reading widened).
 const flat = (value: unknown): string => (value == null ? '' : string(value)).replace(/\s+/g, ' ').trim();
 function clip(value: unknown, max: number): string {
     const text = flat(value), points = Array.from(text);
@@ -67,8 +67,8 @@ export function personOf(graph: ModuleGraph, world: Row, node: Row): Person {
 }
 
 /**
- * §139.14: a receipt that settles one of this person's intentions `abandoned` says they gave it up -- the table's own
- * act repeated with no result (`why: repeated`, §139.5), or the Keeper's overrule (D7) -- so the next act is generated
+ * §143.14: a receipt that settles one of this person's intentions `abandoned` says they gave it up -- the table's own
+ * act repeated with no result (`why: repeated`, §143.5), or the Keeper's overrule (D7) -- so the next act is generated
  * knowing that thread was put down, not only that a row's status changed. Worded by the stamp's outcome, never by the
  * line's words; the line is quoted as it is.
  */
@@ -81,7 +81,7 @@ function gaveUp(receipt: Row, me: Person): string | null {
 
 /** The one clause a receipt of this person's contributes, or null when the receipt is not about them. */
 function clause(receipt: Row, me: Person, world: Row): string | null {
-    // The stakes die (§139.8) is not something done to or by this person; the packet carries it as `stakes`.
+    // The stakes die (§143.8) is not something done to or by this person; the packet carries it as `stakes`.
     if (isStakesRoll(receipt)) return null;
     const done = kindClause(receipt, me, world), gave = gaveUp(receipt, me);
     if (!gave) return done;
@@ -144,18 +144,18 @@ function kindClause(receipt: Row, me: Person, world: Row): string | null {
 }
 
 /**
- * §139.21 (ticket 22): what the host read about the player's words and this person -- the optional inputs of
+ * §143.21 (ticket 22): what the host read about the player's words and this person -- the optional inputs of
  * `npc.situation`. `addressed`: the declaration was said to them -- the scan passes false only when the compile named
  * someone else (as amended 2026-09-26: named, in the conversation, or acted on with no one named all hear it). `declaredBeforeMove`: the declaration was put before a move of this turn brought the
- * investigator to where they are, so it was said somewhere else. Absent, the declaration is theirs, as §139.1 had it.
- * §139.23 (ticket 24): `namedNoOne`: the compile named no one present (its addressee `none`, `unclear`, below the gate,
+ * investigator to where they are, so it was said somewhere else. Absent, the declaration is theirs, as §143.1 had it.
+ * §143.23 (ticket 24): `namedNoOne`: the compile named no one present (its addressee `none`, `unclear`, below the gate,
  * or no compile), so whether the words were said to this person is the generator's to judge; the declaration they
  * hear says it was said to no one by name.
  */
 export interface Heard { addressed?: boolean; declaredBeforeMove?: boolean; namedNoOne?: boolean }
 
 /**
- * The last `happened` item (§139.1, §139.21, §139.23), or null. The player's declaration when it was said to this
+ * The last `happened` item (§143.1, §143.21, §143.23), or null. The player's declaration when it was said to this
  * person -- `declared (to no one by name)` when the compile named no one present, so the generator judges whether it was
  * said to them; when it was said before a move brought the investigator here, one host sentence that the investigator
  * has just arrived (the words were said elsewhere, to someone else, and are not theirs); otherwise nothing -- the
@@ -197,13 +197,13 @@ export function happenedSentences(me: Person, world: Row, party: Row[], turn: Ro
     return sentences;
 }
 
-/** The committed turn records on the campaign's current line, and the newest of them before this turn (§139.23 moved it to
+/** The committed turn records on the campaign's current line, and the newest of them before this turn (§143.23 moved it to
  *  `read/exchange.ts`, which `table.status` reads it through too). */
 export {committedOnLine};
 
 /**
- * §139.20 (ticket 21): whether this person is in the conversation the investigators are having where they stand -- the
- * host's third trigger, beside a receipt done to them and the compile's addressee (§139.4). They took part in it on the
+ * §143.20 (ticket 21): whether this person is in the conversation the investigators are having where they stand -- the
+ * host's third trigger, beside a receipt done to them and the compile's addressee (§143.4). They took part in it on the
  * newest committed turn or earlier in this one: an act or an intention of theirs (a receipt whose `intent` names them --
  * the table's generated act, `act`, or anyone else's writing of what they set out to do, `intention`), or a spoken line
  * the delivery's speech markers attributed to them (the committed record's `speech`, `who.npc`, §40.3/§128 -- read by
@@ -232,7 +232,7 @@ export function conversationOf(graph: ModuleGraph, world: Row, me: Person, turn:
         });
         return by.size ? {turn: number(record.turn), order, by: [...by]} : null;
     };
-    // §139.23: the same "still where it closed" test `table.status`'s `last_exchange` reads.
+    // §143.23: the same "still where it closed" test `table.status`'s `last_exchange` reads.
     const stillThere = stillWhereItClosed(graph, world, previous) && array(row(previous!.world).present).some(name => me.is(name));
     return took(turn) ?? (stillThere ? took(previous!) : null);
 }
@@ -256,7 +256,7 @@ export function intentHistory(entry: Row): Row[] {
         .sort((a, b) => number(b.item.last_turn) - number(a.item.last_turn) || b.index - a.index).map(({item}) => item);
     return [...all.filter(item => !isSettled(item.status)), ...all.filter(item => isSettled(item.status))]
         .map(item => ({ref: item.ref, intent: item.text, status: item.status, since_turn: item.since_turn ?? null, turn: item.last_turn ?? null,
-            // §139.6: a row the table's own act opened says so, as the card does.
+            // §143.6: a row the table's own act opened says so, as the card does.
             ...(item.generated === true ? {by: 'table'} : {})}));
 }
 
@@ -274,7 +274,7 @@ export function stateOf(graph: ModuleGraph, world: Row, me: Person, session: Row
 function atHand(graph: ModuleGraph, world: Row, party: Row[], me: Person, place: Row | null): Row {
     const instances = values(row(row(world.objects).instances)).map(row);
     const profile = npcProfileOf(graph, world, me.handle);
-    // §139.19: a weapon the table's act of this person brought out (`world.npc_weapons`) is theirs with or without a stat
+    // §143.19: a weapon the table's act of this person brought out (`world.npc_weapons`) is theirs with or without a stat
     // block; with one, `npcProfileOf` already lays it over the profile's weapons.
     const drawn = profile ? [] : array(row(world.npc_weapons)[me.handle]).map(weapon => string(row(weapon).name || row(weapon).weapon_id));
     const holdings = once([
@@ -301,10 +301,10 @@ function atHand(graph: ModuleGraph, world: Row, party: Row[], me: Person, place:
 }
 
 /**
- * §139.29 (ticket 30, table D2: the copper badge brought out on turn 6 was shown again on turns 9, 14 and 15): what an
+ * §143.29 (ticket 30, table D2: the copper badge brought out on turn 6 was shown again on turns 9, 14 and 15): what an
  * earlier act of this person brought out that they still hold -- its name as `holdings` has it, the turn it came out,
  * and, when that act named its row, the row's `ref` and where it stands now (`status`, from `done` before any cut) -- so
- * the generation step, and the bind batch that carries `at_hand` (§139.5's `same`, §139.27's `produces_known`), read
+ * the generation step, and the bind batch that carries `at_hand` (§143.5's `same`, §143.27's `produces_known`), read
  * that showing it again is not something new. Read from what the writes recorded (`_draws` on the drawn weapon,
  * `_produces` on the instance's `brought_out`), never from a name. Newest first.
  */
@@ -344,10 +344,10 @@ function constraintsOf(graph: ModuleGraph, world: Row, party: Row[], me: Person,
 }
 
 /**
- * The budget (§139.1): while the packet is over `maxBytes`, cut in order -- constraints; at_hand's objects, exits,
- * brought_out (§139.29), holdings, present; the oldest `done` rows but never the newest (`history`); the oldest own utterances; the oldest
+ * The budget (§143.1): while the packet is over `maxBytes`, cut in order -- constraints; at_hand's objects, exits,
+ * brought_out (§143.29), holdings, present; the oldest `done` rows but never the newest (`history`); the oldest own utterances; the oldest
  * `happened` sentences but never the closing one (the player's declaration, or the arrival that stands in for it,
- * §139.21); who's relationships and commitments. Each section cut is named once in `truncated`, in the order cut.
+ * §143.21); who's relationships and commitments. Each section cut is named once in `truncated`, in the order cut.
  */
 export function fitSituation(packet: Row, maxBytes: number, declared: boolean): void {
     const truncated: string[] = packet.truncated, over = () => jsonSize(packet) > maxBytes;
@@ -363,7 +363,7 @@ export function fitSituation(packet: Row, maxBytes: number, declared: boolean): 
 }
 
 /**
- * §139.8: whether the book prepared this person's reaction -- a stated obligation of their scene, not yet settled or
+ * §143.8: whether the book prepared this person's reaction -- a stated obligation of their scene, not yet settled or
  * waived, whose `who` is this person and whose reaction the book preordains (`reaction: "preordained"`, §134.5). The
  * only thing that keeps the stakes die from rolling. A Mod's first-contact row and an obligation that is plot rather
  * than a reaction stay in `constraints` for the generator and prepare nothing.
@@ -374,7 +374,7 @@ export function preordainedReaction(named: Row[], me: Person): boolean {
 
 /**
  * Where this person is placed, the rows the book and the active Mods hold for them now (the packet's `constraints`),
- * and whether one of them is a reaction the book preordains (`prepared`, §139.8). One computation for the packet and
+ * and whether one of them is a reaction the book preordains (`prepared`, §143.8). One computation for the packet and
  * for the stakes die.
  */
 export async function placedConstraints(context: KernelContext, campaign: CampaignSnapshot, graph: ModuleGraph, me: Person): Promise<{place: Row | null; constraints: string[]; prepared: boolean}> {
@@ -386,7 +386,7 @@ export async function placedConstraints(context: KernelContext, campaign: Campai
     return {place, constraints: constraintsOf(graph, world, party, me, place, named, active), prepared: preordainedReaction(named, me)};
 }
 
-/** This turn's stakes receipt for this person, as the generation step reads it (§139.8); null when none was rolled. */
+/** This turn's stakes receipt for this person, as the generation step reads it (§143.8); null when none was rolled. */
 export function stakesOf(turn: Row, me: Person): Row | null {
     const receipt = array(turn.receipts).map(row).find(value => isStakesRoll(value) && me.is(value.actor));
     return receipt ? stakesView(receipt) : null;
@@ -407,7 +407,7 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
         'npc.situation': async params => {
             if (typeof params.name !== 'string' || !params.name.trim())
                 throw new RpcError('invalid_params', 'params.name must be a non-empty string', {details: {field: 'name'}});
-            // §139.21, §139.23: what the host read about the player's words and this person, all optional booleans.
+            // §143.21, §143.23: what the host read about the player's words and this person, all optional booleans.
             for (const field of ['addressed', 'declared_before_move', 'named_no_one'])
                 if (params[field] != null && typeof params[field] !== 'boolean')
                     throw new RpcError('invalid_params', `params.${field} is true, false or absent`, {details: {field}});
@@ -428,7 +428,7 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             const {place, constraints} = await placedConstraints(context, campaign, graph, me);
             const happened = happenedSentences(me, world, party, turn, previous, heard);
             const done = intentHistory(entryNow(graph, ledger, table, turn, node));
-            // §139.29: what an earlier act of theirs brought out, present only when there is something.
+            // §143.29: what an earlier act of theirs brought out, present only when there is something.
             const brought = broughtOut(world, me, done);
             const packet: Row = {
                 npc: {handle: me.handle, name: graph.displayName(node)},

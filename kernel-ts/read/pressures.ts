@@ -105,7 +105,7 @@ export function bookAdvances(graph: ModuleGraph, record: Row): string | null {
     });
     return lines.length ? lines.join("; ") : null;
 }
-/** Contract §138.9: the clocks this table started, `world.table_threats`: `{<handle>: {name, length, on_full, minted_turn, why}}`. */
+/** Contract §142.9: the clocks this table started, `world.table_threats`: `{<handle>: {name, length, on_full, minted_turn, why}}`. */
 export function tableThreats(world: Row): Row[] {
     return entries(row(world.table_threats)).map(([handle, value]) => ({ ...row(value), handle }));
 }
@@ -115,7 +115,7 @@ export function tableThreatSegment(world: Row, handle: string): number {
 }
 export function threatPressures(graph: ModuleGraph, world: Row, scene: Row, present: Row[]): Row[] {
     const moves = array(recordOf(scene).pressure_moves).map(string);
-    // §138.9: a clock of this table presses wherever the table is until it is full; its name is how it is advanced.
+    // §142.9: a clock of this table presses wherever the table is until it is full; its name is how it is advanced.
     const minted = tableThreats(world).filter(value => tableThreatSegment(world, string(value.handle)) < number(value.length)).map(value => ({
         kind: "threat", name: string(value.name), state: `${tableThreatSegment(world, string(value.handle))}/${string(value.length)}`, minted: true, on_full: string(value.on_full)
     }));

@@ -1,5 +1,5 @@
 /**
- * Contract §138.7: the intentions a delivery owes a result for. Someone present set out to do something on an earlier
+ * Contract §142.7: the intentions a delivery owes a result for. Someone present set out to do something on an earlier
  * turn, it is still under way, and no receipt of this turn reports how it went. Structure only: a ref, a status and a
  * turn number; nothing reads the prose, so "the Keeper wrote about it" and "the Keeper recorded it" are not confused.
  */

@@ -101,7 +101,7 @@ def test_combat_against_corbitt_with_the_revolver(tmp_path):
         assert logged[f"delta:armor-t1-c{n + 1}"]["resource"] == "armor"
         assert defend["session"]["turn_of"] == CORBITT and defend["session"]["pending_defense"] is None
         assert defend["pending_choice"] is None
-        # §138.10: an NPC's own turn issues flee too.
+        # §142.10: an NPC's own turn issues flee too.
         assert [a["decision"] for a in defend["session"]["actions"]] == ["combat:attack", "combat:maneuver", "combat:flee", "combat:end"]
         events = read_jsonl(campaign_dir(client.workspace) / "events.jsonl")
         settled = [e for e in events if e["type"] == "decision-settled"][-1]
@@ -291,7 +291,7 @@ def test_combat_end_by_the_keeper(seeded_kernel):
 # ---- flee and chase ---------------------------------------------------------------------------
 
 def test_flee_ends_the_fight_and_the_pursuers_chase_runs_to_its_end(tmp_path):
-    """§139.9 (2026-09-26): the flight ends the fight and starts nothing; the chase is Corbitt's own `chase:start` as
+    """§143.9 (2026-09-26): the flight ends the fight and starts nothing; the chase is Corbitt's own `chase:start` as
     the pursuer. Before, the flight executed `chase:start` as its continuation in the same call, so a pursuit nobody
     had decided on was rolled (table npc-actor-gate-a, turn 12)."""
     client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "9"})

@@ -1,9 +1,9 @@
 /**
- * Contract §139.18 (docs/specs/npc-acts-first-tickets/19-keeper-turns-a-demand-into-a-blow.md): the Keeper's own fight
+ * Contract §143.18 (docs/specs/npc-acts-first-tickets/19-keeper-turns-a-demand-into-a-blow.md): the Keeper's own fight
  * action for the investigator goes through action admission, against the player's own words.
  *
  * Live table C4 (`npc-acts-c4`), turn 8, run `run-01a0de09-…`: in a running fight, on the investigator's turn, the player
- * said 「钱呢？你说的二十块，现在就给我。」. The compile read `act` `none` 0.91 (cleared) and the clerk threw nothing (§139.16).
+ * said 「钱呢？你说的二十块，现在就给我。」. The compile read `act` `none` 0.91 (cleared) and the clerk threw nothing (§143.16).
  * The Keeper resolved `combat:maneuver` with the demand as its goal, the kernel refused it and its fix said to resolve the
  * attack instead, and the Keeper's `combat:attack` (actor `thomas-hayes`) rolled -- with no admission row that turn. Why
  * none: admission read `action.actor` against the investigators' *names* only, so the sheet's handle, which the kernel takes
@@ -39,7 +39,7 @@ function kernelSteps(workspace, campaign, requests) {
 	return frames;
 }
 
-/** §139.16's fixture: Knott dodged the punch and held, so the player speaks on the investigator's own turn of the fight. */
+/** §143.16's fixture: Knott dodged the punch and held, so the player speaks on the investigator's own turn of the fight. */
 const hayesTurn = (campaign) => (workspace) => kernelSteps(workspace, campaign, [
 	["table.open", {}], ["table.player_input", { text: "我揍他" }],
 	["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: "Steven Knott", archetype: "ordinary_adult", why: "test fixture" }] }],
@@ -111,7 +111,7 @@ const investigatorBlows = (table) => table.mechanics().filter((payload) => paylo
 const combatSettled = (table) => table.telemetry(CAMPAIGN).filter((row) => row.turn === 2 && row.tool === "resolve" && row.ok === true && row.outcome_kind === "combat");
 const refusalReason = (result) => result?.details?.coc_error?.details?.reason;
 
-test("§139.18 (C4 T8 replay): the demand read as no fight action -- the Keeper's manoeuvre and then its attack are refused not_authorized on the compile's evidence, no lane call, no Fighting roll", async (t) => {
+test("§143.18 (C4 T8 replay): the demand read as no fight action -- the Keeper's manoeuvre and then its attack are refused not_authorized on the compile's evidence, no lane call, no Fighting roll", async (t) => {
 	const { table, calls } = await fightTable(t, {
 		// The live compile row: act none 0.91 (none 0.93 / unclear 0.07), target none 0.55.
 		decide: fightTurnPort({ act: ["none", 0.91, { none: 0.93, unclear: 0.07 }], target: ["none", 0.55, { none: 0.7, unclear: 0.13 }] }),
@@ -148,7 +148,7 @@ test("§139.18 (C4 T8 replay): the demand read as no fight action -- the Keeper'
 	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "narrate")?.isError, false, "the Keeper closed the turn in the fiction");
 });
 
-test("§139.18: the demand whose act does not clear (none 0.50) -- the Keeper's attack by the sheet's handle is reviewed by the lane, and its refusal stands", async (t) => {
+test("§143.18: the demand whose act does not clear (none 0.50) -- the Keeper's attack by the sheet's handle is reviewed by the lane, and its refusal stands", async (t) => {
 	const { table, calls } = await fightTable(t, {
 		decide: fightTurnPort({ act: ["none", 0.5, { none: 0.5, act_1: 0.3, unclear: 0.2 }], target: ["unclear", 0.5] }),
 		responses: [keeper(fauxToolCall("resolve", { action: ATTACK })), keeper(fauxToolCall("narrate", { text: HANDS_UP }))],
@@ -160,14 +160,14 @@ test("§139.18: the demand whose act does not clear (none 0.50) -- the Keeper's 
 	const [attack] = keeperResolves(calls);
 	assert.equal(refusalReason(resultOf(calls, attack)), "action_not_authorized");
 	const [row] = admissionRows(table);
-	assert.deepEqual([row.verdict, row.path, row.origin], ["not_authorized", "lane", "model"], "reviewed: before §139.18 this call had no row at all");
+	assert.deepEqual([row.verdict, row.path, row.origin], ["not_authorized", "lane", "model"], "reviewed: before §143.18 this call had no row at all");
 	assert.equal(row.fight_act, undefined, "no typed evidence: the act did not clear");
 	assert.equal(table.lanes.admission.requests().length, 1);
 	assert.ok(JSON.stringify(table.lanes.admission.requests()[0]).includes(DEMAND), "reviewed against the player's own words");
 	assert.deepEqual(investigatorBlows(table), [], "no Fighting roll landed");
 });
 
-test("§139.18 (C4 T7/T10's words): \"我又是一拳。\" -- act combat:attack cleared; the Keeper's own attack is reviewed by the lane, admitted, and the Fighting roll lands", async (t) => {
+test("§143.18 (C4 T7/T10's words): \"我又是一拳。\" -- act combat:attack cleared; the Keeper's own attack is reviewed by the lane, admitted, and the Fighting roll lands", async (t) => {
 	const { table, calls } = await fightTable(t, {
 		// The compile reads the punch; the route's need says later, so the attack is the Keeper's to resolve this time.
 		decide: fightTurnPort({ act: ["combat:attack", 1], target: ["unclear", 0.41] }),
@@ -186,7 +186,7 @@ test("§139.18 (C4 T7/T10's words): \"我又是一拳。\" -- act combat:attack 
 	assert.equal(investigatorBlows(table).length, 1, "the investigator's Fighting roll landed");
 });
 
-test("§139.18 pure: the fight act a resolve proposes, the compile's act record, and the refusal on it", () => {
+test("§143.18 pure: the fight act a resolve proposes, the compile's act record, and the refusal on it", () => {
 	assert.equal(proposedFightAct("resolve", { action: { decision: "combat:attack" } }, false), "combat:attack");
 	assert.equal(proposedFightAct("resolve", { action: { decision: "decision:coc7:combat:maneuver" } }, false), "combat:maneuver");
 	assert.equal(proposedFightAct("resolve", { action: { intent: "combat", target: "x" } }, false), "combat:attack", "the kernel's default for intent combat");

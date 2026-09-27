@@ -1,11 +1,11 @@
 /**
- * The Keeper's added lines pass the same gate (contract §139.24; docs/specs/npc-acts-first-tickets/
+ * The Keeper's added lines pass the same gate (contract §143.24; docs/specs/npc-acts-first-tickets/
  * 25-the-keepers-added-lines-pass-the-same-gate.md, the spec's record of live table B2).
  *
- * §139.5 and §139.14 keep the table's generated act of a person from being the same thing twice, judged by purpose
+ * §143.5 and §143.14 keep the table's generated act of a person from being the same thing twice, judged by purpose
  * whatever the hands do and whatever the words. The lines the Keeper gives that person in the prose never met that
  * gate: at table B2, turn 9, the generated act was a silent one and the Keeper added "yesterday's word stands: bring
- * the papers", the same purpose a third time. This family asks, at delivery, the question §139.14 asks of an act --
+ * the papers", the same purpose a third time. This family asks, at delivery, the question §143.14 asks of an act --
  * built by the same `sameQuestion`, the same instructions -- of what each person says aloud in the delivery: which of
  * their rows that were never carried out (under way from an earlier turn, or given up) it is the same thing as, or none.
  *
@@ -25,7 +25,7 @@ import type {TaskLease} from './task-context.ts';
 
 export const KEEPER_LINE_FAMILY = 'keeper-line-purpose';
 export const KEEPER_LINE_VERSION = '1';
-/** The gate §139.5's `same` answer is read under (§135.2's, the clerk's `DEFAULT_CONFIDENCE_GATE`): the same question, the same gate. */
+/** The gate §143.5's `same` answer is read under (§135.2's, the clerk's `DEFAULT_CONFIDENCE_GATE`): the same question, the same gate. */
 export const KEEPER_LINE_GATE = DEFAULT_CONFIDENCE_GATE;
 /** People one delivery asks about, and lines of each person shown; the rest are not asked (never refused). */
 export const KEEPER_LINE_MAX_PEOPLE = 8;
@@ -69,7 +69,7 @@ export function askedPeople(input: KeeperLineInput): KeeperLinePerson[] {
 
 /**
  * The one batch for a delivery: one state naming each speaker and what they say (their act), and per speaker the purpose
- * question of §139.14 over that person's rows (`sameQuestion`, the wording the table's own act is asked with).
+ * question of §143.14 over that person's rows (`sameQuestion`, the wording the table's own act is asked with).
  */
 export function keeperLineBatch(input: KeeperLineInput, bindings = keeperLineBindings(input)): DecisionBatch {
   const people = askedPeople(input);
@@ -88,7 +88,7 @@ export function keeperLineBatch(input: KeeperLineInput, bindings = keeperLineBin
 }
 
 /**
- * The answer read under the §135.2 gates (the gate §139.5's `same` is read under). A row that clears is a hit; `none`,
+ * The answer read under the §135.2 gates (the gate §143.5's `same` is read under). A row that clears is a hit; `none`,
  * `unknown` or an answer below the gate is not. An incomplete result, or a question with no typed answer, is a fallback
  * for the whole batch: nothing is named, so nothing is refused.
  */

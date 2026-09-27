@@ -1,21 +1,21 @@
 /**
- * Contract §139.8 (docs/specs/npc-acts-first.md D9, ticket 09): the stakes die. `npc.stakes {campaign, name}` is a
- * host-only write the act step calls once per person per turn, before it generates what that person does (§139.2).
+ * Contract §143.8 (docs/specs/npc-acts-first.md D9, ticket 09): the stakes die. `npc.stakes {campaign, name}` is a
+ * host-only write the act step calls once per person per turn, before it generates what that person does (§143.2).
  *
  * The owner's words: where nothing is prepared, the table may roll for how far a person goes; a high roll can make
  * him do something far more dangerous than before. "Nothing prepared" is structural: no stated obligation of his scene
- * preordains his reaction (`preordainedReaction`, from the same rows as the packet's `constraints`, §139.1). Then a
+ * preordains his reaction (`preordainedReaction`, from the same rows as the packet's `constraints`, §143.1). Then a
  * rung is read from the ruleset table `npc-stakes.json` (base from his combat disposition, else the archetype the
  * table pinned for him, else the table's default; moved by the table's shifts; clamped to its ends), 1d100 is rolled
  * on the kernel's seeded die, and a keeper-visible `roll` receipt of family `stakes` goes into the open turn. The
  * player is never told the die was rolled (§16.5, `visibility: keeper`); the Keeper sees the receipt; the generation
  * step reads only `{rung, outcome, line, surprise, surprise_line}` through the situation packet, never a threshold.
  *
- * Spec D10 (ticket 20, §139.19): the same roll, at most the rung's `surprise_at_most`, is a surprise -- this person may
+ * Spec D10 (ticket 20, §143.19): the same roll, at most the rung's `surprise_at_most`, is a surprise -- this person may
  * bring out something no one at the table knew they had. The table gives the permission as a line (`lines.surprise`, or
  * `lines.severe_surprise` on a severe roll): a permission and its degree, never an object.
  *
- * Ticket 27 (§139.26): a person being fought is not calm between blows. Two more structural shifts -- a fight running
+ * Ticket 27 (§143.26): a person being fought is not calm between blows. Two more structural shifts -- a fight running
  * with them and an investigator among its participants, and last turn's attack or damage against them (the newest
  * committed turn, read by the same predicate as this turn's). With `attacked_this_turn` they are one dimension, violence
  * toward this person: the table groups them (`shift_groups`, a shift's `group`), and a group moves the rung once, by the
@@ -48,11 +48,11 @@ const FILE = 'npc-stakes.json', CONTRACT = 'coc.npc-stakes.v1';
 const OPEN_STATES = ['open', 'acting'];
 /**
  * The lines a rung carries: the degree of the two outcomes that have one (`nothing` has none), and the permission of a
- * surprise (§139.19) -- its own, and the one a severe roll gives.
+ * surprise (§143.19) -- its own, and the one a severe roll gives.
  */
 const LINED = ['severe', 'escalates', 'surprise', 'severe_surprise'] as const;
 const RUNG_KEYS = ['name', 'severe_at_most', 'escalates_at_most', 'surprise_at_most', 'lines', 'note'];
-/** The three columns of a rung; each one rises (or stays) from a rung to the next (§139.19). */
+/** The three columns of a rung; each one rises (or stays) from a rung to the next (§143.19). */
 const COLUMNS = ['severe_at_most', 'escalates_at_most', 'surprise_at_most'] as const;
 /**
  * The shifts the kernel can read, each with the one parameter its comparison takes (null: none). Closed, like the
@@ -69,13 +69,13 @@ const SHIFT_PARAMETERS: Readonly<Record<string, string | null>> = Object.freeze(
 
 const tableError = (message: string, details: Row = {}) => new RpcError('campaign_not_ready', `npc-stakes: ${message}`,
     {fix: `restore content/rulesets/coc7/rules-json/${FILE}`, details});
-/** §139.26: a group needs at least two shifts to mean anything; one alone is a malformed group. */
+/** §143.26: a group needs at least two shifts to mean anything; one alone is a malformed group. */
 const GROUP_MIN_SHIFTS = 2;
 /** A number from 0 to 1 as the table's JSON reads it (a decimal arrives as the kernel's Python float). */
 const fraction = (value: unknown): boolean => numeric(value) && Number(value) >= 0 && Number(value) <= 1;
 
 /**
- * The stakes table, checked whole (§139.8): a rung the die cannot read, a base naming no rung, or a shift the kernel
+ * The stakes table, checked whole (§143.8): a rung the die cannot read, a base naming no rung, or a shift the kernel
  * cannot compare is refused before anything is rolled.
  */
 export async function stakesTable(context: KernelContext): Promise<Row> {
@@ -94,10 +94,10 @@ export async function stakesTable(context: KernelContext): Promise<Row> {
         // 1d100: `severe` at most `escalates`, both on the die's faces, and `severe` never certain (spec D9: no rung is sure death).
         if (!Number.isInteger(severe) || !Number.isInteger(escalates) || severe < 0 || severe > escalates || escalates > 100 || severe >= 100)
             throw tableError('a rung reads 1d100: 0 <= severe_at_most <= escalates_at_most <= 100, and severe_at_most below 100', {rung: name});
-        // §139.19: the surprise column reads the same die on its own; it need not sit between the other two.
+        // §143.19: the surprise column reads the same die on its own; it need not sit between the other two.
         if (!Number.isInteger(surprise) || surprise < 0 || surprise > 100)
             throw tableError('a rung reads 1d100 for a surprise too: surprise_at_most is an integer from 0 to 100', {rung: name});
-        // Every column rises with the rung (§139.19): a higher rung is never less likely to go further, or to surprise.
+        // Every column rises with the rung (§143.19): a higher rung is never less likely to go further, or to surprise.
         const fallen = previous ? COLUMNS.filter(column => rung[column] < previous![column]) : [];
         if (fallen.length)
             throw tableError('rungs run from the least dangerous to the most: no column falls from one rung to the next', {rung: name, after: previous!.name, columns: fallen});
@@ -121,7 +121,7 @@ export async function stakesTable(context: KernelContext): Promise<Row> {
     const shifts = table.shifts;
     if (!isJsonObject(shifts))
         throw tableError('shifts is an object of the shifts the kernel reads', {options: Object.keys(SHIFT_PARAMETERS)});
-    // §139.26: the groups a shift may name, each with its English note; a group is declared before it is named.
+    // §143.26: the groups a shift may name, each with its English note; a group is declared before it is named.
     const groups = table.shift_groups ?? {};
     if (!isJsonObject(groups) || Object.entries(groups).some(([name, note]) => !name.trim() || typeof note !== 'string' || !note.trim()))
         throw tableError('shift_groups maps a group name to its note', {shift_groups: table.shift_groups ?? null});
@@ -162,7 +162,7 @@ function baseRung(graph: ModuleGraph, world: Row, handle: string, table: Row): R
 }
 
 /**
- * Whether among these receipts (this turn's; §139.26 also last turn's) an attack roll was made against this person (a
+ * Whether among these receipts (this turn's; §143.26 also last turn's) an attack roll was made against this person (a
  * combat roll whose `combat_action` is `attack` and whose `npc`, the person it was made against, is them) or they lost
  * hit points (an `hp` delta whose `after` is below its `before`). Structure only.
  */
@@ -178,7 +178,7 @@ export function attackedThisTurn(receipts: Row[], me: Person): boolean {
     });
 }
 
-/** Every threat clock of this table as [where it stands, its segments]: the book's (§136.18) and the table's own (§138.9). */
+/** Every threat clock of this table as [where it stands, its segments]: the book's (§136.18) and the table's own (§142.9). */
 function tableClocks(graph: ModuleGraph, world: Row): Array<[number, number]> {
     const book = graph.kind('threat').flatMap(threat => array(recordOf(threat).clocks).filter(isJsonObject)
         .map(clock => [clockSegment(world, graph.handle(threat), clock), Math.trunc(number(clock.segments ?? 0))] as [number, number]));
@@ -187,7 +187,7 @@ function tableClocks(graph: ModuleGraph, world: Row): Array<[number, number]> {
 }
 
 /**
- * §139.26: whether a fight is running with this person and an investigator among its participants -- the active session
+ * §143.26: whether a fight is running with this person and an investigator among its participants -- the active session
  * is a combat, they are a participant (by handle, as the packet's `state.in_session` reads it) and so is someone of the
  * party. Their side, their turn and whether anyone struck them do not matter: being in the fight is the fact.
  */
@@ -219,7 +219,7 @@ function shiftHolds(name: string, shift: Row, facts: StakesFacts): boolean {
 }
 
 /**
- * The move of the shifts that hold (§139.26): a shift of no group adds its step; the shifts of one group add once, the
+ * The move of the shifts that hold (§143.26): a shift of no group adds its step; the shifts of one group add once, the
  * largest step among those that hold (the table's check keeps a group's steps all one way, so it is the largest in size).
  */
 export function shiftMove(table: Row, holding: string[]): number {
@@ -250,7 +250,7 @@ export function stakesOutcome(rung: Row, roll: number): string {
     return roll <= number(rung.severe_at_most) ? 'severe' : roll <= number(rung.escalates_at_most) ? 'escalates' : 'nothing';
 }
 
-/** §139.19: the same roll at most `surprise_at_most` lets this person bring out something no one knew they had. */
+/** §143.19: the same roll at most `surprise_at_most` lets this person bring out something no one knew they had. */
 export function stakesSurprise(rung: Row, roll: number): boolean {
     return roll <= number(rung.surprise_at_most);
 }
@@ -268,7 +268,7 @@ async function factsOf(context: KernelContext, campaign: CampaignSnapshot, graph
     const view = new SessionView(campaign, graph, party, world), session = view.activeSession();
     const state = stateOf(graph, world, me, session, stance);
     const hp = typeof state.hp === 'number' ? state.hp : null, hpMax = typeof state.hp_max === 'number' ? state.hp_max : null;
-    // §139.26: last turn is the newest committed turn before this one on the campaign's line, the record the situation's
+    // §143.26: last turn is the newest committed turn before this one on the campaign's line, the record the situation's
     // `happened` reads its earlier sentences from.
     const {previous} = committedOnLine(campaign);
     return {attacked: attackedThisTurn(array(turn.receipts), me), attackedLast: previous !== null && attackedThisTurn(array(previous.receipts), me),
@@ -289,7 +289,7 @@ export function createStakesHandlers(context: KernelContext, writer: ReturnType<
             const existing = array(turn.receipts).map(row).find(receipt => isStakesRoll(receipt) && me.is(receipt.actor));
             if (existing)
                 return {stakes: stakesView(existing)};
-            // Prepared means the book preordains this person's reaction (§139.8), not any row of `constraints`.
+            // Prepared means the book preordains this person's reaction (§143.8), not any row of `constraints`.
             if ((await placedConstraints(context, campaign, graph, me)).prepared)
                 return {stakes: null, reason: 'prepared'};
             const table = await stakesTable(context), base = baseRung(graph, world, me.handle, table);

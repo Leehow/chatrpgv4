@@ -1,15 +1,15 @@
-"""Contract §139.3 (docs/specs/npc-acts-first.md D3, ticket 03), over the emitted kernel.
+"""Contract §143.3 (docs/specs/npc-acts-first.md D3, ticket 03), over the emitted kernel.
 
 `npc.act.options {campaign, name, act?, produce?}` lists the ways the kernel can settle what this person does right now,
 each with the closed options of its parameters, all from data the kernel already holds. Outside a fight there is no
 attack and no flight (the first blow is how a person opens one); on their own turn of a fight the attack's targets are
 only the opponents the running fight lists. `acted_on` is this turn's receipts that were done to them; `act` is the
 identity of a generated line as one of their intentions; `produce` (asked only when a surprise of the stakes die let the
-act bring something out, §139.19 -- it replaces D9's weapons-only `draw`) lists the rulebook's price list of the module's
+act bring something out, §143.19 -- it replaces D9's weapons-only `draw`) lists the rulebook's price list of the module's
 era, weapons marked with their profile.
 
 Knott is the ticket's person (the starter prints no numbers for him: the table pins an archetype, §34.10). With seed 1
-the investigator's punch lands and it is Knott's turn in the fight afterwards (the §139.1 fixture's shape).
+the investigator's punch lands and it is Knott's turn in the fight afterwards (the §143.1 fixture's shape).
 """
 
 import json
@@ -64,12 +64,12 @@ def test_outside_a_fight_there_is_no_attack_and_no_flight_the_first_blow_is_how_
     assert result["in_session"] is False and result["my_turn"] is False
     found = ways(result)
     assert "attack" not in found and "flee" not in found, found.keys()
-    assert values(found["first_blow"], "target") == [INVESTIGATOR], "only the investigator can take a first blow (§138.11)"
+    assert values(found["first_blow"], "target") == [INVESTIGATOR], "only the investigator can take a first blow (§142.11)"
     assert "unarmed" in values(found["first_blow"], "weapon")
     # His own skills, from the pinned archetype's numbers (a label carries the value), and the rule's four social skills.
     skills = values(found["check"], "skill")
     assert skills and all(isinstance(value, str) for value in skills)
-    assert sorted(values(found["coercion"], "skill")) == ["Charm", "Fast Talk", "Intimidate", "Persuade"], "the rule's four (§138.13)"
+    assert sorted(values(found["coercion"], "skill")) == ["Charm", "Fast Talk", "Intimidate", "Persuade"], "the rule's four (§142.13)"
     assert values(found["coercion"], "investigator") == [INVESTIGATOR]
     assert "leave" in found and "stance" in found
     assert list(found)[-1] == "intention_only", "every act has somewhere to go"
@@ -127,7 +127,7 @@ def test_the_act_is_an_intention_of_his_the_same_line_under_way_continues_it_a_s
 
 
 def test_the_produce_list_is_the_price_list_of_the_modules_era_and_only_when_asked(knott):
-    """§139.19: every record the book prices for the era, by its price_id and the book's name; a weapon record carries
+    """§143.19: every record the book prices for the era, by its price_id and the book's name; a weapon record carries
     its weapons.json profile, which is what the fight draws."""
     pinned(knott)
     assert "produce" not in options(knott) and "draw" not in options(knott)
@@ -157,7 +157,7 @@ def test_refusals(knott):
 
 
 def test_an_attack_waiting_for_its_defence_carries_its_intention_stamp_to_the_defence_roll(knott):
-    """§139.3: the first blow at an investigator waits for their defence and rolls in the defence call; the stamp of the
+    """§143.3: the first blow at an investigator waits for their defence and rolls in the defence call; the stamp of the
     act it settles waits with it (never on the fight snapshot, whose contract admits no extra key) and lands on the
     attacker's graded roll there -- done when it hit, failed when it did not."""
     pinned(knott)
@@ -183,7 +183,7 @@ def test_the_generated_mark_is_true_or_absent(knott):
 
 
 def test_a_person_the_flight_rules_block_is_not_offered_flee(knott):
-    """§139.9 through §139.3: the ruleset's `flee_blocked_by` (a held person) keeps `flee` out of the ways, as it keeps
+    """§143.9 through §143.3: the ruleset's `flee_blocked_by` (a held person) keeps `flee` out of the ways, as it keeps
     `combat:flee` out of the session view; free again, the way is back."""
     knotts_turn(knott)
     path = campaign_dir(knott.workspace) / "save" / "combat.json"
@@ -198,7 +198,7 @@ def test_a_person_the_flight_rules_block_is_not_offered_flee(knott):
 
 
 # ---------------------------------------------------------------------------------------------------
-# §139.20 (ticket 21, live table B): `conversation` -- whether they took part in the exchange where the investigators
+# §143.20 (ticket 21, live table B): `conversation` -- whether they took part in the exchange where the investigators
 # stand, on the newest committed turn or earlier in this one. Structure only: a spoken line the speech markers
 # attributed to them, an act or an intention of theirs; the newest committed turn counts while its scene is still the
 # active one and they were among its `present`.

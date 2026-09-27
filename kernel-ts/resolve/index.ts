@@ -342,9 +342,9 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
             const sessions = new SessionView(snapshot, graph, snapshot.party, transaction.world);
             const actor = resolveActor(snapshot.party, graph, sessions, action);
             refuseIncapacitated(actor, action);
-            // Contract §138.2: the roll is the result of what someone set out to do. Checked before any die is thrown.
+            // Contract §142.2: the roll is the result of what someone set out to do. Checked before any die is thrown.
             const stampIntent = await planRollIntent({ kernel, campaign: transaction.campaign, graph, world: transaction.world, turn: transaction.turn }, action);
-            // §139.3: a defence settles the attack it answers; that attack's intention stamp waited for this call.
+            // §143.3: a defence settles the attack it answers; that attack's intention stamp waited for this call.
             const answering = action.defense != null && sessions.combat?.status === 'active' ? row(sessions.combat.pending_attack) : null;
             // Contract §134.17: an investigator's ordinary check that fits one open obligation's check is its attempt.
             // Found here, before the roll; applied only if the decision the pipeline settles is the ordinary check.
@@ -373,7 +373,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 claim = continuedClaim(graph, claim, sourceReceipt);
                 ruleClaim = continuedRule(graph, ruleClaim, sourceReceipt);
             }
-            // Contract §138.13: a person present presses an investigator with a social skill -- the opposing skill sets the
+            // Contract §142.13: a person present presses an investigator with a social skill -- the opposing skill sets the
             // difficulty -- or a coerced investigator's roll carries the penalty die their refusal owed.
             const pressure = coercionShape(snapshot.party, graph, actor.actingId, string(actor.actor.id), action);
             let pressureDifficulty = 'regular', spent: Row | null = null;
@@ -421,7 +421,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                 }
             }
             if (stampIntent && stampIntent.stamp(context.receipts) !== 'roll') {
-                // Nothing graded yet: an attack waiting for its defence rolls in that call, and its stamp waits with it (§139.3).
+                // Nothing graded yet: an attack waiting for its defence rolls in that call, and its stamp waits with it (§143.3).
                 const combat = row(await context.readSave('combat.json').catch(() => null)), pending = row(combat.pending_attack);
                 if (combat.status === 'active' && pending.actor_id === actor.actingId && typeof pending.attack_command_id === 'string')
                     await carryAttackIntent(context, pending.attack_command_id, stampIntent.carried);

@@ -1,4 +1,4 @@
-"""Contract §138.12 (docs/specs/npc-as-actor.md ticket 08), over the emitted kernel.
+"""Contract §142.12 (docs/specs/npc-as-actor.md ticket 08), over the emitted kernel.
 
 What an NPC carries is theirs in a fight. The spec's appendix A read this as a gap; on this line it is not: the managed
 object system lets a person present own a thing and take one (`apply object` with `to` an NPC, `handover: taken`), the

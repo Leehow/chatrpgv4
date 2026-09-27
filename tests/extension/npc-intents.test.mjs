@@ -1,7 +1,7 @@
 /**
- * Contract §138 (docs/specs/npc-as-actor.md tickets 01-02): what a person sets out to do is a receipt-folded ledger row,
+ * Contract §142 (docs/specs/npc-as-actor.md tickets 01-02): what a person sets out to do is a receipt-folded ledger row,
  * the card and the Director's offer carry the ones still under way, and a settled one is never tried again. With the
- * NPC response bank retired (§139.6) the ledger is the only place an intention is known from, and a row the table's
+ * NPC response bank retired (§143.6) the ledger is the only place an intention is known from, and a row the table's
  * own act of a person set out is marked `by: "table"` on the card. Real kernel over its RPC surface.
  *
  * Evidence this answers: campaign game-26d5a671 (2026-09-23), where the advice lane handed the Keeper "end the
@@ -101,7 +101,7 @@ test('the writer refuses what is not an intention of this person, and the varian
  await assert.rejects(apply(client,'t1-c6',{intends:SHOUT}),e=>e.code==='invalid_params');
 });
 
-test('with the bank retired the ledger alone names an intention, and the card, the options and the perspective read it (§139.6)',async t=>{
+test('with the bank retired the ledger alone names an intention, and the card, the options and the perspective read it (§143.6)',async t=>{
  const {client,home}=await opened(t);
  const persona=await client.call('npc.job',{campaign,name:KNOTT});
  await client.call('npc.submit',{campaign,job_id:persona.job_id,claim:persona.claim,personality:{description:'Practical and money-minded.'}});
@@ -123,11 +123,11 @@ test('with the bank retired the ledger alone names an intention, and the card, t
  assert.deepEqual(knott(await capsuleOf(client)).history.intents.map(value=>[value.ref,value.status,value.by]),[[ref,'failed',undefined]],'the Keeper set it out: no by');
 });
 
-test('the row the table\'s own act set out carries by: table on the card, through the rebuild and a later Keeper result (§139.6)',async t=>{
+test('the row the table\'s own act set out carries by: table on the card, through the rebuild and a later Keeper result (§143.6)',async t=>{
  const {client,connect,home}=await opened(t);
  const OTHER='Offer the key back if the visitor steps away from the desk.';
  await begin(client);
- // §139.3: the clerk's npc_act calls carry the host's `_generated` (the kernel extension sets it on them alone); the
+ // §143.3: the clerk's npc_act calls carry the host's `_generated` (the kernel extension sets it on them alone); the
  // writer puts the mark in the intent stamp, and the committed turn record is the fold's only input.
  await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted',_generated:true});
  await apply(client,'t1-c2',{intends:OTHER,outcome:'attempted'});
@@ -148,7 +148,7 @@ test('the row the table\'s own act set out carries by: table on the card, throug
  const shout=card.find(value=>value.intent===SHOUT),other=card.find(value=>value.intent===OTHER);
  assert.equal(shout.by,'table','the table set it out');
  assert.equal(other.by,undefined,'the Keeper set it out');
- // §139.14: the Keeper settles the table's act by giving it up (D7) -- saying it failed is refused; the mark stays.
+ // §143.14: the Keeper settles the table's act by giving it up (D7) -- saying it failed is refused; the mark stays.
  await fresh.call('table.apply',{campaign,call_id:'t2-c1',effects:[{kind:'npc',name:KNOTT,intent_ref:shout.ref,outcome:'abandoned',why:'nobody comes'}]});
  await fresh.call('table.apply',{campaign,call_id:'t2-c2',effects:[{kind:'npc',name:KNOTT,intent_ref:other.ref,outcome:'abandoned'}]});
  await nextTurn(fresh,2);
@@ -174,7 +174,7 @@ test('the intention ledger is a fold of the turn records and is rebuilt from the
  assert.deepEqual((await knottLedger(home)).intents,folded,'the rebuilt ledger is the same fold');
 });
 
-// ---- ticket 03 (§138.7): what was set out on gets a result by the next turn -----------------------------------------
+// ---- ticket 03 (§142.7): what was set out on gets a result by the next turn -----------------------------------------
 
 const record=async(home,turn)=>JSON.parse(await readFile(join(home,'.coc','campaigns',campaign,'turns',`${String(turn).padStart(4,'0')}.json`),'utf8'));
 
@@ -231,7 +231,7 @@ test('an npc effect with only intent_ref and intent_outcome settles that intenti
  assert.equal((await knottLedger(home)).intents[0].status,'failed');
 });
 
-// ---- ticket 06 (§139.7): the Keeper's side of an act the table already wrote -----------------------------------------
+// ---- ticket 06 (§143.7): the Keeper's side of an act the table already wrote -----------------------------------------
 
 /** Turn 1's committed receipt that opened `line`, stamped as ticket 03's binding stamps the table's own act; the ledger rebuilt. */
 async function markTableAct(client,connect,home,t,line){
@@ -246,7 +246,7 @@ async function markTableAct(client,connect,home,t,line){
 }
 const REFS_ARE='present[].history.intents[].ref';
 
-test('the Keeper overrules the table\'s act in one turn: two receipts, no owed-result refusal, both rows on the next card (§139.7, spec D7)',async t=>{
+test('the Keeper overrules the table\'s act in one turn: two receipts, no owed-result refusal, both rows on the next card (§143.7, spec D7)',async t=>{
  const {client,connect,home}=await opened(t);
  const OWN='Push the key back across the desk and say nothing more.';
  await begin(client);
@@ -259,7 +259,7 @@ test('the Keeper overrules the table\'s act in one turn: two receipts, no owed-r
   {kind:'npc',name:KNOTT,intent_ref:act.ref,intent_outcome:'abandoned',why:'he swallows the shout'},
   {kind:'npc',name:KNOTT,intends:OWN,outcome:'attempted',why:'he would rather buy his way out'}]});
  assert.equal(overruled.receipts.length,2,'one receipt for the abandoned act, one for the Keeper\'s own');
- // Without the abandon this delivery is refused `intent_result_owed` (the file's §138.7 test above): the table's act is owed.
+ // Without the abandon this delivery is refused `intent_result_owed` (the file's §142.7 test above): the table's act is owed.
  const delivered=await fresh.call('table.narrate',{campaign,call_id:'t2-c2',text:'He swallows the shout and pushes the key back.'});
  assert.equal(delivered.turn,2,'delivered on the first try: the table\'s act has its result');
  assert.equal((await record(home,2)).warnings?.find?.(value=>value.kind==='intent_result_owed'),undefined);
@@ -268,7 +268,7 @@ test('the Keeper overrules the table\'s act in one turn: two receipts, no owed-r
   [[OWN,'attempted',undefined],[SHOUT,'abandoned','table']],'the Keeper\'s own row under way, the table\'s row abandoned and still the table\'s');
 });
 
-test('a table act its binding already settled keeps its result: the overrule is refused with where the refs are and the rows under way (§139.7)',async t=>{
+test('a table act its binding already settled keeps its result: the overrule is refused with where the refs are and the rows under way (§143.7)',async t=>{
  const {client,connect,home}=await opened(t);
  const OTHER='Offer the key back if the visitor steps away from the desk.';
  await begin(client);
@@ -283,7 +283,7 @@ test('a table act its binding already settled keeps its result: the overrule is 
    &&JSON.stringify(e.details.options)===JSON.stringify([{ref:other.ref,intent:OTHER,status:'attempted'}]));
 });
 
-test('every refusal of a ref says where refs are and lists the options: made up, unknown, owned by nobody, settled, unresolved (§139.7)',async t=>{
+test('every refusal of a ref says where refs are and lists the options: made up, unknown, owned by nobody, settled, unresolved (§143.7)',async t=>{
  const {client,home}=await opened(t);
  await begin(client);
  await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted'});
@@ -303,7 +303,7 @@ test('every refusal of a ref says where refs are and lists the options: made up,
  await assert.rejects(apply(client,'t2-c3',{intent_ref:ref,outcome:'done'}),e=>says(e,'intent_settled')&&JSON.stringify(e.details.options)===JSON.stringify([]));
 });
 
-test('the made-up ref of live gate A T12 reaches the Keeper with where the refs are and the options, through the extension (§139.7)',async t=>{
+test('the made-up ref of live gate A T12 reaches the Keeper with where the refs are and the options, through the extension (§143.7)',async t=>{
  // The opening is closed through the emitted kernel's own RPC; the player's line opens turn 1 with Knott in the room.
  const opening=workspace=>{
   const input=[['table.open',{}],['table.narrate',{call_id:'t0-c1',text:'诺特把钥匙拍在桌上。'}]]
@@ -332,7 +332,7 @@ test('the made-up ref of live gate A T12 reaches the Keeper with where the refs 
  assert.match(options[0].ref,/^intent:steven-knott:[0-9a-f]{12}$/);
 });
 
-test('the effects\' intent_ref and intent_outcome are one short line each, explained once in apply (§139.7)',t=>{
+test('the effects\' intent_ref and intent_outcome are one short line each, explained once in apply (§143.7)',t=>{
  const apply=COC_TOOLS.find(tool=>tool.name==='apply');
  const kinds=branch=>JSON.stringify(branch.properties.kind);
  const carriers=apply.parameters.properties.effects.items.anyOf.filter(branch=>branch.properties?.intent_ref&&!kinds(branch).includes('"npc"'));
@@ -348,10 +348,10 @@ test('the effects\' intent_ref and intent_outcome are one short line each, expla
   `apply parameters ${size(apply.parameters)}, the intent fields across ${carriers.length} effects ${carriers.reduce((sum,branch)=>sum+size({intent_ref:branch.properties.intent_ref,intent_outcome:branch.properties.intent_outcome}),0)}`);
 });
 
-test('the Keeper prompt says the people present may already have acted, and presumes no forced blow (§139.7)',async()=>{
+test('the Keeper prompt says the people present may already have acted, and presumes no forced blow (§143.7)',async()=>{
  const prompt=await readFile(join(root,'prompts','keeper.md'),'utf8');
  assert.ok(prompt.includes('The people present may already have acted this turn'));
  assert.ok(prompt.includes('rows marked `by: table`'));
  assert.ok(prompt.includes('nothing is written as if it had not happened'));
- assert.equal(prompt.includes('need not be a blow'),false,'no default blow is presumed: the table writes the act (§139)');
+ assert.equal(prompt.includes('need not be a blow'),false,'no default blow is presumed: the table writes the act (§143)');
 });

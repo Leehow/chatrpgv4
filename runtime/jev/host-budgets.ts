@@ -54,10 +54,10 @@ async function readJevStepsBudget(contentRoot?: string): Promise<JevStepsBudget>
 export function resetJevStepsBudgetCache(): void { cached = undefined; }
 
 /**
- * §139.2 (docs/specs/npc-acts-first.md D2): the NPC act generation's named defaults, from the same file's `npc_act`
+ * §143.2 (docs/specs/npc-acts-first.md D2): the NPC act generation's named defaults, from the same file's `npc_act`
  * section. `timeoutMs` is the deadline of one whole generation, its one retry included (`runtime/jev/npc-act.ts`).
- * §139.4: `maxPerTurn` is how many people acted on outside a fight act in one turn (the rest are `skipped_cap`).
- * §139.5: `sameActRows` is how many of a person's latest rows the semantic no-repeat question offers.
+ * §143.4: `maxPerTurn` is how many people acted on outside a fight act in one turn (the rest are `skipped_cap`).
+ * §143.5: `sameActRows` is how many of a person's latest rows the semantic no-repeat question offers.
  */
 export interface NpcActBudget {
   timeoutMs: number;

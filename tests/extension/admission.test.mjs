@@ -9,7 +9,7 @@
  * Nothing here asserts a phrase of the review prompt. The verdicts are scripted, because the
  * judgement is the model's; what is under test is what the host does with a verdict.
  *
- * §139.15's declared-action cases (the clerk's own writes, on the emitted kernel and the hybrid engine) are in
+ * §143.15's declared-action cases (the clerk's own writes, on the emitted kernel and the hybrid engine) are in
  * `admission-within-turn.test.mjs`, beside the rest of §32.12's engine seam.
  */
 import { strict as assert } from "node:assert";
@@ -305,7 +305,7 @@ test("an uncertain verdict refuses too, naming what is unclear", async (t) => {
 });
 
 test("a malformed verdict is no verdict: the action is refused as unavailable, never admitted by default", async (t) => {
-	// §139.15: a malformed answer is asked for once more; two of them are the lane's failure, as one was before.
+	// §143.15: a malformed answer is asked for once more; two of them are the lane's failure, as one was before.
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 60 }] })], { stopReason: "toolUse" }),
@@ -489,7 +489,7 @@ test("a live verdict resets the outage streak: the next failure reads as transie
 			...moveTurn("stack-room", "你到了书库。"),
 			...moveTurn("photo-morgue", "又结算不了了。"),
 		],
-		// §139.15: each failed review is two malformed answers (the round asks once more), so each turn scripts two.
+		// §143.15: each failed review is two malformed answers (the round asks once more), so each turn scripts two.
 		laneResponses: {
 			admission: [
 				badVerdict(), badVerdict(), // turn 1: bad_output, streak 1 — transient
@@ -520,7 +520,7 @@ test("a live verdict resets the outage streak: the next failure reads as transie
 	assert.equal(table.entries("coc-admission-status").length, 1, "the new streak has not reached two");
 });
 
-// ---- §139.15 (ticket 16): a malformed answer is asked for once more; the declared action is not refused on a failure ----
+// ---- §143.15 (ticket 16): a malformed answer is asked for once more; the declared action is not refused on a failure ----
 
 /**
  * Live table C3, turn 3 (`npc-acts-c3`, lane `opencode-go/deepseek-v4.1-flash`): the lane answered in 2.1 s with its grounds
@@ -538,7 +538,7 @@ const keeperPunch = () => [
 ];
 const RETRY_LINE = /Your previous answer was not valid JSON for this review \(JSON parse failed: Expected ',' or '\}' after property value in JSON at position 36/;
 
-test("§139.15: a malformed first answer is asked for once more in the same round, with one line saying why; the valid second admits the punch and it is rolled -- attempts: 2", async (t) => {
+test("§143.15: a malformed first answer is asked for once more in the same round, with one line saying why; the valid second admits the punch and it is rolled -- attempts: 2", async (t) => {
 	const table = await openTable({
 		responses: keeperPunch(),
 		laneResponses: { admission: [C3_MALFORMED(), verdict({ verdict: "authorized", grounds: "the player said they walk over and punch him in the face" })] },
@@ -561,7 +561,7 @@ test("§139.15: a malformed first answer is asked for once more in the same roun
 	assert.equal(table.entries("coc-admission-status").length, 0);
 });
 
-test("§139.15: the Keeper's own punch with two malformed answers keeps §32.2's refusal -- unavailable, nothing rolled, no resend", async (t) => {
+test("§143.15: the Keeper's own punch with two malformed answers keeps §32.2's refusal -- unavailable, nothing rolled, no resend", async (t) => {
 	const table = await openTable({ responses: keeperPunch(), laneResponses: { admission: [C3_MALFORMED(), C3_MALFORMED()] } });
 	t.after(() => table.dispose());
 	await table.session.prompt(PUNCH_WORDS);

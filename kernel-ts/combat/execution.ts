@@ -20,7 +20,7 @@ const SELF_RESOLVING = ['aim', 'reload', 'maneuver', 'flee'];
 export { presentOpponents } from '../resolve/context.js';
 const turnState = (message: string, fix?: string, details?: Row): never => { throw new RpcError('turn_state', message, { ...(fix ? { fix } : {}), ...(details && Object.keys(details).length ? { details } : {}) }); };
 /**
- * Contract §139.18 (ticket 19 of docs/specs/npc-acts-first-tickets/, live table C4 turn 8): a refusal's `fix` is executed
+ * Contract §143.18 (ticket 19 of docs/specs/npc-acts-first-tickets/, live table C4 turn 8): a refusal's `fix` is executed
  * literally, so a refusal of a fight action never proposes a different fight action in its place. What the investigator
  * does in a fight is what the player declared (§34 D2); the fix points back to that declaration, never to another decision.
  */
@@ -280,7 +280,7 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         operation = await storedOperation(context);
     }
     else if (['attack', 'maneuver'].includes(kind)) {
-        // §138.11: an NPC strikes the first blow.
+        // §142.11: an NPC strikes the first blow.
         if (actor !== context.actorId && kind === 'attack' && context.npcNode(actor) !== null)
             return npcFirstBlow(context, args, actor);
         if (actor !== context.actorId)
@@ -356,7 +356,7 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         }
         [rolls] = session.drainPending();
         session.pendingAttack = null;
-        // §138.11: the first blow is struck outside the rounds; it spends nobody's turn, and round 1 runs in DEX order.
+        // §142.11: the first blow is struck outside the rounds; it spends nobody's turn, and round 1 runs in DEX order.
         if (!truth(pending.first_blow)) {
             session.markCurrentInitiativeActed();
             session.initiativeCursor++;
@@ -378,8 +378,8 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
         const holder = cursorActor(session);
         if (holder !== actor)
             return turnState(`it is ${string(holder)}'s turn, not ${actor}'s (DEX order: ${session.currentInitiative.map(value => `${value.actor_id} (DEX ${value.dex})`).join(', ')})`,
-                // §138.5: a person whose turn it is may spend it on something that is not a fight action; that is a lawful way on.
-                // §139.18: the fix names no other fight decision (it used to end "or combat:end"; the session still issues the
+                // §142.5: a person whose turn it is may spend it on something that is not a fight action; that is a lawful way on.
+                // §143.18: the fix names no other fight decision (it used to end "or combat:end"; the session still issues the
                 // ending), and an investigator's turn is never filled from here: what they do is what the player declares.
                 row(session.participants[string(holder)]).side === 'investigator'
                     ? `it is ${string(holder)}'s turn, and what ${string(holder)} does is the player's to declare: settle what the player declared, as it is; ${actor}'s own action waits for their turn`
@@ -423,11 +423,11 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
             session.initiativeCursor++;
             if (conclusion(session, context, operation) === null)
                 normalizeCursor(session);
-            // §138.10: an NPC who got away is out of the fight but still where the fight was; where they went is a move
-            // the fiction decides. §139.12 (2026-09-26): a chase now admits them as its quarry, so the hint is the mirror
+            // §142.10: an NPC who got away is out of the fight but still where the fight was; where they went is a move
+            // the fiction decides. §143.12 (2026-09-26): a chase now admits them as its quarry, so the hint is the mirror
             // of an investigator's flight below -- the investigators still able to run after them, and that the pursuer
-            // opens the chase with actor: <investigator> and target: <them>. (§139.9 had withdrawn the call while the
-            // chase binding knew only one shape, the investigator as quarry.) §139.13: the player usually answers the flight
+            // opens the chase with actor: <investigator> and target: <them>. (§143.9 had withdrawn the call while the
+            // chase binding knew only one shape, the investigator as quarry.) §143.13: the player usually answers the flight
             // on their next turn, after the Keeper has already written where the person went, so the hint says the chase
             // start still reaches them until that turn is settled.
             if (kind === 'flee' && session.participants[actor].side !== 'investigator') {
@@ -436,7 +436,7 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
                     ? `${actor} fled the fight: a pursuit is the investigators' choice and the pursuer opens it -- if ${pursuers.join(' or ')} gives chase, resolve chase:start (intent move) with actor: <that investigator> and target ${actor}, and ${actor} is the chase's quarry; otherwise say where ${actor} went with apply npc to: away (or the scene they reach). Writing where they went does not end the pursuit: until the player's next turn is settled, that chase:start still runs after ${actor} from here`
                     : `${actor} fled the fight and no investigator able is left to give chase; say where ${actor} went with apply npc to: away (or the scene they reach)`);
             }
-            // §139.9: an investigator's flight is the mirror. Whether anyone runs after them is the pursuer's own decision,
+            // §143.9: an investigator's flight is the mirror. Whether anyone runs after them is the pursuer's own decision,
             // so nothing starts a chase here (the pipeline used to execute chase:start as the flight's continuation); the
             // hint names who is still able to give chase and how the pursuer opens it.
             else if (kind === 'flee') {
@@ -476,7 +476,7 @@ export async function executeCombatResolve(context: SettleContext, input: Row): 
     return { data, warnings, hints };
 }
 /**
- * Contract §138.5: whose turn a saved fight is on, read off the raw save -- for a writer that must refuse before anything
+ * Contract §142.5: whose turn a saved fight is on, read off the raw save -- for a writer that must refuse before anything
  * lands. `null` when no fight is running. `pending` says an attack is waiting for its defence, when no turn can pass.
  */
 export function fightTurn(combat: Row | null): { combat_id: string; round: number; turn_of: string | null; pending: boolean } | null {
@@ -486,7 +486,7 @@ export function fightTurn(combat: Row | null): { combat_id: string; round: numbe
     return { combat_id: string(combat.combat_id), round: number(combat.current_round), turn_of: at ? string(at.actor_id) : null, pending: truth(combat.pending_attack) };
 }
 /**
- * Contract §138.5: an NPC spends their own turn of a fight on something that is not a fight action -- holds back, shouts
+ * Contract §142.5: an NPC spends their own turn of a fight on something that is not a fight action -- holds back, shouts
  * for help, grabs the telephone. Before this nothing could pass an NPC's turn but an attack, a manoeuvre, aim, reload or
  * flight, so a person who did anything else left the fight stuck on them ("it is <npc>'s turn") and the Keeper's only
  * way on was another blow. The turn is marked acted and the initiative moves on exactly as a self-resolving action moves
@@ -511,7 +511,7 @@ export async function passNpcTurn(context: SettleContext, handle: string): Promi
     return { combat_id: session.combatId, round, passed: handle, turn_of: cursorActor(session), revision: session.revision };
 }
 /**
- * Contract §138.11: a person present strikes the first blow at an investigator -- the knee to the groin, the chair
+ * Contract §142.11: a person present strikes the first blow at an investigator -- the knee to the groin, the chair
  * swung without warning. Rulebook, "Striking the First Blow (Surprise)": whoever makes a sudden attack acts first, out
  * of DEX order, so the fight opens on their blow; the target who saw it coming may dodge or fight back, and one who did
  * not neither dodges nor fights back while the attacker gains one bonus die (the Harvey example: no opposing roll).

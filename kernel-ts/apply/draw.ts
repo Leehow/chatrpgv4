@@ -1,9 +1,9 @@
 /**
- * Contract §139.3 with spec D9, and §139.19 with spec D10 (docs/specs/npc-acts-first.md): a person brings out something
+ * Contract §143.3 with spec D9, and §143.19 with spec D10 (docs/specs/npc-acts-first.md): a person brings out something
  * they had on them that no one at the table knew of.
  *
- * Host-only, both ways. When the stakes die of §139.8 allowed a surprise for this person this turn and their generated
- * act brings something out (`produces`, §139.2), the clerk that binds the act adds it, matched by a closed Jev choice
+ * Host-only, both ways. When the stakes die of §143.8 allowed a surprise for this person this turn and their generated
+ * act brings something out (`produces`, §143.2), the clerk that binds the act adds it, matched by a closed Jev choice
  * over the rulebook's price list (`equipment.json`) -- never invented from nothing, never given numbers the book does
  * not print. The kernel extension sets these keys only on the clerk's `npc_act` calls and strips them from every other
  * call (`extensions/kernel/npc-act-marks.ts`).
@@ -42,7 +42,7 @@ const oneLine = (value: unknown, limit: number): value is string =>
     typeof value === 'string' && !!value.trim() && !/[\r\n\u2028\u2029]/.test(value) && Array.from(value.trim()).length <= limit;
 
 /**
- * §139.29 (ticket 30): the row of the act that brought a thing out, when the write names one of this person's rows
+ * §143.29 (ticket 30): the row of the act that brought a thing out, when the write names one of this person's rows
  * (`intent_ref`, the stamp the act step puts on what it brings out). Recorded beside the thing so the situation can say
  * it was brought out before and by which act -- structure only, never read from a name.
  */
@@ -69,7 +69,7 @@ export async function stageDraw(context: ApplyContext, effect: Row, node: Row, h
     if (!Object.keys(profile).length)
         throw new RpcError('invalid_params', `${JSON.stringify(weapon)} is not a weapon profile in the rules tables`, {details: {field: 'npc._draws.weapon'}});
     const name = string(profile.display_name) || weapon, held = (world.npc_weapons ??= {}), list: Row[] = array(held[handle]).map(row);
-    // §139.19: the record the price list prints for it names what was brought out, as the book names it.
+    // §143.19: the record the price list prints for it names what was brought out, as the book names it.
     const record = typeof draws.price_id === 'string' ? await priceRecord(context, draws.price_id) : undefined;
     if (typeof draws.price_id === 'string' && (!record || string(row(record.entity_ref).entity_id) !== weapon))
         throw new RpcError('invalid_params', `${JSON.stringify(draws.price_id)} is not the price-list record of ${JSON.stringify(weapon)}`, {details: {field: 'npc._draws.price_id'}});
@@ -84,7 +84,7 @@ export async function stageDraw(context: ApplyContext, effect: Row, node: Row, h
 }
 
 /**
- * §139.19: a thing that is not a weapon, brought out by this person -- a price-list record (`price_id`, named by the
+ * §143.19: a thing that is not a weapon, brought out by this person -- a price-list record (`price_id`, named by the
  * book) or the table's own (`name`, from the act). One object instance owned by them, of a definition with no numbers.
  * A definition of that name already registered is the thing's definition (ADR-0005: one identity per thing, never a
  * second version of it); an instance of that name they already hold is shown again, not duplicated; one somebody else
@@ -128,7 +128,7 @@ export async function stageProduce(context: ApplyContext, effect: Row, node: Row
     for (const candidate of [name, `${name} (${label})`, `${name} (${label}, turn ${String(turn)})`]) {
         const prior = objectInstance(world, candidate);
         if (prior && row(prior.owner).kind === 'npc' && row(prior.owner).id === handle) { item = prior; break; }
-        // §139.29: a thing brought out for the first time records who brought it out, on which turn, and by which act.
+        // §143.29: a thing brought out for the first time records who brought it out, on which turn, and by which act.
         if (!prior) { item = moveObject(world, candidate, string(definition.name), owner, {source: null, turn}); item.brought_out = {by: handle, turn, ...originOf(effect, handle)}; break; }
     }
     if (!item)

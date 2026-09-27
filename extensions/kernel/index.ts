@@ -364,7 +364,7 @@ interface TableState {
 	 * handle, or `null` for a name that cleared no row. Memoised so the same name never spends a second Jev call. */
 	personResolved: Map<string, string | null>;
 	/** A host note owed to the Keeper at agent_end rather than delivered as prose. `kernel_reason` is the refusal's
-	 * `details.reason` when the fix is the kernel's repair of a refused implicit draft (§139.11: named on `turn_close`). */
+	 * `details.reason` when the fix is the kernel's repair of a refused implicit draft (§143.11: named on `turn_close`). */
 	deliveryFix?: { kind: string; text: string; kernel_reason?: string };
 	/** §47: the turn whose delivery already carried the host's preparation-wait notice. The wait
 	 * itself survives later inputs (§36.15); the sentence about it is said once per delivered turn. */
@@ -542,7 +542,7 @@ interface TableState {
 	resendNoticeTurn?: number;
 	/**
 	 * The investigators. `id` is the sheet's handle (`thomas-hayes`), which the kernel accepts as `action.actor` exactly as it
-	 * accepts the name and which the session view prints as `turn_of`: admission reads either as the investigator (§139.18).
+	 * accepts the name and which the session view prints as `turn_of`: admission reads either as the investigator (§143.18).
 	 */
 	party: Array<{ name: string; occupation?: string; id?: string }>;
 	/** The scene underfoot as the player knows it; a `move` to it is a rename and is not reviewed. */
@@ -581,7 +581,7 @@ interface TableState {
 	admissionSplit: Map<string, string[]>;
 	admissionRefused: string[];
 	/**
-	 * §139.18: what each run's compiles read the player's words as, for the fight acts they asked over (`act`), by run id --
+	 * §143.18: what each run's compiles read the player's words as, for the fight acts they asked over (`act`), by run id --
 	 * noted from the engine's compile row as it passes the kernel bridge's `record`. Cleared with the next player input.
 	 */
 	compileActs: Map<string, CompileActRead[]>;
@@ -769,8 +769,8 @@ function needsPreparation(name: string, input: Record<string, unknown>, wait: { 
 	return effects.some((effect) => effect?.kind === "move" && destinationId(effect.to) === destinationId(wait.name));
 }
 /**
- * §139.11: the kernel's refusals of a delivery that it lets through when the same draft comes again in the same turn --
- * §139.10's markup gate (spent for the turn) and §138.7's owed-result gate (spent for the same owed set, which nothing
+ * §143.11: the kernel's refusals of a delivery that it lets through when the same draft comes again in the same turn --
+ * §143.10's markup gate (spent for the turn) and §142.7's owed-result gate (spent for the same owed set, which nothing
  * changes between a refusal and an immediate re-send) -- each with the `lane: "delivery"` reason its one re-send is
  * counted under. Keyed on the refusal's `details.reason`, a closed contract enum, never on its message. §113 D's
  * `repeated_line` is deliberately absent: the kernel refuses a verbatim repeat every time, so the same draft again would
@@ -779,7 +779,7 @@ function needsPreparation(name: string, input: Record<string, unknown>, wait: { 
 const RESENT_ON_SECOND_DELIVERY: ReadonlyMap<string, string> = new Map([
 	["markup_in_prose", "markup_resent"],
 	["intent_result_owed", "intent_result_owed_resent"],
-	// §139.24: a person's lines read as saying again what they set out to do and never carried out -- refused once a turn,
+	// §143.24: a person's lines read as saying again what they set out to do and never carried out -- refused once a turn,
 	// and the same draft sent again carries the same reading (no second batch), which the spent gate delivers with a finding.
 	["purpose_repeated", "purpose_repeated_resent"],
 ]);
@@ -833,7 +833,7 @@ function speechAttributeTimeoutMs(env: NodeJS.ProcessEnv): number {
 	return Number.isFinite(value) && value > 0 ? value : DEFAULT_SPEECH_ATTRIBUTE_TIMEOUT_MS;
 }
 /**
- * §139.24: cap on the one purpose batch of a delivery, `PI_COC_PURPOSE_GATE_TIMEOUT_MS`. The delivery waits for it and goes
+ * §143.24: cap on the one purpose batch of a delivery, `PI_COC_PURPOSE_GATE_TIMEOUT_MS`. The delivery waits for it and goes
  * out naming nothing when it expires; the same cap as §128.3's attribution, which it runs beside.
  */
 const DEFAULT_PURPOSE_GATE_TIMEOUT_MS = 2_500;
@@ -1503,7 +1503,7 @@ export default function (pi: ExtensionAPI) {
 				: { status: "steer", kind: steer.kind, text: steer.text, message: hostSteerMessage(steer.text, steer.kind) };
 		}
 		// A repair the spent steer could not carry is named on the row, never lost silently (§135.11 addendum 2026-09-24),
-		// with the kernel's reason when it was the repair of a refused implicit draft (§139.11).
+		// with the kernel's reason when it was the repair of a refused implicit draft (§143.11).
 		const unsent = verdict.status === "none" && state.deliveryFix ? state.deliveryFix : undefined;
 		void record({ lane: "turn", event: "turn_close", turn: state.turn, status: verdict.status,
 			...(verdict.kind ? { kind: verdict.kind } : {}), ...(verdict.reason ? { reason: verdict.reason } : {}),
@@ -1610,7 +1610,7 @@ export default function (pi: ExtensionAPI) {
 		table.party = (open.investigators ?? []).flatMap((sheet) => {
 			const name = asString(sheet.name);
 			const occupation = asString(sheet.occupation);
-			// §139.18: the sheet's handle too -- a Keeper's `actor: "thomas-hayes"` names the investigator (C4 turn 8).
+			// §143.18: the sheet's handle too -- a Keeper's `actor: "thomas-hayes"` names the investigator (C4 turn 8).
 			const id = asString(sheet.id);
 			return name ? [{ name, ...(occupation ? { occupation } : {}), ...(id ? { id } : {}) }] : [];
 		});
@@ -2200,10 +2200,10 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Contract §139.24 (ticket 25). A delivery is about to reach the kernel with lines the Keeper wrapped in a person's say
+	 * Contract §143.24 (ticket 25). A delivery is about to reach the kernel with lines the Keeper wrapped in a person's say
 	 * token. The kernel lists who speaks by those tokens -- someone the table acted for this turn or who is in the
 	 * conversation -- with their rows never carried out (`npc.threads`); when anyone has one, one typed Jev batch asks
-	 * §139.14's purpose question of each person's lines over those rows (`runKeeperLinePurpose`). What it read goes to
+	 * §143.14's purpose question of each person's lines over those rows (`runKeeperLinePurpose`). What it read goes to
 	 * `narrate` as the host-only `purpose_repeats`, and the kernel refuses that delivery once per turn when a named row is
 	 * that speaker's. Nothing is asked with no say token in the text, no Jev key, `PI_COC_PURPOSE_GATE=0`, or nobody
 	 * speaking with such a row; a failure or a timeout names nothing, so the delivery goes out as it would have. It reads
@@ -2272,7 +2272,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * §139.18: the engine's compile row, as it passes the kernel bridge's `record`, is the run's typed reading of the player's
+	 * §143.18: the engine's compile row, as it passes the kernel bridge's `record`, is the run's typed reading of the player's
 	 * words; its `act` record is kept by run for this turn's admission (`compileActRefusal`). Any other row is ignored, and a
 	 * row that never arrives leaves the Keeper's call to the lane: missing evidence is a review, never a refusal or an admit.
 	 */
@@ -2330,7 +2330,7 @@ export default function (pi: ExtensionAPI) {
 		origin: Record<string, unknown> = {},
 		// §32.12: the dispatcher frame's host origin (never the tool arguments): who proposed this call, and for the clerk
 		// the compile's evidence and the bind records; `host` a host-dispatched call with no origin, `model` the Keeper's.
-		// §139.18: `run` is the single-loop run a Keeper's own call came from (`coc:model-step`), never a tool argument.
+		// §143.18: `run` is the single-loop run a Keeper's own call came from (`coc:model-step`), never a tool argument.
 		evidence: ClerkEvidence & { label?: string; run?: string; onVerdict?: (verdict: string) => void } = {}): Promise<AdmissionPartial | undefined> {
 		// §32.12: every admission row says who proposed it, which path decided (`none` when no review ran) and how long it took.
 		const who = { origin: typeof origin.origin === "string" ? origin.origin : evidence.label ?? "model" };
@@ -2357,7 +2357,7 @@ export default function (pi: ExtensionAPI) {
 		const scopeFor = (effects: Array<Record<string, unknown>>) => {
 			const targets = new Set(effects.filter((effect) => effect.kind === "move").map((effect) => effect.to));
 			const own = destinations.filter((value) => targets.has(value.requested));
-			// §139.18: the investigator by name or by the sheet's handle, as the kernel reads `action.actor`. Until 2026-09-26 only
+			// §143.18: the investigator by name or by the sheet's handle, as the kernel reads `action.actor`. Until 2026-09-26 only
 			// the name was here, so a Keeper's `actor: "thomas-hayes"` read as an NPC and its punch was never reviewed (C4 turn 8).
 			return { party: state.party.flatMap((member) => [member.name, ...(member.id ? [member.id] : [])]), scene: state.scene,
 				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}) };
@@ -2392,7 +2392,7 @@ export default function (pi: ExtensionAPI) {
 		// Not kept for the turn: it is this call's evidence, so a Keeper's identical proposal is reviewed.
 		const compiled = compileAdmission(evidence);
 		const refusedCompile = compiled && !compiled.ok ? { compile_refused: compiled.reason } : {};
-		// §139.18: the Keeper's own attack or manoeuvre for the investigator, against what this run's compile read the player's
+		// §143.18: the Keeper's own attack or manoeuvre for the investigator, against what this run's compile read the player's
 		// words as. When a compile of the run asked over this very act and cleared on `none`, the question the review would ask
 		// has been answered: refused on that typed evidence, no lane call. Otherwise the review below runs as for any Keeper call.
 		const fightAct = who.origin === "model" && !evidence.origin ? proposedFightAct(tool, payload, !!state.session?.pending_defense) : undefined;
@@ -2480,7 +2480,7 @@ export default function (pi: ExtensionAPI) {
 					if (entry?.collected) return;
 					await record({ lane: "admission-late", verb: tool, key: digest, answered, ms: value.ms, ...(value.model ? { model: value.model } : {}),
 						...(value.ok === true ? { verdict: value.verdict.verdict, grounds: value.verdict.grounds.slice(0, 200) } : value.ok === false ? { reason: value.reason } : {}),
-						// §139.15: how many completions the round sent (a malformed first answer is asked once more).
+						// §143.15: how many completions the round sent (a malformed first answer is asked once more).
 						...(value.ok !== "late" && value.ok !== "split" && typeof value.meta?.attempts === "number" ? { attempts: value.meta.attempts } : {}),
 						...partRows, ...origin, ...who });
 				}, () => {});
@@ -2496,7 +2496,7 @@ export default function (pi: ExtensionAPI) {
 			let outcome = pending?.lane ? await pending.lane : await review();
 			// §32.12.3: the typed answer admitted some lines and not the rest; the caller reviews the rest.
 			if (outcome.ok === "split") return outcome;
-			// §139.15 (ticket 16): the lane failed (its round already asked twice for a malformed answer) on the investigator's own
+			// §143.15 (ticket 16): the lane failed (its round already asked twice for a malformed answer) on the investigator's own
 			// declared action, as the clerk carries it out. That is not refused as an outage at once: §32.12.2's no-verdict path
 			// runs -- a bookkeeping-only write whose typed reading clears the late threshold is admitted `typed_late`; anything
 			// else gets the one resend, which the host runs here because the clerk cannot (a refused clerk step is dropped for
@@ -3737,7 +3737,7 @@ export default function (pi: ExtensionAPI) {
 			: readArgs && fromStep ? { origin: "model", run: fromStep.run, step: fromStep.step } : {};
 		// §32.12: admission's view of the same frame -- the clerk's compile evidence and bind records, or who else proposed it.
 		let admissionVerdict: string | undefined;
-		// §139.18: a Keeper's own call carries the run it came from (the engine's `coc:model-step`), so admission can read that
+		// §143.18: a Keeper's own call carries the run it came from (the engine's `coc:model-step`), so admission can read that
 		// run's compile.
 		const evidence = { ...(host ? { origin: host.origin, basis: host.basis, bindings: host.bindings, ...(host.clerk ? { clerk: host.clerk } : {}) }
 			: { label: dispatcher.tracksMutation(toolCallId) ? "host" : "model", ...(fromStep ? { run: fromStep.run } : {}) }),
@@ -3770,7 +3770,7 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 		}
-		// §139.3: the table's own act of a person -- the clerk's `npc_act` calls -- is marked by the host alone (`_generated`,
+		// §143.3: the table's own act of a person -- the clerk's `npc_act` calls -- is marked by the host alone (`_generated`,
 		// `_draws`); every other call has the marks removed.
 		markNpcAct(spec.name, params, host);
 		takeSkillAnnotation(state?.skillRun, params);
@@ -3926,7 +3926,7 @@ export default function (pi: ExtensionAPI) {
 			// `host_attributed` is the host's word about its own wraps; the Keeper never supplies it.
 			delete payload.host_attributed;
 			delete payload.keeper_reads;
-			// §139.24: `purpose_repeats` is the host's reading of the Keeper's lines; the Keeper never supplies it.
+			// §143.24: `purpose_repeats` is the host's reading of the Keeper's lines; the Keeper never supplies it.
 			delete payload.purpose_repeats;
 			if (spec.name === "ask") state.speechAttribution = undefined;
 			if (spec.name === "narrate" && typeof payload.text === "string") {
@@ -4545,7 +4545,7 @@ export default function (pi: ExtensionAPI) {
 				// The campaign's telemetry file (contract §12.8). The Mod bridge runs the continuity review
 				// inside the Keeper's own tool call, so its rows belong on this turn's line like any other;
 				// a bridge consumer that writes its own path would have to guess the turn as well.
-				// §139.18: the single-loop engine's compile row travels here too; what it read the player's words as, over the fight
+				// §143.18: the single-loop engine's compile row travels here too; what it read the player's words as, over the fight
 				// acts it asked about, is kept for the run so admission can hold a Keeper's fight action to it (`noteCompileAct`).
 				record: (row: Record<string, unknown>) => { noteCompileAct(row); void record(row); },
 			});
@@ -4828,8 +4828,8 @@ export default function (pi: ExtensionAPI) {
 	 * honest service line when there is none -- never a fabricated fictional consequence. Tried at most once; a
 	 * refusal here is not retried, and the ordinary undelivered/stranding path stands exactly as before it: the
 	 * notice `agent_settled` already sends is this fallback's own fallback, never the whole delivery. The one
-	 * exception is a refusal the kernel lets through on the same turn's next delivery of the same text (§139.11:
-	 * §139.10's markup, §138.7's owed result): the same text goes again, once per such reason.
+	 * exception is a refusal the kernel lets through on the same turn's next delivery of the same text (§143.11:
+	 * §143.10's markup, §142.7's owed result): the same text goes again, once per such reason.
 	 */
 	async function deliverRefusalBudgetFallback(state: TableState): Promise<boolean> {
 		let text = state.floorDraft;
@@ -4857,7 +4857,7 @@ export default function (pi: ExtensionAPI) {
 				void record({ tool: "narrate", call_id: callId, ok: true, lane: "delivery", reason: "refusal_budget_fallback" });
 				return true;
 			} catch (error) {
-				// §139.11: dispatched on the refusal's `details.reason`, never its message.
+				// §143.11: dispatched on the refusal's `details.reason`, never its message.
 				const reason = isKernelError(error) ? asString(error.details?.reason) : undefined;
 				const resendAs = reason && !resent.has(reason) ? RESENT_ON_SECOND_DELIVERY.get(reason) : undefined;
 				void record({ tool: "narrate", call_id: callId, ok: false, lane: "delivery", reason: resendAs ?? "refusal_budget_fallback_refused",
@@ -5674,7 +5674,7 @@ export default function (pi: ExtensionAPI) {
 			// still left outside every token go to the attribution family; the delivery waits at most its cap
 			// and, whatever it answers, goes out with the Keeper's words unchanged.
 			// A refused second leg after a spent floor or speech steer falls back to the draft that steer dropped
-			// (§135.11 addendum 2026-09-24), once. §139.11: with the steer spent, a refusal the kernel lets through on
+			// (§135.11 addendum 2026-09-24), once. §143.11: with the steer spent, a refusal the kernel lets through on
 			// the same turn's next delivery of the same draft re-sends that draft, once per such reason (below). So a
 			// message costs at most the fallback plus one re-send per once-per-turn gate, and no model step.
 			let draft = prose;
@@ -5684,7 +5684,7 @@ export default function (pi: ExtensionAPI) {
 			let repeats: Array<{ npc: string; ref: string }> = [];
 			for (;;) {
 				// The same draft sent again keeps the attribution it already has: no second Jev batch for the same words. The
-				// §139.24 purpose reading rides with it, read from the Keeper's own draft beside attribution, once per draft.
+				// §143.24 purpose reading rides with it, read from the Keeper's own draft beside attribution, once per draft.
 				if (attributed === undefined || attributedDraft !== draft) {
 					const [wrapped, read] = await Promise.all([attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.()),
 						purposeRepeats(state, draft, state.lanes.signal, foregroundProviderBudget?.())]);
@@ -5749,7 +5749,7 @@ export default function (pi: ExtensionAPI) {
 						pauseReview(state, error);
 						return dropText("review_paused", refusal);
 					}
-					// §139.11 (generalising §139.10): the kernel lets markup and an owed result through on the same turn's
+					// §143.11 (generalising §143.10): the kernel lets markup and an owed result through on the same turn's
 					// next delivery of the same draft, and with the turn's one steer spent that refusal's repair could never
 					// reach the Keeper. The same draft goes again, once per reason, and the kernel delivers it with its
 					// finding: such a check never costs the player the turn, and it costs no model step. Dispatched on
@@ -5770,7 +5770,7 @@ export default function (pi: ExtensionAPI) {
 						fallback = undefined;
 						continue;
 					}
-					// §139.10/§139.11: a draft refused by a gate the kernel lets through the second time is held like a floor or
+					// §143.10/§143.11: a draft refused by a gate the kernel lets through the second time is held like a floor or
 					// speech steer's dropped draft (never shown), so a steered leg that brings nothing, or one the kernel refuses,
 					// falls back to it and the spent gate lets it go. A `repeated_line` draft is not held: it would be refused again.
 					if (resendAs && !state.steeredThisTurn) state.floorDraft = draft;

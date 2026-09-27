@@ -26,4 +26,4 @@ Spec: docs/specs/npc-as-actor.md（D2、D4）
 
 ## Comments
 
-**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §138.10. A probe showed `resolve {actor: <npc>, intent: flee}` settling as an attack; three causes fixed (the view issued flee only to investigators, the session default preceded flee, the effective intent was forced to combat). The single loop binds a standing flee. Presence is not moved automatically: the result hints `chase:start` or `apply npc to`. Tests: `test_npc_round_operation.py`, single-loop-candidates, the ts-kernel-read projection, test_sessions.
+**2026-09-26, implementation (Claude, branch `claude/npc-as-actor-20260926`).** Landed as §142.10. A probe showed `resolve {actor: <npc>, intent: flee}` settling as an attack; three causes fixed (the view issued flee only to investigators, the session default preceded flee, the effective intent was forced to combat). The single loop binds a standing flee. Presence is not moved automatically: the result hints `chase:start` or `apply npc to`. Tests: `test_npc_round_operation.py`, single-loop-candidates, the ts-kernel-read projection, test_sessions.

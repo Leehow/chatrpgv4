@@ -90,7 +90,7 @@ function routeWith(view, exit, now = []) {
 	return settleRoute(view, startStep(view, request), batch, offered, answer({ ...needs, exit }), 5, 0.6);
 }
 /**
- * The next request after the people the settled declaration acted on had their act (§139.4: a landed clerk step owes one
+ * The next request after the people the settled declaration acted on had their act (§143.4: a landed clerk step owes one
  * `npc_act` scan before the model step; it is run through the policy's own transitions here, as the driver would).
  */
 const pastScan = (view) => {
@@ -197,7 +197,7 @@ test("§135.11 SL-20 on the driver: a forced session step issued after the settl
 		async closeTurn() { return { continueRequested: false }; },
 	};
 	await runDriver({ input: { runId: "r1", inputRevision: "rev", rawInput: INPUT, scopeId: "root" }, policy, ports, engine, emit: () => {}, signal: new AbortController().signal, maxSteps: 30 });
-	// §139.4: before the compose, the people the settled declaration acted on act (the `npc_act` scan, after the route).
+	// §143.4: before the compose, the people the settled declaration acted on act (the `npc_act` scan, after the route).
 	assert.deepEqual(log, ["read", "decide:compile", "decide:bind", "clerk:resolve:obligation:access", "clerk:resolve:combat:defend:arty", "decide:route",
 		"clerk:npc_act:scan:1", "infer:compose", "turn_close"], "the forced defence runs after the settlement and before the route and the compose");
 	const infer = events.find((event) => event.type === "step_end" && event.kind === "infer");

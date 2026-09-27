@@ -39,7 +39,7 @@ test('background authors overlap and never block session readiness while only ch
  for(const fn of hooks.get('session_shutdown')??[])await fn({});
 });
 
-test('with a Jev key the NPC lane authors personalities only: no advice hook, no Jev call, no bank method (§139.6)',async t=>{
+test('with a Jev key the NPC lane authors personalities only: no advice hook, no Jev call, no bank method (§143.6)',async t=>{
  const parent=resolve(import.meta.dirname,'../../.pi/npc-implementation/lane-tests');await mkdir(parent,{recursive:true});
  const cwd=await mkdtemp(join(parent,'retired-')),hooks=new Map(),events=new EventEmitter(),entries=[];
  const values={PI_COC_MODE:'play',EXT_JEV_APIKEY:'test-only-credential'};

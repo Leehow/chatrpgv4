@@ -225,7 +225,7 @@ def test_a_keeper_hold_is_a_receipt_survives_a_restart_and_lapses_with_its_round
         assert receipt["kind"] == "npc" and receipt["handle"] == CORBITT and receipt["call_id"] == f"t1-c{n}"
         assert receipt["action"] == "hold" and receipt["previous"] is None and receipt["why"] == why
         assert receipt["combat_id"] == "corbitt-final-combat-t1" and receipt["round"] == 1 and receipt["visibility"] == "keeper"
-        # §138.5: holding back on his own turn is how he spends it -- the fight moves on instead of waiting on him forever.
+        # §142.5: holding back on his own turn is how he spends it -- the fight moves on instead of waiting on him forever.
         assert receipt["passes_turn"] == {"combat_id": "corbitt-final-combat-t1", "round": 1, "turn_of": INVESTIGATOR}
         assert applied["turn_passed"][0]["passed"] == CORBITT
         session = client.table("look", focus="session")["session"]

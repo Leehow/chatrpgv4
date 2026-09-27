@@ -1,10 +1,10 @@
 /**
- * §139.2 (docs/specs/npc-acts-first.md D2, ticket 02): what an NPC does is written first, by one zero-tool completion,
+ * §143.2 (docs/specs/npc-acts-first.md D2, ticket 02): what an NPC does is written first, by one zero-tool completion,
  * and only then bound. These cases drive the product port `createNpcActLane` through the real `runLane` and the real
  * lane telemetry writer (the campaign's `telemetry.jsonl`); only the provider is fake -- a session context whose model
  * registry answers as scripted, the way the other lane tests fake it. No live model is called.
  *
- * The situation packet is built here in the shape the shared brief fixes for §139.1 (ticket 01 lands the kernel read in
+ * The situation packet is built here in the shape the shared brief fixes for §143.1 (ticket 01 lands the kernel read in
  * parallel); the port sends it whole, which the first case checks, so nothing here depends on its field names.
  */
 import { strict as assert } from "node:assert";
@@ -112,7 +112,7 @@ test("a good answer flows through: the authored instruction, the whole packet be
 	assert.deepEqual(result.usage, { inputTokens: 15, outputTokens: 5, costUsd: 0.00004, actions: 1 }, "usage is returned for the run budget");
 	assert.equal(table.calls.length, 1);
 	assert.equal(table.calls[0].systemPrompt, await readFile(INSTRUCTION, "utf8"), "the system prompt is content/setup/npc-act.md, whole");
-	// §139.21: the play language's English name rides beside its tag (the runtime's `Intl.DisplayNames`, no table).
+	// §143.21: the play language's English name rides beside its tag (the runtime's `Intl.DisplayNames`, no table).
 	assert.deepEqual(JSON.parse(table.calls[0].input), { play_language: "zh-Hans", play_language_name: "Simplified Chinese", situation },
 		"the input is the packet, whole, and the play language");
 
@@ -205,7 +205,7 @@ test("one deadline covers the retry: the second attempt gets only what is left o
 });
 
 test("the deadline is npc_act.timeout_ms in host-budgets.json, read from the file, with the shipped value 12000 (the probe of ticket 07 measured p90 at the old 8000 cap)", async (t) => {
-	// §139.4 / §139.5 (ticket 03/04) grew the section by two named defaults beside the deadline.
+	// §143.4 / §143.5 (ticket 03/04) grew the section by two named defaults beside the deadline.
 	assert.deepEqual(await npcActBudget(), { timeoutMs: 12000, maxPerTurn: 2, sameActRows: 5 }, "the shipped file");
 	assert.equal(NPC_ACT_FALLBACK.timeoutMs, 8000);
 	const content = await mkdtemp(join(tmpdir(), "npc-act-content-"));
@@ -357,7 +357,7 @@ test("the instruction file: the bound, the play language, the JSON shape, and no
 	assert.match(text, /\b200 characters\b/);
 	assert.match(text, /play_language/);
 	assert.match(text, /\{"act": /, "the output shape is stated");
-	// §139.19: what an act may bring out is the stakes die's permission, in the answer's own field, with its bound.
+	// §143.19: what an act may bring out is the stakes die's permission, in the answer's own field, with its bound.
 	assert.match(text, /`stakes\.surprise` is true/);
 	assert.match(text, /`produces` beside `act`/);
 	assert.match(text, new RegExp(`\\b${NPC_PRODUCES_MAX_CHARS} characters\\b`));
@@ -368,7 +368,7 @@ test("the instruction file: the bound, the play language, the JSON shape, and no
 });
 
 // ---------------------------------------------------------------------------------------------------
-// §139.19 (ticket 20, spec D10): `produces`, the one thing an act brings out that no one knew this person had. Taken only
+// §143.19 (ticket 20, spec D10): `produces`, the one thing an act brings out that no one knew this person had. Taken only
 // when the packet's stakes die allowed a surprise; then held to one line of at most 60 characters like the act's own
 // bound; without a surprise it is dropped and said on the row, never asked again.
 // ---------------------------------------------------------------------------------------------------
@@ -378,13 +378,13 @@ const SURPRISE = { rung: "dangerous", outcome: "escalates", line: "This turn, th
 const PISTOL = "袖珍手枪";
 const surprised = (extra = {}) => ({ packet: packet({ stakes: SURPRISE, ...extra }) });
 
-test("§139.19 mayProduce: the stakes die's surprise, and nothing else", () => {
+test("§143.19 mayProduce: the stakes die's surprise, and nothing else", () => {
 	assert.equal(mayProduce(packet({ stakes: SURPRISE })), true);
 	for (const stakes of [undefined, null, { ...SURPRISE, surprise: false }, { ...SURPRISE, surprise: "true" }, { rung: "lethal", outcome: "severe", line: "x" }])
 		assert.equal(mayProduce(packet({ stakes })), false, JSON.stringify(stakes));
 });
 
-test("§139.19 produces with a surprise: taken, trimmed, on the result and the row; up to 60 characters counted as characters", async (t) => {
+test("§143.19 produces with a surprise: taken, trimmed, on the result and the row; up to 60 characters counted as characters", async (t) => {
 	for (const [name, produces] of Object.entries({ "a short phrase": `  ${PISTOL}  `, "60 CJK": "枪".repeat(NPC_PRODUCES_MAX_CHARS),
 		"60 astral": "\u{1F52B}".repeat(NPC_PRODUCES_MAX_CHARS) })) await t.test(name, async (t) => {
 		const table = await lane(t, { answers: [json({ act: ACT, produces })] });
@@ -399,7 +399,7 @@ test("§139.19 produces with a surprise: taken, trimmed, on the result and the r
 	});
 });
 
-test("§139.19 produces with a surprise but of the wrong shape: asked once more with the reason, like a bad act", async (t) => {
+test("§143.19 produces with a surprise but of the wrong shape: asked once more with the reason, like a bad act", async (t) => {
 	const bad = {
 		"one character over the bound": "枪".repeat(NPC_PRODUCES_MAX_CHARS + 1),
 		"two lines": `${PISTOL}\n一把刀`,
@@ -423,7 +423,7 @@ test("§139.19 produces with a surprise but of the wrong shape: asked once more 
 	});
 });
 
-test("§139.19 produces absent, null or blank is no produces, surprise or not; nothing is dropped", async (t) => {
+test("§143.19 produces absent, null or blank is no produces, surprise or not; nothing is dropped", async (t) => {
 	for (const [name, answer] of Object.entries({ absent: { act: ACT }, null: { act: ACT, produces: null }, blank: { act: ACT, produces: "   " } })) {
 		await t.test(name, async (t) => {
 			const table = await lane(t, { answers: [json(answer)] });
@@ -435,7 +435,7 @@ test("§139.19 produces absent, null or blank is no produces, surprise or not; n
 	}
 });
 
-test("§139.19 produces without a surprise: dropped whatever its shape, the act kept, produces_dropped on the row, never asked again", async (t) => {
+test("§143.19 produces without a surprise: dropped whatever its shape, the act kept, produces_dropped on the row, never asked again", async (t) => {
 	const cases = {
 		"no stakes at all": [packet(), PISTOL],
 		"a severe roll with no surprise": [packet({ stakes: { ...SURPRISE, outcome: "severe", surprise: false, surprise_line: null } }), PISTOL],
@@ -471,7 +471,7 @@ test("the fixture port answers from its table, by handle, then name, then *, in 
 	assert.equal(fixture.calls.length, 6);
 	assert.equal(fixture.calls[0].packet.npc.handle, "steven-knott", "the inputs are kept for assertions on what a re-ask sent");
 
-	// §139.19: an answer with what the act brings out comes back as it is, stakes or not (the act step holds it to the die).
+	// §143.19: an answer with what the act brings out comes back as it is, stakes or not (the act step holds it to the die).
 	const producing = createFixtureNpcActPort({ "steven-knott": { act: "他掏出一把袖珍手枪。", produces: PISTOL } });
 	assert.deepEqual(await producing.generate({ packet: packet(), play_language: "zh-Hans" }, signal), { act: "他掏出一把袖珍手枪。", produces: PISTOL });
 
@@ -483,7 +483,7 @@ test("the fixture port answers from its table, by handle, then name, then *, in 
 	assert.deepEqual(await bare.generate({ packet: packet(), play_language: "en" }, stop.signal), { unavailable: "cancelled" });
 });
 
-test("§139.21: the play language's name is the runtime's (Intl.DisplayNames), for any tag; a tag it cannot name adds nothing", () => {
+test("§143.21: the play language's name is the runtime's (Intl.DisplayNames), for any tag; a tag it cannot name adds nothing", () => {
 	assert.equal(playLanguageName("zh-Hans"), "Simplified Chinese");
 	assert.equal(playLanguageName("pt-BR"), "Brazilian Portuguese", "an open set: no tag is listed anywhere");
 	assert.equal(playLanguageName("xx"), undefined, "named only by repeating the tag");

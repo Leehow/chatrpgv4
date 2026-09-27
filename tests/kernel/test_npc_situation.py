@@ -1,4 +1,4 @@
-"""Contract §139.1 (docs/specs/npc-acts-first.md D1, ticket 01), over the emitted kernel.
+"""Contract §143.1 (docs/specs/npc-acts-first.md D1, ticket 01), over the emitted kernel.
 
 `npc.situation {campaign, name}` is what one person faces right now, for the step that generates what they do next:
 who they are, what was just done to them (code-composed sentences from the receipts of this turn and the last, then
@@ -110,7 +110,7 @@ def test_an_intention_under_way_is_in_done_and_not_in_happened(knott):
     assert not ledger.exists() or not read_json(ledger).get("npc-steven-knott", {}).get("intents")
     packet = situation(knott)
     first, second = packet["done"]
-    # intentsView's own row shape (the card's, §138.3).
+    # intentsView's own row shape (the card's, §142.3).
     assert first == {"ref": ref, "intent": line, "status": "attempted", "since_turn": 1, "turn": 1}, "under way first"
     assert second["intent"] == settled and second["status"] == "failed"
     [declared] = packet["happened"]
@@ -119,8 +119,8 @@ def test_an_intention_under_way_is_in_done_and_not_in_happened(knott):
 
 
 def test_an_intention_given_up_is_said_in_happened_the_next_turn(knott):
-    """§139.14: a receipt that settles one of theirs `abandoned` is a sentence -- the table's repeat given up (why:
-    repeated, §139.5) or the Keeper's overrule -- so the next act is generated knowing the thread was put down."""
+    """§143.14: a receipt that settles one of theirs `abandoned` is a sentence -- the table's repeat given up (why:
+    repeated, §143.5) or the Keeper's overrule -- so the next act is generated knowing the thread was put down."""
     open_turn(knott, "I tell Knott I will not take the job.")
     line = "Lift the telephone receiver and threaten to ring the police."
     knott.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "intends": line, "outcome": "attempted", "_generated": True}])
@@ -208,7 +208,7 @@ def test_constraints_are_the_capsules_rows_that_name_him(knott):
 
 
 # ---------------------------------------------------------------------------------------------------
-# §139.21 (ticket 22, live table B turn 1): the player's words reach only the person they were said to. The player told
+# §143.21 (ticket 22, live table B turn 1): the player's words reach only the person they were said to. The player told
 # Crane "I'll take the job, give me the keys and the money, I'm off to the Globe"; the clerk moved the party to the
 # Globe in the same turn, and the editor there got that line as the last thing that happened to him -- so he handed
 # over keys and money. The host now says, per person, whether the declaration was said to them (`addressed`) and
@@ -230,7 +230,7 @@ def moved_to_the_morgue(client):
 def test_said_before_a_move_the_line_is_not_theirs_and_the_arrival_stands_in_for_it(knott):
     moved_to_the_morgue(knott)
     before = situation(knott, ARTY)["happened"]
-    assert before[-1].endswith(f'declared: "{ASK_THE_EDITOR}"'), "without the host's reading, §139.1 as it was"
+    assert before[-1].endswith(f'declared: "{ASK_THE_EDITOR}"'), "without the host's reading, §143.1 as it was"
     who = before[-1].split(" (investigator) declared: ")[0]
     packet = knott.ok("npc.situation", {"campaign": "c1", "name": ARTY, "declared_before_move": True})
     happened = packet["happened"]
@@ -258,7 +258,7 @@ def test_the_readings_are_booleans_or_absent(knott):
 
 
 # ---------------------------------------------------------------------------------------------------
-# §139.23 (ticket 24, live table B2 turn 10): words that named no one. Arthur and Ruth were both in the conversation, the
+# §143.23 (ticket 24, live table B2 turn 10): words that named no one. Arthur and Ruth were both in the conversation, the
 # compile could not say who "you" was, both packets closed on the player's line as if it were said to each of them, and
 # Ruth answered words said to Arthur. The host now says when the compile named no one present (`named_no_one`); the
 # line then reaches the person as said to no one by name, and the generator judges whether it was theirs.

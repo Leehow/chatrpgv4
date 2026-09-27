@@ -1,4 +1,4 @@
-"""Contract §138.13 (docs/specs/npc-as-actor.md ticket 04, the part this line still lacked), over the emitted kernel.
+"""Contract §142.13 (docs/specs/npc-as-actor.md ticket 04, the part this line still lacked), over the emitted kernel.
 
 CoC 7e, "When Used on Player Characters": when Charm, Fast Talk, Intimidate or Persuade is used successfully on an
 investigator, the player is not compelled; if the player refuses, the coercer can put one penalty die on one roll of

@@ -156,7 +156,7 @@ async function refuseRepeatedLine(snapshot: CampaignSnapshot, campaign: Campaign
     });
 }
 /**
- * §139.24: what one person's repeated purpose is called in the refusal and the finding -- worded by the row's status and
+ * §143.24: what one person's repeated purpose is called in the refusal and the finding -- worded by the row's status and
  * turns, the row's own line quoted (never a reading of the prose).
  */
 function repeatedPurpose(repeat: Row): string {
@@ -1007,14 +1007,14 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await validateMods(snapshot.world);
         const receipts = [...array(turn.receipts)], speakers = speakerResolver(module.graph, snapshot.world, snapshot.party);
-        // `let`: §139.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
+        // `let`: §143.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
         let text = required(params, 'text')!;
         let { placed, ...delivery } = deliveryText(text, receipts, speakers), rendered = delivery.rendered_text;
         const hostRepeats = await refuseRepeatedLine(snapshot, campaign, delivery.speech, hostAttributed(params, delivery.speech));
-        // Contract §139.24 (ticket 25): the host asked Jev §139.14's purpose question of the lines the Keeper gives a person
+        // Contract §143.24 (ticket 25): the host asked Jev §143.14's purpose question of the lines the Keeper gives a person
         // against that person's rows never carried out, and names what it read (`purpose_repeats`, host-only). Only a row
         // that is that speaker's thread in this delivery counts. Refused once per turn; a later delivery this turn goes out,
-        // with a finding. Checked after §113 D and before §138.7: the prose's lines first, then what its receipts owe.
+        // with a finding. Checked after §113 D and before §142.7: the prose's lines first, then what its receipts owe.
         const purposeRepeats = Array.isArray(params.purpose_repeats) && params.purpose_repeats.length
             ? namedRepeats(params.purpose_repeats, speakerThreads(module.graph, snapshot, row(await snapshot.optional('npc-ledger.json')),
                 await stanceTable(context), array(delivery.speech), hostAttributed(params, delivery.speech))) : [];
@@ -1027,7 +1027,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 details: { reason: 'purpose_repeated', repeats: purposeRepeats.map(repeat => ({ ...repeat, lines: array(repeat.lines).slice(0, 4).map(line => chars(string(line), 120)) })) },
             });
         }
-        // Contract §138.7: someone present set out to do something on an earlier turn and nothing of this turn reports how
+        // Contract §142.7: someone present set out to do something on an earlier turn and nothing of this turn reports how
         // it went. Refused once per set of owed intentions; the same set a second time is delivered, with a finding.
         const owed = owedIntents(module.graph, snapshot.world, row(await snapshot.optional('npc-ledger.json')), turn);
         const owedKey = owed.map(item => string(item.ref)).sort().join(' ');
@@ -1038,9 +1038,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 details: { reason: 'intent_result_owed', owed },
             });
         }
-        // Contract §139.10: player-facing prose carries no markup. A syntax check over the rendered text (the host's own
+        // Contract §143.10: player-facing prose carries no markup. A syntax check over the rendered text (the host's own
         // tokens already stripped), refused once per turn; a later delivery this turn that still carries it is delivered,
-        // with a finding. Checked after §138.7, so a turn pays at most one refusal of each kind.
+        // with a finding. Checked after §142.7, so a turn pays at most one refusal of each kind.
         const markup = markupInProse(typeof rendered === 'string' ? rendered : '');
         if (markup && !truth(turn.markup_gate)) {
             await campaign.writeTurn({ ...turn, markup_gate: { call_id: started.callId } });
@@ -1051,7 +1051,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 details: { reason: 'markup_in_prose', tags: markup.tags, lines: markup.lines },
             });
         }
-        // Contract §139.17: the gate is spent, so this delivery goes out. When all the markup is a bare wrapper -- a frame
+        // Contract §143.17: the gate is spent, so this delivery goes out. When all the markup is a bare wrapper -- a frame
         // at the text's very start or end, never a tag inside the prose or a list or heading line -- it comes off the
         // Keeper's text before rendering. Kept only when the new render is exactly the old one unwrapped and carries no
         // markup; anything else is delivered as written, as before.
@@ -1115,19 +1115,19 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 why: chars(`${string(repeat.name)} already said this at turn ${string(repeat.earlier_turn)}; the host wrapped the line, so it was delivered, not refused`, 200),
                 fix: 'Already delivered: do not rewrite it. Next time the same point comes back, say it in fresh words; the position need not move.',
                 at: nowIso() })),
-                // §139.24: delivered after one refusal this turn with a person still saying again what they set out to do and
+                // §143.24: delivered after one refusal this turn with a person still saying again what they set out to do and
                 // never carried out -- a finding for the next turn, never a second refusal.
                 ...purposeRepeats.map(repeat => ({ lane: 'speech', kind: 'purpose_repeated', quote: chars(string(array(repeat.lines)[0] ?? ''), 120),
                     why: chars(`${repeatedPurpose(repeat)}; delivered after one refusal this turn`, 200),
                     fix: `Already delivered: do not rewrite it. From now on render what ${string(repeat.name)} does, and do not have them say "${chars(string(repeat.intent), 80)}" again in other words.`,
                     ref: repeat.ref, at: nowIso() })),
-                // §138.7: delivered on the second try with the result still owed -- a finding for the next turn, not a third refusal.
+                // §142.7: delivered on the second try with the result still owed -- a finding for the next turn, not a third refusal.
                 ...owed.map(item => ({ lane: 'intents', kind: 'intent_result_owed', quote: null,
                     why: chars(`${string(item.who)} set out on turn ${string(item.since_turn)} to ${string(item.intent)}, and this delivery reported no result`, 200),
                     fix: 'Settle it this turn: a roll or effect with its intent_ref, or apply npc with intent_ref and outcome done, failed or abandoned.',
                     ref: item.ref, at: nowIso() })),
-                // §139.10: delivered on the second try with markup still in it -- a finding for the next turn, not a second refusal.
-                // §139.17: a bare wrapper was taken off first; the row stays and says so.
+                // §143.10: delivered on the second try with markup still in it -- a finding for the next turn, not a second refusal.
+                // §143.17: a bare wrapper was taken off first; the row stays and says so.
                 ...(markup ? [{ lane: 'delivery', kind: 'markup_in_prose', quote: chars(markup.tags[0] ?? markup.lines[0] ?? '', 120),
                     why: chars(stripped
                         ? `the delivery still carried markup after one refusal this turn (${describeMarkup(markup)}), a bare wrapper around the prose, so the kernel took it off and delivered the rest`
@@ -1192,10 +1192,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         record.commit = sha;
         record.calls[started.callId].result.commit = sha;
         await campaign.writeTurnRecord(record);
-        // §139.24: a delivery that went out after its refusal with a purpose still repeated, counted beside its refusal.
+        // §143.24: a delivery that went out after its refusal with a purpose still repeated, counted beside its refusal.
         if (purposeRepeats.length) await campaign.telemetry({ lane: 'delivery', turn: n, ok: true, reason: 'purpose_repeated', outcome: 'delivered',
             call_id: started.callId, implicit: truth(params.implicit), people: purposeRepeats.length }).catch(() => undefined);
-        // §139.10: the markup this delivery went out with is counted on the same lane as its refusal; §139.17: `stripped`
+        // §143.10: the markup this delivery went out with is counted on the same lane as its refusal; §143.17: `stripped`
         // when it was a bare wrapper the kernel took off (the counts are what was found).
         if (markup) await campaign.telemetry({ lane: 'delivery', turn: n, ok: true, reason: 'markup_in_prose', outcome: 'delivered',
             call_id: started.callId, implicit: truth(params.implicit), tags: markup.tags.length, lines: markup.lines.length,

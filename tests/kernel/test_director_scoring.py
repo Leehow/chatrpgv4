@@ -411,7 +411,7 @@ def test_a_pushed_failure_without_consequence_nudges_pressure(tmp_path):
 
 
 def test_a_live_session_still_scores_the_other_beats_so_a_stalled_fight_shows(tmp_path):
-    """§138.8: the session decides the beat; it no longer cuts RECOVER's signals off before they are counted.
+    """§142.8: the session decides the beat; it no longer cuts RECOVER's signals off before they are counted.
     Campaign game-26d5a671 ran eight fight turns with stalled_turns climbing to 7 and RECOVER never scored."""
     client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "9"})
     try:

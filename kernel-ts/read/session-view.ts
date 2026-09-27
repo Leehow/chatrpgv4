@@ -82,8 +82,8 @@ export class SessionView {
             actor,
             targets
         });
-        // §138.10: anyone whose turn it is can try to get away -- an NPC's standing action can be `flee`, and before
-        // this the view issued no action it could bind to. §139.9: except a person the ruleset's flight rules block
+        // §142.10: anyone whose turn it is can try to get away -- an NPC's standing action can be `flee`, and before
+        // this the view issued no action it could bind to. §143.9: except a person the ruleset's flight rules block
         // (held, or with no action left): the engine refuses that flight, so the view does not offer it, and a standing
         // `flee` for them binds nothing and leaves the turn to the Keeper. The rules are loaded with the standing
         // tables; without them the view issues the flight and the engine's refusal stays the guard.

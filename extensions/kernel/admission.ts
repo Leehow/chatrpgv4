@@ -13,7 +13,7 @@
  * Three boundaries: the verdict authorises the affected voluntary action, never its outcome, and
  * never asks the player to approve hidden dangers; an unavailable review is a refusal with a
  * service status, not fail-open fiction (§32.2; on the investigator's own declared action it first
- * takes §32.12.2's late admission or its one resend, §139.15); nothing here reaches the next
+ * takes §32.12.2's late admission or its one resend, §143.15); nothing here reaches the next
  * capsule — a refusal is a tool result on this turn and a telemetry row, not a debt.
  */
 
@@ -72,7 +72,7 @@ export const REVIEW_PENDING = "review_pending";
 /** A lane answer whose grounds are empty: no verdict, not an outage (§32.12.2). */
 export const NO_GROUNDS = "no_grounds";
 /**
- * §139.15 (ticket 16): a lane round asks its model at most twice, and the second time only when the first answer was not a
+ * §143.15 (ticket 16): a lane round asks its model at most twice, and the second time only when the first answer was not a
  * verdict at all (`bad_output`: no JSON object, JSON that does not parse, or not the verdict shape). Live table C3, turn 3:
  * one malformed answer in 2.1 s refused a player's punch and left the turn with no mechanics. Both attempts share the
  * round's one deadline; the second bad answer is the lane's failure, as one was before.
@@ -533,7 +533,7 @@ export function typedDetails(typed: TypedReading): Record<string, unknown> {
 
 export type AdmissionOutcome =
 	| { ok: true; verdict: AdmissionVerdict; ms: number; model: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown> }
-	/** `typed`: the typed reviewer's reading when it had answered (§139.15 reads it for a declared action's late admission). */
+	/** `typed`: the typed reviewer's reading when it had answered (§143.15 reads it for a declared action's late admission). */
 	| { ok: false; reason: string; detail: string; ms: number; model?: string; reviewer?: AdmissionReviewer; meta?: Record<string, unknown>; typed?: TypedReading }
 	/**
 	 * §32.12.2: no sufficient verdict -- the cap passed (`cause: "cap"`, and `lane` is the review still running, until the
@@ -563,7 +563,7 @@ export interface AdmissionReviewOptions {
  * `timeoutMs` is the host's `review_timeout` verdict; an answer whose grounds are empty is no verdict (`no_grounds`,
  * §32.12.2): it neither admits nor refuses, and it is not an outage.
  *
- * §139.15 (ticket 16): an answer that is not a verdict at all (`bad_output`) is asked for once more inside the same round,
+ * §143.15 (ticket 16): an answer that is not a verdict at all (`bad_output`) is asked for once more inside the same round,
  * with one line saying why, under the round's one deadline; the second bad answer is the lane's `bad_output`. Only a
  * malformed answer is retried: a provider error, a missing model or a timeout is not something asking again repairs.
  * The outcome's `meta.attempts` says how many completions the round sent.
@@ -821,7 +821,7 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	const afterLane = (laneDone: AdmissionOutcome, attempt: TypedAttempt): AdmissionOutcome => {
 		if (laneDone.ok === false && laneDone.reason === NO_GROUNDS) return late("no_grounds", attempt, laneDone);
 		if (laneDone.ok === false) {
-			// §139.15: the typed reading travels with the failure; a declared action's late admission reads it (never a verdict here).
+			// §143.15: the typed reading travels with the failure; a declared action's late admission reads it (never a verdict here).
 			const reading = readingOf(attempt.typed);
 			return { ...laneDone, ms: Date.now() - began, ...(reading ? { typed: reading } : {}), meta: { ...laneDone.meta, ...jevMeta(attempt), lane_ms: laneDone.ms } };
 		}
@@ -928,7 +928,7 @@ export interface ClerkEvidence {
 }
 
 /**
- * §139.15 (ticket 16): the clerk authorities (§135.3) whose writes carry out the investigator's own declaration -- the step
+ * §143.15 (ticket 16): the clerk authorities (§135.3) whose writes carry out the investigator's own declaration -- the step
  * the compile or the route selected from the player's words: a declared move, clue or handout, the ordinary check, a stated
  * obligation's check, the first blow, a fight's or chase's step, a Mod's contact check. Not a consequence the host routed
  * (`consequence_bookkeeping`), a person's own act (`npc_act`) or an NPC's standing (`disposition_inference`). A closed
@@ -936,7 +936,7 @@ export interface ClerkEvidence {
  */
 export const DECLARED_CLERKS: ReadonlySet<string> = new Set(["declared_bookkeeping", "declared_check", "stated_obligation", "first_blow", "session_step", "mod_contact"]);
 /**
- * Pure (§139.15). Whether a call is the investigator's own declared action as the clerk carries it out: policy origin and a
+ * Pure (§143.15). Whether a call is the investigator's own declared action as the clerk carries it out: policy origin and a
  * declared clerk authority, both read off the dispatcher's host origin. A Keeper-origin call, a host-dispatched call with
  * no origin and every other clerk write answer false, and keep §32.2's refusal on an unavailable review.
  */
@@ -990,17 +990,17 @@ export function compileAdmission(evidence: ClerkEvidence | undefined): CompileAd
 	return { ok: true, predicate: predicate.name, features, bindingPaths };
 }
 
-// ---- §139.18: the Keeper's fight action for the investigator, against what the run's compile read ----------------------
+// ---- §143.18: the Keeper's fight action for the investigator, against what the run's compile read ----------------------
 
 /**
- * §139.18 (ticket 19 of docs/specs/npc-acts-first-tickets/, live table C4 turn 8): the investigator's fight actions a Keeper
+ * §143.18 (ticket 19 of docs/specs/npc-acts-first-tickets/, live table C4 turn 8): the investigator's fight actions a Keeper
  * proposes that the run's compile may already have read the player's words against -- its `act` rows (§135.30). A closed
  * set of the kernel's own decision names.
  */
 export const KEEPER_FIGHT_ACTS: ReadonlySet<string> = new Set(["combat:attack", "combat:maneuver"]);
 
 /**
- * Pure (§139.18). The fight action a `resolve` proposes, read off its closed fields the way the kernel reads them:
+ * Pure (§143.18). The fight action a `resolve` proposes, read off its closed fields the way the kernel reads them:
  * `action.decision`, with or without the `decision:<ruleset>:` prefix; with no decision, `intent: "combat"` is the kernel's
  * attack unless the call gives a defence or one is owed (then it is the defence). `undefined` for anything else. It reads
  * no goal, method or stakes: those are the Keeper's words, not the call's shape.
@@ -1028,7 +1028,7 @@ export interface CompileActRead {
 }
 
 /**
- * Pure (§139.18). The `act` record of a compile, as the engine writes it on its `lane: "route"`, `purpose: "compile"` row
+ * Pure (§143.18). The `act` record of a compile, as the engine writes it on its `lane: "route"`, `purpose: "compile"` row
  * (`features.act`: `rows`, `choice`, `row`, `confidence`, `cleared`). `undefined` for any other row or a compile that asked
  * no `act` question.
  */
@@ -1043,7 +1043,7 @@ export function compileActRead(entry: Record<string, unknown>): CompileActRead |
 }
 
 /**
- * Pure (§139.18). A Keeper's fight action for the investigator refused on the run's own typed evidence: a compile of this
+ * Pure (§143.18). A Keeper's fight action for the investigator refused on the run's own typed evidence: a compile of this
  * run asked whether the player's words declare this very act (its `act` rows include it) and cleared on `none`, and no
  * compile of the run cleared `act` on any row. Then the words were already put to the question the review would ask, and
  * answered: nothing to send to the lane. `undefined` otherwise -- no compile, an `act` that did not clear, `unclear`,

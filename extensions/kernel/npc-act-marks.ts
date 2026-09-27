@@ -1,10 +1,10 @@
 /**
- * Contract §139.3: the host-only marks of the table's own act of a person.
+ * Contract §143.3: the host-only marks of the table's own act of a person.
  *
  * The clerk's `npc_act` calls (`runtime/jev/npc-act-step.ts`) are what a person did, generated from their situation and
  * bound to the kernel's ways -- not the Keeper's writes. Only the host says so, after the tool schema has validated the
  * call: `_generated: true` rides on every intention such a call names (an `intends` or `intent_ref` on an effect, an
- * `action.intent_ref` on a roll), and what the act brings out (§139.19, spec D10: allowed by a surprise of the stakes
+ * `action.intent_ref` on a roll), and what the act brings out (§143.19, spec D10: allowed by a surprise of the stakes
  * die) on the bare npc effect of the one call whose basis names it -- `_draws` for a rulebook weapon (`basis.draw`),
  * `_produces` for anything else (`basis.produce`). Every other call has all three removed, so a model-sent mark never
  * reaches the kernel.

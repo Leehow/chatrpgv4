@@ -1,5 +1,5 @@
 /**
- * Contract §139.6: the per-turn NPC response advice and its bank are retired. Through the real kernel, the NPC
+ * Contract §143.6: the per-turn NPC response advice and its bank are retired. Through the real kernel, the NPC
  * extension and the table's context policy: a table played for three turns sends the Keeper no `coc-npc-advice`, asks
  * Jev nothing about a person and writes no advice telemetry, while the material prescreen still reaches the provider
  * payload; a copy of the retired message recorded by an older session never reaches the model; and a replaced player
@@ -42,7 +42,7 @@ function host(t,table,integrated=false){
 /** Every telemetry row the session wrote, whichever writer: lane rows ride `coc-telemetry` entries, context rows are bare. */
 const rows=records=>records.map(value=>Array.isArray(value)?(value[0]==='coc-telemetry'?value[1]:undefined):value).filter(Boolean);
 
-test('a table played three turns sends no NPC advice, asks Jev nothing about a person, and the prescreen still arrives (§139.6)',async t=>{
+test('a table played three turns sends no NPC advice, asks Jev nothing about a person, and the prescreen still arrives (§143.6)',async t=>{
  const table=await readyNpc(t),session=host(t,table,true),oldFlag=process.env.PI_COC_JEV_PRESELECT,oldFetch=globalThis.fetch;
  process.env.PI_COC_JEV_PRESELECT='1';t.after(()=>{globalThis.fetch=oldFetch;if(oldFlag===undefined)delete process.env.PI_COC_JEV_PRESELECT;else process.env.PI_COC_JEV_PRESELECT=oldFlag;});
  const batches=[];

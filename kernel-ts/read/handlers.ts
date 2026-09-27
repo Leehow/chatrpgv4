@@ -348,7 +348,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 // the campaign drawn in the system language.
                 labels: await playerGlossary(context, await playLanguageOf(context, campaign.meta)),
                 pending_choice: turn.pending_choice ?? null,
-                // §139.23: the newest committed turn's words and attributed lines while the investigators still stand
+                // §143.23: the newest committed turn's words and attributed lines while the investigators still stand
                 // where it closed -- what the host's compile reads "you" and "he" by. Null otherwise.
                 last_exchange: await lastExchange(campaign, module.graph)
             };

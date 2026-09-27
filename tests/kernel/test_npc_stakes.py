@@ -1,4 +1,4 @@
-"""Contract §139.8 (docs/specs/npc-acts-first.md D9, ticket 09), over the emitted kernel.
+"""Contract §143.8 (docs/specs/npc-acts-first.md D9, ticket 09), over the emitted kernel.
 
 `npc.stakes {campaign, name}` is the Keeper's stakes die for a person whose reaction the book does not preordain: a rung read
 from `content/rulesets/coc7/rules-json/npc-stakes.json` (base from the person's combat disposition, else the archetype the
@@ -6,11 +6,11 @@ table pinned, else the table's default; moved by the table's shifts), one d100 o
 keeper-visible `roll` receipt of family `stakes` in the open turn -- once per person per turn. `npc.situation` carries
 `{rung, outcome, line, surprise, surprise_line}` read from that receipt and never rolls.
 
-§139.19 (ticket 20, spec D10): the same roll at most the rung's `surprise_at_most` is a surprise -- this person may bring
+§143.19 (ticket 20, spec D10): the same roll at most the rung's `surprise_at_most` is a surprise -- this person may bring
 out something no one at the table knew they had; the table's permission line rides with it (`severe_surprise` on a severe
 roll). The three columns rise with the rung, or the table is refused.
 
-§139.26 (ticket 27, the table `npc-acts-d`): a person being fought is not calm between blows. Two structural shifts join
+§143.26 (ticket 27, the table `npc-acts-d`): a person being fought is not calm between blows. Two structural shifts join
 the table -- `in_fight_with_investigators` (a fight is running with them and an investigator among its participants) and
 `attacked_last_turn` (this turn's predicate over the newest committed turn). With `attacked_this_turn` they are one
 dimension, violence toward this person: the table groups them (`shift_groups`), and a group moves the rung once, by its
@@ -19,7 +19,7 @@ largest step -- the punch that opens a fight is +1, not +2 (the lead's ruling, 2
 Corbitt is the person. As the starter ships, the natural-npc Mod's first-impression check against him is still to come:
 a row of his `constraints` for the generator, and no prepared reaction -- only the book's preordained reaction is one
 (Arty Wilmot's, below). His book gives him no combat disposition, so his base is the table's default. The investigator's
-punch opens a fight with him in it: since §139.26 both the blow and the fight hold, one group, one rung up. With seeds 3,
+punch opens a fight with him in it: since §143.26 both the blow and the fight hold, one group, one rung up. With seeds 3,
 2 and 1 the punch lands (its damage die is rolled; his Flesh Ward armour takes it, so his hit points stay whole) and the
 die then says severe, escalates and nothing. Every expected number is read from the shipped table, never restated.
 """
@@ -38,12 +38,12 @@ INVESTIGATOR = "thomas-hayes"
 TABLE = CONTENT_DIR / "rulesets" / "coc7" / "rules-json" / "npc-stakes.json"
 # Seeds whose landed blow is followed by each outcome of the die (chosen by running them; the die is the kernel's).
 # Re-read for ticket 20's thresholds (dangerous 15/45): seed 3 rolls 5, seed 2 rolls 30, seed 1 rolls 56.
-# §139.26: the fight the punch opens is in the blow's group, so the rung is still dangerous and these seeds stand.
+# §143.26: the fight the punch opens is in the blow's group, so the rung is still dangerous and these seeds stand.
 LANDED = {3: "severe", 2: "escalates", 1: "nothing"}
-# §139.19: seeds whose die, after the punch (landed or not, the rung is dangerous), falls on each side of the rung's
+# §143.19: seeds whose die, after the punch (landed or not, the rung is dangerous), falls on each side of the rung's
 # surprise column (30): 5 and 30 (the boundary) allow a surprise, 39 and 56 do not. Chosen by running them, as above.
 SURPRISE_SEEDS = {3: True, 2: True, 7: False, 1: False}
-# §139.26: the two shifts the fight and the blow put on him, in the table's order -- one group, one rung.
+# §143.26: the two shifts the fight and the blow put on him, in the table's order -- one group, one rung.
 IN_A_FIGHT = ["attacked_this_turn", "in_fight_with_investigators"]
 
 
@@ -60,7 +60,7 @@ def rung_row(name):
 
 
 def moved(base, shifts):
-    """The rung the table puts `base` on after `shifts`, clamped to its ends. §139.26: a shift of no group adds its step;
+    """The rung the table puts `base` on after `shifts`, clamped to its ends. §143.26: a shift of no group adds its step;
     the shifts of one group add once, the largest step among them."""
     names, table = rung_names(), rules()
     alone, grouped = 0, {}
@@ -79,7 +79,7 @@ def outcome_of(rung, roll):
 
 
 def view_of(rung, roll):
-    """The `{rung, outcome, line, surprise, surprise_line}` the shipped table gives this roll on this rung (§139.19)."""
+    """The `{rung, outcome, line, surprise, surprise_line}` the shipped table gives this roll on this rung (§143.19)."""
     outcome = outcome_of(rung, roll)
     surprise = roll <= rung["surprise_at_most"]
     permission = rung["lines"]["severe_surprise" if outcome == "severe" else "surprise"] if surprise else None
@@ -145,14 +145,14 @@ def test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_
         table, names = rules(), rung_names()
         base = table["default_rung"]
         assert receipt["base"] == {"rung": base, "from": "default"}, "no disposition, no archetype: the table's default"
-        assert receipt["shifts"] == IN_A_FIGHT, "the blow, and the fight it opened (§139.26)"
+        assert receipt["shifts"] == IN_A_FIGHT, "the blow, and the fight it opened (§143.26)"
         assert names.index(receipt["rung"]) == names.index(base) + 1, "one rung above the base: the blow and the fight are one group"
         assert receipt["rung"] == moved(base, IN_A_FIGHT)
         rung = rung_row(receipt["rung"])
         assert isinstance(receipt["roll"], int) and 1 <= receipt["roll"] <= 100
         assert receipt["outcome"] == outcome_of(rung, receipt["roll"]) == outcome, f"seed {seed} rolls {receipt['roll']}"
         line = rung["lines"].get(outcome)
-        # §139.19: the view carries the surprise the same roll allows on this rung, and its permission line.
+        # §143.19: the view carries the surprise the same roll allows on this rung, and its permission line.
         assert result == {"stakes": view_of(rung, receipt["roll"])}
         assert result["stakes"]["line"] == line
         assert (line is None) == (outcome == "nothing")
@@ -172,7 +172,7 @@ def test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_
         client.close()
 
 
-# ---- §139.19: the same roll allows a surprise, at most the rung's own column ----------------------------------------
+# ---- §143.19: the same roll allows a surprise, at most the rung's own column ----------------------------------------
 
 @pytest.mark.parametrize("seed,expected", SURPRISE_SEEDS.items(), ids=[f"seed{seed}-{'surprise' if e else 'none'}" for seed, e in SURPRISE_SEEDS.items()])
 def test_on_the_dangerous_rung_a_roll_at_most_its_surprise_column_allows_a_surprise(tmp_path, seed, expected):
@@ -274,7 +274,7 @@ def test_the_die_is_rolled_once_per_person_per_turn_and_only_in_an_open_turn(tmp
         assert read_json(campaign_dir(client.workspace) / "turn.json")["receipts"] == []
 
         # The next turn is a new turn: last turn's die is not this turn's, and nothing was done to him yet this turn --
-        # but since §139.26 last turn's punch and the fight still running move him (one group: one rung).
+        # but since §143.26 last turn's punch and the fight still running move him (one group: one rung).
         client.table("player_input", text="I back away from him.")
         assert situation(client)["stakes"] is None
         second = stakes(client)
@@ -410,7 +410,7 @@ def test_hit_points_at_half_move_him_up_and_the_last_rung_holds(tmp_path):
         client.close()
 
 
-# ---- §139.26: a person being fought is not calm between blows (ticket 27) --------------------------------------------
+# ---- §143.26: a person being fought is not calm between blows (ticket 27) --------------------------------------------
 #
 # The table `npc-acts-d`: the Keeper gave Knott `avoids_fighting` (base calm), and the only upward shift a fight moved
 # was "attacked this turn" -- so on his own turn of the fight, a turn after a punch, and when he had just been chased and
@@ -563,7 +563,7 @@ def falling_rungs(table):
 
 
 def fight_shift_with_a_parameter(table):
-    """§139.26: the two structural shifts take no parameter."""
+    """§143.26: the two structural shifts take no parameter."""
     table["shifts"]["in_fight_with_investigators"]["hp_fraction_at_most"] = 0.5
 
 
@@ -610,7 +610,7 @@ def test_a_table_the_kernel_cannot_read_is_refused_and_nothing_is_rolled(tmp_pat
         client.close()
 
 
-# §139.19: the surprise column is read the same way; each of the three columns rises (or stays) with the rung.
+# §143.19: the surprise column is read the same way; each of the three columns rises (or stays) with the rung.
 def falling_surprise(table):
     table["rungs"][1]["surprise_at_most"] = table["rungs"][0]["surprise_at_most"] - 1
 
@@ -697,7 +697,7 @@ def test_the_shipped_table_names_every_disposition_and_archetype_and_no_certain_
     assert table["default_rung"] in names
     assert set(table["shifts"]) == {"attacked_this_turn", "attacked_last_turn", "in_fight_with_investigators", "hp_at_most_half",
                                     "table_clock_past_half", "stance_friendly"}
-    # §139.26: violence toward this person is one group; the other shifts stand alone.
+    # §143.26: violence toward this person is one group; the other shifts stand alone.
     assert set(table["shift_groups"]) == {"violence"}
     assert {name for name, shift in table["shifts"].items() if shift.get("group") == "violence"} == \
         {"attacked_this_turn", "attacked_last_turn", "in_fight_with_investigators"}

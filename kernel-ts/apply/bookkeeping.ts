@@ -36,7 +36,7 @@ function tableThreat(world:Row,name:string):Row|null{
 }
 const MINT_LIMITS={length:[2,12],text:200} as const;
 /**
- * §138.9: a consequence the book never paced -- the commotion someone downstairs might hear, the police a neighbour
+ * §142.9: a consequence the book never paced -- the commotion someone downstairs might hear, the police a neighbour
  * might call -- as a clock of this table. The Keeper states its length and what a full clock means; the kernel keeps the
  * count beside the book's clocks (`world.threat_clocks`) and never touches the module graph. It is advanced by its name
  * with the ordinary effect, and shows in pacing and pressures like the book's.
@@ -86,7 +86,7 @@ export function stageThreat(context:ApplyContext,effect:Row):StagedEffect{
     if(effect.mint!=null)return mintThreat(context,effect);
     const threat=context.graph.find(name.trim(),['threat']);
     if(!threat){
-        // §138.9: a clock this table started is advanced by the name it was started under.
+        // §142.9: a clock this table started is advanced by the name it was started under.
         const minted=tableThreat(context.world,name);
         if(minted)return advanceTableThreat(context,effect,minted);
         const known=[...context.graph.kind('threat').map(node=>context.graph.handle(node)),...tableThreats(context.world).map(value=>string(value.name))];

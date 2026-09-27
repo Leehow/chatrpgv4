@@ -1,6 +1,6 @@
 # NPC 是一等行动者：意图有状态，行动有落点
 
-Status: ready-for-human — 实现落在 `claude/npc-as-actor-20260926`（基于集成线 `claude/integ-single-loop-20260923@6eac0c2f9`，未合回），契约 §138；两桌真桌验收见第七节，一条开放问题待拍板
+Status: ready-for-human — 实现落在 `claude/npc-as-actor-20260926`（基于集成线 `claude/integ-single-loop-20260923@6eac0c2f9`，未合回），契约 §142；两桌真桌验收见第七节，一条开放问题待拍板
 Date: 2026-09-26
 Branch: `0.9.5a`（核查基线 `651a9cb26`；`kernel-ts/read/director.ts` 与 `claude/integ-single-loop-20260923@d292ed66e` 同哈希，本文引用的行号在两条线上都成立）
 Owner ruling: 2026-09-26（见第二节）
@@ -181,7 +181,7 @@ Related: `docs/specs/turn-floor.md`（契约 §34）、`docs/specs/npc-acts-for-
 
 ## 七、实现记录（2026-09-26）
 
-分支 `claude/npc-as-actor-20260926`，worktree `chatrpgv4-wt-npc-actor`，基于集成线 `6eac0c2f9`（App 从这条线打包，0.9.5a 落后它 411 个提交）。**没有合回集成线、没有推送、没有打包。** 契约写在 `docs/kernel-rpc.md` §138.1–138.15。
+分支 `claude/npc-as-actor-20260926`，worktree `chatrpgv4-wt-npc-actor`，基于集成线 `6eac0c2f9`（App 从这条线打包，0.9.5a 落后它 411 个提交）。**没有合回集成线、没有推送、没有打包。** 契约写在 `docs/kernel-rpc.md` §142.1–138.15。
 
 ### 在集成线上重新核对后的前提
 
@@ -189,7 +189,7 @@ Related: `docs/specs/turn-floor.md`（契约 §34）、`docs/specs/npc-acts-for-
 
 - **工单 07 已满足**：书上没有的人用 `apply npc {name, to: "here"}` 铸成桌上人物，可钉原型、可被打、说话能解析、重启后仍在。只补了一条把链串起来的证据用例。
 - **工单 08 已满足**：受管物品系统接受 NPC 当持有者（`apply object` 的 `to`/`from`/`handover: taken`），战斗武器目录收录所有持有的武器，NPC 攻击按名字取。为它写的开局投影被变异证明是多余的，已撤回；保留两条证据用例。
-- **工单 04 大半已满足**：NPC 对调查员的社交检定本来就走 NPC 自己的普通检定，治疗族掷施救者自己的技能，扁平属性也能读。缺的是规则书的难度和后果（§138.13）。
+- **工单 04 大半已满足**：NPC 对调查员的社交检定本来就走 NPC 自己的普通检定，治疗族掷施救者自己的技能，扁平属性也能读。缺的是规则书的难度和后果（§142.13）。
 - 附录 A 里「战斗里 `other` 缺省 50」那格在这条线上是死代码：执行层根本不接受 `other`。真实缺口换成了下面两条（02、09）。
 
 ### 各票落地
@@ -208,7 +208,7 @@ Related: `docs/specs/turn-floor.md`（契约 §34）、`docs/specs/npc-acts-for-
 | 10 | `8232c10c4` | 会话进行中其余节拍照常打分进 `scores` | — |
 | 11 | 见下 | 两桌真桌 | — |
 
-真桌引出的两次修正：`f2722d2fa`（§138.14：NPC 有进行中意图时，单循环不再强制常备攻击；`intends` 不再要求英文）、`1d5b6bc3c`（§138.15：单独的 `{intent_ref, intent_outcome}` 就是意图变体）。
+真桌引出的两次修正：`f2722d2fa`（§142.14：NPC 有进行中意图时，单循环不再强制常备攻击；`intends` 不再要求英文）、`1d5b6bc3c`（§142.15：单独的 `{intent_ref, intent_outcome}` 就是意图变体）。
 
 每张票的用例都走真实内核，并对关键写入做了变异，变异全部被逮住（一条最初没逮住，补了整批原子性断言）。套件结果见工单 11 的评论。
 
@@ -216,7 +216,7 @@ Related: `docs/specs/turn-floor.md`（契约 §34）、`docs/specs/npc-acts-for-
 
 两桌都是：鬼屋新战役、预设人物托马斯·海斯、简体中文；KP 为 `opencode-go/deepseek-v4.1-flash`、思考 off、单循环 `hybrid-v1`、Jev 预筛开；本会话当唯一玩家，一回合一句，台本复刻 09-23 那桌（拒绝委托、打诺特、抢钱、抢钥匙、连打、一句题外话、再打）。预注册文件在会话 scratchpad，结论如下。
 
-| 条目 | A 桌（12 回合，`npc-actor-gate-a`） | A2 桌（10 回合，`npc-actor-gate-a2`，§138.14 之后） |
+| 条目 | A 桌（12 回合，`npc-actor-gate-a`） | A2 桌（10 回合，`npc-actor-gate-a2`，§142.14 之后） |
 |---|---|---|
 | 交付 | 12/12 | 10/10 |
 | 宣布过的事原地复述 | 0（按预注册口径；T6–T8 连续三回合喊人，每回合外面的回应都在推进，按「连续两轮不做同一件事」算违反，口径待拍板） | **4 次**：「楼下有看门的、街角有巡警、这楼里没人雇你」换着说法；手按铃 T2–T4 三回合没响 |

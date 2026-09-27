@@ -1,6 +1,6 @@
-"""Contract §139.19 (docs/specs/npc-acts-first.md D10, ticket 20), over the emitted kernel: what a person brings out.
+"""Contract §143.19 (docs/specs/npc-acts-first.md D10, ticket 20), over the emitted kernel: what a person brings out.
 
-The act step (§139.3) writes what a surprise of the stakes die let a generated act bring out as one host-only npc
+The act step (§143.3) writes what a surprise of the stakes die let a generated act bring out as one host-only npc
 effect: `_draws: {weapon, price_id}` for a rulebook weapon (D9's path: `world.npc_weapons`, which the fight reads), and
 `_produces: {price_id} | {name}, description` for anything else -- one object instance owned by the person in the
 ADR-0005 registry, named by the book's name or the table's own, of a definition with no number in it. The kernel
@@ -136,14 +136,14 @@ def situation(client):
 
 
 def close_turn(client, turn, text):
-    """Deliver the turn; §138.7 refuses the first delivery that owes an intention's result once, the second goes out."""
+    """Deliver the turn; §142.7 refuses the first delivery that owes an intention's result once, the second goes out."""
     first = client.call("table.narrate", {"campaign": "c1", "call_id": f"t{turn}-c90", "text": text})
     if not first["ok"]:
         narrate(client, f"t{turn}-c91", text)
 
 
 def test_what_his_own_act_brought_out_says_when_and_by_which_act(tmp_path):
-    """§139.29 (ticket 30; table D2's copper badge, brought out on turn 6 and shown again on 9, 14 and 15): from then on
+    """§143.29 (ticket 30; table D2's copper badge, brought out on turn 6 and shown again on 9, 14 and 15): from then on
     the packet's `at_hand.brought_out` says what an earlier act of his brought out that he still holds -- the turn it came
     out and, when the write named the act's row, that row and where it stands now. Structure only: the instance's
     `brought_out`, the drawn weapon's row."""

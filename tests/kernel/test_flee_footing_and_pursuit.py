@@ -1,4 +1,4 @@
-"""Contract §139.9 (docs/specs/npc-acts-first-tickets/10-flee-footing-and-pursuit.md), over the emitted kernel.
+"""Contract §143.9 (docs/specs/npc-acts-first-tickets/10-flee-footing-and-pursuit.md), over the emitted kernel.
 
 Two defects of the combat engine's flight, both found reviewing the 2026-09-26 live tables:
 
@@ -12,7 +12,7 @@ Two defects of the combat engine's flight, both found reviewing the 2026-09-26 l
 - Table `npc-actor-gate-a`, turn 12: the player walked out of the office and one `resolve` produced the flight, the
   end of the fight, a chase start, both speed rolls and a pursuer's Fighting roll, while the prose had Knott stay in
   his chair. An investigator's flight no longer starts a chase: the result hints the pursuit as an NPC's flight
-  already did (§138.10), and the pursuer opens the chase with their own `resolve chase:start`.
+  already did (§142.10), and the pursuer opens the chase with their own `resolve chase:start`.
 
 The session view reads the same rules: a person the list blocks is not issued `combat:flee`.
 
@@ -168,7 +168,7 @@ def test_the_session_view_does_not_issue_a_flight_the_rules_block(fight):
 # ---- an investigator's flight starts no chase; the pursuer opens it ----------------------------------------
 
 def investigator_flees(client):
-    """Corbitt holds on his turn (§138.5), the round turns over to the investigator, and the investigator runs."""
+    """Corbitt holds on his turn (§142.5), the round turns over to the investigator, and the investigator runs."""
     n = corbitts_turn(client)
     client.table("apply", call_id=f"t1-c{n}", effects=[{"kind": "npc", "name": "Walter Corbitt", "action": "hold", "why": "he freezes"}])
     assert client.table("look", focus="session")["session"]["turn_of"] == INVESTIGATOR

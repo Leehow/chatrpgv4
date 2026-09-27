@@ -5,7 +5,7 @@ Spec: docs/specs/npc-acts-first.md（第九节「C3 桌」）
 
 ## 证据
 
-C3 T3：玩家「照他脸上一拳」，准入车道（§32，deepseek-v4.1-flash）2.1 s 返回但 `bad_output: JSON parse failed at position 36`，宿主把这次 resolve 拒成「The action review is unavailable, so this action cannot be settled now」。KP 于是把一场没有掷过骰的打斗写进正文（校验器 `player_agency`），整回合零收据。同一个模型的生成车道（§139.2）对坏输出是重试一次再放弃。
+C3 T3：玩家「照他脸上一拳」，准入车道（§32，deepseek-v4.1-flash）2.1 s 返回但 `bad_output: JSON parse failed at position 36`，宿主把这次 resolve 拒成「The action review is unavailable, so this action cannot be settled now」。KP 于是把一场没有掷过骰的打斗写进正文（校验器 `player_agency`），整回合零收据。同一个模型的生成车道（§143.2）对坏输出是重试一次再放弃。
 
 ## Scope
 

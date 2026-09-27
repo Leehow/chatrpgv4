@@ -78,9 +78,9 @@ const WorkpadPatch = Type.Optional(Type.Unknown({
 }));
 
 /**
- * Contract §138.2: the result of what someone set out to do. Any effect below can carry it -- the porter comes up the
+ * Contract §142.2: the result of what someone set out to do. Any effect below can carry it -- the porter comes up the
  * stairs (npc) or the clock moves (threat) because Knott shouted -- and the receipt says whose intention it settled.
- * Contract §139.7: ten effects spread these two fields, so their descriptions are one short line each and the
+ * Contract §143.7: ten effects spread these two fields, so their descriptions are one short line each and the
  * explanation is written once, in the apply tool's description (`INTENT_RESULT_EXPLAINED`). The long sentence repeated
  * in every effect was 4,330 bytes of every Keeper request's tool schema.
  */
@@ -88,7 +88,7 @@ const IntentResult = {
 	intent_ref: Type.Optional(Type.String({ description: "the intention this effect is a result of (see apply)" })),
 	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "where it stands after; default done" })),
 };
-/** The one place the effects' `intent_ref` / `intent_outcome` are explained (§139.7). */
+/** The one place the effects' `intent_ref` / `intent_outcome` are explained (§143.7). */
 export const INTENT_RESULT_EXPLAINED = "Any effect may carry intent_ref when it is the result of what someone set out to do: the ref of that intention (present[].history.intents[].ref, director.offer), which may be someone else's than the effect's subject (the porter comes up because someone shouted); intent_outcome is where that intention stands after the effect, default done (the effect is what happened).";
 
 const EndingEffect = Type.Object({

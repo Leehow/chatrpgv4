@@ -1,5 +1,5 @@
 /**
- * Contract §139.10 (docs/specs/npc-acts-first-tickets/11-markup-leak-in-prose.md) through the product path: the real
+ * Contract §143.10 (docs/specs/npc-acts-first-tickets/11-markup-leak-in-prose.md) through the product path: the real
  * kernel extension's explicit narrate handler and its implicit close, against the real kernel. Player-facing prose
  * carries no markup -- an XML/HTML-shaped tag, or a line that opens with a markdown list or heading marker -- once the
  * host's own say tokens and mechanics markers are gone. The first delivery of a turn that carries it is refused `needs`
@@ -8,7 +8,7 @@
  * the same draft again and the kernel delivers it with its finding.
  *
  * Evidence: npc-actor-gate-a2 (2026-09-26), turn 6 (an explicit narrate whose own `text` argument ended in `</text>`)
- * and turn 7 (an implicit close with two markdown list lines). §139.17 (ticket 18) takes a bare wrapper off the second
+ * and turn 7 (an implicit close with two markdown list lines). §143.17 (ticket 18) takes a bare wrapper off the second
  * delivery; its cases are at the end of this file.
  */
 import { strict as assert } from "node:assert";
@@ -152,7 +152,7 @@ test("real kernel: with the turn's one steer already spent, an implicit draft re
 	assert.equal(table.telemetry().some((row) => row.lane === "delivery" && row.reason === "implicit_narrate_refused"), false, "nothing dropped");
 	const record = turnRecord(table, campaign, 1);
 	assert.equal(record.closed_by, "narrate");
-	// §139.17: the trailing </text> is a bare wrapper, so the kernel took it off the resent draft.
+	// §143.17: the trailing </text> is a bare wrapper, so the kernel took it off the resent draft.
 	assert.equal(record.text, REWRITTEN, "the steered leg's own words, its bare wrapper taken off");
 	const finding = (record.warnings ?? []).find((row) => row.kind === "markup_in_prose");
 	assert.equal(finding?.quote, "</text>");
@@ -181,7 +181,7 @@ test("real kernel: a draft refused for markup is held, so a repair leg that brin
 });
 
 /**
- * A known boundary of §139.10, not a bug: the line class is syntax, so dash dialogue typed with a hyphen at a line's
+ * A known boundary of §143.10, not a bug: the line class is syntax, so dash dialogue typed with a hyphen at a line's
  * start has the shape of a markdown bullet. It costs one refusal a turn, and the same draft sent again goes out as
  * written with the finding. No language-based exemption narrows the class (owner's rule); a real dash (`—`) passes.
  */
@@ -209,7 +209,7 @@ test("real kernel, known boundary: dash dialogue typed with a hyphen at a line's
 });
 
 /**
- * Contract §139.17 (docs/specs/npc-acts-first-tickets/18-strip-a-bare-wrapper-tag-on-second-delivery.md): on the turn's
+ * Contract §143.17 (docs/specs/npc-acts-first-tickets/18-strip-a-bare-wrapper-tag-on-second-delivery.md): on the turn's
  * second delivery, markup that is only a bare wrapper -- a tag at the text's very start or end, or a matching pair
  * around all of it -- is a frame, not prose, and comes off before rendering; the warnings row stays with
  * `stripped: true`. A tag inside the prose and a list line are content and go out as written, `stripped` absent.
@@ -230,7 +230,7 @@ async function deliveredTwice(t, campaign, text) {
 	return { table, record, finding: (record.warnings ?? []).find((row) => row.kind === "markup_in_prose") };
 }
 
-test("real kernel, §139.17: a trailing </text> sent twice is taken off the second delivery, and the finding says stripped", async (t) => {
+test("real kernel, §143.17: a trailing </text> sent twice is taken off the second delivery, and the finding says stripped", async (t) => {
 	const { table, record, finding } = await deliveredTwice(t, "markup-strip-trailing", TAGGED);
 	assert.ok(!record.rendered_text.includes("</text>"), `the player never reads the tag: ${record.rendered_text}`);
 	assert.equal(record.text, REWRITTEN, "the Keeper's text, its wrapper taken off");
@@ -246,7 +246,7 @@ test("real kernel, §139.17: a trailing </text> sent twice is taken off the seco
 	assert.equal(customMessages(table.session, "coc-delivery").at(-1)?.content, record.rendered_text, "the player reads the unwrapped turn");
 });
 
-test("real kernel, §139.17: a <text>…</text> pair around the whole prose sent twice is taken off", async (t) => {
+test("real kernel, §143.17: a <text>…</text> pair around the whole prose sent twice is taken off", async (t) => {
 	const { table, record, finding } = await deliveredTwice(t, "markup-strip-pair", PAIRED);
 	assert.ok(!/<\/?text>/.test(record.rendered_text), `no tag reaches the player: ${record.rendered_text}`);
 	assert.equal(record.text, REWRITTEN);
@@ -255,7 +255,7 @@ test("real kernel, §139.17: a <text>…</text> pair around the whole prose sent
 	assert.deepEqual(markupRows(table).map((row) => [row.outcome, row.tags, row.stripped ?? null]), [["refused", 2, null], ["delivered", 2, true]]);
 });
 
-test("real kernel, §139.17: a <b> inside a sentence sent twice is content, delivered as written with no stripped", async (t) => {
+test("real kernel, §143.17: a <b> inside a sentence sent twice is content, delivered as written with no stripped", async (t) => {
 	const { table, record, finding } = await deliveredTwice(t, "markup-inner-tag", INNER);
 	assert.ok(record.rendered_text.includes("<b>喉咙</b>"), "delivered as written");
 	assert.equal(record.text, INNER);
@@ -264,7 +264,7 @@ test("real kernel, §139.17: a <b> inside a sentence sent twice is content, deli
 	assert.deepEqual(markupRows(table).map((row) => [row.outcome, "stripped" in row]), [["refused", false], ["delivered", false]]);
 });
 
-test("real kernel, §139.17: a markdown list line sent twice is content, delivered as written with no stripped", async (t) => {
+test("real kernel, §143.17: a markdown list line sent twice is content, delivered as written with no stripped", async (t) => {
 	const { table, record, finding } = await deliveredTwice(t, "markup-list-twice", LISTED);
 	assert.ok(record.rendered_text.includes("- 钥匙还躺在桌腿边的地板上，铜齿朝上。"), "delivered as written");
 	assert.equal(record.text, LISTED);

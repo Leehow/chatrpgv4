@@ -1,6 +1,6 @@
 Status: landed @ 3febb0d6e + 9cc3939c2（2026-09-26）；2026-09-26，真桌 D T4/T7 发现
 Spec: docs/specs/npc-acts-first.md（D9、D10；第九节「D 桌」）
-Contract: §139.26（新）；修 §139.8 的上调
+Contract: §143.26（新）；修 §143.8 的上调
 
 # 27 — 打架里的人威胁档不回落
 
@@ -12,7 +12,7 @@ KP 给诺特补了普通人档，性格 `avoids_fighting` → 底档 calm（`npc
 
 1. `npc-stakes.json` 的 `shifts` 加结构上调（数据，不写死在代码里）：他在一个和调查员同在的战斗 session 里；或上一回合（最新已提交回合）有收据以他为对象的攻击/伤害。各 +1（是否叠加由你按表的现有规则定，写进契约）。
 2. `kernel-ts/npc/stakes.ts` 读这些新条件；表校验照旧。
-3. 契约 §139.26；§139.8 加带日期的注。
+3. 契约 §143.26；§143.8 加带日期的注。
 
 ## Acceptance
 

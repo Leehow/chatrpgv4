@@ -1,8 +1,8 @@
-"""Contract §139.24 (ticket 25 of docs/specs/npc-acts-first-tickets/, spec section 九's table B2), over the emitted kernel.
+"""Contract §143.24 (ticket 25 of docs/specs/npc-acts-first-tickets/, spec section 九's table B2), over the emitted kernel.
 
 The lines the Keeper gives a person in a delivery are held to the same "not the same thing twice" as the table's own
-act (§139.5, §139.14). The kernel's part: `npc.threads {campaign, text}` lists who speaks in a delivery by the Keeper's
-own say tokens -- someone the table acted for this turn, or who is in the conversation (§139.20) -- with their rows
+act (§143.5, §143.14). The kernel's part: `npc.threads {campaign, text}` lists who speaks in a delivery by the Keeper's
+own say tokens -- someone the table acted for this turn, or who is in the conversation (§143.20) -- with their rows
 never carried out (under way since an earlier turn, or given up); and `table.narrate` refuses once per turn when the
 host's `purpose_repeats` names one of those rows for that speaker, and delivers a later attempt with a finding.
 Whether a line is the same purpose is Jev's question on the host side; here the host's reading is given directly.
@@ -40,7 +40,7 @@ def ref_of(client, line):
 
 
 def table_act(client, call_id, line):
-    """The clerk's opener of a generated act bound `intention_only` (§139.3 write 1, the host's mark set)."""
+    """The clerk's opener of a generated act bound `intention_only` (§143.3 write 1, the host's mark set)."""
     client.table("apply", call_id=call_id, effects=[{"kind": "npc", "name": KNOTT, "intends": line, "outcome": "attempted", "_generated": True}])
     return ref_of(client, line)
 
@@ -99,7 +99,7 @@ def test_first_delivery_naming_the_row_is_refused_once_and_a_later_one_goes_out_
     assert refused["message"].startswith(f'{KNOTT} already set out on turn 1 to "{PAPERS}" and it has no result'), refused["message"]
     assert "do not have them say it again" in refused["fix"], refused["fix"]
     assert turn_json(knott)["purpose_gate"] == {"call_id": "t2-c2"}
-    # Checked before §138.7: the row under way is owed a result too, but the prose's lines were refused first.
+    # Checked before §142.7: the row under way is owed a result too, but the prose's lines were refused first.
     assert refused["details"]["reason"] != "intent_result_owed"
     # The Keeper gives the row up and sends the same lines again: the gate is spent, so it goes out, with a finding.
     knott.table("apply", call_id="t2-c3", effects=[{"kind": "npc", "name": KNOTT, "intent_ref": papers, "intent_outcome": "abandoned", "why": "he drops it"}])

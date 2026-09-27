@@ -1,11 +1,11 @@
 /**
- * Contract §139.3 (docs/specs/npc-acts-first.md D3, ticket 03): `npc.act.options {campaign, name, produce?}` -- the ways
+ * Contract §143.3 (docs/specs/npc-acts-first.md D3, ticket 03): `npc.act.options {campaign, name, produce?}` -- the ways
  * this person's act can be settled right now, each with the closed options of its parameters.
  *
- * The host binds a generated act (§139.2) to one of these ways by one closed Jev question (§139.3); nothing here reads
+ * The host binds a generated act (§143.2) to one of these ways by one closed Jev question (§143.3); nothing here reads
  * the act, and nothing here decides what the person does. Every way is an existing kernel path -- a fight action of
- * the running combat, the first blow (§138.11), a chase (§11.5), the person's own check (§138.6), a coercion (§138.13),
- * a clock (§138.9), a person walking on (§87), a stance or a leave (`apply npc`), or the intention alone (§138.2) --
+ * the running combat, the first blow (§142.11), a chase (§11.5), the person's own check (§142.6), a coercion (§142.13),
+ * a clock (§142.9), a person walking on (§87), a stance or a leave (`apply npc`), or the intention alone (§142.2) --
  * and every option is data the kernel already holds: the session's own targets and weapons, the stat block's skills and
  * the table's pins, the four social skills of the rule, the table's and the book's clocks, the stance ledger's words.
  * No number is invented; a difficulty is the rule's default where the path takes one (§135.28).
@@ -13,12 +13,12 @@
  * `acted_on` is structure, not meaning: this turn's receipts that were done to this person (a roll made against them,
  * their resources or conditions changed, a thing taken from or given to them, money exchanged with them), and an
  * investigator who fled while they stood in the same scene. A receipt of their own act (its `intent` names them) or
- * their own roll is not something done to them. `conversation` (§139.20) is structure too: whether they took part, on
+ * their own roll is not something done to them. `conversation` (§143.20) is structure too: whether they took part, on
  * the newest committed turn in the scene the investigators are still in, or earlier in this one, by an act or an
  * intention of theirs or a line the speech markers attributed to them (`conversationOf`, `situation.ts`).
  *
  * With `produce: true` (the host asks only when the generated act brings out something no one knew this person had --
- * `produces`, allowed by a surprise of the stakes die, §139.19, spec D10) the result also lists `produce`: every record
+ * `produces`, allowed by a surprise of the stakes die, §143.19, spec D10) the result also lists `produce`: every record
  * of the rulebook's price list (`equipment.json`) of the module's era, one option per record (`value` its `price_id`,
  * `label` the book's name, `category`, and `weapon` -- its `weapons.json` profile -- when the record is a weapon). It
  * replaces D9's weapons-only `draw` list (ticket 20): what a person brings out is anything the book prices.
@@ -43,7 +43,7 @@ import {stanceTable} from '../write/contributions.js';
 import {committedOnLine, conversationOf, entryNow, intentHistory, personOf, type Person} from './situation.js';
 import {INTENT_TEXT_LIMIT, intentRef, isSettled} from './intents.js';
 
-/** The ways, in the order the result lists them (contract §139.3's closed vocabulary). */
+/** The ways, in the order the result lists them (contract §143.3's closed vocabulary). */
 export const ACT_WAYS: readonly string[] = Object.freeze(['attack', 'flee', 'first_blow', 'pursue', 'check', 'coercion', 'clock', 'walk_on', 'stance', 'leave', 'intention_only']);
 
 interface Option { value: string; label: string; [extra: string]: unknown }
@@ -96,8 +96,8 @@ function weaponLabel(catalog: Row, weapon: unknown): Option | null {
 }
 
 /**
- * §139.19: the rulebook's price list of the module's era, one option per record. A record whose `entity_ref` names a
- * `weapons.json` profile carries it as `weapon` (the host draws it through §139.3's `_draws`); every other record is an
+ * §143.19: the rulebook's price list of the module's era, one option per record. A record whose `entity_ref` names a
+ * `weapons.json` profile carries it as `weapon` (the host draws it through §143.3's `_draws`); every other record is an
  * object the kernel places in the person's hands (`_produces`, `apply/draw.ts`).
  */
 async function produceCatalog(context: KernelContext, graph: ModuleGraph): Promise<Option[]> {
@@ -155,12 +155,12 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
                 const catalog = row(combat!.weapon_catalog), weapons = once(array(fighter.weapons).map(value => weaponLabel(catalog, value)).filter((value): value is Option => !!value));
                 const targets = view.combatTargets(combat!, handle).map(id => option(id, label(id)));
                 if (targets.length) way('attack', {target: targets, weapon: weapons.length ? weapons : [option('unarmed', string(row(catalog.unarmed).display_name) || 'unarmed')]});
-                // §139.9: a person the ruleset's flight rules block (held, unconscious...) cannot flee, so it is not a way.
+                // §143.9: a person the ruleset's flight rules block (held, unconscious...) cannot flee, so it is not a way.
                 const fleeTable = campaign.standingTables?.flee;
                 if (!fleeTable || !fleeBlockers(fighter, fleeTable).length) way('flee');
             }
             if (!inSession && here && profile) {
-                // §138.11: outside a fight, a person present with a stat block may strike the first blow at an investigator.
+                // §142.11: outside a fight, a person present with a stat block may strike the first blow at an investigator.
                 const catalog = await (async () => { try { return row(await context.snapshots.readJson(join(context.content, 'rulesets', 'coc7', 'rules-json', 'weapons.json'))).weapons; } catch { return {}; } })();
                 const weapons = once([...array(profile.weapons).map(value => weaponLabel(row(catalog), value)).filter((value): value is Option => !!value),
                     option('unarmed', string(row(row(catalog).unarmed).display_name) || 'unarmed')]);
@@ -193,9 +193,9 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
                 if (people.length) way('walk_on', {name: people});
             }
             const table = await stanceTable(context), stance = stanceNow(graph, ledger, table, turn, handle);
-            // §139.5: the act's identity as an intention of this person (§138.1). The same line as one still under way is
+            // §143.5: the act's identity as an intention of this person (§142.1). The same line as one still under way is
             // that intention continued; the same line as a settled one is a new attempt, so it is a new line -- the turn is
-            // appended, because a settled intention is not tried again (§138.2) and the kernel never reads what it means.
+            // appended, because a settled intention is not tried again (§142.2) and the kernel never reads what it means.
             let act: Row | null = null;
             if (typeof params.act === 'string') {
                 const rows = intentHistory(entryNow(graph, ledger, table, turn, node));
@@ -210,11 +210,11 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
             way('intention_only');
             return {
                 npc: {handle, name: graph.displayName(node)},
-                // The act is written in the campaign's play language (§139.2); the host reads it here with the options.
+                // The act is written in the campaign's play language (§143.2); the host reads it here with the options.
                 play_language: await playLanguageOf(context, campaign.meta),
                 place, in_session: inSession, my_turn: myTurn,
                 acted_on: actedOn(me, turn, party, here),
-                // §139.20: whether they are in the conversation where the investigators stand (the host's third trigger).
+                // §143.20: whether they are in the conversation where the investigators stand (the host's third trigger).
                 conversation: conversationOf(graph, world, me, turn, committedOnLine(campaign).previous),
                 ...(act ? {act} : {}),
                 ways: ways as unknown as Row[],

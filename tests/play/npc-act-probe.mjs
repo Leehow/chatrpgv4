@@ -2,7 +2,7 @@
 /**
  * Ticket 07 (docs/specs/npc-acts-first-tickets/07-probe-and-judge.md; spec docs/specs/npc-acts-first.md
  * section 五): an offline seeded probe with real models, measuring whether Steven Knott's generated act
- * (contract §139.2, §139.3, §139.8) reads like what a person would do.
+ * (contract §143.2, §143.3, §143.8) reads like what a person would do.
  *
  * What it does, once per round (three rounds; kernel seed fixed, so only the model's sampling varies):
  *   For each retained table (npc-actor-gate-a, npc-actor-gate-a2, turns 1-8, read-only from the lead's
@@ -28,7 +28,7 @@
  * throwaway copy for the session, and the Jev key is read from the same App's encrypted vault exactly as
  * `docs/../gate-start.sh` reads it. Nothing here prints, logs or commits a key or token.
  *
- * Ticket 20 (§139.19, spec D10): on a turn whose stakes die allowed a surprise, the lane's answer may name what the act
+ * Ticket 20 (§143.19, spec D10): on a turn whose stakes die allowed a surprise, the lane's answer may name what the act
  * brings out (`produces`); the bind then asks the price-list record of it (its part first, the 1920s list being longer
  * than one question) and the record reads as `produced` (the book's, or the table's own). Report only: how often
  * `produces` appears on surprise turns, and what it names. Nothing is executed, as before.
@@ -299,7 +299,7 @@ async function runProbe({ kernel, lane, decisionAdapter, TaskLease, npcActBatch,
   if (!('act' in generated)) return { ...record, status: 'unavailable', reason: generated.unavailable, detail: generated.detail ?? null };
   const act = generated.act;
   record.act = act;
-  // §139.19: the lane takes `produces` only on a surprise (and drops it, saying so, otherwise).
+  // §143.19: the lane takes `produces` only on a surprise (and drops it, saying so, otherwise).
   record.surprise = stakes?.stakes?.surprise === true;
   const produces = typeof generated.produces === 'string' ? generated.produces : null;
   record.produces = produces;
@@ -322,7 +322,7 @@ async function runProbe({ kernel, lane, decisionAdapter, TaskLease, npcActBatch,
     try { return await decisionAdapter.decide(asked, lease); } finally { lease.close(); }
   };
   const decision = await decide(batch, `probe bind turn ${turn}`);
-  // §139.19: a price list too long for one question was asked by its part; the record within it is a second batch.
+  // §143.19: a price list too long for one question was asked by its part; the record within it is a second batch.
   let follow;
   const part = produces ? producePart(plan, decision, gate) : null;
   if (part) {
@@ -564,7 +564,7 @@ export function writeSummary(outDir, { rounds, seed, tables, allRecords, allJudg
   const lines = [];
   lines.push('# npc-act-probe summary');
   lines.push('');
-  // §139.19 (ticket 20): report only -- how often a surprise turn's act brings something out, and what.
+  // §143.19 (ticket 20): report only -- how often a surprise turn's act brings something out, and what.
   const surprised = probes.filter(row => row.surprise === true);
   const producing = surprised.filter(row => row.produces);
   lines.push('## Surprise turns (ticket 20, report only)');
@@ -591,7 +591,7 @@ export function writeSummary(outDir, { rounds, seed, tables, allRecords, allJudg
   lines.push('**Why same-act misses here may not indict the instruction file.** Ticket 07 deliberately never executes the bound act into the '
     + 'replayed campaign (spec: "recording the bind is enough"). That means the kernel\'s own ledger (`npc.situation`\'s `done`, `happened`) never '
     + 'carries a generated act from an earlier probed turn forward into a later turn\'s packet within this probe -- only whatever the *original* '
-    + 'recording\'s own `apply`/`resolve` calls put there survives the replay. Contract §139.5\'s real no-repeat mechanism (the "already tried X, give '
+    + 'recording\'s own `apply`/`resolve` calls put there survives the replay. Contract §143.5\'s real no-repeat mechanism (the "already tried X, give '
     + 'it a result or do something else" re-ask, and `content/setup/npc-act.md`\'s "already tried with no result is not done the same way again") '
     + 'depends on that ledger carrying the prior act -- which only happens when the bind is actually executed, in real play. So this probe structurally '
     + 'cannot exercise that mechanism, and a same-act repeat measured here is at least partly an artifact of the probe\'s own non-execution design, not '

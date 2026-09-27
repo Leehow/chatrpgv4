@@ -75,7 +75,7 @@ async function hybridTable({ decide, responses, realKernel = false, env = {}, pr
 }
 
 /**
- * §139.4: an NPC's own turn of a fight is his act, generated first and bound after. These tables' Knott hits back: the
+ * §143.4: an NPC's own turn of a fight is his act, generated first and bound after. These tables' Knott hits back: the
  * fixture generation writes the blow and Jev binds it to the fight's attack (its one target and one weapon need no question).
  */
 const HITS_BACK = "他反手一拳砸过来。";
@@ -179,7 +179,7 @@ test("SL-07: an NPC's pending defence with a standing is a direct clerk step -- 
 	]);
 	const table = await hybridTable({
 		realKernel: true, prepareWorkspace,
-		// Jev: his disposition is inferred once (fights to the end); his own turn is his act (§139.4), bound to the attack;
+		// Jev: his disposition is inferred once (fights to the end); his own turn is his act (§143.4), bound to the attack;
 		// every other bind is unknown (so a defence bind, were one asked, would go to the LLM); the route after the NPC's
 		// attack finishes.
 		npcAct: knottHitsBack(),
@@ -227,7 +227,7 @@ const knottFight = (campaign, extra) => (workspace) => kernelSteps(workspace, ca
 	["table.narrate", { call_id: `t1-c${3 + extra.length}`, text: "你挥出一拳。" }],
 ]);
 
-test("§139.4 (replaces SL-08's standing attack): his turn is his own act -- generated, bound to the fight's attack by one Jev question, written by the clerk", async (t) => {
+test("§143.4 (replaces SL-08's standing attack): his turn is his own act -- generated, bound to the fight's attack by one Jev question, written by the clerk", async (t) => {
 	const campaign = "test-camp";
 	const table = await hybridTable({
 		realKernel: true,
@@ -258,7 +258,7 @@ test("§139.4 (replaces SL-08's standing attack): his turn is his own act -- gen
 	assert.ok(!telemetry.some((entry) => entry.event === "llm_bound"));
 });
 
-test("§139.4 (was SL-08's standing hold): when the table settles no act on his turn (the generation is unavailable here), the Keeper's turn carries the standing and what the table recorded in the run's note", async (t) => {
+test("§143.4 (was SL-08's standing hold): when the table settles no act on his turn (the generation is unavailable here), the Keeper's turn carries the standing and what the table recorded in the run's note", async (t) => {
 	const campaign = "test-camp";
 	const table = await hybridTable({
 		realKernel: true,
@@ -284,7 +284,7 @@ test("§139.4 (was SL-08's standing hold): when the table settles no act on his 
 	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "narrate").isError, false);
 });
 
-test("SL-08: without a disposition, Jev infers one once from his own parameters and the clerk writes it (basis inferred); then his own act runs (§139.4)", async (t) => {
+test("SL-08: without a disposition, Jev infers one once from his own parameters and the clerk writes it (basis inferred); then his own act runs (§143.4)", async (t) => {
 	const campaign = "test-camp";
 	const table = await hybridTable({
 		realKernel: true, prepareWorkspace: knottFight(campaign, []), npcAct: knottHitsBack(),
@@ -310,7 +310,7 @@ test("SL-08: without a disposition, Jev infers one once from his own parameters 
 	assert.equal(written.basis, "inferred");
 	assert.deepEqual(written.read, row.basis.row.read, "the parameters read, as the candidate named them");
 	assert.ok(written.read.length > 0);
-	// The inferred disposition is a description of him now (§139.4): the kernel's standing names it; his act is his own.
+	// The inferred disposition is a description of him now (§143.4): the kernel's standing names it; his act is his own.
 	const actRow = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.clerk === "npc_act");
 	assert.deepEqual(actRow.basis.npc_act.way, "attack");
 	const attack = calls.find((call) => call.phase === "call" && call.tool === "resolve" && call.input.action?.decision === "combat:attack");
@@ -391,8 +391,8 @@ test("SL-19: the first blow outside a fight is the clerk's when the compile read
 });
 
 /**
- * §139.16 (NAF-17, live table C4 turn 8): the investigator's own turn of a fight, the way C4 met it -- the fight opened on turn 1,
- * Knott dodged the punch and held (the Keeper's hold passes his turn, §138.5), so the player speaks on their own turn with the
+ * §143.16 (NAF-17, live table C4 turn 8): the investigator's own turn of a fight, the way C4 met it -- the fight opened on turn 1,
+ * Knott dodged the punch and held (the Keeper's hold passes his turn, §142.5), so the player speaks on their own turn with the
  * session issuing the attack (one target, one weapon: nothing to bind) and the flight.
  */
 const hayesTurn = (campaign) => (workspace) => kernelSteps(workspace, campaign, [
@@ -437,7 +437,7 @@ const attackBinds = (telemetry) => telemetry.filter((row) => row.lane === "run" 
 const DEMAND = "钱呢？你说的二十块，现在就给我。";
 const HANDS_UP = "他举起双手：「钱在抽屉里，你先退开，我数给你。」";
 
-test("§139.16 (C4 T8 replay): the demand in a fight, read as no fight action (act none 0.91) -- no clerk punch, the turn is the Keeper's", async (t) => {
+test("§143.16 (C4 T8 replay): the demand in a fight, read as no fight action (act none 0.91) -- no clerk punch, the turn is the Keeper's", async (t) => {
 	const campaign = "test-camp";
 	const table = await hybridTable({
 		realKernel: true, prepareWorkspace: hayesTurn(campaign),
@@ -461,7 +461,7 @@ test("§139.16 (C4 T8 replay): the demand in a fight, read as no fight action (a
 	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "narrate")?.isError, false);
 });
 
-test("§139.16: the demand whose act does not clear (none 0.50 / attack 0.30) -- the route's now on the attack selects nothing, the turn is the Keeper's", async (t) => {
+test("§143.16: the demand whose act does not clear (none 0.50 / attack 0.30) -- the route's now on the attack selects nothing, the turn is the Keeper's", async (t) => {
 	const campaign = "test-camp";
 	const table = await hybridTable({
 		realKernel: true, prepareWorkspace: hayesTurn(campaign),
@@ -492,7 +492,7 @@ test("§139.16: the demand whose act does not clear (none 0.50 / attack 0.30) --
 		"the Keeper still sees the attack the session issues");
 });
 
-test("§139.16 (C4 T7/T10 replay): \"我又是一拳\" -- act combat:attack cleared, target unclear, the route's now binds the attack as before", async (t) => {
+test("§143.16 (C4 T7/T10 replay): \"我又是一拳\" -- act combat:attack cleared, target unclear, the route's now binds the attack as before", async (t) => {
 	const campaign = "test-camp";
 	const table = await hybridTable({
 		realKernel: true, prepareWorkspace: hayesTurn(campaign),

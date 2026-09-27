@@ -88,7 +88,7 @@ test('NPC relationships are directed and own speech remains available before mem
  assert.equal(perspective.recent_speech.at(-1).statement,spoken);
 });
 
-test('the response bank is retired: its methods are unknown and an older campaign\'s bank is neither read nor deleted (§139.6)',async t=>{
+test('the response bank is retired: its methods are unknown and an older campaign\'s bank is neither read nor deleted (§143.6)',async t=>{
  const {client,home}=await opened(t),campaign='npc-test';
  const persona=await client.call('npc.job',{campaign,name:'Steven Knott'});
  await client.call('npc.submit',{campaign,job_id:persona.job_id,claim:persona.claim,personality:{description:'Practical and attentive to evidence.'}});

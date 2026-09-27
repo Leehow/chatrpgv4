@@ -1,9 +1,9 @@
 /**
- * Contract §139.10: markup in player-facing prose. A syntax check over the text a delivery renders -- the host's own
+ * Contract §143.10: markup in player-facing prose. A syntax check over the text a delivery renders -- the host's own
  * say tokens and mechanics markers are already gone (`deliveryText` → `stripMarkers`, §40.4) -- for two shapes: an
  * XML/HTML-shaped tag, and a line that opens with a markdown list or heading marker. Nothing here reads a word of the
  * prose: a lone hyphen inside a sentence, a dash, a quotation mark or an ellipsis is not a shape either class names.
- * §139.17 adds the one judgement a second delivery needs: whether the markup is only a frame around the prose.
+ * §143.17 adds the one judgement a second delivery needs: whether the markup is only a frame around the prose.
  */
 import { chars } from '../read/values.js';
 
@@ -27,11 +27,11 @@ export function markupInProse(rendered: string): Markup | null {
 /** A tag's parts: the closing slash, the name, the self-closing slash. */
 const TAG_PARTS = /^<(\/?)([A-Za-z_][\w-]*)\s*(\/?)>$/;
 
-/** Contract §139.17: the tags that frame the prose, the one standing first and the one standing last. */
+/** Contract §143.17: the tags that frame the prose, the one standing first and the one standing last. */
 export interface Wrapper { leading: string | null; trailing: string | null }
 
 /**
- * Contract §139.17: the rendered text's markup is a bare wrapper -- a frame around the prose, not a word of it -- when no
+ * Contract §143.17: the rendered text's markup is a bare wrapper -- a frame around the prose, not a word of it -- when no
  * line opens with a list or heading marker and every tag in the text stands at its very start or its very end with
  * nothing beyond it but whitespace: an opening tag first and the closing tag of the same name last (`<text>…</text>`),
  * or one lone opening or closing tag at either end. A self-closing tag frames nothing. Positional and structural only:
@@ -67,7 +67,7 @@ export function bareWrapper(rendered: string): Wrapper | null {
 }
 
 /**
- * Contract §139.17: `text` with the wrapper taken off -- the first occurrence of its leading tag and the last of its
+ * Contract §143.17: `text` with the wrapper taken off -- the first occurrence of its leading tag and the last of its
  * trailing one -- and the ends trimmed. The caller applies it to the Keeper's own text and checks the render of what is
  * left against the rendered text unwrapped the same way.
  */

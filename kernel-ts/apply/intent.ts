@@ -1,9 +1,9 @@
 /**
- * The writer's half of contract §138: which intention of which person an effect or a roll is a result of, checked
+ * The writer's half of contract §142: which intention of which person an effect or a roll is a result of, checked
  * before anything lands. An intention is named either by its reference (`intent_ref`, from the card or the offer) or
  * by the line itself (`intends`, a new thing this person tries). Nothing here reads prose: a line is its own identity,
  * and a settled intention is found by that identity, never by what the words resemble. The ledger is the only place
- * an intention is known from (§139.6: the response bank that could also name one is retired).
+ * an intention is known from (§143.6: the response bank that could also name one is retired).
  */
 import {RpcError} from '../errors.js';
 import type {KernelContext} from '../context.js';
@@ -23,12 +23,12 @@ export interface IntentScope {
 /**
  * `options` are this person's intentions under way when the name was resolved -- what every refusal about it lists, so
  * a refusal that has already resolved the person never reads the ledger a second time. `generated` says the table's
- * own act of this person set the intention out (the ledger row's mark, §139.6); a new line is not.
+ * own act of this person set the intention out (the ledger row's mark, §143.6); a new line is not.
  */
 export interface ResolvedIntent { ref: string; text: string; status: string | null; turn: number | null; generated: boolean; options: Row[] }
 
 /**
- * §139.7: where a writer finds a ref, said in every refusal about one (live gate A, T12: the Keeper wrote
+ * §143.7: where a writer finds a ref, said in every refusal about one (live gate A, T12: the Keeper wrote
  * `intent_ref: "@intent-placeholder"` for an intention it had started in the same batch). The rendering puts the
  * `details.options` this names on a line of its own (contract §8).
  */
@@ -52,7 +52,7 @@ export async function intentOptions(scope: IntentScope, node: Row, entry?: Row):
     return intentsOf(current).filter(item => !isSettled(item.status)).map(item => ({ref: item.ref, intent: item.text, status: item.status}));
 }
 /**
- * §139.7: what a writer may name when the ref it gave names nobody (so there is no person to ask): every intention under
+ * §143.7: what a writer may name when the ref it gave names nobody (so there is no person to ask): every intention under
  * way at this table, whoever's -- the committed ledger, then this turn's receipts, then this call's -- each with the
  * handle of the person it belongs to.
  */
@@ -112,7 +112,7 @@ export async function resolveIntent(scope: IntentScope, node: Row, fields: {inte
 /**
  * A settled intention is not tried again (the owner's ruling of 2026-09-26: what a person announces gets a result, and
  * the same thing is not done twice in a row). Refused with what is still open, so the next call has somewhere to go.
- * Its result stands -- also when the table's own act settled it (§139.7): a roll the table made is not re-graded.
+ * Its result stands -- also when the table's own act settled it (§143.7): a roll the table made is not re-graded.
  */
 export async function refuseSettled(scope: IntentScope, node: Row, resolved: ResolvedIntent, field: string): Promise<void> {
     if (!isSettled(resolved.status)) return;
@@ -123,7 +123,7 @@ export async function refuseSettled(scope: IntentScope, node: Row, resolved: Res
 }
 
 /**
- * §138.7: an intention still under way from an earlier turn is not announced again -- it gets a result. Written as
+ * §142.7: an intention still under way from an earlier turn is not announced again -- it gets a result. Written as
  * `attempted` a second time on a later turn, it is refused; within the same turn it may be written again.
  */
 export function refuseRepeat(scope: IntentScope, node: Row, resolved: ResolvedIntent, outcome: string, field: string): void {
@@ -135,14 +135,14 @@ export function refuseRepeat(scope: IntentScope, node: Row, resolved: ResolvedIn
 }
 
 /**
- * §139.14: what the table's own act of a person set out (a `generated` row) is settled only by the dice, a clock, an
- * arrival or a departure -- what its binding writes (§139.3), whoever writes it -- or given up. Saying it happened is
+ * §143.14: what the table's own act of a person set out (a `generated` row) is settled only by the dice, a clock, an
+ * arrival or a departure -- what its binding writes (§143.3), whoever writes it -- or given up. Saying it happened is
  * not a result: live table C3 (2026-09-26) had "grab the telephone" made `done` by a clue's `intent_ref` and a
  * threat made `done` by the intention variant, so the situation packet told the generator every turn that the
  * telephone was dealt with, and the same threat came back four times. Refused here, before anything lands: `done` or
  * `failed` on such a row by a write that is not the table's own (`_generated`) and does not itself settle it
  * (`settles`: a roll, a threat clock, an npc `to`). `abandoned` stays the Keeper's (spec D7); a Keeper-written row
- * keeps §138.2's rules; a settled row was refused `intent_settled` before this is asked.
+ * keeps §142.2's rules; a settled row was refused `intent_settled` before this is asked.
  */
 export const TABLE_ACT_UNSETTLED_FIX = 'a table act that rolled nothing is not done by saying so: abandon it (intent_outcome: abandoned), or let the dice settle it';
 export function refuseSaidDone(scope: IntentScope, node: Row, resolved: ResolvedIntent, outcome: string, field: string,
@@ -154,7 +154,7 @@ export function refuseSaidDone(scope: IntentScope, node: Row, resolved: Resolved
         details: {field, reason: 'table_act_unsettled', ref: resolved.ref, status: resolved.status, outcome}});
 }
 /**
- * §139.14: the effects that settle a table act by themselves, as its binding's non-roll ways do (§139.3: `clock`,
+ * §143.14: the effects that settle a table act by themselves, as its binding's non-roll ways do (§143.3: `clock`,
  * `walk_on`, `leave`) -- a threat clock moving, and a person arriving or departing (an npc effect with `to`). A closed
  * set of effect kinds, never a reading of what the effect is about.
  */
@@ -163,15 +163,15 @@ export function effectSettlesAct(effect: Row): boolean {
 }
 
 /**
- * The `intent` a receipt carries (§138.2). `generated` (§139.3) marks a receipt of an act the table generated and bound
- * (`intent.generated: true`), which the ledger fold reads (§139.6).
+ * The `intent` a receipt carries (§142.2). `generated` (§143.3) marks a receipt of an act the table generated and bound
+ * (`intent.generated: true`), which the ledger fold reads (§143.6).
  */
 export function intentStamp(handle: string, resolved: ResolvedIntent, outcome: string, generated = false): Row {
     if (!INTENT_OUTCOMES.includes(outcome)) throw new Error(`unknown intent outcome ${outcome}`);
     return {ref: resolved.ref, npc: handle, text: resolved.text, outcome, ...(generated ? {generated: true} : {})};
 }
 /**
- * §139.3: the host's `_generated` beside an intention on an effect or a roll's action -- the call is the table's own act of
+ * §143.3: the host's `_generated` beside an intention on an effect or a roll's action -- the call is the table's own act of
  * that person, bound by the clerk from the generated line. Host-only (the kernel extension sets it on the clerk's
  * `npc_act` calls and strips it from every other call); `true` or absent, never read from anything else.
  */
@@ -182,7 +182,7 @@ export function generatedOf(value: unknown, field: string): boolean {
 }
 
 /**
- * §138.2: an effect of any kind that is the result of what someone set out to do names it with `intent_ref`; the
+ * §142.2: an effect of any kind that is the result of what someone set out to do names it with `intent_ref`; the
  * receipt carries the stamp with `intent_outcome` (default `done`: the effect is what happened). The intention may be
  * someone else's than the effect's subject -- the porter comes up the stairs because Knott shouted.
  */
@@ -200,24 +200,24 @@ export async function effectIntent(scope: IntentScope, effect: Row, field: strin
     const resolved = await resolveIntent(scope, node, {intent_ref: effect.intent_ref}, field);
     await refuseSettled(scope, node, resolved, field);
     refuseRepeat(scope, node, resolved, outcome, field);
-    // §139.14: a clue, a note or any other effect that carries a table act's ref does not settle it by being written.
+    // §143.14: a clue, a note or any other effect that carries a table act's ref does not settle it by being written.
     refuseSaidDone(scope, node, resolved, outcome, `${field}.intent_outcome`, {generated, settles: effectSettlesAct(effect)});
     return intentStamp(scope.graph.handle(node), resolved, outcome, generated);
 }
 
 /**
- * What a roll's intention stamp does (§138.2 addendum). `stamp` writes it on the call's receipts and says where it
+ * What a roll's intention stamp does (§142.2 addendum). `stamp` writes it on the call's receipts and says where it
  * landed: on a graded roll (`roll`, settled done or failed), on the call's first receipt (`first`, still `attempted`), or
- * nowhere (`none`). `carried` is the stamp without its outcome, for a call whose roll is still to come (§139.3: an attack
+ * nowhere (`none`). `carried` is the stamp without its outcome, for a call whose roll is still to come (§143.3: an attack
  * waiting for its defence rolls in the defence call).
  */
 export interface RollIntentPlan { stamp(receipts: Row[]): 'roll' | 'first' | 'none'; carried: Row }
 /**
- * §138.2: a `resolve` whose roll is the result of what someone set out to do (`action.intent_ref`). Checked before the
+ * §142.2: a `resolve` whose roll is the result of what someone set out to do (`action.intent_ref`). Checked before the
  * dice are thrown -- an unknown or settled intention refuses without a roll -- and stamped after: the check that passed
  * did it, the one that failed did not, unless `action.intent_outcome` says otherwise (a first step that leaves it under
  * way). A call that rolls nothing yet leaves it `attempted` on its first receipt; an attack waiting for its defence has
- * its stamp wait for the defence call (§139.3, `carryAttackIntent`).
+ * its stamp wait for the defence call (§143.3, `carryAttackIntent`).
  */
 export async function planRollIntent(scope: IntentScope, action: Row): Promise<RollIntentPlan | null> {
     if (action.intent_ref == null) return null;
@@ -234,7 +234,7 @@ export async function planRollIntent(scope: IntentScope, action: Row): Promise<R
     await refuseSettled(scope, node, resolved, 'action');
     if (typeof outcome === 'string') {
         refuseRepeat(scope, node, resolved, outcome, 'action');
-        // §139.14: the dice settle a table act; an outcome written beside the roll would overrule them.
+        // §143.14: the dice settle a table act; an outcome written beside the roll would overrule them.
         refuseSaidDone(scope, node, resolved, outcome, 'action.intent_outcome', {generated, settles: false,
             fix: 'the dice settle a table act: leave action.intent_outcome out and the roll makes it done or failed; or abandon it (apply npc, intent_outcome: abandoned)'});
     }
@@ -251,7 +251,7 @@ export async function planRollIntent(scope: IntentScope, action: Row): Promise<R
 }
 
 /**
- * §139.3: an attack on an investigator waits for their defence and rolls in the defence call, so the attack call has no
+ * §143.3: an attack on an investigator waits for their defence and rolls in the defence call, so the attack call has no
  * receipt for its intention's stamp. The stamp waits beside the pending attack, keyed by its command id, in
  * `save/attack-intents.json` (the fight snapshot's contract admits no extra key); the defence call stamps the
  * attacker's graded roll with it -- done when it hit, failed when it did not -- and removes it.

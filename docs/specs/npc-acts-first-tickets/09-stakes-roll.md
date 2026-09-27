@@ -9,7 +9,7 @@ Spec: docs/specs/npc-acts-first.md（D9）
 - 内核 `kernel-ts/npc/stakes.ts`：`rollStakes(graph, world, node, turn, records)` → 判「无准备」（01 的 `constraints` 为空）→ 档 = 基础档 + 位移（夹在首尾档之间）→ d100（走内核既有的种子 RNG，测试可定）→ `roll` 收据 `{kind: 'roll', family: 'stakes', actor: <handle>, rung, shifts: [名], roll, outcome, visibility: 'keeper'}`，不进玩家的机制卡（§16.5）；每人每回合最多一条（已有则复用）。
 - 01 的包加 `stakes: {rung, outcome, line} | null`（`null` = 有准备或本回合没掷）；`situation.ts` 小改（01 合入后）。
 - 触发点由 03 的 `npc_act` 步骤在生成前调用（03 的 worker 接口：`npc.situation` 内部调 `rollStakes` 并写收据，或单独方法 `npc.stakes`——二选一，推荐前者，包里一次拿全）。
-- 契约 §139.8。
+- 契约 §143.8。
 
 ## Not in scope
 

@@ -120,7 +120,7 @@ export class CombatSession {
     revision = 0;
     pendingAttack: Row | null = null;
     /**
-     * Contract §139.9: the states that keep a person from fleeing and the states the flight ends, read from the ruleset
+     * Contract §143.9: the states that keep a person from fleeing and the states the flight ends, read from the ruleset
      * (`combat.json` `flee`), matched by `./flee-footing.ts`. Rules data; the engine keeps no list of its own.
      */
     flee: FleeRules = NO_FLEE_RULES;
@@ -1013,7 +1013,7 @@ export class CombatSession {
             turn.outcome = prefix + 'restrain_success';
         }
         else if (goal === 'escape') {
-            // §139.9: a hold is either the engine's own `restrained` effect or a `grappled` condition the person
+            // §143.9: a hold is either the engine's own `restrained` effect or a `grappled` condition the person
             // brought into the fight; the held person's escape breaks either, or a grappled person could never get
             // free and flee (the refusal's fix names this manoeuvre).
             const effects = array(attacker.active_effects), restraint = effects.find(effect => effect.effect === 'restrained');
@@ -1039,14 +1039,14 @@ export class CombatSession {
         }
     }
     private resolveFlee(turn: Row, actor: string): void {
-        // Contract §139.9 (Keeper Rulebook, Fleeing): a person flees on their own action, with an escape route and not
+        // Contract §143.9 (Keeper Rulebook, Fleeing): a person flees on their own action, with an escape route and not
         // physically restrained, so a person held, or with no action left to take, cannot. Before this a Keeper's
         // flee for anyone was stamped `fled` and the fight ended on it (table npc-actor-gate-a2, turn 6).
         const blocked = fleeBlockers(this.participants[actor], this.flee);
         if (blocked.length) {
             const state = blocked[0], out = incapacitatedBy(blocked);
             throw new RpcError('needs', `${actor} is ${blocked.join(' and ')} and cannot flee`, {
-                // §139.18: a held person's way free is named for a person the Keeper plays (their initiative, §32.1); for an
+                // §143.18: a held person's way free is named for a person the Keeper plays (their initiative, §32.1); for an
                 // investigator it is the player's to declare, so the fix puts the hold in front of the player and names no
                 // other fight decision -- a refusal's fix is executed literally.
                 fix: out.length
@@ -1057,7 +1057,7 @@ export class CombatSession {
                 details: { reason: state, blocked_by: blocked, actor, rule: 'combat.json flee.flee_blocked_by' },
             });
         }
-        // §139.9, Keeper Rulebook p.127 (Prone): a prone person may stand up when their turn comes and then take their
+        // §143.9, Keeper Rulebook p.127 (Prone): a prone person may stand up when their turn comes and then take their
         // action, so the flight ends the states the table lists as `flee_clears` -- one receipt, prone lost and fled
         // gained. Before this Knott was stamped `fled` still lying on the floor (table npc-actor-gate-a2, turn 6).
         this.participants[actor].conditions = [...this.participants[actor].conditions.filter((value: string) => value !== 'fled' && !this.flee.clears.includes(value)), 'fled'];
@@ -1078,7 +1078,7 @@ export class CombatSession {
     }
     private resolveSurpriseAttack(turn: Row, actor: string, target: string | null, weaponId: string | null, options: CombatTurnOptions = {}): void {
         // Rulebook, "Striking the First Blow (Surprise)": a target who did not see it coming neither dodges nor fights back,
-        // and the attacker may be awarded a bonus die -- the caller states it (§138.11); nothing is added here.
+        // and the attacker may be awarded a bonus die -- the caller states it (§142.11); nothing is added here.
         const bonus = Math.max(0, Math.trunc(number(options.attackerBonus ?? 0))), penalty = Math.max(0, Math.trunc(number(options.attackerPenalty ?? 0)));
         const attacker = this.participants[actor], weapon = this.weapon(actor, weaponId), [, rolled] = this.percentile(actor, weapon.skill, attacker.combat_skill, `surprise attack ${string(target)}`, 'regular', bonus, penalty);
         Object.assign(turn, { roll_id: rolled.roll_id, defense_kind: 'none', opposed_outcome: 'unopposed', outcome: truth(rolled.passed) ? 'hit' : 'miss' });

@@ -98,7 +98,7 @@ function collectNamed(graph: ModuleGraph, record: Row, entries: Row): Array<[str
             add(npcNode(graph, receipt.from));
         else if (receipt.kind === 'npc')
             add(npcNode(graph, receipt.npc) || npcNode(graph, receipt.handle));
-        // §139.8: the Keeper's stakes die is not a roll interaction; it names no one into the journal.
+        // §143.8: the Keeper's stakes die is not a roll interaction; it names no one into the journal.
         else if (receipt.kind === 'roll' && !isStakesRoll(receipt)) {
             add(npcNode(graph, receipt.npc));
             add(npcNode(graph, receipt.actor));

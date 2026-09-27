@@ -132,7 +132,7 @@ test("a model step that crosses the budget is not cut: its whole batch runs, the
 	const batch = fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "a" }] }), fauxToolCall("apply", { effects: [{ kind: "move", to: "b" }] })], { stopReason: "toolUse" });
 	const { log, events, inferSteps } = await drive({ candidates: [move], advance: { "infer:0": 5_000 },
 		decide: (batch) => route(batch, [], "ask_llm"), infer: (index) => index === 0 ? batch : prose("Done.") });
-	// §139.20/§139.25: Arty is present, so the scan of the people present runs once, inside the budget, before the Keeper's adjudication.
+	// §143.20/§143.25: Arty is present, so the scan of the people present runs once, inside the budget, before the Keeper's adjudication.
 	assert.deepEqual(log, ["read", "decide:route", "clerk:npc_act:scan:0", "infer:adjudicate", "model:apply:a", "model:apply:b", "infer:compose", "turn_close"]);
 	assert.equal(inferSteps[0].status, "ok", "the running model step completed; nothing aborted it");
 	assert.ok(!events.some((event) => event.status === "aborted"));

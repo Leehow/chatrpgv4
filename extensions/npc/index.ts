@@ -1,9 +1,9 @@
 /**
  * Core NPC preparation after delivery: the personality author. No public tool and no foreground authoring barrier.
  *
- * Contract §139.6: the per-turn response advice (a Jev choice among a prepared bank of conditional intentions, sent to
+ * Contract §143.6: the per-turn response advice (a Jev choice among a prepared bank of conditional intentions, sent to
  * the Keeper as a `coc-npc-advice` message) and the bank's own author are retired. What a person does is generated
- * from their situation (§139) and lands as receipts; what they already did is on the card (§138.3).
+ * from their situation (§143) and lands as receipts; what they already did is on the card (§142.3).
  */
 import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import type {HostRuntime} from '../../runtime/host.ts';

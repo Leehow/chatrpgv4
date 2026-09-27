@@ -1,5 +1,5 @@
 /**
- * Contract §139.8: the stakes die's receipt, recognised and read. A leaf, so every reader of turn receipts can import it
+ * Contract §143.8: the stakes die's receipt, recognised and read. A leaf, so every reader of turn receipts can import it
  * without pulling in the writer (`npc/stakes.ts`).
  *
  * The receipt is a `roll` -- the die is a hidden die (§16.5) and the receipt kinds of §12.1 are closed -- but it is not
@@ -19,7 +19,7 @@ export const isStakesRoll = (receipt: unknown): boolean => {
 
 /**
  * What the generation step is told of one stakes receipt: `{rung, outcome, line, surprise, surprise_line}` -- `line` null
- * for `nothing`; `surprise` true only when the receipt says so (§139.19; a receipt written before it has none, and reads
+ * for `nothing`; `surprise` true only when the receipt says so (§143.19; a receipt written before it has none, and reads
  * as no surprise), `surprise_line` the table's permission then, else null.
  */
 export function stakesView(receipt: Row): Row {

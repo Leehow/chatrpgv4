@@ -531,22 +531,22 @@ Only a live `combat.pending_attack` whose defender is an investigator permits au
 
 The three ends are explicit: the sidebar writes a campaign-scoped value; the host/extension reads it at every live investigator-defense boundary; the resulting `resolve` produces the ordinary combat receipt. The combat choice buttons are retired for new player defenses, while other mechanics choices (push/Luck/etc.) and historical entries remain readable; an obsolete defense control cannot submit a fresh action.
 - 追逐：开始、移动、障碍、危险、冲突、结束六个决策由意图与会话事实选出；每回合的可用动作放在 `session.actions`。
-  *Note (2026-09-26, §139.9):* a successful `combat:flee` no longer enters `chase:start` through `continues-as`; the
+  *Note (2026-09-26, §143.9):* a successful `combat:flee` no longer enters `chase:start` through `continues-as`; the
   combat line's "`combat:flee` 成功即按 `continues-as` 直接进入 `chase:start`" is void. The flight ends the fight
   (`session:combat-end` with outcome `fled`, unchanged) and hints who may give chase; the pursuer opens the chase with
   their own `resolve` (for an NPC pursuer: `actor: <npc>`, `target: <investigator>`, `intent: "flee"`,
   `decision: "chase:start"`). A person the ruleset's `flee.flee_blocked_by` names (held, or with no action left)
   cannot flee at all.
-  *Note (2026-09-26, §139.12):* a chase also runs the other way. `chase:start` with an investigator acting and a person
+  *Note (2026-09-26, §143.12):* a chase also runs the other way. `chase:start` with an investigator acting and a person
   named in `target` makes that person the quarry and the acting investigator the pursuer when the person's flight
   still stands or the investigator's intent is `move` or `combat`; `chase:start` answers `flee`, `move` and `combat`,
   and a quarry flees. The quarry's MOV and characteristics come from their stat block or the call is `needs`. The
   engine moves no quarry who got away: where an escaped person went is the Keeper's `apply npc to`.
-  *Note (2026-09-26, §139.18):* a combat refusal of the investigator's fight action names no other fight decision in its
+  *Note (2026-09-26, §143.18):* a combat refusal of the investigator's fight action names no other fight decision in its
   `fix` -- its fix is executed literally -- and points back to what the player declared: a manoeuvre without one of the four
   goals no longer says "resolve the attack rather than the maneuver", a defence with nothing to answer no longer says "declare
   an attack first", a fight action with no fight running no longer says "start one", the stuck-turn refusal no longer ends "or
-  combat:end", and a held investigator's refused flight no longer names the escape manoeuvre (an NPC's still does, §139.9).
+  combat:end", and a held investigator's refused flight no longer names the escape manoeuvre (an NPC's still does, §143.9).
 - 理智：`sanity:check` 由守秘人在 `intent: investigate` 加 `stakes` 提到理智或 `action.decision: "sanity:check"` 时触发，`goal` 是来源；失败进入发作时结果带 `pending_choice`（守秘人的发作动作选择）与 `session.kind: "sanity_bout"`。
 - 推骰与幸运：失败的可推检定在结果 `continuations` 里列出 `pushed-roll` 与 `luck-spend` 及其需要的 `action` 字段；守秘人先 `ask` 玩家，再以 `push: true` 或 `luck` 调 `resolve`。
 
@@ -828,12 +828,12 @@ from a rule-default one, the table's section refused when malformed), `tests/ext
 (the default taken when Jev answers `unknown` and below the gate, Jev's word when it clears, no default → the Keeper),
 `tests/extension/single-loop-domain-policy.test.mjs` (the clerk's write at the seam on the emitted kernel).
 
-*Note, 2026-09-26 (§139.4, docs/specs/npc-acts-first.md D4).* The standing action no longer decides what the clerk does
+*Note, 2026-09-26 (§143.4, docs/specs/npc-acts-first.md D4).* The standing action no longer decides what the clerk does
 on an NPC's own turn of a fight: that turn is the person's own act, generated from their situation and bound to what
-the kernel settles (§139.3). The kernel still issues `standing_action` exactly as above -- a fact about the person,
+the kernel settles (§143.3). The kernel still issues `standing_action` exactly as above -- a fact about the person,
 carried on the act's candidate and in the Keeper's note -- and the disposition is still inferred once (it is the stakes
-table's base rung, §139.8); what is gone is the clerk running a standing `attack` by default and returning the turn
-unbound on `hold` or `flee`. The Keeper's `apply npc action: hold` on the person's own turn still spends it (§138.5).
+table's base rung, §143.8); what is gone is the clerk running a standing `attack` by default and returning the turn
+unbound on `hold` or `flee`. The Keeper's `apply npc action: hold` on the person's own turn still spends it (§142.5).
 
 #### 11.5.4 A person the carried source text names is known to the run (2026-09-24, SL-51; amends §87.2, §22.4.7 and §32.10)
 
@@ -8071,7 +8071,7 @@ A batch is reviewed whole and refused whole *(amended by §32.12.3, 2026-09-24: 
 words authorise both. The review authorises the affected voluntary action, never its outcome, and never
 asks that the player knew or approved a hidden danger.
 
-*Note, 2026-09-26 (§139.18, ticket 19 of `docs/specs/npc-acts-first-tickets/`, live table C4 turn 8).* "An `actor` who is not
+*Note, 2026-09-26 (§143.18, ticket 19 of `docs/specs/npc-acts-first-tickets/`, live table C4 turn 8).* "An `actor` who is not
 an investigator" is decided against the investigators' names **and their sheets' handles** (`thomas-hayes`): the kernel takes
 either as the investigator and the session view prints the handle, and until this note a Keeper `resolve` naming the
 investigator by handle skipped review with no row (C4's unreviewed punch). And a Keeper-origin `resolve` of the investigator's
@@ -8094,7 +8094,7 @@ JSON object:
 
 The first three admit: the player's words in context chose it; it is a routine step the chosen goal
 requires; it is not the investigator's voluntary action at all. The last two refuse. A malformed answer
-is no answer (`bad_output`) and refuses like an outage. *(Note, 2026-09-26, §139.15, ticket 16 of
+is no answer (`bad_output`) and refuses like an outage. *(Note, 2026-09-26, §143.15, ticket 16 of
 `docs/specs/npc-acts-first-tickets/`: a malformed answer is first asked for once more inside the same lane round,
 with one line saying it was not valid JSON; only the second is `bad_output`. On the investigator's own declared
 action as the clerk carries it out, a lane failure then takes §32.12.2's late admission or one host-run resend
@@ -8282,7 +8282,7 @@ arrived). A reused row carries the path of the verdict it reuses. A `review_time
 `cap_ms`; a compile row adds `predicate`, `features` and `binding_paths`; a review of a compile-selected clerk write whose
 exemption was refused adds `compile_refused`.
 
-*Note, 2026-09-26 (§139.18).* A Keeper fight action refused on the compile's evidence writes `path: "compile"`,
+*Note, 2026-09-26 (§143.18).* A Keeper fight action refused on the compile's evidence writes `path: "compile"`,
 `reviewer: "compile"`, `origin: "model"`, `fight_act` and `compile_read: {run, step, act, confidence, cleared, rows}`, `ms: 0`.
 
 ### 32.8 The base prompt
@@ -8813,7 +8813,7 @@ keeps its own 4 s cap. What is sufficient:
   fast path.
 - When one verdict is sufficient the other is abandoned, and a running lane round is aborted.
 - A lane failure (`model_unavailable`, `model_error`, `bad_output`) is §32.2's outage, unless a typed verdict stands. The
-  host waits for the typed answer (bounded by its own cap) before deciding. *(Note, 2026-09-26, §139.15: on a clerk write
+  host waits for the typed answer (bounded by its own cap) before deciding. *(Note, 2026-09-26, §143.15: on a clerk write
   that carries out the investigator's declaration, the failure goes to the late admission below and, failing that, to the
   one resend, which the host runs at once because a clerk cannot; the resend's own failure is the outage.)*
 
@@ -21335,7 +21335,7 @@ records of the features the predicate fired on, §32.12; since SL-21 it survives
 is re-applied to the check the fresh read re-issues, §32.12.1), which every row of the
 call and the Keeper's `clerk_did` carry (§135.7, §135.8).
 
-*Note, 2026-09-26 (§139.16, NAF-17): an investigator's fight step falls through only to a gated route.* The attack the
+*Note, 2026-09-26 (§143.16, NAF-17): an investigator's fight step falls through only to a gated route.* The attack the
 compile leaves undecided (its `act` below the gate or `unclear`, or `act` on the attack with no cleared target), and the
 flight (now read by the compile's `fight_step` predicate, which neither decides nor selects), still reach the route's `need`
 question, but a `now` selects one only when a compile of the run cleared `act` on that step's own decision
@@ -21343,14 +21343,14 @@ question, but a `now` selects one only when a compile of the run cleared `act` o
 Keeper's for the run (`actGated` in `runtime/jev/route-compile.ts`). A demand, a question or an aside in a fight is never
 the clerk's punch, whatever `need` answered.
 
-*Note, 2026-09-26 (§139.23, NAF-24): the compile's state carries the last exchange.* Besides `player_input`, `now`,
+*Note, 2026-09-26 (§143.23, NAF-24): the compile's state carries the last exchange.* Besides `player_input`, `now`,
 `done_this_turn` and `materials`, the state has `last_exchange` when the read's `table.status` gives one: the newest
 committed turn's player words and the lines its delivery's speech markers attributed to each person, while the
 investigators still stand where that turn closed (`{turn, player_text, speech: [{who, line}]}`; the key is absent
 otherwise). The `addressee` question's instructions gain one sentence -- a word that points at a person without naming
 them is read by `last_exchange`, who was just talking with the investigator -- and the policy line lists the last exchange
 among the data that are never instructions. Nothing in code reads a pronoun; Jev answers over the rows as before. The
-rule and its reader are §139.23.
+rule and its reader are §143.23.
 
 **It replaces the first fan-out.** When the compile selects, its candidates are the run's pending steps in the route's
 precedence (§135.26), and no route question is asked before them: the next route comes after them, over what the fresh
@@ -23185,11 +23185,11 @@ starters, each in a fresh seeded campaign) against the parent `566dca9da`, and a
 
 **The rule.** A consequence whose candidate the graph, the roster, the rules data (§136) or the session view can issue is the clerk's to route through Jev (§135.30's fan-out: one Noul per candidate, an `exists` Noul per family, the exits); only a consequence with no issuable candidate remains the Keeper's. Three classes are added to §135.2's candidates with the new clerk authority `consequence_bookkeeping` (§135.3): `npc_reaction` (a present, authored, not-yet-met NPC; bound actor/target/decision), `clue_follow_up` (a scene clue whose gate — data, evaluated in code — the run's receipts satisfy), `time_cost` (a settled action whose §136 shape states a cost: direct; `_unstated` with a rules default: one Noul). Questions carry no kernel-internal tags and only the state they need; optional parameters take a "stated?" Noul; a candidate's confidence is its weakest judgment; thresholds live in `content/rulesets/coc7/host-budgets.json`; the model is pinned `jev-1.13.0`; an outage degrades to the Keeper choosing, never to a guess.
 
-*Note, 2026-09-26 (§139.3, docs/specs/npc-acts-first.md section 二): `npc_reaction` is not a person's act.* The class stays
+*Note, 2026-09-26 (§143.3, docs/specs/npc-acts-first.md section 二): `npc_reaction` is not a person's act.* The class stays
 in shadow as ruled the same morning: it is the clerk executing, on Jev's judgement, a Mod's first-impression check
 between an investigator and a person not yet met -- a roll the rules owe, chosen by a closed question. A person's act
-(§139) is different in kind: a model writes what they do from their situation (§139.2), and the clerk only binds that
-sentence to a way the kernel settles and executes the binding (§139.3, authority `npc_act`); the clerk never decides a
+(§143) is different in kind: a model writes what they do from their situation (§143.2), and the clerk only binds that
+sentence to a way the kernel settles and executes the binding (§143.3, authority `npc_act`); the clerk never decides a
 reaction. The owner confirmed the clerk executes the act before compose (spec section 四, ruling 2); nothing in
 `npc_reaction`'s stages changes.
 
@@ -23329,7 +23329,9 @@ builds the two-argument `TextGraph`.
 - **Size.** The table fit the old 2048/1536 budgets and still does; `tests/kernel/test_capsule_nine.py` asserts no `truncated: style` for a legacy lock in both forms.
 
 
-## 138. What a person sets out to do is a ledger row with a result (2026-09-26, `docs/specs/npc-as-actor.md`; amends §17.3, §34 D2 and the NPC response bank)
+## 142. What a person sets out to do is a ledger row with a result (2026-09-26, `docs/specs/npc-as-actor.md`; amends §17.3, §34 D2 and the NPC response bank)
+
+*Renumbered 2026-09-26.* This section and the next were written as §138 and §139 on branch `claude/npc-as-actor-20260926`. Line-2 (`claude/integ-single-loop-2-20260926`) had already landed its own §138–§141, so these two became §142 and §143 before the merge. Section numbers are stable identifiers, and the ones already on the shared line keep theirs. Commit messages and table records written before the merge say §138/§139; read them as §142/§143.
 
 **Evidence.** Campaign `game-26d5a671` (2026-09-23, the owner's own table): the player refused the job, hit Knott, took
 the wages back and went for the key. From turn 5 to turn 12 Knott's whole part was a returned punch and one line, and
@@ -23340,12 +23342,12 @@ Keeper "end the arrangement, reclaim the key" on four turns after Knott had alre
 owner's ruling (2026-09-26): *the same person does not do the same thing two turns running, and anything announced gets
 a result on the next turn* -- with no list of what a person may do.
 
-**138.1 Identity.** An intention is one Keeper-facing English line owned by one person. Its reference is
+**142.1 Identity.** An intention is one Keeper-facing English line owned by one person. Its reference is
 `intent:<handle>:<12 hex>`, the hex being the first twelve of `sha256(normalizeText(line))` (`kernel-ts/npc/intents.ts`).
 A row of the person's response bank and the same line written by the Keeper are one intention; two different sentences
 are two. Nothing reads what a line means.
 
-**138.2 Writers.** A receipt reports a result of an intention by carrying `intent: {ref, npc: <handle>, text, outcome}`,
+**142.2 Writers.** A receipt reports a result of an intention by carrying `intent: {ref, npc: <handle>, text, outcome}`,
 `outcome` one of `attempted` (under way, no result yet), `done`, `failed`, `abandoned` (the last three are settled).
 The first writer is `apply npc`'s intention variant: `{kind: "npc", name, intends?: <line>, intent_ref?: <ref>, outcome,
 why?}` -- `intends` names a new intention by its line, `intent_ref` an existing one (from the card, `director.offer` or
@@ -23357,7 +23359,7 @@ else (`details.owner`); a reference neither the person's ledger nor their curren
 and a settled intention named again, by reference or by the same line (`reason: "intent_settled"`, `details.ref`,
 `status`, `turn`). Every refusal lists `details.options`: the person's intentions under way, then their bank's open rows.
 
-**138.3 Fold and projection.** `foldNpcTurn` folds every receipt's `intent` into the person's ledger entry `intents`
+**142.3 Fold and projection.** `foldNpcTurn` folds every receipt's `intent` into the person's ledger entry `intents`
 (`[{ref, text, status, since_turn, last_turn, attempts: [{turn, receipt, outcome}] (last four)}]`) before the kind's
 own fields, so the ledger stays rebuildable from `turns/` (`rebuildNpcLedger`). The present card shows them as
 `history.intents` -- every one under way, then the three most recently settled -- and a person with one under way ranks
@@ -23365,11 +23367,11 @@ first in `present[]`, as a promise does. The Director's offer reads the intentio
 the ledger (not from the budget-fitted `present[]`) and puts each in the consequence pool ahead of a failed check:
 `{kind: "consequence", who, ref, line, from: "npc.intents"}`; `director_adoption.offer_taken` counts it as
 `consequence:<ref>` when a receipt of the turn carries that ref.
-*Note, 2026-09-26 (§139.6):* the ledger no longer feeds any advice lane's candidate set -- the response bank and the
-per-turn advice are retired, so the card, the offer and the situation packet (§139.1) are what read these rows. A row
+*Note, 2026-09-26 (§143.6):* the ledger no longer feeds any advice lane's candidate set -- the response bank and the
+per-turn advice are retired, so the card, the offer and the situation packet (§143.1) are what read these rows. A row
 the table's own act of a person set out carries `generated: true` in the ledger and `by: "table"` on the card.
 
-**138.4 The response bank.** A bank row is `{intent, when}` as before; every read attaches its `ref`. `npc.perspective(s)`
+**142.4 The response bank.** A bank row is `{intent, when}` as before; every read attaches its `ref`. `npc.perspective(s)`
 hands the advice lane only the rows whose intention is not settled, plus `tried` (the card's view of the ledger), and a
 ready advice's `selected` carries the row's `ref`. The capsule's `response_options.count` counts open rows. The bank is
 renewed without anyone asking (`npc.responses.job` opens a job) when it is ready, intentions have settled since it was
@@ -23378,12 +23380,12 @@ accepted (`settled_seen`, stored at acceptance), and fewer than `npc_responses.m
 re-offers what was already tried cannot loop the lane. The renewal's packet carries `npc.tried` and
 `npc.previous_responses` (with each row's status), and the instruction says a settled intention is never offered again,
 in any words. While the renewal is pending the replaced bank's rows stay readable (`carried_responses`).
-*Retired, 2026-09-26 (§139.6):* all of 138.4. There is no bank, no open row, no advice `selected`, no
+*Retired, 2026-09-26 (§143.6):* all of 142.4. There is no bank, no open row, no advice `selected`, no
 `response_options` and no renewal (`settled_seen`, `carried_responses`, `previous_responses`,
 `npc_responses.min_open_rows` are gone); `npc.responses.job` / `npc.responses.submit` are unknown methods. What a
-person does next is generated from their situation (§139), not chosen from rows written in advance.
+person does next is generated from their situation (§143), not chosen from rows written in advance.
 
-**138.5 A fight turn can be spent on something that is not a blow (amends §11.5.3).** Before this nothing could pass an
+**142.5 A fight turn can be spent on something that is not a blow (amends §11.5.3).** Before this nothing could pass an
 NPC's own turn but an attack, a manoeuvre, aim, reload or flight: a Keeper `action: hold` wrote the override and left
 the initiative cursor on the NPC, so the investigator's next action was refused `turn_state` ("it is walter-corbitt's
 turn") and the only way on was another blow -- which is how Knott came to trade punches for eight turns while his shout
@@ -23396,15 +23398,15 @@ turn passes only after the whole batch has landed, so a refused batch passes not
 carries `passes_turn: {combat_id, round, turn_of}` (who acts next) and the apply result `turn_passed`. `spend_turn` off
 their turn is `turn_state` with `details.turn_of`; outside a fight, `invalid_params` on `npc.spend_turn`. The
 `turn_state` refusal for someone acting out of turn now names both lawful ways on in its `fix`. Nothing is rolled by the
-pass: a roll the action needs is its own `resolve` (138.6).
+pass: a roll the action needs is its own `resolve` (142.6).
 
-**138.6 An NPC's roll in a fight is their own check.** `resolveActor` counted any `resolve` naming an NPC who takes part
+**142.6 An NPC's roll in a fight is their own check.** `resolveActor` counted any `resolve` naming an NPC who takes part
 in the running fight as the fight's, so a Spot Hidden, a Throw or a Fast Talk the Keeper asked of Corbitt settled as
 `decision:coc7:combat:attack`. Only a fight action is the fight's now -- `defense` given, `intent` `combat`, `flee` or
 `cast`, or a combat/chase decision; anything else is the NPC's own roll (§11.5.9: their skill, else the rulebook base
 chance of a common skill, Keeper-side). The roll does not spend the turn; `spend_turn` does.
 
-**138.2 addendum: every writer.** Any `apply` effect may carry `intent_ref` (+ `intent_outcome`, default `done`): the
+**142.2 addendum: every writer.** Any `apply` effect may carry `intent_ref` (+ `intent_outcome`, default `done`): the
 receipt carries the stamp of that intention, whose owner may differ from the effect's subject (`apply npc {name:
 "the porter", to: "here", intent_ref: <Knott's shout>}`). On an `npc` effect `intent_ref` opens the intention variant
 only with `outcome` (or `intends`); beside `to`, `stance` and the rest it is this stamp. A `resolve` may carry
@@ -23412,13 +23414,13 @@ only with `outcome` (or `intends`); beside `to`, `stance` and the rest it is thi
 rolled) and stamped on the call's last graded roll -- `done` when it passed, `failed` when it did not -- or on its first
 receipt as `attempted` when nothing was rolled yet (an attack waiting for its defence). Admission (§32) is unchanged: an
 NPC-actor `resolve` and an `npc` effect are not reviewed.
-*Note, 2026-09-26 (§139.14):* on an intention the table's own act set out (a `generated` row), an effect's `intent_ref`
+*Note, 2026-09-26 (§143.14):* on an intention the table's own act set out (a `generated` row), an effect's `intent_ref`
 makes it `done` or `failed` only when the effect is a threat clock or a person's arrival or departure (`npc` with `to`),
 and a `resolve`'s `action.intent_outcome` of `done` or `failed` is refused before any die: the dice decide. Any other
 effect -- a clue, a note, the intention variant -- is refused `table_act_unsettled`; `abandoned` and `attempted` are
 unchanged, and so is everything here for a row the Keeper set out.
 
-**138.7 What was set out on gets a result by the next turn.** The owner's ruling, as two structural checks; neither reads
+**142.7 What was set out on gets a result by the next turn.** The owner's ruling, as two structural checks; neither reads
 prose, and neither compares wording (a rephrased announcement is a new intention, and the card, the offer and the
 advice lane all show the old one still waiting).
 
@@ -23435,15 +23437,15 @@ advice lane all show the old one still waiting).
   `ref`), which the next capsule's warnings raise. Someone no longer present owes nothing. An implicit delivery reaches
   the Keeper through the host's existing refused-delivery repair steer; an explicit one as the tool's refusal.
 
-**138.8 A live session decides the beat, not the scoring (amends §13.3 and §34 D3).** `score()` returned `SUBSYSTEM`
+**142.8 A live session decides the beat, not the scoring (amends §13.3 and §34 D3).** `score()` returned `SUBSYSTEM`
 before counting anything once a session was active, so the four RECOVER signals were never scored in a fight: on
 campaign `game-26d5a671` `stalled_turns` climbed to 7 and `empty_turns` to 2 across eight fight turns, and the
 director said `SUBSYSTEM` every time with nothing else. The session still overrides the beat (`beat: "SUBSYSTEM"`,
 `override: "session"`, the same reason and grounding), but every other beat is scored as ever and the two best
 non-zero ones ride in `scores` beside `SUBSYSTEM: 1.0`. The offer keeps SUBSYSTEM's order (consequence first), whose
-pool now carries the intentions under way (138.3). `dying`, `fumble` and `pending_choice` overrides are unchanged.
+pool now carries the intentions under way (142.3). `dying`, `fumble` and `pending_choice` overrides are unchanged.
 
-**138.9 A clock this table starts (amends §30.9).** `apply threat` knew only the book's threats, so a consequence the
+**142.9 A clock this table starts (amends §30.9).** `apply threat` knew only the book's threats, so a consequence the
 book never paced -- the neighbours who heard the fight, the telephone call Knott made -- had nothing it could move.
 `{kind: "threat", mint: true, name, length: 2..12, on_full: <one line>, segments?: 0..length (default 1), why?}` starts
 one: `world.table_threats[<handle>] = {name, length, on_full, minted_turn, why}` (`handle` is `table-threat-` and twelve
@@ -23454,20 +23456,20 @@ effect (`segments` a non-zero step within its length), its receipt carries `mint
 hands back `on_full`. Projection: `pressures[]` lists it (`kind: "threat"`, `name`, `state`, `minted`, `on_full`) until
 it is full; `mods.pacing.threat_clocks` lists it always (`threat`, `name`, `clock: "clock"`, `state`, `minted`,
 `on_full`, and while not full `next`: what a full clock means), so the offer can hand it over like the book's. A name
-that misses lists the table's clocks beside the book's threats. `intent_ref` stamps it like any effect (138.2).
+that misses lists the table's clocks beside the book's threats. `intent_ref` stamps it like any effect (142.2).
 
-**138.10 An NPC who flees flees (amends §11.5.3 and §521's flee line).** Three things kept an NPC from ever running:
+**142.10 An NPC who flees flees (amends §11.5.3 and §521's flee line).** Three things kept an NPC from ever running:
 the session view issued `combat:flee` only on an investigator's turn, so a standing action of `flee` had nothing to
 bind; the pipeline's session default (`decision:coc7:combat:attack` for an NPC in the fight) came before the flee
 check; and the effective intent for the rule graph was forced to `combat`, so `combat:flee` was not applicable. A
 Keeper's `resolve {actor: <npc>, intent: "flee"}` therefore settled as an attack. Now the view issues `combat:flee` on
 anyone's turn, flee precedes the session default and keeps its intent, and the single loop binds a standing `flee` to
-the NPC's own flee action as it binds `attack` (`hold` still hands the turn to the Keeper, §138.5). The engine's flight
+the NPC's own flee action as it binds `attack` (`hold` still hands the turn to the Keeper, §142.5). The engine's flight
 marks them `fled` and moves the initiative on; a fight with no one left standing on their side concludes as before.
 The result hints the two lawful next steps -- a chase the investigators choose (`chase:start` against them), or where
 they went (`apply npc to`) -- and nothing starts a pursuit for the investigators.
 
-**138.11 A person present strikes the first blow (amends §11.5 and the §32.9 / §34.11 note that an NPC could not open a
+**142.11 A person present strikes the first blow (amends §11.5 and the §32.9 / §34.11 note that an NPC could not open a
 fight).** Rulebook, "Striking the First Blow (Surprise)": whoever makes a sudden attack acts first, out of DEX order; a
 target who saw it coming may dodge or fight back; one who did not neither dodges nor fights back, and the attacker may
 gain a bonus die (the Harvey example: one bonus die, no opposing roll); then the Keeper switches to combat rounds.
@@ -23486,7 +23488,7 @@ not an investigator is refused `needs`; a manoeuvre still needs a running fight.
 as a fact about the action, not a compiled slot. The engine's surprise attack now honours declared bonus and penalty
 dice (it read none before; it had no caller).
 
-**138.13 Pressing an investigator (CoC 7e, "When Used on Player Characters").** When Charm, Fast Talk, Intimidate or
+**142.13 Pressing an investigator (CoC 7e, "When Used on Player Characters").** When Charm, Fast Talk, Intimidate or
 Persuade is used successfully on an investigator, by an NPC or another investigator, the player is not compelled to
 follow the other party's wishes; if the player refuses, the coercer can inflict one penalty die on one dice roll (of
 the coercer's choice) that investigator makes. An NPC's `resolve {actor: <npc>, intent: "social", skill: <one of the
@@ -23501,7 +23503,7 @@ the rule and no consequence, so a pressed investigator was only prose. Now (`ker
   two) and its roll receipt carries `coercion_spent`; spent once; another actor's roll, an unknown or spent id is
   refused `invalid_params` (`reason: "coercion_unavailable"`, `details.options`). Nothing decides what the player does.
 
-**138.14 An intention under way releases the clerk's forced blow (amends §135's SL-08 standing step; live gate A,
+**142.14 An intention under way releases the clerk's forced blow (amends §135's SL-08 standing step; live gate A,
 2026-09-26).** Live gate A (`npc-actor-gate-a`, 12 turns, deepseek-v4.1-flash, thinking off) met four of its five
 pre-registered lines -- 12/12 delivered, no announcement repeated without a result, both intentions settled by the next
 turn (one of them after the owed-result gate refused the first delivery once) -- and failed the fifth: every one of
@@ -23510,16 +23512,16 @@ goes his way, and SL-08 runs a standing attack directly), while his shouting, th
 ran for were narrated on top of it (15 `unsettled_object` findings on that table). The single loop now reads the
 intentions under way on the present cards (`present[].history.intents`, status `attempted`); when the NPC whose turn it
 is owns one (its ref names their handle), a standing `attack` is not forced -- the turn is the Keeper's, who may still
-resolve the blow or spend the turn on that intention (§138.5). A standing `flee`, and an NPC with nothing under way,
+resolve the blow or spend the turn on that intention (§142.5). A standing `flee`, and an NPC with nothing under way,
 are unchanged. Also from the gate: the `intends` description no longer asks for an English sentence -- the one turn the
 Keeper wrote a long English intention line, its prose for the player slid into English on a zh-Hans table.
 
-*Superseded, 2026-09-26 (§139.4).* The forced blow this subsection released is gone: an NPC's own turn of a fight is now
-their generated act, bound after (§139.3), so no standing attack is run by the clerk and there is nothing for an
+*Superseded, 2026-09-26 (§143.4).* The forced blow this subsection released is gone: an NPC's own turn of a fight is now
+their generated act, bound after (§143.3), so no standing attack is run by the clerk and there is nothing for an
 intention under way to release. The intentions under way reach the act through the situation packet's `done`
-(§139.1), and a repeat of one is §139.5's to catch. The `intends` description note above stands.
+(§143.1), and a repeat of one is §143.5's to catch. The `intends` description note above stands.
 
-**138.15 Live gate A2 and what it changed (2026-09-26, after 138.14).** Ten turns on the same shape, pre-registered:
+**142.15 Live gate A2 and what it changed (2026-09-26, after 142.14).** Ten turns on the same shape, pre-registered:
 delivery 10/10; Knott spent two fight turns on something other than a blow with a receipt (`spend_turn` on "ring the
 brass bell for the porter, then call the constable from the door", then `hold`), and one on a disarm manoeuvre -- the
 line gate A failed; the player prose stayed in zh-Hans throughout. Two lines failed:
@@ -23532,17 +23534,17 @@ line gate A failed; the player prose stayed in zh-Hans throughout. Two lines fai
 - *A threat said again in other words.* "The doorman downstairs, the constable at the corner, nobody in this building
   will hire you" came back on turns 2, 4, 5 and 8 in different words and never became a receipt, so no structural
   check here could see it (§113 D's repeated-line refusal caught one literal repeat). This is the open-semantics half
-  of the owner's ruling that 138.7 does not cover; it is reported, not changed here.
+  of the owner's ruling that 142.7 does not cover; it is reported, not changed here.
 
-## 139. NPC acts first: the situation is read, one act is generated, the kernel binds it (2026-09-26, `docs/specs/npc-acts-first.md`; amends §138, §123.3, §125)
+## 143. NPC acts first: the situation is read, one act is generated, the kernel binds it (2026-09-26, `docs/specs/npc-acts-first.md`; amends §142, §123.3, §125)
 
 The owner's ruling (2026-09-26): *the LLM generates what the NPC does first, and the system binds it to parameters
 after -- not the other way round.* Each turn a person present is acted on, one generation step reads a code-composed
 account of their situation and answers one sentence of what they do; the kernel binds that sentence to a way it can
 settle. The subsections are the tickets under `docs/specs/npc-acts-first-tickets/`.
 
-**139.1 `npc.situation {campaign, name}`: what this person faces right now (ticket 01, D1).** A host-only read for the
-generation step (§139.2). Facts only, no advice, nothing written, nothing reviewed. `name` is the person as
+**143.1 `npc.situation {campaign, name}`: what this person faces right now (ticket 01, D1).** A host-only read for the
+generation step (§143.2). Facts only, no advice, nothing written, nothing reviewed. `name` is the person as
 `look focus=npc` takes it (`graph.npc`; an unknown name is its `unknown_entity`, a missing one `invalid_params`); the
 campaign reads as any `table.look` does (`campaign_not_ready` while setting up). The result is exactly:
 
@@ -23553,7 +23555,7 @@ campaign reads as any `table.look` does (`campaign_not_ready` while setting up).
   happened: string[],                  // what was done to or said to this person, this turn and the last
   state: {hp, hp_max, conditions: string[], stance, in_session: boolean, my_turn: boolean},
   at_hand: {holdings: string[], objects: string[], exits: string[], present: string[]},
-  done: [{ref, intent, status, since_turn, turn}],   // intentsView's row shape (§138.3)
+  done: [{ref, intent, status, since_turn, turn}],   // intentsView's row shape (§142.3)
   recent_speech: string[],
   constraints: string[],
   truncated: string[]
@@ -23595,7 +23597,7 @@ campaign reads as any `table.look` does (`campaign_not_ready` while setting up).
   "scene"`) then its located places (`scenePlaces`), `exits` its exits by the table's place label (§76), `present` the
   investigators by label when it is the active scene, then everyone else placed there by label. A person placed
   nowhere has empty `objects`, `exits` and `present`.
-- **`done`** is every intention of their ledger entry (§138.3; the committed ledger with the open turn folded onto a
+- **`done`** is every intention of their ledger entry (§142.3; the committed ledger with the open turn folded onto a
   copy, exactly as `stanceNow` folds it), in `intentsView`'s row shape `{ref, intent, status, since_turn, turn}`
   (`intent` the line, `turn` the turn of its latest result) and order -- under way first, then settled, each newest
   first, a later row of the same turn counting as the newer. Unlike the card, settled rows are not capped at three: the
@@ -23618,29 +23620,29 @@ campaign reads as any `table.look` does (`campaign_not_ready` while setting up).
   `done`'s cut, as the ticket's acceptance names it.
 
 Three ends (§31): the writers are the receipts and the ledger that already exist; the reader is the generation step
-(§139.2), whose packet is this object unchanged; what it acts on is the act it answers, bound by §139.3. Until those
+(§143.2), whose packet is this object unchanged; what it acts on is the act it answers, bound by §143.3. Until those
 land the read has no product caller -- it is exercised by `tests/kernel/test_npc_situation.py` over the emitted kernel.
 
-*Note, 2026-09-26 (§139.21, ticket 22, live table B turn 1):* the read takes two optional booleans, `addressed` and
+*Note, 2026-09-26 (§143.21, ticket 22, live table B turn 1):* the read takes two optional booleans, `addressed` and
 `declared_before_move`, and the last `happened` item is the *closing sentence*: the player's declaration only when it
 was said to this person; `<investigator> (investigator) has just arrived where <them> is` when it was put before a move
 that brought the investigator to them; otherwise nothing. With neither input the reading above holds unchanged (the
 declaration closes `happened` whenever the turn has one) -- which is what a person's own turn of a fight reads, since
-§139.4's forced step passes neither. The budget never cuts the closing sentence, whichever it is. The rule is §139.21.
+§143.4's forced step passes neither. The budget never cuts the closing sentence, whichever it is. The rule is §143.21.
 
-*Note, 2026-09-26 (§139.29, ticket 30, live table D2):* `at_hand` gains `brought_out`, present only when non-empty:
+*Note, 2026-09-26 (§143.29, ticket 30, live table D2):* `at_hand` gains `brought_out`, present only when non-empty:
 `[{name, turn, ref?, status?}]`, newest first -- what an earlier act of this person brought out that they still hold
-(§139.19's `_produces` and `_draws`), by the name `holdings` gives it, the turn it came out, and that act's row and
-where it stands now. The budget cuts it after `exits` and before `holdings`. The rule is §139.29.
+(§143.19's `_produces` and `_draws`), by the name `holdings` gives it, the turn it came out, and that act's row and
+where it stands now. The budget cuts it after `exits` and before `holdings`. The rule is §143.29.
 
-**139.2 The generation step: one sentence of what this person does now (ticket 02, spec D2).** The owner's ruling of
+**143.2 The generation step: one sentence of what this person does now (ticket 02, spec D2).** The owner's ruling of
 2026-09-26 -- *a model writes what the NPC does first, and the system binds it to parameters after* -- has its first
-half here: `runtime/jev/npc-act.ts`. It writes an act, never a parameter (§135.28 stands); when it runs is §139.3 and
-whether an act repeats one already made is §139.4.
+half here: `runtime/jev/npc-act.ts`. It writes an act, never a parameter (§135.28 stands); when it runs is §143.3 and
+whether an act repeats one already made is §143.4.
 
 - **Port.** `NpcActPort.generate({packet, play_language, providerBudget?}, signal)` answers `{act}` or
   `{unavailable: reason}`, the product lane adding `ms`, `model`, `attempts`, `usage` and on failure `detail`. `packet`
-  is the §139.1 situation (`NpcSituation`); `play_language` is the campaign's tag, taken by shape only; `providerBudget`
+  is the §143.1 situation (`NpcSituation`); `play_language` is the campaign's tag, taken by shape only; `providerBudget`
   is the run's `TaskProviderBudget` when the caller has one. `generate` never throws.
 - **Shape.** One zero-tool completion through the session's model registry (`runLane`, the admission lane's and the
   voice check's shape, `docs/pi-host-contract.md` §5), on `resolveLaneModel(ctx, "PI_COC_NPC_ACT_MODEL")`: the lane's
@@ -23654,7 +23656,7 @@ whether an act repeats one already made is §139.4.
   rules; `{"act": ...}` only. It holds no examples of acts and no list at all -- `tests/extension/npc-act-generation.test.mjs`
   refuses any markdown list item in it (structure, not words: an action menu is a list).
 - **Input.** One JSON object `{play_language, situation}`, `situation` being the packet **whole**. The packet is already
-  the kernel's bounded projection (6 KB, §139.1); there is no second whitelist here, so a field the kernel adds reaches
+  the kernel's bounded projection (6 KB, §143.1); there is no second whitelist here, so a field the kernel adds reaches
   the model without a change on this side.
 - **Answer check (structure only).** A JSON object whose `act` is a string, non-empty after trimming, with no line break
   (`\r`, `\n`, U+2028, U+2029), of at most 200 characters counted as code points. Whether it is one sentence, in the play
@@ -23678,25 +23680,25 @@ whether an act repeats one already made is §139.4.
 - **Budget.** With `providerBudget` the completion reserves and settles against the run's budget in the lane's
   `onPayload` seam (§20 addendum); `usage` on the result is the answered attempt's provider usage for the run's budget
   summary (§135.25). A refused attempt's usage is settled into the budget but not returned.
-- **Fixture.** `createFixtureNpcActPort(table)` is the test double for §139.3/§139.4's loop tests: keyed by the packet's
+- **Fixture.** `createFixtureNpcActPort(table)` is the test double for §143.3/§143.4's loop tests: keyed by the packet's
   `npc.handle`, then `npc.name`, then `"*"`; a list answers that key's successive calls in order and repeats its last
   entry; answers verbatim (`{act}` or `{unavailable}`); keeps every input in `calls`.
-- **The three ends (§31).** Writes: this lane. Reads: §139.3's binding step -- not wired by this ticket, which is why
-  the SL-00 inventory lists `runtime/jev/npc-act.ts` `createNpcActLane.generate` as a `no-caller` leaf until §139.3 gives
-  it one. Acts: the bound receipt (§139.3).
+- **The three ends (§31).** Writes: this lane. Reads: §143.3's binding step -- not wired by this ticket, which is why
+  the SL-00 inventory lists `runtime/jev/npc-act.ts` `createNpcActLane.generate` as a `no-caller` leaf until §143.3 gives
+  it one. Acts: the bound receipt (§143.3).
 
-*Note, 2026-09-26 (§139.21, ticket 22, live table B turn 0):* the input is `{play_language, play_language_name?,
+*Note, 2026-09-26 (§143.21, ticket 22, live table B turn 0):* the input is `{play_language, play_language_name?,
 situation}` (`npcActLaneInput`): `play_language_name` is the tag's English name as the runtime gives it
 (`Intl.DisplayNames`), absent when it cannot name the tag; the instruction says the host's English and the book's or
 the table's words in the situation do not tell the answer's language, `play_language` does. `play_language` is the
 campaign's from the opening on -- `npc.act.options` reads it from `campaign.json` -- and it was on table B's English
-opening act too (§139.21 has the finding).
+opening act too (§143.21 has the finding).
 
-**139.3 The binding: `npc.act.options`, one closed Jev batch, the clerk's writes, the stamp (ticket 03, spec D3 and D9).**
-The second half of the owner's ruling. A generated act (§139.2) is bound to a way the kernel already settles, by closed
+**143.3 The binding: `npc.act.options`, one closed Jev batch, the clerk's writes, the stamp (ticket 03, spec D3 and D9).**
+The second half of the owner's ruling. A generated act (§143.2) is bound to a way the kernel already settles, by closed
 choices over the kernel's own options; nothing reads what the act means and no parameter is written by a model
-(§135.28 stands). Where §139.2 points at "§139.3" for when the step runs and "§139.4" for repeats, read §139.4
-(triggers) and §139.5 (the two no-repeat gates).
+(§135.28 stands). Where §143.2 points at "§143.3" for when the step runs and "§143.4" for repeats, read §143.4
+(triggers) and §143.5 (the two no-repeat gates).
 
 - **The read.** `npc.act.options {campaign, name, act?, draw?}` (host-only, read-only; `kernel-ts/npc/act-options.ts`;
   `name` as `look focus=npc` takes it, errors as `npc.situation`'s; `act` one line of at most 400 characters; `draw`
@@ -23708,12 +23710,12 @@ choices over the kernel's own options; nothing reads what the act means and no p
   | way | when | parameters (closed options, all existing kernel data) | written as |
   |---|---|---|---|
   | `attack` | in a combat, their turn, an opponent can still fight | `target`: the fight's `combatTargets` (opponents only); `weapon`: the weapons in their hands in the fight (`unarmed` when none) | `resolve {actor, intent: combat, decision: combat:attack, target, weapon}` |
-  | `flee` | in a combat, their turn | -- | `resolve {actor, intent: flee, decision: combat:flee}` (§138.10) |
-  | `first_blow` | in no session, placed in the active scene, a stat block | `target`: the investigators present; `weapon`: the stat block's weapons and `unarmed` | `resolve {actor, intent: combat, target, weapon}` (§138.11; no `surprise`: that is the Keeper's ruling) |
+  | `flee` | in a combat, their turn | -- | `resolve {actor, intent: flee, decision: combat:flee}` (§142.10) |
+  | `first_blow` | in no session, placed in the active scene, a stat block | `target`: the investigators present; `weapon`: the stat block's weapons and `unarmed` | `resolve {actor, intent: combat, target, weapon}` (§142.11; no `surprise`: that is the Keeper's ruling) |
   | `pursue` | in no session, placed in the active scene, a stat block, no chase running, an investigator gained `fled` this turn | `target`: those investigators | `resolve {actor, intent: flee, decision: chase:start, target}` |
-  | `check` | they have a skill value (the stat block, the ledger's pins, the pins on `npc` receipts) | `skill`: those skills, highest first, label `<skill> <value>` | `resolve {actor, intent: investigate, skill}` (§138.6; difficulty the rule's default) |
-  | `coercion` | an investigator present | `skill`: the rule's four (`COERCION_SKILLS`); `investigator` | `resolve {actor, intent: social, skill, target}` (§138.13; the rule sets the difficulty) |
-  | `clock` | placed somewhere, a clock not full | `clock`: the table's and the book's threat clocks of that scene's pacing (`threatSymptoms` rows with a `next`); each option carries `write: {name, clock?}` | `apply threat {name, clock?}` (one segment, §138.9) |
+  | `check` | they have a skill value (the stat block, the ledger's pins, the pins on `npc` receipts) | `skill`: those skills, highest first, label `<skill> <value>` | `resolve {actor, intent: investigate, skill}` (§142.6; difficulty the rule's default) |
+  | `coercion` | an investigator present | `skill`: the rule's four (`COERCION_SKILLS`); `investigator` | `resolve {actor, intent: social, skill, target}` (§142.13; the rule sets the difficulty) |
+  | `clock` | placed somewhere, a clock not full | `clock`: the table's and the book's threat clocks of that scene's pacing (`threatSymptoms` rows with a `next`); each option carries `write: {name, clock?}` | `apply threat {name, clock?}` (one segment, §142.9) |
   | `walk_on` | in no session, placed somewhere | `name`: people placed in a scene their place opens onto, and people this table established who stand nowhere | `apply npc {name: <them>, to: <their place>}` (§87) |
   | `stance` | a word other than their stance now | `stance`: the stance ledger's other words | `apply npc {name, stance}` |
   | `leave` | in no session, placed somewhere | -- | `apply npc {name, to: away}` |
@@ -23722,23 +23724,23 @@ choices over the kernel's own options; nothing reads what the act means and no p
   `acted_on` is `[{receipt, kind}]`: this turn's receipts done to them -- `roll_against` (a roll whose `npc` is them),
   `delta` / `condition` (their resources or conditions), `item` (a thing from them or to them), `cash` (an exchange
   `with` them), and `fled_from` (an investigator gained `fled` while they stood in the active scene) -- never a receipt
-  of their own act (its `intent.npc` is them) nor their own roll; names match as `npc.situation`'s do (§139.1).
-  `act` (when asked) is the act's identity as one of their intentions (§138.1): `{line, ref, continues}`; the same
-  line as a row under way is that row (`continues: {ref, status, since_turn, turn}`, §139.5's structural gate); the
+  of their own act (its `intent.npc` is them) nor their own roll; names match as `npc.situation`'s do (§143.1).
+  `act` (when asked) is the act's identity as one of their intentions (§142.1): `{line, ref, continues}`; the same
+  line as a row under way is that row (`continues: {ref, status, since_turn, turn}`, §143.5's structural gate); the
   same line as a settled row is a new attempt, so its line is `<act> (turn <n>)` with its own ref (a settled intention
-  is not tried again, §138.2; nothing reads the words). `draw` (when asked) is `equipment.json`'s `records` whose
+  is not tried again, §142.2; nothing reads the words). `draw` (when asked) is `equipment.json`'s `records` whose
   `entity_ref` is a `weapons.json` profile, of the module's era, one option per profile (`value` the profile id,
   `label` the priced name, `price_id`).
 - **The batch.** One Jev batch per act, family `npc-act-bind` v1 (`runtime/jev/npc-act-step.ts`): `way` (criteria: a
   one-line descriptor per offered way, the closed vocabulary above, plus `unknown`); `<way>.<param>` for every
   parameter with more than one option (criteria: the option labels, plus `unknown`); `draw` when the stakes roll came
-  out severe (below); `same` (§139.5). State: the person, the act, the packet's `state` and `at_hand`. §135.2's gates
+  out severe (below); `same` (§143.5). State: the person, the act, the packet's `state` and `at_hand`. §135.2's gates
   (`clears`): a way, a parameter or a draw that does not clear is not bound -- `unknown`, `none`, below the gates, or a
   parameter left unbound all bind `intention_only` (`reason` names which); a parameter with one option is bound
   without a question. With no Jev, or no answer, the act is still recorded as `intention_only`, but not as judged:
-  on their turn of a fight it does not spend the turn (the Keeper is told, §139.4). Every answer's distribution is on
+  on their turn of a fight it does not spend the turn (the Keeper is told, §143.4). Every answer's distribution is on
   the `lane: "route"`, `purpose: "npc-act"` row.
-- **Severe stakes (D9).** When the situation packet carries `stakes.outcome === "severe"` (§139.8, ticket 09; read
+- **Severe stakes (D9).** When the situation packet carries `stakes.outcome === "severe"` (§143.8, ticket 09; read
   defensively -- no `stakes`, no allowance; `npc.stakes` is called before `npc.situation`, and an unknown method on a
   line without it is no stakes), the read is asked with `draw: true` and the batch asks `draw` (the weapon the act has
   them draw, or `none`); every `weapon` question gains the option "the weapon this act has them draw", which binds the
@@ -23751,22 +23753,22 @@ choices over the kernel's own options; nothing reads what the act means and no p
   `draws: {weapon_id, name, price_id?}`, `visibility: "keeper"`. `_draws` stands alone in its effect (`details.conflicts`
   otherwise). Hitting, harm and death stay the combat engine's dice; without a severe roll the allowance never applies.
 
-  *Note, 2026-09-26 (§139.19, ticket 20, spec D10):* this allowance is folded into §139.19 and no longer reads
+  *Note, 2026-09-26 (§143.19, ticket 20, spec D10):* this allowance is folded into §143.19 and no longer reads
   `outcome === "severe"`. The draw is asked when the generated act brings something out (`produces`, which the stakes
   die's `surprise` allows), whatever the outcome: `npc.act.options` takes `produce: true` in place of `draw: true` and
   lists the era's whole price list in place of its weapons; the batch's `draw` question is `produce` (or `produce_part`
-  then `produce`, §139.19), family version 2; the `weapon` option reads "the thing this act has them bring out, as a
+  then `produce`, §143.19), family version 2; the `weapon` option reads "the thing this act has them bring out, as a
   weapon" and binds only a weapon record. A weapon record is still written by `_draws` exactly as above, its receipt now
   also carrying `produced`, and `_draws.price_id` must be that weapon's record; anything else is `_produces`.
 - **The writes.** The clerk executes the bound act `direct` (authority `npc_act`, §135.3's closed enum extended)
   through the one operation gateway (§135.4: the same Keeper verbs, `tool_call` gates, Mod hooks, kernel and
   `tool_result` hooks; an NPC-actor `resolve` and `npc`/`threat` effects are not reviewed, §32.1), in order:
   1. a new act opens its row: `apply npc {name, intends: <line>, outcome: attempted}` -- with `spend_turn: true` on
-     their turn of a fight when the way is not a fight action (§138.5) -- and a drawn weapon's effect beside it (stamped
+     their turn of a fight when the way is not a fight action (§142.5) -- and a drawn weapon's effect beside it (stamped
      `attempted`);
   2. the way's write (the table above) naming the row: a roll carries `action.intent_ref` (done or failed by the roll,
-     §138.2 addendum), an effect `intent_ref` with `intent_outcome: done` and `why: <line>`.
-  A continued row (§139.5) is named from the first write, with no opener; on their turn of a fight a non-fight way on a
+     §142.2 addendum), an effect `intent_ref` with `intent_outcome: done` and `why: <line>`.
+  A continued row (§143.5) is named from the first write, with no opener; on their turn of a fight a non-fight way on a
   continued row passes the turn by `apply npc {action: hold, why: <line>}` after the result (the row is settled by
   then, so no stamp can name it again). A refused write stops the act there; what landed stands.
 - **The stamp.** Every receipt of the bound act carries `intent: {ref, npc, text, outcome, generated: true}`. The
@@ -23774,9 +23776,9 @@ choices over the kernel's own options; nothing reads what the act means and no p
   on any effect's `intent_ref`, on a roll's `action.intent_ref` (`generatedOf`, `kernel-ts/apply/intent.ts`; `true` or
   absent, else `invalid_params` on `<field>._generated`). The kernel extension sets it (and `_draws`, from the call's
   basis) only on the clerk's `npc_act` calls and strips both from every other call (`extensions/kernel/npc-act-marks.ts`,
-  called by `runTool` after the tool schema validated the call). The fold reads it (§139.6: the row, `by: "table"`).
+  called by `runTool` after the tool schema validated the call). The fold reads it (§143.6: the row, `by: "table"`).
 - **An attack that waits for its defence.** An attack on an investigator rolls in the defence call, so the attack call
-  has no graded roll to carry the stamp (§138.2's addendum put `attempted` on its first receipt, and a call with none
+  has no graded roll to carry the stamp (§142.2's addendum put `attempted` on its first receipt, and a call with none
   carried nothing). The stamp now waits beside the pending attack, keyed by `attack_command_id`, in
   `save/attack-intents.json` (the fight snapshot's contract admits no extra key); the defence call stamps the attacker's
   graded roll `done` (hit) or `failed` and removes it. This holds for any `resolve` with `action.intent_ref`, the
@@ -23791,7 +23793,7 @@ choices over the kernel's own options; nothing reads what the act means and no p
   unavailable | refused | failed | skipped_cap | skipped_budget, reason?, act?, way?, params?, ref?, opened, continued,
   abandoned, reask, draw, receipts, calls: [{tool, call_id, status, refusal?}], passed_turn?}`; one `lane: "route"`,
   `purpose: "npc-act"` row per Jev batch (`status, ms, way, reason, answers, offered, rows`). The generation writes its
-  own `lane: "npc-act"` row (§139.2).
+  own `lane: "npc-act"` row (§143.2).
 - **The Keeper.** Each act is a `clerk_did` row of the run's note (`operation: "npc_act"`, the act, the way, the
   parameters, the receipts). On an NPC's turn of a fight whose act did not pass the turn (no act, not judged, refused),
   the next note carries `npc_turn: {npc, round, standing_action?, act: {status, reason, text}}` once, and the turn is
@@ -23800,14 +23802,14 @@ choices over the kernel's own options; nothing reads what the act means and no p
   the quarry, and the chase takes every opponent with a stat block placed in the scene as a pursuer -- the acting NPC
   among them, but not only them when several are present. Nothing here narrows it.
 - **Three ends (§31).** Writers: this step (the act's receipts). Readers: the ledger fold, the card and the offer
-  (§138.3), the situation packet's `done` (§139.1). Actor: the Keeper, who narrates what the person did and may
+  (§142.3), the situation packet's `done` (§143.1). Actor: the Keeper, who narrates what the person did and may
   overrule it with a real write (D7).
 
-**139.4 When a person acts: their turn of a fight, or being acted on (ticket 03, spec D4).**
+**143.4 When a person acts: their turn of a fight, or being acted on (ticket 03, spec D4).**
 - **In a fight.** An NPC's own turn of a running combat (their turn, no attack awaiting its defence) is the forced
   candidate `npc_act:<handle>:r<round>` (`clerk: npc_act`, `bound: {npc, trigger: turn}`; `runtime/jev/candidates.ts`).
   It replaces SL-08's standing action as the clerk's step: `attack` is no longer run by default, `hold` and `flee` no
-  longer return the turn unbound, and §138.14's release goes with it; the standing the kernel still issues rides on the
+  longer return the turn unbound, and §142.14's release goes with it; the standing the kernel still issues rides on the
   candidate's basis as a fact about the person. A missing combat disposition is still inferred first (§11.5.3: it is a
   description, which the stakes table's base rung reads). The pending defence (§11.5.2) is untouched, and so is an
   NPC's turn of a chase (a closed bind over its issued actions). A person's act needs a model, so it is not a forced
@@ -23826,16 +23828,16 @@ choices over the kernel's own options; nothing reads what the act means and no p
   (outside a fight to the route and the compose; in a fight to the Keeper, told by `npc_turn`).
 - The step always succeeds for the policy (an act's refusal is its row, not the declaration's refusal).
 
-*Note, 2026-09-26 (§139.20, ticket 21, live table B):* "once a step of the declaration has landed" no longer gates the
+*Note, 2026-09-26 (§143.20, ticket 21, live table B):* "once a step of the declaration has landed" no longer gates the
 scan outside a fight. It runs before every run's first model step when someone is present, and again after each later
 landed step as above; and besides the person acted on or addressed, a person *in the conversation* acts (`trigger:
 engaged`: `npc.act.options`' new `conversation`, with the compile's addressee naming no one else). "A person nobody
-acted on is never run" now reads: a person nobody acted on, addressed, or talked with is never run. §139.20 has the
+acted on is never run" now reads: a person nobody acted on, addressed, or talked with is never run. §143.20 has the
 rule; the fight's forced turn is unchanged.
 
-**139.5 Not the same thing twice: the two gates (ticket 04, spec D2 and D6).**
+**143.5 Not the same thing twice: the two gates (ticket 04, spec D2 and D6).**
 - **Structural.** The act's line is the line of a row still under way (`npc.act.options`' `act.continues`): the act is
-  that row continued -- no opener, every write names the row (`intent_ref`), its result as §138.2's addendum settles it;
+  that row continued -- no opener, every write names the row (`intent_ref`), its result as §142.2's addendum settles it;
   no semantic question is asked. Bound `intention_only` with the row under way since an earlier turn, it is two
   consecutive acts with no result: the row is settled `abandoned`, `why: "repeated"` (the owed linkage, D6).
 - **Semantic.** Otherwise the batch asks `same`: which of the person's latest `npc_act.same_act_rows` rows (named
@@ -23847,7 +23849,7 @@ rule; the fight's forced turn is unchanged.
   abandoned (`why: "repeated"`), and a way that settles it gives it that result instead. Cleared on a settled row: a
   new row (done again in a new situation is lawful), no re-ask. `none`, unknown or below the gates: a new row.
 - The act's row records `reask`, `continued` and `abandoned`; the fixture port's `calls` count the re-ask in tests.
-- No word list, no text similarity, no prose read anywhere: identity is the line's digest (§138.1), sameness is Jev's
+- No word list, no text similarity, no prose read anywhere: identity is the line's digest (§142.1), sameness is Jev's
   closed choice over the rows' own lines.
 
 *Tests.* `tests/kernel/test_npc_act_options.py` (no attack or flight outside a fight; only opponents as targets on
@@ -23857,34 +23859,34 @@ marks; at the table: a fight turn spent on a shout, the same act unsettled, the 
 person acted on and the one who was not; on the emitted kernel: the cap, pursuit and none, the two gates across turns),
 `tests/extension/npc-intents.test.mjs` (the mark through the real writer, `by: "table"`).
 
-*Note, 2026-09-26 (§139.14, live table C3):* the semantic question asks for the same thing **for the same purpose,
+*Note, 2026-09-26 (§143.14, live table C3):* the semantic question asks for the same thing **for the same purpose,
 whatever the hands do**, not the same act; a repeat of a row still under way whose way settles it is that row, given
-its result, with no re-ask; the re-ask's line is §139.14's ("twice without doing it: this time do it or drop it"); a
+its result, with no re-ask; the re-ask's line is §143.14's ("twice without doing it: this time do it or drop it"); a
 second repeat given up is said in the next packet's `happened`; and the same thing held up again right after it was
 given up opens no row (`status: "dropped"`). The structural gate is unchanged.
 
-*Note, 2026-09-26 (§139.29, ticket 30, live table D2):* a repeat either gate gives up -- the structural gate's very line
+*Note, 2026-09-26 (§143.29, ticket 30, live table D2):* a repeat either gate gives up -- the structural gate's very line
 of a row under way since an earlier turn, or the semantic gate's second hit after the re-ask -- still writes the row
 `abandoned` (`why: "repeated"`), and the act itself is dropped (`status: "dropped"`, `reason: "repeated"`): no line of
 it reaches the Keeper as the table's act, nothing it names is brought out, and no turn is spent.
 
-**139.6 The response bank and the per-turn advice are retired; the card says whose act a row was (ticket 05, spec D5).**
+**143.6 The response bank and the per-turn advice are retired; the card says whose act a row was (ticket 05, spec D5).**
 *Why.* The bank was a set of "if the player does X, try Y" rows written ahead of time, and the advice lane asked Jev
 every turn which row fit. That treats an open set as a closed one: what a player may do cannot be listed, so neither
 can a person's answer to it (the owner's ruling of 2026-09-26; the same error as a hard-coded word list). Two live
 tables (`npc-actor-gate-a`, `npc-actor-gate-a2`, 22 turns) measured it: 5 ready advices in 22 turns, the same row
 offered on two turns running, six turns without one, and a bank of ten rows none of which was "he is being hit" -- the
-bank's author never saw a receipt, a hit point or a stance. Under §139 a person's act is generated from the situation
-packet (§139.1) and bound to receipts (§139.3); the bank has nothing left to do, so it is removed rather than kept as
+bank's author never saw a receipt, a hit point or a stance. Under §143 a person's act is generated from the situation
+packet (§143.1) and bound to receipts (§143.3); the bank has nothing left to do, so it is removed rather than kept as
 a second, weaker source.
 
 *Removed.*
 - Kernel: `npc.responses.job` and `npc.responses.submit` are no longer in the method vocabulary (`unknown_method`).
   Nothing reads or writes `npc/responses/*.json`; an older campaign's bank files and response jobs stay on disk
   untouched, neither read nor deleted. `content/rulesets/coc7/host-budgets.json` has no `npc_responses`.
-- §138.4 in full (see its note). §138.2's writer knows an intention only from the ledger: `intent_ref` names one of
+- §142.4 in full (see its note). §142.2's writer knows an intention only from the ledger: `intent_ref` names one of
   the person's ledger rows or is refused `unknown_intent`, and every refusal's `details.options` is the person's
-  intentions under way, nothing else. Wherever §138 says "the NPC advice" or "their bank", read "the ledger"; the
+  intentions under way, nothing else. Wherever §142 says "the NPC advice" or "their bank", read "the ledger"; the
   Keeper-facing `intent_ref` descriptions and fixes name the card and `director.offer` only.
 - The capsule: `present[].response_options` and the instruction sentence that pointed at it.
 - §123.3 in full: `look {focus: "npc", evaluate_responses}` (gone from the tool schema; the kernel never read it and
@@ -23897,15 +23899,15 @@ a second, weaker source.
   the advice was off; the single-loop engine's run-owned prescreen is unchanged.
 - Telemetry: `lane: "npc"` rows with `kind` `advice`, `decision` or `responses`, and `event` `finalized` or
   `delivered`, are no longer written. The lane's `kind: "personality"` rows stay; the act lane reports under
-  `lane: "npc-act"` (§139.2).
+  `lane: "npc-act"` (§143.2).
 
-*Kept.* The personality author (`npc.job` / `npc.submit` / `npc.fail`, `kind: "personality"`), the whole §138 ledger,
-its writers, the owed-result gate (§138.7), `director.offer`'s `npc.intents` rows (§138.3), and `npc.perspective(s)`
+*Kept.* The personality author (`npc.job` / `npc.submit` / `npc.fail`, `kind: "personality"`), the whole §142 ledger,
+its writers, the owed-result gate (§142.7), `director.offer`'s `npc.intents` rows (§142.3), and `npc.perspective(s)`
 (availability, relationships, speech, and `tried` from the ledger; no `responses`). A `coc-npc-advice` message an
 older session recorded is dropped from every request by the table's context policy, never sent.
 
 *`by: "table"`: three ends (§31).*
-- *Writer.* The receipt of an act the table generated and bound (§139.3) carries `generated: true` inside its `intent` stamp (`intent: {ref, npc, text, outcome, generated: true}`) -- not on `basis`, which is a string (`stated` / `keeper`, §136.22) on damage, time, threat, flag and cash receipts.
+- *Writer.* The receipt of an act the table generated and bound (§143.3) carries `generated: true` inside its `intent` stamp (`intent: {ref, npc, text, outcome, generated: true}`) -- not on `basis`, which is a string (`stated` / `keeper`, §136.22) on damage, time, threat, flag and cash receipts.
   The ledger fold (`foldNpcTurn` via `foldIntent`, `kernel-ts/npc/intents.ts`) reads exactly
   `receipt.intent.generated === true` and marks the ledger row the receipt opens `generated: true`. The mark records who
   set the intention out, so it is written when the row is opened and a later result -- the Keeper settling it,
@@ -23918,8 +23920,8 @@ older session recorded is dropped from every request by the table's context poli
   abandon it by its `ref` (spec D7). No new panel: the rows were already on the card.
 - *Where the mark lives (lead, 2026-09-26, closing the question this ticket raised).* `basis` is a string
   (`"stated" | "keeper"`, §136.22) on every damage, time, threat, flag and cash receipt, so the mark cannot ride on
-  `basis`. It rides on the `intent` stamp every bound act already carries (§138.2): `intent.generated === true`. The
-  fold reads that field and nothing else; §139.3 writes it on every receipt of a bound act, whatever the kind.
+  `basis`. It rides on the `intent` stamp every bound act already carries (§142.2): `intent.generated === true`. The
+  fold reads that field and nothing else; §143.3 writes it on every receipt of a bound act, whatever the kind.
 
 Tests: `tests/extension/npc-preparation-integration.test.mjs` (a table played three turns through the real kernel,
 the NPC extension and the context policy: no `coc-npc-advice`, no Jev batch about a person, no advice telemetry, the
@@ -23928,9 +23930,9 @@ ledger only; `by: "table"` through a rebuild and a later Keeper result), `tests/
 (unknown methods; an older bank file neither read nor deleted), `tests/extension/npc-character-lane.test.mjs` (the
 lane authors personalities only).
 
-**139.7 The Keeper's side: an act the table already wrote, where a ref comes from, the name a table mints (ticket 06,
-spec D7).** Under §139 the people present may have acted before the Keeper composes: the table generated the act and
-bound it, and its receipts carry `intent: {..., generated: true}` (§139.6). The Keeper sees receipts, not orders --
+**143.7 The Keeper's side: an act the table already wrote, where a ref comes from, the name a table mints (ticket 06,
+spec D7).** Under §143 the people present may have acted before the Keeper composes: the table generated the act and
+bound it, and its receipts carry `intent: {..., generated: true}` (§143.6). The Keeper sees receipts, not orders --
 the prose renders what happened, a result still under way may be given or changed, nothing is written as if it had
 not happened. Three surfaces say so; none reads prose and none detects a language.
 
@@ -23938,15 +23940,15 @@ not happened. Three surfaces say so; none reads prose and none detects a languag
   ...": the people present may already have acted this turn; their act and how it went are on the card
   (`present[].history.intents`, rows marked `by: table`) and in this turn's receipts; the prose renders it, a result
   still under way is changed with `apply npc` `intent_ref` and `intent_outcome`, and nothing is written as if it had
-  not happened. §138.5's teaching sentence ("In a fight a person's own turn need not be a blow: they can shout for
-  help, ...") presumed the clerk's forced blow, which §139.3 retires; it now says only that when a person's own fight
+  not happened. §142.5's teaching sentence ("In a fight a person's own turn need not be a blow: they can shout for
+  help, ...") presumed the clerk's forced blow, which §143.3 retires; it now says only that when a person's own fight
   turn is left to the Keeper (the act unavailable, the run over budget, the legacy engine), what they do other than a
   fight action is recorded with `spend_turn: true` (or `action: hold`) and the initiative passes on. Every other
   sentence is unchanged. The file went from 31,396 to 31,703 bytes (+307).
 - *The overrule* (D7). In one turn the Keeper writes two npc effects -- `{intent_ref: <the table's act>,
   intent_outcome: abandoned, why}` and `{intends: <its own>, outcome: attempted}` -- and gets two receipts; the
-  owed-result gate (§138.7) has the table's act settled and lets the delivery through on the first try, and the next
-  card shows both rows, the table's still `by: "table"` (the mark is who set it out, §139.6). The boundary: only a row
+  owed-result gate (§142.7) has the table's act settled and lets the delivery through on the first try, and the next
+  card shows both rows, the table's still `by: "table"` (the mark is who set it out, §143.6). The boundary: only a row
   still under way can be overruled. A row the table's binding already settled -- a roll that passed or failed -- keeps
   its result: the write is refused `intent_settled` like any settled intention, its `fix` opening "its result stands"
   (numbers come only from `resolve`, the Keeper prompt's first law). The Keeper renders it and writes what the person
@@ -23954,7 +23956,7 @@ not happened. Three surfaces say so; none reads prose and none detects a languag
 - *Tools* (`extensions/kernel/tools.ts`). `apply npc` `intends` adds: when the table has already written this person's
   act this turn (their `history.intents` row `by: table`), write one only to overrule it, beside a second npc effect
   that names theirs by `intent_ref` with `intent_outcome: abandoned`. The ten effects that spread `intent_ref` /
-  `intent_outcome` (§138.2 addendum: move, clue, damage, time, item, cash, threat, flag, person, handout) each carry
+  `intent_outcome` (§142.2 addendum: move, clue, damage, time, item, cash, threat, flag, person, handout) each carry
   one short line now, and the explanation is written once, at the end of the `apply` tool's description
   (`INTENT_RESULT_EXPLAINED`). `apply npc` `name` adds: a person this table mints is named in `play_language`, and that
   name is what the player sees until `apply person` records another word; its English example appellation is gone.
@@ -23974,7 +23976,7 @@ not happened. Three surfaces say so; none reads prose and none detects a languag
 - *Language.* Nothing detects a language; the name description is the whole change, and whether a minted name is in
   the play language is counted on live table 08 (spec §五).
 
-Three ends (§31): the writers are the table's binding (§139.3) and the Keeper's `apply npc`; the reader is the card's
+Three ends (§31): the writers are the table's binding (§143.3) and the Keeper's `apply npc`; the reader is the card's
 `history.intents` with `by` and this turn's receipts; the actor is the Keeper, whose prose renders the act and whose
 overrule is a receipt. Whether the Keeper writes to the receipts is live table 08's reading, not a test's.
 
@@ -23984,25 +23986,25 @@ time, both rows on the next card; a settled table act refused with "its result s
 result; the ten intent-field descriptions one short line each with the explanation in `apply`; the prompt sentence),
 `tests/kernel/test_npc_round_operation.py` (the refusals over the emitted kernel).
 
-*Note, 2026-09-26 (§139.14, live table C3):* the overrule is `abandoned` only. On a row the table's act set out, the
+*Note, 2026-09-26 (§143.14, live table C3):* the overrule is `abandoned` only. On a row the table's act set out, the
 Keeper's `done` or `failed` by the intention variant, or by an effect that is not a clock, an arrival or a departure
 carrying its `intent_ref` (C3 T6: a clue), is refused `invalid_params` (`reason: "table_act_unsettled"`, fix: "a table
 act that rolled nothing is not done by saying so: abandon it (intent_outcome: abandoned), or let the dice settle it").
 A row the table's binding already settled still keeps its result (`intent_settled`, above).
 
-*Note, 2026-09-26 (§139.24, ticket 25, live table B2):* the prose renders the table's act, and the lines it gives a
+*Note, 2026-09-26 (§143.24, ticket 25, live table B2):* the prose renders the table's act, and the lines it gives a
 person are now held to the same "not the same thing twice" as that act. A line the Keeper wraps in the token of a person
-the table acted for this turn, or who is in the conversation, that Jev reads (§139.14's purpose question) as the same
+the table acted for this turn, or who is in the conversation, that Jev reads (§143.14's purpose question) as the same
 purpose as one of that person's rows never carried out -- under way since an earlier turn, or given up -- refuses the
 delivery once per turn; the next delivery goes out, with a finding when it still says it. The present paragraph of
 `prompts/keeper.md` gains one sentence saying so.
 
-**139.8 The stakes die: where nothing is prepared, a person may go further (ticket 09, spec D9).** The owner's addition of
+**143.8 The stakes die: where nothing is prepared, a person may go further (ticket 09, spec D9).** The owner's addition of
 2026-09-26: *where the story has nothing prepared, the table can roll for it -- a high roll, and the person may pull a gun.*
 Ruled the same day: the table's own die and table, not the CoC 7e Luck roll (Luck is the player's, per investigator,
 spent and recovered; this die is the Keeper's, per situation).
 
-- **Method.** `npc.stakes {campaign, name}` -- host-only, a write. The act step (§139.3) calls it before `npc.situation`
+- **Method.** `npc.stakes {campaign, name}` -- host-only, a write. The act step (§143.3) calls it before `npc.situation`
   for the person it is about to generate an act for; nothing else calls it, and the Keeper has no tool for it. `name`
   and the campaign read as for `npc.situation` (`invalid_params` without a name, `unknown_entity` for no one,
   `campaign_not_ready` while setting up). A turn that is not `open` or `acting` is refused `turn_state` (fix: roll during
@@ -24058,10 +24060,10 @@ spent and recovered; this die is the Keeper's, per situation).
   - `attacked_this_turn`: a receipt of the open turn is a `roll` whose `combat_action` is `attack`, whose `npc` (the
     person the roll was made against) is them and whose actor is not, or an `hp` `delta` whose `subject` is them with
     `after` below `before`;
-  - `hp_at_most_half`: `state.hp / state.hp_max` as the §139.1 packet reads it (the fight's participant, else the stat
+  - `hp_at_most_half`: `state.hp / state.hp_max` as the §143.1 packet reads it (the fight's participant, else the stat
     block) is at most `hp_fraction_at_most`; no hit points, no shift;
   - `table_clock_past_half`: some threat clock of this table -- the book's (`clocks[]` of every threat, where `apply
-    threat` moved it, else where the book started it) or one the table started (§138.9) -- stands above
+    threat` moved it, else where the book started it) or one the table started (§142.9) -- stands above
     `clock_fraction_above` of its segments (a clock at exactly half is not past it);
   - `stance_friendly`: their stance as it folds now (`stanceNow`, §17.3) is one of `stance_in` (the shipped table: `warm`).
 - **The receipt**, appended to `turn.receipts`:
@@ -24087,15 +24089,15 @@ spent and recovered; this die is the Keeper's, per situation).
   (`foldNpcTurn`), the committed facts state nothing from it (`committedFacts`), the Director's `last_roll` is the turn's
   last check, not the die rolled after it (`lastRollOf`), the NPC journal names no one from it (`collectNamed`), and the
   situation's `happened` has no sentence for it.
-- **`npc.situation` gains `stakes`** (amends §139.1's result shape): `stakes: {rung, outcome, line} | null`, after
+- **`npc.situation` gains `stakes`** (amends §143.1's result shape): `stakes: {rung, outcome, line} | null`, after
   `constraints` -- this turn's stakes receipt for this person read through the same view (`stakesView`), `null` when none
   was rolled this turn (prepared, not yet called, or a new turn). The read never rolls, and the byte budget never cuts
-  it. The generation step (§139.2) receives it with the rest of the packet unchanged; the act step reads
-  `packet.stakes?.outcome === "severe"` (absent is not severe) to allow the weapon of spec D9's binding (§139.3).
-- **Three ends (§31).** Writer: `npc.stakes`, called by the act step (§139.3) once per person it generates for. Reader:
-  the §139.1 packet's `stakes`, sent whole to the generator (§139.2); the Keeper through the receipt. Actor: the act the
-  generator writes to that degree (`content/setup/npc-act.md` says what `stakes` means), bound by §139.3 -- and on
-  `severe`, the one weapon §139.3 may add. Until §139.3 lands the method has no product caller; it is exercised by
+  it. The generation step (§143.2) receives it with the rest of the packet unchanged; the act step reads
+  `packet.stakes?.outcome === "severe"` (absent is not severe) to allow the weapon of spec D9's binding (§143.3).
+- **Three ends (§31).** Writer: `npc.stakes`, called by the act step (§143.3) once per person it generates for. Reader:
+  the §143.1 packet's `stakes`, sent whole to the generator (§143.2); the Keeper through the receipt. Actor: the act the
+  generator writes to that degree (`content/setup/npc-act.md` says what `stakes` means), bound by §143.3 -- and on
+  `severe`, the one weapon §143.3 may add. Until §143.3 lands the method has no product caller; it is exercised by
   `tests/kernel/test_npc_stakes.py` over the emitted kernel.
 - **Not here.** No die for a scene without a person (a Director-level random event is another spec); no Jev choice of
   the rung (band-then-roll is on `0.9.5a`; after the merge `default_rung` becomes Jev's choice among the rungs, the same
@@ -24115,7 +24117,7 @@ and restore): the table without `attacked_this_turn`, the kernel not reading it,
 keeper`, each reader's guard removed, the once-per-turn and the prepared checks removed, and contact rows and
 obligations counted as prepared again -- each fails its case.
 
-*Note, 2026-09-26 (§139.19, ticket 20, spec D10):* the table has a third column and two more lines. Each rung is `{name,
+*Note, 2026-09-26 (§143.19, ticket 20, spec D10):* the table has a third column and two more lines. Each rung is `{name,
 severe_at_most, escalates_at_most, surprise_at_most, lines: {severe, escalates, surprise, severe_surprise}, note?}`;
 `surprise_at_most` is an integer 0..100 read off the same roll (at most it is a surprise), independent of the other two;
 none of the three columns may fall from one rung to the next (`details.columns` names the ones that do); the two new
@@ -24126,7 +24128,7 @@ without a surprise); `npc.stakes`' answer and the situation's `stakes` are `{run
 surprise_line}` (`stakesView`; a receipt written before this reads `surprise: false`). Ticket 09's seeds were re-read under
 the new thresholds: 3, 2 and 1 still roll 5, 30 and 56 on the dangerous rung, so severe, escalates and nothing stand.
 
-*Note, 2026-09-26 (§139.26, ticket 27, the table `npc-acts-d`):* `shifts` gains two structural shifts,
+*Note, 2026-09-26 (§143.26, ticket 27, the table `npc-acts-d`):* `shifts` gains two structural shifts,
 `attacked_last_turn` (`attacked_this_turn`'s predicate over the newest committed turn before this one) and
 `in_fight_with_investigators` (a fight is running with this person and an investigator among its participants), each
 `{step: <integer>}` with no parameter; the shipped table gives each `step: 1`, in the order `attacked_this_turn`,
@@ -24139,8 +24141,8 @@ unknown one, a parameter on either new one, a group not declared, and a malforme
 of the Tests paragraph above now also opens a fight; in the same group, the rung is still one above the base and ticket
 09's seeds stand.
 
-**139.9 Flight needs footing, and a pursuit is the pursuer's own call (2026-09-26, ticket 10 of
-`docs/specs/npc-acts-first-tickets/`; amends §11.5's combat and chase lines and §138.10).** Two defects of the combat
+**143.9 Flight needs footing, and a pursuit is the pursuer's own call (2026-09-26, ticket 10 of
+`docs/specs/npc-acts-first-tickets/`; amends §11.5's combat and chase lines and §142.10).** Two defects of the combat
 engine's flight, both found reviewing the gate tables (spec section 七):
 
 - *Table `npc-actor-gate-a2`, turn 6.* Knott lay `prone`; the Keeper resolved `combat:flee` for him and the engine
@@ -24150,7 +24152,7 @@ engine's flight, both found reviewing the gate tables (spec section 七):
   investigator's `fled`, `session:combat-end` `fled`, **`session:chase-start`**, both CON speed rolls and then Knott's
   chase Fighting roll, and the prose said Knott never got up. `resolve/pipeline.ts` executed `chase:start` as the
   continuation of every successful investigator `combat:flee` whenever an opponent with a stat block was present; the
-  pursuer never decided to pursue. An NPC's flight already only hinted the pursuit (§138.10).
+  pursuer never decided to pursue. An NPC's flight already only hinted the pursuit (§142.10).
 
 **Who cannot flee is rules data.** `content/rulesets/coc7/rules-json/combat.json` gains a top-level block
 `flee: {rule_ref: "rule:coc7:combat:escape-close-combat", flee_blocked_by: [...], flee_clears: [...], source_note}`.
@@ -24189,7 +24191,7 @@ its own -- on their turn, `combat:maneuver` with `goal: "escape"` against whoeve
 turn's action. So that this fix is true, the escape manoeuvre now breaks either form of the hold: it removes the
 `restrained` effect as before **and** a `grappled` condition (before, a `grappled` person's escape answered
 `escape_nothing_to_escape` and they could never get free inside the fight). The ticket's "spend a turn getting up
-(`hold` / §138.5 `spend_turn`)" is not offered: neither write frees anyone.
+(`hold` / §142.5 `spend_turn`)" is not offered: neither write frees anyone.
 
 **An investigator's flight starts no chase.** The pipeline no longer executes `chase:start` after a successful
 investigator `combat:flee`: `outcome.continued` is gone, no `continuations` row is `executed`, no `session:chase-*`
@@ -24211,18 +24213,18 @@ investigator as `quarry` and the NPC as `pursuer`; the speed rolls and `session:
 pursuer -- `chaseSlots` makes every present opponent with a stat block a pursuer, and `action.target` narrows that set
 only when it names an NPC.
 
-**The NPC-flight hint no longer promises a chase the engine cannot run (amends §138.10).** §138.10's hint for an
+**The NPC-flight hint no longer promises a chase the engine cannot run (amends §142.10).** §142.10's hint for an
 NPC's flight -- "if the investigators give chase, resolve chase:start with target <npc>" -- opened a chase with the
 investigator as `quarry` and the fleeing NPC as `pursuer` (measured on the Corbitt fixture:
 `[("thomas-hayes","quarry"),("walter-corbitt","pursuer")]`). The `chase:start` binding has one shape, investigator =
 quarry; an investigator chasing an NPC has no binding, and the ticket's "调查员追 NPC 用 `chase:start`（现状）" rested on
-that hint. The engine fix is ticket 13 (the chase admits an NPC quarry), whose contract is §139.12. Until it lands the
+that hint. The engine fix is ticket 13 (the chase admits an NPC quarry), whose contract is §143.12. Until it lands the
 hint reads: `<npc> fled the fight: say where they went with apply npc to: away (or the scene they reach). If the
 investigators run after <npc>, narrate that pursuit: the engine's chase today always has the investigators as its
-quarry, so it cannot run a chase of <npc>; §139.12 will give the pursuers a chase:start with the fleeing person as the
+quarry, so it cannot run a chase of <npc>; §143.12 will give the pursuers a chase:start with the fleeing person as the
 quarry`. It names no call the engine cannot run (`resolve chase:start ... target <npc>` is gone).
 
-**The session view does not issue a flight the rules block (amends §138.10's "the view issues combat:flee on
+**The session view does not issue a flight the rules block (amends §142.10's "the view issues combat:flee on
 anyone's turn").** `SessionView.combatActions` omits `combat:flee` for the person whose turn it is when
 `fleeBlockers` finds a listed state on them; every other action is issued as before (the escape manoeuvre is how they
 get free). The flight rules ride `StandingTables.flee`, loaded where the standing tables already are (the campaign
@@ -24249,7 +24251,7 @@ shape), the continuation restored, the escape change reverted, `prone` kept on t
 removed and the old NPC-flight hint restored each turn their tests red. `rule-graph-table-digests.json` carries the
 new bytes of `combat.json`.
 
-**139.10 Player-facing prose carries no markup (2026-09-26, ticket 11; the spec's section 七).**
+**143.10 Player-facing prose carries no markup (2026-09-26, ticket 11; the spec's section 七).**
 **Evidence.** Table `npc-actor-gate-a2` (KP `opencode-go/deepseek-v4.1-flash`, `hybrid-v1`). Turn 6, an explicit `narrate`,
 ended in a literal `</text>` in `text`, `rendered_text` and the driver's `final_text`. Turn 7, an implicit close, carried
 two markdown list lines (`- 钥匙还躺在……`, `- 桌上那幅……`).
@@ -24276,7 +24278,7 @@ tokens and mechanics markers (§40.4's `stripMarkers`; nothing new parses marker
   ordered item (digits, `.`, whitespace) or an ATX heading (one to six `#` then whitespace or the line's end).
 
 A dash, an em-dash opening a line, quotation marks, an ellipsis, a lone hyphen or `#` or `*` inside a sentence, and
-`3 < 5` are neither class. The check runs after §113 D's repeated-line refusal and §138.7's owed-result gate, so a turn
+`3 < 5` are neither class. The check runs after §113 D's repeated-line refusal and §142.7's owed-result gate, so a turn
 pays at most one refusal of each kind.
 
 **Refused once per turn.** The first delivery of a turn whose rendered text has either shape is refused `needs`; the
@@ -24288,7 +24290,7 @@ delivery in the same turn that still carries markup is delivered as written, and
 `warnings` row `{lane: "delivery", kind: "markup_in_prose", quote, why, fix, at}` (`quote` is the first tag, else the
 first line), which the next capsule's warnings show the Keeper (§12.5).
 
-*Note, 2026-09-26 (§139.17, live tables C3 and C4):* "delivered as written" now has one exception. When all the markup
+*Note, 2026-09-26 (§143.17, live tables C3 and C4):* "delivered as written" now has one exception. When all the markup
 the check found on that later delivery is a bare wrapper -- one tag at the rendered text's very start or end with only
 whitespace beyond it, or an opening tag first and its own closing tag last -- the kernel takes it off the Keeper's text
 before rendering and delivers the rest; the `warnings` row and the `outcome: "delivered"` row stay and add
@@ -24327,14 +24329,14 @@ leg; the dash-dialogue boundary), `tests/kernel/test_markup_in_prose.py` (the re
 finding and both telemetry rows, a fresh gate on the next turn, lines named, ordinary prose and the host's markers
 passing).
 
-**139.11 A refused implicit draft is not lost to a spent steer: the three second-time behaviours side by side (2026-09-26,
+**143.11 A refused implicit draft is not lost to a spent steer: the three second-time behaviours side by side (2026-09-26,
 ticket 12; the spec's section 七; amends §135.11's gate #4 addendum and §135.11.3).**
-**Evidence.** Found by ticket 11's worker while building 139.10, not at a table. A turn has one steer (§135.11). Once it is
+**Evidence.** Found by ticket 11's worker while building 143.10, not at a table. A turn has one steer (§135.11). Once it is
 spent, a kernel refusal of an implicit draft (prose that closes the turn without an explicit `narrate`) sets a repair that
 nothing can hand back: `takeTurnCloseSteer` answers `steer_spent` before it reaches the fix. Unless a floor, speech or wait
 steer's draft was still held, the draft was dropped and the turn closed undelivered (`turn_close` `none`, `steer_spent`,
 `unsent_fix: "audit-repair"`; the run `turn_close_steer_spent:no_delivered_evidence`) over prose the Keeper had written.
-139.10 closed that for `markup_in_prose` alone; §138.7's `intent_result_owed` and §113 D's `repeated_line` still lost it,
+143.10 closed that for `markup_in_prose` alone; §142.7's `intent_result_owed` and §113 D's `repeated_line` still lost it,
 and a draft the kernel refused for an owed result before the steer was not held, so a repair leg that brought nothing, or
 one the kernel refused, had nothing to fall back to.
 
@@ -24344,8 +24346,8 @@ order on every `table.narrate`):
 | `details.reason` | first delivery of the turn | a later delivery in the same turn |
 | --- | --- | --- |
 | `repeated_line` (§113 D) | refused `needs` (a line the Keeper wrapped that repeats the same person) | refused again, every time: a verbatim repeat never lands. A line the host wrapped (§128.3) is never refused; it is delivered with its finding |
-| `intent_result_owed` (§138.7) | refused `needs`; `turn.json` keeps the owed set (`intent_gate.refs`) | the same owed set is delivered, one `warnings` row per owed intention (`lane: "intents"`, `ref`); a different set is refused once more |
-| `markup_in_prose` (139.10) | refused `needs`; `turn.json` keeps `markup_gate` | delivered as written, one `warnings` row (`lane: "delivery"`) |
+| `intent_result_owed` (§142.7) | refused `needs`; `turn.json` keeps the owed set (`intent_gate.refs`) | the same owed set is delivered, one `warnings` row per owed intention (`lane: "intents"`, `ref`); a different set is refused once more |
+| `markup_in_prose` (143.10) | refused `needs`; `turn.json` keeps `markup_gate` | delivered as written, one `warnings` row (`lane: "delivery"`) |
 
 The same draft sent again at once meets the owed gate with the same set: nothing is written between the refusal and the
 re-send, so the kernel delivers it.
@@ -24353,7 +24355,7 @@ re-send, so the kernel delivers it.
 **The host's side, per reason** (`extensions/kernel/index.ts`, the implicit close in `message_end`). One closed table,
 `RESENT_ON_SECOND_DELIVERY`, keyed on the refusal's `details.reason` (a contract enum), never on its message: the reasons
 the kernel lets through on the same turn's next delivery of the same draft, each with the reason its re-send is counted
-under -- `markup_in_prose` → `markup_resent` (139.10's name, kept), `intent_result_owed` → `intent_result_owed_resent`.
+under -- `markup_in_prose` → `markup_resent` (143.10's name, kept), `intent_result_owed` → `intent_result_owed_resent`.
 `repeated_line` is deliberately not in it.
 
 | `details.reason` | steer unspent | steer spent |
@@ -24402,28 +24404,28 @@ steered leg refused `intent_result_owed`, sent again once and delivered with its
 `repeated_line`; and, on the driven run, a draft refused `repeated_line` twice, undelivered, with `turn_close` naming
 `unsent_fix: "audit-repair"` and `kernel_reason: "repeated_line"`), `tests/extension/refusal-budget-fallback.test.mjs`
 (fake kernel: the fallback narrate refused `intent_result_owed` sent again once and landing; refused `repeated_line`, not
-sent again), and 139.10's `tests/extension/markup-in-prose.test.mjs`, unchanged. Mutation (ticket 12's acceptance):
+sent again), and 143.10's `tests/extension/markup-in-prose.test.mjs`, unchanged. Mutation (ticket 12's acceptance):
 the table cut back to `markup_in_prose` alone fails the owed re-send case on both engines (and the hold and held-fallback
 cases), while the markup file stays green.
 
-**139.12 A chase admits a person as its quarry (2026-09-26, ticket 13 of `docs/specs/npc-acts-first-tickets/`, spec
-section 七; amends §11.5's chase line, the NPC-flight hint of §138.10 and §139.9, and §139.9's measured limits of the
-chase start).** Ticket 10 measured the one shape the chase binding had (§139.9, "The NPC as pursuer, as the engine
+**143.12 A chase admits a person as its quarry (2026-09-26, ticket 13 of `docs/specs/npc-acts-first-tickets/`, spec
+section 七; amends §11.5's chase line, the NPC-flight hint of §142.10 and §143.9, and §143.9's measured limits of the
+chase start).** Ticket 10 measured the one shape the chase binding had (§143.9, "The NPC as pursuer, as the engine
 stands"): `chaseSlots` made every present opponent with a stat block a pursuer and the acting investigator the quarry,
-`action.target` only narrowed the pursuers, and `chase:start` answered `intent: flee` alone. §138.10's hint for an NPC
+`action.target` only narrowed the pursuers, and `chase:start` answered `intent: flee` alone. §142.10's hint for an NPC
 who fled -- "if the investigators give chase, resolve chase:start with target <npc>" -- therefore opened a chase in
 which the investigator ran from the man who had just run from him (Corbitt fixture:
-`[("thomas-hayes","quarry"),("walter-corbitt","pursuer")]`), and an investigator could never chase anyone. §139.9
+`[("thomas-hayes","quarry"),("walter-corbitt","pursuer")]`), and an investigator could never chase anyone. §143.9
 withdrew the hint; this subsection gives the engine the other direction and puts the hint back.
 
 **Who runs** (`chaseRoles`, `kernel-ts/chase/bindings.ts`), decided when `chase:start` binds:
 
 - A person who is not an investigator acting (`actor: <npc>`) is the pursuer and the investigator the quarry, every
-  present opponent with a stat block pursuing as before (§139.9's pursuer shape, unchanged).
+  present opponent with a stat block pursuing as before (§143.9's pursuer shape, unchanged).
 - An investigator acting (named in `actor`, or the table's only investigator when `actor` is absent -- `resolveActor`'s
   existing rule; several investigators and no `actor` is still `needs_choice`) with a person named in `target` runs
   **after** that person, who is the quarry, when either
-  1. the person's **flight still stands**: the last receipt that gained them `fled` -- a combat flight (§138.10), or a
+  1. the person's **flight still stands**: the last receipt that gained them `fled` -- a combat flight (§142.10), or a
      Keeper's `apply npc` condition -- with no `session` receipt of a fight or a chase starting after it, no `npc`
      receipt moving them (`to`) after it, and no flight of the acting investigator after it (`standingFlight`: a scan
      of the committed turns, the open turn and the call, in order). Any of the three chase intents then reads as the
@@ -24492,12 +24494,12 @@ present here` (`kernel-ts/chase/index.ts`). A caught quarry (`captured`, the eng
 the pursuer's Fighting grab) gets the existing hint, `<handle> is caught; settle chase:end (captured), then fight it out
 with intent combat` -- the §11.5 end rule, with the investigator's `intent: combat, target: <person>` opening the fight.
 
-**The NPC-flight hint** (`combat/execution.ts`, the §138.10 hint §139.9 had withdrawn) is again a call the engine runs,
+**The NPC-flight hint** (`combat/execution.ts`, the §142.10 hint §143.9 had withdrawn) is again a call the engine runs,
 the mirror of the investigator-flight hint: `<npc> fled the fight: a pursuit is the investigators' choice and the pursuer
 opens it -- if <investigators still able> gives chase, resolve chase:start (intent move) with actor: <that
 investigator> and target <npc>, and <npc> is the chase's quarry; otherwise say where <npc> went with apply npc to: away
 (or the scene they reach)`; with no investigator able, only the second half. This supersedes the hint text quoted in
-§139.9's paragraph "The NPC-flight hint no longer promises a chase the engine cannot run".
+§143.9's paragraph "The NPC-flight hint no longer promises a chase the engine cannot run".
 
 **Three ends (§31).** Writer: the pursuer's `resolve chase:start` (the chase snapshot, its start receipt, both speed
 rolls), the grab and the chase's end as before; the Keeper's `apply npc to` for where the person went. Reader:
@@ -24518,8 +24520,8 @@ restored hint. Mutations (copy and restore): `chaseRoles` returning "the investi
 four first cases, the `flee` one with exactly ticket 10's measured sides; the MOV requirement removed, the three-intent
 admission removed, the escape hint removed and the standing flight ignored each fail their cases.
 
-**139.13 A flight stands until the player has answered it (2026-09-26, ticket 14 of `docs/specs/npc-acts-first-tickets/`,
-spec section 九, table C; amends §139.12's standing flight, its chase-start refusals, its NPC-flight hint and its chase
+**143.13 A flight stands until the player has answered it (2026-09-26, ticket 14 of `docs/specs/npc-acts-first-tickets/`,
+spec section 九, table C; amends §143.12's standing flight, its chase-start refusals, its NPC-flight hint and its chase
 ends).**
 
 **Evidence.** Table `npc-acts-c` (`.coc/playtests/npc-acts-c-20260926T125610Z`, campaign `npc-acts-c`). Turn 4:
@@ -24530,10 +24532,10 @@ with `target: Steven Knott` (intent `flee`) → `unknown_entity: Steven Knott is
 target → `needs: a chase needs a pursuer with a stat block present in the scene`, the old refusal, and misleading. To
 get past it the Keeper moved Knott into the Corbitt house (`npc:steven-knott-t5-c5`, `to: corbitt-house-ground`); he
 was never present again, no act of his was generated, turn 6 has no receipts and turn 7 only prose. The cause:
-§139.12's standing flight ended at any `to` written after it (ticket 13's handoff: "the NPC is moved (`to`)" ends the
+§143.12's standing flight ended at any `to` written after it (ticket 13's handoff: "the NPC is moved (`to`)" ends the
 window), while its own hint asks for that `to` in the flight's turn. The pursuer was always one turn late.
 
-**The window, exactly.** A person's flight is the last receipt that gained them `fled` -- a combat flight (§138.10) or
+**The window, exactly.** A person's flight is the last receipt that gained them `fled` -- a combat flight (§142.10) or
 the Keeper's `apply npc` condition -- written in turn N. It stands for the rest of turn N and the whole of turn N+1, the
 turn in which the player's declaration answers it, whatever `apply npc to` wrote about where they went in either turn
 (`away`, a scene, `here`): a `to` never ends it. It closes at the first of:
@@ -24542,14 +24544,14 @@ turn in which the player's declaration answers it, whatever `apply npc to` wrote
 2. a fight or a chase starting after it (a `session` start receipt, family `combat` or `chase`). A chase that runs
    after them consumes it: while that chase runs they are where the chase is, and when it ends `escaped` they are
    gone, `captured` they are caught here;
-3. a flight of the acting investigator after it (§139.12, unchanged).
+3. a flight of the acting investigator after it (§143.12, unchanged).
 
 A party `apply move` does not close it (the pursuit may move the investigators first; the chase opens where they
 stand). The window is the same for a person still present and one written away: a person who fled, was never moved and
-is still here on turn N+2 has no standing flight, so an investigator's `flee` at them runs from them (§139.12's
+is still here on turn N+2 has no standing flight, so an investigator's `flee` at them runs from them (§143.12's
 no-flight shape). Implementation: `standingFlights` (`kernel-ts/chase/bindings.ts`) reads the committed turn records
 (each with its `turn`), then the open turn, then the call, so every flight knows the turn it was written in;
-`standingFlight` (§139.12's reader) and `fledFromHere` read it.
+`standingFlight` (§143.12's reader) and `fledFromHere` read it.
 
 **Who can be chased from here** (`fledFromHere`): a person, not an investigator, whose flight stands and who ran from
 where the investigators are -- still present in the current scene, or written somewhere by `apply npc to` since they
@@ -24567,16 +24569,16 @@ fled. A person the Keeper stamped `fled` somewhere else and never moved is not o
   fix `to run after them, resolve chase:start (intent move) with actor: <the investigator> and target: <name>, and
   <name> is the chase's quarry; otherwise act on someone who is here (details.candidates)`. Once the window has closed
   the refusal is `unknown_entity` "not in the current scene", as before.
-- *Who runs* (`chaseRoles`, §139.12) reads the standing flight as before, so the chase opens with `[<investigator>
+- *Who runs* (`chaseRoles`, §143.12) reads the standing flight as before, so the chase opens with `[<investigator>
   pursuer, <them> quarry]`, `chase_id` and the location chain from the current scene (they ran from here). Any of the
-  three chase intents reads as the pursuit (§139.12): the table's Keeper wrote `flee`. The start moves nobody: the world
+  three chase intents reads as the pursuit (§143.12): the table's Keeper wrote `flee`. The start moves nobody: the world
   keeps the Keeper's `to`.
 - *The rule graph's readiness.* `chase.start.ready` (`SessionView.facts`) counts people present with a stat block. For a
   quarry named in the window who is not present, the pipeline sets it when their stat block exists (`chaseFacts`); with
-  no stat block the start is still withheld and the quarry's own refusal answers (`quarry_has_no_stat_block`, §139.12),
+  no stat block the start is still withheld and the quarry's own refusal answers (`quarry_has_no_stat_block`, §143.12),
   never the pursuer message.
 - *A chase start that names no one*, by an investigator (`askWhomTheChaseIsAfter`, called from `chaseSlots` and from the
-  pipeline's no-candidate refusal). `move` or `combat`: `quarry_does_not_flee` (§139.12), its `needs.options` the people
+  pipeline's no-candidate refusal). `move` or `combat`: `quarry_does_not_flee` (§143.12), its `needs.options` the people
   here with a stat block and those who ran from here, and when someone ran from here the fix names them -- `to run after
   <name>, resolve chase:start again with target: <name> (they are the chase's quarry); ...`. This now also answers a
   nameless `move` or `combat` when nobody here has a stat block (before: the pursuer message). `flee`, when someone ran
@@ -24590,9 +24592,9 @@ fled. A person the Keeper stamped `fled` somewhere else and never moved is not o
 
 **The hints.**
 
-- *The NPC-flight hint* (`combat/execution.ts`) keeps §139.12's text and adds: `Writing where they went does not end the
+- *The NPC-flight hint* (`combat/execution.ts`) keeps §143.12's text and adds: `Writing where they went does not end the
   pursuit: until the player's next turn is settled, that chase:start still runs after <npc> from here`.
-- *The chase's ends* (`kernel-ts/chase/index.ts`). A quarry who got away and is still present keeps §139.12's hint; one
+- *The chase's ends* (`kernel-ts/chase/index.ts`). A quarry who got away and is still present keeps §143.12's hint; one
   the world already has off this scene gets `<handle> got away from the investigators and is already written off this
   scene (apply npc to): nothing more is needed, unless they reached a scene you name with apply npc to`. A caught
   quarry the world has off this scene gets `<handle> is caught; settle chase:end (captured). The table still has
@@ -24608,7 +24610,7 @@ end hints. Who acts: the Keeper, through the flight hint, the refusals' `fix` an
 
 **Not covered.** Places the book does not have (the stairs, the street): the ticket's not-in-scope, the flat locus
 model. The capsule does not list who can still be chased; the flight hint and the refusals carry it. A whole party's
-pursuit (§139.12). The flight receipt records no scene, so a person who ran from scene A and was written away can be
+pursuit (§143.12). The flight receipt records no scene, so a person who ran from scene A and was written away can be
 chased from scene B if the investigators moved there within the window -- the Keeper's call, left open.
 
 Tests: `tests/kernel/test_pursuit_after_flight.py` (emitted kernel, Corbitt fixtures, seed 7): Corbitt flees and is
@@ -24631,15 +24633,15 @@ fails the explicit grab (`unknown_entity`); the `fled_from_here` check removed f
 from the no-candidate refusal fails both nameless cases and turn 3's nameless pursuit; the caught hint's branch removed
 fails the capture and the grab.
 
-**139.14 A threat is one thread: the same purpose in other hands is the same thing, and only a result settles what the
+**143.14 A threat is one thread: the same purpose in other hands is the same thing, and only a result settles what the
 table set out (2026-09-26, ticket 15 of `docs/specs/npc-acts-first-tickets/`, spec section 九's table C3, D2, D6, D7;
-amends §139.5, §139.7, §139.1's `happened` and §138.2's addendum).** Live table `npc-acts-c3` (ten turns, the door
+amends §143.5, §143.7, §143.1's `happened` and §142.2's addendum).** Live table `npc-acts-c3` (ten turns, the door
 locked, four punches): all four of Knott's generated acts were the telephone -- T5 "lift the receiver, thumb on the
 hook" and "press the receiver down, say nothing", T7 "lift the receiver and shout: touch me again and this rings the
 constable", T10 "hold the receiver up between them, the other hand on the telephone" -- and the prose threatened the
-police on T3, T5, T7 and T10. The telephone never rang. Both gates ran as designed and neither held: §139.5's question
+police on T3, T5, T7 and T10. The telephone never rang. Both gates ran as designed and neither held: §143.5's question
 asked whether the act was the same *act* ("the same thing, whatever the words"), and four different hand movements are
-four acts (Jev cleared a repeat once, on T7, and the re-asked line passed as new); §138.7 wants *a* result, and the
+four acts (Jev cleared a repeat once, on T7, and the re-asked line passed as new); §142.7 wants *a* result, and the
 Keeper supplied one each time by saying so -- T5a `done` through a clue's `intent_ref` (`clue:knott-commission-t6`),
 T7's shout `done` through the intention variant -- so the situation packet's `done` told the generator every turn that
 the telephone was dealt with. The owner's criterion (spec section 二): repetition is judged by content, not by the
@@ -24656,7 +24658,7 @@ of §135.2 are unchanged. Nothing reads the words: sameness is still Jev's close
 *A thread is a row never carried out* -- the row Jev cleared the act as the same thing as, when it is still under way
 (`attempted`), or given up (`abandoned`) with nothing of theirs set out or settled since (its `turn` is the newest in
 the packet's `done`). A row settled by a result (`done`, `failed`) is not a thread: doing it again in a new situation
-stays lawful, a new row, no re-ask, as §139.5 had it. "Settled without dice" is `abandoned`: after the refusal below,
+stays lawful, a new row, no re-ask, as §143.5 had it. "Settled without dice" is `abandoned`: after the refusal below,
 a table act cannot be settled `done` or `failed` except by the dice, a clock, an arrival, a departure or the binding's
 own stance write, and a row the Keeper set out and settled by saying so is the Keeper's account, not second-guessed.
 The structural gate (the very line of a row under way) is unchanged and answers first.
@@ -24666,11 +24668,11 @@ The structural gate (the very line of a row under way) is unchanged and answers 
 | a row under way | a way that settles (a roll, a clock, an arrival, a departure, a stance) | that row continued: no opener, the way's write names it and gives it its result -- announcing it and doing it are one row; no re-ask |
 | a row under way | `intention_only` | re-asked once; the packet gains one `happened` line: `<name> set out to "<line>" on turn <n> and has not done it, and this act is the same thing again: that is twice without doing it. This time <name> either does it, or drops it and does something else.` |
 | (after the re-ask) a thread again | a way that settles | the row continued with that result (when the second hit is the row just given up, the row under way is the one continued) |
-| (after the re-ask) a thread again, or the re-ask unavailable | `intention_only` | the row continued and abandoned, `why: "repeated"` (§139.5); nothing opened |
+| (after the re-ask) a thread again, or the re-ask unavailable | `intention_only` | the row continued and abandoned, `why: "repeated"` (§143.5); nothing opened |
 | (after the re-ask) nothing | any | its own act, as ever |
 | a row given up, nothing of theirs since | `intention_only` | **dropped**: no row opened, nothing written, no re-ask; in a fight the turn stays the Keeper's (`npc_turn.act.status: "dropped"`) |
 | a row given up, nothing of theirs since | a way that settles | a new row with that result (they do it now) |
-| a settled row, or `none` | any | a new row, as §139.5 |
+| a settled row, or `none` | any | a new row, as §143.5 |
 
 So two consecutive `intention_only` acts judged the same purpose never open a third row: the first opens it, the
 second gives it up, a third is dropped until they do it or do something else. The act's telemetry row
@@ -24678,17 +24680,17 @@ second gives it up, a third is dropped until they do it or do something else. Th
 keeps the line as `act`. The Keeper's `clerk_did` row (and, in a fight, `npc_turn.act`) carries the status, the
 thread's `ref` and the reason but no line: the act was not done, and those rows read `act` as what the table did.
 
-*The packet says it was given up* (`kernel-ts/npc/situation.ts`, amends §139.1's `happened`). A receipt whose `intent`
+*The packet says it was given up* (`kernel-ts/npc/situation.ts`, amends §143.1's `happened`). A receipt whose `intent`
 stamp settles one of this person's intentions `abandoned` contributes the clause `<them> gave up "<line>" without doing
 it` (the line at most 200 code points), with the writer's `why` after it when the receipt has no clause of its own:
 `turn 3: Steven Knott gave up "<line>" without doing it (why: repeated)`. Worded by the stamp's outcome, never by the
 line's words; the Keeper's overrule (D7) reads the same way with its own `why`. Other intention-only receipts stay in
-`done` only, as before. With the window of §139.1 (the newest committed turn and this one), the next act's generation
+`done` only, as before. With the window of §143.1 (the newest committed turn and this one), the next act's generation
 sees it.
 
 *Only the dice, a clock, an arrival or a departure settle a table act* (`refuseSaidDone`, `effectSettlesAct`,
 `kernel-ts/apply/intent.ts`; the intention variant in `kernel-ts/apply/entities.ts`). On a row the table's own act
-set out (`generated`, §139.6), a write that would make it `done` or `failed` is refused `invalid_params` before
+set out (`generated`, §143.6), a write that would make it `done` or `failed` is refused `invalid_params` before
 anything lands, message `<name>'s "<line>" was the table's own act and nothing has settled it; saying so does not make
 it <outcome>`, `fix: "a table act that rolled nothing is not done by saying so: abandon it (intent_outcome: abandoned),
 or let the dice settle it"`, `details: {field, reason: "table_act_unsettled", ref, status, outcome}` -- when the write
@@ -24702,11 +24704,11 @@ is
 - a `resolve` whose `action.intent_outcome` is `done` or `failed` (the dice decide; refused before any die, `fix`: leave
   `action.intent_outcome` out and the roll makes it done or failed, or abandon it).
 
-Not refused: a write that is the table's own (`_generated`, the clerk's `npc_act` calls, §139.3 -- so the binding's
+Not refused: a write that is the table's own (`_generated`, the clerk's `npc_act` calls, §143.3 -- so the binding's
 `stance` way still settles its row); a roll with `action.intent_ref` and no outcome (the dice: `done` when it passed,
 `failed` when it did not), and the defence roll that settles an attack's carried stamp; a clock, an arrival or a
-departure carrying the ref, whoever writes it (the §138.2 addendum's porter); `abandoned` (the Keeper's overrule, D7)
-and `attempted`; and every write about a row the Keeper set out, which keeps §138.2's rules. A settled row is refused
+departure carrying the ref, whoever writes it (the §142.2 addendum's porter); `abandoned` (the Keeper's overrule, D7)
+and `attempted`; and every write about a row the Keeper set out, which keeps §142.2's rules. A settled row is refused
 `intent_settled` first, as before. The set of effect kinds that settle is closed and structural; nothing reads what an
 effect is about.
 
@@ -24738,26 +24740,26 @@ clue), `tests/kernel/test_npc_situation.py` (an abandonment is a `happened` sent
 in other hands over four turns -- re-asked once with the line, given up, the next packet's `done` and `happened` say
 so, the fourth dropped with no row and no re-ask, a different purpose opens normally; the step itself: a dropped act
 writes nothing and its outcome carries no `act`, and a row given up before something newer is no thread; a repeat bound to a roll is that
-row settled by the dice; the Keeper's `done` refused and `abandoned` said in `happened`; the two §139.5 tests that
+row settled by the dice; the Keeper's `done` refused and `abandoned` said in `happened`; the two §143.5 tests that
 settled a table act by the Keeper's word now settle it by a roll and by an arrival), `tests/extension/npc-intents.test.mjs`
 (the Keeper's later result on a table act is `abandoned`). Mutations (copy and restore): the refusal removed fails four
 of the six kernel cases; the second-hit abandonment removed, the drop removed, and the settling continuation removed
 each fail their loop case; the `happened` clause removed fails the situation case and two loop cases.
 
-*Note, 2026-09-26 (§139.29, ticket 30, live table D2):* the row "(after the re-ask) a thread again, or the re-ask
+*Note, 2026-09-26 (§143.29, ticket 30, live table D2):* the row "(after the re-ask) a thread again, or the re-ask
 unavailable | `intention_only`" now also drops the act (`status: "dropped"`, `reason: "repeated"`, the row's ref as
 `dropped` and `abandoned`): the row is given up as before, and the act that repeated it is not handed to the Keeper as
 done, brings nothing out and spends no turn -- spec D6's "the Keeper sees that he gave it up". D2's T15 was this row (a
-row opened on T14, still under way), not a purpose given up coming back; §139.29 has the rows.
+row opened on T14, still under way), not a purpose given up coming back; §143.29 has the rows.
 
-**139.15 The admission lane asks a malformed answer once more, and the investigator's declared action is not refused on a
+**143.15 The admission lane asks a malformed answer once more, and the investigator's declared action is not refused on a
 lane failure (2026-09-26, ticket 16 of `docs/specs/npc-acts-first-tickets/`, spec section 九 "C3 桌"; amends §32.2, §32.7
 and §32.12.2).** *Evidence.* Live table C3 (`npc-acts-c3`, lane `opencode-go/deepseek-v4.1-flash`), turn 3, 「我不拉闩。我走过去，
 照他脸上就是一拳。」: the Keeper's `resolve` (intent combat, target Steven Knott, unarmed) was answered in 2 082 ms (headers at
 1 631 ms) with `bad_output: JSON parse failed: Expected ',' or '}' after property value in JSON at position 36` -- the
 model opened `grounds` with an ASCII quote of the player's words -- while the typed reading was `authorized` 0.82. §32.2
 refused it `admission_unavailable`; the Keeper then wrote a fight nobody rolled (verifier `player_agency`), and the turn
-had no receipt. The generation step of §139.2, on the same model, asks a malformed answer once more before it gives up.
+had no receipt. The generation step of §143.2, on the same model, asks a malformed answer once more before it gives up.
 
 *The retry.* `reviewAdmission` (`extensions/kernel/admission.ts`) sends at most `ADMISSION_LANE_ATTEMPTS` (2) completions
 per lane round, the second only when the first was `bad_output` (no JSON object, JSON that does not parse after the lane's
@@ -24830,7 +24832,7 @@ review now script two (`admission.test.mjs` 2, `admission-jev.test.mjs` 1, `obje
 for every call fails the Keeper's two-malformed case. **Not verified live:** whether the table's lane answers valid JSON on
 the second attempt as often as the generation step's does, and the host-run resend on a real table.
 
-**139.16 A declaration in a fight is not a punch: the clerk takes the investigator's fight step only when the compile read
+**143.16 A declaration in a fight is not a punch: the clerk takes the investigator's fight step only when the compile read
 the declaration as it (2026-09-26, ticket 17 of `docs/specs/npc-acts-first-tickets/`, spec section 九 "C4 桌"; amends
 §135.30 and the investigator's session steps of §135.2).** *Evidence, read row by row.* Live table C4 (`npc-acts-c4`), turn 8,
 「钱呢？你说的二十块，现在就给我。」, run `run-01a0de09-8e42-744b-84fe-d29a0e017d59`. s1 read: the handout, Knott's first-impression
@@ -24873,9 +24875,9 @@ own decision.
 
 *What does not change.* The Keeper's view: the session still issues `combat:attack` and the rest in the capsule and the
 session view, and a gated step is the Keeper's to take (`hold`, a social check, `combat:end`, or the attack if it rules the
-line one). The NPC side: a pending defence and a person's own turn (§139.4, `npc_act`) are forced and never gated; a
+line one). The NPC side: a pending defence and a person's own turn (§143.4, `npc_act`) are forced and never gated; a
 chase's steps are family `chase` and are untouched. The gates, the `attack` and `first_blow` predicates' fire rules, the binds
-(§135.28) and admission (§32.12, §139.15).
+(§135.28) and admission (§32.12, §143.15).
 
 *Telemetry.* The route rows -- the engine's `lane: "route"`, `purpose: "route"` row and the policy's route step detail --
 gain `act_gated` (the keys gated on that route) when there are any; the route question carries `declaredActs`, so the
@@ -24903,21 +24905,21 @@ flight only; a flight issued alone owes a compile. Mutations (copy and restore):
 fails the demand-below-the-gate case with the bind row of the C4 shape (`resolve:combat:attack:thomas-hayes`, goal 「钱呢？你说的
 二十块，现在就给我。」) and the policy case; `fight_step` reading nothing fails the flight-alone case. No existing test changed.
 
-**139.17 A bare wrapper tag comes off the turn's second delivery (2026-09-26, ticket 18 of
+**143.17 A bare wrapper tag comes off the turn's second delivery (2026-09-26, ticket 18 of
 `docs/specs/npc-acts-first-tickets/`, `18-strip-a-bare-wrapper-tag-on-second-delivery.md`; the spec's section 九, table
-C4; amends §139.10's "delivered as written").**
+C4; amends §143.10's "delivered as written").**
 **Evidence.** Table `npc-acts-c4`, turn 3 (KP `opencode-go/deepseek-v4.1-flash`): the Keeper's explicit `narrate` ended in
-`</text>`, §139.10's gate refused it once (`telemetry.jsonl`: `lane: "delivery"`, `reason: "markup_in_prose"`, `outcome:
+`</text>`, §143.10's gate refused it once (`telemetry.jsonl`: `lane: "delivery"`, `reason: "markup_in_prose"`, `outcome:
 "refused"`, `call_id: "t3-c8"`), and the Keeper's second `narrate` (`t3-c9`, explicit again) still ended in `</text>\n`, so it was delivered as written:
 the turn record's `text`, `rendered_text` and `marked_text` all carry `</text>` (the last with the unplaced mechanics
 markers appended after it), and the player read it. The ticket records the same once on C3 (not re-read for this section). One steer does not break the model's habit of
-wrapping the argument (§139.10 names where the tag comes from).
+wrapping the argument (§143.10 names where the tag comes from).
 
-**The judgement (`bareWrapper` in `kernel-ts/write/markup.ts`).** Over the rendered text -- the same text §139.10 checks,
+**The judgement (`bareWrapper` in `kernel-ts/write/markup.ts`).** Over the rendered text -- the same text §143.10 checks,
 after `deliveryText` has run §40.4's `stripMarkers`, unchanged -- the markup is a bare wrapper when:
 
-- no line opens with a list or heading marker (§139.10's line class), and
-- the text holds one or two tags of §139.10's tag class, none self-closing, each at the text's very start or very end
+- no line opens with a list or heading marker (§143.10's line class), and
+- the text holds one or two tags of §143.10's tag class, none self-closing, each at the text's very start or very end
   with nothing but whitespace beyond it: one lone opening or closing tag at either end, or an opening tag first and the
   closing tag of the same name last (`<text>…</text>`), and
 - something is left between them.
@@ -24925,7 +24927,7 @@ after `deliveryText` has run §40.4's `stripMarkers`, unchanged -- the markup is
 Position and pairing only: no tag name is listed or read for meaning. Two tags of different names at the two ends, a
 self-closing tag, a third tag anywhere, or a wrapper beside a list line are not a bare wrapper.
 
-**What the kernel does.** On a delivery that reaches §139.10's second-time branch (the turn's `markup_gate` already set)
+**What the kernel does.** On a delivery that reaches §143.10's second-time branch (the turn's `markup_gate` already set)
 and whose markup is a bare wrapper, the handler removes the wrapper's leading tag (its first occurrence) and trailing tag
 (its last occurrence) from the Keeper's `text`, trims the ends, and runs `deliveryText` again on what is left. The strip
 is kept only when that new render equals the old rendered text with the same tags taken off, and carries no markup;
@@ -24936,12 +24938,12 @@ the player (§135.11's re-send path included, since the kernel's gate is the sam
 placed markers are taken from the new render.
 
 **What it records.** The `warnings` row stays (`lane: "delivery"`, `kind: "markup_in_prose"`, `quote` the first tag found)
-and adds `stripped: true`; its `why` says the wrapper was taken off and its `fix` still carries §139.10's steer. The
+and adds `stripped: true`; its `why` says the wrapper was taken off and its `fix` still carries §143.10's steer. The
 `outcome: "delivered"` telemetry row adds `stripped: true`; its `tags` and `lines` count what was found. When nothing was
 stripped, `stripped` is absent from both. The first delivery of a turn is unchanged: refused with the steer, never
 stripped, so the Keeper still learns the rule once per turn.
 
-**Not covered.** A wrapper on the first delivery; `ask`'s text; a tag with attributes (§139.10's class does not see it);
+**Not covered.** A wrapper on the first delivery; `ask`'s text; a tag with attributes (§143.10's class does not see it);
 a wrapper whose inside also holds other markup (delivered whole, as written). The host is unchanged: the kernel strips.
 
 **Three ends (§31).** *Writer:* `table.narrate`'s second-time branch (the stripped text and the `stripped` mark).
@@ -24952,21 +24954,21 @@ Tests: `tests/extension/markup-in-prose.test.mjs` (real kernel, legacy engine): 
 delivery's `rendered_text`, `text` and `marked_text` carry no tag, the say token still reads as speech, the player is
 shown the unwrapped text, the finding and the delivered row say `stripped: true`; a `<text>…</text>` pair around the whole
 prose sent twice, stripped; a `<b>` inside a sentence sent twice and a markdown list sent twice, delivered as written with
-no `stripped`; §139.10's spent-steer re-send case now expects its `</text>` draft unwrapped (one existing assertion
-changed). `tests/kernel/test_markup_in_prose.py` (RPC seam): §139.10's closing-tag case now expects the unwrapped
+no `stripped`; §143.10's spent-steer re-send case now expects its `</text>` draft unwrapped (one existing assertion
+changed). `tests/kernel/test_markup_in_prose.py` (RPC seam): §143.10's closing-tag case now expects the unwrapped
 delivery and `stripped` on the finding and the delivered row (one existing test changed); a pair; a lone opening tag first;
 a closing tag with a host marker beyond it in the Keeper's text; a tag inside the prose; a list line; a wrapper beside a
 list line; different names at the two ends, a self-closing tag last, and a tag first beside one inside -- the last five
 delivered as written with no `stripped`. Mutation (copy and restore): the strip removed from the handler fails the
 trailing-`</text>` cases in both files.
 
-**139.18 The Keeper does not turn a demand into a blow: the fix names no other fight action, and the Keeper's fight action
+**143.18 The Keeper does not turn a demand into a blow: the fix names no other fight action, and the Keeper's fight action
 for the investigator is reviewed against the player's words (2026-09-26, ticket 19 of `docs/specs/npc-acts-first-tickets/`,
-spec section 九 "C4 桌"; amends §32.1, §32.7 and the combat family's refusals of §11.5; §139.16 is its clerk-side half).**
+spec section 九 "C4 桌"; amends §32.1, §32.7 and the combat family's refusals of §11.5; §143.16 is its clerk-side half).**
 *Evidence, read row by row.* Live table C4 (`npc-acts-c4`), turn 8, 「钱呢？你说的二十块，现在就给我。」 on the investigator's own
 turn of a running fight, run `run-01a0de09-8e42-744b-84fe-d29a0e017d59`. The compile (s2) read `act` `none` 0.91 (none 0.93 /
 unclear 0.07), cleared, over the rows `combat:attack`, `combat:maneuver`, `combat:flee`, `combat:end`; the attack was decided
-and the clerk threw nothing (§139.16). The Keeper (origin `model`) resolved `combat:maneuver` with `actor: "thomas-hayes"`
+and the clerk threw nothing (§143.16). The Keeper (origin `model`) resolved `combat:maneuver` with `actor: "thomas-hayes"`
 and the demand as its goal; the kernel refused it (`needs`: a manoeuvre is one of the rulebook's four) with a `fix` ending
 "to simply hit instead, resolve the attack rather than the maneuver", and the Keeper's next call was exactly that:
 `combat:attack`, same actor, rolled (`t8-c2`, then Knott's standing dodge `t8-c3`). The turn's telemetry has **no
@@ -25030,17 +25032,17 @@ neither `combat:<name>` nor the bare name -- and points back to what the player 
   declared, and strike no blow just to have something to answer (`NOTHING_TO_ANSWER`);
 - a fight action with no fight running (`execution.ts`, which said "start one: intent combat with a present target and a
   weapon"): there is no fight turn to take; a fight opens only on a blow someone declared;
-- an action out of turn (`execution.ts`, §138.5's stuck-turn refusal): an NPC holder's turn is settled first, as before, and
+- an action out of turn (`execution.ts`, §142.5's stuck-turn refusal): an NPC holder's turn is settled first, as before, and
   the fix no longer ends "or combat:end" (the session still issues the ending); when the holder is an investigator, their
   action is the player's to declare and nothing is proposed for them;
-- a held investigator's flight (`engine.ts`, §139.9): getting free is a turn of its own and the player's to declare; the hold
+- a held investigator's flight (`engine.ts`, §143.9): getting free is a turn of its own and the player's to declare; the hold
   is put in front of the player in the fiction. For a person the Keeper plays the fix still names `combat:maneuver` with goal
-  `escape` (§139.9, unchanged: their initiative is the Keeper's, §32.1);
+  `escape` (§143.9, unchanged: their initiative is the Keeper's, §32.1);
 - an NPC's manoeuvre with no fight running (`execution.ts`): a fight opens on someone's attack, the investigator's only when
   the player declared the blow.
 
 *What this is not.* No new verdict, reviewer, threshold or verb, and no admit on any path. The clerk's fight steps keep
-§139.16's gate and §32.12's compile admission unchanged; NPC actors are still not reviewed (§32.1); the lane's prompt is
+§143.16's gate and §32.12's compile admission unchanged; NPC actors are still not reviewed (§32.1); the lane's prompt is
 unchanged; nothing reaches the next capsule.
 
 *Telemetry (amends §32.7).* The refusal's `lane: "admission"` row: `ok: true`, `verdict: "not_authorized"`, `admitted: false`,
@@ -25054,7 +25056,7 @@ Keeper, who reads an ordinary `not_authorized` refusal and a fix that no longer 
 `fight_act` and `compile_read`.
 
 *Tests.* `tests/extension/keeper-fight-admission.test.mjs` (emitted kernel, the hybrid engine with a stub Jev, the harness's
-scripted admission lane; §139.16's fixture, the investigator's turn after Knott's dodge and hold): the C4 turn-8 replay (`act`
+scripted admission lane; §143.16's fixture, the investigator's turn after Knott's dodge and hold): the C4 turn-8 replay (`act`
 `none` 0.91) -- the Keeper's manoeuvre and then its attack, both `actor: "thomas-hayes"`, refused `action_not_authorized` with
 rows `path: "compile"`, `reviewer: "compile"`, `fight_act`, `compile_read` naming the run, no lane request, no fight action
 settled and no investigator attack roll in the mechanics; the demand whose `act` does not clear (none 0.50) -- the Keeper's
@@ -25073,9 +25075,9 @@ back to names only fails the three seam cases (no admission row for `actor: "tho
 another route to a blow; and the frequency of handle-named Keeper calls on other tables, which the rows' `origin` and the
 new review now make countable.
 
-**139.19 A person under pressure may bring out something no one knew they had (2026-09-26, ticket 20 of
-`docs/specs/npc-acts-first-tickets/`, `20-produce-the-unexpected.md`; spec D10; amends §139.2, §139.3's D9 allowance and
-§139.8).**
+**143.19 A person under pressure may bring out something no one knew they had (2026-09-26, ticket 20 of
+`docs/specs/npc-acts-first-tickets/`, `20-produce-the-unexpected.md`; spec D10; amends §143.2, §143.3's D9 allowance and
+§143.8).**
 **Evidence.** Table `npc-acts-c4`, turn 10: the stakes die said dangerous/severe (12 against 12), the generator wrote
 "grabs the envelope, throws it and runs for the door", and the bind's `draw` question answered `none` at 1.0 over 65
 weapons (`telemetry.jsonl`, `purpose: "npc-act"`) -- rightly: the act named nothing. The packet had given a degree and a
@@ -25083,24 +25085,24 @@ closed list of what he held (nothing), so the generator could only pick the most
 gap was before the bind: no permission to bring out anything the table did not know of, and only weapons considered.
 The owner (2026-09-26): NPCs should pull out unexpected things, and the higher the threat, the likelier.
 
-**The die (§139.8's table, data).** Each rung gains `surprise_at_most`: the same d100, at most it, is a surprise. Shipped
+**The die (§143.8's table, data).** Each rung gains `surprise_at_most`: the same d100, at most it, is a surprise. Shipped
 (severe / escalates / surprise): calm 3/15/10, tense 8/30/20, dangerous 15/45/30, lethal 30/65/45. A low roll is often
 both severe and a surprise (what comes out tends to be dangerous); a middling one may be a surprise and nothing worse.
 Each rung carries two English permission lines, `lines.surprise` and `lines.severe_surprise`: that this person may have
 something on them or within reach no one at the table knew of, and (severe) that it may be as dangerous as the moment
 allows -- a permission and a degree, never an object or an example. `stakesTable` refuses (`campaign_not_ready`, as
-§139.8) a rung without the column or the two lines, a column value off the die, and a table where any of the three
+§143.8) a rung without the column or the two lines, a column value off the die, and a table where any of the three
 columns falls from one rung to the next.
 
-**The packet.** The receipt and the view are §139.8's note: `stakes: {rung, outcome, line, surprise, surprise_line}`.
+**The packet.** The receipt and the view are §143.8's note: `stakes: {rung, outcome, line, surprise, surprise_line}`.
 Nothing else in the packet changes; no list of possible things is ever offered.
 
-**The generation (§139.2).** The answer is `{act, produces?}`. `produces` is the one thing the act brings out, a short
+**The generation (§143.2).** The answer is `{act, produces?}`. `produces` is the one thing the act brings out, a short
 phrase in play_language, checked for structure only: a string, non-empty after trimming, on one line, at most
 `NPC_PRODUCES_MAX_CHARS` (60) code points. Absent, `null` or blank is no `produces`. It is taken only when the packet's
 `stakes.surprise` is `true` (`mayProduce`, `runtime/jev/npc-act.ts`, structure only); present otherwise, it is dropped
 whatever its shape -- the act stands, nothing is asked again, and the lane's row says `produces_dropped: true`. With a
-surprise, a `produces` of the wrong shape is a wrong answer, asked once more like a bad `act` (§139.2's one retry). The
+surprise, a `produces` of the wrong shape is a wrong answer, asked once more like a bad `act` (§143.2's one retry). The
 lane's row carries `produces` when taken. The instruction (`content/setup/npc-act.md`) gains two sentences and nothing
 else: when `stakes.surprise` is true this person may bring out one thing the table did not know they had, named as
 `produces` beside `act` (play_language, at most 60 characters), and the act uses or shows it; it fits who they are and
@@ -25108,7 +25110,7 @@ this moment, and with no surprise `produces` is left out. `createFixtureNpcActPo
 the act step holds any port's answer to `mayProduce` again, so a verbatim `produces` without a surprise is dropped there
 (the step's `npc_act` row says `produces_dropped: true`).
 
-**The bind (§139.3).** With a `produces`, `npc.act.options` is asked with `produce: true` and lists `produce`: every
+**The bind (§143.3).** With a `produces`, `npc.act.options` is asked with `produce: true` and lists `produce`: every
 record of `equipment.json` of the module's era (as the weapons-only list was filtered), one option per record -- `value`
 its `price_id`, `label` the book's name, `category`, and `weapon` (the `weapons.json` profile) when its `entity_ref` is a
 weapon. The batch (family `npc-act-bind`, version 2) adds `state.produces` and one closed question over it:
@@ -25130,7 +25132,7 @@ weapon record, and nothing (`param_unbound:weapon`, the act `intention_only`) ot
 batch's attack can use it), stamped `intent_ref` + `intent_outcome: "attempted"` as the draw was. The host marks it from
 the call's basis (`extensions/kernel/npc-act-marks.ts`; only on the clerk's `npc_act` calls, stripped from every other):
 
-- a weapon record: `basis.draw` → `_draws: {weapon, price_id}`, §139.3's path unchanged (`world.npc_weapons`, the saved
+- a weapon record: `basis.draw` → `_draws: {weapon, price_id}`, §143.3's path unchanged (`world.npc_weapons`, the saved
   fight's participant); the receipt adds `produced`, and the kernel refuses a `price_id` that is not that weapon's record;
 - anything else: `basis.produce` → `_produces: {price_id} | {name}, description` (`description` the act; each one line,
   the name at most 120 characters, the description at most 400). The kernel (`stageProduce`, `kernel-ts/apply/draw.ts`)
@@ -25155,14 +25157,14 @@ child run inside the act step; the ticket asks for no numbers and the act step h
 composes the numberless definition itself and uses the registry's own `defineObject`/`moveObject` -- the object is
 afterwards exactly what a Keeper-made one is: `object {from, to}` moves it, `look` reads it.
 
-**Holdings (§139.1).** `at_hand.holdings` already listed the managed instances an NPC owns; it now also lists
+**Holdings (§143.1).** `at_hand.holdings` already listed the managed instances an NPC owns; it now also lists
 `world.npc_weapons` for a person with no stat block (with one, `npcProfileOf` already laid them over the profile), so a
 thing brought out is in their packet from then on either way.
 
 **Not covered.** An act with no NPC present (a Director-level surprise, another spec); a thing changing the fight by
 itself (using it is still a roll); more than one thing per act; a table object's later use as a weapon (ADR-0005's
 usage path, when the Keeper asks for it). The kernel does not check that a surprise allowed a `_draws`/`_produces`: the
-host is the gate, as §139.3's `_draws` always was.
+host is the gate, as §143.3's `_draws` always was.
 
 **Three ends (§31).** *Writer:* the act step's clerk write (`_draws` / `_produces`), on the generator's `produces` under
 the die's `surprise`. *Reader:* the next packet's `at_hand.holdings` (the generator), the Keeper through the receipt and
@@ -25193,7 +25195,7 @@ Mutation record (copy and restore): the step always allowing `produces` fails th
 batches where one was expected); `mayProduce` always true fails it and five generation cases; the table object never
 written fails the photograph case and the writes seam.
 
-*Note, 2026-09-26 (§139.27, ticket 28, the table `npc-acts-d`):* a surprise is something no one knew. Whenever the bind
+*Note, 2026-09-26 (§143.27, ticket 28, the table `npc-acts-d`):* a surprise is something no one knew. Whenever the bind
 batch asks `produce` or `produce_part`, it also asks `produces_known` -- whether the thing `produces` names was already
 known at the table -- and its `state.situation` carries the packet's `happened` and `recent_speech` beside `state` and
 `at_hand`. A cleared `known` is no surprise: nothing is matched to the price list (no second batch), drawn or placed
@@ -25202,26 +25204,26 @@ known at the table -- and its `state.situation` carries the packet's `happened` 
 gains half a sentence: only a thing no one at the table knew they had, nothing already in `at_hand`, `happened` or
 `recent_speech`.
 
-*Note, 2026-09-26 (§139.29, ticket 30, live table D2):* a thing brought out for the first time records on its instance
+*Note, 2026-09-26 (§143.29, ticket 30, live table D2):* a thing brought out for the first time records on its instance
 `brought_out: {by: <handle>, turn, ref?}`, and a drawn weapon's `world.npc_weapons` row gains `ref?` -- the write's
 `intent_ref` when it names a row of this person. A thing shown again keeps its first origin. The packet lists them in
-`at_hand.brought_out` (§139.1's note).
+`at_hand.brought_out` (§143.1's note).
 
-**139.20 A person in the conversation acts every turn: the scan does not wait for a landed step, and being talked to
+**143.20 A person in the conversation acts every turn: the scan does not wait for a landed step, and being talked to
 without being named is being in the conversation (2026-09-26, ticket 21 of `docs/specs/npc-acts-first-tickets/`, spec D4
-and section 九's table B; amends §139.4).**
+and section 九's table B; amends §143.4).**
 
 *Evidence* (table B, `npc-acts-b`, mystery-house, the `telemetry.jsonl` compile, `bind` and `npc_act` rows). The player
 stood at the morgue's counter for ten turns and pressed Arthur Wilmot without touching him. Arthur's act was generated on
 turns 1, 2 and 9 only (9's was `dropped`). Turns 3, 4, 6, 7, 8 and 10 landed no clerk step, the scan's precondition
-(§139.4), and the compile's `addressee` answered `unclear` (0.52, 0.86, 0.43, 0.27) or `none` (0.64): a player talking to
+(§143.4), and the compile's `addressee` answered `unclear` (0.52, 0.86, 0.43, 0.27) or `none` (0.64): a player talking to
 the one person in front of them rarely names them. The Keeper wrote Arthur itself, and "read it downstairs, the lamp is
 on for you, back by morning" came four times, the fourth said as "I say it again" -- the repetition the spec exists to
 end, moved into the Keeper's prose.
 
 **When the scan runs** (`npcScanDue`, `runtime/jev/step-policy.ts`). Before the run's first model step, every run, when
 someone is present (`view.context.present`) or a step landed -- `npcScanned` is absent until that first scan -- and, as
-§139.4 had it, once more before the next model step after each later landed step. Still issued by `next`, never taken
+§143.4 had it, once more before the next model step after each later landed step. Still issued by `next`, never taken
 from `pending`; past the run's time budget it is not run and one `skipped_budget` row says so. A scan that ran no one
 wrote nothing, so it takes no fresh read (`hybrid-engine.ts`). The fight's forced `npc_act:<handle>:r<round>` is
 unchanged.
@@ -25231,7 +25233,7 @@ unchanged.
 
 | trigger | when |
 | --- | --- |
-| `acted_on` | `acted_on` is non-empty, or the run's compile cleared `addressee` on them (§139.4, unchanged) |
+| `acted_on` | `acted_on` is non-empty, or the run's compile cleared `addressee` on them (§143.4, unchanged) |
 | `engaged` | `conversation` is not null, and the compile's `addressee` cleared on no one else -- `none`, `unclear`, an answer below the gate, or no compile, all name no one |
 
 Nobody else is run. Order: the `acted_on` people in the capsule's order, then the `engaged` people by their latest part
@@ -25251,10 +25253,10 @@ index of their latest part among that turn's receipts, the delivery's speech cou
 found that turn. Nothing reads what was said or done.
 
 **Telemetry.** The `lane: "run"`, `event: "npc_act"` row's `trigger` may be `engaged`; an act the scan ran also carries
-`addressed` and `declared_before_move` as it passed them to the situation read (§139.21).
+`addressed` and `declared_before_move` as it passed them to the situation read (§143.21).
 
 **Three ends (§31).** Writers: the receipts and the committed record's `speech` that already exist. Reader: the scan, by
-`npc.act.options`' `conversation`. Actor: the generation (§139.2) and the binding (§139.3), and through them the Keeper,
+`npc.act.options`' `conversation`. Actor: the generation (§143.2) and the binding (§143.3), and through them the Keeper,
 who reads the act as a `clerk_did` row.
 
 **Not covered.** How often the compile names the person (its question's wording); the second Arthur the Keeper's
@@ -25272,21 +25274,21 @@ scan before the model step (one existing test changed). Mutation record (copy an
 (`engaged = false`) fails the first table case (no row); `npcScanDue` restored to "a landed step not yet followed" fails
 it too; both restored, green.
 
-*Note, 2026-09-26 (§139.25, ticket 26, table D turn 3):* the scan before the first model step no longer runs the person a
+*Note, 2026-09-26 (§143.25, ticket 26, table D turn 3):* the scan before the first model step no longer runs the person a
 declared fight action is aimed at while no clerk step has settled it. "照他脸上就是一拳" read `act` combat 1.0, named no one,
 and no clerk step took it; the scan ran Knott (engaged) on a punch that had not happened, and he walked out before it
 landed. While a compile of the run cleared `act` on a fight action and no clerk fight step has landed, the scan holds the
 person it is aimed at (`npc_held`, not an `npc_act` row); everyone else is scanned as above. And "before the run's first
 model step" is corrected to "before the Keeper's first turn-writing model step" (`adjudicate` or `compose`): the scan was
-issued before any `infer`, a clerk's bind handed to the model mid-flow (`infer` `bind`) included. The rule is §139.25.
+issued before any `infer`, a clerk's bind handed to the model mid-flow (`infer` `bind`) included. The rule is §143.25.
 
-**139.21 The player's words reach the person they were said to, and the act is written in the table's language from the
+**143.21 The player's words reach the person they were said to, and the act is written in the table's language from the
 opening on (2026-09-26, ticket 22 of `docs/specs/npc-acts-first-tickets/`, spec D1 and section 九's table B; amends
-§139.1 and §139.2).**
+§143.1 and §143.2).**
 
 *Evidence* (table B). Turn 1, "对克兰：接了，钥匙和钱给我，我去环球报": the clerk moved the party to the Globe in the same
 turn; Arthur was acted on there (the Mod's first-impression roll, a Fast Talk against him), and the last line of his
-`happened` was that declaration, which §139.1 always put last. He "took the keys out of the drawer and counted out some
+`happened` was that declaration, which §143.1 always put last. He "took the keys out of the drawer and counted out some
 bills" -- Crane's commission, played by Arthur -- and the Keeper narrated it. Turn 0: Crane's opening act was English
 at a zh-Hans table.
 
@@ -25294,18 +25296,18 @@ at a zh-Hans table.
 `invalid_params` naming the field). They are the host's reading of the turn, not the kernel's:
 
 - `addressed`: the declaration was said to this person -- the run's compile cleared `addressee` on them, or they are in
-  the conversation (§139.20's `engaged`).
+  the conversation (§143.20's `engaged`).
   *Amended 2026-09-26 (integration review of ticket 22):* the scan passes `addressed: false` only when the compile
   cleared `addressee` on someone else; a person acted on while the words named no one hears them too. As first written,
   first contact lost the words: the investigator grabs Knott and says "give me the key" without his name, the compile
   reads `unclear`, Knott is acted on but neither named nor yet in a conversation, and his packet held only the receipts.
   Only a named other is evidence the words were someone else's; `declared_before_move` is the other. Tests
-  (`single-loop-npc-act.test.mjs`, "§139.21 as amended"): the grab with no name puts the demand last in his `happened`;
+  (`single-loop-npc-act.test.mjs`, "§143.21 as amended"): the grab with no name puts the demand last in his `happened`;
   the words to Edna by name reach her packet and not the packet of Knott, acted on in the same turn (`addressed: false`
   on his row). Mutation: the scan's reading put back to named-or-engaged fails the first. The widening surfaced an older defect:
   the opening turn has no player text, and the packet's `flat()` rendered the null through `string()` as Python's
   `"None"`, so every opening packet closed on `<investigator> (investigator) declared: "None"` until ticket 22's first
-  reading happened to drop it. Absent is now empty; the opening case (`§139.21 at the opening`) fails without it.
+  reading happened to drop it. Absent is now empty; the opening case (`§143.21 at the opening`) fails without it.
 - `declared_before_move`: a `move` receipt is among this turn's receipts (the declaration precedes every write of its
   turn) and they were not among the people present at the run's first read (`RunState.firstPresent`: who was there when
   the declaration was put). A person who came along with the party was there, and heard it.
@@ -25313,18 +25315,18 @@ at a zh-Hans table.
 **The closing sentence** (`closingSentence`, `kernel-ts/npc/situation.ts`), the last item of `happened`:
 `declared_before_move: true` gives `<investigator> (investigator) has just arrived where <them> is`, whatever
 `addressed` says -- a line said at the office before the move was said to no one at the Globe. Otherwise, with player
-text and `addressed` not false, the declaration as §139.1 words it. Otherwise nothing. *Decided (the ticket left it
+text and `addressed` not false, the declaration as §143.1 words it. Otherwise nothing. *Decided (the ticket left it
 open):* nothing, not a sentence that "something was said to someone else": the receipts already say what was done to
-them, and a line about words they did not hear invites an answer to them. With neither input, §139.1's reading is
+them, and a line about words they did not hear invites an answer to them. With neither input, §143.1's reading is
 unchanged; a person's own turn of a fight passes neither (they are in that fight with the investigator). The scan
-(§139.20) passes both for every act it runs. The budget never cuts the closing sentence.
+(§143.20) passes both for every act it runs. The budget never cuts the closing sentence.
 
-*Note, 2026-09-26 (§139.23, ticket 24, table B2 turn 10):* the reading is three-state. A third optional boolean,
+*Note, 2026-09-26 (§143.23, ticket 24, table B2 turn 10):* the reading is three-state. A third optional boolean,
 `named_no_one`, says the compile named no one present (its `addressee` `none`, `unclear`, below the gate, or no compile);
 with it, and `addressed` not false, the closing sentence is `<investigator> (investigator) declared (to no one by name):
 "<player_text>"`, and the generator judges whether the words were said to this person. `addressed: false` still leaves
 nothing (a named other is evidence, a missing name is not), and `declared_before_move: true` still gives the arrival.
-The scan passes all three for every act it runs. The rule is §139.23.
+The scan passes all three for every act it runs. The rule is §143.23.
 
 **The language** (`npcActLaneInput`, `runtime/jev/npc-act.ts`; `content/setup/npc-act.md`). *Finding:* the tag was not
 missing at table B's opening. `npc.act.options` reads `play_language` from `campaign.json`, which held `zh-Hans` from
@@ -25345,7 +25347,7 @@ generated act.
 *Tests.* `tests/kernel/test_npc_situation.py`: the player speaks at the office and the clerk's move takes the party to
 the morgue -- Arty's packet with `declared_before_move: true` holds no word of it and closes on the arrival, with
 `addressed: true` too; `addressed: true` keeps the line, `addressed: false` leaves nothing in its place; non-boolean
-readings are `invalid_params`. `tests/extension/single-loop-npc-act.test.mjs`: the §139.20 table case asserts the
+readings are `invalid_params`. `tests/extension/single-loop-npc-act.test.mjs`: the §143.20 table case asserts the
 engaged person's packet closes on the line and the row carries `addressed: true, declared_before_move: false`; on the
 emitted kernel, the opening's first generation (turn 0, the Mod's first-impression check against Knott, then the scan)
 sends `play_language: "zh-Hans", play_language_name: "Simplified Chinese"` with no declaration in `happened`, as the
@@ -25354,8 +25356,8 @@ of an open set, none for a tag named only by itself or not a tag; "a good answer
 the input (one existing test changed). Mutation record (copy and restore, the kernel rebuilt each way): the declaration
 put back in every packet, whatever the readings, fails the two `happened` cases; restored, green.
 
-**139.22 A thing brought out is matched to the book by kind, and near kin splitting the answer do not unmake a weapon
-(2026-09-26, ticket 23 of `docs/specs/npc-acts-first-tickets/`, `23-produced-by-kind.md`; amends §139.19's record
+**143.22 A thing brought out is matched to the book by kind, and near kin splitting the answer do not unmake a weapon
+(2026-09-26, ticket 23 of `docs/specs/npc-acts-first-tickets/`, `23-produced-by-kind.md`; amends §143.19's record
 reading; §135.2's gates unchanged for every other question).**
 **Evidence.** Ticket 20's live probe (gate-a, T3, dangerous/escalates): the generator's `produces` was "藏在旧账本下的短管左轮手枪"
 (a snub revolver hidden under an old ledger); the part question cleared `weapon_table`, no single record of that part
@@ -25366,26 +25368,26 @@ whose rules are that thing's: a make, a size, a finish or a hiding place the rec
 another thing; `none` is "no record of the price list is that kind of thing". Before, both asked for the record that
 *is* the thing, so any detail the book's name lacks pushed the answer toward `none`.
 **Which record, once it is a record.** The thing already exists -- the stakes die allowed it and the generator named it
-(§139.19) -- so the record only gives it rules. A `produce` answer is taken when it clears its own gate (§135.2, as
+(§143.19) -- so the record only gives it rules. A `produce` answer is taken when it clears its own gate (§135.2, as
 before); otherwise, when its leading choice is a record and the answer's summed probability on records (everything but
 `none`) meets the gate, that leading record is taken, and the bind row's `answers.produce` carries `cleared_by: "kind"`
 and `on_records`. `none` leading, or less than the gate on records, leaves the thing the table's own as before. The same
 reading applies to the one-question list and to the second batch of a long one. The part question is unchanged in its
 gate. The second batch's `stage: "produce"` route row adds `answer.top`: the leading five `{choice, label, p}`.
-**Tests.** `tests/extension/single-loop-npc-act.test.mjs`, "§139.22 which record, once it is a record at all": two
+**Tests.** `tests/extension/single-loop-npc-act.test.mjs`, "§143.22 which record, once it is a record at all": two
 revolvers at 0.45/0.40 with `none` 0.15 bind the leading one and the attack fires it (`cleared_by: "kind"`); a record at
 0.9 is taken on its own gate with no mark; `none` leading, and 0.59 on records under a 0.6 gate, stay the table's own
 with no weapon; the one-question list reads the same. One existing assertion changed (the `none` criterion's words).
 Mutation (copy and restore): the kind reading disabled fails the near-kin case. **Not verified live.**
 
-**139.23 Who the words were said to: the compile reads the last exchange, and words that named no one reach the people
+**143.23 Who the words were said to: the compile reads the last exchange, and words that named no one reach the people
 they may have been said to as such (2026-09-26, ticket 24 of `docs/specs/npc-acts-first-tickets/`,
-`24-who-the-words-were-said-to.md`; spec D4 and section 九's table B2; amends §135.30's compile state, §139.1's
-`npc.situation` inputs and §139.21's closing sentence; adds `last_exchange` to `table.status`).**
+`24-who-the-words-were-said-to.md`; spec D4 and section 九's table B2; amends §135.30's compile state, §143.1's
+`npc.situation` inputs and §143.21's closing sentence; adds `last_exchange` to `table.status`).**
 
 *Evidence* (table B2, `npc-acts-b2`, mystery-house). Turn 10, "我举起双手：行行行，我不带走。那你先把我那五块钱还给我。": the money had
 been with Arthur since the turn before, whose three lines the speech markers gave him. The compile's `addressee` answered
-`unclear` 0.83; Arthur and Ruth were both in the conversation (§139.20's `engaged`), both got the words (§139.21 as
+`unclear` 0.83; Arthur and Ruth were both in the conversation (§143.20's `engaged`), both got the words (§143.21 as
 amended gives them to the engaged when no one else is named), and Ruth generated "阿蒂，这人问我讨五块钱" -- words said to
 Arthur, answered as hers; on turn 8 she had restated Arthur's position. Table B's turns 3, 4, 6 and 10 read `unclear`
 too (0.52, 0.86, 0.43, 0.27). The compile's state held `player_input`, `now {scene, clock, present}`, `done_this_turn`
@@ -25395,10 +25397,10 @@ and `materials`: nothing said who had just been talking with the investigator, s
 speech: [{who, line}]} | null`.
 
 - The record is the newest committed turn record on the campaign's line before this turn (`committedOnLine`, the one
-  §139.1's `happened` and §139.20's conversation already read; moved from `kernel-ts/npc/situation.ts` to
+  §143.1's `happened` and §143.20's conversation already read; moved from `kernel-ts/npc/situation.ts` to
   `read/exchange.ts`, and `situation.ts` re-exports it).
 - Only while the investigators still stand where it closed: its record's `world.scene.name` is the active scene
-  (`stillWhereItClosed`, which §139.20's `conversationOf` now reads too, adding that the person was among the record's
+  (`stillWhereItClosed`, which §143.20's `conversationOf` now reads too, adding that the person was among the record's
   `present`). No such record, or a party that has moved since, is `null`.
 - `player_text` is that record's player words, whitespace folded, at most `EXCHANGE_WORDS_MAX` (400) code points (a
   longer one ends with `...`), `null` when it had none (the opening). `speech` is the record's `speech` (§40.3, §128)
@@ -25430,11 +25432,11 @@ compile asked). The scan passes it, beside `addressed` and `declared_before_move
 | the compile's addressee | `addressed` | `named_no_one` | the closing sentence |
 | --- | --- | --- | --- |
 | named this person | true | false | `<investigator> (investigator) declared: "<player_text>"` |
-| named someone else | false | false | nothing (§139.21 as amended) |
+| named someone else | false | false | nothing (§143.21 as amended) |
 | named no one; the person was acted on or is in the conversation | true | true | `<investigator> (investigator) declared (to no one by name): "<player_text>"` |
 
 `declared_before_move: true` still gives the arrival whatever the other two say, and `addressed: false` outranks
-`named_no_one`. With `named_no_one` absent or false, §139.21 is unchanged; a person's own turn of a fight passes none of
+`named_no_one`. With `named_no_one` absent or false, §143.21 is unchanged; a person's own turn of a fight passes none of
 the three. The budget never cuts the closing sentence, in either wording. *Decided (the ticket left the shape open):* a
 new boolean beside `addressed`, not a third value of it -- the field keeps its type and every reading its meaning, and
 "no one was named" is a fact about the compile, not about this person.
@@ -25448,7 +25450,7 @@ who else is present tell), and otherwise does what they do while others talk.
 (`player_text`), both existing; the compile's `addressee` answer. Readers: `table.status.last_exchange`, the compile's
 state, and Jev's `addressee` question over it; the scan's `named_no_one`, `npc.situation`'s closing sentence, and the
 generator that reads the packet whole. Actors: the compile's addressee picks who acts (a person named silences another
-person's conversation, §139.20), and the generated act answers the words or not.
+person's conversation, §143.20), and the generated act answers the words or not.
 
 **Not covered.** Whether "you" now clears on the live table, and whether the bystander still answers words said to
 someone else, is table B3's question. A turn that moved and then closed keeps that turn's words and lines as the exchange
@@ -25466,26 +25468,26 @@ record's `speech` (Knott's line and Edna's) and the addressee question names it;
 own `readTable` and `compileBatch`, no `last_exchange` at the opening or after the party moved; at the table, both in
 the conversation and the compile `unclear` -- both packets close on the words said to no one by name, the rows
 `named_no_one: true`; the compile naming Edna -- only she acts, and her packet closes on the words as said. Two
-existing assertions changed to the new wording (§139.20's engaged case and §139.21's "acted on while the words named no
+existing assertions changed to the new wording (§143.20's engaged case and §143.21's "acted on while the words named no
 one"), because both are the no-one-named case. Mutation record (copy and restore): the compile state's `last_exchange`
 removed fails the first table case (and the emitted-kernel case); the closing sentence put back to the words unconditionally
 (the kernel rebuilt each way) fails the both-in-the-conversation case; restored, green.
 
-**139.24 The Keeper's added lines pass the same gate: a person's spoken line is held to the rows they never carried out
+**143.24 The Keeper's added lines pass the same gate: a person's spoken line is held to the rows they never carried out
 (2026-09-26, ticket 25 of `docs/specs/npc-acts-first-tickets/`, `25-the-keepers-added-lines-pass-the-same-gate.md`; the
-spec's section 九, table B2; amends §139.5, §139.7, §139.14 and §139.11's gate order and re-send table).**
+spec's section 九, table B2; amends §143.5, §143.7, §143.14 and §143.11's gate order and re-send table).**
 
 *Evidence* (table `npc-acts-b2`, mystery-house, turn 9). The spec's record: the generation step was re-asked once and
 wrote an act with no words (the key in his pocket, a hand on the light switch, a stare), and the Keeper added a line of
-its own for Arthur -- 「楼要锁了。昨天的话不变：带纸来，带人来，随你挑」 -- the papers demand a third time. §139.5 and §139.14
-hold only the generated act to "not the same thing twice"; §139.7 said only that the prose renders the table's act. Read
+its own for Arthur -- 「楼要锁了。昨天的话不变：带纸来，带人来，随你挑」 -- the papers demand a third time. §143.5 and §143.14
+hold only the generated act to "not the same thing twice"; §143.7 said only that the prose renders the table's act. Read
 for this section from the campaign's turn records and `lane: "run"`, `event: "npc_act"` rows: at that delivery Arthur's
 rows were T2's application form (`abandoned` on T3), T3's private copy (`abandoned` on T4), T5's 「先带公函来」
 (`abandoned` on T7), T6's 「明天带纸来」 (continued by T9's silent act, which Jev bound `coercion` after the re-ask, and
 settled `failed` by its Intimidate roll that turn), T8's drawer (`abandoned` on T9 by the Keeper) and the Keeper's own row
 of T9. So the ticket's "an `attempted` papers row" is a simplification of the live ledger: as written below, T9's line is
 read against T5's official-papers row and T2's form -- both given up, never carried out -- while T6's row, settled by a
-roll, is a result and not a thread (§139.14). Whether Jev reads T9's line as the same purpose as those rows is live
+roll, is a result and not a thread (§143.14). Whether Jev reads T9's line as the same purpose as those rows is live
 table B3's reading, not a test's.
 
 *Who speaks, and against what* (`npc.threads {campaign, text}`, `kernel-ts/npc/threads.ts`; a read, nothing written).
@@ -25495,19 +25497,19 @@ table B3's reading, not a test's.
   same `speechPass` `table.narrate` runs -- in the order of each person's first line; `lines` their spoken words, tokens
   stripped. A label or an investigator is no one here.
 - *Held* (`trigger`): `act` when a receipt of this turn carries the table's own act of them (an `intent` stamp that is
-  `generated` and names them, §139.6); else `conversation` when they are in the conversation where the investigators
-  stand (§139.20's `conversationOf`); anyone else is not listed.
+  `generated` and names them, §143.6); else `conversation` when they are in the conversation where the investigators
+  stand (§143.20's `conversationOf`); anyone else is not listed.
 - *Threads*: their `intentHistory` rows `attempted` with `since_turn` before this turn, and every `abandoned` row. Not a
   row set out this turn (the table's act or the Keeper's own: what the prose renders now), and not `done` or `failed` (a
-  result; saying it again in a new situation is lawful, as §139.14 has it for an act). Order: under way, then given up,
-  each newest first. A person with no thread is not listed. This differs from §139.14's thread on purpose: there a
+  result; saying it again in a new situation is lawful, as §143.14 has it for an act). Order: under way, then given up,
+  each newest first. A person with no thread is not listed. This differs from §143.14's thread on purpose: there a
   given-up row counts only while nothing of theirs is newer, because it decides whether the table opens a row; a line
   that says again what the person put down without doing it is the repeat whatever came between (T9's line is read
   against rows given up two and six turns before).
 
 *The question* (`runtime/jev/keeper-line-purpose.ts`, family `keeper-line-purpose` v1). One batch per delivery, one
 Choice per person listed (at most eight), key `same_<n>`, built by `sameQuestion` in `runtime/jev/npc-act-step.ts` --
-the builder §139.5's `same` now also goes through, byte for byte as before -- so the instructions are
+the builder §143.5's `same` now also goes through, byte for byte as before -- so the instructions are
 `SAME_QUESTION.instructions` word for word (the same thing this person is trying to bring about, for the same purpose,
 whatever the hands do and whatever the words) and the options are the person's newest `npc_act.same_act_rows` (5)
 threads as `{intent, status}` plus `none`. The target names the act as what that person says aloud; the state carries
@@ -25529,7 +25531,7 @@ Telemetry, one row per delivery whose read ran: `{lane: "purpose", event: "purpo
 lines, threads, hits, jev_ms, jev_calls, repeats?, answers | failure}` (`people: 0` and nothing more when nobody had a
 thread; `failure: "threads_unavailable"` with the kernel's `code` when the read failed).
 
-*The kernel* (`table.narrate`, `kernel-ts/write/index.ts`). Checked after §113 D's repeated line and before §138.7's
+*The kernel* (`table.narrate`, `kernel-ts/write/index.ts`). Checked after §113 D's repeated line and before §142.7's
 owed result: the prose's lines first, then what its receipts owe. `purpose_repeats` is kept only where it names a
 thread of a person who speaks in this delivery by the Keeper's own tokens (the spans not in `host_attributed`), as
 `npc.threads` computes it at this call; anything else -- another person's row, a result, a person who does not speak --
@@ -25546,11 +25548,11 @@ capsule's warnings show the Keeper (§12.5). Telemetry: `{lane: "delivery", ok: 
 "refused", turn, call_id, implicit, people}` on the refusal, and the same with `ok: true, outcome: "delivered"` after the
 commit of a delivery still named.
 
-*Never blocked twice* (§139.10 and §139.11's channel; nothing new). `purpose_repeated` joins `RESENT_ON_SECOND_DELIVERY`
+*Never blocked twice* (§143.10 and §143.11's channel; nothing new). `purpose_repeated` joins `RESENT_ON_SECOND_DELIVERY`
 as `purpose_repeated_resent`. An explicit narrate gets the refusal as the tool's result. An implicit draft refused for it
 while the turn's steer is unspent is dropped and held, and the kernel's fix rides the `audit-repair` steer; with the steer
 spent the same draft is sent again once, with its reading, and the spent gate delivers it with its finding; the
-refusal-budget fallback (§135.11.3) does the same. §139.11's order of the gates on every `table.narrate` is now
+refusal-budget fallback (§135.11.3) does the same. §143.11's order of the gates on every `table.narrate` is now
 `repeated_line`, `purpose_repeated`, `intent_result_owed`, `markup_in_prose`; a draft can meet this gate and then the
 owed one (a row under way is owed a result too), one re-send each, as there.
 
@@ -25563,16 +25565,16 @@ instead." 31,703 → 31,914 bytes (+211).
 only when someone speaking has a thread (1–4 ms against the fixture's stub endpoint; a live batch is the typed API's
 latency, capped at 2.5 s), beside attribution. A refusal costs the Keeper one more model step, at most once a turn.
 
-*Three ends (§31).* Writers: the ledger's rows (§138, §139.3) and the Keeper's say tokens (§40.1); the host's reading
+*Three ends (§31).* Writers: the ledger's rows (§142, §143.3) and the Keeper's say tokens (§40.1); the host's reading
 (`purpose_repeats`); the kernel's refusal, `purpose_gate` and finding. Readers: `npc.threads`; Jev, through the purpose
 question; `table.narrate`'s gate; the next capsule's `warnings`. Actor: the Keeper, who rewrites the line or renders the
 act instead; the player, who reads the turn either way.
 
-*Not covered.* `ask`'s text (as §139.10). A line the host wrapped (§128.3's ruling: attribution opens no refusal path).
+*Not covered.* `ask`'s text (as §143.10). A line the host wrapped (§128.3's ruling: attribution opens no refusal path).
 A person the table neither acted for this turn nor who is in the conversation; an investigator's lines; a label's. A row
 the table's act of this turn continues with a roll still to come (an attack waiting for its defence) is still under way
 since its earlier turn, so a line rendering that act can cost one refusal; not tested (the only write that leaves an
-earlier row under way on a later turn -- §138.7's `refuseRepeat` refuses the rest). Whether a line is the same purpose
+earlier row under way on a later turn -- §142.7's `refuseRepeat` refuses the rest). Whether a line is the same purpose
 is the model's reading, which only a live table (B3) measures.
 
 *Tests.* `tests/extension/keeper-line-purpose.test.mjs` (the hybrid engine's table on the emitted kernel, the kernel
@@ -25591,29 +25593,29 @@ conversation not held, and a reading naming someone else's row refusing nothing;
 changed). Mutations (copy and restore): the kernel's refusal removed (rebuilt) fails the B2 T9 case (the first refusal is
 then the owed result's) and two kernel cases; the host's reading not handed to `narrate` fails the B2 T9 case.
 
-**139.25 The scan does not act before the declaration: a declared fight action no clerk step has settled holds the person
+**143.25 The scan does not act before the declaration: a declared fight action no clerk step has settled holds the person
 it is aimed at (2026-09-26, ticket 26 of `docs/specs/npc-acts-first-tickets/`,
-`26-the-scan-does-not-act-before-the-declaration.md` with its addendum; spec D4 and section 九's table D; amends §139.20's
+`26-the-scan-does-not-act-before-the-declaration.md` with its addendum; spec D4 and section 九's table D; amends §143.20's
 scan: when it runs, and whom it holds).**
 
 *Evidence* (table D, `npc-acts-d`, the-haunting, turn 3, run `run-01a0dea0-1323-75c2-adfc-677cc223bf08`). "我走过去，照他脸上就
 是一拳": the compile read `act` `combat` 1.0 (cleared) and `addressee` `none` 0.28 (not cleared), and asked no `target`
 (the kernel issued no first blow: Knott had no stat block yet); the route selected the ordinary check (`need` `now` 0.47,
 cleared on the margin, 0.64 against 0.33), and its binder left it unsettled, so it was the Keeper's (bind `outcome:
-keeper`, an `adjudicate` `clerk_unbound`): no clerk step took the punch. The scan §139.20 put before that adjudication ran
+keeper`, an `adjudicate` `clerk_unbound`): no clerk step took the punch. The scan §143.20 put before that adjudication ran
 Knott (`engaged`: he had spoken the turn before) with the unresolved declaration as the last line of his packet; he generated
 "诺特把折好的租房广告收回口袋，侧身让开门口，抬脚朝外走去", bound as `leave`, `to: away`, done. The Keeper then had to `apply npc ... to:
 here` to bring him back and hit him. On turn 4, his own turn of the fight, he generated the same thing again, which the
 row settled `done` let through. Table B2 was all talk and never showed it.
 
 **When the scan runs** (`next` and `turnWriting` in `runtime/jev/step-policy.ts`; the ticket's addendum of 2026-09-26,
-integration head c94b1d682). §139.20 said "before the run's first model step" and `next` implemented it as before the first
+integration head c94b1d682). §143.20 said "before the run's first model step" and `next` implemented it as before the first
 `infer` of any purpose, so the scan also came before a clerk's bind handed to the model mid-flow -- an `infer` `bind`, the
 open parameters of a clerk step the model fills and the clerk then executes (§135.28). That put people's acts in the
 middle of the clerk's work on the declaration, ahead of the clerk steps still pending: the loop suite's "needs judged now
 run in structural order" had `npc_act:scan:0` before the model's bind of person A, and the pure time-budget case saw the
 scan where the head `infer` `bind` should run. The scan is now issued only before the Keeper's turn-writing model step,
-`infer` `adjudicate` or `compose` -- first when someone is present, and again after a later landed clerk step, as §139.20
+`infer` `adjudicate` or `compose` -- first when someone is present, and again after a later landed clerk step, as §143.20
 has it; still never taken from `pending`, still not past the run's time budget.
 
 **The hold** (`npcScanItem`, `settleCompile`, `settleExecute` in `runtime/jev/step-policy.ts`; `runNpcScan` in
@@ -25622,7 +25624,7 @@ has it; still never taken from `pending`, still not past the run's time budget.
 - `fightDeclared`: a compile of the run cleared `act` on a fight action (`fightAct`, `runtime/jev/route-compile.ts`): outside
   a fight the `act` rows are the resolve tool's closed intents, of which `combat` and `flee` are the fight's
   (`FIGHT_INTENTS`); in a running fight they are the session's decisions, and one is a fight action when the read issued it
-  as the investigator's fight step (`fightStep`, §139.16) or as the first blow (§135.30.2). The compile's cleared `target`
+  as the investigator's fight step (`fightStep`, §143.16) or as the first blow (§135.30.2). The compile's cleared `target`
   rows are recorded beside its addressees (`RunView.targets`).
 - `fightLanded`: a clerk step of the declaration landed (not forced, not a person's own act) whose candidate family is
   `combat` or `chase` (`FIGHT_FAMILIES`: the first blow, the investigator's fight steps, a chase's steps). A refused step
@@ -25632,9 +25634,9 @@ While declared and not landed, the scan candidate carries `fight_pending: {named
 targets -- and the scan holds the person the declaration is aimed at: the people it named, when it named anyone; else the
 people something of this turn was done to (`acted_on`); else, when nothing was, the people in the conversation
 (`engaged`), one of whom the blow is for and whom the structure cannot tell apart. Everyone else due is scanned as
-§139.20 has it (a person named silences another's conversation there, unchanged). A held person is not run, generates
+§143.20 has it (a person named silences another's conversation there, unchanged). A held person is not run, generates
 nothing and is not `seen`: a scan after a clerk fight step lands runs them as usual, and a person the landed step drew
-into the fight is a participant, whose reaction is their own turn of it (§139.4's forced step). A held person does not
+into the fight is a participant, whose reaction is their own turn of it (§143.4's forced step). A held person does not
 count against `npc_act.max_per_turn`.
 
 *Decided (the ticket's parenthesis lists the named, the addressee or target, "or acted_on"; the evidence is none of
@@ -25655,7 +25657,7 @@ the declared blow the clerk did not.
 
 **Not covered.** Ticket 27 (a person being chased is at the `calm` stakes rung) and 28 (a surprise produced from what is
 already on the table) are their own tickets. A fight action the Keeper resolves itself (a model-origin `resolve`) is not
-a landed clerk step and owes no scan (§139.4); the person's reaction then comes on their turn of the fight the Keeper's
+a landed clerk step and owes no scan (§143.4); the person's reaction then comes on their turn of the fight the Keeper's
 blow opened.
 
 *Tests.* `tests/extension/single-loop-npc-act.test.mjs`: at the table (the policy's own scheduling, the emitted kernel),
@@ -25670,7 +25672,7 @@ for him) and the Edna case; restored, green. The timing: with the scan issued be
 "needs judged now run in structural order" and "after an LLM step the next step is direct or finish" and the time-budget
 suite's pure-policy case fail (all three unchanged); restored, green.
 
-*The cases §139.20 shifted* (the addendum's list, sixteen at the integration head; each read one by one). Three needed no
+*The cases §143.20 shifted* (the addendum's list, sixteen at the integration head; each read one by one). Three needed no
 change once the scan stopped preceding a clerk's bind: `loop.test.mjs` "needs judged now run in structural order" and
 "after an LLM step ...", `single-loop-turn-budget.test.mjs` "the pure policy: a spent time budget ...". The rest are the
 design: someone is present, so the scan of the people present runs once before the Keeper's first adjudication or
@@ -25684,29 +25686,29 @@ bind row names every parameter's path ...". Where a case asserts the step sequen
 composes once ..." and `single-loop-turn-budget.test.mjs` "a model step that crosses the budget ..." (`clerk:npc_act:scan:0`
 once, before the first `infer:adjudicate`), `single-loop-run-driver.test.mjs` "SL-01 gate ..." and "without a Jev key ..."
 (one more `operate` before the `infer`). `host-state-not-fiction.test.mjs` "a delivery made under an adaptation wait ..."
-is not the scan: that table runs the legacy loop (no RunDriver, so neither §139.20 nor this section runs there), and
+is not the scan: that table runs the legacy loop (no RunDriver, so neither §143.20 nor this section runs there), and
 `said once per delivered turn: []` is the test reading `telemetry.jsonl` as soon as the notice is in the session, while
 `record` appends the notice's row after it (a `mkdir`, then an `appendFile`); the case now waits for the decision row, as
 the file's other cases do.
 
-*Note, 2026-09-26 (§139.28, ticket 29, table D2 turns 5, 10, 12 and 13):* "a fight action the Keeper resolves itself ...
+*Note, 2026-09-26 (§143.28, ticket 29, table D2 turns 5, 10, 12 and 13):* "a fight action the Keeper resolves itself ...
 owes no scan" under **Not covered** above no longer holds while the hold holds someone. On those four turns the Keeper's own
 `resolve` opened the fight and the pending defence the kernel forced wrote the blow; the fight ended at its first exchange,
 no turn of it came, and the held person never acted. A blow of this turn done to a held person (the kernel's `acted_on`;
 a receipt whose `family` is `combat` or `chase`, or hit points they lost) now ends the hold, whoever wrote it, as a landed
 clerk fight step does, and the scan before the Keeper's next turn-writing model step runs them once. A person the blow
-drew into a running fight still reacts on their own turn of it. The rule is §139.28.
+drew into a running fight still reacts on their own turn of it. The rule is §143.28.
 
-**139.26 A person being fought is not calm between blows: the fight and last turn's blow are shifts of the stakes die,
+**143.26 A person being fought is not calm between blows: the fight and last turn's blow are shifts of the stakes die,
 one group with this turn's blow (2026-09-26, ticket 27 of `docs/specs/npc-acts-first-tickets/`,
-`27-stakes-hold-in-a-fight.md`; spec D9, D10 and section 九, table D; amends §139.8's shifts and how they add up).**
+`27-stakes-hold-in-a-fight.md`; spec D9, D10 and section 九, table D; amends §143.8's shifts and how they add up).**
 **Evidence.** Table `npc-acts-d` (the-haunting): the Keeper gave Knott `avoids_fighting`, so his base rung was calm
 (`base_by_disposition`), and the only shifts that could move him up were `attacked_this_turn`, `hp_at_most_half` and
 `table_clock_past_half`. Turn 4 was his own turn of the fight a turn after a punch, turn 7 came right after he was chased
 and struck (the scan acted before the punch landed, ticket 26): both rolled on calm, a surprise at most 10. The owner's
 D10 is that the higher the threat, the likelier a surprise; a man being fought does not fall back to calm between blows.
 **Two shifts, both structure** (data in `npc-stakes.json`, the kernel writes no step):
-- `in_fight_with_investigators`: the active session of the campaign (`SessionView.activeSession()`, the one the §139.1
+- `in_fight_with_investigators`: the active session of the campaign (`SessionView.activeSession()`, the one the §143.1
   packet reads) is a combat with `status: "active"`, this person is among its participants (by handle, the test the
   packet's `state.in_session` makes) and so is an investigator (a participant whose name is a party sheet's id). Their
   side, whose turn it is and whether anyone struck them do not matter. A chase or a sanity bout is not a fight, as the
@@ -25717,7 +25719,7 @@ D10 is that the higher the threat, the likelier a surprise; a man being fought d
   sentences from). Only that turn: a blow two committed turns back moves nothing.
 
 Each is `{step: <integer>, group?}` with no parameter (and an optional `note`); the shipped table gives each `step: 1`.
-**One dimension, one step (the lead's ruling, 2026-09-26).** The first build summed every shift, as §139.8 had it, and
+**One dimension, one step (the lead's ruling, 2026-09-26).** The first build summed every shift, as §143.8 had it, and
 the three violence facts counted one event more than once: the punch that opens a fight made a tense person lethal at
 once (a surprise at most 45, severe at most 30), every brawl opened on lethal, and the gradient the owner asked for --
 the higher the threat, the likelier a surprise -- collapsed. The intent of the ticket is that a person in a fight does
@@ -25735,16 +25737,16 @@ not fall back between blows, not that the first punch counts twice. So `attacked
 - **The receipt.** `shifts` still names every shift that held, in the table's order (`attacked_this_turn`,
   `attacked_last_turn`, `in_fight_with_investigators`, `hp_at_most_half`, `table_clock_past_half`, `stance_friendly`), so
   the Keeper sees what held; the rung is what the groups made of it. The receipt's shape does not change.
-**The check** (`stakesTable`, §139.8; `campaign_not_ready` with the offending entry in `details`): the two new names are
+**The check** (`stakesTable`, §143.8; `campaign_not_ready` with the offending entry in `details`): the two new names are
 shifts the kernel compares, each with no parameter -- an unknown shift and a parameter on either are refused, as before;
 `shift_groups`, when present, is an object whose names are non-empty and whose notes are non-empty strings; a shift's
 `group` is a string naming a declared group (an undeclared one is refused); a declared group has at least two shifts
 (`GROUP_MIN_SHIFTS`), and its shifts' steps do not move both ways (a positive and a negative step in one group is
-refused). A table with no `shift_groups` and no `group` reads as §139.8 had it.
+refused). A table with no `shift_groups` and no `group` reads as §143.8 had it.
 **Three ends (§31).** *Writer:* nothing new -- the combat engine's session (`save/combat.json`) and the committed turn
 records' receipts, as they already are; the groups are the table's data. *Reader:* `npc.stakes` (`factsOf` →
 `stakesRung` → `shiftMove`). *Actor:* the rung the die rolls on, which reaches the generator as `stakes` with its degree
-line and surprise permission (§139.8, §139.19), and the Keeper through the receipt's `shifts` and `rung`.
+line and surprise permission (§143.8, §143.19), and the Keeper through the receipt's `shifts` and `rung`.
 **Tests.** `tests/kernel/test_npc_stakes.py`, Corbitt with `avoids_fighting` (calm): he throws the first punch -- a fight
 with him and the investigator in it, no attack made against him and no hit point lost -- and is on tense with `shifts:
 ["in_fight_with_investigators"]`; the investigator's punch that opens a fight is `["attacked_this_turn",
@@ -25768,9 +25770,9 @@ removed from the table fails the first-punch case (`[] == ["in_fight_with_invest
 steps instead of taking its largest fails the +1 case (`(2 - 0) == 1`), the three-facts case, the turn-4 case, the
 acceptance and surprise cases and the once-per-turn case (11 failed). **Not verified live.**
 
-**139.27 A surprise is something no one knew: a thing already at the table is not brought out as one (2026-09-26, ticket
+**143.27 A surprise is something no one knew: a thing already at the table is not brought out as one (2026-09-26, ticket
 28 of `docs/specs/npc-acts-first-tickets/`, `28-a-surprise-is-something-no-one-knew.md`; spec D10 and section 九, table D;
-amends §139.19's bind and the generation instruction).**
+amends §143.19's bind and the generation instruction).**
 **Evidence.** Table `npc-acts-d`, turn 2: the stakes die rolled 11 on tense -- escalates and a surprise. The generator's
 `produces` was "折好的别墅租房广告和一支钢笔" (the folded villa rental notice and a fountain pen); the notice had been under his
 hand since turn 1, where the Keeper wrote it, and the pen was on the desk. It was bound as a table object and counted as
@@ -25791,7 +25793,7 @@ string match on names.
 list's second batch is not asked (`producePart` answers null: there is nothing to match). The act binds as it is: the
 way and its parameters as read. A `weapon` answered "the thing this act has them bring out" then has nothing to bind
 (`param_unbound:weapon`, the act `intention_only`), as it already had for a record that is no weapon. `new`, `known`
-below the gates, no answer, or no Jev at all leave the thing a surprise exactly as §139.19 has it.
+below the gates, no answer, or no Jev at all leave the thing a surprise exactly as §143.19 has it.
 **Rows.** The step's `npc_act` row adds `produces_known: true` (its `produces` still the generator's words, `produced:
 null`, `draw: null`); the bind's route row adds the same and carries the raw answer in `answers.produces_known`. Nothing
 reaches the Keeper as a receipt: nothing was brought out.
@@ -25815,36 +25817,36 @@ turn 3, when his packet's `at_hand.holdings` already holds it, Jev (the stub rea
 object; the pocket pistol a line of his on the previous turn already showed (in `happened`) answers `known` -- one bind
 batch, nothing drawn -- and the same pistol no line showed is the book's .25 Derringer drawn as before.
 `tests/extension/npc-act-generation.test.mjs` unchanged and green on the reflowed instruction. Existing tests changed:
-one assertion (the §139.3 batch test's list of question keys gains `produces_known`); the stub's `actAnswer` helper
+one assertion (the §143.3 batch test's list of question keys gains `produces_known`); the stub's `actAnswer` helper
 gains a `known` option that defaults to `new`. Mutation record (copy and restore): the question removed from the batch
-fails four of the five §139.27 cases -- the at-hand case on "no _produces and no draw was written", the happened case on
+fails four of the five §143.27 cases -- the at-hand case on "no _produces and no draw was written", the happened case on
 "no second batch" (2 !== 1), the reading case on "no record, no object", the batch case on its question -- and the
 unchanged `new` case passes. **Not verified live.**
 
-**139.28 A held person acts after the blow: a blow done to them ends the hold, whoever wrote it (2026-09-26, ticket 29 of
+**143.28 A held person acts after the blow: a blow done to them ends the hold, whoever wrote it (2026-09-26, ticket 29 of
 `docs/specs/npc-acts-first-tickets/`, `29-a-held-person-acts-after-the-blow.md`; spec D4 and section 九's table D2;
-completes §139.25's hold).**
+completes §143.25's hold).**
 **Evidence.** Table `npc-acts-d2` (the-haunting), turns 5, 10, 12 and 13: the player punched Knott, no clerk step took it,
-and §139.25 held him (`npc_held`, `fight_pending`) -- rightly, he did not act before it. The Keeper then settled the punch
+and §143.25 held him (`npc_held`, `fight_pending`) -- rightly, he did not act before it. The Keeper then settled the punch
 itself: its own `resolve` (`combat:attack`, model-origin), then the pending defence the kernel forced (`combat:defend`, a
 forced clerk step), whose receipts are the attack roll against him and his dodge; the fight ended there (he carried the
 `fled` condition of turn 4's fight into each new one). The scan followed only a landed clerk step of the declaration
-(§139.4: not forced, not the model's), so nothing owed one: on the four most dangerous turns of the table he never acted,
+(§143.4: not forced, not the model's), so nothing owed one: on the four most dangerous turns of the table he never acted,
 no stakes die was rolled for him, and his reaction was the Keeper's prose alone. The surprises of D10 had no chance there.
-**The rule.** While the hold stands (a declared fight action, no landed clerk fight step, §139.25), a blow of this turn
+**The rule.** While the hold stands (a declared fight action, no landed clerk fight step, §143.25), a blow of this turn
 done to a person the hold held back is the declared fight action landing, whoever wrote it -- the Keeper's resolve or
 damage, the defence the kernel forced after it, the clerk. It ends the hold for the run as a landed clerk fight step does,
-and the scan is owed before the Keeper's next turn-writing model step (`adjudicate` or `compose`, §139.25): the held
+and the scan is owed before the Keeper's next turn-writing model step (`adjudicate` or `compose`, §143.25): the held
 person acts once, as usual (stakes die, generation, binding, writes), with the trigger their `npc.act.options` gives them
 -- `acted_on`, the blow being done to them. A blow that never lands leaves the hold as it was: no scan is owed, nothing
 is generated, the one `npc_held` row stands.
-- **Done to them** is the kernel's reading, not the host's: `npc.act.options`' `acted_on` for the held person (§139.3: an
+- **Done to them** is the kernel's reading, not the host's: `npc.act.options`' `acted_on` for the held person (§143.3: an
   attack roll made against them, a resource of theirs changed, a condition put on them, an investigator's flight from
   them; the kernel's name matching, so a handle, a table label or a book name all count).
 - **A blow** is one of those receipts that a fight wrote -- its closed `family` is `combat` or `chase`, the resolve families
-  §139.25's `FIGHT_FAMILIES` names (a combat's hit-point delta carries the family of the resolve that wrote it) -- or that
+  §143.25's `FIGHT_FAMILIES` names (a combat's hit-point delta carries the family of the resolve that wrote it) -- or that
   is hit points they lost: an `hp` delta whose `after` is below its `before`, which the Keeper's `damage` effect writes with
-  no family (the same predicate §139.26's `attacked_this_turn` reads). A roll of another family made against them (an
+  no family (the same predicate §143.26's `attacked_this_turn` reads). A roll of another family made against them (an
   Intimidate), a sanity loss, hit points regained are not.
 - **This turn, after the hold**: a receipt already on the table when the hold was put does not count. Nothing reads what
   was said or done; the criterion is receipt ids and closed fields, and the hold record.
@@ -25860,19 +25862,19 @@ is generated, the one `npc_held` row stands.
   ids to `landed`; `npcScanDue` then owes the scan, `next` issues it before the next turn-writing model step, and it carries
   no `fight_pending`. The scan's basis lists them (`landed`), so the record says which blow it followed. A struck read with
   no declared fight changes nothing.
-- **Once, and the cap.** The held person was never `seen` (§139.25), so the scan runs them; after it they are, and no later
+- **Once, and the cap.** The held person was never `seen` (§143.25), so the scan runs them; after it they are, and no later
   scan of the run runs them again. They count against `npc_act.max_per_turn` when they act, as anyone does; with the cap
-  already spent they are `skipped_cap`. Everyone else the scan finds due is run as §139.20 has it, as after a landed clerk
+  already spent they are `skipped_cap`. Everyone else the scan finds due is run as §143.20 has it, as after a landed clerk
   step (with two people held by the conversation fallback, a blow on one ends the hold on both: the hold is the run's).
 - **A fight still running.** A person the blow drew into a running fight is its participant: their reaction is their own
-  turn of it (§139.4's forced `npc_act:<handle>:r<round>`, unchanged), and the scan the blow owed skips them (in a session,
+  turn of it (§143.4's forced `npc_act:<handle>:r<round>`, unchanged), and the scan the blow owed skips them (in a session,
   or already seen). Only a person the blow leaves outside a fight -- the Keeper ended it, it ended at once, or no fight was
   opened -- acts by the scan.
 **Telemetry.** The release is one `lane: "run"`, `event: "npc_released"` row: `run`, `step` (the step whose fresh read
 found the blow), `npc` (the held handles), `reason: "struck"`, `receipts` (the blow's ids). The act that follows is the
 ordinary `npc_act` row.
 **Three ends (§31).** *Writer:* the receipts the Keeper's resolve or damage, the forced defence or the clerk write
-(existing) and the hold record the scan puts (`npcHeld`, from §139.25's `held`). *Reader:* `struckHeld` over
+(existing) and the hold record the scan puts (`npcHeld`, from §143.25's `held`). *Reader:* `struckHeld` over
 `npc.act.options`' `acted_on` and the turn's receipts; the policy over `Fresh.struck`. *Actor:* the scan before the Keeper's
 next turn-writing step, and through it the held person's generated act; the Keeper reads it as a `clerk_did` row before
 it writes the turn.
@@ -25905,9 +25907,9 @@ social roll released him) and the unit case; the hit-point clause dropped fails 
 the family clause dropped fails the table-D2 replay, the running-fight case and the unit case; the `before` test dropped
 fails the unit case; restored, green. **Not verified live.**
 
-**139.29 A repeat the table gives up is not done, and what an act brought out says so (2026-09-26, ticket 30 of
+**143.29 A repeat the table gives up is not done, and what an act brought out says so (2026-09-26, ticket 30 of
 `docs/specs/npc-acts-first-tickets/`, `30-a-repeat-after-it-was-given-up.md`; the spec's section 九, table D2; amends
-§139.5, §139.14, §139.1's `at_hand` and §139.19's writes).**
+§143.5, §143.14, §143.1's `at_hand` and §143.19's writes).**
 **Evidence** (table `npc-acts-d2`: the campaign's `telemetry.jsonl` -- `lane: "run"`, `event: "npc_act"` rows, the
 `lane: "route"`, `purpose: "npc-act"` rows with the `same` answers, the clerk's tool rows whose `basis.npc_act.same.ref`
 names the row an answer cleared -- and `npc-ledger.json`; line numbers are the telemetry file's). The purpose "the copper
@@ -25918,13 +25920,13 @@ identity (诺特先生, ledger entry `npc-table-357586133d9283f7982c`). The spli
 - T6 (line 1082): generated under a surprise (`produces` 考尔比家族雇员的铜制徽章, placed as the table's own), row
   `intent:诺特先生:dc9b4740e6e7`; the Keeper gave it up the same turn (`npc:t6-c6`).
 - T7 (line 1276): `same` cleared `row_1` = dc9b4740e6e7 at 0.94 (line 1275), the thread just given up: `dropped`,
-  `repeats_given_up`, as §139.14 has it. The Keeper then set out a row of his own of the same purpose (a written note,
-  "only the one who looks after the house", `intent:诺特先生:dde6683c97a5`); §139.24 refused that delivery once
+  `repeats_given_up`, as §143.14 has it. The Keeper then set out a row of his own of the same purpose (a written note,
+  "only the one who looks after the house", `intent:诺特先生:dde6683c97a5`); §143.24 refused that delivery once
   (line 1380) and delivered the second with its finding.
 - T8 (line 1468): the act repeated the Keeper's note row, was re-asked, repeated it again: the row given up (`npc:t8-c1`)
   and the act bound, its line handed to the Keeper.
 - T9 (line 1663): the badge again; `same` cleared dc9b4740e6e7 at 0.87 (line 1658), given up on T6 with dde6683c97a5
-  set out and settled since: no thread (§139.14's decision (2)), so a new row `intent:诺特先生:8857deac769c`, which the
+  set out and settled since: no thread (§143.14's decision (2)), so a new row `intent:诺特先生:8857deac769c`, which the
   Keeper gave up the same turn (`npc:t9-c5`).
 - T14 (line 2582): the first act, a second shout down the stairs, cleared `row_1` at 0.96 (line 2571) -- the Keeper's own
   row `intent:诺特先生:5ef6151ec1eb` ("趁海斯收拳的空隙从门边挤出去，朝楼梯口喊人", set out on T13, the one row under
@@ -25935,11 +25937,11 @@ identity (诺特先生, ledger entry `npc-table-357586133d9283f7982c`). The spli
 - T15 (line 2774): the badge; `same` cleared `row_1` = 430eb32323eb at 0.88 (line 2764), a row under way: re-asked. The
   re-asked act was the badge again and cleared 430eb32323eb (confidence 0.57, probability 0.64 against 0.24: the margin
   gate; line 2770): the row continued and given up (`npc:t15-c3`), and the act bound -- `status: "bound"`, its line
-  handed to the Keeper in `clerk_did` as what the table did. The Keeper rendered it, §139.24 refused that delivery
+  handed to the Keeper in `clerk_did` as what the table did. The Keeper rendered it, §143.24 refused that delivery
   against dc9b4740e6e7 (line 2798), and the rewrite still showed the badge's glint.
 
 So T15 was not a purpose given up coming back: nothing of his was given up between T14 and T15, and every gate did what
-§139.14 says -- the first repeat of a row under way is re-asked, the second gives it up. Two things carried the badge.
+§143.14 says -- the first repeat of a row under way is re-asked, the second gives it up. Two things carried the badge.
 The second hit gave the row up and still handed the Keeper the act that repeated it (T8's note and T15's badge alike),
 though spec D6 has said from the start that the second time is settled `abandoned` and the Keeper sees that he gave it
 up. And the badge sat in his `at_hand.holdings` as a bare name -- the one thing within reach when a re-ask told him to do
@@ -25947,19 +25949,19 @@ something else (T14) -- with nothing saying it had come out before, or by which 
 
 *The second hit is dropped* (`runNpcAct`, `runtime/jev/npc-act-step.ts`). When the act continues a row with nothing to
 settle it and the repeat gives that row up -- the same purpose again after the re-ask, or with the re-ask unavailable
-(§139.14's "(after the re-ask) a thread again" with `intention_only`), or the very line of a row under way since an
-earlier turn (§139.5's structural gate) -- the row is written `abandoned`, `why: "repeated"`, exactly as before (the same
+(§143.14's "(after the re-ask) a thread again" with `intention_only`), or the very line of a row under way since an
+earlier turn (§143.5's structural gate) -- the row is written `abandoned`, `why: "repeated"`, exactly as before (the same
 `apply npc {intent_ref, outcome: "abandoned", why: "repeated"}`), and the act itself is dropped:
 
 | | before | now |
 |---|---|---|
 | status, reason | `bound`, the bind's reason | `dropped`, `repeated` (a thread given up earlier stays `repeats_given_up`) |
-| the act's line | `act` on the outcome, so the Keeper's `clerk_did` row reads it as what the table did | on the telemetry row only (`act`); the outcome carries none, so `clerk_did` (and `npc_turn.act` in a fight) names the status, the ref and the reason and no line, as §139.14's drop |
+| the act's line | `act` on the outcome, so the Keeper's `clerk_did` row reads it as what the table did | on the telemetry row only (`act`); the outcome carries none, so `clerk_did` (and `npc_turn.act` in a fight) names the status, the ref and the reason and no line, as §143.14's drop |
 | refs | `continued`, `abandoned` | the same, and `dropped` |
 | a `produces` of the act | placed or drawn | nothing brought out (no carrier write) |
 | their turn of a fight | spent by the abandonment's `spend_turn` | not spent: the abandonment carries no `spend_turn`, so the turn stays the Keeper's, as a dropped act's does |
 
-The next packet's `happened` says they gave it up (§139.14's clause). A way that settles the row -- with or without the
+The next packet's `happened` says they gave it up (§143.14's clause). A way that settles the row -- with or without the
 re-ask -- is unchanged: that row continued and given its result. Nothing reads what an act says: which acts are dropped
 is the gates' closed answers and the ledger's statuses.
 
@@ -25967,26 +25969,26 @@ is the gates' closed answers and the ledger's statuses.
 first time (`_produces`) records on its instance `brought_out: {by: <handle>, turn, ref?}`; a drawn weapon's
 `world.npc_weapons` row, which already had `turn`, gains `ref?`. `ref` is the write's `intent_ref` when it names a row of
 this person (the act step stamps what it brings out with the act's row whenever that row may still be written
-`attempted`, §139.19). A thing shown again keeps its first origin; nothing is recorded for the Keeper's own placements.
+`attempted`, §143.19). A thing shown again keeps its first origin; nothing is recorded for the Keeper's own placements.
 `npc.situation` gains `at_hand.brought_out`, present only when non-empty: `[{name, turn, ref?, status?}]`, newest first
 -- each thing they still hold that their own act brought out, by the name `holdings` gives it, the turn it came out, and
 that act's row and its status now (read from `done` before any cut). A thing taken from them is no longer listed. The
 budget cuts it after `exits` and before `holdings`. The bind batch already carries `at_hand` in `state.situation`, so
-§139.5's `same` and §139.27's `produces_known` read it with no new question: a thing in `brought_out` is known by
+§143.5's `same` and §143.27's `produces_known` read it with no new question: a thing in `brought_out` is known by
 construction. The instruction (`content/setup/npc-act.md`) gains a clause where `at_hand` is described and one sentence
 under "What they already tried": a thing in `brought_out` is already known; showing it again is not a new act but the act
 that brought it out once more, and when that act was given up, so is showing it. The origin is what the writes recorded,
 never a name read.
 
 *Decisions the owner should see.* (1) T14 stays lawful: a purpose given up with something else of theirs set out since
-may come back (§139.14's decision (2); the owner's criterion is two consecutive turns). The packet now tells the
+may come back (§143.14's decision (2); the owner's criterion is two consecutive turns). The packet now tells the
 generator the badge is not new; whether that keeps it in his pocket is a live table's reading. A stricter rule -- a
 given-up row that brought out a thing they still hold stays a thread while they hold it -- would have dropped T9's badge;
 it overrides decision (2) for one class of rows, so it is not made here. (2) A purpose kept as several rows (the badge
 as dc9b4740e6e7, 8857deac769c, 430eb32323eb) is "just given up" only on the row Jev names: the turn after the newest was
 given up, an answer naming an older row of the same purpose opens a new row (a test pins this boundary). Recording, when
 a row opens as the same purpose as an older one, that it recurs would close it; not done here. (3) A turn the table
-dropped is the Keeper's to write, and the Keeper can still write the purpose again (D2's T7); §139.24 refuses that once
+dropped is the Keeper's to write, and the Keeper can still write the purpose again (D2's T7); §143.24 refuses that once
 per turn, by design.
 
 *Three ends (§31).* Writers: the act step's abandonment on a dropped repeat; the kernel's `brought_out` and `ref` at the
@@ -25996,7 +25998,7 @@ does on a turn the table dropped; the generator, whose next act does something e
 brought out for an act given up.
 
 *Not covered.* The identity split itself (§87.7/§87.8, another line). A thing brought out by an act continuing a row of
-an earlier turn records no `ref` (the carrier names no row then, §139.19). Whether the generator reads `brought_out` as
+an earlier turn records no `ref` (the carrier names no row then, §143.19). Whether the generator reads `brought_out` as
 the instruction says is not measured offline.
 
 *Tests.* `tests/extension/single-loop-npc-act.test.mjs`: on the emitted kernel, D2's shape on one identity, turns 2 to 7
@@ -26008,8 +26010,8 @@ their turn of a fight (dropped, one write with no `spend_turn`, the act's `produ
 re-ask unavailable dropped the same way; a way that settles after the re-ask still that row given its result);
 `brought_out` in the next packet and in the bind batch's state. `tests/kernel/test_npc_produce.py`: the instance's
 `brought_out` and the drawn weapon's turn; the packet's `brought_out` with the row's status after the Keeper gave it up;
-shown again keeps turn 1; taken, gone. Existing tests changed: two -- the §139.5 structural gate test asserts the drop's
-status and reason, and the §139.5 semantic gate test's assertion message no longer says "bound". Mutations (copy and
+shown again keeps turn 1; taken, gone. Existing tests changed: two -- the §143.5 structural gate test asserts the drop's
+status and reason, and the §143.5 semantic gate test's assertion message no longer says "bound". Mutations (copy and
 restore): the second-hit drop off fails four cases (the D2 table at T15 -- `bound`, the badge's line handed on --, the
 boundary, the step, the structural gate); the drop of a thread just given up removed fails the D2 table at T16 (a fifth
 row); the instance's origin not recorded (rebuilt) fails the kernel case and the packet case; the packet section removed

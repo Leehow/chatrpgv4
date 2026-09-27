@@ -1,6 +1,6 @@
 Status: landed（2026-09-26，由我直接修；工单 20 的实机探针 T3 发现）
 Spec: docs/specs/npc-acts-first.md（D10；第八节）
-Contract: docs/kernel-rpc.md §139.22
+Contract: docs/kernel-rpc.md §143.22
 
 # 23 — 掏出来的东西按「同一类」对上规则书；几把相近的枪分走概率，不能让枪变成开不了火的物件
 
@@ -23,7 +23,7 @@ Contract: docs/kernel-rpc.md §139.22
 ## 落地
 
 - `runtime/jev/npc-act-step.ts`：`produceQuestion` 与 `produce_part` 的措辞；`interpretNpcAct` 的 `pickRecord`；stage produce 行的 `top`。
-- `tests/extension/single-loop-npc-act.test.mjs`：新用例「§139.22 which record, once it is a record at all」；一条既有断言改了 `none` 的措辞。
+- `tests/extension/single-loop-npc-act.test.mjs`：新用例「§143.22 which record, once it is a record at all」；一条既有断言改了 `none` 的措辞。
 - 变异（副本还原）：关掉按类别取值 → 近亲用例失败。
 - 本机单文件：`single-loop-npc-act` 27/27（build 重取后）、`npc-act-generation` 54/54。
 - **未真桌验证**：D10 桌上看诺特掏出东西时，读 bind 行的 `produced` 与 `cleared_by`。

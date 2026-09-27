@@ -1,20 +1,20 @@
 /**
- * §139.3–§139.5 (docs/specs/npc-acts-first.md D2–D6 and D9; tickets 03 and 04): a person's act is generated first and
+ * §143.3–§143.5 (docs/specs/npc-acts-first.md D2–D6 and D9; tickets 03 and 04): a person's act is generated first and
  * bound after -- the kernel lists the ways it can settle it (`npc.act.options`), one closed Jev batch picks the way and
  * its parameters, the clerk writes it through the ordinary gateway, and every receipt of the act carries
  * `intent: {ref, npc, text, outcome, generated: true}`. Two gates keep a person from doing the same thing twice: the act
  * that is the same line as a row under way continues it (structural), and the act Jev reads as the same thing as a row
- * with no result is re-asked once, then that row is continued and abandoned and the act dropped (semantic; §139.29).
+ * with no result is re-asked once, then that row is continued and abandoned and the act dropped (semantic; §143.29).
  *
  * - Pure seams: the batch and its reading under the §135.2 gates; the writes a bound act becomes; the policy's scan step;
  *   the NPC's turn of a fight as the forced `npc_act` candidate.
  * - The table (hybrid engine, emitted kernel, the kernel extension's gateway, a stub Jev, the fixture generation port):
  *   Knott's own turn of the fight spent on a shout; the same act Jev cannot settle; what a surprise of the stakes die
- *   lets the act bring out (§139.19: a rulebook pistol the same act fires; a `produces` with no surprise, dropped);
+ *   lets the act bring out (§143.19: a rulebook pistol the same act fires; a `produces` with no surprise, dropped);
  *   the people a declaration acted on (and not the one it did not).
  * - The engine on the emitted kernel (the gateway a thin forwarder that applies the kernel extension's own host marks):
  *   the per-turn cap; pursuit after a flight; the two no-repeat gates across turns; a thing of the table's own brought
- *   out, in his hands on the next turn's packet (§139.19).
+ *   out, in his hands on the next turn's packet (§143.19).
  *
  * No live model is called; assertions are on receipts, rows and fixture calls, never on prose.
  */
@@ -55,9 +55,9 @@ const aliasWhere = (question, match) => Object.entries(question?.criteria ?? {})
 /**
  * An answer to the npc-act batch. `way`: a way name (or "unknown"); `params`: per `<way>.<param>` key a matcher over the
  * option's label, or an alias; unmatched parameters take their first option. `same`: a matcher over the row, or "none".
- * `produce` (§139.19): a matcher over the book's name of a price-list record, or "none" -- it answers the record question,
+ * `produce` (§143.19): a matcher over the book's name of a price-list record, or "none" -- it answers the record question,
  * and the part question with the part whose records it matches (the second batch of a long list is answered the same way).
- * `known` (§139.27): "new" or "known", or a function of the batch giving one -- whether what the act brings out was
+ * `known` (§143.27): "new" or "known", or a function of the batch giving one -- whether what the act brings out was
  * already at the table.
  */
 function actAnswer(batch, { way = "unknown", params = {}, same = "none", produce = "none", known = "new" } = {}) {
@@ -93,7 +93,7 @@ function otherAnswer(batch) {
 // Pure seams.
 // ---------------------------------------------------------------------------------------------------
 
-/** `npc.act.options` as the kernel answers it for Knott on his turn of a fight (the shape of §139.3). */
+/** `npc.act.options` as the kernel answers it for Knott on his turn of a fight (the shape of §143.3). */
 const fightOptions = (extra = {}) => ({
 	npc: { handle: "steven-knott", name: "Steven Knott" }, play_language: "zh-Hans", place: "commission-briefing", in_session: true, my_turn: true, acted_on: [],
 	ways: [
@@ -102,7 +102,7 @@ const fightOptions = (extra = {}) => ({
 		{ way: "check", params: { skill: [{ value: "Spot Hidden", label: "Spot Hidden 55" }, { value: "Listen", label: "Listen 40" }] } },
 		{ way: "intention_only", params: {} },
 	],
-	// §139.19: the price list of the era, asked with produce: true -- a weapon record carries its profile.
+	// §143.19: the price list of the era, asked with produce: true -- a weapon record carries its profile.
 	produce: [{ value: "eq.1920s.weapon_table.38", label: ".38 or 9mm Revolver", category: "weapon_table", weapon: "revolver_38_or_9mm" },
 		{ value: "eq.1920s.miscellaneous.umbrella", label: "Umbrella", category: "miscellaneous" }],
 	...extra,
@@ -111,10 +111,10 @@ const PACKET = { npc: { handle: "steven-knott", name: "Steven Knott" }, state: {
 const batchOf = (input = {}) => npcActBatch({ runId: "r", person: "Steven Knott", act: SHOUT, packet: PACKET, options: fightOptions(), rows: [], ...input }, scope, []);
 const PISTOL = "袖珍手枪";
 
-test("§139.3 batch: one closed question for the way, one per parameter with a choice, the produced record only when the act brings something out, the same-row question over the rows", () => {
+test("§143.3 batch: one closed question for the way, one per parameter with a choice, the produced record only when the act brings something out, the same-row question over the rows", () => {
 	const { batch } = batchOf();
 	assert.equal(batch.family, NPC_ACT_BIND_FAMILY);
-	assert.equal(batch.familyVersion, "2", "§139.19: the draw question became the produce question");
+	assert.equal(batch.familyVersion, "2", "§143.19: the draw question became the produce question");
 	assert.deepEqual(batch.questions.map((question) => question.key), ["way", "check.skill"], "one target and one weapon are bound without a question");
 	assert.deepEqual(Object.keys(batch.questions[0].criteria), ["attack", "flee", "check", "intention_only", "unknown"]);
 	assert.equal(batch.state.act, SHOUT, "keyed on the act the generation wrote");
@@ -130,13 +130,13 @@ test("§139.3 batch: one closed question for the way, one per parameter with a c
 	assert.ok(!unarmed.questions.some((question) => question.key === "attack.weapon"), "a price list with no weapon adds no weapon option");
 	const rows = [{ ref: "intent:steven-knott:aaaaaaaaaaaa", intent: "ring the bell", status: "attempted", since_turn: 1, turn: 1 }];
 	const same = batchOf({ rows }).batch.questions.find((question) => question.key === "same");
-	// §139.14: the options are the rows' own lines and statuses plus none; what is asked is the purpose, not the hands.
+	// §143.14: the options are the rows' own lines and statuses plus none; what is asked is the purpose, not the hands.
 	assert.deepEqual(same.criteria, { row_1: { intent: "ring the bell", status: "attempted" }, none: SAME_QUESTION.none });
 	assert.equal(same.instructions, SAME_QUESTION.instructions);
 	assert.match(same.instructions, /same purpose, whatever the hands do/);
 });
 
-test("§139.3 reading: a cleared way binds with its parameters; unknown, below the gate or an unbound parameter binds intention_only; no answer is not judged", () => {
+test("§143.3 reading: a cleared way binds with its parameters; unknown, below the gate or an unbound parameter binds intention_only; no answer is not judged", () => {
 	const { batch, plan } = batchOf({ produces: PISTOL, rows: [{ ref: "intent:steven-knott:aaaaaaaaaaaa", intent: "ring the bell", status: "attempted" }] });
 	const checked = interpretNpcAct(plan, actAnswer(batch, { way: "check", params: { "check.skill": (label) => label.startsWith("Listen") } }), 0.6);
 	assert.deepEqual([checked.judged, checked.way, checked.params.skill.value, checked.produced, checked.same],
@@ -161,7 +161,7 @@ test("§139.3 reading: a cleared way binds with its parameters; unknown, below t
 		"with no Jev the thing is still brought out, as the table's own: no record, no number");
 });
 
-test("§139.19 a price list longer than one question: its parts first, the record within the chosen part in a second batch", () => {
+test("§143.19 a price list longer than one question: its parts first, the record within the chosen part in a second batch", () => {
 	// 300 records in three parts: more than the provider's choice limit, so the first batch asks the part.
 	const records = ["tools", "melee", "weapon_table"].flatMap((category, part) => Array.from({ length: 100 }, (_, index) => ({ value: `eq.${category}.${index}`,
 		label: category === "weapon_table" && index === 7 ? ".25 Derringer (1B)" : `${category} thing ${index}`, category,
@@ -185,7 +185,7 @@ test("§139.19 a price list longer than one question: its parts first, the recor
 	assert.deepEqual([unanswered.produced.source, unanswered.reason], ["table", "param_unbound:weapon"], "the second batch unanswered: no record, so no weapon");
 });
 
-test("§139.22 which record, once it is a record at all: near kin splitting the answer leave no revolver the rules cannot fire", () => {
+test("§143.22 which record, once it is a record at all: near kin splitting the answer leave no revolver the rules cannot fire", () => {
 	// Ticket 23 (ticket 20's live probe, T3): "a snub revolver hidden under an old ledger" reached the weapon part, no one
 	// record cleared, and it was minted the table's own -- a gun with no numbers. The thing exists (the die allowed it, the
 	// generator named it); the record only gives it rules, so the answer's mass on records is what has to clear.
@@ -229,7 +229,7 @@ const bound = (way, params = {}, extra = {}) => ({ judged: true, way, params: Ob
 	draw: null, same: null, reason: "bound", answers: {}, ...extra });
 
 // ---------------------------------------------------------------------------------------------------
-// §139.27 (ticket 28; table `npc-acts-d`, turn 2): a surprise is something no one knew. The generator's `produces` was a
+// §143.27 (ticket 28; table `npc-acts-d`, turn 2): a surprise is something no one knew. The generator's `produces` was a
 // rental notice that had lain under his hand since turn 1, and a pen on the desk; they were placed as a surprise. One
 // more question of the same batch asks whether the thing was already known at the table; a cleared `known` takes the
 // surprise away -- nothing is matched, drawn or placed -- and the act binds as it is.
@@ -239,7 +239,7 @@ const NOTICE = "折好的租房广告";
 const KNOWN_PACKET = { ...PACKET, happened: [`turn 1: Steven Knott's stance set to wary (why: 他把${NOTICE}压在手底下)`, "Thomas Hayes (investigator) declared: \"不接\""],
 	recent_speech: ["turn 1: 这房子便宜"], at_hand: { holdings: [], objects: ["desk"], exits: [], present: ["Thomas Hayes"] } };
 
-test("§139.27 batch: with a produces, one more closed question -- was it already at the table -- over what happened and what they said besides their state and what is at hand", () => {
+test("§143.27 batch: with a produces, one more closed question -- was it already at the table -- over what happened and what they said besides their state and what is at hand", () => {
 	const { batch } = batchOf({ produces: NOTICE, packet: KNOWN_PACKET });
 	const question = batch.questions.find((entry) => entry.key === "produces_known");
 	assert.ok(question, "asked in the same batch");
@@ -253,7 +253,7 @@ test("§139.27 batch: with a produces, one more closed question -- was it alread
 	assert.deepEqual(Object.keys(plain.state.situation), ["state", "at_hand"], "and the state stays what it was");
 });
 
-test("§139.27 reading: a cleared known takes the surprise away and the act binds as it is; new, below the gate or no answer leave it a surprise", () => {
+test("§143.27 reading: a cleared known takes the surprise away and the act binds as it is; new, below the gate or no answer leave it a surprise", () => {
 	const { batch, plan } = batchOf({ produces: NOTICE, packet: KNOWN_PACKET });
 	const known = interpretNpcAct(plan, actAnswer(batch, { way: "check", params: { "check.skill": (label) => label.startsWith("Listen") }, known: "known",
 		produce: (label) => label === "Umbrella" }), 0.6);
@@ -279,7 +279,7 @@ test("§139.27 reading: a cleared known takes the surprise away and the act bind
 	assert.equal(producePart(long.plan, actAnswer(long.batch, { way: "check", produce: (label) => label === "tools thing 3" }), 0.6).part, "tools", "new: the second batch as before");
 });
 
-test("§139.3 writes: a new act opens its row (spending the turn on their turn of a fight unless the way is a fight action), then every write names it", () => {
+test("§143.3 writes: a new act opens its row (spending the turn on their turn of a fight unless the way is a fight action), then every write names it", () => {
 	assert.deepEqual(npcActWrites(bound("check", { skill: "Listen" }), writeContext()).map((call) => [call.tool, call.args]), [
 		["apply", { effects: [{ kind: "npc", name: "Steven Knott", intends: SHOUT, outcome: "attempted", spend_turn: true }] }],
 		["resolve", { action: { actor: "steven-knott", goal: SHOUT, method: SHOUT, intent_ref: "intent:steven-knott:bbbbbbbbbbbb", intent: "investigate", skill: "Listen" } }],
@@ -297,7 +297,7 @@ test("§139.3 writes: a new act opens its row (spending the turn on their turn o
 		"what is brought out is a bare npc effect of its own beside the opener, before the attack; the host marks it");
 	assert.deepEqual(drawn[0].carries, { draw: { weapon: "revolver_38_or_9mm", price_id: "eq.x" } }, "a weapon of the book's is drawn");
 	assert.equal(drawn[1].tool, "resolve");
-	// §139.19: anything else is produced -- the book's record by its price_id, the table's own by its name -- described by the act.
+	// §143.19: anything else is produced -- the book's record by its price_id, the table's own by its name -- described by the act.
 	const umbrella = npcActWrites(bound("intention_only", {}, { produced: { name: "Umbrella", source: "catalog", record: { value: "eq.u", label: "Umbrella", category: "miscellaneous" } } }),
 		writeContext({ act: GUN }));
 	assert.deepEqual(umbrella.map((call) => call.carries), [{ produce: { price_id: "eq.u", description: GUN } }]);
@@ -306,7 +306,7 @@ test("§139.3 writes: a new act opens its row (spending the turn on their turn o
 	assert.equal(npcActWrites(bound("intention_only"), writeContext())[0].carries, undefined, "nothing brought out, nothing carried");
 });
 
-test("§139.5 writes: a continued row is named from the first write; the same act again with nothing to settle it abandons the row (why: repeated)", () => {
+test("§143.5 writes: a continued row is named from the first write; the same act again with nothing to settle it abandons the row (why: repeated)", () => {
 	const continuing = writeContext({ open: false, continuedTurn: 2, ref: "intent:steven-knott:cccccccccccc" });
 	assert.deepEqual(npcActWrites(bound("intention_only"), { ...continuing, spend: false }).map((call) => call.args.effects), [[{ kind: "npc", name: "Steven Knott",
 		intent_ref: "intent:steven-knott:cccccccccccc", outcome: "abandoned", why: "repeated" }]], "an intention under way since an earlier turn, repeated with no result");
@@ -315,7 +315,7 @@ test("§139.5 writes: a continued row is named from the first write; the same ac
 	assert.deepEqual(npcActWrites(bound("intention_only", {}, { judged: false }), { ...continuing, spend: false }), [], "an unjudged repeat writes nothing");
 });
 
-test("§139.4 policy: after a landed step of the declaration the people it acted on act before the model step, once; not after a forced step; not past the time budget", () => {
+test("§143.4 policy: after a landed step of the declaration the people it acted on act before the model step, once; not after a forced step; not past the time budget", () => {
 	const context = { scene: "morgue", clock: null, present: [], receipts: [] };
 	const check = { key: "resolve:obligation:access", verb: "resolve", family: "obligation_check", label: "check", source: "t", bound: {}, unbound: [], clerk: "stated_obligation", basis: {} };
 	const view = initialView({ runId: "r", rawInput: "x", context, candidates: [], readFirst: false });
@@ -343,7 +343,7 @@ test("§139.4 policy: after a landed step of the declaration the people it acted
 	assert.equal(next(late).kind, "infer");
 });
 
-test("§139.4 candidates: an NPC's own turn of a fight is the forced npc_act step -- the standing attack no longer binds; a missing disposition is still inferred first", () => {
+test("§143.4 candidates: an NPC's own turn of a fight is the forced npc_act step -- the standing attack no longer binds; a missing disposition is still inferred first", () => {
 	const session = { kind: "combat", status: "active", round: 2, turn_of: "steven-knott", pending_defense: null,
 		standing_action: { action: "attack", basis: "rule-default", disposition: { disposition: "fights_to_the_end", basis: "keeper" } },
 		participants: [{ name: "thomas-hayes", side: "investigator" }, { name: "steven-knott", label: "Steven Knott", side: "npc" }],
@@ -356,7 +356,7 @@ test("§139.4 candidates: an NPC's own turn of a fight is the forced npc_act ste
 			.filter((candidate) => candidate.forced);
 		assert.equal(held.clerk, "npc_act", `${word} no longer hands the turn over unbound`);
 	}
-	// §138.14's release is gone with the standing attack: an intention under way changes nothing here.
+	// §142.14's release is gone with the standing attack: an intention under way changes nothing here.
 	const capsule = { present: [{ name: "Steven Knott", history: { intents: [{ ref: "intent:steven-knott:aaaaaaaaaaaa", status: "attempted" }] } }] };
 	assert.equal(buildCandidates({ capsule, applyOptions: {}, resolveOptions: { context: { session } } }, "x").find((candidate) => candidate.forced).clerk, "npc_act");
 	const fighter = { id: "steven-knott", name: "Steven Knott", combat_standing: { action: null, basis: "rule-default" },
@@ -366,7 +366,7 @@ test("§139.4 candidates: an NPC's own turn of a fight is the forced npc_act ste
 	assert.equal(inference.clerk, "disposition_inference", "the disposition is a description of him, inferred once, before his act");
 });
 
-test("§139.3 host marks: only the clerk's npc_act calls carry _generated and what the act brings out; a model-sent mark is removed", () => {
+test("§143.3 host marks: only the clerk's npc_act calls carry _generated and what the act brings out; a model-sent mark is removed", () => {
 	const effects = () => [{ kind: "npc", name: "Steven Knott", intends: SHOUT, outcome: "attempted", _generated: true, _draws: { weapon: "x" } },
 		{ kind: "npc", name: "Steven Knott", intent_ref: "intent:steven-knott:bbbbbbbbbbbb", intent_outcome: "attempted" }, { kind: "threat", name: "t" }];
 	const keeper = { effects: effects() };
@@ -376,7 +376,7 @@ test("§139.3 host marks: only the clerk's npc_act calls carry _generated and wh
 	markNpcAct("apply", clerk, { clerk: "npc_act", basis: { draw: { weapon: "revolver_38_or_9mm", price_id: "eq.x" } } });
 	assert.deepEqual(clerk.effects.map((effect) => [effect._generated ?? null, effect._draws ?? null]),
 		[[true, null], [true, { weapon: "revolver_38_or_9mm", price_id: "eq.x" }], [null, null]]);
-	// §139.19: anything else the act brings out rides as _produces, from the basis, on the bare effect only.
+	// §143.19: anything else the act brings out rides as _produces, from the basis, on the bare effect only.
 	const produced = { effects: [...effects(), { kind: "npc", name: "Steven Knott", _produces: { name: "forged" } }] };
 	markNpcAct("apply", produced, { clerk: "npc_act", basis: { produce: { npc: "steven-knott", name: "一张泛黄的全家福", description: GUN } } });
 	assert.deepEqual(produced.effects.map((effect) => effect._produces ?? null), [null, { name: "一张泛黄的全家福", description: GUN }, null, { name: "一张泛黄的全家福", description: GUN }]);
@@ -439,7 +439,7 @@ async function actTable(t, { prepareWorkspace, npcAct, act, responses, extra = [
 }
 const npcActRows = (table) => table.telemetry(CAMPAIGN).filter((row) => row.lane === "run" && row.event === "npc_act");
 
-test("§139.3 at the table: Knott's own turn spent on a shout -- a check with spend_turn, the turn passes, every receipt stamped with the act and generated", async (t) => {
+test("§143.3 at the table: Knott's own turn spent on a shout -- a check with spend_turn, the turn passes, every receipt stamped with the act and generated", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": SHOUT });
 	const { table, decisions } = await actTable(t, { prepareWorkspace: knottsTurn, npcAct, act: () => ({ way: "check" }) });
 	await table.session.prompt("我盯着他");
@@ -460,19 +460,19 @@ test("§139.3 at the table: Knott's own turn spent on a shout -- a check with sp
 	assert.equal(saved(table, "combat.json").current_initiative[saved(table, "combat.json").initiative_cursor]?.actor_id, "thomas-hayes", "the fight is on the investigator");
 });
 
-test("§139.3 at the table: the same shout Jev cannot settle is the intention alone -- apply npc intends, attempted, no dice", async (t) => {
+test("§143.3 at the table: the same shout Jev cannot settle is the intention alone -- apply npc intends, attempted, no dice", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": SHOUT });
 	const { table } = await actTable(t, { prepareWorkspace: knottsTurn, npcAct, act: () => ({ way: "unknown" }) });
 	await table.session.prompt("我盯着他");
 	const receipts = turnRecord(table, 3).receipts;
 	const opened = receipts.find((receipt) => receipt.kind === "npc" && receipt.intent?.text === SHOUT);
 	assert.deepEqual([opened?.intent.outcome, opened?.intent.generated], ["attempted", true]);
-	assert.ok(!receipts.some((receipt) => receipt.kind === "roll" && receipt.actor === "steven-knott" && receipt.family !== "stakes"), "nothing rolled for him (the stakes die of §139.8 is not his check)");
+	assert.ok(!receipts.some((receipt) => receipt.kind === "roll" && receipt.actor === "steven-knott" && receipt.family !== "stakes"), "nothing rolled for him (the stakes die of §143.8 is not his check)");
 	assert.equal(npcActRows(table)[0].way, "intention_only");
 });
 
 /**
- * §139.8 puts `stakes: {rung, outcome, line, surprise, surprise_line}` on the situation packet from a keeper-visible
+ * §143.8 puts `stakes: {rung, outcome, line, surprise, surprise_line}` on the situation packet from a keeper-visible
  * seeded die. These tests pin it instead of depending on what the seed rolls for Knott: the bridge the engine reads
  * through is the kernel extension's, wrapped.
  */
@@ -486,7 +486,7 @@ function withStakes(table, { outcome, surprise }) {
 }
 const stakesView = (outcome, surprise) => ({ rung: "dangerous", outcome, line: "This turn, what this person does is more dangerous than anything so far.",
 	surprise, surprise_line: surprise ? "This person may have something on them that no one at the table knew they had." : null });
-/** §139.19 / ticket 20's acceptance: the pocket pistol (the fixture's `produces`) is the book's .25 Derringer. */
+/** §143.19 / ticket 20's acceptance: the pocket pistol (the fixture's `produces`) is the book's .25 Derringer. */
 const POCKET = "从内袋摸出一把袖珍手枪指着他。";
 const pocketAnswer = () => ({ way: "attack", params: { "attack.weapon": "weapon_drawn" }, produce: (label) => String(label).startsWith(".25 Derringer") });
 const worldOf = (table) => JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8"));
@@ -566,7 +566,7 @@ function morgueJev(act) {
 	};
 }
 
-test("§139.4 at the table: after the clerk carried out the declaration, the person it acted on acts before the Keeper's step; the one it did not act on does not", async (t) => {
+test("§143.4 at the table: after the clerk carried out the declaration, the person it acted on acts before the Keeper's step; the one it did not act on does not", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "*": "他把一叠旧剪报推到你面前。" });
 	const decide = morgueJev(() => ({ way: "intention_only" }));
 	const engine = createHybridEngine({ env: {}, npcAct, decision: { decide: async (batch) => decide(batch) } });
@@ -650,7 +650,7 @@ async function seam(t, { npcAct, act, seed = "1", prepare, stakes }) {
 	} } });
 	const handlers = new Map(), bus = { on: (name, handler) => handlers.set(name, handler), emit: (name, value) => handlers.get(name)?.(value) };
 	engine.extension({ events: bus, on: () => {}, getActiveTools: () => [], setActiveTools: () => {} });
-	// `stakes` pins the situation's stakes die (§139.8, §139.19) instead of the seed's roll, as `withStakes` does at the table.
+	// `stakes` pins the situation's stakes die (§143.8, §143.19) instead of the seed's roll, as `withStakes` does at the table.
 	bus.emit("coc:kernel-bridge", { campaign: CAMPAIGN, call: async (method, params) => {
 		const result = await call(method, params);
 		return stakes !== undefined && method === "npc.situation" ? { ...result, stakes } : result;
@@ -681,7 +681,7 @@ async function seam(t, { npcAct, act, seed = "1", prepare, stakes }) {
 const scan = (addressees = []) => npcScanCandidate(0, ["resolve:x"], addressees);
 const acts = (game) => game.rows.filter((row) => row.lane === "run" && row.event === "npc_act");
 
-test("§139.4 cap: three people acted on outside a fight -- two act, the third is recorded skipped_cap; the one nobody acted on is never asked", async (t) => {
+test("§143.4 cap: three people acted on outside a fight -- two act, the third is recorded skipped_cap; the one nobody acted on is never asked", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "*": "他往后退了一步，盯着你的手。" });
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
 	await call0(game);
@@ -712,7 +712,7 @@ async function call0(game) {
 
 /**
  * Seed 1: the punch lands, Knott hits back, the investigator dodges and then flees -- the fight ends `fled`. Ticket 10
- * (§139.9, in flight on its own branch) stops the old engine from starting a chase for the investigators on that flight;
+ * (§143.9, in flight on its own branch) stops the old engine from starting a chase for the investigators on that flight;
  * until it lands here, the chase the old engine started is removed from the save (the only file this test touches), so
  * the state is the one ticket 10 leaves: the investigator fled this turn and no chase runs.
  */
@@ -760,7 +760,7 @@ test("ticket 03 pursuit: 'stands behind the desk and watches him go' starts no c
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Ticket 04 (§139.5): the two no-repeat gates, across turns.
+// Ticket 04 (§143.5): the two no-repeat gates, across turns.
 // ---------------------------------------------------------------------------------------------------
 
 const CALL = "他大喊要叫警察来。", AGAIN = "他说你再不走他就叫警察。", STILL = "他说他这次真的要叫警察了。", SIT = "他坐回椅子上，不再说话。";
@@ -768,13 +768,13 @@ const CALL = "他大喊要叫警察来。", AGAIN = "他说你再不走他就叫
 async function spokenTo(game, text = "我看着诺特。") {
 	await game.say(text);
 	await game.run(scan(["Steven Knott"]));
-	// §138.7: the first delivery that owes an intention's result is refused once; the second is delivered.
+	// §142.7: the first delivery that owes an intention's result is refused once; the second is delivered.
 	await game.close().catch(() => game.close());
 }
 const knottActs = (game) => acts(game).filter((row) => row.npc === "steven-knott");
 const doneOf = (call) => call.packet.done.map((row) => [row.intent, row.status]);
 
-test("§139.5 semantic gate: the same thing again with no result is re-asked once; the same thing a second time is that row continued and abandoned", async (t) => {
+test("§143.5 semantic gate: the same thing again with no result is re-asked once; the same thing a second time is that row continued and abandoned", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [CALL, AGAIN, STILL, SIT] });
 	const game = await seam(t, { npcAct, act: (batch) => ({ way: "intention_only",
 		same: batch.questions.some((question) => question.key === "same") && [AGAIN, STILL].includes(batch.state.act) ? (row) => row.intent === CALL : "none" }) });
@@ -788,7 +788,7 @@ test("§139.5 semantic gate: the same thing again with no result is re-asked onc
 	assert.equal(reasked.packet.happened.length, asked.packet.happened.length + 1, "the re-ask's packet names the row with no result");
 	assert.ok(reasked.packet.happened.at(-1).includes(CALL));
 	const second = knottActs(game).at(-1);
-	assert.deepEqual([second.reask, second.opened, second.continued], [true, false, first.ref], "that row continued (and, §139.29, the act dropped)");
+	assert.deepEqual([second.reask, second.opened, second.continued], [true, false, first.ref], "that row continued (and, §143.29, the act dropped)");
 	await spokenTo(game, "我把抽屉关上。");
 	const rows = doneOf(npcAct.calls[3]);
 	assert.deepEqual(rows.find(([intent]) => intent === CALL), [CALL, "abandoned"], "the next turn's packet: no longer under way");
@@ -796,7 +796,7 @@ test("§139.5 semantic gate: the same thing again with no result is re-asked onc
 	assert.equal(second.abandoned, first.ref, "the act's row names the row it abandoned");
 });
 
-test("§139.5 semantic gate: Jev reads the act as none of the rows -- each act is its own row, and nothing is asked twice", async (t) => {
+test("§143.5 semantic gate: Jev reads the act as none of the rows -- each act is its own row, and nothing is asked twice", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [CALL, SIT] });
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only", same: "none" }) });
 	await call0(game);
@@ -808,14 +808,14 @@ test("§139.5 semantic gate: Jev reads the act as none of the rows -- each act i
 	assert.deepEqual(situation.done.map((row) => row.intent).sort(), [CALL, SIT].sort(), "both registered");
 });
 
-test("§139.5 semantic gate: the same thing as a row already settled is a new row -- done again in a new situation, not asked again", async (t) => {
+test("§143.5 semantic gate: the same thing as a row already settled is a new row -- done again in a new situation, not asked again", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [CALL, AGAIN] });
 	const game = await seam(t, { npcAct, act: (batch) => ({ way: "intention_only", same: batch.state.act === AGAIN ? (row) => row.intent === CALL : "none" }) });
 	await call0(game);
 	await game.say("我看着诺特。");
 	await game.run(scan(["Steven Knott"]));
 	const ref = knottActs(game).at(-1).ref;
-	// §139.14: the table's act is settled by the dice (here the Keeper's roll for him), not by saying it failed.
+	// §143.14: the table's act is settled by the dice (here the Keeper's roll for him), not by saying it failed.
 	await game.write("table.resolve", { action: { actor: "Steven Knott", intent: "investigate", skill: "Listen", goal: "listen for the constable", method: "listen", intent_ref: ref } });
 	assert.ok((await game.receipts()).some((receipt) => receipt.kind === "roll" && receipt.intent?.ref === ref && ["done", "failed"].includes(receipt.intent.outcome)));
 	await game.close();
@@ -826,7 +826,7 @@ test("§139.5 semantic gate: the same thing as a row already settled is a new ro
 	assert.notEqual(last.ref, ref);
 });
 
-test("§139.5 structural gate: the very line of a row under way is that row continued -- no new row, no semantic question; nothing settles it, so it is abandoned (the owed linkage)", async (t) => {
+test("§143.5 structural gate: the very line of a row under way is that row continued -- no new row, no semantic question; nothing settles it, so it is abandoned (the owed linkage)", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [CALL, CALL] });
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
 	await call0(game);
@@ -837,20 +837,20 @@ test("§139.5 structural gate: the very line of a row under way is that row cont
 	assert.ok(!binds.at(-1).questions.some((question) => question.key === "same"), "the structural gate answered it");
 	const last = knottActs(game).at(-1);
 	assert.deepEqual([last.opened, last.continued, last.abandoned, last.reask], [false, ref, ref, false]);
-	// §139.29: the row given up by the repeat is the act's one write; the act itself is dropped, not handed to the Keeper.
+	// §143.29: the row given up by the repeat is the act's one write; the act itself is dropped, not handed to the Keeper.
 	assert.deepEqual([last.status, last.reason, last.receipts.length], ["dropped", "repeated", 1]);
 	const situation = await game.call("npc.situation", { name: "Steven Knott" });
 	assert.deepEqual(situation.done.map((row) => [row.ref, row.status]), [[ref, "abandoned"]]);
 });
 
-test("§139.5: the same line as a settled row is a new attempt -- a new line (the turn appended), never a refusal", async (t) => {
+test("§143.5: the same line as a settled row is a new attempt -- a new line (the turn appended), never a refusal", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [CALL, CALL] });
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
 	await call0(game);
 	await game.say("我看着诺特。");
 	await game.run(scan(["Steven Knott"]));
 	const ref = knottActs(game).at(-1).ref;
-	// §139.14: an arrival settles the table's act (the §138.2 addendum's shape); saying it was done would be refused.
+	// §143.14: an arrival settles the table's act (the §142.2 addendum's shape); saying it was done would be refused.
 	await game.write("table.apply", { effects: [{ kind: "npc", name: "the porter", to: "here", intent_ref: ref, why: "the porter came up at the shout" }] });
 	await game.close();
 	await spokenTo(game, "我不理他。");
@@ -861,7 +861,7 @@ test("§139.5: the same line as a settled row is a new attempt -- a new line (th
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Ticket 15 (§139.14): a threat is one thread -- the same purpose in other hands is the same thing, and only a result
+// Ticket 15 (§143.14): a threat is one thread -- the same purpose in other hands is the same thing, and only a result
 // or giving it up ends it. Live table C3: lift the receiver, press it down, shout over it, hold it up between them.
 // ---------------------------------------------------------------------------------------------------
 
@@ -873,7 +873,7 @@ const phoneJev = (phones, settled = {}) => (batch) => ({ way: settled[batch.stat
 	same: batch.questions.some((question) => question.key === "same") && phones.includes(batch.state.act) ? (row) => row.intent === LIFT : "none" });
 const turnReceipts = (game, turn) => JSON.parse(readFileSync(join(game.workspace, ".coc/campaigns", CAMPAIGN, "turns", `${String(turn).padStart(4, "0")}.json`), "utf8")).receipts;
 
-test("§139.14: the same purpose in other hands -- re-asked once ('twice without doing it'), then given up; the next packet says so, the same thing held up again opens no row, and a different purpose opens normally", async (t) => {
+test("§143.14: the same purpose in other hands -- re-asked once ('twice without doing it'), then given up; the next packet says so, the same thing held up again opens no row, and a different purpose opens normally", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [LIFT, PRESS, SHOUT_OVER, HOLD_UP, DOOR] });
 	const game = await seam(t, { npcAct, act: phoneJev([PRESS, SHOUT_OVER, HOLD_UP]) });
 	await call0(game);
@@ -909,7 +909,7 @@ test("§139.14: the same purpose in other hands -- re-asked once ('twice without
 		"one telephone row, given up; no row for any of the other hands; the door is its own");
 });
 
-test("§139.14: announced, then done -- the same purpose bound to a way that settles it is that row, and the roll gives it its result (no re-ask, no new row)", async (t) => {
+test("§143.14: announced, then done -- the same purpose bound to a way that settles it is that row, and the roll gives it its result (no re-ask, no new row)", async (t) => {
 	const RING = "他抓起听筒，真的摇起了电话找接线员。";
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [LIFT, RING] });
 	const game = await seam(t, { npcAct, act: phoneJev([RING], { [RING]: "check" }) });
@@ -926,7 +926,7 @@ test("§139.14: announced, then done -- the same purpose bound to a way that set
 	assert.deepEqual(situation.done.map((row) => row.intent), [LIFT], "one thread: announcing it and doing it are the same row");
 });
 
-test("§139.14 at the table's kernel: the Keeper cannot make the table's act done by saying so; abandoning it stands, and the packet says he gave it up", async (t) => {
+test("§143.14 at the table's kernel: the Keeper cannot make the table's act done by saying so; abandoning it stands, and the packet says he gave it up", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": LIFT });
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
 	await call0(game);
@@ -941,7 +941,7 @@ test("§139.14 at the table's kernel: the Keeper cannot make the table's act don
 	assert.ok(situation.happened.some((line) => line.includes(`gave up "${LIFT}"`) && line.includes("(why: he puts the receiver down)")), JSON.stringify(situation.happened));
 });
 
-test("§139.14 step: a dropped act writes nothing and hands the Keeper no line -- the act was not done; the telemetry row keeps it", async () => {
+test("§143.14 step: a dropped act writes nothing and hands the Keeper no line -- the act was not done; the telemetry row keeps it", async () => {
 	const given = { ref: "intent:steven-knott:aaaaaaaaaaaa", intent: LIFT, status: "abandoned", since_turn: 2, turn: 3 };
 	const rows = [], writes = [];
 	const deps = {
@@ -970,11 +970,11 @@ test("§139.14 step: a dropped act writes nothing and hands the Keeper no line -
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Ticket 30 (§139.29): a repeat after it was given up. Live table D2 (`npc-acts-d2`), one identity here: the copper badge
+// Ticket 30 (§143.29): a repeat after it was given up. Live table D2 (`npc-acts-d2`), one identity here: the copper badge
 // brought out on T6 and given up; T14's act first repeated the Keeper's own row under way (squeeze out and shout), was
 // re-asked, and came back as the badge -- which cleared on a badge row given up with other rows of his since, so it was
 // a new row; T15 repeated that row, was re-asked, and was still the badge. That second hit gave the row up and, before
-// §139.29, was still bound and handed to the Keeper as what he did; now it is dropped. The next turn's badge is dropped
+// §143.29, was still bound and handed to the Keeper as what he did; now it is dropped. The next turn's badge is dropped
 // as a thread just given up.
 // ---------------------------------------------------------------------------------------------------
 
@@ -1015,7 +1015,7 @@ async function d2Turn14(game) {
 	return knottActs(game).at(-1);
 }
 
-test("§139.29 at the table (D2 T14-T16, one identity): the badge after the re-ask is a new row; the next turn's repeat gives it up and is dropped; the one after is dropped as given up", async (t) => {
+test("§143.29 at the table (D2 T14-T16, one identity): the badge after the re-ask is a new row; the next turn's repeat gives it up and is dropped; the one after is dropped as given up", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [BADGE_OUT, ASK_WHAT, SHOUT_AGAIN, BADGE_GRIP, BADGE_SHOW, BADGE_OPEN, BADGE_CLUTCH] });
 	const game = await seam(t, { npcAct, act: d2Jev() });
 	const out = await d2Before(game);
@@ -1052,7 +1052,7 @@ test("§139.29 at the table (D2 T14-T16, one identity): the badge after the re-a
 	assert.equal(out.opened, true);
 });
 
-test("§139.29 known boundary: the badge the turn after it was given up, read as the older badge row -- that row is no thread, so a new row opens", async (t) => {
+test("§143.29 known boundary: the badge the turn after it was given up, read as the older badge row -- that row is no thread, so a new row opens", async (t) => {
 	// Purposes are rows, not chains: "just given up" is read on the row Jev names. The badge given up on turn 6 is the
 	// newest row, but Jev naming the badge row given up on turn 2 instead reads a purpose with something of his since.
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [BADGE_OUT, ASK_WHAT, SHOUT_AGAIN, BADGE_GRIP, BADGE_SHOW, BADGE_OPEN, BADGE_CLUTCH] });
@@ -1066,7 +1066,7 @@ test("§139.29 known boundary: the badge the turn after it was given up, read as
 	assert.deepEqual([last.status, last.act, last.opened, last.reask], ["bound", BADGE_CLUTCH, true, false]);
 });
 
-test("§139.29 step: on their turn of a fight, the same purpose after the re-ask gives the row up and is dropped -- one write, no turn spent, nothing brought out, no line for the Keeper", async () => {
+test("§143.29 step: on their turn of a fight, the same purpose after the re-ask gives the row up and is dropped -- one write, no turn spent, nothing brought out, no line for the Keeper", async () => {
 	const underWay = { ref: "intent:steven-knott:aaaaaaaaaaaa", intent: LIFT, status: "attempted", since_turn: 2, turn: 2 };
 	const rows = [], writes = [], answers = [{ act: PRESS }, { act: HOLD_UP, produces: "听筒" }];
 	const deps = {
@@ -1096,7 +1096,7 @@ test("§139.29 step: on their turn of a fight, the same purpose after the re-ask
 	answers.push({ act: PRESS }, { unavailable: "model_unavailable" });
 	const unavailable = await runNpcAct(deps, "Steven Knott", "turn");
 	assert.deepEqual([unavailable.status, unavailable.droppedAct, unavailable.abandoned, writes.length], ["dropped", PRESS, underWay.ref, 1]);
-	// A way that settles it after the re-ask is still that row given its result (§139.14, unchanged).
+	// A way that settles it after the re-ask is still that row given its result (§143.14, unchanged).
 	writes.length = 0;
 	answers.push({ act: PRESS }, { act: HOLD_UP });
 	const settled = await runNpcAct({ ...deps, call: async (method, params) => {
@@ -1108,10 +1108,10 @@ test("§139.29 step: on their turn of a fight, the same purpose after the re-ask
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Ticket 21 (§139.20): a person in the conversation acts every turn -- the scan runs before the Keeper's first model
+// Ticket 21 (§143.20): a person in the conversation acts every turn -- the scan runs before the Keeper's first model
 // step whether or not a clerk step landed, and a person who took part last turn in the room the investigators are still
 // in acts even when the compile did not name them. Live table B: ten turns of talk at the counter, three acts.
-// Ticket 22 (§139.21): the player's words reach only the person they were said to, and the act is written in the
+// Ticket 22 (§143.21): the player's words reach only the person they were said to, and the act is written in the
 // campaign's play language from the opening on.
 // ---------------------------------------------------------------------------------------------------
 
@@ -1144,7 +1144,7 @@ async function talkTable(t, { prepareWorkspace, npcAct, jev, responses }) {
 }
 const landedClerkSteps = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.event === "bind" && row.status === "succeeded");
 
-test("§139.20 at the table: he spoke last turn, the player talks on and the compile names no one, nothing lands -- he acts (trigger engaged), and the line is his", async (t) => {
+test("§143.20 at the table: he spoke last turn, the player talks on and the compile names no one, nothing lands -- he acts (trigger engaged), and the line is his", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": "他把烟灰弹进烟灰缸，说那房子的事他只知道这么多。" });
 	const table = await talkTable(t, { prepareWorkspace: knottSpoke, npcAct, jev: talkJev() });
 	await table.session.prompt(TALK);
@@ -1155,9 +1155,9 @@ test("§139.20 at the table: he spoke last turn, the player talks on and the com
 	assert.deepEqual(rows.map((row) => [row.npc, row.trigger, row.status, row.addressed, row.declared_before_move]),
 		[["steven-knott", "engaged", "bound", true, false]], "one act, by the conversation");
 	assert.equal(npcAct.calls.length, 1);
-	// §139.23 (ticket 24): the compile named no one, so the words reach him as said to no one by name (was `declared:`).
+	// §143.23 (ticket 24): the compile named no one, so the words reach him as said to no one by name (was `declared:`).
 	assert.equal(npcAct.calls[0].packet.happened.at(-1), `${npcAct.calls[0].packet.at_hand.present[0]} (investigator) declared (to no one by name): "${TALK}"`,
-		"§139.21, §139.23: in the conversation and no one named, the line is his to judge");
+		"§143.21, §143.23: in the conversation and no one named, the line is his to judge");
 	const receipts = turnRecord(table, 2).receipts;
 	assert.ok(receipts.some((receipt) => receipt.kind === "npc" && receipt.intent?.generated === true && receipt.intent.npc === "steven-knott"), "his act is on the turn");
 	const scan = telemetry.findIndex((row) => row.lane === "run" && row.event === "npc_act");
@@ -1165,7 +1165,7 @@ test("§139.20 at the table: he spoke last turn, the player talks on and the com
 	assert.ok(scan >= 0 && model >= 0 && scan < model, "before the Keeper's first model step");
 });
 
-test("§139.20 at the table: both spoke last turn, the compile names Edna -- only she acts; Knott's conversation gives way to the person named", async (t) => {
+test("§143.20 at the table: both spoke last turn, the compile names Edna -- only she acts; Knott's conversation gives way to the person named", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "*": "她把钥匙往柜台上一放。" });
 	const table = await talkTable(t, { prepareWorkspace: bothSpoke, npcAct, jev: talkJev({ addressee: "Edna" }) });
 	await table.session.prompt("埃德娜，钥匙给我。");
@@ -1177,7 +1177,7 @@ test("§139.20 at the table: both spoke last turn, the compile names Edna -- onl
 	assert.ok(!rows.some((row) => row.npc === "steven-knott"), "not even a skipped row: the declaration was said to someone else");
 });
 
-test("§139.21 as amended: acted on while the words named no one, the line is his", async (t) => {
+test("§143.21 as amended: acted on while the words named no one, the line is his", async (t) => {
 	// First contact: the investigator grabs Knott and demands the key without saying his name. Nothing named anyone else,
 	// so the words are his to answer; ticket 22 as first written kept them only for the named or the engaged.
 	const npcAct = createFixtureNpcActPort({ "*": "他往后缩了一下，手按住了抽屉。" });
@@ -1188,11 +1188,11 @@ test("§139.21 as amended: acted on while the words named no one, the line is hi
 	await game.write("table.apply", { effects: [{ kind: "cash", subject: "Thomas Hayes", delta: 1, source: "found", with: "Steven Knott", why: "a coin changes hands" }] });
 	await game.run(scan());
 	assert.deepEqual(acts(game).map((row) => [row.npc, row.trigger, row.addressed]), [["steven-knott", "acted_on", true]]);
-	// §139.23 (ticket 24): no one was named, so the demand is said to no one by name (was `declared:`); the grab is his.
+	// §143.23 (ticket 24): no one was named, so the demand is said to no one by name (was `declared:`); the grab is his.
 	assert.ok(npcAct.calls[0].packet.happened.at(-1).endsWith(`declared (to no one by name): "${GRAB}"`), `the demand is in his packet: ${npcAct.calls[0].packet.happened.at(-1)}`);
 });
 
-test("§139.21 as amended: the compile names another person -- the one acted on does not hear the words as his", async (t) => {
+test("§143.21 as amended: the compile names another person -- the one acted on does not hear the words as his", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "*": "他往后缩了一下，手按住了抽屉。" });
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
 	await call0(game);
@@ -1208,7 +1208,7 @@ test("§139.21 as amended: the compile names another person -- the one acted on 
 	assert.deepEqual(acts(game).map((row) => [row.npc, row.addressed]).sort(), [["Edna Hale", true], ["steven-knott", false]], "a walk-on is named by her name");
 });
 
-test("§139.20 on the emitted kernel: the party left the room where he spoke -- he came along, stands beside them, and is not in a conversation there", async (t) => {
+test("§143.20 on the emitted kernel: the party left the room where he spoke -- he came along, stands beside them, and is not in a conversation there", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "*": "他跟在后面，一句话也不说。" });
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
 	await game.call("table.open");
@@ -1230,7 +1230,7 @@ test("§139.20 on the emitted kernel: the party left the room where he spoke -- 
  * besides the bare tag was a packet of host English with no player words, and it followed the packet. The request now
  * names the language beside its tag (`npcActLaneInput`, the product lane's own serializer, is what this port records).
  */
-test("§139.21 at the opening: the table's first generation -- no player words, the packet all the host's English -- carries the campaign's play language and its name", async (t) => {
+test("§143.21 at the opening: the table's first generation -- no player words, the packet all the host's English -- carries the campaign's play language and its name", async (t) => {
 	const ACT = "诺特抬头看了你一眼，问你是来办什么事的。", bodies = [];
 	const npcAct = { generate: async (input) => { bodies.push(JSON.parse(npcActLaneInput(input))); return { act: ACT }; } };
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
@@ -1247,7 +1247,7 @@ test("§139.21 at the opening: the table's first generation -- no player words, 
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Ticket 24 (§139.23): who the words were said to. Live table B2, turn 10: "then give me back my five dollars first" was
+// Ticket 24 (§143.23): who the words were said to. Live table B2, turn 10: "then give me back my five dollars first" was
 // said to Arthur, who had the money; the compile answered `unclear` 0.83 -- its state held the sentence, the scene and
 // the names present, and nothing about who had just been talking with the investigator -- so Arthur and Ruth, both in
 // the conversation, both got the words, and Ruth answered them. The compile now reads the last exchange (the newest
@@ -1265,7 +1265,7 @@ async function exchangeTable(t, { addressee } = {}) {
 	return { table, npcAct, batches };
 }
 
-test("§139.23 at the table: the compile's state carries last turn's exchange -- the player's words and the line the markers gave Knott and the one they gave Edna", async (t) => {
+test("§143.23 at the table: the compile's state carries last turn's exchange -- the player's words and the line the markers gave Knott and the one they gave Edna", async (t) => {
 	const { table, batches } = await exchangeTable(t);
 	await table.session.prompt(UNNAMED);
 	const compile = batches.find((batch) => batch.family === COMPILE_FAMILY);
@@ -1279,7 +1279,7 @@ test("§139.23 at the table: the compile's state carries last turn's exchange --
 	assert.ok(addressee.instructions.includes("last_exchange"), "the addressee question reads a word that points at a person by it");
 });
 
-test("§139.23 on the emitted kernel: no committed turn before this one, or the party left the room it closed in -- the compile's state has no last_exchange", async (t) => {
+test("§143.23 on the emitted kernel: no committed turn before this one, or the party left the room it closed in -- the compile's state has no last_exchange", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "*": "……" });
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
 	const state = async () => {
@@ -1301,7 +1301,7 @@ test("§139.23 on the emitted kernel: no committed turn before this one, or the 
 	assert.ok(!Object.hasOwn(await state(), "last_exchange"), "the party moved to the morgue: the office's exchange is not this room's");
 });
 
-test("§139.23 at the table: both in the conversation and the words name no one -- each packet closes on them said to no one by name; named, only that person has them, as said", async (t) => {
+test("§143.23 at the table: both in the conversation and the words name no one -- each packet closes on them said to no one by name; named, only that person has them, as said", async (t) => {
 	const unnamed = await exchangeTable(t);
 	await unnamed.table.session.prompt(UNNAMED);
 	const rows = npcActRows(unnamed.table);
@@ -1322,7 +1322,7 @@ test("§139.23 at the table: both in the conversation and the words name no one 
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Ticket 26 (§139.25): the scan does not act before the declaration. Live table D, turn 3: "我走过去，照他脸上就是一拳" --
+// Ticket 26 (§143.25): the scan does not act before the declaration. Live table D, turn 3: "我走过去，照他脸上就是一拳" --
 // the compile read `act` combat 1.0 and named no one (addressee none 0.28), no clerk step took the punch, and the scan
 // ticket 21 put before the Keeper's first model step ran Knott (in the conversation) on a punch that had not happened:
 // "侧身让开门口，抬脚朝外走去", bound as leave, done; the Keeper had to bring him back to hit him.
@@ -1340,7 +1340,7 @@ const punchJev = (batch) => {
 };
 const heldRows = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.event === "npc_held");
 
-test("§139.25 at the table (table D turn 3): the compile reads a punch, no clerk fight step landed, he is in the conversation -- he does not act before the Keeper's step", async (t) => {
+test("§143.25 at the table (table D turn 3): the compile reads a punch, no clerk fight step landed, he is in the conversation -- he does not act before the Keeper's step", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": "他侧身让开门口，抬脚朝外走去。" });
 	const table = await talkTable(t, { prepareWorkspace: knottSpoke, npcAct, jev: punchJev });
 	await table.session.prompt(PUNCH);
@@ -1358,7 +1358,7 @@ test("§139.25 at the table (table D turn 3): the compile reads a punch, no cler
 	assert.ok(held && model && stepOf(held.step) < stepOf(model.stepId), "the scan ran before the Keeper's first model step and held him");
 });
 
-test("§139.25 policy: a cleared fight act holds the scan until a clerk fight step lands; a step that settles something else does not end it, and talk never starts it", () => {
+test("§143.25 policy: a cleared fight act holds the scan until a clerk fight step lands; a step that settles something else does not end it, and talk never starts it", () => {
 	const context = { scene: "office", clock: null, present: ["Steven Knott"], receipts: [] };
 	const rows = { act: [{ id: "social", describe: "social" }, { id: "combat", describe: "combat" }], addressee: [{ id: "Steven Knott", describe: { name: "Steven Knott" } }] };
 	const compiled = (act, addressee = "unclear") => {
@@ -1383,7 +1383,7 @@ test("§139.25 policy: a cleared fight act holds the scan until a clerk fight st
 	assert.equal(pending(punch), undefined, "the first blow landed: the scan after it runs as usual");
 });
 
-test("§139.25 on the emitted kernel: the punch named Knott and has not landed -- Edna, in the conversation and not the one it is aimed at, acts as engaged; once it lands, he acts", async (t) => {
+test("§143.25 on the emitted kernel: the punch named Knott and has not landed -- Edna, in the conversation and not the one it is aimed at, acts as engaged; once it lands, he acts", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "*": "对方往后缩了一下。" });
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
 	await call0(game);
@@ -1402,8 +1402,8 @@ test("§139.25 on the emitted kernel: the punch named Knott and has not landed -
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Ticket 29 (§139.28): a held person acts after the blow. Live table D2, turns 5, 10, 12 and 13: the punch was left to the
-// Keeper, §139.25 held Knott (`npc_held`, fight_pending), and the Keeper settled it itself -- its own `resolve`, then the
+// Ticket 29 (§143.28): a held person acts after the blow. Live table D2, turns 5, 10, 12 and 13: the punch was left to the
+// Keeper, §143.25 held Knott (`npc_held`, fight_pending), and the Keeper settled it itself -- its own `resolve`, then the
 // pending defence the kernel forced. The scan followed only clerk-landed steps, so he never acted on those turns: no stakes
 // die, no act, his reaction all the Keeper's prose. The blow that struck him now ends the hold and he acts once, before the
 // Keeper's next turn-writing model step.
@@ -1434,7 +1434,7 @@ const stepOf = (id) => Number(String(id).split(":s").at(-1));
 const modelSteps = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.type === "step_start" && row.kind === "infer").map((row) => stepOf(row.stepId));
 const releasedRows = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.event === "npc_released");
 
-test("§139.28 at the table (table D2 turn 5): the punch left to the Keeper holds him; the Keeper's own resolve lands the blow -- before its next model step he acts once, acted on", async (t) => {
+test("§143.28 at the table (table D2 turn 5): the punch left to the Keeper holds him; the Keeper's own resolve lands the blow -- before its next model step he acts once, acted on", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": "他捂着脸撞开椅子，朝门口喊人。" });
 	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
 		responses: [keeperSays(["resolve", { action: HIT }], ["resolve", { action: DODGE }], ["resolve", { action: PART }]),
@@ -1442,7 +1442,7 @@ test("§139.28 at the table (table D2 turn 5): the punch left to the Keeper hold
 	await table.session.prompt(PUNCH);
 	const telemetry = table.telemetry(CAMPAIGN);
 	assert.deepEqual(landedClerkSteps(telemetry).filter((row) => !/defend/.test(row.candidate)), [], "no clerk step of the declaration took the punch");
-	assert.deepEqual(heldRows(telemetry).map((row) => [row.npc, row.trigger, row.reason]), [["steven-knott", "engaged", "fight_pending"]], "held before the Keeper's step, as §139.25 has it");
+	assert.deepEqual(heldRows(telemetry).map((row) => [row.npc, row.trigger, row.reason]), [["steven-knott", "engaged", "fight_pending"]], "held before the Keeper's step, as §143.25 has it");
 	const blow = turnRecord(table, 2).receipts.find((receipt) => receipt.kind === "roll" && receipt.family === "combat" && receipt.combat_action === "attack" && receipt.npc === "steven-knott");
 	assert.ok(blow, "the Keeper's resolve made the attack against him");
 	const [released] = releasedRows(telemetry);
@@ -1458,7 +1458,7 @@ test("§139.28 at the table (table D2 turn 5): the punch left to the Keeper hold
 	assert.ok(turnRecord(table, 2).receipts.some((receipt) => receipt.family === "stakes" && receipt.actor === "steven-knott"), "the stakes die was rolled for him");
 });
 
-test("§139.28 at the table: the Keeper does something else to him and never settles the punch -- a roll made against him that no fight wrote -- he stays held, nothing acts", async (t) => {
+test("§143.28 at the table: the Keeper does something else to him and never settles the punch -- a roll made against him that no fight wrote -- he stays held, nothing acts", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": "他往后缩了一下。" });
 	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
 		responses: [keeperSays(["resolve", { action: { intent: "social", goal: "逼他交出钥匙", method: "揪住衣领威吓", skill: "Intimidate", target: "Steven Knott" } }]),
@@ -1474,7 +1474,7 @@ test("§139.28 at the table: the Keeper does something else to him and never set
 	assert.equal(npcAct.calls.length, 0, "nothing generated for him");
 });
 
-test("§139.28 at the table: the Keeper writes the punch as damage with no roll (its damage effect) -- the hit points he lost end the hold, and he acts once", async (t) => {
+test("§143.28 at the table: the Keeper writes the punch as damage with no roll (its damage effect) -- the hit points he lost end the hold, and he acts once", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": "他捂着脸往门口退。" });
 	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
 		responses: [keeperSays(["apply", { effects: [{ kind: "damage", subject: "Steven Knott", dice: "1D3", why: "the punch lands" }] }]),
@@ -1488,7 +1488,7 @@ test("§139.28 at the table: the Keeper writes the punch as damage with no roll 
 	assert.equal(npcAct.calls.length, 1);
 });
 
-test("§139.28 at the table: the blow lands through the kernel's forced defence and the fight goes on -- his reaction is his own turn of it, once; the scan the blow owes does not run him again", async (t) => {
+test("§143.28 at the table: the blow lands through the kernel's forced defence and the fight goes on -- his reaction is his own turn of it, once; the scan the blow owes does not run him again", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": "他抓起桌上的烟灰缸砸过来。" });
 	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
 		responses: [keeperSays(["resolve", { action: HIT }]), keeperSays(["narrate", { text: "两人扭打在一起。" }])] });
@@ -1497,14 +1497,14 @@ test("§139.28 at the table: the blow lands through the kernel's forced defence 
 	assert.ok(landedClerkSteps(telemetry).some((row) => /defend/.test(row.candidate)), "the clerk took the pending defence the kernel forced");
 	assert.equal(releasedRows(telemetry).length, 1, "the blow the forced defence settled ended the hold");
 	const rows = npcActRows(table);
-	assert.deepEqual(rows.map((row) => [row.npc, row.trigger]), [["steven-knott", "turn"]], "one act: his own turn of the fight (§139.4), unchanged");
+	assert.deepEqual(rows.map((row) => [row.npc, row.trigger]), [["steven-knott", "turn"]], "one act: his own turn of the fight (§143.4), unchanged");
 	assert.equal(npcAct.calls.length, 1);
 	const scans = telemetry.filter((row) => row.lane === "run" && row.type === "operation_prepared" && String(row.label).startsWith("The people present who were acted on"));
 	assert.equal(scans.length, 2, "the scan that held him, and the one the blow owed -- which ran no one: he is in the fight and has acted");
 	assert.ok(stepOf(rows[0].step) < stepOf(scans[1].stepId) && stepOf(scans[1].stepId) < modelSteps(telemetry)[1], "his turn, then the owed scan, then the Keeper's next step");
 });
 
-test("§139.28 policy: a blow that struck the held person ends the hold and owes the scan before the Keeper's next turn-writing step, whoever wrote it; no blow, or no declared fight, owes nothing", () => {
+test("§143.28 policy: a blow that struck the held person ends the hold and owes the scan before the Keeper's next turn-writing step, whoever wrote it; no blow, or no declared fight, owes nothing", () => {
 	const context = { scene: "office", clock: null, present: ["Steven Knott"], receipts: [] };
 	const rows = { act: [{ id: "social", describe: "social" }, { id: "combat", describe: "combat" }], addressee: [{ id: "Steven Knott", describe: { name: "Steven Knott" } }] };
 	const compiled = (act) => {
@@ -1549,7 +1549,7 @@ test("§139.28 policy: a blow that struck the held person ends the hold and owes
 	assert.deepEqual([talk.fightLanded, talk.landed ?? []], [undefined, []]);
 });
 
-test("§139.28 struck: the receipts done to him (the kernel's acted_on) that are a blow -- a fight wrote them, or he lost hit points -- and came after the hold; never a social roll, never one already there", () => {
+test("§143.28 struck: the receipts done to him (the kernel's acted_on) that are a blow -- a fight wrote them, or he lost hit points -- and came after the hold; never a social roll, never one already there", () => {
 	const receipts = [
 		{ id: "roll:fighting-brawl-t2-c2", kind: "roll", family: "combat", npc: "steven-knott", combat_action: "attack" },
 		{ id: "delta:hp-t2-c2", kind: "delta", family: "combat", subject: "steven-knott", resource: "hp", before: 11, after: 8 },
@@ -1571,12 +1571,12 @@ test("§139.28 struck: the receipts done to him (the kernel's acted_on) that are
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Ticket 20 (§139.19): a thing of the table's own, brought out on a surprise, is his from the next turn on.
+// Ticket 20 (§143.19): a thing of the table's own, brought out on a surprise, is his from the next turn on.
 // ---------------------------------------------------------------------------------------------------
 
 const PHOTO = "一张泛黄的全家福", SHOW = "他从上衣内袋摸出一张泛黄的全家福，举到你眼前。", QUIET = "他把照片攥在胸前，一句话也不说。";
 
-test("§139.19: a surprise, a produces no record of the book is -- Jev says none, one object of the table's own is placed in his hands, with no number, and the next turn's packet holds it", async (t) => {
+test("§143.19: a surprise, a produces no record of the book is -- Jev says none, one object of the table's own is placed in his hands, with no number, and the next turn's packet holds it", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [{ act: SHOW, produces: PHOTO }, QUIET] });
 	const game = await seam(t, { npcAct, stakes: stakesView("escalates", true), act: () => ({ way: "intention_only", produce: "none" }) });
 	await call0(game);
@@ -1604,7 +1604,7 @@ test("§139.19: a surprise, a produces no record of the book is -- Jev says none
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Ticket 28 (§139.27) on the emitted kernel: a thing already at the table is no surprise. The stub Jev stands in for the
+// Ticket 28 (§143.27) on the emitted kernel: a thing already at the table is no surprise. The stub Jev stands in for the
 // judgement by reading the batch's own state: `known` when the situation it was given already shows what `produces`
 // names. Nothing in the step reads the words; the batch carries the question and the facts.
 // ---------------------------------------------------------------------------------------------------
@@ -1612,7 +1612,7 @@ test("§139.19: a surprise, a produces no record of the book is -- Jev says none
 const seenAtTheTable = (batch) => JSON.stringify(batch.state.situation ?? {}).includes(batch.state.produces) ? "known" : "new";
 const SHOW_AGAIN = "他又把那张泛黄的全家福举到你眼前。";
 
-test("§139.27: a thing already in his hands is no surprise -- Jev says known, nothing is placed or drawn, the row says produces_known; the first time, new, it was placed as before", async (t) => {
+test("§143.27: a thing already in his hands is no surprise -- Jev says known, nothing is placed or drawn, the row says produces_known; the first time, new, it was placed as before", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [{ act: SHOW, produces: PHOTO }, { act: SHOW_AGAIN, produces: PHOTO }] });
 	const game = await seam(t, { npcAct, stakes: stakesView("escalates", true), act: () => ({ way: "intention_only", produce: "none", known: seenAtTheTable }) });
 	await call0(game);
@@ -1646,7 +1646,7 @@ async function pistolAlreadyShown(t, shown) {
 	return { game, binds: game.decisions.filter((batch) => batch.family === NPC_ACT_BIND_FAMILY), row: knottActs(game).at(-1) };
 }
 
-test("§139.27: the pistol his last turn's line already showed is no surprise -- known over happened: no record looked up, nothing drawn", async (t) => {
+test("§143.27: the pistol his last turn's line already showed is no surprise -- known over happened: no record looked up, nothing drawn", async (t) => {
 	const { game, binds, row } = await pistolAlreadyShown(t, true);
 	assert.ok(binds[0].state.situation.happened.some((line) => line.includes(PISTOL)), "the packet's happened already shows it");
 	assert.equal(binds.length, 1, "no second batch: nothing to match to the book");
@@ -1655,7 +1655,7 @@ test("§139.27: the pistol his last turn's line already showed is no surprise --
 	assert.equal(JSON.parse(readFileSync(join(game.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8")).npc_weapons, undefined);
 });
 
-test("§139.27: the same pistol no line showed is a surprise as before -- new: the book's Derringer, drawn", async (t) => {
+test("§143.27: the same pistol no line showed is a surprise as before -- new: the book's Derringer, drawn", async (t) => {
 	const { game, binds, row } = await pistolAlreadyShown(t, false);
 	assert.equal(binds.length, 2, "the part, then the record within it");
 	assert.deepEqual([row.produced?.source, row.produced?.name, row.draw, row.produces_known], ["catalog", ".25 Derringer (1B)", "automatic_25_derringer", undefined]);
@@ -1664,11 +1664,11 @@ test("§139.27: the same pistol no line showed is a surprise as before -- new: t
 });
 
 // ---------------------------------------------------------------------------------------------------
-// Ticket 30 (§139.29) on the emitted kernel: what his own act brought out says so in the next packets. The copper badge of
+// Ticket 30 (§143.29) on the emitted kernel: what his own act brought out says so in the next packets. The copper badge of
 // table D2 came out on turn 6 and was shown again on turns 9, 14 and 15; the packet had it in `holdings` as a bare name.
 // ---------------------------------------------------------------------------------------------------
 
-test("§139.29: the thing his act brought out is in the next packet's at_hand.brought_out -- the turn, the act's row and where it stands -- and the bind batch carries it", async (t) => {
+test("§143.29: the thing his act brought out is in the next packet's at_hand.brought_out -- the turn, the act's row and where it stands -- and the bind batch carries it", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": [{ act: SHOW, produces: PHOTO }, QUIET] });
 	const game = await seam(t, { npcAct, stakes: stakesView("escalates", true), act: () => ({ way: "intention_only", produce: "none" }) });
 	await call0(game);

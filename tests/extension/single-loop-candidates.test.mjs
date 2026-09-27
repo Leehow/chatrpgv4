@@ -211,7 +211,7 @@ test("SL-07: a handout already handed over is never a candidate again -- by the 
 	assert.equal(buildCandidates(unmarked, "我看看那封信").filter((candidate) => candidate.family === "handout").length, 1);
 });
 
-test("an NPC's own turn of a fight is the forced npc_act step (§139.4) -- no closed bind over the actions the kernel issues him", async (t) => {
+test("an NPC's own turn of a fight is the forced npc_act step (§143.4) -- no closed bind over the actions the kernel issues him", async (t) => {
 	const { call } = kernel(t);
 	const turn = await fight(call);
 	await call("table.resolve", { call_id: `t${turn}-c3`, action: { intent: "combat", decision: "combat:defend", goal: "combat:defend", method: "combat:defend", actor: "steven-knott", defense: "dodge" } });
@@ -228,7 +228,7 @@ test("an NPC's own turn of a fight is the forced npc_act step (§139.4) -- no cl
 	const view = initialView({ runId: "r", rawInput: "我揍他", context, candidates: [], readFirst: false });
 	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
 	assert.deepEqual([view.pending[0].kind, view.pending[0].purpose, view.pending[0].candidate.key], ["direct", "execute", turnCandidate.key], "forced: it runs first");
-	// What his act can be bound to is the kernel's own read (§139.3): the fight's opponent and the weapon in his hands.
+	// What his act can be bound to is the kernel's own read (§143.3): the fight's opponent and the weapon in his hands.
 	const options = await call("npc.act.options", { name: "Steven Knott" });
 	const attack = options.ways.find((way) => way.way === "attack");
 	assert.deepEqual([attack.params.target.map((option) => option.value), attack.params.weapon.map((option) => option.value)], [["thomas-hayes"], ["unarmed"]]);
@@ -275,7 +275,7 @@ async function knottsTurn(call, disposition) {
 const withSession = (state, change) => ({ ...state, resolveOptions: { ...state.resolveOptions, context: { ...state.resolveOptions.context,
 	session: change(structuredClone(state.resolveOptions.context.session)) } } });
 
-test("§139.4 (replaces SL-08's forced attack): the kernel still issues his standing attack; the builder binds nothing from it -- his turn is his own act", async (t) => {
+test("§143.4 (replaces SL-08's forced attack): the kernel still issues his standing attack; the builder binds nothing from it -- his turn is his own act", async (t) => {
 	const { call } = kernel(t);
 	await knottsTurn(call, "fights_to_the_end");
 	const state = await reads(call);
@@ -298,7 +298,7 @@ test("§139.4 (replaces SL-08's forced attack): the kernel still issues his stan
 	assert.equal(next(view).kind, "direct");
 });
 
-test("§139.4 (retires §138.14's release): with an intention under way on his card his turn is still his own act -- no forced blow to release", async (t) => {
+test("§143.4 (retires §142.14's release): with an intention under way on his card his turn is still his own act -- no forced blow to release", async (t) => {
 	const { call } = kernel(t);
 	const { turn, n } = await knottsTurn(call, "fights_to_the_end");
 	await call("table.apply", { call_id: `t${turn}-c${n}`, effects: [{ kind: "npc", name: "Steven Knott", intends: "Get to the telephone and ring the police.", outcome: "attempted" }] });
@@ -315,7 +315,7 @@ test("§139.4 (retires §138.14's release): with an intention under way on his c
 	assert.deepEqual(situation.done.map((row) => [row.intent, row.status]), [["Get to the telephone and ring the police.", "attempted"]]);
 });
 
-test("§139.4: several weapons or targets are the act's parameters in the kernel's own read, never a bind the builder makes over the session view", async (t) => {
+test("§143.4: several weapons or targets are the act's parameters in the kernel's own read, never a bind the builder makes over the session view", async (t) => {
 	const { call } = kernel(t);
 	await knottsTurn(call, "fights_to_the_end");
 	const live = await reads(call);
@@ -327,11 +327,11 @@ test("§139.4: several weapons or targets are the act's parameters in the kernel
 	assert.ok(!options.ways.some((way) => way.way === "first_blow" || way.way === "leave"), "in a fight there is no first blow and no walking out");
 });
 
-test("§139.4: hold, flee, no standing or an untrusted one -- his turn of a fight is his own act; a Keeper's hold on his turn still passes it (§138.5)", async (t) => {
+test("§143.4: hold, flee, no standing or an untrusted one -- his turn of a fight is his own act; a Keeper's hold on his turn still passes it (§142.5)", async (t) => {
 	const { call } = kernel(t);
 	const { turn, n } = await knottsTurn(call, "fights_to_the_end");
 	const live = await reads(call);
-	// §138.5: a hold written on his own turn is how he spends it -- the kernel passes the turn on, so the fight no longer
+	// §142.5: a hold written on his own turn is how he spends it -- the kernel passes the turn on, so the fight no longer
 	// waits on him (the Keeper's veto of the table's act, spec D7).
 	const applied = await call("table.apply", { call_id: `t${turn}-c${n}`, effects: [{ kind: "npc", name: "Steven Knott", action: "hold", why: "He hesitates." }] });
 	assert.equal(applied.turn_passed[0].passed, "steven-knott");
@@ -411,15 +411,15 @@ const jevAnswer = (batch, pick) => {
 /** The alias the compile question gives a row, read from the question itself. */
 const rowAlias = (question, row) => Object.entries(question.criteria).find(([, value]) => value === row)?.[0];
 
-test("§139.16 (NAF-17): on the investigator's own turn the clerk takes a fight step only when the compile read the declaration as it; his own turn is untouched (§139.4)", async (t) => {
+test("§143.16 (NAF-17): on the investigator's own turn the clerk takes a fight step only when the compile read the declaration as it; his own turn is untouched (§143.4)", async (t) => {
 	const { call } = kernel(t);
 	const turn = await fight(call);
 	await call("table.resolve", { call_id: `t${turn}-c3`, action: { intent: "combat", decision: "combat:defend", goal: "combat:defend", method: "combat:defend", actor: "steven-knott", defense: "dodge" } });
-	// His turn (§139.4): the forced act of his own is no investigator's fight step and is never gated, whatever the compile read.
+	// His turn (§143.4): the forced act of his own is no investigator's fight step and is never gated, whatever the compile read.
 	const his = buildCandidates(await reads(call), "钱呢？你说的二十块，现在就给我。");
 	assert.deepEqual(his.filter((candidate) => candidate.forced).map((candidate) => candidate.clerk), ["npc_act"]);
 	assert.deepEqual(his.filter((candidate) => fightStep(candidate) || actGated(candidate, [])), [], "nothing of his is gated");
-	// The Keeper's hold passes his turn (§138.5): the investigator's own turn, the session issuing the attack and the flight.
+	// The Keeper's hold passes his turn (§142.5): the investigator's own turn, the session issuing the attack and the flight.
 	await call("table.apply", { call_id: `t${turn}-c4`, effects: [{ kind: "npc", name: "Steven Knott", action: "hold", why: "He backs to the window, hands up." }] });
 	const state = await reads(call);
 	assert.equal(state.resolveOptions.context.session.turn_of, "thomas-hayes");
@@ -472,7 +472,7 @@ test("§139.16 (NAF-17): on the investigator's own turn the clerk takes a fight 
 	assert.ok(flight.view.consumed.includes(ATTACK) && !flight.row.detail.offered_keys.includes(ATTACK), "decided by the compile, never offered to the route");
 });
 
-test("§139.16: a flight the session issues alone still owes a compile -- the only read that can open it to the clerk", () => {
+test("§143.16: a flight the session issues alone still owes a compile -- the only read that can open it to the clerk", () => {
 	// Nobody left to hit: the session issues the investigator no attack, only the flight.
 	const session = { kind: "combat", status: "active", round: 3, turn_of: "tom", pending_defense: null,
 		actions: [{ decision: "combat:flee", actor: "tom" }, { decision: "combat:end", actor: "tom" }],
