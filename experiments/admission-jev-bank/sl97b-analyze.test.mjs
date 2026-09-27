@@ -1,8 +1,15 @@
 // SL-97 phase 2a: the analysis and holdout helpers on synthetic rows. No retained evidence is read here.
 import {strict as assert} from 'node:assert';
 import {test} from 'node:test';
-import {armTable, batchClass, mixWeights, naturalShare, readRow, recombine, wilsonLower, wilsonUpper} from './sl97b-analyze.mjs';
+import {args, armTable, batchClass, mixWeights, naturalShare, readRow, recombine, wilsonLower, wilsonUpper} from './sl97b-analyze.mjs';
 import {holdout} from './sl97b-holdout.mjs';
+
+test('SL-97c: --labels parses to an override path, absent by default', () => {
+  const withLabels = args(['--bank', 'b.jsonl', '--out', 'o', '--arm', 'a=max:p.jsonl', '--labels', 'labels.json']);
+  assert.equal(withLabels.labels, 'labels.json');
+  const without = args(['--bank', 'b.jsonl', '--out', 'o', '--arm', 'a=max:p.jsonl']);
+  assert.equal(without.labels, undefined);
+});
 
 test('batch classes come from the closed effect kinds only', () => {
   assert.equal(batchClass(['apply time: minutes=5']), 'time');

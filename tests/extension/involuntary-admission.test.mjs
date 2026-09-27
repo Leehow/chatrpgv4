@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
-import {openTable} from './harness.mjs';
+import {admissionProposes, laneByLine, openTable} from './harness.mjs';
 import {
   ADMITTING_VERDICTS, REFUSING_VERDICTS, admissionRequest, admissionSystemPrompt, shapeVerdict,
 } from '../../extensions/kernel/admission.ts';
@@ -51,11 +51,11 @@ for (const verdict of ['not_player_action', 'not_authorized', 'uncertain', 'forc
         call('narrate', {text: 'You have a moment to take stock.'}),
         fauxAssistantMessage('after'),
       ],
-      // §143.15: an unrecognized verdict is a malformed answer, which the round asks for once more; `forced` answers twice.
-      laneResponses: {admission: Array.from({length: verdict === 'forced' ? 2 : 1}, () => fauxAssistantMessage(JSON.stringify({
+      // §32.12.3.1: each line is its own lane call; every call gets the same scripted verdict.
+      laneResponses: {admission: laneByLine([[/apply/, JSON.stringify({
         verdict, grounds: 'Scripted boundary check, not a semantic judgment',
         ...(['not_authorized', 'uncertain'].includes(verdict) ? {missing: 'whether to accept the commitment'} : {}),
-      })))},
+      })]])},
     });
     t.after(() => table.dispose());
     await table.session.prompt('I try to keep my balance.');
@@ -63,16 +63,24 @@ for (const verdict of ['not_player_action', 'not_authorized', 'uncertain', 'forc
     assert.equal(applied.length, verdict === 'not_player_action' ? 1 : 0);
     if (applied.length) assert.deepEqual(applied[0].params.effects, effects);
     const requests = table.lanes.admission.requests();
-    assert.equal(requests.length, verdict === 'forced' ? 2 : 1, 'even a claimed consequence is reviewed, and refusals cannot be reworded away');
-    assert.match(requests[0], /to="lower-chamber"/);
-    assert.match(requests[0], /minutes=2/);
     const telemetry = table.telemetry().filter(row => row.lane === 'admission');
-    if (verdict !== 'forced') assert.equal(telemetry[0].admitted, verdict === 'not_player_action');
-    else assert.ok(telemetry.every(row => row.admitted !== true), 'unavailable review records no admission');
+    // Even a claimed consequence is reviewed, one call per line; a not_authorized line decides the batch at once, so the
+    // other lines may be stopped before they reach the lane.
+    // §143.15: an unrecognized verdict is a malformed answer, which each line's round asks for once more.
+    const perLine = verdict === 'forced' ? 2 : 1;
+    assert.ok(requests.length >= 1 && requests.length <= effects.length * perLine, `${requests.length} lane calls`);
+    assert.ok(requests.every(request => admissionProposes(request).split('\n').filter(line => line.startsWith('- ')).length === 1), 'one line per call');
+    if (verdict !== 'not_authorized') {
+      assert.equal(requests.length, effects.length * perLine);
+      assert.match(requests.map(admissionProposes).join('\n'), /to="lower-chamber"[\s\S]*minutes=2|minutes=2[\s\S]*to="lower-chamber"/);
+    }
+    if (verdict !== 'forced') assert.ok(telemetry.every(row => row.batch_admitted === (verdict === 'not_player_action')), JSON.stringify(telemetry));
+    else assert.ok(telemetry.every(row => row.admitted !== true && row.batch_admitted === false), 'unavailable review records no admission');
     if (verdict === 'not_authorized') {
-      assert.match(requests[0], /delta=-5/);
-      assert.equal(telemetry[1].reused, true);
-      assert.equal(telemetry[1].admitted, false);
+      // Refusals cannot be reworded away: the reworded batch is refused at once on the lines' kept verdicts, no new call.
+      const reused = telemetry.filter(row => row.reused);
+      assert.ok(reused.length >= 1 && reused.every(row => row.admitted === false), JSON.stringify(telemetry));
+      assert.ok(telemetry.filter(row => !row.reused).every(row => row.verdict === 'not_authorized'));
     }
     if (verdict === 'forced') {
       assert.ok(table.session.messages.some(row => row.role === 'toolResult' && JSON.stringify(row).includes('admission_unavailable')),

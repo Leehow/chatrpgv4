@@ -26,14 +26,17 @@ import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease, hostClock, type TaskClock } from "../../runtime/jev/task-context.ts";
 import {
-	ADMISSION_JEV_DEFAULT_MIN_CONFIDENCE,
 	ADMISSION_JEV_FAMILY,
 	ADMISSION_JEV_MODEL,
 	admissionJevBindings,
 	runAdmissionJev,
 	batchVerdict,
 	type AdmissionJevInput,
+	type AdmissionJevResult,
+	type AdmissionTypedDesign,
 } from "../../runtime/jev/admission-domain.ts";
+import { ADMISSION_ROLES_FAMILY, admissionRolesBindings, runAdmissionRoles } from "../../runtime/jev/admission-roles-domain.ts";
+import { admissionTypedBudget, type AdmissionTypedBudget } from "../../runtime/jev/host-budgets.ts";
 import { COMPILE_PREDICATES } from "../../runtime/jev/route-compile.ts";
 
 /** The closed set of verdicts; anything else is `bad_output`. The first three admit, the last two refuse. */
@@ -98,51 +101,79 @@ export interface AdmissionVerdict {
 export type AdmissionPath = "compile" | "typed" | "typed_late" | "lane" | "none";
 
 /**
- * The primary reviewer (§32.10), `PI_COC_ADMISSION_REVIEWER`. `lane` is the §32.2 completion and
- * stays the default until live agreement evidence exists; `jev` puts the typed family first and
- * falls back to the lane for every non-verdict. Read per call: a process loads this once per table.
+ * Which reviewer gave a verdict (§32.10): the typed family, the lane, or the compile's evidence (§32.12). Since §32.12.3.2
+ * (SL-97 phase 2b) no setting picks the reviewer: `PI_COC_ADMISSION_REVIEWER` and `PI_COC_ADMISSION_JEV_MIN_CONFIDENCE`
+ * (§32.10's family rule, under which a v1 verdict at 0.9 stood, refusals included) are read by nothing.
  */
 export type AdmissionReviewer = "jev" | "lane" | "compile";
-export function admissionReviewer(env: NodeJS.ProcessEnv = process.env): AdmissionReviewer {
-	return env.PI_COC_ADMISSION_REVIEWER?.trim() === "jev" ? "jev" : "lane";
-}
 
-/** Cap on the typed attempt, `PI_COC_ADMISSION_JEV_TIMEOUT_MS`; its expiry falls back to the lane, never admits. */
+/** Cap on the typed attempt, `PI_COC_ADMISSION_JEV_TIMEOUT_MS`; its expiry leaves every line to the lane, never admits. */
 const DEFAULT_ADMISSION_JEV_TIMEOUT_MS = 4_000;
 export function admissionJevTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
 	const value = Number(env.PI_COC_ADMISSION_JEV_TIMEOUT_MS?.trim() || NaN);
 	return Number.isFinite(value) && value > 0 ? value : DEFAULT_ADMISSION_JEV_TIMEOUT_MS;
 }
 
-/** Family minimum verdict confidence, `PI_COC_ADMISSION_JEV_MIN_CONFIDENCE`, in (0, 1]. Uncalibrated policy. */
-export function admissionJevMinConfidence(env: NodeJS.ProcessEnv = process.env): number {
-	const value = Number(env.PI_COC_ADMISSION_JEV_MIN_CONFIDENCE?.trim() || NaN);
-	return Number.isFinite(value) && value > 0 && value <= 1 ? value : ADMISSION_JEV_DEFAULT_MIN_CONFIDENCE;
-}
-
 /**
- * The bookkeeping fast path (§32.11): the `apply` kinds a typed admission may settle on its own, a closed contract
- * enum. A batch whose every triggering kind is one of these is a bookkeeping batch; any other triggering kind (cash,
- * item, object, usage, map) keeps the batch with the configured reviewer. Never a reading of the prose.
+ * The closed set of line classes a typed admission may ever settle (§32.11's four kinds; §32.12.3.2). The data's class
+ * list (`admission.typed_settle.classes` in `content/rulesets/coc7/host-budgets.json`) is kept only inside it, so data can
+ * narrow the rule and never widen it to `cash` (§32.10's numeric commitment), `item`, `object`, `usage`, `map` (§32.11's
+ * consent-bearing kinds) or a `resolve` (an investigator's method and target). A closed contract enum, never the prose.
  */
 export const FAST_PATH_KINDS: ReadonlySet<string> = new Set(["move", "clue", "handout", "time"]);
 /**
- * `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE`: the review confidence at which a typed admission of a bookkeeping batch
- * stands alone. Default 0.87, measured (§32.11): the lowest threshold at which no lane refusal of the retained bank
- * was typed-admitted. `off` turns the fast path off. Read per review.
+ * The settle confidence when neither the data nor the environment gives one: SL-97's pre-registered threshold, at which
+ * revision 2a.3 settled 23 `time` batches of the holdout with no false admission against today's lane (§32.12.3.2).
  */
 export const ADMISSION_FAST_DEFAULT_MIN_CONFIDENCE = 0.87;
-export function admissionFastMinConfidence(env: NodeJS.ProcessEnv = process.env): number | undefined {
+/**
+ * `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE`: an operator's override of the data's settle confidence
+ * (`admission.typed_settle.min_confidence`), read per review; `off` turns typed settling off (every line to the lane).
+ */
+export function admissionFastMinConfidence(env: NodeJS.ProcessEnv = process.env, dataDefault = ADMISSION_FAST_DEFAULT_MIN_CONFIDENCE): number | undefined {
 	const raw = env.PI_COC_ADMISSION_FAST_MIN_CONFIDENCE?.trim();
 	if (raw === "off") return undefined;
 	const value = Number(raw || NaN);
-	return Number.isFinite(value) && value > 0 && value <= 1 ? value : ADMISSION_FAST_DEFAULT_MIN_CONFIDENCE;
+	return Number.isFinite(value) && value > 0 && value <= 1 ? value : dataDefault;
 }
-/** A bookkeeping batch (§32.11): an `apply` whose triggering kinds are all fast-path kinds. */
-export function bookkeepingBatch(proposal: AdmissionProposal): boolean {
-	if (proposal.tool !== "apply" || !proposal.kinds?.length) return false;
-	const triggering = proposal.kinds.filter((kind) => TRIGGER_KINDS.has(kind));
-	return triggering.length > 0 && triggering.every((kind) => FAST_PATH_KINDS.has(kind));
+
+/** The typed settle rule one review applies (§32.12.3.2), resolved once per review from data and the environment. */
+export interface TypedSettlePolicy {
+	/** The typed design every review reads (`admission.typed_design`). */
+	design: AdmissionTypedDesign;
+	/** The line classes whose typed admission may settle the line alone: the data's list inside `FAST_PATH_KINDS`; none under `v1`. */
+	classes: readonly string[];
+	/** The line confidence at or above which such a line settles; `undefined` when typed settling is off. */
+	minConfidence: number | undefined;
+}
+/** Pure (§32.12.3.2): the rule a review applies, from the data file's `admission` entry and the environment. */
+export function typedSettlePolicy(budget: AdmissionTypedBudget, env: NodeJS.ProcessEnv = process.env): TypedSettlePolicy {
+	// A `v1` reading is kept for comparison and settles nothing; only the measured design's may.
+	const classes = budget.design === "roles-2a.3" ? budget.settleClasses.filter((cls) => FAST_PATH_KINDS.has(cls)) : [];
+	return { design: budget.design, classes, minConfidence: admissionFastMinConfidence(env, budget.settleMinConfidence) };
+}
+/** The class of proposal line `index` (§32.12.3.2): its closed effect kind, `resolve` for a `resolve`. Never the prose. */
+export function lineClass(proposal: AdmissionProposal, index: number): string {
+	return proposal.tool === "resolve" ? "resolve" : proposal.kinds?.[index] ?? "?";
+}
+/**
+ * Whether a typed reading could ever settle line `index` under `policy`: its class is on the list, and inside §32.11's
+ * closed set whatever the list says (a hand-built policy naming `resolve` or `cash` still settles neither).
+ */
+export function settleableLine(proposal: AdmissionProposal, index: number, policy: TypedSettlePolicy): boolean {
+	const cls = lineClass(proposal, index);
+	return FAST_PATH_KINDS.has(cls) && policy.classes.includes(cls);
+}
+/**
+ * Pure (§32.12.3.2): whether the typed reading settles line `index` alone, without the lane. Its class is on the list,
+ * typed settling is on, the reading is a complete answer over the proposal's own lines, the line's verdict admits, and its
+ * confidence is at the settle confidence or above. A typed refusal never settles a line: the lane decides refusals.
+ */
+export function typedSettles(proposal: AdmissionProposal, typed: AdmissionJevResult | undefined, index: number, policy: TypedSettlePolicy): boolean {
+	if (policy.minConfidence === undefined || !settleableLine(proposal, index, policy)) return false;
+	if (typed?.status !== "decided" || typed.lines.length !== proposal.lines.length) return false;
+	const line = typed.lines[index];
+	return !!line && ADMITTING_VERDICTS.has(line.verdict) && line.confidence >= policy.minConfidence;
 }
 
 /** One proposal put to review: the tool, a host-owned reuse key, and the lines the reviewer reads. */
@@ -540,13 +571,27 @@ export type AdmissionOutcome =
 	 * hard cap) or the lane answered without grounds (`cause: "no_grounds"`, nothing running). The caller decides between
 	 * the late admission and `review_pending`. Never an admit by itself.
 	 */
-	| { ok: "late"; cause: "cap" | "no_grounds"; ms: number; capMs: number; hardCapMs: number; typed?: TypedReading; lane?: Promise<AdmissionOutcome>; meta: Record<string, unknown> }
+	| { ok: "late"; cause: "cap" | "no_grounds"; ms: number; capMs: number; hardCapMs: number; typed?: TypedReading; lane?: Promise<AdmissionOutcome>; meta: Record<string, unknown>;
+		/** §32.12.3.2: the line classes the typed reading may settle; the late admission is confined to them. */
+		settleClasses: readonly string[] }
 	/**
-	 * §32.12.3: the typed answer admitted some lines of an `apply` batch at the fast-path confidence and not the rest, and no
-	 * sufficient verdict stood for the whole. `cleared` are the admitted lines' indices; the batch's lane round has been
-	 * aborted, and the caller reviews the remainder on its own (`remainderAttempt` carries the typed answer to it).
+	 * §32.12.3: the typed answer admitted some lines of an `apply` batch and not the rest, and the caller reviews the
+	 * remainder on its own. Since §32.12.3.2 (SL-97 phase 2b) `reviewAdmissionPrimary` no longer returns it: a typed-settled
+	 * line is one line's outcome inside `ok: "lines"`, and the batch lands whole or not at all. Kept for the caller's
+	 * remainder machinery, which nothing reaches.
 	 */
-	| { ok: "split"; cleared: number[]; ms: number; attempt: TypedAttempt; capMs: number; hardCapMs: number; startedAt: number; meta: Record<string, unknown> };
+	| { ok: "split"; cleared: number[]; ms: number; attempt: TypedAttempt; capMs: number; hardCapMs: number; startedAt: number; meta: Record<string, unknown> }
+	/**
+	 * §32.12.3.1 (SL-101): an `apply` batch of more than one reviewed line was put to the lane one line per call, all at
+	 * once. `lines[i]` is line i's own outcome, exactly what a review of that line alone gives: a lane verdict, a lane
+	 * failure, `late` (its cap passed with its round still running, or it answered without grounds), or since §32.12.3.2 a
+	 * typed verdict (`path: "typed"`) when the typed reading settled that line and its lane call was cancelled. The caller
+	 * settles each line on its own (§32.4 keyed by line) and combines them into the batch's verdict (§32.10's mapping, as
+	 * §32.12.3 maps a remainder). `attempt` is the batch's typed answer when it came in.
+	 */
+	| { ok: "lines"; lines: AdmissionOutcome[]; ms: number; capMs: number; hardCapMs: number; startedAt: number; attempt?: TypedAttempt; meta: Record<string, unknown>;
+		/** Stops the rounds still running: a line already refused decides the batch (§32.10), so the rest need not answer. */
+		abort: () => void };
 
 export interface AdmissionReviewOptions {
 	providerBudget?: import('../../runtime/jev/provider-budget.ts').TaskProviderBudget;
@@ -621,20 +666,11 @@ export async function reviewAdmission(options: AdmissionReviewOptions): Promise<
 	return { ok: true, verdict: { ...answer, reviewer: "lane", path: "lane" }, ms, model: model ?? "", reviewer: "lane", meta };
 }
 
-/**
- * `apply` kinds whose line carries a number the player may have limited (§32.2's explicit limits
- * and undisclosed prices). Jev reads numbers as text (docs.typesafe.ai model-jaggedness, jev-1.13),
- * so a typed answer on such a batch never stands as the primary verdict. A closed contract enum, never a reading of prose.
- */
-const LANE_ONLY_KINDS: ReadonlySet<string> = new Set(["cash"]);
-
 export interface PrimaryAdmissionReviewOptions extends AdmissionReviewOptions {
 	campaign: string;
 	env?: NodeJS.ProcessEnv;
 	/** An explicit port for isolated tests and offline replay; production uses the shared adapter. */
 	decision?: DecisionPort;
-	/** §32.12.3: an `apply` batch's typed answer may admit its lines one by one (`ok: "split"`). The caller's top-level review only. */
-	lineLevel?: boolean;
 	/** §32.12.3: a typed answer already in hand (the remainder's share of the batch's); no typed call is made. */
 	typedAttempt?: TypedAttempt;
 	/** When the call's review began: the cap and the hard cap are measured from it (§32.12.2), across a split (§32.12.3). */
@@ -644,28 +680,8 @@ export interface PrimaryAdmissionReviewOptions extends AdmissionReviewOptions {
 }
 
 /** One typed answer as the review keeps it: Jev's result (or none) and its telemetry. */
-export type TypedAttempt = { typed: Awaited<ReturnType<typeof runAdmissionJev>> | undefined; meta: Record<string, unknown> };
+export type TypedAttempt = { typed: AdmissionJevResult | undefined; meta: Record<string, unknown> };
 
-/**
- * §32.12.3: the kinds whose line the typed reviewer may admit on its own inside a batch -- §32.11's fast-path kinds and
- * §32.1's non-triggering kinds (which need no review on their own). Never `cash` (§32.10's numeric commitment), `item`,
- * `object`, `usage` or `map` (§32.11). A closed contract enum, never a reading of the prose.
- */
-export function lineClearable(kind: string): boolean {
-	return FAST_PATH_KINDS.has(kind) || !TRIGGER_KINDS.has(kind);
-}
-/**
- * Pure (§32.12.3). The lines of an `apply` batch the typed answer admits on their own: a clearable kind, an admitting line
- * verdict, and a line confidence at the fast-path confidence or above. Empty when the batch is not an `apply`, the answer
- * has no lines, or the fast path is off.
- */
-export function clearedLines(proposal: AdmissionProposal, typed: TypedAttempt["typed"] | undefined, minConfidence: number | undefined): number[] {
-	if (proposal.tool !== "apply" || minConfidence === undefined || !proposal.kinds?.length) return [];
-	const lines = typed?.lines;
-	if (!lines || lines.length !== proposal.lines.length) return [];
-	return lines.flatMap((line, index) => lineClearable(proposal.kinds![index] ?? "?") && ADMITTING_VERDICTS.has(line.verdict)
-		&& line.confidence >= minConfidence ? [index] : []);
-}
 /**
  * §32.12.3: the typed answer the remainder of a split batch is reviewed with -- the batch's own answer on the lines that
  * stayed behind, mapped as §32.10 maps a batch (the first refusing line decides; the confidence is the lowest). Where the
@@ -689,14 +705,84 @@ export function remainderAttempt(attempt: TypedAttempt, keep: number[]): TypedAt
 	};
 }
 
-/** One typed attempt (§32.10's family) under the review's own signal, budget and deadline. Never throws. */
-async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.ProcessEnv, began: number, minConfidence: number): Promise<TypedAttempt> {
-	const context = options.context;
+/**
+ * §32.12.3.1 (SL-101): whether a proposal's lane review is one call per line. Only an `apply` batch with more than one
+ * reviewed line: a `resolve` is one line, and a one-line batch is reviewed exactly as before.
+ */
+export function reviewedPerLine(proposal: AdmissionProposal): boolean {
+	return proposal.tool === "apply" && proposal.lines.length > 1;
+}
+/**
+ * §32.12.3.1: line `index` of a batch as the lane reads it -- the batch's proposal with exactly that one line (and its
+ * kind and effect index). The key is the batch's: the lane never reads it, and the caller keys each line's verdict by the
+ * key a call of only that line would have (§32.4).
+ */
+export function lineProposal(proposal: AdmissionProposal, index: number): AdmissionProposal {
+	return { ...proposal, lines: [proposal.lines[index]!], ...(proposal.kinds ? { kinds: [proposal.kinds[index] ?? "?"] } : {}),
+		...(proposal.effects ? { effects: [proposal.effects[index]!] } : {}) };
+}
+/**
+ * §32.12.3.1: the batch's typed answer as line `index` reads it on its own -- that line's verdict and confidence, which
+ * is what its late admission (§32.12.2, per call) and its pending details read. A typed non-verdict stays one.
+ */
+export function lineReading(attempt: TypedAttempt | undefined, index: number): TypedReading | undefined {
+	const answer = attempt?.typed;
+	if (!answer) return undefined;
+	if (answer.status !== "decided" || !answer.lines?.[index]) return readingOf(answer);
+	return readingOf(remainderAttempt(attempt!, [index]).typed);
+}
+
+/**
+ * §32.12.3.1: the refusal of a proposal whose lines were reviewed one per call, from the refusals of the lines that were
+ * not admitted -- §32.10's mapping, under which a batch is admitted only when every line admits. A line refused on grounds
+ * decides (`not_authorized` before `uncertain`, the first such line in the batch's order, as §32.10 names line k);
+ * otherwise a line whose review was unavailable (§32.2), then one whose resend ran out of its hard cap (`review_timeout`),
+ * then the lines still under review (`review_pending`, §32.12.2), on which alone the batch is pending. The deciding line's
+ * refusal is the batch's (its code, message, fix and details), with every line of the batch proposed, `line_outcomes`
+ * naming each line that was not admitted and why, and for a pending batch `pending_lines` and the longest `wait_ms`.
+ */
+export function batchRefusal(tool: AdmissionProposal["tool"], proposed: string[], entries: Array<{ line: string; error: KernelError }>): KernelError {
+	const reasonOf = (error: KernelError) => String(error.details?.reason ?? error.code);
+	const find = (test: (error: KernelError) => boolean) => entries.find((entry) => test(entry.error));
+	const deciding = find((error) => reasonOf(error) === "action_not_authorized" && error.details?.verdict === "not_authorized")
+		?? find((error) => reasonOf(error) === "action_not_authorized")
+		?? find((error) => reasonOf(error) === "admission_unavailable")
+		?? find((error) => reasonOf(error) === REVIEW_TIMEOUT)
+		?? find((error) => reasonOf(error) === REVIEW_PENDING)
+		?? entries[0]!;
+	const error = deciding.error;
+	const pick = ["verdict", "missing", "grounds", "cause", "streak", "cap_ms", "wait_ms"];
+	const outcomes = entries.map((entry) => ({ line: entry.line, reason: reasonOf(entry.error),
+		...Object.fromEntries(pick.filter((key) => entry.error.details?.[key] !== undefined).map((key) => [key, entry.error.details![key]])) }));
+	const pending = reasonOf(error) === REVIEW_PENDING ? entries.filter((entry) => reasonOf(entry.error) === REVIEW_PENDING) : [];
+	const waits = pending.map((entry) => Number(entry.error.details?.wait_ms)).filter(Number.isFinite);
+	return new KernelError({ code: error.code, message: error.message, ...(error.fix ? { fix: error.fix } : {}), retryable: error.retryable, next: error.next,
+		details: { ...(error.details ?? {}), proposed, tool, line_outcomes: outcomes,
+			...(pending.length ? { pending_lines: pending.map((entry) => entry.line), ...(waits.length ? { wait_ms: Math.max(...waits) } : {}) } : {}) } });
+}
+
+/**
+ * §32.12.3.2 (SL-97 phase 2b): the typed designs behind §32.10's family interface -- the family id each sends under, its
+ * bindings and its run. Which one reads a review is data (`admission.typed_design`).
+ */
+const TYPED_DESIGNS: Record<AdmissionTypedDesign, { family: string; bindings: typeof admissionJevBindings; run: typeof runAdmissionJev }> = {
+	"roles-2a.3": { family: ADMISSION_ROLES_FAMILY, bindings: admissionRolesBindings, run: runAdmissionRoles },
+	v1: { family: ADMISSION_JEV_FAMILY, bindings: admissionJevBindings, run: runAdmissionJev },
+};
+
+/**
+ * One typed attempt (§32.10's family interface, §32.12.3.2's design) under the review's own signal, budget and deadline.
+ * It reads every answer (minimum confidence 0); the review applies the settle rule itself. Never throws.
+ */
+async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.ProcessEnv, began: number, design: AdmissionTypedDesign): Promise<TypedAttempt> {
+	const context = options.context, proposal = options.proposal;
 	const input: AdmissionJevInput = {
 		campaign: options.campaign,
 		turn: context.turn,
-		tool: options.proposal.tool,
-		proposal: [...options.proposal.lines],
+		tool: proposal.tool,
+		proposal: [...proposal.lines],
+		// The closed effect kind of each line, beside it in the role-first design's state (never read from the prose).
+		...(proposal.tool === "apply" && proposal.kinds ? { kinds: [...proposal.kinds] } : {}),
 		playerText: context.playerText,
 		...(context.interruptedPlayerText ? { interruptedPlayerText: context.interruptedPlayerText } : {}),
 		investigators: context.investigators.map((row) => ({ name: row.name, ...(row.occupation ? { occupation: row.occupation } : {}) })),
@@ -707,28 +793,29 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 		refused: [...context.refused],
 		...(context.bookText?.length ? { bookText: context.bookText.map((row) => ({ ...row })) } : {}),
 	};
-	let typed: Awaited<ReturnType<typeof runAdmissionJev>> | undefined;
+	const family = TYPED_DESIGNS[design];
+	let typed: AdmissionJevResult | undefined;
 	let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
 	try {
 		const deadlineAt = Math.min(began + admissionJevTimeoutMs(env), options.providerBudget?.deadlineAt ?? Infinity);
 		const clocked = options.clock ? { clock: options.clock } : {};
 		const outer = options.signal ?? new AbortController().signal;
 		const signal = options.providerBudget ? AbortSignal.any([outer, options.providerBudget.signal]) : outer;
-		const bindings = admissionJevBindings(input);
+		const bindings = family.bindings(input);
 		accounting = preparationBudget({
 			// SL-84 (contract §122 addendum): the adapter's own trace, otherwise unrecorded, writes the
 			// `attempt_failed`/`batch_failed` rows through this call's own telemetry sink.
 			decision: options.decision ?? createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
-				[ADMISSION_JEV_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } }, trace: jevFailureTelemetry((row) => { void options.record(row); }),
+				[family.family]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } }, trace: jevFailureTelemetry((row) => { void options.record(row); }),
 				// The adapter measures what is left of the lease's deadline, so it reads the clock the deadline is on.
 				...(options.clock ? { now: () => options.clock!.now() } : {}) }),
 			campaign: options.campaign, deadlineAt, signal, ...(options.providerBudget ? { parent: options.providerBudget } : {}),
-			owner: ADMISSION_JEV_FAMILY, goal: "Judge whether the player chose the proposed action", ...clocked,
+			owner: family.family, goal: "Judge whether the player chose the proposed action", ...clocked,
 		});
-		lease = new TaskLease({ owner: ADMISSION_JEV_FAMILY, goal: "Judge whether the player chose the proposed action",
+		lease = new TaskLease({ owner: family.family, goal: "Judge whether the player chose the proposed action",
 			scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet, signal, ...clocked,
 			budget: { deadlineAt, remainingInputTokens: 200_000, remainingOutputTokens: 20_000, remainingCostUsd: 0.02, remainingActions: 4 } });
-		typed = await runAdmissionJev(input, accounting.decision, lease, { minConfidence });
+		typed = await family.run(input, accounting.decision, lease, { minConfidence: 0 });
 	} catch {
 		typed = undefined;
 	} finally {
@@ -736,6 +823,7 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 		accounting?.close();
 	}
 	const meta: Record<string, unknown> = typed ? {
+		typed_design: design,
 		jev_ms: typed.elapsedMs,
 		jev_calls: typed.calls,
 		jev_input_tokens: typed.usage.inputTokens,
@@ -745,7 +833,7 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 		...(typed.lines ? { line_confidences: typed.lines.map((line) => line.confidence) } : {}),
 		// SL-84: the last attempt's HTTP status or network/timeout code, so a `service_error` fallback reason is legible.
 		...(typed.status === "fallback" && typed.jevStatus !== undefined ? { jev_status: typed.jevStatus } : {}),
-	} : { jev_calls: 0, jev_ms: (options.clock ?? hostClock).now() - began };
+	} : { typed_design: design, jev_calls: 0, jev_ms: (options.clock ?? hostClock).now() - began };
 	return { typed, meta };
 }
 
@@ -757,144 +845,243 @@ function readingOf(typed: TypedAttempt["typed"]): TypedReading | undefined {
 		...(typed.lines ? { lineVerdicts: typed.lines.map((line) => line.verdict) } : {}) };
 }
 
+const isLaneVerdict = (value?: AdmissionOutcome): boolean => value?.ok === true && value.verdict.verdict !== REVIEW_TIMEOUT;
+const isNoGrounds = (value?: AdmissionOutcome): boolean => value?.ok === false && value.reason === NO_GROUNDS;
+
 /**
- * The primary review (§32.10, §32.11, §32.12.2). The lane (§32.2) and the typed family (§32.10) start at the same moment
- * and the first **sufficient** verdict wins; the other is abandoned (the lane's round is aborted).
+ * The primary review (§32.10, §32.12.2, §32.12.3.1, §32.12.3.2). The lane (§32.2) -- one call per line for an `apply` batch
+ * of more than one reviewed line -- and one typed attempt over the whole proposal start at the same moment.
  *
- * - The lane's verdict is sufficient when it carries grounds. A lane answer without grounds is no answer.
- * - A typed verdict is sufficient only where §32.10/§32.11 let it stand alone: on a bookkeeping batch, every line
- *   admitting at the fast-path confidence (§32.11); with Jev as the configured reviewer, any verdict at the family
- *   confidence, except on a batch carrying `cash` (§32.10's numeric commitment). A typed refusal never stands on the fast path.
- * - The lane's own failure is an outage (§32.2) unless a typed verdict stands.
- * - At the cap (`timeoutMs`, `PI_COC_ADMISSION_TIMEOUT_MS`) with nothing sufficient, or when the lane answered without
- *   grounds, the review returns `ok: "late"` with the typed reading and the lane still running (until the hard cap, twice
- *   the cap): the caller admits it late or returns it pending. This function never admits on a failure.
+ * - A line's lane verdict is sufficient when it carries grounds; it stands whatever the typed reading says. A lane answer
+ *   without grounds is no answer.
+ * - The typed reading settles a line alone only under §32.12.3.2's rule (`typedSettles`): the line's class on the data's
+ *   list and its admitting confidence at the settle confidence or above, while that line's lane has given no verdict. Its
+ *   lane call is then cancelled, and only its own: the other lines' calls run on. A typed refusal never stands: the lane
+ *   decides refusals. A batch partly typed-settled and partly lane-reviewed lands whole or not at all (§32.10's mapping,
+ *   applied by the caller).
+ * - A line's lane failure is §32.2's outage unless the typed reading settles that line. The review waits for the typed
+ *   answer (bounded by its own cap) only where it can still matter: a line it could settle, or one whose lane answered
+ *   without grounds (its late admission and pending details read the typed reading). Nowhere else does a line wait for it,
+ *   so a line the typed reading does not settle costs no wall time over the lane alone.
+ * - At the cap (`timeoutMs`) a line with nothing sufficient, or a line whose lane answered without grounds, is `late`, with
+ *   the typed reading and its lane still running (until the hard cap): the caller admits it late or returns it pending.
+ *   This function never admits on a failure.
  *
- * Never throws; every outcome names its `path` (whose verdict stood).
+ * Never throws; every outcome names its `path` (whose verdict stood), and every line's row its reviewer, its class, its
+ * typed confidence and whether its lane call was cancelled.
  */
 export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOptions): Promise<AdmissionOutcome> {
 	const env = options.env ?? process.env;
-	const reviewer = admissionReviewer(env), familyMin = admissionJevMinConfidence(env);
-	const fastMin = bookkeepingBatch(options.proposal) ? admissionFastMinConfidence(env) : undefined;
-	const numeric = options.proposal.kinds?.some((kind) => LANE_ONLY_KINDS.has(kind)) ?? false;
+	// §32.12.3.2: the design and the settle rule are data (`admission` in host-budgets.json), read once per process.
+	const policy = typedSettlePolicy(await admissionTypedBudget(), env);
+	const proposal = options.proposal;
 	const capMs = options.timeoutMs ?? admissionTimeoutMs(env), hardCapMs = options.hardCapMs ?? admissionHardCapMs(capMs);
 	const clock = options.clock ?? hostClock;
 	const began = options.startedAt ?? clock.now();
-	const fast = fastMin === undefined ? {} : { fast_path: true, fast_min_confidence: fastMin };
-	// §32.12.3: the line threshold is the fast-path confidence, on any `apply` batch; the fast path's `off` turns it off too.
-	const lineMin = options.lineLevel && options.proposal.tool === "apply" ? admissionFastMinConfidence(env) : undefined;
-	// Whether a typed answer could stand at all on this batch; when it could not, the row names no typed fallback.
-	const primary = fastMin !== undefined || reviewer === "jev" || lineMin !== undefined || options.typedAttempt !== undefined;
+	const settles = (attempt: TypedAttempt | undefined, index: number) => typedSettles(proposal, attempt?.typed, index, policy);
+	const settleable = (index: number) => policy.minConfidence !== undefined && settleableLine(proposal, index, policy);
 	const stop = new AbortController();
 	// A review that began here waits its whole cap; a remainder resumed from a split waits only what is left of the batch's
 	// (§32.12.3).
 	const left = (ms: number) => options.startedAt === undefined ? ms : Math.max(1, ms - (clock.now() - began));
-	const lane = reviewAdmission({ ...options, signal: options.signal ? AbortSignal.any([options.signal, stop.signal]) : stop.signal,
-		timeoutMs: left(hardCapMs) });
-	// The typed attempt reads every answer (minimum 0) and this function applies each threshold itself: one call serves all.
-	const typed = options.typedAttempt ? Promise.resolve(options.typedAttempt) : typedAttempt(options, env, began, 0);
-	const stands = (attempt: TypedAttempt): string | undefined => {
-		const answer = attempt.typed;
-		if (answer?.status !== "decided") return undefined;
-		if (fastMin !== undefined && ADMITTING_VERDICTS.has(answer.verdict) && answer.confidence >= fastMin) return "fast_path";
-		if (reviewer === "jev" && !numeric && answer.confidence >= familyMin) return "family";
-		return undefined;
+	// §32.12.3.1 (SL-101): a batch of more than one reviewed line goes to the lane one line per call, all at once, on the
+	// same model, each with the same §32.3 context and exactly one proposed line. Every round has its own hard cap, measured
+	// from this review's start like the batch's single round was; a one-line batch and a `resolve` keep the one round.
+	const perLine = reviewedPerLine(proposal);
+	// §32.12.3.2: every round has its own stop beside the review's, so the line the typed reading settles cancels its own
+	// lane call and no other.
+	const lineStops = proposal.lines.map(() => new AbortController());
+	const roundSignal = (index: number) => AbortSignal.any([...(options.signal ? [options.signal] : []), stop.signal, lineStops[index]!.signal]);
+	const rounds = perLine
+		? proposal.lines.map((_, index) => reviewAdmission({ ...options, proposal: lineProposal(proposal, index), signal: roundSignal(index), timeoutMs: left(hardCapMs) }))
+		: [reviewAdmission({ ...options, signal: roundSignal(0), timeoutMs: left(hardCapMs) })];
+	const lane = rounds[0]!;
+	const typed = options.typedAttempt ? Promise.resolve(options.typedAttempt) : typedAttempt(options, env, began, policy.design);
+	/**
+	 * What one line's row says of the typed reading (§32.12.3.2): the design, the line's class, its typed confidence and
+	 * whether its lane call was cancelled; for a class the reading may settle, the settle confidence and -- when it did not
+	 * settle -- why (`jev_fallback`: `lane_first`, `typed_refusal`, `low_confidence`, or the typed non-verdict's reason).
+	 */
+	const lineMeta = (index: number, attempt: TypedAttempt | undefined, how: { settled?: boolean; cancelled?: boolean; laneFirst?: boolean } = {}): Record<string, unknown> => {
+		const answer = attempt?.typed;
+		const line = answer?.status === "decided" ? answer.lines[index] : undefined;
+		const base = { ...(attempt?.meta ?? {}), typed_design: policy.design, line_class: lineClass(proposal, index),
+			typed_confidence: line?.confidence ?? null, lane_cancelled: how.cancelled === true };
+		if (!settleable(index)) return base;
+		const fallback = how.settled ? undefined : how.laneFirst || !attempt ? "lane_first" : !answer ? "admission_owner_error"
+			: answer.status !== "decided" ? answer.reason : !line ? "invalid_typed_answer"
+			: !ADMITTING_VERDICTS.has(line.verdict) ? "typed_refusal" : "low_confidence";
+		return { ...base, settle_min_confidence: policy.minConfidence, ...(fallback ? { jev_fallback: fallback } : {}) };
 	};
-	const fallbackOf = (attempt?: TypedAttempt): string | undefined => {
-		if (!primary) return undefined;
-		if (!attempt) return "lane_first";
-		const answer = attempt.typed;
-		if (!answer) return "admission_owner_error";
-		if (answer.status !== "decided") return answer.reason;
-		if (fastMin === undefined && numeric) return "numeric_commitment";
-		if (fastMin !== undefined) return ADMITTING_VERDICTS.has(answer.verdict) ? "low_confidence" : "typed_refusal";
-		return "low_confidence";
-	};
-	const jevMeta = (attempt?: TypedAttempt) => {
-		const fallback = fallbackOf(attempt);
-		return { ...fast, ...(fallback ? { jev_fallback: fallback } : {}), ...(attempt?.meta ?? {}) };
-	};
-	const typedVerdict = (attempt: TypedAttempt, rule: string): AdmissionOutcome => {
-		stop.abort();
-		const answer = attempt.typed as Extract<NonNullable<TypedAttempt["typed"]>, { status: "decided" }>;
-		return {
-			ok: true,
-			verdict: { verdict: answer.verdict, grounds: answer.grounds, ...(answer.missing ? { missing: answer.missing } : {}), reviewer: "jev", path: "typed" },
-			ms: clock.now() - began,
-			model: ADMISSION_JEV_MODEL,
-			reviewer: "jev",
-			meta: { path: "typed", ...fast, ...(fastMin !== undefined ? { typed_rule: rule } : {}), confidence: answer.confidence, ...attempt.meta },
-		};
+	/** Line `index` settled by the typed reading (§32.12.3.2): an admitting verdict, `path: "typed"`, reviewer `jev`. */
+	const typedLine = (attempt: TypedAttempt, index: number, cancelled: boolean): AdmissionOutcome => {
+		const answer = attempt.typed as Extract<AdmissionJevResult, { status: "decided" }>;
+		const line = answer.lines[index]!;
+		// A one-line reading's grounds are about this line; a batch's name the line the host settled on its own reading.
+		const grounds = answer.lines.length === 1 ? answer.grounds
+			: `typed review admitted line ${index + 1} of ${answer.lines.length} (${lineClass(proposal, index)}): ${line.verdict} at ${line.confidence}`;
+		return { ok: true, verdict: { verdict: line.verdict, grounds, reviewer: "jev", path: "typed" }, ms: clock.now() - began, model: ADMISSION_JEV_MODEL,
+			reviewer: "jev", meta: { ...lineMeta(index, attempt, { settled: true, cancelled }), path: "typed", confidence: line.confidence } };
 	};
 	const late = (cause: "cap" | "no_grounds", attempt: TypedAttempt | undefined, laneDone?: AdmissionOutcome): AdmissionOutcome => {
 		const reading = readingOf(attempt?.typed);
 		return { ok: "late", cause, ms: clock.now() - began, capMs, hardCapMs, ...(reading ? { typed: reading } : {}), ...(cause === "cap" ? { lane } : {}),
-			meta: { ...jevMeta(attempt), cap_ms: capMs, hard_cap_ms: hardCapMs,
+			settleClasses: policy.classes,
+			meta: { ...lineMeta(0, attempt), cap_ms: capMs, hard_cap_ms: hardCapMs,
 				...(laneDone ? { lane_ms: laneDone.ms, ...(laneDone.meta ?? {}), path: "lane" } : { path: "lane" }),
 				...(cause === "no_grounds" ? { lane_no_grounds: true } : {}) } };
 	};
-	// The lane finished with nothing sufficient and the typed answer is in and does not stand.
-	const afterLane = (laneDone: AdmissionOutcome, attempt: TypedAttempt): AdmissionOutcome => {
-		if (laneDone.ok === false && laneDone.reason === NO_GROUNDS) return late("no_grounds", attempt, laneDone);
+	// The lane finished with no verdict and the typed answer is in (or cannot matter) and did not settle the line.
+	const afterLane = (laneDone: AdmissionOutcome, attempt: TypedAttempt | undefined): AdmissionOutcome => {
+		if (isNoGrounds(laneDone)) return late("no_grounds", attempt, laneDone);
 		if (laneDone.ok === false) {
 			// §143.15: the typed reading travels with the failure; a declared action's late admission reads it (never a verdict here).
-			const reading = readingOf(attempt.typed);
-			return { ...laneDone, ms: clock.now() - began, ...(reading ? { typed: reading } : {}), meta: { ...laneDone.meta, ...jevMeta(attempt), lane_ms: laneDone.ms } };
+			const reading = attempt ? readingOf(attempt.typed) : undefined;
+			return { ...laneDone, ms: clock.now() - began, ...(reading ? { typed: reading } : {}), meta: { ...laneDone.meta, ...lineMeta(0, attempt), lane_ms: laneDone.ms } };
 		}
 		return late("cap", attempt, laneDone);
 	};
-	// §32.12.3: some lines admitted on their own and not all -- the batch's lane round is dropped and the caller reviews the
-	// rest. Only where nothing sufficient stood for the whole batch, and never after the lane has answered it.
-	const split = (attempt: TypedAttempt): AdmissionOutcome | undefined => {
-		const cleared = clearedLines(options.proposal, attempt.typed, lineMin);
-		if (!cleared.length || cleared.length >= options.proposal.lines.length) return undefined;
-		stop.abort();
-		return { ok: "split", cleared, ms: clock.now() - began, attempt, capMs, hardCapMs, startedAt: began,
-			meta: { ...jevMeta(attempt), line_min_confidence: lineMin } };
-	};
+	/**
+	 * §32.12.3.1 with §32.12.3.2: the per-line review. Each line's outcome is its own lane verdict with grounds, or the typed
+	 * reading's admission of that line under the settle rule (its lane call then cancelled), or its lane failure, or late.
+	 * The review returns when every line has its outcome, when a line is refused `not_authorized` on grounds (the batch's
+	 * verdict is then decided), or at the cap with the lines still running left `late` (their rounds kept running to the
+	 * hard cap, one per line). It never waits for the slowest line longer than the cap: its wall time is the slowest line's,
+	 * not the sum.
+	 */
+	async function perLineReview(): Promise<AdmissionOutcome> {
+		type LineEvent = { kind: "line"; index: number; value: AdmissionOutcome } | { kind: "typed"; value: TypedAttempt } | { kind: "cap" };
+		const waiting = new Map<string, Promise<LineEvent>>([
+			...rounds.map((round, index): [string, Promise<LineEvent>] => [`line:${index}`, round.then((value): LineEvent => ({ kind: "line", index, value }))]),
+			["typed", typed.then((value): LineEvent => ({ kind: "typed", value }))],
+			["cap", capReached.then((): LineEvent => ({ kind: "cap" }))],
+		]);
+		const laneOut: Array<AdmissionOutcome | undefined> = rounds.map(() => undefined);
+		const typedOut: Array<AdmissionOutcome | undefined> = rounds.map(() => undefined);
+		const laneFirst: boolean[] = rounds.map(() => false);
+		const allIn = () => rounds.every((_, index) => typedOut[index] !== undefined || laneOut[index] !== undefined);
+		// Still worth waiting for the typed answer once every line is in: a line with no lane verdict that it could settle,
+		// or one whose lane answered without grounds (that line's late admission reads its typed reading, §32.12.2).
+		const wantsTyped = () => rounds.some((_, index) => !typedOut[index] && !isLaneVerdict(laneOut[index])
+			&& (settleable(index) || isNoGrounds(laneOut[index])));
+		// The typed reading settles every line it may and whose lane has given no verdict; a line whose lane is still running
+		// has that call cancelled (and only that call).
+		const settleOpen = (attempt: TypedAttempt) => {
+			rounds.forEach((_, index) => {
+				if (typedOut[index] || isLaneVerdict(laneOut[index]) || !settles(attempt, index)) return;
+				const cancelled = laneOut[index] === undefined;
+				if (cancelled) {
+					lineStops[index]!.abort();
+					waiting.delete(`line:${index}`);
+				}
+				typedOut[index] = typedLine(attempt, index, cancelled);
+			});
+		};
+		const lines = (attempt: TypedAttempt | undefined): AdmissionOutcome => {
+			const now = clock.now() - began;
+			const outcomes = rounds.map((round, index): AdmissionOutcome => {
+				const settled = typedOut[index];
+				if (settled) return settled;
+				const value = laneOut[index];
+				const reading = lineReading(attempt, index);
+				const typedPart = reading ? { typed: reading } : {};
+				const meta = lineMeta(index, attempt, { laneFirst: laneFirst[index] });
+				const lateMeta = { ...meta, cap_ms: capMs, hard_cap_ms: hardCapMs };
+				// Not answered by the cap: this line alone is late, its round still running to the hard cap.
+				if (value === undefined || !isLaneVerdict(value) && value.ok === true)
+					return { ok: "late", cause: "cap", ms: now, capMs, hardCapMs, ...typedPart, lane: round, settleClasses: policy.classes,
+						meta: { ...lateMeta, ...(value ? { lane_ms: value.ms, ...(value.meta ?? {}) } : {}), path: "lane" } };
+				if (isNoGrounds(value))
+					return { ok: "late", cause: "no_grounds", ms: value.ms, capMs, hardCapMs, ...typedPart, settleClasses: policy.classes,
+						meta: { ...lateMeta, lane_ms: value.ms, ...(value.meta ?? {}), path: "lane", lane_no_grounds: true } };
+				// A verdict with grounds or a failure: the line's own, timed from the review's start.
+				return { ...value, meta: { ...(value.meta ?? {}), ...meta, lane_ms: value.ms } } as AdmissionOutcome;
+			});
+			return { ok: "lines", lines: outcomes, ms: now, capMs, hardCapMs, startedAt: began, ...(attempt ? { attempt } : {}), abort: () => stop.abort(),
+				meta: { ...(attempt?.meta ?? {}), typed_design: policy.design, line_calls: rounds.length,
+					// Each lane call's own time; `null` for one still running at the cap, cancelled, or stopped by a batch-mate's refusal.
+					line_ms: laneOut.map((value) => isLaneVerdict(value) || value?.ok === false ? value!.ms : null) } };
+		};
+		let typedDone: TypedAttempt | undefined;
+		for (;;) {
+			const event = await Promise.race(waiting.values());
+			waiting.delete(event.kind === "line" ? `line:${event.index}` : event.kind);
+			if (event.kind === "typed") {
+				typedDone = event.value;
+				settleOpen(typedDone);
+				if (allIn()) return lines(typedDone);
+				continue;
+			}
+			if (event.kind === "line") {
+				laneOut[event.index] = event.value;
+				if (!typedDone && isLaneVerdict(event.value)) laneFirst[event.index] = true;
+				// A line refused `not_authorized` on grounds decides the batch whatever the others say (§32.10's mapping puts it
+				// first): the review returns at once, and the caller stops the rounds still running.
+				const refused = event.value.ok === true && event.value.verdict.verdict === "not_authorized";
+				if (refused || allIn() && (typedDone || !wantsTyped())) return lines(typedDone);
+				continue;
+			}
+			// The cap. The typed attempt has its own, shorter cap: its answer is awaited, never raced away.
+			typedDone ??= await typed;
+			settleOpen(typedDone);
+			return lines(typedDone);
+		}
+	}
 	type Event = { kind: "lane"; value: AdmissionOutcome } | { kind: "typed"; value: TypedAttempt } | { kind: "cap" };
 	let cancelCap: (() => void) | undefined;
+	const capReached = new Promise<void>((settle) => {
+		// SL-87: a timer can fire early against the clock that measures the review (Node's run on the event loop's cached
+		// time, which lags `Date.now()` on a loaded machine): the cap stands only once the review's clock says it has
+		// passed, and is re-armed for what is left otherwise, so no call is returned at the cap before its cap.
+		const arm = (ms: number) => { cancelCap = clock.schedule(() => {
+			const rest = capMs - (clock.now() - began);
+			if (rest > 0) arm(rest); else settle();
+		}, ms); };
+		arm(left(capMs));
+	});
+	if (perLine) {
+		try {
+			return await perLineReview();
+		} finally {
+			cancelCap?.();
+		}
+	}
 	const waiting = new Map<string, Promise<Event>>([
 		["lane", lane.then((value): Event => ({ kind: "lane", value }))],
 		["typed", typed.then((value): Event => ({ kind: "typed", value }))],
-		["cap", new Promise<Event>((settle) => {
-			// SL-87: a timer can fire early against the clock that measures the review (Node's run on the event loop's cached
-			// time, which lags `Date.now()` on a loaded machine): the cap stands only once the review's clock says it has
-			// passed, and is re-armed for what is left otherwise, so no call is returned at the cap before its cap.
-			const arm = (ms: number) => { cancelCap = clock.schedule(() => {
-				const rest = capMs - (clock.now() - began);
-				if (rest > 0) arm(rest); else settle({ kind: "cap" });
-			}, ms); };
-			arm(left(capMs));
-		})],
+		["cap", capReached.then((): Event => ({ kind: "cap" }))],
 	]);
 	let laneDone: AdmissionOutcome | undefined, typedDone: TypedAttempt | undefined;
+	// §32.12.3.2: the one line settled by the typed reading; its lane call is cancelled if it is still running.
+	const settleOne = (attempt: TypedAttempt): AdmissionOutcome => {
+		const cancelled = laneDone === undefined;
+		if (cancelled) stop.abort();
+		return typedLine(attempt, 0, cancelled);
+	};
 	try {
 		for (;;) {
 			const event = await Promise.race(waiting.values());
 			waiting.delete(event.kind);
 			if (event.kind === "typed") {
 				typedDone = event.value;
-				const rule = stands(typedDone);
-				if (rule) return typedVerdict(typedDone, rule);
+				if (!isLaneVerdict(laneDone) && settles(typedDone, 0)) return settleOne(typedDone);
 				if (laneDone) return afterLane(laneDone, typedDone);
-				const parted = split(typedDone);
-				if (parted) return parted;
 				continue;
 			}
 			if (event.kind === "lane") {
 				laneDone = event.value;
-				if (laneDone.ok === true && laneDone.verdict.verdict !== REVIEW_TIMEOUT)
-					return { ...laneDone, ms: clock.now() - began, meta: { ...laneDone.meta, ...jevMeta(typedDone), lane_ms: laneDone.ms } };
-				if (typedDone) return afterLane(laneDone, typedDone);
+				if (isLaneVerdict(laneDone))
+					return { ...laneDone, ms: clock.now() - began, meta: { ...laneDone.meta, ...lineMeta(0, typedDone, { laneFirst: !typedDone }), lane_ms: laneDone.ms } };
+				// No verdict from the lane: wait for the typed answer only where it can still matter (a line it could settle, or
+				// a lane answer without grounds, whose late admission and pending details read it).
+				if (typedDone || !(settleable(0) || isNoGrounds(laneDone))) return afterLane(laneDone, typedDone);
 				continue;
 			}
 			// The cap. The typed attempt has its own, shorter cap: its answer is awaited, never raced away.
 			typedDone ??= await typed;
-			const rule = stands(typedDone);
-			if (rule) return typedVerdict(typedDone, rule);
+			if (!isLaneVerdict(laneDone) && settles(typedDone, 0)) return settleOne(typedDone);
 			if (laneDone) return afterLane(laneDone, typedDone);
-			return split(typedDone) ?? late("cap", typedDone);
+			return late("cap", typedDone);
 		}
 	} finally {
 		cancelCap?.();
@@ -926,13 +1113,17 @@ export function admissionLateMinConfidence(env: NodeJS.ProcessEnv = process.env)
 }
 export type LateAdmission = { ok: true; verdict: AdmissionVerdict; minConfidence: number } | { ok: false; reason: string };
 /**
- * Pure (§32.12.2). At the cap, a bookkeeping-only batch whose typed verdict admits every line at the late threshold is
- * admitted on it (`path: "typed_late"`); anything else is not, and goes back to the Keeper pending.
+ * Pure (§32.12.2, §32.12.3.2). At the cap, a bookkeeping-only batch whose typed verdict admits every line at the late
+ * threshold is admitted on it (`path: "typed_late"`); anything else is not, and goes back to the Keeper pending. Since
+ * §32.12.3.2 the typed reading admits late only the line classes it may settle (`settleClasses`, the review's
+ * `TypedSettlePolicy.classes`: the data's list, none under design `v1`); a caller that names none admits nothing late.
  */
-export function lateAdmission(proposal: AdmissionProposal, typed: TypedReading | undefined, env: NodeJS.ProcessEnv = process.env): LateAdmission {
+export function lateAdmission(proposal: AdmissionProposal, typed: TypedReading | undefined, env: NodeJS.ProcessEnv = process.env,
+	settleClasses: readonly string[] = []): LateAdmission {
 	const minConfidence = admissionLateMinConfidence(env);
 	if (minConfidence === undefined) return { ok: false, reason: "late_off" };
 	if (!lateEligibleBatch(proposal)) return { ok: false, reason: "not_bookkeeping" };
+	if (!proposal.kinds!.filter((kind) => TRIGGER_KINDS.has(kind)).every((kind) => settleClasses.includes(kind))) return { ok: false, reason: "class_not_listed" };
 	if (typed?.status !== "decided" || !typed.verdict) return { ok: false, reason: "no_typed_verdict" };
 	if (!ADMITTING_VERDICTS.has(typed.verdict)) return { ok: false, reason: "typed_refusal" };
 	if (!(typeof typed.confidence === "number" && typed.confidence >= minConfidence)) return { ok: false, reason: "low_confidence" };

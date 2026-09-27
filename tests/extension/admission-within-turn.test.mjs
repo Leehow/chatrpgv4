@@ -706,10 +706,19 @@ function typedAnswers(t, verdict, confidence) {
 		if (String(url) !== "https://api.typesafe.ai/v1/systemone") return original(url, init);
 		const body = JSON.parse(init.body);
 		requests.push(body);
+		// The role-first design (§32.12.3.2, roles-2a.3, line-2's SL-97) since the line-2 merge: the line is the investigator's act,
+		// every element question admits, and `choice` carries the verdict -- P(admit) = (1 + confidence) / 2 on `chosen` makes the
+		// line's confidence |2·P(admit) − 1| the one asked for. v1's `verdict_*` keys are answered as before.
+		const roles = { role: "investigator_act", target: "addressed", gate: "no_obstacle", order: "in_step", result: "answers_player", span: "activity_time" };
 		const answers = Object.fromEntries(Object.entries(body.questions).map(([key, question]) => {
-			const keys = Object.keys(question.criteria);
-			const picked = key.startsWith("verdict_") ? verdict : key.startsWith("missing_") ? "none" : body.state.playerWords?.[0]?.alias ?? "none";
-			const level = key.startsWith("verdict_") ? confidence : 0.97, rest = keys.length > 1 ? (1 - level) / (keys.length - 1) : 0;
+			const keys = Object.keys(question.criteria), family = key.replace(/_\d+$/, "");
+			let picked, level;
+			if (key.startsWith("verdict_")) [picked, level] = [verdict, confidence];
+			else if (family === "choice") [picked, level] = [verdict === "authorized" ? "chosen" : "keeper_choice", (1 + confidence) / 2];
+			else if (roles[family]) [picked, level] = [roles[family], 1];
+			else [picked, level] = [key.startsWith("missing_") ? "none" : keys.includes("none") ? "none" : body.state.playerWords?.[0]?.alias ?? keys[0], 0.97];
+			if (!keys.includes(picked)) picked = keys[0];
+			const rest = keys.length > 1 ? (1 - level) / (keys.length - 1) : 0;
 			return [key, { type: "choice", choice: picked, confidence: level, probabilities: Object.fromEntries(keys.map((option) => [option, option === picked ? level : rest])) }];
 		}));
 		return new Response(JSON.stringify({ model: "jev-1.13.0", answers, usage: { input_tokens: 900, output_tokens: 40 } }), { status: 200 });
@@ -718,7 +727,7 @@ function typedAnswers(t, verdict, confidence) {
 	return requests;
 }
 
-test("§143.15: the route-selected move, two malformed answers, the typed reading authorized at 0.80 -- admitted typed_late on §32.12.2's rule, no resend", async (t) => {
+test("§143.15 with line-2's typed settle (§32.12.3.2): the route-selected move, two malformed answers, the typed reading authorized at 0.80 -- a move is not a listed class, so no typed_late; the host resends and the lane's verdict settles", async (t) => {
 	const typed = typedAnswers(t, "authorized", 0.8);
 	const table = await hybrid(t, { prepare: tookTheJob, compile: () => undefined, responses: narrateOnly("你到了报馆。"), env: { EXT_JEV_APIKEY: "test-jev-key" },
 		engine: { compile: false, decision: { decide: async (batch) => complete(Object.fromEntries(batch.questions.map((question) => {
@@ -729,12 +738,14 @@ test("§143.15: the route-selected move, two malformed answers, the typed readin
 		laneResponses: { admission: [malformed(), malformed()] } });
 	await table.session.prompt("先去《环球报》剪报室，翻科比特宅这些年的旧报道。");
 
-	assert.equal(table.lanes.admission.requests().length, 2, "no resend: the late admission decided");
+	// Since the line-2 merge the typed reading settles only the classes `admission.typed_settle.classes` lists (data: `time`);
+	// a move is not one, so §32.12.2's late rule does not take it and §143.15's one host resend runs.
+	assert.equal(table.lanes.admission.requests().length, 3, "the two malformed answers of one round, then the host's one resend");
 	assert.ok(typed.length >= 1, "the typed reviewer read the move");
 	const rows = admissionRows(table, "test-camp").filter((entry) => entry.origin === "policy" && entry.verb === "apply");
-	assert.deepEqual(rows.map((row) => [row.ok, row.reason ?? row.verdict, row.path]), [[false, "bad_output", "lane"], [true, "authorized", "typed_late"]]);
-	assert.deepEqual([rows[0].attempts, rows[0].declared, rows[0].late_rule, rows[0].then, rows[0].clerk], [2, true, "typed_late", "typed_late", "declared_bookkeeping"]);
-	assert.deepEqual([rows[1].admitted, rows[1].reviewer, rows[1].late_rule, rows[1].late_min_confidence, rows[1].confidence, rows[1].cause], [true, "jev", "typed_late", 0.7, 0.8, "unavailable"]);
+	assert.deepEqual(rows.map((row) => [row.ok, row.reason ?? row.verdict, row.path]), [[false, "bad_output", "lane"], [true, "authorized", "lane"]]);
+	assert.deepEqual([rows[0].attempts, rows[0].declared, rows[0].late_rule, rows[0].then, rows[0].clerk], [2, true, "class_not_listed", "resend", "declared_bookkeeping"]);
+	assert.deepEqual([rows[1].admitted, rows[1].reviewer, rows[1].resend_by], [true, "lane", "host"]);
 	const move = table.telemetry("test-camp").find((row) => row.tool === "apply" && row.origin === "policy");
 	assert.ok(move?.ok, "the declared move landed");
 });

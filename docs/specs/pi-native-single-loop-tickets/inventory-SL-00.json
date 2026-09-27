@@ -686,7 +686,7 @@
       "path": "app-play",
       "role": "leaf",
       "trace": "observed: 8 admission rows, 7 lane-call admission starts",
-      "note": "One zero-tool completion per proposed resolve/apply, before the kernel; fast model. Default reviewer (PI_COC_ADMISSION_REVIEWER unset = lane).",
+      "note": "One zero-tool completion per proposed resolve/apply (one per line for an apply batch of more than one reviewed line, 32.12.3.1), before the kernel; fast model. SL-97 phase 2b (32.12.3.2): a line the typed reading settles has its own lane call cancelled; PI_COC_ADMISSION_REVIEWER is read by nothing.",
       "lines_at_0b729e8fb": [
         417
       ]
@@ -701,7 +701,7 @@
       "path": "app-play",
       "role": "leaf",
       "trace": "not observed (reviewer: lane)",
-      "note": "SL-10 (32.11): every bookkeeping apply batch (move/clue/handout/time) is typed first by default (PI_COC_ADMISSION_FAST_MIN_CONFIDENCE, 'off' disables); other reviews only with PI_COC_ADMISSION_REVIEWER=jev. Falls back to the lane on every non-verdict. Moved from reviewAdmissionPrimary at SL-10.",
+      "note": "SL-97 phase 2b (32.12.3.2): one typed attempt beside the lane on every reviewed call, in the data's design (host-budgets.json admission.typed_design: roles-2a.3, or v1 for comparison, which never settles). It settles a line alone only for a class on admission.typed_settle.classes (today time) at min_confidence (0.87; PI_COC_ADMISSION_FAST_MIN_CONFIDENCE overrides, 'off' disables); every other line is the lane's. Moved from reviewAdmissionPrimary at SL-10.",
       "lines_at_0b729e8fb": [
         485
       ]
@@ -1198,7 +1198,7 @@
       "path": "app-setup",
       "role": "driver",
       "trace": "n/a (setup)",
-      "note": "Setup-mode guidance reader child.",
+      "note": "Setup-mode guidance reader child. SL-103 (§98 addendum 10): the same site runs a second preparation at once when the reviewer refused the first draft, at most once, inside the one single-flight preparation and under the step's abort signal; no new site.",
       "lines_at_0b729e8fb": [
         157
       ]

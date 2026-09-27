@@ -798,3 +798,66 @@ Other results:
 - ASCII only in an in-fiction inscription ("W. Corbitt").
 - **Defect:** t6 delivered `"text intermediate"` glued to the story. This is the provider's label prefix, and the floor cannot see it → SL-96.
 - Text beside tool calls: 15 drops. SL-95 folds them in the App; this is checked in the App, not by the driver.
+
+### Long gate #24 (2026-09-27, dc37c6b7e; batch 18 live: SL-101 parallel admission lines, SL-96 label strip, SL-98/99/99b/100 setup and reading, admission clock; every model grok-4.5 low)
+20/20 delivered; no strand; floor rows 0; `dialect_prefix_stripped` 0 (the model did not emit the label this table); prose median 241, min 156; no markup.
+
+**First visible prose: median 45.1 s, max 79.2 s, ≤ 60 s on 16/20** (#23: 50.3 / 72.9 / 16).
+
+SL-101 did what it was for:
+- `review_pending` 6 → 1.
+- 2-line batches: median 7.4 s (#23: the 13 s cap).
+- Only 2 lane refusals in the table. `not_player_action` admits.
+
+The critical path is now the Keeper's own steps: 2.6 calls/turn at a median of 10.6 s per call. The four turns over 60 s (t4, t6, t14, t15) ran 2–5 Keeper calls; t15 spent 62 s in 4 calls around `lookup` ×3 + `look`.
+
+**Lookups 15** (#23: 4), and **5 of them repeat the previous turn's lookup of the same scene material**:
+- `upper-floor-bedroom` t11 → t12;
+- `corbitt-diaries` t14 → t15;
+- `basement-rites` t17 → t18 → t18 retry.
+
+What the Keeper looked up one turn is not in its hands the next → SL-102.
+
+### Masks PDF re-run (2026-09-27, dc37c6b7e; fresh import through setup; every model grok-4.5 low; a sonnet agent as the player)
+**Setup completed** (first run: never).
+- The player chose the 1925 radiogram, and SL-98 pinned it on the campaign (`opening_scene: campaign-beginning-message`).
+- Reader timeouts 0, `task_budget_exhausted` 0, `setup_blocked` 0.
+- One opening read was refused by visual review (an alias "Jesse Hughes" not on the cited pages) and redone in 1 round.
+- Guidance was refused once by its reviewer. The guide relayed SL-100's `player_reason` faithfully, and guidance retried on the next message.
+- First sentence to handoff: about 17.5 min, almost all reading. The index read used 2.16M input tokens.
+- Two defects → SL-103:
+  - the guide echoed `handoff_command` (`bin/pi-coc --campaign masks2-2238`) to the player;
+  - the guidance retry waits for the player's next line.
+- Driver note: the setup process exits at handoff by design (§14.4 step 7). The table continues as a new play-mode run (`table-start.sh … play`).
+
+**Play: 11 turns.**
+- 11/11 delivered; no markup, meta-talk or placeholder.
+- Grounded in the book: the radiogram text, the Carlyle Expedition's public record (Penhew, Houston, Masters, Brady, Erica Carlyle on Long Island), Elias's *Sons of Death*, Prospero Books / Jonah Kensington, the Chelsea Hotel.
+- **First visible prose: median 40.5 s, max 75.3, ≤ 60 on 10/11.**
+- Keeper 2.64 calls/turn at a median of 10.2 s. Lookups 18: module 9, source 6. Five waited the full 8 s foreground allowance for a source answer still being read (`unwaited` 3).
+- Admission: `review_pending` 1, `not_authorized` 1.
+
+### Long gate #25 (2026-09-27, 6ba21726d; batch 19 live: SL-102 held answers, SL-97 phase 2b typed time settles, SL-103; every model grok-4.5 low)
+- 20/20 delivered; no strand; `review_pending` 0; floor 0; label prefix 0.
+- Prose median 249, min 121; no markup.
+- **First visible prose: median 34.8 s, max 60.1 s, ≤ 60 s on 19/20.** #24: 45.1 / 79.2 / 16. #22 (admission on the since-banned 4.3): 29.7 / 53.0 / 20. The one miss is t3 at 60.1 s: 3 Keeper calls (8.3 + 3.6 + 13.2 s) around sequential lane reviews of two checks (8.0 and 7.2 s).
+- Keeper calls 2.15/turn (#24: 2.6), median 9.5 s per call.
+- **Lookups 8 (#24: 15), no cross-turn repeat.** `held_dropped` scene_change 2. `held_wait` 0: every read landed within its own turn.
+- **Jev settled 10 lines, all `time`, confidence 0.87–0.97.** Each was read against the player's words: every one is the routine time of the action the player declared (walk to the Globe 40 min, street canvass 30, bedroom search 15, stairs 5…), so 0 false admits by this reading. `lane_cancelled` 10.
+- Lane reviews 27 (#24: 42).
+
+### Masks PDF third run (2026-09-27, 6ba21726d; fresh import, setup → handoff → play; every model grok-4.5 low; a sonnet agent as the player)
+
+**Setup: 11 turns, about 15 min, almost all of it reading.**
+- Reader timeouts 0, `provider_refused` 0, `setup_blocked` 0.
+- The openings came out as the Lima prologue and the 1925 Chelsea Hotel murder; the player chose the Chelsea.
+- The card was confirmed and handed off.
+- The guide never showed a command line and never asked for a message "to try again" (SL-103).
+
+**Play: 10 turns at the Chelsea Hotel with Lt. Poole; Jackson Elias murdered in room 410.**
+- **First visible prose: median 18.1 s, max 35.4 s, ≤ 60 s on 10/10.**
+- No markup, meta-talk, placeholder or refusal.
+
+**Observations**
+- One observation, not filed (a single instance): turn 8's lobby description volunteered "也没有人把红布条或奇怪的头饰露在外面". That is a negative observation nobody asked for, which foreshadows the book's cult. Watch for it; file it on a third instance.
+- The card raised a stealth stat the player hadn't asked for. It was shown for confirmation, so it is not a defect.

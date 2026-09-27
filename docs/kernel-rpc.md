@@ -1974,6 +1974,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 *(§14.17 amends this paragraph: with no capsule, the campaign's `play_language` reaches the setup model only through the line the onboarding extension appends to every setup request.)*
 
+*(§98 addendum 10 amends step seven: the command is printed by the host, never handed to the setup model; the `complete` result says `handoff_shown` instead.)*
+
 ### 14.5 读者：一段 section 一个子 `pi` 进程
 
 模型侧的读书工作由 `module` 扩展驱动，不在内核里、也不是 `modelRegistry.complete`：每个 section 起一个子进程 `pi -p --no-session --no-context-files --tools read,write,edit,bash --system-prompt content/setup/reader.md`（工作目录 `work/<section_id>/`，模型 `PI_COC_BUILD_MODEL`，缺省与桌子同模型），标准命令由 `module.packet` 返回的 `brief` 给：读 `packet.json`，用 `bin/coc-evidence`（仓库脚本：`search <名字>` 在全节 span 里找、`verify <span-id>` 查 id 是否存在、`page <n>` 看整页）查证据，把 shard 写到 `shard.json`，跑 `bin/coc-review --module <id> --section <id>`（即 `module.review`）看 findings，改到 `accepted` 或放弃。每 section 至多 3 轮（子进程退出后 review 不过就带着 findings 原样重起一轮），超过记 `failed`；读者产出的一切只在 `work/` 里，进 `shards/` 的只有 review 通过并 `module.accept` 的。这是用户法则要求的形状：带工具的 agent 自己开包、自己分多次写、自己跑闸门。
@@ -8127,7 +8129,7 @@ What is **not** put to review, decided by closed contract enums and never by rea
 - a `resolve` that settles the closed option the player was just asked (`ask` offered `dodge`/`fight_back`/`none`/`push`/`spend_luck`, the player answered in their own words, the Keeper writes `defense`, `push: true` or `luck` accordingly): the answer is the player's own choice, in whatever words it came. The second real table paid a full review, and two of its four timeouts, on exactly these combat rounds before this exemption existed;
 - a turn with no player text (the opening). The skip is a telemetry row, not a silence.
 
-A batch is reviewed whole and refused whole *(amended by §32.12.3, 2026-09-24: lines the typed answer admits at the fast-path confidence are admitted on their own, and the rest is reviewed as its own proposal)*: a `clue` beside a `move` is admitted only when the player's
+A batch is reviewed whole and refused whole *(amended by §32.12.3, 2026-09-24: lines the typed answer admits at the fast-path confidence are admitted on their own, and the rest is reviewed as its own proposal; and by §32.12.3.1, 2026-09-26: the lane reviews each line of a batch on its own call, and the batch is still admitted only when every line is)*: a `clue` beside a `move` is admitted only when the player's
 words authorise both. The review authorises the affected voluntary action, never its outcome, and never
 asks that the player knew or approved a hidden danger.
 
@@ -8275,7 +8277,7 @@ chose, and the player chooses from what the player was told.
 
 ### 32.4 Reuse and cancellation
 
-A verdict is kept for the turn under a host-owned canonical key of the proposal (`resolve`: actor,
+A verdict is kept for the turn *(amended by §32.12.3.1, 2026-09-26: and each line's own verdict under the key a call of only that line would have)* under a host-owned canonical key of the proposal (`resolve`: actor,
 intent, goal, method, skill, target, weapon, spell, object, push, luck, defense; `apply`: each effect's
 kind and its identifying fields, order-free; `why`, `how`, `label` and `decision` are outside the key,
 so a `needs_choice` retry or a rationale bolted on reuses its verdict). Admitting and refusing verdicts
@@ -8509,7 +8511,7 @@ question; the foreground wait on every `resolve`/`apply` is. Jev calls in this r
 (prescreen telemetry, 4 calls in 2.6 s `decision_ms`). The gate stays where it is and refuses what it refused;
 only who answers first changes.
 
-**Setting.** `PI_COC_ADMISSION_REVIEWER=jev|lane`, read per review. **Default `lane`**: the §32.2 completion,
+**Setting.** *(Amended by §32.12.3.2, 2026-09-27: the setting is read by nothing; the typed reading is the role-first design, and it settles a line only under §32.12.3.2's rule, never a refusal.)* `PI_COC_ADMISSION_REVIEWER=jev|lane`, read per review. **Default `lane`**: the §32.2 completion,
 unchanged. `jev` puts the typed family `action-admission` v1 (`runtime/jev/admission-domain.ts`) first through the
 shared decision adapter (§122 T06/T07, pinned `jev-1.13.0`, credential through the Jev extension's resolver), and
 runs the lane for every answer that is not a verdict. The default does not change until live agreement exists (the
@@ -8649,7 +8651,7 @@ Why these four and not the rest of §32.1's triggering kinds, by what §32 ties 
 Origin does not enter: the clerk's policy-origin writes (§135.4) and the Keeper's own are the same verb and the
 same batch, and origin is tracing only.
 
-**The rule** (`reviewAdmissionPrimary`). For a bookkeeping batch the typed family of §32.10 runs first, whatever
+**The rule** (`reviewAdmissionPrimary`). *(Amended by §32.12.3.2, 2026-09-27: a bookkeeping batch is settled by the typed reading only line by line, for the classes the data lists -- today `time` -- at the data's threshold.)* For a bookkeeping batch the typed family of §32.10 runs first, whatever
 `PI_COC_ADMISSION_REVIEWER` says, on exactly §32.3's input. It admits alone only when **every line's typed
 verdict admits** (so the batch verdict admits, §32.10's mapping) **and** the review confidence (the minimum line
 verdict confidence, §32.10) is at least `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE` (default **0.87**, measured
@@ -8892,7 +8894,7 @@ outcome is what a cap expiry gives (below), except that nothing is left running,
 `not_player_action` verdicts, whose rows had no `grounds` column (see telemetry below). The rule closes the path by
 which a grounds-less answer could ever refuse.
 
-**At the cap.** No sufficient verdict by the cap, or a lane answer without grounds:
+**At the cap.** *(Amended by §32.12.3.2, 2026-09-27: only the line classes the typed reading may settle are admitted late; anything else is `review_pending` with `late_rule: "class_not_listed"`.)* No sufficient verdict by the cap, or a lane answer without grounds:
 
 1. **A late admission.** The batch is admitted on the typed verdict, `path: "typed_late"`, `reviewer: "jev"`, when all of
    these hold:
@@ -9031,7 +9033,7 @@ closed contract enums, never the prose). A line of an `apply` batch is **cleared
 
 A `resolve` is one line and is never split.
 
-**The split.** In `reviewAdmissionPrimary`, when the typed answer is in and no verdict stands for the whole batch (§32.12.2's
+**The split.** *(Retired by §32.12.3.2, 2026-09-27: `reviewAdmissionPrimary` no longer splits; a line the typed reading settles is that line's own outcome, and the batch lands whole or not at all.)* In `reviewAdmissionPrimary`, when the typed answer is in and no verdict stands for the whole batch (§32.12.2's
 sufficiency: the fast path, the family rule, a lane verdict with grounds), and some lines are cleared but not all, the
 review ends `ok: "split"` and the batch's lane round is aborted. It does not split after the lane has answered the batch,
 and a typed verdict that stands for the whole batch (every line cleared on a bookkeeping batch) is §32.11's fast path, not
@@ -9111,6 +9113,214 @@ alone and collected by its own resend (SL-87: on §32.12.2's manual clock -- the
 1 000, the rest's verdict at 1 700, its round's end at 2 000 -- asserting the split at 600, pending at exactly 1 000 and a
 resend that waited 700); a whole-batch resend applying only what did not land; §78 for a delivery behind a
 partial landing. Mutations are in the SL-30 ticket.
+
+#### 32.12.3.1 Addendum (2026-09-26, SL-101): a batch's lines are reviewed in parallel, one lane call per line
+
+**Why.** Long gate #23 (`longgate23-haunting-1350`, every model `grok-build/grok-4.5` at `low`, its lowest effort): the
+admission lane answered one-line batches in 6.1 s at the median (n = 19, max 12.7 s) and batches of two or three lines in
+13.0 s at the median (n = 10) -- the cap, almost every time -- and six calls went `review_pending`, each followed by a
+resend and up to 13 s more. The lane's time grows with the batch it reads, and the model's effort cannot be lowered. Owner
+ruling, 2026-09-26: a batch of more than one reviewed line sends one lane call per line, concurrently, on the same lane
+model; the batch's verdict is the existing line-level combination; the cap and pending apply per call, the batch is
+pending only on the lines still pending, and a resend re-joins only those; verdict reuse keys by line; each call gets the
+same §32.3 context and exactly one proposed line; lines settled on `basis.compile`, `basis.consequence` or the typed
+reviewer stay off the lane as before; a one-line batch is unchanged; the typed reviewer is not changed here (SL-97; §32.12.3.2 changes it).
+
+**Which calls.** An `apply` proposal with more than one reviewed line (§32.12.3's owner amendment: the lines are its
+reviewed effects only) -- a Keeper's batch, a batch §32.12.4 prefetched, or a split's remainder of two lines or more.
+`reviewedPerLine` (`extensions/kernel/admission.ts`) decides it from the proposal's line count and nothing else. A
+`resolve` (one line) and a one-line batch are reviewed exactly as before this section; the compile's and the consequence
+route's exemptions (§32.12, §32.12.5) are policy-origin single effects and never reach it.
+
+**The calls.** `reviewAdmissionPrimary` starts one `reviewAdmission` round per line at the review's start, beside the one
+typed attempt over the whole batch (§32.10, unchanged: it still reads every line). Each round is the §32.2 completion with
+the same system prompt, the same `PI_COC_ADMISSION_MODEL` and thinking, the same §32.3 input except that
+`[The Keeper now proposes]` holds exactly its one line (`lineProposal`), and its own hard cap, measured from the review's
+start as the batch's single round was. The typed answer keeps its batch-level rules -- §32.11's fast path, §32.10's family
+rule, §32.12.3's split -- for as long as no line's lane round has given a verdict with grounds (a lane verdict on the whole
+batch used to end the review before a later typed answer could); after that the typed answer is information only. A split
+aborts every line's round and reviews its remainder as before, one call per line when the remainder has two lines or more,
+each told the cleared lines were `admitted in this same call`. The review returns when every line has its outcome, when a
+line is refused `not_authorized` (below), or at the cap; it never waits for the slowest line past the cap, so its wall
+time is the slowest line's, not the sum.
+
+**The batch's verdict** is the lines' combined verdict, §32.10's mapping, as §32.12.3 maps a remainder: the batch is
+admitted only when every line is (the combined verdict `authorized` if any line is, else `entailed`, else
+`not_player_action`), and otherwise nothing of the lane-reviewed proposal lands -- §32.1's "a `clue` beside a `move` is
+admitted only when the player's words authorise both" is kept, and the only lines that land beside a refused one are
+still §32.12.3's typed-cleared lines. Each line is settled on its own first (`admitAction`'s `settleLines`,
+`extensions/kernel/index.ts`): its verdict with grounds, its failure, or, past the cap, its own late admission (§32.12.2
+per call: a line of a late kind whose typed line reading admits at the late threshold, `lineReading`) or its own pending
+review. Then `batchRefusal` picks the refusal the Keeper reads, from the lines not admitted: a line refused on grounds
+(`not_authorized` before `uncertain`, the first such line in the batch's order, as §32.10 names line *k*), else a line whose
+review was unavailable (§32.2: no review, no authority), else one whose resend ran out of its hard cap (`review_timeout`),
+else the lines still under review (`review_pending`). The deciding line's refusal is the batch's -- its `code`, `message`,
+`fix`, and `details` with `missing` and `grounds` as that line's review gave them -- with every line of the batch in
+`details.proposed` and each line not admitted in `details.line_outcomes` (`{line, reason, verdict?, missing?, grounds?,
+cause?, streak?, cap_ms?, wait_ms?}`). A line refused `not_authorized` decides the batch at once, whatever the lines still
+running would say: the review returns and those rounds are stopped, unsettled, so nothing is left pending on them. A
+line refused `uncertain` does not: a later `not_authorized` would decide instead, so the review waits for the others (at
+most to the cap).
+
+**Pending only on the lines still pending.** At the cap, a line whose round has not answered and is not admitted late is
+kept running under its own key (`state.admissionPending`, §32.12.2) and the batch is returned `review_pending` with
+`details.pending_lines` (those lines) and the longest `wait_ms`; the lines that answered keep their verdicts under their own
+keys. The Keeper's resend of the identical call reuses the answered lines and re-joins the pending ones, each with
+§32.12.2's resend semantics (collected by its hard cap, or `review_timeout`); no line is reviewed twice.
+
+**Reuse keys by line (amends §32.4).** Each line's verdict -- lane, late or `review_timeout` -- is kept for the turn under
+the key a call of only that line would have (`admissionLines`: the line's own effect through `admissionRequest`), beside
+the batch's own key, which keeps the combined verdict when every line was admitted. A later call whose lines are known under
+their own keys (a verdict kept or a round still running) is admitted line by line: a line already refused this turn refuses
+the batch again at once and nothing else of it is reviewed; otherwise the known lines are reused or re-joined and the
+unknown ones reviewed as a proposal of their own (one call per line when two or more), and the batch's verdict is the
+combination of all of them. So the Keeper's retry without a refused line lands on the kept verdicts of the lines that were
+admitted, with no new review. The next player input still clears every verdict. §32.12.4's prefetch does not start a
+review of a batch one of whose lines is already known under its own key: the real call reuses or re-joins it.
+
+**The outage streak** (§32.2) counts the lines of one call as one review: a batch whose lines all failed is one failure, and
+a live verdict on any line of the call resets the streak.
+
+**Telemetry (amends §32.7).** Each line reviewed on its own leaves its own `lane: "admission"` row -- its own `key`, `verdict`
+or `reason`, `grounds`, `missing`, `ms` (its round's own time from the review's start), and the §32.12.2 fields of a late or
+pending line -- with `line_level: "line"`, `lines` (its 1-based place in the batch), `of_lines`, `batch_key`, and, from a
+review that ran the lines' calls: `line_calls` (how many calls ran at once), `line_ms` (each call's own time, in the batch's
+order, `null` for a call still running at the cap or stopped by a batch-mate's refusal) and `batch_ms` (the review's wall
+time, the slowest line's). A line of a split's remainder adds `remainder: true`. Every line's row is written once the
+batch's verdict is known and carries it: `batch_admitted`, and `batch_verdict` (the combined verdict, or the deciding
+line's refusing verdict) or `batch_reason` (the batch's refusal reason). A line's own `admitted: true` beside
+`batch_admitted: false` is a line the lane admitted in a batch that did not land. A stopped line has no row. `kpi.py`'s
+`admission` section counts each line's row as one review, so its `review_ms` total adds concurrent calls; the call's wait is
+`batch_ms`.
+
+**What this is not.** It does not change what §32.1 puts to review, the lane's prompt or model, the typed family or its
+thresholds, the compile's and the consequence route's exemptions, §32.12.2's cap, hard cap and late threshold, or
+§32.12.3's split and its landing. What lands does not change: a lane-reviewed batch still lands whole or not at all. What
+changes is how many lane calls judge it and how long it waits: one call per line, and the slowest line's time.
+
+**Three ends (§31).** *Writer:* the lines' lane rounds (`reviewAdmissionPrimary`'s per-line review) and the host's
+combination (`settleLines`/`combineLines`, `batchRefusal`, pure). *Reader:* `admitAction`, still the one place a call is
+admitted or refused, and the lines' kept verdicts and rounds (`state.admission`, `state.admissionPending`, keyed by line) for
+a later call and a resend. *Actor:* the Keeper, through the unchanged admit, the batch's refusal with `line_outcomes`, and a
+`review_pending` naming `pending_lines`; the operator, through the line rows' `line_calls`, `line_ms`, `batch_ms` and
+`batch_admitted`.
+
+*Tests* (`tests/extension/admission-lines-parallel.test.mjs`, on the admission clock where the subject is time): a
+three-line batch makes three calls at once, each with one line and the same context, and waits 1.2 s for lines answering at
+0.7, 0.9 and 1.2 s (`batch_ms` 1200, not 2800); a line past the cap leaves only that line pending, nothing lands, and the
+identical resend reuses the two answered lines and re-joins the third (no new call, `resend_wait_ms` from the cap to its
+answer), and with every line past the cap re-joins every line's round; the cap per call (a late line admitted on its own typed 0.72 while the batch's lowest is 0.4); a `not_authorized`
+line decides the batch at 200 ms with the other calls stopped and nothing left pending; an admitted line does not land
+beside an `uncertain` one; a typed fast-path answer arriving after a line's lane verdict does not stand; reuse keyed by
+line, admitting and refusing (a retry that drops the refused line lands on the kept verdict with one call for its new
+line), and cleared by a new player input; one outage per call; a one-line batch and a `resolve` unchanged; a typed fast-path verdict unchanged; a split's two-line remainder one
+call per line; a §32.12.4 prefetch collected line by line, and none started for a batch one of whose lines is known; the pure rules (`reviewedPerLine`, `lineProposal`,
+`lineReading`, `batchRefusal`'s order). The suites whose premise was one lane call per batch now count one call per line.
+Mutations and the offline estimate for gate #23 are in the SL-101 ticket's Comments.
+
+#### 32.12.3.2 Addendum (2026-09-27, SL-97 phase 2b): the typed reviewer reads the measured role-first design and settles a line alone only of a class the measurement cleared (amends §32.7, §32.10, §32.11, §32.12.2, §32.12.3 and §32.12.3.1)
+
+**Why.** Long gate #23 (SL-97): the §32.10 v1 family answered in about 0.5 s but reached the fast path's 0.87 on 2 of
+371 bank cases, so the `grok-build/grok-4.5` lane (7–13 s) decided nearly every review. SL-97 phase 2a designed a
+role-first family offline (`experiments/admission-jev-bank/admission-roles.ts`, revisions 2a.1–2a.3, 1 895 live Jev
+calls, a pre-registered holdout), and the relabel re-scored the stored answers against today's lane (grok-4.5 `low`, two
+runs per case, 2 806 lane calls). Revision 2a.3 on the holdout at *T* = 0.87, a case counted refused when either run
+refused: `time` 23 settled / 0 false admits, `move` 6 / 0, `clue` 1 / 0. The pre-registered bar (at most 1.8% false admits
+with at least 10 settled, on the holdout) is met by `time` only. `resolve` keeps false admits in every revision. Today's
+lane flips against itself on 2.1% (`time`), 8.1% (`move`), 2.6% (`clue`) and 6.5% (`resolve`) of cases. The integrator's
+ruling, within the owner's "长线改 Jev" (2026-09-27): port 2a.3 as the product's typed design; the typed reviewer settles
+a line alone only when the line's class is on a data list of the classes that passed the bar and its confidence is at a
+data threshold; the typed call and the line's lane call run together and the line's lane call is cancelled when the typed
+reading settles it, so an escalation costs no wall time over the lane alone; a typed refusal never stands; each line's
+row says who decided. The numbers are in the SL-97 ticket's Comments and `experiments/admission-jev-bank/results/sl97b`,
+`results/sl97c`.
+
+**The design.** `runtime/jev/admission-roles-domain.ts` is revision 2a.3, behind §32.10's family interface: the same
+`AdmissionJevInput` (§32.3's input, the lane's windows), the same result shape (a lane-shaped verdict and a confidence per
+line), the same fallbacks. Its family is `action-admission-roles`, version `2a.3`, and its requests are the measured ones
+byte for byte (`tests/extension/admission-roles-domain.test.mjs` pins them against the experiment module). Per proposed
+line, independent Choices over one state: `role` (the investigator's act, the world's response, or time passing),
+`choice`, `result`, `span` (each read as if that role applied), `target`, `gate`, `order`, and §32.10's `missing` and
+`basis`. The host sums each question's admitting options (a closed membership) and combines them,
+`P(admit) = min( P(act)·min(A(choice), A(target)) + P(world)·A(result) + P(time)·A(span), A(gate), A(order) )`; the line's
+confidence is `|2·P(admit) − 1|`, and its lane-shaped verdict comes from the dominant role (grounds and telemetry only). The
+state is facts with a field legend, the newest delivery apart as `justTold`, each line with its closed effect kind: the
+input now carries `kinds` (the proposal's own, a contract enum), never read from the prose. All lines share one request
+while they fit the packing bound; a proposal of more than eight lines goes to the lane. §32.10's v1
+(`runtime/jev/admission-domain.ts`) stays available for comparison: selected in the data, its reading is recorded on every
+row and settles nothing.
+
+**The data.** `content/rulesets/coc7/host-budgets.json`, `admission`: `typed_design` (`roles-2a.3` | `v1`),
+`typed_settle.classes` (today `["time"]`) and `typed_settle.min_confidence` (0.87). Read once per process
+(`admissionTypedBudget`, `runtime/jev/host-budgets.ts`). It fails closed: an unreadable file, a missing entry or a class
+list that is not a list settles nothing by the typed reviewer. The list is kept only inside §32.11's closed set
+(`FAST_PATH_KINDS`: `move`, `clue`, `handout`, `time`), so the data can narrow the rule and never reach `cash`, `item`,
+`object`, `usage`, `map` or a `resolve`. `PI_COC_ADMISSION_FAST_MIN_CONFIDENCE` still overrides the threshold per review;
+`off` turns typed settling off.
+
+**The rule** (`typedSettles`, `reviewAdmissionPrimary` in `extensions/kernel/admission.ts`). For every call §32.1 puts to
+review, after §32.4's reuse and the compile's and the consequence route's exemptions, the lane -- one call per line for an
+`apply` batch of more than one reviewed line (§32.12.3.1) -- and one typed attempt over the whole proposal start at the
+same moment, as before. A line is settled by the typed reading, alone, exactly when all of these hold:
+- its class (the line's closed effect kind; `resolve` for a `resolve`) is on the data's list, and the design is
+  `roles-2a.3`;
+- the reading is a complete answer over the proposal's own lines;
+- the line's verdict admits and its confidence is at the threshold or above;
+- that line's lane has not given a verdict with grounds.
+
+That line's lane call is then cancelled -- its own abort signal, which every round now has beside the review's -- and no
+other line's call is touched. Every other line is the lane's: its verdict with grounds stands whatever the typed reading
+says. A typed refusal never stands; the lane decides refusals. A line whose lane failed is §32.2's outage unless the typed
+reading settles it. The review waits for the typed answer only where it can still matter (a line it could settle, or a
+lane answer without grounds, whose late admission and pending details read it); nowhere else, so a line the typed reading
+does not settle costs no wall time over the lane alone.
+
+**What lands.** A one-line call the typed reading settles lands as any admitted call. A batch of more than one reviewed line
+is §32.12.3.1's per-line review with a typed-settled line as that line's own outcome: the batch's verdict is the lines'
+combined verdict (§32.10's mapping), admitted only when every line is, and otherwise nothing of it lands. A typed-settled
+line never lands alone beside a refused one. Each line's verdict is kept under its own key (§32.4 keyed by line); a batch
+whose every line the typed reading settled keeps its combined verdict as `reviewer: "jev"`, `path: "typed"`.
+
+**The late admission (§32.12.2), narrowed.** At the cap only a batch whose triggering kinds are all on the list is admitted
+`typed_late` (`lateAdmission`'s `settleClasses`, carried on the `late` outcome); anything else goes back `review_pending`
+with `late_rule: "class_not_listed"`. The late threshold stays `PI_COC_ADMISSION_LATE_MIN_CONFIDENCE` (0.70): on the
+relabelled holdout 2a.3's `time` class at *T* = 0.70 settles 61 with no false admission, 51 / 0 on the main sample. Under
+design `v1` no class is listed, so nothing is admitted late.
+
+**What this retires.**
+- §32.10's family rule. `PI_COC_ADMISSION_REVIEWER` and `PI_COC_ADMISSION_JEV_MIN_CONFIDENCE` are read by nothing; no v1
+  verdict stands, refusals included; `jev_fallback: "numeric_commitment"` no longer occurs (`cash` is never a listed
+  class).
+- §32.11's whole-batch fast path over `move`, `clue`, `handout` and `time`: a bookkeeping batch is settled by the typed
+  reading only line by line, and only for the listed classes.
+- §32.12.3's split. `reviewAdmissionPrimary` never returns `ok: "split"`: it aborted every line's call and reviewed a fresh
+  remainder, which added wall time, and it landed the cleared lines alone. §32.12.3's owner amendment (lines no reviewer
+  reads land with the batch) stands. `lineClearable` and `clearedLines` are removed; the caller's remainder and
+  partial-landing machinery (`splitLines`, `state.admissionSplit`, the result's `admission` block) is no longer reached and
+  is left in place here.
+
+**Telemetry (amends §32.7, §32.11 and §32.12.3.1).** Every reviewed row carries `typed_design`, `line_class`,
+`typed_confidence` (that line's typed confidence, or `null`) and `lane_cancelled`. A line of a class the reading may settle
+adds `settle_min_confidence` and, when it was not settled, `jev_fallback` (`lane_first`, `typed_refusal`,
+`low_confidence`, or the typed non-verdict's reason); a line of another class names no fallback. A typed-settled row:
+`reviewer: "jev"`, `path: "typed"`, `model: "jev-1.13.0"`, `confidence`, `lane_cancelled: true` when its lane call was still
+running, and `ms` the typed answer's time from the review's start. `line_ms` is `null` for a cancelled call. `fast_path`,
+`fast_min_confidence` and `typed_rule` are no longer written; `kpi.py`'s `by_reviewer` counts the typed-settled share.
+
+**Three ends (§31).** *Writer:* the typed reading (`runAdmissionRoles`), the settle rule (`typedSettles` over
+`admissionTypedBudget`'s data), and the lines' lane rounds. *Reader:* `admitAction` (`extensions/kernel/index.ts`), still
+the one place a call is admitted or refused. *Actor:* the Keeper, through the unchanged admit and refusals; the operator,
+through the rows' `reviewer`, `line_class`, `typed_confidence` and `lane_cancelled`, and the data file.
+
+**What is verified and what is not.** Verified offline, with the controlled typed endpoint and the admission clock
+(`tests/extension/admission-roles-domain.test.mjs`, `admission-typed-settle.test.mjs`, and the admission suites updated
+for the rule): the measured request; the host arithmetic; a `time` line at 0.87 or above settled by `jev` with its lane
+call cancelled; a `move` line never, at 1.0; a low-confidence `time` line and a lane faster than Jev each ending at the
+lane's own time; a typed refusal escalating; a mixed batch landing whole or not at all, with only the settled line's call
+cancelled; the late admission confined to the list; the list and the threshold read from the data (a fixture listing
+`move` at 0.95); design `v1` settling nothing. Mutations are in the SL-97 ticket's Comments. **Not verified:** the live
+product path at a table -- the typed-settled share, admission's share of the critical path and first visible prose within
+60 s on 20 of 20 turns are long gate #24's acceptance; and agreement beyond the relabelled bank.
 
 #### 32.12.4 Addendum (2026-09-26, SL-88, "what needs no result does not wait"): the admission reviews of one response's write steps start together, as one round
 
@@ -16903,6 +17113,74 @@ addendum 4's wording: no input repairs a stale starter bundle.
 Cases: `tests/extension/setup-opening-choice.test.mjs`, "a campaign created without its opening ..."; the three
 addendum-4 cases in `tests/extension/setup.test.mjs` are unchanged.
 
+### §98 addendum 10 — the handoff command is the host's line, and a refused guidance draft is retried before the step answers (2026-09-27, SL-103; amends §14.4 step seven, §14.19.4, addendum 4 and addendum 9)
+
+**Evidence.** The Masks re-run (`masks2-2238-20260927T023845Z`, gate worktree at dc37c6b7e, setup through
+`tests/play/driver.py`). (1) The `complete` step's result carried `handoff_command: "bin/pi-coc --campaign masks2-2238"`,
+and the `setup.complete` answer inside it carried the kernel's `launch`, the same string; `prompts/setup.md` said "in a
+terminal, read the provided launch command verbatim"; the guide ended its reply to the player with the command. The
+host had already shown that line itself (`ctx.ui.notify`: "Setup complete. Open the table with: …"), and in the App the
+table opens on the play-mode `coc-session` entry, where a CLI command is noise. (2) `create-campaign` answered
+`guidance_failed`, cause `preparation_failed` ("Character guidance needs revision"): the reviewer had refused both
+review rounds of the draft. The `player_reason` said it would be tried again with the next message, and it was: the
+player had to write "好的，再试一次吧" before setup went on, dead time for a retry the host could start at once.
+
+**10.1 The handoff command stays machine-facing.** The step whose success leaves no next step (`complete` today)
+answers `handoff_shown`: an English sentence for the guide, in the manner of §14.18's `opening_shown`, that the host has
+shown the player how the table opens (this call showed the `setup_complete` caption with the command through
+`ctx.ui.notify`: a terminal or driver setup) or opens it for the player itself (the App, `PI_COC_SETUP_AUTOSTART=1`, or
+a process with no UI), and that the guide writes no command, path or launch line and does not repeat the host's line.
+There is no `handoff_command`, and the `setup.complete` answer reaches the guide without its `launch`
+(`guideView` in `extensions/onboarding/index.ts`); the kernel's answer, receipt, `campaign.json` `setup.handoff` and
+`steps.json` `launch_line` are unchanged. The host's own handoff paths are unchanged: the notify, the
+`coc-setup-handoff {campaign, command}` and `coc-session {mode: "play"}` entries, `coc-setup-exit` at `agent_end`, the
+App's `setup-handoff` invoke. `prompts/setup.md` says the handoff is the host's and names `handoff_shown`.
+
+Before this, the readers of `handoff_command` were the guide (the only one that acted on it) and the starter walk in
+`tests/extension/setup.test.mjs`. `tests/play/driver.py` never read it (it records `final_text` and §14.18's
+`setup_opening`), and neither the launcher (`runtime/launch.ts`), `pipicoc/` nor the App backend read it: they act on
+the `coc-setup-exit` / `coc-session` entries and the `setup-handoff` invoke.
+
+**10.2 A refused draft is retried before the step answers.** The guidance preparer marks the one failure that is a
+verdict on the draft: the reviewer did not approve after both of its rounds. That stays `preparation_failed` -- the code
+addendum 4's notices and §14.19.4's reasons read -- with `details: {reason: "review_refused"}`
+(`guidanceReviewRefused` in `extensions/module/character-guidance.ts`); the reviewer's issues stay in the attempt
+folder, since they can name the book's secrets and this error reaches the guide. The setup host's one guidance
+preparation (`ensureGuidance`) runs the preparer again at once when that is the failure, once (`GUIDANCE_ATTEMPTS = 2`),
+before the step that asked answers: `create-campaign`, or the preparation step's remedy (addendum 9). A retry that is
+accepted is an ordinary success (`character_guidance`, the opening shown with `opening_shown`, the card steps open); a
+second refusal answers `guidance_failed` with §14.19.4's `player_reason` and raises addendum 4's block, announced once.
+Nothing else is retried here: a reader or reviewer child that failed or wrote nothing, a draft changed during review,
+`needs_choice`, `guidance_not_ready`, `interrupted` -- each is answered at once.
+
+- **Bounded, not stacked.** The retry lives inside the preparation, not in its callers, so no caller retries around it:
+  one step runs at most two preparations. Accepted guidance is kept, and the next turn prepares nothing. The start of a
+  turn (the player's next line after a double refusal) and the App's session start go through the same preparation, so
+  each has the same one retry.
+- **One at a time.** The preparation and its retry run inside one single-flight promise: a caller that arrives while
+  either runs joins it, and no second preparation starts beside it.
+- **Stops.** A step's preparation runs under that tool call's abort signal (the run was stopped) together with the
+  session's end. A stop before the retry skips it, and the step answers the refusal; a stop during it reaches the running
+  child, no reviewer runs after it, and the step answers `guidance_failed` with cause `interrupted`, which the player's
+  next line retries.
+
+**10.3 What does not change.** The preparer's two review rounds inside one preparation. The `player_reason` wording: a
+double refusal is still retried with the player's next line. Addendum 4's text rule and notices, addendum 9's remedy.
+The App's onboarding worker (`pipicoc/onboarding-worker.ts`), which prepares guidance before setup through its own call
+to the preparer, is a separate producer and does not retry.
+
+**10.4 The three ends (§31).** `handoff_shown`: writer `finish()` / `handoffShown` (host); reader the guide; actor the
+guide, who closes without a command (`prompts/setup.md`). `review_refused`: writer the preparer; reader
+`ensureGuidance`; actor the host, which prepares once more. Tests: `tests/extension/setup-handoff-and-guidance-retry.test.mjs`
+(the real kernel's `complete` result carries `handoff_shown` and no command anywhere while the host's line, entries
+and `campaign.json` still carry it; the App is told the other handoff; the prompt names `handoff_shown` and no launch
+command; a refused draft is retried once inside `create-campaign`, which answers with the retried guidance and no
+reason, with no two children running at once, and the next turn prepares nothing; a second refusal answers SL-100's
+reason with one notice and two preparations; any other failure is one preparation; a stop during the retry reaches its
+child and nothing runs after it; a stop between the refusal and the retry skips it and answers the refusal; a turn
+start retries the same way); `tests/extension/setup.test.mjs`'s starter walk reads the command from the host's
+`coc-setup-handoff` entry and its notification, not from the result.
+
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
 §97 was built from M-MAIN turn 109 but its fixture omitted the one property the live object had:
@@ -21299,6 +21577,103 @@ with the builder and the bodies exactly as the read step runs them; script and o
 
 All three read calls of the turn were covered. Whether the Keeper then skips them is the live replays' question.
 
+#### 135.20.1 Addendum (2026-09-27, SL-102): looked-up material stays in hand while the scene lasts; the next turn's first step waits out this scene's consultation still being read (amends §135.31.2 and §22.4.3)
+
+SL-102 takes §135.20.1 (§-numbers are stable ids). The ticket's ruling "material the Keeper looked up in this scene stays in
+its hands while the scene lasts" binds A; the investigation below found the gate's repeats had another cause, which B fixes.
+The single-loop parts apply to `PI_COC_LOOP_ENGINE=hybrid-v1` only; the kernel extension keeps the held answers on both
+engines, and only the hybrid engine's note reads them.
+
+**Evidence** (long gate #24, `longgate24-haunting-2238`, dc37c6b7e, grok-4.5 low; line numbers are the campaign's
+`telemetry.jsonl` and the run's `events.jsonl`). Five lookups repeated the previous turn's lookup of the same focus:
+`source upper-floor-bedroom` t11 then t12; `source corbitt-diaries` t14 then t15, beside `module "Corbitt Diaries"` t15;
+`source basement-rites` t17 then t18, and a t18 `retry: true`. The three source repeats have one shape:
+
+| | t11 then t12 | t14 then t15 | t17 then t18 |
+| --- | --- | --- | --- |
+| turn N's lookup went `pending` after its 8 s allowance | line 1855 | line 2282 | line 2654 |
+| turn N+1's first note carried it in `carried.pending`, with its question | events 3847 | events 4594 | events 5440 |
+| that first model step began | 02:48:36.016 | 02:50:59.513 | 02:53:36.456 |
+| the read (a read round plus a review) landed | 02:48:38.886 (52.2 s after the ask) | 02:50:59.760 (44.8 s) | 02:53:41.474 (42.1 s) |
+| the Keeper's response asked the focus again, with a new question; the memo answered | line 1997, 24 ms | line 2403, 22 ms | line 2764, 23 ms |
+| the next note carried the same answer again as a landed `source_answer` | line 2006, 2,213 B | line 2418, 1,211 B | line 2768, 1,554 B |
+
+- **Did turn N's answer reach turn N+1's context?** Not at the step that re-asked: it was still being read, and it landed
+  0.25-5.0 s into that step, after its note had said `pending`. The driver's player answers in about 6 s, so the next
+  turn began while the read was in its review.
+- **In what form?** Always the body with its question: the pending row carried the question, the memo returned
+  `{question, status, answer, source_refs, …}`, and the carried view was the same. Never a pointer (§135.20 holds).
+- **Dropped or never carried?** Neither: late. Once it landed it was carried, and then twice in the same run (the memo's
+  tool result, then the landed view).
+- **The t18 retry** asked what the t17 answer did not cover (the boards and a latch) with `retry: true`: a new read, not
+  material in hand. It landed on t19 after the party left and was carried once on t20, in another scene.
+- **The t15 module lookup** is not a repeat of material in hand: t14's `module "corbitt-diaries Corbitt Diaries"` had
+  answered `not_found` (the module lookup matches one name at a time, §135.20).
+- **Beside the gate:** a turn's request keeps nothing of an earlier turn's notes or tool results (the context policy counts
+  them closed noise before the current boundary; only the two-turn quotation history rides; `history_bytes` 3.3-3.6 KB on
+  t12/t13). An answer the Keeper got on turn N is gone on turn N+2 at the same scene, and one it got inside the allowance
+  is gone on turn N+1. On this gate no repeat came from that; the ruling covers it.
+
+**A. Held answers ride each turn's first step while the party stays.** The kernel extension keeps, per campaign, the
+source answers the Keeper was handed at a scene (`PendingAnswers.hold`, `extensions/kernel/source-answers.ts`): a lookup
+answered inside its allowance, the answers a memo hit returned, and a consultation that landed (at the scene it was asked).
+Each keeps its focus, question, scene (the table's active scene when asked) and the run whose request already holds it.
+Before each model step the engine takes the port with its scene and run, `take({scene, run})`; the port returns `held`,
+the answers held at that scene that this run's request does not hold yet, newest first, and marks them in hand for the run.
+A run's request is append-only (§135.23), so a held answer rides once per run; the next run's request has none of it, so
+it rides again on that run's first step. A take at another scene drops every held answer of the other scenes; the party
+coming back does not bring them back (the memo still answers a lookup at once).
+
+- **Shape.** A `source_answer` view marked held: `{focus: "source_answer", name: <the focus>, held: true, view: {question,
+  status, answer, limitations, source_refs, …}}`. Served last, after the passages, so it never displaces a view that rode
+  before it. Cut in the order question, status, answer, answers, limitations, source_refs (`HELD_ANSWER_FIELD_ORDER`): on
+  a later turn the question is what tells the Keeper which question this answers, so a long answer is clipped first.
+- **Budgets.** One view is `CARRIED_VIEW_BYTES` (4 KiB), cut and marked; the message's `CARRIED_VIEWS_BYTES` (12 KiB) is
+  shared, and a held view past it is listed in `omitted` with `budget` and `held: true`. A scene's held answers together
+  are at most `HELD_ANSWERS_BYTES` (8 KiB: the message less one view, so the scene's passages still fit beside them), each
+  counted at its view's size capped at one view; the newest are kept, and an older one is dropped from the ledger with a
+  row. Nothing is dropped silently.
+- **Deduplicated.** One entry per focus and question (a newer answer replaces the older). A run whose request holds an
+  answer is not carried it again. A landed answer that is also held rides once, as the landed view. A landed answer the
+  Keeper's own lookup already returned in this run (the gate's shape) is not carried again, and the carried row names it
+  in `handed`.
+- **The head** adds `CARRIED_HELD_HEAD` when a held view (or a held `omitted` row) is present: an answer already given at
+  this scene, with the question it answered, carried on each turn's first step while the party stays and dropped when the
+  scene changes. §135.31.2's head for a landed answer is used only when a landed, not held, answer is present.
+
+**B. The next turn's first step waits out this scene's consultation still being read.** At a run's first model step,
+before its note is built, the engine asks the port to `settle` the `answer` consultations asked at the run's scene on an
+earlier turn that are still being read (`coc:source-answers` `settle({scene, turn, elapsed_ms})`). The port waits for them
+for what is left of one allowance (§22.4.3's `SOURCE_ANSWER_ALLOWANCE_MS`, 8 s, and its `PI_COC_SOURCE_ANSWER_ALLOWANCE_MS`
+override) after the run's elapsed time, so the wait overlaps the run's own read, route and clerk steps (2.6-4.4 s before
+the first model step on the gate). What lands inside it rides the first note as landed; past it the note carries it
+`pending`, as before. A consultation asked at another scene, one asked this turn, and a `prepare` are not waited on; the
+reading is never cancelled and nothing new is read. This is §22.4.3's allowance given once more, at the first step, to a
+consultation this scene is already reading: on the gate the three waits would have been 2.9 s, 0.25 s and 5.0 s against
+bounds of about 3.6, 4.5 and 5.4 s, each in place of the model step that asked again (6.6 s, 30.2 s and 9.1 s there).
+
+**Telemetry.**
+
+- `lane: "run"`, `event: "held_wait"`, once per run when a consultation was due: `{run, step, scene, foci, waited_ms,
+  bound_ms, landed, pending}`.
+- The `carried` row's views add `held: true`; the row adds `handed: [{focus, since_turn}]` when a landing was not carried
+  because the Keeper's lookup had returned it (the row is written even when the note carries nothing else).
+- `lane: "reading"`, `event: "held_dropped"`: `{campaign, reason: "scene_change" | "budget", scene, foci}` (a budget row adds
+  `turn`). Never the question (§22 #65).
+
+**Three ends (§31).** *Writer:* the kernel extension's lookup path (an answer inside the allowance, a memo hit) and a
+consultation's landing. *Reader:* the hybrid engine's note (`carried`), through `coc:source-answers` (`take({scene, run})`,
+`settle`). *Actor:* the Keeper, who does not ask again for a focus whose answer it holds. Long gate #25 counts the repeated
+lookups of the previous turn's material (expected about 0), the Keeper calls per turn and the first visible prose.
+
+*Tests.* `tests/extension/single-loop-held-answers.test.mjs`: the ledger (once per run, the newer answer replaces the older,
+the scene-change drop, the 8 KiB shelf, `handed`, `settle` bounded and scene-scoped); the carried section (held last, the
+question leads, past the message's budget omitted as held); on the emitted kernel through the vendored driver with a stub
+reading bridge, the real lookup path: an answer from turn N rides turn N+1's first step once and is gone after a move; a memo
+hit's answers are held within the budget; a landing the Keeper's own lookup returned is not carried again; the next turn's
+first step waits for this scene's consultation and carries it landed, and does not wait for the scene the party left. The
+mutation record is in the SL-102 ticket's Comments.
+
 ### 135.21 A tool argument that explains a write is one sentence (2026-09-23, SL-11 scope 2; both engines)
 
 Every `how` (clue) and every `why` of an `apply` effect declares `maxLength: 200` (`SENTENCE_MAX`,
@@ -23261,6 +23636,11 @@ since_turn, purpose}]` (never the question).
 stub reading bridge: a consultation past its allowance answers `pending` with the index rows, the next step's note carries it
 pending, and after it lands the next turn's first model step carries the answer once and no later note repeats it; a text
 read still pending rides as `pending` beside a delivered draft.
+
+*Amended by §135.20.1 (SL-102).* A landed answer is also held at the scene it was asked and rides again, marked `held`, on
+each later run's first step while the party stays there; one the Keeper's own lookup already returned in the run is not
+carried again (`handed`); and the next turn's first step waits out what is left of one allowance for a consultation of
+its scene still being read.
 
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 

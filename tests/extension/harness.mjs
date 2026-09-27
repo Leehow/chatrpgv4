@@ -499,6 +499,29 @@ export async function openTable({
  */
 export { waitFor, waitForJson, waitForValue, publishJsonSync } from "./wait.mjs";
 
+/** The one proposed line (or lines) an admission lane request carries: everything under "[The Keeper now proposes]". */
+export function admissionProposes(text) {
+	const at = String(text).indexOf("[The Keeper now proposes]");
+	return at < 0 ? "" : String(text).slice(at);
+}
+/**
+ * §32.12.3.1 (SL-101): a batch of more than one reviewed line is put to the admission lane one line per call, all at once,
+ * so the order in which the calls reach the scripted provider is the scheduler's. A scripted step that answers by the line
+ * it is asked about keeps the test's verdicts on their lines: `cases` are `[pattern, verdict row, delay ms?]`, the first
+ * whose pattern matches the proposed line answers; a line no case matches gets the harness default (`authorized`).
+ * `count` copies of the step fill the lane's queue.
+ */
+export function laneByLine(cases, { count = 8 } = {}) {
+	const step = async (context) => {
+		const text = (context?.messages ?? []).flatMap((message) => (message.role === "user" ? message.content : [])).map((block) => block.text ?? "").join("");
+		const hit = cases.find(([pattern]) => pattern.test(admissionProposes(text)));
+		const [, row, ms = 0] = hit ?? [null, { verdict: "authorized", grounds: "harness default: the player chose it" }];
+		if (ms) await new Promise((resolve) => setTimeout(resolve, ms));
+		return fauxAssistantMessage(typeof row === "string" ? row : JSON.stringify(row));
+	};
+	return Array.from({ length: count }, () => step);
+}
+
 /** 等宿主自己发起的那一轮（开桌、恢复、催收）跑完。 */
 export async function waitForIdle(session, { timeoutMs = 15_000 } = {}) {
 	const deadline = Date.now() + timeoutMs;

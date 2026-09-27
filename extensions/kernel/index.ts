@@ -108,6 +108,10 @@ import {
 	typedDetails,
 	registeredDestination,
 	reviewAdmissionPrimary,
+	reviewedPerLine,
+	lineProposal,
+	batchRefusal,
+	REFUSING_VERDICTS,
 } from "./admission.ts";
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 
@@ -128,6 +132,24 @@ interface AdmissionPartial {
 	alreadyLanded?: string[];
 	wholeKey?: string;
 	landedSignatures?: string[];
+}
+/**
+ * What `admitAction`'s `admitOne` is told beyond the proposal: the rows it adds (a split's remainder, §32.12.3; one line of a
+ * batch, §32.12.3.1); a remainder's carried typed answer and the batch's clock; one line's outcome already in hand (its batch
+ * was reviewed one line per call), the prefetch marker its rows carry, and the outage streak the lines of one call share.
+ */
+interface AdmitPart {
+	rows: Record<string, unknown>;
+	attempt?: TypedAttempt;
+	landedLines?: string[];
+	startedAt?: number;
+	capMs?: number;
+	hardCapMs?: number;
+	outcome?: AdmissionOutcome;
+	resent?: Record<string, unknown>;
+	streak?: { counted: boolean };
+	/** §32.12.3.1: a line's rows wait here until its batch's verdict is known, and then carry it (`batch_admitted`). */
+	buffer?: Array<Record<string, unknown>>;
 }
 
 type TurnState = "awaiting_player" | "open" | "acting" | "asked" | "committed";
@@ -2369,6 +2391,19 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
+	 * §32.12.3.1 (SL-101): each reviewed line of a proposal as a call of only that line would propose it -- its effect and
+	 * its own proposal, whose key is the one its verdict is kept under and its running round parked under (§32.4 keyed by
+	 * line). `effects` is what `proposal.effects` indexes (the call's effects, or a remainder's).
+	 */
+	function admissionLines(tool: "resolve" | "apply", proposal: AdmissionProposal, effects: Array<Record<string, unknown>>,
+		scopeFor: Awaited<ReturnType<typeof admissionScopeBuilder>>): Array<{ line: string; effect: Record<string, unknown>; proposal: AdmissionProposal }> {
+		return proposal.lines.map((line, index) => {
+			const effect = effects[proposal.effects?.[index] ?? index] ?? {};
+			return { line, effect, proposal: admissionRequest(tool, { effects: [effect] }, scopeFor([effect])) ?? { ...lineProposal(proposal, index), key: `${proposal.key}#${index}` } };
+		});
+	}
+
+	/**
 	 * The reviewer's picture of the table (§32), shared by the real admission path and the prefetch below. Read live
 	 * off `state` at call time -- a prefetch that started before an earlier step of the same batch landed reads the
 	 * table as it stood then, which is what the owner's ruling calls for (§32.12/SL-88: the reviews of one response's
@@ -2415,13 +2450,17 @@ export default function (pi: ExtensionAPI) {
 		// A verdict already kept for the turn, or a round already running (a genuine §32.12.2 pending resend, or an
 		// earlier call of this same batch proposing the identical thing) -- either way there is nothing to start.
 		if (!proposal || state.admission.has(proposal.key) || state.admissionPending.has(proposal.key)) return;
+		// §32.12.3.1: a line of this batch already has a verdict or a running round under its own key -- the real call reuses
+		// or re-joins it line by line, so a prefetch of the whole batch would only review that line twice.
+		if (reviewedPerLine(proposal) && admissionLines(tool, proposal, effects, scopeFor)
+			.some((entry) => state.admission.has(entry.proposal.key) || state.admissionPending.has(entry.proposal.key))) return;
 		const ctx = sessionCtx;
 		if (!ctx) return;
 		const capMs = admissionTimeoutMs(), hardCapMs = admissionHardCapMs(capMs);
 		const lane = reviewAdmissionPrimary({
 			campaign: state.campaign, ctx, proposal, context: admissionContextFor(state),
 			providerBudget: foregroundProviderBudget?.(), record: (row) => record({ verb: tool, ...row, prefetch: true }),
-			...(state.lanes.signal ? { signal: state.lanes.signal } : {}), lineLevel: tool === "apply", ...(admissionClock ? { clock: admissionClock } : {}),
+			...(state.lanes.signal ? { signal: state.lanes.signal } : {}), ...(admissionClock ? { clock: admissionClock } : {}),
 		}).catch((error): AdmissionOutcome => ({ ok: false, reason: "prefetch_error",
 			detail: error instanceof Error ? error.message : String(error), ms: 0, reviewer: "lane", meta: {} }));
 		state.admissionPending.set(proposal.key, { lane, capMs, hardCapMs, collected: false, prefetched: true });
@@ -2505,9 +2544,11 @@ export default function (pi: ExtensionAPI) {
 		 * the Keeper reads. `part` is a split batch's remainder (§32.12.3): its rows say so, its review carries the batch's
 		 * typed answer and the batch's clock, and it is never split again. A split of the top-level batch is returned.
 		 */
-		const admitOne = async (proposal: AdmissionProposal, part?: { rows: Record<string, unknown>; attempt: TypedAttempt; landedLines: string[]; startedAt: number; capMs: number; hardCapMs: number }):
-			Promise<Extract<AdmissionOutcome, { ok: "split" }> | undefined> => {
+		const admitOne = async (proposal: AdmissionProposal, part?: AdmitPart):
+			Promise<Extract<AdmissionOutcome, { ok: "split" | "lines" }> | undefined> => {
 			const digest = keyDigest(proposal.key), partRows = part?.rows ?? {};
+			// §32.12.3.1: a line's own admission rows are held until its batch's verdict is known (`settleLines` flushes them).
+			const emit = async (row: Record<string, unknown>): Promise<void> => { if (part?.buffer) part.buffer.push(row); else await record(row); };
 			const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}, keep = true): Promise<void> => {
 				if (keep) state.admission.set(proposal.key, verdict);
 				// §135.11.1 (SL-50): the verdict of this call's review, for the drop row of the step the call came from.
@@ -2525,7 +2566,7 @@ export default function (pi: ExtensionAPI) {
 				// §32.12.2 (SL-24): an admitting row carries them too. Until then an admitted `not_player_action` row had no
 				// `grounds` column at all, and the long gate's triage read four admissions as refusals "with no grounds".
 				// §32.10: which reviewer decided, and the typed route's own cost, so tables can be compared.
-				await record({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
+				await emit({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
 					...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), path: verdict.path ?? "lane",
 					...(timedOut ? { timed_out: true, cap_ms: verdict.capMs ?? null } : {}), ...meta, ...partRows, ...origin, ...who,
 					grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines });
@@ -2535,7 +2576,8 @@ export default function (pi: ExtensionAPI) {
 				state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
 				throw admissionRefusal(proposal, verdict);
 			};
-			const remembered = state.admission.get(proposal.key);
+			// §32.12.3.1: a line whose outcome is already in hand was not known when its batch's review began; it is settled as is.
+			const remembered = part?.outcome ? undefined : state.admission.get(proposal.key);
 			if (remembered) return settle(remembered, true, 0);
 			if (!part && compiled?.ok) {
 				const began = Date.now();
@@ -2557,15 +2599,15 @@ export default function (pi: ExtensionAPI) {
 				return settle(verdict, false, 0, undefined, { fight_act: fightAct, compile_read: { run: read.run, ...(read.step ? { step: read.step } : {}),
 					act: read.choice, confidence: read.confidence, cleared: read.cleared, rows: read.rows } });
 			}
-			if (!ctx) {
+			if (!ctx && !part?.outcome) {
 				await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...refusedConsequence, ...partRows, ...origin, ...who });
 				throw admissionUnavailable(proposal, "session_gone", "the session was gone before the review could start");
 			}
 			const base = context();
-			const reviewContext = part ? { ...base, landed: [...base.landed, ...part.landedLines.map((line) => `admitted in this same call: ${line}`)] } : base;
-			const review = () => reviewAdmissionPrimary({ campaign: state.campaign, ctx, proposal, context: reviewContext, providerBudget,
+			const reviewContext = part?.landedLines?.length ? { ...base, landed: [...base.landed, ...part.landedLines.map((line) => `admitted in this same call: ${line}`)] } : base;
+			const review = () => reviewAdmissionPrimary({ campaign: state.campaign, ctx: ctx!, proposal, context: reviewContext, providerBudget,
 				record: (row) => record({ verb: tool, ...row, ...origin }), ...(signal ? { signal } : {}), ...(admissionClock ? { clock: admissionClock } : {}),
-				...(part ? { typedAttempt: part.attempt, startedAt: part.startedAt, timeoutMs: part.capMs, hardCapMs: part.hardCapMs } : { lineLevel: tool === "apply" }) });
+				...(part?.attempt ? { typedAttempt: part.attempt, startedAt: part.startedAt, timeoutMs: part.capMs, hardCapMs: part.hardCapMs } : {}) });
 			// §32.12.2: what the lane of a review this call no longer waits for answered in the end, for the record only. A late
 			// lane refusal after a late admission changes nothing that landed; it is what the late admission is measured by.
 			const watchLate = (lane: Promise<AdmissionOutcome> | undefined, answered: string, entry?: AdmissionPendingEntry) => {
@@ -2580,14 +2622,14 @@ export default function (pi: ExtensionAPI) {
 			};
 			// §32.12.2: the Keeper's one resend of a call returned pending collects the review it left running (or, when the lane
 			// had answered without grounds, runs it once more). Whatever it does not produce by the hard cap is `review_timeout`.
-			const pending = state.admissionPending.get(proposal.key);
+			const pending = part?.outcome ? undefined : state.admissionPending.get(proposal.key);
 			if (pending) {
 				state.admissionPending.delete(proposal.key);
 				pending.collected = true;
 			}
 			// SL-87: the resend's wait is on the review's clock (a test's, or the host's own).
 			const began = admissionNow();
-			let outcome = pending?.lane ? await pending.lane : await review();
+			let outcome = part?.outcome ?? (pending?.lane ? await pending.lane : await review());
 			// §32.12.3: the typed answer admitted some lines and not the rest; the caller reviews the rest.
 			if (outcome.ok === "split") return outcome;
 			// §143.15 (ticket 16): the lane failed (its round already asked twice for a malformed answer) on the investigator's own
@@ -2621,8 +2663,12 @@ export default function (pi: ExtensionAPI) {
 			// §135.5/SL-88: a round `message_end` started before this call's own turn came up is not a resend -- the
 			// Keeper never saw a `review_pending` refusal for it. `concurrent_wait_ms` is what this call still had to
 			// wait once its own turn actually arrived, which is the whole saving the ruling is for.
-			const resent = resentBy ? { resend: true, ...(resentBy === "host" ? { resend_by: "host", declared: true } : {}), resend_wait_ms: admissionNow() - resendBegan, lane_ms: outcome.ms }
-				: pending?.prefetched ? { concurrent: true, concurrent_wait_ms: admissionNow() - began, lane_ms: outcome.ms } : {};
+			const resent = part?.resent ?? (resentBy ? { resend: true, ...(resentBy === "host" ? { resend_by: "host", declared: true } : {}), resend_wait_ms: admissionNow() - resendBegan, lane_ms: outcome.ms }
+				: pending?.prefetched ? { concurrent: true, concurrent_wait_ms: admissionNow() - began, lane_ms: outcome.ms } : {});
+			// §32.12.3.1: the batch's lines were reviewed one per call; the caller settles each line on its own. A prefetched
+			// review says so on every line's row.
+			if (outcome.ok === "lines") return pending?.prefetched
+				? { ...outcome, meta: { ...outcome.meta, concurrent: true, concurrent_wait_ms: admissionNow() - began } } : outcome;
 			const noVerdict = outcome.ok === "late" || outcome.ok === false && outcome.reason === NO_GROUNDS
 				|| outcome.ok === true && outcome.verdict.verdict === REVIEW_TIMEOUT;
 			// §135.5/SL-88: this shortcut is for a genuine §32.12.2 resend -- the Keeper already read a `review_pending`
@@ -2641,7 +2687,8 @@ export default function (pi: ExtensionAPI) {
 			if (outcome.ok === "late") {
 				// §32.12.2: the cap passed with nothing sufficient. A bookkeeping-only batch the typed reviewer admitted at the late
 				// threshold lands on it; anything else goes back to the Keeper pending, the lane still running for its one resend.
-				const late = lateAdmission(proposal, outcome.typed);
+				// §32.12.3.2: only the line classes the typed reading may settle are admitted late on it.
+				const late = lateAdmission(proposal, outcome.typed, process.env, outcome.settleClasses);
 				const meta = { ...outcome.meta, ...refusedCompile, ...refusedConsequence, late_rule: late.ok ? "typed_late" : late.reason,
 					...(late.ok ? { late_min_confidence: late.minConfidence, confidence: outcome.typed?.confidence ?? null } : {}) };
 				if (late.ok) {
@@ -2653,15 +2700,17 @@ export default function (pi: ExtensionAPI) {
 				state.admissionPending.set(proposal.key, entry);
 				watchLate(outcome.lane, REVIEW_PENDING, entry);
 				const waitMs = outcome.lane ? Math.max(0, outcome.hardCapMs - outcome.ms) : outcome.hardCapMs;
-				await record({ lane: "admission", verb: tool, ok: true, verdict: REVIEW_PENDING, admitted: false, reused: false, ms: outcome.ms, key: digest,
+				await emit({ lane: "admission", verb: tool, ok: true, verdict: REVIEW_PENDING, admitted: false, reused: false, ms: outcome.ms, key: digest,
 					reviewer: "lane", ...meta, path: "lane", cause: outcome.cause, wait_ms: waitMs, typed: outcome.typed ? typedDetails(outcome.typed) : null,
 					proposed: proposal.lines, ...partRows, ...origin, ...who });
 				throw admissionPending(proposal, outcome.capMs, outcome.ms, waitMs, outcome.typed);
 			}
 			if (!outcome.ok) {
-				await record({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
+				await emit({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
 					...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...partRows, ...origin, ...who });
-				state.admissionOutage += 1;
+				// §32.12.3.1: the lines of one call are one review for the outage streak -- it counts once however many failed.
+				if (!part?.streak?.counted) state.admissionOutage += 1;
+				if (part?.streak) part.streak.counted = true;
 				const streak = state.admissionOutage;
 				if (streak >= 2 && !state.admissionOutageNotified) {
 					state.admissionOutageNotified = true;
@@ -2694,54 +2743,203 @@ export default function (pi: ExtensionAPI) {
 			await settle(outcome.verdict, false, resentBy || pending ? admissionNow() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...partRows });
 		};
 
-		const split = await admitOne(proposal);
-		if (!split) return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
-		// §32.12.3: the typed answer admitted these lines on their own at the fast-path confidence. They land in this call
-		// whatever becomes of the rest; the rest is reviewed on its own.
+		/**
+		 * Whether one reviewed line lands in this call (§32.12.3), and if not, the refusal that stands for it. `skipped`: a line
+		 * whose round was stopped because a batch-mate's refusal had already decided the batch (§32.12.3.1).
+		 */
+		type LineStatus = { admitted: true } | { admitted: false; error: KernelError } | { admitted: false; skipped: true };
+		/** Where a proposal's lines sit in the call's batch, for the rows (§32.12.3's `lines`/`of_lines`/`batch_key`). */
+		type LineFrame = { numbers: number[]; of: number; batchDigest: string; remainder?: true };
+		const statusOf = async (run: () => Promise<unknown>): Promise<LineStatus> => {
+			try {
+				await run();
+				return { admitted: true };
+			} catch (error) {
+				if (!isKernelError(error)) throw error;
+				return { admitted: false, error };
+			}
+		};
+		const lineRows = (frame: LineFrame, index: number, extra: Record<string, unknown> = {}) => ({ line_level: "line",
+			...(frame.remainder ? { remainder: true } : {}), lines: [frame.numbers[index]!], of_lines: frame.of, batch_key: frame.batchDigest, ...extra });
+		const known = (key: string) => state.admission.has(key) || state.admissionPending.has(key);
+
+		/**
+		 * §32.12.3.1: the batch's verdict from its lines' own (§32.10's mapping, as §32.12.3 maps a remainder): admitted only
+		 * when every line is. Otherwise every line of the proposal stays out, under the refusal `batchRefusal` picks from the
+		 * lines that were not admitted -- so a batch refused on one line's grounds is refused whole, as §32.1 has it, and a
+		 * batch whose only open lines are still under review is pending on those lines alone. All admitted, the batch's own
+		 * key keeps the combined verdict too, so its identical resend reuses it at once (§32.4).
+		 */
+		const combineLines = async (p: AdmissionProposal, lines: ReturnType<typeof admissionLines>, statuses: LineStatus[], frame: LineFrame,
+			buffer: Array<Record<string, unknown>>): Promise<LineStatus[]> => {
+			let combined: LineStatus[] = statuses, batch: Record<string, unknown>;
+			if (statuses.every((status) => status.admitted)) {
+				const kept = lines.map((entry) => state.admission.get(entry.proposal.key));
+				const verdicts = kept.map((value) => value?.verdict).filter((value): value is string => !!value);
+				const verdict = verdicts.length === lines.length ? batchVerdict(verdicts as Parameters<typeof batchVerdict>[0]) : undefined;
+				// §32.12.3.2: a batch whose every line the typed reading settled was decided by it; a reused row says so.
+				const typed = kept.every((value) => value?.reviewer === "jev" && value.path === "typed");
+				if (verdict) state.admission.set(p.key, { verdict, grounds: `each line admitted on its own review: ${verdicts.map((value, index) => `line ${frame.numbers[index]} ${value}`).join("; ")}`,
+					reviewer: typed ? "jev" : "lane", path: typed ? "typed" : "lane" });
+				batch = { batch_admitted: true, ...(verdict ? { batch_verdict: verdict } : {}) };
+			} else {
+				const refused = statuses.flatMap((status, index) => "error" in status ? [{ line: p.lines[index]!, error: status.error }] : []);
+				const error = batchRefusal(tool, p.lines, refused);
+				combined = p.lines.map(() => ({ admitted: false, error }));
+				batch = { batch_admitted: false, batch_reason: asString(error.details?.reason) ?? error.code,
+					...(typeof error.details?.verdict === "string" ? { batch_verdict: error.details.verdict } : {}) };
+			}
+			// Each line's row says what its batch came to: a line's own admission is not a landing when a batch-mate refused it.
+			for (const row of buffer) await record({ ...row, ...batch });
+			return combined;
+		};
+
+		/**
+		 * §32.12.3.1: the lines of a per-line review, each settled on its own in the batch's order -- its verdict kept under its
+		 * own key (§32.4 keyed by line), its cap, late admission and pending its own (§32.12.2 per call) -- then combined into
+		 * the batch's verdict. When a line is refused on grounds or its review failed, the batch cannot be admitted whatever
+		 * the lines still running would say: they are stopped and left unsettled, so nothing is pending on them. The lines of
+		 * one call are one review for the outage streak.
+		 */
+		const settleLines = async (p: AdmissionProposal, effects: Array<Record<string, unknown>>, reviewed: Extract<AdmissionOutcome, { ok: "lines" }>,
+			frame: LineFrame): Promise<LineStatus[]> => {
+			const lines = admissionLines(tool, p, effects, scopeFor);
+			const decided = reviewed.lines.some((value) => value.ok === true && REFUSING_VERDICTS.has(value.verdict.verdict) || value.ok === false && value.reason !== NO_GROUNDS);
+			if (decided) reviewed.abort();
+			if (reviewed.lines.some((value) => value.ok === true && value.verdict.verdict !== REVIEW_TIMEOUT)) {
+				state.admissionOutage = 0;
+				state.admissionOutageNotified = false;
+			}
+			const streak = { counted: false }, buffer: Array<Record<string, unknown>> = [];
+			const collected = reviewed.meta.concurrent ? { concurrent: true, concurrent_wait_ms: reviewed.meta.concurrent_wait_ms } : {};
+			// What the call waited for its lines: how many calls ran at once, each one's time (`null` for one still running at the
+			// cap or stopped by a batch-mate's refusal), and the review's own wall time -- the slowest line's, not the sum.
+			const shared = { line_calls: reviewed.lines.length, line_ms: reviewed.meta.line_ms, batch_ms: reviewed.ms, ...collected };
+			const statuses: LineStatus[] = [];
+			for (const [index, entry] of lines.entries()) {
+				const outcome = reviewed.lines[index]!;
+				if (decided && outcome.ok === "late") { statuses.push({ admitted: false, skipped: true }); continue; }
+				statuses.push(await statusOf(() => admitOne(entry.proposal, { rows: lineRows(frame, index, shared), outcome, resent: collected, streak, buffer })));
+			}
+			return combineLines(p, lines, statuses, frame, buffer);
+		};
+
+		/**
+		 * §32.12.3: the typed answer admitted these lines on their own at the fast-path confidence. They land in this call
+		 * whatever becomes of the rest; the rest is reviewed on its own (one lane call per line when it has more than one,
+		 * §32.12.3.1) and lands or not as one.
+		 */
+		const splitLines = async (p: AdmissionProposal, effects: Array<Record<string, unknown>>, split: Extract<AdmissionOutcome, { ok: "split" }>,
+			frame: LineFrame): Promise<LineStatus[]> => {
+			const effectOf = (line: number) => effects[p.effects?.[line] ?? line]!;
+			const cleared = split.cleared, rest = p.lines.map((_, line) => line).filter((line) => !cleared.includes(line));
+			const clearedEffects = cleared.map(effectOf), restEffects = rest.map(effectOf);
+			const clearedLinesText = cleared.map((line) => p.lines[line]!), restLines = rest.map((line) => p.lines[line]!);
+			const answer = split.attempt.typed!;
+			const lineVerdicts = cleared.map((index) => answer.lines![index]!);
+			const lineNumbers = (indices: number[]) => indices.map((index) => frame.numbers[index]!);
+			const clearedVerdict: AdmissionVerdict = { verdict: batchVerdict(lineVerdicts.map((line) => line.verdict)),
+				grounds: `typed review admitted line${cleared.length > 1 ? "s" : ""} ${lineNumbers(cleared).join(", ")} at or above ${split.meta.line_min_confidence}`,
+				reviewer: "jev", path: "typed" };
+			// Kept for the turn under the key a call of only these lines would have (§32.4).
+			const clearedProposal = admissionRequest(tool, { effects: clearedEffects }, scopeFor(clearedEffects));
+			if (clearedProposal) state.admission.set(clearedProposal.key, clearedVerdict);
+			evidence.onVerdict?.(clearedVerdict.verdict);
+			await record({ lane: "admission", verb: tool, ok: true, verdict: clearedVerdict.verdict, admitted: true, reused: false, ms: split.ms, key: keyDigest(p.key),
+				model: ADMISSION_JEV_MODEL, reviewer: "jev", path: "typed", line_level: "admitted", lines: lineNumbers(cleared), of_lines: frame.of,
+				confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...refusedConsequence, ...origin, ...who,
+				grounds: clearedVerdict.grounds, proposed: clearedLinesText });
+			const statuses: LineStatus[] = p.lines.map(() => ({ admitted: true }));
+			const partRows = { line_level: "remainder", lines: lineNumbers(rest), of_lines: frame.of, batch_key: frame.batchDigest };
+			const remainder = admissionRequest(tool, { effects: restEffects }, scopeFor(restEffects));
+			if (!remainder) {
+				// §32.1: what is left carries no triggering kind, and a call of only those lines would not be reviewed at all. Since the
+				// owner's amendment to §32.12.3 the rest holds only reviewed lines, so this guards a shape that cannot arise today.
+				await record({ lane: "admission", verb: tool, ok: true, skipped: "not_triggering", path: "none", ms: 0, proposed: restLines, ...partRows, ...origin, ...who });
+				return statuses;
+			}
+			const got = await admitLines(remainder, restEffects, { rows: partRows, attempt: remainderAttempt(split.attempt, rest), landedLines: clearedLinesText,
+				startedAt: split.startedAt, capMs: split.capMs, hardCapMs: split.hardCapMs }, { ...frame, numbers: lineNumbers(rest), remainder: true });
+			rest.forEach((line, index) => { statuses[line] = got[index]!; });
+			// The remainder was admitted: the whole batch lands, in its own order, and its verdict is kept for the turn like any.
+			if (got.every((status) => status.admitted)) {
+				const admittedRest = state.admission.get(remainder.key);
+				if (admittedRest) state.admission.set(p.key, admittedRest);
+			}
+			return statuses;
+		};
+
+		/**
+		 * One proposal's lines, each admitted or not. A one-line proposal and a `resolve` are reviewed exactly as before. A batch
+		 * of more than one line whose lines are known under their own keys (§32.12.3.1: a verdict kept, a round still running)
+		 * reuses and re-joins them line by line, so a resend waits only on the lines still pending and a line already judged
+		 * this turn is not judged again; its other lines are reviewed as a proposal of their own. Otherwise the batch is
+		 * reviewed whole by the typed answer's rules and one call per line on the lane. `part` is a split's remainder.
+		 */
+		const admitLines = async (p: AdmissionProposal, effects: Array<Record<string, unknown>>, part: AdmitPart | undefined, frame: LineFrame): Promise<LineStatus[]> => {
+			const whole = (status: LineStatus): LineStatus[] => p.lines.map(() => status);
+			if (reviewedPerLine(p) && !part?.attempt && !compiled?.ok && !consequenced?.ok && !known(p.key)) {
+				const lines = admissionLines(tool, p, effects, scopeFor);
+				const kept = lines.map((entry) => known(entry.proposal.key));
+				// A line already refused this turn refuses the batch again at once (§32.4 keyed by line): nothing else of it is
+				// reviewed, as a batch-mate's refusal stops the lines still running in a fresh review.
+				const refusedBefore = lines.map((entry) => { const verdict = state.admission.get(entry.proposal.key); return !!verdict && !ADMITTING_VERDICTS.has(verdict.verdict); });
+				if (refusedBefore.some(Boolean)) {
+					const streak = { counted: false }, buffer: Array<Record<string, unknown>> = [];
+					const statuses: LineStatus[] = [];
+					for (const [index, entry] of lines.entries())
+						statuses.push(refusedBefore[index] ? await statusOf(() => admitOne(entry.proposal, { rows: lineRows(frame, index), streak, buffer })) : { admitted: false, skipped: true });
+					return combineLines(p, lines, statuses, frame, buffer);
+				}
+				if (kept.some(Boolean)) {
+					const statuses: LineStatus[] = p.lines.map(() => ({ admitted: true }));
+					const fresh = lines.flatMap((_, index) => kept[index] ? [] : [index]);
+					const freshEffects = fresh.map((index) => lines[index]!.effect);
+					const freshProposal = fresh.length ? admissionRequest(tool, { effects: freshEffects }, scopeFor(freshEffects)) : null;
+					const freshFrame: LineFrame = { ...frame, numbers: fresh.map((index) => frame.numbers[index]!) };
+					const streak = { counted: false }, buffer: Array<Record<string, unknown>> = [];
+					await Promise.all([
+						...lines.map(async (entry, index) => {
+							if (kept[index]) statuses[index] = await statusOf(() => admitOne(entry.proposal, { rows: lineRows(frame, index), streak, buffer }));
+						}),
+						(async () => {
+							if (!freshProposal) return;
+							const got = await admitLines(freshProposal, freshEffects, freshProposal.lines.length === 1 ? { rows: lineRows(freshFrame, 0), buffer } : undefined, freshFrame);
+							fresh.forEach((index, at) => { statuses[index] = got[at]!; });
+						})(),
+					]);
+					return combineLines(p, lines, statuses, frame, buffer);
+				}
+			}
+			let reviewed: Awaited<ReturnType<typeof admitOne>>;
+			try {
+				reviewed = await admitOne(p, part);
+			} catch (error) {
+				if (!isKernelError(error)) throw error;
+				return whole({ admitted: false, error });
+			}
+			if (!reviewed) return whole({ admitted: true });
+			if (reviewed.ok === "split") return splitLines(p, effects, reviewed, frame);
+			return settleLines(p, effects, reviewed, frame);
+		};
+
+		const effects = effectsOf();
+		const statuses = await admitLines(proposal, effects, undefined, { numbers: proposal.lines.map((_, index) => index + 1), of: proposal.lines.length, batchDigest: digest });
+		const refused = statuses.flatMap((status, index) => status.admitted ? [] : [index]);
+		if (!refused.length) return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
+		// Only §32.12.3's split lands part of a batch: every other outcome is one status for all of the proposal's lines.
+		const refusal = (statuses.find((status) => "error" in status) as { error: KernelError } | undefined)?.error
+			?? new KernelError({ code: "internal", message: "the batch's admission ended with no refusal to report" });
+		if (refused.length === statuses.length) throw refusal;
 		// Line indices are the reviewed effects' (§32.12.3); an effect no reviewer reads lands with the batch, so it goes with
-		// the cleared lines when the rest does not land.
-		const effects = effectsOf(), shown = proposal.effects ?? effects.map((_, index) => index);
-		const cleared = split.cleared, rest = shown.map((_, line) => line).filter((line) => !cleared.includes(line));
-		const clearedEffects = cleared.map((line) => effects[shown[line]!]!), restEffects = rest.map((line) => effects[shown[line]!]!);
-		const clearedLinesText = cleared.map((line) => proposal!.lines[line]!), restLines = rest.map((line) => proposal!.lines[line]!);
-		const withheld = new Set(rest.map((line) => shown[line]!));
+		// the admitted lines when the others do not land. This call carries them, in the batch's order.
+		const shown = proposal.effects ?? effects.map((_, index) => index);
+		const withheld = new Set(refused.map((line) => shown[line]!));
 		const landing = effects.filter((_, index) => !withheld.has(index));
-		const answer = split.attempt.typed!;
-		const lineVerdicts = cleared.map((index) => answer.lines![index]!);
-		const clearedVerdict: AdmissionVerdict = { verdict: batchVerdict(lineVerdicts.map((line) => line.verdict)),
-			grounds: `typed review admitted line${cleared.length > 1 ? "s" : ""} ${cleared.map((index) => index + 1).join(", ")} at or above ${split.meta.line_min_confidence}`,
-			reviewer: "jev", path: "typed" };
-		// Kept for the turn under the key a call of only these lines would have (§32.4).
-		const clearedProposal = admissionRequest(tool, { effects: clearedEffects }, scopeFor(clearedEffects));
-		if (clearedProposal) state.admission.set(clearedProposal.key, clearedVerdict);
-		const lineNumbers = (indices: number[]) => indices.map((index) => index + 1);
-		evidence.onVerdict?.(clearedVerdict.verdict);
-		await record({ lane: "admission", verb: tool, ok: true, verdict: clearedVerdict.verdict, admitted: true, reused: false, ms: split.ms, key: digest,
-			model: ADMISSION_JEV_MODEL, reviewer: "jev", path: "typed", line_level: "admitted", lines: lineNumbers(cleared), of_lines: shown.length,
-			confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...refusedConsequence, ...origin, ...who,
-			grounds: clearedVerdict.grounds, proposed: clearedLinesText });
-		const partRows = { line_level: "remainder", lines: lineNumbers(rest), of_lines: shown.length, batch_key: digest };
-		const remainder = admissionRequest(tool, { effects: restEffects }, scopeFor(restEffects));
-		if (!remainder) {
-			// §32.1: what is left carries no triggering kind, and a call of only those lines would not be reviewed at all. Since the
-			// owner's amendment to §32.12.3 the rest holds only reviewed lines, so this guards a shape that cannot arise today.
-			await record({ lane: "admission", verb: tool, ok: true, skipped: "not_triggering", path: "none", ms: 0, proposed: restLines, ...partRows, ...origin, ...who });
-			return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
-		}
-		try {
-			await admitOne(remainder, { rows: partRows, attempt: remainderAttempt(split.attempt, rest), landedLines: clearedLinesText,
-				startedAt: split.startedAt, capMs: split.capMs, hardCapMs: split.hardCapMs });
-		} catch (error) {
-			if (!isKernelError(error)) throw error;
-			// The remainder did not land: this call carries the admitted lines and the unreviewed ones, in the batch's order.
-			payload.effects = landing;
-			return { landed: clearedLinesText, notLanded: { lines: restLines, error }, ...(alreadyLanded ? { alreadyLanded } : {}),
-				wholeKey: proposal.key, landedSignatures: landing.map(effectSignature) };
-		}
-		// The remainder was admitted: the whole batch lands, in its own order, and its verdict is kept for the turn like any.
-		const admittedRest = state.admission.get(remainder.key);
-		if (admittedRest) state.admission.set(proposal.key, admittedRest);
-		return alreadyLanded ? { landed: [], alreadyLanded } : undefined;
+		payload.effects = landing;
+		return { landed: statuses.flatMap((status, line) => status.admitted ? [proposal!.lines[line]!] : []),
+			notLanded: { lines: refused.map((line) => proposal!.lines[line]!), error: refusal },
+			...(alreadyLanded ? { alreadyLanded } : {}), wholeKey: proposal.key, landedSignatures: landing.map(effectSignature) };
 	}
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
@@ -4036,16 +4234,24 @@ export default function (pi: ExtensionAPI) {
 								signal, {allowanceMs: sourceAnswerAllowanceMs()})
 							: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal,
 								{allowanceMs: sourceAnswerAllowanceMs(), blocking: true});
+					// §135.20.1 (SL-102): the scene the party is at when the Keeper asks; an answer handed here is held while it stays.
+					const askedAt = state.scene?.handle;
 					if (consult && response.state === 'pending') {
 						const read = { focus: String(params.query), question: String(params.question) };
-						pendingAnswers.register(state.campaign, read, state.turn, asString(response.job_id), response.settled);
+						pendingAnswers.register(state.campaign, read, state.turn, asString(response.job_id), response.settled, 'answer', askedAt);
 						sourceAnswer = pendingAnswer(response, read);
 					} else if (consult && Array.isArray(response.memo) && response.memo.length) {
 						sourceAnswer = memoAnswer(response.memo);
 						void record({ lane: 'reading', event: 'answer_memo', turn: state.turn, focus: String(params.query), answers: response.memo.length });
+						// The kernel lists the memo newest first; the shelf keeps the newest last, so it is held oldest first.
+						pendingAnswers.hold(state.campaign, askedAt, [...(response.memo as Array<Record<string, any>>)].reverse().map(entry => ({
+							focus: asString(entry?.focus) ?? String(params.query), question: String(entry?.question ?? ''), answer: entry?.source_answer })),
+						state.turn, fromStep?.run);
 					} else if (answerOnly) {
 						if (!response.source_answer || typeof response.source_answer !== 'object') throw new KernelError({code:'internal', message:'The source consultation returned no checked answer'});
 						sourceAnswer = response.source_answer;
+						pendingAnswers.hold(state.campaign, askedAt, [{ focus: String(params.query), question: String(params.question), answer: response.source_answer }],
+							state.turn, fromStep?.run);
 					} else if (!answerOnly && response.state === 'pending') {
 						// §22.4.3.1 (SL-58): past the allowance a `prepare` lookup answers `pending` too, with what the index holds;
 						// the reading goes on and its landing (material ready, unusable, or failed) is carried once on a later note.
@@ -4762,8 +4968,11 @@ export default function (pi: ExtensionAPI) {
 			}));
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.
-			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: () => {
-				const answers = pendingAnswers.take(campaign), wait = table?.campaign === campaign ? table.sourceWait : undefined;
+			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: (at?: { scene?: string; run?: string }) => {
+				// §135.20.1 (SL-102): where the engine's run is decides which held answers ride; without it, the table's own scene.
+				const here = at?.scene ?? (table?.campaign === campaign ? table.scene?.handle : undefined);
+				const answers = pendingAnswers.take(campaign, { ...(here ? { scene: here } : {}), ...(at?.run ? { run: at.run } : {}) });
+				const wait = table?.campaign === campaign ? table.sourceWait : undefined;
 				// §22.4.7 (SL-47): a scene entered on its index text -- its pages once, its pending read (naming the scene), its record once.
 				const scenes = sceneReadings.take(campaign);
 				const taken = { ...answers, pending: [...answers.pending, ...scenes.pending], texts: scenes.texts, records: scenes.records };
@@ -4771,7 +4980,12 @@ export default function (pi: ExtensionAPI) {
 				try { inFlight = !!(wait?.focus && readingModule && reading?.reading?.(readingModule, { focus: wait.focus, question: wait.question ?? "" })); }
 				catch { inFlight = false; }
 				return inFlight && wait?.focus ? { ...taken, pending: [...taken.pending, { focus: wait.focus, question: wait.question ?? "", since_turn: table!.turn, purpose: "detail" }] } : taken;
-			} }));
+			},
+			// §135.20.1 (SL-102): the next turn's first model step waits out what is left of one allowance (§22.4.3, the same
+			// named default and override) for this scene's consultations still being read; past it they ride as pending.
+			settle: (input: { scene: string; turn: number; elapsed_ms: number }) =>
+				pendingAnswers.settle(campaign, { scene: input.scene, turn: input.turn, ms: sourceAnswerAllowanceMs() - Math.max(0, input.elapsed_ms) }),
+			}));
 			// Contract §39.2: the module's own map labels, projected into this campaign's play
 			// language before the first arrival can need them.
 			warmMapWords(table, open);

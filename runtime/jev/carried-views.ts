@@ -12,7 +12,9 @@
  * - a scene's source passages (§135.31.1, SL-27): what this run's prescreen located about the scene -- the book's own
  *   passages and the module's authored material on the place and what is there -- grouped by entity (`scenePassages`);
  * - a source consultation that went pending (§135.31.2, SL-36): once it lands, its checked answer (`source_answer`), and
- *   while it is still being read, a `pending` row, both from the kernel extension's `coc:source-answers` port.
+ *   while it is still being read, a `pending` row, both from the kernel extension's `coc:source-answers` port;
+ * - the answers the Keeper was already handed at the scene the party is still at (§135.20.1, SL-102): `source_answer` views
+ *   marked `held`, on each run's first step, served last, from the same port.
  *
  * When each is due (once per scene, once per person, the session whenever it changed) is the engine's; this module reads
  * the views it is asked for, orders each view's fields so what the Keeper acts on comes first (`FIELD_ORDER`), and bounds
@@ -39,6 +41,12 @@ export const CARRIED_VIEWS_BYTES = 12 * 1024;
  * native text; this holds about two, and the message's 12 KiB is shared.
  */
 export const SCENE_TEXT_VIEW_BYTES = 8 * 1024;
+/**
+ * §135.20.1 (SL-102): what one scene's held answers may cost, all together -- the message's 12 KiB less one carried view,
+ * so the scene's passages (§135.31.1) still fit beside them. On long gate #24 one answer was 1.2-2.2 KB. The kernel
+ * extension keeps a scene's newest answers within it; an older one is dropped from the shelf with a row, never silently.
+ */
+export const HELD_ANSWERS_BYTES = CARRIED_VIEWS_BYTES - CARRIED_VIEW_BYTES;
 
 /** The wrapper keys of a view whose own fields are the view's fields for the cut (`where.scene`, `session.round`, …). */
 const WRAPPERS: readonly string[] = Object.freeze(['where', 'session']);
@@ -86,6 +94,11 @@ export const SCENE_FIELD_ORDER: readonly string[] = Object.freeze(['where.scene'
 export const PRESENT_FIELDS: readonly string[] = Object.freeze(['name', 'called', 'role']);
 /** §135.31.2: a landed consultation's view: what it concluded and its limits before the references and the question. */
 export const ANSWER_FIELD_ORDER: readonly string[] = Object.freeze(['status', 'answer', 'answers', 'limitations', 'source_refs', 'question']);
+/**
+ * §135.20.1 (SL-102): a held answer leads with the question it answered. It rides on a later step or turn than the ask, so
+ * the question is what tells the Keeper which of its questions this is; a long answer is clipped before the question goes.
+ */
+export const HELD_ANSWER_FIELD_ORDER: readonly string[] = Object.freeze(['question', 'status', 'answer', 'answers', 'limitations', 'source_refs']);
 /** The field order a carried view of `focus` is cut in (§135.31); none for the session, which `look` orders already. */
 export const FIELD_ORDER: Readonly<Record<string, readonly string[]>> = Object.freeze({npc: CARD_FIELD_ORDER, scene: SCENE_FIELD_ORDER,
   source_answer: ANSWER_FIELD_ORDER});
@@ -132,11 +145,14 @@ export interface CarriedView {
   view: Row;
   truncated?: true;
   omitted_fields?: string[];
+  /** §135.20.1 (SL-102): a `source_answer` the Keeper was already handed at this scene, carried again on this run's first step. */
+  held?: true;
   read: {method: string; params: Row} | null;
 }
 export interface CarriedViews {
   views: CarriedView[];
-  omitted: Array<{focus: string; name?: string; reason: 'budget' | 'read_failed' | 'not_found'}>;
+  /** §135.20.1: a held answer past the message's budget is named `held` too, so the Keeper can tell which answer it is. */
+  omitted: Array<{focus: string; name?: string; reason: 'budget' | 'read_failed' | 'not_found'; held?: true}>;
   /** Every name asked for that resolved, to the card's id (so a later step does not read it again). */
   resolved: Array<{name: string; id: string}>;
   bytes: number;
@@ -154,6 +170,8 @@ export interface CarriedViews {
  */
 export async function readCarriedViews(input: {call: Call; scene?: string; people: readonly string[]; skip?: ReadonlySet<string>;
   session?: Row | 'read'; passages?: {scene: string; view: Row}; answers?: Array<{name: string; view: Row}>; pending?: Row[];
+  /** §135.20.1 (SL-102): the answers held at the run's scene that this run's request does not hold yet, newest first. */
+  held?: Array<{name: string; view: Row}>;
   /**
    * §22.4.7: the book's text of scenes a move landed on (once each), and the records of scenes that settled away from the
    * party; §22.4.7.1: an entry with `person` is a person's text (`person_text`) or record (`person_record`), named by them.
@@ -213,18 +231,23 @@ export async function readCarriedViews(input: {call: Call; scene?: string; peopl
   }
   // §135.31.1: the passages are the prescreen's materials the run already holds; nothing is read for them. Served last.
   if (input.passages) due.push({focus: 'source', name: input.passages.scene, view: input.passages.view, read: null});
+  // §135.20.1 (SL-102): the answers already handed at this scene, after everything else, so they never displace a view
+  // that rode before them; nothing is read for them.
+  for (const answer of input.held ?? []) due.push({focus: 'source_answer', name: answer.name, view: answer.view, held: true, read: null});
   const views: CarriedView[] = [], omitted: CarriedViews['omitted'] = [];
   let total = 0;
   for (const item of due) {
     const named = item.name ? {name: item.name} : {};
     if (item.reason || !item.view) { omitted.push({focus: item.focus, ...named, reason: item.reason ?? 'read_failed'}); continue; }
-    const fitted = fitView(item.view, item.focus === 'scene_text' || item.focus === 'person_text' ? SCENE_TEXT_VIEW_BYTES : CARRIED_VIEW_BYTES, FIELD_ORDER[item.focus] ?? []);
+    const fitted = fitView(item.view, item.focus === 'scene_text' || item.focus === 'person_text' ? SCENE_TEXT_VIEW_BYTES : CARRIED_VIEW_BYTES,
+      item.held ? HELD_ANSWER_FIELD_ORDER : FIELD_ORDER[item.focus] ?? []);
     const omittedFields = [...(item.dropped ?? []), ...(fitted.omitted_fields ?? [])];
     const entry: CarriedView = {focus: item.focus, ...named, ...(item.id ? {id: item.id} : {}), view: fitted.view, read: item.read,
-      ...(fitted.truncated || item.dropped?.length ? {truncated: true as const} : {}), ...(omittedFields.length ? {omitted_fields: omittedFields} : {})};
+      ...(fitted.truncated || item.dropped?.length ? {truncated: true as const} : {}), ...(omittedFields.length ? {omitted_fields: omittedFields} : {}),
+      ...(item.held ? {held: true as const} : {})};
     // The budget is what the Keeper reads (focus, name, view and the cut marks), not the host's id and read.
     const size = bytes(keeperView(entry));
-    if (total + size > CARRIED_VIEWS_BYTES) { omitted.push({focus: item.focus, ...named, reason: 'budget'}); continue; }
+    if (total + size > CARRIED_VIEWS_BYTES) { omitted.push({focus: item.focus, ...named, reason: 'budget', ...(item.held ? {held: true as const} : {})}); continue; }
     total += size;
     views.push(entry);
   }
@@ -251,6 +274,13 @@ export const CARRIED_ANSWERS_HEAD = 'A view with focus source_answer is a source
   + 'checked answer with its question, carried once and kept in the campaign memo (the same lookup returns it at once). It is a source '
   + 'consultation, not prepared material. One marked unavailable could not be read: that is the clerk\'s business, never the fiction or the '
   + 'player\'s; play on without it.';
+/**
+ * §135.20.1 (SL-102): what the Keeper is told about a held answer. A turn's request keeps nothing of an earlier turn's notes or
+ * tool results, so an answer handed at this scene on an earlier turn is carried again, once per turn, while the party stays.
+ */
+export const CARRIED_HELD_HEAD = 'A source_answer view marked held is an answer you were already given at this scene, earlier in this turn or on '
+  + 'an earlier one, with the question it answered: the host carries it on each turn\'s first step while the party stays at this scene and '
+  + 'drops it when the scene changes. It is the same answer the campaign memo holds.';
 /** §22.4.7 (SL-47): what the Keeper is told about a scene's book text (`focus: "scene_text"`). */
 export const CARRIED_SCENE_TEXT_HEAD = 'A view with focus scene_text is the book\'s own text for a scene a move just landed on, page by page, carried '
   + 'once: the scene\'s reviewed record (its exits, the people there, the things and clues) is still being read. Narrate the arrival from it; do '
@@ -281,7 +311,7 @@ export const CARRIED_PENDING_HEAD = 'pending lists source consultations still be
 
 /** One view as the Keeper reads it: `look`'s focus, the name, the view and the cut marks; the id and the read stay host-side. */
 function keeperView(entry: CarriedView): Row {
-  return {focus: entry.focus, ...(entry.name ? {name: entry.name} : {}), view: entry.view,
+  return {focus: entry.focus, ...(entry.name ? {name: entry.name} : {}), ...(entry.held ? {held: true} : {}), view: entry.view,
     ...(entry.truncated ? {truncated: true} : {}), ...(entry.omitted_fields ? {omitted_fields: entry.omitted_fields} : {})};
 }
 /**
@@ -292,7 +322,8 @@ export function carriedSection(carried: CarriedViews, options: {document?: boole
   if (!carried.views.length && !carried.omitted.length && !carried.pending?.length) return undefined;
   const source = options.document === false ? ` ${CARRIED_NO_DOCUMENT}` : options.document === true ? ` ${CARRIED_DOCUMENT}` : '';
   const head = [carried.views.some(entry => entry.focus === 'source') ? `${CARRIED_VIEWS_HEAD} ${CARRIED_PASSAGES_HEAD}${source}` : CARRIED_VIEWS_HEAD,
-    ...(carried.views.some(entry => entry.focus === 'source_answer') ? [CARRIED_ANSWERS_HEAD] : []),
+    ...(carried.views.some(entry => entry.focus === 'source_answer' && !entry.held) ? [CARRIED_ANSWERS_HEAD] : []),
+    ...(carried.views.some(entry => entry.held) || carried.omitted.some(entry => entry.held) ? [CARRIED_HELD_HEAD] : []),
     ...(carried.views.some(entry => entry.focus === 'scene_text') ? [CARRIED_SCENE_TEXT_HEAD] : []),
     ...(options.record || carried.views.some(entry => entry.focus === 'scene_record') ? [CARRIED_SCENE_RECORD_HEAD] : []),
     ...(carried.views.some(entry => entry.focus === 'person_text') ? [CARRIED_PERSON_TEXT_HEAD] : []),

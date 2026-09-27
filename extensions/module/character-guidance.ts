@@ -22,6 +22,18 @@ async function bundleShipped(content:string, moduleId:string, tag:string):Promis
   catch { return false; }
 }
 export type Guidance = {opening:string; advice:string; scene:string; guide:string; handoff:string};
+/**
+ * The one preparation failure that is a verdict on the draft, not on the machinery: the independent
+ * reviewer read both rounds and did not approve (SL-103, contract §98 addendum 10). It stays
+ * `preparation_failed` -- the code every notice and player reason reads -- and says which failure it
+ * is in `details.reason`, a closed value, so the setup host can retry exactly this one without
+ * reading the message.
+ */
+const REVIEW_REFUSED='review_refused';
+export function guidanceReviewRefused(error:unknown):boolean {
+  const failure=error as {code?:unknown;details?:{reason?:unknown}}|null;
+  return failure?.code==='preparation_failed' && failure.details?.reason===REVIEW_REFUSED;
+}
 type Options = {home:string; contentRoot?:string; module_id:string; play_language:string; opening?:string;
   buildBundle?:boolean;
   occupations:Array<{id:string; name:string}>; model?:string; thinking?:string; signal?:AbortSignal;
@@ -219,7 +231,10 @@ export async function prepareCharacterGuidance(options:Options):Promise<Guidance
     if(JSON.stringify(await json(join(attempt,'guidance.json')))!==JSON.stringify(rawGuidance))throw coded('preparation_failed','Character guidance changed during review');
     if(review.approved===true && Array.isArray(review.issues) && !review.issues.length)break;
   }
-  if(review.approved!==true||!Array.isArray(review.issues)||review.issues.length)throw coded('preparation_failed','Character guidance needs revision. Retry preparation.');
+  // The reviewer's issues stay in the attempt folder: they can name the book's secrets, and the error
+  // reaches the setup guide.
+  if(review.approved!==true||!Array.isArray(review.issues)||review.issues.length)
+    throw Object.assign(coded('preparation_failed','Character guidance needs revision. Retry preparation.'),{details:{reason:REVIEW_REFUSED}});
   const pending=join(cache,randomUUID()+'.tmp');
   await writeFile(pending,JSON.stringify({fingerprint:key,approved:true,guidance},null,2));
   await rename(pending,join(cache,'accepted.json'));

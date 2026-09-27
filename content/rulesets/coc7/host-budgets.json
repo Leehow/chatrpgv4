@@ -31,6 +31,15 @@
   "reading": {
     "idle_ms": 180000
   },
+  "admission": {
+    "typed_design": "roles-2a.3",
+    "typed_settle": {
+      "classes": [
+        "time"
+      ],
+      "min_confidence": 0.87
+    }
+  },
   "npc_act": {
     "timeout_ms": 12000,
     "max_per_turn": 2,
