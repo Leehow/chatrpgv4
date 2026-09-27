@@ -223,7 +223,9 @@ before its tool succeeds, and never say a card is the one the player approved
 unless it is the same revision.
 
 After writing the confirmed investigator, call complete. Do not continue play in
-this setup process. In a terminal, read the provided launch command verbatim and
-stop. In the frontend, briefly close the setup prologue without paths or commands;
-the host starts the actual Keeper. If a step fails with a `player_reason`, tell the
-player that honestly; either way preserve all player choices.
+this setup process. The handoff to the table is the host's: it shows the player how
+the table opens, or opens it itself, and the result's `handoff_shown` says so. Never
+write a command, path or launch line, and never repeat the host's line; briefly
+close the setup prologue in play_language and stop. If a step fails with a
+`player_reason`, tell the player that honestly; either way preserve all player
+choices.

@@ -11,7 +11,7 @@ import {TaskLease} from '../../runtime/jev/task-context.ts';
 import {readJevApiKey} from '../jev/agent/config.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { prepareCharacterGuidance, acceptedGuidance, type Guidance } from '../module/character-guidance.ts';
+import { prepareCharacterGuidance, acceptedGuidance, guidanceReviewRefused, type Guidance } from '../module/character-guidance.ts';
 import { registerInvokeHandlers } from '../../pipicoc/host-bridge.ts';
 import { Type } from "typebox";
 import { cocHome, cocMode } from "../lanes/host.ts";
@@ -37,6 +37,13 @@ import {
 } from "./steps.ts";
 
 type KernelCall = (method: string, params: Record<string, unknown>) => Promise<unknown>;
+
+/**
+ * How many times one guidance preparation may run when its reviewer refuses the draft: the first, and
+ * one retry before the step answers (SL-103, §98 addendum 10). Bounded, because each run is an author
+ * and a reviewer child, and the player's next line retries again anyway.
+ */
+const GUIDANCE_ATTEMPTS = 2;
 
 /** The code of a kernel error envelope is read structurally: instanceof is unreliable across extensions (two module instances). */
 function errorCode(error: unknown): string | undefined {
@@ -118,6 +125,20 @@ function setupBlockRefusal(block: SetupBlock, remedy?: string): Record<string, u
 	const reason = playerReason({code: 'setup_blocked', blockedBy: block.kind, cause: block.code});
 	return { ok: false, code: 'setup_blocked', blocked_by: block.kind, ...(block.code ? { cause: block.code } : {}), error,
 		...(block.fix ? {fix: block.fix} : {}), ...(block.details ? {details: block.details} : {}), ...(reason ? {player_reason: reason} : {}) };
+}
+
+/**
+ * What the guide is told when the last step hands the player to the table (§14.4 step seven, §98
+ * addendum 10, SL-103): that the host has done it, as §14.18's `opening_shown` says of the opening,
+ * and never the command. The host shows that itself -- `ctx.ui.notify` in a terminal, the play-mode
+ * `coc-session` entry the App switches on -- and a command the guide repeats is noise in the App and a
+ * second copy of the host's line in the terminal (the Masks re-run, 2026-09-27).
+ */
+function handoffShown(shown: boolean): string {
+	return (shown
+		? 'Setup is complete, and the host has already shown the player how the table opens.'
+		: 'Setup is complete, and the host opens the table for the player itself.')
+		+ " The handoff is the host's: write no command, path or launch line and do not repeat the host's line. Close the setup prologue in a sentence or two in play_language and continue nothing.";
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -230,7 +251,19 @@ export default function (pi: ExtensionAPI) {
 	function boundLanguage(): Promise<string> {
 		return playLanguageTag(extensionContentRoot(), playLanguage());
 	}
-  async function ensureGuidance(): Promise<Guidance | undefined> {
+  /**
+   * The module guidance, prepared once and kept. One preparation runs at a time: a caller that arrives
+   * while one is running joins it (and its signal), never starts a second.
+   *
+   * A draft the reviewer refused is prepared once more right away, inside this same preparation
+   * (SL-103, §98 addendum 10): the step that asked -- create-campaign, the preparation step's remedy --
+   * answers only after it, and the player is asked to wait only when that retry is refused too. Only a
+   * refusal is retried (`guidanceReviewRefused`); a reader that failed, a missing opening or a stale
+   * bundle is answered at once. Never after a stop: `signal` is the step's own (the player stopped the
+   * run) and the session's end is always part of it, so a stop before the retry skips it and a stop
+   * during it ends it.
+   */
+  async function ensureGuidance(signal?: AbortSignal): Promise<Guidance | undefined> {
     if(characterGuidance)return characterGuidance;
     if(guidancePending)return guidancePending;
     const moduleId=asString(context.module_id);
@@ -238,6 +271,7 @@ export default function (pi: ExtensionAPI) {
     const home=cocHome(ctx.cwd);
     if(!existsSync(join(home,'.coc/modules',moduleId,'module.json')))return;
     const owner=bridge;
+    const stop=signal ? AbortSignal.any([guidanceAbort.signal,signal]) : guidanceAbort.signal;
     guidancePending=(async()=>{
       if(typeof context.guidance_key==='string') {
         characterGuidance=await acceptedGuidance(home,moduleId,context.guidance_key);
@@ -245,14 +279,21 @@ export default function (pi: ExtensionAPI) {
       }
       const occupations=asRecord(await owner.call('setup.occupations',{})).occupations as any[];
       const runtime=owner.runtime;
-      characterGuidance=await prepareCharacterGuidance({home,module_id:moduleId,
+      const options:Parameters<typeof prepareCharacterGuidance>[0]={home,module_id:moduleId,
         contentRoot:runtime?.contentRoot,
         opening:asString(context.start_scene),
         play_language:await boundLanguage(),occupations,
         model:ctx?.model ? ctx.model.provider+'/'+ctx.model.id : undefined,
-        thinking:pi.getThinkingLevel(),signal:guidanceAbort.signal,
-        runner:runtime ? request=>runtime.runTask({kind:'reader',request},request.signal) : undefined});
-      return characterGuidance;
+        thinking:pi.getThinkingLevel(),signal:stop,
+        runner:runtime ? request=>runtime.runTask({kind:'reader',request},request.signal) : undefined};
+      for(let attempt=1;;attempt++) {
+        try {
+          characterGuidance=await prepareCharacterGuidance(options);
+          return characterGuidance;
+        } catch(error) {
+          if(attempt>=GUIDANCE_ATTEMPTS || !guidanceReviewRefused(error) || stop.aborted)throw error;
+        }
+      }
     })().finally(()=>{guidancePending=undefined;});
     return guidancePending;
   }
@@ -635,6 +676,20 @@ export default function (pi: ExtensionAPI) {
 		for (const key of ['applied', 'unresolved', 'filled_in', 'moved_to_equipment', 'kept_player_pins', 'notes']) if (result[key] !== undefined) out[key] = result[key];
 		return out;
 	}
+	/**
+	 * What the guide reads of one op's answer in a step result: the card as its summary (§98), the
+	 * confirmation as its revision, and the completion without its `launch` line -- the kernel's record
+	 * keeps it, but the command that opens the table is the host's to show (§98 addendum 10).
+	 */
+	function guideView(method: string, value: unknown): unknown {
+		if (method === 'setup.draft') return summarize(asRecord(value));
+		if (method === 'setup.confirm') return {committed: asRecord(value).committed, revision: asRecord(value).revision};
+		if (method === 'setup.complete') {
+			const {launch: _launch, ...rest} = asRecord(value);
+			return rest;
+		}
+		return value;
+	}
 
 	/** Run this step's ops in table order; a missing parameter stops it there and hands the results so far to the model to fill in. */
 	async function runOps(step: Step, args: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -774,7 +829,7 @@ export default function (pi: ExtensionAPI) {
 	 * and a guidance block is retried now instead of on the player's next line. Returns the refusal to
 	 * answer with, or undefined when the step's own success stands.
 	 */
-	async function afterPreparation(id: string, outcome: Record<string, unknown>, startedAt: number): Promise<Record<string, unknown> | undefined> {
+	async function afterPreparation(id: string, outcome: Record<string, unknown>, startedAt: number, signal?: AbortSignal): Promise<Record<string, unknown> | undefined> {
 		const creation = stepWithOp('campaign.create'), campaign = asString(context.campaign);
 		if (!bridge || !creation || !completed.has(creation.id) || !campaign) return undefined;
 		const chosen = asString(context.start_scene), moduleId = asString(context.module_id);
@@ -792,7 +847,7 @@ export default function (pi: ExtensionAPI) {
 		const blocked = setupBlock;
 		if (!blocked || !guidanceBlock(blocked)) return undefined;
 		try {
-			const guidance = await ensureGuidance();
+			const guidance = await ensureGuidance(signal);
 			if (!guidance) return undefined;
 			setupBlock = undefined;
 			outcome.character_guidance = guidance;
@@ -835,7 +890,7 @@ export default function (pi: ExtensionAPI) {
 		paint();
 	}
 
-	async function execute(raw: Record<string, unknown>): Promise<Record<string, unknown>> {
+	async function execute(raw: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
 		const startedAt = Date.now();
 		if (setupBlock && !remedyOpen(asString(raw.step))) return setupBlockRefusal(setupBlock, remedyStep());
 		await ensureSteps();
@@ -947,12 +1002,12 @@ export default function (pi: ExtensionAPI) {
 		settle(step, outcome);
 		if (preparing) {
 			readingSince.clear();
-			const refused = await afterPreparation(id, outcome, startedAt);
+			const refused = await afterPreparation(id, outcome, startedAt, signal);
 			if (refused) return refused;
 		}
     if(id==='create-campaign') {
       try {
-        const guidance=await ensureGuidance();
+        const guidance=await ensureGuidance(signal);
         if(guidance)outcome.character_guidance=guidance;
         // Sent while the turn runs, the opening lands right after this result and before the guide's
         // next step (§14.18); the guide only has to know it was shown.
@@ -963,19 +1018,24 @@ export default function (pi: ExtensionAPI) {
       } catch(error) {return guidanceFailure(error,'guidance_at_create_campaign',false,startedAt);}
     }
 		const next = nextStep(steps, state());
-		if (!next) await finish();
+		const handedOff = next ? undefined : await finish();
 		return {
-			...Object.fromEntries(Object.entries(outcome).map(([key,value])=>[key,key==='setup.draft'?summarize(asRecord(value)):key==='setup.confirm'?{committed:asRecord(value).committed,revision:asRecord(value).revision}:value])),
+			...Object.fromEntries(Object.entries(outcome).map(([key, value]) => [key, guideView(key, value)])),
 			step: id,
 			completed: [...completed],
 			progress: progressLine(steps, state()),
 			next: instructionFor(next),
-			...(handoff ? { handoff_command: handoff } : {}),
+			// The guide is told the host has handed off, never handed the command (§98 addendum 10).
+			...(handedOff !== undefined ? { handoff_shown: handoffShown(handedOff) } : {}),
 		};
 	}
 
-	/** No next step in the table: hand over the command that opens the table, and exit the process once this run has spoken (contract §14.4, step seven). */
-	async function finish(): Promise<void> {
+	/**
+	 * No next step in the table: hand over the command that opens the table, and exit the process once
+	 * this run has spoken (contract §14.4, step seven). The command is the host's to show, never the
+	 * guide's to say (§98 addendum 10): true when this call showed the player the line itself.
+	 */
+	async function finish(): Promise<boolean> {
 		const campaign = asString(context.campaign);
 		handoff = campaign ? `bin/pi-coc --campaign ${campaign}` : "bin/pi-coc";
 		const command = handoff;
@@ -990,13 +1050,15 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			/* the command alone, rather than nothing at all */
 		}
+		let shown = false;
 		try {
 			if(campaign && ctx)pi.appendEntry('coc-session',{campaign,home:cocHome(ctx.cwd),play_language:language,mode:'play'});
       pi.appendEntry("coc-setup-handoff", { campaign: campaign ?? null, command });
-			if (ctx?.hasUI && process.env.PI_COC_SETUP_AUTOSTART!=='1') ctx.ui.notify(line, "info");
+			if (ctx?.hasUI && process.env.PI_COC_SETUP_AUTOSTART!=='1') { ctx.ui.notify(line, "info"); shown = true; }
 		} catch {
 			/* failing to print the handoff must not block the exit */
 		}
+		return shown;
 	}
 
 	// ---- The tool ---------------------------------------------------------
@@ -1049,8 +1111,8 @@ export default function (pi: ExtensionAPI) {
 			{ additionalProperties: true },
 		),
 		executionMode: "sequential",
-		execute: async (_toolCallId, params) => {
-			const result = await execute(asRecord(params));
+		execute: async (_toolCallId, params, signal) => {
+			const result = await execute(asRecord(params), signal);
 			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 		},
 	});

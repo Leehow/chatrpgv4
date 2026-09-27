@@ -676,7 +676,13 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
     assert.equal(confirmCall.params.setup_input.protocol, "setup-input-reference-v1");
 
 	assert.equal(finished.ok, true);
-	assert.match(finished.handoff_command, /^bin\/pi-coc --campaign /, "最后一步交出开桌命令（契约 §14.4）");
+	// §98 addendum 10 (SL-103): the command that opens the table is the host's to show. The guide is
+	// told the host handed off and is given no command to repeat.
+	const [handoff] = table.entries("coc-setup-handoff");
+	assert.match(handoff?.command ?? "", /^bin\/pi-coc --campaign /, "最后一步交出开桌命令（契约 §14.4）");
+	assert.equal(finished.handoff_command, undefined, "the guide is not handed the command");
+	assert.equal(typeof finished.handoff_shown, "string", "it is told the host has handed off");
+	assert.ok(!JSON.stringify(finished).includes(handoff.command), "and nothing in its result carries the command");
 	assert.equal(finished.next, "Every setup step is done.");
 	// The handoff line is the campaign's sentence around the command (contract §23): the command is
 	// a command and reads the same everywhere, the words about it come from the `extension` surface.
@@ -684,7 +690,7 @@ test("七步表走完：starter 那条路到 complete，交出开桌命令", asy
 	const english = await extensionWords("en");
 	assert.notEqual(words.word("setup_complete"), english.word("setup_complete"), "a second language hands off in its own words");
 	assert.ok(
-		table.ui.notifications.some((row) => row.message === words.line("setup_complete", { command: finished.handoff_command })),
+		table.ui.notifications.some((row) => row.message === words.line("setup_complete", { command: handoff.command })),
 		"开桌命令也报给玩家",
 	);
 

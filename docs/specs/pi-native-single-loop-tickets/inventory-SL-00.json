@@ -1201,7 +1201,7 @@
       "path": "app-setup",
       "role": "driver",
       "trace": "n/a (setup)",
-      "note": "Setup-mode guidance reader child.",
+      "note": "Setup-mode guidance reader child. SL-103 (§98 addendum 10): the same site runs a second preparation at once when the reviewer refused the first draft, at most once, inside the one single-flight preparation and under the step's abort signal; no new site.",
       "lines_at_0b729e8fb": [
         157
       ]
