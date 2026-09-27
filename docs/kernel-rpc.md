@@ -1951,6 +1951,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 *(§14.17 amends this paragraph: with no capsule, the campaign's `play_language` reaches the setup model only through the line the onboarding extension appends to every setup request.)*
 
+*(§98 addendum 10 amends step seven: the command is printed by the host, never handed to the setup model; the `complete` result says `handoff_shown` instead.)*
+
 ### 14.5 读者：一段 section 一个子 `pi` 进程
 
 模型侧的读书工作由 `module` 扩展驱动，不在内核里、也不是 `modelRegistry.complete`：每个 section 起一个子进程 `pi -p --no-session --no-context-files --tools read,write,edit,bash --system-prompt content/setup/reader.md`（工作目录 `work/<section_id>/`，模型 `PI_COC_BUILD_MODEL`，缺省与桌子同模型），标准命令由 `module.packet` 返回的 `brief` 给：读 `packet.json`，用 `bin/coc-evidence`（仓库脚本：`search <名字>` 在全节 span 里找、`verify <span-id>` 查 id 是否存在、`page <n>` 看整页）查证据，把 shard 写到 `shard.json`，跑 `bin/coc-review --module <id> --section <id>`（即 `module.review`）看 findings，改到 `accepted` 或放弃。每 section 至多 3 轮（子进程退出后 review 不过就带着 findings 原样重起一轮），超过记 `failed`；读者产出的一切只在 `work/` 里，进 `shards/` 的只有 review 通过并 `module.accept` 的。这是用户法则要求的形状：带工具的 agent 自己开包、自己分多次写、自己跑闸门。
@@ -16960,6 +16962,74 @@ addendum 4's wording: no input repairs a stale starter bundle.
 
 Cases: `tests/extension/setup-opening-choice.test.mjs`, "a campaign created without its opening ..."; the three
 addendum-4 cases in `tests/extension/setup.test.mjs` are unchanged.
+
+### §98 addendum 10 — the handoff command is the host's line, and a refused guidance draft is retried before the step answers (2026-09-27, SL-103; amends §14.4 step seven, §14.19.4, addendum 4 and addendum 9)
+
+**Evidence.** The Masks re-run (`masks2-2238-20260927T023845Z`, gate worktree at dc37c6b7e, setup through
+`tests/play/driver.py`). (1) The `complete` step's result carried `handoff_command: "bin/pi-coc --campaign masks2-2238"`,
+and the `setup.complete` answer inside it carried the kernel's `launch`, the same string; `prompts/setup.md` said "in a
+terminal, read the provided launch command verbatim"; the guide ended its reply to the player with the command. The
+host had already shown that line itself (`ctx.ui.notify`: "Setup complete. Open the table with: …"), and in the App the
+table opens on the play-mode `coc-session` entry, where a CLI command is noise. (2) `create-campaign` answered
+`guidance_failed`, cause `preparation_failed` ("Character guidance needs revision"): the reviewer had refused both
+review rounds of the draft. The `player_reason` said it would be tried again with the next message, and it was: the
+player had to write "好的，再试一次吧" before setup went on, dead time for a retry the host could start at once.
+
+**10.1 The handoff command stays machine-facing.** The step whose success leaves no next step (`complete` today)
+answers `handoff_shown`: an English sentence for the guide, in the manner of §14.18's `opening_shown`, that the host has
+shown the player how the table opens (this call showed the `setup_complete` caption with the command through
+`ctx.ui.notify`: a terminal or driver setup) or opens it for the player itself (the App, `PI_COC_SETUP_AUTOSTART=1`, or
+a process with no UI), and that the guide writes no command, path or launch line and does not repeat the host's line.
+There is no `handoff_command`, and the `setup.complete` answer reaches the guide without its `launch`
+(`guideView` in `extensions/onboarding/index.ts`); the kernel's answer, receipt, `campaign.json` `setup.handoff` and
+`steps.json` `launch_line` are unchanged. The host's own handoff paths are unchanged: the notify, the
+`coc-setup-handoff {campaign, command}` and `coc-session {mode: "play"}` entries, `coc-setup-exit` at `agent_end`, the
+App's `setup-handoff` invoke. `prompts/setup.md` says the handoff is the host's and names `handoff_shown`.
+
+Before this, the readers of `handoff_command` were the guide (the only one that acted on it) and the starter walk in
+`tests/extension/setup.test.mjs`. `tests/play/driver.py` never read it (it records `final_text` and §14.18's
+`setup_opening`), and neither the launcher (`runtime/launch.ts`), `pipicoc/` nor the App backend read it: they act on
+the `coc-setup-exit` / `coc-session` entries and the `setup-handoff` invoke.
+
+**10.2 A refused draft is retried before the step answers.** The guidance preparer marks the one failure that is a
+verdict on the draft: the reviewer did not approve after both of its rounds. That stays `preparation_failed` -- the code
+addendum 4's notices and §14.19.4's reasons read -- with `details: {reason: "review_refused"}`
+(`guidanceReviewRefused` in `extensions/module/character-guidance.ts`); the reviewer's issues stay in the attempt
+folder, since they can name the book's secrets and this error reaches the guide. The setup host's one guidance
+preparation (`ensureGuidance`) runs the preparer again at once when that is the failure, once (`GUIDANCE_ATTEMPTS = 2`),
+before the step that asked answers: `create-campaign`, or the preparation step's remedy (addendum 9). A retry that is
+accepted is an ordinary success (`character_guidance`, the opening shown with `opening_shown`, the card steps open); a
+second refusal answers `guidance_failed` with §14.19.4's `player_reason` and raises addendum 4's block, announced once.
+Nothing else is retried here: a reader or reviewer child that failed or wrote nothing, a draft changed during review,
+`needs_choice`, `guidance_not_ready`, `interrupted` -- each is answered at once.
+
+- **Bounded, not stacked.** The retry lives inside the preparation, not in its callers, so no caller retries around it:
+  one step runs at most two preparations. Accepted guidance is kept, and the next turn prepares nothing. The start of a
+  turn (the player's next line after a double refusal) and the App's session start go through the same preparation, so
+  each has the same one retry.
+- **One at a time.** The preparation and its retry run inside one single-flight promise: a caller that arrives while
+  either runs joins it, and no second preparation starts beside it.
+- **Stops.** A step's preparation runs under that tool call's abort signal (the run was stopped) together with the
+  session's end. A stop before the retry skips it, and the step answers the refusal; a stop during it reaches the running
+  child, no reviewer runs after it, and the step answers `guidance_failed` with cause `interrupted`, which the player's
+  next line retries.
+
+**10.3 What does not change.** The preparer's two review rounds inside one preparation. The `player_reason` wording: a
+double refusal is still retried with the player's next line. Addendum 4's text rule and notices, addendum 9's remedy.
+The App's onboarding worker (`pipicoc/onboarding-worker.ts`), which prepares guidance before setup through its own call
+to the preparer, is a separate producer and does not retry.
+
+**10.4 The three ends (§31).** `handoff_shown`: writer `finish()` / `handoffShown` (host); reader the guide; actor the
+guide, who closes without a command (`prompts/setup.md`). `review_refused`: writer the preparer; reader
+`ensureGuidance`; actor the host, which prepares once more. Tests: `tests/extension/setup-handoff-and-guidance-retry.test.mjs`
+(the real kernel's `complete` result carries `handoff_shown` and no command anywhere while the host's line, entries
+and `campaign.json` still carry it; the App is told the other handoff; the prompt names `handoff_shown` and no launch
+command; a refused draft is retried once inside `create-campaign`, which answers with the retried guidance and no
+reason, with no two children running at once, and the next turn prepares nothing; a second refusal answers SL-100's
+reason with one notice and two preparations; any other failure is one preparation; a stop during the retry reaches its
+child and nothing runs after it; a stop between the refusal and the retry skips it and answers the refusal; a turn
+start retries the same way); `tests/extension/setup.test.mjs`'s starter walk reads the command from the host's
+`coc-setup-handoff` entry and its notification, not from the result.
 
 ## 99. A divided document says what each half contains (2026-09-17, amends §97.3)
 
