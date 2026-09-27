@@ -136,3 +136,7 @@ tests/extension/single-loop-held-answers.test.mjs`): 19/19 killed; every source 
 | M17 | the memo is held newest first (newest dropped by the budget) | killed | seam memo budget |
 | M18 | the held head is not told | killed | carried section, seam carry+move |
 | M19 | held views are served first (before the passages and people) | killed | carried section |
+
+- 2026-09-27 (integrator): merged.
+  - Part B (the next turn's first step waits, within the existing 8 s allowance counted from the turn's start, for this scene's read still running) is accepted. The Keeper blocks on that material anyway; the wait replaces a whole model step (gate #24: waits of 2.9, 0.25 and 5.0 s against steps of 6.6, 30.2 and 9.1 s).
+  - Gate #25 reports `held_wait` rows and their effect. If they do not pay, B comes out by removing the one `settle` call in `carriedFor`.
