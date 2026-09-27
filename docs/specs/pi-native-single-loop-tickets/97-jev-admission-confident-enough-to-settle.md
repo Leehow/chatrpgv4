@@ -227,3 +227,10 @@ pointers in §32.10, §32.11, §32.12.2, §32.12.3 and §32.12.3.1. No live Jev 
   16. No full suite was run.
 - **Not verified:** the live product path. Long gate #24 carries the acceptance (typed-settled share, admission's share of
   the critical path, first visible prose ≤ 60 s on 20/20).
+
+- 2026-09-27 (integrator): phase 2b merged. The four decisions the worker raised are accepted:
+  1. The `PI_COC_ADMISSION_REVIEWER=jev` rule is retired; it was never the default.
+  2. The whole-batch fast path is gone, and move/clue/handout no longer settle by jev. This matches the measurement.
+  3. The §32.12.3 split no longer fires. Its partial-landing code in index.ts is unreachable and left for a separate cleanup.
+  4. Late admission at the cap keeps 0.70 for listed classes: `time` at 0.70 gave 61/0 on the holdout and 51/0 on main under today's labels.
+- Gate #25 reports the `reviewer: jev` share, `lane_cancelled`, and the time lines' false-admit reading.
