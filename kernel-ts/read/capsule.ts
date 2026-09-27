@@ -185,8 +185,18 @@ export function clockSection(graph: ModuleGraph, world: Row): Row {
         result.hh = String(Math.floor(minuteOfDay / 60)).padStart(2, "0");
         result.mm = String(mod(minuteOfDay, 60)).padStart(2, "0");
     }
-    result.day_part = ([[5, "dawn"], [8, "morning"], [12, "midday"], [14, "afternoon"], [18, "evening"], [22, "night"]] as const).filter(([hour]) => minuteOfDay >= hour * 60).at(-1)?.[1] ?? "small_hours";
+    result.day_part = dayPartOf(minuteOfDay);
     return result;
+}
+/**
+ * The clock's day parts in the day's order, each with the hour it starts. One table: the capsule's `day_part` and
+ * §145's reconciliation (a neighbouring part, the start `until` is suggested at) both read it.
+ */
+export const DAY_PARTS: readonly (readonly [string, number])[] = [
+    ["small_hours", 0], ["dawn", 5], ["morning", 8], ["midday", 12], ["afternoon", 14], ["evening", 18], ["night", 22]
+];
+export function dayPartOf(minuteOfDay: number): string {
+    return DAY_PARTS.filter(([, hour]) => minuteOfDay >= hour * 60).at(-1)![0];
 }
 /** Contract §22.3.2: at most this many contested rows in a scene view, each reason cut at this many characters. */
 export const CONTESTED_ROWS = 8;

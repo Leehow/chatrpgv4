@@ -67,6 +67,10 @@ import { fileURLToPath } from "node:url";
 import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
 
 const LOG = process.env.FAKE_KERNEL_LOG;
+/** The fixture's clock reading (09:15 on day 1) as minutes of the day, for `until` (contract §145.1). */
+const FAKE_CLOCK_MINUTES = 555;
+/** The turn whose one §145.3 refusal was spent. */
+let timeGateTurn = -1;
 const ERRORS = process.env.FAKE_KERNEL_ERRORS ? JSON.parse(process.env.FAKE_KERNEL_ERRORS) : {};
 const CAMPAIGNS = process.env.FAKE_KERNEL_CAMPAIGNS
 	? JSON.parse(process.env.FAKE_KERNEL_CAMPAIGNS)
@@ -874,7 +878,8 @@ function handle(method, params) {
 					...(process.env.FAKE_KERNEL_MAP_WORDS ? { authored_map_words: JSON.parse(process.env.FAKE_KERNEL_MAP_WORDS) } : {}),
 					// 契约 §28.9：这套内核读不了的包，开桌时一并交出来，宿主据此给运维一条通知。
 					...(process.env.FAKE_KERNEL_MODS_UNREADABLE ? { mods_unreadable: JSON.parse(process.env.FAKE_KERNEL_MODS_UNREADABLE) } : {}),
-					turn: { number: turn, state },
+					// FAKE_KERNEL_OPENING_STATE: the opening's own Mod write already moved the turn (live table time-skip-a, turn 0).
+					turn: { number: turn, state: process.env.FAKE_KERNEL_OPENING_STATE ?? state },
 					investigators: [
 						{ id: "thomas-hayes", name: "托马斯·海耶斯", occupation: "记者", hp: 12, san: 55, mp: 11, luck: 60 },
 					],
@@ -1036,6 +1041,19 @@ function handle(method, params) {
 							details: { index, field: "band", reason: "band_conflict", fields } } };
 					}
 				}
+				// Contract §145.1: until names the time the clock reaches, against the fixture's clock (09:15, day 1).
+				if (effect.until != null) {
+					const refuse = (reason, message, details = {}) => ({ ok: false, error: { code: "invalid_params", message,
+						details: { index, field: "until", reason, ...details } } });
+					if (effect.kind !== "time") return refuse("until_none", `a ${effect.kind} effect takes no until`);
+					const fields = ["minutes", "stated"].filter((field) => effect[field] != null);
+					if (fields.length) return refuse("until_conflict", "until names the time the clock reaches; give one amount", { fields });
+					const match = /^(\d{2}):(\d{2})$/.exec(effect.until.time ?? "");
+					if (!Number.isInteger(effect.until.days) || effect.until.days < 0 || !match || Number(match[1]) > 23 || Number(match[2]) > 59)
+						return refuse("until_invalid", "until must be {days, time: HH:MM}");
+					const minutes = effect.until.days * 1440 + Number(match[1]) * 60 + Number(match[2]) - FAKE_CLOCK_MINUTES;
+					if (minutes < 0) return refuse("until_not_forward", "until is before the clock", { clock: { at: "1925-06-01T09:15", day_part: "morning" } });
+				}
 				if (effect.kind === "cash" && effect.stated == null && typeof effect.delta !== "number") {
 					return { ok: false, error: { code: "invalid_params", message: "cash 要带正负号的 delta", details: { index } } };
 				}
@@ -1077,8 +1095,9 @@ function handle(method, params) {
 					mechanic({ kind: "clue", clue: effect.clue, ...(effect.label ? { label: effect.label } : {}) });
 				}
 				if (effect.kind === "time") {
-					// A band's minutes are the kernel's roll (§138); the fixture rolls a fixed twenty.
-					mechanic({ kind: "time", minutes: effect.band != null ? 20 : effect.minutes });
+					// A band's minutes are the kernel's roll (§138); the fixture rolls a fixed twenty. §145.1: until counts from the fixture's clock.
+					const until = /^(\d{2}):(\d{2})$/.exec(effect.until?.time ?? "");
+					mechanic({ kind: "time", minutes: effect.band != null ? 20 : until ? effect.until.days * 1440 + Number(until[1]) * 60 + Number(until[2]) - FAKE_CLOCK_MINUTES : effect.minutes });
 				}
 				if (effect.kind === "map") {
 					mechanic({kind:'map',receipt:`map:${params.call_id}`,map:effect.name,name:effect.label??effect.name,
@@ -1150,6 +1169,15 @@ function handle(method, params) {
 			};
 		}
 		case "table.narrate": {
+			// Contract §145.3: FAKE_KERNEL_TIME_REFUSE=1 refuses the turn's first refusable reading, as the real
+			// reconciliation does for a gap; the fixture has no clock movement to compare, so every reading is a gap.
+			if (process.env.FAKE_KERNEL_TIME_REFUSE === "1" && params.time_reading?.refusable && timeGateTurn !== turn) {
+				timeGateTurn = turn;
+				return { ok: false, error: { code: "needs", message: "This delivery moves the story through a night or to the next day, and the clock reads 1925-06-01T09:15 (morning) with 0 minutes landed this turn",
+					fix: "Land the time the prose skips with apply time, then deliver again; or keep the prose inside the time the books hold.",
+					details: { reason: "time_unrecorded", cut: params.time_reading.cut, ends_at: params.time_reading.ends_at ?? null, landed_minutes: 0,
+						floor: params.time_reading.floor, suggest: { until: { days: 1, time: "08:00" } } } } };
+			}
 			const closed = turn;
 			state = "awaiting_player";
 			const facts = process.env.FAKE_KERNEL_NO_FACTS === "1"

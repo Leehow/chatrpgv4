@@ -37,7 +37,7 @@ import { randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { disableStepThinking, isFirstStepOfTurn } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
-import { isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
+import { deliveryProse, isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
 import { bandShadowGate, readBandRows, shadowRow, shadowTargets, skippedRow, unaskedRow } from "./band-shadow.ts";
@@ -45,7 +45,8 @@ import { SHADOW_FIELDS, type ShadowKind } from "../../runtime/jev/band-shadow-do
 import type { BandResult } from "../../runtime/jev/band-recovery-domain.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease, type TaskClock } from "../../runtime/jev/task-context.ts";
-import { deliveryFloorBudget, jevStepsBudget } from "../../runtime/jev/host-budgets.ts";
+import { deliveryFloorBudget, jevStepsBudget, timeReadingBudget } from "../../runtime/jev/host-budgets.ts";
+import { heldReading, runTimeReading, timeReadingBindings, TIME_READING_FAMILY, type TimeReadingAnswer } from "../../runtime/jev/time-reading-domain.ts";
 import { startupRecord } from "../../runtime/startup-record.ts";
 import {
 	SPEECH_ATTRIBUTION_DEFAULT_MIN_CONFIDENCE,
@@ -593,6 +594,8 @@ interface TableState {
 	spokenLines: Array<{ speaker: string; text: string }>;
 	/** §128.3: what attribution did to the delivery now on its way to the kernel; joins that delivery's speech row. */
 	speechAttribution?: Record<string, unknown>;
+	/** §145.2: the last delivery text read for a time skip this turn, and its answer (null: no answer), so a resend is not read twice. */
+	timeRead?: { turn: number; text: string; answer: TimeReadingAnswer | null };
 	prologue?: string;
 	/**
 	 * Earlier deliveries as the player saw them (the last four), the review's player-visible
@@ -2308,6 +2311,61 @@ export default function (pi: ExtensionAPI) {
 			...(hits.length ? { repeats: hits.map(({ npc, ref }) => ({ npc, ref })) } : {}),
 			...(typed?.status === "decided" ? { answers: typed.answers } : { failure: typed?.reason ?? "keeper_line_purpose_owner_error" }) });
 		return hits.map(({ npc, ref }) => ({ npc, ref }));
+	}
+
+	/**
+	 * Contract §145.2: the delivery's time skip, read by Jev from its words alone. Returns what rides on
+	 * `table.narrate` as host-only `time_reading` -- only when a cut the kernel holds was read above the gate --
+	 * or undefined. Fail open: no key, a timeout or an error delivers unread. One `lane: "time-reading"` row per
+	 * reading. `PI_COC_TIME_READING=0` turns it off for an experiment; the product default is on.
+	 */
+	async function readTimeSkip(state: TableState, text: string, path: "explicit" | "embedded" | "implicit", refusable: boolean,
+		signal: AbortSignal | undefined, parent: TaskProviderBudget | undefined): Promise<Record<string, unknown> | undefined> {
+		if (process.env.PI_COC_TIME_READING?.trim() === "0") return undefined;
+		const prose = deliveryProse(text), budget = await timeReadingBudget(), env = process.env, began = Date.now();
+		const row = { lane: "time-reading", turn: state.turn, path };
+		const held = (answer: TimeReadingAnswer) => heldReading(answer, budget.minConfidence, budget.floors, refusable) ?? undefined;
+		const answered = (answer: TimeReadingAnswer, ms: number, cached: boolean) => {
+			const reading = held(answer);
+			void record({ ...row, ok: true, cut: answer.cut, cut_confidence: answer.cutConfidence, ends_at: answer.endsAt,
+				ends_at_confidence: answer.endsAtConfidence, distribution: answer.distribution, sent: !!reading,
+				...(reading ? { refusable } : {}), ms, ...(cached ? { cached: true } : {}) });
+			return reading;
+		};
+		if (state.timeRead?.turn === state.turn && state.timeRead.text === prose) {
+			const cached = state.timeRead.answer;
+			return cached ? answered(cached, 0, true) : undefined;
+		}
+		if (!readJevApiKey(env)) { void record({ ...row, ok: true, skipped: "unconfigured" }); return undefined; }
+		const input = { campaign: state.campaign, turn: state.turn, text: prose };
+		let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
+		let typed: Awaited<ReturnType<typeof runTimeReading>> | undefined;
+		try {
+			const deadlineAt = Math.min(began + budget.timeoutMs, parent?.deadlineAt ?? Infinity);
+			const outer = signal ?? state.lanes.signal;
+			const bound = parent ? AbortSignal.any([outer, parent.signal]) : outer;
+			const bindings = timeReadingBindings(input), goal = "Read how far a delivery skips forward in story time";
+			accounting = preparationBudget({
+				decision: createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
+					[TIME_READING_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } }),
+				campaign: state.campaign, deadlineAt, signal: bound, ...(parent ? { parent } : {}), owner: TIME_READING_FAMILY, goal,
+			});
+			lease = new TaskLease({ owner: TIME_READING_FAMILY, goal, scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet,
+				signal: bound, budget: { deadlineAt, remainingInputTokens: 200_000, remainingOutputTokens: 20_000, remainingCostUsd: 0.02, remainingActions: 2 } });
+			typed = await runTimeReading(input, accounting.decision, lease);
+		} catch {
+			typed = undefined;
+		} finally {
+			lease?.close();
+			accounting?.close();
+		}
+		if (!typed || typed.status !== "read") {
+			state.timeRead = { turn: state.turn, text: prose, answer: null };
+			void record({ ...row, ok: false, reason: typed?.reason ?? "time_reading_owner_error", ms: Date.now() - began, ...(typed ? { jev_calls: typed.calls } : {}) });
+			return undefined;
+		}
+		state.timeRead = { turn: state.turn, text: prose, answer: typed.answer };
+		return answered(typed.answer, Date.now() - began, false);
 	}
 
 	/** A delivery joins the player-visible window the next review reads. */
@@ -4270,6 +4328,7 @@ export default function (pi: ExtensionAPI) {
 		// Progress frames (contract §1) are requested only when the runtime gave us its
 		// update channel; each frame becomes one partial result on the tool status line.
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
+		let timeReading: Record<string, unknown> | undefined;
 		const invokeOperation = async () => {
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
 			// §135.31: the delivery carries the turn's look/lookup calls to its turn record (host-only; after the Mod hooks).
@@ -4277,6 +4336,8 @@ export default function (pi: ExtensionAPI) {
 				const reads = readsOfTurn(state);
 				if (reads.length) payload.keeper_reads = reads; else delete payload.keeper_reads;
 			}
+			// §145.2: so does the time reading (host-only, outside the digest).
+			if (spec.name === 'narrate' && timeReading) payload.time_reading = timeReading; else delete payload.time_reading;
 			await dispatcher.beforeKernelInvoke(toolCallId, spec.method, payload);
 			return state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
 		};
@@ -4423,12 +4484,16 @@ export default function (pi: ExtensionAPI) {
 			delete payload.purpose_repeats;
 			if (spec.name === "ask") state.speechAttribution = undefined;
 			if (spec.name === "narrate" && typeof payload.text === "string") {
-				// The purpose reading takes the Keeper's own text (its tokens are all the Keeper's), beside attribution.
-				const [attributed, repeats] = await Promise.all([attributeUnwrappedSpeech(state, payload.text, signal, providerBudget),
-					purposeRepeats(state, payload.text, signal, providerBudget)]);
+				// The purpose reading takes the Keeper's own text (its tokens are all the Keeper's), beside attribution; §145.2's
+				// time skip is read at the same time too (attribution only adds say tokens, which the reading strips) and rides
+				// on the call after the Mod hooks.
+				const [attributed, repeats, read] = await Promise.all([attributeUnwrappedSpeech(state, payload.text, signal, providerBudget),
+					purposeRepeats(state, payload.text, signal, providerBudget),
+					closesOpening ? undefined : readTimeSkip(state, payload.text as string, narratePath, !state.steeredThisTurn, signal, providerBudget)]);
 				payload.text = attributed.text;
 				if (attributed.hostAttributed?.length) payload.host_attributed = attributed.hostAttributed;
 				if (repeats.length) payload.purpose_repeats = repeats;
+				timeReading = read;
 			}
       if (mods) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
@@ -4706,6 +4771,9 @@ export default function (pi: ExtensionAPI) {
 			};
 		} catch (error) {
 			if (spec.name === "resolve") noteCombatSceneRequired(state, error);
+			// §145.3: a time skip the books do not hold spends the turn's one steer, as SL-93's floor does, so the next
+			// delivery this turn goes out (with the kernel's finding) instead of being refused again.
+			if (spec.name === "narrate" && isKernelError(error) && error.details?.reason === "time_unrecorded") state.steeredThisTurn = true;
 			// A refused, cancelled or timed-out delivery never publishes its patch. The drop is one
 			// telemetry row beside the refusal; the delivery's own error handling stands unchanged.
 			if (workpad) void record({ lane: "workpad", event: "dropped", reason: "delivery_failed",
@@ -6271,6 +6339,11 @@ export default function (pi: ExtensionAPI) {
 			let attributed: { text: string; hostAttributed?: number[] } | undefined, attributedDraft: string | undefined;
 			let repeats: Array<{ npc: string; ref: string }> = [];
 			for (;;) {
+				// §145.2: read at the same time as attribution; refusable only while the turn's one steer can still hand the
+				// kernel's fix back (§135.11). The opening is never read: keyed on the opening itself, not on `opening`, which
+				// also asks for awaiting_player -- an opening whose own Mod writes moved the turn to acting is still the opening
+				// (live table time-skip-a, turn 0).
+				const timeRead = state.openingPending ? undefined : readTimeSkip(state, draft, "implicit", !state.steeredThisTurn, state.lanes.signal, foregroundProviderBudget?.());
 				// The same draft sent again keeps the attribution it already has: no second Jev batch for the same words. The
 				// §143.24 purpose reading rides with it, read from the Keeper's own draft beside attribution, once per draft.
 				if (attributed === undefined || attributedDraft !== draft) {
@@ -6280,6 +6353,7 @@ export default function (pi: ExtensionAPI) {
 					repeats = read;
 					attributedDraft = draft;
 				}
+				const timeReading = await timeRead;
 				const tool = "narrate";
 				const callId = mintCallId(state);
 				const startedAt = new Date().toISOString();
@@ -6302,6 +6376,7 @@ export default function (pi: ExtensionAPI) {
 					// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
 					const reads = readsOfTurn(state);
 					if (reads.length) params.keeper_reads = reads;
+					if (timeReading) params.time_reading = timeReading;
 					const result = (await state.kernel.call<Record<string, unknown>>(`table.${tool}`, params)) ?? {};
 					// `applyToolSuccess`'s own `narrate` case already projected the mechanics and noted the
 					// commit. Projecting again here wrote the `coc-mechanics` entry twice for every turn the

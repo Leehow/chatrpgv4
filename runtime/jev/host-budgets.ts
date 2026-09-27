@@ -314,3 +314,50 @@ async function readNpcActBudget(contentRoot?: string): Promise<NpcActBudget> {
     return NPC_ACT_FALLBACK;
   }
 }
+
+/**
+ * §145.2 / §145.3: the time reading of a delivery. How long the delivery waits for Jev's reading, the confidence a
+ * cut and a day part clear before they ride on the delivery, and the minutes each held cut needs the turn to have
+ * moved the clock. Data, not literals in `extensions/kernel/index.ts`: the probe in
+ * `docs/specs/keeper-time-skip-tickets.md` set them, and the next table's rows may move them.
+ */
+export interface TimeReadingBudget {
+  /** `time_reading.timeout_ms`: the delivery goes out unread when Jev has not answered by then. */
+  timeoutMs: number;
+  /** `time_reading.min_confidence`: the gate a cut, and the day part the narration ends in, must clear. */
+  minConfidence: number;
+  /** `time_reading.floors`: minutes of clock movement the turn needs for each held cut. */
+  floors: Readonly<Record<string, number>>;
+}
+
+/** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real values. */
+export const TIME_READING_FALLBACK: TimeReadingBudget = Object.freeze({timeoutMs: 2_500, minConfidence: 0.6,
+  floors: Object.freeze({later_today: 60, next_day: 240, days: 1440})});
+
+let timeReadingCached: Promise<TimeReadingBudget> | undefined;
+
+/** §145's budget, read once per process and cached. `contentRoot` is for tests only. */
+export function timeReadingBudget(contentRoot?: string): Promise<TimeReadingBudget> {
+  if (contentRoot !== undefined) return readTimeReadingBudget(contentRoot);
+  return timeReadingCached ??= readTimeReadingBudget();
+}
+
+async function readTimeReadingBudget(contentRoot?: string): Promise<TimeReadingBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      time_reading?: {timeout_ms?: unknown; min_confidence?: unknown; floors?: unknown};
+    };
+    const block = raw.time_reading, timeoutMs = block?.timeout_ms, minConfidence = block?.min_confidence;
+    const floors: Record<string, number> = {...TIME_READING_FALLBACK.floors};
+    if (block?.floors && typeof block.floors === 'object' && !Array.isArray(block.floors))
+      for (const [cut, minutes] of Object.entries(block.floors as Record<string, unknown>))
+        if (Object.hasOwn(floors, cut) && finite(minutes) && Number.isInteger(minutes) && minutes >= 0) floors[cut] = minutes;
+    return {
+      timeoutMs: finite(timeoutMs) && timeoutMs > 0 ? timeoutMs : TIME_READING_FALLBACK.timeoutMs,
+      minConfidence: finite(minConfidence) && minConfidence > 0 && minConfidence < 1 ? minConfidence : TIME_READING_FALLBACK.minConfidence,
+      floors: Object.freeze(floors),
+    };
+  } catch {
+    return TIME_READING_FALLBACK;
+  }
+}

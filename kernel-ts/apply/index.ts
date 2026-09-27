@@ -38,6 +38,7 @@ import {prepareFulfillments, type FulfillmentSelection} from '../memory/fulfillm
 import {activeScene, openGuards} from '../read/obligations.js';
 import {bindStated, stampBasis, type StatedEffect} from './stated.js';
 import {bindBand} from './band.js';
+import { bindUntil } from './until.js';
 const KINDS = ['ability', 'adaptation', 'cash', 'clock', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'person', 'ruling', 'switch', 'threat', 'time', 'usage'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
@@ -189,8 +190,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     if (!KINDS.includes(kind))
                         unsupported('kind', kind, KINDS, `unknown effect kind ${repr(kind)}`);
                     // Contract §136.22: `stated` takes the amount from the book; §138: `band` rolls it inside a rules row;
-                    // without either the amount is the Keeper's.
-                    const bound: StatedEffect = await bindBand(context, bindStated(context, given)), effect = bound.effect, amounts = ['damage', 'time', 'threat', 'flag', 'cash'].includes(kind);
+                    // §145.1: `until` names the moment a time effect runs to. Without any of them the amount is the Keeper's.
+                    const bound: StatedEffect = await bindBand(context, bindStated(context, bindUntil(context, given))), effect = bound.effect, amounts = ['damage', 'time', 'threat', 'flag', 'cash'].includes(kind);
                     if(['fork','switch','merge'].includes(kind)){
                         const moved=await contributions.worldlines!.stage(campaign,graph,staged,effect,turn,index,effects.length,context.mint,started.callId);
                         receipts.push(moved.receipt);ids.push(moved.receipt.id);taken.add(moved.receipt.id);stagedWorldline=moved.plan;continue;
@@ -258,7 +259,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         const why = typeof effect.why === 'string' ? effect.why : null;
                         timeEffects++;
                         restMinutes += number(minutes);
-                        receipt = { id: `time:t${turn.turn}-c${started.ordinal}` + (timeEffects > 1 ? `-${timeEffects}` : ''), kind: 'time', call_id: started.callId, minutes, why, clock_before: before, clock_after: after, at: nowIso() };
+                        receipt = { id: `time:t${turn.turn}-c${started.ordinal}` + (timeEffects > 1 ? `-${timeEffects}` : ''), kind: 'time', call_id: started.callId, minutes, why, clock_before: before, clock_after: after,
+                            // §145.1: the time the Keeper named, beside the minutes the kernel bound it to.
+                            ...(effect.until != null ? { until: effect.until } : {}), at: nowIso() };
                         event = { type: 'time-advanced', data: { minutes, why, clock: clone(clock) } };
                     }
                     if (amounts)

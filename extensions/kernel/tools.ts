@@ -150,7 +150,12 @@ const TimeEffect = Type.Object({
 	kind: StringEnum(["time"] as const, { description: "the world clock moves forward" }),
 	stated: StatedAmount,
 	band: TimeBand,
-	minutes: Type.Optional(Type.Integer({ description: "required unless stated or band gives them: minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" })),
+	// §145.1: the time the fiction reaches; the kernel counts the minutes from the clock.
+	until: Type.Optional(Type.Object({
+		days: Type.Integer({ minimum: 0, description: "counted from the day this turn began: 0 = that day, 1 = the day after, and so on" }),
+		time: Type.String({ description: "the local 24-hour time the fiction reaches, HH:MM" }),
+	}, { description: "instead of minutes, for a skip to a time of day (the next morning, that evening): the kernel counts the minutes from the clock" })),
+	minutes: Type.Optional(Type.Integer({ description: "required unless stated, band or until gives them: minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" })),
 	why: Type.Optional(Sentence("where the time went")),
 });
 
