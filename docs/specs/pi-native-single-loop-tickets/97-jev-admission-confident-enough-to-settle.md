@@ -86,3 +86,45 @@ Spec: docs/kernel-rpc.md §32.10 (typed reviewer family), §32.11 (bookkeeping f
   `results/sl97/README.md`.
 
 Numbers only; phase 2 (design, threshold choice, any code change) is left to that worker.
+
+**Phase 2a: design, offline only (2026-09-27, worktree `chatrpgv4-wt-sl97b`, branch `claude/sl97b-20260926`, base 7d8ff69e8).**
+No product code changed. Code: `experiments/admission-jev-bank/admission-roles.ts` (the alternative typed port),
+`replay.mjs --design v2 --revision 2a.1|2a.2|2a.3`, `sl97b-analyze.mjs`, `sl97b-holdout.mjs`, with tests. Results, the
+pre-registration and the exact commands are in `experiments/admission-jev-bank/results/sl97b/` (`README.md`).
+
+- **Design: roles first, one question per judgment, host arithmetic.**
+  - Per line, one request fans out independent Choices over one state: `role` (investigator's act, world's response,
+    time), then `choice`, `result` and `span`, each read as if that role applied. 2a.2 adds `target` (did the player
+    address whom or what the act is aimed at) and `gate` (does it skip an obstacle the player didn't take on). 2a.3 adds
+    `order` (does it get ahead of a step or condition the player set).
+  - The host sums each question's admitting options, weighs them by the role distribution and takes the weakest
+    judgment. Confidence is |2·P(admit) − 1|.
+  - §32.3 packing: facts only (no rules list), the newest delivery apart as `justTold`, each line's closed `kind`.
+    Almost every proposal is one request.
+  - No semantic list: Jev judges, the host packs, sums and gates.
+- **Budget.** 1 895 live calls over three iterations:
+  - iteration 1: v1 re-run 412 + 2a.1 371 = 783;
+  - iteration 2: 2a.2, 378;
+  - iteration 3: 2a.3 on the sample 380 + on a holdout 354 = 734.
+  - Latency p50 354–411 ms, p90 414–602 ms in every run.
+- **Main sample** (phase 1's 371 labelled cases plus 19 new gate-#23 cases; 361 lane-labelled typed):
+  - Admit/refuse agreement at T=0: v1 57.6% → 2a.1 66.8% → 2a.2 71.2% → 2a.3 68.4%.
+  - Lane `not_player_action` same-admission: 40% → 66% → 77% → 64%.
+  - At T=0.87, settled admits / false admits: v1 3/0, v1 with admitting mass summed 121/19, 2a.1 92/29, 2a.2 104/10,
+    2a.3 42/0.
+- **Holdout** (330 disjoint time/move/clue batches, 50 lane refusals and 60 admits per class; the pre-registered
+  measurement, since iterations 2–3 read the sample's errors): 2a.3 at T=0.87 settles 30 with 7 false admits.
+  - Per class, at its own bank refusal rate: `time` 2.3% of settled admits lane-refused (upper bound 7.1%, about 29% of
+    time batches settled); `move` 9.6%; `clue` settles one.
+- **Lane floor**, from SL-24/30/39 re-runs of the lane on the same cases: of one run's admits, 1.8% refused by another run
+  of the same model (1 640 pairs); 6.7% across models (4 342 pairs).
+- **Recommendation: none.** No class meets the pre-registered bar (≤ 1.8% with at least 10 settled admits, on the
+  holdout). `time` sits between the same-model floor and the cross-model floor. Which floor applies is the owner's
+  call; the rule fixed in advance says 1.8%.
+- **Found on the way.**
+  - The false admits sit in 2026-09-11/12 persona-bench labels (grok-4.6 under the pre-09-15 lane prompt). Most of those
+    I read are refusals the current prompt would not make.
+  - On real-table labels (70 cases) no revision makes a confident false admit, but they hold only 6 refusals.
+  - Jev is not bit-reproducible: identical v1 requests agreed on 327 of 351 batch verdicts, with |Δ confidence| p90 0.09.
+- **Next.** The cheapest step needs no Jev call: relabel the 720 replayed cases with the current lane (two runs each) and
+  re-score the stored typed answers with `sl97b-analyze.mjs`. Product integration (phase 2b) should wait for that.
