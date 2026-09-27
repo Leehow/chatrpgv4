@@ -514,6 +514,11 @@
       "id": "SL-102",
       "file": "102-looked-up-material-stays-in-hand.md",
       "status": "ready"
+    },
+    {
+      "id": "SL-103",
+      "file": "103-setup-handoff-and-guidance-retry.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [

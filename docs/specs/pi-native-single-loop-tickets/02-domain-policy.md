@@ -817,3 +817,22 @@ The critical path is now the Keeper's own steps: 2.6 calls/turn at a median of 1
 - `basement-rites` t17 → t18 → t18 retry.
 
 What the Keeper looked up one turn is not in its hands the next → SL-102.
+
+### Masks PDF re-run (2026-09-27, dc37c6b7e; fresh import through setup; every model grok-4.5 low; a sonnet agent as the player)
+**Setup completed** (first run: never).
+- The player chose the 1925 radiogram, and SL-98 pinned it on the campaign (`opening_scene: campaign-beginning-message`).
+- Reader timeouts 0, `task_budget_exhausted` 0, `setup_blocked` 0.
+- One opening read was refused by visual review (an alias "Jesse Hughes" not on the cited pages) and redone in 1 round.
+- Guidance was refused once by its reviewer. The guide relayed SL-100's `player_reason` faithfully, and guidance retried on the next message.
+- First sentence to handoff: about 17.5 min, almost all reading. The index read used 2.16M input tokens.
+- Two defects → SL-103:
+  - the guide echoed `handoff_command` (`bin/pi-coc --campaign masks2-2238`) to the player;
+  - the guidance retry waits for the player's next line.
+- Driver note: the setup process exits at handoff by design (§14.4 step 7). The table continues as a new play-mode run (`table-start.sh … play`).
+
+**Play: 11 turns.**
+- 11/11 delivered; no markup, meta-talk or placeholder.
+- Grounded in the book: the radiogram text, the Carlyle Expedition's public record (Penhew, Houston, Masters, Brady, Erica Carlyle on Long Island), Elias's *Sons of Death*, Prospero Books / Jonah Kensington, the Chelsea Hotel.
+- **First visible prose: median 40.5 s, max 75.3, ≤ 60 on 10/11.**
+- Keeper 2.64 calls/turn at a median of 10.2 s. Lookups 18: module 9, source 6. Five waited the full 8 s foreground allowance for a source answer still being read (`unwaited` 3).
+- Admission: `review_pending` 1, `not_authorized` 1.
