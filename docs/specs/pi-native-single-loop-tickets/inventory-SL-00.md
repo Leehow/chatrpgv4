@@ -132,7 +132,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 
 | file | symbol | line(s) | call | owner | path | trace | note |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `extensions/onboarding/index.ts` | `ensureGuidance` | 157 | `runtime.runTask` | onboarding ext | app-setup | n/a (setup) | Setup-mode guidance reader child. |
+| `extensions/onboarding/index.ts` | `ensureGuidance` | 157 | `runtime.runTask` | onboarding ext | app-setup | n/a (setup) | Setup-mode guidance reader child. SL-103 (§98 addendum 10): the same site runs a second preparation at once when the reviewer refused the first draft, at most once, inside the one single-flight preparation and under the step's abort signal; no new site. |
 | `pipicoc/onboarding-worker.ts` | `runTask` | 46 | `runtime.runTask` | pipicoc onboarding worker | app-setup | n/a (setup) | Guidance reader children in the preparation worker process. |
 
 #### Drivers — source-only (14 sites)
