@@ -133,3 +133,45 @@ Mutations (box copy only, restored, sha256 equal):
 - real-kernel: narrate's record closed as `ask` (built `rpc.mjs`) -> red.
 
 Further load-flaky tests seen in this round's loaded ext-suite runs (load up to ~150), not changed: `keeper-support-lookup-host.test.mjs` again (`assert(support)`: no support packet among the results, 47.6 s; cause not investigated this round); `post-delivery-continuity.test.mjs` "post: a review that could not answer is recorded as an unreviewed delivery…" (the `delivered_unreviewed` row read before it landed, the same race as its sibling fixed last round); `ts-kernel-name-fold.test.mjs` "an accented name resolves to its ASCII-handled node…", `ts-kernel-name-phrase.test.mjs` "the bare name reaches the titled node through a whole-word run…" and `cash-decimal.test.mjs` "cash accepts exact decimal deltas…" (`kernel campaign.create did not answer within 20000 ms`); `jev-provider-budget.test.mjs` "child crash without usage retains granted reservation…" (`0 !== 1`) and "real child IPC gates two calls before dispatch…" (`timedOut: true`); `admission-line-level.test.mjs` as above.
+
+**2026-09-26, the admission clock (Claude Opus 5.5, worktree `chatrpgv4-wt-admission-clock`, branch `claude/admission-clock-20260926` off line-2 @ `890fe63b0`; line-2 merged at `92a8b0b42`, `aeecbe095` and `13ce6a7dd`).** This resolves the fourth round's admission-late deviation and the fifth round's stopped admission-line-level row. Both tests now run on a manual clock the test drives, at their original numbers, and nothing sleeps. The product's cap no longer fires early.
+
+| Test | Before | Now |
+| --- | --- | --- |
+| `admission-late.test.mjs` "§32.12.2: the Keeper's resend collects the lane that answered after the cap…" | Scaled x10 test-side (cap 10 s, verdict 16 s, ~16 s per run) | Cap 1 s, verdict 1.6 s, hard cap 2 s on the clock. It asserts the original set, plus the exact clock values: pending at 1000, `resend_wait_ms` 600, `lane_ms` 1600. The clocked part is ~65 ms of wall time. |
+| `admission-line-level.test.mjs` "§32.12.3 with §32.12.2: a rest past the cap is returned pending alone…" | 34/96 red at load ~110 in three shapes (see the fifth round) | Typed answer 600, the batch's cap 1000, the rest's verdict 1700 and its round's end 2000, all on the clock. It asserts the split at 600, pending at exactly 1000 (a fresh cap from the split would be 1600) and a resend that waited 700. The real-time `firstCall.ms < 1400` bound is replaced by these clock values. |
+| `admission-late.test.mjs` "§32.12.2 (SL-87): a cap timer that fires early is re-armed…" (**new**) | -- | A clock that fires every timer 1 ms early. The cap's timer fires at 999; the review must re-arm for the last 1 ms, and the call is pending at exactly 1000. |
+
+**Product changes.** All are optional, and production is unchanged when absent, except the cap guard.
+- `runtime/jev/task-context.ts` `hostClock`: `Date.now()` and an unref'd `setTimeout`, looked up at each call. Code that took an optional `clock` in place of those direct calls falls back to it, so behaviour is unchanged, including under a test's mocked `Date` or timers.
+- `extensions/kernel/admission.ts`: `clock` on `AdmissionReviewOptions`. The review's start, `left()`, the cap timer, every `ms` and the lane round's `timeoutMs` run on it, as do the typed attempt's lease, `preparationBudget` and its decision adapter's `now` (the adapter measures what is left of the lease).
+- `extensions/lanes/subsession.ts` `runLane`: `clock` for its deadline, `ms`, `firstByteMs` and the independent budget's deadline (`independentProviderBudget(..., clock)`). The `lane-call` transport rows stay on the host's clock.
+- `extensions/kernel/index.ts`: the test-only bus event `coc:test-admission-clock` hands the kernel extension a `TaskClock`. The review, the prefetch and the resend's wait (`resend_wait_ms`, `concurrent_wait_ms`) use it. Nothing in the product emits it.
+- **The cap guard (a production change, as the coordinator asked):** when the cap's timer fires, the review settles the cap only once its own clock says the cap has passed, and re-arms for what is left otherwise. Node's timers run on the event loop's cached time, which lags `Date.now()` under load; that is where the fifth round's `pending at the batch's cap (999 ms)` came from.
+- The contract's §32.12.2 (the cap; the test list) and §32.12.3 (the test list) say so.
+- `tests/extension/manual-clock.mjs`: the admission tests' shared manual clock. It has a `reads()` counter, so a test can see that a waiter took its start (after the Keeper's scripted resend, the next reading is the resend's own start, right before it waits on the round). It also has an `early` skew, and `runWaitsPastRound`, which runs only timers due past the round's end, once nothing of the round is still scheduled, so a resend that waits too long shows in `resend_wait_ms` instead of hanging.
+
+**Proof on leehow-pc, final code at `0397b2f59`:**
+- Alone, 3 runs of each test (load 30–35): 3/3, 3/3, 3/3.
+- Under deliberate load (my ext suite plus my own burners, 6 runs of each test spread across the suite), three rounds:
+  - 16 burners (load 24 at the start, 49 at the end): 6/6 each.
+  - 24 burners (load 67–94): 6/6 each.
+  - 24 burners (load 46–70): 6/6 each.
+- The three tests also passed inside each loaded ext-suite run.
+- Before the guard and the line-level change, the resend test alone was green in three further loaded rounds (6/6 at load 34–46, 47–76 and 44–77; `d913d117d`, `d913d117d`, `97949e3f3`).
+
+Mutations (box copy only, restored by copying the saved file, sha256 equal), each run against all three tests at `0397b2f59`:
+- (a) the resend starting a fresh review instead of collecting the running one (`index.ts`): the resend test is red (`one review, collected by the resend`: 2) and the line-level test is red (the rows).
+- (b) the resend waiting a full hard cap on the clock instead of the rest of the round: the resend test is red (`the resend waited only for the rest of the round (2000 ms)`) and the line-level test is red (`the resend waited from the cap to the rest's verdict`).
+- (c) the cap on the host's (unref'd) `setTimeout` instead of the review's clock: all three are red. The resend test fails at once (`a timer due 1000 ms into the review (1600,2000,2000)`); the other two fail at their 60 s wait for a cap on the clock.
+- (d) the early-fire guard removed (settle whenever the timer fires): the guard test is red (`fired 1 ms early, the cap is re-armed for the rest (1999,1999)`). The two exact-clock tests stay green, as they should.
+- (e) the rest's cap measured from the split, not the review's start (`left(ms) = ms`): the line-level test is red (`a timer due 1000 ms into the batch's review (1600,1700,2600,2600)`).
+
+A mutation note: an earlier (c) armed a *ref'd* `setTimeout`. Against the frozen manual clock the guard re-armed it every second forever and held the process open. That was the mutation's own timer; the product's `hostClock` is unref'd.
+
+Seen failing in loaded ext-suite runs, not changed:
+- `jev-provider-budget.test.mjs` "real child IPC gates two calls before dispatch…" (twice): the child `pi` hit its 5 s timeout; 3/3 alone.
+- `ts-kernel-name-fold.test.mjs` "a mark Unicode never composes…" and `ts-kernel-name-phrase.test.mjs` "the exact paths still win…": `kernel campaign.create did not answer within 20000 ms`.
+- Two compaction-threshold tests ("fraction", "threshold reached: `before_agent_start` pre-empts…(D4)"), in the 16-burner round.
+
+Line-2 @ `92a8b0b42` was red on its own (SL-93's floor; `lanes.test.mjs` 6/30 at `92a8b0b42` vs 30/30 at `d913d117d`). Per the coordinator, line-2 is green again from `aeecbe095` (SL-93 re-scoped).

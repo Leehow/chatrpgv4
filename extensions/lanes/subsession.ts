@@ -10,6 +10,7 @@
  */
 
 import {boundProviderRequest, independentProviderBudget, type TaskProviderBudget, type ProviderCharge, providerUsage} from "../../runtime/jev/provider-budget.ts";
+import { hostClock, type TaskClock } from "../../runtime/jev/task-context.ts";
 import { clampThinkingLevel, parseJsonWithRepair } from "@earendil-works/pi-ai";
 import type { ModelThinkingLevel, ThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -438,6 +439,12 @@ export interface LaneRequest<T> {
 	 */
 	timeoutMs?: number;
 	/**
+	 * SL-87, tests only: the clock this round is timed on -- its `timeoutMs` deadline, `ms` and `firstByteMs`, and the
+	 * deadline of the independent budget a round without `providerBudget` gets. Absent: the host's own clock and timers,
+	 * exactly as before. The `lane-call` rows keep the host's clock: they time the transport.
+	 */
+	clock?: TaskClock;
+	/**
 	 * Reasoning effort for this round. Defaults to `laneThinkingLevel(ctx)`; a caller only names one
 	 * when its own budget differs from every other lane's, which none does today.
 	 */
@@ -452,12 +459,13 @@ export interface LaneRequest<T> {
 
 /** Run one lane: resolve the model, one completion, take the JSON, check the shape. Any step failing returns a failure, never throws. */
 export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>> {
-	const independent = request.providerBudget ? undefined : independentProviderBudget(`lane:${request.lane}`, request.signal, request.timeoutMs ?? 180000);
+	const clock = request.clock ?? hostClock;
+	const independent = request.providerBudget ? undefined : independentProviderBudget(`lane:${request.lane}`, request.signal, request.timeoutMs ?? 180000, request.clock);
 	request = {...request, providerBudget:request.providerBudget ?? independent!.budget};
-	const began = Date.now();
+	const began = clock.now();
 	let label: string | undefined;
 	let firstByteMs: number | undefined;
-	const firstByte = () => { firstByteMs ??= Date.now() - began; };
+	const firstByte = () => { firstByteMs ??= clock.now() - began; };
 	const stamped = (result: LaneResult<T>): LaneResult<T> => firstByteMs === undefined ? result : { ...result, firstByteMs };
 	// One controller for this round: the caller's signal and the timeout both cut the same completion.
 	const controller = new AbortController();
@@ -467,32 +475,32 @@ export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>
 		if (request.signal.aborted) controller.abort();
 		else request.signal.addEventListener("abort", relay, { once: true });
 	}
-	let timer: ReturnType<typeof setTimeout> | undefined;
+	let cancelDeadline: (() => void) | undefined;
+	const timeoutMs = request.timeoutMs;
 	const deadline =
-		typeof request.timeoutMs === "number" && request.timeoutMs > 0
+		typeof timeoutMs === "number" && timeoutMs > 0
 			? new Promise<LaneResult<T>>((settle) => {
-					timer = setTimeout(() => {
+					cancelDeadline = clock.schedule(() => {
 						controller.abort();
 						settle({
 							ok: false,
 							reason: "timeout",
-							detail: `the lane did not answer within ${request.timeoutMs} ms`,
-							ms: Date.now() - began,
+							detail: `the lane did not answer within ${timeoutMs} ms`,
+							ms: clock.now() - began,
 							...(label ? { model: label } : {}),
 						});
-					}, request.timeoutMs);
-					timer.unref?.();
+					}, timeoutMs);
 				})
 			: undefined;
 	try {
 		const attempt = runLaneAttempt(request, controller.signal, began, (value) => {
 			label = value;
-		}, firstByte);
+		}, firstByte, clock);
 		// The deadline races the whole completion (§32.12): headers, silence or a steady trickle, a round with no answer by
 		// the cap ends here whatever its stream is doing.
 		return stamped(deadline ? await Promise.race([attempt, deadline]) : await attempt);
 	} finally {
-		if (timer) clearTimeout(timer);
+		cancelDeadline?.();
 		request.signal?.removeEventListener("abort", relay);
 		independent?.close();
 	}
@@ -504,12 +512,13 @@ async function runLaneAttempt<T>(
 	began: number,
 	remember: (label: string) => void,
 	firstByte?: () => void,
+	clock: TaskClock = hostClock,
 ): Promise<LaneResult<T>> {
 	let label: string | undefined;
 	try {
 		const resolved = resolveLaneModel(request.ctx, request.envName);
 		if (!resolved.ok) {
-			return { ok: false, reason: "model_unavailable", detail: resolved.detail, ms: Date.now() - began };
+			return { ok: false, reason: "model_unavailable", detail: resolved.detail, ms: clock.now() - began };
 		}
 		label = modelLabel(resolved.model);
 		remember(label);
@@ -568,7 +577,7 @@ async function runLaneAttempt<T>(
 				ok: false,
 				reason: "model_error",
 				detail: reply.errorMessage ?? reply.stopReason,
-				ms: Date.now() - began,
+				ms: clock.now() - began,
 				model: label,
 			};
 		}
@@ -579,7 +588,7 @@ async function runLaneAttempt<T>(
 			.trim();
 		const json = extractJsonObject(raw);
 		if (!json) {
-			return { ok: false, reason: "bad_output", detail: "the reply held no JSON object", ms: Date.now() - began, model: label };
+			return { ok: false, reason: "bad_output", detail: "the reply held no JSON object", ms: clock.now() - began, model: label };
 		}
 		let parsed: unknown;
 		try {
@@ -589,21 +598,21 @@ async function runLaneAttempt<T>(
 				ok: false,
 				reason: "bad_output",
 				detail: `JSON parse failed: ${error instanceof Error ? error.message : String(error)}`,
-				ms: Date.now() - began,
+				ms: clock.now() - began,
 				model: label,
 			};
 		}
 		const value = request.shape(parsed);
 		if (value === undefined) {
-			return { ok: false, reason: "bad_output", detail: "the JSON is not the shape this lane asked for", ms: Date.now() - began, model: label };
+			return { ok: false, reason: "bad_output", detail: "the JSON is not the shape this lane asked for", ms: clock.now() - began, model: label };
 		}
-		return { ok: true, value, ms: Date.now() - began, model: label, raw, usage:providerUsage(reply.usage) };
+		return { ok: true, value, ms: clock.now() - began, model: label, raw, usage:providerUsage(reply.usage) };
 	} catch (error) {
 		return {
 			ok: false,
 			reason: "model_error",
 			detail: error instanceof Error ? error.message : String(error),
-			ms: Date.now() - began,
+			ms: clock.now() - began,
 			...(label ? { model: label } : {}),
 		};
 	}
