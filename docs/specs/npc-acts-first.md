@@ -455,6 +455,18 @@ C4 T10 的诊断：威胁骰按设计出了 severe（calm 基础档 + 被打 + H
 
 **按预注册判：** 1 ✓；2 ✓（3 次 `produces`）；3 ✓（没有已见过的东西）；4、5 没被检验到；6 ✓；7 ✓；8 重复 ✗、语言 ✓、墙钟 ✓。**D2 不过线：重复（徽章）四次；D10 的武器面仍没被真桌检验到。**
 
+### D10 武器面的造景探针（2026-09-26，用户选定；头 2dad1d350，line-2 已合入）
+
+预注册在 scratchpad `probe-d10-weapons-preregistration.md`，汇总在 scratchpad `probe-d10/`。三张真桌（D、D2、工单 20 的探针）都没骰到带武器的意外；诺特的 `avoids_fighting` 底档让他在斗殴里最高只到 tense。用户选择用造景探针在真模型上验：`tests/play/npc-act-probe.mjs` 新增 `--stakes <rung>:<outcome>`（按 `npc-stakes.json` 与 `stakes.ts` 自己的规则拼出被固定的威胁骰，真骰仍记为 `natural_stakes`）与 `--turns`；gate-a 表 T3–T8（玩家对诺特用武力的回合），3 轮 `lethal:severe` + 1 轮对照 `tense:nothing`；真生成车道、真 Jev 绑定，不执行。
+
+- **线 1 ✓：** 固定 severe+surprise 的 18 次行动，`produces` 18/18。
+- **线 2 ✓：** 18 次全是左轮（「藏在抽屉里的点38左轮手枪」「藏在衣内的短管点三八左轮手枪」「一把藏在雨衣里的点三二左轮手枪」……），全部绑到带武器数据的规则书记录（.38 or 9mm Revolver 14、.32 or 7.65mm Revolver 4），没有一次铸成没有数值的枪；其中 4 次走的是 §143.22 的近亲分票按类别取领先（`on_records` 0.73–0.83）。
+- **线 3（报告）：** 方式 attack 15（`params.weapon` 就是拔出的那把）、coercion 2（拿枪逼、Intimidate）、intention_only 1；裁判 yes 17/18。
+- **线 4 ✓（对照）：** `tense:nothing` 下 `produces` 0/5，行动是逃跑、喊警察、护脸；一次生成超时（12 s）。
+- 生成中位 5.4 s、最长 9.4 s；绑定中位 1.0 s。
+- **发现（报告给用户，未改）：** 最危险那一档的意外**高度单一**——18 次全是一把藏着的左轮，只变藏处与口径，没有刀、钝器、别的东西；真桌 tense 档的意外却五花八门（广告、徽章、医生回信、警局协查便函）。梯度成立，顶档单调。是否要让顶档更多样，是用户的设计取舍。
+- 「攻击时真用这把枪掷骰」没在探针里执行，由 §143.19 的单元用例覆盖（袖珍手枪拔出、同一行动的攻击用 Firearms 掷它）。
+
 ## Comments
 
 - 2026-09-26：由两桌复核（`npc-as-actor.md` 第七节的更正）与用户裁定「LLM 先生成 NPC 的行动再转系统参数」立此 spec。三处拍板未回前不派 worker。
