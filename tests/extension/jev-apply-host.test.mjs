@@ -85,7 +85,8 @@ test("public plan commits one clue-and-move batch through admission, Mods, hooks
 	const apply = calls.find(row => row.method === "table.apply");assert.ok(apply);
 	assert.deepEqual(apply.params.effects, [{ kind: "clue", clue: "knott-research-leads" }, { kind: "move", to: "newspaper-morgue" }]);
 	assert.equal(apply.params._task_read_set, true);assert.equal(calls.filter(row => row.method === "table.apply").length, 1);
-	assert.deepEqual(host.order.filter(value => value.includes("admission") || value.startsWith("apply.")), ["admission", "apply.prepare", "apply.after"]);
+	// §32.12.3.1: the clue-and-move batch is reviewed one lane call per line, both before any Mod hook.
+	assert.deepEqual(host.order.filter(value => value.includes("admission") || value.startsWith("apply.")), ["admission", "admission", "apply.prepare", "apply.after"]);
 	const observed = task.observations[1];assert.ok(observed.packet.receipts.length >= 2);
 	assert.deepEqual(host.hooks.filter(row => row.id === observed.proposal.id).map(row => row.type), ["tool_call", "tool_result"]);
 	const tool = host.session.messages.find(row => row.role === "toolResult" && row.toolName === "submit_plan_packet"), text = JSON.stringify(tool?.content ?? []);

@@ -14,7 +14,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable, waitForIdle } from "./harness.mjs";
+import { admissionProposes, laneByLine, openTable, waitForIdle } from "./harness.mjs";
 
 const verdict = (row) => fauxAssistantMessage(JSON.stringify(row));
 
@@ -48,10 +48,15 @@ function newspaperTurn() {
 }
 
 test("a refused batch draws no dice, moves no scene and lands no clue: nothing reaches the kernel", async (t) => {
+	// §32.12.3.1: the lane reviews each line on its own call. The move's refusal decides the batch whatever the other lines
+	// would have said: they would admit, but only after it, and they are stopped unanswered.
 	const table = await openTable({
 		responses: newspaperTurn(),
 		laneResponses: {
-			admission: [verdict({ verdict: "not_authorized", grounds: "the player only mentioned newspapers", missing: "where and how to look at the newspapers" })],
+			admission: laneByLine([
+				[/apply move/, { verdict: "not_authorized", grounds: "the player only mentioned newspapers", missing: "where and how to look at the newspapers" }],
+				[/apply (clue|time)/, { verdict: "authorized", grounds: "a line that would admit on its own" }, 300],
+			]),
 		},
 	});
 	t.after(() => table.dispose());
@@ -67,12 +72,14 @@ test("a refused batch draws no dice, moves no scene and lands no clue: nothing r
 	assert.equal(kernelCalls(table, "table.narrate").length, 1);
 
 	const rows = admissionRows(table);
-	assert.equal(rows.length, 1, JSON.stringify(rows));
+	assert.equal(rows.length, 1, `only the refused line answered; the others were stopped: ${JSON.stringify(rows)}`);
 	assert.equal(rows[0].verdict, "not_authorized");
 	assert.equal(rows[0].admitted, false);
+	assert.equal(rows[0].batch_admitted, false);
 	assert.equal(rows[0].reused, false);
 	assert.equal(rows[0].verb, "apply");
 	assert.equal(rows[0].model, "admission/a1");
+	assert.deepEqual([rows[0].line_level, rows[0].lines, rows[0].of_lines, rows[0].line_calls], ["line", [1], 3, 3]);
 	// A refusal costs the player the whole batch, so the row has to say *why* and *what*: without
 	// the grounds and the proposed effects, a run cannot be read for "the reviewer misjudged plain
 	// words" against "the batch carried an effect nobody chose" (2026-09-15, turn 2).
@@ -99,23 +106,31 @@ test("an admitted batch goes through unchanged, and the review saw the player's 
 	assert.equal(apply.params.effects.length, 3);
 	assert.equal(apply.params.call_id, "t1-c1");
 
-	const [request] = table.lanes.admission.requests();
-	assert.ok(request, "the review model was called once");
-	assert.match(request, /我去环球报的剪报室查那栋房子的旧闻/);
-	// The visible context: who plays, where they are as the player knows it, who is on stage.
-	assert.match(request, /托马斯·海耶斯 \(记者\)/);
-	assert.match(request, /科比特宅/);
-	assert.match(request, /看门人/);
-	// The proposal, every effect of the batch, in one place.
-	assert.match(request, /apply move: to="newspaper-morgue"/);
-	assert.match(request, /apply clue: clue="globe-unpublished-story"/);
-	// Keeper-only material is not the player's context and does not reach the reviewer.
-	assert.doesNotMatch(request, /科比特在地窖下面/);
-	assert.doesNotMatch(request, /他知道地窖下面有东西/);
+	// §32.12.3.1: one review call per line, each with the same player context and exactly one proposed line.
+	const requests = table.lanes.admission.requests();
+	assert.equal(requests.length, 3, "the review model was called once per line");
+	for (const request of requests) {
+		assert.match(request, /我去环球报的剪报室查那栋房子的旧闻/);
+		// The visible context: who plays, where they are as the player knows it, who is on stage.
+		assert.match(request, /托马斯·海耶斯 \(记者\)/);
+		assert.match(request, /科比特宅/);
+		assert.match(request, /看门人/);
+		// Keeper-only material is not the player's context and does not reach the reviewer.
+		assert.doesNotMatch(request, /科比特在地窖下面/);
+		assert.doesNotMatch(request, /他知道地窖下面有东西/);
+		assert.equal(admissionProposes(request).split("\n").filter((line) => line.startsWith("- ")).length, 1, "exactly one proposed line");
+		assert.equal(request.slice(0, request.indexOf("[The Keeper now proposes]")), requests[0].slice(0, requests[0].indexOf("[The Keeper now proposes]")),
+			"every call reads the same context");
+	}
+	// Every effect of the batch, each on its own call.
+	const proposed = requests.map(admissionProposes).join("\n");
+	assert.match(proposed, /apply move: to="newspaper-morgue"/);
+	assert.match(proposed, /apply clue: clue="globe-unpublished-story"/);
+	assert.match(proposed, /apply time: minutes=45/);
 
-	const [row] = admissionRows(table);
-	assert.equal(row.verdict, "authorized");
-	assert.equal(row.admitted, true);
+	const rows = admissionRows(table);
+	assert.equal(rows.length, 3);
+	assert.ok(rows.every((row) => row.verdict === "authorized" && row.admitted === true && row.batch_admitted === true), JSON.stringify(rows));
 });
 
 test('different map regions are different admission proposals',async t=>{

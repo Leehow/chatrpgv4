@@ -19,7 +19,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable, waitFor, waitForIdle } from "./harness.mjs";
+import { laneByLine, openTable, waitFor, waitForIdle } from "./harness.mjs";
 import { manualClock, runWaitsPastRound } from "./manual-clock.mjs";
 import { clearedLines, lineClearable, remainderAttempt } from "../../extensions/kernel/admission.ts";
 
@@ -31,21 +31,24 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const slowVerdict = (row, ms) => async () => { await sleep(ms); return fauxAssistantMessage(JSON.stringify(row)); };
 const proposes = (text) => text.slice(text.indexOf("[The Keeper now proposes]"));
 /**
- * The lane, by what it is asked. Whether the batch's own round reaches the provider before the typed answer aborts it is
- * the scheduler's business, so every scripted step reads its request: a round proposing the whole batch (it carries the
- * cleared `apply time` line) waits and answers nothing useful; the rest's round answers `row` after `ms`.
+ * The lane, by what it is asked. Whether the batch's own rounds (one per line since §32.12.3.1) reach the provider before
+ * the typed answer aborts them is the scheduler's business, so every scripted step reads its request: the rest's round is
+ * the one told the cleared line was "admitted in this same call", and it answers `row` after `ms`; a round of the batch's
+ * own waits and answers nothing useful.
  */
+const REST_MARK = "admitted in this same call";
+const isRest = (text) => text.includes(REST_MARK) && !/apply time/.test(proposes(text));
 const restLane = (row, ms = 300) => {
 	const step = async (context) => {
 		const text = (context?.messages ?? []).flatMap((message) => (message.role === "user" ? message.content : [])).map((block) => block.text ?? "").join("");
-		if (/apply time/.test(proposes(text))) { await sleep(5000); return fauxAssistantMessage(JSON.stringify({ verdict: "not_authorized", grounds: "the batch's own round" })); }
+		if (!isRest(text)) { await sleep(5000); return fauxAssistantMessage(JSON.stringify({ verdict: "not_authorized", grounds: "the batch's own round" })); }
 		await sleep(ms);
 		return fauxAssistantMessage(JSON.stringify(row));
 	};
-	return [step, step];
+	return [step, step, step];
 };
-/** The lane requests that reviewed the rest (their proposal no longer carries the cleared time line). */
-const restRequests = (table) => table.lanes.admission.requests().filter((text) => !/apply time/.test(proposes(text)));
+/** The lane requests that reviewed the rest (told the cleared time line was admitted in this same call, and not proposing it). */
+const restRequests = (table) => table.lanes.admission.requests().filter(isRest);
 
 function distribution(keys, chosen, confidence) {
 	const rest = keys.length > 1 ? (1 - confidence) / (keys.length - 1) : 0;
@@ -171,16 +174,18 @@ test("§32.12.3 (owner's amendment): a lane refusal of the reviewed lines still 
 	assert.deepEqual(effectsOf(table), []);
 });
 
-test("§32.12.3: the typed answer clears no line (0.86) -- the batch is reviewed whole, as before", async (t) => {
+test("§32.12.3: the typed answer clears no line (0.86) -- the batch is reviewed by the lane, one call per line (§32.12.3.1)", async (t) => {
 	installJev(t, [{ verdict: "entailed", confidence: 0.86 }, { verdict: "authorized", confidence: 0.4 }]);
 	const table = await openTable({ env: KEY, responses: [call("apply", { effects: [TIME, CLUE] }), ...close],
-		laneResponses: { admission: [slowVerdict({ verdict: "entailed", grounds: "prying it open takes the time" }, 300)] } });
+		laneResponses: { admission: laneByLine([[/apply time/, { verdict: "entailed", grounds: "prying it open takes the time" }, 300],
+			[/apply clue/, { verdict: "authorized", grounds: "the diaries were in the cabinet the player pried" }, 300]]) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	const rows = admissionRows(table);
-	assert.deepEqual(rows.map((row) => [row.path, row.line_level ?? null, row.verdict]), [["lane", null, "entailed"]]);
+	assert.deepEqual(rows.map((row) => [row.path, row.line_level, row.lines, row.verdict]), [["lane", "line", [1], "entailed"], ["lane", "line", [2], "authorized"]]);
+	assert.ok(rows.every((row) => row.batch_admitted === true && row.batch_verdict === "authorized"), "the batch's verdict is the lines' combined (§32.10)");
 	assert.deepEqual(rows[0].line_confidences, [0.86, 0.4], "a line that did not clear can be read back");
-	assert.equal(table.lanes.admission.requests().length, 1);
+	assert.equal(table.lanes.admission.requests().length, 2);
 	assert.deepEqual(effectsOf(table), [["time", "clue"]]);
 });
 
@@ -190,7 +195,7 @@ test("§32.12.3: with the fast path off no line clears", async (t) => {
 		laneResponses: { admission: [slowVerdict({ verdict: "entailed", grounds: "prying it open takes the time" }, 300)] } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
-	assert.deepEqual(admissionRows(table).map((row) => [row.path, row.line_level ?? null]), [["lane", null]]);
+	assert.deepEqual(admissionRows(table).map((row) => [row.path, row.line_level ?? null]), [["lane", "line"], ["lane", "line"]], "no line clears: each is the lane's (§32.12.3.1)");
 });
 
 test("§32.12.3: a split whose rest is refused lands the cleared line and the unreviewed lines, in the batch's order", async (t) => {
@@ -257,7 +262,7 @@ test("§32.12.3 with §32.12.2: a rest past the cap is returned pending alone; t
 	// rest's round answers 1100 ms after it was asked.
 	const laneStep = async (context) => {
 		const text = (context?.messages ?? []).flatMap((message) => (message.role === "user" ? message.content : [])).map((block) => block.text ?? "").join("");
-		if (/apply time/.test(proposes(text))) { await clock.until(T0 + 5 * CAP_MS); return fauxAssistantMessage(JSON.stringify({ verdict: "not_authorized", grounds: "the batch's own round" })); }
+		if (!isRest(text)) { await clock.until(T0 + 5 * CAP_MS); return fauxAssistantMessage(JSON.stringify({ verdict: "not_authorized", grounds: "the batch's own round" })); }
 		restAsked = true;
 		await clock.sleep(REST_VERDICT_MS);
 		return fauxAssistantMessage(JSON.stringify({ verdict: "authorized", grounds: "the player went down to the kitchen" }));
@@ -267,7 +272,7 @@ test("§32.12.3 with §32.12.2: a rest past the cap is returned pending alone; t
 	// The typed attempt's own cap is incidental here: a minute, so its real-time attempt bound never decides.
 	const table = await openTable({ env: { ...KEY, PI_COC_ADMISSION_TIMEOUT_MS: String(CAP_MS), PI_COC_ADMISSION_JEV_TIMEOUT_MS: "60000" },
 		responses: [call("apply", { effects: [TIME, MOVE] }), resend, ...close],
-		laneResponses: { admission: [laneStep, laneStep] } });
+		laneResponses: { admission: [laneStep, laneStep, laneStep] } });
 	t.after(() => table.dispose());
 	table.emit("coc:test-admission-clock", clock);
 	let ended = false;

@@ -17,7 +17,7 @@ import { strict as assert } from "node:assert";
 import { createServer } from "node:net";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable, waitFor } from "./harness.mjs";
+import { laneByLine, openTable, waitFor } from "./harness.mjs";
 import { manualClock, runWaitsPastRound } from "./manual-clock.mjs";
 import {
 	ADMISSION_LATE_DEFAULT_MIN_CONFIDENCE,
@@ -199,17 +199,20 @@ test("§32.12.2: a lane refusal without grounds refuses nothing and is no outage
 
 test("§32.12.2: a bookkeeping batch whose lane answered without grounds is admitted late on a typed admission at the threshold", async (t) => {
 	installJev(t, [{ verdict: "authorized", confidence: 0.8 }, { verdict: "entailed", confidence: 0.75 }]);
+	// §32.12.3.1: each line has its own lane call, and each call its own late admission, on that line's typed reading.
 	const table = await openTable({ env: KEY, responses: [call("apply", { effects: bookkeeping }), ...close],
-		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "" }, 300)] } });
+		laneResponses: { admission: laneByLine([[/apply (move|clue)/, { verdict: "not_authorized", grounds: "" }, 300]]) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	assert.equal(kernelCalls(table, "table.apply").length, 1);
-	const [row] = admissionRows(table);
-	assert.equal(row.path, "typed_late");
-	assert.equal(row.reviewer, "jev");
-	assert.equal(row.lane_no_grounds, true);
-	assert.equal(row.late_min_confidence, 0.7);
-	assert.equal(row.confidence, 0.75);
+	const rows = admissionRows(table);
+	assert.deepEqual(rows.map((row) => [row.lines[0], row.path, row.confidence]), [[1, "typed_late", 0.8], [2, "typed_late", 0.75]]);
+	for (const row of rows) {
+		assert.equal(row.reviewer, "jev");
+		assert.equal(row.lane_no_grounds, true);
+		assert.equal(row.late_min_confidence, 0.7);
+		assert.equal(row.batch_admitted, true);
+	}
 });
 
 // ---- at the cap -------------------------------------------------------------------------------------------------------------

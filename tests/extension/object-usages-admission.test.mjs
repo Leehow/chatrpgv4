@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {admissionRequest} from '../../extensions/kernel/admission.ts';
-import {openTable} from './harness.mjs';
+import {admissionProposes,laneByLine,openTable} from './harness.mjs';
 
 const scope={party:['Investigator'],scene:{handle:'study',label:'Study'}};
 const take={kind:'object',name:'Chair',from:'here',to:'Investigator'};
@@ -38,19 +38,22 @@ test('admission keys bind the usage, object, staged definition and order rather 
 });
 
 test('a refused pickup plus usage reaches neither the Mod preparation hook nor the kernel',async t=>{
-  const table=await openTable({responses:responses([take,prepare]),laneResponses:{admission:[verdict('not_authorized')]}});
+  // §32.12.3.1: each line is its own lane call; the refused usage refuses the batch, the pickup with it.
+  const table=await openTable({responses:responses([take,prepare]),laneResponses:{admission:laneByLine([[/apply usage/,{verdict:'not_authorized',grounds:'Controlled admission response for this transport test.'}],
+    [/apply object/,{verdict:'entailed',grounds:'A line that would admit on its own.'},200]])}});
   t.after(()=>table.dispose());
   let preparations=0;
   table.emit('coc:mods-bridge',{async prepare(method){if(method==='apply') preparations++;},async after(){}});
   await table.session.prompt('I only look at the chair; I do not pick it up or attack.');
   assert.equal(preparations,0);
   assert.equal(table.kernelRequests().filter(call=>call.method==='table.apply').length,0);
-  assert.equal(table.lanes.admission.requests().length,1);
-  assert.match(table.lanes.admission.requests()[0],/apply usage:.*object="Chair"/);
+  const requests=table.lanes.admission.requests();
+  assert.ok(requests.length>=1&&requests.length<=2,`one lane call per line (${requests.length})`);
+  assert.ok(requests.some(request=>/apply usage:.*object="Chair"/.test(admissionProposes(request))));
 });
 
 test('an entailed pickup and usage are admitted together before preparation without a second player input',async t=>{
-  const table=await openTable({responses:responses([take,prepare]),laneResponses:{admission:[verdict('entailed')]}});
+  const table=await openTable({responses:responses([take,prepare]),laneResponses:{admission:[verdict('entailed'),verdict('entailed')]}});
   t.after(()=>table.dispose());
   let preparations=0;
   table.emit('coc:mods-bridge',{async prepare(method){if(method==='apply') preparations++;},async after(){}});
@@ -58,7 +61,7 @@ test('an entailed pickup and usage are admitted together before preparation with
   assert.equal(preparations,1);
   assert.equal(table.kernelRequests().filter(call=>call.method==='table.apply').length,1);
   assert.equal(table.kernelRequests().filter(call=>call.method==='table.player_input').length,1);
-  assert.equal(table.lanes.admission.requests().length,1);
+  assert.equal(table.lanes.admission.requests().length,2,'one lane call per line (§32.12.3.1)');
 });
 
 test('an unavailable usage review fails closed before generation',async t=>{
