@@ -43,3 +43,46 @@ Spec: docs/kernel-rpc.md §32.10 (typed reviewer family), §32.11 (bookkeeping f
 - Long gate #24: typed-settled share, admission's share of the critical path, first visible prose ≤ 60 s on 20/20.
 
 ## Comments
+
+**Phase 1 measurement (2026-09-26, no product change).** Raw outputs, commands and the 20-case read are in
+`experiments/admission-jev-bank/results/sl97/` (`README.md`, `bank-stats.json`, `replay-live.jsonl`,
+`replay-live-summary.json`, `replay-live-derived.json`, `low-confidence-cases.md`).
+
+- **Bank refreshed** over the persona-bench/main corpus (`chatrpgv4-wt-pi-coc-v2/.coc`), every
+  `chatrpgv4-wt-gate-*` worktree (#17–#23, including this ticket's own `longgate23-haunting-1350`), and the App
+  home + its session logs: 6 306 review rows / 247 campaigns → 5 362 paired cases (944 unpaired). By lane verdict:
+  authorized 3 566, not_authorized 726, entailed 723, not_player_action 170, unavailable 166, uncertain 2,
+  review_pending 9. By source: persona-bench 4 785, driver tables 549, sessions 28. Gap found, not fixed: gate
+  #19's driver `turn-N.json` files all recorded `"tools": []`, so its 33 retained rows pair to nothing (a logging
+  gap in that run, not in `build.mjs`). The masks table under `chatrpgv4-wt-gate-13ce6a7dd-masks` was still running
+  (no `final.json` yet) and correctly contributed nothing.
+- **Live replay**, `--per-class 90` (chosen from a `--port shape` dry run to stay near the ~600-call budget): 461
+  cases sampled, 32 `cash`-tagged (lane-only, no Jev call), 429 typed-attempted, **496 live Jev calls total**, 31 s
+  wall clock at `--concurrency 6`.
+- **Agreement with the lane** (371 labelled cases, 351 decided at threshold 0 = 94.6% coverage): exact-verdict
+  agreement 41.3%, admit/refuse agreement 57.0%, 73 false admits, 78 false refusals. Per-class exact agreement at
+  threshold 0: authorized 53/83 decided, entailed 63/86, not_authorized 17/86, not_player_action 12/85.
+- **At the fast-path default (0.87, not in `replay.mjs`'s own threshold array — computed by hand in
+  `replay-live-derived.json` with the same logic `summarize()` uses):** 2 of 371 decided (0.5% coverage), 1 exact
+  agreement, 0 false admits, 1 false refusal. At 0.9: 2 decided. At 0.95: 0 decided. The typed reviewer essentially
+  never reaches the family's own confidence bar on this bank.
+- **Confidence:** mean 0.455, median 0.44 (n=351, all typed-decided cases) — full histogram per lane-label class
+  and per typed verdict in `replay-live-derived.json`.
+- **Latency:** case-round p50 375 ms / p90 548 ms / max 1 229 ms (typed-only, n=351; 386/592/1 229 ms including
+  fallback rounds, n=429). This is the whole case's parallel `Promise.all` round, not one HTTP call, for the ~13%
+  of cases that pack into 2+ line-batches.
+- **20 low-confidence cases read** (confidence < 0.6, 339 of 429 typed cases qualify) in `low-confidence-cases.md`,
+  including the ticket's own #23 t2 case (this replay: `not_authorized` 0.51 / `entailed` 0.61, lane
+  `review_pending`; the ticket's live numbers were 0.24/0.57 — the offline reconstruction is not bit-identical to
+  what the table saw, though both are low and land the same way). Rollup across the 20: 10 of 20 are NPC- or
+  environment-delivered content (a clue that is an NPC's answer or a Mythos manifestation, not a thing the
+  player's own line names) — the largest single driver of low confidence in this sample; 3 are
+  `authorized`↔`entailed` label mismatches (both admit, so not a real disagreement); 3 look like general
+  `time`-line calibration (clear cases that still score mid-low); 2 are reconstruction/packing gaps specific to
+  this offline replay (a clipped player line, a missing `registered_destination`); 2 are genuine ambiguity in what
+  action was actually declared.
+- **Nothing blocked.** `replay.mjs` ran as committed, no fix needed, no product code touched. `bank.jsonl` itself
+  (~25.7 MB, 5 362 cases) is not committed — regenerable read-only evidence, reproduced by the exact command in
+  `results/sl97/README.md`.
+
+Numbers only; phase 2 (design, threshold choice, any code change) is left to that worker.
