@@ -798,3 +798,22 @@ Other results:
 - ASCII only in an in-fiction inscription ("W. Corbitt").
 - **Defect:** t6 delivered `"text intermediate"` glued to the story. This is the provider's label prefix, and the floor cannot see it → SL-96.
 - Text beside tool calls: 15 drops. SL-95 folds them in the App; this is checked in the App, not by the driver.
+
+### Long gate #24 (2026-09-27, dc37c6b7e; batch 18 live: SL-101 parallel admission lines, SL-96 label strip, SL-98/99/99b/100 setup and reading, admission clock; every model grok-4.5 low)
+20/20 delivered; no strand; floor rows 0; `dialect_prefix_stripped` 0 (the model did not emit the label this table); prose median 241, min 156; no markup.
+
+**First visible prose: median 45.1 s, max 79.2 s, ≤ 60 s on 16/20** (#23: 50.3 / 72.9 / 16).
+
+SL-101 did what it was for:
+- `review_pending` 6 → 1.
+- 2-line batches: median 7.4 s (#23: the 13 s cap).
+- Only 2 lane refusals in the table. `not_player_action` admits.
+
+The critical path is now the Keeper's own steps: 2.6 calls/turn at a median of 10.6 s per call. The four turns over 60 s (t4, t6, t14, t15) ran 2–5 Keeper calls; t15 spent 62 s in 4 calls around `lookup` ×3 + `look`.
+
+**Lookups 15** (#23: 4), and **5 of them repeat the previous turn's lookup of the same scene material**:
+- `upper-floor-bedroom` t11 → t12;
+- `corbitt-diaries` t14 → t15;
+- `basement-rites` t17 → t18 → t18 retry.
+
+What the Keeper looked up one turn is not in its hands the next → SL-102.

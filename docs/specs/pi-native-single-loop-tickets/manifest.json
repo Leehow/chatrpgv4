@@ -509,6 +509,11 @@
       "id": "SL-101",
       "file": "101-admission-lines-reviewed-in-parallel.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-102",
+      "file": "102-looked-up-material-stays-in-hand.md",
+      "status": "ready"
     }
   ],
   "relatedSpecs": [
