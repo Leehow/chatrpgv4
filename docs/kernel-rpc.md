@@ -21254,7 +21254,7 @@ honoured however it comes, exactly as the implicit floor and SL-80's speech-only
 *Tests* (`tests/extension/delivery-floor-every-path.test.mjs`; `proseCharCount`/`deliveryFloorBudget` directly, no
 table; the real `apply`/`narrate` tools over the emitted kernel and the hybrid engine; the fake kernel and the
 hybrid engine): `apply {effects, narrate: "text"}` lands the effects, delivers nothing, one floor steer
-(`path: "embedded"`, `chars: 4`; `chars: 0` since §138.1 removes `text` as the serialization's label before the floor counts), and the apply's own tool result names the landed effects; a second leg with real
+(`path: "embedded"`, `chars: 4`; `chars: 0` since §144.1 removes `text` as the serialization's label before the floor counts), and the apply's own tool result names the landed effects; a second leg with real
 (40-plus-code-point) prose delivers; an explicit `narrate {text: "text"}` is steered the same way, its own refusal
 carrying `FLOOR_STEER`'s text as `fix`; once the steer is spent a second, equally short draft still closes the turn
 (never stranding it); a 40-plus-code-point Chinese draft delivers on the first leg on both the explicit and the
@@ -24651,60 +24651,6 @@ builds the two-argument `TextGraph`.
 - **Size.** The table fit the old 2048/1536 budgets and still does; `tests/kernel/test_capsule_nine.py` asserts no `truncated: style` for a legacy lock in both forms.
 
 
-## 138. A Keeper tool argument that carries the model's own tool-call markup is unwrapped at the host boundary (2026-09-26; amends §135.21's `prepareArguments` and §19.2)
-
-**Evidence.** Some models write a tool call in an XML dialect and the provider hands it back as JSON, so the tool-call serialization can end up inside a string argument. Across about 34,000 turn records (playtests, the long gates on `claude/integ-single-loop-20260923`, the App's own campaigns) four delivered turns carried it, all `narrate.text`, all on deepseek-v4.1-flash through opencode-go: two ended in `\n</text>\n` (temper-g t6, coarse-h2 t2), so the player read `</text>`; two went on after `</text>` with `<parameter name="workpad_patch">{…}` (longgate10 t18, longgate13 t7), so the player read the Keeper's private workpad JSON and the patch itself never reached the workpad, because the call's arguments were only `text` (and `using_skill`). The leaked text was then carried on: into the next turns' `recent` context, the memory extraction job, the NPC journal job and the Mod audits.
-
-**The rule.** Where the Keeper's arguments first enter the host, the Keeper tools' `prepareArguments` (before Pi's schema check and before §135.21's one-sentence check, on both loop engines), every top-level string argument is read against the tool's own declared parameters (`extensions/kernel/tool-argument-markup.ts`, `unwrapArgumentMarkup`):
-
-- a leading `<k>` or `<parameter name="k">` around argument `k` is markup, and the value ends at the earlier of its own closing tag (`</k>`, or `</parameter>` when it was opened that way) and the first opening tag of another declared parameter of the same tool;
-- each declared parameter found after that point, in either spelling, is recovered as its own argument, decoded by its declared type (a string parameter stays text; anything else is JSON when it parses), unless the call already gives that parameter as its own field, in which case the field wins and the swallowed copy is reported as `kept`;
-- what then remains must be tag-shaped tokens and whitespace only (the dialect's own closers); any other text after the closing tag is refused, never dropped: `invalid_params` with `code_detail: argument_markup`, `details: {field, after}` and a fix that says to send the value plain, with each other parameter as its own field, and that nothing in the call was written.
-
-Nothing is decided by what the prose says: a tag counts only when it names the argument it sits in or another parameter of the same tool, so narration with other angle brackets in it passes untouched (the same object). Only top-level string arguments are read; the dialect serializes per parameter. A recovered `workpad_patch` then follows §19.2 exactly like one given as its own field (stripped before the kernel, filed only if the delivery lands). Turns delivered before this section keep their text; there were none in the App's campaigns.
-
-**Three ends (§31).** *Writer:* the model's tool call, through the provider. *Reader:* `unwrapArgumentMarkup` in the Keeper tools' `prepareArguments` (`extensions/kernel/index.ts`), which hands the repaired arguments to §135.21's check, Pi's schema check and the dispatcher. *Record:* each repair is one telemetry row `{lane: "tool_arguments", event: "markup_unwrapped", tool, repairs: [{field, recovered, kept}]}`; a refusal goes through the ordinary refusal path and budget (§34.12).
-
-**Tests.** `tests/extension/tool-argument-markup.test.mjs`: the four recorded shapes and their variants (closed swallowed parameter followed by the dialect's closers, no own closing tag, bare-tag spelling, value wrapped whole in either spelling, `ask.text`), the explicit field winning over a swallowed copy, clean text returned as the same object, prose after the tag refused with the fix; through the real registration on both engines, a `</text>`-ended narrate reaching the kernel clean with its telemetry row; a swallowed workpad patch filed in the workpad store while neither the markup nor the patch reaches a visible surface; and a refused call whose resent version is the only one the kernel receives. Mutation: replacing the call in `prepareArguments` with the unrepaired arguments turns the four registration tests red.
-
-### 138.1 A field that carries another tool's argument, opened with the serialization's own label (2026-09-26, SL-96; extends §138, amends §135.5.2)
-
-**Evidence.** Every retained Keeper tool call — the 689 playtest event logs under the worktrees and the App's 44 Pi session files, 23,926 tool calls, 16,869 top-level string arguments, read at 2026-09-26T18:32Z — and every delivered turn record (5,170, 177 of them the App's):
-
-| table, turn | `apply.narrate` begins with | then | reached the player |
-| --- | --- | --- | --- |
-| long gate #22 t1 | `text thriftily-placeholder` | nothing | yes, as the whole turn |
-| long gate #22 t5 | `文本\|` | `{{move:…}}`, then the prose | yes, `文本\|` first |
-| long gate #22 t8 | `text` | nothing | yes, as the whole turn |
-| long gate #22 t12 | `text` | the prose, with no separator | yes, glued to the first sentence |
-| long gate #22 t20 | `文本::` | `{{time}}`, then the prose | yes, `文本::` first |
-| long gate #23 t6 | `text intermediate` | the prose, with no separator | yes, glued to the first sentence |
-| long gate #23 t8 | `text interim` | the prose, with no separator | no: an effect was refused, and the Keeper sent the same prose as an explicit `narrate`, without the label |
-
-All seven are grok-build/grok-4.5 (low), all in `apply.narrate`: 7 of that model's 32 `apply.narrate` values and none of its 62 `narrate.text`; none of the other 5,263 `narrate.text` (grok 4.5/4.6/4.7 through xai and grok-build, deepseek), the 103 `ask.text`, or the 3 deepseek `apply.narrate`. The shape is one label at the head of the value: the carried parameter's name `text`, with a tag (`intermediate`, `interim`, `thriftily-placeholder`) or without, or that name in the play language followed by a delimiter (`|`, `::`); then the value, or nothing.
-
-**It is the model's, through the provider, not our parsing.** `extensions/grok-build-oauth` registers `api: "openai-responses"` and has no stream code of its own (its only hooks are `before_provider_request`/`after_provider_response`, for structured output and input files). Pi's `openai-responses` stream appends each `response.function_call_arguments.delta` verbatim (`partialJson += event.delta`, `@earendil-works/pi-ai/dist/api/openai-responses-shared.js`) and emits it as the `toolcall_delta` the playtest event log records. Gate #23 t6's call arrived as one delta; its bytes at the field are `"narrate":"text intermediate\xe7\xbd\x97\xe5\x85\x8b…`, so the label is inside the JSON string the provider returned. The value is the narrate tool's `text` carried by another field (§135.5.2 dispatches it as exactly that, and the field's description says "same rules as the narrate tool's text"), and the model writes the name of the parameter it is filling into the value; where `text` is the field's own key (`narrate.text`), it never does.
-
-**The rule.** A field that carries another tool's argument is read for one leading label in the Keeper tools' `prepareArguments`, after §138's unwrapping and before §135.21's check (`stripDialectPrefixes`, `extensions/kernel/dialect-prefix.ts`). The fields are `EMBEDDED_ARGUMENTS`: `apply.narrate`, carrying `narrate.text`, the one embedding §135.5.2 dispatches. The label is, at the very start of the value, one of:
-
-- **(a)** the carried parameter's declared name, exactly as declared (`text`, not `Text`), optionally followed by one space and one identifier-shaped tag (`[A-Za-z][A-Za-z0-9_-]*`), where the label then meets the end of the value, a `|` or `::` delimiter (removed with it), or, with no separator at all, a `{{` token or a character outside ASCII (the value's own first character, which no ASCII identifier continues);
-- **(b)** any run of letters (Unicode `L`, then `L` or `M`) followed at once by `|` or `::` (removed with it).
-
-The label and any whitespace after it are removed, and nothing else is. A value that is only the label becomes the empty string, and the apply's embedded narrate meets the existing paths unchanged: the floor refuses it (`below_floor`, `chars: 0`, §135.11.4.1) while the turn's steer is unspent, and the kernel refuses an empty `text` (`invalid_params: params.text must be a non-empty string`) once it is spent, or on the opening, where the floor does not run. Neither delivers.
-
-**Why this is structure, not a reading of the prose.** Nothing asks what language the value is in or what the label means. (a) compares with the name the schema declares, as §138 compares tags with declared names, and ends the label by the identifier grammar: in running prose a word is followed by a space or punctuation, and the label is taken only where it meets nothing, the delimiter, or the value's first character with no separator. (b) reads a delimiter that no prose puts right after its first word. The tags are three in seven values, no two alike, so they are not listed; the grammar takes them. Hence:
-
-- `Text scrawled on the wall reads…` is untouched: `Text` is not the declared `text`, and (b) finds a space where it needs a delimiter;
-- `text` inside the prose is untouched: only position 0 is read;
-- `text messages flooded the switchboard…` and `textbook…` are untouched: the tag meets a space, and the name runs on into a longer word;
-- applied to every top-level string argument of every tool in the evidence above, not only to the embedded field, the rule matches the seven rows of the table and nothing else.
-
-**Known boundary** (tested as such): a label followed by whitespace and then the value (`text intermediate The door…`, `text` on its own line) cannot be told from prose that starts with that lowercase word, and is left as it is; the evidence has no such value. `narrate.text` and `ask.text` are not read: the evidence shows the label only where a field carries another tool's parameter.
-
-**Three ends (§31).** *Writer:* the model's tool call, through the provider. *Reader:* `stripDialectPrefixes` in `prepareArguments` (`extensions/kernel/index.ts`), which hands the value on to §135.21's check, Pi's schema check and the dispatcher; the embedded narrate's floor and the kernel then read the stripped value. *Record:* one telemetry row per stripped field, `{lane: "arguments", event: "dialect_prefix_stripped", tool, field, prefix}` (`prefix` is the removed text). Acceptance on long gate #24: the rows are counted, and no delivered `rendered_text` begins with a label.
-
-**Tests.** `tests/extension/dialect-prefix.test.mjs`: the seven recorded values, verbatim from the gate records, each lose exactly their label, and `text` and `text thriftily-placeholder` become empty; the other shapes (a delimiter after the name or the tag, a `{{` token right after the name, whitespace after the label); `Text scrawled on the wall reads…`, `Text intermediate` glued to prose, a zh narration with `text` mid-sentence, `text messages…`, `textbook…` and plain prose come back as the same object; the boundary above; a `narrate.text` or `ask.text` that begins with a label is not read; each `EMBEDDED_ARGUMENTS` entry names a declared string field and the carried tool's declared string parameter. Through the real registration, the emitted kernel and the hybrid engine: gate #23 t6's value delivers from its first real sentence, with its row; `text` and `text thriftily-placeholder` land the apply's effect and are refused at the floor with `chars: 0`, each with its row; once the steer is spent, a label-only value is refused by the kernel and not delivered; an English `Text scrawled…` value delivers unchanged with no row. `tests/extension/delivery-floor-every-path.test.mjs`: the SL-93 `narrate: "text"` case now counts `chars: 0` (the label is gone before the floor counts), and the data-knob case uses a short draft that is not a label. Mutations (a copy of the file, never `git checkout --`), each turning tests red: `prepareArguments` handing on the unstripped arguments, with and without the row (the registration cases, and the SL-93 `chars: 0` case); the row not recorded; (a) compared without case; (a) without its end/delimiter/no-separator condition; (a) without the no-separator case; the tag after the name not taken; (b) removed; the whitespace after the label kept.
-
 ## 139. An excerpt a model copied out of delivered text is located with quotation marks as one class (2026-09-26; amends §12.5's `table.warn` anchoring and the continuity-review rows)
 
 **Evidence.** `table.warn` kept a verifier finding only if its `quote` was an exact substring of the turn's `rendered_text`. The verifier answers in JSON; a prose line in ASCII double quotes has to be escaped inside a JSON string, and the model retypes the marks as curly ones instead. Across about 700 verified turns (playtests, the long gates, the App's own campaigns) the findings on turns whose prose used ASCII `"` were dropped 44% of the time (36 findings, 16 dropped; 5 of 16 turns lost every finding, among them temper-b t8, where three speakers talked with no speech markers and all seven findings were dropped), against 1% with corner brackets, 0% with curly quotes and 4% with no quotation marks. A dropped finding is a warning the next capsule never shows the Keeper.
@@ -24840,7 +24786,7 @@ Addendum 2's execution point (`clerkStep`'s and `modelStep`'s own tails, calling
 
 ## 142. What a person sets out to do is a ledger row with a result (2026-09-26, `docs/specs/npc-as-actor.md`; amends §17.3, §34 D2 and the NPC response bank)
 
-*Renumbered 2026-09-26.* This section and the next were written as §138 and §139 on branch `claude/npc-as-actor-20260926`. Line-2 (`claude/integ-single-loop-2-20260926`) had already landed its own §138–§141, so these two became §142 and §143 before the merge. Section numbers are stable identifiers, and the ones already on the shared line keep theirs. Commit messages and table records written before the merge say §138/§139; read them as §142/§143.
+*Renumbered 2026-09-26.* This section and the next were written as §138 and §139 on branch `claude/npc-as-actor-20260926`. Line-2 (`claude/integ-single-loop-2-20260926`) had already landed its own §138–§141, so these two became §142 and §143 before the merge. Section numbers are stable identifiers, and the ones already on the shared line keep theirs. Commit messages and table records written before the merge say §138/§139; read them as §142/§143. *And 2026-09-27:* gathering everything into 0.9.5a, whose band-then-roll §138 landed first (03:35 against 05:05), line-2's own §138 and §138.1 (tool-call markup unwrapped at the host boundary) became §144 and §144.1; line-2's §139–§141 kept theirs.
 
 **Evidence.** Campaign `game-26d5a671` (2026-09-23, the owner's own table): the player refused the job, hit Knott, took
 the wages back and went for the key. From turn 5 to turn 12 Knott's whole part was a returned punch and one line, and
@@ -25861,13 +25807,13 @@ leg; the dash-dialogue boundary), `tests/kernel/test_markup_in_prose.py` (the re
 finding and both telemetry rows, a fresh gate on the next turn, lines named, ordinary prose and the host's markers
 passing).
 
-*Note, 2026-09-26 (after the line-2 merge; §138):* line-2's §138 unwraps a Keeper tool argument's own tool-call markup in
+*Note, 2026-09-26 (after the line-2 merge; §144):* line-2's §144 unwraps a Keeper tool argument's own tool-call markup in
 the Keeper tools' `prepareArguments`, before the call reaches the kernel. It reads only tags that name a declared
 parameter of the tool the argument sits in. For `narrate` (`using_skill`, `text`, `workpad_patch`) that is a leading
 `<text>` or `<parameter name="text">`, the value's own closing tag (`</text>`, or `</parameter>` when it was opened that
 way) and any tags after it, and a swallowed `workpad_patch` or `using_skill`; prose after the closing tag is refused
 there (`invalid_params`, `code_detail: argument_markup`) and never reaches this gate either. So this section's turn 6, an
-explicit `narrate` ending in `</text>`, is now delivered on its first try, clean: §138's `markup_unwrapped` row, and no
+explicit `narrate` ending in `</text>`, is now delivered on its first try, clean: §144's `markup_unwrapped` row, and no
 `markup_in_prose` refusal, steer, row or finding. What this gate still reads: every tag that names no parameter of its
 tool (`</narration>`, `<b>`, a lone `</parameter>` that was never opened, `</invoke>`, and `</text>` inside
 `apply.narrate`, since `apply` declares no `text`); every list or heading line; and the whole of an implicit close,
@@ -25876,8 +25822,8 @@ which is the model's prose and no tool argument, `</text>` included. No product 
 (`</narration>`, the "second delivery" case included); a new real-kernel case pins the combination, `</text>` delivered
 on the first try and never refused `markup_in_prose`; a unit case asks `unwrapArgumentMarkup` with narrate's own schema
 that it hands on as written every text the file sends the gate, and takes `</text>` and a `<text>` pair off. Mutations
-(a copy, restored): this gate turned off in the emitted kernel fails the ten gate cases and not the §138 case; §138
-turned off in `prepareArguments` fails the §138 case alone.
+(a copy, restored): this gate turned off in the emitted kernel fails the ten gate cases and not the §144 case; §144
+turned off in `prepareArguments` fails the §144 case alone.
 
 **143.11 A refused implicit draft is not lost to a spent steer: the three second-time behaviours side by side (2026-09-26,
 ticket 12; the spec's section 七; amends §135.11's gate #4 addendum and §135.11.3).**
@@ -26512,13 +26458,13 @@ list line; different names at the two ends, a self-closing tag last, and a tag f
 delivered as written with no `stripped`. Mutation (copy and restore): the strip removed from the handler fails the
 trailing-`</text>` cases in both files.
 
-*Note, 2026-09-26 (after the line-2 merge; §138):* this section's evidence shape -- an explicit `narrate` ending in
-`</text>`, twice -- no longer reaches the kernel: §138 takes the argument's own closing tag, and a `<text>…</text>` pair,
+*Note, 2026-09-26 (after the line-2 merge; §144):* this section's evidence shape -- an explicit `narrate` ending in
+`</text>`, twice -- no longer reaches the kernel: §144 takes the argument's own closing tag, and a `<text>…</text>` pair,
 off at the host boundary on every delivery, the first included (§143.10's note of the same date). On an explicit
-narrate, then, §138 subsumes this section for tags that name one of the tool's parameters. It does not subsume the
+narrate, then, §144 subsumes this section for tags that name one of the tool's parameters. It does not subsume the
 section: a bare wrapper whose tag names no parameter of the tool (`<narration>…</narration>`, a trailing `</parameter>`
 never opened) still reaches the second-time branch, and so does any wrapper on an implicit close, `</text>` included,
-since an implicit close is no tool argument. §138 trims only the value's end, so a `<text>` pair with a line break after
+since an implicit close is no tool argument. §144 trims only the value's end, so a `<text>` pair with a line break after
 its opening tag leaves the Keeper's `text` and `marked_text` starting with that line break; `rendered_text`, what the
 player reads, does not carry it (measured on the real kernel, 2026-09-26), where this section's strip trimmed both ends.
 No product behaviour changed. Tests (`tests/extension/markup-in-prose.test.mjs`): the trailing and paired cases now send
@@ -27662,3 +27608,57 @@ records in that head), and the instruction test's two added assertions.
 module's era) fails the chainsaw table test ("the weapon part lists the modern record") and the catalog test ("then the
 other eras"); `table_brought_out` left out of the packet fails both packet tests (`KeyError` and the budget's
 `truncated`); `holdings` cut before `table_brought_out` fails the budget test. **Not verified live.**
+
+## 144. A Keeper tool argument that carries the model's own tool-call markup is unwrapped at the host boundary (2026-09-26; amends §135.21's `prepareArguments` and §19.2)
+
+**Evidence.** Some models write a tool call in an XML dialect and the provider hands it back as JSON, so the tool-call serialization can end up inside a string argument. Across about 34,000 turn records (playtests, the long gates on `claude/integ-single-loop-20260923`, the App's own campaigns) four delivered turns carried it, all `narrate.text`, all on deepseek-v4.1-flash through opencode-go: two ended in `\n</text>\n` (temper-g t6, coarse-h2 t2), so the player read `</text>`; two went on after `</text>` with `<parameter name="workpad_patch">{…}` (longgate10 t18, longgate13 t7), so the player read the Keeper's private workpad JSON and the patch itself never reached the workpad, because the call's arguments were only `text` (and `using_skill`). The leaked text was then carried on: into the next turns' `recent` context, the memory extraction job, the NPC journal job and the Mod audits.
+
+**The rule.** Where the Keeper's arguments first enter the host, the Keeper tools' `prepareArguments` (before Pi's schema check and before §135.21's one-sentence check, on both loop engines), every top-level string argument is read against the tool's own declared parameters (`extensions/kernel/tool-argument-markup.ts`, `unwrapArgumentMarkup`):
+
+- a leading `<k>` or `<parameter name="k">` around argument `k` is markup, and the value ends at the earlier of its own closing tag (`</k>`, or `</parameter>` when it was opened that way) and the first opening tag of another declared parameter of the same tool;
+- each declared parameter found after that point, in either spelling, is recovered as its own argument, decoded by its declared type (a string parameter stays text; anything else is JSON when it parses), unless the call already gives that parameter as its own field, in which case the field wins and the swallowed copy is reported as `kept`;
+- what then remains must be tag-shaped tokens and whitespace only (the dialect's own closers); any other text after the closing tag is refused, never dropped: `invalid_params` with `code_detail: argument_markup`, `details: {field, after}` and a fix that says to send the value plain, with each other parameter as its own field, and that nothing in the call was written.
+
+Nothing is decided by what the prose says: a tag counts only when it names the argument it sits in or another parameter of the same tool, so narration with other angle brackets in it passes untouched (the same object). Only top-level string arguments are read; the dialect serializes per parameter. A recovered `workpad_patch` then follows §19.2 exactly like one given as its own field (stripped before the kernel, filed only if the delivery lands). Turns delivered before this section keep their text; there were none in the App's campaigns.
+
+**Three ends (§31).** *Writer:* the model's tool call, through the provider. *Reader:* `unwrapArgumentMarkup` in the Keeper tools' `prepareArguments` (`extensions/kernel/index.ts`), which hands the repaired arguments to §135.21's check, Pi's schema check and the dispatcher. *Record:* each repair is one telemetry row `{lane: "tool_arguments", event: "markup_unwrapped", tool, repairs: [{field, recovered, kept}]}`; a refusal goes through the ordinary refusal path and budget (§34.12).
+
+**Tests.** `tests/extension/tool-argument-markup.test.mjs`: the four recorded shapes and their variants (closed swallowed parameter followed by the dialect's closers, no own closing tag, bare-tag spelling, value wrapped whole in either spelling, `ask.text`), the explicit field winning over a swallowed copy, clean text returned as the same object, prose after the tag refused with the fix; through the real registration on both engines, a `</text>`-ended narrate reaching the kernel clean with its telemetry row; a swallowed workpad patch filed in the workpad store while neither the markup nor the patch reaches a visible surface; and a refused call whose resent version is the only one the kernel receives. Mutation: replacing the call in `prepareArguments` with the unrepaired arguments turns the four registration tests red.
+
+### 144.1 A field that carries another tool's argument, opened with the serialization's own label (2026-09-26, SL-96; extends §144, amends §135.5.2)
+
+**Evidence.** Every retained Keeper tool call — the 689 playtest event logs under the worktrees and the App's 44 Pi session files, 23,926 tool calls, 16,869 top-level string arguments, read at 2026-09-26T18:32Z — and every delivered turn record (5,170, 177 of them the App's):
+
+| table, turn | `apply.narrate` begins with | then | reached the player |
+| --- | --- | --- | --- |
+| long gate #22 t1 | `text thriftily-placeholder` | nothing | yes, as the whole turn |
+| long gate #22 t5 | `文本\|` | `{{move:…}}`, then the prose | yes, `文本\|` first |
+| long gate #22 t8 | `text` | nothing | yes, as the whole turn |
+| long gate #22 t12 | `text` | the prose, with no separator | yes, glued to the first sentence |
+| long gate #22 t20 | `文本::` | `{{time}}`, then the prose | yes, `文本::` first |
+| long gate #23 t6 | `text intermediate` | the prose, with no separator | yes, glued to the first sentence |
+| long gate #23 t8 | `text interim` | the prose, with no separator | no: an effect was refused, and the Keeper sent the same prose as an explicit `narrate`, without the label |
+
+All seven are grok-build/grok-4.5 (low), all in `apply.narrate`: 7 of that model's 32 `apply.narrate` values and none of its 62 `narrate.text`; none of the other 5,263 `narrate.text` (grok 4.5/4.6/4.7 through xai and grok-build, deepseek), the 103 `ask.text`, or the 3 deepseek `apply.narrate`. The shape is one label at the head of the value: the carried parameter's name `text`, with a tag (`intermediate`, `interim`, `thriftily-placeholder`) or without, or that name in the play language followed by a delimiter (`|`, `::`); then the value, or nothing.
+
+**It is the model's, through the provider, not our parsing.** `extensions/grok-build-oauth` registers `api: "openai-responses"` and has no stream code of its own (its only hooks are `before_provider_request`/`after_provider_response`, for structured output and input files). Pi's `openai-responses` stream appends each `response.function_call_arguments.delta` verbatim (`partialJson += event.delta`, `@earendil-works/pi-ai/dist/api/openai-responses-shared.js`) and emits it as the `toolcall_delta` the playtest event log records. Gate #23 t6's call arrived as one delta; its bytes at the field are `"narrate":"text intermediate\xe7\xbd\x97\xe5\x85\x8b…`, so the label is inside the JSON string the provider returned. The value is the narrate tool's `text` carried by another field (§135.5.2 dispatches it as exactly that, and the field's description says "same rules as the narrate tool's text"), and the model writes the name of the parameter it is filling into the value; where `text` is the field's own key (`narrate.text`), it never does.
+
+**The rule.** A field that carries another tool's argument is read for one leading label in the Keeper tools' `prepareArguments`, after §144's unwrapping and before §135.21's check (`stripDialectPrefixes`, `extensions/kernel/dialect-prefix.ts`). The fields are `EMBEDDED_ARGUMENTS`: `apply.narrate`, carrying `narrate.text`, the one embedding §135.5.2 dispatches. The label is, at the very start of the value, one of:
+
+- **(a)** the carried parameter's declared name, exactly as declared (`text`, not `Text`), optionally followed by one space and one identifier-shaped tag (`[A-Za-z][A-Za-z0-9_-]*`), where the label then meets the end of the value, a `|` or `::` delimiter (removed with it), or, with no separator at all, a `{{` token or a character outside ASCII (the value's own first character, which no ASCII identifier continues);
+- **(b)** any run of letters (Unicode `L`, then `L` or `M`) followed at once by `|` or `::` (removed with it).
+
+The label and any whitespace after it are removed, and nothing else is. A value that is only the label becomes the empty string, and the apply's embedded narrate meets the existing paths unchanged: the floor refuses it (`below_floor`, `chars: 0`, §135.11.4.1) while the turn's steer is unspent, and the kernel refuses an empty `text` (`invalid_params: params.text must be a non-empty string`) once it is spent, or on the opening, where the floor does not run. Neither delivers.
+
+**Why this is structure, not a reading of the prose.** Nothing asks what language the value is in or what the label means. (a) compares with the name the schema declares, as §144 compares tags with declared names, and ends the label by the identifier grammar: in running prose a word is followed by a space or punctuation, and the label is taken only where it meets nothing, the delimiter, or the value's first character with no separator. (b) reads a delimiter that no prose puts right after its first word. The tags are three in seven values, no two alike, so they are not listed; the grammar takes them. Hence:
+
+- `Text scrawled on the wall reads…` is untouched: `Text` is not the declared `text`, and (b) finds a space where it needs a delimiter;
+- `text` inside the prose is untouched: only position 0 is read;
+- `text messages flooded the switchboard…` and `textbook…` are untouched: the tag meets a space, and the name runs on into a longer word;
+- applied to every top-level string argument of every tool in the evidence above, not only to the embedded field, the rule matches the seven rows of the table and nothing else.
+
+**Known boundary** (tested as such): a label followed by whitespace and then the value (`text intermediate The door…`, `text` on its own line) cannot be told from prose that starts with that lowercase word, and is left as it is; the evidence has no such value. `narrate.text` and `ask.text` are not read: the evidence shows the label only where a field carries another tool's parameter.
+
+**Three ends (§31).** *Writer:* the model's tool call, through the provider. *Reader:* `stripDialectPrefixes` in `prepareArguments` (`extensions/kernel/index.ts`), which hands the value on to §135.21's check, Pi's schema check and the dispatcher; the embedded narrate's floor and the kernel then read the stripped value. *Record:* one telemetry row per stripped field, `{lane: "arguments", event: "dialect_prefix_stripped", tool, field, prefix}` (`prefix` is the removed text). Acceptance on long gate #24: the rows are counted, and no delivered `rendered_text` begins with a label.
+
+**Tests.** `tests/extension/dialect-prefix.test.mjs`: the seven recorded values, verbatim from the gate records, each lose exactly their label, and `text` and `text thriftily-placeholder` become empty; the other shapes (a delimiter after the name or the tag, a `{{` token right after the name, whitespace after the label); `Text scrawled on the wall reads…`, `Text intermediate` glued to prose, a zh narration with `text` mid-sentence, `text messages…`, `textbook…` and plain prose come back as the same object; the boundary above; a `narrate.text` or `ask.text` that begins with a label is not read; each `EMBEDDED_ARGUMENTS` entry names a declared string field and the carried tool's declared string parameter. Through the real registration, the emitted kernel and the hybrid engine: gate #23 t6's value delivers from its first real sentence, with its row; `text` and `text thriftily-placeholder` land the apply's effect and are refused at the floor with `chars: 0`, each with its row; once the steer is spent, a label-only value is refused by the kernel and not delivered; an English `Text scrawled…` value delivers unchanged with no row. `tests/extension/delivery-floor-every-path.test.mjs`: the SL-93 `narrate: "text"` case now counts `chars: 0` (the label is gone before the floor counts), and the data-knob case uses a short draft that is not a label. Mutations (a copy of the file, never `git checkout --`), each turning tests red: `prepareArguments` handing on the unstripped arguments, with and without the row (the registration cases, and the SL-93 `chars: 0` case); the row not recorded; (a) compared without case; (a) without its end/delimiter/no-separator condition; (a) without the no-separator case; the tag after the name not taken; (b) removed; the whitespace after the label kept.

@@ -1,5 +1,5 @@
 /**
- * Contract §138: a Keeper tool argument that carries the model's own tool-call markup.
+ * Contract §144: a Keeper tool argument that carries the model's own tool-call markup.
  *
  * Some models write a tool call in an XML dialect and the provider hands it back as JSON, so a string argument can
  * arrive with its own closing tag inside it, and sometimes with the next parameter swallowed after that tag:

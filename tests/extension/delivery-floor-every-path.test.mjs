@@ -119,7 +119,7 @@ test("SL-93: apply {effects, narrate: 'text'} lands the effect but delivers noth
 	const embeddedRefusal = table.telemetry().find((entry) => entry.lane === "delivery" && entry.reason === "narrate_in_apply" && entry.ok === false);
 	assert.ok(embeddedRefusal, "the embedded narrate was refused, not delivered");
 	assert.equal(embeddedRefusal.code, "needs");
-	// The floor's own row: below the floor, on the embedded path, with the draft's own count. Since §138.1 (SL-96)
+	// The floor's own row: below the floor, on the embedded path, with the draft's own count. Since §144.1 (SL-96)
 	// "text" is the serialization's own label and is removed where the arguments enter the host, so the floor counts
 	// what is left of the draft: nothing.
 	assert.deepEqual(floorRows(table).map((row) => ({ reason: row.reason, path: row.path, chars: row.chars })),
@@ -288,7 +288,7 @@ function contentRootWithFloor(t, minProseChars) {
 test("SL-93: lowering delivery_floor.min_prose_chars lets an apply.narrate the shipped default would steer deliver on its first leg", async (t) => {
 	resetDeliveryFloorBudgetCache();
 	t.after(() => resetDeliveryFloorBudgetCache());
-	// A four-code-point draft that is prose, not the serialization label §138.1 removes before the floor counts.
+	// A four-code-point draft that is prose, not the serialization label §144.1 removes before the floor counts.
 	const table = await realHybridTable({ env: { PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 2) }, responses: [
 		fauxAssistantMessage([fauxToolCall("apply", {
 			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],

@@ -11,10 +11,10 @@
  * and turn 7 (an implicit close with two markdown list lines). §143.17 (ticket 18) takes a bare wrapper off the second
  * delivery; its cases are at the end of this file.
  *
- * Since the line-2 merge (2026-09-26), §138 unwraps a tool argument's own tool-call markup where the model's arguments
+ * Since the line-2 merge (2026-09-26), §144 unwraps a tool argument's own tool-call markup where the model's arguments
  * enter the host (the Keeper tools' `prepareArguments`): a narrate `text` that ends in `</text>` (turn 6's tag) or is
  * wrapped in `<text>…</text>` reaches the kernel without it, so on an explicit narrate this gate never sees those tags
- * (the §138 case below pins that). §138 reads only tags that name one of the tool's own declared parameters; every other
+ * (the §144 case below pins that). §144 reads only tags that name one of the tool's own declared parameters; every other
  * tag, every list or heading line, and the whole of an implicit close (the model's prose, not a tool argument) still
  * reach this gate. The explicit cases here therefore carry a tag that names no narrate parameter, and the last case of
  * the file asks `unwrapArgumentMarkup` itself which texts it leaves as written.
@@ -31,10 +31,10 @@ import { unwrapArgumentMarkup } from "../../extensions/kernel/tool-argument-mark
 const STEER = "player-facing prose carries no markup; write it as prose";
 const KNOTT = "Steven Knott";
 const OPENING = `诺特把钥匙推过来。{{say:${KNOTT}}}“坐吧，海耶斯先生。”{{/say}}`;
-/** A2 turn 6's tail: the Keeper's own text argument ended in a closing tag. §138 takes it off an explicit narrate. */
+/** A2 turn 6's tail: the Keeper's own text argument ended in a closing tag. §144 takes it off an explicit narrate. */
 const TAGGED = `他咽了一口，喉咙响得比刚才更清楚。\n\n{{say:${KNOTT}}}“钥匙……钥匙你自己捡。”{{/say}}\n\n门外的走廊里没人来。</text>\n`;
 const REWRITTEN = `他咽了一口，喉咙响得比刚才更清楚。\n\n{{say:${KNOTT}}}“钥匙……钥匙你自己捡。”{{/say}}\n\n门外的走廊里没人来。`;
-/** The same tail with a closing tag that names no narrate parameter: §138 leaves it, so this gate reads it. */
+/** The same tail with a closing tag that names no narrate parameter: §144 leaves it, so this gate reads it. */
 const FRAME = "narration";
 const CLOSED = `${REWRITTEN}</${FRAME}>\n`;
 /** A2 turn 7's shape: an implicit close with two markdown list lines. */
@@ -60,10 +60,10 @@ const refusedNarrates = (table) => table.session.messages
 const shownText = (table) => (table.session.messages.filter((message) => message.role === "assistant").at(-1)?.content ?? [])
 	.filter((block) => block.type === "text").map((block) => block.text).join("");
 const schema = (name) => COC_TOOLS.find((tool) => tool.name === name).parameters;
-/** What §138 hands on from a narrate `text`: the same string when it leaves it as written. */
+/** What §144 hands on from a narrate `text`: the same string when it leaves it as written. */
 const pastTheBoundary = (text) => {
 	const result = unwrapArgumentMarkup("narrate", schema("narrate"), { text });
-	assert.equal(result.ok, true, `§138 refused ${JSON.stringify(text)}`);
+	assert.equal(result.ok, true, `§144 refused ${JSON.stringify(text)}`);
 	return result.args.text;
 };
 
@@ -80,9 +80,9 @@ async function playTurn(t, campaign, turnResponses) {
 	return table;
 }
 
-test("real kernel: an explicit narrate ending in a closing tag §138 does not unwrap is refused once with the steer, and the rewrite is delivered", async (t) => {
+test("real kernel: an explicit narrate ending in a closing tag §144 does not unwrap is refused once with the steer, and the rewrite is delivered", async (t) => {
 	const campaign = "markup-tag";
-	assert.equal(pastTheBoundary(CLOSED), CLOSED, "§138 hands the tag on");
+	assert.equal(pastTheBoundary(CLOSED), CLOSED, "§144 hands the tag on");
 	const table = await playTurn(t, campaign, [
 		fauxAssistantMessage([fauxToolCall("narrate", { text: CLOSED })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: REWRITTEN })], { stopReason: "toolUse" }),
@@ -104,12 +104,12 @@ test("real kernel: an explicit narrate ending in a closing tag §138 does not un
 
 /**
  * The combined behaviour since the line-2 merge: A2 turn 6's own shape, an explicit narrate whose `text` ends in
- * `</text>`, is unwrapped by §138 before anything reads it, so it is delivered on the first try, clean, and this gate is
- * never met -- no refusal, no steer spent, no `markup_in_prose` row, no finding. The repair is §138's row instead.
+ * `</text>`, is unwrapped by §144 before anything reads it, so it is delivered on the first try, clean, and this gate is
+ * never met -- no refusal, no steer spent, no `markup_in_prose` row, no finding. The repair is §144's row instead.
  */
-test("real kernel, §138 before §143.10: an explicit narrate ending in </text> is unwrapped at the host boundary and delivered on the first try, never refused markup_in_prose", async (t) => {
+test("real kernel, §144 before §143.10: an explicit narrate ending in </text> is unwrapped at the host boundary and delivered on the first try, never refused markup_in_prose", async (t) => {
 	const campaign = "markup-unwrapped";
-	assert.equal(pastTheBoundary(TAGGED), REWRITTEN, "§138 takes the tag off");
+	assert.equal(pastTheBoundary(TAGGED), REWRITTEN, "§144 takes the tag off");
 	const table = await playTurn(t, campaign, [
 		fauxAssistantMessage([fauxToolCall("narrate", { text: TAGGED })], { stopReason: "toolUse" }),
 	]);
@@ -117,7 +117,7 @@ test("real kernel, §138 before §143.10: an explicit narrate ending in </text> 
 	assert.deepEqual(refusedNarrates(table), []);
 	assert.deepEqual(markupRows(table), [], "the gate never met it");
 	assert.deepEqual(table.telemetry().filter((row) => row.lane === "tool_arguments").map((row) => [row.event, row.tool, row.repairs]),
-		[["markup_unwrapped", "narrate", [{ field: "text", recovered: [], kept: [] }]]], "the repair is §138's");
+		[["markup_unwrapped", "narrate", [{ field: "text", recovered: [], kept: [] }]]], "the repair is §144's");
 	const record = turnRecord(table, campaign, 1);
 	assert.equal(record.closed_by, "narrate");
 	assert.equal(record.text, REWRITTEN);
@@ -187,7 +187,7 @@ test("real kernel: with the turn's one steer already spent, an implicit draft re
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
 		fauxAssistantMessage([{ type: "thinking", thinking: "Nothing to add." }], { stopReason: "stop" }),
 		// The steered leg writes the tagged prose; its repair could never reach the Keeper now. An implicit close is the
-		// model's prose, not a tool argument, so §138 never reads it: `</text>` here still reaches this gate and §143.17.
+		// model's prose, not a tool argument, so §144 never reads it: `</text>` here still reaches this gate and §143.17.
 		fauxAssistantMessage(TAGGED),
 	]);
 	assert.equal(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "steer").length, 1, "the one steer went out");
@@ -262,7 +262,7 @@ test("real kernel, known boundary: dash dialogue typed with a hyphen at a line's
  * Evidence: npc-acts-c4 turn 3 (and C3 once), where the Keeper's resent narrate still ended in `</text>` and the player
  * read it.
  *
- * Since the line-2 merge, that evidence shape on an explicit narrate is §138's (the case above): `</text>` and a
+ * Since the line-2 merge, that evidence shape on an explicit narrate is §144's (the case above): `</text>` and a
  * `<text>…</text>` pair never reach the kernel there. §143.17 is not subsumed: it still takes a bare wrapper off an
  * implicit close (the spent-steer case above, `</text>` and all) and off an explicit narrate whose wrapper names no
  * narrate parameter, which is what the explicit cases below send.
@@ -282,7 +282,7 @@ async function deliveredTwice(t, campaign, text) {
 	return { table, record, finding: (record.warnings ?? []).find((row) => row.kind === "markup_in_prose") };
 }
 
-test("real kernel, §143.17: a trailing closing tag §138 does not unwrap, sent twice, is taken off the second delivery, and the finding says stripped", async (t) => {
+test("real kernel, §143.17: a trailing closing tag §144 does not unwrap, sent twice, is taken off the second delivery, and the finding says stripped", async (t) => {
 	const { table, record, finding } = await deliveredTwice(t, "markup-strip-trailing", CLOSED);
 	assert.ok(!record.rendered_text.includes(`</${FRAME}>`), `the player never reads the tag: ${record.rendered_text}`);
 	assert.equal(record.text, REWRITTEN, "the Keeper's text, its wrapper taken off");
@@ -298,7 +298,7 @@ test("real kernel, §143.17: a trailing closing tag §138 does not unwrap, sent 
 	assert.equal(customMessages(table.session, "coc-delivery").at(-1)?.content, record.rendered_text, "the player reads the unwrapped turn");
 });
 
-test("real kernel, §143.17: a pair of tags §138 does not unwrap, around the whole prose and sent twice, is taken off", async (t) => {
+test("real kernel, §143.17: a pair of tags §144 does not unwrap, around the whole prose and sent twice, is taken off", async (t) => {
 	const { table, record, finding } = await deliveredTwice(t, "markup-strip-pair", FRAMED);
 	assert.ok(!record.rendered_text.includes(`<${FRAME}>`) && !record.rendered_text.includes(`</${FRAME}>`), `no tag reaches the player: ${record.rendered_text}`);
 	assert.equal(record.text, REWRITTEN);
@@ -326,12 +326,12 @@ test("real kernel, §143.17: a markdown list line sent twice is content, deliver
 });
 
 /**
- * Which markup is whose, asked of `unwrapArgumentMarkup` itself with narrate's real schema: §138 takes off the tags that
+ * Which markup is whose, asked of `unwrapArgumentMarkup` itself with narrate's real schema: §144 takes off the tags that
  * name a narrate parameter (`</text>`, `<text>…</text>`); the texts this file sends explicitly to the gate pass it as
- * written. The frame's name is not one of narrate's parameters -- the rule §138 reads -- so the explicit cases above
+ * written. The frame's name is not one of narrate's parameters -- the rule §144 reads -- so the explicit cases above
  * keep testing the gate if the tag set of either section changes.
  */
-test("§138 and §143.10 divide the markup: the tags naming a narrate parameter are §138's, everything this file sends the gate passes the boundary as written", () => {
+test("§144 and §143.10 divide the markup: the tags naming a narrate parameter are §144's, everything this file sends the gate passes the boundary as written", () => {
 	assert.ok(!Object.hasOwn(schema("narrate").properties, FRAME), `${FRAME} is not a narrate parameter`);
 	assert.equal(pastTheBoundary(TAGGED), REWRITTEN);
 	const unpaired = pastTheBoundary(PAIRED);

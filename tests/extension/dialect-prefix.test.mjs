@@ -1,12 +1,12 @@
 /**
- * Contract §138.1 (SL-96): a field that carries another tool's argument (`apply.narrate`, the narrate tool's `text`)
+ * Contract §144.1 (SL-96): a field that carries another tool's argument (`apply.narrate`, the narrate tool's `text`)
  * loses the serialization's own leading label where the model's arguments enter the host (`prepareArguments`).
  *
  * The recorded values are verbatim from long gates #22 and #23 (grok-build/grok-4.5 low), in
  * fixtures/dialect-prefix-gates-22-23.json: `text thriftily-placeholder`, `text`, `text<prose>`,
  * `text intermediate<prose>`, `text interim<prose>`, and the name in the play language followed by `|` or `::`.
  * Six reached the player. The label was inside the JSON arguments the provider returned (the model's output, not our
- * stream parsing): see §138.1's evidence.
+ * stream parsing): see §144.1's evidence.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -28,8 +28,8 @@ const EFFECTS = [{ kind: "clue", clue: "globe-unpublished-story", why: "found wh
 // The rule, directly.
 // ---------------------------------------------------------------------------------------------------------
 
-test("§138.1: each recorded value loses exactly its label, and a label-only value becomes empty", () => {
-	assert.equal(RECORDED.length, 7, "the seven values of §138.1's evidence table");
+test("§144.1: each recorded value loses exactly its label, and a label-only value becomes empty", () => {
+	assert.equal(RECORDED.length, 7, "the seven values of §144.1's evidence table");
 	for (const row of RECORDED) {
 		const args = { effects: EFFECTS, narrate: row.narrate };
 		const result = stripDialectPrefixes("apply", args);
@@ -47,7 +47,7 @@ test("§138.1: each recorded value loses exactly its label, and a label-only val
 	assert.ok(stripDialectPrefixes("apply", { narrate: recorded("#22", 20).narrate }).args.narrate.startsWith("{{time}}午后"));
 });
 
-test("§138.1: the label's other shapes -- a delimiter after the name or the tag, a marker token right after it -- and the whitespace after it", () => {
+test("§144.1: the label's other shapes -- a delimiter after the name or the tag, a marker token right after it -- and the whitespace after it", () => {
 	assert.equal(dialectPrefix("text|门开了。", "text"), "text|");
 	assert.equal(dialectPrefix("text final::门开了。", "text"), "text final::");
 	assert.equal(dialectPrefix("text{{time}}门开了。", "text"), "text");
@@ -56,7 +56,7 @@ test("§138.1: the label's other shapes -- a delimiter after the name or the tag
 	assert.deepEqual(stripDialectPrefixes("apply", { narrate: "text| 门开了。" }).strips, [{ field: "narrate", prefix: "text| " }]);
 });
 
-test("§138.1: prose is never read as a label -- the same object comes back", () => {
+test("§144.1: prose is never read as a label -- the same object comes back", () => {
 	for (const narrate of [
 		"Text scrawled on the wall reads: GET OUT WHILE YOU CAN. The letters are still wet.",
 		"Text intermediate罗克斯伯里疗养院的门厅闻着石炭酸。",
@@ -75,14 +75,14 @@ test("§138.1: prose is never read as a label -- the same object comes back", ()
 	}
 });
 
-test("§138.1 known boundary: a label followed by whitespace and then the value cannot be told from prose, and is left as it is", () => {
+test("§144.1 known boundary: a label followed by whitespace and then the value cannot be told from prose, and is left as it is", () => {
 	for (const narrate of ["text intermediate The door swings open onto a dark hall.", "text\n罗克斯伯里疗养院的门厅闻着石炭酸。", "text 罗克斯伯里疗养院的门厅闻着石炭酸。"]) {
 		const args = { narrate };
 		assert.equal(stripDialectPrefixes("apply", args).args, args, JSON.stringify(narrate));
 	}
 });
 
-test("§138.1: only a field that carries another tool's argument is read -- narrate.text and ask.text are not", () => {
+test("§144.1: only a field that carries another tool's argument is read -- narrate.text and ask.text are not", () => {
 	const narrate = { text: recorded("#23", 6).narrate };
 	assert.equal(stripDialectPrefixes("narrate", narrate).args, narrate);
 	const ask = { kind: "mechanics", options: ["push", "accept"], text: recorded("#22", 5).narrate };
@@ -92,7 +92,7 @@ test("§138.1: only a field that carries another tool's argument is read -- narr
 	assert.equal(stripDialectPrefixes("apply", other).args, other);
 });
 
-test("§138.1: each EMBEDDED_ARGUMENTS entry names a declared string field and the carried tool's declared string parameter", () => {
+test("§144.1: each EMBEDDED_ARGUMENTS entry names a declared string field and the carried tool's declared string parameter", () => {
 	const entries = Object.entries(EMBEDDED_ARGUMENTS).flatMap(([tool, fields]) => Object.entries(fields).map(([field, parameter]) => [tool, field, parameter]));
 	assert.deepEqual(entries, [["apply", "narrate", "text"]]);
 	for (const [tool, field, parameter] of entries) {
@@ -130,7 +130,7 @@ const realHybridTable = ({ responses }) => {
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }], responses });
 };
 
-test("§138.1: gate #23 t6's value delivers from its first real sentence, and the strip is recorded", async (t) => {
+test("§144.1: gate #23 t6's value delivers from its first real sentence, and the strip is recorded", async (t) => {
 	const table = await realHybridTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: recorded("#23", 6).narrate })], { stopReason: "toolUse" }),
 	] });
@@ -149,7 +149,7 @@ test("§138.1: gate #23 t6's value delivers from its first real sentence, and th
 });
 
 for (const label of ["text", "text thriftily-placeholder"]) {
-	test(`§138.1: apply {effects, narrate: ${JSON.stringify(label)}} lands the effect, is refused at the floor with chars 0, and nothing of it is delivered`, async (t) => {
+	test(`§144.1: apply {effects, narrate: ${JSON.stringify(label)}} lands the effect, is refused at the floor with chars 0, and nothing of it is delivered`, async (t) => {
 		const table = await realHybridTable({ responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: label })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: LONG })], { stopReason: "toolUse" }),
@@ -171,7 +171,7 @@ for (const label of ["text", "text thriftily-placeholder"]) {
 	});
 }
 
-test("§138.1: once the turn's steer is spent, a label-only value reaches the kernel empty and is refused there, not delivered", async (t) => {
+test("§144.1: once the turn's steer is spent, a label-only value reaches the kernel empty and is refused there, not delivered", async (t) => {
 	const table = await realHybridTable({ responses: [
 		// A short draft that is not a label spends the one floor steer.
 		fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: "门开了。" })], { stopReason: "toolUse" }),
@@ -195,7 +195,7 @@ test("§138.1: once the turn's steer is spent, a label-only value reaches the ke
 	assert.ok(record.rendered_text.includes("找到了那篇被压下的旧闻"));
 });
 
-test("§138.1: an English narration that begins with the word 'Text' is delivered as written, with no row", async (t) => {
+test("§144.1: an English narration that begins with the word 'Text' is delivered as written, with no row", async (t) => {
 	const english = "Text scrawled on the clipping's margin reads: ASK THE LANDLORD ABOUT 1880. You find the buried story at last.";
 	const table = await realHybridTable({ responses: [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: english })], { stopReason: "toolUse" }),

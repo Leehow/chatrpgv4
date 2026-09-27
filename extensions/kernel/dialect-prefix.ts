@@ -1,5 +1,5 @@
 /**
- * Contract §138.1: a field that carries another tool's argument, opened with the serialization's own label.
+ * Contract §144.1: a field that carries another tool's argument, opened with the serialization's own label.
  *
  * `apply.narrate` carries what the narrate tool takes as `text` (§135.5.2 dispatches it as exactly that). On long
  * gates #22 and #23 the Keeper (grok-build/grok-4.5) wrote the name of the parameter it was filling at the head of
@@ -11,7 +11,7 @@
  * Six of them reached the player. Nothing here reads what the prose says or what language it is in: a label is the
  * carried parameter's declared name (plus one identifier-shaped tag) where it meets the end of the value, the
  * serialization's delimiter, or the value's own first character with no separator; or any run of letters that meets
- * the delimiter at once. The repair runs where the model's arguments enter the host (`prepareArguments`), after §138's
+ * the delimiter at once. The repair runs where the model's arguments enter the host (`prepareArguments`), after §144's
  * markup unwrapping, so a value that was only the label reaches the existing floor and kernel refusals as empty.
  */
 

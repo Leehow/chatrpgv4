@@ -1,5 +1,5 @@
 /**
- * Contract §138: a Keeper tool argument that carries the model's own tool-call markup is unwrapped where the model's
+ * Contract §144: a Keeper tool argument that carries the model's own tool-call markup is unwrapped where the model's
  * arguments enter the host, and a parameter the markup swallowed is recovered as its own argument.
  *
  * The shapes are the ones real tables produced (deepseek-v4.1-flash through opencode-go, 2026-09-25/26):
@@ -22,7 +22,7 @@ const schema = (name) => COC_TOOLS.find((tool) => tool.name === name).parameters
 const PATCH = { focus: "the letter on the desk", upserts: [{ id: "q1", kind: "open_question", text: "Who else has a key to the desk?", status: "tentative", evidence: ["npc:gardener"] }], removes: [] };
 const root = resolve(import.meta.dirname, "../..");
 
-test("§138: the argument's own closing tag is markup, and so is a swallowed parameter; clean text is not touched", () => {
+test("§144: the argument's own closing tag is markup, and so is a swallowed parameter; clean text is not touched", () => {
 	const trailing = unwrapArgumentMarkup("narrate", schema("narrate"), { text: "{{say:扛包的汉子}}「雨停了我就走。」{{/say}}\n</text>\n" });
 	assert.equal(trailing.ok, true);
 	assert.deepEqual(trailing.args, { text: "{{say:扛包的汉子}}「雨停了我就走。」{{/say}}" });
@@ -60,7 +60,7 @@ test("§138: the argument's own closing tag is markup, and so is a swallowed par
 	assert.deepEqual(untouched.repairs, []);
 });
 
-test("§138: prose after the closing tag is refused with a fix, never dropped", () => {
+test("§144: prose after the closing tag is refused with a fix, never dropped", () => {
 	const result = unwrapArgumentMarkup("narrate", schema("narrate"), { text: "他站起来。</text>然后他又说了一句。" });
 	assert.equal(result.ok, false);
 	assert.equal(result.refusal.code, "invalid_params");
@@ -70,7 +70,7 @@ test("§138: prose after the closing tag is refused with a fix, never dropped", 
 });
 
 for (const engine of ["legacy", "hybrid-v1"]) {
-	test(`§138 on the ${engine} engine: a narrate ending in </text> reaches the kernel clean, and the repair is recorded`, async (t) => {
+	test(`§144 on the ${engine} engine: a narrate ending in </text> reaches the kernel clean, and the repair is recorded`, async (t) => {
 		const hybrid = engine === "hybrid-v1" ? createHybridEngine({ env: process.env, decision: null }) : undefined;
 		const table = await openTable({
 			...(hybrid ? { runDriver: hybrid.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: hybrid.extension }], env: { PI_COC_LOOP_ENGINE: "hybrid-v1" } } : {}),
@@ -89,7 +89,7 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 	});
 }
 
-test("§138: a workpad patch swallowed into the text is filed as the Keeper's patch, and the player sees neither", async (t) => {
+test("§144: a workpad patch swallowed into the text is filed as the Keeper's patch, and the player sees neither", async (t) => {
 	const evidence = join(root, ".coc/playtests/bounded-context-contracts");
 	await mkdir(evidence, { recursive: true });
 	const directory = await mkdtemp(join(evidence, "markup-suite-"));
@@ -119,7 +119,7 @@ test("§138: a workpad patch swallowed into the text is filed as the Keeper's pa
 	assert.deepEqual(table.extensionErrors, []);
 });
 
-test("§138: prose after </text> is refused before the kernel with the fix, and the resent call lands", async (t) => {
+test("§144: prose after </text> is refused before the kernel with the fix, and the resent call lands", async (t) => {
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "他站起来。</text>然后他又说了一句。" })], { stopReason: "toolUse" }),

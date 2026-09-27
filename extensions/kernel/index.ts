@@ -4668,9 +4668,9 @@ export default function (pi: ExtensionAPI) {
 			parameters: spec.parameters,
 			// Contract §135.21: a `how`/`why` longer than one sentence is refused before Pi's schema check, with the
 			// kernel-shaped refusal whose fix says to shorten it (the schema's own maxLength message carries no fix).
-			// Contract §138: an argument that carries the model's own tool-call markup (`</text>`, a swallowed
+			// Contract §144: an argument that carries the model's own tool-call markup (`</text>`, a swallowed
 			// `<parameter name="workpad_patch">`) is unwrapped here, before anything reads it, and the repair is recorded.
-			// Contract §138.1: a field that carries another tool's argument (`apply.narrate`, the narrate tool's `text`)
+			// Contract §144.1: a field that carries another tool's argument (`apply.narrate`, the narrate tool's `text`)
 			// loses the serialization's own leading label (`text intermediate…`, `text`), after the unwrapping; a value
 			// that was only the label goes on empty, to the embedded narrate's floor and the kernel's refusal.
 			prepareArguments: (args: unknown) => {

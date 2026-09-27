@@ -1,5 +1,5 @@
 {
-	"about": "Contract §138.1 (SL-96): every apply.narrate value in the retained evidence that opens with the serialization's own label, verbatim from the playtest records (turn-N.json tools[].args.narrate), grok-build/grok-4.5 low. `label` is the text the rule must remove.",
+	"about": "Contract §144.1 (SL-96): every apply.narrate value in the retained evidence that opens with the serialization's own label, verbatim from the playtest records (turn-N.json tools[].args.narrate), grok-build/grok-4.5 low. `label` is the text the rule must remove.",
 	"values": [
 		{
 			"gate": "#22",
