@@ -66,9 +66,17 @@ test("每个 API 都按自己的名字收到这个等级，没有名字的 API �
 	// value the adapter would pass through to a 400.
 	assert.deepEqual(laneReasoningOptions({ api: "anthropic-messages" }, "low"), { effort: "low" });
 	assert.deepEqual(laneReasoningOptions({ api: "anthropic-messages" }, "minimal"), { effort: "low" });
-	// Google names the same ladder in capitals and stops at HIGH.
-	assert.deepEqual(laneReasoningOptions({ api: "google-generative-ai" }, "low"), { thinking: { enabled: true, level: "LOW" } });
-	assert.deepEqual(laneReasoningOptions({ api: "google-vertex" }, "max"), { thinking: { enabled: true, level: "HIGH" } });
+	// Google names the same ladder in capitals and stops at HIGH -- on the models that take a named
+	// level at all, which the catalogue marks with a `thinkingLevelMap` (the gemini-3 family).
+	const levelMap = { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: null, max: null };
+	assert.deepEqual(laneReasoningOptions({ api: "google-generative-ai", thinkingLevelMap: levelMap }, "low"), { thinking: { enabled: true, level: "LOW" } });
+	assert.deepEqual(laneReasoningOptions({ api: "google-vertex", thinkingLevelMap: levelMap }, "max"), { thinking: { enabled: true, level: "HIGH" } });
+	// A Google model without that map takes a token budget instead, and answers a named level with
+	// HTTP 400 "Thinking level is not supported for this model" (gemini-2.5-flash-lite, 2026-09-24).
+	// This road has no budget table, so it carries nothing rather than a level the model rejects.
+	assert.deepEqual(laneReasoningOptions({ api: "google-generative-ai" }, "low"), {});
+	assert.deepEqual(laneReasoningOptions({ api: "google-generative-ai", thinkingLevelMap: null }, "low"), {});
+	assert.deepEqual(laneReasoningOptions({ api: "google-vertex" }, "low"), {});
 	// The two APIs whose own option is the neutral level.
 	assert.deepEqual(laneReasoningOptions({ api: "pi-messages" }, "medium"), { reasoning: "medium" });
 	assert.deepEqual(laneReasoningOptions({ api: "bedrock-converse-stream" }, "low"), { reasoning: "low" });
@@ -116,6 +124,34 @@ test("调用方可以给自己定等级，而且等级不会踩掉回调与请�
 	assert.equal(typeof seen.onPayload, "function");
 	assert.equal(typeof seen.onResponse, "function");
 	assert.ok(seen.signal);
+});
+
+test("Google 适配器拿回的载荷里，中止信号还是那一个信号", async () => {
+	// The two Google adapters are the only ones that carry the abort signal *inside* the payload
+	// they hand to onPayload (`config.abortSignal`); the lane's onPayload clones the payload to bound
+	// it, and structuredClone renders an AbortSignal as a bare `{}` -- which @google/genai then calls
+	// addEventListener on. Every Google lane call died in 1 ms that way (SL-39 addendum, 2026-09-24).
+	// This drives the real lane path, runLane -> onPayload -> boundProviderRequest, the way the
+	// adapter drives it, and asks for the adapter's own signal back.
+	const model = { provider: "google", id: "gemini-3.1-flash-lite", api: "google-generative-ai", maxTokens: 65536, contextWindow: 1048576, cost: { input: 0.1, output: 0.4, cacheRead: 0.01, cacheWrite: 0 }, thinkingLevelMap: { low: "low" } };
+	let returned;
+	const ctx = {
+		model,
+		sessionManager: { getSessionId: () => undefined },
+		modelRegistry: {
+			complete: async (_model, _context, options) => {
+				const params = { model: model.id, contents: [{ role: "user", parts: [{ text: "hi" }] }], config: { abortSignal: options.signal, thinkingConfig: { includeThoughts: true, thinkingLevel: "LOW" } } };
+				returned = (await options.onPayload(params)) ?? params;
+				return { stopReason: "stop", content: [{ type: "text", text: '{"ok":true}' }] };
+			},
+		},
+	};
+	const result = await lane(ctx);
+	assert.equal(result.ok, true);
+	assert.equal(typeof returned.config.abortSignal.addEventListener, "function", "the adapter must get an EventTarget back, not a cloned husk");
+	assert.equal(returned.config.abortSignal.aborted, false);
+	assert.equal(returned.config.maxOutputTokens, 8192, "the bound still lands on the cloned payload");
+	assert.equal(returned.config.thinkingConfig.thinkingLevel, "LOW", "the rest of the config still travels");
 });
 
 test("遥测说得出这一轮要的等级，以及这个 API 有没有地方放它", async () => {
