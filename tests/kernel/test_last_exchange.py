@@ -36,9 +36,10 @@ def label(client, name):
 
 
 def both_spoke(client):
-    """Turn 1 at the office: Edna Hale walks in, and Knott and she each say a line the markers attribute to them."""
+    """Turn 1 at the office: Edna Hale walks in, and Knott and she each say a line the markers attribute to them. She is
+    a person the book never had, so she is declared a newcomer (`walk_on`, §87.7); Knott is the book's."""
     open_turn(client, ASKED)
-    client.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Edna Hale", "to": "here", "why": "test fixture: the landlord's clerk"}])
+    client.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Edna Hale", "to": "here", "walk_on": True, "why": "test fixture: the landlord's clerk"}])
     narrate(client, "t1-c2", f"诺特靠回椅背。{{{{say:Steven Knott}}}}{KNOTT_SAID}{{{{/say}}}}埃德娜抬起头。{{{{say:Edna Hale}}}}{EDNA_SAID}{{{{/say}}}}")
 
 

@@ -106,7 +106,7 @@ def test_a_clock_an_arrival_and_a_departure_settle_a_table_act(knott):
     knott.table("apply", call_id="t1-c3", effects=[{"kind": "threat", "mint": True, "name": "the constable is sent for", "length": 4,
                                                     "on_full": "a constable knocks at the office door", "intent_ref": clock}])
     arrival = table_act(knott, "t1-c4", "诺特朝楼梯口大喊看门的上来。")
-    knott.table("apply", call_id="t1-c5", effects=[{"kind": "npc", "name": "the porter", "to": "here", "intent_ref": arrival, "why": "he heard the shout"}])
+    knott.table("apply", call_id="t1-c5", effects=[{"kind": "npc", "name": "the porter", "to": "here", "walk_on": True, "intent_ref": arrival, "why": "he heard the shout"}])
     departure = table_act(knott, "t1-c6", "诺特抓起帽子往门口走。")
     knott.table("apply", call_id="t1-c7", effects=[{"kind": "npc", "name": KNOTT, "to": "away", "intent_ref": departure, "why": "he walks out"}])
     rows = {row["ref"]: row["status"] for row in knott.ok("npc.situation", {"campaign": "c1", "name": KNOTT})["done"]}

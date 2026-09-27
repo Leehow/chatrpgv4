@@ -17,7 +17,7 @@ import type {CampaignSnapshot} from '../read/campaign.js';
 import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
-import {jsonSize, npcsPresent, personLabel, sceneLabel} from '../read/capsule.js';
+import {jsonSize, npcNode, npcsPresent, personLabel, sceneLabel} from '../read/capsule.js';
 import {readCampaign} from '../read/handlers.js';
 import {canonicalMemoryReceipts, withPromiseFulfillment} from '../read/memory.js';
 import {committedOnLine, stillWhereItClosed} from '../read/exchange.js';
@@ -415,7 +415,9 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                 ...(typeof params.declared_before_move === 'boolean' ? {declaredBeforeMove: params.declared_before_move} : {}),
                 ...(typeof params.named_no_one === 'boolean' ? {namedNoOne: params.named_no_one} : {})};
             const {campaign, module} = await readCampaign(context, params, false, false, {}, true);
-            const {graph} = module, {world, turn, party} = campaign, node = graph.npc(params.name);
+            // §87.8: the book's names, then the table's word (§79), then the graph's refusal -- the junction every entrance
+            // that takes a person's name reads, as `npc.perspective` and `npc.job` do.
+            const {graph} = module, {world, turn, party} = campaign, node = npcNode(graph, world, params.name);
             const me = personOf(graph, world, node);
             const {scope, records, previous} = committedOnLine(campaign);
             let ledger: Row = {};
