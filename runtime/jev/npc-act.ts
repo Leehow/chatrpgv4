@@ -69,6 +69,8 @@ export interface NpcSituation {
    */
   at_hand: {holdings: string[]; objects: string[]; exits: string[]; present: string[];
     brought_out?: Array<{name: string; turn: number | null; ref?: string; status?: string}>};
+  /** §143.30: present only when non-empty -- what anyone's act at this table brought out, newest first, capped. */
+  table_brought_out?: Array<{name: string; by: string; turn: number | null}>;
   /** `intentsView(entry)`, newest first. */
   done: Array<Record<string, unknown>>;
   recent_speech: string[];

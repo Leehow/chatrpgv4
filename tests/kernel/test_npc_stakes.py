@@ -208,6 +208,32 @@ def test_a_severe_roll_that_surprises_carries_the_severe_permission(tmp_path):
         client.close()
 
 
+# §143.30 (ticket 32): the owner's words, 2026-09-26 -- the top rung's surprise is the table's fun, not a plausible thing.
+# The lower permission is ticket 20's, unchanged.
+TOP_RUNG_INVITES = ("need not be plausible", "the table's fun", "the less anyone could have guessed it, the better",
+                    "Absurd, out of its time or wildly out of proportion", "as long as the table can picture them bringing it out right now")
+LOWER_SURPRISE = "This person may have something on them or within reach that no one at the table knew they had, and may bring it out now."
+
+
+def test_a_severe_surprise_packet_carries_the_permission_to_be_unexpected(tmp_path):
+    """§143.30: seed 3's severe surprise reaches the generator's packet with the top rung's permission -- it need not be
+    plausible, the less guessable the better, absurd, anachronistic or out of proportion, as long as it can be pictured
+    brought out now -- on every rung; the lower surprise keeps "something on them or within reach no one knew of"."""
+    client = client_for(tmp_path, 3)
+    try:
+        hit_corbitt(client)
+        stakes(client)
+        packet = situation(client)["stakes"]
+        assert packet["outcome"] == "severe" and packet["surprise"] is True
+        missing = [phrase for phrase in TOP_RUNG_INVITES if phrase not in packet["surprise_line"]]
+        assert not missing, f"the packet's permission lacks {missing}: {packet['surprise_line']}"
+        for rung in rules()["rungs"]:
+            assert rung["lines"]["severe_surprise"] == packet["surprise_line"], f"{rung['name']}: every rung's top surprise invites it"
+            assert rung["lines"]["surprise"] == LOWER_SURPRISE, f"{rung['name']}: the lower surprise is unchanged"
+    finally:
+        client.close()
+
+
 # ---- prepared: only a reaction the book preordains keeps the die in the cup ------------------------------------------
 
 def test_a_first_contact_row_and_an_open_obligation_do_not_prepare_him(tmp_path):

@@ -539,6 +539,36 @@ test("D10 at the table: a produces with no surprise is dropped -- no produce que
 	assert.deepEqual([row.status, row.produces_dropped, row.produces, row.produced], ["bound", true, undefined, null]);
 });
 
+/**
+ * §143.30 / ticket 32's acceptance: the top rung's surprise may be out of its time. On the 1920s starter the fixture's
+ * `produces` is a chainsaw -- the price list the bind asks over goes past the module's era, so Jev (the stub, by the
+ * book's name) finds the modern Chainsaw record in its part, and it is drawn with its rulebook profile.
+ */
+const SAW_ACT = "从厕所里拖出一把电锯，拉响了朝他挥过去。";
+const CHAINSAW = "eq.modern.weapon_table.table_xvii_hand_to_hand_weapons.chainsaw_i";
+
+test("§143.30 at the table: on a 1920s module a severe surprise's chainsaw is the book's modern Chainsaw record -- matched by part then record, drawn with its profile, and the same act's attack uses it", async (t) => {
+	const npcAct = createFixtureNpcActPort({ "steven-knott": { act: SAW_ACT, produces: "电锯" } });
+	const { table, decisions } = await actTable(t, { prepareWorkspace: knottsTurn, npcAct,
+		act: () => ({ way: "attack", params: { "attack.weapon": "weapon_drawn" }, produce: (label) => String(label).startsWith("Chainsaw") }) });
+	withStakes(table, { outcome: "severe", surprise: true });
+	await table.session.prompt("我盯着他");
+	const binds = decisions.filter((batch) => batch.family === NPC_ACT_BIND_FAMILY);
+	const part = binds[0].questions.find((question) => question.key === "produce_part");
+	const weapons = Object.values(part?.criteria ?? {}).find((value) => value?.part === "weapon_table");
+	assert.ok(weapons?.records.includes("Chainsaw* (i)"), "the weapon part lists the modern record beside the 1920s ones");
+	assert.ok(weapons.records.includes(".25 Derringer (1B)"), "and the module's own records are still there");
+	assert.deepEqual(binds[1]?.questions.map((question) => question.key), ["produce"], "then the record within the part");
+	const drew = turnRecord(table, 3).receipts.find((receipt) => receipt.kind === "npc" && receipt.draws);
+	assert.equal(drew?.draws.weapon_id, "chainsaw", "the chainsaw, by its rulebook profile");
+	assert.deepEqual([drew.produced.source, drew.produced.name, drew.produced.record], ["catalog", "Chainsaw* (i)", CHAINSAW]);
+	assert.deepEqual(worldOf(table).npc_weapons["steven-knott"].map((weapon) => weapon.weapon_id), ["chainsaw"], "his, where the fight reads weapons");
+	const attack = turnRecord(table, 3).receipts.find((receipt) => receipt.kind === "roll" && receipt.actor === "steven-knott" && receipt.combat_action === "attack");
+	assert.match(String(attack?.skill), /Chainsaw/, "the same act's attack is made with it: brought out, it is usable");
+	const [row] = npcActRows(table);
+	assert.deepEqual([row.produces, row.produced?.record, row.draw], ["电锯", CHAINSAW, "chainsaw"]);
+});
+
 /** Turn 1 walked into the morgue and met Arty (the city editor); Knott came along and stands there too. */
 const MORGUE = "newspaper-morgue";
 const metArtyWithKnott = (workspace) => kernelSteps(workspace, [

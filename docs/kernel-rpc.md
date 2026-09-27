@@ -25287,6 +25287,12 @@ unknown one, a parameter on either new one, a group not declared, and a malforme
 of the Tests paragraph above now also opens a fight; in the same group, the rung is still one above the base and ticket
 09's seeds stand.
 
+*Note, 2026-09-26 (§143.30, ticket 32, the D10 probe):* every rung's `lines.severe_surprise` invites the unexpected --
+it need not be plausible, the less anyone could have guessed it the better, absurd, out of its time or out of proportion
+welcome, as long as the table can picture it brought out now (the line is quoted in §143.30); `lines.surprise` is
+unchanged. Still a permission and a degree with no object and no example; `stakesTable`'s check and the numbers are
+unchanged.
+
 **143.9 Flight needs footing, and a pursuit is the pursuer's own call (2026-09-26, ticket 10 of
 `docs/specs/npc-acts-first-tickets/`; amends §11.5's combat and chase lines and §142.10).** Two defects of the combat
 engine's flight, both found reviewing the gate tables (spec section 七):
@@ -26386,6 +26392,12 @@ gains half a sentence: only a thing no one at the table knew they had, nothing a
 `intent_ref` when it names a row of this person. A thing shown again keeps its first origin. The packet lists them in
 `at_hand.brought_out` (§143.1's note).
 
+*Note, 2026-09-26 (§143.30, ticket 32, the D10 probe):* the price list asked with `produce: true` is no longer held to the
+module's era: the module era's records first, in the book's order, then every other era's record whose name no earlier
+option has (the module's era preferred), so an anachronistic thing still finds its rules (a 1920s table's chainsaw is the
+modern Chainsaw record). The 1920s list grows from 396 to 559 records; parts and the second batch are unchanged. The
+instruction's permission gains one sentence for a severe surprise, and the packet gains `table_brought_out`.
+
 **143.20 A person in the conversation acts every turn: the scan does not wait for a landed step, and being talked to
 without being named is being in the conversation (2026-09-26, ticket 21 of `docs/specs/npc-acts-first-tickets/`, spec D4
 and section 九's table B; amends §143.4).**
@@ -27193,3 +27205,80 @@ restore): the second-hit drop off fails four cases (the D2 table at T15 -- `boun
 boundary, the step, the structural gate); the drop of a thread just given up removed fails the D2 table at T16 (a fifth
 row); the instance's origin not recorded (rebuilt) fails the kernel case and the packet case; the packet section removed
 (rebuilt) fails both. **Not verified live.**
+
+**143.30 The top rung is the unexpected: a severe surprise is the table's fun, not held to the module's era, and not a
+kind the table has already seen (2026-09-26, ticket 32 of `docs/specs/npc-acts-first-tickets/`,
+`32-the-top-rung-is-the-unexpected.md`; spec D10 and section 九's D10 probe; amends §143.8's severe permission line,
+§143.19's price list and instruction, and §143.1's packet).**
+**Evidence.** The D10 probe (`tests/play/npc-act-probe.mjs --stakes lethal:severe`, gate-a T3–T8, three rounds): 18 of 18
+top-rung surprises were a hidden revolver, varying only in where it was hidden and its calibre, while the tense surprises
+of the live tables were varied (a notice, a badge, a doctor's letter, a police circular). The owner (2026-09-26, quoted in the
+ticket with two examples that stay there): the top rung should be something no one expects; that is the fun of a table.
+Ruled: the top rung's surprise (severe) need not be plausible; the less anyone could guess
+it, the better; absurd, anachronistic and wildly out of proportion are welcome, as long as the table can picture it being
+brought out right now. A lower surprise stays "something on them or within reach that no one knew they had".
+**The permission (data).** `content/rulesets/coc7/rules-json/npc-stakes.json`, `lines.severe_surprise`, the same on every
+rung:
+
+> This person may bring out something no one at the table knew they had, and it need not be plausible that they had it: this is for the table's fun, and the less anyone could have guessed it, the better. Absurd, out of its time or wildly out of proportion to the moment are all welcome, as long as the table can picture them bringing it out right now, and it may be as dangerous as this moment allows.
+
+`lines.surprise` is unchanged. The table's `note` adds that the severe permission does not ask for plausibility. The line
+names no object and gives no example (the owner's examples are in the ticket, never in data or instructions); the
+`stakesTable` check (§143.8) is unchanged and the shipped table passes it.
+**The instruction** (`content/setup/npc-act.md`): where the situation is described, `table_brought_out`, when present, is
+what anyone's act at this table has already brought out, newest first, with who brought it out and on which turn; and
+after the permission paragraph's last sentence: "When `stakes.outcome` is `severe` too, the surprise is for the table's
+fun and need not fit or be plausible: the less anyone could have guessed it, the better, as long as the table can picture
+them bringing it out right now, and it is not the same kind of thing as anything in `table_brought_out`." Whether a thing
+is the same kind as one listed is the generator's own judgement; nothing in code compares kinds or names.
+**`table_brought_out` (amends §143.1's result).** `npc.situation` gains a top-level `table_brought_out`, after `at_hand`,
+present only when non-empty: `[{name, by, turn}]` -- everything any person's act at this table brought out (§143.19),
+read from what the writes recorded: every row of `world.npc_weapons`, for every person (its `name`, else `weapon_id`),
+and every object instance carrying §143.29's `brought_out` mark, whoever holds it now (a thing an investigator took stays
+listed: the table has seen it). `by` is the bringer's table label (§79), `turn` the turn it came out. Newest first by
+turn, at most `TABLE_BROUGHT_OUT_MAX` (12; `tableBroughtOut`, `kernel-ts/npc/situation.ts`). It
+is outside `at_hand` because it is not at hand: the bind batch's `state.situation` (§143.5's `same`, §143.27's
+`produces_known`) carries `at_hand` and is unchanged, so another person's thing is never read as already known of this
+one. **Budget:** cut after `at_hand`'s `objects` and `exits` and before `at_hand`'s `brought_out` and `holdings`, oldest
+first, named `table_brought_out` in `truncated` (`fitSituation`). The Keeper's own placements carry no mark and are not
+listed (§143.29).
+**The price list goes past the era (amends §143.19's `produce`).** With `produce: true`, `npc.act.options`' `produce`
+lists the records of the module's era first, in the book's order, exactly as before; then every record of any other era
+whose name -- by the kernel's name normalization -- no earlier option has, in the book's order (`produceCatalog`,
+`kernel-ts/npc/act-options.ts`). A name the book prints in both eras is the module era's record (on the 1920s starter
+`Hand Grenade*` is the 1920s one), and another era adds each of its names once. A module with no era, or records with no
+era, read as before (all of the module's). Without `produce` there is no list and nothing changes. `_draws` and
+`_produces` already resolve a `price_id` against the whole price list (§143.19), so a modern record is drawn or placed
+with no kernel change, and the fight reads a drawn profile whatever its era (the chainsaw's `Fighting (Chainsaw)` is not a
+modern-only skill). **The parts:** the 1920s list grows from 396 to 559 records in the same 22 parts; the largest,
+`weapon_table`, from 65 to 102 records; the part question (22 parts and `none`) and every part's second batch (at most
+102 records and `none`) stay well under the 255-choice limit, so nothing was split and §143.19's one-question/part
+reading is unchanged. Which record the thing is stays Jev's closed choice by kind (§143.22).
+**Three ends (§31).** *Writers:* the data line; `tableBroughtOut`, reading the marks §143.19 and §143.29 already write;
+`produceCatalog`. *Readers:* the generator (the packet's `stakes.surprise_line` and `table_brought_out`); the bind batch
+(the longer price list, by part then record). *Actors:* the generator, whose severe surprise is what no one could guess
+and not a kind the table has already seen; the clerk, who draws or places the record it matches.
+**Not here.** Whether the generator does vary is the live probe's (the lead's; pre-registered in the ticket: at least four
+kinds over three `lethal:severe` rounds, no kind twice in a row within a round, at least 90% of weapon surprises matched
+to a record with weapon data). No kind or name comparison in code, and no list of kinds anywhere.
+**Tests.** `tests/kernel/test_npc_stakes.py`: seed 3's severe surprise reaches `npc.situation`'s `stakes.surprise_line`
+with the owner's permission (its five phrases), every rung carries the same line, and the lower `surprise` line is
+ticket 20's unchanged. `tests/kernel/test_npc_produce.py`: nothing brought out, no section; Knott's drawn Derringer (turn
+1) and Edna Hale's table thing (turn 2, then taken by the investigator) in Knott's packet, newest first, with `by` and
+`turn`, not in his `at_hand`, the same list in Edna's packet; twelve more of hers and the list is the newest twelve; and
+with a 1024-byte budget the list is cut (named `table_brought_out`, the oldest first) while his `holdings` and his own
+`brought_out` stay whole. `tests/kernel/test_npc_act_options.py`: without `produce` no list and nothing of another era;
+with it the 1920s records first in the book's order, then other eras only, no name twice and none the 1920s prints,
+`Hand Grenade*` the 1920s record only, the modern `Chainsaw* (i)` with its `chainsaw` profile in `weapon_table`, the M79
+and the Minigun, every part at most 254 records. `tests/extension/single-loop-npc-act.test.mjs`, at the table (the
+emitted kernel, the fixture generation, the stub Jev answering by the book's name): a severe surprise's `电锯` on the
+1920s starter -- the weapon part lists `Chainsaw* (i)` beside `.25 Derringer (1B)`, the second batch asks the record, the
+modern record is drawn (`chainsaw`, `produced.source: "catalog"`, `record` the modern price id), it is in
+`world.npc_weapons`, and the same act's attack rolls `Fighting (Chainsaw)`. `tests/extension/npc-act-generation.test.mjs`:
+the instruction test gains two assertions (the severe sentence and `table_brought_out`). Existing tests changed: two --
+the §143.19 catalog test asserts the module's era as the list's head rather than the whole list (and counts weapon
+records in that head), and the instruction test's two added assertions.
+**Mutations** (copy and restore; the kernel rebuilt each time): the era waiver off (`produceCatalog` lists only the
+module's era) fails the chainsaw table test ("the weapon part lists the modern record") and the catalog test ("then the
+other eras"); `table_brought_out` left out of the packet fails both packet tests (`KeyError` and the budget's
+`truncated`); `holdings` cut before `table_brought_out` fails the budget test. **Not verified live.**

@@ -321,6 +321,31 @@ export function broughtOut(world: Row, me: Person, done: Row[]): Row[] {
         .sort((a, b) => number(b.entry.turn ?? -1) - number(a.entry.turn ?? -1) || b.index - a.index).map(({entry}) => entry);
 }
 
+/** How many things `table_brought_out` lists at most, newest first (§143.30). */
+export const TABLE_BROUGHT_OUT_MAX = 12;
+
+/**
+ * §143.30 (ticket 32; the D10 probe's eighteen revolvers): everything anyone's act at this table has brought out, whoever
+ * holds it now -- the drawn weapons of every person (`world.npc_weapons`) and every object instance marked
+ * `brought_out` (§143.29) -- by name, who brought it out (their table label) and the turn, newest first, at most
+ * `TABLE_BROUGHT_OUT_MAX`. The generator reads it so that the top rung's surprise is not a kind of thing the table has
+ * already seen; whether two things are of one kind is the generator's judgement, never compared here.
+ */
+export function tableBroughtOut(graph: ModuleGraph, world: Row): Row[] {
+    const labelOf = (handle: string): string => {
+        const node = graph.find(handle, ['npc']);
+        return node ? personLabel(world, graph.handle(node), graph.displayName(node)) : handle;
+    };
+    const origin = (name: string, by: string, turn: unknown): Row => ({name, by: labelOf(by), turn: typeof turn === 'number' ? turn : null});
+    const weapons = Object.entries(row(world.npc_weapons)).flatMap(([handle, list]) => array(list).map(row)
+        .map(weapon => origin(string(weapon.name || weapon.weapon_id), handle, weapon.turn)));
+    const things = values(row(row(world.objects).instances)).map(row).filter(item => isJsonObject(item.brought_out))
+        .map(item => origin(string(item.name), string(row(item.brought_out).by), row(item.brought_out).turn));
+    return [...weapons, ...things].filter(entry => entry.name).map((entry, index) => ({entry, index}))
+        .sort((a, b) => number(b.entry.turn ?? -1) - number(a.entry.turn ?? -1) || b.index - a.index)
+        .slice(0, TABLE_BROUGHT_OUT_MAX).map(({entry}) => entry);
+}
+
 /** The stated obligations of their scene (§134.9), as issued, that name this person: as `who`, as the person of the
  *  next step, or among the people the obligation guards. */
 function obligationsNaming(graph: ModuleGraph, world: Row, me: Person, place: Row | null, receipts: Row[], active: Row[]): Row[] {
@@ -344,8 +369,8 @@ function constraintsOf(graph: ModuleGraph, world: Row, party: Row[], me: Person,
 }
 
 /**
- * The budget (§143.1): while the packet is over `maxBytes`, cut in order -- constraints; at_hand's objects, exits,
- * brought_out (§143.29), holdings, present; the oldest `done` rows but never the newest (`history`); the oldest own utterances; the oldest
+ * The budget (§143.1): while the packet is over `maxBytes`, cut in order -- constraints; at_hand's objects, exits;
+ * the oldest of `table_brought_out` (§143.30); at_hand's brought_out (§143.29), holdings, present; the oldest `done` rows but never the newest (`history`); the oldest own utterances; the oldest
  * `happened` sentences but never the closing one (the player's declaration, or the arrival that stands in for it,
  * §143.21); who's relationships and commitments. Each section cut is named once in `truncated`, in the order cut.
  */
@@ -353,8 +378,10 @@ export function fitSituation(packet: Row, maxBytes: number, declared: boolean): 
     const truncated: string[] = packet.truncated, over = () => jsonSize(packet) > maxBytes;
     const cut = (name: string) => { if (!truncated.includes(name)) truncated.push(name); };
     while (over() && packet.constraints.length) { packet.constraints.pop(); cut('constraints'); }
-    for (const key of ['objects', 'exits', 'brought_out', 'holdings', 'present'])
-        while (over() && Array.isArray(packet.at_hand[key]) && packet.at_hand[key].length) { packet.at_hand[key].pop(); cut('at_hand'); }
+    for (const key of ['objects', 'exits', 'table_brought_out', 'brought_out', 'holdings', 'present']) {
+        const list = key === 'table_brought_out' ? packet.table_brought_out : packet.at_hand[key];
+        while (over() && Array.isArray(list) && list.length) { list.pop(); cut(key === 'table_brought_out' ? key : 'at_hand'); }
+    }
     while (over() && packet.done.length > 1) { packet.done.pop(); cut('history'); }
     while (over() && packet.recent_speech.length) { packet.recent_speech.shift(); cut('recent_speech'); }
     while (over() && packet.happened.length > (declared ? 1 : 0)) { packet.happened.shift(); cut('happened'); }
@@ -432,6 +459,8 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             const done = intentHistory(entryNow(graph, ledger, table, turn, node));
             // §143.29: what an earlier act of theirs brought out, present only when there is something.
             const brought = broughtOut(world, me, done);
+            // §143.30: what anyone at this table has brought out, present only when there is something.
+            const seen = tableBroughtOut(graph, world);
             const packet: Row = {
                 npc: {handle: me.handle, name: graph.displayName(node)},
                 who: {personality: view.personality ?? null, goals: view.goals ?? null, fears: view.fears ?? null,
@@ -439,6 +468,7 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                 happened,
                 state: stateOf(graph, world, me, session, stanceNow(graph, ledger, table, turn, me.handle)),
                 at_hand: {...atHand(graph, world, party, me, place), ...(brought.length ? {brought_out: brought} : {})},
+                ...(seen.length ? {table_brought_out: seen} : {}),
                 done,
                 recent_speech: array(view.recent_speech).map(line => `turn ${string(row(line).turn)}: ${flat(row(line).statement)}`),
                 constraints,

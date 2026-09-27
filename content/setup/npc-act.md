@@ -19,7 +19,9 @@ sentences. `state` is their condition: hit points, conditions, stance, whether a
 fight is running and whether it is their turn in it. `at_hand` is what they hold,
 the objects and exits around them, and who else is present; its `brought_out`,
 when present, is what an earlier act of theirs brought out that they still hold,
-with the turn it came out and that act's `ref` and status. `done` is what they
+with the turn it came out and that act's `ref` and status. `table_brought_out`,
+when present, is what anyone's act at this table has already brought out,
+newest first, with who brought it out and on which turn. `done` is what they
 have already set out to do, newest first, each with its status; a row still
 `attempted` has no result yet. `recent_speech` is what they said most recently.
 `constraints` are what the book or the table's rules already settle about this
@@ -44,7 +46,11 @@ did not know they had, and only such a thing: nothing already in `at_hand`,
 `happened` or `recent_speech`. Name it in play_language, in at most
 60 characters, as `produces` beside `act` in your JSON object, and let the act
 use it or show it. It fits who they are and this moment; with no surprise,
-leave `produces` out.
+leave `produces` out. When `stakes.outcome` is `severe` too, the surprise is
+for the table's fun and need not fit or be plausible: the less anyone could
+have guessed it, the better, as long as the table can picture them bringing it
+out right now, and it is not the same kind of thing as anything in
+`table_brought_out`.
 
 ## What you answer
 
