@@ -141,12 +141,22 @@ export interface TurnClosePort {
 /** The kernel extension's consultation port (`coc:source-answers`, contract §135.31.2): what went pending, what landed since. */
 export interface SourceAnswersPort {
   campaign?: string;
-  take(): {pending: Array<{focus: string; question: string; since_turn: number; purpose?: string; scene?: string; person?: string}>;
+  /** §135.20.1 (SL-102): `scene` is where the run is (held answers of another scene are dropped), `run` the run taking. */
+  take(at?: {scene?: string; run?: string}): {pending: Array<{focus: string; question: string; since_turn: number; purpose?: string; scene?: string; person?: string}>;
     landed: Array<{focus: string; question: string; since_turn: number; answer?: Row; unavailable?: string}>;
+    /** §135.20.1: the answers held at `scene` that this run's request does not hold yet, newest first. */
+    held?: Array<{focus: string; question: string; since_turn: number; answer: Row}>;
+    /** §135.20.1: landed answers not carried because the Keeper's own lookup returned them in this run. */
+    handed?: Array<{focus: string; since_turn: number}>;
     /** §22.4.7 / §22.4.7.1: the book's text of a scene or person landed on it, once. */
     texts?: Array<{scene: string; person?: string; pages: Array<{page: number; pdf_label?: string; text: string}>}>;
     /** §22.4.7 / §22.4.7.1 / §22.3.3: a scene's or person's record that settled, once. */
     records?: Array<{scene: string; since_turn: number; person?: string; unavailable?: string; unusable?: string}>};
+  /**
+   * §135.20.1 (SL-102): at the run's first model step, wait for the consultations asked at `scene` on an earlier turn that are
+   * still being read, for what is left of one allowance after `elapsed_ms` (the run's time so far).
+   */
+  settle?(input: {scene: string; turn: number; elapsed_ms: number}): Promise<{foci: string[]; waited_ms: number; bound_ms: number; landed: number; pending: number}>;
 }
 /** The kernel extension's canonical operation gateway (`coc:operation-dispatcher`). */
 export interface OperationGateway {
@@ -450,6 +460,8 @@ interface RunState {
   /** §135.31: what the Keeper was already shown this run: scenes, people (names and card ids), the last session view's digest;
    *  §135.31.1: the scenes whose source passages were carried. */
   shown: {scenes: Set<string>; people: Set<string>; session?: string; passages: Set<string>; pending: Set<string>};
+  /** §135.20.1 (SL-102): whether this run's first model step already asked the port to wait out this scene's consultations. */
+  settleAsked?: true;
   /** §135.31.1 (SL-27): every material this run's prescreens prepared or reused, with the scene of the read. */
   passages: PassageSource[];
   /** §135.31.1: whether the module has an original document -- the capsule carries `reading` (§22) only then. */
@@ -1132,11 +1144,26 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.31.2: consultations that landed since the last step, once each (taking them marks them carried), and the ones still
     // reading, once per run each.
     let taken: ReturnType<SourceAnswersPort['take']> = {pending: [], landed: []};
-    if (consultations && (!consultations.campaign || consultations.campaign === bridge.campaign)) {
-      try { taken = consultations.take(); } catch { /* the port never steers the run */ }
+    const port = consultations && (!consultations.campaign || consultations.campaign === bridge.campaign) ? consultations : undefined;
+    // §135.20.1 (SL-102): the run's first model step first waits, for what is left of one allowance, on a consultation asked
+    // at this scene on an earlier turn that is still being read -- on long gate #24 each such answer landed 0.25-5 s into the
+    // step whose note had just said pending, and the Keeper spent a model step asking for it again.
+    if (port?.settle && !run.settleAsked && run.scene && run.turn !== undefined) {
+      run.settleAsked = true;
+      try {
+        const waited = await port.settle({scene: run.scene, turn: run.turn, elapsed_ms: Math.max(0, now() - run.startedAt)});
+        if (waited.foci.length) record({lane: 'run', event: 'held_wait', run: run.runId, step: stepId, scene: run.scene, foci: waited.foci,
+          waited_ms: waited.waited_ms, bound_ms: waited.bound_ms, landed: waited.landed, pending: waited.pending});
+      } catch { /* the port never steers the run */ }
+    }
+    run.settleAsked = true;
+    if (port) {
+      try { taken = port.take({...(run.scene ? {scene: run.scene} : {}), run: run.runId}); } catch { /* the port never steers the run */ }
     }
     const answers = taken.landed.map(entry => ({name: entry.focus, view: entry.answer ? {question: entry.question, ...entry.answer}
       : {question: entry.question, status: 'unavailable', reason: entry.unavailable ?? 'reading_failed'}}));
+    // §135.20.1: what the Keeper was already handed at this scene and this run's request does not hold yet, newest first.
+    const held = (taken.held ?? []).map(entry => ({name: entry.focus, view: {question: entry.question, ...entry.answer}}));
     const pending = taken.pending.filter(entry => !run.shown.pending.has(JSON.stringify([entry.focus, entry.question])));
     // §22.4.7 (SL-47): the book's text of a scene a move landed on, once; a scene record that settled, once -- the scene view
     // itself when the party is still there, else a row saying it landed (or could not be read).
@@ -1148,10 +1175,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       view: entry.unusable ? {status: 'unusable', reason: entry.unusable} : entry.unavailable ? {status: 'unavailable', reason: entry.unavailable}
         : {status: 'landed', note: entry.person ? 'look focus=npc shows it' : 'look focus=scene there shows it'}}));
     const sceneDue = scene ?? (here ? here.scene : undefined);
-    if (!sceneDue && !people.length && !session && !passages && !answers.length && !pending.length && !sceneTexts.length && !sceneRecords.length) return undefined;
+    if (!sceneDue && !people.length && !session && !passages && !answers.length && !pending.length && !sceneTexts.length && !sceneRecords.length && !held.length) {
+      if (taken.handed?.length) record({lane: 'run', event: 'carried', run: run.runId, step: stepId, views: [], omitted: [], handed: taken.handed, bytes: 0, reads: 0, ms: 0});
+      return undefined;
+    }
     const carried = await readCarriedViews({call, ...(sceneDue ? {scene: sceneDue} : {}), people, skip: run.shown.people, ...(session ? {session} : {}),
       ...(passages ? {passages} : {}), ...(answers.length ? {answers} : {}), ...(pending.length ? {pending} : {}),
-      ...(sceneTexts.length ? {sceneTexts} : {}), ...(sceneRecords.length ? {sceneRecords} : {})}).catch(() => undefined);
+      ...(sceneTexts.length ? {sceneTexts} : {}), ...(sceneRecords.length ? {sceneRecords} : {}), ...(held.length ? {held} : {})}).catch(() => undefined);
     if (!carried) return undefined;
     const ids = new Set(carried.views.flatMap(entry => entry.id ? [entry.id] : []));
     for (const entry of carried.views) {
@@ -1171,8 +1201,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     record({lane: 'run', event: 'carried', run: run.runId, step: stepId,
       views: carried.views.map(entry => ({focus: entry.focus, ...(entry.name ? {name: entry.name} : {}), bytes: bytes(entry.view),
         ...(entry.focus === 'source_answer' || entry.focus === 'scene_record' || entry.focus === 'person_record' ? {status: entry.view.status ?? null} : {}),
+        ...(entry.held ? {held: true} : {}),
         ...(entry.truncated ? {truncated: true, omitted_fields: entry.omitted_fields ?? []} : {})})),
-      omitted: carried.omitted, ...(carried.pending?.length ? {pending: carried.pending.map(entry => ({focus: entry.focus, since_turn: entry.since_turn, purpose: entry.purpose ?? null,
+      omitted: carried.omitted, ...(taken.handed?.length ? {handed: taken.handed} : {}), ...(carried.pending?.length ? {pending: carried.pending.map(entry => ({focus: entry.focus, since_turn: entry.since_turn, purpose: entry.purpose ?? null,
         ...(typeof entry.scene === 'string' ? {scene: entry.scene} : {}), ...(typeof entry.person === 'string' ? {person: entry.person} : {})}))} : {}),
       ...(here ? {scene_record: here.scene} : {}),
       bytes: carried.bytes, reads: carried.reads, ms: carried.ms});

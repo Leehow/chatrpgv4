@@ -21357,6 +21357,103 @@ with the builder and the bodies exactly as the read step runs them; script and o
 
 All three read calls of the turn were covered. Whether the Keeper then skips them is the live replays' question.
 
+#### 135.20.1 Addendum (2026-09-27, SL-102): looked-up material stays in hand while the scene lasts; the next turn's first step waits out this scene's consultation still being read (amends §135.31.2 and §22.4.3)
+
+SL-102 takes §135.20.1 (§-numbers are stable ids). The ticket's ruling "material the Keeper looked up in this scene stays in
+its hands while the scene lasts" binds A; the investigation below found the gate's repeats had another cause, which B fixes.
+The single-loop parts apply to `PI_COC_LOOP_ENGINE=hybrid-v1` only; the kernel extension keeps the held answers on both
+engines, and only the hybrid engine's note reads them.
+
+**Evidence** (long gate #24, `longgate24-haunting-2238`, dc37c6b7e, grok-4.5 low; line numbers are the campaign's
+`telemetry.jsonl` and the run's `events.jsonl`). Five lookups repeated the previous turn's lookup of the same focus:
+`source upper-floor-bedroom` t11 then t12; `source corbitt-diaries` t14 then t15, beside `module "Corbitt Diaries"` t15;
+`source basement-rites` t17 then t18, and a t18 `retry: true`. The three source repeats have one shape:
+
+| | t11 then t12 | t14 then t15 | t17 then t18 |
+| --- | --- | --- | --- |
+| turn N's lookup went `pending` after its 8 s allowance | line 1855 | line 2282 | line 2654 |
+| turn N+1's first note carried it in `carried.pending`, with its question | events 3847 | events 4594 | events 5440 |
+| that first model step began | 02:48:36.016 | 02:50:59.513 | 02:53:36.456 |
+| the read (a read round plus a review) landed | 02:48:38.886 (52.2 s after the ask) | 02:50:59.760 (44.8 s) | 02:53:41.474 (42.1 s) |
+| the Keeper's response asked the focus again, with a new question; the memo answered | line 1997, 24 ms | line 2403, 22 ms | line 2764, 23 ms |
+| the next note carried the same answer again as a landed `source_answer` | line 2006, 2,213 B | line 2418, 1,211 B | line 2768, 1,554 B |
+
+- **Did turn N's answer reach turn N+1's context?** Not at the step that re-asked: it was still being read, and it landed
+  0.25-5.0 s into that step, after its note had said `pending`. The driver's player answers in about 6 s, so the next
+  turn began while the read was in its review.
+- **In what form?** Always the body with its question: the pending row carried the question, the memo returned
+  `{question, status, answer, source_refs, …}`, and the carried view was the same. Never a pointer (§135.20 holds).
+- **Dropped or never carried?** Neither: late. Once it landed it was carried, and then twice in the same run (the memo's
+  tool result, then the landed view).
+- **The t18 retry** asked what the t17 answer did not cover (the boards and a latch) with `retry: true`: a new read, not
+  material in hand. It landed on t19 after the party left and was carried once on t20, in another scene.
+- **The t15 module lookup** is not a repeat of material in hand: t14's `module "corbitt-diaries Corbitt Diaries"` had
+  answered `not_found` (the module lookup matches one name at a time, §135.20).
+- **Beside the gate:** a turn's request keeps nothing of an earlier turn's notes or tool results (the context policy counts
+  them closed noise before the current boundary; only the two-turn quotation history rides; `history_bytes` 3.3-3.6 KB on
+  t12/t13). An answer the Keeper got on turn N is gone on turn N+2 at the same scene, and one it got inside the allowance
+  is gone on turn N+1. On this gate no repeat came from that; the ruling covers it.
+
+**A. Held answers ride each turn's first step while the party stays.** The kernel extension keeps, per campaign, the
+source answers the Keeper was handed at a scene (`PendingAnswers.hold`, `extensions/kernel/source-answers.ts`): a lookup
+answered inside its allowance, the answers a memo hit returned, and a consultation that landed (at the scene it was asked).
+Each keeps its focus, question, scene (the table's active scene when asked) and the run whose request already holds it.
+Before each model step the engine takes the port with its scene and run, `take({scene, run})`; the port returns `held`,
+the answers held at that scene that this run's request does not hold yet, newest first, and marks them in hand for the run.
+A run's request is append-only (§135.23), so a held answer rides once per run; the next run's request has none of it, so
+it rides again on that run's first step. A take at another scene drops every held answer of the other scenes; the party
+coming back does not bring them back (the memo still answers a lookup at once).
+
+- **Shape.** A `source_answer` view marked held: `{focus: "source_answer", name: <the focus>, held: true, view: {question,
+  status, answer, limitations, source_refs, …}}`. Served last, after the passages, so it never displaces a view that rode
+  before it. Cut in the order question, status, answer, answers, limitations, source_refs (`HELD_ANSWER_FIELD_ORDER`): on
+  a later turn the question is what tells the Keeper which question this answers, so a long answer is clipped first.
+- **Budgets.** One view is `CARRIED_VIEW_BYTES` (4 KiB), cut and marked; the message's `CARRIED_VIEWS_BYTES` (12 KiB) is
+  shared, and a held view past it is listed in `omitted` with `budget` and `held: true`. A scene's held answers together
+  are at most `HELD_ANSWERS_BYTES` (8 KiB: the message less one view, so the scene's passages still fit beside them), each
+  counted at its view's size capped at one view; the newest are kept, and an older one is dropped from the ledger with a
+  row. Nothing is dropped silently.
+- **Deduplicated.** One entry per focus and question (a newer answer replaces the older). A run whose request holds an
+  answer is not carried it again. A landed answer that is also held rides once, as the landed view. A landed answer the
+  Keeper's own lookup already returned in this run (the gate's shape) is not carried again, and the carried row names it
+  in `handed`.
+- **The head** adds `CARRIED_HELD_HEAD` when a held view (or a held `omitted` row) is present: an answer already given at
+  this scene, with the question it answered, carried on each turn's first step while the party stays and dropped when the
+  scene changes. §135.31.2's head for a landed answer is used only when a landed, not held, answer is present.
+
+**B. The next turn's first step waits out this scene's consultation still being read.** At a run's first model step,
+before its note is built, the engine asks the port to `settle` the `answer` consultations asked at the run's scene on an
+earlier turn that are still being read (`coc:source-answers` `settle({scene, turn, elapsed_ms})`). The port waits for them
+for what is left of one allowance (§22.4.3's `SOURCE_ANSWER_ALLOWANCE_MS`, 8 s, and its `PI_COC_SOURCE_ANSWER_ALLOWANCE_MS`
+override) after the run's elapsed time, so the wait overlaps the run's own read, route and clerk steps (2.6-4.4 s before
+the first model step on the gate). What lands inside it rides the first note as landed; past it the note carries it
+`pending`, as before. A consultation asked at another scene, one asked this turn, and a `prepare` are not waited on; the
+reading is never cancelled and nothing new is read. This is §22.4.3's allowance given once more, at the first step, to a
+consultation this scene is already reading: on the gate the three waits would have been 2.9 s, 0.25 s and 5.0 s against
+bounds of about 3.6, 4.5 and 5.4 s, each in place of the model step that asked again (6.6 s, 30.2 s and 9.1 s there).
+
+**Telemetry.**
+
+- `lane: "run"`, `event: "held_wait"`, once per run when a consultation was due: `{run, step, scene, foci, waited_ms,
+  bound_ms, landed, pending}`.
+- The `carried` row's views add `held: true`; the row adds `handed: [{focus, since_turn}]` when a landing was not carried
+  because the Keeper's lookup had returned it (the row is written even when the note carries nothing else).
+- `lane: "reading"`, `event: "held_dropped"`: `{campaign, reason: "scene_change" | "budget", scene, foci}` (a budget row adds
+  `turn`). Never the question (§22 #65).
+
+**Three ends (§31).** *Writer:* the kernel extension's lookup path (an answer inside the allowance, a memo hit) and a
+consultation's landing. *Reader:* the hybrid engine's note (`carried`), through `coc:source-answers` (`take({scene, run})`,
+`settle`). *Actor:* the Keeper, who does not ask again for a focus whose answer it holds. Long gate #25 counts the repeated
+lookups of the previous turn's material (expected about 0), the Keeper calls per turn and the first visible prose.
+
+*Tests.* `tests/extension/single-loop-held-answers.test.mjs`: the ledger (once per run, the newer answer replaces the older,
+the scene-change drop, the 8 KiB shelf, `handed`, `settle` bounded and scene-scoped); the carried section (held last, the
+question leads, past the message's budget omitted as held); on the emitted kernel through the vendored driver with a stub
+reading bridge, the real lookup path: an answer from turn N rides turn N+1's first step once and is gone after a move; a memo
+hit's answers are held within the budget; a landing the Keeper's own lookup returned is not carried again; the next turn's
+first step waits for this scene's consultation and carries it landed, and does not wait for the scene the party left. The
+mutation record is in the SL-102 ticket's Comments.
+
 ### 135.21 A tool argument that explains a write is one sentence (2026-09-23, SL-11 scope 2; both engines)
 
 Every `how` (clue) and every `why` of an `apply` effect declares `maxLength: 200` (`SENTENCE_MAX`,
@@ -23302,6 +23399,11 @@ since_turn, purpose}]` (never the question).
 stub reading bridge: a consultation past its allowance answers `pending` with the index rows, the next step's note carries it
 pending, and after it lands the next turn's first model step carries the answer once and no later note repeats it; a text
 read still pending rides as `pending` beside a delivered draft.
+
+*Amended by §135.20.1 (SL-102).* A landed answer is also held at the scene it was asked and rides again, marked `held`, on
+each later run's first step while the party stays there; one the Keeper's own lookup already returned in the run is not
+carried again (`handed`); and the next turn's first step waits out what is left of one allowance for a consultation of
+its scene still being read.
 
 ## 136. Rules are data: the closed catalog of mechanical shapes and its one validator (2026-09-23, RD-01 of `docs/specs/rules-as-data.md`; amends §26 and §134.2–§134.3)
 
