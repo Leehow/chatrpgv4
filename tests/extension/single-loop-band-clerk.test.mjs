@@ -266,7 +266,8 @@ test("§138.10 at the engine: the rows are read once, the bind row carries the k
 	assert.deepEqual(bind.bindings.map((entry) => [entry.name, entry.path]), [["why", "composed"], ["band", "banded"]]);
 	assert.deepEqual(bind.bindings[1], { name: "band", path: "banded", value: "single_room_search", confidence: 0.8, distribution: { single_room_search: 0.8, unknown: 0.2 }, table: "time-costs", band: "single_room_search", roll: { min: 10, max: 45, total: 23 } });
 	assert.ok(!executed.artifact.fresh.candidates.some((candidate) => candidate.key === TIME_CANDIDATE_KEY), "the fresh read holds a time receipt: time is charged");
-	const [message] = plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s4", step: { kind: "infer", purpose: "compose", reason: "finish" } });
+	// line-2 made the projection port async (gathered 2026-09-27); its note is awaited.
+	const [message] = await plan.ports.projection.project({ view: { policyState: { view: {} } }, stepId: "s4", step: { kind: "infer", purpose: "compose", reason: "finish" } });
 	const note = JSON.parse(message.content);
 	assert.equal(note.clerk_did[0].binding, "band: band single_room_search (time-costs, confidence 0.80), the kernel rolled 23 minutes inside 10-45; the host read the player's declared action as this row. To rule otherwise, settle it with your own operation.");
 	assert.deepEqual(note.clerk_did[0].result, { effects: [{ kind: "time", why: time.bound.why, band: "single_room_search" }] });

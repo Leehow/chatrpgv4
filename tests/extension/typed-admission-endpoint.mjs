@@ -75,6 +75,10 @@ export function installTypedEndpoint(t, lines, { delayMs = 0, clock, status } = 
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== "https://api.typesafe.ai/v1/systemone") return original(url, init);
 		const body = JSON.parse(init.body);
+		// Since 0.9.5a's band shadow (§138.8) was gathered beside this line, a Keeper's time or damage write also asks the
+		// same endpoint for its band after it lands. That report-only question is not an admission review: it is answered as
+		// unavailable (the shadow records a failed row and nothing else changes) and it is not counted here.
+		if (!Object.keys(body.questions ?? {}).some((key) => /_\d+$/.test(key))) return new Response("not the admission family", { status: 503 });
 		requests.push(body);
 		if (delayMs) await (clock ? clock.sleep(delayMs) : new Promise((resolve) => setTimeout(resolve, delayMs)));
 		if (status) return new Response("unavailable", { status });

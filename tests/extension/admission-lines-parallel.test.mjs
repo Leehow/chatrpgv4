@@ -439,7 +439,8 @@ test("§32.12.3.1: the lines of one call are one review for the outage streak --
 	const bad = () => fauxAssistantMessage("not json at all");
 	const table = await openTable({
 		responses: [call("apply", { effects: [TIME, DIARIES, COMMISSION] }), call("apply", { effects: [{ kind: "time", minutes: 10 }, MOVE] }), ...close],
-		laneResponses: { admission: Array.from({ length: 6 }, bad) } });
+		// §143.15 (gathered 2026-09-27): each line's round asks a malformed answer once more, so five lines are ten answers.
+		laneResponses: { admission: Array.from({ length: 10 }, bad) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	const [first, second] = toolResults(table.session, "apply");
