@@ -35,6 +35,23 @@
  *
  * Usage:
  *   node tests/play/npc-act-probe.mjs [--rounds 3] [--seed 20260926] [--out <dir>] [--table npc-actor-gate-a]
+ *     [--stakes <rung>:<outcome>] [--turns <a>-<b>]
+ *
+ * `--stakes <rung>:<outcome>` (rung one of calm/tense/dangerous/lethal; outcome one of nothing/escalates/severe) pins
+ * the stakes packet `npc.situation` carries -- the same override the extension tests' `withStakes`/`seam({stakes})`
+ * apply (tests/extension/single-loop-npc-act.test.mjs) -- so the generation and the bind see a fixed rung/outcome
+ * instead of whatever the kernel's seeded die actually rolled that turn. Built from the shipped table
+ * (content/rulesets/coc7/rules-json/npc-stakes.json) and kernel-ts/npc/stakes.ts's own reading of it (`stakesOutcome`,
+ * `stakesSurprise`, `surpriseLine`): a rung's line for the outcome (null for `nothing`); `surprise: true` only when
+ * every roll that produces this outcome on this rung is also at or under the rung's own `surprise_at_most` (checked
+ * against the table's actual numbers, not assumed) -- which for the shipped table only ever holds for `severe`, and
+ * then the permission line used is `lines.severe_surprise`, not `lines.surprise`. The real `npc.stakes` roll still
+ * happens every turn (recorded separately, `natural_stakes`); only what is handed to `lane.generate` and
+ * `npcActBatch` is pinned (`record.stakes`, on every probe record).
+ *
+ * `--turns <a>-<b>` restricts which turns actually run the probe (every turn 1..8 is still replayed for state
+ * continuity -- player_input, the recorded resolve/apply calls, narrate -- only the probe insertion is skipped
+ * outside the range, logged as a `turn` record with `reason: "turn_filtered"`).
  *
  * Output: .coc/playtests/npc-act-probe-<timestamp>/round-<n>/records.jsonl (kind: probe|refusal|turn),
  * round-<n>/judge.jsonl, and summary.md at the top.
@@ -67,16 +84,65 @@ const NPC_ACT_MODEL = 'opencode-go/deepseek-v4.1-flash';
 const JUDGE_MODEL_PROVIDER = 'opencode-go';
 const JUDGE_MODEL_ID = 'deepseek-v4.1-flash';
 
+// §143.19 / §143.8 (docs/kernel-rpc.md): the pin's closed vocabulary, fixed by the shipped table's own rungs and the
+// die's three outcomes -- not a semantic classification, the contract's own words.
+const STAKES_RUNGS = ['calm', 'tense', 'dangerous', 'lethal'];
+const STAKES_OUTCOMES = ['nothing', 'escalates', 'severe'];
+const PRODUCE_KEY = 'produce'; // runtime/jev/npc-act-step.ts's own question key (`PRODUCE`)
+
 function args() {
   const argv = process.argv.slice(2);
-  const out = { rounds: 3, seed: '20260926', out: undefined, table: undefined };
+  const out = { rounds: 3, seed: '20260926', out: undefined, table: undefined, stakes: undefined, turns: undefined };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--rounds') out.rounds = Number(argv[++i]);
     else if (argv[i] === '--seed') out.seed = String(argv[++i]);
     else if (argv[i] === '--out') out.out = argv[++i];
     else if (argv[i] === '--table') out.table = argv[++i];
+    else if (argv[i] === '--stakes') out.stakes = argv[++i];
+    else if (argv[i] === '--turns') out.turns = argv[++i];
   }
   return out;
+}
+
+/** `content/rulesets/coc7/rules-json/npc-stakes.json`, read once: the pin is built from its actual numbers. */
+function loadStakesTable() {
+  return JSON.parse(readFileSync(join(REPO, 'content/rulesets/coc7/rules-json/npc-stakes.json'), 'utf8'));
+}
+
+/**
+ * The pinned `{rung, outcome, line, surprise, surprise_line}` `--stakes <rung>:<outcome>` asks for, read from the
+ * shipped table exactly as `kernel-ts/npc/stakes.ts` reads it (`stakesOutcome`, `stakesSurprise`, `surpriseLine`):
+ * `line` is the rung's line for this outcome (`null` for `nothing`, which has none). A specific roll is not pinned,
+ * only the outcome band, so `surprise` can only be said to hold for certain when the *whole* band this outcome
+ * covers sits at or under the rung's own `surprise_at_most` -- checked against this rung's actual three numbers, not
+ * assumed: a `severe` roll is 1..severe_at_most, an `escalates` roll is severe_at_most+1..escalates_at_most, so the
+ * bands are covered exactly when `severe_at_most <= surprise_at_most` (severe) or `escalates_at_most <=
+ * surprise_at_most` (escalates). For every rung the shipped table carries today that holds for `severe` and not for
+ * `escalates` (checked below, not hard-coded); `surprise_line` is then the severe permission on a severe outcome, the
+ * plain one otherwise -- `surpriseLine`'s own rule.
+ */
+function buildPinnedStakes(table, rungName, outcome) {
+  if (!STAKES_RUNGS.includes(rungName)) throw new Error(`--stakes rung must be one of ${STAKES_RUNGS.join('/')}, got "${rungName}"`);
+  if (!STAKES_OUTCOMES.includes(outcome)) throw new Error(`--stakes outcome must be one of ${STAKES_OUTCOMES.join('/')}, got "${outcome}"`);
+  const rung = (table.rungs ?? []).find(entry => entry.name === rungName);
+  if (!rung) throw new Error(`no rung named "${rungName}" in npc-stakes.json (have: ${(table.rungs ?? []).map(entry => entry.name).join(', ')})`);
+  const line = outcome === 'nothing' ? null : rung.lines?.[outcome] ?? null;
+  const covered = outcome === 'severe' ? rung.severe_at_most <= rung.surprise_at_most
+    : outcome === 'escalates' ? rung.escalates_at_most <= rung.surprise_at_most
+    : false;
+  const surprise = covered === true;
+  const surprise_line = surprise ? (rung.lines?.[outcome === 'severe' ? 'severe_surprise' : 'surprise'] ?? null) : null;
+  return { rung: rungName, outcome, line, surprise, surprise_line };
+}
+
+/** `--turns <a>-<b>`: an inclusive turn range, or `null` when the flag was not given (every turn probes). */
+function parseTurnRange(spec) {
+  if (!spec) return null;
+  const match = /^(\d+)-(\d+)$/.exec(spec.trim());
+  if (!match) throw new Error(`--turns must be "<a>-<b>" (e.g. "2-8"), got "${spec}"`);
+  const from = Number(match[1]), to = Number(match[2]);
+  if (from > to) throw new Error(`--turns "${spec}": the first turn must not be after the second`);
+  return { from, to };
 }
 
 function timestamp() {
@@ -247,7 +313,7 @@ function renderSituation(packet, stakes) {
   lines.push(`At hand: holding [${(at.holdings ?? []).join(', ')}], nearby objects [${(at.objects ?? []).join(', ')}], `
     + `exits [${(at.exits ?? []).join(', ')}], present with them [${(at.present ?? []).join(', ')}].`);
   if (packet.constraints?.length) lines.push(`What the book or the table has already fixed about them: ${packet.constraints.join(' ')}`);
-  if (stakes?.stakes?.line) lines.push(`How far this moment lets them go (never told to them): ${stakes.stakes.line}`);
+  if (stakes?.line) lines.push(`How far this moment lets them go (never told to them): ${stakes.line}`);
   return lines.join('\n');
 }
 
@@ -281,15 +347,21 @@ function sameActPrompt(priorActs, act) {
 // The probe: stakes -> situation -> generate -> bind. Read-only and Jev-only; no write reaches the kernel.
 // --------------------------------------------------------------------------------------------------
 
-async function runProbe({ kernel, lane, decisionAdapter, TaskLease, npcActBatch, interpretNpcAct, npcProduceBatch, producePart, npcActBudgetValue, gate, campaign, round, turn, table }) {
+async function runProbe({ kernel, lane, decisionAdapter, TaskLease, npcActBatch, interpretNpcAct, npcProduceBatch, producePart, answerOf, npcActBudgetValue, gate, campaign, round, turn, table, pinnedStakes }) {
   const record = { kind: 'probe', table, round, turn, campaign };
   let stakes = null;
   try { stakes = await kernel.okTop('npc.stakes', { campaign, name: KNOTT_NAME }); }
   catch (error) { record.stakes_error = String(error.message ?? error); }
-  record.stakes = stakes;
+  // The real seeded die's own roll this turn, kept for transparency even when `--stakes` overrides what is used below.
+  record.natural_stakes = stakes?.stakes ?? null;
   let packet;
   try { packet = await kernel.okTop('npc.situation', { campaign, name: KNOTT_NAME }); }
   catch (error) { return { ...record, status: 'failed', reason: `situation_failed: ${error.message ?? error}` }; }
+  // `--stakes`: pins what the generation and the bind see, exactly as the extension tests' `withStakes` /
+  // `seam({stakes})` override does (tests/extension/single-loop-npc-act.test.mjs) -- replace the situation packet's
+  // own `stakes` field before anything downstream reads it. The real roll above is untouched and still recorded.
+  if (pinnedStakes) packet = { ...packet, stakes: pinnedStakes };
+  record.stakes = packet.stakes ?? null;
   record.packet_digest = createHash('sha256').update(JSON.stringify(packet)).digest('hex').slice(0, 16);
   record.packet = packet;
   const genBegan = Date.now();
@@ -300,7 +372,7 @@ async function runProbe({ kernel, lane, decisionAdapter, TaskLease, npcActBatch,
   const act = generated.act;
   record.act = act;
   // §143.19: the lane takes `produces` only on a surprise (and drops it, saying so, otherwise).
-  record.surprise = stakes?.stakes?.surprise === true;
+  record.surprise = packet.stakes?.surprise === true;
   const produces = typeof generated.produces === 'string' ? generated.produces : null;
   record.produces = produces;
   record.produces_dropped = generated.producesDropped === true;
@@ -327,12 +399,24 @@ async function runProbe({ kernel, lane, decisionAdapter, TaskLease, npcActBatch,
   const part = produces ? producePart(plan, decision, gate) : null;
   if (part) {
     const second = npcProduceBatch({ runId, person, act, produces, part: part.part, records: part.records }, scope, readSet);
-    follow = { records: second.records, result: await decide(second.batch, `probe produce turn ${turn}`) };
+    const secondResult = await decide(second.batch, `probe produce turn ${turn}`);
+    follow = { records: second.records, result: secondResult };
     record.produce_part = part.part;
+    // §143.22's own reading of the second batch: the leading five of the distribution, book's names, so a near-kin
+    // split is visible (the same computation `runtime/jev/npc-act-step.ts`'s route row makes, not reinvented here).
+    const chosen = answerOf(secondResult, PRODUCE_KEY);
+    const top = Object.entries(chosen.probabilities ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([alias, value]) => ({ choice: alias, label: second.records[alias]?.label ?? alias, p: value }));
+    record.produce_second_batch = { status: secondResult?.status ?? 'unavailable',
+      answer: chosen.choice !== undefined ? { choice: chosen.choice, confidence: chosen.confidence ?? null, ...(top.length ? { top } : {}) } : null };
   }
   record.bind_ms = Date.now() - bindBegan;
   const bound = interpretNpcAct(plan, decision, gate, follow);
-  record.produced = bound.produced ? { name: bound.produced.name, source: bound.produced.source, ...(bound.produced.record ? { record: bound.produced.record.value } : {}) } : null;
+  record.produced = bound.produced ? { name: bound.produced.name, source: bound.produced.source,
+    ...(bound.produced.record ? { record: bound.produced.record.value, weapon: bound.produced.record.weapon ?? null } : {}) } : null;
+  record.produces_known = bound.producesKnown === true;
+  // §143.22: `cleared_by: "kind"` (+ `on_records`) when near kin split the answer but the mass on records still cleared.
+  record.produce_answer = bound.answers?.[PRODUCE_KEY] ?? null;
   record.way = bound.way;
   record.params = Object.fromEntries(Object.entries(bound.params).map(([key, option]) => [key, option.value]));
   record.bind_reason = bound.reason;
@@ -346,8 +430,10 @@ async function runProbe({ kernel, lane, decisionAdapter, TaskLease, npcActBatch,
 // --------------------------------------------------------------------------------------------------
 
 async function replayTurn(ctx, turnRecord) {
-  const { kernel, campaign, round, table } = ctx;
+  const { kernel, campaign, round, table, turnRange } = ctx;
   const turn = turnRecord.turn;
+  // `--turns a-b`: every turn is still replayed in full for state continuity; only the probe insertion is gated.
+  const inRange = !turnRange || (turn >= turnRange.from && turn <= turnRange.to);
   const rows = [];
   await kernel.ok('player_input', { text: turnRecord.player_text });
   let probed = false;
@@ -356,7 +442,7 @@ async function replayTurn(ctx, turnRecord) {
   for (const [index, call] of (turnRecord.tools ?? []).entries()) {
     if (SKIP_TOOL_NAMES.has(call.name)) continue;
     if (call.is_error) continue; // the recording's own failed attempt: no state to reproduce.
-    if (!probed && looksLikeKnottAct(call)) {
+    if (inRange && !probed && looksLikeKnottAct(call)) {
       rows.push(await runProbe({ ...ctx, turn }));
       probed = true;
     }
@@ -368,7 +454,9 @@ async function replayTurn(ctx, turnRecord) {
       rows.push({ kind: 'refusal', table, round, turn, index, tool: call.name, code: error.code ?? null, message: String(error.message ?? error) });
     }
   }
-  if (!probed) {
+  if (!inRange) {
+    if (!probed) rows.push({ kind: 'turn', table, round, turn, probed: false, reason: 'turn_filtered' });
+  } else if (!probed) {
     try {
       const options = await kernel.okTop('npc.act.options', { campaign, name: KNOTT_NAME });
       if (options.my_turn || (Array.isArray(options.acted_on) && options.acted_on.length)) {
@@ -390,11 +478,18 @@ async function replayTurn(ctx, turnRecord) {
 // --------------------------------------------------------------------------------------------------
 
 async function main() {
-  const { rounds, seed, out, table: only } = args();
+  const { rounds, seed, out, table: only, stakes: stakesSpec, turns: turnsSpec } = args();
   const ts = timestamp();
   const outDir = out ?? join(REPO, '.coc', 'playtests', `npc-act-probe-${ts}`);
   mkdirSync(outDir, { recursive: true });
-  console.log(`npc-act-probe: ${rounds} rounds, seed ${seed}, output ${outDir}`);
+  const pinnedStakes = stakesSpec ? (() => {
+    const [rungName, outcome] = stakesSpec.split(':');
+    return buildPinnedStakes(loadStakesTable(), rungName, outcome);
+  })() : null;
+  const turnRange = parseTurnRange(turnsSpec);
+  console.log(`npc-act-probe: ${rounds} rounds, seed ${seed}, output ${outDir}`
+    + (pinnedStakes ? `, stakes pinned ${JSON.stringify(pinnedStakes)}` : ', stakes not pinned (natural roll)')
+    + (turnRange ? `, turns ${turnRange.from}-${turnRange.to}` : ', all turns'));
 
   process.env.PI_COC_NPC_ACT_MODEL = NPC_ACT_MODEL;
   process.env.PI_COC_JEV_PRESELECT = '1';
@@ -406,6 +501,7 @@ async function main() {
     await import(join(REPO, 'build/node_modules/@earendil-works/pi-coding-agent/dist/index.js'));
   const { createNpcActLane } = await import(join(REPO, 'runtime/jev/npc-act.ts'));
   const { npcActBatch, interpretNpcAct, npcProduceBatch, producePart } = await import(join(REPO, 'runtime/jev/npc-act-step.ts'));
+  const { answerOf } = await import(join(REPO, 'runtime/jev/decision-gate.ts'));
   const { createDecisionAdapter } = await import(join(REPO, 'runtime/jev/decision-adapter.ts'));
   const { TaskLease } = await import(join(REPO, 'runtime/jev/task-context.ts'));
   const { npcActBudget } = await import(join(REPO, 'runtime/jev/host-budgets.ts'));
@@ -468,8 +564,8 @@ async function main() {
           await kernel.okTop('campaign.create', { id: CAMPAIGN, module: MODULE, pregen: PREGEN, play_language: PLAY_LANGUAGE });
           await kernel.ok('narrate', { call_id: 't0-c1', text: OPENING_TEXT });
           const ctx = {
-            kernel, lane, decisionAdapter, TaskLease, npcActBatch, interpretNpcAct, npcProduceBatch, producePart, npcActBudgetValue,
-            gate: DEFAULT_CONFIDENCE_GATE, campaign: CAMPAIGN, round, table: entry.table,
+            kernel, lane, decisionAdapter, TaskLease, npcActBatch, interpretNpcAct, npcProduceBatch, producePart, answerOf, npcActBudgetValue,
+            gate: DEFAULT_CONFIDENCE_GATE, campaign: CAMPAIGN, round, table: entry.table, pinnedStakes, turnRange,
           };
           const priorActs = [];
           for (const turnRecord of entry.turns) {
@@ -513,7 +609,7 @@ async function main() {
     for (const path of cleanupPaths) { try { rmSync(path, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
 
-  writeSummary(outDir, { rounds, seed, tables, allRecords, allJudge });
+  writeSummary(outDir, { rounds, seed, tables, allRecords, allJudge, pinnedStakes, turnRange });
   console.log(`\nDone. Results in ${outDir}`);
 }
 
@@ -531,13 +627,16 @@ function firstLineOf(text, limit = 120) {
   return line.length > limit ? line.slice(0, limit) + '…' : line;
 }
 
-export function writeSummary(outDir, { rounds, seed, tables, allRecords, allJudge }) {
+export function writeSummary(outDir, { rounds, seed, tables, allRecords, allJudge, pinnedStakes = null, turnRange = null }) {
   const probes = allRecords.filter(row => row.kind === 'probe');
   const bound = probes.filter(row => row.status === 'bound');
   const unavailable = probes.filter(row => row.status === 'unavailable');
   const failed = probes.filter(row => row.status === 'failed');
   const refusals = allRecords.filter(row => row.kind === 'refusal');
   const notActedOn = allRecords.filter(row => row.kind === 'turn' && row.probed === false);
+  // Every probe that reached generation (has an act), whether or not the bind that followed then succeeded: `produces`
+  // is a property of the generated act, set before anything downstream can fail.
+  const actedRows = probes.filter(row => typeof row.act === 'string' && row.act);
 
   const plausRows = allJudge.filter(row => row.kind === 'plausibility');
   const plausAnswered = plausRows.filter(row => row.ok);
@@ -564,6 +663,57 @@ export function writeSummary(outDir, { rounds, seed, tables, allRecords, allJudg
   const lines = [];
   lines.push('# npc-act-probe summary');
   lines.push('');
+  lines.push(`Pinned stakes: ${pinnedStakes ? '\`' + JSON.stringify(pinnedStakes) + '\`' : '(none -- natural seeded roll)'}. `
+    + `Turn filter: ${turnRange ? `${turnRange.from}-${turnRange.to}` : '(none -- all turns)'}.`);
+  lines.push('');
+  if (pinnedStakes) {
+    lines.push('## Pre-registered lines (scratchpad/probe-d10-weapons-preregistration.md)');
+    lines.push('');
+    const producesCount = actedRows.filter(row => row.produces).length;
+    const producesRate = actedRows.length ? producesCount / actedRows.length : null;
+    if (pinnedStakes.outcome === 'nothing') {
+      // Line 4: control.
+      lines.push(`- **Line 4 (control, \`--stakes ${pinnedStakes.rung}:${pinnedStakes.outcome}\`)**: \`produces\` on ${producesCount}/${actedRows.length} generated acts`
+        + (actedRows.length ? ` (${(producesRate * 100).toFixed(0)}%)` : ' (no acts generated)')
+        + ` -- pass line 0% -- ${actedRows.length === 0 ? 'NOT EXERCISED (no acts generated)' : producesCount === 0 ? 'PASS' : 'FAIL'}.`);
+      if (producesCount) for (const row of actedRows.filter(row => row.produces))
+        lines.push(`  - dropped without one? ${row.produces_dropped ? 'yes (produces_dropped)' : 'NO -- produces reached the row despite the control stakes'}: `
+          + `${row.table} r${row.round} t${row.turn}: "${row.produces}"`);
+    } else {
+      const line1Pass = producesRate !== null && producesRate >= 0.8;
+      lines.push(`- **Line 1** (\`produces\` on >= 80% of pinned acts): ${producesCount}/${actedRows.length} generated acts carried \`produces\``
+        + (producesRate !== null ? ` (${(producesRate * 100).toFixed(0)}%)` : '') + ` -- ${actedRows.length === 0 ? 'NOT EXERCISED (no acts generated)' : line1Pass ? 'PASS' : 'FAIL'}.`);
+      lines.push('');
+      lines.push('- **Line 2** (of the `produces` naming a weapon, 100% bind to a price-list record carrying a weapon profile -- '
+        + '`produced.source: "catalog"` and `record.weapon` -- directly or `cleared_by: "kind"`): every `produces` this run, for an '
+        + 'editorial read (this script does not classify "is this a weapon" itself -- CLAUDE.md forbids a hard-coded word list for an '
+        + 'open semantic judgement; the caller reads the generator\'s exact words and judges).');
+      for (const row of actedRows.filter(row => row.produces))
+        lines.push(`  - ${row.table} r${row.round} t${row.turn}: produces "${row.produces}" -> `
+          + (row.produced ? `${row.produced.source}${row.produced.record ? ` ${row.produced.record}` : ''}`
+            + `${row.produced.weapon ? ` (weapon: ${row.produced.weapon})` : ''} "${row.produced.name}"` : 'not bound')
+          + (row.produce_answer?.cleared_by ? `, cleared_by: ${row.produce_answer.cleared_by} (on_records ${row.produce_answer.on_records})` : '')
+          + (row.produces_known ? ', produces_known: true (§143.27: already at the table, no surprise, nothing bound)' : ''));
+      if (!actedRows.some(row => row.produces)) lines.push('  - (no act carried `produces` this run)');
+      lines.push('');
+      const weaponBound = actedRows.filter(row => row.produces && row.produced?.source === 'catalog' && row.produced?.weapon);
+      const nonWeaponProduced = actedRows.filter(row => row.produces && !(row.produced?.source === 'catalog' && row.produced?.weapon));
+      lines.push('- **Line 3** (of the weapon acts: way `attack` w/ `params.weapon` = the record vs. coercion; judge plausibility yes-rate '
+        + '>= 90%; the second batch\'s `answer.top` for every weapon match; what non-weapon things were brought out):');
+      for (const row of weaponBound) {
+        const plaus = plausRows.find(p => p.table === row.table && p.round === row.round && p.turn === row.turn);
+        const usesWeaponParam = Object.entries(row.params ?? {}).some(([key, value]) => key.endsWith('.weapon') && value === row.produced.record);
+        lines.push(`  - ${row.table} r${row.round} t${row.turn}: way \`${row.way}\`${usesWeaponParam ? ' (fires/swings it now)' : ' (does not bind the weapon param -- coercion or unbound)'}`
+          + `, params ${JSON.stringify(row.params)}`
+          + (row.produce_second_batch?.answer?.top ? `, second-batch answer.top ${JSON.stringify(row.produce_second_batch.answer.top)}` : '')
+          + `, judge plausibility yes: ${plaus?.ok ? plaus.answer?.yes : 'n/a (' + (plaus ? plaus.reason : 'no judge row') + ')'}`);
+      }
+      if (!weaponBound.length) lines.push('  - (no `produces` bound to a catalog weapon record this run)');
+      lines.push(`  - non-weapon things brought out (\`produces\` that did not bind to a catalog weapon record): ${nonWeaponProduced.length
+        ? nonWeaponProduced.map(row => `"${row.produces}" -> ${row.produced ? `${row.produced.source} "${row.produced.name}"` : 'not bound'}`).join('; ') : '(none)'}.`);
+    }
+    lines.push('');
+  }
   // §143.19 (ticket 20): report only -- how often a surprise turn's act brings something out, and what.
   const surprised = probes.filter(row => row.surprise === true);
   const producing = surprised.filter(row => row.produces);
