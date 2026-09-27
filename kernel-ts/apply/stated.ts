@@ -13,8 +13,12 @@ import { rollExpression } from '../resolve/arithmetic.js';
 import { array, integer, number, repr, string, type Row } from '../read/values.js';
 import type { ApplyContext } from './index.js';
 
+/** A refusal of a `stated` or `band` binding (§136.22, §138): `details.field` names the binding, `details.reason` the case. */
+export const refusalOf = (field: string) => (code: ErrorCode, reason: string, message: string, extra: { fix?: string; details?: Row } = {}): RpcError =>
+    new RpcError(code, message, { ...(extra.fix ? { fix: extra.fix } : {}), details: { field, reason, ...extra.details } });
+const refusal = refusalOf('stated');
 const refuse = (code: ErrorCode, reason: string, message: string, extra: { fix?: string; details?: Row } = {}): never => {
-    throw new RpcError(code, message, { ...(extra.fix ? { fix: extra.fix } : {}), details: { field: 'stated', reason, ...extra.details } });
+    throw refusal(code, reason, message, extra);
 };
 
 /** The effect to stage, and whose amount it carries. */
@@ -22,6 +26,9 @@ export interface StatedEffect {
     readonly effect: Row;
     readonly stated: string | null;
     readonly roll?: Row;
+    /** Contract §138: the band table row the amount was rolled inside (`apply/band.ts`), and the time roll. */
+    readonly band?: string | null;
+    readonly bandRoll?: Row;
 }
 
 /** Bind `stated` into an effect of one of the five kinds; any other effect passes through untouched. */
@@ -83,9 +90,11 @@ export function bindStated(context: ApplyContext, effect: Row): StatedEffect {
     return { effect: bound, stated: handle, ...(roll ? { roll } : {}) };
 }
 
-/** Whose number a receipt of one of the five kinds carries. */
+/** Whose number a receipt of one of the five kinds carries: the book's, a band's roll (§138), or the Keeper's. */
 export function stampBasis(receipt: Row, bound: StatedEffect): void {
-    receipt.basis = bound.stated ? 'stated' : 'keeper';
+    receipt.basis = bound.stated ? 'stated' : bound.band ? 'banded' : 'keeper';
     if (bound.stated) receipt.stated = bound.stated;
     if (bound.roll) receipt.stated_roll = bound.roll;
+    if (bound.band) receipt.band = bound.band;
+    if (bound.bandRoll) receipt.band_roll = bound.bandRoll;
 }

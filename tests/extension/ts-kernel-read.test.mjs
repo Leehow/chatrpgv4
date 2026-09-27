@@ -40,6 +40,10 @@ const json=async path=>api.parsePythonJson(await readFile(path,'utf8'));
 const graphPath=join(temporary,'module-graph.json');
 // The freeze-time graph: nodes authored after the reference was captured are not in its answers (POST_FREEZE_NODES).
 const raw=withoutPostFreezeNodes(await json(join(CONTENT,'starters/the-haunting/module-graph.json')));
+// Contract §138.9 (BR-05): the shipped roads now carry the minutes the build filled. The captures answered the graph
+// before that data change, so the roads are read here as they were then; the minutes and their projection into
+// `sceneExits` are asserted where they belong, in tests/kernel/test_route_travel.py, and the captures stay as printed.
+for(const relation of raw.relations)if(relation.relation_kind==='route-to'&&relation.properties){delete relation.properties.travel_minutes;delete relation.properties.travel;}
 raw.nodes.push(...['east','west'].map(side=>({node_id:`npc-${side}-doctor`,node_kind:'npc',name:`Doctor ${side}`,aliases:['The Doctor'],
   summary:`A ${side} specialist.`,visibility:'keeper',properties:{agenda:'Keep the records private',secret:`${side} confidential evidence`,knowledge:['The archive is open.']}})));
 await writeFile(graphPath,api.pythonJsonDumps(raw));

@@ -12687,6 +12687,12 @@
         "when": {
           "kind": "clue_discovered",
           "clue_id": "clue-chapel-ruins-location"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.93
         }
       }
     },
@@ -12701,6 +12707,12 @@
         "when": {
           "kind": "clue_discovered",
           "clue_id": "clue-crane-research-leads"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.97
         }
       }
     },
@@ -12715,6 +12727,12 @@
         "when": {
           "kind": "clue_discovered",
           "clue_id": "clue-crane-research-leads"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.97
         }
       }
     },
@@ -12729,6 +12747,12 @@
         "when": {
           "kind": "clue_discovered",
           "clue_id": "clue-crane-research-leads"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -12743,6 +12767,12 @@
         "when": {
           "kind": "clue_discovered",
           "clue_id": "clue-crane-research-leads"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.95
         }
       }
     },
@@ -12782,7 +12812,13 @@
       "claim_id": "claim-route-to-162",
       "properties": {
         "edge_kind": "travel",
-        "when": null
+        "when": null,
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 0.93
+        }
       }
     },
     {
@@ -12795,6 +12831,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -12808,6 +12850,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -12821,6 +12869,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.98
         }
       }
     },
@@ -12834,6 +12888,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 1
         }
       }
     },
@@ -12847,6 +12907,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.91
         }
       }
     },
@@ -12860,6 +12926,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -12873,6 +12945,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.97
         }
       }
     },
@@ -12886,6 +12964,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -12899,6 +12983,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.73
         }
       }
     },
@@ -12912,6 +13002,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -12925,6 +13021,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.94
         }
       }
     },
@@ -12938,6 +13040,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -12951,6 +13059,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.97
         }
       }
     },
@@ -12965,6 +13079,12 @@
         "when": {
           "kind": "flag_set",
           "flag_id": "records-serious-crime-destination-known"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.96
         }
       }
     },
@@ -12978,6 +13098,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.98
         }
       }
     },
@@ -12991,6 +13117,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.73
         }
       }
     },
@@ -13004,6 +13136,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -13017,6 +13155,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.97
         }
       }
     },
@@ -13030,6 +13174,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -13043,6 +13193,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.96
         }
       }
     },
@@ -13056,6 +13212,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 1
         }
       }
     },
@@ -13069,6 +13231,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 1
         }
       }
     },
@@ -13082,6 +13250,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 1
         }
       }
     },
@@ -13095,6 +13269,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.97
         }
       }
     },
@@ -13108,6 +13288,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 1
         }
       }
     },
@@ -13121,6 +13307,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 1
         }
       }
     },
@@ -13134,6 +13326,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 1
         }
       }
     },
@@ -13147,6 +13345,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -13160,6 +13364,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -13186,6 +13396,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 0.96
         }
       }
     },
@@ -13199,6 +13415,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.95
         }
       }
     },
@@ -13212,6 +13434,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.91
         }
       }
     },
@@ -13225,6 +13453,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.94
         }
       }
     },
@@ -13238,6 +13472,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.97
         }
       }
     },
@@ -13264,6 +13504,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 0.97
         }
       }
     },
@@ -13277,6 +13523,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 360,
+        "travel": {
+          "basis": "banded",
+          "band": "long_travel",
+          "confidence": 0.58
         }
       }
     },
@@ -13290,6 +13542,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.9
         }
       }
     },
@@ -13303,6 +13561,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.81
         }
       }
     },
@@ -13317,6 +13581,12 @@
         "when": {
           "kind": "flag_set",
           "flag_id": "records-serious-crime-destination-known"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.79
         }
       }
     },
@@ -13330,6 +13600,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.84
         }
       }
     },
@@ -13343,6 +13619,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.74
         }
       }
     },
@@ -13357,6 +13639,12 @@
         "when": {
           "kind": "clue_discovered",
           "clue_id": "clue-upstairs-disturbance"
+        },
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 1
         }
       }
     },
@@ -13371,6 +13659,12 @@
         "when": {
           "kind": "clue_discovered",
           "clue_id": "clue-crowe-diaries"
+        },
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 1
         }
       }
     },
@@ -13384,6 +13678,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -13397,6 +13697,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -13410,6 +13716,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -13423,6 +13735,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 0.96
         }
       }
     },
@@ -13436,6 +13754,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 0.97
         }
       }
     },
@@ -13449,6 +13773,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 1
         }
       }
     },
@@ -13463,6 +13793,12 @@
         "when": {
           "kind": "clue_discovered",
           "clue_id": "clue-poltergeist-bed"
+        },
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 1
         }
       }
     },
@@ -13476,6 +13812,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 1
         }
       }
     },
@@ -13490,6 +13832,12 @@
         "when": {
           "kind": "clue_discovered",
           "clue_id": "clue-crowe-body-found"
+        },
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 1
         }
       }
     },
@@ -13501,7 +13849,13 @@
       "claim_id": "claim-route-to-217",
       "properties": {
         "edge_kind": "travel",
-        "when": null
+        "when": null,
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 0.73
+        }
       }
     },
     {
@@ -13512,7 +13866,13 @@
       "claim_id": "claim-route-to-218",
       "properties": {
         "edge_kind": "travel",
-        "when": null
+        "when": null,
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 0.93
+        }
       }
     },
     {
@@ -13523,7 +13883,13 @@
       "claim_id": "claim-route-to-219",
       "properties": {
         "edge_kind": "travel",
-        "when": null
+        "when": null,
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.5
+        }
       }
     },
     {
@@ -13534,7 +13900,13 @@
       "claim_id": "claim-route-to-220",
       "properties": {
         "edge_kind": "travel",
-        "when": null
+        "when": null,
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 0.73
+        }
       }
     },
     {
@@ -13556,7 +13928,13 @@
       "claim_id": "claim-route-to-222",
       "properties": {
         "edge_kind": "travel",
-        "when": null
+        "when": null,
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.5
+        }
       }
     },
     {
@@ -13580,6 +13958,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.95
         }
       }
     },
@@ -13593,6 +13977,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.99
         }
       }
     },
@@ -13606,6 +13996,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.98
         }
       }
     },
@@ -13619,6 +14015,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 1
         }
       }
     },
@@ -13632,6 +14034,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.98
         }
       }
     },
@@ -13645,6 +14053,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.7
         }
       }
     },
@@ -13658,6 +14072,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 360,
+        "travel": {
+          "basis": "banded",
+          "band": "long_travel",
+          "confidence": 0.58
         }
       }
     },
@@ -13671,6 +14091,12 @@
         "edge_kind": "travel",
         "when": {
           "kind": "always"
+        },
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.7
         }
       }
     },

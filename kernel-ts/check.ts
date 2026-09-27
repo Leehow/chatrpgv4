@@ -4,17 +4,26 @@ import { snapshots } from './snapshots.js';
 import { RpcError, internalError } from './errors.js';
 import { loadModuleContract } from './modules/contract.js';
 import { checkDraft, checkOpeningBatch, requiredViewPages } from './modules/visual.js';
-import { row } from './read/values.js';
+import { row, type Row } from './read/values.js';
 import { ANSWER_REVIEW_PATHS, checkSourceAnswer } from './modules/source-answer.js';
 import { validateDefinition } from './mods/definition.js';
 import {validateUsage} from './mods/usages.js';
+import {gatePreset, presetOf} from './mods/preset.js';
 export { pythonJsonDumps as serializeCheckResult } from './json.js';
 export { parsePythonJson as parseCheckResult } from './json.js';
 export const checkModDefinition = (path: string) => checkObjectParameters(path,validateDefinition);
 export const checkObjectUsage = (path: string) => checkObjectParameters(path,validateUsage);
+/**
+ * Contract §138.7: a draft in a job directory whose packet carries a weapon preset passes the same preset gate the
+ * kernel runs at acceptance, so the child's repair round hears the same findings; any other draft is checked as before.
+ */
+async function packetPreset(path: string): Promise<Row | null> {
+    const request = join(dirname(path), 'request.json');
+    return await snapshots.pathExists(request) ? presetOf(row(await snapshots.readJson(request))) : null;
+}
 async function checkObjectParameters(path: string, validate: typeof validateUsage): Promise<{ok: boolean; [key: string]: unknown}> {
     try {
-        const value=validate(await snapshots.readJson(path));
+        const {value}=await gatePreset(await snapshots.readJson(path),await packetPreset(path),draft=>validate(draft));
         return {ok:true,name:value.name};
     } catch(error) {
         if(typeof (error as NodeJS.ErrnoException)?.code==='string' && !(error instanceof RpcError)){

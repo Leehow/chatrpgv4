@@ -12,10 +12,11 @@
  * field (prototype runs 5-7: with that tag in the detail every move came back "later").
  */
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
-import type {Candidate, Json, Unbound} from './step-policy.ts';
+import {TIME_CANDIDATE_KEY, type Candidate, type Json, type Unbound} from './step-policy.ts';
 import {DICE, guardsOf, obligationCandidates, preordainedContacts} from './obligation-candidates.ts';
 import {composeSentence} from './composed-arguments.ts';
 import {npcTurnCandidate} from './npc-act-step.ts';
+import {damageQuestion, timeQuestion, type DamageBandRow, type TimeBandRow} from './band-shadow-domain.ts';
 
 type Row = Record<string, any>;
 export {bindingOf, type Binding, type Candidate, type Json, type Unbound} from './step-policy.ts';
@@ -51,6 +52,56 @@ export interface StateReads {
    * card without a combat disposition carries the closed words and the person's own parameters to infer one from.
    */
   fighter?: Row;
+  /** §138.10: the two band tables' rows (`rules.bands`) and the gates their binds must clear; absent, no band candidate. */
+  bands?: BandReads;
+}
+/** The rows of the time-costs and severity tables as `rules.bands` lists them (§138.8), and the clerk's gate per table. */
+export interface BandReads {time?: TimeBandRow[]; damage?: DamageBandRow[]; gates?: {time?: number; damage?: number}}
+
+/**
+ * §138.10: the time the player's declared action takes, as a row of the time-costs table (the road rows left out: a
+ * move carries its road's minutes). The route asks a fact about the declaration -- is it an activity that costs table
+ * time -- and the bind is the shadow lane's own time question (§138.8), so the clerk asks exactly what the shadow
+ * measured. The `why` is composed; the row is Jev's; the minutes are the kernel's roll.
+ */
+function timeCandidate(rows: TimeBandRow[], rawInput: string, gate: number | undefined): Candidate | undefined {
+  const question = timeQuestion(rows), options = Object.keys(question.criteria).filter(key => key !== 'unknown');
+  if (!options.length) return undefined;
+  return {key: TIME_CANDIDATE_KEY, verb: 'apply', family: 'time', source: 'rules.bands',
+    label: 'Charge the clock for the time the player\'s declared action takes, as a time-cost row the kernel rolls inside',
+    bound: {kind: 'time', why: composeSentence('The time the player\'s declared action takes, read as a row of the time-costs table and rolled by the kernel', rawInput)},
+    composed: ['why'],
+    unbound: [{name: 'band', required: true, vocabulary: 'closed', options, descriptions: question.criteria as Record<string, string>, instruction: String(question.instructions),
+      band: {table: 'time-costs', field: 'time.band', primitive: 'choice', ...(gate !== undefined ? {gate} : {})}}],
+    routeFact: {target: 'whether the player\'s declared action is an activity that costs table time',
+      instructions: 'The player declared an action this turn. Is it an activity that takes time at the table -- a search, a conversation, research, treatment, '
+        + 'rest, study -- whose minutes the clock should count? Judge the declaration itself, not how the story may go on.',
+      criteria: {costs: 'The declared action is an activity that takes time at the table; the clock should count it.',
+        none: 'The declaration is only movement between places (a road\'s time is the route\'s own), a glance or a word that takes no time worth the clock, or an action inside a fight.',
+        unknown: 'Cannot be told from the supplied state.'}, selects: 'costs'},
+    clerk: 'declared_time', basis: {read: 'rules.bands', path: 'time.band', row: {table: 'time-costs', rows: options} as Json}};
+}
+
+/**
+ * §138.10: the harm a book-stated step this turn reached leaves unstated, as the kernel issues it
+ * (`table.apply.options.unstated_damage`): the book says the harm happened, so the step is forced and only its severity
+ * is open -- a rung of the severity ladder, the shadow lane's own damage question (§138.8), rolled by the kernel. The
+ * subject is the roll's actor as the kernel names them; the `why` is composed from the row and the player's words.
+ */
+function damageCandidate(harm: Row, index: number, rows: DamageBandRow[], rawInput: string, gate: number | undefined): Candidate | undefined {
+  const rule = text(harm.rule), actor = text(harm.actor);
+  if (!rule || !actor || !rows.length) return undefined;
+  const question = damageQuestion(rows), options = rows.map(row => row.handle), who = text(harm.actor_label) || actor;
+  const step = Number.isInteger(harm.step) ? Number(harm.step) : undefined, level = text(harm.level), book = text(harm.book);
+  return {key: `apply:damage:${rule}:${actor}`, verb: 'apply', family: 'damage', source: 'table.apply.options',
+    label: `${who} is hurt by ${rule}${step !== undefined ? ` (step ${step})` : ''}: the book states the harm and leaves its amount unstated`,
+    bound: {kind: 'damage', subject: actor,
+      why: composeSentence(`${rule}${step !== undefined ? ` step ${step}` : ''} (${level || 'reached'}) states harm to ${who} and leaves the amount unstated; the host read its severity as a rung of the rulebook's ladder`, rawInput)},
+    composed: ['why'],
+    unbound: [{name: 'band', required: true, vocabulary: 'closed', options, descriptions: Object.fromEntries(rows.map((row, at) => [row.handle, String(question.criteria[at])])),
+      instruction: String(question.instructions), band: {table: 'hazards', field: 'damage.band', primitive: 'score', ...(gate !== undefined ? {gate} : {})}}],
+    detail: {rule, ...(step !== undefined ? {step} : {}), ...(level ? {level} : {}), ...(book ? {book} : {})} as Json,
+    clerk: 'stated_hazard', forced: true, basis: {read: 'table.apply.options', path: `unstated_damage[${index}]`, row: harm as Json}};
 }
 
 /** A closed parameter: bound when the kernel issued exactly one value, a closed unbound otherwise. */
@@ -380,6 +431,20 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   if (!sessionLive) { const blow = firstBlowCandidate(object(resolveContext.first_blow), rawInput); if (blow) push(blow); }
   for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships))
     if (!candidate.forced) push(candidate);
+  // §138.10: the harm a stated step this turn reached leaves unstated is forced (the book says it happened) and bound
+  // to a severity rung; the declared action's time is routed by a fact about the declaration and bound to a time row.
+  // No time band while a session runs (its time is rounds), without a declaration, or once the turn holds a time
+  // receipt (the Keeper's own, a clerk's earlier band, a stated cost): time is charged once.
+  const bands = reads.bands ?? {};
+  for (const [index, harm] of array(object(reads.applyOptions).unstated_damage).map(object).entries()) {
+    const candidate = damageCandidate(harm, index, bands.damage ?? [], rawInput, bands.gates?.damage);
+    if (candidate) push(candidate);
+  }
+  const charged = array(object(object(reads.applyOptions).context).current_receipts).some(receipt => object(receipt).kind === 'time');
+  if (!sessionLive && rawInput.trim() && !charged && bands.time?.length) {
+    const candidate = timeCandidate(bands.time, rawInput, bands.gates?.time);
+    if (candidate) push(candidate);
+  }
   // Located entities the host can apply directly by handle.
   for (const entity of reads.located ?? []) {
     const basis = {read: 'semantic-locate+workspace.read', row: {handle: entity.handle, kind: entity.kind} as Json};

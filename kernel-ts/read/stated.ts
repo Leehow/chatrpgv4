@@ -170,6 +170,43 @@ export function statedCandidates(graph: ModuleGraph, receipts: readonly Row[], n
     return ownEffects(graph, node, kind);
 }
 
+/**
+ * Contract §138.10 (BR-06): the harm a stated step this turn reached leaves unstated. For each node the turn's latest
+ * `action.rule` roll named (`basis.rule`; a push replaces the roll it continues), the level's `damage` effects
+ * recorded `dice_unstated` issue one row per roll, until harm -- a hit-point delta downward -- on that roll's actor
+ * follows the roll in the turn's receipts, whoever wrote it (a band, the Keeper's own dice); a delta upward (first aid,
+ * rest) settles nothing. A stated dice never issues a row: that amount is the Keeper's to apply with `stated`
+ * (§136.22), and nothing here reads prose.
+ */
+export function unstatedDamage(graph: ModuleGraph, receipts: readonly Row[]): Row[] {
+    const latest = new Map<string, number>();
+    receipts.forEach((receipt, index) => {
+        const basis = row(receipt.basis);
+        if (receipt.kind === "roll" && typeof basis.rule === "string" && LEVELS.includes(string(basis.level)))
+            latest.set(basis.rule, index);
+    });
+    const out: Row[] = [];
+    for (const index of [...latest.values()].sort((a, b) => a - b)) {
+        const receipt = receipts[index], basis = row(receipt.basis), node = graph.find(string(basis.rule), RULE_KINDS);
+        if (!node)
+            continue;
+        const found = statedCheck(graph, node, integer(basis.step) ? number(basis.step) : null);
+        if (!found)
+            continue;
+        const level = string(basis.level), stated = levelEffects(graph, found.check, level, basis.pushed === true && FAILED.has(level));
+        if (!stated.effects.some(effect => effect.kind === "damage" && effect.dice_unstated === true))
+            continue;
+        const actor = string(receipt.actor);
+        if (receipts.slice(index + 1).some(later => later.kind === "delta" && later.resource === "hp" && string(later.subject) === actor
+            && number(later.after) < number(later.before)))
+            continue;
+        out.push({ alias: `unstated:${out.length}`, rule: graph.handle(node), ...(found.step !== null ? { step: found.step } : {}), level, actor,
+            actor_label: typeof receipt.actor_label === "string" ? receipt.actor_label : null,
+            ...(stated.book !== null ? { book: stated.book } : {}), receipt: string(receipt.id) });
+    }
+    return out;
+}
+
 /** A node `stated` may name: one whose shapes an operation can read, or a threat whose clock the book advances. */
 export function statedNode(graph: ModuleGraph, name: any): Row | null {
     if (typeof name !== "string" || !name.trim()) return null;

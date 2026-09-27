@@ -14,6 +14,7 @@ import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods
 import { publicDefinition, publicUsage } from "../mods/public-definition.js";
 import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2} from '../mods/audit-result.js';
 import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
+import {WEAPON_PRESET_CAPABILITY} from '../mods/preset.js';
 import {publicOffer} from '../mods/object-offer.js';
 import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
 import {VOICE_CONSOLIDATION_CAPABILITY, EXPRESSION_MOD, LEGACY_VOICE_MOD, newModDefault} from '../mods/voice-consolidation.js';
@@ -22,6 +23,8 @@ export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
 MOD_CAPABILITIES.add(USAGE_CAPABILITY);
+/** Contract §138.7: a materializer that copies the weapon preset the host names and states every departure from it. */
+MOD_CAPABILITIES.add(WEAPON_PRESET_CAPABILITY);
 MOD_CAPABILITIES.add("npc.voice.generation.v2");
 MOD_CAPABILITIES.add(VOICE_CONSOLIDATION_CAPABILITY);
 /** Contract §30.7f: frozen Narration Craft 1.5.0-1.7.1 still declare the retired selector. The names stay accepted and

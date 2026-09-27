@@ -208,6 +208,58 @@ def offers(rows: list[dict[str, Any]]) -> dict[str, Any]:
                         for kind, counts in sorted(kinds.items())}}
 
 
+def basis(rows: list[dict[str, Any]], workspace: str, campaign: str) -> dict[str, Any]:
+    """Contract §138.4 and §138.6: whose number each receipt carried -- the book's (`stated`), a band's roll
+    (`banded`) or the Keeper's own (`keeper`) -- per receipt kind, and the two pins a band names for the
+    host: a person's stat-block tier and a thing's weapon profile.
+
+    Receipts are read from the turn records; a pin is `banded` when a `band_recovery` bind row names its
+    call (the pin's own call id for a tier; the refused-then-retried call id for a profile), and the
+    Keeper's otherwise. Contract §138.10: the clerk's own band writes (`declared_time`, `stated_hazard`)
+    are counted from their bind rows -- landed, or left to the Keeper (`outcome: keeper`) -- so a banded
+    time receipt can be told apart from the Keeper naming a band itself. Counting only, as everywhere here:
+    "how many numbers does the model still invent" is one line per table, and a kind that never carried a
+    basis is simply absent.
+    """
+    directory = Path(workspace) / "campaigns" / campaign / "turns"
+    banded_calls: set[str] = set()
+    clerk_bands: dict[str, dict[str, int]] = {}
+    for row in rows:
+        if row.get("lane") == "run" and row.get("event") == "bind" and row.get("clerk") == "band_recovery" \
+                and row.get("status") == "succeeded":
+            for key in ("call_id", "refused_call_id"):
+                if isinstance(row.get(key), str) and row[key]:
+                    banded_calls.add(str(row[key]))
+        if row.get("lane") == "run" and row.get("event") == "bind" and row.get("clerk") in ("declared_time", "stated_hazard"):
+            counts = clerk_bands.setdefault("time" if row["clerk"] == "declared_time" else "damage", {"landed": 0, "refused": 0, "keeper": 0})
+            counts["keeper" if row.get("outcome") == "keeper" else "landed" if row.get("status") == "succeeded" else "refused"] += 1
+    kinds: dict[str, dict[str, int]] = {}
+    pins: dict[str, dict[str, int]] = {}
+    for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for receipt in record.get("receipts") or []:
+            if not isinstance(receipt, dict):
+                continue
+            kind, marked = receipt.get("kind"), receipt.get("basis")
+            if isinstance(kind, str) and isinstance(marked, str):
+                counts = kinds.setdefault(kind, {})
+                counts[marked] = counts.get(marked, 0) + 1
+            call = str(receipt.get("call_id") or "")
+            if kind == "npc" and (receipt.get("profile") or receipt.get("archetype")):
+                counts = pins.setdefault("archetype", {"keeper": 0, "banded": 0})
+                counts["banded" if call in banded_calls else "keeper"] += 1
+            if kind == "item" and receipt.get("weapon"):
+                counts = pins.setdefault("weapon", {"keeper": 0, "banded": 0})
+                counts["banded" if call in banded_calls else "keeper"] += 1
+    if not kinds and not pins and not clerk_bands:
+        return {}
+    return {"by_kind": {kind: dict(sorted(counts.items())) for kind, counts in sorted(kinds.items())},
+            **({"pins": pins} if pins else {}), **({"clerk_bands": clerk_bands} if clerk_bands else {})}
+
+
 def admission(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Contract §32.7: what the action-admission review decided, and what it cost.
 
@@ -590,6 +642,9 @@ def main(argv: list[str] | None = None) -> int:
     health = lanes(rows)
     if health:
         summary["lanes"] = health
+    whose = basis(rows, args.workspace, campaign)
+    if whose:
+        summary["basis"] = whose
     print(format_report(per_turn, summary, title=title))
     return 0
 

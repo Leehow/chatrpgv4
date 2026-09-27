@@ -107,8 +107,10 @@ test("SL-01 gate: a policy-origin read and a Jev decision run before one real mo
 	assert.equal(decisions[0].batch.family, ROUTE_FAMILY);
 	// SL-02: the route asks one need per host-issued candidate plus the exit. The fake kernel's capsule has one person
 	// present and not yet introduced, without the table's own label (and no apply/resolve options): no data source names
-	// him, so staging him is the Keeper's to propose and is not issued to the clerk (§135.28). The route is its exit alone.
-	assert.deepEqual(decisions[0].batch.questions.map((question) => question.key), ["exit"]);
+	// him, so staging him is the Keeper's to propose and is not issued to the clerk (§135.28). The one candidate is the
+	// declared action's time band (§138.10), asked by its fact about the declaration; then the exit.
+	assert.deepEqual(decisions[0].batch.questions.map((question) => question.key), ["need_1", "exit"]);
+	assert.ok(decisions[0].batch.questions[0].criteria.costs, "the time band's route question is the fact, not now/later");
 	assert.ok(!JSON.stringify(decisions[0].batch.questions).includes("看门人"));
 
 	// One real model output through the real provider path, and its tool call executed once, paired.

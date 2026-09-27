@@ -11,6 +11,7 @@ import { registerSourcePdf, SourceUnreadable } from "./source-registration.ts";
 import { publishableAssetNodes, validateMapRegions } from "./map-publication.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
+import type {PublicationTravel, TravelFill} from './travel-fill.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
@@ -50,6 +51,11 @@ interface Dependencies {
 	home: string;
 	runtime?: HostRuntime;
 	navigateFresh?: FreshSourceNavigator;
+	/**
+	 * §138.9: the build step that names the length of every road a publication adds (`createTravelFill`). Asked
+	 * before `module.read.finish`, so the minutes land in the same generation; never a reason to fail the reading.
+	 */
+	travel?(input: PublicationTravel): Promise<TravelFill | undefined>;
 	model(): { id: string; vision: boolean; thinking?: string; contextWindow?: number };
 	progress(row: Row): void;
 	record(row: Row): void;
@@ -1005,10 +1011,21 @@ export class ReadingService implements ReadingBridge {
 							assets.push({ node_id: node.node_id, ...asset });
 						}
 					}
+					let travel: TravelFill | undefined;
+					if (this.deps.travel && job.purpose !== "index" && job.purpose !== "answer") {
+						try {
+							travel = await this.deps.travel({ moduleId: job.module_id, ...(campaign !== undefined ? { campaign } : {}), job,
+								draft: JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")), signal });
+						} catch { travel = undefined; /* a road without minutes is the old behaviour, never a failed reading */ }
+						if (travel) this.deps.record({ ...travel.row, module_id: job.module_id, job_id: job.job_id, campaign });
+					}
 					publishing = true;
 					const published = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
-						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets }, campaign);
+						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets,
+						...(travel?.entries.length ? { travel: travel.entries } : {}) }, campaign);
 					publishing = false;
+					if (travel?.entries.length) this.deps.record({ lane: "travel-fill", event: "published", module_id: job.module_id, job_id: job.job_id, campaign,
+						filled: published?.travel?.filled ?? 0, skipped: published?.travel?.skipped ?? [] });
 					// §22.4.6.1 addendum (SL-55): the answer's focus was published while it read; the kernel put it back in the queue
 					// to be read again from this draft. The attempt is over; its slot is free and the next claim resumes it.
 					if (published?.requeued) this.note({ lane: "reading", event: "requeued", module_id: job.module_id, campaign, job_id: job.job_id,

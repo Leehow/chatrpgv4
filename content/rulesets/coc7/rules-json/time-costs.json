@@ -1,6 +1,6 @@
 {
   "source_rule_id": "core.time.cost_categories",
-  "source_note": "Time-cost categories for validating LLM time estimates. Each category defines min/default/max minutes. The script clamps LLM-proposed delta_minutes to [min, max] and writes an audit warning if clamped.",
+  "source_note": "Time-cost categories: a band table (contract §138). A Keeper or the host names a category on apply time {band}, and the kernel rolls the minutes uniformly inside [min, max] with its seeded dice, recording basis banded. default is the figure the build-time route fill takes for a road (spec band-then-roll D6). Nothing clamps an estimate; the table is read only through the band registry.",
   "categories": {
     "speak_briefly": { "min": 0, "default": 1, "max": 3 },
     "quick_observation": { "min": 0, "default": 1, "max": 5 },

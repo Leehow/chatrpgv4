@@ -22,6 +22,7 @@ import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
 import { publicSheet, objectLook } from "./mods.js";
 import { knownMapViews, mapCatalog, mapView, type AssetReader } from './maps.js';
+import { BAND_FIELDS, bandRows } from "../rules/bands.js";
 import { array, row, entries, number, integer, truth, string, repr, normalize, clone, sorted, type Row } from "./values.js";
 const LOOK_FOCUS = ["clues", "investigator", "map", "npc", "object", "scene", "session", "time"];
 const LOOKUP_KINDS = ["catalog", "module", "rule", "secret", "continuity"];
@@ -354,6 +355,16 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
             };
         },
         "table.workspace.read": async (params) => workspaceRead(context, params),
+        // Contract §138.8: the rows of a band table the kernel rolls from (`time.band`, `damage.band`), as `bandRows`
+        // lists them, for the host's shadow questions. No campaign: the rows are the rules', not a table's.
+        "rules.bands": async (params) => {
+            const fields = Object.keys(BAND_FIELDS).filter(key => ["range", "dice"].includes(BAND_FIELDS[key].supplies));
+            const field = params.field;
+            if (typeof field !== "string" || !fields.includes(field))
+                unsupported("field", field, fields);
+            const rows = await bandRows(context, field);
+            return { field, table: BAND_FIELDS[field].table, rows: rows.map(value => ({ ...value })) };
+        },
         "table.capsule": async (params) => {
             if (params.rehydrate != null && typeof params.rehydrate !== 'boolean')
                 throw new RpcError('invalid_params', 'params.rehydrate must be boolean when supplied');

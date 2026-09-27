@@ -9453,7 +9453,14 @@
       "from_node_id": "scene-basement",
       "to_node_id": "scene-ground-floor",
       "claim_id": "claim-basement-to-ground",
-      "properties": {}
+      "properties": {
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 1
+        }
+      }
     },
     {
       "relation_id": "rel-bed-attack-back-to-upper",
@@ -9541,7 +9548,14 @@
       "from_node_id": "scene-chapel-ruins",
       "to_node_id": "scene-neighborhood",
       "claim_id": "claim-chapel-to-neighborhood",
-      "properties": {}
+      "properties": {
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.92
+        }
+      }
     },
     {
       "relation_id": "rel-chapel-uses-floor-collapse",
@@ -9885,7 +9899,14 @@
       "from_node_id": "scene-corbitt-confrontation",
       "to_node_id": "scene-basement",
       "claim_id": "claim-confrontation-to-basement",
-      "properties": {}
+      "properties": {
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 1
+        }
+      }
     },
     {
       "relation_id": "rel-confrontation-to-defeat",
@@ -10165,7 +10186,14 @@
       "from_node_id": "scene-ground-floor",
       "to_node_id": "scene-upper-floor",
       "claim_id": "claim-ground-to-upper",
-      "properties": {}
+      "properties": {
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 1
+        }
+      }
     },
     {
       "relation_id": "rel-h2-reveals-tenants",
@@ -11005,7 +11033,14 @@
       "from_node_id": "scene-roxbury-sanitarium",
       "to_node_id": "scene-neighborhood",
       "claim_id": "claim-sanitarium-to-neighborhood",
-      "properties": {}
+      "properties": {
+        "travel_minutes": 30,
+        "travel": {
+          "basis": "banded",
+          "band": "local_travel",
+          "confidence": 0.95
+        }
+      }
     },
     {
       "relation_id": "rel-scene-basement-uses-rule-basement-knife-search",
@@ -11197,7 +11232,14 @@
       "from_node_id": "scene-upper-floor",
       "to_node_id": "scene-ground-floor",
       "claim_id": "claim-upper-to-ground",
-      "properties": {}
+      "properties": {
+        "travel_minutes": 0,
+        "travel": {
+          "basis": "banded",
+          "band": "adjacent",
+          "confidence": 1
+        }
+      }
     },
     {
       "relation_id": "rel-vittorio-asserts-weapon",

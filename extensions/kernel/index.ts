@@ -39,6 +39,10 @@ import { disableStepThinking, isFirstStepOfTurn } from "./first-step-thinking.ts
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
+import { bandShadowGate, readBandRows, shadowRow, shadowTargets, skippedRow, unaskedRow } from "./band-shadow.ts";
+import { SHADOW_FIELDS, type ShadowKind } from "../../runtime/jev/band-shadow-domain.ts";
+import type { BandResult } from "../../runtime/jev/band-recovery-domain.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease, type TaskClock } from "../../runtime/jev/task-context.ts";
 import { deliveryFloorBudget, jevStepsBudget } from "../../runtime/jev/host-budgets.ts";
@@ -4020,6 +4024,143 @@ export default function (pi: ExtensionAPI) {
 		return settleStandingDefense(state, state.session, signal);
 	}
 
+	/** §138.6: one band question per person or thing per turn; a second refusal goes to the Keeper without a question. */
+	const bandRecoveries = new WeakMap<TableState, Map<string, number>>();
+	/**
+	 * Contract §138.6 (BR-02): the kernel refused `needs {field}` for a band field. Ask Jev the band question from the
+	 * kernel's own rows and the person's or the thing's material; above the gate, pin the tier as a host write under its
+	 * own minted call id (archetype) or hand back the profile for the Keeper's own effect (weapon, model-origin only:
+	 * a tracked clerk request may not change). Every outcome writes its bind row; below the gate, on a spent budget or
+	 * without Jev the refusal stands exactly as it was.
+	 */
+	async function recoverBandNeeds(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>, needs: BandNeeds,
+		options: { signal?: AbortSignal; providerBudget?: TaskProviderBudget; origin: Record<string, unknown>; tracked: boolean },
+	): Promise<{ band: string; note: string; summary: Record<string, unknown> } | undefined> {
+		const began = Date.now(), env = process.env, refused = String(payload.call_id ?? "");
+		const action = (payload.action ?? {}) as Record<string, unknown>;
+		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : [];
+		const effect = needs.index !== undefined ? effects[needs.index] : undefined;
+		const name = needs.field === "archetype" ? asString(action.target) : asString(effect?.name);
+		if (!name) return undefined;
+		if (needs.field === "archetype" && tool !== "resolve") return undefined;
+		if (needs.field === "weapon" && (tool !== "apply" || !effect || options.tracked)) return undefined;
+		let asked = bandRecoveries.get(state);
+		if (!asked) bandRecoveries.set(state, asked = new Map());
+		const key = `${needs.field}:${name.trim().toLowerCase()}`, table = BAND_TABLES[needs.field];
+		const common = { turn: state.turn, tool, field: needs.field, table, name, refused_call_id: refused, ...options.origin };
+		if (asked.get(key) === state.turn) {
+			await record({ lane: "band-recovery", ok: false, reason: "already_asked", ...common });
+			return undefined;
+		}
+		asked.set(key, state.turn);
+		// No key, no question: nothing is read for it either.
+		if (!readJevApiKey(env)) {
+			await record({ lane: "band-recovery", ok: false, reason: "unconfigured", ...common });
+			return undefined;
+		}
+		const ask = { env, campaign: state.campaign, turn: state.turn, declaration: state.playerText ?? "", signal: options.signal,
+			...(options.providerBudget ? { parent: options.providerBudget } : {}) };
+		let result: BandResult | undefined;
+		if (needs.field === "archetype") {
+			let view: unknown = {};
+			try { view = await state.kernel.call("table.look", { campaign: state.campaign, focus: "npc", name, _context_read: true }); } catch { view = {}; }
+			result = await askBand(ask, { field: "archetype", person: { name, dossier: dossierOf(view) }, options: needs.options });
+		} else {
+			let profiles = needs.profiles ?? [];
+			if (!profiles.length) {
+				// The catalog answers at most 50 records per query (its own cap); a kernel with `needs.profiles` never comes here.
+				try { profiles = weaponProfilesOf(await state.kernel.call("table.lookup", { campaign: state.campaign, kind: "catalog", query: name, kinds: ["weapon"], limit: 50 })); } catch { profiles = []; }
+			}
+			const why = asString(effect!.why);
+			result = await askBand(ask, { field: "weapon", thing: { name, ...(why ? { why } : {}) }, options: needs.options, close: needs.close, profiles });
+		}
+		if (!result) {
+			await record({ lane: "band-recovery", ok: false, reason: "unconfigured", ...common });
+			return undefined;
+		}
+		const bindings = [{ name: needs.field, path: "banded", value: result.status === "decided" ? result.band : null, table,
+			...(result.status !== "decided" && result.band ? { band: result.band } : {}), confidence: result.confidence ?? null, distribution: result.distribution ?? null,
+			...(result.status === "decided" && result.family ? { family: result.family } : {}) }];
+		const cost = { jev_calls: result.calls, jev_ms: result.elapsedMs };
+		if (result.status !== "decided") {
+			await record({ lane: "run", event: "bind", clerk: "band_recovery", outcome: "keeper", cause: result.reason, bindings, ...cost, ...common });
+			await record({ lane: "band-recovery", ok: false, reason: result.reason, ...(result.confidence === undefined ? {} : { confidence: result.confidence }), ...cost, ...common });
+			return undefined;
+		}
+		let pinCallId: string | undefined;
+		if (needs.field === "archetype") {
+			pinCallId = mintCallId(state);
+			const pin = { campaign: state.campaign, call_id: pinCallId,
+				effects: [{ kind: "npc", name, archetype: result.band, why: pinWhy(name, result.band, result.confidence, ask.declaration) }] };
+			try {
+				// A pin is bookkeeping the declared check needs (§135.3): admission passes it, the Mod gates and the kernel judge it.
+				await admitAction(state, "apply", pin, options.signal, options.providerBudget, { ...options.origin, clerk: "band_recovery" });
+				if (mods) await mods.prepare("apply", pin, options.signal, options.providerBudget);
+				const written = await state.kernel.call<Record<string, unknown>>("table.apply", pin);
+				applyToolSuccess(state, "apply", `band-recovery:${pinCallId}`, written);
+				if (mods?.after) await mods.after("apply", pin, options.signal, options.providerBudget);
+			} catch (error) {
+				const cause = `pin_refused:${isKernelError(error) ? error.code : "internal"}`;
+				await record({ lane: "run", event: "bind", clerk: "band_recovery", outcome: "keeper", cause, call_id: pinCallId, bindings, ...cost, ...common });
+				await record({ lane: "band-recovery", ok: false, reason: cause, call_id: pinCallId, ...cost, ...common });
+				return undefined;
+			}
+		}
+		const pinned = pinCallId ? { call_id: pinCallId } : {};
+		await record({ lane: "run", event: "bind", clerk: "band_recovery", status: "succeeded", ...pinned, bindings, ...cost, ...common });
+		await record({ lane: "band-recovery", ok: true, band: result.band, confidence: result.confidence, ...pinned, ...cost, ms: Date.now() - began, ...common });
+		return { band: result.band, note: recoveryNote(needs.field, name, result.band, result.confidence, pinCallId),
+			summary: { field: needs.field, name, band: result.band, table, confidence: result.confidence, ...pinned } };
+	}
+
+	/**
+	 * §138.8: the rows of the two band tables the shadow asks over, read once per session through the kernel's
+	 * `rules.bands`; a read that failed or came back unusable is not kept, so the next landed effect reads again.
+	 */
+	const shadowRowReads = new Map<ShadowKind, Promise<ReturnType<typeof readBandRows>>>();
+	function shadowBandRows(kernel: TableState["kernel"], kind: ShadowKind): Promise<ReturnType<typeof readBandRows>> {
+		let pending = shadowRowReads.get(kind);
+		if (!pending) {
+			pending = kernel.call<Record<string, unknown>>("rules.bands", { field: SHADOW_FIELDS[kind] }).then((answer) => readBandRows(kind, answer));
+			shadowRowReads.set(kind, pending);
+			void pending.then((rows) => { if (!rows) shadowRowReads.delete(kind); }, () => { shadowRowReads.delete(kind); });
+		}
+		return pending;
+	}
+	/**
+	 * Contract §138.8 (BR-04): after a model-origin `apply` landed the Keeper's own `time {minutes}` or `damage {dice}`,
+	 * ask Jev the band question for each such effect in the background and write one `lane: "band-shadow"` row each.
+	 * It is scheduled after the tool result exists (the verifier lane's pattern), runs on the table's lane signal,
+	 * executes nothing, and however it breaks it never reaches the turn: the last-resort catch writes the row itself.
+	 */
+	function shadowBands(state: TableState, payload: Record<string, unknown>, settled: string[], host: unknown): void {
+		const targets = shadowTargets("apply", payload, host);
+		if (!targets.length) return;
+		const env = process.env, at = { turn: state.turn, callId: String(payload.call_id ?? "") };
+		const declaration = state.playerText ?? "", campaign = state.campaign, kernel = state.kernel, signal = state.lanes.signal;
+		const timer = setTimeout(() => {
+			void (async () => {
+				for (const target of targets) {
+					if (signal.aborted) return;
+					// No key, no question: nothing is read for it either.
+					if (!readJevApiKey(env)) { await record(skippedRow(target, at, "unconfigured")); continue; }
+					if (!declaration.trim()) { await record(skippedRow(target, at, "no_declaration")); continue; }
+					let rows: ReturnType<typeof readBandRows>;
+					try { rows = await shadowBandRows(kernel, target.kind); } catch { rows = undefined; }
+					if (!rows || rows.kind !== target.kind) { await record(unaskedRow(target, at, "rows_unavailable")); continue; }
+					const question = { field: target.kind, callId: at.callId, index: target.index, settled, rows: rows.rows } as ShadowQuestion;
+					const result = await askBand({ env, campaign, turn: at.turn, declaration, signal }, question);
+					if (!result) { await record(skippedRow(target, at, "unconfigured")); continue; }
+					await record(shadowRow(target, at, rows, result, bandShadowGate(env)));
+				}
+			})().catch((error) => {
+				void record({ lane: "band-shadow", turn: at.turn, call_id: at.callId, ok: false, reason: "lane_crashed",
+					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+			});
+		}, 0);
+		timer.unref?.();
+	}
+
 	async function runTool(
 		spec: CocToolSpec,
 		toolCallId: string,
@@ -4321,9 +4462,27 @@ export default function (pi: ExtensionAPI) {
 					state.skillRun.diverged = true;
 					if (!state.skillRun.refusal_classes.includes("material_pending")) state.skillRun.refusal_classes.push("material_pending");
 				}
+				// §138.6: a `needs` for a band field (archetype, weapon) is the host's to answer before it is the Keeper's.
+				const band = (spec.name === "resolve" || spec.name === "apply") && isKernelError(failure) ? bandNeeds(failure) : undefined;
+				const recovered = band ? await recoverBandNeeds(state, spec.name, payload, band, { signal, providerBudget, origin, tracked: dispatcher.tracksMutation(toolCallId) }) : undefined;
+				if (recovered) {
+					if (band!.field === "weapon") (payload.effects as Array<Record<string, unknown>>)[band!.index!].weapon = recovered.band;
+					// The same identity, retried once; admission and the Mod gates run again, as after a source preparation.
+					await admitAction(state, spec.name, payload, signal, providerBudget, origin);
+					if (mods) await mods.prepare(spec.name, payload, signal, providerBudget);
+					try { result = (await invokeOperation()) ?? {}; }
+					catch (again) {
+						// The pin landed; a retry refused for another reason says so in its fix, so the Keeper does not pin twice.
+						if (!isKernelError(again)) throw again;
+						throw new KernelError({ code: again.code, message: again.message, code_detail: again.codeDetail, retryable: again.retryable, next: again.next,
+							fix: [recovered.note, again.fix].filter(Boolean).join(" "), details: { ...(again.details ?? {}), band_recovery: recovered.summary } });
+					}
+					result.band_recovery = recovered.summary;
+					result.note = recovered.note;
+				}
 				// §11.5.6 (SL-62): a person named in a write or check that the graph and carried text both miss is
 				// resolved against the scene's known people before this unknown_entity stands.
-				if (isKernelError(failure) && failure.code === "unknown_entity" && (spec.name === "resolve" || spec.name === "apply")) {
+				else if (isKernelError(failure) && failure.code === "unknown_entity" && (spec.name === "resolve" || spec.name === "apply")) {
 					const resolved = await resolveUnknownPerson(state, spec.name, failure, payload, signal, providerBudget, invokeOperation);
 					if (resolved) result = resolved; else throw failure;
 				}
@@ -4400,6 +4559,8 @@ export default function (pi: ExtensionAPI) {
 			if (result._task_advance && dispatcher.tracksMutation(toolCallId))
                 pi.events.emit('coc:task-receipt-advance', result._task_advance);
 			const completedCombatMove = spec.name === "apply" ? combatSceneMove(state, payload) : undefined;
+			// §138.8: what the turn had settled before this call, taken before this call's own line joins it.
+			const settledBefore = spec.name === "apply" ? [...state.landed] : [];
 			if (partial) result = partialAdmissionResult(state, result, partial);
 			applyToolSuccess(state, spec.name, toolCallId, result);
 			if (spec.name === 'resolve') {
@@ -4417,9 +4578,10 @@ export default function (pi: ExtensionAPI) {
 					continuations: defense.continuations, session: defense.session, pending_choice: defense.pending_choice,
 					effects: [...(Array.isArray(result.effects) ? result.effects : []), ...(Array.isArray(defense.effects) ? defense.effects : [])],
 					receipts: [...new Set([...(Array.isArray(result.receipts) ? result.receipts : []), ...(Array.isArray(defense.receipts) ? defense.receipts : [])])],
-					note: 'The attack was declared and its investigator defense settled under the standing preference. Do not ask for or repeat this defense.'};
+					// §138.6: a note the band recovery already wrote on this result stays in front of the defence's.
+					note: [result.note, 'The attack was declared and its investigator defense settled under the standing preference. Do not ask for or repeat this defense.'].filter(Boolean).join(' ')};
 				else if (result.replayed) result = {...result, session: current.session, pending_choice: current.pending_choice,
-					note: 'This is a replay of the recorded action, not a new attack. Use the current session state; do not repeat settled defenses.'};
+					note: [result.note, 'This is a replay of the recorded action, not a new attack. Use the current session state; do not repeat settled defenses.'].filter(Boolean).join(' ')};
 			}
 			if (completedCombatMove) state.combatSceneMoves.delete(completedCombatMove);
 			if (closesOpening && sessionCtx) {
@@ -4502,6 +4664,8 @@ export default function (pi: ExtensionAPI) {
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
 			// conflict, quota — drops it inside publishWorkpadPatch without touching this result.
 			if (workpad) await publishWorkpadPatch({ record: (row) => record(row) }, workpad, signal);
+			// §138.8: the shadow asks once the result exists and never holds it; a replay was asked when it first landed.
+			if (spec.name === "apply" && result.replayed !== true) shadowBands(state, payload, settledBefore, host);
 			// SL-92: every effect of this apply landed (a partial with `notLanded` never reaches here -- it took
 			// the throw/refusal path below), and the Keeper embedded a closing narrate. Deliver it through the
 			// exact same function a standalone narrate call runs -- on a synthetic call of its own, so rendering,

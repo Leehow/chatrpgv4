@@ -10,6 +10,7 @@ import {taskWorldRevision} from '../read/context.js';
 import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-options.js';
 import {array, string, type Row} from '../read/values.js';
 import {obligationNodes, openGuards, sceneObligations} from '../read/obligations.js';
+import {unstatedDamage} from '../read/stated.js';
 import {activeMods} from '../read/mods.js';
 import {destinationView, grantingCues, guardedWay, unlockGuard} from '../read/destination-rows.js';
 
@@ -47,10 +48,12 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         const obligations=obligationNodes(graph,scene).length?sceneObligations(graph,campaign.world,scene,{
             receipts:[...(await campaign.files('turns')).flatMap(record=>array(record.receipts)),...array(campaign.turn.receipts)],
             modChecks:(await activeMods(context,campaign.world)).flatMap(mod=>array(mod.contributes.checks).map(check=>({mod:string(mod.id),check})))}):[];
+        // Contract §138.10: the harm a stated step this turn reached leaves unstated; absent when there is none.
+        const unstated=unstatedDamage(graph,array(campaign.turn.receipts));
         const session=new SessionView(campaign,graph,campaign.party,campaign.world);
         const promises=await fulfillmentPromiseNavigation(context,campaign);
-        return {version:1,candidates,...promises,...(obligations.length?{obligations}:{}),
-            revision:jsonDigest({source:module.generation,candidates,promises,...(obligations.length?{obligations}:{})}),
+        return {version:1,candidates,...promises,...(obligations.length?{obligations}:{}),...(unstated.length?{unstated_damage:unstated}:{}),
+            revision:jsonDigest({source:module.generation,candidates,promises,...(obligations.length?{obligations}:{}),...(unstated.length?{unstated_damage:unstated}:{})}),
             world_revision:taskWorldRevision(campaign.world,campaign.party,campaign.turn.receipts,campaign.turn.pending_choice),
             context:{scene:graph.displayName(scene),pending_choice:session.pendingChoice()||campaign.turn.pending_choice||null,
                 session:session.activeSession(),present:npcsPresent(graph,campaign.world,scene).map(node=>graph.displayName(node)),

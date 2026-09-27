@@ -11,6 +11,7 @@ import { carriesMechanics, mechanicsRefusals } from './mechanics-shape.js';
 import { shapeReviewPaths, statesMechanics } from './shape-review.js';
 import { anchors, pages, recordSpans, sameSpan, spanOf, type Anchor } from './transcription.js';
 import { REVIEW_VERDICTS, classificationMatcher } from './review-verdicts.js';
+import { preserveTravel } from './route-travel.js';
 const object = (value: any): boolean => isJsonObject(value);
 export function reject(message: string, path = '/'): never {
     throw new RpcError('invalid_params', message, {
@@ -618,7 +619,8 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
         const target = row(claim.object).node_id;
         if (array(contract.graph.relation_kinds).includes(claim.predicate) && typeof claim.claim_id === 'string' && typeof claim.subject_id === 'string' && typeof target === 'string') {
             const id = 'rel-' + claim.claim_id.replace(/^claim-/, '');
-            relations.set(id, { relation_id: id, relation_kind: claim.predicate, from_node_id: claim.subject_id, to_node_id: target, claim_id: claim.claim_id, properties: {} });
+            // Contract §138.9: a road's filled minutes survive the re-assembly its claim goes through at every publication.
+            relations.set(id, preserveTravel(relations.get(id), { relation_id: id, relation_kind: claim.predicate, from_node_id: claim.subject_id, to_node_id: target, claim_id: claim.claim_id, properties: {} }));
         }
         if (claim.predicate === 'knows' && target)
             for (const other of graph.claims) {

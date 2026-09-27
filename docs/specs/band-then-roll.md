@@ -400,8 +400,9 @@ shadow); the tool schema seam (that a field exists). No new seam is introduced.
 
 ## Out of Scope
 
-- Executing time or damage bands as clerk writes, or offering them as loop candidates: BR-06, blocked on the
-  owner's ruling (Further Notes). This spec only measures them.
+- ~~Executing time or damage bands as clerk writes, or offering them as loop candidates: BR-06, blocked on the
+  owner's ruling (Further Notes). This spec only measures them.~~ Ruled and done: BR-06, contract §138.10 (the
+  declared action's time; a stated step's unstated harm). A stated dice, sanity, cash and threat clocks stay out.
 - Money: no band, no roll, ever (§58).
 - Threat clocks (§30.9), sanity loss ladders (a consequence; the sanity table carries no sample-loss ladder as
   data today), NPC stance and movement, note, ruling, flag values.
@@ -418,7 +419,14 @@ shadow); the tool schema seam (that a field exists). No new seam is introduced.
 
 ## Further Notes
 
-**The ruling BR-06 waits for.** §135.3 lists the clerk's authority and calls consequences (damage, sanity,
+**Ruled (owner, 2026-09-26, after BR-01 merged): the three are lifted.** The clerk may land the banded time of the
+player's own declared action and the banded damage of a book-stated hazard when the rung clears its gate; §135.3's
+"consequences are boss-only", §136.24's "never for a hazard or a consequence" and the pacing-instrument reading of
+the clock are amended to that extent by BR-06's contract section. BR-06 is `ready-for-agent`; its gates are
+calibrated from BR-04's shadow rows, which is why BR-04 still precedes it. The paragraph below is kept as the record
+of what was asked.
+
+**The ruling BR-06 waited for.** §135.3 lists the clerk's authority and calls consequences (damage, sanity,
 cash beyond the declared) boss-only; §136.24 says the clerk acts "never for a hazard or a consequence"; the
 memory rule "the module is a reference, the clock is the Keeper's pacing instrument" says the same of time.
 Letting the clerk land a banded `time` for the player's declared action, or a banded `damage` for a hazard the

@@ -518,3 +518,45 @@ def test_a_lane_failure_reaches_the_printed_report(tmp_path):
     )
     assert "lanes:" in result.stdout
     assert "memory" in result.stdout
+
+
+def test_basis_counts_whose_number_each_receipt_carried_and_the_pins_a_band_named(tmp_path: Path):
+    """Contract §138.4 / §138.6: receipts by basis per kind, and archetype/weapon pins split by whether a
+    band_recovery bind row named their call."""
+    campaign = tmp_path / "campaigns" / "synth"
+    write_telemetry(campaign / "telemetry.jsonl", [
+        {"turn": 2, "lane": "run", "event": "bind", "clerk": "band_recovery", "status": "succeeded",
+         "call_id": "t2-c2", "refused_call_id": "t2-c1", "field": "archetype", "bindings": []},
+        {"turn": 3, "lane": "run", "event": "bind", "clerk": "band_recovery", "status": "succeeded",
+         "refused_call_id": "t3-c1", "field": "weapon", "bindings": []},
+        {"turn": 3, "lane": "run", "event": "bind", "clerk": "band_recovery", "outcome": "keeper",
+         "cause": "low_confidence", "refused_call_id": "t3-c4", "field": "archetype", "bindings": []},
+        # §138.10: the clerk's own bands -- one time band landed, one left to the Keeper, one damage band refused.
+        {"turn": 2, "lane": "run", "event": "bind", "clerk": "declared_time", "status": "succeeded", "call_id": "t2-c3",
+         "bindings": [{"name": "band", "path": "banded", "value": "single_room_search", "table": "time-costs"}]},
+        {"turn": 4, "lane": "run", "event": "bind", "clerk": "declared_time", "outcome": "keeper", "cause": "unknown_binding", "bindings": []},
+        {"turn": 4, "lane": "run", "event": "bind", "clerk": "stated_hazard", "status": "refused", "call_id": "t4-c2", "bindings": []},
+    ])
+    turns = campaign / "turns"
+    turns.mkdir(parents=True)
+    (turns / "0002.json").write_text(json.dumps({"turn": 2, "receipts": [
+        {"id": "npc:knott-t2-c2", "kind": "npc", "call_id": "t2-c2", "profile": {"archetype": "capable_adult"}},
+        {"id": "time:t2-c3", "kind": "time", "call_id": "t2-c3", "minutes": 20, "basis": "banded", "band": "single_room_search"},
+        {"id": "time:t2-c4", "kind": "time", "call_id": "t2-c4", "minutes": 5, "basis": "keeper"},
+    ]}), encoding="utf-8")
+    (turns / "0003.json").write_text(json.dumps({"turn": 3, "receipts": [
+        {"id": "item:knife-t3-c1", "kind": "item", "call_id": "t3-c1", "name": "knife", "weapon": "knife_medium"},
+        {"id": "item:pipe-t3-c2", "kind": "item", "call_id": "t3-c2", "name": "pipe", "weapon": "club_large"},
+        {"id": "npc:dooley-t3-c3", "kind": "npc", "call_id": "t3-c3", "archetype": "ordinary_adult"},
+        {"id": "roll:t3-c5", "kind": "roll", "call_id": "t3-c5", "basis": "stated", "stated": "chapel-floor"},
+        {"id": "delta:t3-c5", "kind": "delta", "call_id": "t3-c5", "basis": "stated", "stated": "chapel-floor"},
+        {"id": "clue:t3-c6", "kind": "clue", "call_id": "t3-c6"},
+    ]}), encoding="utf-8")
+    rows = kpi.load_rows(kpi.telemetry_path(str(tmp_path), "synth"))
+    assert kpi.basis(rows, str(tmp_path), "synth") == {
+        "by_kind": {"delta": {"stated": 1}, "roll": {"stated": 1}, "time": {"banded": 1, "keeper": 1}},
+        "pins": {"archetype": {"keeper": 1, "banded": 1}, "weapon": {"keeper": 1, "banded": 1}},
+        "clerk_bands": {"time": {"landed": 1, "refused": 0, "keeper": 1}, "damage": {"landed": 0, "refused": 1, "keeper": 0}},
+    }
+    # No turn records and no basis anywhere: the section is absent, not empty.
+    assert kpi.basis([], str(tmp_path), "nowhere") == {}

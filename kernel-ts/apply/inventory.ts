@@ -1,13 +1,14 @@
 /** Staged legacy equipment and era-specific cash; managed instances keep their owner. */
 import {RpcError} from '../errors.js';
-import {isJsonObject,PythonFloat,compareUnicode,jsonDigest} from '../json.js';
+import {isJsonObject,PythonFloat,jsonDigest} from '../json.js';
 import {moduleDeclaration} from '../read/module-graph.js';
 import {findNamedObject} from '../read/mods.js';
 import {EntityIndex} from '../read/memory.js';
 import {actor} from '../read/handlers.js';
 import {personLabel} from '../read/capsule.js';
-import {array,clone,integer,normalize,number,repr,row,similarity,string,truth,type Row} from '../read/values.js';
+import {array,clone,integer,normalize,number,repr,row,string,type Row} from '../read/values.js';
 import {RuleTables} from '../rules/tables.js';
+import {weaponBandOptions,weaponRowNamed} from '../rules/bands.js';
 import {Catalog} from '../rules/catalog.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
@@ -25,14 +26,12 @@ export async function stagedSheet(context:ApplyContext,staged:Map<string,Row>,na
 }
 async function weaponProfile(context:ApplyContext,sheet:Row,query:any,catalog:Map<string,Row>):Promise<Row>{
     if(typeof query!=='string'||!query.trim())throw new RpcError('invalid_params','weapon must be a weapons-table id or profile name');
-    let key=normalize(query);for(const prefix of ['weapon:','item:'])if(key.startsWith(prefix))key=key.slice(prefix.length);
-    const byName=new Map<string,string>();
-    for(const [id,entry] of catalog){const names=new Set([normalize(id),...['display_name','name'].filter(field=>typeof entry[field]==='string').map(field=>normalize(entry[field]))]);if(names.has(key))return {...entry,weapon_id:id};for(const name of names)byName.set(name,id);}
+    const found=weaponRowNamed(catalog,query);if(found)return found;
     const era=string(sheet.era||moduleDeclaration(context.graph.moduleNode).era||'');
-    const options=[...catalog].filter(([,entry])=>!era||!truth(entry.eras)||array(entry.eras).includes(era)).map(([id])=>id),close:string[]=[];
-    const matching=[...byName.keys()].map(name=>({name,score:similarity(key,name)})).filter(value=>value.score>=0.5).sort((a,b)=>b.score-a.score||compareUnicode(b.name,a.name)).slice(0,12);
-    for(const {name} of matching)if(!close.includes(byName.get(name)!))close.push(byName.get(name)!);
-    throw new RpcError('needs',`${repr(query)} is not a weapon profile in the rules tables`,{fix:'set weapon to one of details.needs.options (a weapons.json id or its display name), for an improvised weapon, keep the object name in name and choose the closest rulebook profile in weapon; later resolve.weapon uses that object name. Leave weapon out only for non-weapons',details:{needs:{field:'weapon',options,close:close.slice(0,6),source:'content/rulesets/coc7/rules-json/weapons.json'}}});
+    // Contract §138.6: the profiles behind the options ride as host-only detail (never named by `fix`, so never shown to
+    // the model): the host's band question reads a profile's skill and dice without a second catalog read.
+    const {options,close,profiles}=weaponBandOptions(catalog,era,query);
+    throw new RpcError('needs',`${repr(query)} is not a weapon profile in the rules tables`,{fix:'set weapon to one of details.needs.options (a weapons.json id or its display name), for an improvised weapon, keep the object name in name and choose the closest rulebook profile in weapon; later resolve.weapon uses that object name. Leave weapon out only for non-weapons',details:{needs:{field:'weapon',options,close,profiles,source:'content/rulesets/coc7/rules-json/weapons.json'}}});
 }
 function addItem(sheet:Row,name:string,quantity:Int,turn:number,source:string|null,label:string|null,profile:Row|null):void{
     const key=normalize(name);if(!Array.isArray(sheet.equipment))sheet.equipment=[];

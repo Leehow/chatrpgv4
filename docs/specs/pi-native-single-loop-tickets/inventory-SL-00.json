@@ -1592,6 +1592,32 @@
       "lines_at_0b729e8fb": []
     },
     {
+      "file": "extensions/kernel/band-recovery.ts",
+      "symbol": "askBand",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: band recovery (138.6, BR-02)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a (added at BR-02)",
+      "note": "Gate: a Jev key. Inside runTool's catch, only on a kernel needs refusal for archetype or weapon; one question per person or thing per turn, at most two requests, under its own lease and the refused call's provider budget; never drives a model run, never refuses (the refusal stands on every non-answer). BR-04 (138.8) asks its shadow questions through the same site: after a model-origin apply time {minutes} / damage {dice} landed, one request per effect in the background (setTimeout after the tool result, the table's lane signal, its own lease), recorded as a band-shadow row and executed nowhere.",
+      "lines_at_0b729e8fb": []
+    },
+    {
+      "file": "extensions/module/travel-fill.ts",
+      "symbol": "askTravel",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "module ext: build step fill travel minutes (138.9, BR-05)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a (added at BR-05)",
+      "note": "Gate: a Jev key and a publication that adds a route-to road without minutes. A build step of the book, never a turn's decision: the reading service asks it just before module.read.finish (setup's skeleton and opening readings, and the detail readings play requests), one Choice per new road fanned out in at most ceil(roads/12) requests under its own lease and an 8 s cap; the shipped starters were filled once through scripts/fill-starter-travel.ts. Never drives a model run, never fails the publication (a road it cannot name keeps no minutes).",
+      "lines_at_0b729e8fb": []
+    },
+    {
       "file": "runtime/jev/memory-read-owner.ts",
       "symbol": "registerMemoryReadOperations.execute",
       "kind": "task-runtime",

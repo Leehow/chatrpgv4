@@ -6256,6 +6256,8 @@ Enhanced Items 1.0.1 requires `weapons.profile.v2`: non-applicable range and
 malfunction fields may be null, and new creator results must explicitly declare
 the preset's `adds_damage_bonus` rule. Existing accepted definitions remain valid
 and unchanged. Player descriptions are generated in the campaign language.
+Enhanced Items 1.3.0 requires `weapons.preset.v1`: a weapon definition and an action usage copy the weapon preset
+the host names, and acceptance refuses a departure the creator did not state (§138.7).
 
 Packages contain `mod.json`, instructions, schemas and optional data/migrations.
 The manifest declares `id`, `version`, `game_api`, `state_version`, `name`,
@@ -24650,6 +24652,585 @@ builds the two-argument `TextGraph`.
 - **Never otherwise.** A table with narration-craft disabled gets `language` and `register` only, as §137.3 says of any table without a provider; a current narration-craft is its own provider. The file is never edited: new craft goes into the package, and an explicit upgrade (`mods.configure`) moves a campaign onto it.
 - **Size.** The table fit the old 2048/1536 budgets and still does; `tests/kernel/test_capsule_nine.py` asserts no `truncated: style` for a legacy lock in both forms.
 
+
+## 138. Band then roll: a rules row named instead of a number, rolled by the kernel (2026-09-26, BR-01 of `docs/specs/band-then-roll.md`; amends §135.28 and §136.22, extends §5's `table.apply` `time` and `damage`)
+
+§136.22 lets the Keeper name the book's amount instead of writing its own. Where the book prints only a scale — how
+long a search of one room takes, how hard a fall hurts — nothing let anyone name the rung, so the number was the
+Keeper's every time (2,199 `time` writes on the retained tables, 94 distinct values, the top twelve covering four
+fifths) and was filed `basis: "keeper"`, indistinguishable from a number the fiction demanded. This section adds the
+**band**: a row of a rules table, named by the Keeper or by a clerk, inside which the kernel rolls the number with its
+seeded dice and says so on the receipt. The design and its evidence are the spec's; this is the kernel half (BR-01).
+Who names a band for the clerk (Jev, above a gate) is BR-02 onward and is not here.
+
+### 138.1 The fifth binding path (amends §135.28)
+
+§135.28's four ways a clerk parameter is bound gain a fifth, `banded`: a closed parameter whose vocabulary is the rows
+of a band table (§138.2) and whose value is a number or a dice expression the row supplies as a range. The value the
+clerk writes is the **row's handle**, never a number; the kernel turns the handle into the number. Precedence:
+`stated` (the kernel issued the value, or the book states the amount) beats `banded`; `banded` beats `rule-default`;
+a parameter with neither an answer above the gate nor a default stays the Keeper's (`keeperOwns`). `BindingPath`
+(`runtime/jev/step-policy.ts`) carries `'banded'`, and a `BindRecord` of that path names `table`, `band` and, once the
+kernel answered, `roll`. Nothing here creates an `infer(bind)`. No policy transition binds `banded` in BR-01: the type
+and the row shape ship with the kernel half so that BR-02's bind rows and BR-04's shadow rows have one shape to write.
+
+### 138.2 The band registry (`kernel-ts/rules/bands.ts`)
+
+A **band table** is a rules-json table (or a block of one) whose rows each carry a range. The registry is the closed
+list of the tables and the field each binds; nothing scans rules-json for ranges, and a table is a band table only when
+it is written here. Four, none authored for this:
+
+| field | table · block | a row supplies | primitive a host asks with |
+| --- | --- | --- | --- |
+| `time.band` | `time-costs` · `categories` | `[min, max]` minutes and a `default` | Choice (kinds of activity) |
+| `damage.band` | `hazards` · `severity` | `damage_expr` | Score (the ladder's order: minor … splat) |
+| `npc.archetype` | `npc-stat-archetypes` · `archetypes` | per-characteristic and per-skill `[lo, hi]` | Choice |
+| `item.weapon` | `weapons` · `weapons` | the profile (damage die, range, uses, magazine, malfunction, impale, damage-bonus rule) | Choice in two levels: skill family, then profile |
+
+`bandRows(kernel, field)` lists a `range` or `dice` table's rows in the table's order as `{handle, min, max,
+default?}` or `{handle, dice, note?}`; a malformed row (no integer `min`/`max`, `min > max`, no dice string) or an
+empty block is `campaign_not_ready` naming the table and the row, with `fix` pointing at the file — a band never lands
+a number the table did not state. Archetype tiers and weapon profiles keep their existing fields and readers
+(`apply/archetype.ts` rolls inside the tier with `kernel.rng`; `apply/inventory.ts` resolves the profile and refuses
+`needs {field: "weapon", options}`); the registry names them so that one list says what a band is.
+
+`time-costs.json` was shipped for a Python-era clamp script and read by nothing (it sat in
+`tests/kernel/test_rules_tables_register.py`'s `UNREAD_TABLES`); it is read now, through the registry only, and its
+`source_note` says so. No row of any band table changes. The `local_travel` and `long_travel` categories exist for the
+build-time route fill (spec D6, BR-05): a road's time is the route edge's, and the host's per-turn question omits them;
+the kernel does not refuse them on `apply time`, because a refusal there would be the kernel judging the fiction.
+
+### 138.3 `apply time … {band}` and `apply damage … {band}` (extends §5; amends §136.22)
+
+`time` and `damage` accept `band: <handle>`, a row of their band table, in the slot the Keeper's own amount fills
+(`minutes`; `dice`). The kernel binds `stated` first (§136.22), then `band` (`kernel-ts/apply/band.ts`), then stages
+the effect as today:
+
+- **time:** one integer rolled uniformly in the row's `[min, max]` with `kernel.rng` — the same seeded dice as
+  `stated_roll` and the archetype roll — becomes `minutes`; the clock, the rest entry (≥ 360) and the magic-point
+  recovery (≥ 60) run on it exactly as on a Keeper's number. A row whose `min` is 0 (a few words, a glance) may roll
+  0: the receipt, the event and the card carry it exactly as a Keeper's `minutes: 0` would.
+- **damage:** the row's `damage_expr` becomes `dice` and is rolled where `dice` is rolled today.
+
+The roll happens inside the apply transaction. A replayed call (same `call_id`, same params) returns the journaled
+result with `replayed: true` and never rolls again; a refused batch writes nothing, as every `apply` batch does.
+
+| reason | refused (`details.field: "band"`) |
+| --- | --- |
+| `band_none` (`invalid_params`) | `band` on an effect kind the registry does not bind (`fix` names the kinds that take one) |
+| `band_conflict` (`invalid_params`) | `band` beside the field it fills — `minutes`; `dice` — or beside `stated` (`details.fields` names them; with `stated`, `details.stated` names the node) |
+| `band_unknown` (`unknown_entity`) | the handle, folded like every table name the kernel reads (`tableSlug`: case, spaces and hyphens, so "Single Room Search" is `single_room_search`), is not a row of the table (`details.table`; `details.options` lists the rows as `bandRows` returns them) |
+
+Every `fix` names the `details` key it points at, so the host projects it to the model (§8, "what a `fix` names in
+`details`, the model sees").
+
+**Whose number it was.** `stampBasis` writes the third word: every receipt an effect of these kinds mints carries
+`basis: "banded"` with `band: <handle>`; a time receipt also carries `band_roll: {min, max, total}`; a damage effect's
+`roll` and `delta` receipts both carry `basis` and `band`, and the roll receipt's own `expression`/`total` are the
+band's dice as rolled. `"stated"` and `"keeper"` are exactly what §136.22 made them. The mechanics projection changes
+nothing: a banded time is a time card, a banded damage a damage card, and numbers stay off the prose (§16.3).
+
+**What is never a band** (spec D10): money (§58, every amount names its source; a rolled price is a fabricated price with
+a receipt), a threat's advance (§30.9), quantities (default 1), and every open word — `why`, `how`, `label`, `via`, a
+note's text, a ruling's statement, a definition's description. A band never fills a value the kernel issues or the book
+states.
+
+### 138.4 The tools, the fake kernel, three ends
+
+The `apply` tool's `time` and `damage` effects offer `band` (`extensions/kernel/tools.ts`, beside `stated`; `minutes`
+and `dice` were already optional for `stated`). A field only the kernel reads is one the Keeper can never send (§88.5),
+and a schema field the kernel does not read is refused on every retry, so the two halves ship in one change and the
+kernel is restarted with the rebuild. The Keeper may therefore name a band in its own call today; whether the base
+prompt should say so is a prose-mod question (spec Further Notes). The fake kernel
+(`tests/extension/fixtures/fake-kernel.mjs`) accepts `band` on `time` and `damage`, refuses `band_none` and
+`band_conflict` the way the real one does, and rolls a fixed twenty minutes for a banded time.
+
+*Writer:* the Keeper's call, or (from BR-02) the clerk's, naming the handle; the kernel, rolling and stamping.
+*Reader:* the turn record's receipts, the kpi's basis count (BR-02), the bind row (BR-02). *Actor:* the kernel — the
+clock, the healing engine and the hit points move on the rolled number exactly as on the Keeper's.
+
+### 138.5 Tests (BR-01)
+
+`tests/kernel/test_band_operations.py`, over the emitted kernel on a derived haunting (the shipped graph plus one
+stated rule for the conflict case; the dice seeded, never stubbed): a banded time lands inside the category's range
+with `basis`, `band` and `band_roll`, and the same seed and call sequence give the same total; a banded damage rolls
+the rung's dice with `basis: "banded"` on both receipts and the hit points move by the total; `band` beside `minutes`,
+beside `dice` and beside `stated` is `band_conflict` naming the fields and writes nothing (clock and receipts unchanged);
+a wrong handle is `band_unknown` with the rows in `details.options`, and a handle in any case or spacing folds to the
+row; `band` on `cash` is `band_none`; a malformed row in the table (a `min` above its `max`) is `campaign_not_ready`
+naming the table and the row, and writes nothing; a replayed banded call returns the journaled total; a banded night's sleep after a banded minor injury returns the hit point (`recovered`)
+exactly as a Keeper's minutes would. `tests/extension/band-operations.test.mjs`: the schema offers `band` on `time` and
+`damage` and on no other effect, every old shape stays valid, the extension passes `band` through untouched, and the
+fake kernel's `band_conflict` and `band_none` reach the Keeper. `tests/kernel/test_rules_tables_register.py` drops
+`time-costs` from the unread list. Every starter's capsule, `table.apply.options` and `table.resolve.options` are
+byte-identical to the parent commit `dbc502675` (no read changes; checked in the ticket's Comments).
+
+### 138.6 The host pins a tier or a profile on the kernel's own `needs` (2026-09-26, BR-02 of `docs/specs/band-then-roll.md`; extends §138.1 and §135.4)
+
+Two kernel refusals name a band table's rows in `details.needs.options`: `needs {field: "archetype"}` (a combat or a
+check against a person the book gave no numbers, `kernel-ts/combat`) and `needs {field: "weapon"}` (an item whose
+`weapon` is no rulebook profile, `kernel-ts/apply/inventory.ts`). Until now both came back to the Keeper as one more
+model round trip whose only content was a closed choice. The kernel extension answers them first.
+
+**Where.** In the execute stage every Keeper call and every clerk call passes through (`runTool`, the same catch that
+retries a call after a source preparation), so the legacy loop and hybrid-v1 take one path. When the kernel refuses a
+`resolve` or an `apply` with such a `needs`, the host:
+
+1. reads the state the question needs — the person's own view (`table.look focus=npc`, reduced to the dossier fields
+   a tier is judged by: role, wants, fears, summary, voice, and so on, never a handle or an id) with the player's
+   declaration of the turn; or the thing's name and `why` with the profiles behind the options (the refusal now
+   carries them as host-only detail, `details.needs.profiles: [{id, name, skill, damage, range}]`, a key no `fix`
+   names and so never shown to the model; a kernel without them is read through `table.lookup kind=catalog`);
+2. asks Jev the band question (`runtime/jev/band-recovery-domain.ts`, family `band-recovery`): the tier as one
+   Choice over the options with the tier descriptors and an `unknown` exit; the profile in two levels — the weapon
+   skill family first (Choice over the families the options span, with `none`), then one Choice per family kept
+   (the best three, spec D2's beam) over that family's profiles with `none`; the pinned profile is the best
+   family-weighted answer and its confidence is the weakest of the two judgments, never their product;
+3. above the table's gate (`PI_COC_BAND_MIN_CONFIDENCE` in (0, 1], default 0.5 for both tables until the bind
+   rows calibrate them; the cap `PI_COC_BAND_JEV_TIMEOUT_MS`, default 4000): for a tier, writes `apply npc {name,
+   archetype, why}` as a host operation under a call id minted from the one ordinal (§135.4; a self-made id is
+   refused), its `why` composed by code from the answer and the player's words (§135.28), through admission (a
+   pin is bookkeeping the declared check needs, §135.3: the batch has no triggering kind), the Mod gates and the
+   kernel, which rolls the tier once (§34.10); for a profile, sets the one field of the Keeper's own effect; then
+   retries the refused call once under its own identity (same `call_id`, admission and Mod gates run again);
+4. writes the §135.28 bind row — `lane: "run"`, `event: "bind"`, `clerk: "band_recovery"`, `status: "succeeded"`
+   or `outcome: "keeper"` with its `cause`, `bindings: [{name, path: "banded", value, table, confidence,
+   distribution, family?}]`, the pin's `call_id`, the `refused_call_id` — and one `lane: "band-recovery"` row with
+   `ok` and `reason`, so `kpi.py`'s lanes section counts it; nothing is written for a question never asked
+   (`unconfigured`: no key).
+
+The Keeper sees the retried result with `band_recovery: {field, name, band, table, confidence, call_id?}` and a
+`note` (Keeper-only, system language): "The host pinned <name>'s stat block as <tier> before this call ran ...; to
+rule otherwise, settle it with your own apply npc" / "The host read <thing> as the rulebook profile <id> ... and this
+call ran with it". The standing-defence and replay notes follow it rather than replace it. A retry the kernel refuses for another reason
+(the pin landed, the attack still lacks a weapon) reaches the Keeper as that refusal with the recovery's note in front
+of its `fix` and `band_recovery` in its details, so the Keeper never pins the same person twice. On hybrid-v1 the
+`coc-clerk` note's `clerk_did[].binding` gains the same line for a clerk write recovered this way.
+
+**Boundaries.** One question per person or thing per turn: the second refusal for the same name goes to the Keeper
+without a question (`reason: "already_asked"`). One retry, never a loop. Below the gate, on `unknown` or `none`, on
+a spent lease, with Jev unavailable or unconfigured, or when the pin itself is refused (`pin_refused:<code>`), the
+Keeper sees the original refusal byte for byte and the bind row says why. Without a key nothing is read for the
+question either. A profile is set only on a model-origin
+call: a tracked clerk request may not change after it was prepared (`operation_prepared_request_changed`), so a
+clerk item write with a wrong profile stays refused and is the Keeper's. A tier is pinned for the `target` of a
+`resolve` only; a `needs archetype` from any other shape is the Keeper's.
+
+**kpi.** `tests/play/kpi.py` gains `basis`: receipts by `basis` per kind from the turn records, and `pins` — archetype
+tiers and weapon profiles split into `banded` (a `band_recovery` bind row names the call) and `keeper`.
+
+**Tests.** `tests/extension/jev-band-recovery-domain.test.mjs` (the questions over a stub port: rows as criteria with
+their descriptors and an exit on every question; the tier's exits; the family beam, the weakest confidence, an answer
+outside its family never pinned); `tests/extension/band-recovery.test.mjs` (the extension over the fake kernel with a
+controlled typed endpoint: the pin under `t1-c2` and the retry under `t1-c1`; the note; the bind rows; below the gate,
+`unknown`, the same person twice, no key; the profile in two levels under the same call id; `none`);
+`tests/play/test_kpi.py` (the basis section). The fake kernel refuses an unpinned person (`FAKE_KERNEL_UNPINNED`) and a
+wrong profile against its own table (`FAKE_KERNEL_WEAPON_PROFILES`), accepts the pin, and answers `look focus=npc`
+with the person's row.
+
+### 138.7 The item creator copies a host-chosen preset (2026-09-26, BR-03 of `docs/specs/band-then-roll.md`; extends §138.6 and the Enhanced Items `mods.job` / `mods.accept` contract)
+
+A weapon definition's numbers, and an attack usage's, were the creator child's own: the whole weapons table rode
+along in `request.catalogs` as "evidence", so two revolvers defined by two children fired differently and nothing
+tied a definition's dice to a rulebook row. Now the host names the row before the job is minted (the two-level weapon
+question of §138.6), the kernel writes it into the packet projected onto the definition's parameters, the creator
+copies it, and acceptance refuses a departure the creator did not state. The spec's D7 says the departure is stated
+"in `basis`"; it is a structured field instead (`deviations`), because the gate counts statements and cannot read prose.
+
+**Which jobs take a preset.** A `create` job of category `weapon` or a `usage` job that is not a proposal
+(`input.propose`), whose materializer declares the new capability `weapons.preset.v1` (Enhanced Items 1.3.0 is the
+first), and that will run a creator: not a `create` whose name is already a non-placeholder definition of the same
+category, not a `usage` with a fresh accepted usage of the same name (both are reuses, §129), and not a `create` whose
+`template` names a weapons row (the Keeper named its evidence; the template stays evidence, as before). Items, spells,
+audits and prefetched proposals take none; neither does any job of a campaign locked to Enhanced Items 1.2.2.
+
+**The offer and the choice (`mods.job` gains `offer_preset` and `preset`, host-only like every `mods.job` param).**
+
+- `offer_preset: true` on a job that takes a preset and names none answers `{enabled: true, preset_offer: {field:
+  "weapon", table: "weapons", for: "define" | "usage", turn, declaration, thing, options, close, profiles}}` and mints
+  nothing: no job directory, no packet. `options` are the ids of the weapons table the era allows (the first party
+  sheet's `era`, else the module's), `close` up to six ids nearest the thing's name, `profiles` `{id, name, skill,
+  damage, range}` per option: the same reading as the kernel's `needs {field: "weapon"}` refusal, now one function
+  (`weaponBandOptions`, with `weaponRowNamed`, in `kernel-ts/rules/bands.ts`; the refusal's bytes are unchanged).
+  `thing` is `{name, description}` for a definition; for a usage, the object's name, `why: "<usage name>: <usage
+  description>"` and the description of the object's recorded definition. `declaration` is the turn's player text.
+  A job that takes no preset answers with the job itself, so `offer_preset` costs nothing where it does not apply.
+- `preset: {weapon, confidence}` mints the job with it. `weapon` must be one of the offered ids and `confidence` a
+  number in [0, 1], else `invalid_params` with `details.reason: "preset_unknown"` and `details.options`. The packet gains
+  `request.preset: {table: "weapons", id, name, confidence, parameters, profile}`: `profile` is the table row as it
+  is; `parameters` is that row under the definition's own parameter names, the way the combat engine reads it —
+  `skill`; `damage` (the row's `damage_die` through the definition's dice grammar); `adds_damage_bonus`;
+  `base_range_yards` (null when the row has none); `uses_per_round` (`parseUsesPerRound`'s shots, only when the row
+  allows a positive number of attacks every round: a full-auto-only row or one use every few rounds states none);
+  `magazine`; `malfunction`; `impale` (the row's `impales`). A field the row cannot state in that shape is absent and
+  stays the creator's. `request.catalogs` is unchanged. A `preset` sent for a job that takes none is ignored.
+- Neither: the job is minted exactly as before, without a preset.
+- **The preset is identity.** `identity.request` gains `preset: <digest of the whole request.preset block>`, so the
+  same row chosen with the same answer is the same retained job and a different row or answer never is; `mods.accept`
+  recomputes the key from the retained packet the same way. The child can write its own directory, so a packet whose
+  preset was edited there is refused as a changed request (`needs`, "The retained Mod preparation request changed")
+  and is never gated by the edited block. A usage packet's `usage_request_digest` already covered the whole packet.
+- **A queued registration keeps its preset (§129).** A later `create` for the same registration (its input equals the
+  marker's `define`) reads `request.preset` back from the marker's own retained packet and ignores `offer_preset` and
+  `preset`, so the generation resumed at the next turn lands where the marker looks.
+- The answer of a minted job carries `preset: {weapon, confidence}` when its packet has one.
+
+**The creator (Enhanced Items 1.3.0, `mods/enhanced-items/creator.md`).** With `request.preset` the weapon parameters
+are the preset's, copied field for field (`skill, damage, adds_damage_bonus, base_range_yards, uses_per_round,
+magazine, malfunction, impale`); a field may depart only where the description (for a usage, also the object's
+recorded definition, traits or condition) states a physical fact that contradicts the preset, and every departure is
+listed in the result's top-level `deviations: [{field, reason}]`, the reason naming that fact in English. Prose,
+traits, the document and `player_view` stay generated in the play language. Without `request.preset` the creator
+writes no `deviations` and works as in 1.2.2. Package bytes are frozen per version: 1.3.0 ships at digest
+`681d03ddf0be5454e3ae5172001f862dcfd9da7710eeec275a70ecc928401909`; a campaign locked to 1.2.2 keeps its frozen bytes
+(digest `7714ce10e86032ebf427e45c63e61d38a4dabb8f75dabb2d6182f7d3638f54af`) and today's behaviour until explicitly
+upgraded, and nothing already accepted is rewritten.
+
+**The gate (`kernel-ts/mods/preset.ts`; `mods.accept` for `create` and action `usage`, and the definition checker).**
+With a preset in the packet, `deviations` is taken off the draft first — at most eight `{field, reason}`, each field
+one of the eight names and listed once, each reason nonempty and at most 600 characters, else `invalid_params`
+`preset_deviation_shape` — then the draft is validated by the ordinary definition or usage validator, then every field
+the preset states is compared with the validated value (skill folded like every table name; damage uppercased; absent
+reads as null for `base_range_yards`, `magazine`, `malfunction`). A departure not listed is `preset_deviation`; a
+listed field whose value equals the preset, or that the preset does not state, is `preset_deviation_unfounded`. All
+findings go in one refusal: `invalid_params`, a message naming the fields, a `fix` naming `details.findings`, and
+`details: {reason: <the first finding's code>, preset: <id>, findings: [{code, field, preset, value}]}`. The reason is
+never judged for truth: the gate checks accounting, not content. An accepted definition's or usage's provenance gains
+`preset: {table, id, confidence}` and `deviations` (the list, `[]` when every field was copied), so a definition's dice
+are traceable to a rulebook row; `deviations` is never a definition field. Without a preset nothing is gated and a
+`deviations` field is refused as an unknown definition field, exactly as before. The checker the host runs before
+acceptance (`kernel-ts/check.ts`, kinds `mod-definition` and `object-usage`) reads the draft's sibling `request.json`
+and runs the same gate, so the child's repair round hears the same findings; a draft outside a job directory is checked
+as before. A reused accepted usage whose provenance carries `preset` and `deviations` passes the retained-provenance
+check.
+
+**The host (`extensions/mods/creator-preset.ts`; `mintJob` in `extensions/mods/index.ts`).** A weapon `create` or an
+action `usage` is minted with `offer_preset: true` (every other job with the one call it always was). On an offer the
+host asks §138.6's weapon question (`askBand`: skill family, then the profiles of the best three families, `none` at
+each level; state = the offer's `thing` and `declaration`), under `PI_COC_BAND_MIN_CONFIDENCE` (default 0.5) and
+`PI_COC_BAND_JEV_TIMEOUT_MS` (default 4000), charged to the calling job's provider budget when it has one, and mints with
+`preset` when the answer clears the gate, without one otherwise (below the gate, `none`, Jev unavailable or
+unconfigured). One question per offered job identity (campaign, turn, role, input, preview) per process: the deferral
+of §129.4 and the generation beside the turn mint the same job from one answer. Cost: a deferred weapon definition now
+waits in the foreground for one band question (median about 0.3 s, capped by the timeout) before its marker lands.
+
+**Telemetry.** Every question writes the §135.28 bind row — `lane: "run"`, `event: "bind"`, `clerk: "creator_preset"`,
+`status: "succeeded"` or `outcome: "keeper"` with its `cause`, `bindings: [{name: "weapon", path: "banded", value,
+table: "weapons", confidence, distribution, family?}]`, `jev_calls`, `jev_ms`, `job`, `for`, `name` — and one `lane:
+"band-recovery"` row with `ok`, `reason` (`decided`, `low_confidence`, `none`, ...), `for: "define" | "usage"`, `name`,
+`job`. Without a key only the `band-recovery` row is written (`reason: "unconfigured"`): no question, no bind row.
+`kpi.py`'s `basis.pins` still counts only `band_recovery` bind rows; a count of preset-copied definitions is not here.
+
+*Writer:* Jev names the row through the host; the kernel writes `request.preset` and the provenance. *Reader:* the
+creator child (`request.json`), the gate. *Actor:* the creator copies the row; the kernel refuses what departs unstated.
+
+**Tests.** `tests/extension/creator-preset.test.mjs` (the TS kernel over its testing seam with the shipped packages, the
+definition checker, and the real Mods extension with a fake creator child and a controlled typed endpoint behind the
+real decision adapter): the offer mints nothing and names the era's rows, the thing and the declaration; a job without a
+preset has none in its packet; with one the packet carries the projected row, the preset is identity, and a row the
+definition cannot hold leaves `uses_per_round` unstated; a preset edited in the retained packet is refused as a changed
+request; a queued registration keeps its preset a turn later; items,
+spells and a weapons-row template are not offered; the gate refuses an unstated departure (at acceptance and in the
+checker), an unfounded and a malformed statement, accepts a copied and a stated one and records them in provenance;
+without a preset nothing is gated; a usage is offered the object and gated on its parameters; 1.3.0 and 1.2.2 load at
+their digests and a 1.2.2 campaign is offered nothing; the host mints with the profile above the gate asking one
+question for the deferral and the generation beside it, mints without one below the gate, on `none` and without a key
+with the rows saying why, and a usage batch waits for its preset. `tests/fixtures/mods/enhanced-items-v122/` holds the
+1.2.2 package bytes. `tests/extension/object-usages-host.test.mjs` now expects `offer_preset: true` on a usage job.
+### 138.8 The shadow lane: Jev's band beside the Keeper's own `time` and `damage` (2026-09-26, BR-04 of `docs/specs/band-then-roll.md`, decision D9; extends §138.1 and §138.2, adds the read method `rules.bands`)
+
+Whether a clerk may land a banded `time` or `damage` (BR-06) is calibrated with numbers in hand. This section produces
+them: for every number the Keeper still writes for those two kinds, the band Jev would have named, recorded beside it
+and executed nowhere.
+
+**Trigger.** After a model-origin `apply` succeeds (`dispatcher.hostOrigin(toolCallId)` is undefined, and the result is
+not a replay), each of its effects that carries the Keeper's own number — `time` with numeric `minutes`, `damage` with a
+`dice` string, and neither `stated` nor `band` — is one shadow question. A host-origin (clerk) write, a `stated` or
+`band` effect, every other kind, a refused call, and a replayed call (`replayed: true`: it was asked when it first
+landed) are never asked. `runTool` schedules the lane after the tool's own telemetry row, right before it returns the
+result, with `setTimeout(0)` (the verifier lane's pattern, §12.5), on the table's lane signal; the effects of one call
+are asked in order. The lane never holds the tool result, the turn or the delivery; its failures are rows, never
+refusals, and its last-resort catch writes the row itself (`reason: "lane_crashed"`).
+
+**The rows: `rules.bands`.** A kernel read method: `rules.bands {field: "time.band" | "damage.band"}` →
+`{field, table, rows}`, the rows of that band table exactly as `bandRows` lists them (§138.2) — `{handle, min, max,
+default?}` for `time-costs.categories`, `{handle, dice, note?}` for `hazards.severity` — in the table's order. It takes
+no campaign (the rows are the rules', read from `content/`) and writes nothing. Any other field (the registry's
+`npc.archetype` and `item.weapon`, an unknown one, none) is `invalid_params` with `details: {field: "field", options:
+["time.band", "damage.band"]}` and a `fix` naming `details.options`; a malformed row is `campaign_not_ready` naming the
+table and the row, as for `apply … {band}`. The extension reads each field once per session and keeps it; a failed or
+unusable read is not kept, so the next landed effect reads again. The fake kernel answers it from the shipped rules-json.
+
+**The two questions** (`runtime/jev/band-shadow-domain.ts`, family `band-shadow` version 1; asked through `askBand` in
+`extensions/kernel/band-recovery.ts`, which stays the one inventoried `createDecisionAdapter` site, under a lease of
+its own, capped by `PI_COC_BAND_JEV_TIMEOUT_MS`, default 4000, one request):
+
+- **time** — one Choice (key `time_cost`) over the time-cost categories **without** `local_travel` and `long_travel`
+  (a road's time is the route edge's, spec D2/D6, §138.2), each criterion the row's name and its minute range
+  ("single room search: 10 to 45 minutes"), plus an `unknown` exit.
+- **damage** — one Score (key `severity`) over the severity rungs in the table's order, lowest first, each level the
+  rung's name, dice and rulebook note ("minor, 1D3: A person could survive numerous occurrences …"). No exit: the harm
+  happened (the Keeper wrote it); the question is only how bad. A ladder of more than ten rows cannot be a Score and is
+  recorded `schema_error` without a request.
+- **state, both** — `{declaration, settled_this_turn}`: the player's declaration of the turn (600 code points at most)
+  and the host's own "already settled this turn" lines (`state.landed`, the list the admission review reads: `apply
+  landed: <receipt ids>`, `resolve settled (<outcome>)`), taken before this call's own line joins them, the last
+  sixteen. **Never** the Keeper's `why`, `minutes`, `dice` or anything else of the call being measured: the answer must
+  not be read off the number it is compared with.
+- **the band** is the argmax of the distribution (the first row in the table's order on a tie); on the time question
+  an argmax on `unknown` is an answer with no band. No gate is applied anywhere: `PI_COC_BAND_MIN_CONFIDENCE` (default
+  0.5, §138.6's placeholder) is read only to be written on the row as `gate`.
+
+**The row.** One `lane: "band-shadow"` telemetry row per asked effect:
+
+| field | value |
+| --- | --- |
+| `turn`, `call_id`, `index` | the settled call and the effect's position in its batch |
+| `kind`, `table` | `time` / `time-costs`; `damage` / `hazards` |
+| `keeper_value` | the Keeper's `minutes` (a number) or `dice` (a string), as the kernel received them |
+| `ok` | Jev answered: a distribution exists |
+| `band` | the argmax row's handle; `null` on the `unknown` exit (then `reason: "unknown"`) or without an answer |
+| `range` | the time row's `{min, max}`; the rung's dice for damage; `null` without a band |
+| `inside` | time: `min ≤ minutes ≤ max`; damage: the Keeper's dice equal the rung's, case and spacing ignored; `null` without a band |
+| `confidence`, `distribution` | Jev's confidence and its distribution by row handle (the time question's includes `unknown`); `null` without an answer |
+| `score` | damage only: the Score's probability-weighted level |
+| `gate` | the configured gate, recorded for the report |
+| `ms`, `jev_calls` | the question's Jev time and requests (0 when refused before sending) |
+| `reason` | with `ok: false`: the adapter's failure (`timeout`, `service_error`, `schema_error`, `budget_exhausted`, …), `answer_unknown`, `no_answer`, `shadow_owner_error` |
+
+A question never asked writes one row and nothing else. A deliberate skip is not a failure and uses the project's skip
+convention (the admission lane's): `{lane, turn, call_id, index, kind, ok: true, skipped}` with `skipped:
+"unconfigured"` (no Jev key: nothing is read either) or `"no_declaration"` (a turn without player text, such as the
+opening), so a table without a key never reads as a failing lane in `kpi.py`. A question that could not be asked is a
+failure: `{lane, turn, call_id, index, kind, ok: false, reason: "rows_unavailable"}` (the kernel could not list the
+rows), like `lane_crashed`. Below-gate answers are written like every other.
+The row is telemetry only: no session entry, no bus event, nothing in the capsule, the Keeper's context or any later
+turn (§13.7's rule: a measurement never feeds back into what it measures).
+
+**What it never does.** It executes nothing: no kernel write, no receipt, no card, no prose, no clock; the Keeper's tool
+result is the kernel's, untouched. It is not admission (§32) and not a clerk (§135.3): it binds nothing, and no
+consequence boundary moves here (BR-06 amends them).
+
+**The report.** `tests/play/band_shadow_report.py` (importable, with a `main`) over one or several campaigns'
+`telemetry.jsonl` (`--campaign` repeatable, `--all` under `--workspace`, or files; `--json`): per kind (and so per
+table) — rows; unasked (by `skipped` or `reason`) and failed (by `reason`); answered, banded, unknown; hits and hit rate (`inside` over the banded
+rows); for each candidate gate 0.5 / 0.6 / 0.7 / 0.8 the banded rows at or above it, their share of the answered rows
+(`rate`: how often a clerk would have bound) and their hit rate; the Jev seconds (calls, mean, total over the rows that
+sent a request); the argmax rows by count. It is the owner's evidence and BR-06's calibration; running it over real
+tables is the integrator's.
+
+*Writer:* the kernel extension (`shadowBands` in `extensions/kernel/index.ts`; the pure glue in
+`extensions/kernel/band-shadow.ts`). *Reader:* the report (its `unasked` counts both the `skipped` and the unasked
+`reason` rows); `kpi.py`'s lanes section counts the rows by `ok`. *Actor:*
+the owner and BR-06, away from the table; nothing at the table acts on a shadow row, by design.
+
+**Tests.** `tests/kernel/test_rules_bands.py` (the read over the emitted kernel: rows in the table's order with ranges,
+dice and notes, no campaign; the other fields refused with the options; a malformed row loud);
+`tests/extension/jev-band-shadow-domain.test.mjs` (the questions over a stub port: rows, ranges and the exit, the road
+rows absent, the state, the argmax and its tie, the Score's levels by handle, every non-answer's reason; the glue: own
+numbers only, never a host-origin call, `inside` at both ends, the rows); `tests/extension/band-shadow.test.mjs` (the
+extension over the fake kernel with a controlled typed endpoint: one row per effect with every field; the state exactly
+the declaration and the settled lines, the Keeper's `why` never sent; the rows read once; no write the Keeper did not
+send; a damage Score below the gate still recorded; no row for `stated` or `band`; the turn delivered while Jev is held,
+and Jev asked only after the apply's result existed; no key; no rows; and over the real kernel: the question built
+from the kernel's own `rules.bands`, and the turn record the same, timestamps and commit aside, with the shadow asking
+and without a key); `tests/play/test_band_shadow_report.py` (the report's numbers from a fixture of rows);
+`tests/extension/ts-kernel-foundation.test.mjs` lists `rules.bands` among the methods newer than the frozen reference.
+### 138.9 Travel minutes are data, filled once at build (2026-09-26, BR-05 of `docs/specs/band-then-roll.md`; extends §138.2's registry, §5's `move` default and §22's `module.read.finish`)
+
+A move that names no minutes takes the minutes on its graph edge (§5: "omitted means the value on the graph edge"), and
+the capsule's `exits[].travel_minutes` projects them. No road carried any: the four shipped starters had 141 `route-to`
+relations and not one `travel_minutes`, 912 of 1,376 moves on the retained tables landed with 0 minutes, and the Keeper
+wrote the road's time again as a separate `time`. This section makes a road's minutes data on the graph, written once at
+build from a band the host names, so the move carries its own time. Nothing here runs per turn and nothing is rolled.
+
+**The registry row.** `BAND_FIELDS` (`kernel-ts/rules/bands.ts`) gains `route-to.travel_minutes` → `time-costs` ·
+`categories`, `supplies: "default"`, restricted to the rows `local_travel` and `long_travel` (the registry names them the
+way it names the table; §138.2 already keeps them out of the per-turn time question). `bandRows` lists only those rows,
+refuses a row whose `default` is missing or outside its `[min, max]`, and refuses a registry row the table lacks
+(`campaign_not_ready`, as every malformed band row).
+
+**The one writer** is `kernel-ts/modules/route-travel.ts` (no imports, so the kernel and the host load the same file).
+`applyTravelFill(graph, entries, rows)` takes entries `{from, to, band, confidence}` naming two scene node ids (order
+free: a road is the same both ways) and a band — a travel row, whose `default` becomes the minutes (never a roll: the
+same road is the same length every time), or the exit `adjacent`, which is 0 — and writes, on every `route-to` between
+the two that carries no `travel_minutes` yet, `properties.travel_minutes` and `properties.travel: {basis: "banded", band,
+confidence}`. Before any band is read, `sameRoad` times the other direction of a road already timed one way with the same
+minutes and that relation's provenance, `{basis: "stated"}` when it has none (two timed directions that disagree give
+nothing to copy). A relation that already carries minutes is never touched. An entry that does not fit writes nothing and
+is returned in `skipped` with its reason: `entry_shape` (a key other than the four, or a non-string id or band),
+`confidence` (not a number in [0, 1]), `not_two_scenes`, `band_unknown`, `row_without_default`, `no_unfilled_road` (the
+road is timed already, or there is none); `not_a_list` for a `travel` that is not a list.
+
+**What `stated` is today.** The reader emits no time on a road: a draft's claims carry no properties (`assembleVisual`
+builds every relation with `properties: {}`), and `time_cost` is catalogued for `rule` and `hazard` only (§136); taking a
+rule's time for a road's would be a semantic judgement the code may not make. So the book's own number for a road is
+whatever minutes a graph already carries (a hand-authored starter, or a future reader shape that states one); the fill
+leaves it alone, asks nothing about that road, and gives its other direction the same minutes as `stated`.
+
+**The question** (`runtime/jev/travel-band-domain.ts`, family `travel-fill`, version 1). One Jev Choice per road — an
+unordered pair of scenes with at least one untimed `route-to` and none timed — over the exit `adjacent` ("the two scenes
+are parts of one building or one place, so there is no road between them and no clock runs on the way") and each travel
+row by its own name and range ("local travel: 10 to 120 minutes on the way between the two"). The state is
+`roads.<key>: {a, b}`, each scene as the book describes it and never by an id: `name` (the record's `display_name`, else
+the node's name), `summary` (the node's, unless it only repeats the name, else the record's `dramatic_question`),
+`places` (the `location` nodes the scene sits in — `located-in` / `occurs-at` / `part-of` out of it, `contains` into it —
+and those locations' own), `place_words` (the record's `location_tags`). The instruction says to judge where the two
+scenes are, not what happens in them. The questions are fanned out, at most 12 roads per request
+(`TRAVEL_ROADS_PER_REQUEST`, below the packing limit on purpose: every question of a request reads the one shared state,
+and a state full of other roads is the "large irrelevant state" failure), the requests in parallel, one retry on a
+network failure. A road is named when its answer is a criterion and its confidence is at or above
+`PI_COC_BAND_MIN_CONFIDENCE` (the band gate, default 0.5, a placeholder until the rows calibrate it); below the gate, on a
+failed request, a road the packing limit left out, or without a key, the road keeps no minutes and the row says why. The
+whole step is capped by `PI_COC_TRAVEL_JEV_TIMEOUT_MS` (default 8000).
+
+**Seam (a): a PDF book.** A book is read and published piece by piece; there is no moment its graph is final. The host
+step after the reader is the reading service, between the reviewed draft and `module.read.finish`: there the service asks
+the step (`deps.travel`, `createTravelFill` in `extensions/module/travel-fill.ts`, wired in the module extension and in
+the App's onboarding worker) about the roads the draft adds — its `route-to` claims between two scenes that are not
+already among the job's `known_claims`, the scenes read from `known_nodes` overlaid by the draft's nodes — and sends the
+named bands with the same publication: `module.read.finish` gains `travel?: [{from, to, band, confidence}]`. The kernel
+applies them after `assembleVisual`, reading the rows through the registry, and the result (kept in `reading.completed`
+like the rest of it) carries `travel: {filled, skipped}`. It is not a second generation on purpose: `module.read.finish`
+is the one publication entry (§22), and a generation of its own would move the source revision under a turn's own source
+preparation (§122) between its advance and its validation. `assembleVisual` rebuilds every relation from its claim at every
+publication, so it now keeps a road's `travel_minutes` and `travel` when the same claim still joins the same two nodes
+(`preserveTravel`); nothing else of a relation's properties is carried. The step never fails a reading: a throw is caught
+and the publication goes out without `travel`, a band that does not fit is skipped, a broken table is `skipped:
+[{reason: "table_unavailable"}]`. A road a publication added while Jev was unavailable stays at 0 until the book is
+rebuilt, as every book built before this section does; a restated claim is not asked again.
+
+**Seam (b): the shipped starters.** Registration copies a starter's bytes as before. The four shipped starters were filled
+once by `scripts/fill-starter-travel.ts` (`node scripts/fill-starter-travel.ts [--dry-run] <id>...`: the same question and
+the same writer, the key from the environment, the App vault for the one run), a data change reviewed by diff. The
+script edits each filled relation's `properties` in place in the file's own formatting and refuses to write when any
+other byte of the parsed graph would change; it also moves what is bound to the graph's bytes: the projected starter's
+manifest `graph_content_digest` (mystery-house), and the `graph_sha256` and `fingerprint` of each bundled character
+guidance accepted for the old bytes, after first reproducing the old fingerprint with the App's own `guidanceFingerprint`
+(the guidance text is untouched; it reads nothing of a road). A second run asks only what the first left open. Campaigns
+created before keep their zero minutes (compile snapshots). `tests/play/fixtures/voice-bench/build.mjs` generates
+voice-bench with no minutes; after rerunning it, rerun the fill.
+
+| starter | `route-to` relations | roads asked | filled | of which `adjacent` (0 min) | `local_travel` (30) | `long_travel` (360) | left open (below the gate) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| the-haunting | 56 | 36 | 54 | 6 | 48 | 0 | 2 (1 road, 0.43) |
+| mystery-house | 77 | 47 | 71 | 14 | 55 | 2 | 6 (4 roads, 0.32–0.49) |
+| voice-bench | 2 | 1 | 2 | 2 | 0 | 0 | 0 |
+| the-haunting-rulebook | 6 | 5 | 6 | 4 | 2 | 0 | 0 |
+
+**Telemetry.** The step writes one `lane: "travel-fill"`, `event: "asked"` row per publication that adds a road
+(`module_id`, `job_id`, `campaign`, `roads`, `banded`, `adjacent`, `unfilled: {<reason>: n}`, `calls`, `ms`, `cost_usd`,
+`gate`, and per road `answers: [{a, b, outcome, band?, confidence?, distribution?, reason?}]`, the calibration evidence
+for the gate), and after a publication that carried bands one `event: "published"` row with the kernel's `filled` and
+`skipped`. Without a key the row still says `unfilled: {unconfigured: n}`.
+
+*Writer:* the host's band through the one writer, in the publication or the starter script; never the reader, never a
+turn. *Reader:* `ModuleGraph.exitEntry` (the capsule's `where.exits[].travel_minutes`, the move candidates'
+`description.travel_minutes` in `table.apply.options`) and `stageMove`'s edge default. *Actor:* the kernel's move — the
+clock and the `scene-moved` minutes move by the road's time in the one move call. No prompt tells the Keeper to stop
+writing a road's time; the offer ledger and the kpi say whether it does (the turn-3 replay is the integrator's).
+
+**SL-00.** The step's Jev adapter is a new call site, `extensions/module/travel-fill.ts` `askTravel`
+`createDecisionAdapter`, registered in `docs/specs/pi-native-single-loop-tickets/inventory-SL-00.json` / `.md` as an
+app-play-gated leaf (a build step of the book that the reading service runs in setup and in play readings alike; never a
+turn's decision, never a model run).
+
+**Tests.** `tests/kernel/test_route_travel.py` (over the emitted kernel: every shipped road's minutes are a travel row's
+default or 0 with their provenance, or absent, and the two directions of a road agree; a move to a filled exit lands with
+the road's minutes, the clock and the `scene-moved` event moving by them in the one call, and the Keeper's own minutes
+still win; a publication with `travel` lands `local_travel` → 30, `long_travel` → 360, `adjacent` → 0 with `basis:
+"banded"`; without `travel` the road stays `{}`; five entries that do not fit are skipped by reason while the reading
+publishes; a filled road survives the next publication's re-assembly and a later band for it is `no_unfilled_road`).
+`tests/extension/travel-fill.test.mjs` (the question's criteria and state; the roads asked; the writer, `sameRoad` and
+`preserveTravel`; the gate, no key and a failed request over the real decision adapter with a controlled endpoint; the
+roads a draft adds; the reading service sending the bands with `module.read.finish`, and publishing exactly as before
+below the gate, without a key, or when the step throws). `tests/kernel/test_starters.py` strips the road keys before the
+reprojection diff and allows them in the-haunting's pre-RD-04 diff, on `route-to` relations only. Every starter's
+`table.capsule`, `table.apply.options` and `table.resolve.options` at the start scene and after one move are identical to
+the parent commit's except the exits' travel minutes in their two projections and the three digests that fold the
+graph's bytes (checked in the ticket's Comments).
+
+### 138.10 The clerk lands a banded time and a banded hazard damage (2026-09-26, BR-06 of `docs/specs/band-then-roll.md`; amends §135.3, §136.24 and §135.28's precedence in §138.1; extends §138.8's questions and §5's `table.apply.options`)
+
+The owner lifted the three consequence rulings on 2026-09-26 (the spec's Further Notes): the clerk may land the banded
+time of the player's own declared action, and the banded damage of a book-stated step whose amount the book leaves
+unstated, when the rung clears its gate. This section is that amendment. It changes nothing about how a band is rolled
+(§138.3) or measured (§138.8): the questions the clerk asks are the shadow lane's own, so the shadow's rows are the
+clerk's calibration.
+
+**§135.3 amended.** `CLERK_AUTHORITY` gains two entries. `declared_time` (f): the time the player's own declared action
+takes, as a row of the time-costs table the kernel rolls inside; never a road's time (the move carries it, §138.9), never
+inside a combat or chase session (its time is rounds), never after the turn already holds a `time` receipt (the Keeper's
+own, a stated cost, a clerk's earlier band: time is charged once a turn). `stated_hazard` (g): the harm a book-stated
+step this turn reached leaves unstated, as a rung of the severity ladder the kernel rolls. §135.3's "consequences
+(damage, sanity, cash beyond what was declared)" are boss-only **except** these two; §136.24's "never for a hazard or a
+consequence" reads "never for a hazard the Keeper has not rolled, and for no consequence but §138.10's two". Sanity,
+cash, threat clocks and a hazard's other effects stay the Keeper's. A stated dice is not the clerk's either: the Keeper
+applies what it chooses with `stated` (§136.21, spec P6); only the amount the page leaves out is read as a band.
+
+**`table.apply.options.unstated_damage`** (`unstatedDamage`, `kernel-ts/read/stated.ts`; issued beside `obligations`,
+absent when there is none, folded into `revision`). For each node the turn's latest `action.rule` roll named
+(`basis.rule` on a `roll` receipt with a level; a push replaces the roll it continues, as §136.22 reads it), the level's
+`damage` effects recorded `dice_unstated` issue one row -- `{alias: "unstated:<n>", rule, step?, level, actor, actor_label,
+book?, receipt}`, the actor being the roll's own -- until a hit-point `delta` on that actor follows the roll in the turn's
+receipts, whoever wrote it (a band, the Keeper's own dice). A stated dice, a passed step, a roll with no damage effect
+issue nothing. Read-only, nothing classified: the row is the receipt's basis and the shape's own `dice_unstated`.
+
+**The two candidates** (`runtime/jev/candidates.ts`; `StateReads.bands` carries the two tables' rows and the gates):
+
+- *time* -- one candidate per run, key `apply:time:declared` (`TIME_CANDIDATE_KEY`), family `time`, source `rules.bands`,
+  issued outside a session when the turn has a declaration, the rows are known and no `time` receipt is on the turn
+  (`table.apply.options.context.current_receipts`). Its route question is a **fact about the declaration**, not
+  now/later (`routeFact`, §135.26): is the declared action an activity that costs table time (`costs` selects it; `none`
+  -- movement between places, a glance or a word, an action inside a fight -- and `unknown` leave it to the Keeper for
+  the run). Its one closed parameter is `band` over the time-cost rows **without** the road rows, with the shadow lane's
+  time question as its instruction and its criteria (§138.8, `timeQuestion`), so the clerk asks exactly what the shadow
+  measured. `why` is composed (`composeSentence`) from the row's purpose and the player's words. It ranks last among
+  the selected candidates (`PRECEDENCE.time`), so its bind is judged with everything the turn settled in front of it;
+  a model-origin `time` effect consumes it (`consumedByEffects`).
+- *damage* -- one candidate per `unstated_damage` row, key `apply:damage:<rule>:<actor>`, family `damage`, source
+  `table.apply.options`, **forced** (the book says the harm happened; only its severity is open), `subject` the roll's
+  actor (stated), `why` composed from the rule, step, level and the player's words, `detail` the rule, step, level and the
+  level's `book` line. Its `band` is a Score over the severity ladder in the table's order (the shadow's `damageQuestion`),
+  read back as the argmax rung, the first in the table's order on a tie. No candidate without the rows.
+
+**The binding** (`runtime/jev/step-policy.ts`). `Unbound.band = {table, field, primitive, gate?}` marks a band parameter:
+`bindBatch` asks a `score` band as a Score (criteria the rows' descriptions in order; no exit) and a `choice` band as a
+Choice whose `unknown` text is the row's own; `clerkBind` reads a Score's answer as the row at the argmax level, gates
+the answer by **the table's gate** (`PI_COC_BAND_MIN_CONFIDENCE`, §138.6's placeholder 0.5 for both tables until the
+shadow's rows say otherwise; the run's route gate never applies to a band), and records it `path: "banded"` with `table`
+and `band`. A band has no rules default (spec D4): `unknown`, below the gate, an unavailable Jev or a spent budget hand
+the candidate to the Keeper (`keeperOwns`, an `infer(adjudicate)` with `clerk_unbound`), the answer on the record. Never
+an `infer(bind)`: the structural test covers both band shapes for every authority. Precedence (§138.1) is unchanged:
+`stated` beats `banded` -- a stated dice never reaches this path.
+
+**The engine** (`runtime/jev/hybrid-engine.ts`). The two tables are read once per engine (`rules.bands`, kept only when
+usable; the gates read per read) and ride on `StateReads.bands`. After a clerk write lands, the kernel's roll is read
+back from the turn's receipts onto the banded record (`bandRolls`: the time receipt's `band_roll`, the damage roll's
+expression and total), so the `lane: "run"`, `event: "bind"` row carries `{name: "band", path: "banded", value, table,
+band, confidence, distribution, roll}`. The Keeper's `coc-clerk` note carries one `binding` line per band: "band: band
+single_room_search (time-costs, confidence 0.80), the kernel rolled 23 minutes inside 10-45; the host read the player's
+declared action as this row. To rule otherwise, settle it with your own operation." (for damage: "the host read the
+stated harm's severity as this rung"). The shadow lane (§138.8) never asks about a clerk's write (host origin, `band`
+effect): the clerk's bind row is that write's measurement.
+
+**Three ends.** *Writer:* the kernel's `unstated_damage` projection and the builder (rows, facts, composed `why`);
+`clerkBind` (the row above the table's gate). *Reader:* the clerk's execution through the canonical gateway, the bind
+row, the Keeper's note; `kpi.py`'s `basis` section counts the landed receipts by `banded` and, as `clerk_bands`, the
+clerk's own band writes per table (landed, refused, left to the Keeper), so a banded receipt the Keeper named itself is
+told apart from the clerk's. *Actor:* the kernel, which rolls inside the row; the Keeper, who reads the line and may
+settle otherwise with an operation of its own.
+
+**Tests.** `tests/kernel/test_apply_options_unstated_damage.py` (the projection over the emitted kernel on a derived
+haunting: the row after a failed ledge step, its fields, read-only and stable; the band landed on the actor settles it;
+a stated dice and a passed step issue nothing; the Keeper's own dice settle it; a passed push withdraws it);
+`tests/extension/single-loop-band-clerk.test.mjs` (the builder: the time candidate's rows, fact, question, gate and
+exclusions; the forced damage candidate and its Score; the policy: the table's gate against the run's, banded records,
+the Keeper below the gate, the argmax and its tie, consumption by a model-origin time; the driver: route → bind → the
+clerk's `apply time {band}`, `unknown` to the Keeper, a declaration judged `none` never bound; the engine: the rows read
+once, the roll on the bind row, the note's line); `tests/extension/single-loop-binding.test.mjs` (the structural test
+over both band shapes); `tests/extension/single-loop-run-driver.test.mjs` (the fake kernel's opening turn now routes the
+time band's fact beside the exit).
 
 ## 139. An excerpt a model copied out of delivered text is located with quotation marks as one class (2026-09-26; amends §12.5's `table.warn` anchoring and the continuity-review rows)
 

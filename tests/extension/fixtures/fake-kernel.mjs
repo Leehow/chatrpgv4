@@ -58,11 +58,12 @@
  *                          service (§22.4's `reading_timeout`); remove the file and the next poll lands it (§14.19).
  */
 
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 // Loaded only when a test asks for the say pass, so every other table starts exactly as fast as before.
 const SAY = process.env.FAKE_KERNEL_SAY_PASS ? await import("../../../kernel-ts/write/speech-pass.ts") : null;
 import { createHash } from "node:crypto";
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from "node:url";
 import { SETUP_STEPS, SETUP_TABLE } from "./setup-steps.mjs";
 
 const LOG = process.env.FAKE_KERNEL_LOG;
@@ -368,6 +369,11 @@ function capsule(playerText, params = {}) {
  * - push 为 true：推骰结果
  * - 其余：切片 0 的普通检定
  */
+/** Contract §138.6 fixtures: people the book gave no numbers, and the weapon table a `needs weapon` refusal lists. */
+const UNPINNED = process.env.FAKE_KERNEL_UNPINNED ? JSON.parse(process.env.FAKE_KERNEL_UNPINNED) : [];
+const WEAPON_PROFILES = process.env.FAKE_KERNEL_WEAPON_PROFILES ? JSON.parse(process.env.FAKE_KERNEL_WEAPON_PROFILES) : [];
+const pinnedArchetypes = new Map();
+
 function resolve(params) {
 	const action = params.action ?? {};
 	// §11.5.6 (SL-62): a target/actor named in `FAKE_KERNEL_UNKNOWN_ENTITY` refuses every time, in the kernel's own shape.
@@ -388,6 +394,19 @@ function resolve(params) {
 						{ name: "psychology:observe-concealed", when: "想读出他藏着的情绪，失败会被他察觉" },
 					],
 				},
+			},
+		};
+	}
+	// Contract §138.6: a person the book gave no numbers cannot be fought until a tier is pinned (the real kernel's
+	// `combat/index.ts`); FAKE_KERNEL_UNPINNED names them.
+	if (action.intent === "combat" && !action.defense && typeof action.target === "string" && UNPINNED.includes(action.target) && !pinnedArchetypes.has(action.target)) {
+		return {
+			ok: false,
+			error: {
+				code: "needs",
+				message: `${action.target} has no stat block in the module`,
+				fix: "pin a stat block first: apply npc with archetype (one of details.needs.options, chosen from who this person is — ordinary_adult, capable_adult or dangerous_actor), then resolve again",
+				details: { needs: { field: "archetype", options: ["ordinary_adult", "capable_adult", "dangerous_actor"], fightable: [] } },
 			},
 		};
 	}
@@ -538,6 +557,22 @@ function speechRows(text) {
 	} catch {
 		return {};
 	}
+}
+
+/**
+ * Contract §138.8: `rules.bands` lists a band table's rows the way the real kernel's `bandRows` does, read from the
+ * shipped rules-json (the rows are data, not the fixture's to invent). Only the two fields the kernel rolls from.
+ */
+const RULES_JSON = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "content", "rulesets", "coc7", "rules-json");
+function bandRowsOf(field) {
+	const spec = { "time.band": ["time-costs", "categories"], "damage.band": ["hazards", "severity"] }[field];
+	if (!spec) return { ok: false, error: { code: "invalid_params", message: `unsupported field ${JSON.stringify(field)}`,
+		fix: "use one of details.options: time.band, damage.band", details: { field: "field", options: ["time.band", "damage.band"] } } };
+	const block = JSON.parse(readFileSync(join(RULES_JSON, `${spec[0]}.json`), "utf8"))[spec[1]];
+	const rows = Object.entries(block).map(([handle, row]) => field === "time.band"
+		? { handle, min: row.min, max: row.max, ...(Number.isInteger(row.default) ? { default: row.default } : {}) }
+		: { handle, dice: String(row.damage_expr).trim().toUpperCase(), ...(typeof row.note === "string" ? { note: row.note } : {}) });
+	return { ok: true, result: { field, table: spec[0], rows } };
 }
 
 function handle(method, params) {
@@ -916,11 +951,19 @@ function handle(method, params) {
 			if (process.env.FAKE_KERNEL_LOOK_MAPS) {
 				return { ok: true, result: { map_views: JSON.parse(process.env.FAKE_KERNEL_LOOK_MAPS) } };
 			}
+			// Contract §138.6: the person's own view, which the host's tier question reads; the present row stands in for it.
+			if (params.focus === "npc" && typeof params.name === "string") {
+				const person = capsule(null).present.find((row) => row.name === params.name);
+				return person ? { ok: true, result: { ...person } } : { ok: false, error: { code: "unknown_entity", message: `${params.name} is not on stage` } };
+			}
 			// §11.5.8 (SL-67): `roster` rides beside `present` and `where`, unconditioned by either.
 			return { ok: true, result: { where: capsule(null).where, present: capsule(null).present,
 				roster: process.env.FAKE_KERNEL_ROSTER ? JSON.parse(process.env.FAKE_KERNEL_ROSTER) : [] } };
 		case "table.lookup":
 			if (state === "open") state = "acting";
+			// Contract §138.6: the weapon profiles behind a `needs weapon` refusal, as the real catalog projects them.
+			if (params.kind === "catalog") return { ok: true, result: { records: WEAPON_PROFILES.map((profile) => ({ kind: "weapon", entity_id: profile.id, name: profile.name,
+				table: "weapons.json", summary: { skill: profile.skill, damage_die: profile.damage }, params: { skill: profile.skill, damage_die: profile.damage, base_range_yards: profile.range ?? null } })) } };
 			return { ok: true, result: { entities: [{ name: params.query ?? "科比特", display_name: params.query ?? "科比特",
 				kind: params.expected_kind ?? "npc", summary: params.expected_kind === 'scene' ? `Registered scene ${params.query}` : "旧主人" }] } };
 		case "table.recall":
@@ -956,12 +999,42 @@ function handle(method, params) {
 				if (effect.kind === "item" && !effect.name) {
 					return { ok: false, error: { code: "invalid_params", message: "item 要物品名", details: { index } } };
 				}
+				// Contract §138.6: FAKE_KERNEL_REFUSE_PIN makes the kernel refuse a host's tier pin (as the real one does for a person with numbers).
+				if (effect.kind === "npc" && effect.archetype != null && process.env.FAKE_KERNEL_REFUSE_PIN === "1") {
+					return { ok: false, error: { code: "invalid_params", message: `the source prints ${effect.name}'s numbers; an archetype cannot replace them`, details: { index, field: "npc.archetype" } } };
+				}
+				// Contract §138.6: a weapon that is no rulebook profile is refused with the era's profile ids (the real
+				// kernel's `apply/inventory.ts`); FAKE_KERNEL_WEAPON_PROFILES names the fixture's table.
+				if (effect.kind === "item" && effect.weapon != null && WEAPON_PROFILES.length && !WEAPON_PROFILES.some((profile) => profile.id === effect.weapon)) {
+					return { ok: false, error: { code: "needs", message: `${JSON.stringify(effect.weapon)} is not a weapon profile in the rules tables`,
+						fix: "set weapon to one of details.needs.options (a weapons.json id or its display name), for an improvised weapon, keep the object name in name and choose the closest rulebook profile in weapon",
+						details: { index, needs: { field: "weapon", options: WEAPON_PROFILES.map((profile) => profile.id), close: WEAPON_PROFILES.slice(0, 2).map((profile) => profile.id),
+							profiles: WEAPON_PROFILES.map((profile) => ({ id: profile.id, name: profile.name, skill: profile.skill, damage: profile.damage ?? null, range: profile.range ?? null })), source: "content/rulesets/coc7/rules-json/weapons.json" } } } };
+				}
 				// Contract §136.22: the book's amount or the Keeper's own, never both.
 				const amounts = { damage: ["dice"], time: ["minutes"], threat: ["name", "clock", "segments"], flag: ["name", "value"], cash: ["delta", "currency"] }[effect.kind];
 				if (effect.stated != null && amounts?.some((field) => effect[field] != null)) {
 					return { ok: false, error: { code: "invalid_params", message: `stated takes the amount from ${effect.stated}; give one`,
 						fix: "leave the amount out to use the book's, or stated out to use your own",
 						details: { index, field: "stated", reason: "stated_conflict", fields: amounts.filter((field) => effect[field] != null) } } };
+				}
+				// Contract §138: a band rolls the amount inside a rules row; never beside the amount, never beside stated.
+				if (effect.band != null) {
+					if (!["time", "damage"].includes(effect.kind)) {
+						return { ok: false, error: { code: "invalid_params", message: `a ${effect.kind} effect takes no band`,
+							fix: "leave band out; only time, damage take one", details: { index, field: "band", reason: "band_none" } } };
+					}
+					if (effect.stated != null) {
+						return { ok: false, error: { code: "invalid_params", message: `stated takes the amount from ${effect.stated}, and band would roll one; give one`,
+							fix: "leave band out to use the book's amount, or stated out to roll inside the band",
+							details: { index, field: "band", reason: "band_conflict", fields: ["stated"], stated: effect.stated } } };
+					}
+					const fields = amounts.filter((field) => effect[field] != null);
+					if (fields.length) {
+						return { ok: false, error: { code: "invalid_params", message: `band rolls the ${effect.kind} amount inside ${JSON.stringify(effect.band)}, and ${fields.join(", ")} is your own; give one`,
+							fix: `leave ${fields.join(", ")} out to let the kernel roll inside the band, or band out to use your own`,
+							details: { index, field: "band", reason: "band_conflict", fields } } };
+					}
 				}
 				if (effect.kind === "cash" && effect.stated == null && typeof effect.delta !== "number") {
 					return { ok: false, error: { code: "invalid_params", message: "cash 要带正负号的 delta", details: { index } } };
@@ -971,6 +1044,8 @@ function handle(method, params) {
 			// lines and looks for no number in the prose: the prose is the Keeper's, and the front end
 			// and the driver read this JSON.
 			for (const effect of effects) {
+				// Contract §138.6: a pinned archetype makes the person fightable from here on (the real kernel rolls the tier).
+				if (effect.kind === "npc" && typeof effect.archetype === "string") pinnedArchetypes.set(effect.name, effect.archetype);
 				if (effect.kind === "item") {
 					const quantity = typeof effect.quantity === "number" ? effect.quantity : 1;
 					mechanic(
@@ -1002,7 +1077,8 @@ function handle(method, params) {
 					mechanic({ kind: "clue", clue: effect.clue, ...(effect.label ? { label: effect.label } : {}) });
 				}
 				if (effect.kind === "time") {
-					mechanic({ kind: "time", minutes: effect.minutes });
+					// A band's minutes are the kernel's roll (§138); the fixture rolls a fixed twenty.
+					mechanic({ kind: "time", minutes: effect.band != null ? 20 : effect.minutes });
 				}
 				if (effect.kind === "map") {
 					mechanic({kind:'map',receipt:`map:${params.call_id}`,map:effect.name,name:effect.label??effect.name,
@@ -1127,6 +1203,8 @@ function handle(method, params) {
 		case "memory.fail":
 			settledJobs.add(jobTurn(params.job_id));
 			return { ok: true, result: { backlogged: true } };
+		case "rules.bands":
+			return bandRowsOf(params.field);
 		default:
 			return { ok: false, error: { code: "unknown_method", message: `假内核不认识 ${method}` } };
 	}

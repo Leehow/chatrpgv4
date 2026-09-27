@@ -26,6 +26,8 @@ import { pageSpans } from './transcription.js';
 import { passageKey } from '../read/table-people.js';
 const object = (value: any): boolean => isJsonObject(value);
 import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, checkSourceAnswerReview, sourceAnswerResult } from './source-answer.js';
+import { ROUTE_TRAVEL_FIELD, applyTravelFill, type TravelRow } from './route-travel.js';
+import { bandRows } from '../rules/bands.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
  * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
@@ -1358,7 +1360,7 @@ export class Reading {
                 reject('reader observations do not belong to the registered source');
             const seen = new Set(array(observations.read_pages));
             const draft = clone(await this.store.context.snapshots.readJson(await this.contained(work, params.draft_path)));
-            let guidance: Row | null = null, opening: Row | null = null, publicationGraph:Row|undefined;
+            let guidance: Row | null = null, opening: Row | null = null, publicationGraph:Row|undefined, travel: Row | null = null;
             if (job.purpose === 'index')
                 await this.finishIndex(mid, meta, job, draft, new Set(array(observations.full_pages)));
             else if (job.purpose === 'answer') {
@@ -1415,6 +1417,10 @@ export class Reading {
                 const retranscribed: Row[] = [];
                 const graph = assembleVisual(await this.store.readGraph(mid), filled, meta, contract, retranscribed);
                 recordContested(graph, filled, judged, mid, job.job_id, number(meta.generation) + 1);
+                // Contract §138.9: the host's band for each new road lands inside this one publication, never as a
+                // second generation, and a band that does not fit is reported, never a reason to refuse the reading.
+                if (params.travel !== undefined)
+                    travel = await this.fillTravel(graph, params.travel);
                 if (job.purpose === 'guidance')
                     guidance = await this.checkGuidance(work, graph, row(review));
                 const assets = truth(params.assets) ? params.assets : [];
@@ -1490,6 +1496,8 @@ export class Reading {
                 }
             }
             const result: Row = { state: truth(meta.opening_ready) ? 'ready' : meta.reading.state, generation: meta.generation ?? 0, opening_ready: meta.opening_ready ?? false };
+            if (travel)
+                result.travel = travel;
             if (job.purpose === 'guidance') {
                 if (guidance)
                     Object.assign(result, { state: 'ready', setup_ready: true, guidance_key: job.guidance_key, scene: guidance.scene });
@@ -1519,6 +1527,17 @@ export class Reading {
             await this.release(mid, job.job_id);
             return result;
         });
+    }
+    /** §138.9: write the host's road bands onto this publication's graph; `filled` counts relations, `skipped` says why. */
+    private async fillTravel(graph: Row, entries: unknown): Promise<Row> {
+        let rows: TravelRow[];
+        try { rows = await bandRows(this.store.context, ROUTE_TRAVEL_FIELD); }
+        catch (error) {
+            if (!(error instanceof RpcError)) throw error;
+            return { filled: 0, skipped: [{ from: null, to: null, band: null, reason: 'table_unavailable' }] };
+        }
+        const { filled, skipped } = applyTravelFill(graph, entries, rows);
+        return { filled: filled.length, skipped };
     }
     private async checkGuidance(work: string, graph: Row, review: Row): Promise<Row | null> {
         const path = await this.contained(work, join(work, 'guidance.json'));

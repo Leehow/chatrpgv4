@@ -88,8 +88,9 @@ def play_into_temporary_insanity(client) -> None:
     narrate_opening(client)
     client.table("player_input", text="我们花了一整天打听，然后去老宅。")
     client.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": ELAPSED}])
+    # The walk costs no clock here (§138.9's road minutes are not this test's subject): the loop spends exactly ELAPSED.
     for index, scene in enumerate(CONFRONTATION_PATH, start=2):
-        client.table("apply", call_id=f"t1-c{index}", effects=[{"kind": "move", "to": scene}])
+        client.table("apply", call_id=f"t1-c{index}", effects=[{"kind": "move", "to": scene, "travel_minutes": 0}])
     ordinal = 2 + len(CONFRONTATION_PATH)
     checked = resolve(client, f"t1-c{ordinal}", intent="investigate", goal="看见科比特的尸体动了",
                       method="", target="Walter Corbitt", decision="sanity:check",

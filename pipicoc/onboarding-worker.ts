@@ -14,6 +14,7 @@ import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
 import {createFreshSourceNavigator} from '../runtime/jev/fresh-source-navigator.ts';
 import {withStageLease, type ReadingStage} from '../runtime/jev/reading-stage-budget.ts';
+import {createTravelFill} from '../extensions/module/travel-fill.ts';
 
 /**
  * A refusal the preparation overlay can show (contract §23): its code, and English for the log.
@@ -195,6 +196,7 @@ async function main() {
     }
     reader = new ReadingService({call, campaign: () => input.campaign, runtime:runtime!, home: input.home,
       navigateFresh: createFreshSourceNavigator({runtime: runtime!, call, env: context.env}),
+      travel: createTravelFill({env: context.env, contentRoot: context.contentRoot}),
       model: () => ({id: input.model, vision: true, thinking: input.thinking}),
       progress: data => emit('progress', data), record: data => emit('telemetry', data)});
     let retry = input.retry === true;
