@@ -210,6 +210,14 @@ test("§140: an unleased child sends its own output bound, so the provider's def
 	const rows = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
 	assert.deepEqual(rows.map((row) => row.output_bound), [32768, 4000, 16384, null, 32768, 32768]);
 
+	// A Google adapter carries its own abort signal inside the payload; the clone keeps it by identity, as
+	// boundProviderRequest does (b8307b19e), or every Gemini child call dies in 1 ms on `{}.addEventListener`.
+	const controller = new AbortController();
+	const google = hooks.before_provider_request({ payload: { contents: [], config: { abortSignal: controller.signal } } },
+		{ model: { api: "google-generative-ai", maxTokens: 65536 }, abort() {} });
+	assert.equal(google.config.abortSignal, controller.signal, "the same signal object, not a clone");
+	assert.equal(google.config.maxOutputTokens, 32768);
+
 	// A lease's per-call bound, when the host passes one, is the room instead.
 	const leaseHooks = {};
 	readerContext({ on(name, fn) { leaseHooks[name] = fn; } }, { env: { PI_COC_PROVIDER_OUTPUT_LIMIT: "20000" } });

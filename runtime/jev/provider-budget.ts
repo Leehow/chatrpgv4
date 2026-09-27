@@ -90,6 +90,9 @@ export function withOutputRoom(model:{api?:unknown;maxTokens?:unknown}|undefined
   if(existing===outputTokens)return payload;
   const bounded=structuredClone(payload);let target=bounded;
   for(const key of path.slice(0,-1))target=target[key]??=( {} );target[path.at(-1)!]=outputTokens;
+  // The same clone boundProviderRequest makes, so the same repair: a Google adapter's own abort signal rides inside the
+  // payload and structuredClone turns it into `{}`; hand it back by identity (see boundProviderRequest).
+  if(payload.config?.abortSignal!==undefined)bounded.config.abortSignal=payload.config.abortSignal;
   return bounded;
 }
 export function boundProviderRequest(model:ProviderModel, payload:any, outputLimit=8192):{payload:any;bound:ProviderBound} {
