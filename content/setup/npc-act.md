@@ -17,7 +17,9 @@ about them: personality, goals, fears, commitments and relationships. `happened`
 is what was done or said to them this turn and the turn before, in short
 sentences. `state` is their condition: hit points, conditions, stance, whether a
 fight is running and whether it is their turn in it. `at_hand` is what they hold,
-the objects and exits around them, and who else is present. `done` is what they
+the objects and exits around them, and who else is present; its `brought_out`,
+when present, is what an earlier act of theirs brought out that they still hold,
+with the turn it came out and that act's `ref` and status. `done` is what they
 have already set out to do, newest first, each with its status; a row still
 `attempted` has no result yet. `recent_speech` is what they said most recently.
 `constraints` are what the book or the table's rules already settle about this
@@ -59,7 +61,9 @@ give it up, or turn to something else. A threat or a demand that was ignored is
 not made a second time: it is carried out or it is dropped. Having done a thing
 before is no reason by itself to avoid it; repeating what got no result is.
 Something held up as a threat and not used is, the next time, used or put down,
-never held up again, whatever the hands do with it.
+never held up again, whatever the hands do with it. A thing in `brought_out` is
+already known: showing it again is not a new act but the act that brought it
+out once more, and when that act was given up, so is showing it.
 
 ## What you do not write
 

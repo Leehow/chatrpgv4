@@ -129,3 +129,58 @@ def test_what_the_kernel_refuses(tmp_path):
         assert instances_of(client) == [] and "npc_weapons" not in world(client), "nothing landed"
     finally:
         client.close()
+
+
+def situation(client):
+    return client.ok("npc.situation", {"campaign": "c1", "name": "Steven Knott"})
+
+
+def close_turn(client, turn, text):
+    """Deliver the turn; §138.7 refuses the first delivery that owes an intention's result once, the second goes out."""
+    first = client.call("table.narrate", {"campaign": "c1", "call_id": f"t{turn}-c90", "text": text})
+    if not first["ok"]:
+        narrate(client, f"t{turn}-c91", text)
+
+
+def test_what_his_own_act_brought_out_says_when_and_by_which_act(tmp_path):
+    """§139.29 (ticket 30; table D2's copper badge, brought out on turn 6 and shown again on 9, 14 and 15): from then on
+    the packet's `at_hand.brought_out` says what an earlier act of his brought out that he still holds -- the turn it came
+    out and, when the write named the act's row, that row and where it stands now. Structure only: the instance's
+    `brought_out`, the drawn weapon's row."""
+    client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "1"})
+    try:
+        open_turn(client, "I grab Knott by the collar.")
+        assert "brought_out" not in situation(client)["at_hand"], "nothing brought out yet: no section"
+        # The act step's shape: the act opens its row, and what it brings out is stamped with that row.
+        opened = landed(client, client.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "intends": ACT,
+                                                                                    "outcome": "attempted", "_generated": True}]))
+        ref = next(r["intent"]["ref"] for r in opened if r.get("intent"))
+        client.table("apply", call_id="t1-c2", effects=[{"kind": "npc", "name": "Steven Knott", "intent_ref": ref, "intent_outcome": "attempted",
+                                                         "_produces": {"name": PHOTO, "description": ACT}}])
+        # A drawn weapon whose write named no row: its turn only.
+        client.table("apply", call_id="t1-c3", effects=[{"kind": "npc", "name": "Steven Knott",
+                                                         "_draws": {"weapon": "automatic_25_derringer", "price_id": DERRINGER["price_id"]}}])
+        [item] = [item for item in instances_of(client) if item["name"] == PHOTO]
+        assert item["brought_out"] == {"by": KNOTT, "turn": 1, "ref": ref}, item
+        [weapon] = world(client)["npc_weapons"][KNOTT]
+        assert weapon["turn"] == 1 and "ref" not in weapon, weapon
+        close_turn(client, 1, "诺特攥着一张旧照片，另一只手摸到了抽屉里的东西。")
+
+        client.table("player_input", text="I tell him to put it away.")
+        client.table("apply", call_id="t2-c1", effects=[{"kind": "npc", "name": "Steven Knott", "intent_ref": ref, "intent_outcome": "abandoned",
+                                                         "why": "海斯没看那张照片"}])
+        # Shown again: the same thing, the same origin -- not a second one, not a later turn.
+        client.table("apply", call_id="t2-c2", effects=[{"kind": "npc", "name": "Steven Knott", "_produces": {"name": PHOTO, "description": ACT}}])
+        view = situation(client)
+        held = view["at_hand"]["holdings"]
+        pistol = next(name for name in held if "Derringer" in name)
+        assert view["at_hand"]["brought_out"] == [{"name": PHOTO, "turn": 1, "ref": ref, "status": "abandoned"}, {"name": pistol, "turn": 1}], view["at_hand"]
+        assert {entry["name"] for entry in view["at_hand"]["brought_out"]} <= set(held), "every entry is a thing he holds, by the name holdings gives it"
+        assert next(row for row in view["done"] if row["ref"] == ref)["status"] == "abandoned", "the status is the row's own"
+
+        # Taken from him: no longer his to show.
+        client.table("apply", call_id="t2-c3", effects=[{"kind": "object", "name": PHOTO, "from": "Steven Knott", "to": "Thomas Hayes",
+                                                         "handover": "taken", "why": "I snatch the photograph"}])
+        assert [entry["name"] for entry in situation(client)["at_hand"]["brought_out"]] == [pistol]
+    finally:
+        client.close()
