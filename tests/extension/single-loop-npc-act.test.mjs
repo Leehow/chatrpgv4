@@ -687,7 +687,7 @@ test("§143.4 cap: three people acted on outside a fight -- two act, the third i
 	await call0(game);
 	const people = ["Edna Hale", "Silas Pike", "Tobias Crane"];
 	await game.say("我环顾办公室里的人。");
-	for (const name of people) await game.write("table.apply", { effects: [{ kind: "npc", name, to: "here", why: "test fixture: a visitor" }] });
+	for (const name of people) await game.write("table.apply", { effects: [{ kind: "npc", name, to: "here", walk_on: true, why: "test fixture: a visitor" }] });
 	// Money changes hands with three of them this turn (Knott, Edna Hale, Silas Pike); Tobias Crane is left alone.
 	for (const name of ["Steven Knott", "Edna Hale", "Silas Pike"])
 		await game.write("table.apply", { effects: [{ kind: "cash", subject: "Thomas Hayes", delta: 1, source: "found", with: name, why: "a coin changes hands" }] });
@@ -851,7 +851,7 @@ test("§143.5: the same line as a settled row is a new attempt -- a new line (th
 	await game.run(scan(["Steven Knott"]));
 	const ref = knottActs(game).at(-1).ref;
 	// §143.14: an arrival settles the table's act (the §142.2 addendum's shape); saying it was done would be refused.
-	await game.write("table.apply", { effects: [{ kind: "npc", name: "the porter", to: "here", intent_ref: ref, why: "the porter came up at the shout" }] });
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "the porter", to: "here", walk_on: true, intent_ref: ref, why: "the porter came up at the shout" }] });
 	await game.close();
 	await spokenTo(game, "我不理他。");
 	const last = knottActs(game).at(-1);
@@ -1124,7 +1124,7 @@ const knottSpoke = (workspace) => kernelSteps(workspace, [
 /** Turn 1 closed at the office: Edna Hale walked in and both she and Knott said a line. */
 const bothSpoke = (workspace) => kernelSteps(workspace, [
 	["table.open", {}], ["table.player_input", { text: "我问诺特那栋房子的事。" }],
-	["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: "Edna Hale", to: "here", why: "test fixture: the landlord's clerk" }] }],
+	["table.apply", { call_id: "t1-c1", effects: [{ kind: "npc", name: "Edna Hale", to: "here", walk_on: true, why: "test fixture: the landlord's clerk" }] }],
 	["table.narrate", { call_id: "t1-c2", text: "诺特靠回椅背。{{say:Steven Knott}}「那房子空了好些年。」{{/say}}埃德娜抬起头。{{say:Edna Hale}}「钥匙在我这儿。」{{/say}}" }],
 ]);
 /** The npc-act batch answers `act`; the compile clears `addressee` on the row `addressee` matches (else unclear); the rest as `otherAnswer`. */
@@ -1198,7 +1198,7 @@ test("§143.21 as amended: the compile names another person -- the one acted on 
 	await call0(game);
 	const TO_EDNA = "埃德娜，你别插手。";
 	await game.say(TO_EDNA);
-	await game.write("table.apply", { effects: [{ kind: "npc", name: "Edna Hale", to: "here", why: "test fixture: she comes in" }] });
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Edna Hale", to: "here", walk_on: true, why: "test fixture: she comes in" }] });
 	await game.write("table.apply", { effects: [{ kind: "cash", subject: "Thomas Hayes", delta: 1, source: "found", with: "Steven Knott", why: "a coin changes hands" }] });
 	await game.run(scan(["Edna Hale"]));
 	const packets = Object.fromEntries(npcAct.calls.map((call) => [call.packet.npc.name, call.packet.happened]));
@@ -1293,7 +1293,7 @@ test("§143.23 on the emitted kernel: no committed turn before this one, or the 
 	await game.call("table.open");
 	assert.ok(!Object.hasOwn(await state(), "last_exchange"), "the opening: nothing committed before it");
 	await game.say(ASKED);
-	await game.write("table.apply", { effects: [{ kind: "npc", name: "Edna Hale", to: "here", why: "test fixture: the landlord's clerk" }] });
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Edna Hale", to: "here", walk_on: true, why: "test fixture: the landlord's clerk" }] });
 	await game.close(`诺特靠回椅背。{{say:Steven Knott}}${KNOTT_LINE}{{/say}}埃德娜抬起头。{{say:Edna Hale}}${EDNA_LINE}{{/say}}`);
 	await game.say("我去《环球报》报馆翻旧报纸。");
 	assert.deepEqual((await state()).last_exchange?.speech?.map((line) => line.line), [KNOTT_LINE, EDNA_LINE], "still in the office: the exchange stands");
@@ -1388,7 +1388,7 @@ test("§143.25 on the emitted kernel: the punch named Knott and has not landed -
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
 	await call0(game);
 	await game.say(ASKED);
-	await game.write("table.apply", { effects: [{ kind: "npc", name: "Edna Hale", to: "here", why: "test fixture: the landlord's clerk" }] });
+	await game.write("table.apply", { effects: [{ kind: "npc", name: "Edna Hale", to: "here", walk_on: true, why: "test fixture: the landlord's clerk" }] });
 	await game.close(`诺特靠回椅背。{{say:Steven Knott}}${KNOTT_LINE}{{/say}}埃德娜抬起头。{{say:Edna Hale}}${EDNA_LINE}{{/say}}`);
 	await game.say(PUNCH);
 	// The scan as the policy issues it while the punch the compile aimed at Knott (its `target`) has no landed clerk step.
