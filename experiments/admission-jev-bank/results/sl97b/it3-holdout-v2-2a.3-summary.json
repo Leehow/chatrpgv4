@@ -1,0 +1,337 @@
+{
+  "port": "live",
+  "design": "v2",
+  "revision": "2a.3",
+  "ablation": true,
+  "per_class": 0,
+  "seed": 1,
+  "extra": [],
+  "skip_unlabelled": false,
+  "live_http_attempts": 354,
+  "cases": 330,
+  "labelled": 330,
+  "routes": {
+    "typed": 330
+  },
+  "confusion": {
+    "not_authorized": {
+      "not_authorized": 72,
+      "entailed": 52,
+      "authorized": 18,
+      "not_player_action": 8
+    },
+    "entailed": {
+      "entailed": 44,
+      "not_authorized": 3,
+      "not_player_action": 1
+    },
+    "authorized": {
+      "entailed": 41,
+      "not_player_action": 5,
+      "authorized": 54,
+      "not_authorized": 26
+    },
+    "not_player_action": {
+      "not_player_action": 3,
+      "not_authorized": 3
+    }
+  },
+  "by_threshold": [
+    {
+      "threshold": 0,
+      "decided": 330,
+      "coverage": 1,
+      "exact_agreement": 0.5242424242424243,
+      "admission_agreement": 0.6666666666666666,
+      "false_admits": 78,
+      "false_refusals": 32,
+      "per_class": {
+        "authorized": {
+          "decided": 126,
+          "of": 126,
+          "exact": 54,
+          "same_admission": 100
+        },
+        "entailed": {
+          "decided": 48,
+          "of": 48,
+          "exact": 44,
+          "same_admission": 45
+        },
+        "not_authorized": {
+          "decided": 150,
+          "of": 150,
+          "exact": 72,
+          "same_admission": 72
+        },
+        "not_player_action": {
+          "decided": 6,
+          "of": 6,
+          "exact": 3,
+          "same_admission": 3
+        }
+      }
+    },
+    {
+      "threshold": 0.5,
+      "decided": 173,
+      "coverage": 0.5242424242424243,
+      "exact_agreement": 0.5549132947976878,
+      "admission_agreement": 0.7167630057803468,
+      "false_admits": 45,
+      "false_refusals": 4,
+      "per_class": {
+        "authorized": {
+          "decided": 69,
+          "of": 126,
+          "exact": 37,
+          "same_admission": 65
+        },
+        "entailed": {
+          "decided": 36,
+          "of": 48,
+          "exact": 36,
+          "same_admission": 36
+        },
+        "not_authorized": {
+          "decided": 66,
+          "of": 150,
+          "exact": 21,
+          "same_admission": 21
+        },
+        "not_player_action": {
+          "decided": 2,
+          "of": 6,
+          "exact": 2,
+          "same_admission": 2
+        }
+      }
+    },
+    {
+      "threshold": 0.6,
+      "decided": 148,
+      "coverage": 0.4484848484848485,
+      "exact_agreement": 0.581081081081081,
+      "admission_agreement": 0.722972972972973,
+      "false_admits": 38,
+      "false_refusals": 3,
+      "per_class": {
+        "authorized": {
+          "decided": 56,
+          "of": 126,
+          "exact": 32,
+          "same_admission": 53
+        },
+        "entailed": {
+          "decided": 35,
+          "of": 48,
+          "exact": 35,
+          "same_admission": 35
+        },
+        "not_authorized": {
+          "decided": 55,
+          "of": 150,
+          "exact": 17,
+          "same_admission": 17
+        },
+        "not_player_action": {
+          "decided": 2,
+          "of": 6,
+          "exact": 2,
+          "same_admission": 2
+        }
+      }
+    },
+    {
+      "threshold": 0.7,
+      "decided": 113,
+      "coverage": 0.3424242424242424,
+      "exact_agreement": 0.6194690265486725,
+      "admission_agreement": 0.7433628318584071,
+      "false_admits": 28,
+      "false_refusals": 1,
+      "per_class": {
+        "authorized": {
+          "decided": 38,
+          "of": 126,
+          "exact": 23,
+          "same_admission": 37
+        },
+        "entailed": {
+          "decided": 31,
+          "of": 48,
+          "exact": 31,
+          "same_admission": 31
+        },
+        "not_authorized": {
+          "decided": 43,
+          "of": 150,
+          "exact": 15,
+          "same_admission": 15
+        },
+        "not_player_action": {
+          "decided": 1,
+          "of": 6,
+          "exact": 1,
+          "same_admission": 1
+        }
+      }
+    },
+    {
+      "threshold": 0.8,
+      "decided": 69,
+      "coverage": 0.20909090909090908,
+      "exact_agreement": 0.6521739130434783,
+      "admission_agreement": 0.782608695652174,
+      "false_admits": 14,
+      "false_refusals": 1,
+      "per_class": {
+        "authorized": {
+          "decided": 22,
+          "of": 126,
+          "exact": 12,
+          "same_admission": 21
+        },
+        "entailed": {
+          "decided": 25,
+          "of": 48,
+          "exact": 25,
+          "same_admission": 25
+        },
+        "not_authorized": {
+          "decided": 21,
+          "of": 150,
+          "exact": 7,
+          "same_admission": 7
+        },
+        "not_player_action": {
+          "decided": 1,
+          "of": 6,
+          "exact": 1,
+          "same_admission": 1
+        }
+      }
+    },
+    {
+      "threshold": 0.85,
+      "decided": 42,
+      "coverage": 0.12727272727272726,
+      "exact_agreement": 0.6190476190476191,
+      "admission_agreement": 0.7857142857142857,
+      "false_admits": 9,
+      "false_refusals": 0,
+      "per_class": {
+        "authorized": {
+          "decided": 13,
+          "of": 126,
+          "exact": 6,
+          "same_admission": 13
+        },
+        "entailed": {
+          "decided": 16,
+          "of": 48,
+          "exact": 16,
+          "same_admission": 16
+        },
+        "not_authorized": {
+          "decided": 13,
+          "of": 150,
+          "exact": 4,
+          "same_admission": 4
+        },
+        "not_player_action": {
+          "decided": 0,
+          "of": 6,
+          "exact": 0,
+          "same_admission": 0
+        }
+      }
+    },
+    {
+      "threshold": 0.9,
+      "decided": 26,
+      "coverage": 0.07878787878787878,
+      "exact_agreement": 0.5769230769230769,
+      "admission_agreement": 0.8076923076923077,
+      "false_admits": 5,
+      "false_refusals": 0,
+      "per_class": {
+        "authorized": {
+          "decided": 9,
+          "of": 126,
+          "exact": 3,
+          "same_admission": 9
+        },
+        "entailed": {
+          "decided": 9,
+          "of": 48,
+          "exact": 9,
+          "same_admission": 9
+        },
+        "not_authorized": {
+          "decided": 8,
+          "of": 150,
+          "exact": 3,
+          "same_admission": 3
+        },
+        "not_player_action": {
+          "decided": 0,
+          "of": 6,
+          "exact": 0,
+          "same_admission": 0
+        }
+      }
+    },
+    {
+      "threshold": 0.95,
+      "decided": 5,
+      "coverage": 0.015151515151515152,
+      "exact_agreement": 0.8,
+      "admission_agreement": 0.8,
+      "false_admits": 1,
+      "false_refusals": 0,
+      "per_class": {
+        "authorized": {
+          "decided": 1,
+          "of": 126,
+          "exact": 1,
+          "same_admission": 1
+        },
+        "entailed": {
+          "decided": 2,
+          "of": 48,
+          "exact": 2,
+          "same_admission": 2
+        },
+        "not_authorized": {
+          "decided": 2,
+          "of": 150,
+          "exact": 1,
+          "same_admission": 1
+        },
+        "not_player_action": {
+          "decided": 0,
+          "of": 6,
+          "exact": 0,
+          "same_admission": 0
+        }
+      }
+    }
+  ],
+  "packing_bytes": {
+    "p50": 24831,
+    "p90": 53110,
+    "max": 62454
+  },
+  "jev_ms": {
+    "p50": 407,
+    "p90": 602,
+    "max": 1204
+  },
+  "lane_ms_retained": {
+    "p50": 46932,
+    "p90": 90723,
+    "max": 119038
+  },
+  "note": "agreement is with the retained lane verdict, not with ground truth"
+}

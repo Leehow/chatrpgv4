@@ -1,0 +1,40 @@
+{
+  "built_at": "2026-09-27T01:17:21.884Z",
+  "homes": [
+    "/Users/haoli/leehow/code/chatrpgv4-wt-gate-13ce6a7dd/.coc",
+    "/Users/haoli/leehow/code/chatrpgv4-wt-gate-13ce6a7dd-masks/.coc"
+  ],
+  "sessions": [],
+  "review_rows": 63,
+  "campaigns_with_reviews": 1,
+  "cases": 30,
+  "unpaired_rows": 33,
+  "by_lane_verdict": {
+    "not_player_action": 5,
+    "not_authorized": 1,
+    "entailed": 11,
+    "review_pending": 6,
+    "authorized": 7
+  },
+  "by_lane_model": {
+    "grok-build/grok-4.5": 23,
+    "jev-1.13.0": 1,
+    "unknown": 6
+  },
+  "by_source": {
+    "driver:table": 30
+  },
+  "by_pairing": {
+    "digest": 30
+  },
+  "key_match": {
+    "true": 30
+  },
+  "lines_from": {
+    "telemetry": 30
+  },
+  "notes": {
+    "setup_prologue_omitted": 30,
+    "answered_options_unknown": 30
+  }
+}
