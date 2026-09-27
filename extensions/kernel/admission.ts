@@ -533,7 +533,18 @@ export type AdmissionOutcome =
 	 * sufficient verdict stood for the whole. `cleared` are the admitted lines' indices; the batch's lane round has been
 	 * aborted, and the caller reviews the remainder on its own (`remainderAttempt` carries the typed answer to it).
 	 */
-	| { ok: "split"; cleared: number[]; ms: number; attempt: TypedAttempt; capMs: number; hardCapMs: number; startedAt: number; meta: Record<string, unknown> };
+	| { ok: "split"; cleared: number[]; ms: number; attempt: TypedAttempt; capMs: number; hardCapMs: number; startedAt: number; meta: Record<string, unknown> }
+	/**
+	 * §32.12.3.1 (SL-101): an `apply` batch of more than one reviewed line was put to the lane one line per call, all at
+	 * once, and no typed verdict stood for the whole batch nor split it. `lines[i]` is line i's own outcome, exactly what a
+	 * review of that line alone gives: a lane verdict, a lane failure, or `late` (its cap passed with its round still
+	 * running, or it answered without grounds). The caller settles each line on its own (§32.4 keyed by line) and combines
+	 * them into the batch's verdict (§32.10's mapping, as §32.12.3 maps a remainder). `attempt` is the batch's typed answer
+	 * when it came in.
+	 */
+	| { ok: "lines"; lines: AdmissionOutcome[]; ms: number; capMs: number; hardCapMs: number; startedAt: number; attempt?: TypedAttempt; meta: Record<string, unknown>;
+		/** Stops the rounds still running: a line already refused decides the batch (§32.10), so the rest need not answer. */
+		abort: () => void };
 
 export interface AdmissionReviewOptions {
 	providerBudget?: import('../../runtime/jev/provider-budget.ts').TaskProviderBudget;
@@ -652,6 +663,62 @@ export function remainderAttempt(attempt: TypedAttempt, keep: number[]): TypedAt
 	};
 }
 
+/**
+ * §32.12.3.1 (SL-101): whether a proposal's lane review is one call per line. Only an `apply` batch with more than one
+ * reviewed line: a `resolve` is one line, and a one-line batch is reviewed exactly as before.
+ */
+export function reviewedPerLine(proposal: AdmissionProposal): boolean {
+	return proposal.tool === "apply" && proposal.lines.length > 1;
+}
+/**
+ * §32.12.3.1: line `index` of a batch as the lane reads it -- the batch's proposal with exactly that one line (and its
+ * kind and effect index). The key is the batch's: the lane never reads it, and the caller keys each line's verdict by the
+ * key a call of only that line would have (§32.4).
+ */
+export function lineProposal(proposal: AdmissionProposal, index: number): AdmissionProposal {
+	return { ...proposal, lines: [proposal.lines[index]!], ...(proposal.kinds ? { kinds: [proposal.kinds[index] ?? "?"] } : {}),
+		...(proposal.effects ? { effects: [proposal.effects[index]!] } : {}) };
+}
+/**
+ * §32.12.3.1: the batch's typed answer as line `index` reads it on its own -- that line's verdict and confidence, which
+ * is what its late admission (§32.12.2, per call) and its pending details read. A typed non-verdict stays one.
+ */
+export function lineReading(attempt: TypedAttempt | undefined, index: number): TypedReading | undefined {
+	const answer = attempt?.typed;
+	if (!answer) return undefined;
+	if (answer.status !== "decided" || !answer.lines?.[index]) return readingOf(answer);
+	return readingOf(remainderAttempt(attempt!, [index]).typed);
+}
+
+/**
+ * §32.12.3.1: the refusal of a proposal whose lines were reviewed one per call, from the refusals of the lines that were
+ * not admitted -- §32.10's mapping, under which a batch is admitted only when every line admits. A line refused on grounds
+ * decides (`not_authorized` before `uncertain`, the first such line in the batch's order, as §32.10 names line k);
+ * otherwise a line whose review was unavailable (§32.2), then one whose resend ran out of its hard cap (`review_timeout`),
+ * then the lines still under review (`review_pending`, §32.12.2), on which alone the batch is pending. The deciding line's
+ * refusal is the batch's (its code, message, fix and details), with every line of the batch proposed, `line_outcomes`
+ * naming each line that was not admitted and why, and for a pending batch `pending_lines` and the longest `wait_ms`.
+ */
+export function batchRefusal(tool: AdmissionProposal["tool"], proposed: string[], entries: Array<{ line: string; error: KernelError }>): KernelError {
+	const reasonOf = (error: KernelError) => String(error.details?.reason ?? error.code);
+	const find = (test: (error: KernelError) => boolean) => entries.find((entry) => test(entry.error));
+	const deciding = find((error) => reasonOf(error) === "action_not_authorized" && error.details?.verdict === "not_authorized")
+		?? find((error) => reasonOf(error) === "action_not_authorized")
+		?? find((error) => reasonOf(error) === "admission_unavailable")
+		?? find((error) => reasonOf(error) === REVIEW_TIMEOUT)
+		?? find((error) => reasonOf(error) === REVIEW_PENDING)
+		?? entries[0]!;
+	const error = deciding.error;
+	const pick = ["verdict", "missing", "grounds", "cause", "streak", "cap_ms", "wait_ms"];
+	const outcomes = entries.map((entry) => ({ line: entry.line, reason: reasonOf(entry.error),
+		...Object.fromEntries(pick.filter((key) => entry.error.details?.[key] !== undefined).map((key) => [key, entry.error.details![key]])) }));
+	const pending = reasonOf(error) === REVIEW_PENDING ? entries.filter((entry) => reasonOf(entry.error) === REVIEW_PENDING) : [];
+	const waits = pending.map((entry) => Number(entry.error.details?.wait_ms)).filter(Number.isFinite);
+	return new KernelError({ code: error.code, message: error.message, ...(error.fix ? { fix: error.fix } : {}), retryable: error.retryable, next: error.next,
+		details: { ...(error.details ?? {}), proposed, tool, line_outcomes: outcomes,
+			...(pending.length ? { pending_lines: pending.map((entry) => entry.line), ...(waits.length ? { wait_ms: Math.max(...waits) } : {}) } : {}) } });
+}
+
 /** One typed attempt (§32.10's family) under the review's own signal, budget and deadline. Never throws. */
 async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.ProcessEnv, began: number, minConfidence: number): Promise<TypedAttempt> {
 	const context = options.context;
@@ -752,8 +819,15 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 	// A review that began here waits its whole cap; a remainder resumed from a split waits only what is left of the batch's
 	// (§32.12.3).
 	const left = (ms: number) => options.startedAt === undefined ? ms : Math.max(1, ms - (clock.now() - began));
-	const lane = reviewAdmission({ ...options, signal: options.signal ? AbortSignal.any([options.signal, stop.signal]) : stop.signal,
-		timeoutMs: left(hardCapMs) });
+	const laneSignal = options.signal ? AbortSignal.any([options.signal, stop.signal]) : stop.signal;
+	// §32.12.3.1 (SL-101): a batch of more than one reviewed line goes to the lane one line per call, all at once, on the
+	// same model, each with the same §32.3 context and exactly one proposed line. Every round has its own hard cap, measured
+	// from this review's start like the batch's single round was; a one-line batch and a `resolve` keep the one round.
+	const perLine = reviewedPerLine(options.proposal);
+	const rounds = perLine
+		? options.proposal.lines.map((_, index) => reviewAdmission({ ...options, proposal: lineProposal(options.proposal, index), signal: laneSignal, timeoutMs: left(hardCapMs) }))
+		: [reviewAdmission({ ...options, signal: laneSignal, timeoutMs: left(hardCapMs) })];
+	const lane = rounds[0]!;
 	// The typed attempt reads every answer (minimum 0) and this function applies each threshold itself: one call serves all.
 	const typed = options.typedAttempt ? Promise.resolve(options.typedAttempt) : typedAttempt(options, env, began, 0);
 	const stands = (attempt: TypedAttempt): string | undefined => {
@@ -811,21 +885,102 @@ export async function reviewAdmissionPrimary(options: PrimaryAdmissionReviewOpti
 		return { ok: "split", cleared, ms: clock.now() - began, attempt, capMs, hardCapMs, startedAt: began,
 			meta: { ...jevMeta(attempt), line_min_confidence: lineMin } };
 	};
+	/**
+	 * §32.12.3.1: the per-line review. Each line's first sufficient verdict is its own lane verdict with grounds; the
+	 * typed answer keeps its batch-level rules (§32.11's fast path, §32.10's family rule, §32.12.3's split) for as long as
+	 * no line's lane has given a verdict, since a lane verdict on the whole batch used to end the review before a later
+	 * typed answer could. The review returns when every line has its outcome, when a line is refused `not_authorized`
+	 * (the batch's verdict is then decided), or at the cap with the lines still running left `late` (their rounds kept
+	 * running to the hard cap, one per line). It never waits for the slowest line longer than the cap: its wall time is
+	 * the slowest line's, not the sum.
+	 */
+	async function perLineReview(): Promise<AdmissionOutcome> {
+		type LineEvent = { kind: "line"; index: number; value: AdmissionOutcome } | { kind: "typed"; value: TypedAttempt } | { kind: "cap" };
+		const waiting = new Map<string, Promise<LineEvent>>([
+			...rounds.map((round, index): [string, Promise<LineEvent>] => [`line:${index}`, round.then((value): LineEvent => ({ kind: "line", index, value }))]),
+			["typed", typed.then((value): LineEvent => ({ kind: "typed", value }))],
+			["cap", capReached.then((): LineEvent => ({ kind: "cap" }))],
+		]);
+		const done: Array<AdmissionOutcome | undefined> = rounds.map(() => undefined);
+		const isVerdict = (value?: AdmissionOutcome) => value?.ok === true && value.verdict.verdict !== REVIEW_TIMEOUT;
+		const spoken = () => done.some(isVerdict);
+		const allIn = () => done.every((value) => value !== undefined);
+		// Still worth waiting for the typed answer: no line has a verdict (it may stand or split), or a line answered without
+		// grounds (that line's late admission reads its typed reading, §32.12.2).
+		const wantsTyped = () => !spoken() || done.some((value) => value?.ok === false && value.reason === NO_GROUNDS);
+		const lines = (attempt: TypedAttempt | undefined): AdmissionOutcome => {
+			const now = clock.now() - began;
+			const outcomes = rounds.map((round, index): AdmissionOutcome => {
+				const value = done[index];
+				const reading = lineReading(attempt, index);
+				const typedPart = reading ? { typed: reading } : {};
+				const lateMeta = { ...jevMeta(attempt), cap_ms: capMs, hard_cap_ms: hardCapMs };
+				// Not answered by the cap: this line alone is late, its round still running to the hard cap.
+				if (value === undefined || !isVerdict(value) && value.ok === true)
+					return { ok: "late", cause: "cap", ms: now, capMs, hardCapMs, ...typedPart, lane: round,
+						meta: { ...lateMeta, ...(value ? { lane_ms: value.ms, ...(value.meta ?? {}) } : {}), path: "lane" } };
+				if (value.ok === false && value.reason === NO_GROUNDS)
+					return { ok: "late", cause: "no_grounds", ms: value.ms, capMs, hardCapMs, ...typedPart,
+						meta: { ...lateMeta, lane_ms: value.ms, ...(value.meta ?? {}), path: "lane", lane_no_grounds: true } };
+				// A verdict with grounds or a failure: the line's own, timed from the review's start.
+				return { ...value, meta: { ...(value.meta ?? {}), ...jevMeta(attempt), lane_ms: value.ms } } as AdmissionOutcome;
+			});
+			return { ok: "lines", lines: outcomes, ms: now, capMs, hardCapMs, startedAt: began, ...(attempt ? { attempt } : {}), abort: () => stop.abort(),
+				meta: { ...jevMeta(attempt), line_calls: rounds.length, line_ms: done.map((value) => isVerdict(value) || value?.ok === false ? value!.ms : null) } };
+		};
+		let typedDone: TypedAttempt | undefined;
+		const typedRules = (attempt: TypedAttempt): AdmissionOutcome | undefined => {
+			if (spoken()) return undefined;
+			const rule = stands(attempt);
+			if (rule) return typedVerdict(attempt, rule);
+			return split(attempt);
+		};
+		for (;;) {
+			const event = await Promise.race(waiting.values());
+			waiting.delete(event.kind === "line" ? `line:${event.index}` : event.kind);
+			if (event.kind === "typed") {
+				typedDone = event.value;
+				const decided = typedRules(typedDone);
+				if (decided) return decided;
+				if (allIn()) return lines(typedDone);
+				continue;
+			}
+			if (event.kind === "line") {
+				done[event.index] = event.value;
+				// A line refused `not_authorized` on grounds decides the batch whatever the others say (§32.10's mapping puts it
+				// first): the review returns at once, and the caller stops the rounds still running.
+				const refused = event.value.ok === true && event.value.verdict.verdict === "not_authorized";
+				if (refused || allIn() && (typedDone || !wantsTyped())) return lines(typedDone);
+				continue;
+			}
+			// The cap. The typed attempt has its own, shorter cap: its answer is awaited, never raced away.
+			typedDone ??= await typed;
+			return typedRules(typedDone) ?? lines(typedDone);
+		}
+	}
 	type Event = { kind: "lane"; value: AdmissionOutcome } | { kind: "typed"; value: TypedAttempt } | { kind: "cap" };
 	let cancelCap: (() => void) | undefined;
+	const capReached = new Promise<void>((settle) => {
+		// SL-87: a timer can fire early against the clock that measures the review (Node's run on the event loop's cached
+		// time, which lags `Date.now()` on a loaded machine): the cap stands only once the review's clock says it has
+		// passed, and is re-armed for what is left otherwise, so no call is returned at the cap before its cap.
+		const arm = (ms: number) => { cancelCap = clock.schedule(() => {
+			const rest = capMs - (clock.now() - began);
+			if (rest > 0) arm(rest); else settle();
+		}, ms); };
+		arm(left(capMs));
+	});
+	if (perLine) {
+		try {
+			return await perLineReview();
+		} finally {
+			cancelCap?.();
+		}
+	}
 	const waiting = new Map<string, Promise<Event>>([
 		["lane", lane.then((value): Event => ({ kind: "lane", value }))],
 		["typed", typed.then((value): Event => ({ kind: "typed", value }))],
-		["cap", new Promise<Event>((settle) => {
-			// SL-87: a timer can fire early against the clock that measures the review (Node's run on the event loop's cached
-			// time, which lags `Date.now()` on a loaded machine): the cap stands only once the review's clock says it has
-			// passed, and is re-armed for what is left otherwise, so no call is returned at the cap before its cap.
-			const arm = (ms: number) => { cancelCap = clock.schedule(() => {
-				const rest = capMs - (clock.now() - began);
-				if (rest > 0) arm(rest); else settle({ kind: "cap" });
-			}, ms); };
-			arm(left(capMs));
-		})],
+		["cap", capReached.then((): Event => ({ kind: "cap" }))],
 	]);
 	let laneDone: AdmissionOutcome | undefined, typedDone: TypedAttempt | undefined;
 	try {

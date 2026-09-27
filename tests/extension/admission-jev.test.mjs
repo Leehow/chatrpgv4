@@ -12,7 +12,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { openTable } from "./harness.mjs";
+import { laneByLine, openTable } from "./harness.mjs";
 
 const JEV_ENV = { PI_COC_ADMISSION_REVIEWER: "jev", EXT_JEV_APIKEY: "test-jev-key" };
 const kernelCalls = (table, method) => table.kernelRequests().filter((entry) => entry.method === method);
@@ -113,29 +113,34 @@ test("an unavailable typed service falls back to the lane, which decides exactly
 	await table.session.prompt("我去环球报的剪报室查那栋房子的旧闻");
 
 	assert.equal(requests.length, 1);
-	assert.equal(table.lanes.admission.requests().length, 1, "the lane reviewed it");
+	assert.equal(table.lanes.admission.requests().length, 2, "the lane reviewed it, one call per line (§32.12.3.1)");
 	assert.equal(kernelCalls(table, "table.apply").length, 1);
-	const [row] = admissionRows(table);
-	assert.equal(row.reviewer, "lane");
-	assert.equal(row.model, "admission/a1");
-	assert.equal(row.jev_fallback, "service_error");
-	assert.equal(typeof row.lane_ms, "number");
+	const rows = admissionRows(table);
+	assert.equal(rows.length, 2);
+	for (const row of rows) {
+		assert.equal(row.reviewer, "lane");
+		assert.equal(row.model, "admission/a1");
+		assert.equal(row.jev_fallback, "service_error");
+		assert.equal(typeof row.lane_ms, "number");
+	}
 });
 
 test("a typed answer under the family confidence is not a verdict: the lane decides", async (t) => {
 	installJev(t, uniform("authorized", { confidence: 0.6 }));
 	const table = await openTable({ responses: newspaperTurn(), env: JEV_ENV,
-		laneResponses: { admission: [slowVerdict({ verdict: "not_authorized", grounds: "only interest", missing: "which archive to visit" }, 300)] } });
+		laneResponses: { admission: laneByLine([[/apply move/, { verdict: "not_authorized", grounds: "only interest", missing: "which archive to visit" }, 300],
+			[/apply clue/, { verdict: "entailed", grounds: "the clippings come with the visit" }, 100]]) } });
 	t.after(() => table.dispose());
 	await table.session.prompt("那看看报纸");
 
-	assert.equal(table.lanes.admission.requests().length, 1);
+	assert.equal(table.lanes.admission.requests().length, 2, "one lane call per line (§32.12.3.1)");
 	assert.equal(kernelCalls(table, "table.apply").length, 0, "the lane's refusal stands");
-	const [row] = admissionRows(table);
-	assert.equal(row.reviewer, "lane");
-	assert.equal(row.jev_fallback, "low_confidence");
-	assert.equal(row.jev_confidence, 0.6);
-	assert.equal(row.missing, "which archive to visit");
+	const rows = admissionRows(table);
+	assert.ok(rows.every((row) => row.reviewer === "lane" && row.jev_fallback === "low_confidence" && row.jev_confidence === 0.6), JSON.stringify(rows));
+	const refused = rows.find((row) => row.verdict === "not_authorized");
+	assert.equal(refused.missing, "which archive to visit");
+	const [text] = toolResultTexts(table.session, "apply");
+	assert.match(text, /^missing: "which archive to visit"$/m, "the refused line's missing choice is the batch's");
 });
 
 test("a confident typed refusal refuses the whole batch with host-derived grounds and missing, and no lane call", async (t) => {
@@ -205,9 +210,9 @@ test("the typed route is opt-in: by default a typed verdict never stands, howeve
 	t.after(() => table.dispose());
 	await table.session.prompt("我去环球报的剪报室查那栋房子的旧闻");
 
-	assert.equal(table.lanes.admission.requests().length, 1);
+	assert.equal(table.lanes.admission.requests().length, 2, "one lane call per line (§32.12.3.1)");
 	assert.equal(kernelCalls(table, "table.apply").length, 0, "the lane's refusal stood over a typed 0.97 admission");
-	assert.equal(admissionRows(table)[0].reviewer, "lane");
+	assert.ok(admissionRows(table).every((row) => row.reviewer === "lane"));
 });
 
 test("a batch carrying cash is the lane's to decide: a confident typed answer never stands on it, numbers are the lane's to compare", async (t) => {

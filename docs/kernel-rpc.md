@@ -8104,7 +8104,7 @@ What is **not** put to review, decided by closed contract enums and never by rea
 - a `resolve` that settles the closed option the player was just asked (`ask` offered `dodge`/`fight_back`/`none`/`push`/`spend_luck`, the player answered in their own words, the Keeper writes `defense`, `push: true` or `luck` accordingly): the answer is the player's own choice, in whatever words it came. The second real table paid a full review, and two of its four timeouts, on exactly these combat rounds before this exemption existed;
 - a turn with no player text (the opening). The skip is a telemetry row, not a silence.
 
-A batch is reviewed whole and refused whole *(amended by §32.12.3, 2026-09-24: lines the typed answer admits at the fast-path confidence are admitted on their own, and the rest is reviewed as its own proposal)*: a `clue` beside a `move` is admitted only when the player's
+A batch is reviewed whole and refused whole *(amended by §32.12.3, 2026-09-24: lines the typed answer admits at the fast-path confidence are admitted on their own, and the rest is reviewed as its own proposal; and by §32.12.3.1, 2026-09-26: the lane reviews each line of a batch on its own call, and the batch is still admitted only when every line is)*: a `clue` beside a `move` is admitted only when the player's
 words authorise both. The review authorises the affected voluntary action, never its outcome, and never
 asks that the player knew or approved a hidden danger.
 
@@ -8240,7 +8240,7 @@ chose, and the player chooses from what the player was told.
 
 ### 32.4 Reuse and cancellation
 
-A verdict is kept for the turn under a host-owned canonical key of the proposal (`resolve`: actor,
+A verdict is kept for the turn *(amended by §32.12.3.1, 2026-09-26: and each line's own verdict under the key a call of only that line would have)* under a host-owned canonical key of the proposal (`resolve`: actor,
 intent, goal, method, skill, target, weapon, spell, object, push, luck, defense; `apply`: each effect's
 kind and its identifying fields, order-free; `why`, `how`, `label` and `decision` are outside the key,
 so a `needs_choice` retry or a rationale bolted on reuses its verdict). Admitting and refusing verdicts
@@ -9071,6 +9071,110 @@ alone and collected by its own resend (SL-87: on §32.12.2's manual clock -- the
 1 000, the rest's verdict at 1 700, its round's end at 2 000 -- asserting the split at 600, pending at exactly 1 000 and a
 resend that waited 700); a whole-batch resend applying only what did not land; §78 for a delivery behind a
 partial landing. Mutations are in the SL-30 ticket.
+
+#### 32.12.3.1 Addendum (2026-09-26, SL-101): a batch's lines are reviewed in parallel, one lane call per line
+
+**Why.** Long gate #23 (`longgate23-haunting-1350`, every model `grok-build/grok-4.5` at `low`, its lowest effort): the
+admission lane answered one-line batches in 6.1 s at the median (n = 19, max 12.7 s) and batches of two or three lines in
+13.0 s at the median (n = 10) -- the cap, almost every time -- and six calls went `review_pending`, each followed by a
+resend and up to 13 s more. The lane's time grows with the batch it reads, and the model's effort cannot be lowered. Owner
+ruling, 2026-09-26: a batch of more than one reviewed line sends one lane call per line, concurrently, on the same lane
+model; the batch's verdict is the existing line-level combination; the cap and pending apply per call, the batch is
+pending only on the lines still pending, and a resend re-joins only those; verdict reuse keys by line; each call gets the
+same §32.3 context and exactly one proposed line; lines settled on `basis.compile`, `basis.consequence` or the typed
+reviewer stay off the lane as before; a one-line batch is unchanged; the typed reviewer is not changed here (SL-97).
+
+**Which calls.** An `apply` proposal with more than one reviewed line (§32.12.3's owner amendment: the lines are its
+reviewed effects only) -- a Keeper's batch, a batch §32.12.4 prefetched, or a split's remainder of two lines or more.
+`reviewedPerLine` (`extensions/kernel/admission.ts`) decides it from the proposal's line count and nothing else. A
+`resolve` (one line) and a one-line batch are reviewed exactly as before this section; the compile's and the consequence
+route's exemptions (§32.12, §32.12.5) are policy-origin single effects and never reach it.
+
+**The calls.** `reviewAdmissionPrimary` starts one `reviewAdmission` round per line at the review's start, beside the one
+typed attempt over the whole batch (§32.10, unchanged: it still reads every line). Each round is the §32.2 completion with
+the same system prompt, the same `PI_COC_ADMISSION_MODEL` and thinking, the same §32.3 input except that
+`[The Keeper now proposes]` holds exactly its one line (`lineProposal`), and its own hard cap, measured from the review's
+start as the batch's single round was. The typed answer keeps its batch-level rules -- §32.11's fast path, §32.10's family
+rule, §32.12.3's split -- for as long as no line's lane round has given a verdict with grounds (a lane verdict on the whole
+batch used to end the review before a later typed answer could); after that the typed answer is information only. A split
+aborts every line's round and reviews its remainder as before, one call per line when the remainder has two lines or more,
+each told the cleared lines were `admitted in this same call`. The review returns when every line has its outcome, when a
+line is refused `not_authorized` (below), or at the cap; it never waits for the slowest line past the cap, so its wall
+time is the slowest line's, not the sum.
+
+**The batch's verdict** is the lines' combined verdict, §32.10's mapping, as §32.12.3 maps a remainder: the batch is
+admitted only when every line is (the combined verdict `authorized` if any line is, else `entailed`, else
+`not_player_action`), and otherwise nothing of the lane-reviewed proposal lands -- §32.1's "a `clue` beside a `move` is
+admitted only when the player's words authorise both" is kept, and the only lines that land beside a refused one are
+still §32.12.3's typed-cleared lines. Each line is settled on its own first (`admitAction`'s `settleLines`,
+`extensions/kernel/index.ts`): its verdict with grounds, its failure, or, past the cap, its own late admission (§32.12.2
+per call: a line of a late kind whose typed line reading admits at the late threshold, `lineReading`) or its own pending
+review. Then `batchRefusal` picks the refusal the Keeper reads, from the lines not admitted: a line refused on grounds
+(`not_authorized` before `uncertain`, the first such line in the batch's order, as §32.10 names line *k*), else a line whose
+review was unavailable (§32.2: no review, no authority), else one whose resend ran out of its hard cap (`review_timeout`),
+else the lines still under review (`review_pending`). The deciding line's refusal is the batch's -- its `code`, `message`,
+`fix`, and `details` with `missing` and `grounds` as that line's review gave them -- with every line of the batch in
+`details.proposed` and each line not admitted in `details.line_outcomes` (`{line, reason, verdict?, missing?, grounds?,
+cause?, streak?, cap_ms?, wait_ms?}`). A line refused `not_authorized` decides the batch at once, whatever the lines still
+running would say: the review returns and those rounds are stopped, unsettled, so nothing is left pending on them. A
+line refused `uncertain` does not: a later `not_authorized` would decide instead, so the review waits for the others (at
+most to the cap).
+
+**Pending only on the lines still pending.** At the cap, a line whose round has not answered and is not admitted late is
+kept running under its own key (`state.admissionPending`, §32.12.2) and the batch is returned `review_pending` with
+`details.pending_lines` (those lines) and the longest `wait_ms`; the lines that answered keep their verdicts under their own
+keys. The Keeper's resend of the identical call reuses the answered lines and re-joins the pending ones, each with
+§32.12.2's resend semantics (collected by its hard cap, or `review_timeout`); no line is reviewed twice.
+
+**Reuse keys by line (amends §32.4).** Each line's verdict -- lane, late or `review_timeout` -- is kept for the turn under
+the key a call of only that line would have (`admissionLines`: the line's own effect through `admissionRequest`), beside
+the batch's own key, which keeps the combined verdict when every line was admitted. A later call whose lines are known under
+their own keys (a verdict kept or a round still running) is admitted line by line: a line already refused this turn refuses
+the batch again at once and nothing else of it is reviewed; otherwise the known lines are reused or re-joined and the
+unknown ones reviewed as a proposal of their own (one call per line when two or more), and the batch's verdict is the
+combination of all of them. So the Keeper's retry without a refused line lands on the kept verdicts of the lines that were
+admitted, with no new review. The next player input still clears every verdict. §32.12.4's prefetch does not start a
+review of a batch one of whose lines is already known under its own key: the real call reuses or re-joins it.
+
+**The outage streak** (§32.2) counts the lines of one call as one review: a batch whose lines all failed is one failure, and
+a live verdict on any line of the call resets the streak.
+
+**Telemetry (amends §32.7).** Each line reviewed on its own leaves its own `lane: "admission"` row -- its own `key`, `verdict`
+or `reason`, `grounds`, `missing`, `ms` (its round's own time from the review's start), and the §32.12.2 fields of a late or
+pending line -- with `line_level: "line"`, `lines` (its 1-based place in the batch), `of_lines`, `batch_key`, and, from a
+review that ran the lines' calls: `line_calls` (how many calls ran at once), `line_ms` (each call's own time, in the batch's
+order, `null` for a call still running at the cap or stopped by a batch-mate's refusal) and `batch_ms` (the review's wall
+time, the slowest line's). A line of a split's remainder adds `remainder: true`. Every line's row is written once the
+batch's verdict is known and carries it: `batch_admitted`, and `batch_verdict` (the combined verdict, or the deciding
+line's refusing verdict) or `batch_reason` (the batch's refusal reason). A line's own `admitted: true` beside
+`batch_admitted: false` is a line the lane admitted in a batch that did not land. A stopped line has no row. `kpi.py`'s
+`admission` section counts each line's row as one review, so its `review_ms` total adds concurrent calls; the call's wait is
+`batch_ms`.
+
+**What this is not.** It does not change what §32.1 puts to review, the lane's prompt or model, the typed family or its
+thresholds, the compile's and the consequence route's exemptions, §32.12.2's cap, hard cap and late threshold, or
+§32.12.3's split and its landing. What lands does not change: a lane-reviewed batch still lands whole or not at all. What
+changes is how many lane calls judge it and how long it waits: one call per line, and the slowest line's time.
+
+**Three ends (§31).** *Writer:* the lines' lane rounds (`reviewAdmissionPrimary`'s per-line review) and the host's
+combination (`settleLines`/`combineLines`, `batchRefusal`, pure). *Reader:* `admitAction`, still the one place a call is
+admitted or refused, and the lines' kept verdicts and rounds (`state.admission`, `state.admissionPending`, keyed by line) for
+a later call and a resend. *Actor:* the Keeper, through the unchanged admit, the batch's refusal with `line_outcomes`, and a
+`review_pending` naming `pending_lines`; the operator, through the line rows' `line_calls`, `line_ms`, `batch_ms` and
+`batch_admitted`.
+
+*Tests* (`tests/extension/admission-lines-parallel.test.mjs`, on the admission clock where the subject is time): a
+three-line batch makes three calls at once, each with one line and the same context, and waits 1.2 s for lines answering at
+0.7, 0.9 and 1.2 s (`batch_ms` 1200, not 2800); a line past the cap leaves only that line pending, nothing lands, and the
+identical resend reuses the two answered lines and re-joins the third (no new call, `resend_wait_ms` from the cap to its
+answer), and with every line past the cap re-joins every line's round; the cap per call (a late line admitted on its own typed 0.72 while the batch's lowest is 0.4); a `not_authorized`
+line decides the batch at 200 ms with the other calls stopped and nothing left pending; an admitted line does not land
+beside an `uncertain` one; a typed fast-path answer arriving after a line's lane verdict does not stand; reuse keyed by
+line, admitting and refusing (a retry that drops the refused line lands on the kept verdict with one call for its new
+line), and cleared by a new player input; one outage per call; a one-line batch and a `resolve` unchanged; a typed fast-path verdict unchanged; a split's two-line remainder one
+call per line; a §32.12.4 prefetch collected line by line, and none started for a batch one of whose lines is known; the pure rules (`reviewedPerLine`, `lineProposal`,
+`lineReading`, `batchRefusal`'s order). The suites whose premise was one lane call per batch now count one call per line.
+Mutations and the offline estimate for gate #23 are in the SL-101 ticket's Comments.
 
 #### 32.12.4 Addendum (2026-09-26, SL-88, "what needs no result does not wait"): the admission reviews of one response's write steps start together, as one round
 
