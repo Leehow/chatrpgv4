@@ -840,3 +840,20 @@ def test_first_step_thinking_omitted_leaves_env_untouched():
         assert captured["env"] is None
     finally:
         shutil.rmtree(run_dir(run_id), ignore_errors=True)
+
+
+def test_engine_acceptance_requires_actual_current_process_handshake(tmp_path):
+    spec = importlib.util.spec_from_file_location('engine_guard_driver', DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.build_parser().parse_args(['_daemon', '--run', 'test', '--campaign', 'test', '--expect-engine', 'hybrid-v1']).expect_engine == 'hybrid-v1'
+    events = tmp_path / 'events.jsonl'
+    events.write_text(json.dumps({'type': 'entry_appended', 'entry': {'customType': 'coc-runtime', 'data': {'loop_engine': 'legacy'}}}) + '\n', encoding='utf-8')
+    actual = module.runtime_engine(events)
+    with pytest.raises(module.DriverError, match='invalid-for-acceptance'):
+        module.validate_engine('hybrid-v1', actual)
+    with pytest.raises(module.DriverError, match='unreported'):
+        module.validate_engine('hybrid-v1', None)
+    module.validate_engine('legacy', actual)
+    events.write_text(json.dumps({'type': 'entry_appended', 'entry': {'customType': 'coc-runtime', 'data': {'loop_engine': 'hybrid-v1'}}}) + '\n{"partial":', encoding='utf-8')
+    module.validate_engine('hybrid-v1', module.runtime_engine(events))

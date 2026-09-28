@@ -495,7 +495,7 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
   if (!exit.choice) return {pending: [{kind: 'infer', purpose: 'adjudicate', reason: 'jev_no_answer'}], reason: 'jev_no_answer', selected: [], exit: undefined};
   if (!clears(result, 'exit', exit.choice, exit.confidence, gate))
     return {pending: [{kind: 'infer', purpose: 'adjudicate', reason: 'low_confidence'}], choice: exit.choice, confidence: exit.confidence, reason: 'low_confidence', selected: [], exit: exit.choice};
-  if (exit.choice === 'read_more') return {pending: [...(view.located ? [] : [{kind: 'decide' as const, purpose: 'locate'}]), {kind: 'direct', purpose: 'read'}],
+  if (exit.choice === 'read_more') return {pending: [...(view.located ? [] : [{kind: 'decide' as const, purpose: 'locate'}]), {kind: 'direct', purpose: 'read',reason:'read_more'}],
     choice: exit.choice, confidence: exit.confidence, reason: 'read_more', selected: [], exit: exit.choice};
   if (exit.choice === 'finish') return {pending: [{kind: 'infer', purpose: 'compose', reason: 'finish'}], choice: exit.choice, confidence: exit.confidence, reason: 'finish', selected: [], exit: exit.choice};
   // ask_llm, or "continue" with nothing the host can name: judgment the candidates do not carry.
@@ -542,10 +542,10 @@ export function routeBatch(view: RunView, scope: ScopeBinding, readSet: ReadSet)
         unknown: 'Cannot be told from the supplied state.'}});
     const exitQuestion = {key: 'exit', target: 'what follows the listed operations', type: 'choice' as const,
       instructions: 'After every operation judged "now" has run, what does the turn need next? Choose continue when the listed operations cover the '
-        + 'declared action. Choose ask_llm when the next step needs Keeper judgment, invented detail, dialogue, or parameters no candidate supplies. '
+        + 'declared action. Choose ask_llm only when an unresolved adjudication or world operation needs Keeper judgment or parameters no candidate supplies. Ordinary narration, descriptive detail and dialogue for already settled events belong to finish, not ask_llm. '
         + 'Choose read_more when unread module material would change these judgments. Choose finish when nothing further should be settled before narrating.',
       criteria: {continue: 'The listed operations judged now carry the declared action; nothing else is needed before they run.',
-        ask_llm: 'Keeper judgment or content no candidate supplies is needed.', read_more: 'Unread module material is needed first.',
+        ask_llm: 'An unresolved adjudication or world operation needs Keeper judgment beyond final narration.', read_more: 'Unread module material is needed first.',
         finish: 'Nothing further should be settled; narrate the result.'}};
     const batch: DecisionBatch = {id: digest([ROUTE_FAMILY, view.runId, view.observations.length, state]), model: JEV_MODEL,
       family: ROUTE_FAMILY, familyVersion: '2', scope, readSet, state, questions: [...offered.map(needQuestion), exitQuestion]};
@@ -1368,7 +1368,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
           : {kind: 'decide', purpose: 'bind', question: binding ? {batch: bindBatch(state, candidate, binding.scope, binding.readSet), candidate: candidate.key} : unbound};
       }
       const item = request.item;
-      const proposal: OperationProposal = item.purpose === 'read' ? {origin: 'policy', operation: 'read', readOnly: true, label: 'read the table state'}
+      const proposal: OperationProposal = item.purpose === 'read' ? {origin: 'policy', operation: 'read', readOnly: true, label: 'read the table state',...(item.reason==='read_more'?{params:{refresh:true}}:{})}
         : item.purpose === 'llm_proposal' ? {origin: 'policy', operation: 'llm_proposal', readOnly: true, params: {candidate: item.candidate?.key}}
           : {origin: 'policy', operation: 'execute', readOnly: false, label: item.candidate?.label,
             params: {candidate: item.candidate, extra: item.extra ?? {}, intent: driver.policyState.intent ?? null,

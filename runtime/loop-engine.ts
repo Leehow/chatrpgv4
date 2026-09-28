@@ -1,7 +1,8 @@
+import {readJevApiKey} from '../extensions/jev/agent/config.js';
 /**
  * `PI_COC_LOOP_ENGINE` selects the Keeper's run engine (spec pi-native-single-loop, SL-01):
  *
- * - `legacy` (default, and when unset): Pi's model-first loop, exactly as before;
+ * - `legacy` (explicit control or no available Jev credential): Pi's model-first loop, exactly as before;
  * - `hybrid-v1`: Pi's RunDriver (vendored agent-core, ADR-0006) with the product's step policy and ports
  *   (`runtime/jev/hybrid-engine.ts`), started through `runtime/pi-hybrid.ts`.
  *
@@ -19,7 +20,8 @@ export type LoopEngine = typeof LOOP_ENGINES[number];
 export const LOOP_PROTOCOLS: Readonly<Record<LoopEngine, string>> = Object.freeze({legacy: 'legacy', 'hybrid-v1': 'hybrid-v1/events-1'});
 
 export function selectLoopEngine(env: Readonly<NodeJS.ProcessEnv>, mode: 'play' | 'setup'): LoopEngine {
-  const requested = env.PI_COC_LOOP_ENGINE?.trim() || 'legacy';
+  const privateLegacy=env.PI_COC_JEV_S0==='1'||env.PI_COC_TASK_RUNTIME==='1';
+  const requested = env.PI_COC_LOOP_ENGINE?.trim() || (!privateLegacy&&readJevApiKey(env)?'hybrid-v1':'legacy');
   if (!(LOOP_ENGINES as readonly string[]).includes(requested))
     throw new Error(`PI_COC_LOOP_ENGINE must be one of ${LOOP_ENGINES.join(', ')}; got ${requested}`);
   return mode === 'play' ? requested as LoopEngine : 'legacy';

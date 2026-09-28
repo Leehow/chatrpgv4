@@ -362,6 +362,12 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
         {name: 'via', required: false, vocabulary: 'open'}],
       detail: {available: true, ...(text(description.material) ? {material: text(description.material)} : {})} as Json,
       clerk: 'declared_bookkeeping', basis});
+    else if(kind==='npc'&&description.kind==='source_presence')push({key:'apply:source-presence:'+text(effect.name),verb:'apply',family:'source_presence',source:'table.apply.options',
+      label:'Initialize the authored presence of '+text(description.name)+' at '+text(description.scene),
+      bound:{kind:'npc',name:text(effect.name),to:text(effect.to),why:composeSentence('The source places this previously unregistered actor in the current scene',rawInput)},
+      composed:['why'],unbound:[],detail:{actor:description.actor,scene_context:description.scene_context},clerk:'declared_bookkeeping',basis,
+      routeFact:{target:'initial source-backed NPC presence',instructions:'Does the supplied source establish this actor at the current scene now, considering its conditions and the current situation? This actor has no established campaign location yet. Initialize only supported presence, not an invented arrival. Source conditions that cannot be assessed mean unknown.',
+        criteria:{initialize:'The source placement applies now.',later:'The source placement does not apply now.',unknown:'The source conditions cannot yet be assessed.'},selects:'initialize'}});
     else if (kind === 'clue') push({key: `apply:clue:${text(effect.clue)}`, verb: 'apply', family: 'clue', source: 'table.apply.options',
       label: `Reveal clue ${text(effect.clue)}: ${text(description.summary)}`, bound: {kind: 'clue', clue: text(effect.clue)},
       unbound: [{name: 'how', required: false, vocabulary: 'open'}, {name: 'label', required: false, vocabulary: 'open'}],

@@ -1,3 +1,4 @@
+import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 /**
  * The product side of `PI_COC_LOOP_ENGINE=hybrid-v1`: the policy and the ports Pi's RunDriver (vendored
  * agent-core, ADR-0006) drives each player input with. Pi knows nothing of what is here. Contract §135.
@@ -78,7 +79,8 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
  * non-blocking apply goes out with its narrate in one call instead of costing a whole extra model step. Keeper-only,
  * system language.
  */
-export const CLERK_NOTE_HEAD = 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). '
+export const CLERK_NOTE_HEAD = 'On compose steps, write the final response from supplied source and committed receipts. Do not repeat supplied lookups, restage recorded people, or add optional bookkeeping just to fill fields. Genuine unresolved requirements retain their ordinary operations. '
+  + 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). '
   + 'An apply whose landing is fixed by its own arguments is non-blocking: put it and the narrate that follows in the same response, '
   + 'writes first, narrate last; resolve, look, lookup and recall are blocking -- the prose needs a result you do not have yet -- so '
   + 'wait for their result before you narrate.';
@@ -134,6 +136,8 @@ export function carriedPassages(views: ReadonlyArray<{focus: string; name?: stri
 
 /** The kernel extension's bus payload (`coc:kernel-bridge`, contract §12.8). */
 export interface KernelBridge {
+  moduleId?: string;
+  runtime?: PrescreenSourceRuntime;
   campaign?: string;
   call?: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   record?: (row: Record<string, unknown>) => void;
@@ -481,9 +485,9 @@ interface RunState {
   steer?: Row;
   /**
    * §135.6 (SL-22 addendum): the run's previous read, by scene, with the prescreen outcome it ran or reused (absent when it
-   * ran none): a read on the same scene reuses it. The prepared packet is kept without its issued bodies.
+   * ran none): reuse requires the same scene, source evidence and player need; read_more refreshes it. The packet excludes issued bodies.
    */
-  lastRead?: {scene: string; outcome?: {step: string; materials: Material[]; message?: Row}};
+  lastRead?: {scene: string; key: string; outcome?: {step: string; materials: Material[]; message?: Row}};
   /** §135.6 (SL-22 addendum): what the run's prescreens spent, reported in the budget summary (never the decision budget's). */
   prescreenSpent: {reads: number; jev_calls: number; ms: number};
   /** §135.25 (SL-22 addendum): the policy's decision budget as of its latest step, for the budget summary. */
@@ -816,24 +820,27 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           }
           // The product prescreen, inside the run: the first read and the read after a scene change. It has its own allowance,
           // which no decision spends (§135.6, SL-22 addendum), and every read that runs one gets it whole from its own start
-          // (§135.6.1, SL-44); only the provider budget is per input. A re-read on the same scene reuses the previous outcome.
+          // (§135.6.1, SL-44); only the provider budget is per input. A read reuses unchanged evidence unless the policy explicitly requests more.
           const allowance = run.prescreenAllowanceMs, scene = table.context.scene;
-          const reuse = run.lastRead?.scene === scene ? run.lastRead.outcome : undefined;
+          const sourceStamp=bridge?.moduleId&&bridge.runtime?.sourceText?await quiet('module.source.materials.snapshot',{module_id:bridge.moduleId,answer_limit:1}):undefined;
+          const readKey=sourceReadReuseKey(scene,sourceStamp?.revision?[sourceStamp.revision,sourceStamp.answers_revision]:table.binding?.source_revision,run.rawInput);
+          const reuse = !_proposal.params?.refresh && run.lastRead?.key === readKey ? run.lastRead.outcome : undefined;
           // Why a read ran without it (§135.6, 2026-09-24): live gate #4's rows said only `not_run`, and the cause -- the
           // preselect setting off in its launch -- had to be found by reading the launcher.
-          const skipped = !jev ? 'no_jev' : !prescreenEnabled(options.env as NodeJS.ProcessEnv) ? 'preselect_off' : !table.binding ? 'no_binding'
+          const skipped = !jev ? 'no_jev' : !prescreenEnabled(options.env as NodeJS.ProcessEnv) && !_proposal.params?.refresh ? 'preselect_off' : !table.binding ? 'no_binding'
             : run.providerBudget.actions <= 0 ? 'allowance_spent' : !(bridge?.call && bridge.campaign) ? 'no_bridge' : undefined;
           let materials: Material[] = [], calls = 0, prescreen: Row = {status: 'not_run', reason: skipped ?? null}, packet: Row | undefined;
           let outcome: {step: string; materials: Material[]; message?: Row} | undefined;
           if (reuse) {
-            // The same scene as the run's previous read: its prescreen's outcome again, at no Jev call and no time (a fallback's
+            // The same evidence binding as the previous read: its outcome again, at no Jev call and no time (a fallback's
             // outcome is no material; a re-run would only spend the remainder again).
             materials = reuse.materials; packet = reuse.message; outcome = reuse;
             prescreen = {status: 'reused', from: reuse.step, jev_calls: 0, ms: 0, materials: materials.length};
           } else if (!skipped && jev && bridge?.call && bridge.campaign && table.binding) {
             const events: Row[] = [], prescreenBegan = stepNow();
             const message = await prepareKeeperSupport({call: (method, params) => bridge!.call!(method, params), campaign: bridge.campaign,
-              binding: table.binding, capsule, signal: invocation.signal, decision: jev, env: options.env as NodeJS.ProcessEnv,
+              binding: table.binding, capsule, signal: invocation.signal, decision: jev,
+              ...(bridge.moduleId&&bridge.runtime?.sourceInfo&&bridge.runtime?.sourceText?{source:{moduleId:bridge.moduleId,runtime:bridge.runtime}}:{}),env: options.env as NodeJS.ProcessEnv,
               record: event => { events.push(event); record({...event, run: run.runId, step: invocation.stepId}); },
               byteBudget: PRESCREEN_BYTES, deadlineAt: stepNow() + allowance, providerBudget: run.providerBudget, ...leaseClock});
             const prepared = events.find(event => event.event === 'prepared'), fallback = events.find(event => event.event === 'fallback');
@@ -854,7 +861,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             outcome = {step: invocation.stepId, materials, ...(packet ? {message: packet} : {})};
             run.prescreenSpent.reads++; run.prescreenSpent.jev_calls += calls; run.prescreenSpent.ms += prescreenMs;
           }
-          run.lastRead = {scene, ...(outcome ? {outcome} : {})};
+          run.lastRead = {scene,key:readKey, ...(outcome ? {outcome} : {})};
           // §135.31.1: the scene's source passages are read off the prescreen's own materials (the packet before the issued bodies).
           if (outcome?.message) {
             let content: Row = {};
@@ -881,7 +888,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           // here. A read is not a decision (§135.6, SL-22), and the run's own route/compile/bind Jev calls stay
           // exactly what they were before SL-76 -- a mid-read consequence call was found, live-gate style, to move
           // `single-loop-compile.test.mjs`'s "the compile is the run's first Jev question" off true, and to make a
-          // `read_more` on an unchanged scene (which must spend no Jev call at all, §135.6's reuse) spend one.
+          // `read` reusing unchanged evidence spend one.
           run.consequenceCandidates = consequences();
           run.consequenceContext = table.context;
           // `calls`/`ms` are the prescreen's own, reported; the policy charges no read to the decision budget (§135.6, SL-22).
@@ -1632,3 +1639,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     keeperCallCapMs: firstStepThinkingEnabled(options.env) ? resolveKeeperCallCapMs : keeperCallCapMs(options.env),
     onKeeperCallCap};
 }
+
+/** Reuse only the same source revision and player need; explicit read-more bypasses it. */
+export function sourceReadReuseKey(scene:string,revision:unknown,need:string):string{return digest([scene,revision??null,need]);}

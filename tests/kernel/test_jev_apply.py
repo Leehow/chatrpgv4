@@ -48,7 +48,7 @@ def test_apply_options_is_read_only_unique_and_derived_from_current_graph_state(
     assert snapshot["context"] == {**snapshot["context"], "scene": "Knott's Office",
                                     "pending_choice": None, "session": None,
                                     "present": ["Steven Knott"], "current_receipts": []}
-    assert snapshot["context"]["coverage"]["effect_families"] == ["clue", "move"]
+    assert snapshot["context"]["coverage"]["effect_families"] == ["clue", "move", "source_presence"]
 
 
 def test_apply_options_removes_discovered_clue_and_reports_current_receipt_without_writing(kernel):

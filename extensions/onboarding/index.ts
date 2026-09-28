@@ -1,3 +1,4 @@
+import {selectSetupSource} from './source-intake.ts';
 import { computeMove, renderBrief, type SetupSlot, type SetupNotes } from './brief.ts';
 import { playerReason } from './reasons.ts';
 /** Setup ordering comes from setup.steps; source preparation uses the shared visual reader. */
@@ -878,7 +879,7 @@ export default function (pi: ExtensionAPI) {
 			setupBlock = undefined;
 			outcome.character_guidance = guidance;
 			if (!prologueRecorded) {
-				pi.sendMessage(await shownPrologue(guidance));
+				pi.sendMessage(await shownPrologue(guidance),{triggerTurn:false});
 				outcome.opening_shown = 'The host has shown character_guidance.opening to the player word for word, right after this result. Do not repeat, retell or translate it; continue after it as the host.';
 			}
 			return undefined;
@@ -1043,7 +1044,7 @@ export default function (pi: ExtensionAPI) {
         // Sent while the turn runs, the opening lands right after this result and before the guide's
         // next step (§14.18); the guide only has to know it was shown.
         if(guidance && !prologueRecorded) {
-          pi.sendMessage(await shownPrologue(guidance));
+          pi.sendMessage(await shownPrologue(guidance),{triggerTurn:false});
           outcome.opening_shown='The host has shown character_guidance.opening to the player word for word, right after this result. Do not repeat, retell or translate it; continue after it as the host.';
         }
         const created=asRecord(asRecord(outcome['campaign.create']).campaign);
@@ -1172,10 +1173,27 @@ export default function (pi: ExtensionAPI) {
     // setup child with the play child.
     await refreshCompleted();
     // Every reply below is read by the player, the blocked and closing ones included (§14.17).
-    const base=event.systemPrompt+tableLanguage();
+    let base=event.systemPrompt+tableLanguage();
     if(completed.has('complete')) {
       await finish();
       return {systemPrompt:base+'\nSetup is already complete. Do not call setup or continue character creation. Close the prologue briefly; the host will open the table.'};
+    }
+    if(!completed.has('choose-source')&&ctx&&bridge&&reading&&context.campaign){
+      const preparationSignal=ctx.signal?AbortSignal.any([ctx.signal,guidanceAbort.signal]):guidanceAbort.signal;
+      let outcome:Record<string,unknown>|undefined;
+      const pdf=await selectSetupSource({text:event.prompt,language:await boundLanguage(),signal:preparationSignal});
+      if(pdf){
+        preparationSignal.throwIfAborted();
+        const chosen=outcome=await execute({step:'choose-source',kind:'pdf',pdf},preparationSignal);
+        if(chosen.ok===true){
+          preparationSignal.throwIfAborted();
+          const preparation=stepWithOp('module.prepare');
+          const prepared=outcome=preparation?await execute({step:preparation.id,pdf},preparationSignal):undefined;
+          if(prepared?.ok===true){preparationSignal.throwIfAborted();const creation=stepWithOp('campaign.create');if(creation)outcome=await execute({step:creation.id,id:context.campaign,play_language:await boundLanguage()},preparationSignal);}
+        }
+      }
+      if(outcome){const progress={completed:[...completed],next:steps?nextStep(steps,state())?.id:undefined,...(typeof outcome.opening_shown==='string'?{opening_shown:outcome.opening_shown}:{}),...(outcome.ok!==true?{code:outcome.code,details:outcome.details,message:outcome.message}: {})};
+        pi.appendEntry('coc-setup-preflight',progress);base+='\nHost source preparation already performed these setup steps; continue from next without repeating them. '+JSON.stringify(progress);}
     }
     let guidance: Guidance | undefined;
     // The campaign id may be known before the campaign exists (PI_COC_CAMPAIGN); preparing guidance for a campaign that a
@@ -1303,7 +1321,7 @@ export default function (pi: ExtensionAPI) {
     if(process.env.PI_COC_SETUP_AUTOSTART==='1' && campaign && !hasDialogue && !completed.has('complete')) {
       const guidance=await ensureGuidance();
       if(!guidance)throw new Error('The prepared module guidance is unavailable');
-      pi.sendMessage(await shownPrologue(guidance));
+      pi.sendMessage(await shownPrologue(guidance),{triggerTurn:false});
     }
     if (ctx.hasUI && steps && process.env.PI_COC_SETUP_AUTOSTART!=='1') {
 			// The player is told how long the table is and which step is next. The step's own

@@ -2,6 +2,10 @@
 
 Status: source-reference integration implemented and source-to-action behavior verified. Whole-turn latency and packaged-App acceptance remain open.
 
+## Engine correction (2026-09-28)
+
+All Blood play runs reported below used `loop_engine: legacy`, as their campaign startup telemetry confirms. They are **invalid-for-acceptance of hybrid-v1** and cannot verify native tracked-mutation routing or its performance. Exact-source child operations and graph publication observations remain source API evidence. The owner has approved correcting and retesting the actual hybrid integration; see contract §149 and the active ticket tracker.
+
 ## Owner intent and scope
 
 Players should start creating and playing quickly. Jev selects original source, the host copies it, and the foreground generates only the final guide. Small graph fragments publish independently in the background; incomplete coverage remains available through original-PDF access. Character choices remain advisory. Logical identities/links and campaign canon matter more than exact module prose/numbers.

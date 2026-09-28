@@ -486,3 +486,11 @@ test("§143.16: a flight the session issues alone still owes a compile -- the on
 	assert.deepEqual([actGated(candidates[0], []), actGated(candidates[0], ["combat:flee"])], [true, false]);
 	assert.equal(next(initialView({ runId: "r", rawInput: "我跑", context, candidates, rows, readFirst: false })).purpose, "compile");
 });
+
+test('an issued initial source-presence row becomes a conditional closed NPC operation',()=>{
+ const row={effect:{kind:'npc',name:'mae',to:'dock'},description:{kind:'source_presence',name:'Mae',scene:'Dock',actor:{summary:'Present only during the day.'},scene_context:'Harbor'}};
+ const reads={capsule:{},applyOptions:{candidates:[row]},resolveOptions:{}};
+ const candidate=buildCandidates(reads,'I walk to the dock.').find(value=>value.family==='source_presence');
+ assert.equal(candidate.bound.name,'mae');assert.equal(candidate.bound.to,'dock');assert.equal(candidate.routeFact.selects,'initialize');assert.equal(candidate.unbound.length,0);
+ assert.equal(buildCandidates({...reads,applyOptions:{candidates:[{...row,guarded_by:'locked-meeting'}]}},'I walk to the dock.').some(value=>value.family==='source_presence'),false);
+});

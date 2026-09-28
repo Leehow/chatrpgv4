@@ -18,6 +18,8 @@ before(async()=>{
     "export * from './extensions/table/prescreen-types.ts';",
     "export * from './extensions/table/prescreen.ts';",
     "export {installContextPolicy} from './extensions/table/context-runtime.ts';",
+    "export {createHybridEngine} from './runtime/jev/hybrid-engine.ts';",
+    "export {createDecisionAdapter} from './runtime/jev/decision-adapter.ts';",
     "export {createKernelContext} from './kernel-ts/context.ts';",
     "export {createKernelRuntime} from './kernel-ts/registry.ts';",
     "export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';",
@@ -51,12 +53,12 @@ async function fixture(t){
     graph:JSON.parse(await readFile(join(ROOT,'content/modules/module-graph-contract-v3.json'),'utf8')),
     template:JSON.parse(await readFile(join(ROOT,'content/modules/module-graph-template-v1.json'),'utf8'))};
   const {module_id:mid}=await call('module.source.bind',{module_id:'source-book',title:'Harbor Source',source:{path:pdf,file_sha256:sha(bytes),page_count:1}});
-  const finish=async(job,draft)=>{
+  const finish=async(job,draft,campaign)=>{
     const checked=job.purpose==='index'?[]:api.checkDraft(draft,job,contract,new Set([1])).required_review;
     await Promise.all([save(join(job.work_dir,'draft.json'),draft),save(join(job.work_dir,'review.json'),{
       checked:checked.length?[{paths:checked,verdict:'supported',source_refs:refs,reason:'The supplied original page supports these fields.'}]:[],missing:[]}),
       save(join(job.work_dir,'observations.json'),{file_sha256:job.source.file_sha256,read_pages:[1],full_pages:[1],review_pages:[1]})]);
-    return call('module.read.finish',{module_id:mid,job_id:job.job_id,lease:job.lease,outcome:'completed',
+    return call('module.read.finish',{...(campaign?{campaign}:{}),module_id:mid,job_id:job.job_id,lease:job.lease,outcome:'completed',
       draft_path:join(job.work_dir,'draft.json'),review_path:join(job.work_dir,'review.json')});
   };
   const claim=async params=>{const queued=await call('module.read.request',{module_id:mid,...params});assert.equal(queued.state,'queued');
@@ -84,7 +86,7 @@ async function fixture(t){
   await call('investigator.load',{campaign:'c1',library_id:saved.library_id});await call('setup.complete',{campaign:'c1'});
   const opened=await call('table.open',{campaign:'c1'}),input=await call('table.player_input',{campaign:'c1',text:'When does the harbor bell ring, and what exactly does the original notice say?'}),view=await call('table.capsule',{campaign:'c1',rehydrate:true});
   const {_context,...capsule}=view,source={home,sourceInfo:({pdf:path})=>api.sourceInfo(path),sourceText:({pdf:path,...options},signal)=>api.sourceText(path,options,signal)};
-  return{home,mid,call,opened,input,capsule,binding:_context,source,acceptAnswer,fileSha:sha(bytes)};
+  return{home,mid,call,finish,opened,input,capsule,binding:_context,source,acceptAnswer,fileSha:sha(bytes)};
 }
 
 /** `onFirst` runs once, before answering the first request `trigger` accepts (by default the first request of all). */
@@ -153,4 +155,28 @@ test('a public source-owner answer change after the source materials were read p
   await result.hooks.get('before_provider_request')({type:'before_provider_request',payload:{model:'fixture',input:api.convertToLlm(result.projected.messages)}},{});
   assert(!result.events.some(row=>row.lane==='prescreen'&&row.event==='delivered'&&row.delivered===true));
   await result.hooks.get('session_shutdown')();
+});
+
+test('the actual hybrid read port receives original PDF evidence before any Keeper inference',async t=>{
+ const f=await fixture(t),events=[],bus=new Map();let nativeReads=0;
+ const engine=api.createHybridEngine({env:{PI_COC_JEV_PRESELECT:'1',EXT_JEV_APIKEY:'fixture'},npcAct:null,record:row=>events.push(row),
+  decision:api.createDecisionAdapter({apiKey:'fixture',fetcher:deterministicFetch()})});
+ engine.extension({on(){},events:{on:(name,handler)=>bus.set(name,handler),emit(){}},getActiveTools:()=>[]});
+ bus.get('coc:kernel-bridge')({campaign:'c1',moduleId:f.mid,call:f.call,runtime:{...f.source,sourceText:async(...args)=>{nativeReads++;return f.source.sourceText(...args);}}});
+ const prepared=await engine.runDriver.prepare({runId:'source-before-keeper',inputRevision:'fixture-v1',rawInput:f.capsule.turn.player_text,session:{}});
+ const read=await prepared.ports.read.read({operation:'read',origin:'policy'},{signal:AbortSignal.timeout(20000),stepId:'read-original'});
+ assert(nativeReads>0,'hybrid must pass its source runtime to the evidence owner');
+ assert.match(JSON.stringify(read.artifact.read.materials),/ORIGINAL NOTICE: The harbor bell rings at midnight/);
+ assert(events.some(row=>row.event==='source_catalog'&&row.candidates>0));
+});
+
+test('late source actors have conditional initial-presence options without overwriting recorded locations',async t=>{
+ const f=await fixture(t),params={campaign:'c1',module_id:f.mid};
+ await f.call('module.read.request',{...params,purpose:'detail',focus:'Dock',question:'Prepare the newly read dock occupant'});
+ const job=await f.call('module.read.claim',{...params,owner:'presence-fixture'});
+ await f.finish(job,{nodes:[{node_id:'npc-mae',node_kind:'npc',name:'Mae',summary:'An authored dock occupant.',properties:{},source_refs:[{page:1}]}],claims:[{subject_id:'npc-mae',predicate:'present-in',object:{node_id:'scene-dock'},truth_status:'authored-fact',source_refs:[{page:1}]}],node_refs:['scene-dock'],coverage:{},dependencies:[],critical:[],ready_nodes:['npc-mae']},'c1');
+ const option=(await f.call('table.apply.options',{campaign:'c1'})).candidates.find(row=>row.description.kind==='source_presence');
+ assert.deepEqual(option.effect,{kind:'npc',name:'mae',to:'dock'});
+ await f.call('table.apply',{campaign:'c1',call_id:'t1-c1',effects:[{kind:'npc',name:'mae',to:'warehouse',why:'A prior table event placed Mae away from the dock.'}]});
+ assert(!(await f.call('table.apply.options',{campaign:'c1'})).candidates.some(row=>row.description.kind==='source_presence'),'the book cannot teleport a recorded actor back');
 });

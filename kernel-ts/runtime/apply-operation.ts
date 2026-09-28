@@ -8,7 +8,7 @@ import {whereSection, cluesHere, npcsPresent} from '../read/capsule.js';
 import {SessionView} from '../read/session-view.js';
 import {taskWorldRevision} from '../read/context.js';
 import {fulfillmentHandlers, fulfillmentPromiseNavigation} from './fulfillment-options.js';
-import {array, string, type Row} from '../read/values.js';
+import {array, normalize, row, string, type Row} from '../read/values.js';
 import {obligationNodes, openGuards, sceneObligations} from '../read/obligations.js';
 import {unstatedDamage} from '../read/stated.js';
 import {activeMods} from '../read/mods.js';
@@ -30,6 +30,14 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         for (const clue of cluesHere(graph,campaign.world,scene)) if (clue.discovered!==true) {
             const node=graph.find(clue.name,['clue']), cues=node&&scene?grantingCues(scene,string(node.node_id)):[];
             add({kind:'clue',clue:clue.name},{kind:'clue',...clue,...(cues.length?{cues}:{}),authority:'authored_candidate_not_discovered'},guards.clues.get(string(node?.node_id)));
+        }
+        for(const id of graph.sceneNpcIds(scene)){
+            const node=graph.nodes.get(id),handle=node?graph.handle(node):'';
+            if(!node||!handle||Object.hasOwn(row(campaign.world.npc_presence),handle))continue;
+            const names=new Set([node.name,...array(node.aliases)].filter(value=>typeof value==='string').map(normalize));
+            if(Object.keys(row(campaign.world.npc_presence)).some(existing=>{const known=graph.actor(existing);return known&&[known.name,...array(known.aliases)].some(value=>typeof value==='string'&&names.has(normalize(value)));}))continue;
+            add({kind:'npc',name:handle,to:graph.handle(scene)},{kind:'source_presence',name:graph.displayName(node),scene:graph.displayName(scene),
+                actor:graph.entityView(node),scene_context:scene.summary??'',authority:'authored_initial_presence_not_a_new_arrival'},guards.people.get(id));
         }
         const destinations=new Set<string>();
         // §135.30.4: a move row says what the place is, and an unmet unlock names what opens it (the book's own data).
@@ -62,6 +70,6 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
                 current_receipts:array(campaign.turn.receipts).map(receipt=>Object.fromEntries(
                     ['kind','actor_label','skill','level','passed','outcome','clue','to','from','quantity','delta','currency','before','after']
                         .filter(key=>Object.hasOwn(receipt,key)).map(key=>[key,receipt[key]]))),
-                coverage:{effect_families:['clue','move'],other_families:'Use the incumbent owner; no quantity, amount, profile or novel definition is inferred.'}}};
+                coverage:{effect_families:['clue','move','source_presence'],other_families:'Use the incumbent owner; no quantity, amount, profile or novel definition is inferred.'}}};
     }};
 }

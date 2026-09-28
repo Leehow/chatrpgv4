@@ -5096,6 +5096,9 @@ export default function (pi: ExtensionAPI) {
 				},
 			});
 			const hello = await kernel.call<Record<string, unknown>>("kernel.hello");
+			const startup={...startupRecord(runtime.resourceRoot,process.env),mode:setupMode?"setup":"play"};
+			pi.appendEntry("coc-runtime",startup);
+			if(process.env.PI_COC_STARTUP_RECORD)await writeFile(process.env.PI_COC_STARTUP_RECORD,JSON.stringify(startup)+"\n",{flag:"wx"});
 			if (setupMode) {
 				// The setup process: the kernel is here, the table is not. Put the RPC closure on the bus for the
 				// onboarding and module extensions; the campaign may not exist yet (`create-campaign` makes it),
@@ -5185,6 +5188,7 @@ export default function (pi: ExtensionAPI) {
 			// on the bus rather than starting a second process.
 			pi.events.emit("coc:kernel-bridge", {
 				campaign,
+				moduleId: readingModule,
 				call: bridgeCall(kernel),
 				runtime,
 				// The call ordinal lives here, so anything that has to write on the Keeper's behalf mints its

@@ -347,13 +347,35 @@ class PiProcess:
 # the daemon itself
 # --------------------------------------------------------------------------
 
+def runtime_engine(events_path: Path) -> str | None:
+    """Read the current process handshake, never an old campaign startup row."""
+    if not events_path.exists():
+        return None
+    engine = None
+    for line in events_path.read_text(encoding="utf-8").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        entry = event.get("entry", {})
+        if event.get("type") == "entry_appended" and entry.get("customType") == "coc-runtime":
+            engine = entry.get("data", {}).get("loop_engine")
+    return engine
+
+
+def validate_engine(expected: str, actual: str | None) -> None:
+    if actual != expected:
+        raise DriverError(f"engine mismatch: expected {expected}, actual {actual or 'unreported'}; invalid-for-acceptance")
+
+
 class Daemon:
     def __init__(self, run_id: str, campaign: str, launcher: str | None, model: str | None, thinking: str | None = None,
-                 first_step_thinking: bool = False):
+                 first_step_thinking: bool = False, expected_engine: str | None = None):
         self.run_id = run_id
         self.campaign = campaign
         self.thinking = thinking
         self.first_step_thinking = first_step_thinking
+        self.expected_engine = expected_engine
         self.dir = run_dir(run_id)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.log = DriverLog(self.dir / "driver.log")
@@ -404,7 +426,11 @@ class Daemon:
         # its own process env, so it travels as an env var to the launcher subprocess rather than
         # as a launch arg. `env=None` (the branch below) inherits this process's own environment,
         # which is how every other var (PI_COC_*, provider keys) already reaches `pi` today.
-        pi_env = {**os.environ, "COC_FIRST_STEP_THINKING": "1"} if self.first_step_thinking else None
+        pi_env = dict(os.environ) if self.first_step_thinking or self.expected_engine else None
+        if self.first_step_thinking:
+            pi_env["COC_FIRST_STEP_THINKING"] = "1"
+        if self.expected_engine:
+            pi_env["PI_COC_STARTUP_RECORD"] = str(self.dir / "runtime-startup.json")
         self.pi = PiProcess(
             launcher_path,
             launch_args,
@@ -427,6 +453,16 @@ class Daemon:
                 f"see {self.dir / 'pi-stderr.log'}"
             )
 
+        actual_engine = None
+        if self.expected_engine:
+            deadline = time.monotonic() + ACK_TIMEOUT
+            while time.monotonic() < deadline:
+                actual_engine = (read_json(self.dir / "runtime-startup.json", {}) or {}).get("loop_engine") or runtime_engine(self.events_path)
+                if actual_engine:
+                    break
+                time.sleep(0.05)
+            validate_engine(self.expected_engine, actual_engine)
+
         model_result = None
         if model:
             model_result = self._set_model(model)
@@ -436,6 +472,7 @@ class Daemon:
         write_json(self.daemon_json_path, {
             "run_id": self.run_id, "campaign": campaign, "launcher": str(launcher_path),
             "daemon_pid": os.getpid(), "pi_pid": self.pi.proc.pid,
+            "engine_expected": self.expected_engine, "engine_actual": actual_engine,
             "model_requested": model, "model_confirmed": (model_result or {}).get("data"),
             "started_at": self.started_at, "socket_path": str(self.socket_path), "status": "ready",
         })
@@ -865,7 +902,7 @@ class Daemon:
 def _daemon_main(args: argparse.Namespace) -> int:
     try:
         daemon = Daemon(run_id=args.run, campaign=args.campaign, launcher=args.launcher, model=args.model, thinking=getattr(args, "thinking", None),
-                        first_step_thinking=getattr(args, "first_step_thinking", False))
+                        first_step_thinking=getattr(args, "first_step_thinking", False), expected_engine=getattr(args, "expect_engine", None))
     except DriverError:
         return 1
     except Exception as exc:  # noqa: BLE001 -- startup crash must still be diagnosable
@@ -1015,6 +1052,8 @@ def cmd_start(args: argparse.Namespace) -> int:
     daemon_stdout_log = rdir / "daemon-stdout.log"
     cmd = [sys.executable, str(Path(__file__).resolve()), "_daemon",
            "--run", run_id, "--campaign", campaign]
+    if getattr(args, "expect_engine", None):
+        cmd += ["--expect-engine", args.expect_engine]
     if args.launcher:
         cmd += ["--launcher", args.launcher]
     if args.model:
@@ -1154,6 +1193,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("start", help="spawn a detached pi-coc daemon for a campaign")
     sp.add_argument("--campaign", required=True)
+    sp.add_argument("--expect-engine", choices=["legacy", "hybrid-v1"], default=None, help="fail startup unless the actual Pi runtime reports this engine")
     sp.add_argument("--run", default=None)
     sp.add_argument("--model", default=DEFAULT_MODEL,
                      help="provider/modelId selected before opening and confirmed via set_model (default %(default)s)")
@@ -1197,6 +1237,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # internal: this is what `start` actually spawns as the detached daemon.
     sp = sub.add_parser("_daemon", help=argparse.SUPPRESS)
+    sp.add_argument("--expect-engine", choices=["legacy", "hybrid-v1"], default=None)
     sp.add_argument("--run", required=True)
     sp.add_argument("--campaign", required=True)
     sp.add_argument("--model", default=None)

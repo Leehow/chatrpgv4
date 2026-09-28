@@ -326,8 +326,8 @@ test("SL-44 (§135.6.1): a read after the move that comes late in the turn gets 
 	});
 });
 
-test("a read_more on the same scene reuses the first read's prescreen: its materials, no Jev call", async (t) => {
-	// The first route asks for more material; the second read is on the same scene. Nothing new: the repeated question
+test("a read_more on the same scene refreshes source evidence instead of replaying the old prescreen", async (t) => {
+	// Explicit read_more refreshes even on the same scene; an unchanged routing question still
 	// goes to the Keeper (Guard 1), who narrates. SL-87: on a manual clock that moves 1 ms per decision, so the 12 s allowance
 	// is not spent by a loaded box's kernel reads, and every batch is stamped strictly after the steps before it.
 	const clock = manualClock();
@@ -338,18 +338,17 @@ test("a read_more on the same scene reuses the first read's prescreen: its mater
 
 	const reads = runRows(table.table, "read");
 	// Since §134.18 the office's commission is a compile-only candidate that the first route consumes, so the second route's
-	// question differs from the first and may ask for one more read of the same scene: every read after the first reuses.
+	// question differs from the first and may ask for one more read of the same scene.
 	assert.ok(reads.length >= 2);
-	for (const later of reads.slice(1)) assert.equal(later.prescreen.status, "reused");
+	for (const later of reads.slice(1)) assert.equal(later.prescreen.status, "prepared");
 	assert.equal(reads[0].prescreen.status, "prepared");
 	assert.ok(reads[0].prescreen.materials > 0);
 	assert.equal(reads[1].scene, reads[0].scene);
-	assert.equal(reads[1].prescreen.status, "reused");
-	assert.equal(reads[1].prescreen.from, reads[0].stepId);
-	assert.equal(reads[1].prescreen.jev_calls, 0);
+	assert.equal(reads[1].prescreen.status, "prepared");
+	assert.ok(reads[1].prescreen.jev_calls > 0);
 	assert.equal(reads[1].prescreen.materials, reads[0].prescreen.materials);
 	const firstReadEnd = table.events.find((event) => event.type === "step_end" && event.stepId === reads[0].stepId).at;
-	assert.ok(log.filter((entry) => entry.kind === "prescreen").every((entry) => entry.at <= firstReadEnd), "the second read sent no prescreen batch");
+	assert.ok(log.some(entry => entry.kind === "prescreen" && entry.at > firstReadEnd), "explicit missing evidence gets a real refresh");
 });
 
 test("the ordinary binder asked after a spent allowance holds its own 15 s lease, not the allowance's remainder", async (t) => {

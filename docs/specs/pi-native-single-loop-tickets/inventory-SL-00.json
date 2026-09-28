@@ -1232,51 +1232,6 @@
     },
     {
       "file": "extensions/onboarding/index.ts",
-      "symbol": "on(session_start)",
-      "kind": "trigger-turn",
-      "callee": "pi.sendMessage{steer-when-streaming}",
-      "count": 1,
-      "owner": "onboarding ext",
-      "path": "app-setup",
-      "role": "leaf",
-      "trace": "observed: coc-setup-opening",
-      "note": "Setup opening message at session start; appended while idle, no run.",
-      "lines_at_0b729e8fb": [
-        867
-      ]
-    },
-    {
-      "file": "extensions/onboarding/index.ts",
-      "symbol": "execute",
-      "kind": "trigger-turn",
-      "callee": "pi.sendMessage{steer-when-streaming}",
-      "count": 1,
-      "owner": "onboarding ext",
-      "path": "app-setup",
-      "role": "leaf",
-      "trace": "n/a (setup)",
-      "note": "Setup opening (coc-setup-opening) shown right after an in-process create-campaign result; rides the live setup run as a steering message, after the tool batch (§14.18). The App creates campaigns before setup, so it never reaches this site.",
-      "lines_at_04fd394a1": [
-        771
-      ]
-    },
-    {
-      "file": "extensions/onboarding/index.ts",
-      "symbol": "afterPreparation",
-      "kind": "trigger-turn",
-      "callee": "pi.sendMessage{steer-when-streaming}",
-      "count": 1,
-      "owner": "onboarding ext",
-      "path": "app-setup",
-      "role": "leaf",
-      "trace": "n/a (setup)",
-      "note": "Setup opening (coc-setup-opening) shown right after a prepare-module result that pinned the opening on an existing campaign and retried its guidance block in the same call (SL-98, §14.19); rides the live setup run as a steering message, like execute's after create-campaign.",
-      "lines_at_7d8ff69e8": [
-        800
-      ]
-    },
-    {
-      "file": "extensions/onboarding/index.ts",
       "symbol": "checkNameBoundaryFor",
       "kind": "jev-adapter",
       "callee": "createDecisionAdapter",
@@ -1996,6 +1951,18 @@
       "role": "driver",
       "trace": ".pi/prototypes/source-fragments/integration-2026-09-28T12-59-07-235Z",
       "note": "With a mounted Jev key, setup produces one final public guide in a tool-enabled Pi source session. Explicit source-answer lookup selects and copies original excerpts through the same RunDriver without generative inference. Graph authoring/review remain background readers."
+    },
+    {
+      "file": "extensions/onboarding/source-intake.ts",
+      "symbol": "selectSetupSource",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "Setup source preflight (§149)",
+      "path": "app-setup",
+      "role": "leaf",
+      "trace": "source-intake tests; live setup acceptance pending",
+      "note": "One bounded typed choice/intent/language batch over existing local PDF path candidates. Host advances existing deterministic setup steps; no extra narrative model."
     }
   ]
 }

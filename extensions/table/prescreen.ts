@@ -402,6 +402,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
                 campaign:input.campaign,moduleId:input.source.moduleId,scope,query,capsule:input.capsule,source:input.source.runtime,
                 signal:semanticSignal,budget:{deadlineAt:semanticDeadlineAt,candidateBytes:Math.max(4096,availableBytes*2),materialBytes:availableBytes,maxNativePages:16},snapshot:sourceSnapshot});
         }catch(error){if(signal.aborted)throw error;sourceFailure=error instanceof Error?error.message.slice(0,160):'source_material_unavailable';}
+        if(input.source)note({event:'source_catalog',candidates:sourceResult?.candidates.length??0,...(sourceResult?{coverage:sourceResult.coverage}:{}),...(sourceFailure?{failure:sourceFailure}:{})});
         let base=poolOf(snapshot,input.binding,supplied);const sourceCandidates=(sourceResult?.candidates??[]).map(candidateOf)
             .filter((value):value is PrescreenCandidate=>Boolean(value)).filter(candidate=>!supplied.keys.has(candidate.key));
         const expandedMemory=await expandMemoryCandidates(base.pool,discoveryRpc),seen=new Set<string>();let pool=[...expandedMemory.pool,...sourceCandidates]
