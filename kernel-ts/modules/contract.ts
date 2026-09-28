@@ -5,7 +5,7 @@ import { array, row, sorted, string, type Row } from '../read/values.js';
 import { RuleTables } from '../rules/tables.js';
 import { mechanicsRules, type MechanicsRules } from './mechanics-shape.js';
 export const VISUAL_CONTRACT_ID = 'coc.module-graph-shard.v4';
-export const SHARD_KEYS = ['contract_id', 'nodes', 'claims', 'node_refs', 'coverage', 'dependencies', 'critical', 'ready_nodes'];
+export const SHARD_KEYS = ['contract_id', 'nodes', 'claims', 'node_refs', 'coverage', 'dependencies', 'critical', 'ready_nodes', 'interaction_scene', 'source_needs'];
 export const NODE_KEYS = ['node_id', 'node_kind', 'name', 'aliases', 'summary', 'properties', 'visibility', 'source_refs'];
 export const CLAIM_KEYS = ['claim_id', 'subject_id', 'predicate', 'object', 'truth_status', 'visibility', 'source_refs', 'reason', 'known_by_ids', 'asserted_by_ids', 'validity'];
 /**

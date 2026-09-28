@@ -47,7 +47,7 @@ export async function checkSourceDraft(content: string, packetPath: string, draf
             return { ok: true, required_review: ANSWER_REVIEW_PATHS, required_view_pages: [...new Set(answer.source_refs.map((ref: any) => ref.page))] };
         }
         const filled = checkDraft(draft, packet, await loadModuleContract({ content, snapshots }));
-        if (packet.opening_batch === true && packet.purpose === 'opening') checkOpeningBatch(row(draft),packet.focus,packet.known_nodes);
+        if (packet.opening_batch === true && packet.purpose === 'opening') checkOpeningBatch(row(draft),packet.focus,packet.known_nodes,packet.opening_scope==='first_interaction',packet.known_claims);
         const path = join(dirname(packetPath), 'baseline.json');
         const baseline = await snapshots.pathExists(path) ? row(await snapshots.readJson(path)) : null;
         return { ok: true, required_review: filled.required_review, required_view_pages: requiredViewPages(row(draft), baseline) };

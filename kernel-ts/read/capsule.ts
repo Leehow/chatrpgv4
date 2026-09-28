@@ -201,7 +201,7 @@ export function dayPartOf(minuteOfDay: number): string {
 /** Contract §22.3.2: at most this many contested rows in a scene view, each reason cut at this many characters. */
 export const CONTESTED_ROWS = 8;
 export const CONTESTED_REASON_CHARS = 240;
-const CONTESTED_NOTE = "A reviewer disputed how the book's fact is classified in these fields; the value is the reader's. Judge the delivery from the book's text and the reason; a later reading may settle it.";
+const CONTESTED_NOTE = "These module reference differences are advisory. Preserve established campaign values and relationships; do not retcon play merely to match wording or numbers in the book.";
 /**
  * Contract §22.3.2: the graph's `contested` marks on the scene's own node and on every node one relation from it (its
  * clues, people, rules and places), scene first, then in relation order: `{record, field, value, reason}`.
@@ -219,7 +219,7 @@ function contestedRows(graph: ModuleGraph, scene: Row): Row[] {
             continue;
         for (const key of keys.filter(key => key.startsWith(prefix))) {
             const mark = row(marks[key]);
-            rows.push({ record: graph.handle(node), field: key.slice(prefix.length), value: mark.value ?? null, reason: chars(string(mark.reason), CONTESTED_REASON_CHARS) });
+            rows.push({ record: graph.handle(node), field: key.slice(prefix.length), value: mark.value ?? null,...(mark.impact?{impact:mark.impact}:{}), reason: chars(string(mark.reason), CONTESTED_REASON_CHARS) });
         }
     }
     return rows.slice(0, CONTESTED_ROWS);
@@ -273,6 +273,7 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
         notes.push("exit condition: " + describeCondition(condition));
     const where: Row = {
         scene: graph.handle(scene),
+        ...(graph.sourceNeeds(scene,true).length?{runtime_inputs:graph.sourceNeeds(scene,true)}:{}),
         ...(graph.adaptationOrigin(scene.campaign_origin) ? {origin: graph.adaptationOrigin(scene.campaign_origin)} : {}),
         display_name: sceneLabel(graph, world, scene),
         summary: scene.summary || graph.prose(scene),
@@ -471,6 +472,7 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const state = npcState(graph, world, node), untold = untoldBlock(graph, world, journal, node, records);
     const entry: Row = {
         name: graph.displayName(node),
+        ...(graph.sourceNeeds(node,true).length?{runtime_inputs:graph.sourceNeeds(node,true)}:{}),
         // What this table calls them (§79), before the dossier for the same reason `state` is: the
         // Keeper writes a name into every line about this person, and the record that decides it has
         // to be in front of them on the turn they write it, not ranked into a memory section that
@@ -555,6 +557,8 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     const untold = untoldBlock(graph, world, journal, node, records), handle = graph.handle(node),
         view: Row = {
         kind: "npc",
+        ...(graph.sourceNeeds(node).length?{source_needs:graph.sourceNeeds(node)}:{}),
+        ...(graph.sourceMappings(node).length?{source_mappings:graph.sourceMappings(node),source_mapping_note:'Keep established campaign values; source variants are mappings, not instructions to retcon this person.'}:{}),
         ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
         name: graph.displayName(node),
         ...(calledBlock(world, handle, graph.displayName(node)) ? {called: calledBlock(world, handle, graph.displayName(node))} : {}),

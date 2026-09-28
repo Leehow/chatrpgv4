@@ -244,6 +244,13 @@ export function CocOnboarding({host, sessionId}: Props) {
   },[job?.id,job?.state])
   const stageTitle=job?.state==='uploading'?t('state.uploading'):job?.state==='inspecting'?t('state.inspecting')
     :word(ui,'onboarding',`stage.${job?.stage}`,t('stage.default'))
+  const publicFacts=job?.publicFields&&<div className="coc-public-preparation">
+    <dl className="coc-public-fields">{['era','starting_place','public_premise','creation_advice'].map(field=>{
+      const value=job.publicFields[field]
+      return value&&<div key={field}><dt>{t(`field.${field}`)}</dt><dd>{value.state==='confirmed'?value.value:t(`fieldState.${value.state}`)}</dd></div>
+    })}</dl>
+    <p className="coc-muted">{t('adviceNotice')}</p>
+  </div>
   return <div className="coc-onboarding"><div className="coc-onboarding-inner">
     <input ref={chooser} type="file" accept=".pdf,application/pdf" aria-label={t('choosePdf')} className="coc-file-input" onChange={event=>{void upload(event.target.files?.[0]);event.target.value=''}}/>
     <header className="coc-welcome"><span className="coc-eyebrow">{t('eyebrow')}</span><h1>{job?.state==='created'?t('title.created'):job?.state==='ready'?t('title.ready'):t('title.start')}</h1><p>{job?t('lede.job'):t('lede.start')}</p></header>
@@ -270,10 +277,12 @@ export function CocOnboarding({host, sessionId}: Props) {
       <div className="coc-file-heading"><span className="coc-source-symbol">▤</span><div><strong>{job.name}</strong><small>{job.size?`${tf('size',{mb:(job.size/MB).toFixed(1)})} · `:''}{job.pages?tf('pages',{n:job.pages}):job.source==='starter'?t('source.starterKind'):t('source.pdfKind')}</small></div></div>
       {preparing && <div role="status" aria-live="polite">
         <h2>{stageTitle}</h2>
+        {publicFacts}
         {job.stage==='guidance'?<p role="status">{t('guidanceBody')}</p>:job.state==='uploading'?<><progress aria-label={t('uploadProgress')} max={job.size} value={job.received}/><p>{tf('uploaded',{done:(job.received/MB).toFixed(1),total:(job.size/MB).toFixed(1)})}</p></>:
           <><progress aria-label={t('readProgress')} {...(job.stage==='verify'&&job.reviewTotal?{max:job.reviewTotal,value:job.reviewed||0}:{})}/><p>{job.stage==='verify'&&job.reviewTotal?tf('reviewed',{done:job.reviewed||0,total:job.reviewTotal,active:job.activeReaders||0}):t('reading')}</p><p className="coc-muted">{t('backgroundNote')}</p></>}
         <button className="coc-secondary" onClick={()=>{if(job.state==='uploading'&&uploadRunning.current)cancelled.current=true;else void act({action:'pause'})}}>{job.state==='uploading'?t('cancelUpload'):t('pause')}</button>
       </div>}
+      {!preparing&&publicFacts}
       {job.state==='choice' && <div><h2>{t('openingTitle')}</h2><p>{t('openingBody')}</p><div className="coc-source-list">{job.candidates?.map((item:Row)=><button key={item.scene} disabled={busy} onClick={()=>void act({action:'opening',scene:item.scene})}><strong>{item.name}</strong>{item.summary&&<span>{item.summary}</span>}<b>{t('select')}</b></button>)}</div></div>}
       {['failed','paused'].includes(job.state)&&<div><h2>{job.state==='paused'?t('pausedTitle'):t('failedTitle')}</h2><p>{t('keptNote')}</p>{/* The caption leads and the host's message follows it, never replaces it: a message is written
             in the system language, and a player who chose another reads only the caption (BUG-039, §46.3). */}

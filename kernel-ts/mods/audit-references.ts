@@ -14,7 +14,7 @@ const EVIDENCE_FILES: Record<string,string> = {'context.json':'context', 'memory
 // These are schema fields, never a semantic classifier. Identity/provenance/paths are not copy sources.
 const TEXT_FIELDS = new Set(['name','label','summary','description','statement','subject','text','quote','reason','fix',
     'fact','content','body','title','player_text','rendered_text','current_input','clue','relation','question','definition','rule','promotion_test','handle',
-    'entities','knowers','aliases','dramatic_question','how','why','actor_label','condition','status','state','display_name']);
+    'answer','limitations','entities','knowers','aliases','dramatic_question','how','why','actor_label','condition','status','state','display_name']);
 export interface AuditEvidenceBinding {alias: string; file: string; path: string[]; text: string; start: number; end: number}
 /** Host-only structural bindings for targeted views; never associate aliases by copied value. */
 export function auditEvidenceBindings(files: Row): AuditEvidenceBinding[] {
@@ -80,7 +80,11 @@ export function buildAuditReferences(request: Row, files: Row, scope: ScopeBindi
         add(alias,'speech',{text:issueSourceRef(speechSource,{kind:'field',path:[String(i),'text']}),speaker:issueSourceRef(speechSource,{kind:'field',path:[String(i),'who','label']})});
         sources.speech.push(resolve(alias,['speech']));
     });
-    for (const binding of auditEvidenceBindings(pinnedFiles)) {
+    // Current source questions and their limitations must be selectable in the initial focused review.
+    const evidenceBindings = auditEvidenceBindings(pinnedFiles);
+    evidenceBindings.sort((a,b) => Number(b.file === 'context.json' && b.path[0] === 'source_consultations')
+        - Number(a.file === 'context.json' && a.path[0] === 'source_consultations'));
+    for (const binding of evidenceBindings) {
         let text: any = pinnedFiles[binding.file]; for (const key of binding.path) text = text[key];
         const source = snapshot(`audit:evidence:${binding.file}:${JSON.stringify(binding.path)}`,{text});
         add(binding.alias,'evidence',{text:issueSourceRef(source,{kind:'utf16',start:binding.start,end:binding.end})},{file:binding.file});

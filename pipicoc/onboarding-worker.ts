@@ -7,7 +7,7 @@ import { presentationLaneChoice } from '../runtime/tasks.ts';
 import { ReadingService } from '../extensions/module/reading-service.ts';
 import { registerSourcePdf } from '../extensions/module/source-registration.ts';
 import type { ReaderRequest } from '../extensions/module/reader.ts';
-import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance } from '../extensions/module/character-guidance.ts';
+import { prepareCharacterGuidance, guidanceFingerprint, acceptedGuidance,acceptedPublicGuidance } from '../extensions/module/character-guidance.ts';
 import { prepareCharacterPresentation, prepareCluePresentation, prepareJournalPresentation, prepareHandoutPresentation, prepareIdentityPresentation, prepareLanguagePresentation, prepareRulesPresentation, preparePossessionPresentation, prepareStandingPresentation } from '../extensions/module/character-presentation.ts';
 import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
 import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
@@ -198,7 +198,11 @@ async function main() {
       navigateFresh: createFreshSourceNavigator({runtime: runtime!, call, env: context.env}),
       travel: createTravelFill({env: context.env, contentRoot: context.contentRoot}),
       model: () => ({id: input.model, vision: true, thinking: input.thinking}),
-      progress: data => emit('progress', data), record: data => emit('telemetry', data)});
+      progress: data => {
+        if(['guidance','opening'].includes(action)&&data.purpose&&data.purpose!==action)
+          emit('telemetry',{event:'background_progress',...data});
+        else emit('progress',data);
+      }, record: data => emit('telemetry', data)});
     let retry = input.retry === true;
     // Contract §20 addendum 2: this stage's reading pays from one lease sized to the book -- its page count
     // and the reader's measured cost per page of it -- never from a fixed lease per reader child.
@@ -216,7 +220,17 @@ async function main() {
           const prepared = await reader!.prepare({module_id: input.module_id, start_scene: input.start_scene, retry,
             ...(action==='guidance'?{purpose:'guidance',guidance_key,play_language:guidanceOptions.play_language,occupations:occupations.occupations}:{}),
             ...(action==='opening'?{targeted:true}:{})},guidanceAbort.signal,stage);
-          if(action==='guidance')return {...prepared,guidance_key,guidance:await acceptedGuidance(input.home,input.module_id,guidance_key!)};
+          if(action==='guidance'){
+            const fields=await acceptedPublicGuidance(input.home,input.module_id,guidance_key!);
+            if(fields){
+              const source=JSON.parse(await readFile(join(input.home,'.coc/modules',input.module_id,'module.json'),'utf8'));
+              emit('progress',{stage:'guidance',module_id:input.module_id,public_preparation:{source_sha256:source.file_sha256,
+                module_id:input.module_id,job_id:'accepted',attempt:'accepted',guidance_key,opening:input.start_scene||'',
+                fields:Object.fromEntries(Object.entries(fields).map(([key,field])=>[key,{state:field.status==='value'?'confirmed':field.status,
+                  ...(field.status==='value'?{value:field.text}:{})}]))}});
+            }
+            return {...prepared,guidance_key,guidance:await acceptedGuidance(input.home,input.module_id,guidance_key!)};
+          }
           return action==='opening'?prepared:await withGuidance(prepared);
         }
         catch (error) {

@@ -103,7 +103,7 @@ def test_index_publication_recovers_without_exposing_or_duplicating_partial_rows
 
 
 @pytest.mark.parametrize("required_path", ["/nodes/2/properties/mechanics/profile/characteristics/STR", "/coverage"])
-def test_review_requires_numerical_and_scope_support_before_atomic_publication(kernel, tmp_path, required_path):
+def test_module_review_requires_scope_without_repeated_numeric_transcription(kernel, tmp_path, required_path):
     mid, _ = indexed(kernel, tmp_path)
     job, draft, review = opening(kernel, mid)
     missing = copy.deepcopy(review)
@@ -111,9 +111,10 @@ def test_review_requires_numerical_and_scope_support_before_atomic_publication(k
     write(Path(job["work_dir"]) / "review.json", missing)
     params = {"module_id": mid, "job_id": job["job_id"], "lease": job["lease"], "outcome": "completed",
         "draft_path": str(Path(job["work_dir"]) / "draft.json"), "review_path": str(Path(job["work_dir"]) / "review.json")}
-    assert "omitted" in kernel.err("module.read.finish", params)["message"]
-    assert kernel.ok("module.status", {"module_id": mid})["generation"] == 0
-    write(Path(job["work_dir"]) / "review.json", review)
+    if required_path == "/coverage":
+        assert "omitted" in kernel.err("module.read.finish", params)["message"]
+        assert kernel.ok("module.status", {"module_id": mid})["generation"] == 0
+        write(Path(job["work_dir"]) / "review.json", review)
     result = finish(kernel, job)
     assert result["opening_ready"] is True and result["generation"] == 1
     assert finish(kernel, job)["replayed"] is True
@@ -168,33 +169,31 @@ def test_queued_preparation_reuses_material_published_by_an_earlier_job(kernel, 
     finish(kernel, active, outcome="cancelled")
 
 
-def test_a_prepared_summary_cannot_be_silently_replaced(kernel, tmp_path):
-    """Contract 22.3.1: the same page read again replaces a summary only through a review that names it;
-    a different value from another page is a contradiction."""
+def test_a_prepared_summary_is_mapped_without_silently_replacing_campaign_values(kernel, tmp_path):
     mid, _ = indexed(kernel, tmp_path)
     first, draft, _ = opening(kernel, mid)
     draft["nodes"][0]["summary"] = "A working harbor."
     write(Path(first["work_dir"]) / "draft.json", draft)
     finish(kernel, first)
-    request(kernel, mid, "detail", focus="Dock", question="What is the harbor like?")
-    job = claim(kernel, mid)
-    observed(job)
-    params = {"module_id": mid, "job_id": job["job_id"], "lease": job["lease"],
-        "outcome": "completed", "draft_path": str(Path(job["work_dir"]) / "draft.json"),
-        "review_path": str(Path(job["work_dir"]) / "review.json")}
     for page in (1, 2):
+        request(kernel, mid, "detail", focus="Dock", question=f"What does source page {page} describe?")
+        job = claim(kernel, mid)
+        observed(job)
         write(Path(job["work_dir"]) / "draft.json", {"nodes": [{"node_id": "scene-dock", "node_kind": "scene",
             "name": "Dock", "summary": "An abandoned military base.", "source_refs": [{"page": page}]}],
             "claims": [], "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": ["scene-dock"]})
-        write(Path(job["work_dir"]) / "review.json", {"checked": [{"path": "/nodes/0", "verdict": "supported",
-            "source_refs": [{"page": page}]}], "missing": []})
-        err = kernel.err("module.read.finish", params)
-        if page == 1:
-            assert err["code"] == "invalid_params" and "/nodes/0/summary" in err["message"]
-        else:
-            assert err["code"] == "needs_choice" and err["details"]["path"].endswith("/summary")
-        assert kernel.ok("module.status", {"module_id": mid})["generation"] == 1
-    finish(kernel, job, outcome="cancelled")
+        reviewed = {"path": "/nodes/0", "verdict": "supported", "source_refs": [{"page": page}]}
+        write(Path(job["work_dir"]) / "review.json", {"checked": [reviewed], "missing": []})
+        params = {"module_id": mid, "job_id": job["job_id"], "lease": job["lease"], "outcome": "completed",
+            "draft_path": str(Path(job["work_dir"]) / "draft.json"), "review_path": str(Path(job["work_dir"]) / "review.json")}
+        assert "/coverage" in kernel.err("module.read.finish", params)["message"]
+        write(Path(job["work_dir"]) / "review.json", {"checked": [reviewed, {**reviewed, "path": "/coverage"}], "missing": []})
+        finish(kernel, job)
+        graph = ModuleStore(kernel.workspace).read_graph(mid)
+        assert next(n for n in graph["nodes"] if n["node_id"] == "scene-dock")["summary"] == "A working harbor."
+        mapping = next(row for row in graph["source_mappings"] if row["path"] == "/nodes/scene-dock/summary")
+        assert mapping["established_value"] == "A working harbor."
+        assert mapping["source_value"] == "An abandoned military base."
 
 
 def test_further_reading_reuses_an_existing_claim_identity_and_reason(kernel, tmp_path):
@@ -663,12 +662,13 @@ def test_later_npc_reading_adds_textual_dossier_facts_without_replacing_old_ones
     write(Path(job['work_dir']) / 'review.json', {'checked': [{'paths': ['/nodes/0', '/coverage'],
         'verdict': 'supported', 'source_refs': refs}], 'missing': []})
     observed(job, read_pages=[2], review_pages=[2])
-    error = kernel.err('module.read.finish', {'module_id': mid, 'job_id': job['job_id'],
-        'lease': job['lease'], 'outcome': 'completed',
-        'draft_path': str(Path(job['work_dir']) / 'draft.json'),
-        'review_path': str(Path(job['work_dir']) / 'review.json')})
-    assert error['code'] == 'needs_choice' and error['details']['path'].endswith('/properties/agenda')
-    assert kernel.ok('module.status', {'module_id': mid})['generation'] == 2
+    finish(kernel, job)
+    graph = ModuleStore(kernel.workspace).read_graph(mid)
+    node = next(n for n in graph['nodes'] if n['node_id'] == 'npc-lena')
+    assert node['properties']['agenda'] == 'Recover the ledger.'
+    mapping = next(row for row in graph['source_mappings'] if row['path'].endswith('/properties/agenda'))
+    assert mapping['established_value'] == 'Recover the ledger.'
+    assert mapping['source_value'] == 'Destroy the ledger.'
 
 
 def test_an_index_refusal_names_the_sections_without_a_reference_and_the_repair_lands(kernel, tmp_path):

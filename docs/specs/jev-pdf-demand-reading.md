@@ -1,7 +1,7 @@
 # Jev PDF demand reading with source dependency coverage
 
-Status: ready-for-agent
-Execution: implementation authorized 2026-09-27; JPDF-01 baseline/evidence starts first. Production behavior remains unchanged until code and acceptance pass.
+Status: implemented; integrated acceptance remains open
+Execution: implementation authorized 2026-09-27 and recorded in the [implementation acceptance report](../research/jev-pdf-implementation-acceptance-20260928.md). Native source decisions, staged readiness, advisory module review, background scheduling and public UI progress are implemented. Measured latency and continued-play gaps remain explicit; source changes are not an installed-App release.
 Date: 2026-09-27
 Baseline inspected: 0.9.6a at 58f5889d3341b7d90fcc9e7cf0fe4108530579b6.
 Implementation input: use the [minimal-entry prototype](../research/jev-playable-entry-prototype-20260927.md), [native Pi mechanism prototype](../research/jev-native-pi-reader-20260927.md) and [ticket breakdown](jev-pdf-demand-reading-tickets.md). Actual player-wait targets remain pending real-protocol validation; the earlier broad dossiers cannot set them.
@@ -84,13 +84,13 @@ Implementation input: use the [minimal-entry prototype](../research/jev-playable
 36. As a player, I want background reading to progress while I play, so that later demands can reuse increasingly complete material.
 37. As a player, I want a newly needed source fact to take priority over background work, so that speculative preparation does not delay my current action.
 38. As a player, I want to see which public creation facts are being located and see each result as it becomes available, so that the preparation wait helps me understand the module.
-39. As a player, I want confirmed era, starting place and creation requirements to remain visible as other work continues, so that progress does not disappear behind a generic spinner.
+39. As a player, I want confirmed era, starting place and source-backed creation advice to remain visible as other work continues, so that progress does not disappear behind a generic spinner.
 
 ## Implementation Decisions
 
 ### D0. Two foreground readiness gates
 
-The creation gate requires only the brief, suitability, creation constraints and opening choices that affect character creation. The first-scene gate requires the chosen scene and its immediate causal/mechanical dependencies. Neither gate depends on whole-book semantic classification, a complete graph, every NPC profile or unrelated background job completion. Existing readiness/publication contracts must express these scopes before code changes; lowering their factual checks is not the mechanism for speed.
+The creation gate requires only the brief, suitability advice or warnings and opening choices that affect character creation. Authored recommendations must be presented with source support, but a player can confirm a card that differs from them. The first-scene gate requires the chosen scene and its immediate causal/mechanical dependencies. Neither gate depends on whole-book semantic classification, a complete graph, every NPC profile or unrelated background job completion. Existing readiness/publication contracts express these scopes. Per the 2026-09-28 owner ruling, module review prioritizes logical consistency and relationships; exact wording and executable parameter agreement are advisory, while core rules and data validity remain enforced.
 
 An early paragraph or enabled input alone does not prove playability. The Keeper must be able to respond to an ordinary source-dependent opening action through the existing game path. If a missing fact changes the current decision or consequence, its dependent operation waits for a prioritized source read; unrelated creation/play remains available. Do not invent a safe-looking default to bypass missing evidence.
 
@@ -171,7 +171,7 @@ Use source/page/crop/render identity rather than only tool-call IDs for duplicat
 
 ### D8. Independent coverage review and bounded reviewer input
 
-Retain the current review of nodes, claims, critical statements, all required numerical/mechanical fields and map reveal safety. Authors and reviewers remain tool-enabled Pi agents. Each review unit receives its assigned immutable records plus required local/global/dependency context, with exact source access for further inspection. Reuse the existing grouping, completion and review-cache owners; avoid repeated loading of the full draft and redundant final model messages when the existing checked completion path suffices.
+Review node/claim logic, necessary causal connections and map reveal safety. Do not independently retranscribe every numeric or prose field of a module; valid parameter and presentation differences are advisory. Authors and reviewers remain tool-enabled Pi agents. Each review unit receives its assigned immutable records plus required local/global/dependency context, with exact source access for further inspection. Reuse the existing grouping, completion and review-cache owners; avoid repeated loading of the full draft and redundant final model messages when the existing checked completion path suffices.
 
 Coverage review runs source-to-candidate as well as candidate-to-source. It can query the navigation layer beyond the author's selected pages and follow omitted references, including when the draft proposes no clues. It must assess the requested current use and its dependencies; it must not turn every future chapter into required current scope. Another Jev yes/no over the author's page list is not independent completeness evidence.
 
@@ -222,7 +222,7 @@ Freeze closed review fields in the actual tool schema. Do not add a required val
 
 ### D14. Show incremental public preparation facts
 
-During the creation-brief wait, extend the existing onboarding progress channel and preparation panel with a small stable list of public creation fields: era, starting place, public premise and investigator suitability/creation requirements. Update each field from real reading/checking events. Work can happen concurrently; do not manufacture a timed sequence of searches, a percentage or an ETA from elapsed time or field counts.
+During the creation-brief wait, extend the existing onboarding progress channel and preparation panel with a small stable list of public creation fields: era, starting place, public premise and investigator suitability advice or warnings. Update each field from real reading/checking events. Work can happen concurrently; do not manufacture a timed sequence of searches, a percentage or an ETA from elapsed time or field counts.
 
 Distinguish queued, searching, found/checking, confirmed, needs-choice and unavailable outcomes. Show a source-grounded candidate value as provisional only after it is eligible for player disclosure; otherwise show the activity without a value. A confirmed value has passed the source and public-guidance checks required for that field. Emit a field update as soon as that state is established, without waiting for unrelated fields or full opening preparation. Preserve confirmed values while later work continues; unavailable is not equivalent to an authored absence. Once the actual creation gate passes, continue into character creation promptly.
 
@@ -232,7 +232,7 @@ Illustrative Chinese display, projected through the existing player-language pat
 | --- | --- | --- |
 | 时代 | 正在检索时代信息… | 时代：1975 年夏末 |
 | 地点 | 正在确认起始地点… | 地点：美国德克萨斯州 |
-| 建卡条件 | 正在核对角色要求… | 至少一位调查员有车，驾驶技能在 55% 以上 |
+| 建卡建议 | 正在核对模组建议… | 模组建议：至少一位调查员有车，驾驶技能在 55% 以上；你仍可按自己的选择建卡 |
 
 Only public introductory facts for the bound source/opening are eligible. Do not expose hidden identities, later events, clue solutions, Keeper-only chapter titles, internal source questions or raw diagnostic text through either the displayed activity or its value. Use explicit public-field projections and existing semantic disclosure checks, not keyword redaction. A book with different entry eras retains those alternatives until the chosen entry is bound; it cannot briefly present one era as universally confirmed.
 
@@ -268,23 +268,23 @@ An independent tool-enabled source reader assembles or verifies reference eviden
 
 ### T3. Pre-registered performance goals
 
-The initial percentage targets were withdrawn on 2026-09-27 at the user's request: prototype alternatives first, then set evidence-based targets. The following metrics remain required; performance thresholds are intentionally unset pending sandbox results. The original proposed 50% time / 60% token / 70% image reductions remain recorded in Comments as superseded proposals, not acceptance gates.
+The initial percentage targets were withdrawn on 2026-09-27 at the user's request: prototype alternatives first, then set evidence-based targets. After the minimal native prototype, the two bound cold-product baselines and the independently reviewed 24-case set, JPDF-01 freezes the absolute targets below before optimized-path evaluation. The original proposed 50% time / 60% token / 70% image reductions remain recorded in Comments as superseded proposals, not acceptance gates.
 
 The earlier [sidecar sandbox](../research/jev-pdf-sandbox-20260927.md) suggested seconds-scale navigation and millisecond exact-source reuse. Its 10/15-second locating and 100-ms reuse budgets remain exploratory component hypotheses, not native-loop acceptance gates. The [native Pi prototype](../research/jev-native-pi-reader-20260927.md) proves the actual driver path but shows mixed cold-task time and higher total input before adaptive scope; only the specific local supplement demonstrated a substantial all-input reduction. Both prototypes' broad dossier tasks are invalid-for-intent and invalid-for-acceptance when used to estimate the two small foreground gates. Their raw results remain valid mechanism evidence and must be preserved.
 
 Native prototypes must measure the actual minimal creation brief and selected first scene, including immediate dependencies and independent review. Compare opening preparation started during creation with its measured residual wait after confirmation; include zero-overlap diagnostic timing. Observe continued background progress and actual-demand promotion. Use those measurements to set absolute foreground latency budgets before the integrated evaluation, with total-token goals assessed separately. Existing broad dossier timing cannot set or rule out these budgets. Every reported total includes the Jev work that supplied that run, required repairs and unknown-usage failures.
 
-The [minimal-entry round](../research/jev-playable-entry-prototype-20260927.md), using user-selected Grok 4.5/low, measured source briefs at 49.2/73.1 seconds and selected scene packets at 117.7/111.3 seconds for Blood Road/Masks. Initial locating/image supply was about 1–4 seconds; generation, tool navigation and review dominated. These are exploratory source-readiness measurements across revisions, not actual card/handoff timing or a validated SLA. Retain the failed and slower runs, especially the first brief's missed mandatory car/Driving requirement. Do not relax player-wait goals to minutes merely because a prototype took that long; use the separate phase/call evidence to guide implementation.
+The [minimal-entry round](../research/jev-playable-entry-prototype-20260927.md), using user-selected Grok 4.5/low, measured source briefs at 49.2/73.1 seconds and selected scene packets at 117.7/111.3 seconds for Blood Road/Masks. Initial locating/image supply was about 1–4 seconds; generation, tool navigation and review dominated. These are exploratory source-readiness measurements across revisions, not actual card/handoff timing or a validated SLA. Retain the failed and slower runs, especially the first brief's missed car/Driving advice. The player may confirm a different card. The target budgets include real product handoff, so they demand less duplicate work than the prototype rather than treating its source-only time as a product pass.
 
 | Metric on each book, compared with its matched baseline | Target |
 | --- | --- |
-| PDF accepted to usable creation brief/choices | Primary absolute target to be set from the minimal native prototype |
-| Card confirmed to playable first scene | Primary residual-wait target to be set from the selected-scene prototype; record creation overlap and zero-overlap diagnostic |
+| PDF accepted to usable creation brief/choices | Cold-run cap: Blood Road 60 s, Masks 90 s. Stretch goals 45/70 s. Include checked advice and the actual creation conversation entry, not just Jev's locator result. |
+| Card confirmed to playable first scene | Cold-run residual wait at most 60 s for either book; stretch 30 s. Report actual creation overlap and zero-overlap diagnostic. A very quick player confirmation does not erase the wait. |
 | Opening delivered to first meaningful source-dependent action completed | Must demonstrate usable current evidence; report any new source wait rather than stopping the timer at prose |
 | PDF to playable opening and card-confirmable time | Report machine wait and human decision time separately; neither a long creation pause nor a quick first paragraph proves a gain |
-| Foreground queue wait while background preparation runs | Background must yield at defined boundaries; set the measured delay budget before integrated evaluation |
-| All preparation input tokens, including Jev, read, review, retries and background work | To be set after measured source-path prototypes |
-| All preparation image bytes sent | To be set after measured source-path prototypes |
+| Foreground queue wait while background preparation runs | At most 5 s from accepted demand to its own source task dispatch, excluding an already sent provider request; the native prototype observed 3.6 s in one diagnostic. |
+| All preparation input tokens, including Jev, read, review, retries and background work | Strictly below the matched old path for each book through comparable background completion, with the actual reduction reported. No percentage is credited until author/reviewer and Jev input are joined. |
+| All preparation image bytes successfully sent | Strictly below the matched old path for each book, without lost required source images. Context-hook inclusion before transport success is not a successful send. |
 | Image history and rereading within a phase | Optimize total payload/calls without losing active evidence; count passive replay, explicit reopen, independent review and transport retry separately |
 | Repeated exact request with unchanged relevant accepted evidence | No new full-book navigation scan; reuse accepted material |
 | Successful accepted imports | No reader timeout or budget exhaustion |
@@ -293,11 +293,11 @@ Measure two matched cold-import pairs per book (baseline and complete optimized 
 
 ### T4. Quality gates and real play
 
-Every accepted current-use packet in the 24-case set must retain its required source facts and dependencies, with no unsupported addition. Every critical identity, causal condition, rule exception, item effect and required numeric value must be correct. Report per-book and per-family retrieval recall and final fact recall; aggregate scores cannot hide one failed family. An honest unresolved result is better than a false fact but still does not pass a case requiring supported delivery. Calibration and held-out results remain separate.
+Every accepted current-use packet must preserve the necessary identities, causal conditions, clue links, rule/item applicability and knowledge boundaries. Missing or contradictory logic is a blocking failure. Ordinary parameter and wording differences are reported as advisory reference differences, not grounds for repeated rereading. Established table facts remain canonical; later source differences are mapped. Report per-book and per-family retrieval recall and final fact recall; aggregate scores cannot hide one failed family. An honest unresolved result is better than a false fact but still does not pass a case requiring supported delivery. Calibration and held-out results remain separate.
 
 Every deferred case retains a usable source locator/continuation; a subsequent demand must retrieve it without an incorrect earlier scene or lost trigger. Visual-only and mixed-content cases must not pass on native text alone. Existing semantic review rejections remain effective. Navigation must never grant player knowledge, readiness, ownership, settlement or executable parameters.
 
-Include the observed creation-constraint omission, directory parent/child coverage, a real missing NPC profile, a supplied rule awaiting live elapsed time, a discretionary portrayal choice, and an unconsumed search cursor. A runtime/deferred classification must be independently checked; merely renaming unresolved work cannot pass. A compact brief that omits one required field fails even if every included row is true.
+Include the observed creation-advice omission, directory parent/child coverage, a real missing NPC profile, a supplied rule awaiting live elapsed time, a discretionary portrayal choice, and an unconsumed search cursor. A runtime/deferred classification must be independently checked; merely renaming unresolved work cannot pass. A compact brief that omits one required source-backed advice field fails source fidelity even if every included row is true; the player remains free to confirm a different card.
 
 Run one real table per book on the integrated optimized source, from fresh PDF setup through confirmed card and handoff, then at least ten natural player turns unless there is a genuine ending/blocker. The main session is the sole player, using the canonical RPC driver one sentence at a time; no scripted player, second Keeper or synthetic settlement loop. Evaluation answers and hidden source material do not become player instructions. Counts alone are not acceptance: cite delivered behavior showing the exercised capabilities and keep unexercised capabilities explicitly open.
 
@@ -307,8 +307,8 @@ Report first-prose timing on comparable turns; investigate a median or p90 regre
 
 ## Out of Scope
 
-- Production implementation and packaging. The subsequent user request explicitly authorizes isolated sandbox code and live source-inference experiments to revise this draft.
-- Replacing tool-enabled Pi readers with zero-tool completions, lowering source review standards, removing numeric or coverage gates, or changing the default generative model to manufacture a speedup.
+- Packaging and release. The subsequent user request authorizes production implementation of the scoped tickets and self-testing; it does not authorize installing or shipping an App.
+- Replacing tool-enabled Pi readers with zero-tool completions, weakening core ruleset/executable-data checks or logical coverage, or changing the default generative model to manufacture a speedup.
 - Restoring the retired OCR/Markdown bundle production path or Python kernel; adding a new OCR service, vector database or external retrieval framework.
 - Fully extracting every chapter before play, constructing a second authoritative graph, or imposing source-specific keyword/regex logic.
 - Reworking NPC behavior, game rules, object identity, disclosure or action authorization beyond supplying their existing readers with necessary source material.
@@ -356,3 +356,5 @@ Report first-prose timing on comparable turns; investigate a median or p90 regre
 2026-09-27, sandbox findings: [16 Jev experiments and 9 source-reader trials](../research/jev-pdf-sandbox-20260927.md) are retained, including failures and a copied-build provenance correction. Generic page-role indexing is no longer a mandatory prerequisite, and immediate first-use image eviction is no longer the selected policy. Actual source discovery is measured in seconds; adding a full-book scan before otherwise unchanged generation did not prove lower complete-task cost. Prefer exact native-material supply/reuse at already authorized boundaries; preserve required visual preparation and independent review. Full source-contract/setup performance remains unproven, and those targets remain unset.
 
 2026-09-27, subsequent owner correction and native prototype: Pi already contains the required RunDriver. [The new measured prototype](../research/jev-native-pi-reader-20260927.md) uses it directly and proves live Jev-driven reads and dependent follow-up. Cold native source tasks reduced generative calls on both books but did not consistently improve total time or input. Masks exposed a required third NPC profile, recovered through retained needs; Jev-selected local scope substantially reduced that repair's input. D1, D4, D5, D11 and the native-driver implementation slice now govern the direction. No whole-product speed/completeness acceptance or production code change is claimed.
+
+2026-09-28 owner correction: module logic and relationships take priority over exact wording/numbers. Keeper-established campaign content remains canonical; later source discrepancies are mapped. Contract §147.8 supersedes earlier exact-fidelity gates. This is an explicit owner change, not a silent lowering of failed test targets. Old case answers and scores are retained.

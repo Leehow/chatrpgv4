@@ -1604,6 +1604,19 @@
       "lines_at_0b729e8fb": []
     },
     {
+      "file": "runtime/jev/source-reader-driver.ts",
+      "symbol": "createSourceReaderDriver",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "PDF source child: Pi RunDriver page, scope and source-need decisions",
+      "path": "child-process",
+      "role": "leaf",
+      "trace": "source-driver.jsonl in the source attempt directory",
+      "note": "JPDF-03/05/10: readerCommand selects runtime/pi-source-reader.ts for checked answer, guidance, opening and detail tasks with a mounted Jev key. The same Pi child owns inference and tools. This adapter ranks bounded source scopes/pages and provisionally distinguishes authored source gaps, live inputs and later uses under TaskLease. Independent review and the kernel retain publication authority. Assigned review pages skip Jev. Missing keys keep the tool-enabled fallback; source candidates never count as player delivery.",
+      "lines_at_0b729e8fb": []
+    },
+    {
       "file": "extensions/kernel/band-recovery.ts",
       "symbol": "askBand",
       "kind": "jev-adapter",

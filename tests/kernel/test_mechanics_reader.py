@@ -50,22 +50,18 @@ def params(job):
             "draft_path": str(Path(job["work_dir"]) / "draft.json"), "review_path": str(Path(job["work_dir"]) / "review.json")}
 
 
-def test_a_stated_hazard_publishes_only_when_every_shape_leaf_is_reviewed(kernel, tmp_path):
+def test_a_stated_hazard_requires_logical_scope_review_and_executable_shape(kernel, tmp_path):
+    """Module reference review covers the causal records; arithmetic shape remains deterministic."""
     mechanics = {"hazard": HAZARD, "damage": {"dice": "1D4+2"}}
     mid, job, draft = detail(kernel, tmp_path, mechanics)
-    shape = leaves(mechanics, "/nodes/0/properties/mechanics")
-    everything = ["/nodes/0", "/claims/0", "/coverage", *shape]
-    dice = "/nodes/0/properties/mechanics/damage/dice"
-    assert dice in shape and "/nodes/0/properties/mechanics/hazard/steps/1/difficulty_unstated" in shape
-    # A review that supports everything but one dice string: nothing publishes.
-    write(Path(job["work_dir"]) / "review.json", review([p for p in everything if p != dice]))
+    write(Path(job["work_dir"]) / "review.json", review(["/nodes/0", "/claims/0"]))
     error = kernel.err("module.read.finish", params(job))
-    assert "omitted" in error["message"] and dice in error["message"]
+    assert "omitted" in error["message"] and "/coverage" in error["message"]
     assert kernel.ok("module.status", {"module_id": mid})["generation"] == 1
-    write(Path(job["work_dir"]) / "review.json", review(everything))
+    # No per-die or per-number transcription checklist is needed for module-logic-v1.
+    write(Path(job["work_dir"]) / "review.json", review(["/nodes/0", "/claims/0", "/coverage"]))
     assert finish(kernel, job)["generation"] == 2
-    graph = ModuleStore(kernel.workspace).read_graph(mid)
-    node = next(n for n in graph["nodes"] if n["node_id"] == "rule-tower-stairs")
+    node = next(n for n in ModuleStore(kernel.workspace).read_graph(mid)["nodes"] if n["node_id"] == "rule-tower-stairs")
     assert node["properties"]["mechanics"] == mechanics
 
 

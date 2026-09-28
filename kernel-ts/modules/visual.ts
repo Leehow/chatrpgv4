@@ -9,6 +9,8 @@ import { obligationRefusals, type Refusal } from './obligation-shape.js';
 import { obligationReviewPaths, statesObligation } from './obligation-review.js';
 import { carriesMechanics, mechanicsRefusals } from './mechanics-shape.js';
 import { shapeReviewPaths, statesMechanics } from './shape-review.js';
+import {validateSourceNeeds,sourceNeedKey} from './source-needs.js';
+import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings} from './module-review-policy.js';
 import { anchors, pages, recordSpans, sameSpan, spanOf, type Anchor } from './transcription.js';
 import { REVIEW_VERDICTS, classificationMatcher } from './review-verdicts.js';
 import { preserveTravel } from './route-travel.js';
@@ -53,8 +55,9 @@ export function numericPaths(value: any, path = ''): string[] {
 }
 export function requiredViewPages(draft: Row, baseline: Row | null = null): Array<number | bigint> {
     const pages = new Set<number | bigint>();
-    for (const [collection, key] of [['nodes', 'node_id'], ['claims', 'claim_id']]) {
-        const identity = (item: Row) => item.node_id || item.claim_id || canonicalJson([item.subject_id ?? null, item.predicate ?? null, item.object ?? null]);
+    for (const collection of ['nodes','claims','source_needs']) {
+        const identity = (item: Row) => collection==='source_needs'?canonicalJson([item.focus,item.question,item.kind])
+            :item.node_id || item.claim_id || canonicalJson([item.subject_id ?? null, item.predicate ?? null, item.object ?? null]);
         const previous = new Map(array(baseline?.[collection]).filter(isJsonObject).map(item => [identity(item), item]));
         for (const item of array(draft[collection])) {
             if (!object(item) || equal(previous.get(identity(item)), item))
@@ -98,6 +101,7 @@ export interface Retranscription {
     spans(path: string): { existing: Anchor[]; proposed: Anchor[] };
     /** The draft check cannot see the published item's references (the host task omits a claim's): defer to publication. */
     unseen?: boolean;
+    preserveExisting?: boolean;
     reviewed?(path: string): boolean;
     accept(path: string, previous: any, value: any): void;
 }
@@ -130,6 +134,7 @@ export function mergeValue(old: any, proposed: any, path = '', transcription?: R
     if (Array.isArray(old) && Array.isArray(proposed) && ['/aliases', '/source_refs', '/known_by_ids', '/asserted_by_ids'].some(key => path.endsWith(key))) {
         return clone([...old, ...proposed.filter(v => !old.some(item => equal(item, v)))]);
     }
+    if (transcription?.preserveExisting) { transcription.accept(path,clone(old),clone(proposed)); return clone(old); }
     if (transcription) {
         // One field, one passage read twice: the later reading replaces the earlier once a review covers it.
         const { existing, proposed: next } = transcription.spans(path);
@@ -150,6 +155,15 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         reject(`unknown draft keys: ${repr(sorted(unknown))}`);
     if ((Object.hasOwn(draft, 'contract_id') ? draft.contract_id : VISUAL_CONTRACT_ID) !== VISUAL_CONTRACT_ID)
         reject('use the visual shard contract coc.module-graph-shard.v4');
+    let sourceNeeds;
+    if(Object.hasOwn(draft,'source_needs')&&!['guidance','opening','detail'].includes(packet.purpose))reject('source_needs belongs to a checked source reading','/source_needs');
+    try{sourceNeeds=validateSourceNeeds(draft.source_needs??[],number(row(packet.source).page_count));}
+    catch(error){reject(String(error),'/source_needs');}
+    const pending=sourceNeeds!.filter(need=>['source_read','uncertain'].includes(need.kind));
+    if(pending.length)throw new RpcError('invalid_params','Current source needs remain unresolved',{
+        fix:'Retrieve the required original evidence and repair the candidate; retain runtime inputs and future needs explicitly',
+        details:{reason:'reading_failed',rule:'source_needs_pending',path:'/source_needs',requests:pending},
+    });
     if (!equal(draft.dependencies, []))
         reject("resolve the current scope's source dependencies before publication", '/dependencies');
     for (const key of ['nodes', 'claims', 'node_refs', 'critical', 'ready_nodes'])
@@ -162,6 +176,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         reject(`coverage must be an object mapping domain to status; domains=${repr(vocab.coverage_domains)}, statuses=${repr(sorted(array(vocab.coverage_status)))}; use {} when no domain is prepared`, '/coverage');
     }
     const filled: Row = clone(draft), nodes = filled.nodes as Row[], existing = new Set(array(packet.known_nodes).map(n => n.node_id)), defined = new Set<string>();
+    if(moduleLogicReview(packet))filled.review_policy=packet.review_policy;
     const count = packet.source.page_count;
     for (const [i, node] of nodes.entries()) {
         if (!object(node) || Object.keys(node).some(key => !NODE_KEYS.includes(key)))
@@ -196,7 +211,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         if (['npc', 'creature'].includes(kind))
             actorNumbersLaw(props, i, contract);
         if (!Object.hasOwn(node, 'visibility'))
-            node.visibility = 'keeper-only';
+            node.visibility = array(packet.known_nodes).find(known => known.node_id === id)?.visibility ?? 'keeper-only';
         if (!array(vocab.visibility).includes(node.visibility))
             reject('node visibility must use the supplied vocabulary');
         if (statesObligation(node))
@@ -235,7 +250,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             reject('a node reference must name a defined node');
     if (skeleton && filled.ready_nodes.length)
         reject('a skeleton cannot grant material readiness; ready_nodes must be empty', '/ready_nodes');
-    if (!filled.ready_nodes.length && !skeleton)
+    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit)
         reject('declare the nodes whose material this task has prepared', '/ready_nodes');
     if (filled.ready_nodes.some((id: string) => !defined.has(id)))
         reject('ready_nodes must be present in the draft so their material can be independently reviewed', '/ready_nodes');
@@ -248,6 +263,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     const judge = (base: string, draftBase: string, known: Row, drafted: Row): Retranscription => ({
         spans: path => ({ existing: spanOf(spans, path, known.source_refs), proposed: anchors(drafted.source_refs) }),
         unseen: !Object.hasOwn(known, 'source_refs'),
+        preserveExisting:moduleLogicReview(packet)&&(known.ready!==false||known.node_kind==='module'),
         accept: path => retranscribed.push(draftBase + path.slice(base.length)),
     });
     for (const [i, node] of nodes.entries()) {
@@ -260,12 +276,29 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             delete proposed.summary;
         mergeValue(Object.fromEntries(Object.keys(proposed).map(key => [key, known[key]])), proposed, `/nodes/${node.node_id}`, judge(`/nodes/${node.node_id}`, `/nodes/${i}`, known, node));
     }
-    const claimed = new Set<string>(), required = new Set<any>(filled.critical);
-    if (!skeleton && filled.ready_nodes.length) required.add('/coverage');
+    const claimed = new Set<string>(), required = new Set<any>(moduleLogicReview(packet)?filled.critical.map(moduleReviewRoot):filled.critical);
+    if(Object.hasOwn(draft,'source_needs')){
+        const graph=new ModuleGraph(string(packet.module_id),{nodes:[...array(packet.known_nodes),...nodes]},'',{});
+        for(const need of sourceNeeds!){
+            if(!graph.find(need.focus))reject('A retained source need must name a candidate or accepted entity','/source_needs');
+            if(packet.purpose==='detail'&&need.kind==='deferred'&&string(packet.question).trim()===need.question.trim()
+                &&graph.find(string(packet.focus))?.node_id===graph.find(need.focus)?.node_id)
+                reject('A detail reading cannot defer its own requested source question','/source_needs');
+            references(need.source_refs,count,seen);
+        }
+        required.add('/source_needs');
+    }
+    if (packet.opening_scope === 'first_interaction' || Object.hasOwn(draft, 'interaction_scene')) {
+        if (packet.purpose !== 'opening') reject('interaction_scene belongs only to an opening reading', '/interaction_scene');
+        checkOpeningBatch(filled, packet.focus, array(packet.known_nodes), true, array(packet.known_claims));
+        required.add('/interaction_scene');
+    }
+    if(packet.source_unit&&array(packet.pages).some(page=>!seen?.has(number(page))))reject('A source unit requires its assigned original pages','/coverage');
+    if (!skeleton && (filled.ready_nodes.length||packet.source_unit)) required.add('/coverage');
     for (const path of required)
         pointer(draft, path);
     for (const [i, node] of nodes.entries()) {
-        for (const path of numericPaths(Object.fromEntries(entries(node.properties).filter(([key]) => !['image_sources', 'map_candidates'].includes(key))), `/nodes/${i}/properties`))
+        if(!moduleLogicReview(packet))for (const path of numericPaths(Object.fromEntries(entries(node.properties).filter(([key]) => !['image_sources', 'map_candidates'].includes(key))), `/nodes/${i}/properties`))
             required.add(path);
         if (filled.ready_nodes.includes(node.node_id) || packet.purpose === 'guidance')
             required.add(`/nodes/${i}`);
@@ -296,7 +329,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         claim.source_refs = references(claim.source_refs, count, seen);
         for (const key of ['known_by_ids', 'asserted_by_ids']) {
             if (!Object.hasOwn(claim, key))
-                claim[key] = [];
+                claim[key] = clone(known[key] ?? []);
             if (!Array.isArray(claim[key]) || claim[key].some((id: any) => !ids.has(id)))
                 reject(`${key} must name defined nodes`);
         }
@@ -311,15 +344,15 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     }
     // The field a later reading re-transcribed is named in the review, so the replacement is a reviewed one.
     for (const path of retranscribed)
-        required.add(path);
+        required.add(moduleLogicReview(packet)?moduleReviewRoot(path):path);
     if (nodes.some(statesObligation)) {
         checkObligations(filled, packet, contract);
-        for (const [i, node] of nodes.entries())
+        if(!moduleLogicReview(packet))for (const [i, node] of nodes.entries())
             for (const path of obligationReviewPaths(node, `/nodes/${i}`))
                 required.add(path);
     }
     checkMechanics(filled, packet, contract);
-    for (const [i, node] of nodes.entries())
+    if(!moduleLogicReview(packet))for (const [i, node] of nodes.entries())
         for (const path of shapeReviewPaths(node, `/nodes/${i}`))
             required.add(path);
     filled.required_review = sorted(required);
@@ -485,7 +518,7 @@ export function classificationFields(contract: ModuleContract): (path: string) =
 export function checkReview(draft: Row, filled: Row, review: any, count: number, seen: ReadonlySet<number>, classifies: (path: string) => boolean = () => false): ReviewJudgement {
     if (!object(review) || !Array.isArray(review.missing) || !Array.isArray(review.checked))
         reject('review must contain checked facts and an empty missing list');
-    if (review.missing.length)
+    if (blockingModuleFindings(review.missing,filled).length)
         reject('the independent review found missing or incorrect material: ' + canonicalJson(review.missing), '/review/missing');
     const supported = new Set<string>(), reviewed = new Set<string>(), contested: Row[] = [];
     for (const item of review.checked) {
@@ -503,8 +536,8 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
                 supported.add(path);
                 continue;
             }
-            if (REVIEW_VERDICTS.includes(item.verdict) && classifies(path)) {
-                contested.push({ path, verdict: item.verdict, reason: string(item.reason ?? ''), source_refs: refs });
+            if (REVIEW_VERDICTS.includes(item.verdict) && (moduleLogicReview(filled)?advisoryModuleFinding(item):classifies(path))) {
+                contested.push({ path, verdict: item.verdict, reason: string(item.reason ?? ''), source_refs: refs,...(item.impact?{impact:item.impact}:{}) });
                 continue;
             }
             throw new RpcError('invalid_params', `visual review found ${path} unsupported (${string(item.verdict ?? null)}): ${string(item.reason ?? '')}`, {
@@ -515,7 +548,10 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
     }
     const missing = array(filled.required_review).filter(path => !reviewed.has(path));
     if (missing.length)
-        reject(`visual review omitted required fields: ${repr(sorted(missing))}`);
+        throw new RpcError('invalid_params', `visual review omitted required fields: ${repr(sorted(missing))}`, {
+            fix: 'review the omitted source fields against their original pages; preserve the completed author draft',
+            details: {reason:'reading_failed',path:'/',rule:'review_incomplete',required_review:sorted(missing)},
+        });
     return { supported, contested };
 }
 /**
@@ -525,18 +561,19 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
  */
 export function recordContested(graph: Row, filled: Row, judged: ReviewJudgement, moduleId: string, jobId: string, generation: number): void {
     const marks: Row = clone(row(graph.contested)), nodes = array(filled.nodes);
+    const published={...filled,nodes:nodes.map(node=>array(graph.nodes).find(current=>current.node_id===node.node_id)??node)};
     const byId = (path: string): string | null => {
         const match = /^\/nodes\/(\d+)(\/.*)?$/.exec(path), node = match ? nodes[Number(match[1])] : undefined;
         return node && typeof node.node_id === 'string' ? `/nodes/${node.node_id}${match![2] ?? ''}` : null;
     };
     const settled = [...judged.supported].map(byId).filter((path): path is string => path !== null);
     for (const key of Object.keys(marks))
-        if (settled.some(path => key === path || key.startsWith(path + '/')))
+        if (!moduleLogicReview(filled)&&settled.some(path => key === path || key.startsWith(path + '/')))
             delete marks[key];
     for (const item of judged.contested) {
         const key = byId(item.path);
         if (key === null) continue;
-        marks[key] = { value: clone(pointer(filled, item.path)), verdict: item.verdict, reason: item.reason,
+        marks[key] = { value: clone(pointer(moduleLogicReview(filled)?published:filled, item.path)), ...(item.impact?{impact:item.impact}:{}), verdict: item.verdict, reason: item.reason,
             source_refs: array(item.source_refs).map((ref: Row) => ({ source_id: `pdf:${moduleId}`, pdf_index: typeof ref.page === 'bigint' ? ref.page - 1n : ref.page - 1, ...(Object.hasOwn(ref, 'box') ? { box: ref.box } : {}) })),
             job_id: jobId, generation };
     }
@@ -603,12 +640,23 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
                 // §22.3.1: the draft names this item `/<collection>/<i>`; a replacement needs a review of that field or an ancestor.
                 const drafted = `/${collection}/${i}`, accepted: Row[] = [];
                 merged.set(id, mergeValue(current, value, base, {
+                    preserveExisting:moduleLogicReview(filled)&&(collection==='claims'||readyBefore.has(id)||value.node_kind==='module'),
                     spans: path => ({ existing: spanOf(spans, path, before.source_refs), proposed: anchors(value.source_refs) }),
                     reviewed: path => { const at = drafted + path.slice(base.length); return review.some(item => at === item || at.startsWith(item + '/')); },
                     accept: (path, previous, value) => accepted.push({ path, previous, value }),
                 }));
-                recordSpans(spans, base, value, key, before, accepted.map(item => item.path));
-                for (const item of accepted) replaced.push({ ...item, source_refs: clone(value.source_refs) });
+                if(moduleLogicReview(filled)&&(collection==='claims'||readyBefore.has(id))){
+                    const mappings=new Map(array(graph.source_mappings).map(item=>[canonicalJson([item.path,item.source_value]),item]));
+                    for(const item of accepted)mappings.set(canonicalJson([item.path,item.value]),{path:item.path,established_value:clone(item.previous),source_value:clone(item.value),source_refs:clone(value.source_refs)});
+                    if(mappings.size)graph.source_mappings=[...mappings.values()];
+                    const settled=merged.get(id);
+                    if(collection==='nodes'&&typeof before.name==='string'&&typeof value.name==='string'&&before.name!==value.name)
+                        settled.aliases=[...new Set([...array(settled.aliases),value.name])];
+                    recordSpans(spans,base,settled,key,before,[]);
+                }else{
+                    recordSpans(spans, base, value, key, before, accepted.map(item => item.path));
+                    for (const item of accepted) replaced.push({ ...item, source_refs: clone(value.source_refs) });
+                }
             }
         }
         graph[collection] = [...merged.values()];
@@ -657,6 +705,16 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
     graph.source_languages = meta.languages ?? [];
     graph.source_refs = [...new Map(graph.nodes.flatMap((node: Row) => array(node.source_refs)).map((ref: Row) => [canonicalJson(ref), ref])).values()];
     graph.coverage = { ...row(graph.coverage), ...row(filled.coverage) };
+    if(array(filled.source_needs).length){
+        const needs=new Map(array(graph.source_needs).map(need=>[sourceNeedKey(need),need]));
+        const resolved=new Set(array(row(meta.reading).resolved_source_needs).map(need=>need.key));
+        for(const need of array(filled.source_needs)){
+            const node=view.resolve(need.focus),entry={...clone(need),node_id:node.node_id,focus:view.handle(node),source_sha256:meta.file_sha256,
+                source_refs:array(need.source_refs).map(ref=>({source_id:`pdf:${meta.id}`,pdf_index:number(ref.page)-1}))};
+            const key=sourceNeedKey(entry);if(!resolved.has(key))needs.set(key,entry);
+        }
+        graph.source_needs=[...needs.values()];
+    }
     if (truth(row(meta.opening_choice).start_scene))
         applyOpeningChoice(graph, meta.opening_choice.start_scene, contract);
     return graph;
@@ -683,22 +741,44 @@ export function attachMapCandidates(graph: Row, candidates: Row[], moduleId = 'm
 }
 
 /** Host first-batch check reuses the kernel's scene identity; publication remains authoritative. */
-export function checkOpeningBatch(draft: Row, focus?: string, knownNodes: Row[] = []): void {
+export function checkOpeningBatch(draft: Row, focus?: string, knownNodes: Row[] = [], requireInteraction = false, knownClaims: Row[] = []): void {
     const ready = new Set(array(draft.ready_nodes));
     const scenes = array(draft.nodes).filter(node => node.node_kind === 'scene' && ready.has(node.node_id));
-    if (scenes.length !== 1) reject('An opening batch must prepare exactly the selected first scene. Keep future scenes out of ready_nodes; prepare them with later detail requests. Retain the source dependencies of the first interaction.', '/ready_nodes');
+    const expanded = requireInteraction || Object.hasOwn(draft, 'interaction_scene');
+    const claims = [...array(knownClaims), ...array(draft.claims)];
+    if (!expanded && scenes.length !== 1) reject('An opening batch must prepare exactly the selected first scene. Keep future scenes out of ready_nodes; prepare them with later detail requests. Retain the source dependencies of the first interaction.', '/ready_nodes');
+    if (expanded && (typeof draft.interaction_scene !== 'string' || !scenes.some(scene => scene.node_id === draft.interaction_scene)))
+        reject('interaction_scene must name the ready scene of the first substantive player interaction', '/interaction_scene');
+    const view = new ModuleGraph('opening-batch', {nodes:scenes}, '', {});
+    const entry = focus ? scenes.find(scene => [scene.node_id,scene.name,view.handle(scene)]
+        .some(value => typeof value === 'string' && normalize(value) === normalize(focus))) : scenes.find(scene => row(scene.properties).is_entrance === true) ?? scenes[0];
+    if (!entry) reject(`The prepared scene does not preserve the selected opening ${repr(focus)}. Keep its identity from task.focus and known_nodes; put extra description in summary instead of decorating its name. Correct this before independent review.`, '/nodes');
+    if (expanded) {
+        const allowed = new Set([entry.node_id, draft.interaction_scene]);
+        if (scenes.length !== allowed.size || scenes.some(scene => !allowed.has(scene.node_id)))
+            reject('Only the entry and its first substantive interaction may be ready; future scenes remain deferred', '/ready_nodes');
+        const reached = new Set([entry.node_id]);
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (const claim of claims) if (['route-to','play-precedes','may-lead-to','hands-off-to'].includes(claim.predicate)
+                && reached.has(claim.subject_id) && !reached.has(row(claim.object).node_id)) {
+                reached.add(row(claim.object).node_id); changed = true;
+            }
+        }
+        if (!reached.has(draft.interaction_scene)) reject('The first interaction needs a source-authored route or progression from the selected entry', '/interaction_scene');
+    }
     const knownReady = new Set(array(knownNodes).filter(node => node.ready === true).map(node => node.node_id));
     const nodes = new Map([...array(knownNodes),...array(draft.nodes)].map(node => [node.node_id,node]));
-    const present = array(draft.claims).filter(claim => ['present-in','discoverable-at'].includes(claim.predicate)
-        && row(claim.object).node_id === scenes[0].node_id).map(claim => claim.subject_id);
+    const present = claims.filter(claim => ['present-in','discoverable-at'].includes(claim.predicate)
+        && scenes.some(scene => row(claim.object).node_id === scene.node_id)
+        && (!expanded||claim.predicate!=='discoverable-at'||row(claim.object).node_id===draft.interaction_scene)).map(claim => claim.subject_id);
+    const currentScenes = new Set(scenes.map(scene => scene.node_id));
+    if (expanded) for (const claim of claims) if (['uses-rule','has-requirement'].includes(claim.predicate) && currentScenes.has(claim.subject_id))
+        present.push(row(claim.object).node_id);
     for (const id of present) {
-        if (['npc','clue','handout','asset'].includes(nodes.get(id)?.node_kind)
+        if (['npc','clue','handout','asset',...(expanded?['rule','hazard','requirement']:[])].includes(nodes.get(id)?.node_kind)
             && !ready.has(id) && !knownReady.has(id))
             reject(`The first interaction depends on ${repr(id)}. Prepare its current-scene material and include it in ready_nodes, so the first player action does not immediately wait for detail reading. Future scene material stays deferred.`, '/ready_nodes');
-    }
-    if (focus) {
-        const view = new ModuleGraph('opening-batch', {nodes:scenes}, '', {}), scene = scenes[0];
-        if (![scene.node_id,scene.name,view.handle(scene)].some(value => typeof value === 'string' && normalize(value) === normalize(focus)))
-            reject(`The prepared scene does not preserve the selected opening ${repr(focus)}. Keep its identity from task.focus and known_nodes; put extra description in summary instead of decorating its name. Correct this before independent review.`, '/nodes');
     }
 }

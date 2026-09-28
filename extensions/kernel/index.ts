@@ -1374,6 +1374,12 @@ export default function (pi: ExtensionAPI) {
 	 * Written through the unwrapped telemetry sink: a background reading lands after its turn, and its row names that turn.
 	 */
 	const pendingAnswers = new PendingAnswers((row) => { void record(row); });
+	function sourceConsultationsForAudit(state:TableState):Record<string,unknown>|undefined{
+		const evidence=pendingAnswers.audit(state.campaign,{scene:state.scene?.handle,turn:state.turn});
+		if(state.sourceWait?.question&&!evidence.unavailable.some(row=>row.focus===state.sourceWait?.focus&&row.question===state.sourceWait?.question))
+			evidence.unavailable.push({focus:state.sourceWait.focus??'',question:state.sourceWait.question,purpose:'source'});
+		return evidence.pending.length||evidence.unavailable.length||evidence.answers.length?evidence:undefined;
+	}
 	/** §22.4.7 (SL-47): the scenes entered on their index text whose record is still being read, per campaign, until carried once. */
 	const sceneReadings = new SceneReadings((row) => { void record(row); });
 	/**
@@ -4480,6 +4486,7 @@ export default function (pi: ExtensionAPI) {
 			// `host_attributed` is the host's word about its own wraps; the Keeper never supplies it.
 			delete payload.host_attributed;
 			delete payload.keeper_reads;
+			delete payload.source_consultations;
 			// §143.24: `purpose_repeats` is the host's reading of the Keeper's lines; the Keeper never supplies it.
 			delete payload.purpose_repeats;
 			if (spec.name === "ask") state.speechAttribution = undefined;
@@ -4502,6 +4509,7 @@ export default function (pi: ExtensionAPI) {
         else if (spec.name === 'narrate' && state.sourceWait) payload.preparation_wait = {
           kind: 'source', ...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})};
         if (spec.name === 'narrate' && state.rebindingRefused) payload.rebinding_refused = {...state.rebindingRefused};
+        if (spec.name === 'narrate' || spec.name === 'ask') payload.source_consultations=sourceConsultationsForAudit(state);
         prepared = await mods.prepare(spec.name, payload, signal, providerBudget);
         // §91. Only a delivery carries a continuity review, so only a delivery can report one missing.
         if (spec.name === 'narrate' || spec.name === 'ask') notePrepared(state, prepared);
@@ -5477,6 +5485,7 @@ export default function (pi: ExtensionAPI) {
 			if (state.preparationWait) payload.preparation_wait = { kind: state.preparationWait.kind, ...(state.preparationWait.name ? { name: state.preparationWait.name } : {}) };
 			else if (state.sourceWait) payload.preparation_wait = { kind: "source", ...(state.sourceWait.focus ? { name: state.sourceWait.focus } : {}) };
 			if (state.rebindingRefused) payload.rebinding_refused = { ...state.rebindingRefused };
+			payload.source_consultations=sourceConsultationsForAudit(state);
 			try {
 				if (mods) await mods.prepare("narrate", payload, state.lanes.signal);
 				const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
@@ -6367,6 +6376,7 @@ export default function (pi: ExtensionAPI) {
 							: state.sourceWait ? {preparation_wait: {kind: 'source',
 								...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})}} : {}),
 						...(state.rebindingRefused ? {rebinding_refused: {...state.rebindingRefused}} : {}) };
+					params.source_consultations=sourceConsultationsForAudit(state);
 					state.skillRun?.tool_names.push(tool);
 					await guardTaskDelivery(event.message);
 					const prepared = await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());

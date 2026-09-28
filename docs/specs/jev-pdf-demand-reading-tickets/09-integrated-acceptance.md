@@ -4,6 +4,10 @@ Status: ready-for-agent
 Execution: authorized; waiting on declared blockers.
 Parent: [Jev PDF demand reading](../jev-pdf-demand-reading.md), all testing decisions.
 
+## Owner correction — 2026-09-28
+
+Contract §147.8 overrides earlier exact-fidelity wording below. Review module identities, causal links, clue connections and applicability; ordinary wording and valid parameter differences are advisory. Preserve Keeper-established campaign values and map later source differences. Core rules and executable shape checks remain. The old all-facts scores are retained as diagnostics, not the current blocking acceptance standard.
+
 ## Required prototype evidence
 
 Read the [mandatory prototype-use gate and ticket 09 evidence map](../jev-pdf-demand-reading-tickets.md#required-prototype-evidence) before implementation or acceptance work. [Prototype report 1](../../research/jev-pdf-sandbox-20260927.md); [Prototype report 2](../../research/jev-native-pi-reader-20260927.md); [Prototype report 3](../../research/jev-playable-entry-prototype-20260927.md).

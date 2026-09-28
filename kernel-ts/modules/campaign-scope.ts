@@ -162,7 +162,7 @@ export async function ensureCampaignModule(context: KernelContext, campaign: str
                     await copyExact(draftPath,targetDraft,accepted.draft_sha256);await copyExact(reviewPath,targetReview,accepted.review_sha256);
                     acceptedAnswers[cacheKey]={protocol:SOURCE_ANSWER_PROTOCOL,source_sha256:accepted.source_sha256,
                         context_generation:accepted.context_generation,focus,question,draft:targetDraft,review:targetReview,
-                        draft_sha256:accepted.draft_sha256,review_sha256:accepted.review_sha256,result:sourceAnswerResult(answerDraft,id)};
+                        draft_sha256:accepted.draft_sha256,review_sha256:accepted.review_sha256,result:sourceAnswerResult(answerDraft,id,row(accepted.result),row(parsePythonJson(new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(await readFile(reviewPath)))))};
                 }
                 const privateMeta = clone(meta);
                 if (privateMeta.reading) {

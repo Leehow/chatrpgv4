@@ -3,6 +3,7 @@ import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { array, integer, number, row, string, type Row } from '../read/values.js';
 import { answerReviewShapeError } from './answer-review-shape.js';
+import {moduleLogicReview,advisoryModuleFinding,blockingModuleFindings} from './module-review-policy.js';
 
 export const SOURCE_ANSWER_PROTOCOL = 'source-answer-v1';
 export { ANSWER_REVIEW_PATHS } from './answer-review-shape.js';
@@ -37,19 +38,21 @@ export function checkSourceAnswerReview(draft: Row, review: Row, packet: Row, se
     if (malformed) throw new RpcError('invalid_params', `the independent answer review is malformed: ${malformed}`, {
         fix: 'the reviewer writes its review again in the protocol shape; the answer itself was not judged',
         details: { reason: 'answer_review_malformed' } });
-    const refused = array(review.checked).find(item => item.verdict !== 'supported');
+    const refused = array(review.checked).find(item => item.verdict !== 'supported'&&!(moduleLogicReview(packet)&&advisoryModuleFinding(item)));
     if (refused) {
         const path = string(array(refused.paths ?? [refused.path])[0]);
         throw new RpcError('invalid_params', `the independent answer review found ${path} ${refused.verdict}: ${string(refused.reason).slice(0, 600)}`, {
             fix: 'repair the scoped answer against original pages; do not publish graph material through a consultation',
             details: { reason: 'answer_review_refused', path, rule: string(refused.verdict) } });
     }
-    if (array(review.missing).length) throw new RpcError('invalid_params', 'the independent answer review found missing source support', {
+    if (blockingModuleFindings(array(review.missing),packet).length) throw new RpcError('invalid_params', 'the independent answer review found missing source support', {
         fix: 'repair the scoped answer against original pages; do not publish graph material through a consultation',
         details: { reason: 'answer_review_refused', rule: 'missing' } });
 }
 
-export function sourceAnswerResult(draft: Row, moduleId: string): Row {
+export function sourceAnswerResult(draft: Row, moduleId: string, packet:Row={},review:Row={}): Row {
     return { ...draft, source_refs: draft.source_refs.map((ref: Row) => ({ source_id: `pdf:${moduleId}`, pdf_index: number(ref.page) - 1 })),
-        authority: 'source-consultation', prepared: false, supported: draft.status === 'answered' };
+        authority: 'source-consultation', prepared: false, supported: draft.status === 'answered',
+        ...(moduleLogicReview(packet)?{review_policy:packet.review_policy,source_variations:[...array(review.checked).filter(item=>item.verdict!=='supported'&&advisoryModuleFinding(item)),...array(review.missing).filter(advisoryModuleFinding)],
+            note:'Module reference reviewed for logic and connections; ordinary parameter and wording differences are advisory. Established Keeper delivery and receipts remain the campaign standard.'}:{}) };
 }

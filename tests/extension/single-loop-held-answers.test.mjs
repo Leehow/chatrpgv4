@@ -411,3 +411,23 @@ test("§135.20.1 at the extension seam: the next turn's first step waits for thi
 	assert.equal(telemetryOf(table, "run", "held_wait").length, 1, "no wait on turn 4");
 	assert.ok(infers >= 4);
 });
+
+
+test('source audit sees pending, landed and held evidence without consuming delivery or crossing scenes', async () => {
+ const list = new PendingAnswers(() => {});
+ let settle;
+ list.register('c', {focus:'map', question:'Is the town printed?'}, 2, 'r1', new Promise(resolve => {settle=resolve;}), 'answer', 'station');
+ list.register('c', {focus:'other', question:'Elsewhere?'}, 2, 'r2', new Promise(() => {}), 'answer', 'house');
+ assert.deepEqual(list.audit('c', {scene:'station', turn:2}).pending.map(x=>x.question), ['Is the town printed?']);
+ settle({source_answer:checked('The town is not printed.')}); await pause(0);
+ const before=list.audit('c', {scene:'station', turn:2});
+ assert.equal(before.pending.length,0); assert.equal(before.answers[0].answer.answer,'The town is not printed.');
+ assert.equal(list.take('c', {scene:'station',run:'r1'}).landed.length,1,'audit never consumes the one-time delivery');
+ assert.deepEqual(list.audit('c', {scene:'station',turn:3}).answers,before.answers,'held answer remains review evidence');
+ assert.equal(list.take('c',{scene:'station',run:'r2'}).held.length,1,'audit does not mark a run as handed');
+ assert.equal(list.audit('c',{scene:'house',turn:3}).answers.length,0);
+ list.register('c',{focus:'rule',question:'Which modifier?'},3,'r3',Promise.reject(new Error('fixture unavailable')),'answer','station');
+ await pause(0);
+ assert.equal(list.audit('c',{scene:'station',turn:3}).unavailable.length,1);
+ assert.equal(list.audit('c',{scene:'station',turn:4}).unavailable.length,0);
+});

@@ -1,6 +1,6 @@
 /** Read-only authored graph; names and projections never change the source. */
 import { RpcError } from "../errors.js";
-import { canonicalJson, compareUnicode, isJsonObject } from "../json.js";
+import { canonicalJson, compareUnicode, isJsonObject, type JsonValue } from "../json.js";
 import { entries, values, array, row, truth, string, repr, integer, normalize, normalizeText, kebab, stripPrefix, sorted, similarity, words, chars, pick, type Row } from "./values.js";
 import { SHAPE_KINDS } from "../modules/mechanics-catalog.js";
 export const TEMPLATE_NOTE = "the book's pregenerated investigator, not at this table; the table's investigators are in the capsule's known.investigator";
@@ -952,6 +952,8 @@ export class ModuleGraph {
             display_name: this.displayName(node),
             kind: node.node_kind,
             summary: this.summary(node),
+            ...(this.sourceMappings(node).length?{source_mappings:this.sourceMappings(node),source_mapping_note:'Established campaign values remain canonical; these source differences are mappings, not retcon instructions.'}:{}),
+            ...(this.sourceNeeds(node).length?{source_needs:this.sourceNeeds(node)}:{}),
             ...(destinationIdentity(node) ? { destination_identity: destinationIdentity(node) } : {}),
             ...(destinationAccess(node) ? { destination_access: destinationAccess(node) } : {}),
             properties: Object.fromEntries(entries(row(node.properties)).filter(([k]) => !["runtime_projection", "asset_ref"].includes(k))),
@@ -960,6 +962,31 @@ export class ModuleGraph {
             ...(this.adaptationOrigin(node.campaign_origin) ? {origin: this.adaptationOrigin(node.campaign_origin)} : {}),
             ...(node.node_kind === "investigator-template" ? { note: TEMPLATE_NOTE } : {})
         };
+    }
+    sourceMappings(node:Row):Row[]{
+        const result:Row[]=[],prefix='/nodes/'+node.node_id+'/';
+        const shown=(value:JsonValue|undefined)=>{const text=canonicalJson(value??null);return text.length>1200?{truncated:true,preview:text.slice(0,1200)}:value;};
+        for(const item of array(this.raw.source_mappings)){
+            if(typeof item.path!=='string')continue;
+            let field:string|undefined,relation:Row|undefined;
+            if(item.path.startsWith(prefix))field=item.path.slice(prefix.length);
+            else{
+                const match=/^\/claims\/([^/]+)\/(.*)$/.exec(item.path);
+                const claim=match?array(this.raw.claims).find(row=>row.claim_id===match[1]):undefined;
+                if(!claim||![claim.subject_id,row(claim.object).node_id,item.source_value].includes(node.node_id))continue;
+                field=match![2];
+                const subject=this.nodes.get(claim.subject_id),object=this.nodes.get(row(claim.object).node_id);
+                relation={subject:subject?this.handle(subject):null,predicate:claim.predicate,object:object?this.handle(object):null};
+            }
+            const value=(value:JsonValue|undefined)=>relation&&['subject_id','object/node_id'].includes(field!)&&typeof value==='string'&&this.nodes.has(value)
+                ?this.handle(this.nodes.get(value)!):shown(value);
+            result.push({field,...(relation?{relation}:{}),established_value:value(item.established_value),source_value:value(item.source_value),source_refs:item.source_refs});
+        }
+        return result.slice(-8);
+    }
+    sourceNeeds(node:Row,runtimeOnly=false):Row[]{
+        return array(this.raw.source_needs).filter(need=>need.node_id===node.node_id&&(!runtimeOnly||need.kind==='runtime_context'))
+            .map(need=>({kind:need.kind,focus:this.handle(node),question:need.question,reason:need.reason,trigger:need.trigger,source_refs:need.source_refs}));
     }
     adaptationOrigin(value: any): Row | null {
         if (!value || typeof value !== 'object') return null;

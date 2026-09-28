@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import type { RuntimeContext } from "../../runtime/host.ts";
 import { extensionArgs, readerProviderExtensionPaths, resourceRootFrom, runtimeEntrypoints } from "../../runtime/deployment.mjs";
+import {readJevApiKey} from "../jev/agent/config.js";
 
 /** How long one reader round may run; a timeout counts as a round that did not pass, and leaves its mark in the findings. */
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
@@ -20,6 +21,8 @@ export interface ReaderRequest {
 	providerBudget?: TaskProviderBudget;
 	/** Host-only scheduling priority; never sent to the model. */
 	priority?: ReaderPriority;
+	/** Source owner scheduling at the existing provider handshake; never model context. */
+	beforeProviderRequest?:(signal:AbortSignal)=>Promise<void>;
 	/**
 	 * Host-only (contract §20 addendum 3): the size of the lease a play read's child pays from, derived from the book by the
 	 * reading service. `runtime/tasks.ts` opens it when no `providerBudget` owns the child.
@@ -61,7 +64,7 @@ export interface ReaderRequest {
 	 */
 	tools?: string;
 	eventLog?: string;
-	source?: { pdf: string; cache: string };
+	source?: { pdf: string; cache: string; file_sha256?: string };
 	imageHistory?: number;
 	/** Checked guidance/opening artifact submission ends the tool batch without final prose. */
 	submission?: boolean;
@@ -93,8 +96,14 @@ export interface ReaderOutcome {
 	error?: string;
 }
 
+/** A missing Jev credential keeps the existing tool-enabled Pi source reader. */
+export function nativeSourceReaderEnabled(request: Pick<ReaderRequest,"source"|"prompt"|"submission">, env:NodeJS.ProcessEnv):boolean {
+	return !!request.source && (request.prompt?.answer === true || request.prompt?.guidance === true ||
+		request.submission===true&&['read','verify'].includes(request.prompt?.phase??'')) && !!readJevApiKey(env);
+}
+
 /** The reader's command line, without the final `brief` argument. */
-export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string, audit = false, adaptation = false): string[] {
+export function readerCommand(model?: string, systemPrompt?: string, thinking?: string, pdf = false, submission = false, context?: RuntimeContext, tools?: string, audit = false, adaptation = false, nativeSource = false): string[] {
 	const root = context?.resourceRoot ?? resourceRootFrom(import.meta.url);
 	const entries = context?.entrypoints ?? runtimeEntrypoints(root);
 	const override = context?.env.PI_COC_READER_CMD?.trim();
@@ -107,7 +116,7 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 	}
 	return [
 		context?.nodeExecutable ?? process.execPath,
-		entries.pi,
+		nativeSource ? entries.piSourceReader : entries.pi,
 		"-p",
 		"--no-session",
 		"--no-context-files",
@@ -119,7 +128,7 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 		...extensionArgs(readerProviderExtensionPaths(entries)),
 		"--extension", entries.readerContext,
 		"--tools",
-		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : [])].join(","), ...(audit ? ['read_audit_evidence', 'submit_audit'] : []), ...(adaptation ? ['submit_adaptation'] : [])].join(','),
+		[tools ?? [pdf ? "read,write,edit,bash,pdf" : "read,write,edit,bash", ...(submission ? ["submit_reading"] : []), ...(nativeSource ? ["request_source"] : [])].join(","), ...(audit ? ['read_audit_evidence', 'submit_audit'] : []), ...(adaptation ? ['submit_adaptation'] : [])].join(','),
 		...(pdf ? ["--extension", entries.readerPdf] : []),
 		...(submission ? ["--extension", entries.readerSubmit] : []),
 		...(audit ? ['--extension', entries.auditSubmit] : []),
@@ -238,7 +247,8 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 	const ownSettings = (!!request.httpIdleTimeoutMs || !!request.providerBudget) && !context.env.PI_COC_READER_CMD?.trim();
 	let command: string[];
 	try {
-		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit, !!request.adaptation);
+		const nativeSource = nativeSourceReaderEnabled(request,context.env);
+		command = readerCommand(request.model, request.systemPrompt, request.thinking, !!request.source, request.submission, context, request.tools, !!request.audit, !!request.adaptation, nativeSource);
 		if (request.providerBudget && context.env.PI_COC_READER_CMD?.trim()) throw new Error("A budgeted reader requires the host Pi launcher and private provider handshake");
 		if ((request.eventLog || request.providerBudget) && !context.env.PI_COC_READER_CMD?.trim()) command.splice(command.length - 1, 0, "--mode", "json");
 		// Without this the file below is read by nobody: pi loads project settings only for a trusted
@@ -324,6 +334,8 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 				if(message?.type==='coc-provider-reserve') {
 					if(!Number.isSafeInteger(message.id)||message.id<1||seen.has(message.id))throw new Error('invalid_provider_request_identity');
 					seen.add(message.id);
+					await request.beforeProviderRequest?.(request.signal?AbortSignal.any([channel.signal,request.signal]):channel.signal);
+					if(settled||channel.signal.aborted)return;
 					providerSpend(message.bound);
 					if(request.model && `${message.bound.model.provider}/${message.bound.model.id}`!==request.model)throw new Error('provider_model_changed');
 					const digest=typeof message.digest==='string'&&message.digest?message.digest:undefined;

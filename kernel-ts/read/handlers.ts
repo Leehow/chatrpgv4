@@ -462,7 +462,11 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 // §127.1: the whole query first, as always; only when it matches nothing is it read as a list
                 // of exact handles the Keeper already holds.
                 const searched = graph.search(query, expected ? 64 : 8);
-                const entities = (searched.length ? searched : graph.handleList(query) ?? []).filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => graph.entityView(node));
+                const sourceScope=row(module.meta.reading).opening_scope==='first_interaction';
+                const prepared=new Set(array(row(module.meta.reading).materials).flatMap(material=>array(material.node_ids)));
+                const entities = (searched.length ? searched : graph.handleList(query) ?? []).filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => ({...graph.entityView(node),
+                    ...(sourceScope?{material:graph.materialOverride?graph.materialOverride(node.node_id):prepared.has(node.node_id)?'ready':'unprepared',
+                        original_pages:[...new Set(array(node.source_refs).filter(ref=>ref.source_id===`pdf:${graph.moduleId}`&&integer(ref.pdf_index)).map(ref=>number(ref.pdf_index)+1))]}:{})}));
                 const scene = !entities.length && typeof world.active_scene === 'string' ? graph.find(world.active_scene, ['scene']) : null;
                 const sourceNodes = array(row(scene?.campaign_origin).sources).map(id => graph.nodes.get(id)).filter((node): node is Row => node !== undefined);
                 const missingScene = !entities.length && expected === 'scene';
@@ -470,6 +474,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                     query,
                     ...(expected ? {expected_kind: expected} : {}),
                     entities,
+                    ...(sourceScope&&entities.length?{source_policy:'Ready material contains independently reviewed source facts for that scope. Use those facts directly. Request source reading for a missing detail, unsupported parameter, new relation or retained source need; readiness grants no disclosure or action.'}:{}),
                     ...(!entities.length ? {
                         status: 'not_found',
                         note: missingScene

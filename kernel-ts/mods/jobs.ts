@@ -254,7 +254,7 @@ export class ModJobs {
         const continuityV2 = continuity && candidates.some(mod => array(mod.requires).includes(CONTINUITY_AUDIT_V2));
         const sourceAudit = !continuity && role === 'audit' && candidates.some(mod => array(mod.requires).includes(SOURCE_AUDIT));
         const wait = row(row(params.input).preparation_wait), refused = row(row(params.input).rebinding_refused);
-        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity, wait, refused) : null;
+        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity, wait, refused,row(row(params.input).source_consultations)) : null;
         const request: Row = {role, input: params.input ?? null, capabilities: sorted(MOD_CAPABILITIES), play_language: await playLanguageOf(this.context, meta),
             mod_settings: Object.fromEntries(candidates.map(mod => [mod.id, (world as Row).mods.active[mod.id].settings])),
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: prefetch ? [] : field(turn, 'receipts', []),
@@ -423,7 +423,7 @@ export class ModJobs {
         }
         const wait = row(row(request.input).preparation_wait), refused = row(row(request.input).rebinding_refused);
         const evidence = !(sourceAudit || continuity) ? null : afterDelivery ? await this.retainedEvidence(root, request, continuity, identity)
-            : await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait, refused);
+            : await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait, refused,row(row(request.input).source_consultations));
         if (evidence && !afterDelivery) {
             if (evidence.binding !== identity.source_binding) throw new RpcError('needs', 'Source audit no longer matches the current campaign evidence',
                 {details: {reason: 'mod_audit_stale'}, fix: 'Retry the same narration to prepare a current source audit; do not reroll settled actions'});

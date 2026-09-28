@@ -399,7 +399,7 @@ export class SessionView {
             if (!node)
                 return false;
             // The book's numbers, or a profile the table pinned from a rulebook archetype (contract §34.10).
-            const profile = this.graph.mechanicsOf(node).profile ?? row(this.world.npc_profiles)[name];
+            const profile = row(this.world.npc_profiles)[name] ?? this.graph.mechanicsOf(node).profile;
             return !!profile && typeof profile === "object" && !Array.isArray(profile);
         });
         const gain = this.campaign.saved(`sanity-gain-pending/${id}.json`);

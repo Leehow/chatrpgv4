@@ -7,6 +7,27 @@ import type { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 
 type Row = Record<string, any>;
+const PUBLIC_FIELDS=['era','starting_place','public_premise','creation_advice'] as const;
+const PUBLIC_STATES=['queued','searching','found','checking','confirmed','needs_choice','unavailable'];
+/** Closed public projection only; private reader progress is never used as display text. */
+export function publicPreparationSnapshot(previous:Row|undefined,event:unknown,binding:{moduleId:string;sourceSha:string;opening:string}):Row|undefined{
+ const data=event as Row;
+ if(!/^[a-f0-9]{64}$/.test(binding.sourceSha)||!data||typeof data!=='object'||data.module_id!==binding.moduleId||data.source_sha256!==binding.sourceSha||
+   data.opening!==binding.opening||typeof data.guidance_key!=='string'||!/^[a-f0-9]{64}$/.test(data.guidance_key)||
+   typeof data.job_id!=='string'||!data.job_id||typeof data.attempt!=='string'||!data.attempt||
+   !data.fields||typeof data.fields!=='object')return undefined;
+ const same=previous?.source_sha256===data.source_sha256&&previous?.opening===data.opening&&previous?.guidance_key===data.guidance_key;
+ const fields:Row={};
+ for(const field of PUBLIC_FIELDS){
+   const item=data.fields[field];
+   if(!item||!PUBLIC_STATES.includes(item.state)||item.state==='confirmed'&&
+     (typeof item.value!=='string'||!item.value.trim()||Array.from(item.value).length>1000))return undefined;
+   fields[field]=same&&previous?.fields?.[field]?.state==='confirmed'&&['queued','searching','found','checking'].includes(item.state)
+     ?previous.fields[field]:{state:item.state,...(item.state==='confirmed'?{value:item.value}:{})};
+ }
+ return {source_sha256:data.source_sha256,module_id:data.module_id,opening:data.opening,guidance_key:data.guidance_key,
+   job_id:data.job_id,attempt:data.attempt,fields};
+}
 const MAX_FILE = 128 * 1024 * 1024;
 /** Two bounded model rounds plus worker startup; past this a card is a failure, not a wait. */
 const PRESENTATION_DEADLINE_MS = 360_000;
@@ -323,6 +344,7 @@ export class CocOnboardingHost {
       error:interrupted||current.error||(job.error?captioned(this.contentRoot,
         {code:typeof job.error_code==='string'?job.error_code:'',message:String(job.error)},'preparation_failed'):undefined),
       preparation:{guidance,opening},character:{state:character},canConverse,
+      publicFields:job.public_preparation?.fields,
       canHandoff:character==='confirmed'&&(waitingForOpening||handoffCommitted)&&opening.state==='ready'&&!playing,playing,hidden:!!job.hidden,
       model:job.model,thinking:job.thinking,campaign:job.campaign,play_language:job.play_language};
   }
@@ -350,7 +372,19 @@ export class CocOnboardingHost {
             try {event = JSON.parse(line);} catch {continue;}
             if (event.type === 'result') result = event.data;
             if (event.type === 'error') failure = event.data;
-            if(job && phase && event.type==='progress') {const latest=this.load(job.id,job.session);const state=latest.preparation?.[phase];if(state?.attempt===attempt && state.state==='running')this.patch(latest,{preparation:{...latest.preparation,[phase]:{...state,stage:event.data.stage,progress:event.data}}});}
+            if(job && phase && event.type==='progress') {
+              const latest=this.load(job.id,job.session),state=latest.preparation?.[phase];
+              if(state?.attempt===attempt&&state.state==='running'){
+                let publicPreparation:Row|undefined;
+                if(phase==='guidance'&&event.data.public_preparation&&latest.module_id)try{
+                  const source=JSON.parse(readFileSync(join(this.options.home,'.coc/modules',latest.module_id,'module.json'),'utf8'));
+                  publicPreparation=publicPreparationSnapshot(latest.public_preparation,event.data.public_preparation,
+                    {moduleId:latest.module_id,sourceSha:source.file_sha256,opening:latest.start_scene||''});
+                }catch{}
+                this.patch(latest,{...(publicPreparation?{public_preparation:publicPreparation}:{}),
+                  preparation:{...latest.preparation,[phase]:{...state,stage:event.data.stage,progress:event.data}}});
+              }
+            }
             if (job) appendFileSync(join(this.folder(job.id), 'events.jsonl'), JSON.stringify({at: new Date().toISOString(), ...event}) + '\n');
           }
         });
@@ -501,7 +535,8 @@ export class CocOnboardingHost {
           Object.assign(job,this.patch(job,{module_id:inspected.module_id,pages:inspected.page_count}));
         }
         if(params.scene&&job.campaign)throw refuse('opening_bound', 'The opening is already bound to character creation');
-        const updated=this.patch(job,{start_scene:params.scene||job.start_scene,model:model.id,thinking:model.thinking});
+        const updated=this.patch(job,{start_scene:params.scene||job.start_scene,model:model.id,thinking:model.thinking,
+          ...(params.scene&&params.scene!==job.start_scene?{public_preparation:undefined}:{})});
         this.prepare(updated,true);
       } else if (params.action === 'dismiss') {
         // Choosing another scenario waits for live work -- but an upload nobody is pushing is not

@@ -4,6 +4,10 @@ Status: ready-for-agent
 Execution: authorized; waiting on declared blockers.
 Parent: [Jev PDF demand reading](../jev-pdf-demand-reading.md), D4–D6.
 
+## Owner correction — 2026-09-28
+
+Contract §147.8 overrides earlier exact-fidelity wording below. Review module identities, causal links, clue connections and applicability; ordinary wording and valid parameter differences are advisory. Preserve Keeper-established campaign values and map later source differences. Core rules and executable shape checks remain. The old all-facts scores are retained as diagnostics, not the current blocking acceptance standard.
+
 ## Required prototype evidence
 
 Read the [mandatory prototype-use gate and ticket 07 evidence map](../jev-pdf-demand-reading-tickets.md#required-prototype-evidence) before implementation or acceptance work. [Prototype report 1](../../research/jev-native-pi-reader-20260927.md); [Prototype report 2](../../research/jev-playable-entry-prototype-20260927.md).
@@ -43,3 +47,5 @@ No new rules system, interpretation by arithmetic heuristics, object reclassific
 ## Comments
 
 2026-09-27: Separates mechanical authority risk from textual relationship retrieval while sharing the dependency owner from 05.
+
+2026-09-28 implementation correspondence: native prototype 4ba527fdf06bb0429b3984ac4ceab4e95ea38ec2 source-driver.mjs and its Jimmy supplement found the third profile on physical page 174 after preserving the unresolved question. Minimal-entry 0a7a63ad8117f80a301c80c515e91245ab084b52 source-driver.mjs and demand review distinguished missing personal stats from discretionary live inputs. Their production counterparts are runtime/jev/source-reader-driver.ts source facets and classify_source_need, reader-submit.ts retained questions, kernel-ts/modules/visual.ts reviewed source_needs and unchanged mechanics validation. The real Masks opening attempt reached all three attackers but failed later independent completeness review; it is adverse evidence, not a mechanics acceptance. Original-PDF quality cases are now running through ReadingService. The individual pre-code mapping comment was missing when shared 05/06 work landed; this retrospective record does not claim that process gate was met.

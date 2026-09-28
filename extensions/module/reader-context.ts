@@ -2,6 +2,7 @@ import {installChildProviderBudget, outputFieldPath, withOutputRoom} from "../..
 import {READING_STAGE_BUDGET} from "../../runtime/jev/reading-stage-budget.ts";
 /** Keep page-image history bounded without changing the recorded reader transcript. */
 import { appendFileSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import {createHash} from 'node:crypto';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 type ToolCall = { toolName: string; input?: Record<string, unknown> };
@@ -9,7 +10,7 @@ type ToolGate = { block: true; reason: string } | undefined;
 type AllowedCheck = { command: string; wrapper: string; bytes: Buffer };
 
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
-const HOST_FILES = new Set(["task.json", "packet.json", "baseline.json", "findings.json", "observations.json", "read-complete.json", "review-input.json"]);
+const HOST_FILES = new Set(["task.json", "packet.json", "baseline.json", "findings.json", "observations.json", "read-complete.json", "review-input.json", "source-driver-complete.json", "source-driver.jsonl", "source-navigation-review.json", "pending-source-needs.json"]);
 const blocked = (tool: string, reason: string): ToolGate => ({ block: true, reason: `Reader confinement blocked ${tool}: ${reason}` });
 const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 
@@ -146,7 +147,7 @@ export function createReaderToolGuard(cwd: string, env: NodeJS.ProcessEnv = proc
 		const target = writableInside(cwd, roots.task, event.input?.path);
 		if (!target) return blocked(event.toolName, "the path escapes the task directory or crosses a symlink boundary");
 		const first = target.relative.split(sep)[0];
-		if (first === "host-bin" || HOST_FILES.has(target.relative))
+		if (first === "host-bin" || HOST_FILES.has(target.relative) || target.relative.endsWith('.jsonl'))
 			return blocked(event.toolName, "host-owned task inputs and executable wrappers are immutable");
 	};
 }
@@ -168,7 +169,9 @@ export function boundImages(messages: any[], previouslyIncluded = new Set<string
 			const block = message.content[j];
 			if (block.type !== "image") continue;
 			const size = typeof block.data === "string" ? Buffer.byteLength(block.data, "base64") : 0;
-			const key = message.toolCallId ?? `message-${i}`;
+			const key = message.toolCallId ?? (message.details?.kind==='host_source_pages'&&typeof block.data==='string'
+				?`host:${message.details.source_sha256??''}:${createHash('sha256').update(Buffer.from(block.data,'base64')).digest('hex')}`
+				:`message-${i}`);
 			if (!previouslyIncluded.has(key) || count === 0 || (count < countBudget && bytes + size <= byteBudget)) {
 				bytes += size; count++;
 				included.push(key);
@@ -188,6 +191,13 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 	const maxRequests = Number.isInteger(configuredRequests) && configuredRequests > 0 ? configuredRequests : null;
 	let providerRequests = 0;
 	const sent = new Set<string>();
+	let candidateIncluded:string[]=[];
+	let inFlightIncluded:string[]=[];
+	let candidateImageBytes=0,inFlightImageBytes=0;
+	let candidateHostPages:Record<string,unknown>[]=[];
+	let inFlightHostPages:Record<string,unknown>[]=[];
+	const deliveredHostImages=new Set<string>(),retiredHostImages=new Set<string>();
+	const retiredImageCalls=new Set<string>();
 	// Contract §140: with no lease (no budget channel) the child still sends its own output bound -- the lease's
 	// per-call one, else a reading's -- so the provider's unstated default never decides how much a reasoning
 	// model may think before it answers. A leased child is bounded by `installChildProviderBudget` below instead.
@@ -205,6 +215,9 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 			throw new Error(`The bounded reader reached its ${maxRequests}-request limit`);
 		}
 		providerRequests++;
+		inFlightIncluded=[...candidateIncluded];
+		inFlightImageBytes=candidateImageBytes;
+		inFlightHostPages=[...candidateHostPages];
 		const bounded = leased ? event.payload : withOutputRoom(ctx?.model, event.payload, outputRoom);
 		const log = env.PI_COC_READER_REQUESTS_LOG;
 		if (log) {
@@ -216,14 +229,70 @@ export default function readerContext(pi: any, options: { cwd?: string; env?: No
 		}
 		return bounded === event.payload ? undefined : bounded;
 	});
+	pi.on("message_end",(event:any)=>{
+		if(event.message?.role!=="assistant")return;
+		const successful=!['error','aborted'].includes(event.message.stopReason);
+		if(successful){
+			for(const id of inFlightIncluded)sent.add(id);
+			for(const row of inFlightHostPages)if(typeof row.image_sha256==='string')deliveredHostImages.add(row.image_sha256);
+			const log=env.PI_COC_READER_IMAGES_LOG;
+			if(log&&(inFlightIncluded.length||inFlightHostPages.length))appendFileSync(log,JSON.stringify({delivery:'succeeded',included:inFlightIncluded,host_pages:inFlightHostPages,bytes:inFlightImageBytes})+"\n");
+		}
+		inFlightIncluded=[];
+		inFlightHostPages=[];
+		inFlightImageBytes=0;
+	});
+	pi.on('tool_execution_end',(event:any)=>{
+		if(event.toolName==='submit_reading'){
+			try{
+				let task:any={};try{task=JSON.parse(readFileSync(join(cwd,'task.json'),'utf8'));}catch{}
+				const names=Array.isArray(task.required_review)?['review.json']:['draft.json',...(task.purpose==='guidance'?['guidance.json']:[])];
+				for(const name of names){const value=JSON.parse(readFileSync(join(cwd,name),'utf8'));if(!value||typeof value!=='object'||Array.isArray(value))return;}
+			}catch{return;}
+			for(const digest of deliveredHostImages)retiredHostImages.add(digest);
+			for(const id of sent)retiredImageCalls.add(id);
+		}
+	});
 	// The owning lease's per-call output bound (contract §20 addendum 2); absent keeps the default.
 	installChildProviderBudget(pi, leased, Number(env.PI_COC_PROVIDER_OUTPUT_LIMIT) || undefined);
 	pi.on("context", (event: any) => {
 		const configured=Number(env.PI_COC_READER_IMAGE_HISTORY);
-		const result = boundImages(event.messages, sent, undefined, configured>0?configured:undefined);
-		for (const id of result.included) sent.add(id);
+		const material=event.messages.map((message:any)=>message.toolCallId&&retiredImageCalls.has(message.toolCallId)?{...message,
+			content:(message.content??[]).map((block:any)=>block.type==='image'
+				?{type:'text',text:'Earlier original-page image retired after candidate submission. Reopen the source page with pdf if its details are needed again.'}:block)
+		}:message.details?.kind==='host_source_pages'?{...message,
+			content:(message.content??[]).map((block:any)=>{
+				if(block.type!=='image'||typeof block.data!=='string')return block;
+				const digest=createHash('sha256').update(Buffer.from(block.data,'base64')).digest('hex');
+				return retiredHostImages.has(digest)?{type:'text',text:'Earlier host original-page image retired after source submission. Reopen this physical page with pdf if its details are needed again.'}:block;
+			})}:message);
+		const result = boundImages(material, sent, undefined, configured>0?configured:undefined);
+		candidateIncluded=[...result.included];
+		candidateImageBytes=result.bytes;
+		candidateHostPages=[];
+		let binding:any;
+		try{binding=JSON.parse(env.PI_COC_READER_SOURCE??'null');}catch{}
+		if(binding?.file_sha256&&binding?.cache){
+			for(const message of result.messages){
+				if(message.customType!=='coc-source-navigation'||message.details?.kind!=='host_source_pages'||message.details.source_sha256!==binding.file_sha256)continue;
+				const images=(message.content??[]).filter((block:any)=>block.type==='image'&&typeof block.data==='string');
+				const available=images.map((block:any)=>({digest:createHash('sha256').update(Buffer.from(block.data,'base64')).digest('hex'),used:false}));
+				for(const row of message.details.pages??[]){
+					if(!Number.isSafeInteger(row.page)||row.page<1||typeof row.path!=='string'||typeof row.image_sha256!=='string')continue;
+					const matching=available.find((image:any)=>!image.used&&image.digest===row.image_sha256);
+					if(!matching)continue;
+					try{
+						if(!within(canonical(binding.cache),realpathSync(row.path)))continue;
+						if(createHash('sha256').update(readFileSync(row.path)).digest('hex')!==row.image_sha256)continue;
+						matching.used=true;
+						candidateHostPages.push({page:row.page,path:row.path,image_sha256:row.image_sha256,box:row.box,
+							source_sha256:binding.file_sha256});
+					}catch{}
+				}
+			}
+		}
 		const log = env.PI_COC_READER_IMAGES_LOG;
-		if (log) appendFileSync(log, JSON.stringify({ included: result.included, bytes: result.bytes, count: result.count }) + "\n");
+		if (log) appendFileSync(log, JSON.stringify({ delivery:'attempted', candidates:result.included, bytes: result.bytes, count: result.count }) + "\n");
 		return { messages: result.messages };
 	});
 }

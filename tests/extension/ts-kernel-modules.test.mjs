@@ -17,12 +17,14 @@ await mkdir(evidenceRoot, { recursive: true });
 const evidence = await mkdtemp(join(evidenceRoot, 'direct-'));
 const exports = [
   ['json', ['parsePythonJson', 'pythonJsonDumps', 'canonicalJson']],
-  ['modules/visual', ['checkDraft', 'checkReview', 'requiredViewPages', 'assembleVisual', 'attachMapCandidates']],
+  ['modules/visual', ['checkDraft', 'checkReview', 'requiredViewPages', 'assembleVisual', 'attachMapCandidates','recordContested']],
   ['write/source', ['openingReport', 'startSceneCandidates', 'assetRegistry']],
   ['read/module-graph', ['ModuleGraph']],
   ['read/thread', ['threadSection']],
   ['modules/index', ['createModuleRuntime']],
   ['modules/reading', ['Reading']],
+  ['modules/source-answer',['checkSourceAnswerReview','sourceAnswerResult']],
+  ['resolve/context',['npcProfileOf']],
   ['context', ['createKernelContext']],
   ['locks', ['createAdvisoryLocks']],
   ['modules/contract', ['loadModuleContract']],
@@ -36,6 +38,20 @@ const clone = value => api.parsePythonJson(api.pythonJsonDumps(value));
 // The contract publication loads (§134.16, §136.26): the graph vocabulary and the ruleset names a drafted shape resolves against.
 const contract = await api.loadModuleContract({ content: join(ROOT, 'content'), snapshots: api.snapshots });
 const refs = [{ page: 1 }];
+test('a source delta inherits omitted visibility and claim holders without inventing a retranscription',()=>{
+ const scene={node_id:'scene-dock',node_kind:'scene',name:'Dock',properties:{},visibility:'player-safe',source_refs:refs,ready:false};
+ const person={node_id:'npc-witness',node_kind:'npc',name:'Witness',properties:{},visibility:'keeper-only',source_refs:refs,ready:false};
+ const claim={claim_id:'claim-witness-at-dock',subject_id:person.node_id,predicate:'present-in',object:{node_id:scene.node_id},
+  truth_status:'authored-fact',visibility:'keeper-only',source_refs:refs,known_by_ids:[person.node_id],asserted_by_ids:[person.node_id],validity:null};
+ const candidate={nodes:[{node_id:scene.node_id,node_kind:'scene',name:'Dock',properties:{},source_refs:refs}],
+  claims:[{claim_id:claim.claim_id,subject_id:claim.subject_id,predicate:claim.predicate,object:claim.object,truth_status:claim.truth_status,source_refs:refs}],
+  node_refs:[person.node_id],ready_nodes:[scene.node_id],critical:[],coverage:{},dependencies:[]};
+ const filled=api.checkDraft(clone(candidate),{module_id:'book-1',purpose:'detail',source:{page_count:2},known_nodes:[scene,person],known_claims:[claim]},contract,new Set([1]));
+ assert.equal(filled.nodes[0].visibility,'player-safe');
+ assert.deepEqual(filled.claims[0].known_by_ids,[person.node_id]);
+ assert.deepEqual(filled.claims[0].asserted_by_ids,[person.node_id]);
+ assert.ok(!filled.required_review.includes('/nodes/0/visibility'));
+});
 const base = { nodes: [
   { node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', properties: { is_entrance: true }, source_refs: refs },
   { node_id: 'npc-witness', node_kind: 'npc', name: 'Witness', source_refs: refs, properties: { mechanics: { profile: { characteristics: { STR: 50 } } }, knowledge: ['A recorded fact.'] } },
@@ -281,7 +297,7 @@ test('an indexed map candidate marks its scene, and the marker is carried onto t
  * read through the real module runtime. `reopen` retires the runtime (its native leases die with it, as when a
  * table stops) and starts a fresh one on the same workspace.
  */
-async function mapBook(name) {
+async function mapBook(name,extraMapCandidates=[]) {
   const require=createRequire(import.meta.url),flock=promisify(require('fs-ext').flock);
   const workspace=join(evidence,name),path=join(evidence,`${name}.pdf`),bytes=Buffer.from(`%PDF-1.7\n${name} map fixture\n`);
   await writeFile(path,bytes);
@@ -303,9 +319,10 @@ async function mapBook(name) {
     await save(join(job.work_dir,'review.json'),{checked:[{paths:checked,verdict:'supported',source_refs:refs1,reason:'fixture support'}],missing:[]});
     return call('module.read.finish',{job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:join(job.work_dir,'draft.json'),review_path:join(job.work_dir,'review.json')});
   };
+  book.publish=publish;
   book.mid=(await book.runtime.handlers['module.source.bind']({source:{path,page_count:2,file_sha256:sha}})).module_id;
   await publish(await book.claim('test-host'),{title:'The Harbor',language:'en',sections:[{name:'Harbor and tower',pages:[[1,2]],entities:['Dock','Tower','Lena']}],
-    map_candidates:[{name:'Tower plan',focus:'Tower',pages:[2]}]});
+    map_candidates:[{name:'Tower plan',focus:'Tower',pages:[2]},...extraMapCandidates]});
   await call('module.read.request',{purpose:'opening'});
   const nodes=[{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:refs1,properties:{is_entrance:true}},
     {node_id:'scene-tower',node_kind:'scene',name:'Tower',source_refs:[{page:2}],summary:'An old tower beyond the harbor.',properties:{is_final:true}},
@@ -320,6 +337,62 @@ async function mapBook(name) {
 const array=value=>Array.isArray(value)?value:[];
 const TOWER_QUESTION='Prepare the source-backed map Tower plan that depicts Tower; extract only independently revealable regions and safe place correspondence.';
 const deadPid=()=>spawnSync(process.execPath,['-e','0']).pid;
+
+test('map discovery uses the indexed place identity while retaining broad fallback for an unknown focus',async()=>{
+ const book=await mapBook('focused-map-candidates',[{name:'Another plan',focus:'Elsewhere',pages:[1]}]);
+ try{
+  await book.call('module.read.request',{purpose:'detail',material:'map',focus:'Tower',question:'Prepare its authored map',foreground:true});
+  const exact=await book.claim('test-host');assert.deepEqual(exact.pages,[2]);
+  await book.call('module.read.request',{purpose:'detail',material:'map',focus:'Unknown place',question:'Locate this map'});
+  const broad=(await book.store().queue(book.mid)).find(job=>job.focus==='Unknown place');assert.deepEqual(broad.pages,[1,2]);
+ }finally{await book.close();}
+});
+
+test('reviewed deferred source work is projected, queued, promoted and closed only by its matching accepted detail',async()=>{
+ const book=await mapBook('source-needs-lifecycle');
+ try{
+  const question='What source rule governs the tower mechanism?';
+  await book.call('module.read.request',{purpose:'detail',focus:'Lena',question:'Preserve current limits and later source work',foreground:true});
+  await book.publish(await book.claim('test-host'),{nodes:[{node_id:'npc-lena',node_kind:'npc',name:'Lena',source_refs:[{page:1}],properties:{}}],
+   claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['npc-lena'],source_needs:[
+    {kind:'deferred',focus:'Tower',question,reason:'The mechanism is outside the present conversation.',trigger:'Before using the tower mechanism.',source_refs:[{page:2}]},
+    {kind:'runtime_context',focus:'Lena',question:'How much exposure has elapsed?',reason:'The source condition depends on live elapsed time.',trigger:'When exposure is resolved.',source_refs:[{page:1}]}]});
+  let graph=await book.graph();
+  assert.equal(graph.entityView(graph.scene('Tower')).source_needs[0].question,question);
+  assert.equal(graph.sourceNeeds(graph.find('Lena'),true)[0].kind,'runtime_context');
+  await book.call('module.read.ahead',{});
+  const pending=(await book.store().queue(book.mid)).find(job=>job.question===question);
+  assert.equal(pending.foreground,false);
+  const demand=await book.call('module.read.request',{purpose:'detail',focus:'Tower',question,foreground:true});
+  assert.equal(demand.job_id,pending.job_id);
+  const claimed=await book.claim('test-host');assert.equal(claimed.job_id,pending.job_id);
+  await assert.rejects(book.publish(claimed,{nodes:[{node_id:'scene-tower',node_kind:'scene',name:'Tower',source_refs:[{page:2}],properties:{}}],
+   claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-tower'],source_needs:[
+    {kind:'deferred',focus:'Tower',question,reason:'Still not read.',trigger:'Before using the mechanism.',source_refs:[{page:2}]}]}),/cannot defer its own requested source question/);
+  await book.publish(claimed,{nodes:[{node_id:'scene-tower',node_kind:'scene',name:'Tower',source_refs:[{page:2}],properties:{}}],
+   claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-tower'],source_needs:[]});
+  graph=await book.graph();assert.equal(graph.sourceNeeds(graph.scene('Tower')).length,0);
+  assert.equal(graph.sourceNeeds(graph.find('Lena'),true).length,1);
+  assert.equal((await book.store().module(book.mid)).reading.resolved_source_needs.at(-1).question,question);
+ }finally{await book.close();}
+});
+
+test('first-interaction readiness upgrades a prologue snapshot and continues beyond the prepared encounter',async()=>{
+ const book=await mapBook('opening-interaction-scope');
+ try{
+  const requested=await book.call('module.read.request',{purpose:'opening',focus:'Dock',opening_scope:'first_interaction',foreground:true});
+  assert.equal(requested.state,'queued','the older prologue-only snapshot cannot answer the new scope');
+  const job=await book.claim('test-host');
+  const node=(id,name,properties={})=>({node_id:id,node_kind:'scene',name,properties,source_refs:[{page:2}]});
+  const edge=(from,to)=>({subject_id:from,predicate:'route-to',object:{node_id:to},truth_status:'authored-fact',source_refs:[{page:2}]});
+  await book.publish(job,{nodes:[{node_id:'scene-dock',node_kind:'scene',name:'Dock',properties:{},source_refs:[{page:1}]},
+   node('scene-market','Market'),node('scene-mill','Mill')],claims:[edge('scene-dock','scene-market'),edge('scene-market','scene-mill')],
+   node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-dock','scene-market'],interaction_scene:'scene-market'});
+  assert.equal((await book.call('module.read.request',{purpose:'opening',focus:'Dock',opening_scope:'first_interaction',foreground:true})).state,'ready');
+  await book.call('module.read.ahead',{focus:'Dock'});
+  assert.ok((await book.store().queue(book.mid)).some(job=>job.purpose==='detail'&&job.focus==='mill'&&job.foreground===false));
+ }finally{await book.close();}
+});
 
 test('§107.1: the first arrival at a marked scene queues one background map reading and raises nothing', async () => {
   const book=await mapBook('arrival-map');
@@ -533,4 +606,81 @@ test('a matching persisted reading lease may publish after the kernel process re
     assert.equal(result.state, 'preparing');
     assert.equal((await second.source.store.module(module_id)).reading.index_complete, true);
   } finally { await first.close(); await second.close(); await context.git.close(); }
+});
+
+
+test('remaining indexed units advance in the existing queue across restart and promotion',async()=>{
+ const book=await mapBook('background-source-units');
+ try{
+  const meta=await book.store().module(book.mid);meta.reading.opening_scope='first_interaction';
+  await book.store().writeModule(meta);
+  await book.call('module.read.ahead',{});
+  let queue=await book.store().queue(book.mid),units=queue.filter(job=>job.source_unit);
+  assert.equal(units.length,1,'an unrepresented indexed source range must have a consumer');
+  const unit=units[0];assert.deepEqual(unit.source_unit,{section:'Harbor and tower',first:1,last:2});
+  await book.reopen();await book.call('module.read.ahead',{});
+  assert.equal((await book.store().queue(book.mid)).filter(job=>job.source_unit).length,1,'restart must not duplicate the same unit');
+  const demand=await book.call('module.read.request',{purpose:'detail',focus:unit.focus,question:unit.question,source_unit:unit.source_unit,foreground:true});
+  assert.equal(demand.job_id,unit.job_id);
+  const claimed=await book.claim('test-host');assert.equal(claimed.job_id,unit.job_id);
+  assert.deepEqual(claimed.review_scope_pages,[1,2]);
+  const draft={nodes:[],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]};
+  assert.throws(()=>api.checkDraft(clone(draft),claimed,contract,new Set([1])),/assigned original pages/);
+  assert.ok(api.checkDraft(clone(draft),claimed,contract,new Set([1,2])).required_review.includes('/coverage'));
+  await book.publish(claimed,draft);
+  await book.call('module.read.ahead',{});
+  queue=await book.store().queue(book.mid);units=queue.filter(job=>job.source_unit);
+  assert.equal(units.length,1);assert.equal(units[0].state,'completed');
+ }finally{await book.close();}
+});
+
+
+test('module logic review admits parameter differences but still blocks broken causal links and invalid data',()=>{
+ const scoped={...packet,review_policy:'module-logic-v1'},draft=clone(base);
+ const filled=api.checkDraft(draft,scoped,contract,new Set([1]));
+ assert.ok(!filled.required_review.some(path=>path.endsWith('/STR')),'module review does not retranscribe every numeric leaf');
+ const checked=filled.required_review.map(path=>({path,verdict:'supported',reason:'Logical role and link are coherent.',source_refs:refs}));
+ checked.push({path:'/nodes/1/properties/mechanics/profile/characteristics/STR',verdict:'unsupported',impact:'parameter',reason:'A harmless module parameter difference.',source_refs:refs});
+ const judged=api.checkReview(draft,filled,{checked,missing:[]},2,new Set([1]));
+ assert.equal(judged.contested.at(-1).impact,'parameter');
+ assert.throws(()=>api.checkReview(draft,filled,{checked:[...checked,{path:'/claims/0',verdict:'unsupported',impact:'logic',reason:'Wrong person is placed here.',source_refs:refs}],missing:[]},2,new Set([1])),/unsupported/);
+ assert.throws(()=>api.checkReview(draft,filled,{checked,missing:[{impact:'logic',description:'The clue has no correct target.'}]},2,new Set([1])),/missing or incorrect/);
+ assert.throws(()=>api.checkReview(draft,filled,{checked:[{path:'/nodes/1',verdict:'unsupported',impact:'logic',reason:'Wrong identity.',source_refs:refs}],missing:[]},2,new Set([1]),()=>true),/unsupported/,'old classification tolerance cannot waive a declared logic conflict');
+ const invalid=clone(base);invalid.nodes[1].properties.mechanics.profile.characteristics.STR='many';
+ assert.throws(()=>api.checkDraft(invalid,scoped,contract,new Set([1])),/numeric|number|integer|shape|prose/);
+});
+
+test('module rereading maps a differing source parameter without changing an established value',()=>{
+ const meta={id:'book-1',title:'Book',source:'pdf',reading:{materials:[{node_ids:['scene-dock','npc-witness']}]}},scoped={...packet,review_policy:'module-logic-v1'};
+ const first=api.checkDraft(clone(base),scoped,contract,new Set([1]));
+ const original=api.assembleVisual(null,first,meta,contract);
+ const changed=clone(base);changed.nodes[1].properties.mechanics.profile.characteristics.STR=55;changed.nodes[1].source_refs=[{page:2}];
+ const known=original.nodes.map(node=>({...node,ready:true,source_refs:node.source_refs.map(ref=>({page:Number(ref.pdf_index)+1}))}));
+ const second=api.checkDraft(changed,{...scoped,known_nodes:known,known_claims:[],field_spans:original.field_spans},contract,new Set([1,2]));
+ const mapped=api.assembleVisual(original,second,meta,contract);
+ assert.equal(mapped.nodes.find(node=>node.node_id==='npc-witness').properties.mechanics.profile.characteristics.STR,50);
+ const mapping=mapped.source_mappings.find(row=>row.path.endsWith('/STR'));
+ assert.equal(mapping.established_value,50);assert.equal(mapping.source_value,55);
+ api.recordContested(mapped,second,{supported:new Set(),contested:[{path:'/nodes/1/properties/mechanics/profile/characteristics/STR',verdict:'unsupported',impact:'parameter',reason:'Reference differs.',source_refs:[{page:2}]}]},'book-1','read-2',2);
+ assert.equal(mapped.contested['/nodes/npc-witness/properties/mechanics/profile/characteristics/STR'].value,50);
+ const view=new api.ModuleGraph('book-1',mapped,'',contract.graph.actor_dossier);
+ assert.equal(view.entityView(view.find('Witness')).source_mappings[0].established_value,50);
+});
+
+
+test('module answer review treats numerical differences as advisory and causal contradictions as blocking',()=>{
+ const draft={status:'answered',answer:'The witness waits at the dock.',source_refs:refs,limitations:''};
+ const packet={source:{page_count:2},review_policy:'module-logic-v1'};
+ const review={checked:[{paths:['/status','/answer','/source_refs','/limitations'],verdict:'contradicted',impact:'parameter',source_refs:refs,reason:'A stated module amount differs.'}],missing:[]};
+ assert.doesNotThrow(()=>api.checkSourceAnswerReview(draft,review,packet,new Set([1])));
+ assert.equal(api.sourceAnswerResult(draft,'book-1',packet,review).source_variations.length,1);
+ review.checked[0].impact='logic';
+ assert.throws(()=>api.checkSourceAnswerReview(draft,review,packet,new Set([1])),/independent answer review found/);
+});
+
+test('a previously pinned campaign NPC profile survives a later module profile',()=>{
+ const pinned={characteristics:{STR:40},derived:{HP:10},skills:{Listen:30},weapons:[]};
+ const graph={actor:()=>({node_id:'npc-witness',node_kind:'npc'}),mechanicsOf:()=>({profile:{characteristics:{STR:60},derived:{HP:15},skills:{Listen:50},weapons:[]}})};
+ const result=api.npcProfileOf(graph,{npc_profiles:{witness:pinned},npc_resources:{witness:{current_hp:7}}},'witness');
+ assert.equal(result.characteristics.STR,40);assert.equal(result.derived.HP,10);assert.equal(result.hp_current,7);
 });

@@ -7,6 +7,7 @@ import {coded} from '../ui/errors.ts';
 import {KernelError} from '../kernel/client.ts';
 import {reasoned, readerFailureReason} from './reader.ts';
 import type {ReaderRequest, ReaderOutcome} from './reader.ts';
+import {validatePublicGuidance,type PublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 
 const root = resourceRootFrom(import.meta.url);
 type Row = Record<string, any>;
@@ -120,6 +121,16 @@ export async function acceptedGuidance(home:string,moduleId:string,key:string):P
   if(saved.fingerprint!==key||saved.approved!==true||
     (meta.reading_version && meta.source !== 'starter' && !meta.character_guidance?.[key]))throw coded('guidance_not_ready','Guidance has not been accepted');
   return validateGuidance(saved.guidance);
+}
+export async function acceptedPublicGuidance(home:string,moduleId:string,key:string):Promise<PublicGuidance|undefined>{
+ if(!/^[a-f0-9]{64}$/.test(key))throw coded('invalid_params','Invalid guidance reference');
+ const folder=resolve(home,'.coc/modules',moduleId),meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
+ let saved:Row;
+ try{saved=await json(join(folder,'character-guidance',key,'public.json'));}
+ catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return undefined;throw error;}
+ if(saved.fingerprint!==key||saved.approved!==true||saved.source_sha256!==meta.file_sha256)
+   throw coded('guidance_not_ready','Public guidance source binding changed');
+ return validatePublicGuidance(saved.fields,meta.page_count);
 }
 function text(value:unknown, empty=false):string {
   if(typeof value !== 'string' || (!empty && !value.trim()) || value.length>4000) throw coded('guidance_unavailable','Invalid character guidance text');

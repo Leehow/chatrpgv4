@@ -43,7 +43,7 @@ export const PENDING_ANSWER_NOTE = 'The book is still being read for this questi
 	+ 'and it is kept in the campaign memo, so the same lookup on a later turn answers at once. Until then use what is already known: the carried '
 	+ 'source passages, the capsule, and the index rows here (where the book treats this focus). Narrate what the investigator does while the '
 	+ 'answer is not there; do not narrate what the book would say, do not put the reading into the fiction, and do not send this lookup again '
-	+ 'this turn. The pending read is the clerk\'s business, not the player\'s.';
+	+ 'this turn. Established campaign facts and receipts remain the working standard while this reference is pending. If the source later differs in wording or ordinary parameters, retain the campaign value and map the difference; do not retcon play or claim to have inspected an unread page. The pending read is the clerk\'s business, not the player\'s.';
 /** What the Keeper is told when the campaign memo answers a consultation (Keeper-only, system language). */
 export const MEMO_ANSWER_NOTE = 'The campaign has already checked the book on this focus: these are those answers, each with the question it '
 	+ 'answered, and no new reading was made. They are source consultations, not prepared material. If none of them answers your question, '
@@ -140,11 +140,11 @@ export function memoAnswer(memo: Row[]): Row {
 }
 /** The lookup's result past the allowance: `pending`, with the index rows the kernel returned for the focus. */
 export function pendingAnswer(response: Row, read: {focus: string; question: string}): Row {
-	return {status: 'pending', focus: read.focus, index: Array.isArray(response.index) ? response.index : [], note: PENDING_ANSWER_NOTE};
+	return {status: 'pending', focus: read.focus,question:read.question, index: Array.isArray(response.index) ? response.index : [], note: PENDING_ANSWER_NOTE};
 }
 /** §22.4.3.1 (SL-58): the `prepare` lookup's result past the allowance: `pending`, with whatever index rows came back. */
 export function pendingPrepare(response: Row, read: {focus: string; question: string}): Row {
-	return {status: 'pending', focus: read.focus, index: Array.isArray(response.index) ? response.index : [], note: PENDING_PREPARE_NOTE};
+	return {status: 'pending', focus: read.focus,question:read.question, index: Array.isArray(response.index) ? response.index : [], note: PENDING_PREPARE_NOTE};
 }
 /**
  * §22.4.3.1 (SL-58): a `prepare` consultation's landing -- the material became ready, was settled unusable, or (via the
@@ -165,6 +165,20 @@ export class PendingAnswers {
 	private readonly record: (row: Row) => void;
 	private readonly now: () => number;
 	constructor(record: (row: Row) => void, now: () => number = Date.now) { this.record = record; this.now = now; }
+
+	/** Read-only evidence for delivery review; taking it never consumes a carried answer. */
+	audit(campaign:string,at:{scene?:string;turn:number}):{pending:Row[];unavailable:Row[];answers:Row[]}{
+		const entries=(this.lists.get(campaign)??[]).filter(entry=>!entry.scene||!at.scene||entry.scene===at.scene);
+		const project=(entry:PendingAnswer)=>({focus:entry.focus,question:entry.question,purpose:entry.kind});
+		const checked=new Map<string,Row>();
+		for(const entry of (this.shelves.get(campaign)??[]).filter(entry=>!at.scene||entry.scene===at.scene))
+			checked.set(entry.key,{focus:entry.focus,question:entry.question,answer:entry.answer});
+		for(const entry of entries.filter(entry=>entry.state==='landed'&&readable(entry.answer)))
+			checked.set(heldKey(entry.focus,entry.question),{focus:entry.focus,question:entry.question,answer:entry.answer});
+		return {pending:entries.filter(entry=>entry.state==='pending').map(project),
+			unavailable:entries.filter(entry=>entry.state==='unavailable'&&entry.turn===at.turn).map(project),
+			answers:[...checked.values()]};
+	}
 
 	/**
 	 * A consultation outlived its allowance: keep it, and follow `settled` (the same reading) to its end. A second

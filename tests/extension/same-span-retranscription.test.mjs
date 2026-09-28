@@ -8,6 +8,9 @@
  * value". Meanwhile the index publication's read-ahead queued a way-on repair of the same scene, by its
  * handle, while the opening reading of it -- by its name -- was still running.
  *
+ * These retain the legacy packet contract (no review_policy); new module-logic-v1 mapping behavior
+ * is covered in ts-kernel-modules.test.mjs. Historical in-flight packets must still be readable.
+ *
  * These run the emitted kernel on a two-page PDF the test writes, with the reader's drafts and reviews
  * written by the test: the seam under test is the publication gate and the queue, not a model.
  */
@@ -93,6 +96,9 @@ async function book(t) {
 	const read = async (params, draft, paths, { review = true } = {}) => {
 		await kernel.ok("module.read.request", { module_id: mid, ...params });
 		const job = await kernel.ok("module.read.claim", { module_id: mid, owner: "test-host" });
+        // Simulate a retained pre-policy packet, not the current module import default.
+        const packetPath=join(job.work_dir,"packet.json"),legacyPacket=JSON.parse(await readFile(packetPath,"utf8"));
+        delete legacyPacket.review_policy;await write(packetPath,legacyPacket);
 		await write(join(job.work_dir, "observations.json"),
 			{ file_sha256: job.source.file_sha256, read_pages: [1, 2], full_pages: [1, 2], review_pages: [1, 2] });
 		await write(join(job.work_dir, "draft.json"), draft);

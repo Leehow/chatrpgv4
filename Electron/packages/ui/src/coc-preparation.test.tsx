@@ -27,6 +27,17 @@ const ready=(over:Row={}):Row=>({id:'job-1',name:'Mystery House',campaign:'game-
 
 afterEach(cleanup);
 
+it('keeps public era and place visible during character creation and exposes the accepted advice in the fold',()=>{
+  const job=ready({preparation:{guidance:{state:'ready'},opening:{state:'running',stage:'read'}},publicFields:{
+    era:{state:'confirmed',value:'1975'},starting_place:{state:'confirmed',value:'West Texas'},
+    public_premise:{state:'confirmed',value:'A desert journey'},creation_advice:{state:'confirmed',value:'Driving advice is optional.'}}});
+  const {api}=harness(job);render(<Preparation api={api} sessionId="s1"/>);
+  expect(screen.getByText('1975 · West Texas')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:/Preparing/}));
+  expect(screen.getByText('Driving advice is optional.')).toBeTruthy();
+  expect(screen.getByText(say('en','onboarding','adviceNotice'))).toBeTruthy();
+});
+
 it('offers to hide the overlay only once the opening is ready',()=>{
   const running=ready({preparation:{guidance:{state:'ready'},opening:{state:'running',stage:'verify'}}});
   const {api}=harness(running);

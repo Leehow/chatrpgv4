@@ -4,11 +4,65 @@ import { appendFile, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { ReadingService } from "../../extensions/module/reading-service.ts";
+import {spawnSync} from 'node:child_process';
+import { ReadingService,guidanceReviewPages,selectedGuidanceProjection,omittedReviewOnly } from "../../extensions/module/reading-service.ts";
 import { KernelError } from "../../extensions/kernel/client.ts";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const FINISH_SEMANTIC_MESSAGE = "the independent review found missing or incorrect material: [{\"description\":\"the opening needs its clue nodes and relations\"}]";
+
+test('only omitted review pointers preserve a completed author; negative content findings still require repair',()=>{
+ const required=['/nodes/0','/nodes/0/visibility'],review={checked:[{paths:['/nodes/0'],verdict:'supported'}],missing:[]};
+ assert.equal(omittedReviewOnly(required,review),true);
+ assert.equal(omittedReviewOnly(required,{...review,missing:['Necessary source fact']}),false);
+ assert.equal(omittedReviewOnly(required,{...review,checked:[{paths:['/nodes/0'],verdict:'unsupported'}]}),false);
+ assert.equal(omittedReviewOnly(['/nodes/0'],review),false);
+ assert.equal(omittedReviewOnly(required,{...review,guidance:{approved:false,issues:['Wrong premise']}},true),false);
+});
+
+test('a reviewed selected entrance yields a checked unchanged shard and retains all original-page assignments',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'selected-guidance-reuse-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const module={node_id:'module-book-1',node_kind:'module',name:'Book',ready:false,
+  properties:{entry_scene_ids:['scene-lima','scene-new-york'],investigator_constraints:'Authored advice'},source_refs:[{page:8},{page:11}]};
+ const scene={node_id:'scene-new-york',node_kind:'scene',name:'New York',ready:false,visibility:'player-safe',
+  properties:{is_entrance:true,investigator_setup:{era:'1925',place:'New York'},runtime_projection:{record:{scene_id:'new-york'}}},
+  source_refs:[{page:94},{page:102}]};
+ const selected=selectedGuidanceProjection([module,scene],'new-york',120);
+ assert.deepEqual(selected?.sourcePages,[8,11,94,102]);
+ assert.deepEqual(selected?.draft.nodes[0].properties,{});
+ assert.deepEqual(selected?.draft.ready_nodes,[]);
+ assert.equal(selectedGuidanceProjection([module,scene],'unknown',120),null);
+ assert.equal(selectedGuidanceProjection([module,{...scene,source_refs:[]}],'new-york',120),null);
+ const packet=join(home,'task.json'),draft=join(home,'draft.json');
+ await writeFile(packet,JSON.stringify({purpose:'guidance',module_id:'book-1',focus:'new-york',source:{page_count:120},
+  known_nodes:[module,scene],known_claims:[]}));
+ await writeFile(draft,JSON.stringify(selected.draft));
+ const checked=spawnSync(join(ROOT,'bin/coc-read-check'),['--packet',packet,'--draft',draft],{encoding:'utf8'});
+ assert.equal(checked.status,0,checked.stderr||checked.stdout);
+ assert.deepEqual(JSON.parse(checked.stdout).required_view_pages,[94,102]);
+});
+
+test('binding an original PDF returns its module before any skeleton or opening read',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'source-bind-before-guidance-'));
+ t.after(()=>rm(home,{recursive:true,force:true}));
+ const calls=[];
+ const service=new ReadingService({home,model:()=>({id:'fixture/vision',vision:true,thinking:'low'}),progress(){},record(){},
+  runtime:{async sourceInfo(){return {path:join(home,'source.pdf'),file_sha256:'a'.repeat(64),page_count:2}},async sourceWindow(){throw Error('No starter window expected')}},
+  async call(method,params){calls.push({method,params});if(method==='module.source.bind')return {module_id:'book-1'};throw Error('A read began before guidance was requested')}});
+ t.after(()=>service.close());
+ const result=await service.prepare({pdf:'source.pdf',purpose:'bind'});
+ assert.deepEqual(result,{ok:true,module_id:'book-1',source_bound:true});
+ assert.deepEqual(calls.map(row=>row.method),['module.source.bind']);
+});
+
+test('a source-bound alternate opening lead is assigned to guidance review beyond author pages',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'guidance-review-probe-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const sourceSha='a'.repeat(64),guidanceKey='b'.repeat(64),task={purpose:'guidance',guidance_key:guidanceKey};
+ await writeFile(join(cwd,'source-navigation-review.json'),JSON.stringify({version:1,source_sha256:sourceSha,guidance_key:guidanceKey,
+  opening_probe_pages:[94],candidate_pages:[1,94]}));
+ assert.deepEqual(await guidanceReviewPages(cwd,task,sourceSha,100,[1]),[1,94]);
+ await assert.rejects(guidanceReviewPages(cwd,task,'c'.repeat(64),100,[1]),/source.*changed|stale/i);
+});
 
 function openingDraft(repaired = false) {
 	const nodes = [
@@ -24,16 +78,17 @@ function openingDraft(repaired = false) {
 		dependencies: [], critical: [], ready_nodes: ["scene-opening", "clue-family-fled"], coverage: {} };
 }
 
-async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportFailure = false, campaign } = {}) {
+async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportFailure = false, campaign,projectPolicy=false } = {}) {
 	const home = await mkdtemp(join(tmpdir(), "coc-finish-repair-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
 	const cwd = join(home, "work", "attempt-1"), cache = join(home, ".coc", "modules", "book", "cache", "pages");
 	await mkdir(cwd, { recursive: true });
-	const readTasks = [], finishCalls = [];
+	const readTasks = [],reviewTasks=[], finishCalls = [];
 	let readRounds = 0, completionAttempts = 0;
 	const runtime = {
 		contentRoot: join(ROOT, "content"),
 		async runTask({ request }) {
+			await request.beforeProviderRequest?.(new AbortController().signal);
 			if (request.prompt.phase === "read") {
 				readRounds++;
 				if (readRounds === 1) return { ok: false, code: 1, timedOut: false, ms: 1, stderr: "fixture read failure", command: [] };
@@ -48,6 +103,7 @@ async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportF
 				return { ok: true, code: 0, timedOut: false, ms: 2, stderr: "", command: [] };
 			}
 			const task = JSON.parse(await readFile(join(request.cwd, "task.json"), "utf8"));
+            reviewTasks.push(task);
 			const pages = task.review_scope_pages?.length ? task.review_scope_pages : [4];
 			await writeFile(join(request.cwd, "review.json"), JSON.stringify({ checked: [{ paths: task.required_review,
 				verdict: "supported", source_refs: pages.map(page => ({ page })), reason: "fixture source support" }], missing: [] }) + "\n");
@@ -76,8 +132,9 @@ async function runFinishRepairFixture(t, { rejectEveryFinish = false, transportF
 	const job = { job_id: "read-1", module_id: "book", purpose: "opening", focus: "scene-opening", foreground: true, lease: "lease-1",
 		work_dir: cwd, source: { path: join(home, ".coc", "modules", "book", "source.pdf"), page_count: 8, file_sha256: "source-sha" },
 		index: {}, known_nodes: [], known_claims: [], vocabulary: {}, coverage_domains: [] };
+	if(projectPolicy)Object.assign(job,{purpose:'detail',review_policy:'module-logic-v1',source_unit:{section:'Reference unit',first:4,last:5},pages:[4,5],review_scope_pages:[4,5]});
 	await service.runJob(job, new AbortController().signal, campaign);
-	return { cwd, readTasks, finishCalls, readRounds, completionAttempts };
+	return { cwd, readTasks,reviewTasks, finishCalls, readRounds, completionAttempts };
 }
 
 test("a finish-time independent-review rejection gets one source-grounded repair after the normal rounds are spent", async t => {
@@ -342,6 +399,11 @@ test("targeted preparation and ordinary foreground requests use their captured c
 	assert.equal(calls.at(-1).params.campaign, "campaign-a");
 	releases.splice(0).forEach(release => release());
 	await explicit;
+	const overlap=service.prepare({module_id:"book",start_scene:"Dock",targeted:true,background:true,campaign:"campaign-a"});
+	assert.equal(calls.at(-1).params.foreground,false);
+	assert.equal(calls.at(-1).params.campaign,"campaign-a");
+	releases.splice(0).forEach(release=>release());
+	await overlap;
 });
 
 test("same-module pumps, foreground promotion and cancellation retain separate campaign scopes", async t => {
@@ -451,6 +513,28 @@ async function until(check) {
 	while (!check() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
 	assert.ok(check(), "reader state did not settle");
 }
+
+test('an index reader yields at its next provider boundary and resumes after the foreground source job',async t=>{
+ const queue=[{job_id:'background',module_id:'book',purpose:'index',foreground:false}],started=[],records=[];
+ let boundary,finishForeground,resumed=false;
+ const atBoundary=new Promise(resolve=>{boundary=resolve}),foregroundDone=new Promise(resolve=>{finishForeground=resolve});
+ const service=new ReadingService({home:'/unused',model:()=>({id:'fixture/vision',vision:true}),progress(){},record(row){records.push(row)},
+  async call(method){if(method==='module.read.claim')return {...(queue.shift()??{job_id:null}),concurrency:2};throw Error('Unexpected call');}});
+ t.after(()=>service.close());
+ service.runJob=async(job,signal)=>{
+  started.push(job.job_id);
+  if(job.job_id==='foreground'){await foregroundDone;return;}
+  await atBoundary;await service.waitForPriority(job,JSON.stringify([undefined,'book',job.job_id]),signal);
+  resumed=true;await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));
+ };
+ const pump=service.prefetch('book');await until(()=>started.includes('background'));
+ queue.push({job_id:'foreground',module_id:'book',purpose:'detail',foreground:true});void service.prefetch('book');
+ await until(()=>started.includes('foreground'));boundary();
+ await until(()=>records.some(row=>row.event==='priority_wait'));assert.equal(resumed,false);
+ finishForeground();await until(()=>resumed);
+ assert.ok(records.some(row=>row.event==='priority_resumed'));
+ await service.close();await pump;
+});
 
 test("cancelling the foreground request leaves an unrelated background reader alive and close drains it", async t => {
 	const queued = ["background"], signals = new Map(), finished = new Map(), drained = [];
@@ -859,4 +943,40 @@ test("navigation setter is limited to a fresh unscoped one-placeholder skeleton"
 		assert.equal(Object.hasOwn(task, "navigation_hints"), false);
 	}
 	assert.equal(navigationCalls, 0);
+});
+
+
+test('host module review policy and source unit reach both actual reader task files',async t=>{
+ const result=await runFinishRepairFixture(t,{projectPolicy:true});
+ for(const task of [...result.readTasks,...result.reviewTasks]){
+  assert.equal(task.review_policy,'module-logic-v1');
+  assert.deepEqual(task.source_unit,{section:'Reference unit',first:4,last:5});
+ }
+ assert.ok(result.reviewTasks.some(task=>task.review_scope_pages?.includes(5)));
+});
+
+test('a library index yields to the same book opening in its campaign fork',async t=>{
+ const rows=[],service=new ReadingService({home:'/unused',model:()=>({id:'fixture/vision',vision:true}),progress(){},record(row){rows.push(row)},call:async()=>({})});
+ t.after(()=>service.close());
+ const openingKey=JSON.stringify(['campaign','book','opening']);
+ service.jobs.set(openingKey,{job_id:'opening',module_id:'book',purpose:'opening',foreground:false});
+ const stop=new AbortController();let resumed=false;
+ const waiting=service.waitForPriority({job_id:'index',module_id:'book',purpose:'index',foreground:false},JSON.stringify([null,'book','index']),stop.signal)
+  .then(()=>{resumed=true});
+ await new Promise(resolve=>setTimeout(resolve,20));
+ assert.equal(resumed,false,'fork isolation does not authorize competing background provider requests');
+ assert.ok(rows.some(row=>row.event==='priority_wait'));
+ service.jobs.delete(openingKey);await waiting;
+ assert.ok(resumed);
+});
+
+test('an unclaimed foreground request cannot suspend the reader holding its focus lock',async t=>{
+ const service=new ReadingService({home:'/unused',model:()=>({id:'fixture/vision',vision:true}),progress(){},record(){},call:async()=>({})});
+ t.after(()=>service.close());
+ const key=JSON.stringify(['campaign','book','current']);
+ const job={job_id:'current',module_id:'book',purpose:'detail',focus:'Room',foreground:false};
+ service.jobs.set(key,job);
+ service.requests.set('waiter',{foreground:true,cancelled:false,jobId:'queued',of:{campaign:'campaign',mid:'book',focus:'Room',question:''}});
+ await service.waitForPriority(job,key,AbortSignal.timeout(100),'campaign');
+ service.requests.clear();service.jobs.clear();
 });

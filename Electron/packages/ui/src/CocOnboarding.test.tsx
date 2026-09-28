@@ -116,6 +116,20 @@ it('restores paused preparation from the server without browser storage',async()
   expect(screen.getByRole('button',{name:zh('resume')})).toBeTruthy();
 });
 
+it('retains confirmed public facts beside pending fields after reconnect without rendering private progress',async()=>{
+  const job={id:'public-progress',name:'Scenario.pdf',state:'paused',play_language:'en',pages:100,
+    progress:{focus:'A private identity that must not be displayed'},publicFields:{
+      era:{state:'confirmed',value:'1925'},starting_place:{state:'needs_choice'},
+      public_premise:{state:'checking'},creation_advice:{state:'searching'}}};
+  const invokeExtension=vi.fn(async()=>answer({presets:[],modules:[],occupations:[],current_import:job},'en'));
+  render(<CocOnboarding host={{invokeExtension} as any} sessionId="public-progress"/>);
+  expect(await screen.findByText('1925')).toBeTruthy();
+  expect(screen.getByText(say('en','onboarding','fieldState.needs_choice'))).toBeTruthy();
+  expect(screen.getByText(say('en','onboarding','fieldState.checking'))).toBeTruthy();
+  expect(screen.getByText(say('en','onboarding','adviceNotice'))).toBeTruthy();
+  expect(screen.queryByText(job.progress.focus)).toBeNull();
+});
+
 it.each(['restored','failed-chunk'])('can cancel a %s upload and return to scenario selection',async(origin)=>{
   const job={id:'interrupted',name:'Masks.pdf',source:'pdf',state:'uploading',size:8,received:0};
   const catalog={presets:[],modules:[],occupations:[],...(origin==='restored'?{current_import:job}:{})};

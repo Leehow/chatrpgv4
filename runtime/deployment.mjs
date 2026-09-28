@@ -9,6 +9,7 @@ export const COMPILED_ENTRIES = Object.freeze({
   check: 'build/runtime/check.mjs', launch: 'build/runtime/launch.mjs',
   // The Keeper's Pi CLI on the hybrid engine (PI_COC_LOOP_ENGINE=hybrid-v1): the vendored Pi's main plus the RunDriver.
   piHybrid: 'build/runtime/pi-hybrid.mjs',
+  piSourceReader: 'build/runtime/pi-source-reader.mjs',
   sourceWorker: 'build/runtime/source-worker.mjs', source: 'build/extensions/module/source.mjs',
   onboardingWorker: 'build/pipicoc/onboarding-worker.mjs', rpc: 'build/pipicoc/rpc.mjs',
   agent: 'build/pipicoc/agent.mjs', readerContext: 'build/extensions/module/reader-context.mjs',

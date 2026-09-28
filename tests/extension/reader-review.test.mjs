@@ -6,6 +6,43 @@ import {join,resolve} from 'node:path';
 import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput} from '../../extensions/module/reader-review.ts';
 import {createRuntime} from '../../runtime/host.ts';
 
+test('opening review retains kernel-issued retranscription pointers and reviews the interaction choice once',()=>{
+ const draft={nodes:[{node_id:'scene-entry',source_refs:[{page:1}],properties:{}}],claims:[],ready_nodes:['scene-entry'],
+  critical:['/interaction_scene'],interaction_scene:'scene-entry',coverage:{},dependencies:[],node_refs:[]};
+ const units=reviewUnits(draft,['/nodes/0/visibility','/interaction_scene']);
+ assert.ok(units.some(paths=>paths.includes('/nodes/0')&&paths.includes('/nodes/0/visibility')));
+ assert.equal(units.flat().filter(path=>path==='/interaction_scene').length,1);
+ assert.ok(units.some(paths=>paths.includes('/coverage')&&paths.includes('/interaction_scene')));
+ const input=detailReviewInput({purpose:'opening',opening_scope:'first_interaction'},draft,['/coverage','/interaction_scene']);
+ assert.equal(input.task.opening_scope,'first_interaction');
+ assert.equal(input.coverage_context.interaction_scene,'scene-entry');
+});
+
+test('bounded first-interaction review packs nearby evidence without losing any required pointer',()=>{
+ const draft={nodes:Array.from({length:9},(_,i)=>({node_id:'npc-'+i,source_refs:[{page:i%3+1}],properties:{value:i}})),claims:[],critical:[],ready_nodes:['npc-0'],coverage:{}};
+ const ordinary=reviewUnits(draft).flat().sort(),packed=reviewUnits(draft,[],4);
+ assert.deepEqual(packed.flat().sort(),ordinary);
+ assert.equal(packed.length,3,'eight fact records, one remaining fact, and independent coverage');
+ assert.deepEqual(packed.at(-1),['/coverage']);
+});
+
+test('module logic detail review shares bounded page context and keeps independent coverage',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'logic-review-groups-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const draft={nodes:Array.from({length:8},(_,i)=>({node_id:'npc-'+i,source_refs:[{page:i%3+1}],properties:{score:50}})),claims:[],critical:[],ready_nodes:['npc-0'],coverage:{}};
+ const assigned=[];
+ await reviewCandidate({cwd,task:{purpose:'detail',review_policy:'module-logic-v1',source:{page_count:3}},draft,instructions:'unused',round:1,
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,record(){},progress(){},
+  async run(request){
+   const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));assigned.push(task.required_review);
+   const seen=[1,2,3];request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:seen.map(page=>({page}))}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:seen.map(page=>({page}))}],missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }});
+ assert.equal(assigned.length,2,'one bounded fact group and a separate omission/coverage group');
+ assert.deepEqual(assigned.flat().sort(),['/coverage',...draft.nodes.map((_,i)=>'/nodes/'+i)].sort());
+});
+
 test('detail first input preserves original pointers and connected context without authoring catalogs',()=>{
  const draft={nodes:[{node_id:'scene-road',source_refs:[{page:1}],properties:{difficulty:2}},{node_id:'npc-guide',source_refs:[{page:2}],properties:{}}],claims:[{subject_id:'npc-guide',predicate:'present-in',object:{node_id:'scene-road'}}],ready_nodes:['scene-road'],coverage:{setting:'prepared'},dependencies:[],node_refs:[]};
  const task={purpose:'detail',focus:'Road',question:'What is visible now?',source:{page_count:20},required_review:['/nodes/0','/nodes/0/properties/difficulty'],index:[{name:'Unrelated appendix'}],vocabulary:{large:'x'.repeat(30000)},known_nodes:[{node_id:'module-book',node_kind:'module',summary:'Global source setting'},{node_id:'scene-road',summary:'Accepted road'},{node_id:'npc-guide',summary:'Accepted guide'},{node_id:'npc-elsewhere',summary:'Omitted but retained'}],known_claims:[{subject_id:'npc-guide',predicate:'present-in',object:{node_id:'scene-road'}},{subject_id:'npc-elsewhere',predicate:'present-in',object:{node_id:'scene-elsewhere'}}]};
@@ -97,6 +134,33 @@ test('a large review packet stays line-readable so coverage can see every assign
   }});
  assert.equal(sawLarge,true);
  assert.deepEqual(pages.sort((a,b)=>a-b),[4,15]);
+});
+
+test('guidance review inspects a host-assigned alternate entrance outside the author citations',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'guidance-opening-omission-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const nested='/nodes/1/properties/investigator_setup/place';
+ const draft={nodes:[{node_id:'module-book',node_kind:'module',source_refs:[{page:1}],properties:{}},
+  {node_id:'scene-prologue',node_kind:'scene',source_refs:[{page:1}],properties:{is_entrance:true,investigator_setup:{place:'Lima'}}}],claims:[],ready_nodes:[]};
+ await writeFile(join(cwd,'draft.json'),JSON.stringify(draft));
+ await writeFile(join(cwd,'guidance.json'),JSON.stringify({opening:'An opening question.',advice:'Source advice.',scene:'Prologue',guide:'',handoff:'Continue.'}));
+ const publicFields=Object.fromEntries(['era','starting_place','public_premise','creation_advice'].map(field=>[field,{status:'value',text:'Public '+field,source_refs:[{page:2}]}]));
+ await writeFile(join(cwd,'public-fields.json'),JSON.stringify(publicFields));
+ const observed=await reviewCandidate({cwd,task:{purpose:'guidance',focus:'',review_scope_pages:[1,94],required_review:['/nodes/0','/nodes/1',nested],source:{page_count:100}},draft,
+  instructions:'unused',round:1,model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused'},signal:new AbortController().signal,
+  record(){},progress(){},async run(request){
+   const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
+   assert.deepEqual(task.review_scope_pages,[1,2,94]);
+   assert.deepEqual(JSON.parse(await readFile(join(request.cwd,'public-fields.json'),'utf8')),publicFields);
+   assert.match(request.brief,/public_fields/);
+   assert.ok(task.required_review.includes(nested));
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:[{page:1},{page:2},{page:94}]}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:[{page:1},{page:94}]}],
+    missing:['The authored later entrance on physical page 94 was omitted.'],guidance:{approved:false,issues:['Present both starts.']}}));
+   return {ok:true,ms:1,stderr:''};
+  }});
+ assert.deepEqual(observed.sort((a,b)=>a-b),[1,2,94]);
+ assert.match(JSON.parse(await readFile(join(cwd,'review.json'),'utf8')).guidance.public_fields_sha256,/^[a-f0-9]{64}$/);
 });
 
 test('an oversized focused input names its own readable file instead of forcing full-task ingestion',async t=>{

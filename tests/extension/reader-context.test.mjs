@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import {createHash} from 'node:crypto';
 
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,6 +8,17 @@ import { join } from "node:path";
 import readerContext, { boundImages, confineReaderEnvironment, createReaderToolGuard } from "../../extensions/module/reader-context.ts";
 
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+
+test('host original images keep stable identity when Pi moves the projection within later context',()=>{
+ const host={role:'custom',details:{kind:'host_source_pages',source_sha256:'a'.repeat(64)},
+  content:Array.from({length:6},(_,i)=>({type:'image',data:Buffer.from('original-page-'+i).toString('base64')}))};
+ const first=boundImages([host],new Set(),100000,4);
+ assert.equal(first.count,6,'every first-use original must reach the reader');
+ const moved=boundImages([{role:'user',content:'Earlier context'},host],new Set(first.included),100000,4);
+ assert.equal(moved.count,4,'a changed message index must not replay the entire host image batch');
+ assert.equal(host.content.filter(block=>block.type==='image').length,6,'the retained transcript is unchanged');
+ assert.equal(boundImages([{role:'user',content:'Retry'},host],new Set(),100000,4).count,6,'failed first delivery is retried intact');
+});
 
 async function confinementFixture(t, options = {}) {
 	const home = await mkdtemp(join(tmpdir(), "reader-confinement-"));
@@ -66,7 +78,7 @@ test("read/write/edit stay in the task and bound source cache across traversal a
 	for (const path of ["../outside.json", join(fixture.outside, "new.json"), "escape.txt", "escape-dir/new.json"])
 		for (const toolName of ["write", "edit"])
 			assert.match(guard({ toolName, input: { path } }).reason, new RegExp(`blocked ${toolName}`));
-	for (const path of ["task.json", "packet.json", "baseline.json", "findings.json", "observations.json", "read-complete.json", "review-input.json", "host-bin/coc-read-check"])
+	for (const path of ["task.json", "packet.json", "baseline.json", "findings.json", "observations.json", "read-complete.json", "review-input.json", "source-driver-complete.json", "source-driver.jsonl", "source-navigation-review.json", "read-1.jsonl.images.jsonl", "host-bin/coc-read-check"])
 		assert.match(guard({ toolName: "write", input: { path } }).reason, /host-owned/);
 	for (const path of ["task.json", "draft.json", "baseline.json", "findings.json", "review.json", fixture.source])
 		assert.equal(guard({ toolName: "read", input: { path } }), undefined);
@@ -169,6 +181,53 @@ test("all new images reach the model before historical eviction", () => {
 test("the newest image remains available even if it alone exceeds the soft budget", () => {
 	const result = boundImages([{ role: "toolResult", toolCallId: "new", content: [{ type: "image", data: Buffer.alloc(300).toString("base64") }] }], new Set(), 100);
 	assert.deepEqual(result.included, ["new"]);
+});
+
+test('an original page is retired only after a successful provider reply',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'reader-image-delivery-'));
+ t.after(()=>rm(dir,{recursive:true,force:true}));
+ const log=join(dir,'images.jsonl'),hooks={};
+ readerContext({on(name,fn){hooks[name]=fn;}},{cwd:dir,env:{PI_COC_READER_IMAGE_HISTORY:'1',PI_COC_READER_IMAGES_LOG:log}});
+ const image={type:'image',mimeType:'image/jpeg',data:Buffer.alloc(100).toString('base64')};
+ const first={role:'toolResult',toolCallId:'page-1',content:[image]},second={role:'toolResult',toolCallId:'page-2',content:[image]};
+ assert.equal(hooks.context({messages:[first]}).messages[0].content[0].type,'image');
+ hooks.before_provider_request({payload:{}},{abort(){}});
+ hooks.message_end({message:{role:'assistant',stopReason:'error'}});
+ assert.equal(hooks.context({messages:[first,second]}).messages[0].content[0].type,'image','a failed send cannot evict the first image');
+ hooks.before_provider_request({payload:{}},{abort(){}});
+ hooks.message_end({message:{role:'assistant',stopReason:'toolUse'}});
+ const later=hooks.context({messages:[first,second]});
+ assert.equal(later.messages[0].content[0].type,'text','only a confirmed old image can retire');
+ assert.equal(later.messages[1].content[0].type,'image');
+ await writeFile(join(dir,'draft.json'),JSON.stringify({nodes:[],claims:[]}));
+ hooks.tool_execution_end({toolName:'submit_reading',isError:true});
+ const repaired=hooks.context({messages:[first,second,{...second,toolCallId:'explicit-reopen'}]});
+ assert.equal(repaired.messages[0].content[0].type,'text');
+ assert.equal(repaired.messages[1].content[0].type,'text','a checked draft checkpoint retires passive images during schema repair');
+ assert.equal(repaired.messages[2].content[0].type,'image','an explicit source reopen is a new first delivery');
+ const rows=(await readFile(log,'utf8')).trim().split('\n').map(JSON.parse);
+ assert.deepEqual(rows.filter(row=>row.delivery==='succeeded').flatMap(row=>row.included),['page-2','page-1']);
+});
+
+test('a host-projected original page receives an identity-bound receipt only after successful inference',async t=>{
+ const fixture=await confinementFixture(t),bytes=Buffer.from('original page image');
+ const imagePath=join(fixture.cache,'page-1.jpg');await writeFile(imagePath,bytes);
+ const digest=value=>createHash('sha256').update(value).digest('hex');
+ const sourceSha=digest(await readFile(fixture.source)),log=join(fixture.cwd,'host-images.jsonl');
+ const env={...fixture.env,PI_COC_READER_SOURCE:JSON.stringify({pdf:fixture.source,cache:fixture.cache,file_sha256:sourceSha}),PI_COC_READER_IMAGES_LOG:log};
+ const hooks={};readerContext({on(name,fn){hooks[name]=fn;}},{cwd:fixture.cwd,env});
+ const message={role:'custom',customType:'coc-source-navigation',display:false,details:{kind:'host_source_pages',source_sha256:sourceSha,
+  pages:[{page:1,path:imagePath,image_sha256:digest(bytes),box:[0,0,1,1]}]},content:[{type:'text',text:'Original page 1'},
+  {type:'image',mimeType:'image/jpeg',data:bytes.toString('base64')}]};
+ hooks.context({messages:[message]});hooks.before_provider_request({payload:{}},{abort(){}});
+ hooks.message_end({message:{role:'assistant',stopReason:'error'}});
+ assert.equal((await readFile(log,'utf8')).includes('host_pages'),false);
+ hooks.context({messages:[message]});hooks.before_provider_request({payload:{}},{abort(){}});
+ hooks.message_end({message:{role:'assistant',stopReason:'toolUse'}});
+ const rows=(await readFile(log,'utf8')).trim().split('\n').map(JSON.parse);
+ assert.deepEqual(rows.filter(row=>row.delivery==='succeeded').flatMap(row=>row.host_pages??[]).map(row=>row.page),[1]);
+ hooks.tool_execution_end({toolName:'submit_reading',isError:true});
+ assert.equal(hooks.context({messages:[message]}).messages[0].content[1].type,'text','a submitted draft retires passive host-image replay; the reader may reopen if it needs details');
 });
 
 test("a host-owned provider request ceiling aborts before an extra model call", () => {

@@ -28,6 +28,10 @@ const object = (value: any): boolean => isJsonObject(value);
 import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, checkSourceAnswerReview, sourceAnswerResult } from './source-answer.js';
 import { ROUTE_TRAVEL_FIELD, applyTravelFill, type TravelRow } from './route-travel.js';
 import { bandRows } from '../rules/bands.js';
+import {validatePublicGuidance} from './public-guidance.js';
+import {sourceNeedKey} from './source-needs.js';
+import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy.js';
+import {backgroundSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
  * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
@@ -351,8 +355,10 @@ export class Reading {
     }
     async openingReady(mid: string, focus = ''): Promise<boolean> {
         const meta = await this.store.module(mid);
+        const firstInteraction = row(meta.reading).opening_scope === 'first_interaction';
+        if (!focus && firstInteraction) focus = string(row(meta.opening).start_scene ?? '');
         if (!focus)
-            return truth(meta.opening_ready);
+            return !firstInteraction && truth(meta.opening_ready);
         const graph = await this.store.readGraph(mid) || {}, contract = await this.store.contract(), chosen = resolveStartScene(graph, focus, contract);
         if (chosen === null || !await this.materialReady(mid, chosen))
             return false;
@@ -361,6 +367,8 @@ export class Reading {
         // The roll-up answers for the book's own start; a chosen scene the book was published ready
         // on answers from that publication. Only a scene neither has met is derived here.
         const snapshot = row(meta.opening).start_scene === chosen ? row(meta.opening) : row(row(meta.prepared_openings)[chosen]);
+        const preparedSnapshot = row(row(meta.prepared_openings)[chosen]);
+        if (firstInteraction && (!truth(preparedSnapshot.interaction_scene) || !await this.materialReady(mid, preparedSnapshot.interaction_scene))) return false;
         if (Object.hasOwn(snapshot, 'opening_ready'))
             return truth(snapshot.opening_ready);
         applyOpeningChoice(graph, chosen, contract);
@@ -693,6 +701,27 @@ export class Reading {
         if (!truth(reading.index_complete)) await ask({ purpose: 'index', focus: '' });
         if (!await this.store.readGraph(mid)) return { queued, reason: 'index' };
         const graph = await this.store.graph(mid);
+        for(const need of array(graph.raw.source_needs).filter(need=>need.kind==='deferred'&&need.source_sha256===meta.file_sha256).slice(0,2)){
+            const node=graph.nodes.get(string(need.node_id));
+            if(node)await ask({purpose:'detail',focus:graph.handle(node),question:need.question});
+        }
+        if(reading.opening_scope==='first_interaction'&&truth(reading.index_complete)&&Object.values(row(meta.prepared_openings)).some(value=>truth(row(value).opening_ready))){
+            const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit);
+            if(work.filter(job=>['queued','running'].includes(job.state)).length<2){
+                const seen=new Set(work.filter(job=>job.state!=='cancelled').map(job=>sourceUnitKey(job.source_unit as SourceUnit)));
+                let anchorNode=truth(params.focus)?graph.find(string(params.focus)):null;
+                if(!anchorNode)try{anchorNode=graph.startScene();}catch{}
+                const interactionId=row(row(meta.prepared_openings)[anchorNode?.node_id]).interaction_scene;
+                if(typeof interactionId==='string')anchorNode=graph.nodes.get(interactionId)??anchorNode;
+                const after=Math.max(0,...array(anchorNode?.source_refs).map(ref=>number(ref.pdf_index)+1));
+                const units=backgroundSourceUnits(await this.store.indexRows(mid,meta),number(meta.page_count));
+                units.sort((a,b)=>Number(a.first<=after)-Number(b.first<=after)||a.first-b.first);
+                const next=units.find(unit=>!seen.has(sourceUnitKey(unit)));
+                if(next)await ask({purpose:'detail',focus:next.section,source_unit:next,
+                    retry:work.some(job=>job.state==='cancelled'&&sourceUnitKey(job.source_unit as SourceUnit)===sourceUnitKey(next)),
+                    question:'Prepare the indexed source unit in physical pages '+next.first+'-'+next.last+' for later reference. Retain source-backed identities, conditions and connections; keep incomplete entities and later cross-references explicit. Do not replay already accepted facts or expand this unit into the whole chapter.'});
+            }
+        }
         let scene: Row;
         try { scene = truth(params.focus) ? graph.scene(string(params.focus)) : graph.startScene(); }
         catch (error) { if (!(error instanceof RpcError)) throw error; return { queued, reason: 'no_scene' }; }
@@ -704,6 +733,10 @@ export class Reading {
             if (reply) wayOn = { scene: string(scene.node_id), state: reply.state, job_id: reply.job_id ?? null };
         }
         queued.push(...await this.queueAdjacentReading(graph, scene));
+        const interactionId=row(row(meta.prepared_openings)[scene.node_id]).interaction_scene;
+        const interaction=typeof interactionId==='string'?graph.nodes.get(interactionId):undefined;
+        if(interaction?.node_kind==='scene'&&interaction.node_id!==scene.node_id)
+            queued.push(...await this.queueAdjacentReading(graph,interaction));
         return { queued: [...new Set(queued)], scene: scene.node_id, ...(wayOn ? { way_on: wayOn } : {}), ...(recovered.length ? { recovered } : {}) };
     }
     async peekAnswer(params: Row): Promise<Row> {
@@ -725,7 +758,7 @@ export class Reading {
         const current = await this.store.module(mid);
         if (!equal(current.generation ?? 0, meta.generation ?? 0) || row(current.source_document).file_sha256 !== source.file_sha256)
             throw new RpcError('needs', 'Source changed during cache lookup', {details: {reason: 'source_context_changed'}});
-        return {cached: true, source_answer: {...sourceAnswerResult(draft, mid), derivation: 'checked_summary'}, evidence: {
+        return {cached: true, source_answer: {...sourceAnswerResult(draft, mid,row(accepted.result),row(parsePythonJson(new TextDecoder().decode(reviewBytes)))), derivation: 'checked_summary'}, evidence: {
             resource: `source-answer:${mid}:${cacheKey}`, revision: accepted.draft_sha256, accepted_revision: accepted.draft_sha256,
             derived: true, record: draft, source_sha256: source.file_sha256,
         }};
@@ -774,7 +807,7 @@ export class Reading {
                 resolvedFocus = focus; resolvedQuestion = question;
                 const draft = checkSourceAnswer(row(parsePythonJson(new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(await readFile(draftPath)))),
                     {source: {page_count: source.page_count}});
-                const answer = sourceAnswerResult(draft, mid);
+                const answer = sourceAnswerResult(draft, mid,row(record.result),row(await this.store.context.snapshots.readJson(reviewPath)));
                 checked.push({key: cacheKey, focus, question, ...answer, evidence: {resource: `source-answer:${mid}:${cacheKey}`,
                     revision: record.draft_sha256, accepted_revision: record.draft_sha256, derived: true, record: draft,
                     source_sha256: source.file_sha256}});
@@ -944,6 +977,12 @@ export class Reading {
             if (!Object.hasOwn(meta, 'reading'))
                 meta.reading = Reading.initialState();
             const reading = meta.reading;
+            if (params.opening_scope !== undefined && (purpose !== 'opening' || params.opening_scope !== 'first_interaction'))
+                throw new RpcError('invalid_params', 'opening_scope is first_interaction on an opening request');
+            if (params.opening_scope === 'first_interaction' && reading.opening_scope !== 'first_interaction') {
+                reading.opening_scope = 'first_interaction';
+                await this.store.writeModule(meta);
+            }
             let focus = truth(params.focus) ? params.focus : '';
             const question = truth(params.question) ? params.question : '';
             if (purpose === 'opening' && !truth(focus) && truth(meta.opening_choice))
@@ -967,7 +1006,8 @@ export class Reading {
                 if (typeof guidanceKey !== 'string' || guidanceKey.length !== 64 || !/^[a-f0-9]{64}$/.test(guidanceKey) || !validSourceLanguage(params.play_language) || !Array.isArray(params.occupations))
                     throw new RpcError('invalid_params', 'guidance needs a host fingerprint, a tag-shaped play_language and an occupation catalog');
                 const accepted = row(meta.character_guidance)[guidanceKey];
-                if (truth(accepted))
+                const publicReady = params.public_progress!==true || await this.store.context.snapshots.pathExists(join(this.store.moduleDir(mid),'character-guidance',guidanceKey,'public.json'));
+                if (truth(accepted) && publicReady)
                     return { ...result, state: 'ready', setup_ready: true, guidance_key: guidanceKey, ...accepted };
             }
             if (purpose === 'skeleton' && truth(await this.store.readGraph(mid)) ||
@@ -975,12 +1015,28 @@ export class Reading {
                 purpose === 'detail' && !question && await this.materialReady(mid, focus) ||
                 purpose === 'index' && truth(reading.index_complete))
                 return { ...result, state: 'ready' };
-            const source = await this.source(meta), pages: number[] = material === 'map'
-                ? [...new Set(array(row(reading).map_candidates).flatMap((candidate: Row) => array(candidate.pages).map(number)))].filter(page => page >= 1 && page <= source.page_count).sort((a, b) => a - b)
-                : [];
+            const source = await this.source(meta);
+            let sourceUnit:SourceUnit|undefined;
+            if(params.source_unit!==undefined){
+                const unit=params.source_unit;
+                if(purpose!=='detail'||!isJsonObject(unit)||Object.keys(unit).sort().join(',')!=='first,last,section'||
+                    !backgroundSourceUnits(await this.store.indexRows(mid,meta),number(meta.page_count)).some(candidate=>sourceUnitKey(candidate)===sourceUnitKey(unit as SourceUnit)))
+                    throw new RpcError('invalid_params','source_unit must name one bounded unit of the bound source index');
+                sourceUnit=clone(unit) as SourceUnit;
+            }
+            let mapCandidates=array(row(reading).map_candidates);
+            if(material==='map'&&focus.trim()){
+                const identity=await this.focusIdentity(mid),wanted=identity(focus);
+                const matching=mapCandidates.filter(candidate=>[candidate.focus,candidate.name].some(value=>Reading.meet(identity(value),wanted)));
+                if(matching.length)mapCandidates=matching;
+            }
+            const pages:number[]=sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set(mapCandidates.flatMap(candidate=>array(candidate.pages).map(number)))]
+                .filter(page=>page>=1&&page<=source.page_count).sort((a,b)=>a-b):[];
             const identity: any[] = [source.file_sha256, purpose, material ?? '', normalize(focus), question, pages];
+            if(sourceUnit)identity.push('source_unit',sourceUnitKey(sourceUnit));
             if (purpose === 'guidance')
-                identity.push(guidanceKey);
+                identity.push(guidanceKey,params.public_progress===true?'public-fields-v1':'');
+            if (purpose === 'opening' && params.opening_scope) identity.push(params.opening_scope);
             if (repair)
                 identity.push('repair', repair);
             if (purpose === 'answer') identity.push(SOURCE_ANSWER_PROTOCOL, meta.generation ?? 0);
@@ -1072,6 +1128,8 @@ export class Reading {
                     return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], ...(existing.refusal ? { refusal: existing.refusal } : {}), job_state: existing.state, failed_job: existing.job_id, fix: 'request the same reading with retry: true' };
             }
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
+            if (purpose === 'opening' && params.opening_scope) job.opening_scope = params.opening_scope;
+            if(sourceUnit){job.source_unit=sourceUnit;job.review_scope_pages=pages;}
             job.class_at = job.at;
             if(preparation)job.task_preparation=clone(preparation);
             if (purpose === 'answer') job.context_generation = meta.generation ?? 0;
@@ -1091,8 +1149,8 @@ export class Reading {
                 if (done) job.resume_from = done.work_dir;
             }
             if (purpose === 'guidance')
-                for (const key of ['guidance_key', 'play_language', 'occupations'])
-                    job[key] = params[key];
+                for (const key of ['guidance_key', 'play_language', 'occupations', 'public_progress'])
+                    if (Object.hasOwn(params, key)) job[key] = params[key];
             if (truth(existing?.work_dir))
                 job.resume_from = existing!.work_dir;
             queue.push(job);
@@ -1180,7 +1238,7 @@ export class Reading {
                     Object.assign(stale, { state: 'completed', finished_at: nowIso(), reused_generation: meta.generation ?? 0, result: { state: 'ready', generation: meta.generation ?? 0, opening_ready: truth(meta.opening_ready) } });
                 }
             }
-            const purposePriority = (job: Row): number => job.purpose === 'opening' ? 0 : job.purpose === 'index' ? 2 : 1;
+            const purposePriority = (job: Row): number => job.purpose === 'opening' ? 0 : job.source_unit ? 3 : job.purpose === 'index' ? 2 : 1;
             const pending = queue.filter(job => job.state === 'queued').sort((a, b) =>
                 Number(!truth(a.foreground)) - Number(!truth(b.foreground)) ||
                 purposePriority(a) - purposePriority(b) || compareUnicode(a.at, b.at));
@@ -1263,7 +1321,7 @@ export class Reading {
                         if(preparation) {preparation.currentRevision=(await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid)).revision;await this.store.writeQueue(mid,queue);}
                     }
                     const {task_preparation:_privatePreparation,...visibleJob}=job;
-                    const packet = { ...visibleJob, module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    const packet = { ...visibleJob,...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;
@@ -1360,7 +1418,7 @@ export class Reading {
                 reject('reader observations do not belong to the registered source');
             const seen = new Set(array(observations.read_pages));
             const draft = clone(await this.store.context.snapshots.readJson(await this.contained(work, params.draft_path)));
-            let guidance: Row | null = null, opening: Row | null = null, publicationGraph:Row|undefined, travel: Row | null = null;
+            let guidance: Row | null = null, publicFields:Row|undefined, opening: Row | null = null, publicationGraph:Row|undefined, travel: Row | null = null;
             if (job.purpose === 'index')
                 await this.finishIndex(mid, meta, job, draft, new Set(array(observations.full_pages)));
             else if (job.purpose === 'answer') {
@@ -1393,7 +1451,7 @@ export class Reading {
                 const draftDigest = await sha256File(draftPath);
                 if (review.draft_sha256 !== draftDigest) reject('the answer candidate does not match its independent review');
                 checkSourceAnswerReview(answer, review, packet, new Set(array(observations.review_pages)));
-                const result = { state: 'ready', generation: meta.generation ?? 0, source_answer: sourceAnswerResult(answer, mid) };
+                const result = { state: 'ready', generation: meta.generation ?? 0, source_answer: sourceAnswerResult(answer, mid,packet,review) };
                 meta.reading.answers ??= {};
                 // §22.4.6.1 (SL-54): under its identity at the generation it was checked at (its own key unless re-bound).
                 meta.reading.answers[answerKey(source.file_sha256, string(job.focus), string(job.question), meta.generation ?? 0)] = { protocol: SOURCE_ANSWER_PROTOCOL, source_sha256: source.file_sha256, context_generation: meta.generation ?? 0,
@@ -1416,13 +1474,36 @@ export class Reading {
                 const judged = checkReview(row(draft), filled, review, number(meta.page_count), new Set(array(observations.review_pages)), classificationFields(contract));
                 const retranscribed: Row[] = [];
                 const graph = assembleVisual(await this.store.readGraph(mid), filled, meta, contract, retranscribed);
+                if(job.purpose==='detail'&&truth(job.question)){
+                    const view=new ModuleGraph(mid,graph,'',row(contract.graph.actor_dossier)),target=view.find(string(job.focus));
+                    const resolved=array(graph.source_needs).filter(need=>need.kind==='deferred'&&need.source_sha256===meta.file_sha256&&
+                        need.node_id===target?.node_id&&string(need.question).trim()===string(job.question).trim());
+                    if(resolved.length){
+                        const keys=new Set(resolved.map(sourceNeedKey));
+                        graph.source_needs=array(graph.source_needs).filter(need=>!keys.has(sourceNeedKey(need)));
+                        meta.reading.resolved_source_needs=[...array(meta.reading.resolved_source_needs),...resolved.map(need=>({
+                            ...need,key:sourceNeedKey(need),job_id:job.job_id,generation:number(meta.generation)+1}))];
+                    }
+                }
                 recordContested(graph, filled, judged, mid, job.job_id, number(meta.generation) + 1);
                 // Contract §138.9: the host's band for each new road lands inside this one publication, never as a
                 // second generation, and a band that does not fit is reported, never a reason to refuse the reading.
                 if (params.travel !== undefined)
                     travel = await this.fillTravel(graph, params.travel);
-                if (job.purpose === 'guidance')
-                    guidance = await this.checkGuidance(work, graph, row(review));
+                if (job.purpose === 'guidance') {
+                    guidance = await this.checkGuidance(work, graph, row(review),packet);
+                    const publicPath=join(work,'public-fields.json');
+                    if(await this.store.context.snapshots.pathExists(publicPath)){
+                        const checkedPublicPath=await this.contained(work,publicPath);
+                        if((await stat(checkedPublicPath)).size>16*1024||row(row(review).guidance).public_fields_sha256!==await sha256File(checkedPublicPath))
+                            reject('public setup fields must match the independently reviewed artifact');
+                        try{publicFields=validatePublicGuidance(await this.store.context.snapshots.readJson(checkedPublicPath),number(meta.page_count));}
+                        catch(error){reject(String(error));}
+                        const reviewed=new Set(array(observations.review_pages));
+                        for(const field of Object.values(publicFields!))for(const ref of array(row(field).source_refs))
+                            if(!seen.has(ref.page)||!reviewed.has(ref.page))reject('public setup fields require author and reviewer original-page evidence');
+                    }else if(job.public_progress===true)reject('the public setup fields are missing');
+                }
                 const assets = truth(params.assets) ? params.assets : [];
                 if (!Array.isArray(assets) || assets.some(asset => !object(asset)))
                     reject('assets must be an array of host-rendered asset records');
@@ -1463,6 +1544,7 @@ export class Reading {
                 if (['skeleton', 'guidance'].includes(job.purpose))
                     opening.opening_ready = false;
                 if (job.purpose === 'opening' && truth(opening.opening_ready)) {
+                    if (job.opening_scope === 'first_interaction') opening.interaction_scene = filled.interaction_scene;
                     meta.prepared_openings ??= {};
                     meta.prepared_openings[opening.start_scene] = opening;
                 }
@@ -1488,6 +1570,8 @@ export class Reading {
                 this.owned();
                 await this.store.writeGraph(meta, graph);
                 publicationGraph=graph;
+                if(publicFields)await writeJsonAtomic(join(this.store.moduleDir(mid),'character-guidance',job.guidance_key,'public.json'),
+                    {fingerprint:job.guidance_key,source_sha256:meta.file_sha256,approved:true,fields:publicFields,at:nowIso()});
                 if (guidance) {
                     const key = job.guidance_key, accepted = join(this.store.moduleDir(mid), 'character-guidance', key, 'accepted.json');
                     await writeJsonAtomic(accepted, { fingerprint: key, approved: true, guidance, draft_sha256: await sha256File(join(work, 'draft.json')), source_sha256: meta.file_sha256, review: relative(this.store.moduleDir(mid), reviewPath), at: nowIso() });
@@ -1499,6 +1583,7 @@ export class Reading {
             if (travel)
                 result.travel = travel;
             if (job.purpose === 'guidance') {
+                if(publicFields)result.public_fields=publicFields;
                 if (guidance)
                     Object.assign(result, { state: 'ready', setup_ready: true, guidance_key: job.guidance_key, scene: guidance.scene });
                 else
@@ -1539,12 +1624,12 @@ export class Reading {
         const { filled, skipped } = applyTravelFill(graph, entries, rows);
         return { filled: filled.length, skipped };
     }
-    private async checkGuidance(work: string, graph: Row, review: Row): Promise<Row | null> {
+    private async checkGuidance(work: string, graph: Row, review: Row,packet:Row={}): Promise<Row | null> {
         const path = await this.contained(work, join(work, 'guidance.json'));
         if ((await stat(path)).size > 64 * 1024)
             reject('guidance exceeds its file limit');
         const guidance: any = clone(await this.store.context.snapshots.readJson(path)), approval = row(review.guidance);
-        if (approval.approved !== true || !equal(approval.issues, []) || approval.draft_sha256 !== await sha256File(join(work, 'draft.json')) || approval.guidance_sha256 !== await sha256File(path))
+        if (!moduleGuidanceApproved(approval,packet) || approval.draft_sha256 !== await sha256File(join(work, 'draft.json')) || approval.guidance_sha256 !== await sha256File(path))
             reject('guidance review must approve the exact source shard and guidance pair');
         if (equal(guidance, { needs_choice: true })) {
             if ((await this.store.candidates(graph)).length < 2)

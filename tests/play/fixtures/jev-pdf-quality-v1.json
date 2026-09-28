@@ -1,0 +1,1676 @@
+{
+  "schema": "jev-pdf-quality-v1",
+  "scope": "Evaluation only. Answers and source pages must never enter a locator or player prompt.",
+  "books": {
+    "blood": {
+      "source_sha256": "9cc71c34dd62462f0f3c7bf765defc4bc49667f1f9fee3f0ac172a32464da50c",
+      "page_count": 111,
+      "cases": [
+        {
+          "family": "distant_npc_plot",
+          "question": "米勒一家目前分别被关押或处置在哪些地方，父亲亨利的结局是什么？",
+          "expected": [
+            {
+              "statement": "献祭每年在十一月一日、二月一日、五月一日和八月一日举行，模组开始时八月祭祀临近。",
+              "source_refs": [
+                {
+                  "page": 9
+                }
+              ]
+            },
+            {
+              "statement": "沙痞抓走在阿巴托尔加油的米勒一家作祭品；妻子凯莉在红房子受折磨且尚未送往繁育室。",
+              "source_refs": [
+                {
+                  "page": 9
+                }
+              ]
+            },
+            {
+              "statement": "子女丽贝卡（8岁）与詹姆斯（10岁）已被送往蛇洞，泰希罕准备在转化之厅转化他们。",
+              "source_refs": [
+                {
+                  "page": 9
+                }
+              ]
+            },
+            {
+              "statement": "父亲亨利目前被挂在沙漠地痞屠宰屋冷库里，他在妻儿被分开后设法自杀。",
+              "source_refs": [
+                {
+                  "page": 9
+                }
+              ]
+            },
+            {
+              "statement": "模组开端时米勒夫妇已失踪近三个星期，最后一次被目击在大本德国家公园南边约50英里处露营。",
+              "source_refs": [
+                {
+                  "page": 9
+                }
+              ]
+            },
+            {
+              "statement": "开篇警告：模组含针对儿童的暴力侵害等敏感内容，须事前沟通，可用略过、安全词或拉灯处理；任何情况下NPC都不该强奸玩家角色。",
+              "source_refs": [
+                {
+                  "page": 5
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 9
+            },
+            {
+              "page": 5
+            }
+          ],
+          "why_current_or_deferred": "米勒一家分散在红房子、蛇洞与屠宰屋，属于远端剧情状态；调查员若沿调查线深入可改变救援对象与地点。",
+          "visual_only": false,
+          "limitations": "姓名与细节可由守密人改写以配合导入；其他失踪者位置可酌情分配，不与米勒一家位置一一绑定。",
+          "id": "blood-distant_npc_plot-1",
+          "set": "calibration"
+        },
+        {
+          "family": "distant_npc_plot",
+          "question": "奥斯庭牧师想让调查员在镇上逗留时会怎样运作，以及守密人若想缩短模组可以怎么改？",
+          "expected": [
+            {
+              "statement": "奥斯庭想通过伊戈之眼先远远观察调查员两三天，并下令部分镇民阻止他们离开。",
+              "source_refs": [
+                {
+                  "page": 13
+                }
+              ]
+            },
+            {
+              "statement": "镇民说服拉斯谎称修车需从镇外订购零件。",
+              "source_refs": [
+                {
+                  "page": 13
+                }
+              ]
+            },
+            {
+              "statement": "布伦纳医生会主动为调查员支付在“最后一站”的住宿费，并以结交有识之士为由请他们来家中共进晚餐。",
+              "source_refs": [
+                {
+                  "page": 13
+                }
+              ]
+            },
+            {
+              "statement": "若守密人偏好短模组或追逐戏，可提前切入：拉斯约一小时内修好车并推荐走红路离开。",
+              "source_refs": [
+                {
+                  "page": 13
+                }
+              ]
+            },
+            {
+              "statement": "事前准备：无论角色类型，至少一人须有车且驾驶技能55%以上；可幕商经典肌肉车或皮卡（如道奇挑战者、科迈罗等）。",
+              "source_refs": [
+                {
+                  "page": 8
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 13
+            },
+            {
+              "page": 8
+            }
+          ],
+          "why_current_or_deferred": "远端领袖的监视与滞留计划直接决定当前是否能离镇；短模组模式会立刻改变互动节奏。",
+          "visual_only": false,
+          "limitations": "模组无固定叙事时限；热浪等环境威胁是可选加压手段，非强制事件。",
+          "id": "blood-distant_npc_plot-2",
+          "set": "held_out"
+        },
+        {
+          "family": "clue_connection",
+          "question": "《蠕虫的秘密》现在在谁手里、约翰是如何得到的，以及触碰/阅读会触发什么远程后果？",
+          "expected": [
+            {
+              "statement": "雷鸟礼品店最重要物品是蛇皮封面黑色古书《蠕虫的秘密》；银色标题为 De Vermis Mysteriis。",
+              "source_refs": [
+                {
+                  "page": 31
+                },
+                {
+                  "page": 105
+                }
+              ]
+            },
+            {
+              "statement": "几年前一名从沙漠地痞处逃出的年轻女人在约翰锁门时冲入店内，把书塞给他并低声说“救救他们”后逃走。",
+              "source_refs": [
+                {
+                  "page": 31
+                }
+              ]
+            },
+            {
+              "statement": "店内保护与符咒使女祭司无法发现该书；约翰不懂拉丁文，实际无法阅读。",
+              "source_refs": [
+                {
+                  "page": 31
+                }
+              ]
+            },
+            {
+              "statement": "持有或仅触碰该书会被女祭司感知并暴露大致位置，除非处于受保护地点（雷鸟礼品店或羔羊之血圣灵降临教会）。",
+              "source_refs": [
+                {
+                  "page": 8
+                }
+              ]
+            },
+            {
+              "statement": "有人触碰该书需再做有奖励骰的意志检定；成功则脑海中响起仿佛蛇类嘶鸣的女声“我看——到你了。”",
+              "source_refs": [
+                {
+                  "page": 105
+                }
+              ]
+            },
+            {
+              "statement": "成功时女祭司艾尔伊希娅·斯丽西·阿娜察觉他们已了解书中知识，并想亲自与他们谈谈；她会向奥斯庭传话，并亲自召唤两只潜沙怪去寻找并取回那本书。",
+              "source_refs": [
+                {
+                  "page": 105
+                }
+              ]
+            },
+            {
+              "statement": "文本未写约翰已把书的下落告诉全体镇民，也未写书仍在奥斯庭家中。",
+              "source_refs": [
+                {
+                  "page": 31
+                },
+                {
+                  "page": 48
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 31
+            },
+            {
+              "page": 105
+            },
+            {
+              "page": 48
+            },
+            {
+              "page": 8
+            }
+          ],
+          "why_current_or_deferred": "该书连接礼品店盟友、女祭司远程察觉与奥斯庭回收行动；调查员接触会立刻改变幕后压力。",
+          "visual_only": false,
+          "limitations": "奥斯庭办公室有其他皮封书与手改《圣经》，勿与仍在约翰处的《蠕虫的秘密》混淆。",
+          "id": "blood-clue_connection-3",
+          "set": "calibration"
+        },
+        {
+          "family": "clue_connection",
+          "question": "布伦纳医生的住宅与其公开身份如何串联到教派通讯和拖延狩猎的手段？",
+          "expected": [
+            {
+              "statement": "住宅门口标为罗伯特·L·布伦纳医生之家；工作时间周一至周四上午9点至下午5点；紧急电话 EM6-4128。",
+              "source_refs": [
+                {
+                  "page": 32
+                }
+              ]
+            },
+            {
+              "statement": "他有完整手术室与隔音强的“杀人室”，掩于西南风情外表之下。",
+              "source_refs": [
+                {
+                  "page": 32
+                }
+              ]
+            },
+            {
+              "statement": "他有一条直联沙痞大院的电话线，可在约15分钟内召来小队。",
+              "source_refs": [
+                {
+                  "page": 32
+                }
+              ]
+            },
+            {
+              "statement": "他是伊格教派核心成员，权力仅次于奥斯庭；对陌生人扮演友好乡村医生以松懈警惕。",
+              "source_refs": [
+                {
+                  "page": 32
+                },
+                {
+                  "page": 97
+                }
+              ]
+            },
+            {
+              "statement": "若调查员威胁过大或迟迟不参与狩猎，他可能暗中注射镇静剂。",
+              "source_refs": [
+                {
+                  "page": 32
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 32
+            },
+            {
+              "page": 97
+            }
+          ],
+          "why_current_or_deferred": "直联大院的电话与镇静剂手段把“友好医生”线索接到远端基地响应与当前是否被俘。",
+          "visual_only": false,
+          "limitations": "他无公开医学学位，文书上会把病人写成牲畜；急救与兽医能力与人类医学技能分开列出。",
+          "id": "blood-clue_connection-4",
+          "set": "held_out"
+        },
+        {
+          "family": "special_rule",
+          "question": "附录中的“事不过三”原则在不同残酷度下各允许几次技能或属性检定？",
+          "expected": [
+            {
+              "statement": "真实残酷环境中，每个难关通常只允许一次技能或属性检定。",
+              "source_refs": [
+                {
+                  "page": 88
+                }
+              ]
+            },
+            {
+              "statement": "残酷但不致命设定下，面临致命威胁时可允许两次检定。",
+              "source_refs": [
+                {
+                  "page": 88
+                }
+              ]
+            },
+            {
+              "statement": "通俗动作/夸张电影感设定下，危机到来前可允许三次检定。",
+              "source_refs": [
+                {
+                  "page": 88
+                }
+              ]
+            },
+            {
+              "statement": "使用特技时同样适用事不过三；实现特技所需检定越多则越危险。",
+              "source_refs": [
+                {
+                  "page": 88
+                }
+              ]
+            },
+            {
+              "statement": "守密人应与小队沟通并统一想讲的故事类型，以免风格冲突。",
+              "source_refs": [
+                {
+                  "page": 88
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 88
+            }
+          ],
+          "why_current_or_deferred": "当前追逐、攀爬或逃亡检定次数取决于所选模式，会立刻改变过关条件。",
+          "visual_only": false,
+          "limitations": "示例（悬崖山洞、大衣推保安）为说明，非固定遭遇；可选沙漠危机规则可另加。",
+          "id": "blood-special_rule-5",
+          "set": "calibration"
+        },
+        {
+          "family": "special_rule",
+          "question": "狩猎追逐可选规则里，速度检定如何改 MOV，轮胎被毁有何机械效果？",
+          "expected": [
+            {
+              "statement": "速度检定：投掷汽车驾驶；成功 MOV 不变，极难成功 MOV+1，失败 MOV-1。",
+              "source_refs": [
+                {
+                  "page": 81
+                }
+              ]
+            },
+            {
+              "statement": "比较速度：将最低的速度减为1，其他速度减少相同数量；例如最慢车 MOV14 变为1，则 MOV16 的车变为3。",
+              "source_refs": [
+                {
+                  "page": 81
+                },
+                {
+                  "page": 82
+                }
+              ]
+            },
+            {
+              "statement": "汽车可加速前进最多3个地点，险境带一个惩罚骰；猛踩油门最多5个地点但任意险境两个惩罚骰。",
+              "source_refs": [
+                {
+                  "page": 82
+                }
+              ]
+            },
+            {
+              "statement": "轮胎护甲3、HP2且仅穿刺可毁；摧毁轮胎使车辆体格-1。",
+              "source_refs": [
+                {
+                  "page": 82
+                }
+              ]
+            },
+            {
+              "statement": "标准 CoC 追逐规则仍适用；附录 I 可选规则用于更粗犷磨坊电影感。",
+              "source_refs": [
+                {
+                  "page": 76
+                },
+                {
+                  "page": 81
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 81
+            },
+            {
+              "page": 82
+            },
+            {
+              "page": 76
+            }
+          ],
+          "why_current_or_deferred": "红路伏击一旦开始，速度与轮胎规则立即支配当前追逐互动。",
+          "visual_only": false,
+          "limitations": "附录规则为可选；沙痞人数与装备可由守密人按队伍能力调整。",
+          "id": "blood-special_rule-6",
+          "set": "held_out"
+        },
+        {
+          "family": "item_condition",
+          "question": "伊格之眼的监控能力、对人类佩戴者的代价，以及奥斯庭如何用它？",
+          "expected": [
+            {
+              "statement": "佩戴者可远程监控六英里内某个已知人物或地点，持续12分钟并消耗3点魔法值。",
+              "source_refs": [
+                {
+                  "page": 105
+                }
+              ]
+            },
+            {
+              "statement": "清醒目标可用困难等级意志检定察觉被监视，但迟早也会察觉。",
+              "source_refs": [
+                {
+                  "page": 105
+                }
+              ]
+            },
+            {
+              "statement": "非蛇人佩戴者立即损失2D6理智，并在佩戴期间每小时损失2D6体质直至死亡。",
+              "source_refs": [
+                {
+                  "page": 105
+                }
+              ]
+            },
+            {
+              "statement": "奥斯庭一直戴着它监视调查员动向；使用消耗MP且不提供额外情报，仅能窥视、偷听、身临其境。",
+              "source_refs": [
+                {
+                  "page": 96
+                },
+                {
+                  "page": 97
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 105
+            },
+            {
+              "page": 96
+            },
+            {
+              "page": 97
+            }
+          ],
+          "why_current_or_deferred": "奥斯庭是否正在用吊坠监视会改变当前隐蔽与逃脱是否已被锁定。",
+          "visual_only": false,
+          "limitations": "吊坠与人类神经系统不完全兼容；图示为物品外观参考，数值以正文为准。",
+          "id": "blood-item_condition-7",
+          "set": "calibration"
+        },
+        {
+          "family": "item_condition",
+          "question": "埃索加油站办公室那把旧猎枪处于什么维护状态，修好要多久？",
+          "expected": [
+            {
+              "statement": "办公室墙上挂着一把旧猎枪，装有对付郊狼的岩盐子弹，但已有一段时间未维护。",
+              "source_refs": [
+                {
+                  "page": 17
+                }
+              ]
+            },
+            {
+              "statement": "若再不合适工具维护，故障值会降低到80。",
+              "source_refs": [
+                {
+                  "page": 17
+                }
+              ]
+            },
+            {
+              "statement": "维护这杆枪大概需要花费一个小时。",
+              "source_refs": [
+                {
+                  "page": 17
+                }
+              ]
+            },
+            {
+              "statement": "加油站另有全套汽修工具、割炬、压缩机与升降机等设备。",
+              "source_refs": [
+                {
+                  "page": 17
+                }
+              ]
+            },
+            {
+              "statement": "白天通常有三人待在顶棚下：拉斯·威廉姆斯、内特·帕特森和史蒂夫·布朗，一般抽烟喝啤酒；取用或维护墙上猎枪须面对这些在场第三人约束。",
+              "source_refs": [
+                {
+                  "page": 17
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 17
+            }
+          ],
+          "why_current_or_deferred": "若调查员现在取枪求援或反抗，故障值、一小时维护与白天在场三人直接影响当前战斗可用性。",
+          "visual_only": false,
+          "limitations": "枪属于站点场景物品；正文未写无条件赠枪，须经在场互动许可。",
+          "id": "blood-item_condition-8",
+          "set": "held_out"
+        },
+        {
+          "family": "npc_parameter",
+          "question": "艾尔伊希娅·斯丽西·阿娜在人类/蛇人形态下的关键属性、HP 与毒液效果是什么？",
+          "expected": [
+            {
+              "statement": "属性：STR50、CON50、SIZ65、APP85（人类形态）、DEX70、INT90、POW95。",
+              "source_refs": [
+                {
+                  "page": 95
+                }
+              ]
+            },
+            {
+              "statement": "HP20，伤害加值0，体格0，MOV8，MP19。",
+              "source_refs": [
+                {
+                  "page": 95
+                }
+              ]
+            },
+            {
+              "statement": "撕咬35%造成1D8+中毒；被咬者须极难成功体质检定，失败再受+1D8伤害。",
+              "source_refs": [
+                {
+                  "page": 95
+                }
+              ]
+            },
+            {
+              "statement": "护甲1点鳞片；蛇人形态理智丧失0/1D6。",
+              "source_refs": [
+                {
+                  "page": 95
+                }
+              ]
+            },
+            {
+              "statement": "可在蛇人、人类与巨大响尾蛇形态间转换；蛇形态约50英尺长、近1500磅，并适用伊格之子属性但保留心智与魔法。",
+              "source_refs": [
+                {
+                  "page": 95
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 95
+            }
+          ],
+          "why_current_or_deferred": "若剧情推进到女祭司现身或远程关注调查员，这些参数立即支配对抗与形态选择。",
+          "visual_only": false,
+          "limitations": "完整法术列表见条目与附录新法术；蛇形态细节指向“下文伊格之子”条目。",
+          "id": "blood-npc_parameter-9",
+          "set": "calibration"
+        },
+        {
+          "family": "npc_parameter",
+          "question": "莫德凯·奥斯庭（泰拉里什）的战斗数值、关键随身道具与基地受压迫时的极端手段是什么？",
+          "expected": [
+            {
+              "statement": "STR45、CON65、SIZ55、DEX50、INT70、POW85（MP17）；HP12，MOV8，护甲1硬化皮肤。",
+              "source_refs": [
+                {
+                  "page": 96
+                }
+              ]
+            },
+            {
+              "statement": "每回合1次攻击：斗殴40%；射击（手枪）40%；火器（步枪/霰弹枪）55%；闪避35%。",
+              "source_refs": [
+                {
+                  "page": 96
+                }
+              ]
+            },
+            {
+              "statement": "重要物品含伊格之眼与上衣口袋中的附魔哨子（可立即召来一匹拜亚基）。",
+              "source_refs": [
+                {
+                  "page": 96
+                }
+              ]
+            },
+            {
+              "statement": "若调查员在基地制造麻烦且沙痞处劣势，他会放出井中伊格眷属杀死院墙内所有陌生人。",
+              "source_refs": [
+                {
+                  "page": 97
+                }
+              ]
+            },
+            {
+              "statement": "他真名泰拉里什，半个蛇人，1936年生，为女祭司与霍尔盖特结合之种并盗用奥斯庭外表。",
+              "source_refs": [
+                {
+                  "page": 96
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 96
+            },
+            {
+              "page": 97
+            }
+          ],
+          "why_current_or_deferred": "牢房探视、基地冲突或公路逃亡时，其数值、哨子与放眷属会立刻改变当前威胁等级。",
+          "visual_only": false,
+          "limitations": "相貌吞食伪装与拜亚基追杀为条件战术，非开场即用；井中眷属另见附录怪物。",
+          "id": "blood-npc_parameter-10",
+          "set": "held_out"
+        },
+        {
+          "family": "visual_or_mixed",
+          "question": "羔羊之血圣灵降临教堂的视觉陈设与斯柯特牧师的武装、待客条件如何对应？",
+          "expected": [
+            {
+              "statement": "页面主图显示乡村教堂内景：木长椅、讲坛、墙上画作与十字架等陈设。",
+              "source_refs": [
+                {
+                  "page": 33
+                }
+              ]
+            },
+            {
+              "statement": "教堂前木牌写羔羊之血圣灵降临教堂，并注明1965年成立，木牌可能不到10年。",
+              "source_refs": [
+                {
+                  "page": 33
+                }
+              ]
+            },
+            {
+              "statement": "斯柯特离开房间时会把昵称“正义之怒”的双管锯短猎枪藏在讲坛下一隐蔽夹层；从牧师站立一侧看讲坛可知奥妙。",
+              "source_refs": [
+                {
+                  "page": 33
+                }
+              ]
+            },
+            {
+              "statement": "每晚睡觉都把正义之怒带在身边。",
+              "source_refs": [
+                {
+                  "page": 33
+                }
+              ]
+            },
+            {
+              "statement": "未经邀请接近或进入时，他会从大门后用猎枪顶住来者头部；确认非沙痞或更糟家伙后转而欢迎并端上饮料（通常威士忌）。",
+              "source_refs": [
+                {
+                  "page": 33
+                }
+              ]
+            },
+            {
+              "statement": "红房子牢房再警告：引入强奸/酷刑等须按开团讨论底线决定是否发生，可作背景设定而不在游玩中当场演出。",
+              "source_refs": [
+                {
+                  "page": 49
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 33
+            },
+            {
+              "page": 49
+            }
+          ],
+          "why_current_or_deferred": "回镇求援时是否受枪口迎接取决于是否获邀请，直接改变当前与潜在盟友的第一接触。",
+          "visual_only": false,
+          "limitations": "展示材料#23护符细节在图注指向中，本页未展开机械效果；年龄约60–70为约数。",
+          "id": "blood-visual_or_mixed-11",
+          "set": "calibration"
+        },
+        {
+          "family": "visual_or_mixed",
+          "question": "雷鸟礼品店插图与店主约翰·雷霆的第一印象、收银机行为如何互相印证？",
+          "expected": [
+            {
+              "statement": "页面插图为店内场景：白发或灰发年长男子立于堆满工艺品、弓箭与纪念品的木屋商店中。",
+              "source_refs": [
+                {
+                  "page": 30
+                }
+              ]
+            },
+            {
+              "statement": "店主约翰·雷霆（真名约翰·伊丹迪）通常坐在柜台后低矮软垫椅上。",
+              "source_refs": [
+                {
+                  "page": 30
+                }
+              ]
+            },
+            {
+              "statement": "当他黑眼睛透过柜台看到调查员进门，会一言不发慢慢站起并拨动收银机旁开关，收银机像活物般嗡嗡作响。",
+              "source_refs": [
+                {
+                  "page": 30
+                }
+              ]
+            },
+            {
+              "statement": "外部门窗贴多年前传单，还有至少十年历史的“跳楼大甩卖”牌子；懂阿帕切文化者能认出标牌人物体现阿帕切文化。",
+              "source_refs": [
+                {
+                  "page": 30
+                }
+              ]
+            },
+            {
+              "statement": "正文未写明插图中每一件货架物品的游戏数值清单。",
+              "source_refs": [
+                {
+                  "page": 30
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 30
+            }
+          ],
+          "why_current_or_deferred": "调查员首次进店时的无声观察与收银机反应是当前社交检定的即时触发条件。",
+          "visual_only": false,
+          "limitations": "插图为气氛与人物形象参考；《蠕虫的秘密》藏匿与侦查难度见次页，不单靠本页插图推断。",
+          "id": "blood-visual_or_mixed-12",
+          "set": "held_out"
+        }
+      ],
+      "review": {
+        "checked": [
+          {
+            "case_index": 0,
+            "verdict": "supported",
+            "reason": "p9 confirms quarterly sacrifice dates with August imminent; Miller capture; Carrie in red house not yet breeding; Rebecca/James in snake caves for conversion; Henry hanged in cold store after suicide; ~3 weeks missing, last seen camping ~50 miles south of Big Bend. p5 lists child-violence content, pre-game talk, skip/safeword/lights, and NPC must not rape PCs.",
+            "source_refs": [
+              {
+                "page": 9
+              },
+              {
+                "page": 5
+              }
+            ]
+          },
+          {
+            "case_index": 1,
+            "verdict": "supported",
+            "reason": "p13: Austin watches 2–3 days via Eye of Yig, orders townsfolk to block exit; Russ lied into needing out-of-town parts; Brenner pays Last Stop lodging and invites dinner; short-module option has Russ finish in ~1 hour and recommend Red Road. p8: at least one PC with car and Drive 55%+; classic muscle/pickup examples.",
+            "source_refs": [
+              {
+                "page": 13
+              },
+              {
+                "page": 8
+              }
+            ]
+          },
+          {
+            "case_index": 2,
+            "verdict": "supported",
+            "reason": "p31: De Vermis Mysteriis snake-skin book given by fleeing woman; wards hide it; John cannot read Latin. p8: touch/hold reveals rough location unless at protected sites. p105: bonus POW on touch, hissing ‘I see you,’ priestess alerts Austin and summons two sand-dwellers. p48: book long with John, not in Austin’s library—negative claim holds.",
+            "source_refs": [
+              {
+                "page": 31
+              },
+              {
+                "page": 105
+              },
+              {
+                "page": 8
+              },
+              {
+                "page": 48
+              }
+            ]
+          },
+          {
+            "case_index": 3,
+            "verdict": "supported",
+            "reason": "p32: door plaque Dr Robert L. Brenner, Mon–Thu 9–5, EM6-4128; full OR and soundproof kill room under SW facade; direct line brings compound squad in ~15 min; core Yig cultist second only to Austin; friendly-doctor act; may sedate if PCs too dangerous or delay hunt. p97 reinforces rank and facade.",
+            "source_refs": [
+              {
+                "page": 32
+              },
+              {
+                "page": 97
+              }
+            ]
+          },
+          {
+            "case_index": 4,
+            "verdict": "supported",
+            "reason": "p88 事不过三: one check in truly brutal; two under brutal-but-not-lethal when lethal; three for pulp/exaggerated film before crisis; stunts still under the rule; Keeper must align story style with the table.",
+            "source_refs": [
+              {
+                "page": 88
+              }
+            ]
+          },
+          {
+            "case_index": 5,
+            "verdict": "supported",
+            "reason": "p81–82: Drive for speed (success same MOV, extreme +1, fail −1); normalize lowest MOV to 1; accelerate ≤3 locations one penalty, floor it ≤5 two penalties; tire armor 3 HP 2 piercing only, destroy tire Build −1. p76: standard CoC chase plus optional App. I grindhouse rules.",
+            "source_refs": [
+              {
+                "page": 81
+              },
+              {
+                "page": 82
+              },
+              {
+                "page": 76
+              }
+            ]
+          },
+          {
+            "case_index": 6,
+            "verdict": "supported",
+            "reason": "p105: Eye monitors known person/place within 6 miles for 12 min at 3 MP; Hard POW to notice, eventually noticed; non-serpentime 2D6 SAN then 2D6 CON/hour. p96–97: Austin always wears it to watch PCs; costs MP, only scry/listen/immerse, no extra intel.",
+            "source_refs": [
+              {
+                "page": 105
+              },
+              {
+                "page": 96
+              },
+              {
+                "page": 97
+              }
+            ]
+          },
+          {
+            "case_index": 7,
+            "verdict": "supported",
+            "reason": "p17: office wall shotgun with coyote rock-salt, neglected; without proper tools malfunction drops to 80; ~1 hour to service; full garage kit; daytime Russ, Nate, Steve under the canopy smoking/beer—third parties constrain taking/servicing the gun.",
+            "source_refs": [
+              {
+                "page": 17
+              }
+            ]
+          },
+          {
+            "case_index": 8,
+            "verdict": "supported",
+            "reason": "p95 stat block: STR50 CON50 SIZ65 APP85(human) DEX70 INT90 POW95; HP20 DB0 Build0 MOV8 MP19; bite 35% 1D8+poison, Extreme CON or +1D8; armor 1 scale; SAN 0/1D6 serpent form; shifts human/serpent/giant rattlesnake ~50 ft ~1500 lb using Child of Yig body stats with own mind/magic.",
+            "source_refs": [
+              {
+                "page": 95
+              }
+            ]
+          },
+          {
+            "case_index": 9,
+            "verdict": "supported",
+            "reason": "p96: STR45 CON65 SIZ55 DEX50 INT70 POW85 MP17 HP12 MOV8 armor 1; Brawl 40% Handgun 40% Rifle/Shotgun 55% Dodge 35%; Eye of Yig and enchanted whistle for immediate byakhee. p97: if compound pressed and sandies losing, releases well Yig spawn to kill all strangers inside walls. True name Tylarissh, half-serpent, 1936, priestess×Holgate, stole Austin’s face.",
+            "source_refs": [
+              {
+                "page": 96
+              },
+              {
+                "page": 97
+              }
+            ]
+          },
+          {
+            "case_index": 10,
+            "verdict": "supported",
+            "reason": "p33 image/text: rural church pews, pulpit, wall art, cross; front sign Blood of the Lamb Pentecostal, founded 1965, sign maybe <10 years; Justice’s Wrath sawed-off under pulpit, carried at night; uninvited approach met gun-to-head then whiskey welcome if not sandies. p49 red-house warning: rape/torture only per session-zero limits, may stay background not played out.",
+            "source_refs": [
+              {
+                "page": 33
+              },
+              {
+                "page": 49
+              }
+            ]
+          },
+          {
+            "case_index": 11,
+            "verdict": "supported",
+            "reason": "p30: illustration of older grey/white-haired man in cluttered craft/souvenir shop; John Thunder/Idandi on low cushion behind counter; silent rise and register switch buzz on entry; old flyers and decade-old fire-sale sign; Apache-literate recognize sign figures. No per-item mechanical inventory for every shelf piece—negative claim holds.",
+            "source_refs": [
+              {
+                "page": 30
+              }
+            ]
+          }
+        ],
+        "limitations": [
+          "Verification used pdf page renders for cited physical pages only; uncited appendix monster/spell pages were not exhaustively re-read for extra omissions.",
+          "Illustration-only detail (exact shelf SKUs, portrait mood) is qualitative; mechanical claims rest on adjacent body text.",
+          "Scoped absences (e.g. book not in Austin’s office) are not whole-book absences."
+        ]
+      },
+      "evidence": {
+        "author_original_pages_viewed": 32,
+        "reviewer_original_pages_viewed": 19
+      }
+    },
+    "masks": {
+      "source_sha256": "806966db20202a020af6213695dccc0b547fc998a73dd2f1344567e2579a1942",
+      "page_count": 669,
+      "cases": [
+        {
+          "family": "distant_npc_plot",
+          "question": "As of January 1925, where is Roger Carlyle, what is his mental state, and who still watches over him from afar?",
+          "expected": [
+            {
+              "statement": "Roger Carlyle is confined in a Hong Kong asylum and is hopelessly insane.",
+              "source_refs": [
+                {
+                  "page": 16
+                }
+              ]
+            },
+            {
+              "statement": "Jack Brady watches over Carlyle from afar.",
+              "source_refs": [
+                {
+                  "page": 16
+                }
+              ]
+            },
+            {
+              "statement": "Carlyle knows the Great Plan but is too far gone to tell anyone.",
+              "source_refs": [
+                {
+                  "page": 16
+                }
+              ]
+            },
+            {
+              "statement": "Brady placed Carlyle in a Hong Kong sanitarium under the alias “Randolph Carter.”",
+              "source_refs": [
+                {
+                  "page": 15
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 16
+            },
+            {
+              "page": 33
+            },
+            {
+              "page": 15
+            }
+          ],
+          "why_current_or_deferred": "Remote status of a principal who is not present in most opening scenes; knowing he lives insane in Hong Kong changes whether investigators treat him as a corpse of the Kenya massacre or a living lead.",
+          "visual_only": false,
+          "limitations": "Local day-to-day sanitarium procedures beyond the alias placement are not fully detailed on these pages.",
+          "id": "masks-distant_npc_plot-1",
+          "set": "calibration"
+        },
+        {
+          "family": "distant_npc_plot",
+          "question": "Where does Jack Brady hide in Shanghai, who alone knows he lives there, and what is he waiting for?",
+          "expected": [
+            {
+              "statement": "Brady lives in a secret room in the house of Mu Hsien.",
+              "source_refs": [
+                {
+                  "page": 580
+                }
+              ]
+            },
+            {
+              "statement": "Only the retiring scholar Mu Hsien knows Brady lives in the hidden room.",
+              "source_refs": [
+                {
+                  "page": 580
+                }
+              ]
+            },
+            {
+              "statement": "Brady is waiting for the right moment to act against the cult plan.",
+              "source_refs": [
+                {
+                  "page": 580
+                }
+              ]
+            },
+            {
+              "statement": "Brady rarely leaves his hideout but occasionally visits the Firm Action warehouse headquarters (New China), and does so more frequently in recent days.",
+              "source_refs": [
+                {
+                  "page": 580
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 580
+            },
+            {
+              "page": 33
+            }
+          ],
+          "why_current_or_deferred": "Brady is a remote China-chapter ally whose location and secrecy condition whether investigators can reach him now or only after chasing Shanghai leads.",
+          "visual_only": false,
+          "limitations": "How investigators first learn of Mu Hsien’s house depends on other China links not restated in the meeting section alone.",
+          "id": "masks-distant_npc_plot-2",
+          "set": "held_out"
+        },
+        {
+          "family": "clue_connection",
+          "question": "What multiple investigation links point investigators toward Ju-Ju House in Harlem, and what address and layout detail does the text give?",
+          "expected": [
+            {
+              "statement": "Silas N’Kwane’s name on the reverse of Arthur Emerson’s business card (Carlyle Papers America #5) manages the site.",
+              "source_refs": [
+                {
+                  "page": 157
+                }
+              ]
+            },
+            {
+              "statement": "Mordecai Lemming recommends it as a place to inquire about African death cults.",
+              "source_refs": [
+                {
+                  "page": 157
+                }
+              ]
+            },
+            {
+              "statement": "Hilton and Millie Adams both name it in connection with Harlem murders and disappearances.",
+              "source_refs": [
+                {
+                  "page": 157
+                }
+              ]
+            },
+            {
+              "statement": "The emporium is at 1 Ransom Court, a cluttered alley off West 137th Street east of Lenox Avenue.",
+              "source_refs": [
+                {
+                  "page": 157
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 157
+            }
+          ],
+          "why_current_or_deferred": "Several independent clues converge on one cult site; which clue the party already has changes whether Ju-Ju House is a current destination.",
+          "visual_only": false,
+          "limitations": "Whether a rite is in progress depends on timing relative to the dark of the moon on 24–25 January 1925.",
+          "id": "masks-clue_connection-3",
+          "set": "calibration"
+        },
+        {
+          "family": "clue_connection",
+          "question": "How can investigators reach a meeting with Jack Brady in Shanghai, and what does Carlyle Papers China #7 imply about contacting Chu Min “in the usual manner”?",
+          "expected": [
+            {
+              "statement": "Multiple links include Gavigan’s unfinished letter, Lin Yenyu, Choi Mei-ling, Shanghai Courier articles, and surveillance of Mu Hsien’s house.",
+              "source_refs": [
+                {
+                  "page": 580
+                }
+              ]
+            },
+            {
+              "statement": "When Brady tells Chu to contact him in the usual manner, Chu goes each morning to the Autumn Morning teahouse and orders tea and sweet cakes.",
+              "source_refs": [
+                {
+                  "page": 580
+                }
+              ]
+            },
+            {
+              "statement": "If there is a message, it is on rice paper beneath the sweet cakes; Chu eats the message with the meal.",
+              "source_refs": [
+                {
+                  "page": 580
+                }
+              ]
+            },
+            {
+              "statement": "If Chu contacts the investigators, he meets them at that teahouse.",
+              "source_refs": [
+                {
+                  "page": 580
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 580
+            }
+          ],
+          "why_current_or_deferred": "Remote China tradecraft and multi-source links only become actionable after investigators obtain Brady- or Firm Action-related clues.",
+          "visual_only": false,
+          "limitations": "The handwritten note image supports the wording but does not alone list every alternate path to Brady.",
+          "id": "masks-clue_connection-4",
+          "set": "held_out"
+        },
+        {
+          "family": "special_rule",
+          "question": "During the Ritual of the Birth in Kenya, what Sanity-handling guidance does the book give Keepers so the campaign is not ended by total party insanity?",
+          "expected": [
+            {
+              "statement": "Several major Sanity rolls are called for, and further rolls may follow from witnessing monsters and brutality.",
+              "source_refs": [
+                {
+                  "page": 439
+                }
+              ]
+            },
+            {
+              "statement": "Keepers are advised to reserve additional Sanity rolls for outstanding horror moments and limit such rolls to about two or three.",
+              "source_refs": [
+                {
+                  "page": 439
+                }
+              ]
+            },
+            {
+              "statement": "Letting all investigators fall permanently insane effectively ends the campaign and should be avoided if play is to continue.",
+              "source_refs": [
+                {
+                  "page": 439
+                }
+              ]
+            },
+            {
+              "statement": "On a failed Sanity roll in the chaos, the Keeper may inflict involuntary separation or disorientation, or longer bouts of madness.",
+              "source_refs": [
+                {
+                  "page": 439
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 439
+            }
+          ],
+          "why_current_or_deferred": "Conditional ritual-scene rules apply only when investigators are present at the Mountain birth ceremony and directly change current Sanity stakes.",
+          "visual_only": false,
+          "limitations": "Exact listed Sanity losses for each spectacle are spread across adjacent ritual pages not fully restated here.",
+          "id": "masks-special_rule-5",
+          "set": "calibration"
+        },
+        {
+          "family": "special_rule",
+          "question": "What special social-interaction rule applies to police investigators (or riot-involved investigators) when dealing with residents near Ju-Ju House in Harlem?",
+          "expected": [
+            {
+              "statement": "Investigators who are themselves police suffer a penalty die on social interaction rolls with the area’s residents due to local police hostility.",
+              "source_refs": [
+                {
+                  "page": 157
+                }
+              ]
+            },
+            {
+              "statement": "Investigators already involved in a Harlem riot elsewhere also take a penalty die.",
+              "source_refs": [
+                {
+                  "page": 157
+                }
+              ]
+            },
+            {
+              "statement": "Police characters suffer a maximum of one penalty die even if both conditions apply.",
+              "source_refs": [
+                {
+                  "page": 157
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 157
+            }
+          ],
+          "why_current_or_deferred": "Conditional applicability based on investigator background and prior Harlem events that can change the current casing of Ju-Ju House.",
+          "visual_only": false,
+          "limitations": "Does not define every resident NPC reaction beyond the penalty-die mechanic.",
+          "id": "masks-special_rule-6",
+          "set": "held_out"
+        },
+        {
+          "family": "item_condition",
+          "question": "What is the Golden Mirror, how does examining it work, and what happens on an Extreme POW success?",
+          "expected": [
+            {
+              "statement": "It first appears as a solid gold mask about 6 inches (15 cm) square with a stylized geometric face and no eyeholes.",
+              "source_refs": [
+                {
+                  "page": 652
+                }
+              ]
+            },
+            {
+              "statement": "A successful Archaeology roll links its design to Tiwanaku-style artifacts.",
+              "source_refs": [
+                {
+                  "page": 652
+                }
+              ]
+            },
+            {
+              "statement": "Examining the polished back as a mirror for more than a few seconds requires a POW roll; success bombards the viewer with rapid future visions and costs 1D3/1D6 Sanity.",
+              "source_refs": [
+                {
+                  "page": 652
+                }
+              ]
+            },
+            {
+              "statement": "With an Extreme POW success the mirror functions like Contact Nyarlathotep; de Mendoza uses this aspect in the pyramid.",
+              "source_refs": [
+                {
+                  "page": 652
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 652
+            }
+          ],
+          "why_current_or_deferred": "Item use is conditional on examination rolls and can inject remote campaign foreshadowing into a current Peru scene.",
+          "visual_only": false,
+          "limitations": "Keeper chooses which 2–4 listed visions appear; not all visions are mandatory.",
+          "id": "masks-item_condition-7",
+          "set": "calibration"
+        },
+        {
+          "family": "item_condition",
+          "question": "How does the Ward of the Pyramid protect against Nyarlathotep-linked entities, and how is the removed conquistador section weaker?",
+          "expected": [
+            {
+              "statement": "The golden inlay ward around the pyramid base functions similarly to an Elder Sign.",
+              "source_refs": [
+                {
+                  "page": 652
+                }
+              ]
+            },
+            {
+              "statement": "Entities imbued with Nyarlathotep’s essence, including avatars and the kharisiri, cannot touch, damage, or pass over or through the intact ward.",
+              "source_refs": [
+                {
+                  "page": 652
+                }
+              ]
+            },
+            {
+              "statement": "The section removed by conquistadors (museum piece) is less powerful: kharisiri still cannot safely touch it without 1D3 damage per round or more than a few seconds nearby.",
+              "source_refs": [
+                {
+                  "page": 652
+                }
+              ]
+            },
+            {
+              "statement": "Even carrying the removed section in a crate or bag is impossible for the kharisiri; the piece is about 2 feet (60 cm) long, 3 inches (7.5 cm) wide, a third of an inch (1 cm) deep, and weighs a little under 25 pounds (11 kg).",
+              "source_refs": [
+                {
+                  "page": 653
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 652
+            },
+            {
+              "page": 51
+            },
+            {
+              "page": 653
+            }
+          ],
+          "why_current_or_deferred": "Ward integrity is the core conditional barrier controlling whether the trapped avatar and kharisiri can be freed or approached in the current Peru ruins.",
+          "visual_only": false,
+          "limitations": "Full pyramid tactical layout is on ruins pages beyond the artifact summary.",
+          "id": "masks-item_condition-8",
+          "set": "held_out"
+        },
+        {
+          "family": "npc_parameter",
+          "question": "What are Jackson Elias’s key classic combat and characteristic scores in the Peru chapter, and what pulp alternatives and talents does he have?",
+          "expected": [
+            {
+              "statement": "Classic profile includes STR 70, CON 85, POW 80, EDU 70, SAN 76, HP 15, Luck 80, Move 6.",
+              "source_refs": [
+                {
+                  "page": 87
+                }
+              ]
+            },
+            {
+              "statement": "Classic combat: Brawl 60% damage 1D3+1D4, .45 revolver 60% damage 1D10+2, Dodge 50%.",
+              "source_refs": [
+                {
+                  "page": 87
+                }
+              ]
+            },
+            {
+              "statement": "Pulp combat raises Brawl and .45 to 80% and Dodge to 60%.",
+              "source_refs": [
+                {
+                  "page": 87
+                }
+              ]
+            },
+            {
+              "statement": "Pulp talents: Alert (never surprised in combat) and Tough Guy (spend 10 Luck to shrug up to 5 HP in one round).",
+              "source_refs": [
+                {
+                  "page": 87
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 87
+            }
+          ],
+          "why_current_or_deferred": "Parameters differ by classic versus pulp mode and directly change current fight outcomes if Elias aids investigators in Peru.",
+          "visual_only": false,
+          "limitations": "Full skill list is long; case focuses on combat/characteristic block rather than every skill percentage.",
+          "id": "masks-npc_parameter-9",
+          "set": "calibration"
+        },
+        {
+          "family": "npc_parameter",
+          "question": "What are Captain Walter Robson’s key scores and how does his relationship to the Bloody Tongue condition his behavior toward investigators?",
+          "expected": [
+            {
+              "statement": "Robson is 52, corrupt cop: STR 70, CON 70, SIZ 75, POW 65, EDU 65, SAN 65, HP 14, Luck 35, Move 5, DB +1D4.",
+              "source_refs": [
+                {
+                  "page": 165
+                }
+              ]
+            },
+            {
+              "statement": "Combat includes Brawl 65% (brass knuckles +1) and Colt .38 at 65% for 1D10, Dodge 40%.",
+              "source_refs": [
+                {
+                  "page": 165
+                }
+              ]
+            },
+            {
+              "statement": "He is paid by the Bloody Tongue to protect Ju-Ju House but is not a cult member and does not know what goes on in its depths.",
+              "source_refs": [
+                {
+                  "page": 118
+                }
+              ]
+            },
+            {
+              "statement": "Concrete proof of the cult’s full depravity may convince him to turn against them or give information.",
+              "source_refs": [
+                {
+                  "page": 118
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 165
+            },
+            {
+              "page": 118
+            }
+          ],
+          "why_current_or_deferred": "His paid protection versus non-membership is a conditional lever that can flip a current Harlem confrontation if investigators produce proof.",
+          "visual_only": false,
+          "limitations": "Exact bribe amounts and schedule of payments are not quantified on these pages.",
+          "id": "masks-npc_parameter-10",
+          "set": "held_out"
+        },
+        {
+          "family": "visual_or_mixed",
+          "question": "From the Ju-Ju House plan, what are the numbered ground-floor and basement locations, and what map notes cover the trapdoor and ciimba guards?",
+          "expected": [
+            {
+              "statement": "Ground plan labels: 1 Ransom Court, 2 Shop floor, 3 Trapdoor, 4 Back rooms; basement: 5 Winch, 6 Ceremonial drums, 7 Chakota pit, 8 M’Dari’s alcove.",
+              "source_refs": [
+                {
+                  "page": 160
+                }
+              ]
+            },
+            {
+              "statement": "Map note: the rug behind the counter conceals a trapdoor to the basement.",
+              "source_refs": [
+                {
+                  "page": 160
+                }
+              ]
+            },
+            {
+              "statement": "Map note: ciimba stand guard in Location 8 at places marked G.",
+              "source_refs": [
+                {
+                  "page": 160
+                }
+              ]
+            },
+            {
+              "statement": "Surround notes place crowded tenements on all sides, an abandoned pawn shop adjacent, and barred windows toward West 138th Street.",
+              "source_refs": [
+                {
+                  "page": 160
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 160
+            }
+          ],
+          "why_current_or_deferred": "Spatial facts from the map change current infiltration choices (pawn shop, trapdoor, basement alcove) during a Ju-Ju House approach.",
+          "visual_only": true,
+          "limitations": "Door STR and rite-unlocked basement door rules appear in accompanying text rather than solely as map labels.",
+          "id": "masks-visual_or_mixed-11",
+          "set": "calibration"
+        },
+        {
+          "family": "visual_or_mixed",
+          "question": "Using the Gray Dragon Island map and facing text, how far is the island from Shanghai, what is Sir Aubrey doing there, and what do the chamber legend numbers identify for the rocket and sacrificial areas?",
+          "expected": [
+            {
+              "statement": "Gray Dragon Island lies about 300 miles (480 km) southeast of Shanghai and is a dormant volcano/atoll often shown as a mere reef.",
+              "source_refs": [
+                {
+                  "page": 588
+                }
+              ]
+            },
+            {
+              "statement": "Sir Aubrey uses it as the base for constructing his rocket intended to crack open the sky in January 1926.",
+              "source_refs": [
+                {
+                  "page": 588
+                }
+              ]
+            },
+            {
+              "statement": "Lagoon/island legend includes lookout, village, underwater entry, dock, and land entry among sites 1–5.",
+              "source_refs": [
+                {
+                  "page": 588
+                }
+              ]
+            },
+            {
+              "statement": "Chamber legend identifies 11 as The Rocket, 16 as Sacrificial Chamber, plus related features such as magma pool, statue, and Sir Aubrey’s workshop.",
+              "source_refs": [
+                {
+                  "page": 588
+                }
+              ]
+            },
+            {
+              "statement": "The book does not state on this spread that civilian tourist ferries regularly serve the island as a public destination.",
+              "source_refs": [
+                {
+                  "page": 588
+                }
+              ]
+            }
+          ],
+          "source_refs": [
+            {
+              "page": 588
+            },
+            {
+              "page": 22
+            }
+          ],
+          "why_current_or_deferred": "Remote China endgame site; map-derived layout and rocket purpose matter only once investigators commit to the island and change how a current assault or infiltration is framed.",
+          "visual_only": true,
+          "limitations": "Full interior room-by-room tactics require later Gray Dragon pages beyond the overview map spread.",
+          "id": "masks-visual_or_mixed-12",
+          "set": "held_out"
+        }
+      ],
+      "review": {
+        "checked": [
+          {
+            "case_index": 0,
+            "verdict": "supported",
+            "reason": "Physical p.16 (Jan 1925 principals box) states Roger Carlyle is confined in a Hong Kong asylum, hopelessly insane; Brady watches from afar; Carlyle knows the Great Plan but is too far-gone to tell anyone. Physical p.15 states Brady placed him in a Hong Kong sanitarium under the name “Randolph Carter.”",
+            "source_refs": [
+              {
+                "page": 15
+              },
+              {
+                "page": 16
+              }
+            ]
+          },
+          {
+            "case_index": 1,
+            "verdict": "supported",
+            "reason": "Physical p.580 Meeting Jack Brady: Brady lives in a secret room in Mu Hsien’s house; only Mu Hsien knows; he waits for the right moment to act; he rarely leaves but occasionally visits Firm Action warehouse HQ and more frequently in recent days.",
+            "source_refs": [
+              {
+                "page": 580
+              }
+            ]
+          },
+          {
+            "case_index": 2,
+            "verdict": "supported",
+            "reason": "Physical p.157 lists Silas N’Kwane / Emerson card America #5, Lemming African death-cults tip, Hilton and Millie Adams Harlem murder/disappearance links, and address 1 Ransom Court off West 137th east of Lenox.",
+            "source_refs": [
+              {
+                "page": 157
+              }
+            ]
+          },
+          {
+            "case_index": 3,
+            "verdict": "supported",
+            "reason": "Physical p.580 lists Gavigan letter, Lin Yenyu, Choi Mei-ling, Shanghai Courier, Mu Hsien surveillance links; Keeper note details Autumn Morning teahouse, tea and sweet cakes, rice-paper message eaten with meal, and Chu meeting investigators there.",
+            "source_refs": [
+              {
+                "page": 580
+              }
+            ]
+          },
+          {
+            "case_index": 4,
+            "verdict": "supported",
+            "reason": "Physical p.439 Running the Ritual of the Birth: several major Sanity rolls plus further monster/brutality rolls; reserve extra rolls for outstanding horror and limit to about two or three; permanent mass insanity ends the campaign and should be avoided; failed Sanity can yield separation/disorientation or longer bouts of madness.",
+            "source_refs": [
+              {
+                "page": 439
+              }
+            ]
+          },
+          {
+            "case_index": 5,
+            "verdict": "supported",
+            "reason": "Physical p.157 Keeper note: police investigators take a penalty die on social rolls with area residents; riot-involved investigators also take a penalty die; police suffer a maximum of one penalty die even if both apply.",
+            "source_refs": [
+              {
+                "page": 157
+              }
+            ]
+          },
+          {
+            "case_index": 6,
+            "verdict": "supported",
+            "reason": "Physical p.652 Golden Mirror: solid gold ~6 in/15 cm square stylized geometric face, no eyeholes; Archaeology links to Tiwanaku; polished back mirror, POW after more than a few seconds, success yields rapid visions and 1D3/1D6 Sanity; Extreme POW success acts as Contact Nyarlathotep; de Mendoza uses this in the pyramid.",
+            "source_refs": [
+              {
+                "page": 652
+              }
+            ]
+          },
+          {
+            "case_index": 7,
+            "verdict": "supported",
+            "reason": "Physical p.652–653: golden inlay ward functions like an Elder Sign; Nyarlathotep-imbued entities including avatars and kharisiri cannot touch, damage, or pass the intact ward; conquistador-removed section is weaker—kharisiri take 1D3/round or cannot stay more than a few seconds, cannot carry it in crate/bag; dimensions ~2 ft × 3 in × 1/3 in, under 25 lb (11 kg).",
+            "source_refs": [
+              {
+                "page": 652
+              },
+              {
+                "page": 653
+              }
+            ]
+          },
+          {
+            "case_index": 8,
+            "verdict": "supported",
+            "reason": "Physical p.87 Jackson Elias classic: STR 70 CON 85 POW 80 EDU 70 SAN 76 HP 15 Luck 80 Move 6; Brawl 60% 1D3+1D4, .45 60% 1D10+2, Dodge 50%; pulp Brawl/.45 80%, Dodge 60%; talents Alert and Tough Guy (10 Luck shrug up to 5 HP/round).",
+            "source_refs": [
+              {
+                "page": 87
+              }
+            ]
+          },
+          {
+            "case_index": 9,
+            "verdict": "supported",
+            "reason": "Physical p.165 Robson age 52 corrupt cop with listed STR/CON/SIZ/POW/EDU/SAN/HP/Luck/Move/DB and Brawl 65% brass knuckles +1, Colt .38 65% 1D10, Dodge 40%. Physical p.118: paid by Bloody Tongue to protect Ju-Ju House, not a cult member, unaware of depths; concrete proof of full depravity may turn him or yield information.",
+            "source_refs": [
+              {
+                "page": 165
+              },
+              {
+                "page": 118
+              }
+            ]
+          },
+          {
+            "case_index": 10,
+            "verdict": "supported",
+            "reason": "Physical p.160 Ju-Ju House plan legend 1–8 matches (Ransom Court, shop floor, trapdoor, back rooms, winch, ceremonial drums, Chakota pit, M’Dari’s alcove); rug conceals trapdoor; ciimba guard at Location 8 marked G; tenements all sides, abandoned pawn shop adjacent, barred windows toward West 138th.",
+            "source_refs": [
+              {
+                "page": 160
+              }
+            ]
+          },
+          {
+            "case_index": 11,
+            "verdict": "supported",
+            "reason": "Physical p.588: ~300 miles (480 km) SE of Shanghai, dormant volcano/atoll often a mere reef; Sir Aubrey’s rocket base to crack open the sky January 1926; lagoon legend 1–5 lookout/village/underwater entry/dock/land entry; chamber 11 The Rocket, 16 Sacrificial Chamber plus magma pool, statue, workshop; no tourist-ferry public-service claim on this spread.",
+            "source_refs": [
+              {
+                "page": 588
+              }
+            ]
+          }
+        ],
+        "limitations": [
+          "Case source_refs use physical PDF page indices (bookmark/tool pages), which differ from printed folio numbers on the same spreads.",
+          "Scoped absences (e.g. no tourist ferries on the Gray Dragon overview) were checked on cited spreads only, not as whole-book claims.",
+          "Third-participant and creation-advice scan on cited spreads did not surface required omissions beyond the authored expected statements."
+        ]
+      },
+      "evidence": {
+        "author_original_pages_viewed": 23,
+        "reviewer_original_pages_viewed": 16
+      }
+    }
+  }
+}

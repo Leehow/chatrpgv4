@@ -365,7 +365,8 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
         available: {here: [], handed: [], next: [], fallback: null}, action: 'Realize this bridge before ordinary pacing.'};
     await writeFile(turnPath, JSON.stringify(cursor));
     const job = await call('mods.job', {role: 'audit', input: {text: 'The old register ends before the inheritance.',
-        preparation_wait: {kind: 'adaptation', name: 'athens-pension'}}});
+        preparation_wait: {kind: 'adaptation', name: 'athens-pension'},
+        source_consultations:{pending:[{focus:'register',question:'Who inherited the house?',purpose:'answer'}],unavailable:[],answers:[]}}});
     assert.equal(job.continuity_review, true); assert.equal(job.source_review, undefined);
     assert.equal(job.continuity_schema, undefined, 'the retained semantic fixture uses its explicit v1 package');
     const focused = JSON.parse(await readFile(join(job.cwd, 'context.json'), 'utf8'));
@@ -381,6 +382,8 @@ test('new jobs expose focused context with full fallback, bind accepted reports,
     assert.equal(focused.causal_reentry.bridge.clue, 'globe-unpublished-story');
     assert.equal(focused.causal_reentry.authority.clue_here, false);
     assert.deepEqual(focused.preparation_wait, {kind: 'adaptation', name: 'athens-pension'});
+    assert.deepEqual(focused.source_consultations.pending, [{focus:'register',question:'Who inherited the house?',purpose:'answer'}]);
+    assert.deepEqual(job.focus.source_consultations,focused.source_consultations);
     assert.ok(focused.recent_history[0].truncated); assert.ok((await readFile(join(job.cwd, 'history.json'), 'utf8')).length > 3000);
     assert.equal(focused.recent_history[1].player_text, 'Leave the book with the witness; do not take it.');
     assert.ok(focused.coverage.full_evidence_files.includes('history.json'));

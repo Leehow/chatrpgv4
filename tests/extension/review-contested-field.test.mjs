@@ -152,13 +152,17 @@ const library = (workspace, mid) => {
 };
 const queueOf = (workspace, mid) => JSON.parse(readFileSync(join(workspace, ".coc/modules", mid, "deepen-queue.json"), "utf8"));
 
-test("§22.3.2 on the emitted kernel: a root dispute refuses naming it; classification disputes publish with marks the Keeper sees; a later reading settles one", async (t) => {
+test("§22.3.2 legacy retained packet on the emitted kernel: a root dispute refuses naming it; classification disputes publish with marks the Keeper sees; a later reading settles one", async (t) => {
 	const workspace = await mkdtemp(join(tmpdir(), "review-contested-"));
 	t.after(() => rm(workspace, { recursive: true, force: true }));
 	const mid = town(workspace);
 	const detail = (question) => {
 		ok(workspace, [["module.read.request", { module_id: mid, purpose: "detail", focus: "Bar", ...(question ? { question } : {}), retry: true }]]);
-		return claim(workspace, mid);
+		const job=claim(workspace, mid);
+        // Retained legacy review semantics; current module impact policy is tested separately.
+        const packetPath=join(job.work_dir,"packet.json"),packet=JSON.parse(readFileSync(packetPath,"utf8"));
+        delete packet.review_policy;writeFileSync(packetPath,JSON.stringify(packet));
+        return job;
 	};
 
 	// The recorded shape: refused at the clue's root, with its reason; the classification disputes did not refuse it.
@@ -208,7 +212,7 @@ test("§22.3.2 on the emitted kernel: a root dispute refuses naming it; classifi
 		["meat", "properties/delivery_kind", "skill_check"], ["meat-luck", "properties/mechanics/check/selection", "maximum"],
 		["spot-plates", "properties/mechanics/check/selection", "maximum"]], JSON.stringify(view.where.contested));
 	assert.ok(view.where.contested.every((row) => typeof row.reason === "string" && row.reason.length > 0));
-	assert.match(view.where.contested_note, /classified/);
+	assert.match(view.where.contested_note, /advisory/);
 
 	// A later reading whose review supports the clue settles its mark; the others stay.
 	const clueOnly = { nodes: [draft.nodes[4]], claims: [], node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ["clue-meat"] };

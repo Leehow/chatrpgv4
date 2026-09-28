@@ -71,7 +71,7 @@
           "from": "module_id"
         },
         "start_scene": {
-          "description": "an authored opening chosen after candidates were returned",
+          "description": "the exact candidate.scene handle returned for the player's chosen authored opening; do not translate its name into this field",
           "required": false
         },
         "retry": {
@@ -81,7 +81,7 @@
       },
       "receipt": "module_id",
       "lines": {
-        "do": "Prepare source guidance or reuse accepted guidance. In frontend setup the host completes this step as soon as reviewed guidance is accepted, while the opening prepares in the background. For multiple authored openings, match the player intent to the candidate summaries and select one before creating the campaign.",
+        "do": "Prepare source guidance or reuse accepted guidance. In frontend setup the host completes this step as soon as reviewed guidance is accepted, while the opening prepares in the background. For multiple authored openings, match the player's intent to the candidate summaries, then pass the returned candidate.scene handle as start_scene. Never translate or paraphrase that handle.",
         "next": "Prepare the chosen PDF with prepare-module; if reading is still in progress, wait for the existing job rather than starting another."
       }
     },

@@ -41,3 +41,5 @@ Keep the existing page renderer, overview and source-review ownership. No second
 ## Comments
 
 2026-09-27: Can proceed alongside JPDF-05 after shared navigation is available; both serialize changes to shared source interfaces.
+
+Implementation mapping: native prototype `4ba527fdf06bb0429b3984ac4ceab4e95ea38ec2` and minimal-entry `0a7a63ad8117f80a301c80c515e91245ab084b52`, their source materialization and coverage records, demonstrate exact original-page/crop access but do not establish scanned-source completeness. Production retains the existing PDF info/search/overview/pages tools and independent review. The native catalog now records structural text availability per physical page and keeps visual coverage explicitly unassessed for text-rich pages too. A map request first reuses the source index's exact scene identity to choose its map candidates; unknown identity retains ordinary broader discovery. The original-image submission gate continues to reject overview-only evidence. Original-book held-out visual cases remain an acceptance gate.

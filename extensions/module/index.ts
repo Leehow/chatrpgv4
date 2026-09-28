@@ -20,7 +20,7 @@ export default function (pi: ExtensionAPI) {
     function retireReader() {
         const previous = reading; reading = undefined;
         if (!previous) return;
-        const closed = previous.close().catch(()=>undefined).finally(()=>retiring.delete(closed));
+        const closed = previous.close({handOff:true}).catch(()=>undefined).finally(()=>retiring.delete(closed));
         retiring.add(closed);
     }
     let moduleId: string | undefined;

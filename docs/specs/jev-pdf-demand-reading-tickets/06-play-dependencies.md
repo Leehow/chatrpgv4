@@ -41,4 +41,6 @@ No NPC personality/behavior redesign, new director obligations or new player act
 
 ## Comments
 
+Implementation mapping: native prototype `4ba527fdf06bb0429b3984ac4ceab4e95ea38ec2`, `experiments/jev-native-reader/source-driver.mjs`, and minimal-entry `0a7a63ad8117f80a301c80c515e91245ab084b52` retained the missing third actor and re-entered a narrower related source scope. Production uses the same native source driver for scoped answers and detail, plus the reviewed source-needs ledger: current gaps re-enter retrieval, future questions are queued and a matching demand promotes the same job. Answer navigation gains direct-answer, connected-context and applicability facets, preserving unknown headings and the full source fallback. Located page scores, including low scores, remain source-bound navigation evidence rather than disappearing behind the displayed candidate cap. The real Blood Road table has confirmed a Drive Auto 21 card and reached the Esso interaction; ten-turn, held-out relation and cost acceptance remain open.
+
 2026-09-27: Can be implemented separately from 07/08 after shared source-bound dependency state is accepted; shared files require one owner at integration.

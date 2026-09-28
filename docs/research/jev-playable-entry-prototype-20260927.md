@@ -1,6 +1,7 @@
 # Jev / native Pi: minimal playable-entry prototype
 
 Status: live source prototype; production publication and real setup/play acceptance remain open.
+Interpretation correction (2026-09-27): references below to Blood Road's "hard" creation condition describe authored source emphasis and a missing guidance fact, not a product card-validation gate. The user explicitly requires creation advice or warnings only. A player may confirm a card with lower Driving and continue play; the omitted source advice still fails brief fidelity. The raw prototype outcome and its post-audit failure remain unchanged.
 Date: 2026-09-27
 Production base: 0.9.6a at 58f5889d3341b7d90fcc9e7cf0fe4108530579b6.
 Prototype branch: codex/jev-pi-reader-prototype-20260927, commit 0a7a63ad8, new experiments/jev-playable-entry directory.

@@ -1,11 +1,17 @@
 # Jev PDF demand reading — ticket index
 
-Status: ready-for-agent
-Execution: twelve scoped tickets authorized for implementation on 2026-09-27. JPDF-01 is active; production code changes and acceptance remain to be recorded. Sidecar and native Pi sandbox evidence are separate.
+Status: implemented; integrated acceptance remains open
+Execution: twelve scoped tickets authorized for implementation on 2026-09-27. JPDF-01 baseline and JPDF-10 source-answer vertical are complete; The source driver, two readiness stages, dependency ledger, priority scheduling and public UI fields are implemented; integrated quality, latency and cost acceptance is in progress. Sidecar and native Pi sandbox evidence are separate.
 Parent: [specification](jev-pdf-demand-reading.md).
 Tracker: repository-local Markdown; one file per ticket. No remote issues.
 
+## Owner correction — 2026-09-28
+
+Implement and test module logic/relationship correctness, not 100% textual or numerical fidelity. Harmless presentation and valid parameter differences are advisory and must not delay play. Keeper-established facts and receipts remain the campaign standard; later differences are mapped. Core rules and executable data checks remain. Contract §147.8 overrides incompatible wording in earlier ticket acceptance lists; their historical evidence stays intact.
+
 ## Execution checkpoint
+
+Latest regression: 2,022 kernel tests passed; full extension run 3,784 passed / one fixture partial-write race failed, then passed alone. Subsequent priority-lock regression failed before the fix and passed in 35 reader tests plus 17 ownership/resume tests. Real-table records and unresolved acceptance items are in the [2026-09-28 report](../research/jev-pdf-implementation-acceptance-20260928.md). No ticket is marked complete solely because its implementation exists.
 
 The user requested specification and ticket decomposition on 2026-09-27, then requested sandbox experiments before setting targets, and has now authorized implementation and self-testing. Prototype findings precede the work. Performance percentages are withdrawn pending measurement; quality boundaries remain. A ready ticket whose blockers remain incomplete is not on the execution frontier. Packaging is not authorized.
 
@@ -19,14 +25,19 @@ Current checkout: `0.9.6a` at `58f5889d3341b7d90fcc9e7cf0fe4108530579b6` when im
 
 | Ticket | State | Next proof |
 | --- | --- | --- |
-| 01 | Active: freeze real baseline, source-grounded cases and cost accounting | Matched cold/warm procedure, original-page goldens, joined milestone records |
-| 10 | Waiting for 01 | Native Pi source request through real source finish |
-| 02 | Waiting for 01 | Outgoing image projection and original evidence preserved |
-| 03, 04, 05, 12 | Waiting for 10/03 as shown below | Minimal creation gate, visual fallback, selected scene and public UI progress |
-| 06, 07, 08, 11 | Waiting for 05 | Demand source consumption, mechanics, independent review and background priority |
+| 01 | Complete as baseline/pre-registration: both cold setups and first real actions, 24 reviewed cases, frozen targets and disjoint known-cost lower bounds; missing/blocked background remains adverse evidence | Optimized comparisons and complete background cost are JPDF-09 gates |
+| 10 | Complete as checked source-answer vertical: actual Pi RunDriver/Jev/source tools, cross-page re-entry, independent review and TypeScript finish | Adaptive creation/scene scope and total-cost improvement belong to 03/05/09 |
+| 02 | Implemented delivery accounting and bounded images; comparative acceptance open | Original evidence and measured image savings |
+| 03 | In progress: real guidance path and selected-entrance reuse; cold time targets still fail | Minimal creation completeness, player advice and paired latency |
+| 05 | In progress: RPC overlap, native scene location and entry-to-first-interaction scope | Original-source publication, handoff and a meaningful first action |
+| 08 | In progress: focused opening review, exact required paths and review-only recovery | Independent omission discovery and accepted publication |
+| 04, 12 | Implemented: explicit native/visual coverage and real public UI progress; native and no-Jev runs retained | Mixed-page quality and final matched latency |
+| 06, 07, 11 | Implemented shared retained needs, original-source mechanics checks and provider-boundary priority | Original-source quality, actual mechanics use and background/restart acceptance |
 | 09 | Waiting for terminal prerequisites | Paired real source-to-play runs and full quality/cost gates |
 
 The main session remains the sole player in any real table. No scripted player or surrogate Keeper is authorized. This record is a continuity aid; individual ticket acceptance criteria remain the gate.
+
+2026-09-27 continuation: [live baseline evidence](../research/jev-pdf-real-baseline-20260927.md) records the two cold homes and retained warm/failed attempts. Blood Road's confirmed Drive Auto 21 card is a valid player choice; the product omitted the book's 55% driver advice despite author/reviewer viewing that page. Masks' selected opening was prepared before card confirmation. The separate tool-enabled Pi case author/reviewer found unsupported facts and omissions in its first Blood Road draft; that adverse evidence is retained for correction and fresh review. Local `build:runtime` passed because the remote heavy-test box failed its single probe. Production TypeScript remains unchanged; contract §147 and research/test preparations are the current dirty files. The user corrected the prior hard-card-gate interpretation: source creation conditions are advisory or warnings and never grounds for refusing player card confirmation.
 
 ## Required prototype evidence
 
@@ -143,3 +154,5 @@ No new generic test framework, replacement Keeper, synthetic player or second im
 2026-09-27: Draft breakdown created after source and retained-log investigation. The initial proposed percentage goals were withdrawn after the user requested sandbox experiments first. [Sandbox results](../research/jev-pdf-sandbox-20260927.md) remove a mandatory generic classification pass and reject unconditional first-use image eviction. Source navigation is fast, but complete setup gains and source-contract equivalence remain unverified. JPDF-01 must freeze the real-protocol baseline before the remaining implementation slices; component timings do not authorize publication as a completed or performance-accepted feature.
 
 2026-09-27, native Pi correction: [the new prototype](../research/jev-native-pi-reader-20260927.md) actually injects SessionRunDriver into current Pi. Added JPDF-10 ahead of 03. Native cold tasks reduce generative calls but do not consistently reduce total time/input; Masks exposed a third required profile. Required gaps must trigger rereading, and Jev-selected local scope reduced that supplement's input substantially. These findings revise the design, not the implementation statuses.
+
+2026-09-28 checkpoint: full extension suite returned 3,770/3,771; its sole failure was the exact wording assertion for the selected opening handle and the focused regression now passes. Full kernel/play suite returned 2,014/2,022: every failure came from writing absent optional public_progress as undefined into a strict JSON queue record. The producer now omits absent optional fields; all eight original tests pass unchanged. Tests ran locally because the inspected remote helper uses force-checkout/clean outside the mandated lifecycle tool; no remote scratch checkout was created. This is a recorded deviation from the remote-suite criterion, not remote acceptance.

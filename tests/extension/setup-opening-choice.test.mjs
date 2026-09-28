@@ -209,7 +209,7 @@ test("a campaign created without its opening: the block asks, keeps the guide's 
 	assert.equal(refused.code, "setup_blocked");
 	assert.equal(refused.cause, "needs_choice", `the cause is the missing opening, not a failed preparation: ${JSON.stringify(refused)}`);
 	assert.deepEqual(refused.details.candidates, OPENINGS, "the block carries the candidates");
-	assert.match(refused.error, /prepare-module with that candidate's scene as start_scene/);
+	assert.match(refused.error, /prepare-module with the exact chosen candidate.scene handle as start_scene/);
 	assert.equal(typeof refused.player_reason, "string", "SL-100: the refusal carries the player's reason");
 	assert.ok(!refused.player_reason.includes("setup_blocked") && !refused.player_reason.includes("needs_choice"));
 	assert.ok(prompts[0].includes("more than one opening") && prompts[0].includes("The Tower"), "the guide is told to ask, with the openings");
@@ -267,6 +267,7 @@ test("a single-opening book is unchanged: no question, no pin, create-campaign c
 	assert.equal(create.params.start_scene, undefined, "no opening was chosen, so none is carried");
 	assert.ok(!table.kernelRequests().some((row) => row.method === "module.opening.choose"));
 	assert.deepEqual(packets.map((packet) => packet.opening), ["The Dock"], "guidance takes the book's one opening");
+	assert.ok(table.kernelRequests().some(row=>row.method==="module.read.request"&&row.params.purpose==="opening"&&row.params.foreground===false&&row.params.opening_scope==="first_interaction"),"the accepted sole guidance scene starts reading during creation even without an explicit opening choice");
 });
 
 /** One cold kernel process over the workspace: each request in order, every one must succeed. */

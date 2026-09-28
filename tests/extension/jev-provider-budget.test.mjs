@@ -141,6 +141,16 @@ test('real child IPC gates two calls before dispatch and aggregates actual usage
  const settings=JSON.parse(await readFile(join(f.home,'.pi/settings.json'),'utf8'));assert.equal(settings.retry.provider.maxRetries,0);
 });
 
+test('a source priority wait happens before provider dispatch and before spending its reservation',async t=>{
+ const f=await fixture(t,'one'),root=lease();t.after(()=>root.close());
+ let entered,release;const waiting=new Promise(resolve=>{entered=resolve}),gate=new Promise(resolve=>{release=resolve});
+ const task=runReader({cwd:f.home,brief:'Priority boundary conformance',model:'test/bounded',providerBudget:createTaskProviderBudget(root),timeoutMs:5000,
+  beforeProviderRequest:async()=>{entered();await gate;}},f.context);
+ await waiting;await assert.rejects(readFile(f.marker,'utf8'),{code:'ENOENT'});
+ assert.equal(root.context.budget.remainingActions,10);
+ release();const result=await task;assert.equal(result.ok,true,JSON.stringify(result));assert.equal(await readFile(f.marker,'utf8'),'1');
+});
+
 test('child IPC cannot dispatch when reservation persistence fails',async t=>{
  const f=await fixture(t,'one'),root=lease();t.after(()=>root.close());
  const outcome=await runReader({cwd:f.home,brief:'Persistence conformance only',model:'test/bounded',

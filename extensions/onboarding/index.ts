@@ -12,6 +12,7 @@ import {readJevApiKey} from '../jev/agent/config.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { prepareCharacterGuidance, acceptedGuidance, guidanceReviewRefused, type Guidance } from '../module/character-guidance.ts';
+import {preparePdfCreationGuidance} from './pdf-guidance.ts';
 import { registerInvokeHandlers } from '../../pipicoc/host-bridge.ts';
 import { Type } from "typebox";
 import { cocHome, cocMode } from "../lanes/host.ts";
@@ -114,7 +115,7 @@ function setupBlockRefusal(block: SetupBlock, remedy?: string): Record<string, u
 	if (block.kind === 'package_context') {
 		error = `The setup package context could not be read (mods.context: ${why}). Setup is blocked until it is restored: fix or disable the package the error names in the Mods panel, then wait for a new player input, which reads the context again; do not draft or continue setup on the core policy alone.`;
 	} else if (block.code === 'needs_choice') {
-		error = `Setup waits for the opening (${why}). Ask the player which opening to start from (details.candidates), then call ${remedy ?? 'the preparation step'} with that candidate's scene as start_scene: it records the choice and prepares the guidance again. Do not invent a setup scene or create a card.`;
+		error = `Setup waits for the opening (${why}). Ask the player which opening to start from (details.candidates), then call ${remedy ?? 'the preparation step'} with the exact chosen candidate.scene handle as start_scene: it records the choice and prepares the guidance again. Do not translate that handle, invent a setup scene or create a card.`;
 	} else {
 		const when = block.kind === 'guidance_at_create_campaign' ? 'when create-campaign ran' : 'at the start of this turn';
 		const fix = block.code === 'guidance_not_ready'
@@ -207,6 +208,7 @@ export default function (pi: ExtensionAPI) {
   /** §14.19.4: when this setup first waited on each reading, so the player hears roughly how long it has been. */
   const readingSince = new Map<string, number>();
   let guidancePending: Promise<Guidance | undefined> | undefined;
+  const openingPrefetches=new Set<string>();
   // Contract §26 Guided Creation: the package's slots, the kernel's notes and the cap; the move is computed, never remembered.
   let setupSlots: SetupSlot[] = [];
   let setupNotes: SetupNotes | undefined;
@@ -692,7 +694,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/** Run this step's ops in table order; a missing parameter stops it there and hands the results so far to the model to fill in. */
-	async function runOps(step: Step, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+	async function runOps(step: Step, args: Record<string, unknown>, signal?:AbortSignal): Promise<Record<string, unknown>> {
 		const current = bridge;
 		if (!current) return { ok: false, step: step.id, rejected: "The kernel bridge is gone, so this step cannot run." };
 		const results: Record<string, unknown> = {};
@@ -721,9 +723,16 @@ export default function (pi: ExtensionAPI) {
 			}
 			try {
                 if(op.method==='setup.draft'||op.method==='setup.confirm')filled.params=await bindInputParams(filled.params);
+				if(op.method==='setup.complete'&&sourceKind!=='starter'&&reading){
+					const moduleId=asString(context.module_id),scene=campaignOpening??asString(context.start_scene)??characterGuidance?.scene;
+					if(moduleId&&scene)await reading.prepare({module_id:moduleId,start_scene:scene,targeted:true,campaign:context.campaign},signal);
+				}
 				const result =
 					op.method === "module.prepare"
-						? await (reading ? reading.prepare(filled.params) : Promise.reject(new Error("the reading service is unavailable")))
+						? await (reading && ctx ? preparePdfCreationGuidance({home:cocHome(ctx.cwd),contentRoot:current.runtime?.contentRoot,
+							params:filled.params,reading,playLanguage:boundLanguage,
+							occupations:async()=>asRecord(await current.call('setup.occupations',{})).occupations as Record<string,unknown>[],signal})
+							: Promise.reject(new Error("the reading service is unavailable")))
 						: asRecord(await current.call(op.method, filled.params));
 				if (result.ok === false) return { ...result, step: step.id, results };
 				if(op.method==='setup.draft') await presentDraft(current,result);
@@ -822,6 +831,22 @@ export default function (pi: ExtensionAPI) {
 		catch { return undefined; }
 	}
 
+	/** Begin the already chosen scene while the player is still building a card. */
+	function prepareOpeningInBackground(campaign:string,scene:string):void {
+		const moduleId=asString(context.module_id),owner=reading;
+		if(!owner||!moduleId||sourceKind==='starter'||!campaign||!scene)return;
+		const key=campaign+'\u0000'+moduleId+'\u0000'+scene;
+		if(openingPrefetches.has(key))return;
+		openingPrefetches.add(key);
+		try{pi.appendEntry('coc-telemetry',{lane:'reading',event:'opening_overlap_start',campaign,module_id:moduleId,scene,at:new Date().toISOString()});}catch{}
+		void owner.prepare({module_id:moduleId,start_scene:scene,targeted:true,background:true,campaign})
+			.catch(error=>{
+				openingPrefetches.delete(key);
+				try{pi.appendEntry('coc-telemetry',{lane:'reading',event:'opening_overlap_wait_ended',campaign,module_id:moduleId,scene,
+					code:errorCode(error)??'reading_failed',at:new Date().toISOString()});}catch{}
+			});
+	}
+
 	/**
 	 * After the preparation step succeeds on a campaign that already exists: the campaign's own opening
 	 * is pinned when it has none (a campaign created before its opening was chosen), with
@@ -836,6 +861,7 @@ export default function (pi: ExtensionAPI) {
 		if (chosen && moduleId && !campaignOpening) {
 			try {
 				campaignOpening = asString(asRecord(await bridge.call('module.opening.choose', {module_id: moduleId, scene: chosen, campaign})).start_scene) ?? chosen;
+				prepareOpeningInBackground(campaign,campaignOpening);
 			} catch (error) {
 				const code = errorCode(error) ?? 'internal', {fix, details} = actionable(error);
 				const question = code === 'needs_choice' ? openingCandidates(details) : undefined;
@@ -987,7 +1013,7 @@ export default function (pi: ExtensionAPI) {
 		const outcome =
 			step.kind === "ask"
 				? await runAsk(step, args)
-				: await runOps(step, args);
+				: await runOps(step, args,signal);
 
 		if (outcome.ok !== true) {
 			const question = outcome.code === 'needs_choice' ? openingCandidates(outcome.details) : undefined;
@@ -1015,6 +1041,10 @@ export default function (pi: ExtensionAPI) {
           pi.sendMessage(await shownPrologue(guidance));
           outcome.opening_shown='The host has shown character_guidance.opening to the player word for word, right after this result. Do not repeat, retell or translate it; continue after it as the host.';
         }
+        const created=asRecord(asRecord(outcome['campaign.create']).campaign);
+        const boundCampaign=asString(created.id)??asString(context.campaign);
+        const boundScene=asString(created.opening_scene)??campaignOpening??asString(context.start_scene)??guidance?.scene;
+        if(boundCampaign&&boundScene)prepareOpeningInBackground(boundCampaign,boundScene);
       } catch(error) {return guidanceFailure(error,'guidance_at_create_campaign',false,startedAt);}
     }
 		const next = nextStep(steps, state());
@@ -1156,7 +1186,7 @@ export default function (pi: ExtensionAPI) {
         // §14.19: a missing opening is the guide's question, not a failure: no error notice, the guide's
         // text stays on screen, and the step that records the answer stays open (§98 addendum 9).
         openingQuestion=question;
-        return {systemPrompt:base+'\nThis book has more than one opening and this campaign has none recorded yet. Ask the player which one to start from, naming each by its name and what it is about (the list below). When they answer, call setup '+(remedyStep()??'prepare-module')+' with that opening\'s scene as start_scene: it records the choice and prepares the module guidance. Until then do not invent a prologue or create an investigator.\nOpenings: '+JSON.stringify(question)};
+		return {systemPrompt:base+'\nThis book has more than one opening and this campaign has none recorded yet. Ask the player which one to start from, naming each by its name and what it is about (the list below). When they answer, call setup '+(remedyStep()??'prepare-module')+' with the exact chosen candidate.scene handle as start_scene: it records the choice and prepares the module guidance. Do not translate that handle. Until then do not invent a prologue or create an investigator.\nOpenings: '+JSON.stringify(question)};
       }
       try {ctx?.ui.notify((await speaking()).line('setup_guidance_failed',{detail}),'error');}
       catch {ctx?.ui.notify(detail,'error');}
@@ -1205,6 +1235,7 @@ export default function (pi: ExtensionAPI) {
       } catch { /* a catalog that cannot be read is not a reason to stop setup; the kernel still resolves names */ }
     }
     if(!guidance)return {systemPrompt:base+setupPackages+catalogText+inputPrompt};
+    if(context.campaign&&!completed.has('complete'))prepareOpeningInBackground(String(context.campaign),campaignOpening??asString(context.start_scene)??guidance.scene);
     // A terminal or driver setup shows the opening on its first turn, right after the player's first
     // line (§14.18): the App showed it at session start, and a campaign created in this process right
     // after create-campaign. Shown last, once nothing else can still block this turn; a draft on the
@@ -1216,6 +1247,8 @@ export default function (pi: ExtensionAPI) {
     }
     return {...(shown?{message:shown}:{}),systemPrompt:base+'\n\nPrepared module prologue ('+(prologueRecorded?'the host has shown it to the player word for word; never repeat, retell or translate it, and continue after it as the host':'context for the meeting already under way; do not narrate it')+'):\n'+guidance.opening+
       '\n\nModule-specific setup advice:\n'+guidance.advice+
+      '\nBefore inviting card confirmation, compare the draft with this source-backed setup advice. If the draft differs on a consequential point, tell the player one concise advice or warning in the play language, then allow their chosen card to be confirmed. Do not silently edit, reroll or refuse a card to enforce module advice.\n'+
+      '\nThe player\'s stated strengths and weaknesses outrank module suggestions in card allocation. Do not put a skill the player explicitly called ordinary, weak or not a strength into occupation_skills or interest_skills merely to satisfy scenario advice. After setup.draft, compare the computed card with those player statements; if it silently raised a rejected skill, use revise before inviting confirmation. If the desired numeric level remains unclear, tell the player what the card actually shows and let them choose.\n'+
       '\nBefore create-investigator, briefly explain useful or explicitly required languages from this advice or the public opening, and how lacking them can hinder conversation or reading. Distinguish authored requirements from contextual recommendations; do not invent a requirement or expose a secret. The display language is not a character skill. After drafting or a relevant revision, compare the actual own_language and Language skills and mention any material difficulty before inviting confirmation. This is a notice, not an extra question or confirmation gate: preserve chosen limitations and never change language skills merely to remove a warning. Only a player request, accepted suggestion or explicit delegation authorizes changing those choices.'+
       '\nThe rulebook tabulates these finance periods: '+JSON.stringify(context.rulebook_eras||[])+'. The authored setting can be descriptive prose or a year the rulebook never tabulated; never copy it as a table key. Pass profile.era only to name the listed period that reads closest to that setting. Omit it and the table\'s own period stands in. Either way the draft comes back with the period used and the setting it stood in for on sheet.finance, and setup is never blocked on this: say it once to the player in their own words (which setting, which period stood in for it) and carry on.'+
       '\nAs soon as a name and an occupation concept are known, use setup create-investigator once with a complete structured profile in that reply, unless an active setup package below asks for an exchange first. Propose rather than ask whatever you can: the way into the opening, personal ties and the key connection, age, ordinary gear. Do not merely describe a character: the computed card must appear before approval. After that every change the player asks for is one `revise` call with only what changed: words in profile, numbers in numbers. Never call create-investigator again to change something. Use confirm-investigator only after approval or explicit write-now delegation.'+

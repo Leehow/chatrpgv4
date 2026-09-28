@@ -4,6 +4,10 @@ Status: ready-for-agent
 Execution: authorized; waiting on declared blockers.
 Parent: [Jev PDF demand reading](../jev-pdf-demand-reading.md), D5/D8/D10.
 
+## Owner correction — 2026-09-28
+
+Contract §147.8 overrides earlier exact-fidelity wording below. Review module identities, causal links, clue connections and applicability; ordinary wording and valid parameter differences are advisory. Preserve Keeper-established campaign values and map later source differences. Core rules and executable shape checks remain. The old all-facts scores are retained as diagnostics, not the current blocking acceptance standard.
+
 ## Required prototype evidence
 
 Read the [mandatory prototype-use gate and ticket 08 evidence map](../jev-pdf-demand-reading-tickets.md#required-prototype-evidence) before implementation or acceptance work. [Prototype report 1](../../research/jev-native-pi-reader-20260927.md); [Prototype report 2](../../research/jev-playable-entry-prototype-20260927.md).
@@ -41,5 +45,7 @@ Use the real reader/reviewer submission and publication seam. Seed an omitted di
 No replacing review with Jev-only approval, accepting unverifiable metadata as coverage, or generic review-framework rewrite. Image projection gains are measured separately under JPDF-02.
 
 ## Comments
+
+Implementation mapping: native prototype `4ba527fdf06bb0429b3984ac4ceab4e95ea38ec2` exposed the unprepared third Chelsea attacker, and minimal-entry `0a7a63ad8117f80a301c80c515e91245ab084b52` used independent original-page review to distinguish current missing source from live-state or deferred needs. The production opening probe now reaches Chelsea and all three attackers, but its native reviewer initially projected the whole draft's cited pages into every unit. Apply the existing focused detail-review packet to opening fact units and derive each unit's image assignment from its issued pointers. The independent coverage unit retains the full current scope and the interaction selector. This corrects duplicated context while keeping the omission reviewer able to inspect original pages outside an individual fact group.
 
 2026-09-27: The retained Masks author reading cost excludes 175 reviewer calls; this slice and the final gate must include them.

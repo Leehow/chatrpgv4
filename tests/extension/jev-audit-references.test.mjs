@@ -179,3 +179,15 @@ test('real kernel v2 jobs retain selectors, materialize acceptance, replay and r
         await assert.rejects(call('mods.accept',{job:job.job}),error=>error.details?.reason==='mod_audit_stale');
     } finally {await runtime.close();}
 });
+
+
+test('source consultation answers and limitations have initial host-issued evidence aliases', () => {
+ const context={description:'Other context. '.repeat(4000),source_consultations:{pending:[{focus:'map',question:'Is the town printed?'}],
+  unavailable:[],answers:[{focus:'map',question:'Which marks?',answer:{status:'unresolved',answer:'The illustration has a mark.',limitations:'It is not bound to the player-owned map.'}}]}};
+ const catalog=api.buildAuditReferences({input:{text:'You inspect the map.'}},{'context.json':context});
+ for(const text of ['Is the town printed?','The illustration has a mark.','It is not bound to the player-owned map.']){
+  const issued=catalog.sources.evidence.find(item=>item.text===text);
+  assert.ok(issued,'consultation evidence is not lost behind the ordinary context cap');
+  assert.equal(catalog.resolve(issued.alias,['evidence']).text,text);
+ }
+});

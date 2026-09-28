@@ -32,8 +32,8 @@ export interface ResolveWriter {
     }): Promise<TurnTransaction>;
 }
 /**
- * What the table knows about an NPC's numbers: the book's printed profile, else one `apply npc
- * {archetype}` pinned (contract §34.10), with whatever the campaign has since written into
+ * What the table knows about an NPC's numbers: an already pinned campaign profile, otherwise the
+ * available module profile (contract §147.8), with whatever the campaign has since written into
  * `world.npc_resources` laid over it.
  *
  * Standalone rather than a method because two callers need it before a `SettleContext` exists --
@@ -45,9 +45,9 @@ export function npcProfileOf(graph: LoadedModule['graph'], world: Row, handle: s
     const node = graph.actor(handle);
     if (!node)
         return null;
-    // The book's numbers first; then a profile the table pinned from a rulebook archetype (contract §34.10).
+    // A later PDF supplement cannot replace numbers already established at the table (§147.8).
     const authored = graph.mechanicsOf(node).profile, pinnedProfile = row(world.npc_profiles)[handle];
-    const profile = isJsonObject(authored) ? authored : isJsonObject(pinnedProfile) ? pinnedProfile : null;
+    const profile = isJsonObject(pinnedProfile) ? pinnedProfile : isJsonObject(authored) ? authored : null;
     if (!isJsonObject(profile))
         return null;
     const resources = row(row(world.npc_resources)[handle]);

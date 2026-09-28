@@ -80,6 +80,9 @@ export function createComponent(React) {
     const total=phase.progress?.review_total||0;
     const done=phase.progress?.reviewed||0;
     const counted=total?`${done}/${total}`:null;
+    const publicFields=job.publicFields;
+    const publicSummary=publicFields&&['era','starting_place'].filter(key=>publicFields[key]?.state==='confirmed')
+      .map(key=>publicFields[key].value).join(' · ');
     async function hide(){setError(null);try{const result=await api.invoke('onboarding',{action:'hide',id:job.id});if(!result.ok)throw result.error;await query.refresh();}catch(e){setExpanded(true);setError(failure(e));}}
     async function act(action){setError(null);try{const result=await api.invoke('onboarding',{action,id:job.id,target:'opening'});if(!result.ok)throw result.error;await query.refresh();}catch(e){setError(failure(e));}}
     return h('aside',{className:'coc-preparation-overlay','aria-label':t('label')},
@@ -100,7 +103,15 @@ export function createComponent(React) {
       // says how far. `title` is the same line the body prints, for a pointer and a screen reader.
       !ready&&h('progress',{className:'coc-preparation-track','aria-label':counted?t('reviewed',{done,total}):title,
         ...(total?{max:total,value:done}:{})}),
+      publicSummary&&h('p',{style:{margin:'8px 14px',fontSize:'12px',lineHeight:1.5,overflowWrap:'anywhere'}},publicSummary),
       expanded&&h('div',{className:'coc-preparation-body'},h('strong',{title:job.name},job.name),
+        publicFields&&h('dl',{},...['era','starting_place','public_premise','creation_advice'].map(field=>{
+          const value=publicFields[field];
+          return value?h('div',{key:field,style:{marginTop:'8px'}},
+            h('dt',{style:{color:'var(--muted)'}},word(ui,'onboarding','field.'+field)),
+            h('dd',{style:{margin:0}},value.state==='confirmed'?value.value:word(ui,'onboarding','fieldState.'+value.state))):null;
+        })),
+        publicFields&&h('p',{},word(ui,'onboarding','adviceNotice')),
         // Every standing line here says the opening arrives on its own -- "play will continue when
         // the opening is ready", "create your investigator while it prepares in the background". A
         // stopped phase is the one state where that is false, and saying it there is what kept a
