@@ -4,7 +4,7 @@ import { snapshots } from './snapshots.js';
 import { RpcError, internalError } from './errors.js';
 import { loadModuleContract } from './modules/contract.js';
 import { checkDraft, checkOpeningBatch, requiredViewPages } from './modules/visual.js';
-import { row, type Row } from './read/values.js';
+import { array, number, row, type Row } from './read/values.js';
 import { ANSWER_REVIEW_PATHS, checkSourceAnswer } from './modules/source-answer.js';
 import { validateDefinition } from './mods/definition.js';
 import {validateUsage} from './mods/usages.js';
@@ -50,7 +50,7 @@ export async function checkSourceDraft(content: string, packetPath: string, draf
         if (packet.opening_batch === true && packet.purpose === 'opening') checkOpeningBatch(row(draft),packet.focus,packet.known_nodes,packet.opening_scope==='first_interaction',packet.known_claims);
         const path = join(dirname(packetPath), 'baseline.json');
         const baseline = await snapshots.pathExists(path) ? row(await snapshots.readJson(path)) : null;
-        return { ok: true, required_review: filled.required_review, required_view_pages: requiredViewPages(row(draft), baseline) };
+        return { ok: true, required_review: filled.required_review, required_view_pages: [...new Set([...requiredViewPages(row(draft), baseline),...(packet.source_unit?array(packet.pages).map(number):[])])] };
     }
     catch (error) {
         if (error instanceof RpcError)

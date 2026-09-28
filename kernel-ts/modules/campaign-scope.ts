@@ -119,11 +119,13 @@ export async function ensureCampaignModule(context: KernelContext, campaign: str
                 for (const asset of await library.assets(id)) await copy(asset.path);
                 for (const node of array(graph.nodes)) await copy(row(node.properties).asset_ref);
                 await copy(row(meta.source_document).path);
+                if(row(meta.source_reference).packet_file)await copy(row(meta.source_reference).packet_file,true);
+                for(const material of array(row(meta.reading).materials))if(material.packet_file)await copy(material.packet_file,true);
                 const indexCopied = await copy(meta.index_file || 'sections.json');
                 await copy('assets.json');
                 // Accepted guidance is keyed by source/scene/language, not by a running reader lease.
                 for (const key of Object.keys(row(meta.character_guidance)))
-                    await copy(join('character-guidance', key, 'accepted.json'));
+                    {await copy(join('character-guidance', key, 'accepted.json'));await copy(join('character-guidance',key,'public.json'));}
                 const acceptedAnswers: Row = {}, answerQueue = await library.queue(id);
                 let invalidAnswers = 0;
                 for (const cacheKey of Object.keys(row(row(meta.reading).answers)).sort()) {

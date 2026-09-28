@@ -31,7 +31,8 @@ import { bandRows } from '../rules/bands.js';
 import {validatePublicGuidance} from './public-guidance.js';
 import {sourceNeedKey} from './source-needs.js';
 import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy.js';
-import {backgroundSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
+import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
+import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
  * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
@@ -195,6 +196,17 @@ export class Reading {
         return withExclusiveLock(this.store.context.locks, join(this.store.moduleDir(mid), '.metadata.lock'), async () => { this.owned(); return action(); });
     }
     static initialState(): Row { return freshReadingState(); }
+    async publishReference(params:Row):Promise<Row>{
+        const mid=validateModuleId(params.module_id);
+        return this.mutex(mid,async()=>{const meta=await this.store.module(mid);await this.source(meta);return publishReferenceContext(this.store,meta,params);});
+    }
+    async publishReferencePlace(params:Row):Promise<Row>{
+        const mid=validateModuleId(params.module_id);return this.mutex(mid,async()=>{const meta=await this.store.module(mid);await this.source(meta);return publishReferencePlace(this.store,meta,params);});
+    }
+    async referenceReady(mid:string,focus=''):Promise<boolean>{
+        if(!await sourceReferenceReady(this.store,mid,focus))return false;
+        try{await this.source(await this.store.module(mid));return true;}catch{return false;}
+    }
     async contained(root: string, value: any): Promise<string> {
         if (typeof value !== 'string')
             reject('a path must be a string');
@@ -701,9 +713,21 @@ export class Reading {
         if (!truth(reading.index_complete)) await ask({ purpose: 'index', focus: '' });
         if (!await this.store.readGraph(mid)) return { queued, reason: 'index' };
         const graph = await this.store.graph(mid);
-        for(const need of array(graph.raw.source_needs).filter(need=>need.kind==='deferred'&&need.source_sha256===meta.file_sha256).slice(0,2)){
+        for(const need of array(graph.raw.source_needs).filter(need=>['deferred','source_read','uncertain'].includes(need.kind)&&need.source_sha256===meta.file_sha256).slice(0,2)){
             const node=graph.nodes.get(string(need.node_id));
             if(node)await ask({purpose:'detail',focus:graph.handle(node),question:need.question});
+        }
+        if(meta.source_reference){
+            const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit),active=work.filter(job=>['queued','running'].includes(job.state)).length;
+            const seen=new Set(work.filter(job=>job.state!=='cancelled').map(job=>sourceUnitKey(job.source_unit as SourceUnit)));
+            let anchor=truth(params.focus)?graph.find(string(params.focus)):null;
+            if(!anchor)try{anchor=graph.startScene();}catch{}
+            const first=Math.min(...array(anchor?.source_refs).map(ref=>number(ref.pdf_index)+1).filter(page=>page>0),number(meta.page_count));
+            const units=referenceSourceUnits(number(meta.page_count)).sort((a,b)=>Number(a.last<first)-Number(b.last<first)||a.first-b.first);
+            for(const unit of units.filter(unit=>!seen.has(sourceUnitKey(unit))).slice(0,Math.max(0,2-active)))
+                await ask({purpose:'detail',focus:unit.section,source_unit:unit,
+                    question:'Publish one small usable fragment from only physical pages '+unit.first+'-'+unit.last+'. Reuse known identities. Preserve the facts and their causal links; leave incomplete entities and unresolved cross-references explicit. Do not expand into another chapter or wait for the whole graph. Empty non-story pages may publish only coverage.'});
+            return {queued:[...new Set(queued)],reference_context:true,graph_complete:false,...(recovered.length?{recovered}:{})};
         }
         if(reading.opening_scope==='first_interaction'&&truth(reading.index_complete)&&Object.values(row(meta.prepared_openings)).some(value=>truth(row(value).opening_ready))){
             const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit);
@@ -1020,7 +1044,7 @@ export class Reading {
             if(params.source_unit!==undefined){
                 const unit=params.source_unit;
                 if(purpose!=='detail'||!isJsonObject(unit)||Object.keys(unit).sort().join(',')!=='first,last,section'||
-                    !backgroundSourceUnits(await this.store.indexRows(mid,meta),number(meta.page_count)).some(candidate=>sourceUnitKey(candidate)===sourceUnitKey(unit as SourceUnit)))
+                    !(meta.source_reference?referenceSourceUnits(number(meta.page_count)):backgroundSourceUnits(await this.store.indexRows(mid,meta),number(meta.page_count))).some(candidate=>sourceUnitKey(candidate)===sourceUnitKey(unit as SourceUnit)))
                     throw new RpcError('invalid_params','source_unit must name one bounded unit of the bound source index');
                 sourceUnit=clone(unit) as SourceUnit;
             }
@@ -1129,7 +1153,7 @@ export class Reading {
             }
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
             if (purpose === 'opening' && params.opening_scope) job.opening_scope = params.opening_scope;
-            if(sourceUnit){job.source_unit=sourceUnit;job.review_scope_pages=pages;}
+            if(sourceUnit){job.source_unit=sourceUnit;job.review_scope_pages=pages;if(meta.source_reference)job.reference_fragment=true;}
             job.class_at = job.at;
             if(preparation)job.task_preparation=clone(preparation);
             if (purpose === 'answer') job.context_generation = meta.generation ?? 0;
@@ -1238,7 +1262,7 @@ export class Reading {
                     Object.assign(stale, { state: 'completed', finished_at: nowIso(), reused_generation: meta.generation ?? 0, result: { state: 'ready', generation: meta.generation ?? 0, opening_ready: truth(meta.opening_ready) } });
                 }
             }
-            const purposePriority = (job: Row): number => job.purpose === 'opening' ? 0 : job.source_unit ? 3 : job.purpose === 'index' ? 2 : 1;
+            const purposePriority = (job: Row): number => job.purpose === 'opening' ? 0 : job.reference_fragment ? 1 : job.source_unit ? 3 : job.purpose === 'index' ? 2 : 1;
             const pending = queue.filter(job => job.state === 'queued').sort((a, b) =>
                 Number(!truth(a.foreground)) - Number(!truth(b.foreground)) ||
                 purposePriority(a) - purposePriority(b) || compareUnicode(a.at, b.at));
@@ -1321,7 +1345,7 @@ export class Reading {
                         if(preparation) {preparation.currentRevision=(await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid)).revision;await this.store.writeQueue(mid,queue);}
                     }
                     const {task_preparation:_privatePreparation,...visibleJob}=job;
-                    const packet = { ...visibleJob,...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    const packet = { ...visibleJob,...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;
@@ -1476,7 +1500,7 @@ export class Reading {
                 const graph = assembleVisual(await this.store.readGraph(mid), filled, meta, contract, retranscribed);
                 if(job.purpose==='detail'&&truth(job.question)){
                     const view=new ModuleGraph(mid,graph,'',row(contract.graph.actor_dossier)),target=view.find(string(job.focus));
-                    const resolved=array(graph.source_needs).filter(need=>need.kind==='deferred'&&need.source_sha256===meta.file_sha256&&
+                    const resolved=array(graph.source_needs).filter(need=>['deferred','source_read','uncertain'].includes(need.kind)&&need.source_sha256===meta.file_sha256&&
                         need.node_id===target?.node_id&&string(need.question).trim()===string(job.question).trim());
                     if(resolved.length){
                         const keys=new Set(resolved.map(sourceNeedKey));
@@ -1552,7 +1576,7 @@ export class Reading {
                 defaultOpening.opening_ready = truth(defaultOpening.opening_ready) && prepared.has(defaultOpening.start_scene);
                 meta.opening = defaultOpening;
                 meta.opening_ready = defaultOpening.opening_ready;
-                meta.reading.state = meta.opening_ready ? 'ready' : ['skeleton', 'guidance'].includes(job.purpose) ? 'preparing' : 'blocked';
+                meta.reading.state = meta.opening_ready ? 'ready' : meta.source_reference || ['skeleton', 'guidance'].includes(job.purpose) ? 'preparing' : 'blocked';
                 meta.reading.viewed_pages = [...new Set([...array(meta.reading.viewed_pages).map(number), ...[...seen].map(page => page - 1)])].sort((a, b) => a - b);
                 // §22.3.1: a reviewed re-transcription of the same span replaced a published value; the record stays.
                 if (retranscribed.length)

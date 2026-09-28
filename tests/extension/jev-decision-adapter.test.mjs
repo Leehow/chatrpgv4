@@ -504,3 +504,13 @@ test("budget reservation blocks before fetch and actual usage overrun cancels th
 	assert.equal(result.failure.code, "budget_exhausted");
 	assert.equal(overrunOwner.signal.aborted, true);
 });
+
+test('an explicitly budgeted retry recovers HTTP 503 without changing the deadline or retry ceiling',async()=>{
+ let calls=0;const delays=[],owner=lease();
+ const adapter=createDecisionAdapter({apiKey:'test-only',retryPolicies:{routing:{maxRetries:1,backoffInitialMs:2,backoffMaxMs:10}},
+  fetcher:async()=>++calls===1?nonOkResponse(503,{'retry-after-ms':'4'}):response(answer()),sleep:async ms=>{delays.push(ms);}});
+ const result=await adapter.decide(batch(),owner);
+ assert.equal(result.status,'complete');assert.equal(result.attempts,2);assert.deepEqual(delays,[4]);assert.equal(owner.context.budget.remainingActions,9);
+ let failures=0;const down=createDecisionAdapter({apiKey:'test-only',retryPolicies:{routing:{maxRetries:1,backoffInitialMs:0,backoffMaxMs:0}},fetcher:async()=>{failures++;return nonOkResponse(503)},sleep:async()=>{}});
+ const unavailable=await down.decide(batch(),lease());assert.equal(failures,2);assert.equal(unavailable.failure.code,'service_error');assert.equal(unavailable.failure.retryable,true);
+});

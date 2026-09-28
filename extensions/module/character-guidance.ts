@@ -96,7 +96,7 @@ export async function guidanceFingerprint(options:Options):Promise<string> {
   const content = options.contentRoot ?? join(root, 'content');
   const folder=resolve(options.home,'.coc/modules',options.module_id);
   const meta=JSON.parse(await readFile(join(folder,'module.json'),'utf8'));
-  const prompts=await Promise.all([join(content,'setup/character-guidance.md'),join(content,'setup/character-guidance-review.md'),...(meta.file_sha256?[join(content,'setup/visual-guidance.md')]:[])].map(path=>readFile(path,'utf8')));
+  const prompts=await Promise.all([join(content,'setup/character-guidance.md'),join(content,'setup/character-guidance-review.md'),...(meta.file_sha256?[join(content,'setup/visual-guidance.md'),join(content,'setup/source-reference-guidance.md')]:[])].map(path=>readFile(path,'utf8')));
   // A PDF module's guidance is the book's own first reading (§22.9; §20 addendum 2026-09-24, SL-32):
   // the host computes this key *before* that reading, when no graph exists yet, and the kernel
   // publishes the first graph and the accepted guidance under it together. So the key binds only

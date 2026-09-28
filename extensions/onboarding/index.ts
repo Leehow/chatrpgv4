@@ -1018,6 +1018,11 @@ export default function (pi: ExtensionAPI) {
 		if (outcome.ok !== true) {
 			const question = outcome.code === 'needs_choice' ? openingCandidates(outcome.details) : undefined;
 			if (question) {
+				const introduction=asString(asRecord(outcome.details).introduction);
+				if(introduction&&asRecord(outcome.details).source_reference===true){
+					pi.sendMessage({customType:'coc-setup-opening',content:introduction,display:true,details:{kind:'setup-opening'}},{triggerTurn:false});
+					outcome.opening_shown='The host has shown details.introduction verbatim. Do not repeat or translate it; wait for the player to choose an opening.';
+				}
 				openingQuestion = question;
 				// A scene the book does not offer is no choice: the one this call brought is not kept.
 				if (chosen && context.start_scene === chosen) context.start_scene = previousChoice;

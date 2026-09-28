@@ -25,6 +25,14 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
         'module.source.bind': params => reading.bind(params),
         'module.source.answer.peek': params => reading.peekAnswer(params),
         'module.source.materials.snapshot': params => reading.materialSnapshot(params),
+        'module.reference.materialize': params => reading.publishReferencePlace(params),
+        'module.reference.publish': params => reading.publishReference(params),
+        'module.reference.status': async params => {const id=required(params,'module_id'),meta=await store.module(id);
+            const node=meta.graph_file&&params.focus?(await store.graph(id)).find(string(params.focus)):null;
+            return {ready:await reading.referenceReady(id,string(params.focus??'')),graph_complete:false,
+            graph_present:!!meta.graph_file,source_reference:meta.source_reference??null,character_guidance:meta.character_guidance??{},
+            known_nodes:node?[{node_id:node.node_id,node_kind:node.node_kind,name:node.name,aliases:node.aliases??[],summary:node.summary??'',properties:node.properties??{},
+                source_refs:(node.source_refs??[]).map((ref:Row)=>({page:Number(ref.pdf_index)+1}))}]:[]};},
         'module.source.snapshot': async params => {
             const id = required(params, 'module_id'), meta = await store.module(id), source = row(meta.source_document);
             if (source.path !== 'source.pdf' || typeof source.file_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(source.file_sha256)
@@ -144,7 +152,7 @@ export function createModuleRuntime(context: KernelContext) {
     // A scoped request or opening choice is the campaign's first private write and forks it.
     // Claims, finishes and unwaits instead follow the workspace that already owns the job, so a
     // shared prefetch is never stranded by a fork that happened after it was queued.
-    const forking = new Set(['module.read.request', 'module.opening.choose']);
+    const forking = new Set(['module.reference.materialize','module.read.request', 'module.opening.choose']);
     const claimsOrFinishes = new Set(['module.read.claim', 'module.read.finish', 'module.read.unwait', 'module.read.yield']);
     // Each names one job, so each follows the workspace whose queue holds that job id.
     const byJobId = new Set(['module.read.finish', 'module.read.unwait', 'module.read.yield']);
@@ -209,7 +217,7 @@ export function createModuleRuntime(context: KernelContext) {
         store,
         graphPath: async (moduleId: string, campaign?: string) => (await owner(campaign, moduleId)).store.graphPath(moduleId),
         materialReady: async (moduleId: string, name: string, campaign?: string) => (await owner(campaign, moduleId)).reading.materialReady(moduleId, name),
-        openingReady: async (moduleId: string, focus = '', campaign?: string) => (await owner(campaign, moduleId)).reading.openingReady(moduleId, focus),
+        openingReady: async (moduleId: string, focus = '', campaign?: string) => {const reader=(await owner(campaign,moduleId)).reading;return await reader.referenceReady(moduleId,focus)||reader.openingReady(moduleId,focus);},
         request: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(params),
         // Campaign maintenance is a private write, just like an explicit source request.
         ahead,

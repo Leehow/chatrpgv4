@@ -56,7 +56,7 @@ export interface ReaderRequest {
 	maxRequests?: number;
 	systemPrompt?: string;
 	/** The host selects an existing source instruction from its captured content root. */
-	prompt?: { phase: "index" | "read" | "verify"; guidance?: boolean; answer?: boolean };
+	prompt?: { phase: "index" | "read" | "verify"; guidance?: boolean; answer?: boolean; reference?: 'guidance'|'lookup' };
 	/**
 	 * The child's tool allowlist, when the caller wants a narrower one than the reading default. A
 	 * definition writer needs only its own directory: handed a shell, children have spent most of their
@@ -98,7 +98,7 @@ export interface ReaderOutcome {
 
 /** A missing Jev credential keeps the existing tool-enabled Pi source reader. */
 export function nativeSourceReaderEnabled(request: Pick<ReaderRequest,"source"|"prompt"|"submission">, env:NodeJS.ProcessEnv):boolean {
-	return !!request.source && (request.prompt?.answer === true || request.prompt?.guidance === true ||
+	return !!request.source && (!!request.prompt?.reference || request.prompt?.answer === true || request.prompt?.guidance === true ||
 		request.submission===true&&['read','verify'].includes(request.prompt?.phase??'')) && !!readJevApiKey(env);
 }
 

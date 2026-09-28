@@ -240,3 +240,17 @@ test("§22.4.7.1 at the seam: a person the book's text nowhere names keeps the f
 	const world = JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8"));
 	assert.equal((world.table_people ?? []).some((row) => row.name === "Harbormaster"), false, "nobody is registered");
 });
+
+test('one unchanged batch lands two source-backed people before either dossier completes',async t=>{
+ const batch=fauxAssistantMessage([fauxToolCall('apply',{effects:[
+  {kind:'npc',name:'Old Mae',to:'here',why:'The player calls her over.'},
+  {kind:'npc',name:'Silas Marsh',to:'here',why:'The player calls him over.'}
+ ]})],{stopReason:'toolUse'});
+ const {table,ensures}=await seam(t,{responses:[batch,narrate('The two pause beside the dock.')]});
+ await table.session.prompt('I call Old Mae and Silas over to talk with me.');
+ const writes=table.telemetry(CAMPAIGN).filter(row=>row.tool==='apply'&&!row.event);
+ assert.deepEqual(writes.map(row=>row.ok),[true],'the whole authorized batch lands without waiting for two dossiers');
+ assert.deepEqual(ensures.map(row=>row.params.focus).sort(),['Silas Marsh','old-mae']);
+ assert.ok(ensures.every(row=>row.options.allowanceMs===0&&row.options.blocking));
+ const state=world(table.workspace);assert.ok(state.index_people.includes('old-mae'));assert.ok(state.index_people.includes('Silas Marsh'));
+});

@@ -980,3 +980,12 @@ test('an unclaimed foreground request cannot suspend the reader holding its focu
  await service.waitForPriority(job,key,AbortSignal.timeout(100),'campaign');
  service.requests.clear();service.jobs.clear();
 });
+
+test('reference readiness pumps the explicitly selected campaign instead of the library',async t=>{
+ const calls=[];const service=new ReadingService({home:'/unused',runtime:{sourceReferences:true},campaign:()=>undefined,model:()=>({id:'fixture/model',vision:true}),record(){},progress(){},
+  async call(method,params){calls.push({method,params});if(method==='module.reference.status')return{ready:true};if(method==='module.read.ahead')return{queued:[]};if(method==='module.read.claim')return{job_id:null};throw Error(method);}});
+ t.after(()=>service.close());
+ const result=await service.prepare({module_id:'book',targeted:true,background:true,start_scene:'Dock',campaign:'private-table'});
+ assert.equal(result.readiness,'source-reference');await until(()=>calls.some(row=>row.method==='module.read.claim'));
+ assert.equal(calls.find(row=>row.method==='module.read.claim').params.campaign,'private-table');
+});

@@ -1984,6 +1984,18 @@
       "lines_at_0b729e8fb": [
         289
       ]
+    },
+    {
+      "file": "extensions/module/source-reference.ts",
+      "symbol": "runSourceReference",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "Original PDF reference host (§148)",
+      "path": "app-play-gated",
+      "role": "driver",
+      "trace": ".pi/prototypes/source-fragments/integration-2026-09-28T12-59-07-235Z",
+      "note": "With a mounted Jev key, setup produces one final public guide in a tool-enabled Pi source session. Explicit source-answer lookup selects and copies original excerpts through the same RunDriver without generative inference. Graph authoring/review remain background readers."
     }
   ]
 }

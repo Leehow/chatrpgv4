@@ -407,3 +407,7 @@ Citations that were wrong or stale:
 6. **Design §2 framing** — "dismantle the second loop" names TaskRuntime; on the App, TaskRuntime never runs. The
    non-Pi loops on the App's play path are the prescreen's Jev evidence loop, the `agent_end` steer policy and the
    tool-enabled children inside Keeper tools (§3). (The spec's Further Notes already correct the TaskRuntime part.)
+
+### Original-source reference correction (§148, 2026-09-28)
+
+`extensions/module/source-reference.ts#runSourceReference` calls the existing `runtime.runTask` reader owner. With a mounted Jev key, setup asks one tool-enabled Pi child for its final public guide; `submit_reference_guidance` performs bounded Jev material-issue checks and selects public views of that same text. Explicit source-answer lookup completes after exact-text projection without generative inference. The existing native source driver owns navigation, span/entry/era choices and completion; graph authoring and logical review remain existing background tasks. New bounded source families: `source-reference-spans`, `source-reference-entrances`, `source-reference-entrance-evidence`, `source-reference-era`, `source-reference-guide-check`, `source-reference-place`. HTTP 503 has one opted-in retry under the original lease. This does not add a Keeper loop or authorize source text to mutate campaign state.

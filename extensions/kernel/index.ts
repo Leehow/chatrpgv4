@@ -3863,10 +3863,11 @@ export default function (pi: ExtensionAPI) {
 			void record({ lane: "reading", event: "person_text_unavailable", turn: state.turn, person: name, detail: "the book's text at hand does not name them" });
 			return undefined;
 		}
-		payload._land_on_text = [{ key, ...(passage ? { passage: { ...passage } } : {}) }];
+		const previousLand=payload._land_on_text;
+		payload._land_on_text = [...(Array.isArray(previousLand)?previousLand:[]),{ key, ...(passage ? { passage: { ...passage } } : {}) }];
 		let result: Record<string, unknown>;
 		try { result = (await invoke()) ?? {}; }
-		finally { delete payload._land_on_text; }
+		finally { if(previousLand===undefined)delete payload._land_on_text;else payload._land_on_text=previousLand; }
 		// The person's reading, blocking and waited on by nobody: the call returns at once, the record lands later.
 		let settled: Promise<any>;
 		try {
@@ -4401,6 +4402,7 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 			let sourceAnswer: Record<string, unknown> | undefined;
+			let sourceMaterial: Record<string, any> | undefined;
 			let memoryAnswer: Record<string, unknown> | undefined;
 			let supportAnswer: Record<string, unknown> | undefined;
 			if(spec.name==='lookup'&&params.kind==='support'){
@@ -4435,13 +4437,16 @@ export default function (pi: ExtensionAPI) {
 					// `prepare` keeps its blocking slot instead (§22.4.6) -- the Keeper asked for this material now, so it is not
 					// competing with background work for a slot the way a demoted answer is.
 					const consult = answerOnly && !nativeSource;
-					const response = answerOnly && nativeSource
+					const original = reading?.reference ? await reading.reference(readingModule,{...sourceRead,campaign:state.campaign,...(!answerOnly?{materialize_place:true}:{})},signal) : undefined;
+					if(original?.material)sourceMaterial=original.material;
+					if(Array.isArray(original?.source_answer?.excerpts))carriedText.note(state.campaign,state.turn,original.source_answer.excerpts.map((span:Record<string,any>)=>({scene:sourceMaterial?.scene??state.scene?.handle??null,page:span.page,label:null,text:span.text})));
+					const response = original ?? (answerOnly && nativeSource
 						? await nativeSource({moduleId: readingModule, campaign: state.campaign, toolCallId, question: String(params.question)}, signal)
 						: consult
 							? await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, ...(params.retry === true ? { memo: false } : {}), foreground: true },
 								signal, {allowanceMs: sourceAnswerAllowanceMs()})
 							: await reading!.ensure(readingModule, { ...sourceRead, retry: params.retry === true, foreground: true }, signal,
-								{allowanceMs: sourceAnswerAllowanceMs(), blocking: true});
+								{allowanceMs: sourceAnswerAllowanceMs(), blocking: true}));
 					// §135.20.1 (SL-102): the scene the party is at when the Keeper asks; an answer handed here is held while it stays.
 					const askedAt = state.scene?.handle;
 					if (consult && response.state === 'pending') {
@@ -4455,7 +4460,7 @@ export default function (pi: ExtensionAPI) {
 						pendingAnswers.hold(state.campaign, askedAt, [...(response.memo as Array<Record<string, any>>)].reverse().map(entry => ({
 							focus: asString(entry?.focus) ?? String(params.query), question: String(entry?.question ?? ''), answer: entry?.source_answer })),
 						state.turn, fromStep?.run);
-					} else if (answerOnly) {
+					} else if (answerOnly || original?.material) {
 						if (!response.source_answer || typeof response.source_answer !== 'object') throw new KernelError({code:'internal', message:'The source consultation returned no checked answer'});
 						sourceAnswer = response.source_answer;
 						pendingAnswers.hold(state.campaign, askedAt, [{ focus: String(params.query), question: String(params.question), answer: response.source_answer }],
@@ -4517,7 +4522,7 @@ export default function (pi: ExtensionAPI) {
 			try {
                 if (supportAnswer) result = supportAnswer;
                 else if (memoryAnswer) result = memoryAnswer;
-                else if (sourceAnswer) result = { source_answer: sourceAnswer };
+                else if (sourceAnswer) result = { source_answer: sourceAnswer,...(sourceMaterial?{material_ready:true,entities:[{name:sourceMaterial.name??sourceMaterial.scene,kind:'scene',material:'ready',scope:'original-place-identity'}],instruction:'This original place is already registered and ready for an ordinary player-authorized move. Use its supplied name with apply move and describe the route in via when needed. Do not prepare a duplicate destination or adaptation just because background enrichment is unfinished. People, rules and assets keep their own use-specific requirements.'}:{}) };
                 else if (spec.name === 'lookup' && params.kind === 'adaptation') {
                     if (!runtime) throw new KernelError({code: 'needs', message: 'The adaptation runtime is unavailable'});
                     // Contract §37.10.1: the fast model, read each time a creator or reviewer starts.
@@ -4582,9 +4587,21 @@ export default function (pi: ExtensionAPI) {
 				// §22.4.7 (SL-47): a move into a scene not yet read lands on the book's text for it when the kernel names the scene's
 				// index pages and they have native text; the scene's reading goes on on a blocking slot and its record lands later.
 				// §22.4.7.1 (SL-56): a check or write on a person not yet read lands on the book's text that names them, the same way.
-				const landing = ownedPreparation ? undefined
-					: (spec.name === 'apply' || spec.name === 'resolve') && failure.details?.person ? await landPerson(state, failure, payload, signal, invokeOperation)
-					: spec.name === 'apply' ? await landOnIndex(state, failure, payload, signal, invokeOperation) : undefined;
+				const referenceLanding=ownedPreparation?await state.kernel.call<Record<string,unknown>>('module.reference.status',{module_id:readingModule,campaign:state.campaign}).then(value=>!!value.source_reference).catch(()=>false):true;
+				const landingKeys=new Set<string>(),landingLimit=Array.isArray(payload.effects)?payload.effects.length:1;
+				const landRequired=async(error:KernelError):Promise<Record<string,unknown>|undefined>=>{
+					if(!referenceLanding||error.details?.reason!=='material_pending')return;
+					const identity=JSON.stringify(error.details.person??{effect:error.details.effect,read:error.details.read});
+					if(landingKeys.has(identity)||landingKeys.size>=landingLimit)return;landingKeys.add(identity);
+					const invokeWithRemaining=async():Promise<Record<string,unknown>|undefined>=>{
+						try{return await invokeOperation();}catch(next){
+							if(!isKernelError(next))throw next;const landed=await landRequired(next);if(!landed)throw next;return landed;
+						}
+					};
+					return (spec.name==='apply'||spec.name==='resolve')&&error.details?.person?landPerson(state,error,payload,signal,invokeWithRemaining)
+						:spec.name==='apply'?landOnIndex(state,error,payload,signal,invokeWithRemaining):undefined;
+				};
+				const landing=await landRequired(failure);
 				if (landing) result = landing;
 				else {
 				const readKey = JSON.stringify([read.purpose ?? "", read.material ?? "", read.focus ?? "", read.question ?? "", read.guidance_key ?? ""]);

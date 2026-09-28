@@ -160,7 +160,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     try{sourceNeeds=validateSourceNeeds(draft.source_needs??[],number(row(packet.source).page_count));}
     catch(error){reject(String(error),'/source_needs');}
     const pending=sourceNeeds!.filter(need=>['source_read','uncertain'].includes(need.kind));
-    if(pending.length)throw new RpcError('invalid_params','Current source needs remain unresolved',{
+    if(pending.length&&!packet.source_unit)throw new RpcError('invalid_params','Current source needs remain unresolved',{
         fix:'Retrieve the required original evidence and repair the candidate; retain runtime inputs and future needs explicitly',
         details:{reason:'reading_failed',rule:'source_needs_pending',path:'/source_needs',requests:pending},
     });
@@ -281,6 +281,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         const graph=new ModuleGraph(string(packet.module_id),{nodes:[...array(packet.known_nodes),...nodes]},'',{});
         for(const need of sourceNeeds!){
             if(!graph.find(need.focus))reject('A retained source need must name a candidate or accepted entity','/source_needs');
+            if(packet.source_unit&&['source_read','uncertain'].includes(need.kind)&&filled.ready_nodes.includes(graph.find(need.focus)?.node_id))reject('A partial source fragment cannot mark an unresolved entity ready','/ready_nodes');
             if(packet.purpose==='detail'&&need.kind==='deferred'&&string(packet.question).trim()===need.question.trim()
                 &&graph.find(string(packet.focus))?.node_id===graph.find(need.focus)?.node_id)
                 reject('A detail reading cannot defer its own requested source question','/source_needs');
@@ -293,7 +294,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         checkOpeningBatch(filled, packet.focus, array(packet.known_nodes), true, array(packet.known_claims));
         required.add('/interaction_scene');
     }
-    if(packet.source_unit&&array(packet.pages).some(page=>!seen?.has(number(page))))reject('A source unit requires its assigned original pages','/coverage');
+    if(packet.source_unit&&seen&&array(packet.pages).some(page=>!seen.has(number(page))))reject('A source unit requires its assigned original pages','/coverage');
     if (!skeleton && (filled.ready_nodes.length||packet.source_unit)) required.add('/coverage');
     for (const path of required)
         pointer(draft, path);

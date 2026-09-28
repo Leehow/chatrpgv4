@@ -15,6 +15,8 @@ import type {DecisionBatch,ReadSet,ScopeBinding} from './contracts.ts';
 import {validateSourceNeeds,type SourceNeed} from '../../kernel-ts/modules/source-needs.ts';
 import {moduleLogicReview} from '../../kernel-ts/modules/module-review-policy.ts';
 import {retainSourceNeeds} from '../../extensions/module/source-needs.ts';
+import {selectReferencePacket,checkReferenceGuide} from './source-reference.ts';
+import {validateReferencePacket,type SourceReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 
 type Page = {page:number;text:string;label?:string|null;text_status?:'available'|'empty'|'error'|'unavailable'};
 type ImagePage = {page:number;path:string;image_sha256:string;box:number[];data:string};
@@ -54,6 +56,7 @@ export function sourceScopeFacets(purpose:string):SourceFacet[]{
  if(purpose==='guidance')return [
    {key:'creation_advice',need:'authored advice for players creating their own investigators: suitability, equipment, training or content warnings; use worked pre-generated sheets only if they carry unique applicable advice',limit:2,expand:2},
    {key:'public_context',need:'public era, starting place, premise and investigator hook',limit:2,expand:1},
+   {key:'content_warnings',need:'the author pre-play content warnings or player safety notice, not later event descriptions',limit:1,expand:1},
    {key:'opening_choices',need:'authored starting entries and the initial meeting, not later encounters',limit:2,expand:1}];
  if(['opening','detail'].includes(purpose))return [
    {key:'current_interaction',need:'the requested current scene or entity, its first meaningful player interaction and immediate continuation',limit:2,expand:1},
@@ -140,15 +143,20 @@ export async function continueSourceSearch<T extends SearchPage>(params:{query:s
 export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.ProcessEnv;source:SourceBinding;apiKey?:string}):Promise<SourceReaderDriver>{
  const {cwd,source,apiKey}=options;
  const taskBytes=await readFile(join(cwd,'task.json'));
- const task=JSON.parse(taskBytes.toString()) as {review_policy?:string;purpose?:string;module_id?:string;focus?:string;question?:string;guidance_key?:string;known_nodes?:unknown[];
+ const task=JSON.parse(taskBytes.toString()) as {source_reference_packet?:SourceReferencePacket;source_reference?:'guidance'|'lookup';materialize_place?:boolean;play_language?:string;review_policy?:string;purpose?:string;module_id?:string;focus?:string;question?:string;guidance_key?:string;known_nodes?:unknown[];
    source?:{page_count?:number};source_unit?:{section:string;first:number;last:number};pages?:number[];required_review?:unknown[];review_scope_pages?:number[]};
  if(!['answer','guidance','opening','detail'].includes(task.purpose??''))throw new Error('Native source reader requires a checked source task');
  const reviewDraft=Array.isArray(task.required_review)?JSON.parse(await readFile(join(cwd,'draft.json'),'utf8')):null;
  const traceFile=join(cwd,'source-driver.jsonl');
  const trace=(value:Record<string,unknown>)=>appendFileSync(traceFile,compact({at:new Date().toISOString(),...value}));
- const adapter=createDecisionAdapter({apiKey,env:options.env,maxConcurrency:8,trace:event=>trace({kind:'jev_transport',event})});
+ const adapter=createDecisionAdapter({apiKey,env:options.env,maxConcurrency:8,retryPolicies:Object.fromEntries(['source-guidance-sections','source-guidance-child-sections','source-search-scope','source-page-lead','source-need-kind','source-reference-spans','source-reference-entrances','source-reference-entrance-evidence','source-reference-era','source-reference-guide-check','source-reference-place'].map(family=>[family,{maxRetries:1,backoffInitialMs:250,backoffMaxMs:1000}])),trace:event=>trace({kind:'jev_transport',event})});
  let sourceRequest:((request:SourceRequest)=>Promise<void>)|undefined;
+ let submitReference:((text:string,signal:AbortSignal)=>Promise<any>)|undefined;
  return {engine:'coc-source-v1',registerSourceRequest(pi:any){
+   if(task.source_reference==='guidance')pi.registerTool({name:'submit_reference_guidance',label:'Submit final source guidance',executionMode:'sequential',
+     description:'Submit only the final player-language creation introduction and question. The host checks public orientation, advisory wording and spoiler safety. No graph or duplicate metadata is needed. Call alone.',
+     parameters:Type.Object({text:Type.String({minLength:1,maxLength:4000})},{additionalProperties:false}),
+     async execute(_id:string,params:{text:string},signal?:AbortSignal){if(!submitReference)throw Error('Source reference context is not ready');return submitReference(params.text,signal??new AbortController().signal);}});
    pi.registerTool({name:'request_source',label:'Request another source location',executionMode:'sequential',
      description:'Name one concrete missing authored fact needed for the current source task. This requests another bounded original-PDF search in the same reader run; it does not generate a fact or publish a result. Supply physical anchor pages already observed when available.',
      parameters:Type.Object({question:Type.String({maxLength:1200}),anchor_pages:Type.Optional(Type.Array(Type.Integer()))}),
@@ -161,6 +169,22 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
    const runId=context.runId,scope:ScopeBinding={owner:'source-reader:'+String(task.module_id||'module'),audience:'keeper'};
    let info:Awaited<ReturnType<typeof sourceInfo>>|undefined,pages:Page[]=[],candidates:number[]=[],partial=false,projectedOnce=false;
    let projectedImages:ImagePage[]=[];
+   let referencePacket:SourceReferencePacket|undefined,guideAttempts=0;
+   submitReference=async(text,signal)=>{
+     if(!referencePacket||!info)throw Error('Original source packet is unavailable');
+     if(typeof text!=='string'||!text.trim()||text.length>4000)throw Error('Final guidance needs bounded nonempty text');
+     const selected=referencePacket.entries.find(entry=>[entry.id,entry.id.replace(/^scene-/,''),entry.name].some(value=>identity(value)===identity(task.focus)));
+     const checked=await checkReferenceGuide({packet:referencePacket,text,selectedOpening:selected?.name,decide:(batch,lease)=>adapter.decide(batch,lease),signal,record:trace});
+     guideAttempts++;
+     if(!checked.approved)return {content:[{type:'text',text:JSON.stringify({repair_only:checked.issues,instruction:'Correct the final public guide using the same original excerpts. Do not reproduce the previous text unchanged or generate a dossier.'})}],
+       details:{kind:guideAttempts>=2?'source_reference_refused':'source_guidance_repair'},isError:true,...(guideAttempts>=2?{terminate:true}:{})};
+     await writeFile(join(cwd,'reference-guidance.txt'),text);
+     const packetBytes=await readFile(join(cwd,'source-reference.json'));
+     if(sha(packetBytes)!==sha(compact(referencePacket)))throw Error('The host-owned original reference packet changed');
+     await writeFile(join(cwd,'source-reference-complete.json'),compact({protocol:'source-reference-v1',kind:'guidance',run_id:runId,source_sha256:info.file_sha256,
+       task_sha256:sha(taskBytes),packet_sha256:sha(packetBytes),text_sha256:sha(text),checks:checked.answers,checks_policy:checked.checks_policy,public_fields:checked.public_fields}));
+     return {content:[{type:'text',text:'The final source guidance is checked and saved.'}],details:{kind:'source_reference_ready'},terminate:true};
+   };
    let shortSectionPages:number[]=[];
    let openingProbePages:number[]=[];
    let reviewProbePages:number[]=[];
@@ -194,7 +218,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      if(requestCount>=3||requested.has(question))throw new Error('This source question is repeated or the source-request limit was reached');
      const anchors=request.anchor_pages??[];
      if(!Array.isArray(anchors)||anchors.some(page=>!Number.isSafeInteger(page)||page<1||info&&page>info.page_count))throw new Error('Anchor pages must belong to the bound original PDF');
-     requested.add(question);requestCount++;pendingQuery=question;anchorPages=[...new Set(anchors)];candidates=[];projectedOnce=false;
+     requested.add(question);requestCount++;pendingQuery=question;anchorPages=[...new Set(anchors)];candidates=[];projectedOnce=false;referencePacket=undefined;
      pendingNeed=request.need;
      await retainNeeds([request.need??{kind:'source_read',focus:task.focus||'Source',question,reason:'The reader requested evidence for its current task.',
        trigger:'Before completing the current source task.',source_refs:anchors.map(page=>({page}))}]);
@@ -204,6 +228,10 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      info=await sourceInfo(source.pdf);
      if(source.file_sha256&&info.file_sha256!==source.file_sha256)throw new Error('Bound source bytes changed');
      if(task.source?.page_count&&info.page_count!==task.source.page_count)throw new Error('Bound source page count changed');
+     if(task.source_reference==='guidance'&&task.source_reference_packet&&requestCount===0){
+       referencePacket=validateReferencePacket(task.source_reference_packet,info.page_count,info.file_sha256);
+       candidates=[...new Set(referencePacket.excerpts.map(span=>span.page))];
+     }
      readSet.splice(0,readSet.length,{kind:'source',resource:source.pdf,revision:info.file_sha256});
      if(reviewing){
        const assigned=fixedReviewPages.filter(page=>page<=info!.page_count);
@@ -243,7 +271,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      }
      const knownEntry=task.purpose==='guidance'&&requestCount===0?selectedEntrySourcePages(task.focus??'',task.known_nodes,info.page_count):null;
      if(knownEntry){openingProbePages=knownEntry.openingProbes;shortSectionPages=knownEntry.selected.slice(0,6);}
-     const cacheIdentity={version:'source-navigation-v21',source_sha256:info.file_sha256,extraction_version:sourceTextVersion,focus_context:focusContext,requested_need:pendingNeed,
+     const cacheIdentity={version:'source-navigation-v22',source_sha256:info.file_sha256,extraction_version:sourceTextVersion,focus_context:focusContext,requested_need:pendingNeed,
        model:JEV_MODEL,purpose:task.purpose,focus:task.focus??'',guidance_key:task.guidance_key??'',question,
        anchor_pages:anchorPages,task_pages:task.pages??[],known_entry_refs:knownEntry?.selected??null,entry_probe_pages:knownEntry?.openingProbes??null};
      const cacheDigest=sha(JSON.stringify(cacheIdentity)),navigationFile=join(dirname(source.cache),'source-navigation-'+cacheDigest+'.json');
@@ -302,7 +330,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
              trace({kind:'source_sections_compacted',runId,reason:'full_first_page_samples_exceeded_decision_bound'});
            }
            const lease=new TaskLease({owner:'source-guidance-sections',goal:question,scope,readSet:[...readSet],capabilities:['decision'],signal,
-             budget:{deadlineAt:Date.now()+30000,remainingInputTokens:100000,remainingOutputTokens:10000,remainingCostUsd:0.5,remainingActions:1}});
+             budget:{deadlineAt:Date.now()+30000,remainingInputTokens:100000,remainingOutputTokens:20000,remainingCostUsd:0.5,remainingActions:1}});
            try{const result=await adapter.decide(activeBatch,lease);
              if(result.status==='complete'){
                const indices=new Set<number>(),rankings:Record<string,unknown>={};
@@ -368,7 +396,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
                '? This ranks original-page ranges only; a missed sibling remains unsearched, never absent.',criteria}))};
          try{packDecisionBatch(batch);
            const lease=new TaskLease({owner:'source-guidance-child-sections',goal:question,scope,readSet:[...readSet],capabilities:['decision'],signal,
-             budget:{deadlineAt:Date.now()+30000,remainingInputTokens:100000,remainingOutputTokens:10000,remainingCostUsd:0.5,remainingActions:1}});
+             budget:{deadlineAt:Date.now()+30000,remainingInputTokens:100000,remainingOutputTokens:20000,remainingCostUsd:0.5,remainingActions:1}});
            try{const result=await adapter.decide(batch,lease);if(result.status!=='complete')return [parent];
              const indices=new Set<number>(),rankings:Record<string,unknown>={};
              for(const key of wanted){const answer=result.answers[key];if(answer?.status!=='answered'||answer.type!=='choice')continue;
@@ -398,7 +426,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          state:{question,anchors:anchorPages.map(page=>({page,text:pages.find(row=>row.page===page)?.text.slice(0,1600)??''})),available:{nearby:'Within four physical pages of an anchor, with whole-book fallback if no useful lead is found.',whole:'Every native-text page of the bound original PDF.'}},
          questions:[{key:'scope',target:'source search scope',type:'choice',instructions:'For this missing authored fact, should the host first search near the cited physical pages or across the whole original PDF? Choose whole for a remote relation or unclear location. This is a retrieval strategy, not a claim that a fact exists.',criteria:{nearby:'Try the nearby physical-page windows first.',whole:'Search the entire bound source now.'}}]};
        const lease=new TaskLease({owner:'source-search-scope',goal:question,scope,readSet:[...readSet],capabilities:['decision'],signal,
-         budget:{deadlineAt:Date.now()+30000,remainingInputTokens:20000,remainingOutputTokens:1000,remainingCostUsd:0.1,remainingActions:1}});
+         budget:{deadlineAt:Date.now()+30000,remainingInputTokens:40000,remainingOutputTokens:2000,remainingCostUsd:0.1,remainingActions:1}});
        try{const result=await adapter.decide(batch,lease);const answer=result.answers.scope;
          if(answer?.status==='answered'&&answer.type==='choice'&&answer.choice==='nearby'&&(answer.confidence??0)>=0.5){
            scopeChoice='nearby';relevant=relevant.filter(row=>anchorPages.some(page=>Math.abs(page-row.page)<=4));
@@ -409,7 +437,8 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      const pageFacets=task.purpose==='guidance'?[
        {key:'creation_advice',need:'authored character suitability, vehicle, skill, language or content advice/warning for a player building a new investigator, rather than the example statistics of a pre-generated sheet',limit:3},
        {key:'opening',need:'the selected source-authored opening meeting or prologue, rather than the biography of a pre-generated investigator',limit:3},
-       {key:'public_context',need:'public era, starting place, premise or investigator hook for the first brief',limit:2}
+       {key:'public_context',need:'public era, starting place, premise or investigator hook for the first brief',limit:2},
+       {key:'content_warnings',need:'pre-play content warnings or player safety notice',limit:1}
      ]:requestCount===0?facets:[];
      const scores:Array<{page:number;score:number;facet:string}>=[];
      const allScores:Array<{page:number;score:number;facet:string}>=[];
@@ -474,7 +503,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      try{
        packDecisionBatch(batch);
        const lease=new TaskLease({owner:'source-need-kind',goal:pendingQuery,scope,readSet:[...readSet],capabilities:['decision'],signal,
-         budget:{deadlineAt:Date.now()+30000,remainingInputTokens:100000,remainingOutputTokens:2000,remainingCostUsd:0.5,remainingActions:1}});
+         budget:{deadlineAt:Date.now()+30000,remainingInputTokens:100000,remainingOutputTokens:4000,remainingCostUsd:0.5,remainingActions:1}});
        try{const result=await adapter.decide(batch,lease);
          for(const [index,need] of needs.entries()){
            const answer=result.answers['need'+index];
@@ -496,6 +525,8 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
    const policy:RunPolicy<State>={name:'coc-source-reading',version:'10',initial:()=>({...state0,located:reviewing}),next(view){const s=view.policyState;
      if(view.pendingProposals.length)return {kind:'operate',proposals:view.pendingProposals,reason:'execute_actual_reader_tools'};
      if(s.submitted)return {kind:'finish',outcome:'undelivered',reason:'checked_source_candidate_no_player_delivery'};
+     if(task.source_reference&&s.fallback)return {kind:'finish',outcome:'undelivered',reason:'source_reference_requires_existing_visual_fallback'};
+     if(task.source_reference==='lookup'&&s.projected)return {kind:'finish',outcome:'undelivered',reason:'exact_source_reference_no_generation_required'};
      if(s.needsAssessment)return {kind:'decide',purpose:'classify_source_need',question:{kind:'source_need_kind'},reason:'separate_source_gaps_from_runtime_inputs_and_later_uses'};
      if(!s.catalog&&!s.fallback)return {kind:'operate',proposals:[{origin:'policy',operation:'source.catalog',readOnly:true}],reason:'bind_original_pdf'};
      if(!s.located&&!s.fallback)return {kind:'decide',purpose:'locate_source',question:{kind:'source_pages'},reason:'rank_host_enumerated_source_pages'};
@@ -506,9 +537,10 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      if(observation.kind==='operate'){
        if(observation.origin==='policy'&&observation.status!=='ok')next.fallback=true;
        for(const outcome of observation.outcomes??[]){const artifact=outcome.artifact as {kind?:string}|undefined;
-         if(artifact?.kind==='catalog')next.catalog=true;
+         if(artifact?.kind==='catalog'){next.catalog=true;if(referencePacket)next.located=true;}
          if(artifact?.kind==='projected')next.projected=true;
          if(artifact?.kind==='source_submission')next.submitted=true;
+         if(artifact?.kind==='source_reference_ready'||artifact?.kind==='source_reference_refused')next.submitted=true;
          if(artifact?.kind==='source_need'){next.located=false;next.projected=false;next.inferred=false;}
          if(artifact?.kind==='source_need_batch'){next.needsAssessment=true;next.inferred=false;}
        }
@@ -562,6 +594,19 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          if(proposal.operation==='source.catalog')return {status:'ok',artifact:await catalog(invocation.signal)};
          if(proposal.operation==='source.project'){
            projectedImages=[];
+           if(task.source_reference){
+             if(!info)throw Error('Original source identity is unavailable');
+             referencePacket??=await selectReferencePacket({pages:pages.filter(page=>candidates.includes(page.page)),allPages:pages,bookmarks:info.bookmarks,
+               sourceSha:info.file_sha256,pageCount:info.page_count,extractionVersion:sourceTextVersion,purpose:task.purpose??'answer',question:pendingQuery,materializePlace:task.materialize_place===true,openingProbePages,
+               decide:(batch,lease)=>adapter.decide(batch,lease),signal:invocation.signal,record:trace});
+             projectedOnce=false;
+             const bytes=compact(referencePacket),dest=join(cwd,'source-reference.json'),temp=dest+'.'+randomUUID()+'.tmp';
+             await writeFile(temp,bytes);await rename(temp,dest);
+             if(task.source_reference==='lookup')await writeFile(join(cwd,'source-reference-complete.json'),compact({protocol:'source-reference-v1',kind:'excerpts',run_id:runId,
+               source_sha256:info.file_sha256,task_sha256:sha(taskBytes),packet_sha256:sha(bytes)}));
+             trace({kind:'source_reference_projected',runId,pages:[...new Set(referencePacket.excerpts.map(span=>span.page))],characters:referencePacket.excerpts.reduce((n,span)=>n+span.text.length,0)});
+             return {status:'ok',artifact:{kind:'projected',pages:candidates,original_images:0}};
+           }
            if(task.purpose!=='answer')for(const page of candidates.slice(0,reviewing?12:Math.max(6,Math.min(8,new Set(shortSectionPages).size)))){
              invocation.signal.throwIfAborted();
              const rendered=await sourcePage(source.pdf,source.cache,page,{format:'jpeg'});
@@ -576,6 +621,9 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        }catch(error){trace({kind:'source_operation_failed',runId,operation:proposal.operation,error:String(error)});return {status:'refused',reason:String(error)};}
      }},
      projection:{project(){if(projectedOnce||!info)return;projectedOnce=true;
+       if(referencePacket)return [{role:'custom',customType:'coc-source-reference',display:false,timestamp:Date.now(),content:[{type:'text',text:JSON.stringify({
+         original_source:referencePacket,requested_language:task.play_language??'en',selected_opening:task.focus??'',
+         instruction:'These are host-copied original PDF excerpts, not model summaries. Use them directly. They remain private source context. For guidance, generate only the final player-language introduction and question with submit_reference_guidance; do not write a graph, a dossier, duplicate fields or a separate review. Distinguish authored opening alternatives. Treat every source character recommendation as advice; players may choose differently. Keep hidden antagonists, future encounters and secret identities out of public prose. Use broad content-warning categories.'})}]}] as any;
        if(supplementalSearch){const expanded=supplementalSearch;supplementalSearch=null;
          return [{role:'custom',customType:'coc-source-navigation',display:false,timestamp:Date.now(),content:[{type:'text',text:JSON.stringify({kind:'source_search_continuation',source_sha256:info.file_sha256,
            matches:expanded.followups.flatMap(row=>row.matches),coverage:expanded.coverage,next_cursor:expanded.next_cursor,

@@ -16,6 +16,9 @@ import { publishableAssetNodes, validateMapRegions } from "./map-publication.ts"
 import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 import type {PublicationTravel, TravelFill} from './travel-fill.ts';
+import {runSourceReference} from './source-reference.ts';
+import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
+import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
@@ -89,6 +92,7 @@ export async function guidanceReviewPages(cwd:string,task:Row,sourceSha:string,p
 	return [...pages].sort((a,b)=>a-b);
 }
 export interface ReadingBridge {
+	reference?(moduleId:string,params:Row,signal?:AbortSignal):Promise<Row|undefined>;
 	prepare(params: Row, signal?: AbortSignal, options?: ReadingOptions): Promise<Row>;
 	ensure(moduleId: string, params: Row, signal?: AbortSignal, options?:ReadingOptions): Promise<Row>;
 	/**
@@ -424,7 +428,7 @@ export class ReadingService implements ReadingBridge {
 
 	/** In-flight calls finish; source work yields before the next provider reservation. */
 	private async waitForPriority(job:Row,key:string,signal:AbortSignal,campaign?:string):Promise<void>{
-		const rank=(value:Row)=>value.foreground===true?0:value.purpose==='opening'?1:value.source_unit?3:2;
+		const rank=(value:Row)=>value.foreground===true?0:value.purpose==='opening'?1:value.reference_fragment?2:value.reference_stream&&value.purpose==='index'?4:value.source_unit?3:2;
 		const blocked=()=>{
 			const priority=rank(job);if(priority===0)return false;
 			// A pending request may need this reader's focus lock. Claim ordering and
@@ -439,6 +443,50 @@ export class ReadingService implements ReadingBridge {
 		finally{const remaining=(this.priorityWaiting.get(key)??1)-1;if(remaining)this.priorityWaiting.set(key,remaining);else this.priorityWaiting.delete(key);this.beat(key);
 			this.deps.record({lane:'reading',event:'priority_resumed',module_id:job.module_id,job_id:job.job_id,purpose:job.purpose,campaign,
 				ms:Date.now()-began,cancelled:signal.aborted});}
+	}
+	private async referenceGuidance(mid:string,params:Row,signal:AbortSignal|undefined,options:ReadingOptions):Promise<Row|undefined>{
+		if(!this.deps.runtime?.sourceReferences)return;
+		const status=await this.call('module.reference.status',{module_id:mid,focus:params.start_scene||''},undefined);
+		if(status.graph_present&&!status.source_reference)return;
+		const source=await this.call('module.source.snapshot',{module_id:mid},undefined);
+		if(source.window)return;
+		if(status.character_guidance?.[params.guidance_key])return {state:'ready',setup_ready:true,reference_ready:status.ready,source_reference:true,guidance_key:params.guidance_key,
+			guidance:await acceptedGuidance(this.deps.home,mid,params.guidance_key),public_fields:await acceptedPublicGuidance(this.deps.home,mid,params.guidance_key)};
+		let packet;
+		if(status.source_reference?.packet_file){
+			const path=resolve(dirname(source.pdf),status.source_reference.packet_file),bytes=await readFile(path);
+			if(createHash('sha256').update(bytes).digest('hex')!==status.source_reference.packet_sha256)throw Error('Original source context changed');
+			packet=validateReferencePacket(JSON.parse(bytes.toString()),source.page_count,source.file_sha256);
+		}
+		const progress=(state:string,fields?:Row)=>this.deps.progress({stage:'guidance',purpose:'guidance',module_id:mid,public_preparation:{
+			source_sha256:source.file_sha256,module_id:mid,guidance_key:params.guidance_key,opening:params.start_scene||'',job_id:'source-reference',attempt:params.guidance_key,
+			fields:Object.fromEntries(PUBLIC_GUIDANCE_FIELDS.map(field=>[field,fields?.[field]?.status==='value'?{state:'confirmed',value:fields[field].text}:fields?{state:fields[field]?.status==='needs_choice'?'needs_choice':'unavailable'}:{state}]))}});
+		progress('searching');
+		const result=await runSourceReference({runtime:this.runtime(),source:{...source,cache:join(dirname(source.pdf),'cache','pages')},moduleId:mid,kind:'guidance',focus:params.start_scene||'',
+			language:params.play_language,packet,providerBudget:options.providerBudget,model:this.deps.model(),signal,record:this.deps.record});
+		const published=await this.call('module.reference.publish',{module_id:mid,work_dir:result.workDir,guidance_key:params.guidance_key,play_language:params.play_language,start_scene:params.start_scene||''},undefined);
+		progress('confirmed',published.public_fields);
+		if(!published.setup_ready)throw new KernelError({code:'needs_choice',message:'Choose an authored starting entrance',fix:'Select one of details.candidates and retry prepare-module',
+			details:{...published.opening?.choice,introduction:published.introduction,source_reference:true}});
+		return {...published,source_reference:true};
+	}
+	async reference(mid:string,params:Row,signal?:AbortSignal):Promise<Row|undefined>{
+		if(!this.deps.runtime?.sourceReferences)return;
+		const campaign=this.campaign(params);
+		if(params.materialize_place)await this.call('module.read.ahead',{module_id:mid,focus:params.focus||''},campaign);
+		const source=await this.call('module.source.snapshot',{module_id:mid},campaign);
+		if(source.window)return;
+		try{const known=await this.call('module.reference.status',{module_id:mid,focus:params.focus||''},campaign);
+			if(params.materialize_place&&!known.source_reference)return;
+			const result=await runSourceReference({runtime:this.runtime(),source:{...source,cache:join(dirname(source.pdf),'cache','pages')},moduleId:mid,kind:'lookup',materializePlace:params.materialize_place===true,
+			focus:params.focus||'',question:params.question||'Read the requested physical place and its necessary conditions.',knownNodes:known.known_nodes,model:this.deps.model(),signal,record:this.deps.record});
+			let material:Row|undefined;if(params.materialize_place){if(!result.packet.places?.length)return;material=await this.call('module.reference.materialize',{module_id:mid,work_dir:result.workDir},campaign);if(material.state!=='ready')return;void this.call('module.read.ahead',{module_id:mid,focus:material.scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-place');return this.pump(mid,campaign);}).catch(()=>undefined);}
+			return {state:'ready',...(material?{material}:{}),source_answer:{status:'excerpts',authority:'original-source-excerpts',prepared:!!material,...(material?{scene:material.scene,scene_name:material.name,material_scope:'source-place-identity-only'}:{}),source_sha256:result.packet.source_sha256,
+				answer:result.packet.excerpts.map(span=>`[Original physical page ${span.page}]\n${span.text}`).join('\n\n'),excerpts:result.packet.excerpts,
+				source_refs:[...new Set(result.packet.excerpts.map(span=>span.page))].map(page=>({source_id:'pdf:'+mid,pdf_index:page-1})),
+				coverage:{partial:true,visual:'unassessed',unavailable_pages:result.packet.unavailable_pages},
+				note:'Exact original source excerpts, not a generated answer or completed graph. Use alongside published material and established campaign facts. Follow necessary connections; do not infer whole-book absence or overwrite table canon. Inspect original page images when a visual detail is needed.'}};
+		}catch(error){if(signal?.aborted)throw error;this.deps.record({lane:'source-reference',event:'visual_fallback',module_id:mid,campaign,detail:String(error)});return;}
 	}
 	prefetch(moduleId: string, reason = 'requested'): Promise<void> {
 		if (this.stopped) return Promise.resolve();
@@ -474,10 +522,15 @@ export class ReadingService implements ReadingBridge {
 		if (!mid) throw error("needs_source", "choose a PDF or an existing module", "pass pdf or module_id");
 		if (params.purpose === "bind") return {ok:true,module_id:mid,source_bound:true};
 		if (params.purpose === "guidance") {
+			try{const reference=await this.referenceGuidance(mid,params,signal,options);if(reference)return {...reference,module_id:mid};}
+			catch(failure){if(signal?.aborted||isKernelError(failure)&&failure.code==='needs_choice')throw failure;this.deps.record({lane:'source-reference',event:'guidance_fallback',module_id:mid,detail:String(failure)});}
 			const result = await this.ensure(mid, {...params,public_progress:true, campaign:null, focus: params.start_scene || "", foreground:true}, signal, options);
 			return {...result, module_id:mid};
 		}
 		if (params.start_scene && params.targeted === true) {
+			if(this.deps.runtime?.sourceReferences){const reference=await this.call('module.reference.status',{module_id:mid,focus:params.start_scene},campaign);
+				if(reference.ready){void this.call('module.read.ahead',{module_id:mid,focus:params.start_scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-ready');return this.pump(mid,campaign);}).catch(()=>undefined);
+					return {ok:true,module_id:mid,opening_ready:true,readiness:'source-reference',graph_complete:false};}}
 			await this.ensure(mid, {purpose:"opening", campaign:campaign ?? null, focus:params.start_scene,
 				opening_scope:'first_interaction',foreground:params.background!==true, retry:params.retry===true}, signal, options);
 			return {ok:true, module_id:mid, opening_ready:true};

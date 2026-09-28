@@ -684,3 +684,61 @@ test('a previously pinned campaign NPC profile survives a later module profile',
  const result=api.npcProfileOf(graph,{npc_profiles:{witness:pinned},npc_resources:{witness:{current_hp:7}}},'witness');
  assert.equal(result.characteristics.STR,40);assert.equal(result.derived.HP,10);assert.equal(result.hp_current,7);
 });
+
+test('original-context readiness opens setup before graph completion and queues independent page fragments',async()=>{
+ const require=createRequire(import.meta.url),flock=promisify(require('fs-ext').flock),workspace=join(evidence,'reference-context');
+ const pdf=join(evidence,'reference-context.pdf'),pdfBytes=Buffer.from('%PDF-1.7\nreference-context fixture\n'),sha=value=>createHash('sha256').update(value).digest('hex');await writeFile(pdf,pdfBytes);
+ const context=await api.createKernelContext({workspace,content:join(ROOT,'content'),locks:api.createAdvisoryLocks(flock)}),runtime=api.createModuleRuntime(context);
+ try{
+  const mid=(await runtime.handlers['module.source.bind']({source:{path:pdf,page_count:6,file_sha256:sha(pdfBytes)}})).module_id;
+  const dir=join(runtime.source.store.moduleDir(mid),'work','source-reference-fixture');await mkdir(dir,{recursive:true});
+  const text='Harbor in 1925. Choose your own investigator.',span={id:'p3-0-43',page:3,start:0,end:text.length,text};
+  const packet={protocol:'source-reference-v1',source_sha256:sha(pdfBytes),extraction_version:'fixture',purpose:'guidance',question:'Start',excerpts:[span],fields:Object.fromEntries(['era','place','premise','advice','warnings','opening'].map(key=>[key,[span.id]])),entries:[{id:'scene-source-entry-3',name:'Harbor',page:3}],partial:true,visual_coverage:'unassessed',unavailable_pages:[]};
+  const task=JSON.stringify({purpose:'guidance',source_reference:'guidance'}),body=JSON.stringify(packet),guide='Harbor in 1925. Choose your own investigator.';
+  await writeFile(join(dir,'task.json'),task);await writeFile(join(dir,'source-reference.json'),body);await writeFile(join(dir,'reference-guidance.txt'),guide);
+  const public_fields=Object.fromEntries(['era','starting_place','public_premise','creation_advice'].map(key=>[key,{status:'value',text:guide,source_refs:[{page:3}]}]));
+  const checks=Object.fromEntries(['wrong_orientation','card_restriction','advice_omission','warning_omission','plot_disclosure','causal_conflict'].map(key=>[key,{status:'answered',type:'noul',noul:0}]));
+  await writeFile(join(dir,'source-reference-complete.json'),JSON.stringify({protocol:'source-reference-v1',kind:'guidance',source_sha256:sha(pdfBytes),task_sha256:sha(task),packet_sha256:sha(body),text_sha256:sha(guide),checks_policy:'material-issues-v1',checks,public_fields}));
+  const result=await runtime.handlers['module.reference.publish']({module_id:mid,work_dir:dir,guidance_key:'d'.repeat(64),play_language:'en'});
+  assert.equal(result.setup_ready,true);assert.equal(result.graph_complete,false);
+  assert.equal((await runtime.handlers['module.status']({module_id:mid})).opening_ready,false);
+  assert.equal(await runtime.source.openingReady(mid,'Harbor'),true);
+  await runtime.handlers['module.read.ahead']({module_id:mid,focus:'Harbor'});
+  const jobs=(await runtime.source.store.queue(mid)).filter(job=>job.reference_fragment);
+  assert.deepEqual(jobs.map(job=>[job.source_unit.first,job.source_unit.last]),[[3,4],[5,6]]);
+  const first=await runtime.handlers['module.read.claim']({module_id:mid,owner:'test'});assert.equal(first.reference_fragment,true);assert.deepEqual(first.pages,[3,4]);
+  assert.equal((await runtime.handlers['module.reference.status']({module_id:mid})).ready,true,'background work cannot revoke original-context access');
+  const lookup=JSON.stringify({...packet,purpose:'answer',places:[{id:'scene-source-place-3-0',name:'Harbor Station',page:3}]}),lookupTask=JSON.stringify({purpose:'answer',materialize_place:true});
+  await writeFile(join(dir,'task.json'),lookupTask);await writeFile(join(dir,'source-reference.json'),lookup);
+  await writeFile(join(dir,'source-reference-complete.json'),JSON.stringify({protocol:'source-reference-v1',kind:'excerpts',source_sha256:sha(pdfBytes),task_sha256:sha(lookupTask),packet_sha256:sha(lookup)}));
+  const material=await runtime.handlers['module.reference.materialize']({module_id:mid,work_dir:dir});
+  assert.equal(material.state,'ready');assert.equal(await runtime.source.materialReady(mid,'Harbor Station'),true);
+  assert.equal((await runtime.source.store.readGraph(mid)).nodes.find(node=>node.name==='Harbor Station').summary,text,'no source paraphrase is generated');
+  assert.equal((await runtime.handlers['module.reference.materialize']({module_id:mid,work_dir:dir})).reused,true,'later calls preserve the established identity');
+  const originalScene=(await runtime.source.store.readGraph(mid)).nodes.find(node=>node.name==='Harbor Station');
+  const unready=await runtime.source.store.module(mid);unready.reading.materials=unready.reading.materials.filter(material=>!material.node_ids?.includes(originalScene.node_id));await runtime.source.store.writeModule(unready);
+  assert.equal(await runtime.source.materialReady(mid,'Harbor Station'),false);
+  assert.equal((await runtime.handlers['module.reference.materialize']({module_id:mid,work_dir:dir})).state,'ready','original evidence admits an existing partial scene');
+  assert.deepEqual((await runtime.source.store.readGraph(mid)).nodes.find(node=>node.name==='Harbor Station'),originalScene,'existing scene fields are not rewritten');
+  const meta=await runtime.source.store.module(mid);await writeFile(join(runtime.source.store.moduleDir(mid),meta.source_reference.packet_file),'{}');
+  assert.equal((await runtime.handlers['module.reference.status']({module_id:mid})).ready,false,'modified evidence cannot keep reference readiness');
+ }finally{await runtime.close();await context.git.close();}
+});
+
+test('a background fragment publishes supported facts while an unfinished entity stays explicitly unready',()=>{
+ const draft=clone(base);draft.ready_nodes=['scene-dock'];draft.source_needs=[{kind:'source_read',focus:'Witness',question:'What is the later connection?',reason:'The original page continues in another fragment.',trigger:'Before relying on that connection.',source_refs:refs}];
+ const scoped={...packet,purpose:'detail',source_unit:{section:'Original page 1',first:1,last:1},pages:[1]};
+ assert.equal(api.checkDraft(draft,scoped,contract,new Set([1])).source_needs[0].kind,'source_read');
+ assert.throws(()=>api.checkDraft({...draft,ready_nodes:['scene-dock','npc-witness']},scoped,contract,new Set([1])),/unresolved entity ready/);
+ assert.throws(()=>api.checkDraft(draft,{...packet,purpose:'detail'},contract,new Set([1])),/source needs remain unresolved/);
+});
+
+test('the real source checker reports assigned pages before submission verifies delivered images',async()=>{
+ const folder=join(evidence,'source-unit-command');await mkdir(folder,{recursive:true});
+ const candidate={nodes:[],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]};
+ const task={...packet,purpose:'detail',pages:[1,2],source_unit:{section:'Two pages',first:1,last:2}};
+ await writeFile(join(folder,'task.json'),JSON.stringify(task));await writeFile(join(folder,'draft.json'),JSON.stringify(candidate));
+ const run=spawnSync(join(ROOT,'bin/coc-read-check'),['--packet',join(folder,'task.json'),'--draft',join(folder,'draft.json')],{encoding:'utf8'});
+ assert.equal(run.status,0,run.stdout||run.stderr);assert.deepEqual(JSON.parse(run.stdout).required_view_pages,[1,2]);
+ assert.throws(()=>api.checkDraft(candidate,task,contract,new Set([1])),/assigned original pages/);
+});

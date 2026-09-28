@@ -6,6 +6,7 @@ import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { KernelClient, KernelError, type KernelClientOptions } from "../extensions/kernel/client.ts";
 import type { ReaderOutcome, ReaderRequest } from "../extensions/module/reader.ts";
 import { runtimeCapabilities } from "./tasks.ts";
+import {readJevApiKey} from '../extensions/jev/agent/config.js';
 import { stripJsonComments } from "./json-comments.ts";
 import { assertWritableLocation, compiledEnvironment, readDeployment, resourcePath, resourceRootFrom,
   runtimeEntrypoints, type RuntimeEntrypoints, type RuntimeLayout } from "./deployment.mjs";
@@ -70,6 +71,7 @@ export interface RuntimeCapabilities {
 type ConnectionOptions = Pick<KernelClientOptions, "timeoutMs" | "onDiagnostic" | "onRestart">;
 
 export interface HostRuntime {
+	readonly sourceReferences?: boolean;
 	readonly owner: RuntimeBinding["owner"];
 	readonly home: string;
 	readonly resourceRoot: string;
@@ -239,6 +241,7 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 	signal.addEventListener("abort", cancelled, { once: true });
 	return Object.freeze({ owner: binding.owner, home, resourceRoot, contentRoot,
 		readerModel: env.PI_COC_BUILD_MODEL?.trim(), campaign: binding.campaign, signal,
+		sourceReferences:!!readJevApiKey(context.env),
 		openKernel(options: ConnectionOptions = {}) {
 			if (closed || signal.aborted) throw failure("runtime_closed", "The runtime owner is closed or cancelled");
 			client ??= new KernelClient({ ...options, ...launch });

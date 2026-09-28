@@ -1,10 +1,17 @@
 # Jev PDF demand reading with source dependency coverage
 
-Status: implemented; integrated acceptance remains open
+Status: source-reference correction implemented; whole-turn performance and installed-App acceptance remain open
+Correction evidence: [original source and incremental publication](../research/jev-source-fragments-acceptance-20260928.md).
 Execution: implementation authorized 2026-09-27 and recorded in the [implementation acceptance report](../research/jev-pdf-implementation-acceptance-20260928.md). Native source decisions, staged readiness, advisory module review, background scheduling and public UI progress are implemented. Measured latency and continued-play gaps remain explicit; source changes are not an installed-App release.
 Date: 2026-09-27
 Baseline inspected: 0.9.6a at 58f5889d3341b7d90fcc9e7cf0fe4108530579b6.
 Implementation input: use the [minimal-entry prototype](../research/jev-playable-entry-prototype-20260927.md), [native Pi mechanism prototype](../research/jev-native-pi-reader-20260927.md) and [ticket breakdown](jev-pdf-demand-reading-tickets.md). Actual player-wait targets remain pending real-protocol validation; the earlier broad dossiers cannot set them.
+
+## Latest approved foreground contract (2026-09-28)
+
+The owner corrected the foreground design after the 94 s creation / 222 s opening result. [Contract §148](../kernel-rpc.md#148-original-source-context-is-immediately-usable-graphs-publish-incrementally-2026-09-28) supersedes older requirements below that make graph writing or independent graph review a creation/play prerequisite. Jev selects exact original passages; the host copies them into one final public-guide generation. Source-backed entrance context unlocks creation and play while small graph fragments are authored, logically reviewed and published independently. Missing graph coverage is supplied by original-source lookup. Creation advice and warnings never enforce a character build. Parameters/prose may differ from the book; causal links, identities, knowledge boundaries and established table canon remain the priorities.
+
+Prototype: `178ab2c9fbf7a2353b0a6b1458f955721452f2ef` on `codex/prototype-source-fragments-20260928`. Checked source-guide timings were 18.672 s (Blood) and 17.047 s (Masks); these are not integrated player-wait measurements. The source reference packet identifies partial coverage and unassessed visuals. The existing original-page route handles visual interpretation and unavailable text.
 
 ## Problem Statement
 

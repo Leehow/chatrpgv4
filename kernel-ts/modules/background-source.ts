@@ -2,6 +2,11 @@
 import {array,number,string,type Row} from '../read/values.js';
 export const BACKGROUND_SOURCE_PAGES=6;
 export type SourceUnit={section:string;first:number;last:number};
+/** Structural page units need no model-built index and make no semantic completeness claim. */
+export function referenceSourceUnits(pageCount:number):SourceUnit[]{
+ if(!Number.isSafeInteger(pageCount)||pageCount<1)return [];
+ return Array.from({length:Math.ceil(pageCount/2)},(_,i)=>({section:`Original pages ${i*2+1}-${Math.min(pageCount,i*2+2)}`,first:i*2+1,last:Math.min(pageCount,i*2+2)}));
+}
 export const sourceUnitKey=(unit:SourceUnit):string=>JSON.stringify([unit.section,unit.first,unit.last]);
 export function backgroundSourceUnits(sections:Row[],pageCount:number):SourceUnit[]{
  const pages=new Map<number,{section:string;width:number}>(),unreadable=new Set<number>();

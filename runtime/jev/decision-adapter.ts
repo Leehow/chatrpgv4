@@ -335,12 +335,13 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
           const retryAfterHeader = response.status === 429 ? headers(response, 'retry-after') : null;
           trace({ kind: 'attempt', batchId: batch.id, attempt, family: batch.family, status: response.status, ms: now() - attemptBegan,
             ...(retryAfterHeader ? { retryAfter: retryAfterHeader } : {}) });
-          if (response.status === 429 || response.status === 529) {
+          if (response.status === 429 || response.status === 529 || response.status === 503) {
             await cancelResponseBody(response);
-            if (attempt >= maxAttempts) return settleUnknown('rate_limited', true, attempt);
+            const failureCode=response.status===503?'service_error':'rate_limited';
+            if (attempt >= maxAttempts) return settleUnknown(failureCode, true, attempt);
             const fallback = Math.min(retry.backoffMaxMs, retry.backoffInitialMs * 2 ** (attempt - 1));
             const delay = retryDelay(response, fallback, now());
-            if (delay >= lease.context.budget.deadlineAt - now()) return settleUnknown('rate_limited', true, attempt);
+            if (delay >= lease.context.budget.deadlineAt - now()) return settleUnknown(failureCode, true, attempt);
             trace({ kind: 'retry', batchId: batch.id, attempt, delayMs: delay, reason: String(response.status) });
             try { await sleep(delay, lease.signal); } catch { return settleUnknown('cancelled', false, attempt); }
             continue;
