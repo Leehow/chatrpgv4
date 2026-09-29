@@ -321,7 +321,8 @@ export async function tableView(context: KernelContext, params: Row): Promise<Ro
         // The documents this table was handed, so a clipping read once can be read again from the
         // clue list after the delivery card has scrolled away (2026-09-23 ruling). Same body as the
         // card's `text`, so the handouts lane's projection answers both.
-        handouts: await heldHandouts(campaign.dir, array(world.handouts_shown)),
+        handouts: array(world.handouts_shown).length ? await heldHandouts(campaign.dir, array(world.handouts_shown),
+            [...(await campaign.files('turns')).flatMap(record=>array(record.receipts)),...array(turn.receipts)]) : [],
         npcs: { journal: await npcJournalSection(campaign, graph) },
         labels: await playerGlossary(context, language)
     };

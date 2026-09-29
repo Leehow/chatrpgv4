@@ -739,7 +739,7 @@ export function createComponent(React) {
   }
 
   function MapRow(props) {
-    const { row, name, t } = props;
+    const { row, name, t, kindKey = 'map' } = props;
     const [zoom, setZoom] = React.useState(100);
     const [broken, setBroken] = React.useState(false);
     const variants = knownLevelImages(row);
@@ -753,7 +753,8 @@ export function createComponent(React) {
     const regionLabels = knownRegionLabels(row);
     return h("details", {
       className: "coc-mech-row coc-map",
-      "data-kind": "map",
+      "data-kind": kindKey,
+      "data-handout": kindKey === 'handout' ? text(row.handout || row.name) : undefined,
       "data-map": text(row.map) || undefined,
       "data-view": text(row.view_id) || undefined,
       "data-receipt": text(row.receipt) || undefined,
@@ -761,7 +762,7 @@ export function createComponent(React) {
       onToggle: event => { if (event.currentTarget.open) setBroken(false); },
     },
       h("summary", { className: "coc-map-head" },
-        h("span", { className: "coc-mech-ico", "aria-hidden": "true" }, icon("map")),
+        h("span", { className: "coc-mech-ico", "aria-hidden": "true" }, icon(kindKey)),
         h("span", { className: "coc-mech-body" }, name),
         openable ? h(Stamp, { tone: "pass" }, t("available")) : null),
       openable
@@ -799,6 +800,7 @@ export function createComponent(React) {
               style: { width: `${zoom}%` },
               onError: () => setBroken(true),
             })),
+            props.body ? h("div", {className:"coc-mech-fold-body"}, props.body) : null,
             regionLabels.length ? h("div", { className: "coc-map-regions" }, regionLabels.join(" · ")) : null)
         // Nothing to open: the place the player knows is still worth naming, and it is the only
         // thing here that is true without the pixels.
@@ -1033,6 +1035,7 @@ export function createComponent(React) {
       }
       case "handout": {
         const name = term(text(row.label || row.name));
+        if (row.document === 'ready' && playerImage(row.image)) return h(MapRow, {key,row,name,t,kindKey:'handout',body:term(text(row.text))});
         // §59. A handout the module registered with no document reaches the player as a delivery
         // all the same -- the Keeper was told to say what it holds, and did -- so the card claims
         // nothing about it rather than stamping the "not delivered" that contradicted the prose

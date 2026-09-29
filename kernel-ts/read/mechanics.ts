@@ -259,6 +259,8 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
         labeled(out, "label", receipt.label);
         labeled(out, "path", attachment.path);
         labeled(out, "media_type", attachment.media_type);
+        labeled(out, "image_path", attachment.image_path);
+        labeled(out, "image_media_type", attachment.image_media_type);
         const file = texts.get(attachment.path);
         if (file !== undefined) {
             const body = handoutBody(file);

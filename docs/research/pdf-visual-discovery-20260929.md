@@ -42,3 +42,11 @@ Directory labels sometimes misread the cottage title; they remain navigation hin
 ## Remaining installed-App gate
 
 Package the reviewed committed source into the sole canonical App; verify stable signing and cleanup. Through Computer Use, continue the retained scenario naturally, verify a visual scan starts in the background without locking the composer, and verify actual image/map delivery. Source-component success alone does not satisfy that UI gate.
+
+## Installed-App findings and image-consumer correction
+
+Package 9cb667f33 installed at 07:39:26.371Z with the stable PipiUI Dev certificate and empty staging. The retained Dust campaign automatically completed visual ranges 1–20 and 21–23; its real scan also nominated page 4 as a possible newspaper/player handout. Page 8 preparation completed while pages 10 and 12 ran independently. The player bought a paper and submitted another normal action while those background jobs were active; turns 21 and 22 closed in 36 s and 40 s. The Keeper unnecessarily split the previously declared overnight plan across turns; that pacing issue is retained, not attributed to visual discovery.
+
+The GUI exposed the other half of the reported missing images: the original newspaper PNG was present and its receipt was ready, but mechanics.js deliberately drew image-only handouts as a non-opening line, and the case board filtered out documents without text. Added player-host image hydration for live cards/restored history and held-handout descriptors from actual receipts. The viewer reuses existing image zoom/pan controls, supports text beside an original image, and does no new model inference. Host reads are constrained to the bound campaign and module, realpath checked, size bounded and raster-signature checked; a forged inline image does not bypass that materialization. Viewing cannot grant a hidden handout or survive a worldline rewind as current inventory merely because bytes remain on disk.
+
+Follow-up checks: 80 UI mechanics/board/speech tests, 28 player-host/image-scope tests, 12 source/handout/language checks, and 15 kernel handout/frontend-view tests passed. Kernel and player-host builds passed. A second package and final visible original-image verification follow; these source/test results alone are not that final UI evidence.
