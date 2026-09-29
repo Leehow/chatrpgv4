@@ -1,4 +1,4 @@
-Status: ready-for-human (filed 2026-09-29 from the installed-App Dust to Dust table; owner asked "时间行缓存那条…查一下吧"; follow-up of SL-101; owner chose A + B 2026-09-29; implemented 2026-09-29 on claude/sl104-admission-batch-context-20260929; merged into 0.9.6a at bf65b781a on the owner's word ("直接合"); the live latency check was not run)
+Status: ready-for-human (filed 2026-09-29 from the installed-App Dust to Dust table; owner asked "时间行缓存那条…查一下吧"; follow-up of SL-101; owner chose A + B 2026-09-29; implemented 2026-09-29 on claude/sl104-admission-batch-context-20260929; merged into 0.9.6a at bf65b781a on the owner's word ("直接合"); the live latency check was not run; box suites green at the merged head)
 Stage: SL-104 (admission: a line reviewed on its own is judged on its siblings and its rationale, then its refusal is reused for a batch whose siblings changed)
 Spec: docs/kernel-rpc.md §32.4 (reuse key; `why`, `how`, `label`, `decision` outside it), §32.12.3.1 (SL-101: one lane call per line, "each call gets the same §32.3 context and exactly one proposed line", "verdict reuse keys by line"); `extensions/kernel/admission.ts` (`effectSignature` ~295, `admissionRequest` ~309, `lineProposal` ~720), `extensions/kernel/index.ts` (`admissionLines` ~2470, `admitOne` / `settle` ~2620, `state.admission.get(proposal.key)` ~2654)
 
@@ -166,3 +166,12 @@ files and every extension test the merge added or changed (`map-living` 8, `map-
 `map-words` 23, `visual-identity` 10, `campaign-module-isolation` 1, `contract-section-numbers` 3; the admission files 6,
 18, 18), all green. **Owed:** `ext`, `py` and `loop` on the box at the merged head once leehow-pc is back. The installed
 App does not carry this until it is repackaged.
+
+**2026-09-30 -- the owed box suites, at the merged head (leehow-pc back).**
+- `ext`: `ℹ tests 4035` / `ℹ pass 4035` / `ℹ fail 0`; `== ext on leehow-pc @ 5569bf32c5dfbb07433d43f35ec766ec8342f455: exit=0 wall=725s`.
+  After that line the Mac side of `remote-test.sh` (changed by another session at 13:03, now `#!/bin/zsh`) printed
+  `remote-test.sh:220: no such file or directory: st-global-setup=tests/extension/playtests-guard.mjs` and returned 127:
+  a harness error after the suite's own result, and whether this run carried the `.coc/playtests` guard cannot be read back
+  (a green run's box log is wiped).
+- `py`: `2069 passed, 2 skipped in 482.17s (0:08:02)`; `== py on leehow-pc @ 5569bf32c5dfbb07433d43f35ec766ec8342f455: exit=0 wall=516s`.
+- `loop`: `# tests 296` / `# pass 296` / `# fail 0`; `== loop on leehow-pc @ 5569bf32c5dfbb07433d43f35ec766ec8342f455: exit=0 wall=140s`.
