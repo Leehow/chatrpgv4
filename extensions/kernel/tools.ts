@@ -274,10 +274,10 @@ const NoteEffect = Type.Object({
 	kind: StringEnum(["note"] as const, {
 		description: "record continuity you owe the fiction later: a thread left hanging, someone waiting for an answer, a detail you must honour",
 	}),
-	name: Type.String({ description: "a short name for this debt; you close it later by this name" }),
+	name: Type.Optional(Type.String({ description: "a short name for a manual note; required when opening one with text, omitted when only closing an existing note" })),
 	text: Type.Optional(Type.String({ description: "one sentence: what is owed. Required when opening a note" })),
 	entities: Type.Optional(Type.Array(Type.String(), { description: "who or what it concerns; the capsule raises the note when they are present" })),
-	closes: Type.Optional(Type.String({ description: "the name of an open note this settles; give it alone to close, or with text to replace" })),
+	closes: Type.Optional(Type.String({ description: "an exact manual open-note name from the capsule; give it alone to close, or with text to replace. Memory record IDs are not note names. Background memory maintenance owns remembered-plan status; do not close memory references through this effect" })),
 });
 
 const RulingEffect = Type.Object({

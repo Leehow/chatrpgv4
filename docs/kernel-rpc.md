@@ -28671,6 +28671,10 @@ The Keeper should continue ordinary actions using established context, adding pl
 
 Acceptance must include an unlisted shop, an improvised person and clue, leaving and returning, restart persistence, and preservation of an authored causal constraint. Measure actual player wait and model calls separately from source retrieval. A green transaction test is necessary but does not prove an enjoyable Keeper response. External cross-check: TypeSafe intent routing retains LLM exits for open work; Fate Core's Scenario In Play uses motivations and player choices rather than prewritten scene order. Neither substitutes for the CoC rules or live acceptance.
 
+### 150.4 Memory references are not manual note names
+
+Two successive GUI turns attempted to replace memory record mem:t9-3 through an apply note closure. Memory references identify context records maintained by the memory owner, not unresolved manual obligations. The Keeper-facing guidance now makes this distinction explicit and gives current receipts precedence over remembered plans. The note tool accepts only names from actual open notes; invalid closure retains ordinary atomic refusal with reason note_not_open. Full-call inspection found replacement text as well as closes, so a proposed partial-note-failure relaxation was rejected before commit. Existing partial refusal remains limited to its established person-effect contract. No memory or note is silently closed merely to avoid an extra model call.
+
 ## 151. Jev decides, the LLM writes: clerk execute by default, record-level graph review with a Jev claim check, need reads that locate first, a narrator-only setting, and a driven setup run (2026-09-28, `docs/specs/jev-decides-llm-writes.md`; amends §135.32 addendum 2, §22.3–§22.3.3, §22.4.2, §147–§149)
 
 Owner go 2026-09-28. Every Jev question here follows §135.32's D2 hygiene (one Noul per candidate, a family `exists`/exit, state with only what the question needs, gates as data, model pinned `jev-1.13.0`, outage = today's behaviour). No Jev family generates a name, a quotation, a number or a relation; no lexical pre-parser runs in front of Jev.

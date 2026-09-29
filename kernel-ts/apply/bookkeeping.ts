@@ -146,7 +146,7 @@ export async function stageNote(context:ApplyContext,effect:Row,staged:Row[]):Pr
         const old=current.get(normalize(closes));
         if(!old||old.status!=='open'){
             const open=[...current.values()].filter(value=>value.status==='open').map(value=>string(value.name));
-            throw new RpcError('invalid_params',`no open note named ${repr(closes)}`,{fix:open.length?`close one of ${repr(open)}`:'there is no open note to close',details:{closes,open}});
+            throw new RpcError('invalid_params',`no open note named ${repr(closes)}`,{fix:(open.length?`close one of ${repr(open)}`:'there is no open note to close')+'; memory references are maintained separately and are not manual notes',details:{reason:'note_not_open',closes,open}});
         }
         closed={...publicRow(old),status:'closed',closed_turn:context.turn.turn,closed_by:context.callId};rows.push(closed);
     }

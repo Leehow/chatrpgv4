@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {build} from 'esbuild';
 
-const bundle=await build({stdin:{contents:"export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {withTableEntities,tableEntityId} from './kernel-ts/read/table-entities.ts'; export {admissionRequest} from './extensions/kernel/admission.ts'; export {report} from './kernel-ts/worldline/confluence-plan.ts'; export {actedOn} from './kernel-ts/npc/act-options.ts';",resolveDir:process.cwd()},bundle:true,write:false,platform:'node',format:'esm',logLevel:'silent'});
+const bundle=await build({stdin:{contents:"export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {withTableEntities,tableEntityId} from './kernel-ts/read/table-entities.ts'; export {admissionRequest} from './extensions/kernel/admission.ts'; export {report} from './kernel-ts/worldline/confluence-plan.ts'; export {actedOn} from './kernel-ts/npc/act-options.ts'; export {COC_TOOLS} from './extensions/kernel/tools.ts'; export {Check} from 'typebox/value';",resolveDir:process.cwd()},bundle:true,write:false,platform:'node',format:'esm',logLevel:'silent'});
 const api=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 test('campaign places and evidence remain readable when later source has the same name; source bytes remain unchanged',()=>{
@@ -70,4 +70,10 @@ test('an impression guides the Keeper without a second NPC reaction, while a con
  const check={id:'persuasion',kind:'roll',npc:'the officer',actor:'investigator'};
  assert.deepEqual(api.actedOn(person,{receipts:[impression]},[],true),[]);
  assert.deepEqual(api.actedOn(person,{receipts:[impression,check]},[],true),[{receipt:'persuasion',kind:'roll_against'}]);
+});
+
+
+test('the public apply schema accepts closing an existing note without inventing a new note name',()=>{
+ const apply=api.COC_TOOLS.find(tool=>tool.name==='apply');
+ assert(api.Check(apply.parameters,{effects:[{kind:'note',closes:'existing-manual-note'}]}));
 });
