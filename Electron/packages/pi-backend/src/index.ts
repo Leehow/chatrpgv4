@@ -3,7 +3,7 @@ import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 import {readDefensePreference, writeDefensePreference, isDefenseChoice} from './coc-defense.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
 import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, laneWords, laneProjection, laneLabels,
-  laneLabelsLoaded, reloadLaneLabels, deliveryWords, CocCardLedger, type CocCardPatch,
+  laneLabelsLoaded, reloadLaneLabels, deliveryWords, handoutTitles, CocCardLedger, type CocCardPatch,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
 import {withHandoutImages} from './coc-handout-images.js';
@@ -6252,8 +6252,12 @@ export class PiHostBackend implements HostBackend {
             agentDir: this.sharedProfileDir, env: this.env});
           this.cocOnboarding = host;
           const state = await this.getModelState(sessionId);
+          // VT-01: a pictured handout's title is in no file the handouts lane reads, so it travels as input.
+          const titles = lane === "handouts" ? handoutTitles((Array.isArray(raw?.data?.mechanics) ? raw.data.mechanics : [])
+            .filter((row: any) => row?.kind === "handout" && row.visibility !== "keeper")).filter(title => missing.includes(title)) : [];
           await host.presentation({campaign: binding.campaign, play_language: binding.play_language, [lane]: true,
             ...(lane === "rules" ? {mechanics: raw.data.mechanics} : {}),
+            ...(titles.length ? {handout_names: titles} : {}),
             ...await this.cocFastLane(state)});
           this.cocLaneJobs.delete(key);
           landed = true;
@@ -10129,7 +10133,11 @@ export class PiHostBackend implements HostBackend {
             this.cocLaneJobs.set(key,{status:'pending'});
             this.cocOnboarding = this.cocOnboardingRegistry.get({...this.cocRuntime,repo,home:context.home,agentDir:this.sharedProfileDir,env:this.env});
             const refresh=()=>emitFrame(this.listeners,{protocolVersion:PIPI_HOST_PROTOCOL_VERSION,channel:'ext.coc-keeper',event:{type:'sheet_changed',payload:{campaign:context.campaign}}});
-            void this.getModelState(sessionId).then(async state=>this.cocOnboarding!.presentation({campaign:context.campaign,play_language:context.play_language,[lane]:true,...await this.cocFastLane(state)})).then(()=>{
+            // VT-01: a title no handout file carries (a pictured handout's) travels as input, or the lane
+            // answers without it and this landing's re-read starts the lane again.
+            const titles=lane==='handouts'?handoutTitles(view.handouts).filter(title=>saved.missing.includes(title)):[];
+            void this.getModelState(sessionId).then(async state=>this.cocOnboarding!.presentation({campaign:context.campaign,play_language:context.play_language,[lane]:true,
+              ...(titles.length?{handout_names:titles}:{}),...await this.cocFastLane(state)})).then(()=>{
               // The live reader answers from a held copy of these lanes, so a lane that
               // lands here must replace it too, or the next delivery draws the words this
               // run has just finished replacing.

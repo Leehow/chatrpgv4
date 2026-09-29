@@ -163,8 +163,10 @@ async function main() {
       // The lane reads the files `apply handout` wrote, which is where a handout's words are: it
       // is on no panel and in no view. Taking them from disk rather than from the kernel also
       // keeps this lane off the campaign lock, so a document handed over mid-turn does not queue
-      // behind the Keeper's own turn.
-      return prepareHandoutPresentation({...input,contentRoot:context.contentRoot,known_labels:{},
+      // behind the Keeper's own turn. A title no file carries -- a pictured handout writes none --
+      // arrives on the request as `handout_names`, from the rows the host already holds, and joins
+      // those files' rows as a row with no body (VT-01).
+      return prepareHandoutPresentation({...input,handout_names:input.handout_names,contentRoot:context.contentRoot,known_labels:{},
         signal:guidanceAbort.signal,runner:runTask});
     }
     // The draft row already carries the kernel's glossary. When the caller hands it over there is
