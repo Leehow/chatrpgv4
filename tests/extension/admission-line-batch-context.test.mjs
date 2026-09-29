@@ -108,9 +108,12 @@ test("§32.12.3.1.1 pure: a line's beside is its reviewed batch-mates; the key c
 	assert.equal(besideBatch(reworded, time.beside).key, beside.key, "the line's own why stays outside the key");
 	const movedTo = admissionRequest("apply", { effects: [T25_TIME, person, T25_MOVE_AGAIN] }, scope);
 	assert.notEqual(besideBatch(alone, lineProposal(movedTo, 0).beside).key, beside.key, "a batch-mate's destination is inside it");
-	const rewordedMate = admissionRequest("apply", { effects: [T25_TIME, { ...T25_MOVE, via: "another road" }] }, scope);
+	const rewordedMate = admissionRequest("apply", { effects: [T25_TIME, { ...T25_MOVE, why: "the road the player named" }] }, scope);
 	assert.equal(besideBatch(alone, lineProposal(rewordedMate, 0).beside).key, beside.key,
-		"a batch-mate's fields outside effectSignature are outside it too");
+		"a batch-mate's fields outside effectSignature (its why) are outside it too");
+	// §32.4.1: a move's `via` is its route, inside effectSignature, so a batch-mate that takes another road is another batch.
+	const reroutedMate = admissionRequest("apply", { effects: [T25_TIME, { ...T25_MOVE, via: "another road" }] }, scope);
+	assert.notEqual(besideBatch(alone, lineProposal(reroutedMate, 0).beside).key, beside.key, "a batch-mate's via is inside it");
 });
 
 test("§32.12.3.1.1 pure: the batch-mates are read under their heading before the proposed line; a lone proposal's input is what it was", () => {

@@ -524,6 +524,11 @@
       "id": "SL-104",
       "file": "104-admission-line-judged-without-its-batch.md",
       "status": "needs-triage"
+    },
+    {
+      "id": "SL-105",
+      "file": "105-admission-key-misses-declared-fields.md",
+      "status": "ready-for-human"
     }
   ],
   "relatedSpecs": [

@@ -240,7 +240,7 @@ export interface AdmissionScope {
  * that carries one of them is reviewed whole and refused whole; a batch of only the other kinds
  * (Keeper bookkeeping, NPC movement, pacing, world switches, Mod registration) is not reviewed.
  */
-const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "clue", "time", "cash", "item", "handout", "map", "object", "usage"]);
+export const TRIGGER_KINDS: ReadonlySet<string> = new Set(["move", "clue", "time", "cash", "item", "handout", "map", "object", "usage"]);
 
 /** `resolve` decision families that are never a voluntary player action: the rules or the table run them. */
 const EXEMPT_DECISION_PREFIXES: readonly string[] = ["sanity:", "development:"];
@@ -299,13 +299,26 @@ export function keyDigest(key: string): string {
 }
 
 /**
- * One effect's identifying fields as the reuse key reads them (§32.4): `why`, `how` and the other rationale fields are
- * outside it. Also how a resend of a split batch recognises the lines that already landed (§32.12.3).
+ * The fields that identify an effect (§32.4.1): every field a reviewed kind declares in the `apply` schema except the
+ * rationale sentences `why` and `how` (`SENTENCE_FIELDS`). One list for every kind. It is kept by hand, so a field added
+ * to a reviewed kind's schema must land here or in `SENTENCE_FIELDS`; `admission-effect-signature.test.mjs` walks the
+ * schema and fails on a field that is in neither. Until 2026-09-29 the list had missed every field added after it was
+ * written (`time`'s band, until, stated and beyond_travel among them), and a verdict on one time cost was reused for another.
+ */
+const IDENTIFYING_FIELDS: readonly string[] = [
+	"to", "establish", "label", "travel_minutes", "via", "clue", "minutes", "band", "until", "stated", "beyond_travel", "delta",
+	"name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object",
+	"description", "category", "adopt", "condition", "weapon", "definition", "document", "part", "offer", "handover", "check",
+	"settlement", "source", "price_id", "currency", "intent_ref", "intent_outcome", "owed",
+];
+
+/**
+ * One effect's identifying fields as the reuse key reads them (§32.4, §32.4.1): `why` and `how` are outside it. Also how a
+ * resend of a split batch recognises the lines that already landed (§32.12.3).
  */
 export function effectSignature(effect: Record<string, unknown>): string {
 	const kind = text(effect.kind) ?? "?";
-	const keys = ["to", "establish", "label", "travel_minutes", "clue", "minutes", "delta", "name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object", "description", "category", "adopt", "condition", "weapon", "definition", "offer", "handover", "check", "settlement", "source", "price_id", "currency"];
-	return canonical({ kind, ...Object.fromEntries(keys.map((k) => [k, effect[k]]).filter(([, v]) => v !== undefined && v !== null && v !== "")) });
+	return canonical({ kind, ...Object.fromEntries(IDENTIFYING_FIELDS.map((k) => [k, effect[k]]).filter(([, v]) => v !== undefined && v !== null && v !== "")) });
 }
 
 /**

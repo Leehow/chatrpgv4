@@ -8285,11 +8285,73 @@ chose, and the player chooses from what the player was told.
 A verdict is kept for the turn *(amended by §32.12.3.1, 2026-09-26: and each line's own verdict under the key a call of only that line would have; and by §32.12.3.1.1, 2026-09-29: that line key also carries the order-free signatures of the line's reviewed batch-mates, so a line's verdict is reused only beside the same batch)* under a host-owned canonical key of the proposal (`resolve`: actor,
 intent, goal, method, skill, target, weapon, spell, object, push, luck, defense; `apply`: each effect's
 kind and its identifying fields, order-free; `why`, `how`, `label` and `decision` are outside the key,
-so a `needs_choice` retry or a rationale bolted on reuses its verdict). Admitting and refusing verdicts
+so a `needs_choice` retry or a rationale bolted on reuses its verdict) *(amended by §32.4.1, 2026-09-29: for `apply`
+only `why` and `how` are outside; §32.4.1 lists each reviewed kind's identifying fields)*. Admitting and refusing verdicts
 are both reused; a reused row says `reused: true` and costs no model call. The next `player_input`
 clears every verdict: a new player utterance is a new context, and no earlier acceptance executes after
 the player has spoken again. A refused proposal was never sent, so there is nothing for replay, restart
 or a stale pending decision to execute.
+
+#### 32.4.1 Addendum (2026-09-29, SL-105): an `apply` effect is identified by every field its kind declares except `why` and `how` (amends §32.4 and §32.12.3's resend recognition)
+
+**Why.** Found beside SL-104. `effectSignature` (`extensions/kernel/admission.ts`) read a fixed field list, and the fields
+later added to the reviewed kinds never joined it: `time`'s `stated` (§136.22), `band` (§138), `until` (§145.1) and
+`beyond_travel` (§156), `cash`'s `stated`, `move`'s `via`, `object`'s `document` and `part`, and the `intent_ref` and
+`intent_outcome` every intent-result kind carries (§142.2). So `{kind: time, band: speak_briefly}`,
+`{kind: time, band: library_research}`, `{kind: time, until: {...}}` and `{kind: time, stated: ...}` all had the key
+`{kind: time}`: within a turn a verdict on a word at the desk was reused for an afternoon in the stacks or a night's sleep,
+and §32.12.3's whole-batch resend recognised its landed lines by the same too-coarse signature. §32.4's reuse is sound only
+when a verdict depends on nothing outside its key, and the lane reads every field of a line (it is shown all of them).
+
+**The rule.** An `apply` effect's identifying fields are every field its kind declares in the `apply` tool's schema
+(`extensions/kernel/tools.ts`) except the rationale sentences `why` and `how` (`SENTENCE_FIELDS`, §135.21). A field is
+read the same whether absent, `null` or empty. For the kinds §32.1 puts to review:
+
+| kind | identifying fields |
+| --- | --- |
+| `move` | `to`, `establish`, `travel_minutes`, `via`, `label`, `intent_ref`, `intent_outcome`, `owed` |
+| `clue` | `clue`, `establish`, `from`, `label`, `intent_ref`, `intent_outcome` (`how` is outside) |
+| `time` | `minutes`, `band`, `stated`, `until`, `beyond_travel`, `intent_ref`, `intent_outcome`, `owed` (`why` is outside) |
+| `cash` | `subject`, `delta`, `stated`, `source`, `settlement`, `price_id`, `currency`, `with`, `intent_ref`, `intent_outcome`, `owed` (`why` is outside) |
+| `item` | `name`, `to`, `from`, `weapon`, `quantity`, `label`, `intent_ref`, `intent_outcome` (`why` is outside) |
+| `handout` | `name`, `label`, `intent_ref`, `intent_outcome` |
+| `map` | `name`, `regions`, `region_labels`, `level_labels`, `label` (`why` is outside) |
+| `object` | `name`, `adopt`, `definition`, `document`, `to`, `from`, `condition`, `offer`, `handover`, `check`, `part`, `quantity`, `owed` (`why` is outside) |
+| `usage` | `object`, `name`, `description` |
+
+`label` is identifying. §32.4's "`label` ... outside the key" has been stale since 2026-09-12, when a `move`'s `label` joined
+the key: the reviewer judges what a label names (§32.8: a label may present the same place, never substitute another), so
+a verdict on one label says nothing about another. `intent_ref` and `intent_outcome` are identifying because the effect
+settles that intention (§142.2): they are a write, not a rationale. So is `owed` (§158.5, added the same day while this
+addendum was open, and caught by the guard below): it names the owed row the kernel lands. A batch whose every effect is
+owed is admitted on `told` and reviewed by no one (§158.5); in a mixed batch the lane reads the field like any other.
+`why` and `how` stay outside, so a rationale bolted on or rewritten still reuses its verdict. §32.4's `resolve` key is not
+changed here (its code also reads `usage`).
+
+`effectSignature` keeps one field list for every kind; a field of the same name on a kind no reviewer reads (a `damage`'s
+`band` or `stated`, an `npc`'s `intent_ref`) is now read in the batch's key too, which makes that key finer, never coarser.
+
+**Where it binds.** Each effect's signature in a batch's key (§32.4), in a line's key (§32.12.3.1: the key a call of only
+that line would have), and the whole-batch resend's recognition of lines that already landed (§32.12.3). A resend that
+changes only `why` or `how` reuses every verdict; a resend that changes any other field of a reviewed line is reviewed again.
+
+**The guard.** The field list is kept by hand, so a field added to a reviewed kind's schema must be decided: identifying
+(in the list) or a rationale sentence (in `SENTENCE_FIELDS`). A test walks the schema of each of §32.1's reviewed kinds and
+fails on any declared field that neither changes the signature nor is a rationale sentence.
+
+**What is unchanged.** What §32.1 puts to review, what the lane and the typed reviewer read, the verdicts, the cap,
+pending and resend (§32.12.2), and the reuse of a verdict across `why` and `how`.
+
+**Three ends (§31).** *Writer:* `effectSignature`. *Reader:* `admissionRequest`'s key and, through it, `admitAction`'s
+reuse (`state.admission`, `state.admissionPending`) and the whole-batch resend (`landedSignatures`). *Actor:* the lane,
+which now reviews a changed time cost, amount, route, carried text or intention instead of having an earlier verdict
+reused for it.
+
+*Tests* (`tests/extension/admission-effect-signature.test.mjs`): through the real `apply` admission seam, two batches in
+one turn differing only in `band` are both reviewed (a `speak_briefly` admitted and landed, a `sleep_night` refused and
+not landed), and a batch differing only in `why` reuses its verdict with no second review; the schema guard above, on
+`effectSignature` and on `admissionRequest`'s key, with `why` and `how` shown to change neither. Mutations are in the
+SL-105 ticket's Comments.
 
 ### 32.5 The local relation projection: cue, gate and yield in one row
 
