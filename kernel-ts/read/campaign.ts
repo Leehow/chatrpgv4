@@ -164,7 +164,9 @@ export interface LoadedModule {
 export async function loadCampaignModule(context: KernelContext, id: string, world: Row, campaign?: string): Promise<LoadedModule> {
     // The people this table established ride on both loads, because a table can establish one before
     // it has ever run an adaptation and `campaignModule` answers null until then.
-    return withTablePeople(withTableEntities(await campaignModule(context, id, world) ?? await loadModule(context, id, campaign), world), world);
+    const module = await campaignModule(context, id, world) ?? await loadModule(context, id, campaign);
+    module.graph.projectSourcePlaces();
+    return withTablePeople(withTableEntities(module, world), world);
 }
 export async function loadModule(context: KernelContext, id: string, campaign?: string): Promise<LoadedModule> {
     // Reads follow the shared library until this campaign's first private write forks it.

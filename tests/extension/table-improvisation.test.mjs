@@ -39,3 +39,26 @@ test('confluence cannot silently discard another branch campaign entity',()=>{
   {line:'two',world:{active_scene:'dock',table_entities:[{name:'A shop',kind:'scene'}]}}
  ],'dock'),error=>error.code==='needs'&&error.details.reason==='table_entity_merge_conflict');
 });
+
+test('source locations enter the scene view with their original identity, clues and rule relationships',()=>{
+ const raw={nodes:[
+  {node_id:'location-police',node_kind:'location',name:'Police station',summary:'Officers receive reports here.',source_refs:[{page:4}],properties:{}},
+  {node_id:'clue-footprints',node_kind:'clue',name:'Footprints',properties:{}},
+  {node_id:'rule-case-details',node_kind:'rule',name:'Case details require a Law check',properties:{}}
+ ],relations:[
+  {from_node_id:'clue-footprints',to_node_id:'location-police',relation_kind:'discoverable-at',properties:{}},
+  {from_node_id:'location-police',to_node_id:'rule-case-details',relation_kind:'uses-rule',properties:{}}
+ ],claims:[]};
+ const original=JSON.stringify(raw),graph=new api.ModuleGraph('book',raw,'digest',{});
+ graph.projectSourcePlaces();graph.projectSourcePlaces();
+ const place=graph.scene('police');
+ assert.equal(place.node_id,'location-police');assert.equal(graph.handle(place),'police');
+ assert.equal(graph.kind('scene').length,1);assert.equal(place.source_kind,'location');
+ assert.deepEqual(graph.sceneClueIds(place),['clue-footprints']);
+ assert.equal(graph.out.get(place.node_id)[0].to_node_id,'rule-case-details');
+ assert.equal(JSON.stringify(raw),original);
+ assert.equal(new api.ModuleGraph('book',raw,'digest',{}).resolve('police').node_kind,'location');
+ const withScene=new api.ModuleGraph('book',{...raw,nodes:[...raw.nodes,{node_id:'scene-police',node_kind:'scene',name:'Police station',properties:{}}]},'digest',{});
+ withScene.projectSourcePlaces();withScene.projectSourcePlaces();
+ assert.equal(withScene.scene('police').node_id,'scene-police','an existing authored scene wins over a same-handle location');
+});

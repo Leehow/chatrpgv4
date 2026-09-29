@@ -222,6 +222,7 @@ export class ModuleGraph {
     /** Handles for the people this table established; see `addTablePerson`. */
     readonly tableNames = new Map<string, string>();
     readonly tableEntityNames = new Map<string, string>();
+    readonly sourcePlaceNames = new Map<string, string>();
     readonly moduleNode: Row | null;
     constructor(readonly moduleId: string, readonly raw: Row, readonly digest: string, readonly dossier: Row,
         readonly semanticNames: ReadonlyMap<string, string> = new Map(), readonly campaignView = false) {
@@ -326,6 +327,7 @@ export class ModuleGraph {
         return typeof identity.canonical_name === "string" && identity.canonical_name ? identity.canonical_name : display;
     }
     handle(node: Row): string {
+        if (this.sourcePlaceNames.has(node.node_id)) return this.sourcePlaceNames.get(node.node_id)!;
         if (this.tableEntityNames.has(node.node_id)) return this.tableEntityNames.get(node.node_id)!;
         if (this.tableNames.has(node.node_id)) return this.tableNames.get(node.node_id)!;
         if (this.semanticNames.has(node.node_id)) return this.semanticNames.get(node.node_id)!;
@@ -360,6 +362,21 @@ export class ModuleGraph {
             this.names.set(normalized, new Set([...(this.names.get(normalized) ?? []), id]));
         }
         return node;
+    }
+    /** A source location is a playable place; preserve its identity and all existing links. */
+    projectSourcePlaces(): void {
+        const locations = this.kind('location');
+        const registered = new Set(this.kind('scene').flatMap(scene => this.nameKeys(scene).map(normalize)));
+        const retained: Row[] = [];
+        for (const location of locations) {
+            // An authored scene already representing this exact place keeps precedence.
+            if (this.nameKeys(location).some(name => registered.has(normalize(name)))) { retained.push(location); continue; }
+            this.sourcePlaceNames.set(location.node_id, this.handle(location));
+            const scene = {...location, node_kind: 'scene', source_kind: 'location'};
+            this.nodes.set(location.node_id, scene);
+            this.byKind.set('scene', [...this.kind('scene'), scene]);
+        }
+        if (locations.length) this.byKind.set('location', retained);
     }
     /** Install persisted campaign content without modifying the source graph. */
     addTableEntity(record: Row): Row {
