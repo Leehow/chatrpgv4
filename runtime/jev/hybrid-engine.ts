@@ -816,7 +816,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             run.sourceDestinationChecked=true;
             const started=stepNow(),scope=current.table.scope,signal=AbortSignal.any([invocation.signal,AbortSignal.timeout(15000)]);
             const lease=new TaskLease({owner:'source-destination-intake',goal:'Locate a player chosen original destination',scope,readSet:current.table.readSet??[],capabilities:['decision'],signal,
-              budget:{deadlineAt:Date.now()+15000,remainingInputTokens:16000,remainingOutputTokens:1000,remainingCostUsd:.1,remainingActions:1}});
+              budget:{deadlineAt:Date.now()+3000,remainingInputTokens:16000,remainingOutputTokens:1000,remainingCostUsd:.1,remainingActions:1}});
             try{
               const answer=await jev.decide({id:digest([run.runId,'source-destination']),model:JEV_MODEL,family:'source-destination-intake',familyVersion:'1',scope,readSet:current.table.readSet??[],
                 state:{player:run.rawInput,current_scene:current.table.context.scene,available_destinations:current.candidates().filter(candidate=>candidate.family==='move').map(candidate=>candidate.label)},
@@ -1604,14 +1604,18 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const onKeeperCallCap = (phase: 'first_byte' | 'streaming', capMs: number) => {
     record({lane: 'run', event: 'keeper_call_cap', run: currentRunId ?? null, step, phase, cap_ms: capMs});
   };
-  /** §135.29 addendum 2 (SL-82): the turn's first call's own cap, resolved fresh per attempt (the data-file
-   * read is cached after the first, so this is cheap). Only ever installed when the flag is on -- see the
-   * `keeperCallCapMs` return below -- so the flag-off path never reaches it and stays the plain ordinary
-   * number SL-69 already shipped, byte for byte. */
+  /** The actual thinking level owns its existing allowance, including ordinary UI low-thinking play.
+   * The experimental first-step flag is an additional allowance, not the only way a model can think. */
   const resolveKeeperCallCapMs = async (): Promise<number> => {
     const ordinary = keeperCallCapMs(options.env);
-    const {callCapMs: allowance} = await firstStepThinkingBudget();
-    return firstStepCallCapMs(true, step, ordinary, allowance);
+    const level=api?.getThinkingLevel?.(),thinking=typeof level==='string'&&level!=='off';
+    let cap=ordinary;
+    if(thinking||firstStepThinkingEnabled(options.env)){
+      const {callCapMs: allowance}=await firstStepThinkingBudget();
+      cap=thinking?Math.max(ordinary,allowance):firstStepCallCapMs(true,step,ordinary,allowance);
+    }
+    record({lane:'run',event:'keeper_call_allowance',run:currentRunId??null,step,thinking:level??null,cap_ms:cap});
+    return cap;
   };
 
   const runDriver: SessionRunDriver = {
@@ -1662,7 +1666,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.on('turn_start', async () => { step += 1; });
   };
   return {runDriver, extension, bridge: () => bridge,
-    keeperCallCapMs: firstStepThinkingEnabled(options.env) ? resolveKeeperCallCapMs : keeperCallCapMs(options.env),
+    keeperCallCapMs: resolveKeeperCallCapMs,
     onKeeperCallCap};
 }
 
