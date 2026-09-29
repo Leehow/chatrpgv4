@@ -133,6 +133,44 @@ async function readFirstStepThinkingBudget(contentRoot?: string): Promise<FirstS
 export function resetFirstStepThinkingBudgetCache(): void { firstStepThinkingCached = undefined; }
 
 /**
+ * §150.5 (SL-79 behind a setting): the narrator-only compose catalog's data default and `propose`'s per-turn cap, from the
+ * same rules-data file. `runtime/jev/narrator-catalog.ts`'s `narratorOnlySetting` puts the env switch over `enabled`.
+ */
+export interface NarratorOnlyBudget {
+  /** `narrator_only.enabled`: the setting when `COC_NARRATOR_ONLY` does not say `on` or `off` (shipped `false`). */
+  enabled: boolean;
+  /** `narrator_only.propose_per_turn`: `propose` requests one turn may queue, a whole number >= 0. */
+  proposePerTurn: number;
+}
+
+/** Used only if the file or its `narrator_only` section cannot be read; the shipped file carries the real default. */
+export const NARRATOR_ONLY_FALLBACK: NarratorOnlyBudget = Object.freeze({enabled: false, proposePerTurn: 2});
+
+let narratorOnlyCached: Promise<NarratorOnlyBudget> | undefined;
+
+/** Read once per process and cached, like `jevStepsBudget`; `contentRoot` is for tests only and is never cached. */
+export function narratorOnlyBudget(contentRoot?: string): Promise<NarratorOnlyBudget> {
+  if (contentRoot !== undefined) return readNarratorOnlyBudget(contentRoot);
+  return narratorOnlyCached ??= readNarratorOnlyBudget();
+}
+
+async function readNarratorOnlyBudget(contentRoot?: string): Promise<NarratorOnlyBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      narrator_only?: {enabled?: unknown; propose_per_turn?: unknown};
+    };
+    const enabled = raw.narrator_only?.enabled, cap = raw.narrator_only?.propose_per_turn;
+    return {enabled: typeof enabled === 'boolean' ? enabled : NARRATOR_ONLY_FALLBACK.enabled,
+      proposePerTurn: Number.isInteger(cap) && (cap as number) >= 0 ? cap as number : NARRATOR_ONLY_FALLBACK.proposePerTurn};
+  } catch {
+    return NARRATOR_ONLY_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached value, so a test that swaps the content root sees its own fixture. */
+export function resetNarratorOnlyBudgetCache(): void { narratorOnlyCached = undefined; }
+
+/**
  * SL-93 (§135.11.4.1, "one floor for every delivery path"): the prose floor every delivery -- the implicit close, an
  * explicit `narrate`, and `apply`'s embedded one -- is measured against. A named default in the same rules-data file
  * the look budget and the Jev step thresholds live in, not a literal in `extensions/kernel/index.ts`, so raising it
