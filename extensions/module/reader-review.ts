@@ -425,9 +425,10 @@ export async function reviewCandidate(options: {
 	const publicFields=publicBytes?validatePublicGuidance(JSON.parse(publicBytes),options.task.source.page_count):undefined;
 	const answerTask = options.task.purpose === 'answer';
 	const candidateBytes = guidanceBytes || answerTask ? await readFile(join(options.cwd,"draft.json")) : Buffer.from(JSON.stringify(options.draft));
-	const semanticTask = withoutBookkeeping(options.task);
+	// The whole-candidate identity, unchanged (§150.2.1): guidance and answer reviews (one unit over the whole artifact) and
+	// `/coverage`. It still carries the round's bookkeeping, so a repair round re-reviews an unchanged candidate there.
+	const {commands: _commands, ...semanticTask} = options.task;
 	const cached = !!options.cacheRoot && !!options.source.file_sha256;
-	// The whole-candidate identity: guidance and answer reviews (one unit over the whole artifact) and `/coverage`.
 	const identity = cached ? canonical({protocol:reviewProtocol,
 		version:options.reviewVersion, source:options.source.file_sha256, draft:options.draft,
 		guidance:guidanceBytes,public_fields:publicBytes, task:semanticTask, model:options.model}) : undefined;
@@ -438,7 +439,7 @@ export async function reviewCandidate(options: {
 	const unitKey = (paths: string[]): {key: string; roots?: string[]} | undefined => {
 		if (!cached) return undefined;
 		const fact = answerTask || guidanceBytes ? undefined : reviewUnitIdentity({version:options.reviewVersion, source:options.source.file_sha256!,
-			extraction:options.extractionVersion, model:options.model}, semanticTask, options.draft, paths);
+			extraction:options.extractionVersion, model:options.model}, options.task, options.draft, paths);
 		return fact ? {key: digest(fact.identity), roots: fact.roots} : {key: digest(identity! + canonical(paths))};
 	};
 	const scopePages = [...new Set<number>((options.task.review_scope_pages?.length ? options.task.review_scope_pages : [...(options.draft.nodes ?? []), ...(options.draft.claims ?? []),...(options.draft.source_needs??[])]
