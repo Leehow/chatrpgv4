@@ -1,6 +1,6 @@
 # Forward-only reconciliation: what the player was told is canon
 
-Status: proposed; owner ruling recorded 2026-09-29; nothing implemented. Tickets: [forward-only-reconciliation-tickets.md](forward-only-reconciliation-tickets.md).
+Status: FR-01 to FR-04 implemented on `claude/forward-only-reconciliation-20260929` (contract §158); FR-05 acceptance pending. Owner ruling recorded 2026-09-29. Tickets: [forward-only-reconciliation-tickets.md](forward-only-reconciliation-tickets.md).
 Date: 2026-09-29
 Baseline inspected: 0.9.6a at beafa3019; evidence from the installed App at ce1fa4138.
 Related contract: §130.4 (continuity verdicts point forward), §135.2 (candidates come from real state), §135 budget (deferred candidates), §36.14 (continuity audit), §32 (admission).

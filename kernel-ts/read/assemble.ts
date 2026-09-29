@@ -69,9 +69,9 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "unrecorded is what an earlier turn's prose already gave the player while the ledger still disagrees, " +
     "of three kinds: a clue still called undiscovered, a person you gave lines to here whom the books " +
     "put in another scene or off the board, and a stretch of time the prose skipped that the clock never moved for. " +
-    "Each row names the call that closes the gap, and says only " +
-    "that the two records disagree, never which of them is right. It is not a debt to invent anything — the " +
-    "player was told, and only the books disagree. Record it, or leave it: a clue or person row stays until they " +
+    "Each row names the call that closes the gap. What the prose told the player is what happened, so the call " +
+    "brings the books forward to it; nothing told is retracted or corrected. It is not a debt to invent anything — " +
+    "the player was told, and only the books lag. Record it, or leave it: a clue or person row stays until they " +
     "walk away, a time row until time next lands. " +
     "owed is what a delivered turn told the player that the ledger still lacks: it already happened. The clerk lands " +
     "each row it can first, as something that already happened; land any other row yourself with an ordinary apply " +

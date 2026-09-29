@@ -15360,7 +15360,9 @@ a row.
 Two boundaries:
 
 - **A row says the two records disagree, never which of them is right.** The kernel has no standing
-  to rule between the Keeper's prose and its own ledger.
+  to rule between the Keeper's prose and its own ledger. *(Amended by §158.6, 2026-09-29, the owner's ruling: the
+  delivered prose is right about the past. The kernel still infers nothing from prose; the row's words now say that its
+  call brings the books forward to what the player was told.)*
 - **Nothing infers presence from prose.** `speech.who` is the kernel's own resolution, written when
   the turn was delivered; §17 keeps the runtime ledger written by receipts and explicit `apply`
   alone. A span that stayed a `{label}` is passed over on purpose — whether 听筒那头, "the voice on
