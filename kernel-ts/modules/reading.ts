@@ -36,6 +36,8 @@ import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
 import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,visualCandidates,type VisualScan} from './visual-discovery.js';
+import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
+import {identityVerdicts} from './visual-identity-shape.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
  * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
@@ -745,6 +747,22 @@ export class Reading {
         if (!truth(reading.index_complete)) await ask({ purpose: 'index', focus: '' });
         if (!await this.store.readGraph(mid)) return { queued, reason: 'index' };
         const graph = await this.store.graph(mid);
+        // §152.4: published pairs that collide and have no verdict are asked, one page at a time, in the background; a
+        // page whose job failed `IDENTITY_FAILURES` times is not asked again by the read-ahead.
+        {
+            const queue = await this.store.queue(mid);
+            if (!queue.some(job => job.visual_identity && ['queued', 'running'].includes(job.state))) {
+                const pairs = publishedIdentityPairs(graph.raw, await this.store.module(mid));
+                for (const page of [...new Set(pairs.map(pair => pair.page))]) {
+                    const keys = pairs.filter(pair => pair.page === page).map(pair => pair.key).sort();
+                    const asked = queue.filter(job => row(job.visual_identity).page === page && equal(row(job.visual_identity).keys, keys));
+                    if (asked.filter(job => job.state === 'failed').length >= IDENTITY_FAILURES) continue;
+                    await ask({ purpose: 'detail', focus: `Visual identity on physical page ${page}`, question: IDENTITY_QUESTION, visual_identity: { page },
+                        ...(asked.some(job => ['failed', 'cancelled'].includes(job.state)) ? { retry: true } : {}) });
+                    break;
+                }
+            }
+        }
         const queueVisual = async () => {
             const visualJobs=(await this.store.queue(mid)).filter(job=>job.visual_scan);
             if(!visualJobs.some(job=>['queued','running'].includes(job.state))){
@@ -1118,6 +1136,17 @@ export class Reading {
                     throw new RpcError('invalid_params','visual_asset must name a published visual navigation candidate');
                 visualAsset={page:value.page};
             }
+            // §152.4: the published pairs of one page that collide and have no verdict yet; the kernel names them, never the caller.
+            let visualIdentity:Row|undefined;
+            if(params.visual_identity!==undefined){
+                const value=params.visual_identity;
+                if(purpose!=='detail'||material!==undefined||params.source_unit!==undefined||params.source_need!==undefined||params.visual_scan!==undefined
+                    ||params.visual_asset!==undefined||!isJsonObject(value)||Object.keys(value).join(',')!=='page'||!integer(value.page)||number(value.page)<1)
+                    throw new RpcError('invalid_params','visual_identity names one physical page of the bound PDF');
+                const keys=publishedIdentityPairs(await this.store.readGraph(mid),meta).filter(pair=>pair.page===number(value.page)).map(pair=>pair.key).sort();
+                if(!keys.length)return {...result,state:'ready'};
+                visualIdentity={page:number(value.page),keys};
+            }
             if(params.visual_scan!==undefined){
                 if(purpose!=='detail'||material!==undefined||params.source_unit!==undefined||params.source_need!==undefined||truth(params.foreground)
                     ||!validVisualScan(params.visual_scan,number(source.page_count)))
@@ -1137,13 +1166,14 @@ export class Reading {
                 const matching=mapCandidates.filter(candidate=>[candidate.focus,candidate.name].some(value=>Reading.meet(identity(value),wanted)));
                 if(matching.length)mapCandidates=matching;
             }
-            const pages:number[]=visualAsset?[visualAsset.page]:sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set([
+            const pages:number[]=visualIdentity?[visualIdentity.page]:visualAsset?[visualAsset.page]:sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set([
                 ...mapCandidates.flatMap(candidate=>array(candidate.pages).map(number)),
                 ...array(reading.visual_candidates).filter(candidate=>candidate.kind==='map'||candidate.kind==='uncertain').map(candidate=>candidate.page)])]
                 .filter(page=>page>=1&&page<=source.page_count).sort((a,b)=>a-b):[];
             const identity: any[] = [source.file_sha256, purpose, material ?? '', normalize(focus), question, pages];
             if(visualScan)identity.push('visual_scan_v1',visualScanKey(visualScan));
             if(visualAsset)identity.push('visual_asset_v1',visualAsset.page);
+            if(visualIdentity)identity.push('visual_identity_v1',visualIdentity.page,visualIdentity.keys);
             if(sourceUnit)identity.push('source_unit',sourceUnitKey(sourceUnit));
             if (purpose === 'guidance')
                 identity.push(guidanceKey,params.public_progress===true?'public-fields-v1':'');
@@ -1249,6 +1279,7 @@ export class Reading {
             if(sourceUnit){job.source_unit=sourceUnit;job.review_scope_pages=pages;if(meta.source_reference)job.reference_fragment=true;}
             if(visualScan)job.visual_scan=visualScan;
             if(visualAsset)job.visual_asset=visualAsset;
+            if(visualIdentity)job.visual_identity=visualIdentity;
             if(material==='map')job.visual_hints=array(reading.visual_candidates).filter(candidate=>pages.includes(candidate.page));
             job.class_at = job.at;
             if(preparation)job.task_preparation=clone(preparation);
@@ -1447,7 +1478,10 @@ export class Reading {
                     const units = needMarker || job.source_unit ? await this.streamedUnits(mid, meta) : [];
                     const needTask = needMarker && !truth(job.foreground) ? needPacket(row(needMarker), graph, mid, unreadUnits(units, queue)) : undefined;
                     const carried = job.source_unit ? carriedNeeds(row(row(meta.reading).source_need_dispositions), graph, job.source_unit as SourceUnit) : [];
-                    const packet = { ...visibleJob, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    // §152.4: an identity job is claimed with its page's pairs as they stand now, both crops of each.
+                    const identityTask: Row = job.visual_identity ? { visual_identity: { page: job.visual_identity.page,
+                        pairs: publishedIdentityPairs(graph, meta).filter(pair => pair.page === job.visual_identity.page) } } : {};
+                    const packet = { ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;
@@ -1502,10 +1536,12 @@ export class Reading {
                 : job.state !== 'running' || job.lease !== params.lease)
                 throw new RpcError('invalid_params', 'this reading attempt no longer owns publication');
             const outcome = params.outcome;
-            if (!['completed', 'failed', 'cancelled', 'settled'].includes(outcome))
-                throw new RpcError('invalid_params', 'outcome must be completed, failed, cancelled or settled');
+            if (!['completed', 'failed', 'cancelled', 'settled', 'held'].includes(outcome))
+                throw new RpcError('invalid_params', 'outcome must be completed, failed, cancelled, settled or held');
             if (outcome === 'settled')
                 return this.settleNeed(mid, meta, queue, job, params.need);
+            if (outcome === 'held')
+                return this.holdForIdentity(mid, meta, queue, job, params);
             if (outcome !== 'completed') {
                 const refusal = refusalOf(params.refusal);
                 // §22.4.8: a detail reading refused after its read phase still says where its scene is.
@@ -1545,6 +1581,8 @@ export class Reading {
             if (observations.file_sha256 !== meta.source_document.file_sha256)
                 reject('reader observations do not belong to the registered source');
             const seen = new Set(array(observations.read_pages));
+            if (job.visual_identity)
+                return this.finishIdentity(mid, meta, queue, job, work, params);
             if(job.visual_scan)requireVisualOverview(job.visual_scan,array(observations.overview_pages));
             const draft = clone(await this.store.context.snapshots.readJson(await this.contained(work, params.draft_path)));
             if(job.visual_scan){
@@ -1620,8 +1658,17 @@ export class Reading {
                     ? claimEvidence(await this.store.context.snapshots.readJson(await this.contained(work, evidencePath)), string(meta.source_document.file_sha256)) : undefined;
                 // §22.3.2: a disputed classification is published with its mark; only an unsupported fact refuses.
                 const judged = checkReview(row(draft), filled, review, number(meta.page_count), new Set(array(observations.review_pages)), classificationFields(contract), claims);
+                // §152.4: a drafted visual is judged against the generation it lands on (read inside this lock), never the
+                // snapshot its reader was claimed with, so two readings of one page cannot both publish a new node.
+                const landing = await this.store.readGraph(mid);
+                const identityPairs = draftIdentityPairs(filled, landing, mid, identitySource(meta));
+                if (identityPairs.length) {
+                    if (params.identity_review_path !== undefined && await this.recordIdentityReview(meta, work, params.identity_review_path, identityPairs, string(job.job_id)))
+                        await this.store.writeModule(meta);
+                    judgeDraftIdentity(identityPairs, meta);
+                }
                 const retranscribed: Row[] = [];
-                const graph = assembleVisual(await this.store.readGraph(mid), filled, meta, contract, retranscribed);
+                const graph = assembleVisual(landing, filled, meta, contract, retranscribed);
                 if(job.purpose==='detail'&&truth(job.question)){
                     const view=new ModuleGraph(mid,graph,'',row(contract.graph.actor_dossier)),target=view.find(string(job.focus));
                     const resolved=array(graph.source_needs).filter(need=>['deferred','source_read','uncertain'].includes(need.kind)&&need.source_sha256===meta.file_sha256&&
@@ -1791,6 +1838,82 @@ export class Reading {
         record.generation = meta.generation ?? 0;
         meta.reading.source_need_dispositions = { ...row(meta.reading.source_need_dispositions), [marker.key]: record };
         const result: Row = { state: 'settled', generation: meta.generation ?? 0, source_need: { key: marker.key, disposition: record.disposition } };
+        meta.reading.completed ??= {};
+        meta.reading.completed[job.job_id] = result;
+        Object.assign(job, { state: 'completed', result, finished_at: nowIso() });
+        this.owned();
+        await this.store.writeModule(meta);
+        await this.store.writeQueue(mid, queue);
+        await this.release(mid, job.job_id);
+        return result;
+    }
+    /**
+     * §152.4: the host's identity review, checked and kept under each pair's key. Every verdict names the side-by-side
+     * preview its reviewer read, confined to this attempt and unchanged since; a verdict for a pair no longer asked is
+     * ignored. Returns how many verdicts were kept.
+     */
+    private async recordIdentityReview(meta: Row, work: string, path: unknown, pairs: IdentityPair[], jobId: string): Promise<number> {
+        const file = await this.contained(work, path), value = await this.store.context.snapshots.readJson(file);
+        const refuse = (message: string, extra: Row = {}): never => { throw new RpcError('invalid_params', `the identity review cannot be used: ${message}`, {
+            fix: 'review the pairs again with the side-by-side previews and pass the checked verdict file', details: { reason: 'identity_review_invalid', ...extra } }); };
+        let verdicts: ReturnType<typeof identityVerdicts> = [];
+        try { verdicts = identityVerdicts(value, pairs, { evidence: true }); }
+        catch (error) { refuse(error instanceof Error ? error.message : String(error)); }
+        for (const verdict of verdicts) {
+            const preview = await this.contained(work, join(dirname(file), verdict.preview!.file));
+            if (await sha256File(preview) !== verdict.preview!.image_sha256) refuse('a verdict names a preview whose bytes changed', { key: verdict.key });
+        }
+        recordIdentityVerdicts(meta, verdicts, pairs, jobId);
+        return verdicts.length;
+    }
+    /**
+     * §152.4: the identity review of this attempt's draft could not answer. The job goes back to the queue with its
+     * attempt retained, so the next claim resumes from its checkpoint and asks again; the `IDENTITY_HOLDS`-th hold fails
+     * it. Nothing is published either way: an unanswered question is not a "different".
+     */
+    private async holdForIdentity(mid: string, meta: Row, queue: Row[], job: Row, params: Row): Promise<Row> {
+        if (params.reason !== 'visual_identity_unavailable')
+            throw new RpcError('invalid_params', 'a reading is held only while its visual identity review is unavailable', {
+                fix: 'pass reason: visual_identity_unavailable, or finish the attempt as failed' });
+        const holds = number(job.identity_holds ?? 0) + 1, detail = string(truth(params.detail) ? params.detail : 'the visual identity review could not answer').slice(0, 1000);
+        job.identity_holds = holds;
+        if (holds >= IDENTITY_HOLDS) {
+            Object.assign(job, { state: 'failed', detail, refusal: { message: detail, rule: 'visual_identity_unavailable' }, finished_at: nowIso() });
+            if (job.material === 'map' && Reading.settleMap(meta, job, detail))
+                await this.store.writeModule(meta);
+        }
+        else {
+            Object.assign(job, { state: 'queued', class_at: classNow() });
+            for (const key of ['owner', 'lease', 'claimed_at', 'claim_seq'])
+                delete job[key];
+        }
+        await this.store.writeQueue(mid, queue);
+        await this.release(mid, job.job_id);
+        return { state: job.state, held: holds, ...(job.state === 'failed' ? { refusal: job.refusal } : {}) };
+    }
+    /**
+     * §152.4: an identity job over published pairs of one page. Its verdicts are kept, and each same-print verdict writes
+     * `variant-of` from the later node to the earlier one in one new generation; nothing else is published.
+     */
+    private async finishIdentity(mid: string, meta: Row, queue: Row[], job: Row, work: string, params: Row): Promise<Row> {
+        const raw = await this.store.readGraph(mid), page = number(job.visual_identity.page);
+        const pairs = publishedIdentityPairs(raw, meta).filter(pair => pair.page === page);
+        if (pairs.length && params.identity_review_path === undefined)
+            throw new RpcError('invalid_params', 'an identity job publishes the verdicts of its pairs', { fix: 'pass the checked verdict file as identity_review_path' });
+        const answered = pairs.length ? await this.recordIdentityReview(meta, work, params.identity_review_path, pairs, string(job.job_id)) : 0;
+        const recorded = row(row(meta.reading).visual_identity);
+        const verdicts = pairs.filter(pair => Object.hasOwn(recorded, pair.key)).map(pair => ({ key: pair.key, verdict: recorded[pair.key].verdict, reason: string(recorded[pair.key].reason),
+            ...(recorded[pair.key].region_correspondence ? { region_correspondence: recorded[pair.key].region_correspondence } : {}) }));
+        let variants: Row[] = [];
+        if (raw && verdicts.some(verdict => verdict.verdict === 'same')) {
+            const graph = clone(raw);
+            variants = writeVariants(graph, verdicts, pairs, string(job.job_id), number(meta.generation) + 1);
+            this.owned();
+            if (variants.length) await this.store.writeGraph(meta, graph);
+        }
+        const result: Row = { state: 'ready', generation: meta.generation ?? 0, visual_identity: { page, asked: pairs.length, answered,
+            same: verdicts.filter(verdict => verdict.verdict === 'same').length, different: verdicts.filter(verdict => verdict.verdict === 'different').length,
+            variants: variants.map(relation => ({ from: relation.from_node_id, to: relation.to_node_id })) } };
         meta.reading.completed ??= {};
         meta.reading.completed[job.job_id] = result;
         Object.assign(job, { state: 'completed', result, finished_at: nowIso() });

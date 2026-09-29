@@ -38,7 +38,7 @@ One `apply move` to `martins-beach` printed **two** map cards, 「马丁滩村�
 - The board holds one entry per map node (per printed map, after 1). It is rendered on read from the union of everything the table knows: arrival-shown and `apply map` regions together.
 - The same union feeds `look`, `mapCatalog` and every later card, so the Keeper and the player see the same map.
 
-**4. New places uncover regions on the map that contains them.**
+**4. New places uncover regions on the map that contains them.** *(Contract §39.4 lands the outward walk below; the region-to-place reference is deferred to a later addendum, 2026-09-29.)*
 - At publication, each region may name the graph place it depicts (`region.place: <node id>`), written by the reader and checked by the reviewer.
 - Arriving at a place, or learning of it, uncovers that place's region on every map depicting the place or a place it lies in (`located-in` / `occurs-at`, the walk `sceneAssetNodes` already does). It does not mint another map.
 - The two "which maps depict this scene" computations (`mapsDepictingScene`, `sceneAssetNodes`) become one.
@@ -74,9 +74,28 @@ One `apply move` to `martins-beach` printed **two** map cards, 「马丁滩村�
 
 - [ ] Rebuild Dust to Dust from the PDF (fresh campaign, installed App): page 8's village map is **one** node; cards #1–#5 are one node each. Two concurrent jobs over the same page cannot both publish, and a test drives the race.
 - [ ] The existing campaign `game-5d82fd23…` (two village handles) keeps playing: one board entry, knowledge carried only through a reviewed correspondence, nothing lost.
-- [ ] Arrive at Martin's Beach: one card. Walk to the Poe Street cemetery and to the Felder house: each gives a row naming the uncovered place with no image. The board's single village map shows them.
+- [ ] Arrive at Martin's Beach: one card, and the village map is drawn whole (its source is player-safe, so §39.2 shows every region at once and nothing is black between them). Arriving first at a place inside the village (Poe Street cemetery) presents the same village map, through the outward `located-in` walk.
+- [ ] A map that grows prints its picture once: on The Haunting's Corbitt house, the hidden cellar revealed later by `apply map` arrives as an imageless update row naming it; the board's one Corbitt map shows it. A second `apply map` or `look focus=map` on either map prints no picture.
 - [ ] The session file grows by no image bytes for a delta row (measured).
 - [ ] After arrival, `look focus=map` reports the map as known, with the arrival regions.
 - [ ] The main session plays the live table as the player on the installed App; screenshots and turn records are cited under `## Comments`.
 
 ## Comments
+
+### Implementation — 2026-09-29 (branch `claude/maps92-living-map-20260929`)
+
+Landed, contract first (§39.4 at `aef173eb6`, §152.4 plus its kernel decisions from the worker branch):
+
+- **Design 1 (one printed visual, one node):** §152.4 — geometry raises the question at publication against the current generation, the visual reviewer answers same/different, same extends the published node, review-unavailable holds the job; existing pairs are queued by the read-ahead and a same verdict writes `variant-of` with an optional reviewed `region_correspondence`. Map readers and handout readers read variants through their survivor (`6ca20de5f`, and the worker's `9b2dabe6d`…`0ccb4b2a6`).
+- **Design 2 (picture once, then update):** first picture is a card; arrival or `apply map` on a pictured map mints an `update` receipt naming what it added, with no map view; a look at a held map is an update row (`d19b5a4b3`).
+- **Design 3 (living map):** `livingMapRegions` feeds board, look, catalog and cards (`d19b5a4b3`).
+- **Design 4:** the outward `occurs-at`/`located-in` walk landed; the region-to-place uncover is deferred (see the note on design 4).
+- **Design 5 (ruled):** player-safe sources drawn whole with only unheld player-safe regions masked; revealable/private never whole, never masked; a composed plan (the Corbitt house: its basement storage is placed away from its source position) stays region-by-region by the transform check.
+- **Design 6 (ruled):** update rows carry no picture and open the case board (`onOpenPanel`).
+- **Small items:** confluence carries `maps_presented`. **Not done:** an arrival path for a map depicting the opening scene.
+
+Automated evidence at `e4bd3a2f3` (before the §152.4 merge): amax `ext` 3955/3955 (a first run under load 148 failed one unrelated source-lease timing case, which passed 3/3 locally and in the clean rerun), `py` 2059 passed / 2 skipped, `loop` 296/296. Mutations killed: renderer base and mask; seven kernel mutations (update, arrival update, catalog, keeper source drawn whole, disagreeing source drawn whole, outward walk, confluence); host look update and update-word projection; transcript `onOpenPanel` threading; five survivor-wiring mutations; spot checks of the worker's collision and handout-survivor code.
+
+The zh-Hans seed for the three new captions was harvested from one owner-approved offline lane run (grok-build/grok-4.5, low) after the fast model at off ran out of its 120 s round twice; only the missing keys were taken. The seed's established word for the case board is 「案板」, which the lane kept.
+
+Live acceptance on the installed App is still owed.

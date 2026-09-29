@@ -127,6 +127,18 @@ export function mergeValue(old: any, proposed: any, path = '', transcription?: R
         if (Array.isArray(before) && Array.isArray(added) && [...before, ...added].every(v => typeof v === 'string'))
             return clone([...before, ...added.filter(v => !before.includes(v))]);
     }
+    // Contract §152.4: a map grows by region. A published region keeps its row (a differing row under the same id is
+    // judged like any other field); a region id the published map lacks is added after the published ones.
+    if (Array.isArray(old) && Array.isArray(proposed) && path.endsWith('/properties/map_regions')
+        && [...old, ...proposed].every(item => object(item) && typeof item.region_id === 'string')) {
+        const out = old.map((item, i) => {
+            const next = proposed.find(value => value.region_id === item.region_id);
+            return next === undefined ? clone(item) : mergeValue(item, next, `${path}/${i}`, transcription);
+        });
+        for (const item of proposed)
+            if (!old.some(value => value.region_id === item.region_id)) out.push(clone(item));
+        return out;
+    }
     if (object(old) && object(proposed)) {
         const out = new Map(entries(old));
         for (const [key, value] of entries(proposed))

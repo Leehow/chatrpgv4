@@ -206,6 +206,9 @@ const CSS = `
   font-family:var(--coc-serif);font-size:13.5px;line-height:1.75;white-space:pre-wrap;color:var(--text);
   max-height:340px;overflow:auto}
 .coc-map{display:block;padding:0}
+.coc-map-update{flex-wrap:wrap}
+.coc-map-new{color:var(--muted);font-size:12px}
+.coc-map-open{margin-left:auto;border:1px solid var(--border-strong);border-radius:6px;background:transparent;color:var(--accent);font-size:11.5px;padding:2px 8px;cursor:pointer}
 .coc-map-head{display:flex;align-items:center;gap:10px;padding:6px 2px;list-style:none;cursor:pointer}
 .coc-map-head::-webkit-details-marker{display:none}
 .coc-map-head::after{content:"▸";color:var(--subtle);font-size:11px;transition:transform .12s ease}
@@ -1016,6 +1019,32 @@ export function createComponent(React) {
         : h("div", { className: "coc-map-empty" }, regionLabels.join(" \u00b7 ")));
   }
 
+  /**
+   * §39.4: a map the table already holds, named again -- what an arrival or `apply map` added to
+   * it, or, for a look, what is on it. No picture: the living map is on the case board, and this
+   * row opens it. A picture per reveal is what made a session grow by a map at a time.
+   */
+  function MapUpdateRow(props) {
+    const { row, name, t, openPanel } = props;
+    const revealed = Array.isArray(row.revealed) ? knownRegionLabels({ regions: row.revealed }) : null;
+    const labels = revealed ?? knownRegionLabels(row);
+    const caption = revealed ? t("mapNew") : t("mapHeld");
+    return h("div", {
+      className: "coc-mech-row coc-map-update",
+      "data-kind": "map",
+      "data-presentation": "update",
+      "data-map": text(row.map) || undefined,
+      "data-receipt": text(row.receipt) || undefined,
+      title: name,
+    },
+      h("span", { className: "coc-mech-ico", "aria-hidden": "true" }, icon("map")),
+      h("span", { className: "coc-mech-body" }, name),
+      labels.length ? h("span", { className: "coc-map-new" }, `${caption} ${labels.join(" \u00b7 ")}`) : null,
+      typeof openPanel === "function"
+        ? h("button", { type: "button", className: "coc-map-open", onClick: () => openPanel("coc.board") }, t("mapOpenBoard"))
+        : null);
+  }
+
   function combatWho(row, from, to, t, owner = from) {
     if (row.public_combat !== true || row.visibility === "concealed") return "";
     const source = text(row[from]), target = text(row[to]);
@@ -1023,7 +1052,7 @@ export function createComponent(React) {
     return source && target ? `${source} ${t("arrow")} ${target}` : text(row[owner]);
   }
 
-  function renderRow(row, t, term, index, sheet) {
+  function renderRow(row, t, term, index, sheet, open) {
     const kindLabel = t(`kind.${row.kind}`, term(text(row.kind)));
     const key = `${text(row.receipt)}:${index}`;
     const family = text(row.family) || undefined;
@@ -1264,6 +1293,8 @@ export function createComponent(React) {
       }
       case "map": {
         const name = term(text(row.label || row.name || row.map));
+        if (row.presentation === "update")
+          return h(MapUpdateRow, { key: `${text(row.receipt)}:update:${text(row.map)}:${index}`, row, name, t, openPanel: open });
         return h(MapRow, {
           key: `${text(row.receipt)}:${text(row.view_id)}:${text(row.map)}:${index}`,
           row, name, t,
@@ -1439,6 +1470,8 @@ export function createComponent(React) {
     const t = (key, fallback) => word(details.ui, "mechanics", key, fallback);
     // An object's fields are named as the possessions box names them (§129), from the sheet's words.
     const sheet = (key, fallback) => word(details.ui, "sheet", key, fallback);
+    // §39.4: an update row opens the case board; a host that cannot open panels gets no control.
+    const open = typeof props.onOpenPanel === "function" ? props.onOpenPanel : null;
     /** A fold's caption: its family's word, or a heading for its kind. Belongings that only arrived
      *  (no row took anything away) are the ones gained; a fold that lost one is plain belongings. */
     const foldCaption = (fold) => fold.family ? t(`family.${fold.family}`, term(fold.family))
@@ -1481,9 +1514,9 @@ export function createComponent(React) {
       const state = { span: null, spans: 0 };
       return h("div", { className: "coc-mech coc-mech-inline" },
         parts.map((part, index) => part.row
-          ? h("div", { className: "coc-mech-here", key: `row:${index}` }, renderRow(part.row, t, term, index, sheet))
+          ? h("div", { className: "coc-mech-here", key: `row:${index}` }, renderRow(part.row, t, term, index, sheet, open))
           : proseBlocks(part.text, `text:${index}`, state, speaker)),
-        folds(unplaced, (rows, key) => rows.map((row, i) => renderRow(row, t, term, `${key}:${i}`, sheet))),
+        folds(unplaced, (rows, key) => rows.map((row, i) => renderRow(row, t, term, `${key}:${i}`, sheet, open))),
         help ? h(HelpFold, { help }) : null);
     }
 
@@ -1503,8 +1536,8 @@ export function createComponent(React) {
                   style: { "--tone": FAMILY_TONE[group.family] || "var(--muted)" },
                 },
                 h("div", { className: "coc-mech-fam" }, familyLabel(group, t, term)),
-                group.rows.map((row, i) => renderRow(row, t, term, i, sheet)))
-              : group.rows.map((row, i) => renderRow(row, t, term, `${key}:${index}:${i}`, sheet)))));
+                group.rows.map((row, i) => renderRow(row, t, term, i, sheet, open)))
+              : group.rows.map((row, i) => renderRow(row, t, term, `${key}:${index}:${i}`, sheet, open)))));
   }
 
   /**

@@ -19,6 +19,8 @@ export type { Disposer }
 
 export type ToolRenderProps = {
   onSelectOption?: (option:string)=>Promise<void>;
+  /** Selects a right-pane panel by its contributed id (a mechanics row opening the case board, contract §39.4). */
+  onOpenPanel?: (panelId: string) => void;
   tool: TranscriptTool
   streaming?: boolean
   projection?: LiveSubagentProjection

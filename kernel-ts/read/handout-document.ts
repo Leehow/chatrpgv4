@@ -12,6 +12,7 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { ModuleGraph } from "./module-graph.js";
 
 /** Longest body the card carries (§16.2); longer is cut with ` …`. Counted in code points. */
 const BODY_LIMIT = 8000;
@@ -46,24 +47,37 @@ export function handoutBody(file: string): string {
  * from actual delivered receipts; their bytes are read only by the scoped player host.
  * A card without a document is not listed. `name` is the heading and `text` the card's body, byte for byte, so the handouts
  * lane's saved answer is found under the same two strings on the panel as on the delivery card.
+ *
+ * With the module `graph`, membership is read through survivors (contract §152.4): a handout shown under the handle of a
+ * printed visual the reviewer found to be the same print as another counts as shown for its survivor, and the two are
+ * one entry under the survivor's handle -- its own document when it was handed over itself, else the variant's.
  */
-export async function heldHandouts(campaignDir: string, shown: unknown[], receipts:Record<string,any>[]=[]): Promise<Array<{ handout: string; name: string | null; text: string; path?:string;media_type?:string;document?:string }>> {
+export async function heldHandouts(campaignDir: string, shown: unknown[], receipts:Record<string,any>[]=[], graph?: Pick<ModuleGraph,'survivorHandle'>): Promise<Array<{ handout: string; name: string | null; text: string; path?:string;media_type?:string;document?:string }>> {
     const held: Array<{ handout: string; name: string | null; text: string;path?:string;media_type?:string;document?:string }> = [];
+    const through = (handle: string): string => graph ? graph.survivorHandle(handle) : handle;
     const images=new Map<string,Record<string,any>>();
     for(const receipt of receipts)if(receipt&&receipt.kind==='handout'&&typeof receipt.handout==='string'&&receipt.attachment?.available===true
         &&['player-safe','revealable'].includes(receipt.visibility)
         &&['image/png','image/jpeg','image/webp','image/gif'].includes(receipt.attachment.image_media_type||receipt.attachment.media_type)
-        &&typeof (receipt.attachment.image_path||receipt.attachment.path)==='string')images.set(receipt.handout,receipt);
-    for (const handle of shown) {
-        if (typeof handle !== "string" || !handle || handle.includes("/") || handle.includes("\\"))
+        &&typeof (receipt.attachment.image_path||receipt.attachment.path)==='string')images.set(through(receipt.handout),receipt);
+    const members = new Map<string, string[]>();
+    for (const value of shown) {
+        if (typeof value !== "string" || !value || value.includes("/") || value.includes("\\"))
             continue;
+        const survivor = through(value);
+        members.set(survivor, [...(members.get(survivor) ?? []), value]);
+    }
+    for (const [handle, under] of members) {
         let file: string='';
-        try {
-            file = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(join(campaignDir, "handouts", `${handle}.md`)));
-        }
-        catch {
-            // Missing or unreadable: the list is a place to reread what was handed over, and one
-            // file it cannot open is not a reason to take the whole table view down with it.
+        for (const candidate of [...under.filter(value => value === handle), ...under.filter(value => value !== handle)]) {
+            try {
+                file = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(join(campaignDir, "handouts", `${candidate}.md`)));
+                break;
+            }
+            catch {
+                // Missing or unreadable: the list is a place to reread what was handed over, and one
+                // file it cannot open is not a reason to take the whole table view down with it.
+            }
         }
         const text = handoutBody(file);
         if(images.has(handle)){

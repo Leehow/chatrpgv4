@@ -3,7 +3,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 import {isAbsolute,join} from 'node:path';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
-import {isAmbiguity,notAPerson,personRefusal,recordOf} from '../read/module-graph.js';
+import {isAmbiguity,notAPerson,personRefusal,recordOf,type ModuleGraph} from '../read/module-graph.js';
 import {handoutFile} from '../read/handout-document.js';
 import {npcNode,npcsPresent,personLabel,personNode,personRecord,untoldBlock} from '../read/capsule.js';
 import {unsupported} from '../read/handlers.js';
@@ -361,8 +361,31 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),why,at:nowIso()};
     return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}};
 }
+/**
+ * Contract §152.4: the handout a name reaches, read through its survivor -- a printed visual the reviewer found to be the
+ * same print as another is never handed over under its own handle. A name only a variant and its survivor share is that
+ * survivor, not an ambiguity; any other ambiguity is the graph's own refusal, unchanged.
+ */
+export function handoutNode(graph:ModuleGraph,name:string):Row{
+    let node=graph.find(name,['handout']);
+    if(!node){
+        try{node=graph.resolve(name,['handout','asset'],'handout');}
+        catch(error){
+            if(!isAmbiguity(error))throw error;
+            const survivors=new Map<string,Row>();
+            for(const candidate of array(row((error as RpcError).details).candidates)){
+                const found=graph.find(string(row(candidate).name),[string(row(candidate).kind)]);
+                if(!found)throw error;
+                const survivor=graph.survivorOf(found);survivors.set(string(survivor.node_id),survivor);
+            }
+            if(survivors.size!==1)throw error;
+            node=[...survivors.values()][0];
+        }
+    }
+    return graph.survivorOf(node);
+}
 export async function stageHandout(context:ApplyContext,effect:Row,asset:(module:string,name:string)=>Promise<Row|null>):Promise<StagedEffect>{
-    const {graph,world}=context,name=required(effect,'name')!,node=graph.find(name,['handout'])||graph.resolve(name,['handout','asset'],'handout');
+    const {graph,world}=context,name=required(effect,'name')!,node=handoutNode(graph,name);
     const handle=graph.handle(node),visibility=node.visibility,display=graph.displayName(node);
     if(!['player-safe','revealable'].includes(visibility))throw new RpcError('invalid_params',`${repr(handle)} is ${visibility}; it cannot be handed to the player`,{fix:'keeper-only images and cards stay in lookup {kind: secret}; hand out a player-safe or revealable one',details:{handout:handle,visibility}});
     const label=typeof effect.label==='string'&&effect.label.trim()?effect.label:null,record=recordOf(node),props=row(node.properties),registered=await asset(graph.moduleId,node.node_id)||{};

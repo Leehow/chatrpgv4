@@ -94,7 +94,8 @@ function mergeWorld(graph: ModuleGraph, states: readonly ConfluenceState[], scen
             details: {reason: 'adaptation_merge_conflict', lines: states.map(state => ({name: state.line, adaptations: array(row(state.world.adaptation).records).map(r => r.name)}))}
         });
     const world = clone(states[0].world);
-    for (const key of ['visited_scenes', 'discovered_clues', 'discovered_echoes', 'handouts_shown']) {
+    // §39.4: `maps_presented` is what a map's living set was shown on arrival; a merged line keeps it.
+    for (const key of ['visited_scenes', 'discovered_clues', 'discovered_echoes', 'handouts_shown', 'maps_presented']) {
         const seen: string[] = [];
         for (const state of states)
             for (const value of array(state.world[key]))
