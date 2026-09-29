@@ -38,11 +38,7 @@ const sentence = (text: string) => `${text}; one sentence, at most ${SENTENCE_MA
  */
 export const LEAN_FIELD_DESCRIPTIONS: Readonly<Record<string, Readonly<Record<string, string | { append: string }>>>> = Object.freeze({
 	time: {
-		kind: { append: "; a move in the same turn already put its journey on the clock, so this is only for time spent beyond it" },
 		why: sentence("leave it out: nothing reads it back (the receipt keeps the minutes)"),
-	},
-	move: {
-		travel_minutes: { append: ". The move itself advances the world clock by these minutes: never add a time effect for the same journey" },
 	},
 	person: {
 		name: { append: ". A word already recorded for them is not sent again" },
