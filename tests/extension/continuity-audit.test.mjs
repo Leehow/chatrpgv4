@@ -4,7 +4,7 @@ import {mkdir, mkdtemp, readFile, writeFile, cp} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
-import {continuityArtifactErrors, normalizeContinuityArtifact, AUDIT_LIMITS} from '../../kernel-ts/mods/audit-result.ts';
+import {continuityArtifactErrors, normalizeContinuityArtifact, AUDIT_LIMITS, AUDIT_SUBREVIEWS, applicableSubreviews, dropInapplicableSubreviews} from '../../kernel-ts/mods/audit-result.ts';
 import {AuditBudget, reviewUnavailable} from '../../extensions/mods/audit-budget.ts';
 import {KernelError} from '../../extensions/kernel/client.ts';
 import auditSubmit from '../../extensions/mods/audit-submit.ts';
@@ -67,12 +67,12 @@ test('artifact validation collects exact locations and accepts compact passing r
         locus_review: {verdict: 'revise', mode: 'new_locus', locus: 'Athens guesthouse', claim: 'You arrive at the Athens guesthouse', basis: 'none'}}};
     assert.deepEqual(continuityArtifactErrors(revisedLocus, candidate, locusFiles), []);
     const contradictoryAggregate = structuredClone(revisedLocus); contradictoryAggregate.continuity_review.verdict = 'pass';
-    assert.equal(normalizeContinuityArtifact(contradictoryAggregate).continuity_review.verdict, 'revise');
+    assert.equal(normalizeContinuityArtifact(contradictoryAggregate, locusFiles, []).continuity_review.verdict, 'revise');
     const transition = {missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'Travel remains transitional.', conflicts: [],
         locus_review: {verdict: 'pass', mode: 'transition', locus: null, claim: null, basis: 'active_scene'}}};
     assert.deepEqual(continuityArtifactErrors(transition, candidate, locusFiles), []);
     const repairedOptional = structuredClone(transition); repairedOptional.continuity_review.reentry_review = null;
-    assert.deepEqual(normalizeContinuityArtifact(repairedOptional, locusFiles), transition);
+    assert.deepEqual(normalizeContinuityArtifact(repairedOptional, locusFiles, []), transition);
 
     const failed = {outcome_commitments: {requires_review: true, failed_rolls: [
         {call_id: 't141-c1', skill: 'Listen', passed: false, level: 'failure'}]}};
@@ -93,7 +93,7 @@ test('artifact validation collects exact locations and accepts compact passing r
     assert.ok(continuityArtifactErrors(noFinding, falseSound, {'context.json': failed})
         .some(error => error.path === '/findings'));
     const falseAggregate = structuredClone(unsupported); falseAggregate.continuity_review.verdict = 'pass';
-    assert.equal(normalizeContinuityArtifact(falseAggregate).continuity_review.verdict, 'revise');
+    assert.equal(normalizeContinuityArtifact(falseAggregate, {'context.json': failed}, []).continuity_review.verdict, 'revise');
 
     const bridgeText = 'The marked report connects the repeated tragedies to Corbitt.';
     const causal = {causal_reentry: {mode: 'introduce_evidence', thread: {name: 'house-haunted', claim: 'Corbitt caused the tragedies.'}, known: [],
@@ -188,10 +188,98 @@ test('every say span receives one exact ordered intelligibility decision before 
                 {quote: second, verdict: 'pass', reason: 'The command has an understood listener and explicit action.'}]}}};
     assert.deepEqual(continuityArtifactErrors(revised, candidate, {}), []);
     const contradictory = structuredClone(revised); contradictory.continuity_review.verdict = 'pass';
-    assert.equal(normalizeContinuityArtifact(contradictory).continuity_review.verdict, 'revise');
+    assert.equal(normalizeContinuityArtifact(contradictory, {}, [first, second]).continuity_review.verdict, 'revise');
     const noReason = structuredClone(passed); delete noReason.continuity_review.speech_review.lines[0].reason;
     assert.ok(continuityArtifactErrors(noReason, candidate, {})
         .some(error => error.path === '/continuity_review/speech_review/lines/0/reason'));
+});
+
+// §130.10 (2026-09-29): an unrequested sub-review is dropped, not a reason to void the whole audit.
+const locusOnly = {'context.json': {scene_commitment: {requires_review: true, active: {handle: 'office', name: 'Office'}, moves: []}}};
+const samePlace = () => ({verdict: 'pass', mode: 'same_locus', locus: null, claim: null, basis: 'active_scene'});
+const withExtras = () => {
+    const value = pass();
+    Object.assign(value.continuity_review, {locus_review: samePlace(),
+        outcome_review: {verdict: 'revise', basis: 'unsupported_positive_result', claims: ['Not in the candidate.']},
+        location_review: {verdict: 'pass', current_scene: 'elsewhere', asserted_elsewhere: [], basis: 'current_scene', extra: true},
+        reentry_review: null});
+    return value;
+};
+
+test('applicability is one set, and the validator requires exactly that set', () => {
+    const everything = {'context.json': {intelligibility_review: {requires_review: true}, player_address_review: {requires_review: true},
+        location_authority: {requires_review: true}, scene_commitment: {requires_review: true}, outcome_commitments: {requires_review: true},
+        causal_reentry: {mode: 'clarify_known', known: []}}};
+    assert.deepEqual([...applicableSubreviews(everything, ['A line.'], 'pass')].sort(), [...AUDIT_SUBREVIEWS].sort());
+    assert.deepEqual([...applicableSubreviews(everything, ['A line.'], 'unavailable')].sort(), ['location_review', 'locus_review']);
+    assert.deepEqual([...applicableSubreviews(everything, [], 'revise')].sort(), [...AUDIT_SUBREVIEWS].filter(key => key !== 'speech_review').sort());
+    assert.deepEqual([...applicableSubreviews({'context.json': {outcome_commitments: {requires_review: false}}}, [], 'pass')], []);
+    for (const verdict of ['pass', 'unavailable']) {
+        const required = applicableSubreviews(everything, ['A line.'], verdict), empty = pass(); empty.continuity_review.verdict = verdict;
+        const missing = continuityArtifactErrors(empty, '{{say:A}}A line.{{/say}}', everything)
+            .filter(error => error.message === 'Required field is missing').map(error => error.path.split('/').at(-1)).sort();
+        assert.deepEqual(missing, [...required].sort(), verdict);
+    }
+});
+
+test('an inapplicable sub-review is dropped without mutating the input; applicable ones are kept', () => {
+    const value = withExtras(), before = structuredClone(value);
+    const {value: dropped, dropped: names} = dropInapplicableSubreviews(value, locusOnly, []);
+    assert.deepEqual(value, before, 'the input is not mutated');
+    assert.deepEqual(names, ['outcome_review', 'location_review', 'reentry_review']);
+    assert.deepEqual(Object.keys(dropped.continuity_review).sort(), ['conflicts', 'locus_review', 'summary', 'verdict']);
+    assert.deepEqual(dropped.continuity_review.locus_review, samePlace());
+    assert.deepEqual(continuityArtifactErrors(dropped, 'You stay in the office.', locusOnly), []);
+    // Before the drop the same artifact is refused for the extras alone.
+    assert.deepEqual(continuityArtifactErrors(value, 'You stay in the office.', locusOnly).map(error => error.path).sort(),
+        ['/continuity_review/location_review', '/continuity_review/outcome_review', '/continuity_review/reentry_review']);
+    const clean = pass(); clean.continuity_review.locus_review = samePlace();
+    const untouched = dropInapplicableSubreviews(clean, locusOnly, []);
+    assert.equal(untouched.value, clean); assert.deepEqual(untouched.dropped, []);
+});
+
+test('an applicable sub-review is still validated and a missing required one is still an error', () => {
+    const wrong = withExtras(); wrong.continuity_review.locus_review.locus = 'Somewhere';
+    const kept = normalizeContinuityArtifact(wrong, locusOnly, []);
+    assert.deepEqual(continuityArtifactErrors(kept, 'You stay.', locusOnly).map(error => error.path), ['/continuity_review/locus_review/locus']);
+    const absent = withExtras(); delete absent.continuity_review.locus_review;
+    const refused = continuityArtifactErrors(dropInapplicableSubreviews(absent, locusOnly, []).value, 'You stay.', locusOnly).map(error => error.path);
+    assert.ok(refused.includes('/continuity_review/locus_review'), JSON.stringify(refused));
+    const failed = {'context.json': {outcome_commitments: {requires_review: true}}};
+    assert.ok(continuityArtifactErrors(dropInapplicableSubreviews(pass(), failed, []).value, 'You hear.', failed)
+        .some(error => error.path === '/continuity_review/outcome_review'));
+});
+
+test('a dropped revise never escalates the aggregate verdict; an applicable revise still does', () => {
+    const normalized = normalizeContinuityArtifact(withExtras(), locusOnly, []);
+    assert.equal(normalized.continuity_review.verdict, 'pass');
+    assert.equal(Object.hasOwn(normalized.continuity_review, 'outcome_review'), false);
+    const outcome = {'context.json': {...locusOnly['context.json'], outcome_commitments: {requires_review: true}}};
+    assert.equal(normalizeContinuityArtifact(withExtras(), outcome, []).continuity_review.verdict, 'revise');
+    // Speech applicability follows the candidate's spoken lines, not the artifact.
+    const spoken = pass(); spoken.continuity_review.speech_review = {verdict: 'revise', lines: [{quote: 'Go.', verdict: 'revise', reason: 'Unclear.'}]};
+    assert.equal(normalizeContinuityArtifact(spoken, {}, []).continuity_review.verdict, 'pass');
+    assert.equal(normalizeContinuityArtifact(spoken, {}, ['Go.']).continuity_review.verdict, 'revise');
+});
+
+test('schema 1 submit_audit writes the dropped artifact and records what it dropped', async () => {
+    const cwd = await mkdtemp(join(directory, 'drop-submit-'));
+    await writeFile(join(cwd, 'request.json'), JSON.stringify({input: {text: 'You stay in the office.'}, continuity_review: {files: ['context.json']}}));
+    await writeFile(join(cwd, 'context.json'), JSON.stringify(locusOnly['context.json']));
+    await writeFile(join(cwd, 'control.json'), JSON.stringify({max_requests: 2, max_artifact_repairs: 1, status_file: 'status.json'}));
+    let tool; const prior = process.cwd(), priorControl = process.env.PI_COC_AUDIT_CONTROL;
+    try {
+        process.chdir(cwd); process.env.PI_COC_AUDIT_CONTROL = join(cwd, 'control.json');
+        auditSubmit({on() {}, registerTool(def) { if (def.name === 'submit_audit') tool = def; }, sendMessage() {}});
+    } finally {
+        process.chdir(prior);
+        if (priorControl === undefined) delete process.env.PI_COC_AUDIT_CONTROL; else process.env.PI_COC_AUDIT_CONTROL = priorControl;
+    }
+    const submitted = withExtras(), outcome = await tool.execute('first', {result: submitted});
+    assert.equal(outcome.details.kind, 'audit_submission', JSON.stringify(outcome.details.errors));
+    const written = JSON.parse(await readFile(join(cwd, 'result.json'), 'utf8'));
+    assert.deepEqual(written.continuity_review, {verdict: 'pass', summary: 'Compatible campaign detail.', conflicts: [], locus_review: samePlace()});
+    assert.deepEqual(JSON.parse(await readFile(join(cwd, 'status.json'), 'utf8')).dropped_subreviews, ['outcome_review', 'location_review', 'reentry_review']);
 });
 
 test('budget spans revisions, prevents concurrent owners and retains linked explicit retries', async () => {
@@ -739,7 +827,9 @@ test('a review whose evidence moved under it is retryable, not a blocked turn', 
         runtime: {async runTask(task) {
             reviews++;
             const control = JSON.parse(await readFile(join(cwd, task.request.audit.control), 'utf8'));
-            await writeFile(join(cwd, control.status_file), JSON.stringify({requests: 1, artifact_repairs: 0, submitted: true, unavailable: ''}));
+            // §130.10: the first reviewer's report carried a sub-review the turn did not require.
+            await writeFile(join(cwd, control.status_file), JSON.stringify({requests: 1, artifact_repairs: 0, submitted: true, unavailable: '',
+                ...(reviews === 1 ? {dropped_subreviews: ['outcome_review', 'reentry_review']} : {})}));
             task.request.onEvent({type: 'tool_execution_end', toolName: 'submit_audit', result: {details: {kind: 'audit_submission'}}});
             return {ok: true, ms: 1, code: 0, timedOut: false, command: ['pi', '--model', 'lane/fixture-1']};
         }}});
@@ -763,6 +853,8 @@ test('a review whose evidence moved under it is retryable, not a blocked turn', 
     assert.equal(lane[0].model, 'lane/fixture-1');
     assert.deepEqual([lane[1].ok, lane[1].verdict], [true, 'pass']);
     assert.equal(typeof lane[1].ms, 'number');
+    assert.deepEqual(lane[0].dropped_subreviews, ['outcome_review', 'reentry_review'], 'the drop is on the row that paid for it');
+    assert.equal(Object.hasOwn(lane[1], 'dropped_subreviews'), false, 'nothing dropped, nothing recorded');
 });
 
 /**

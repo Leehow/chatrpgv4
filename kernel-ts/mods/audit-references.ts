@@ -4,7 +4,7 @@ import {isDeepStrictEqual} from 'node:util';
 import {issueSourceRef, resolveSourceRef, splitSourceText, type SourceSnapshot} from '../../runtime/jev/source-ref.ts';
 import {type ScopeBinding, type SourceRef} from '../../runtime/jev/value-contracts.ts';
 import {speechPass} from '../write/speech-pass.ts';
-import {continuityArtifactErrors, normalizeContinuityArtifact, type AuditIssue} from './audit-result.ts';
+import {AUDIT_SUBREVIEWS, continuityArtifactErrors, normalizeContinuityArtifact, type AuditIssue} from './audit-result.ts';
 
 type Row = Record<string, any>;
 const record = (v: any): v is Row => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -139,7 +139,7 @@ export function buildAuditReferences(request: Row, files: Row, scope: ScopeBindi
  * `submit_audit` description and the package instructions, so the three cannot drift apart.
  */
 export const AUDIT_TOP_LEVEL = Object.freeze(['schema','missing','findings','continuity_review']);
-export const AUDIT_SUBREVIEWS = Object.freeze(['intelligibility_review','player_address_review','speech_review','outcome_review','location_review','locus_review','reentry_review']);
+export {AUDIT_SUBREVIEWS};
 export const AUDIT_SUBREVIEW_PLACEMENT = `Nest every required subreview (${AUDIT_SUBREVIEWS.join(', ')}) inside continuity_review, beside verdict, summary and conflicts; the top level holds only ${AUDIT_TOP_LEVEL.slice(0,-1).join(', ')} and ${AUDIT_TOP_LEVEL.at(-1)}.`;
 // Closed schema renames: the v1 copied field and the schema 2 selector that replaces it in the same object.
 const V1_SELECTORS: Record<string,string> = {quote:'source',claim:'claim_source',evidence:'evidence_sources',claims:'claim_sources',
@@ -293,7 +293,7 @@ export function auditArtifactIssues(submitted: any, request: Row, files: Row, ca
     {errors: AuditIssue[]; result: any; checked?: Row} {
     let result = submitted, materialized = materializeAuditReferences(result, catalog);
     if (materialized.partial) {
-        const normalized = normalizeContinuityArtifact(materialized.partial, files);
+        const normalized = normalizeContinuityArtifact(materialized.partial, files, catalog.speechTexts);
         const verdict = normalized.continuity_review?.verdict;
         if (verdict !== materialized.partial.continuity_review?.verdict && record(result?.continuity_review)) {
             result = {...result, continuity_review: {...result.continuity_review, verdict}};
@@ -301,7 +301,7 @@ export function auditArtifactIssues(submitted: any, request: Row, files: Row, ca
         }
     }
     const shapeErrors = materialized.errors;
-    const content = materialized.partial ? auditReferenceIssues(continuityArtifactErrors(normalizeContinuityArtifact(materialized.partial, files),
+    const content = materialized.partial ? auditReferenceIssues(continuityArtifactErrors(normalizeContinuityArtifact(materialized.partial, files, catalog.speechTexts),
         typeof request.input?.text === 'string' ? request.input.text : '', files, catalog.speechTexts)) : [];
     const seen = new Set<string>(), errors: AuditIssue[] = [];
     for (const issue of [...shapeErrors, ...content.filter(issue => !shapeErrors.some(shape => covers(shape.path, issue.path)))]) {

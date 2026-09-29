@@ -10774,7 +10774,7 @@ returned `needs`, one `review_unavailable_notice`, and a stranded turn.
 Read from the campaign, the absence of any lane row looked like a review that had never been started; two of
 the three had in fact been started and killed at the 40 s cap. **Every continuity review now writes exactly
 one `lane: "continuity-review"` telemetry row** — `{job, ok, ms, attempt?, requests?, submitted?, child_ms?,
-timed_out?, model?, verdict? | code?, reason?, cause?}` — on the turn that paid for it, whether it passed,
+timed_out?, model?, dropped_subreviews?, verdict? | code?, reason?, cause?}` (`dropped_subreviews` added by §130.10, 2026-09-29) — on the turn that paid for it, whether it passed,
 revised, timed out, or never started. `model` is read from the child's own command line, because the runtime
 resolves the lane model (§37.10) and the request cannot say which one ran. The row is best-effort and never
 fails a review. This is a diagnostic row, not an escalation: §38.5's `coc-review-status` entry is unchanged.
@@ -19403,7 +19403,8 @@ validator rules the retained repair broke: pass needs empty `missing`, `findings
   `/continuity_review/<name>` — choosing between two different reviews would be judging.
 
 The retained `result.json` stays the raw submission as written; replay and the tamper check re-run the
-same deterministic placement. Schema 1 is unchanged. Nothing about what is refused changes: a moved
+same deterministic placement. (Amended by §130.10, 2026-09-29: an inapplicable sub-review already inside `continuity_review` is
+dropped before this, and `result.json` is written without it.) Schema 1 is unchanged. Nothing about what is refused changes: a moved
 subreview is then checked exactly as a nested one, so v1 copied fields (`quote`, `claim`, `evidence`,
 `claims`, `locus`, `current_scene`, `asserted_elsewhere`, `name`, `clue`, `relation`) stay refused
 wherever they appear, as do unknown fields and schema-less v1 artifacts. `location_review` remains a
@@ -19458,6 +19459,57 @@ Tests: `tests/extension/audit-subreview-placement.test.mjs` — the retained fir
 leftover v1 field and one differing duplicate gets the placement, shape and both content errors in a single
 response, in path order, and the repaired report is accepted on the second call; a failed selector is
 reported once; an exhausted repair leaves the list on the status and in the cause.
+
+### 130.10 A sub-review the turn did not require is dropped, not a reason to void the review (2026-09-29)
+
+Evidence: table `pl-v-0929` (lane model `opencode-go/deepseek-v4.1-flash`, thinking off) delivered 13 of its
+15 turns unreviewed. The retained jobs (`.coc/mods/jobs/<job>/rejected-artifact-*.json` beside each job's
+`context.json`) show why: 7 reviews failed only because the report carried sub-reviews this turn did not
+require (`outcome_review`, `location_review`, `reentry_review`, an empty `speech_review` on a candidate without
+say tokens), each refused as `Unexpected field`; 5 more carried the same extras plus selector errors *inside*
+them (`/continuity_review/location_review/asserted_elsewhere_sources: Required selector field is missing`),
+faults in objects nobody had asked for; 1 hit the model-call limit. The one targeted repair (§130.9) could
+not fix what the model kept adding, the job ended `continuity_review_unavailable`, and the turn went out
+unreviewed. Replayed with the rule below, 32 of the 33 retained rejections are accepted; the one that is
+still refused is a real content error (a `pass` beside two `missing` objects), which its own repair had fixed.
+
+**The rule (user, 2026-09-29: an unrequested sub-review is dropped, not a reason to void the whole audit).**
+Which sub-reviews apply is decided once, by `applicableSubreviews(files, speechLines, verdict)`
+(`kernel-ts/mods/audit-result.ts`): `intelligibility_review`, `player_address_review` and `outcome_review` when
+`context.json` marks them `requires_review` and the verdict is not `unavailable`; `speech_review` when the
+candidate has spoken lines (schema 2: the catalog's canonical speech; schema 1: the say-token spans) and the
+verdict is not `unavailable`; `location_review` when `location_authority.requires_review`; `locus_review` when
+`scene_commitment.requires_review`; `reentry_review` when `causal_reentry` is present and the verdict is not
+`unavailable`. `continuityArtifactErrors` requires exactly that set, and `dropInapplicableSubreviews` removes
+every other field of the closed `AUDIT_SUBREVIEWS` list (object or `null`) from `continuity_review`, so the
+required set and the dropped set cannot drift. It never mutates its input.
+
+- **Where it runs.** Before anything is judged: in `submit_audit` for schema 1 and schema 2 (for schema 2
+  before `auditArtifactIssues` / `materializeAuditReferences`), so the `result.json` it writes is already the
+  dropped version; in the kernel's `materializeContinuity` and `validateContinuity`, so `mods.accept` applies
+  the same rule to any writer of `result.json` and replay re-derives the same accepted artifact.
+  `normalizeContinuityArtifact` drops first and escalates the aggregate verdict second, so a dropped `revise`
+  can never turn a `pass` into a `revise`. This replaces the earlier single exception (a `null` `reentry_review`
+  without `causal_reentry`), whose comment kept a non-null extra object as an error; that decision is reversed.
+- **What is still refused.** A required sub-review that is missing; every error inside an applicable
+  sub-review; every other unexpected field; v1 copied fields. A sub-review at the wrong depth is placement
+  (§130.8) and is unchanged: `placeAuditSubreviews` still moves or refuses it.
+- **Where it is recorded.** `submit_audit` writes the dropped names on its status as `dropped_subreviews`
+  (`audit-status-N.json`), and the host copies a non-empty list onto the `continuity-review` telemetry row
+  (the §38.8 row, new optional field `dropped_subreviews`), so a report that carried extras reads after the fact.
+
+*Three ends (§31).* Writer: the private reviewer through `submit_audit`, or any writer of `result.json`.
+Reader: `dropInapplicableSubreviews` in `submit_audit` and in `mods.accept`. Actor: the accepted verdict that
+§130.4's `table.warn` delivers; the status and telemetry field are diagnostic only.
+
+Tests: `tests/extension/continuity-audit.test.mjs` (one applicability set equals the required set; drop
+without mutation; applicable sub-reviews still validated; missing required still refused; a dropped `revise`
+does not escalate; schema 1 `submit_audit` writes the dropped artifact and the status), `tests/extension/
+audit-subreview-placement.test.mjs` (three retained `pl-v-0929` rejections under
+`tests/extension/fixtures/audit-drop-inapplicable/` accepted through the real `submit_audit`, a kept required
+`outcome_review` still validated, a real content error still refused), and the real-kernel accept case in
+`tests/extension/jev-audit-references.test.mjs` (an extra `outcome_review` `revise` written straight to
+`result.json` is dropped by `mods.accept`, the verdict stays `pass`, replay is equal).
 
 ## 131. A file parses once per process; a copy is a copy (2026-09-22)
 

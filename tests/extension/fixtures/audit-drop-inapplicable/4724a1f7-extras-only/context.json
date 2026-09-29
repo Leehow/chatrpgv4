@@ -1,0 +1,371 @@
+{
+  "current_input": "我问她：你自己信这些报道吗？这房子你会不会去？",
+  "clock": {
+    "minutes": 60,
+    "elapsed": "1 h 0 min",
+    "at": "1920-10-12T11:00",
+    "day_part": "morning"
+  },
+  "scene": {
+    "handle": "newspaper-morgue",
+    "name": "newspaper-morgue",
+    "question": "Can the investigators persuade the Globe staff and pull the Corbitt House clippings?"
+  },
+  "intelligibility_review": {
+    "requires_review": true,
+    "definition": "Judge whether every candidate sentence and spoken line is naturally understandable in the play language without restoring omitted grammatical relations. This is not literary style scoring."
+  },
+  "player_address_review": {
+    "requires_review": true,
+    "actors": [
+      {
+        "name": "托马斯·海斯"
+      }
+    ],
+    "definition": "Player-facing narration addresses player-controlled investigators in second person. Natural subject omission is allowed; narrator-side character names or third-person pronouns are not. NPC dialogue and reported speech may refer to them as the fiction requires."
+  },
+  "scene_commitment": {
+    "requires_review": true,
+    "active": {
+      "handle": "newspaper-morgue",
+      "name": "newspaper-morgue",
+      "summary": "scene newspaper morgue"
+    },
+    "moves": [],
+    "definition": "active_scene is the persistent gameplay locus, not a physical coordinate.",
+    "promotion_test": "A distinct place needs a scene and move only when it becomes the ongoing locus for subsequent player action or durable location-bound state. Spatial wording, scale and motion do not decide this."
+  },
+  "present": [
+    {
+      "name": "Arty Wilmot"
+    },
+    {
+      "name": "Ruth Blake"
+    }
+  ],
+  "receipts": [],
+  "actors": [
+    {
+      "name": "托马斯·海斯",
+      "equipment": [
+        "notebook and stub pencil",
+        "set of lockpicks",
+        "flashlight",
+        "badge that impresses clerks more than cops",
+        {
+          "name": "科比特宅钥匙",
+          "quantity": 1,
+          "turn": 2,
+          "from": "Steven Knott",
+          "label": "科比特宅钥匙"
+        },
+        {
+          "name": "科比特宅地址纸条",
+          "quantity": 1,
+          "turn": 2,
+          "from": "Steven Knott",
+          "label": "地址纸条"
+        }
+      ],
+      "cash": "15 dollars",
+      "weapons": [
+        {
+          "name": ".38 Revolver",
+          "skill": "Firearms (Handgun)",
+          "damage": "1D10",
+          "ammo": 6
+        }
+      ]
+    }
+  ],
+  "objects": {
+    "queued_registrations": [
+      {
+        "name": "笔记本与短铅笔",
+        "category": "item",
+        "adopted": "notebook and stub pencil",
+        "status": "registered; parameters land at the start of the next turn, so do not define or place it again"
+      },
+      {
+        "name": "开锁工具一套",
+        "category": "item",
+        "adopted": "set of lockpicks",
+        "status": "registered; parameters land at the start of the next turn, so do not define or place it again"
+      },
+      {
+        "name": "手电筒",
+        "category": "item",
+        "adopted": "flashlight",
+        "status": "registered; parameters land at the start of the next turn, so do not define or place it again"
+      },
+      {
+        "name": "唬人用徽章",
+        "category": "item",
+        "adopted": "badge that impresses clerks more than cops",
+        "status": "registered; parameters land at the start of the next turn, so do not define or place it again"
+      }
+    ],
+    "definitions": [],
+    "instances": []
+  },
+  "equipment_without_instances": [
+    {
+      "owner": "托马斯·海斯",
+      "name": "科比特宅钥匙",
+      "row": {
+        "name": "科比特宅钥匙",
+        "quantity": 1,
+        "turn": 2,
+        "from": "Steven Knott",
+        "label": "科比特宅钥匙"
+      }
+    },
+    {
+      "owner": "托马斯·海斯",
+      "name": "科比特宅地址纸条",
+      "row": {
+        "name": "科比特宅地址纸条",
+        "quantity": 1,
+        "turn": 2,
+        "from": "Steven Knott",
+        "label": "地址纸条"
+      }
+    }
+  ],
+  "corrections": [],
+  "memory": [
+    {
+      "kind": "knowledge",
+      "subject": "Arty Wilmot",
+      "statement": "威尔莫特说规矩仍是规矩：要下剪报库得先预约、拿编辑室批条，或者给他一个能说得过去的理由，否则地下室的门不开。",
+      "turn": 4,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "Arty Wilmot",
+      "statement": "环球报馆门厅高台后坐着一位衣着整齐、袖口别着编辑笔的男人，盘问访客有没有预约或要找谁。",
+      "turn": 2,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "world_event",
+      "subject": "world",
+      "statement": "海斯在环球报馆门厅想直接下楼梯去剪报库，被高台后的威尔莫特挡下，通向里间的窄道也没让开。",
+      "turn": 4,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "Arty Wilmot",
+      "statement": "阿蒂·威尔莫特说剪报库不对外，没有预约和编辑室批条就不能进地下室翻查。",
+      "turn": 3,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "Steven Knott",
+      "statement": "诺特说，马卡里奥一家入住后不久就出事：夜里闹腾、东西自己动，男主人发疯、女主人带着孩子逃走。",
+      "turn": 1,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "Steven Knott",
+      "statement": "诺特说马卡里奥先生如今关在罗克斯伯里疗养院，院方不许随便探视，得自己想办法。",
+      "turn": 1,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    }
+  ],
+  "recent_history": [
+    {
+      "turn": 2,
+      "player_text": "我把钥匙和字条收好，先去《环球报》的剪报库查马卡里奥一家。",
+      "input_truncated": false,
+      "text": "诺特的指节终于松开。钥匙串和折好的字条滑过桌面，沉进你掌心；他没有再提那二十块预付，只抬了抬下巴，像是把账先记在纸上。\n\n「环球报。别让人白等一整天。」\n\n你出了那间小办公室。秋日街上人声车声挤在一起，半个钟头后，波士顿环球报馆的铜牌和油墨味迎面撞上。\n\n门厅里噪音不绝：打字机、喊名、纸张翻动。一张高台后面坐着个衣着整齐、下巴抬得很高的男人，袖口别着编辑用的笔，目光先落到你的鞋尖，再抬到脸上，像在掂量你算不算「一般公众」。\n\n「报馆不对外开放。有预约？还是找谁？」\n\n他的手指搁在台沿上，没有让开的意思。",
+      "truncated": false
+    },
+    {
+      "turn": 3,
+      "player_text": "我是海斯，诺特先生雇我查科比特宅。我想找马卡里奥这个姓和那栋房子的旧报道，只在这里看，不拿走任何纸。",
+      "input_truncated": false,
+      "text": "门厅里的编辑听完你的自报家门，目光在你脸上多停了一拍。那股掂量「一般公众」的劲儿松了些——他甚至微微侧过身，像是愿意多听两句。\n\n「诺特雇的？查房子？」他用笔杆点了点台沿，语气不像刚才那么硬，却仍咬着规矩不放。「剪报库不对外。你说只看不拿，我也没法让人随便进地下室乱翻。没有预约，没有编辑室批条——不行。」\n\n他抬了抬下巴，指尖仍按在台沿上，没有让开的意思；可那双眼睛已经不像一上来就想把你打发走。打字机声从里间一阵一阵涌出来，油墨味混着纸灰。",
+      "truncated": false
+    },
+    {
+      "turn": 4,
+      "player_text": "我下楼，按马卡里奥这个姓和科比特宅的地址查旧剪报。",
+      "input_truncated": false,
+      "text": "门厅高台后的男人抬起下巴，身子没有让开。你朝楼梯口迈了半步，他的指尖在台沿上敲了一下，声音不大，却刚好盖过里间打字机的一阵停顿。\n\n「剪报库在楼下，没错。可没人带你，你也下不去。」\n\n他侧过身，仍挡着通向里间的窄道，目光落在你脸上，语气拿腔，却不像一上来那样只想把人打发走。\n\n「诺特雇你也好，查房子也好——规矩还是规矩。预约、编辑室批条，或者你让我听得过去。否则地下室的门不开。」\n\n油墨味和纸灰从楼梯口飘上来。他等着你的下一个说法，没有再往后退。",
+      "truncated": false
+    }
+  ],
+  "source_facts": [
+    {
+      "name": "globe-unpublished-story",
+      "summary": "An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Macarios fled under mysterious circumstances.",
+      "disclosure": "keeper_only"
+    },
+    {
+      "name": "macario-tragedy",
+      "summary": "The Macario family rented in 1918 and left almost immediately under mysterious circumstances; they are now linked to Roxbury Sanitarium.",
+      "disclosure": "keeper_only"
+    },
+    {
+      "name": "globe-fire-cutoff",
+      "summary": "Globe files go back no further than a fire in 1878 — earlier Corbitt House mentions are not here.",
+      "disclosure": "keeper_only"
+    },
+    {
+      "name": "knott-macario-summary",
+      "summary": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at Roxbury Sanitarium.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "knott-research-leads",
+      "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "knott-keys",
+      "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
+      "disclosure": "acquired"
+    }
+  ],
+  "connections": {
+    "promises": [],
+    "anchors": [
+      "knott-keys",
+      "knott-research-leads",
+      "knott-macario-summary",
+      "knott-commission",
+      "newspaper-morgue",
+      "arty-wilmot",
+      "ruth-blake"
+    ],
+    "connections": [
+      {
+        "name": "commission-and-research-frame",
+        "claim": "Knott hired them to clear the house's name; research before entry is wise but not mandatory.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "knott-macario-summary",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at ",
+            "turns": [
+              2
+            ]
+          },
+          {
+            "name": "knott-commission",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and",
+            "turns": [
+              2
+            ]
+          },
+          {
+            "name": "knott-research-leads",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper tr",
+            "turns": [
+              2
+            ]
+          },
+          {
+            "name": "knott-keys",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
+            "turns": [
+              2
+            ]
+          }
+        ],
+        "acquired_total": 4,
+        "truncated": true
+      },
+      {
+        "name": "house-haunted-by-corbitt",
+        "claim": "The Corbitt House's tragedies are caused by Corbitt's lingering will — not mere bad luck or a conventional ghost story.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "globe-unpublished-story",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Macar",
+            "turns": []
+          },
+          {
+            "name": "dooley-macario-madness",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "Dooley says the Macario father went violently mad after an accident, babbling about a haunting form ",
+            "turns": []
+          }
+        ],
+        "acquired_total": 0,
+        "truncated": true
+      },
+      {
+        "name": "corbitt-buried-in-basement",
+        "claim": "Walter Corbitt's body was interred in the house basement per his will; his mind still haunts from there.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "basement-burial-lawsuit",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "An 1866 obituary notes a lawsuit to stop Corbitt being buried in his own basement as his will requir",
+            "turns": []
+          },
+          {
+            "name": "will-executor-chapel",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "Corbitt's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later cl",
+            "turns": []
+          }
+        ],
+        "acquired_total": 0,
+        "truncated": true
+      }
+    ],
+    "hypotheses": [],
+    "truncated": true
+  },
+  "coverage": {
+    "history_total": 5,
+    "history_previews": 3,
+    "memory_total": 20,
+    "correction_total": 0,
+    "full_evidence_files": [
+      "original.json",
+      "effective.json",
+      "world.json",
+      "current.json",
+      "history.json",
+      "handouts.json",
+      "notes.json",
+      "memory.json"
+    ],
+    "note": "Equipment without an instance is not necessarily missing mechanics: ordinary decorative gear needs no executable definition. Previews are not complete evidence; read the relevant retained file if a decision depends on omitted history or text. Compatible new fiction is not a contradiction merely because the book does not state it."
+  }
+}

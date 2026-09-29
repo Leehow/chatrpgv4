@@ -175,6 +175,20 @@ test('real kernel v2 jobs retain selectors, materialize acceptance, replay and r
         const placed=await call('mods.accept',{job:placedJob.job});
         assert.equal(placed.continuity_review.speech_review.lines[0].quote,'The keys are yours.');
         for(const key of Object.keys(subreviews)) assert.equal(Object.hasOwn(placed,key),false);
+        // §130.10: the kernel's own accept drops a sub-review this turn did not require, for any writer of
+        // result.json, and a dropped revise does not reach the accepted verdict.
+        const extraJob=await call('mods.job',{role:'audit',input:{text:'{{say:Knott}}The door stays shut.{{/say}}'}});
+        const extraRequest=JSON.parse(await readFile(join(extraJob.cwd,'request.json'),'utf8')), extraEvidence={};
+        for(const file of extraRequest.continuity_review.files) extraEvidence[file]=JSON.parse(await readFile(join(extraJob.cwd,file),'utf8'));
+        const extraCatalog=api.buildAuditReferences(extraRequest,extraEvidence), extra=complete(extraCatalog);
+        assert.equal(api.applicableSubreviews(extraEvidence,extraCatalog.speechTexts,'pass').has('outcome_review'),false);
+        extra.continuity_review.outcome_review={verdict:'revise',basis:'unsupported_positive_result',claim_sources:['draft:0']};
+        await writeFile(join(extraJob.cwd,'result.json'),JSON.stringify(extra));
+        const kept=await call('mods.accept',{job:extraJob.job});
+        assert.equal(Object.hasOwn(kept.continuity_review,'outcome_review'),false);
+        assert.equal(kept.continuity_review.verdict,'pass');
+        assert.equal(kept.continuity_review.speech_review.lines[0].quote,'The door stays shut.');
+        assert.deepEqual(await call('mods.accept',{job:extraJob.job}),kept,'replay re-applies the same drop');
         await call('table.apply',{call_id:'t0-c1',effects:[{kind:'time',minutes:1,why:'A chosen wait'}]});
         await assert.rejects(call('mods.accept',{job:job.job}),error=>error.details?.reason==='mod_audit_stale');
     } finally {await runtime.close();}

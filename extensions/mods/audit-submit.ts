@@ -2,7 +2,7 @@
 import {readFileSync, writeFileSync, renameSync} from 'node:fs';
 import {join, basename} from 'node:path';
 import {Type} from 'typebox';
-import {continuityArtifactErrors, normalizeContinuityArtifact} from '../../kernel-ts/mods/audit-result.ts';
+import {continuityArtifactErrors, dropInapplicableSubreviews, normalizeContinuityArtifact, spokenTexts} from '../../kernel-ts/mods/audit-result.ts';
 import {AUDIT_SUBREVIEW_PLACEMENT, auditArtifactIssues, buildAuditReferences} from '../../kernel-ts/mods/audit-references.ts';
 import {auditEvidenceView} from './audit-evidence.ts';
 
@@ -29,7 +29,7 @@ export default function auditSubmit(pi: any) {
         return [name, JSON.parse(readFileSync(join(cwd, name), 'utf8'))];
     }));
     let requests = 0, repairs = 0, submissionReminder = false;
-    const status: {requests: number; artifact_repairs: number; submitted: boolean; unavailable: string; errors?: any[]} =
+    const status: {requests: number; artifact_repairs: number; submitted: boolean; unavailable: string; errors?: any[]; dropped_subreviews?: string[]} =
         {requests: 0, artifact_repairs: 0, submitted: false, unavailable: ''};
     const save = () => {
         status.requests = requests; status.artifact_repairs = repairs;
@@ -87,8 +87,14 @@ export default function auditSubmit(pi: any) {
                 result = params.result ?? JSON.parse(readFileSync(join(cwd, 'result.json'), 'utf8'));
                 if (Buffer.byteLength(JSON.stringify(result)) > 512000) return unavailable('The audit artifact exceeds its size bound');
             } catch (error) { return unavailable(`The retained audit input or artifact could not be read: ${error instanceof Error ? error.message : String(error)}`); }
-            if (schema === 1) result = normalizeContinuityArtifact(result, files);
             const catalog = schema === 2 ? buildAuditReferences(request, files) : undefined;
+            // §130.10: a sub-review this turn did not require is dropped before anything is judged, so the
+            // result.json written below is already the dropped version and the drop is on the status.
+            const speech = catalog ? catalog.speechTexts : spokenTexts(typeof request.input?.text === 'string' ? request.input.text : '');
+            const drop = dropInapplicableSubreviews(result, files, speech);
+            result = drop.value;
+            if (drop.dropped.length) status.dropped_subreviews = drop.dropped; else delete status.dropped_subreviews;
+            if (schema === 1) result = normalizeContinuityArtifact(result, files, speech);
             let errors: any[];
             if (catalog) ({errors, result} = auditArtifactIssues(result, request, files, catalog));
             else errors = continuityArtifactErrors(result, request.input.text, files);

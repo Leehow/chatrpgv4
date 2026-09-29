@@ -11,6 +11,8 @@ export const AUDIT_LIMITS = Object.freeze({per_review_ms: BACKGROUND_REVIEW_SAFE
     time_ms: BACKGROUND_REVIEW_SAFETY_MS * 2, max_requests: 12, per_review: 6, max_rewrites: 1,
     max_artifact_repairs: 1});
 export type AuditIssue = {path: string; message: string; file?: string; excerpt?: string};
+/** The closed set of sub-review fields of `continuity_review` (schema 1 and 2 share the names). */
+export const AUDIT_SUBREVIEWS = Object.freeze(['intelligibility_review','player_address_review','speech_review','outcome_review','location_review','locus_review','reentry_review']);
 const object = (v: any): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const row = (v: any): Record<string, any> => object(v) ? v : {};
 const array = (v: any): any[] => Array.isArray(v) ? v : [];
@@ -19,7 +21,7 @@ const words = (v: any, max = 2000) => typeof v === 'string' && !!v.trim() && v.l
 const strings = (v: any): string[] => typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(strings) : [];
 const SAY = /\{\{say:([^}\n]{1,60})\}\}|\{\{\/say\}\}/g;
 /** Exact spoken payloads under the product's closed say-token grammar. Shape repair remains delivery's job. */
-function spokenTexts(text: string): string[] {
+export function spokenTexts(text: string): string[] {
     const result: string[] = [];
     let start: number | null = null;
     const close = (end: number) => {
@@ -38,21 +40,53 @@ function spokenTexts(text: string): string[] {
     return result;
 }
 
-/** A specific structured sub-review is more precise than a contradictory aggregate pass. */
-export function normalizeContinuityArtifact(value: any, files: Record<string, unknown> = {}): any {
-    if (!object(value) || !object(value.continuity_review)) return value;
-    let review = value.continuity_review;
+/**
+ * The sub-reviews this turn requires, from the pinned context, the candidate's spoken lines and the
+ * review's own aggregate verdict. It is the one applicability rule: the validator requires exactly this
+ * set, and `dropInapplicableSubreviews` removes everything else, so the two cannot drift apart.
+ */
+export function applicableSubreviews(files: Record<string, unknown>, speechLines: readonly string[], verdict: unknown): Set<string> {
     const context = object(files['context.json']) ? files['context.json'] : {};
-    // A targeted repair commonly nulls an inapplicable optional object. Canonicalize that exact
-    // absence, while retaining a non-null extra object as an artifact error.
-    if (!object(context.causal_reentry) && review.reentry_review === null) {
-        const {reentry_review: _unused, ...rest} = review;
-        review = rest;
-    }
+    const requires = (name: string) => object(context[name]) && context[name].requires_review === true;
+    const reviewed = verdict !== 'unavailable', result = new Set<string>();
+    if (requires('intelligibility_review') && reviewed) result.add('intelligibility_review');
+    if (requires('player_address_review') && reviewed) result.add('player_address_review');
+    if (speechLines.length > 0 && reviewed) result.add('speech_review');
+    if (requires('location_authority')) result.add('location_review');
+    if (requires('scene_commitment')) result.add('locus_review');
+    if (requires('outcome_commitments') && reviewed) result.add('outcome_review');
+    if (object(context.causal_reentry) && reviewed) result.add('reentry_review');
+    return result;
+}
+
+/**
+ * A sub-review this turn did not require is dropped, not a reason to void the whole audit
+ * (2026-09-29, contract §130.10). Only the closed `AUDIT_SUBREVIEWS` fields at their canonical place
+ * inside `continuity_review` are considered; a sub-review at the wrong depth is placement (§130.8), and
+ * every other unexpected field is still refused. The input is never mutated.
+ */
+export function dropInapplicableSubreviews(value: any, files: Record<string, unknown>, speechLines: readonly string[]): {value: any; dropped: string[]} {
+    if (!object(value) || !object(value.continuity_review)) return {value, dropped: []};
+    const review = value.continuity_review, applicable = applicableSubreviews(files, speechLines, review.verdict);
+    const dropped = AUDIT_SUBREVIEWS.filter(key => Object.hasOwn(review, key) && !applicable.has(key));
+    if (!dropped.length) return {value, dropped};
+    const kept = Object.fromEntries(Object.entries(review).filter(([key]) => !dropped.includes(key)));
+    return {value: {...value, continuity_review: kept}, dropped};
+}
+
+/**
+ * A specific structured sub-review is more precise than a contradictory aggregate pass. Inapplicable
+ * sub-reviews are dropped first, so a dropped `revise` can never escalate the aggregate verdict.
+ * `speechLines` are the candidate's spoken lines (schema 2: the catalog's canonical speech).
+ */
+export function normalizeContinuityArtifact(value: any, files: Record<string, unknown>, speechLines: readonly string[]): any {
+    if (!object(value) || !object(value.continuity_review)) return value;
+    const applicable = dropInapplicableSubreviews(value, files, speechLines).value;
+    let review = applicable.continuity_review;
     const specific = [review.intelligibility_review?.verdict, review.player_address_review?.verdict, review.speech_review?.verdict, review.reentry_review?.verdict, review.locus_review?.verdict, review.location_review?.verdict,
         review.outcome_review?.verdict].find(verdict => verdict === 'revise');
     if (review.verdict === 'pass' && specific === 'revise') review = {...review, verdict: 'revise'};
-    return review === value.continuity_review ? value : {...value, continuity_review: review};
+    return review === applicable.continuity_review ? applicable : {...applicable, continuity_review: review};
 }
 
 export function continuityArtifactErrors(value: any, candidate: string, files: Record<string, unknown>, canonicalSpeech?: readonly string[]): AuditIssue[] {
@@ -91,8 +125,9 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
     const spokenLines = canonicalSpeech ?? spokenTexts(candidate);
     const speechReview = spokenLines.length > 0;
     const review = value.continuity_review;
-    if (!keys(review, ['verdict', 'summary', 'conflicts', ...(intelligibility && review?.verdict !== 'unavailable' ? ['intelligibility_review'] : []), ...(playerAddress && review?.verdict !== 'unavailable' ? ['player_address_review'] : []), ...(speechReview && review?.verdict !== 'unavailable' ? ['speech_review'] : []), ...(locationAuthority ? ['location_review'] : []), ...(sceneCommitment ? ['locus_review'] : []),
-        ...(outcomeCommitments && review?.verdict !== 'unavailable' ? ['outcome_review'] : []), ...(causalReentry && review?.verdict !== 'unavailable' ? ['reentry_review'] : [])], '/continuity_review')) return errors;
+    // The required set is exactly the applicable set; see `applicableSubreviews`.
+    const required = applicableSubreviews(files, spokenLines, object(review) ? review.verdict : undefined);
+    if (!keys(review, ['verdict', 'summary', 'conflicts', ...AUDIT_SUBREVIEWS.filter(key => required.has(key))], '/continuity_review')) return errors;
     if (sceneCommitment && !object(review.locus_review))
         add('/continuity_review/locus_review', 'Required object: {verdict, mode, locus, claim, basis}; do not use location_review');
     if (causalReentry && review.verdict !== 'unavailable' && !object(review.reentry_review))
