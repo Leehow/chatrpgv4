@@ -415,7 +415,12 @@ export async function loadControlledContributions(
       const Component = await loadComponent(entry, loadFileEntryModule)
       disposers.push(registerToolRenderer(descriptor.id, {
         toolName: renderer.tool,
-        render: ({ content, details, images, onSelectOption }) => createElement(Component, { content, details, images, onSelectOption }),
+        // §155.8: a renderer calls the host only as the extension that registered it, and only
+        // when the host UI handed a session-bound call down; the pack never names an extension.
+        render: ({ content, details, images, onSelectOption, onInvokeExtension }) => createElement(Component, {
+          content, details, images, onSelectOption,
+          ...(onInvokeExtension ? { onInvoke: (method: string, params: unknown) => onInvokeExtension(descriptor.id, method, params) } : {}),
+        }),
       }))
     } catch {
       // No panel slot: leave the default tool card. Do not crash the host.

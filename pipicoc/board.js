@@ -17,7 +17,8 @@
  *
  * No arithmetic and no rules live here. Every caption comes from `ui.words.board`, the error
  * caption from the shared `errors` surface (§23), and every module-authored name goes through the
- * glossary the answer carries.
+ * glossary the answer carries. The one host call besides the board read is a pictured handout's
+ * translate control (§155), whose captions are the `handout` surface's.
  */
 
 const STYLE_ID = "pipicoc-board-style";
@@ -203,6 +204,150 @@ function speakerInk(anchor, who) {
 /* >>> end speaker colour <<< */
 /* SPEAKER-BLOCK-END */
 
+/* >>> handout reading: shared verbatim between pipicoc/mechanics.js and pipicoc/board.js <<<
+ *
+ * Contract §155. A handout cropped from a PDF page reaches the player as the picture and nothing
+ * else, so a table whose play language is not the module's holds a clipping it cannot read. This
+ * control asks the host for a reading version in the play language (`handout.reading`) and draws it
+ * in the row's body slot under the picture. The picture is never replaced or hidden: the toggle
+ * only chooses what the body slot below it shows.
+ *
+ * The delivery card and the case board draw the same control, and a pack renderer is a `data:`
+ * module that cannot import a sibling, so -- the speaker-colour block's rule -- it is authored once
+ * and copied byte for byte into both files; `tests/extension/handout-reading-control.test.mjs`
+ * fails the moment the copies drift.
+ *
+ * What it sends is `{handout}` and nothing else: the host resolves the path, the campaign, the
+ * digest and the language (§155.1). What it draws are words from the answer's own `ui` block -- the
+ * `handout` surface for its captions, the `errors` surface for a refusal's code -- asked for by
+ * literal key, so the caption scan can see every one. Whether the picture is already in the
+ * player's language is the model's word (`keep`); nothing here reads the text it is handed.
+ *
+ * `invoke(method, params)` resolves to the answer's `data` and rejects with an Error carrying the
+ * refusal's `code`. A `pending` answer is asked again HANDOUT_POLL_MS after it arrived, never
+ * sooner, only while the row is open (`active`), and never once the control is gone. A failed job
+ * is a one-shot mailbox on the host, so the retry is simply the same call again.
+ */
+const HANDOUT_POLL_MS = 2000;
+const HANDOUT_STYLE_ID = "pipicoc-handout-reading-style";
+const HANDOUT_CSS = `
+.coc-handout-reading{margin-top:8px}
+.coc-handout-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 6px;
+  color:var(--muted);font-size:11.5px;line-height:1.5}
+.coc-handout-action,.coc-handout-toggle{display:inline-flex;align-items:center;min-height:24px;
+  border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);
+  padding:2px 10px;font:inherit;cursor:pointer}
+.coc-handout-action:hover,.coc-handout-toggle:hover{color:var(--accent);border-color:var(--accent)}
+.coc-handout-action:focus-visible,.coc-handout-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.coc-handout-toggle[aria-pressed="true"]{color:var(--accent);border-color:var(--accent);
+  background:color-mix(in oklab,var(--accent) 9%,transparent)}
+.coc-handout-status[role="alert"]{color:var(--danger)}
+.coc-handout-why{flex-basis:100%;color:var(--subtle);font-size:11px}
+.coc-handout-why>summary{cursor:pointer}
+.coc-handout-note{margin:0 0 6px;color:var(--subtle);font-family:inherit;font-size:11px;
+  font-style:italic;line-height:1.5;white-space:normal}
+.coc-handout-title{margin:0 0 4px;color:var(--text-strong);font-size:13.5px;font-weight:650;
+  line-height:1.5;white-space:normal}
+.coc-handout-text{white-space:pre-wrap}
+`;
+
+if (typeof document !== "undefined" && !document.getElementById(HANDOUT_STYLE_ID)) {
+  const style = document.createElement("style");
+  style.id = HANDOUT_STYLE_ID;
+  style.textContent = HANDOUT_CSS;
+  document.head.append(style);
+}
+
+/**
+ * The control, built from the host's React. `original` is what the body slot held before (an
+ * authored text, or nothing for an image-only clipping) and `bodyClass` is that slot's own class,
+ * so the reading version is set in the same place and the same face.
+ */
+function createHandoutReading(React) {
+  const h = React.createElement;
+  return function HandoutReading(props) {
+    const { handout, ui, original, bodyClass } = props;
+    const active = props.active !== false;
+    // The latest call, never a dependency: a host redraw hands over a new function every time, and
+    // a redraw must not restart the wait.
+    const call = React.useRef(props.invoke);
+    call.current = props.invoke;
+    const alive = React.useRef(true);
+    const asked = React.useRef(0);
+    const [state, setState] = React.useState({ phase: "idle", round: 0 });
+    const [view, setView] = React.useState("reading");
+    React.useEffect(() => {
+      alive.current = true;
+      return () => { alive.current = false; asked.current += 1; };
+    }, []);
+
+    function ask() {
+      const mine = ++asked.current;
+      setState(prior => ({ phase: "asking", round: prior.round }));
+      Promise.resolve()
+        .then(() => call.current("handout.reading", { handout }))
+        .then(data => {
+          if (!alive.current || mine !== asked.current) return;
+          const status = isRecord(data) ? text(data.status) : "";
+          if (status === "pending") setState(prior => ({ phase: "waiting", round: prior.round + 1 }));
+          else if (status === "ready") {
+            setState(prior => ({ phase: "ready", round: prior.round, keep: data.keep === true, title: text(data.title), text: text(data.text) }));
+            setView("reading");
+          } else setState(prior => ({ phase: "failed", round: prior.round, code: "", reason: "" }));
+        }, error => {
+          if (!alive.current || mine !== asked.current) return;
+          setState(prior => ({ phase: "failed", round: prior.round,
+            code: isRecord(error) ? text(error.code) : "", reason: error instanceof Error ? error.message : "" }));
+        });
+    }
+
+    // One timer per `pending` answer, started after that answer arrived, cleared when the row
+    // closes or the control goes away: a job the player stopped looking at is not asked about.
+    React.useEffect(() => {
+      if (state.phase !== "waiting" || !active) return undefined;
+      const timer = setTimeout(ask, HANDOUT_POLL_MS);
+      return () => clearTimeout(timer);
+    }, [state.phase, state.round, active]);
+
+    let tools, drawn = state.phase;
+    if (state.phase === "idle") {
+      tools = h("button", { type: "button", className: "coc-handout-action", onClick: ask }, word(ui, "handout", "translate"));
+    } else if (state.phase === "asking" || state.phase === "waiting") {
+      drawn = "pending";
+      tools = h("span", { className: "coc-handout-status", role: "status" }, word(ui, "handout", "pending"));
+    } else if (state.phase === "failed") {
+      tools = [
+        h("span", { key: "why", className: "coc-handout-status", role: "alert" }, word(ui, "errors", state.code, word(ui, "handout", "failed"))),
+        h("button", { key: "retry", type: "button", className: "coc-handout-action", onClick: ask }, word(ui, "handout", "retry")),
+        // The host's reason is English by contract and written for the log: kept, behind a fold.
+        state.reason
+          ? h("details", { key: "reason", className: "coc-handout-why" }, h("summary", null, word(ui, "errors", "details")), state.reason)
+          : null,
+      ];
+    } else if (state.keep) {
+      drawn = "keep";
+      tools = h("span", { className: "coc-handout-status", role: "status" }, word(ui, "handout", "keep"));
+    } else {
+      tools = [
+        h("button", { key: "original", type: "button", className: "coc-handout-toggle", "aria-pressed": view === "original", onClick: () => setView("original") },
+          word(ui, "handout", "original")),
+        h("button", { key: "reading", type: "button", className: "coc-handout-toggle", "aria-pressed": view === "reading", onClick: () => setView("reading") },
+          word(ui, "handout", "reading")),
+      ];
+    }
+    const reading = state.phase === "ready" && !state.keep && view === "reading"
+      ? h("div", { className: bodyClass ? `${bodyClass} coc-handout-reading-body` : "coc-handout-reading-body", "data-reading": "reading" },
+          h("p", { className: "coc-handout-note" }, word(ui, "handout", "note")),
+          state.title ? h("h4", { className: "coc-handout-title" }, state.title) : null,
+          h("div", { className: "coc-handout-text" }, state.text))
+      : null;
+    return h("div", { className: "coc-handout-reading", "data-handout-reading": drawn },
+      h("div", { className: "coc-handout-tools" }, tools),
+      reading || original || null);
+  };
+}
+/* >>> end handout reading <<< */
+
 if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
   const style = document.createElement("style");
   style.id = STYLE_ID;
@@ -301,6 +446,7 @@ const ICON_PATHS = {
 export function createComponent(React) {
   const { useCallback, useEffect, useRef, useState } = React;
   const h = React.createElement;
+  const HandoutReading = createHandoutReading(React);
 
   /**
    * A decorative glyph restating its label, keyed by the stable name rather than the localized
@@ -333,11 +479,17 @@ export function createComponent(React) {
    * buttons, the same zoom and drag, and no card chrome around it. The words are already the
    * player's -- the pack projected an authored row before it composed the pixels -- so this only
    * names what arrived.
+   *
+   * A pictured handout (`invoke` is handed only to those, never to a map) also carries the §155
+   * translate control under its picture; the body slot it fills is the one the authored text of a
+   * hybrid card already sits in.
    */
   function MapBlock(props) {
-    const { row, t, term } = props;
+    const { row, t, term, ui, invoke } = props;
     const [zoom, setZoom] = useState(100);
     const [broken, setBroken] = useState(false);
+    // Whether the player has the row open: a closed row asks the host nothing more (§155).
+    const [open, setOpen] = useState(true);
     const variants = knownLevelImages(row);
     const [level, setLevel] = useState(variants[0] ? variants[0].level : "");
     const chosen = variants.find(item => item.level === level);
@@ -345,8 +497,11 @@ export function createComponent(React) {
     const openable = row.document === "ready" && Boolean(shown) && !broken;
     const regionLabels = knownRegionLabels(row);
     const name = term(text(row.label) || text(row.name) || text(row.map));
-    return h("details", { className: "coc-map", open: true, "data-map": text(row.map) || undefined, "data-handout": text(row.handout) || undefined,
-      "data-view": text(row.view_id) || undefined, "data-document": text(row.document) || undefined },
+    const handout = text(row.handout);
+    const authored = handout && text(row.text) ? h("div", {className:"coc-clue-doc-body"},term(text(row.text))) : null;
+    return h("details", { className: "coc-map", open: true, "data-map": text(row.map) || undefined, "data-handout": handout || undefined,
+      "data-view": text(row.view_id) || undefined, "data-document": text(row.document) || undefined,
+      onToggle: event => setOpen(Boolean(event.currentTarget && event.currentTarget.open)) },
       h("summary", { className: "coc-map-head" },
         h(Icon, { name: row.handout ? 'document' : 'map' }),
         h("span", { className: "coc-map-name" }, name)),
@@ -380,7 +535,9 @@ export function createComponent(React) {
                 style: { width: `${zoom}%` },
                 onError: () => setBroken(true),
               })),
-            row.handout && text(row.text) ? h("div", {className:"coc-clue-doc-body"},term(text(row.text))) : null,
+            handout && typeof invoke === "function"
+              ? h(HandoutReading, { key: handout, handout, invoke, ui, active: open, bodyClass: "coc-clue-doc-body", original: authored })
+              : authored,
             regionLabels.length ? h("div", { className: "coc-map-regions" }, regionLabels.join(" \u00b7 ")) : null)
         // Nothing to open: the place the player knows is still worth naming, and it is the only
         // thing here that is true without the pixels (§59 -- a `none` page is delivered, not lost).
@@ -398,7 +555,7 @@ export function createComponent(React) {
 
   /** Found clues -- the old sheet's clues section, word for word. */
   function Clues(props) {
-    const { view, t, term = value => value } = props;
+    const { view, t, term = value => value, ui, invoke } = props;
     const clues = isRecord(view.clues) ? view.clues : {};
     const discovered = Array.isArray(clues.discovered) ? clues.discovered : [];
     const here = Array.isArray(clues.here) ? clues.here : [];
@@ -423,8 +580,10 @@ export function createComponent(React) {
       seen.add(key);
       rows.push(line);
     }
+    // A pictured document is drawn as its picture, and only a pictured one gets the §155 control:
+    // a text-only card is already words in hand.
     const documentRows = documents.map((doc, index) => playerImage(doc.image)
-      ? h(MapBlock, {key:`doc:${text(doc.handout)}:${index}`,row:doc,t,term})
+      ? h(MapBlock, {key:`doc:${text(doc.handout)}:${index}`,row:doc,t,term,ui,invoke})
       : h("details", { className: "coc-clue coc-clue-fold coc-clue-doc", key: `doc:${text(doc.handout)}:${index}`, "data-handout": text(doc.handout) },
         h("summary", null, h(Icon, { name: "document" }),
           h("span", { className: "coc-clue-name" }, term(text(doc.name) || text(doc.handout)))),
@@ -525,6 +684,16 @@ export function createComponent(React) {
     }, [api]);
     latest.current = load;
 
+    // §155.8: the handout control's host call. The panel's `api.invoke` answers an envelope; the
+    // control takes the shape the transcript's `onInvoke` has -- the answer's `data`, or an Error
+    // carrying the refusal's code -- so one control serves both surfaces.
+    const readHandout = useCallback(async (method, params) => {
+      const result = await api.invoke(method, params);
+      if (result && result.ok === true) return result.data;
+      const refusal = isRecord(result) && isRecord(result.error) ? result.error : {};
+      throw Object.assign(new Error(text(refusal.message) || "the pack did not answer"), { code: text(refusal.code) || "pack_silent" });
+    }, [api]);
+
     useEffect(() => { void load(); }, [load]);
 
     // The pack pushes on every committed turn; any event from it means re-read. The push carries no
@@ -579,7 +748,7 @@ export function createComponent(React) {
     return h("div", { className: "coc-board", role: "region", ...(props.title ? { "aria-label": props.title } : {}) },
       refresh,
       h(Maps, { maps, t, term }),
-      h(Clues, { view, t, term }),
+      h(Clues, { view, t, term, ui, invoke: api.invoke ? readHandout : undefined }),
       h(Npcs, { view, t, term }));
   };
 }
