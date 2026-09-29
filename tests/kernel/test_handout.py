@@ -63,7 +63,7 @@ def test_handout_without_shipped_bytes_is_declared_unavailable_not_invented(kern
     assert REFERENCE_ONLY in result["note"] and "nothing to look at" in result["note"]
     narrated = kernel.table("narrate", call_id="t1-c2", text="诺特把委托书递过来。")
     assert narrated["mechanics"] == [{"kind": "handout", "marker": f"handout:{REFERENCE_ONLY}", "receipt": f"handout:{REFERENCE_ONLY}-t1",
-                                      "name": "Handout 1: Mr. Knott's Commission", "document": "none",
+                                      "handout": REFERENCE_ONLY, "name": "Handout 1: Mr. Knott's Commission", "document": "none",
                                       "label": "Handout 1: Mr. Knott's Commission", "call": "t1-c1"}]
 
 
