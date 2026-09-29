@@ -313,8 +313,24 @@ const IDENTIFYING_FIELDS: readonly string[] = [
 ];
 
 /**
+ * What a reviewer reads of a `resolve`, in the order its line gives them (§32.4.2): what the investigator chooses -- who
+ * acts, which rule operation it is (`decision`, §159.5), what they try, how, against whom or what, with what, what they put on the table, which book check or scene
+ * obligation the roll is, which intention it settles, whether they push, spend Luck or defend, and how a fight ends. The
+ * rules parameters of the result (`modifiers`, `coercion`, `surprise`, `motive`, `mode`, `step`, `san_loss`, ...) are not
+ * read: the reviewer judges the choice, never the result. A field added to the action must land here or be named as one
+ * of those in `admission-effect-signature.test.mjs`, which walks the schema.
+ */
+export const RESOLVE_REVIEWED_FIELDS: readonly string[] = [
+	"actor", "decision", "intent", "goal", "method", "skill", "skills", "target", "weapon", "spell", "object", "usage", "support", "rule",
+	"obligation", "intent_ref", "intent_outcome", "stakes", "push", "luck", "defense", "outcome",
+];
+/** The Keeper's rationale among them (§32.3): shown to the reviewer, outside the reuse key (§32.4). */
+export const RESOLVE_RATIONALE_FIELDS: readonly string[] = ["stakes"];
+
+/**
  * One effect's identifying fields as the reuse key reads them (§32.4, §32.4.1): `why` and `how` are outside it. Also how a
- * resend of a split batch recognises the lines that already landed (§32.12.3).
+ * resend of a split batch recognises the lines that already landed (§32.12.3), and a line's batch-mates in its key
+ * (§32.12.3.1.1).
  */
 export function effectSignature(effect: Record<string, unknown>): string {
 	const kind = text(effect.kind) ?? "?";
@@ -345,9 +361,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		}
 		const pick = (keys: readonly string[]): Record<string, unknown> =>
 			Object.fromEntries(keys.map((k) => [k, action[k]]).filter(([, v]) => v !== undefined && v !== null && v !== ""));
-		const shown = pick(["actor", "decision", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "usage", "stakes", "push", "luck", "defense", "outcome"]);
-		const lines = [`resolve (settle the specified rule operation): ${Object.entries(shown).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("; ")}`];
-		const key = canonical({ tool, action: pick(["actor", "decision", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "usage", "push", "luck", "defense", "outcome"]) });
+		const lines = [`resolve (settle the specified rule operation): ${Object.entries(pick(RESOLVE_REVIEWED_FIELDS)).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("; ")}`];
+		// §32.4.2: the key is what the reviewer read, less the Keeper's rationale.
+		const key = canonical({ tool, action: pick(RESOLVE_REVIEWED_FIELDS.filter((field) => !RESOLVE_RATIONALE_FIELDS.includes(field))) });
 		return { tool: "resolve", key, lines };
 	}
 	if (tool === "apply") {

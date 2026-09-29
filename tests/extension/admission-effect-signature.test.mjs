@@ -1,24 +1,27 @@
 /**
- * Contract §32.4.1 (SL-105): an `apply` effect is identified, for the admission reuse key, by every field its kind
- * declares except the rationale sentences `why` and `how`. Before it the key read a fixed list that had missed the fields
- * added later (`time`'s `band`, `until`, `stated`, `beyond_travel`; `cash`'s `stated`; `move`'s `via`; `object`'s
- * `document` and `part`; the intent-result `intent_ref` and `intent_outcome`), so within a turn a verdict on one time
- * cost was reused for another.
+ * Contract §32.4.1 and §32.4.2 (SL-105): a proposal's admission reuse key is what the reviewers read of it, less the
+ * Keeper's rationale. On `apply`, every field an effect's kind declares except `why` and `how`; before it the key read a
+ * fixed list that had missed the fields added later (`time`'s `band`, `until`, `stated`, `beyond_travel`; `cash`'s
+ * `stated`; `move`'s `via`; `object`'s `document` and `part`; the intent-result `intent_ref` and `intent_outcome`), so
+ * within a turn a verdict on one time cost was reused for another. On `resolve`, one list is both the line and (less
+ * `stakes`) the key, and it now carries what the investigator chooses (`skills`, `support`, `rule`, `obligation`, the
+ * intention, how a fight ends) and none of the rules parameters of the result.
  *
- * Two halves. Through the real extension and its `apply` admission seam (scripted review model, fake kernel): a second
- * batch that differs only in `band` is reviewed again, and one that differs only in `why` reuses the verdict. And a guard
- * over the tool schema itself: every declared field of each kind §32.1 reviews either changes the key or is a rationale
- * sentence, so a field added to the schema later cannot slip past the key unnoticed.
+ * Through the real extension and its admission seam (scripted review model, fake kernel): an `apply` batch that differs
+ * only in `band`, and a `resolve` that differs only in `support`, are reviewed again; one that differs only in rationale
+ * (`why`; `stakes` and the dice) reuses the verdict. And guards over the tool schemas themselves, so a field added later
+ * cannot slip past the key unnoticed.
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { TRIGGER_KINDS, admissionRequest, effectSignature } from "../../extensions/kernel/admission.ts";
+import { RESOLVE_RATIONALE_FIELDS, RESOLVE_REVIEWED_FIELDS, TRIGGER_KINDS, admissionRequest, effectSignature } from "../../extensions/kernel/admission.ts";
 import { COC_TOOLS, SENTENCE_FIELDS } from "../../extensions/kernel/tools.ts";
 import { admissionProposes, openTable } from "./harness.mjs";
 
 const verdict = (row) => fauxAssistantMessage(JSON.stringify(row));
 const applyCall = (effects) => fauxAssistantMessage([fauxToolCall("apply", { effects })], { stopReason: "toolUse" });
+const resolveCall = (action) => fauxAssistantMessage([fauxToolCall("resolve", { action })], { stopReason: "toolUse" });
 const kernelCalls = (table, method) => table.kernelRequests().filter((entry) => entry.method === method);
 const admissionRows = (table) => table.telemetry().filter((row) => row.lane === "admission");
 
@@ -167,4 +170,110 @@ test("the fields the list had missed each give a line a key of its own", () => {
 	// And the rationale stays outside.
 	assert.equal(keyOf({ kind: "time", band: "speak_briefly", why: "one" }), keyOf({ kind: "time", band: "speak_briefly", why: "two" }));
 	assert.equal(keyOf({ kind: "clue", clue: "ledger", how: "one" }), keyOf({ kind: "clue", clue: "ledger" }));
+});
+
+test("a roll that differs only in the evidence put on the table is reviewed again, and its line shows the clue", async (t) => {
+	const ask = { intent: "social", goal: "get the doorman to let him look at the visitors' book", method: "Persuade", skill: "Persuade", target: "看门人" };
+	const table = await openTable({
+		responses: [
+			resolveCall(ask),
+			// The same roll with a discovered clue laid on the table: a disclosure the player has to have chosen (§32.4.2).
+			resolveCall({ ...ask, support: "globe-unpublished-story" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "看门人犹豫了一下。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after"),
+		],
+		laneResponses: {
+			admission: [
+				verdict({ verdict: "authorized", grounds: "the player asked to talk the doorman round" }),
+				verdict({ verdict: "not_authorized", grounds: "the player never offered to show the clipping", missing: "whether to show the unpublished story" }),
+			],
+		},
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我跟看门人说说好话，让他给我看访客登记簿");
+
+	const requests = table.lanes.admission.requests();
+	assert.equal(requests.length, 2, "the roll with the evidence was reviewed, not answered from the plain roll's verdict");
+	assert.doesNotMatch(admissionProposes(requests[0]), /support=/);
+	assert.match(admissionProposes(requests[1]), /support="globe-unpublished-story"/);
+	assert.equal(kernelCalls(table, "table.resolve").length, 1, "only the plain roll was rolled");
+	const rows = admissionRows(table);
+	assert.deepEqual(rows.map((row) => [row.verdict, row.admitted, row.reused]), [
+		["authorized", true, false],
+		["not_authorized", false, false],
+	]);
+});
+
+test("a roll that differs only in its stakes and its dice reuses the verdict: rationale and rules parameters are outside the key", async (t) => {
+	const ask = { intent: "investigate", goal: "force the cellar door", method: "shoulder it", skill: "STR", stakes: "the noise carries upstairs" };
+	const table = await openTable({
+		responses: [
+			resolveCall(ask),
+			resolveCall({ ...ask, stakes: "the hinge gives and he falls through", modifiers: { penalty_dice: 1, reason: "the door is swollen shut" } }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "门还关着。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after"),
+		],
+		laneResponses: {
+			admission: [
+				verdict({ verdict: "not_authorized", grounds: "the player only looked at the door", missing: "whether to force the door" }),
+				verdict({ verdict: "authorized", grounds: "a second review that must not happen" }),
+			],
+		},
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("地窖门是锁着的吗？");
+
+	assert.equal(table.lanes.admission.requests().length, 1, "one review; the resend with new stakes and dice reused it");
+	assert.equal(kernelCalls(table, "table.resolve").length, 0);
+	assert.deepEqual(admissionRows(table).map((row) => [row.verdict, row.reused]), [
+		["not_authorized", false],
+		["not_authorized", true],
+	]);
+});
+
+/**
+ * §32.4.2's third list: the rules parameters of the result (and `choice`), which the reviewer does not read and the key does
+ * not carry. Kept here, beside the guard that makes every action field be one or the other. (`decision` is read and keyed
+ * since §159.5.)
+ */
+const RESOLVE_NOT_REVIEWED = ["modifiers", "coercion", "surprise", "motive", "mode", "step", "san_loss", "involuntary", "interrupted", "rest",
+	"ending", "scenario_san_reward_expr", "choice"];
+
+test("every field of a resolve action is either read by the reviewer (and keyed, unless rationale) or a rules parameter of the result", () => {
+	const action = COC_TOOLS.find((tool) => tool.name === "resolve").parameters.properties.action;
+	const scope = { party: ["Thomas Hayes"] };
+	const base = { actor: "Thomas Hayes", intent: "social", goal: "be let in", method: "talk" };
+	const request = (fields) => admissionRequest("resolve", { action: { ...base, ...fields } }, scope);
+	const plain = request({});
+	assert.ok(plain);
+	for (const [field, fieldSchema] of Object.entries(action.properties)) {
+		const reviewed = RESOLVE_REVIEWED_FIELDS.includes(field), notReviewed = RESOLVE_NOT_REVIEWED.includes(field);
+		assert.ok(reviewed !== notReviewed, `resolve.${field} must be read by the reviewer or named a rules parameter of the result (§32.4.2), and not both`);
+		// `choice` takes the call out of review altogether (§32.1); `actor` is the base's own.
+		if (field === "choice" || field === "actor") continue;
+		const probe = request({ [field]: sample(fieldSchema) });
+		assert.ok(probe, `resolve.${field} leaves the call under review`);
+		const shownInLine = probe.lines[0].includes(`; ${field}=`) || probe.lines[0].includes(`: ${field}=`);
+		if (!reviewed) {
+			assert.equal(probe.lines[0], plain.lines[0], `resolve.${field} is not shown to the reviewer`);
+			assert.equal(probe.key, plain.key, `resolve.${field} does not change the key`);
+			continue;
+		}
+		assert.ok(shownInLine, `resolve.${field} is shown to the reviewer: ${probe.lines[0]}`);
+		if (RESOLVE_RATIONALE_FIELDS.includes(field)) assert.equal(probe.key, plain.key, `resolve.${field} is rationale, outside the key`);
+		else assert.notEqual(probe.key, plain.key, `resolve.${field} is read by the reviewer but not keyed (§32.4.2)`);
+	}
+	// Every name on the two lists is a field the action declares: no stale entries.
+	for (const field of [...RESOLVE_REVIEWED_FIELDS, ...RESOLVE_NOT_REVIEWED]) assert.ok(action.properties[field], `resolve.${field} is declared`);
+});
+
+test("a resolve without the added fields reads and keys exactly as §159.5 left it", () => {
+	const scope = { party: ["Thomas Hayes"] };
+	const action = { intent: "investigate", goal: "find the ledger", method: "search the desk", skill: "Spot Hidden", target: "desk", stakes: "time" };
+	const proposal = admissionRequest("resolve", { action }, scope);
+	assert.equal(proposal.lines[0], 'resolve (settle the specified rule operation): intent="investigate"; goal="find the ledger"; method="search the desk"; skill="Spot Hidden"; target="desk"; stakes="time"');
+	assert.equal(proposal.key, '{"action":{"goal":"find the ledger","intent":"investigate","method":"search the desk","skill":"Spot Hidden","target":"desk"},"tool":"resolve"}');
+	// outcome is keyed (§159.5, kept by §32.4.2): two ends of a fight are two proposals.
+	const end = (outcome) => admissionRequest("resolve", { action: { intent: "combat", goal: "end the fight", method: "run", outcome } }, scope).key;
+	assert.notEqual(end("investigators_win"), end("fled"));
 });

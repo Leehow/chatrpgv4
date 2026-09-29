@@ -1,6 +1,6 @@
 Status: ready-for-human (filed 2026-09-29, found in passing during SL-104; fixed on `claude/admission-effect-signature-20260929`)
 Stage: SL-105 (admission: the reuse key missed fields the reviewed kinds declare, so a verdict on one time cost was reused for another)
-Spec: docs/kernel-rpc.md §32.4 (reuse key), §32.4.1 (this ticket), §32.12.3 (whole-batch resend recognition), §32.12.3.1 (line keys); `extensions/kernel/admission.ts` (`effectSignature`, `admissionRequest`), `extensions/kernel/tools.ts` (the `apply` effect schemas, `SENTENCE_FIELDS`)
+Spec: docs/kernel-rpc.md §32.4 (reuse key), §32.4.1 and §32.4.2 (this ticket), §32.12.3.1.1 (SL-104's batch-mates in a line key), §32.12.3 (whole-batch resend recognition), §32.12.3.1 (line keys); `extensions/kernel/admission.ts` (`effectSignature`, `admissionRequest`), `extensions/kernel/tools.ts` (the `apply` effect schemas, the `resolve` action, `SENTENCE_FIELDS`)
 
 # SL-105: the admission key read a fixed field list that the schema outgrew
 
@@ -41,6 +41,17 @@ Fixing the class means the next field cannot slip past unnoticed.
   `document`, `part`, `intent_ref`, `intent_outcome`. One list for all kinds, so a same-named field on an unreviewed kind
   (a `damage`'s `band`, an `npc`'s `intent_ref`) now also enters the batch key: finer, never coarser.
 - `TRIGGER_KINDS` is exported so the guard can walk exactly §32.1's reviewed kinds.
+- `resolve` (§32.4.2, decided on the owner's "行，你就尽管做", 2026-09-29, after this ticket left it open): one list,
+  `RESOLVE_REVIEWED_FIELDS`, is both the reviewer's line and, less `stakes` (`RESOLVE_RATIONALE_FIELDS`), the key. The
+  invariant for both tools: the key is exactly what the reviewers read, less the Keeper's rationale -- narrower and a verdict
+  is reused for something it never saw, wider and a key change re-sends the reviewer the same input. So "does this field
+  identify a `resolve`" became "should the reviewer read it", answered by §32.2 (the choice, never the result):
+  - read and keyed, new: `skills`, `support`, `rule`, `obligation`, `intent_ref`, `intent_outcome`; `outcome` was already
+    read and is now keyed (a verdict on `investigators_win` was reused for `fled`); `usage` was already keyed;
+  - read, not keyed: `stakes` (unchanged);
+  - neither: `modifiers`, `coercion`, `surprise`, `motive`, `mode`, `step`, `san_loss`, `involuntary`, `interrupted`, `rest`,
+    `ending`, `scenario_san_reward_expr`, `decision`, `choice`.
+  A `resolve` without the added fields reads and keys byte for byte as before (checked against the pre-change module).
 
 ## Tests (`tests/extension/admission-effect-signature.test.mjs`)
 
@@ -49,16 +60,25 @@ Fixing the class means the next field cannot slip past unnoticed.
 - Same seam: a `why`-only resend reuses the kept refusal (one lane call, second row `reused: true`, same key).
 - Schema guard: for each of `TRIGGER_KINDS`, every field the `apply` schema declares for that kind, set to a value of its
   declared type, changes `effectSignature` and `admissionRequest`'s key; `why` and `how` change neither.
-- The missed fields one by one (seven distinct `time` keys; `cash.stated`; `move.via`; `object.document`/`part`;
+- The missed fields one by one (eight distinct `time` keys; `cash.stated`; `move.via`; `object.document`/`part`;
   `intent_outcome`), and `why`/`how` outside.
+- Through the real `resolve` admission seam: a Persuade roll admitted and rolled, then the same roll with `support` (a clue
+  laid on the table) reviewed again, its line showing the clue, refused and not rolled; a roll whose resend changes only
+  `stakes` and `modifiers` reuses the kept refusal.
+- Schema guard on the `resolve` action: every declared field is either read (then shown in the line, and keyed unless
+  rationale) or named a rules parameter of the result (then in neither), never both; no stale names on either list.
+- A legacy-shaped `resolve` keeps its exact line and key; `outcome` splits the key.
 
 ## Not done here
 
-- `resolve`'s key (§32.4's first list) is a separate choice-centred design and was not re-derived; its code also reads
-  `usage`, which §32.4.1 records. Fields such as `surprise`, `coercion`, `modifiers`, `rule` and `obligation` are outside
-  it today. Whether any of them should identify a `resolve` is an owner question, not decided here.
-- SL-104 (branch `claude/sl104-admission-batch-context-20260929`, §32.12.3.1.1) was not merged into 0.9.6a when this was
-  written; its batch-scoped line key (`besideBatch`) reads `effectSignature`, so it inherits this fix when both land.
+- No live table. The change is to what the lane reads of a `resolve` only when a roll carries one of the added fields; how
+  often the Keeper sends `support`, `rule`, `obligation` or `skills`, and whether the lane now refuses them more, is for the
+  next long gate's admission rows to show (`lane: "admission"`, `verb: "resolve"`, the line in `proposed`).
+- SL-104 (§32.12.3.1.1) landed in 0.9.6a while this was open; the branch was rebased onto it (c85f040c4). Its batch-scoped
+  line key (`besideBatch`) reads `effectSignature`, so it carries this fix.
+  One of its tests used a move's `via` as its example of a batch-mate field outside `effectSignature`; §32.4.1 keys `via`
+  (the route), so that case now uses `why` and also asserts that a batch-mate's `via` is inside the key
+  (`admission-line-batch-context.test.mjs`, found by the box's ext run after the rebase).
 
 ## Comments
 
@@ -81,3 +101,14 @@ Fixing the class means the next field cannot slip past unnoticed.
 
 A trial merge with SL-104's branch (`git merge-tree` against `claude/sl104-admission-batch-context-20260929` at 158e4b076)
 is clean.
+
+**2026-09-29, `resolve` mutations** (same method, on `RESOLVE_REVIEWED_FIELDS` / the key). Every one red.
+
+| id | mutation | red tests |
+| --- | --- | --- |
+| R1 | `support` not read | support seam, resolve schema guard |
+| R2 | `stakes` keyed | stakes/dice seam, legacy line/key |
+| R3 | the pre-change key list | support seam, resolve schema guard, legacy line/key (outcome) |
+| R4 | the pre-change line list, new key | support seam, resolve schema guard |
+| R5 | `modifiers` read and keyed | stakes/dice seam, resolve schema guard |
+| R6 | `outcome` dropped from the key only | resolve schema guard, legacy line/key (outcome) |

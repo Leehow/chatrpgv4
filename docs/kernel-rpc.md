@@ -8286,7 +8286,10 @@ A verdict is kept for the turn *(amended by §32.12.3.1, 2026-09-26: and each li
 intent, goal, method, skill, target, weapon, spell, object, push, luck, defense; `apply`: each effect's
 kind and its identifying fields, order-free; `why`, `how`, `label` and `decision` are outside the key,
 so a `needs_choice` retry or a rationale bolted on reuses its verdict) *(amended by §32.4.1, 2026-09-29: for `apply`
-only `why` and `how` are outside; §32.4.1 lists each reviewed kind's identifying fields)*. Admitting and refusing verdicts
+only `why` and `how` are outside; §32.4.1 lists each reviewed kind's identifying fields; and by §32.4.2 the same day: a
+`resolve` is keyed by every field the reviewer reads of it except `stakes`, which adds `usage`, `skills`, `support`,
+`rule`, `obligation`, `intent_ref`, `intent_outcome`, `outcome` and `decision` to the list above; the last two since
+§159.5, so `decision` is no longer outside it)*. Admitting and refusing verdicts
 are both reused; a reused row says `reused: true` and costs no model call. The next `player_input`
 clears every verdict: a new player utterance is a new context, and no earlier acceptance executes after
 the player has spoken again. A refused proposal was never sent, so there is nothing for replay, restart
@@ -8325,14 +8328,14 @@ a verdict on one label says nothing about another. `intent_ref` and `intent_outc
 settles that intention (§142.2): they are a write, not a rationale. So is `owed` (§158.5, added the same day while this
 addendum was open, and caught by the guard below): it names the owed row the kernel lands. A batch whose every effect is
 owed is admitted on `told` and reviewed by no one (§158.5); in a mixed batch the lane reads the field like any other.
-`why` and `how` stay outside, so a rationale bolted on or rewritten still reuses its verdict. §32.4's `resolve` key is not
-changed here (its code also reads `usage`).
+`why` and `how` stay outside, so a rationale bolted on or rewritten still reuses its verdict. `resolve` is §32.4.2's.
 
 `effectSignature` keeps one field list for every kind; a field of the same name on a kind no reviewer reads (a `damage`'s
 `band` or `stated`, an `npc`'s `intent_ref`) is now read in the batch's key too, which makes that key finer, never coarser.
 
 **Where it binds.** Each effect's signature in a batch's key (§32.4), in a line's key (§32.12.3.1: the key a call of only
-that line would have), and the whole-batch resend's recognition of lines that already landed (§32.12.3). A resend that
+that line would have), in the batch-mates a line's key carries (§32.12.3.1.1, `besideBatch`), and the whole-batch resend's
+recognition of lines that already landed (§32.12.3). A resend that
 changes only `why` or `how` reuses every verdict; a resend that changes any other field of a reviewed line is reviewed again.
 
 **The guard.** The field list is kept by hand, so a field added to a reviewed kind's schema must be decided: identifying
@@ -8343,7 +8346,8 @@ fails on any declared field that neither changes the signature nor is a rational
 pending and resend (§32.12.2), and the reuse of a verdict across `why` and `how`.
 
 **Three ends (§31).** *Writer:* `effectSignature`. *Reader:* `admissionRequest`'s key and, through it, `admitAction`'s
-reuse (`state.admission`, `state.admissionPending`) and the whole-batch resend (`landedSignatures`). *Actor:* the lane,
+reuse (`state.admission`, `state.admissionPending`), a line's batch-mates (`besideBatch`) and the whole-batch resend
+(`landedSignatures`). *Actor:* the lane,
 which now reviews a changed time cost, amount, route, carried text or intention instead of having an earlier verdict
 reused for it.
 
@@ -8352,6 +8356,53 @@ one turn differing only in `band` are both reviewed (a `speak_briefly` admitted 
 not landed), and a batch differing only in `why` reuses its verdict with no second review; the schema guard above, on
 `effectSignature` and on `admissionRequest`'s key, with `why` and `how` shown to change neither. Mutations are in the
 SL-105 ticket's Comments.
+
+#### 32.4.2 Addendum (2026-09-29, SL-105): a `resolve` is keyed by what the reviewer reads of it, less `stakes`; the reviewer reads what the investigator chooses, never the rules parameters of the result (amends §32.3 and §32.4)
+
+**Why.** The same class as §32.4.1, on the other tool. The `resolve` line the reviewer read and the key its verdict was
+kept under were two hand-kept lists: the line showed `outcome` and the key did not, so a verdict on a fight that ends
+`investigators_win` was reused for one that ends `fled` (§159.5 keyed `outcome`, and put `decision` in both, on
+2026-09-30, before this addendum landed; it is kept here). And fields that name what the investigator does were in neither:
+`skills` (a combined check's skills, the method as much as `skill` is), `support` (the discovered clue the investigator
+puts on the table in a social attempt: a disclosure they choose), `rule` (the book's rule, hazard or tome whose check this
+is: reading a tome is a choice), `obligation` (the scene obligation whose check this is, which binds the skill and the
+person, so it names the target when `target` is omitted) and `intent_ref`/`intent_outcome` (the intention the roll settles,
+§142.2). A Keeper who puts on the table evidence the player never offered is judged on a line that does not say so.
+Owner, 2026-09-29, on the open question left in the SL-105 ticket: decide it ("行，你就尽管做").
+
+**The rule.** A proposal's reuse key is exactly what the reviewers read of it, less the Keeper's rationale. Wider than
+what they read, and a key change sends the reviewer the same input again, which only costs a review; narrower, and a
+verdict is reused for something it did not see. So whether a `resolve` field identifies the action is whether the reviewer
+should read it, and §32.2 answers that: the reviewer judges whether the player chose the action, never its result.
+
+- **Read and keyed**, in the line's order (`RESOLVE_REVIEWED_FIELDS`, `extensions/kernel/admission.ts`): `actor`,
+  `decision` (the rule operation the call settles, `combat:end` is not `combat:attack`: §159.5), `intent`, `goal`, `method`, `skill`, `skills`, `target`, `weapon`, `spell`, `object`, `usage`, `support`, `rule`, `obligation`,
+  `intent_ref`, `intent_outcome`, `push`, `luck`, `defense`, `outcome`.
+- **Read, not keyed:** `stakes`, the Keeper's statement of what failure costs (§32.3 names it among the Keeper's words;
+  `RESOLVE_RATIONALE_FIELDS`). A resend that only rewrites it reuses the verdict, as `why` does on `apply`.
+- **Neither:** the rules parameters of the result -- `modifiers` (bonus and penalty dice, difficulty, their `reason`),
+  `coercion` (the refused pressure's penalty die), `surprise` (an NPC's ambush; its actor is never reviewed anyway),
+  `motive` (an NPC's leaning), `mode` (whether a combined check needs one or all), `step` (which step of a hazard: the
+  book's continuation of the attempt already chosen), `san_loss`, `involuntary`, `interrupted`, `rest`, `ending`,
+  `scenario_san_reward_expr` -- and `choice` (never reviewed, §32.1).
+
+A line without the added fields reads byte for byte as §159.5 left it (its heading, `settle the specified rule
+operation`, is §159.5's), and its key is the same key: only a `resolve` that carries one of them changes. Both reviewers read the same line (§32.10); the typed reviewer neither settles a `resolve`
+(§32.12.3.2's classes) nor admits one late (§32.12.2's `LATE_KINDS` are `apply` kinds), so no measured threshold moves.
+
+**The guard.** Both lists are kept by hand. A test walks the `resolve` tool's action schema and fails on any field that
+is neither read (and then keyed, unless it is rationale) nor named as a rules parameter of the result.
+
+**What is unchanged.** What §32.1 puts to review (the choice, the `sanity:`/`development:` families, an NPC actor, an
+answered `ask` stay out), the prompt, the verdicts, the cap, pending and resend.
+
+**Three ends (§31).** *Writer:* `admissionRequest` (the line and the key from one list). *Reader:* the lane and the typed
+reviewer, through the line; `admitAction`'s reuse, through the key. *Actor:* the lane, which now sees the evidence, the
+book's check, the obligation and the intention a roll carries, and judges a changed one again.
+
+*Tests* (`tests/extension/admission-effect-signature.test.mjs`): through the real `resolve` admission seam, a second roll
+that differs only in `support` is reviewed again and its line shows the clue; a roll that differs only in `stakes` and
+`modifiers` reuses the verdict; the schema guard above, on the line and the key.
 
 ### 32.5 The local relation projection: cue, gate and yield in one row
 
