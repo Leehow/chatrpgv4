@@ -6,7 +6,7 @@ const segment=(value:unknown):value is string=>typeof value==='string'&&/^[a-zA-
 const inside=(base:string,file:string)=>{const part=relative(base,file);return !!part&&part!=='..'&&!part.startsWith('..'+sep)&&!isAbsolute(part)};
 export function handoutImage(row:any,binding?:Binding):string|undefined{
     const requested=row?.image_path||row?.path,media=row?.image_media_type||row?.media_type;
-    if(!binding||!segment(binding.campaign)||row?.document!=='ready'||['keeper','keeper-only'].includes(row.visibility)||typeof requested!=='string'||!isAbsolute(requested))return;
+    if(!binding||typeof binding.home!=='string'||!isAbsolute(binding.home)||!segment(binding.campaign)||row?.document!=='ready'||['keeper','keeper-only'].includes(row.visibility)||typeof requested!=='string'||!isAbsolute(requested))return;
     try{
         const campaign=join(binding.home,'.coc','campaigns',binding.campaign);
         const meta=JSON.parse(readFileSync(join(campaign,'campaign.json'),'utf8'));
@@ -23,4 +23,12 @@ export function handoutImage(row:any,binding?:Binding):string|undefined{
         if(!type||media!==type)return;
         return `data:${type};base64,${bytes.toString('base64')}`;
     }catch{return;}
+}
+export function withHandoutImages(view:any,binding?:Binding):any{
+    if(!view||!Array.isArray(view.handouts))return view;
+    return {...view,handouts:view.handouts.map((row:any)=>{
+        if(!row||typeof row!=='object'||Array.isArray(row))return row;
+        const {image:_existing,...safe}=row,image=handoutImage(safe,binding);
+        return image?{...safe,image}:safe;
+    })};
 }

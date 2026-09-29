@@ -6,6 +6,7 @@ import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPre
   laneLabelsLoaded, reloadLaneLabels, deliveryWords, CocCardLedger, type CocCardPatch,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
+import {withHandoutImages} from './coc-handout-images.js';
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, rmSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
@@ -10050,8 +10051,10 @@ export class PiHostBackend implements HostBackend {
         const answered = await this.enqueueExtInvoke(sessionId, id, method, params);
         const binding = this.cocSessionBindings.get(sessionId)
           ?? await this.locate(sessionId).then(found => readCocBinding(found.path)).catch(() => undefined);
-        if (binding && answered.ok && isRecord(answered.data) && answered.data.status === "ready")
+        if (binding && answered.ok && isRecord(answered.data) && answered.data.status === "ready") {
           await this.cocMergeSheetLanes(sessionId, binding, answered.data.view, retry);
+          return {...answered,data:{...answered.data,view:withHandoutImages(answered.data.view,binding)}};
+        }
         return answered;
       }
       // Cold -- a restored session with no agent yet. The board still opens: it reads the same
@@ -10065,8 +10068,9 @@ export class PiHostBackend implements HostBackend {
       try {
         if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
         const repo = resolve(this.managedNodeModulesRoot, "..");
-        const view = await callColdKernel(repo, context.home, "table.view", {campaign:context.campaign}, this.env, this.cocRuntime);
+        let view = await callColdKernel(repo, context.home, "table.view", {campaign:context.campaign}, this.env, this.cocRuntime);
         await this.cocMergeSheetLanes(sessionId, context, view, retry);
+        view=withHandoutImages(view,context);
         const rows = await callColdKernel(repo, context.home, "table.maps", {campaign:context.campaign}, this.env, this.cocRuntime)
           .catch(() => ({maps:[]}));
         const maps = (isRecord(rows) && Array.isArray(rows.maps) ? rows.maps : []).filter(isRecord).map(row => ({
