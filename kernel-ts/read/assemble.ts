@@ -47,7 +47,9 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "the motorcycle) instead of a name nobody has said; " +
     "known.investigator.conditions is what the rules currently hold true of the body, and cannot_act, when " +
     "present, means the kernel will refuse an action declared for them until it is gone; " +
-    "obligations of kind note are your own open continuity notes; rulings are your earlier rulings that " +
+    "obligations of kind note are your own open continuity notes; only those names can be closed with apply note. " +
+    "Promise reminders belong to memory: respond to their fictional meaning, not by writing or closing a note. " +
+    "rulings are your earlier rulings that " +
     "bind here, reminders, not rules. worldlines is which line the table is on and which circuit of the " +
     "loop, where the anchor is, what a rewind would leave standing and who would remember it; " +
     "loop_available true means this scene can be rewound with apply fork mode: loop, which happens after " +

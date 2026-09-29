@@ -304,7 +304,7 @@ export function promiseObligations(rows: Row[]): Row[] {
     return rows.filter(value => value.kind === "promise" && value.status === "candidate" && value.superseded_by == null
         && row(memoryEvidenceView(value).fulfillment).status !== "complete").map(value => ({
         kind: "promise",
-        name: string(value.id),
+        owner: "memory",
         who: string(value.subject),
         state: chars(string(value.statement || ""), 120),
         ...memoryEvidenceView(value),

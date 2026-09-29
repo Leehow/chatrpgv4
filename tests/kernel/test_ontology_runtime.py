@@ -182,7 +182,7 @@ def test_promise_is_accepted_shown_as_an_obligation_and_closed_by_its_successor(
     first_id = landed["result"]["written"][0]
     obligations = kernel.table("player_input", text="我记下了。")["capsule"]["obligations"]
     promise = next(o for o in obligations if o["kind"] == "promise")
-    assert promise == {"kind": "promise", "name": first_id, "who": "Steven Knott", "state": "三天内付清报酬，条件是交出书面报告。",
+    assert promise == {"kind": "promise", "owner": "memory", "who": "Steven Knott", "state": "三天内付清报酬，条件是交出书面报告。",
                        "cue": INVESTIGATOR, "authority": "conversation_report",
                        "fulfillment": {"status": "open", "terms": []}}
     job_id = narrate(kernel, "t2-c1", "他改口了。")["extraction"]["job_id"]

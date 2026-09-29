@@ -81,7 +81,7 @@ test('actual private apply reaches capsule, NPC history, recall, adaptive eviden
         const partialViews=await reads();
         const partialAudit=await call('mods.job',{role:'audit',input:{text:'The first part of the payment has arrived.'}});
         assert.ok(partialAudit.focus.memory.some(value=>value.fulfillment?.status==='partial'));
-        assert.ok(partialViews.capsule.obligations.some(value=>value.name===rows[0].id&&value.fulfillment?.status==='partial'));
+        assert.ok(partialViews.capsule.obligations.some(value=>value.owner==='memory'&&value.state===rows[0].statement&&value.fulfillment?.status==='partial'));
         assert.ok(partialViews.npc.present.some(npc=>npc.history?.promises?.some(promise=>promise.fulfillment?.status==='partial')));
         assert.ok(partialViews.recall.hits.some(value=>value.id===rows[0].id&&value.fulfillment?.terms[0].remaining==='20'));
         assert.ok(partialViews.continuity.promises.some(value=>value.fulfillment?.status==='partial'));
@@ -97,8 +97,8 @@ test('actual private apply reaches capsule, NPC history, recall, adaptive eviden
         const completeViews=await reads();
         const completeAudit=await call('mods.job',{role:'audit',input:{text:'The agreed payment has arrived.'}});
         assert.ok(completeAudit.focus.memory.some(value=>value.fulfillment?.status==='complete'));
-        assert.ok(!completeViews.capsule.obligations.some(value=>value.name===rows[0].id));
-        assert.ok(completeViews.capsule.obligations.some(value=>value.name===rows[1].id));
+        assert.ok(!completeViews.capsule.obligations.some(value=>value.owner==='memory'&&value.state===rows[0].statement));
+        assert.ok(completeViews.capsule.obligations.some(value=>value.owner==='memory'&&value.state===rows[1].statement));
         assert.equal(completeViews.recall.hits.find(value=>value.id===rows[0].id).fulfillment.status,'complete');
         assert.ok(completeViews.npc.present.some(npc=>npc.history?.promises?.some(promise=>promise.fulfillment?.status==='complete')));
         assert.ok(completeViews.continuity.promises.some(value=>value.fulfillment?.status==='complete'));
