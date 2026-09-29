@@ -83,6 +83,24 @@ test("a user's own override for the corrected model wins untouched; other provid
 	]);
 });
 
+test("a user's override that never mentions a corrected key gets that key filled; the keys it sets stay", () => {
+	// 2026-09-29: the operator's own `{low: "low", ...}` (written to expose the low tier) used to shadow
+	// the whole correction, so a fast model set to `off` ran on the catalog's `off: null`.
+	const existing = { providers: { "opencode-go": { modelOverrides: {
+		"deepseek-v4.1-flash": { thinkingLevelMap: { minimal: null, low: "low", medium: null, high: "high", max: "max" } },
+	} } } };
+	const corrections = { providers: { "opencode-go": { modelOverrides: {
+		"deepseek-v4.1-flash": { thinkingLevelMap: { off: "off", low: "should-not-replace" }, compat: { thinkingFormat: "deepseek" } },
+	} } } };
+	const { config } = mergeProviderModelCorrections(existing, corrections);
+	assert.deepEqual(config.providers["opencode-go"].modelOverrides["deepseek-v4.1-flash"], {
+		thinkingLevelMap: { minimal: null, low: "low", medium: null, high: "high", max: "max", off: "off" },
+		compat: { thinkingFormat: "deepseek" },
+	});
+	assert.equal(existing.providers["opencode-go"].modelOverrides["deepseek-v4.1-flash"].thinkingLevelMap.off, undefined,
+		"the input is never mutated");
+});
+
 test("documentation keys ($comment) in the corrections source never reach the merged output", () => {
 	const corrections = { providers: { "opencode-go": { modelOverrides: {
 		"deepseek-v4-flash": { "$comment": "explains the override for maintainers", thinkingLevelMap: { off: "off" } },
@@ -187,4 +205,23 @@ test("Pi's own ModelRuntime honors a user's pre-existing off:null override over 
 		"the operator's own decision to keep off unsupported for this model must survive the merge");
 	assert.equal(registry.find("opencode-go", "deepseek-v4-flash")?.thinkingLevelMap?.off, "off",
 		"a model the operator did not override still gets the product's correction");
+});
+
+test("Pi's own ModelRuntime gets the corrected off under an operator override that never mentions off", { skip: !REAL_PI && "vendored Pi not built (npm run build:runtime)" }, async t => {
+	// The installed App's agent home on 2026-09-29, verbatim in shape: a hand-written tier list with no
+	// `off` key. Before the key-by-key merge this shadowed the correction and `off` resolved to null.
+	const { ModelRuntime, ModelRegistry } = await import(VENDORED_PI_INDEX);
+	const home = scratch(t);
+	const modelsPath = join(home, "models.json");
+	writeFileSync(modelsPath, JSON.stringify({
+		providers: { "opencode-go": { modelOverrides: { "deepseek-v4.1-flash": {
+			thinkingLevelMap: { minimal: null, low: "low", medium: null, high: "high", max: "max" },
+		} } } },
+	}));
+
+	await applyProviderModelCorrections(home, REAL_CORRECTIONS);
+	const model = new ModelRegistry(await ModelRuntime.create({ modelsPath, refreshOnCreate: false })).find("opencode-go", "deepseek-v4.1-flash");
+	assert.equal(model?.thinkingLevelMap?.off, "off");
+	assert.equal(model?.thinkingLevelMap?.low, "low", "the operator's own tiers are kept");
+	assert.equal(model?.thinkingLevelMap?.medium, null);
 });

@@ -167,7 +167,7 @@ test("遥测说得出这一轮要的等级，以及这个 API 有没有地方放
 	const dropped = rows.find((row) => row.phase === "start");
 	assert.equal(dropped.lane_thinking, "low");
 	assert.equal(dropped.thinking_carried, false, "an unmapped API must read as a gap, not as a level that did nothing");
-	// SL-81: for any level but `off`, `lane_thinking_effective` is never remapped -- it just repeats
+	// A level the model's map does not mark null is never remapped: `lane_thinking_effective` repeats
 	// what was asked for, exactly as `lane_thinking` does.
 	assert.equal(carried.lane_thinking_effective, "low");
 	assert.equal(dropped.lane_thinking_effective, "low");
@@ -184,10 +184,14 @@ test("SL-81: off 从不作为字面值发出去，交给模型自己的映射表
 	// No `thinkingLevelMap` at all reads as "not marked unsupported" too, matching pi-ai's own
 	// `!== null` convention -- most models never mention `off` explicitly.
 	assert.deepEqual(laneReasoningOptions({ api: "openai-completions" }, "off"), {});
-	// A model whose map says `off: null` (unsupported, e.g. `grok-4.6` pre-correction) keeps the
-	// pre-fix, unconditional literal -- the same shape any other level already got, so nothing about
-	// its request regresses.
-	assert.deepEqual(laneReasoningOptions({ api: "openai-completions", thinkingLevelMap: { off: null } }, "off"), { reasoningEffort: "off" });
+	// A model whose map says `off: null` (unsupported) never gets the literal: it gets the nearest level
+	// the model takes, by pi-ai's own clampThinkingLevel -- the Keeper's streamSimple road does the same.
+	// (2026-09-29: the literal "off" drew `422 Endpoint is unavailable` from opencode-go on every lane.)
+	assert.deepEqual(laneReasoningOptions({ api: "openai-completions", thinkingLevelMap: { off: null } }, "off"), { reasoningEffort: "minimal" });
+	const deepseekCatalog = { off: null, minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: "max" };
+	assert.deepEqual(laneReasoningOptions({ api: "openai-completions", thinkingLevelMap: deepseekCatalog }, "off"), { reasoningEffort: "low" });
+	// Any level the map marks null moves the same way, not only off.
+	assert.deepEqual(laneReasoningOptions({ api: "openai-completions", thinkingLevelMap: deepseekCatalog }, "medium"), { reasoningEffort: "high" });
 	// The other API families never got a literal "off" before either (off was never resolved at
 	// all); they now also read it as "nothing to send" rather than guessing a shape untested here.
 	assert.deepEqual(laneReasoningOptions({ api: "anthropic-messages" }, "off"), {});
@@ -229,7 +233,7 @@ test("SL-81: 桌子在 off、没有车道设置：请求里没有字面 off，�
 	assert.equal(start.thinking_carried, false, "no reasoning-shaped field was populated -- the model's own map disables it instead");
 });
 
-test("SL-81: 桌子在 off，但模型的映射表不支持 off：保留今天的字面形状，行里报出真正的地板", async () => {
+test("桌子在 off，但模型的映射表不支持 off：发出去的是就近的档位，不是字面 off；行里报的就是发出去的那个", async () => {
 	let seen;
 	const rows = [];
 	const ctx = laneCtx(
@@ -239,10 +243,10 @@ test("SL-81: 桌子在 off，但模型的映射表不支持 off：保留今天�
 	ctx.thinkingLevel = "off";
 	const result = await lane(ctx, { record: (row) => rows.push(row) });
 	assert.equal(result.ok, true, JSON.stringify(result));
-	assert.equal(seen.reasoningEffort, "off", "a model without off in its map keeps today's literal shape");
+	assert.equal(seen.reasoningEffort, "minimal", "the nearest level the model takes, never the literal off");
 	const start = rows.find((row) => row.phase === "start");
 	assert.equal(start.lane_thinking, "off");
-	assert.equal(start.lane_thinking_effective, "minimal", "clampThinkingLevel's own floor for a model that cannot disable reasoning");
+	assert.equal(start.lane_thinking_effective, seen.reasoningEffort, "the row reports the level the body actually carries");
 	assert.equal(start.thinking_carried, true, "a field was sent, even though it did not achieve off");
 });
 
@@ -314,4 +318,21 @@ test("SL-91 at the lane seam: the admission lane starts on its own model at `off
 	assert.equal(seenShared.reasoningEffort, "medium");
 	const startShared = rowsShared.find((row) => row.phase === "start");
 	assert.deepEqual([startShared.lane_thinking, startShared.thinking_source], ["medium", "operator"]);
+});
+
+test("快模型 deepseek 设成 off、目录却说不支持：车道发 low 而不是字面 off（09-29 C 桌 422 的回归用例）", async () => {
+	let seen;
+	const rows = [];
+	const ctx = laneCtx(
+		{ provider: "opencode-go", id: "deepseek-v4.1-flash", api: "openai-completions", reasoning: true,
+			thinkingLevelMap: { off: null, minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: "max" } },
+		(options) => { seen = options; },
+	);
+	ctx.thinkingLevel = "off";
+	const result = await lane(ctx, { record: (row) => rows.push(row) });
+	assert.equal(result.ok, true, JSON.stringify(result));
+	assert.equal(seen.reasoningEffort, "low");
+	const start = rows.find((row) => row.phase === "start");
+	assert.equal(start.lane_thinking, "off");
+	assert.equal(start.lane_thinking_effective, "low");
 });
