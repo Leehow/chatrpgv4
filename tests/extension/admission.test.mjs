@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { admissionProposes, laneByLine, openTable, waitForIdle } from "./harness.mjs";
+import { BESIDE_HEADING } from "../../extensions/kernel/admission.ts";
 
 const verdict = (row) => fauxAssistantMessage(JSON.stringify(row));
 
@@ -122,8 +123,12 @@ test("an admitted batch goes through unchanged, and the review saw the player's 
 		assert.doesNotMatch(request, /科比特在地窖下面/);
 		assert.doesNotMatch(request, /他知道地窖下面有东西/);
 		assert.equal(admissionProposes(request).split("\n").filter((line) => line.startsWith("- ")).length, 1, "exactly one proposed line");
-		assert.equal(request.slice(0, request.indexOf("[The Keeper now proposes]")), requests[0].slice(0, requests[0].indexOf("[The Keeper now proposes]")),
+		// §32.12.3.1.1: the shared context ends where the call's other lines are listed, beside the one it judges.
+		assert.equal(request.slice(0, request.indexOf(BESIDE_HEADING)), requests[0].slice(0, requests[0].indexOf(BESIDE_HEADING)),
 			"every call reads the same context");
+		const beside = request.slice(request.indexOf(BESIDE_HEADING), request.indexOf("[The Keeper now proposes]"));
+		assert.equal(beside.split("\n").filter((line) => line.startsWith("- ")).length, 2, "beside the batch's other two lines");
+		assert.ok(!beside.includes(admissionProposes(request).split("\n")[1]), "and not beside itself");
 	}
 	// Every effect of the batch, each on its own call.
 	const proposed = requests.map(admissionProposes).join("\n");
