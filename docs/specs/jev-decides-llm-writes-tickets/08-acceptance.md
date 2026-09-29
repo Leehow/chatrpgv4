@@ -50,3 +50,8 @@ Spec: docs/specs/jev-decides-llm-writes.md Testing Decisions
 - The narrator-only setting stays off (D6 3 not run).
 - The claim check stays shadow (bar failed).
 - `answered`/`unlocated` need dispositions and a second PDF (Masks) were not exercised live.
+
+**Evidence location (archived 2026-09-29 before the temporary worktrees were removed; byte-identical copies):**
+- Runs: `.coc/playtests/jev-accept-blood-0{1,2,3,4}-*` and `.coc/playtests/jev-accept-haunt-01-*` in the main `0.9.6a` checkout.
+- Campaign homes: `.pi/jev-accept-home-{blood01,blood03,blood04,haunt01}` in the same checkout.
+- Claim-check calibration: `.pi/jev-claim-calibration-20260929`.
