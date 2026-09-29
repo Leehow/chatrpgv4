@@ -130,26 +130,47 @@ export function answerRows(result: DecisionResult): Record<string, unknown> {
 
 // ---- setup-input-route v1 ------------------------------------------------------------------------------------
 
-export const SETUP_MOVES = ['choose_source', 'pick_opening', 'card_fields', 'approve_card', 'load_library'] as const;
+export const SETUP_MOVES = ['choose_source', 'pick_opening', 'card_fields', 'draft_now', 'approve_card', 'load_library'] as const;
 export type SetupMove = typeof SETUP_MOVES[number];
 
-/** The moves the read issues as legal now (§150.6 decision 4). A move whose target list is empty is not issued. */
-export function legalMoves(read: SetupRead): SetupMove[] {
-  const moves: SetupMove[] = [];
+/**
+ * The moves the read issues as legal now (§150.6 decisions 4 and 10), and every condition that withheld one --
+ * `<move>:<condition>`, structural names only -- so a run that offers nothing says why (the setup `run` row's
+ * `withheld`). A move whose target list is empty is not issued.
+ *
+ * While a §26 package brief still asks and no card exists, the card-field move is withheld (a brief answer is the
+ * Keeper's to note) and `draft_now` is issued instead: the player ending the questions or handing the rest to the
+ * Keeper. Its execution records the brief's own `stop` note, after which the card-field path runs.
+ */
+export function moveGates(read: SetupRead): {moves: SetupMove[]; withheld: string[]} {
+  const moves: SetupMove[] = [], withheld: string[] = [];
+  const offer = (move: SetupMove, failed: Array<[boolean, string]>) => {
+    const reasons = failed.filter(([blocked]) => blocked).map(([, name]) => `${move}:${name}`);
+    if (reasons.length) withheld.push(...reasons); else moves.push(move);
+  };
   const chooseDone = !!read.steps.choose && read.completed.includes(read.steps.choose);
-  if (!chooseDone && read.sources.length) moves.push('choose_source');
-  if (read.openings?.length) moves.push('pick_opening');
+  offer('choose_source', [[chooseDone, 'source_chosen'], [!read.sources.length, 'no_sources']]);
+  offer('pick_opening', [[!read.openings?.length, 'no_opening_question']]);
   const library = read.investigator_source === 'library';
-  if (read.created && !read.confirmed && !read.loaded && !library && read.catalog?.occupations.length && !(read.brief_holds && !read.card)) moves.push('card_fields');
-  if ((read.card && !read.confirmed) || (read.loaded && !read.complete)) moves.push('approve_card');
-  if (read.created && !read.card && !read.loaded && read.library.length && read.investigator_source !== 'new' && read.steps.load) moves.push('load_library');
-  return moves;
+  const cardGates: Array<[boolean, string]> = [[!read.created, 'no_campaign'], [read.confirmed, 'confirmed'], [read.loaded, 'loaded'], [library, 'library_lane'],
+    [!read.catalog?.occupations.length, 'no_catalog']];
+  offer('card_fields', [...cardGates, [read.brief_holds && !read.card, 'brief_holds']]);
+  offer('draft_now', [...cardGates, [!read.brief_holds, 'no_brief'], [!!read.card, 'card_drawn']]);
+  offer('approve_card', [[!((read.card && !read.confirmed) || (read.loaded && !read.complete)), read.confirmed ? 'confirmed' : 'no_card']]);
+  offer('load_library', [[!read.created, 'no_campaign'], [!!read.card, 'card_drawn'], [read.loaded, 'loaded'], [!read.library.length, 'no_library'],
+    [read.investigator_source === 'new', 'new_lane'], [!read.steps.load, 'no_load_step']]);
+  return {moves, withheld};
+}
+
+export function legalMoves(read: SetupRead): SetupMove[] {
+  return moveGates(read).moves;
 }
 
 const MOVE_QUESTIONS: Record<SetupMove, string> = {
   choose_source: 'Does the player choose one of the listed sources (a ready-made starter or an installed module) as the book to start the campaign from? Asking about a source or comparing sources is not choosing one.',
   pick_opening: 'Does the player pick one of the listed openings as the way their campaign starts?',
   card_fields: 'Does the player state or change something about their own investigator (name, trade, age, sex, strengths, skills, background, gear, language), or ask the Keeper to fill in their investigator\'s details?',
+  draft_now: 'Does the player ask to make the investigator card now, to stop the setup questions, or ask the Keeper to fill in the rest of the investigator? Only answering a setup question is not asking for the card.',
   approve_card: 'Does the player approve the investigator card on the table as it is, ready to start play (for example "that is good", "confirm it", "let us begin")? Asking for any change is not approval.',
   load_library: 'Does the player choose one of the listed saved investigators to play in this campaign?',
 };
@@ -168,7 +189,7 @@ export function routeBatch({read, scope, readSet}: RouteQuestionInput): Decision
   const questions: DecisionQuestion[] = moves.map(move => ({key: `move_${move}`, target: 'player_input', type: 'noul' as const, instructions: MOVE_QUESTIONS[move]}));
   questions.push({key: 'exit', target: 'player_input', type: 'choice',
     instructions: 'Besides the listed setup moves, what does player_input need? Choose continue when a listed move carries what the input does.',
-    criteria: {continue: 'A listed move (choosing a source or an opening, stating or changing investigator details, approving the card, choosing a saved investigator) carries what the input does.',
+    criteria: {continue: 'A listed move (choosing a source or an opening, stating or changing investigator details, asking for the card now, approving the card, choosing a saved investigator) carries what the input does.',
       ask_llm: 'Asks a question, discusses or wants an opinion, asks for something no listed move carries out, or anything else the Keeper must answer in words.',
       none_of_above: 'Does none of these.'}});
   const state: Row = {player_input: read.input.text,
