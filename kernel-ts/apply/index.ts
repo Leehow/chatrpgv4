@@ -54,6 +54,8 @@ export interface ApplyContext {
     settlement(subject?: any): Promise<SettleContext>;
     /** The receipts this call has staged so far, in order (§135.30.7: a move earlier in the same batch is a departure). */
     staged?(): Row[];
+    /** §154 (prototype): the host runs lean `apply` arguments (`_lean`), so what a lean call leaves out and a reader needs is filled here. */
+    readonly lean?: boolean;
 }
 export interface ApplyResources {
     damage(context: ApplyContext, effect: Row): Promise<{
@@ -103,6 +105,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 return started.result;
             if (params._task_read_set !== undefined && typeof params._task_read_set !== 'boolean')
                 throw new RpcError('invalid_params', '_task_read_set must be boolean');
+            if (params._lean !== undefined && typeof params._lean !== 'boolean')
+                throw new RpcError('invalid_params', '_lean must be boolean');
             const beforeTaskRevision = params._task_read_set === true
                 ? worldRevision(transaction.world, await campaign.party() as Row[], turn.receipts, turn.pending_choice) : undefined;
             const beforeTaskCore = params._task_read_set === true
@@ -157,6 +161,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const effectReceipts = new Map<number, Row[]>();
             const stagedSheets=new Map<string,Row>(),stagedNotes:Row[]=[],stagedRulings:Row[]=[],attachments:Row[]=[],mapViews:Row[]=[],already:string[]=[];
             const context: ApplyContext = { kernel, transaction, campaign, world: staged, turn, graph, module, callId: started.callId, ordinal: started.ordinal,
+                ...(params._lean === true ? { lean: true } : {}),
                 staged: () => receipts,
                 mint(base) { let id = base, next = 2; while (taken.has(id))
                     id = `${base}-${next++}`; taken.add(id); return id; },

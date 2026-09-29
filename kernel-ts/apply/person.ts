@@ -17,7 +17,7 @@ import { normalize, repr, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
 import { passageOf } from '../read/table-people.js';
-import { establishPerson } from './entities.js';
+import { establishPerson, leanOrigin } from './entities.js';
 
 /** §40.1's name text, for the same reason: this word is written into spoken lines and say tokens. */
 export const LABEL_LIMIT = 60;
@@ -47,7 +47,7 @@ async function personOf(context: ApplyContext, who: any, effect: Row = {}): Prom
     // exactly as `apply npc` establishes one (§87's record with `from_passage`), so the label is written on them.
     const passage = passageOf(effect, who);
     if (passage) {
-        const node = establishPerson(context, who, typeof effect.why === 'string' && effect.why.trim() ? effect.why.trim() : null, passage);
+        const node = establishPerson(context, who, typeof effect.why === 'string' && effect.why.trim() ? effect.why.trim() : leanOrigin(context, passage), passage);
         return { id: context.graph.handle(node), name: context.graph.displayName(node), is_investigator: false, established: 'passage', from_passage: passage };
     }
     throw new RpcError('unknown_entity', `${repr(who)} is nobody at this table`, {
