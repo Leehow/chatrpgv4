@@ -106,7 +106,7 @@ const MoveEffect = Type.Object({
 	kind: StringEnum(["move"] as const, { description: "change the persistent gameplay locus; ordinary spatial description inside the current locus needs no move" }),
 	to: Type.String({ description: "the persistent gameplay locus chosen by the player. Reuse an existing place for its rooms or counters. For an ordinary new place consistent with established facts, supply establish and via in this same move; no source reading or adaptation job is required just because the graph lacks it. Do not substitute or relabel another place" }),
 	establish: Type.Optional(Type.Object({summary: Type.String({description: "brief description of a new campaign place; preserve known causes and access conditions. This declares an addition, not a replacement of a registered source place"})})),
-	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge" })),
+	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge. The move itself advances the clock by the journey: add no time effect for the same journey" })),
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
 	label: Type.Optional(Type.String({ description: "a display name for the SAME registered gameplay locus in the player's language. It cannot substitute a different locus. Omitted means the existing name" })),
 });
@@ -149,7 +149,7 @@ const ClockEffect = Type.Object({
 
 const TimeEffect = Type.Object({
 	...IntentResult,
-	kind: StringEnum(["time"] as const, { description: "the world clock moves forward" }),
+	kind: StringEnum(["time"] as const, { description: "the world clock moves forward. A move already advances the clock by its journey: never send time for the same journey; send time only for time that passes beyond it" }),
 	stated: StatedAmount,
 	band: TimeBand,
 	// §145.1: the time the fiction reaches; the kernel counts the minutes from the clock.
@@ -159,6 +159,8 @@ const TimeEffect = Type.Object({
 	}, { description: "instead of minutes, for a skip to a time of day (the next morning, that evening): the kernel counts the minutes from the clock" })),
 	minutes: Type.Optional(Type.Integer({ description: "required unless stated, band or until gives them: minutes advanced. Six hours or more is a day of rest and the party heals for it (1 HP a day with no major wound), an hour or more regenerates magic points; the result lists what came back in recovered, and your narration owes those numbers like any other change" })),
 	why: Type.Optional(Sentence("where the time went")),
+	// §156: the Keeper's declaration; the kernel refuses a clock-advancing time beside a travelling move without it.
+	beyond_travel: Type.Optional(Type.Boolean({ description: "true only when this time is in the same batch as a move and passes beyond that move's journey (after arriving or before setting out); without it such a batch is refused, because the move already counts the journey" })),
 });
 
 /** Things changing hands (contract §5 `item`, #19): what the narration gains or loses reaches the sheet here. */

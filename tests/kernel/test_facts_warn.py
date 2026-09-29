@@ -26,7 +26,7 @@ def test_narrate_facts_are_sentences_from_receipts_and_world(kernel):
                                                     "skill": "Spot Hidden"})
     kernel.table("apply", call_id="t1-c2", effects=[
         {"kind": "clue", "clue": "knott-keys", "label": "钥匙"},
-        {"kind": "time", "minutes": 15},
+        {"kind": "time", "minutes": 15, "beyond_travel": True},  # §156: the search before leaving, not the road
         {"kind": "damage", "dice": "1D3", "why": "被抽屉夹了"},
         {"kind": "move", "to": "hall-of-records", "travel_minutes": 20},
     ])

@@ -21,7 +21,7 @@ def stage_receipts(client):
                                                     "skill": "Spot Hidden"})
     client.table("apply", call_id="t1-c2", effects=[
         {"kind": "clue", "clue": "knott-research-leads"},
-        {"kind": "time", "minutes": 10},
+        {"kind": "time", "minutes": 10, "beyond_travel": True},  # §156: before setting out
         {"kind": "move", "to": "hall-of-records", "travel_minutes": 20},
     ])
     return client.table("status")["receipts"]

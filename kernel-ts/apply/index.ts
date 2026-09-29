@@ -178,6 +178,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 }
             };
             let timeEffects = 0, restMinutes = 0;
+            // §156: the moves that advanced the clock by their journey, and the time effects that advanced it again.
+            const travelLines: { index: number; to: string; minutes: number }[] = [];
+            const timeLines: { index: number; minutes: number; exempt: boolean }[] = [];
             const refused: { index: number; error: RpcError }[] = [];
             let stagedWorldline:Row|null=null;
             // §22.4.7.1 (SL-56): the people this batch names that landed on the book's text, registered before their effects stage.
@@ -255,13 +258,21 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         const minutes = effect.minutes;
                         if (!integer(minutes) || number(minutes) < 0)
                             throw new RpcError('invalid_params', 'minutes must be a non-negative integer');
+                        const beyond = given.beyond_travel;
+                        if (beyond !== undefined && typeof beyond !== 'boolean')
+                            throw new RpcError('invalid_params', 'beyond_travel must be true or false', {
+                                fix: 'give beyond_travel: true only when this time passes beyond the journey of a move in the same batch; otherwise leave it out',
+                                details: { field: 'beyond_travel', reason: 'beyond_travel_invalid' } });
+                        // §156: `until` names the moment the clock reaches, bound against the staged clock; after a
+                        // travelling move it already counts from the arrival, so it cannot repeat the journey.
+                        timeLines.push({ index, minutes: number(minutes), exempt: beyond === true || (given.until != null && travelLines.length > 0) });
                         const [before, after] = advanceClock(staged, minutes as number | bigint), clock = staged.clock;
                         const why = typeof effect.why === 'string' ? effect.why : null;
                         timeEffects++;
                         restMinutes += number(minutes);
                         receipt = { id: `time:t${turn.turn}-c${started.ordinal}` + (timeEffects > 1 ? `-${timeEffects}` : ''), kind: 'time', call_id: started.callId, minutes, why, clock_before: before, clock_after: after,
                             // §145.1: the time the Keeper named, beside the minutes the kernel bound it to.
-                            ...(effect.until != null ? { until: effect.until } : {}), at: nowIso() };
+                            ...(effect.until != null ? { until: effect.until } : {}), ...(beyond === true ? { beyond_travel: true } : {}), at: nowIso() };
                         event = { type: 'time-advanced', data: { minutes, why, clock: clone(clock) } };
                     }
                     if (amounts)
@@ -276,8 +287,10 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     // A pacing tick has no canonical event (12.1 is closed at twenty-four kinds); its receipt carries it.
                     if (event)
                         events.push({ ...event, receipt: receipt.id });
-                    if (kind === 'move' && number(receipt.minutes) > 0)
+                    if (kind === 'move' && number(receipt.minutes) > 0) {
                         events.push({ type: 'time-advanced', data: { minutes: receipt.minutes, why: 'travel', clock: clone(staged.clock) }, receipt: receipt.id });
+                        travelLines.push({ index, to: string(receipt.to), minutes: number(receipt.minutes) });
+                    }
                 }
                 catch (error) {
                     if (!(error instanceof RpcError))
@@ -288,6 +301,20 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     // pass exists only to find the other problems worth reporting in the same breath.
                     refused.push({ index, error });
                 }
+            }
+            // §156: a move already advances the clock by its journey. A time effect in the same batch that advances it
+            // too is the same journey counted twice (8 of 8 move batches across five live tables, 2026-09-29) unless the
+            // Keeper declares it beyond the journey. Structural only: never read from the why or from equal minutes.
+            if (travelLines.length) {
+                const travelled = travelLines.reduce((sum, line) => sum + line.minutes, 0);
+                const where = travelLines.map(line => `${repr(line.to)} (${line.minutes} min)`).join(', ');
+                for (const line of timeLines) if (line.minutes > 0 && !line.exempt)
+                    refused.push({ index: line.index, error: new RpcError('invalid_params',
+                        `the move in this batch already advanced the clock ${travelled} minutes for the journey to ${where}; this time effect advances it another ${line.minutes} minutes`, {
+                            fix: `Remove this time effect and send the batch again: the move already advanced the clock for the journey. Only if these ${line.minutes} minutes pass beyond the journey (after arriving or before setting out), keep the time effect and add beyond_travel: true to it.`,
+                            details: { field: 'beyond_travel', reason: 'travel_time_duplicated', minutes: line.minutes, travel_minutes: travelled,
+                                moves: travelLines.map(({ index, to, minutes }) => ({ index, to, minutes })) } }) });
+                refused.sort((a, b) => a.index - b.index);
             }
             // §11.5.5 (SL-59): a person named nowhere refuses only its own line, in a batch that is only about naming
             // persons. `unknown_entity` on an `npc`/`person` effect names nobody but itself -- no other effect's landing

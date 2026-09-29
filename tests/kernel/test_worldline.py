@@ -942,7 +942,7 @@ def test_a_reset_that_keeps_the_clock_keeps_it(tmp_path):
         play_to_turn(client, 1)
         client.table("player_input", text="我们花点时间打听消息，再去老宅。")
         client.table("apply", call_id="t2-c1",
-                     effects=[{"kind": "time", "minutes": 90}, {"kind": "move", "to": HOUSE}])
+                     effects=[{"kind": "time", "minutes": 90, "beyond_travel": True}, {"kind": "move", "to": HOUSE}])
         narrate(client, "t2-c2", "你们花了 90 分钟打听，然后走到老宅门前。")
         minutes = world_of(client)["clock"]["minutes"]
         assert minutes >= 90

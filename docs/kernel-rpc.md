@@ -359,6 +359,7 @@ params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "
 - `time`：推进世界时钟，写 `time-advanced` 事件。**时间过去了，伤就该好。**本批 `time` 效果的分钟数相加（同一批两个四小时就是一夜；`move` 的行程分钟不算——赶路不是休息）：≥360 分钟走治疗引擎的休整入口（`handle_time_trigger`：六小时以上算一天，没有重伤则每天回 1 点生命，规则书 p.121；不到这个数一次都不调，因为同一个函数还会清掉当天的急救次数，十分钟不是新的一天），≥60 分钟走魔法点的每小时回复（规则书的单位是小时，引擎的下限会给任何一次推进至少 1 点）。每个真正变动的资源写一条 `delta` 收据与一条 `resource-changed` 事件，result 另给 `recovered: [{investigator, resource, before, after}]`，好让守秘人在写这一夜之前就知道这一夜的人还站不站得起来（数字本身不进正文，§16.3）。**这条规则一直在规则图上**（`rule:coc7:healing:regular-damage-recovery`），两个引擎的入口也一直写着、测着，只是内核从来没有调用过：真桌上 55 个游戏内小时、三夜睡眠、两次看医生，生命值一整局卡在 5/11。
 - `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/weapons.json` 的武器 profile 取伤害、射程、弹容、技能（`equipment.json` 只是价目表），取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
 - `cash`（#19，§58）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "source": "price"|"quote"|"found", "settlement"?: "cash"|"spending_level", "price_id"?: "<印刷记录 id，source=price 必填>", "currency"?: "<这笔钱的单位>", "with"?: "<NPC 名>", "why"?}`；**`source` 必填**：钱的数额必须说明来源，`price` 由内核到规则书印刷物价表里解析 `price_id`（解析不到就拒），`quote` 要 `with`（场上谁开的价），`found` 是不涉及价格的进出。`settlement` 缺省 `cash`；`spending_level` 只用于不超过调查员消费等级的负向 `price`/`quote`，记录购买但不改现金。`currency` 与余额单位不一致直接拒——内核没有汇率表，不替任何人换算。玩家说的自己兜里有多少是余额不是价格；余额与本局已成交的价在胶囊 `known.investigator.cash` 与 `known.prices_paid` 里。全文见 §58；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。普通结算写表上 `finance.cash`；消费等级结算保留余额（没有 finance 块的时代都先按 `rules-json/cash-assets.json` 建一个），收据均为 `cash:t<turn>-c<n>`，事件分别是 `resource-changed` 与 `purchase-settled`。
+- `time` 另收 `beyond_travel: true`（2026-09-29，§156）：`move` 自己已按行程推进时钟，同一批里再有推进时钟的 `time` 一律拒（`travel_time_duplicated`），除非守秘人声明这段时间在行程之外。
 - `damage`、`time`、`threat`、`flag`、`cash` 另收 `stated: <名字>`（2026-09-23，RD-03）：数额取自书上写明的形状，不与守秘人自己的数额并给（`stated_conflict`）；不带 `stated` 时照旧，收据记 `basis: "keeper"`。见 §136.22。
 - 其余种类报 `not_implemented`。
 result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true, "recovered"?: [{"investigator", "resource", "before", "after"}]}`。切片 0 `material_ready` 恒为 true；`recovered` 只在这一批的休整真的还了资源时出现。
@@ -29005,3 +29006,69 @@ each scoped brief to 400. The addendum has no kernel budget: it rides the lane's
 - The first shipped language package is `mods/zh-optimize` (play_languages `["zh"]`, owner 2026-09-29). Tests: `tests/extension/language-scoped-mods.test.mjs` with the fixture
   `tests/fixtures/mods/language-zh`, installed through `mods.install`; `tests/kernel/test_language_mods.py` over the
   emitted kernel's RPC; and the two ceiling tests above.
+
+## 156. A move counts its own journey; a `time` beside it must say it is beyond the journey (2026-09-29; amends §5's `table.apply` `move` and `time`, §145.1)
+
+Numbering: §154 and §155 are taken by concurrent 2026-09-29 branches (lean apply, prose-first; pictured handouts), so
+this section is 156.
+
+**The defect.** A `move` advances the clock by its travel minutes (`stageMove` → `advanceClock`; the batch emits
+`time-advanced {why: "travel"}`). On 2026-09-29, in five live driver tables (Keeper grok-4.5), 8 of 8 `apply` calls
+that carried a `move` also carried a `time` with the same minutes and a `why` describing the trip -- e.g. move
+`{to: "newspaper-morgue", travel_minutes: 30}` + time `{minutes: 30, why: "从诺特办公室到环球报馆的路程"}`. The event log
+showed two `time-advanced` rows per trip, so in-fiction time ran twice as fast whenever the party travelled, and every
+clock-driven thing (threat clocks, day parts, deadlines, rest) moved with it.
+
+**The rule.** A move already advances the clock by its journey. Do not add a `time` for the same journey; send `time`
+only for time that passes beyond it. Said where the Keeper decides: the `move.travel_minutes` and `time` descriptions
+in `extensions/kernel/tools.ts`, and the `apply` paragraph of `prompts/keeper.md`.
+
+**The field.** `time` takes `beyond_travel?: boolean` -- the Keeper's declaration that this time passes beyond the
+journey of a move in the same batch (after arriving, before setting out). A non-boolean is refused `invalid_params`,
+`details: {field: "beyond_travel", reason: "beyond_travel_invalid"}`. The time receipt carries `beyond_travel: true`
+when it was declared; the §16.2 projection is unchanged.
+
+**The guard** (`kernel-ts/apply/index.ts`, after every effect has staged, before the batch lands). If the batch staged a
+`move` whose receipt has `minutes > 0` (whatever drove it: `travel_minutes`, or the road's own minutes when it is
+omitted; a rename in place and a move of 0 minutes do not count), every `time` in the same batch whose bound minutes
+are `> 0` is refused unless it carries `beyond_travel: true`. Purely structural: the kernel never reads `why` and never
+compares minutes to guess a duplicate. Forms:
+
+| `time` form | guarded? |
+| --- | --- |
+| `minutes` (> 0) | yes |
+| `stated` (§136.22), `band` (§138) -- an amount the kernel binds | yes, on the bound minutes |
+| `until` (§145.1) staged **before** the travelling move | yes: the journey is added after the moment it names |
+| `until` staged **after** the travelling move | no: it binds against the staged clock, so it counts from the arrival and cannot repeat the journey |
+| any form that binds to 0 minutes | no: it adds no elapsed time |
+| `clock` (pins the opening datetime) | not a `time`; never guarded |
+
+The refusal is `invalid_params` at the `time` effect's `details.index`, with `details: {field: "beyond_travel", reason:
+"travel_time_duplicated", minutes, travel_minutes, moves: [{index, to, minutes}]}`, the message naming the journey and
+the minutes, and the `fix`, which the Keeper executes literally (§34.7):
+
+> Remove this time effect and send the batch again: the move already advanced the clock for the journey. Only if these
+> N minutes pass beyond the journey (after arriving or before setting out), keep the time effect and add
+> beyond_travel: true to it.
+
+Like every batch refusal, nothing is written; the refusal joins the batch's `refused` list in effect order. The host
+records `reason` on the tool's telemetry row as it does for every refusal, so `travel_time_duplicated` is countable.
+
+**Scope.** The guard is per batch. A `time` sent in a later `apply` of the same turn for a journey an earlier `move`
+already counted is not refused (the kernel cannot tell it from time spent at the destination without reading the
+prose). Host paths checked: the clerk writes one candidate per `apply` (`runtime/jev/candidates.ts` `keeperCall`), so its
+move and its banded time (§138.10) are never one batch; an accept step's settlement (§135.30.9.3, `acceptSettlement`) is
+flag, clue, item and cash only; the Mod runtime's deferred registrations are define/object/usage. No host path emits
+`move` + `time` in one batch, so none sets `beyond_travel`. The extension's fake kernel does not mirror the guard.
+
+**Three ends (§31).** *Writer:* the Keeper's `apply` (`beyond_travel`). *Reader:* the kernel's batch check; the Keeper
+reads the refusal's `fix`. *Actor:* the Keeper, dropping the duplicate or declaring it. Counted: the tool rows with
+`reason: "travel_time_duplicated"`, and time receipts with `beyond_travel: true`.
+
+**Tests.** `tests/kernel/test_travel_time_once.py` (emitted kernel): move + time refused with the reason, the fix and
+nothing written; the road's default minutes drive the guard, in either order; a banded time and an `until` before the
+move are guarded; `beyond_travel` lands and the clock advances by both with two `time-advanced` rows; a move alone
+advances once; a time alone is unchanged; zero minutes, a 0-minute move, a rename and an `until` after the move are not
+refused; the clerk's separate banded time after a move lands; a non-boolean is refused. Existing fixtures whose batches
+held a travelling move and a `time` spent at or before the place now declare `beyond_travel: true`
+(`test_apply.py`, `test_narrate.py`, `test_facts_warn.py`, `test_system_language.py`, `test_worldline.py`).
