@@ -519,6 +519,11 @@
       "id": "SL-103",
       "file": "103-setup-handoff-and-guidance-retry.md",
       "status": "ready-for-human"
+    },
+    {
+      "id": "SL-104",
+      "file": "104-admission-line-judged-without-its-batch.md",
+      "status": "needs-triage"
     }
   ],
   "relatedSpecs": [
