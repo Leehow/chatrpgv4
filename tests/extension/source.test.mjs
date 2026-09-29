@@ -4,7 +4,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
+import {createHash} from 'node:crypto';
 import { sourceAsset, sourceInfo, sourceOverview, sourcePage, sourceSearch, closeSourceDocuments } from "../../extensions/module/source.ts";
+import {mapReviewPreviews,reviewedMapNodes} from '../../extensions/module/map-review-preview.ts';
 
 function pdf(rotation = 0) {
 	const stream = "1 0 0 rg 0 0 100 100 re f 0 0 1 rg 100 0 100 100 re f";
@@ -274,4 +276,23 @@ test("contact-sheet ranges fail before page rendering and cancellation stays bou
 	await assert.rejects(sourceOverview(file,cache,1,5),/outside this PDF/);
 	await assert.rejects(sourceOverview(file,cache,1,4,AbortSignal.abort()),/cancelled/);
 	await assert.rejects(readFile(join(cache,"overviews.jsonl")),error=>error.code==="ENOENT");
+});
+
+test('map review shows the actual crop coordinate frame on record-root review as well as leaf review',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'map-review-overlay-'));t.after(async()=>{await closeSourceDocuments();await rm(dir,{recursive:true,force:true})});
+ const file=join(dir,'source.pdf');await writeFile(file,pdf());
+ const region={region_id:'blue-place',name:'Blue place',source_asset:'asset-map',source_box:[.1,.2,.4,.6],placement:[0,0,1,1]};
+ const draft={nodes:[{node_id:'asset-map',node_kind:'asset',name:'Map',properties:{image_sources:[{page:1,box:[.5,0,1,1]}],map_regions:[region]}}]};
+ assert.equal(reviewedMapNodes(draft,['/nodes/0']).length,1);
+ assert.equal(reviewedMapNodes(draft,['/nodes/0/properties/map_regions/0/source_box']).length,1);
+ assert.equal(reviewedMapNodes(draft,['/nodes/1']).length,0);
+ const [preview]=await mapReviewPreviews({draft,paths:['/nodes/0'],cwd:dir,source:{pdf:file,cache:join(dir,'cache')}});
+ const bytes=await readFile(join(dir,preview.file));
+ assert.equal(createHash('sha256').update(bytes).digest('hex'),preview.image_sha256);
+ const image=await loadImage(bytes),canvas=createCanvas(image.width,image.height),ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+ const rasterHeight=image.height-50;
+ const edge=ctx.getImageData(Math.round(image.width*.1),Math.round(rasterHeight*.4),1,1).data;
+ assert.ok(edge[0]>150&&edge[2]<100,'the red box is placed relative to the cropped blue half, not the full PDF');
+ const clear=ctx.getImageData(Math.round(image.width*.8),Math.round(rasterHeight*.8),1,1).data;
+ assert.ok(clear[2]>200&&clear[0]<30,'the crop preserves the original blue pixels away from the overlay');
 });

@@ -11,6 +11,7 @@ import {successfulImageDeliveries} from './reader-image-delivery.ts';
 import {REVIEW_VERDICTS} from '../../kernel-ts/modules/review-verdicts.ts';
 import {PUBLIC_GUIDANCE_FIELDS,validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {retainSourceNeeds} from './source-needs.ts';
+import {requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts';
 
 export default async function readerSubmit(pi: any) {
 	const cwd = process.cwd();
@@ -30,8 +31,11 @@ export default async function readerSubmit(pi: any) {
 	const originals = reviewing ? await Promise.all(candidateFiles.map(name => readFile(join(cwd, name)))) : [];
 	const seen = new Set<number>();
 	const pageCalls=new Map<string,number[]>();
+	const overviewCalls=new Map<string,number[]>();
 	pi.on("context", (event: any) => {
 		for (const message of event.messages) {
+			if(message.role==='toolResult'&&message.details?.kind==='source_overview'&&message.content?.some((block:any)=>block.type==='image')&&typeof message.toolCallId==='string')
+				overviewCalls.set(message.toolCallId,(message.details.manifest?.tiles??[]).map((tile:any)=>tile.page).filter(Number.isSafeInteger));
 			if (message.role !== "toolResult" || message.details?.kind !== "source_pages" ||
 				!message.content?.some((block: any) => block.type === "image")) continue;
 			const pages=(message.details.observations??[]).map((row:any)=>row.page).filter(Number.isSafeInteger);
@@ -100,6 +104,12 @@ export default async function readerSubmit(pi: any) {
 				await writeFile(join(cwd,'public-fields.json'),JSON.stringify(params.public_fields)+'\n');
 			}
 			const viewed=await deliveredPages();
+			if(task.visual_scan&&!reviewing){
+				const log=process.env.PI_COC_READER_IMAGES_LOG,source=JSON.parse(process.env.PI_COC_READER_SOURCE??'null');
+				if(!log||!source)throw new Error('Visual overview delivery evidence is required');
+				const delivered=await successfulImageDeliveries(log,source);
+				requireVisualOverview(task.visual_scan,[...overviewCalls].filter(([id])=>delivered.toolCallIds.has(id)).flatMap(([,pages])=>pages));
+			}
 			if(!reviewing){
 				const retained=await readFile(join(cwd,'pending-source-needs.json')).catch(error=>{if(error.code==='ENOENT')return undefined;throw error;});
 				if(retained&&!answerTask&&!guidanceProjection){

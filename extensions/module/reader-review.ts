@@ -1,11 +1,12 @@
 /** Independent source reviews share a candidate, never a mutable output or context. */
 import { mkdir, mkdtemp, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { readerInput, type ReaderRequest, type ReaderOutcome } from "./reader.ts";
 import {successfulImageDeliveries} from './reader-image-delivery.ts';
 import {requireCheckedSourceReceipt} from './reader-source-receipt.ts';
 import { draftHasMapRegions } from "./map-publication.ts";
+import {mapReviewPreviews,reviewedMapNodes} from './map-review-preview.ts';
 import { obligationReviewPaths } from "../../kernel-ts/modules/obligation-review.ts";
 import { shapeReviewPaths } from "../../kernel-ts/modules/shape-review.ts";
 import { answerReviewShapeError } from "../../kernel-ts/modules/answer-review-shape.ts";
@@ -379,7 +380,7 @@ export function detailReviewInput(task: Row, draft: Row, paths: string[]): Row {
  * Round bookkeeping (§151.2.1): what a repair round tells its author, never what a reviewer judges. A review identity
  * that included them missed on every repair round even for records nobody touched.
  */
-const ROUND_BOOKKEEPING = ['commands', 'repair', 'must_view_pages', 'review_retry'];
+const ROUND_BOOKKEEPING = ['commands', 'repair', 'must_view_pages', 'review_retry', 'visual_previews'];
 function withoutBookkeeping(task: Row): Row {
 	return Object.fromEntries(Object.entries(task).filter(([key]) => !ROUND_BOOKKEEPING.includes(key)));
 }
@@ -440,7 +441,7 @@ export async function reviewCandidate(options: {
 	const candidateBytes = guidanceBytes || answerTask ? await readFile(join(options.cwd,"draft.json")) : Buffer.from(JSON.stringify(options.draft));
 	// The whole-candidate identity, unchanged (§151.2.1): guidance and answer reviews (one unit over the whole artifact) and
 	// `/coverage`. It still carries the round's bookkeeping, so a repair round re-reviews an unchanged candidate there.
-	const {commands: _commands, ...semanticTask} = options.task;
+	const {commands: _commands, visual_previews: _previews, ...semanticTask} = options.task;
 	const cached = !!options.cacheRoot && !!options.source.file_sha256;
 	const identity = cached ? canonical({protocol:reviewProtocol,
 		version:options.reviewVersion, source:options.source.file_sha256, draft:options.draft,
@@ -498,8 +499,9 @@ export async function reviewCandidate(options: {
 			if (guidanceBytes) await writeFile(join(cwd, "guidance.json"), guidanceBytes);
 			if (publicBytes) await writeFile(join(cwd,'public-fields.json'),publicBytes);
 			// Observed navigation/context pages belong to coverage, not every fact unit.
-			const {review_scope_pages: _scopePages, ...taskContext} = options.task;
+			const {review_scope_pages: _scopePages, visual_previews: _authorPreviews, ...taskContext} = options.task;
 			const unitTask = { ...taskContext, required_review: paths, ...(requiredPages.length ? {review_scope_pages: requiredPages} : {}) };
+			const mapPreviews=options.task.visual_asset?await mapReviewPreviews({draft:options.draft,paths,cwd,source:options.source}):[];
 			await writeFile(join(cwd, "task.json"), JSON.stringify(unitTask, null, 2) + "\n");
 			let detailInput: string | undefined;
 			if (['opening','detail'].includes(options.task.purpose)) {
@@ -512,11 +514,13 @@ export async function reviewCandidate(options: {
 				options.record({lane:'reading',event:'review_input',unit:index+1,attempt,initial_bytes:bytes,full_bytes:Buffer.byteLength(JSON.stringify({task:unitTask,draft:options.draft})),inlined:bytes<=24*1024});
 			}
 			const imageCalls = new Map<string, Row[]>(), pages = new Set<number>();
+			const previewCalls=new Map<string,string>(),previewImages=new Set<string>();
 			const eventLog = join(cwd, "events.jsonl");
 			active++;
 			options.record({ lane: "reading", event: "review_concurrency", unit: index + 1, attempt, active, capacity });
-			const mapBrief = draftHasMapRegions(options.draft) && (paths.includes("/coverage") || paths.some(path => path.endsWith("/map_regions")))
-				? " For map_regions, check classification, region-place correspondence, independently revealable units for the requested use, and annotation exclusion against original images. A whole-map region is missing necessary current material when the source shows separately knowable areas. Uncertain geometry stays unavailable; do not widen a box. "
+			const mapBrief = draftHasMapRegions(options.draft) && reviewedMapNodes(options.draft,paths).length
+				? " For map_regions, check classification, region-place correspondence, independently revealable units for the requested use, and annotation exclusion against original images. Region boxes select normalized coordinates in the cropped asset, not the full PDF page. Wrong location, crop, coordinate frame or private annotation leakage is a LOGIC finding, never an advisory parameter difference. A whole-map region is missing necessary current material when the source shows separately knowable areas. Uncertain geometry stays unavailable; do not widen a box. "
+					+(mapPreviews.length?` Read these private PNG review aids with the read tool: ${JSON.stringify(mapPreviews)}. Each red rectangle is exactly what its source_box selects in the rendered asset. Verify that each labelled box actually covers the named place. These aids do not replace original-page evidence. `:'')
 				: "";
 			try {
 				const sourceRunStartedAt=Date.now();
@@ -527,6 +531,10 @@ export async function reviewCandidate(options: {
 					brief: answerTask ? readerInput({task:unitTask, draft:options.draft}) + " Independently review the complete source answer, status and limitations for task.question against original page images and accepted context. For module-logic-v1, review identity, causal conditions, clue targets, knowledge boundaries and the current use. Do not retranscribe numerical leaves or polish wording. Label every negative finding with impact logic, presentation or parameter. Presentation and valid parameter differences are advisory; keep them in the review without requesting another generation. Only missing or contradictory logic blocks. Established campaign values take priority; source differences are mappings, never silent retcons.  View every cited source page. Do not modify draft.json. Use submit_reading with review as your sole final tool call. " + (previousFailure ? "Read failure.json for the previous attempt's concrete rejection. " : "")
 					: (detailInput ?? (guidanceBytes ? readerInput({task:unitTask, draft:options.draft, guidance:JSON.parse(guidanceBytes),...(publicFields?{public_fields:publicFields}:{})}) : readerInput({task:unitTask,draft:options.draft}))) + " Independently review only task.required_review against original images using pdf. For module-logic-v1, review identity, causal conditions, clue targets, knowledge boundaries and the current use. Do not retranscribe numerical leaves or polish wording. Label every negative finding with impact logic, presentation or parameter. Presentation and valid parameter differences are advisory; keep them in the review without requesting another generation. Only missing or contradictory logic blocks. Established campaign values take priority; source differences are mappings, never silent retcons.  The complete graph context is retained in the candidate file. Produce checked paths, verdict (supported, contested or unsupported), source_refs and reason, plus missing (only necessary current material). Name the deepest pointer you dispute, not the record's root, unless the record itself is not in the book; a field matching task.classification_fields that you would classify differently is contested, not unsupported. Never edit the draft. " + (requiredPages.length ? "For /coverage, view every review_scope_pages page as evidence, not as a whole-range extraction assignment. State the requested use from task.purpose/focus/question in your reason. An empty detail question requests the focused entity's current use and necessary dependencies, not its whole chapter. Compare that use to the candidate for omitted discoverable facts and investigation connections, including when no clue or conclusion was proposed. Every missing item must identify its source and explain which requested use or immediate dependency would fail without it; appearing on a viewed page or map is insufficient. " : "") + mapBrief + (guidanceBytes ? "Also review guidance.json and any public_fields under the Independent review instructions and include guidance:{approved,issues} in the same review. Approval covers source support, spoiler safety and play_language of every public value too. Never modify either artifact. Pass this small review object directly to submit_reading as your sole final tool call; a separate write followed by submit would waste another model request. " : ['opening', 'detail'].includes(options.task.purpose) ? "Pass the review directly to submit_reading as your sole final tool call; no separate write or final prose is needed. " : "Write review.json. ") + (previousFailure ? "Your previous attempt at this same unit was rejected; failure.json holds the reason. Read it and answer for the assigned pointers exactly as task.required_review spells them. " : "") + "Finish this unit and stop.",
 					onEvent(event) {
+						if(event.type==='tool_execution_start'&&event.toolName==='read'&&typeof event.args?.path==='string')
+							previewCalls.set(event.toolCallId,resolve(cwd,event.args.path));
+						if(event.type==='tool_execution_end'&&!event.isError&&event.result?.content?.some((block:Row)=>block.type==='image')&&previewCalls.has(event.toolCallId))
+							previewImages.add(event.toolCallId);
 						if (event.type === "tool_execution_end" && !event.isError && event.result?.details?.kind === "source_pages")
 							imageCalls.set(event.toolCallId, event.result.details.observations);
 					},
@@ -541,6 +549,12 @@ export async function reviewCandidate(options: {
 					file_sha256:options.source.file_sha256??'',cache:options.source.cache});
 				for(const id of delivered.toolCallIds)for(const row of imageCalls.get(id)??[])pages.add(row.page);
 				for(const row of delivered.hostPages)pages.add(row.page);
+				for(const preview of mapPreviews){
+					if(![...previewImages].some(id=>delivered.toolCallIds.has(id)&&previewCalls.get(id)===join(cwd,preview.file)))
+						throw new Error(`Review the actual region overlay with read before submitting: ${preview.file}`);
+					if(createHash('sha256').update(await readFile(join(cwd,preview.file))).digest('hex')!==preview.image_sha256)
+						throw new Error('Reviewer modified its private geometry preview');
+				}
 				if (JSON.stringify(JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"))) !== JSON.stringify(options.draft))
 					throw new Error("reviewer modified its candidate copy");
 				const review = JSON.parse(await readFile(join(cwd, "review.json"), "utf8"));
