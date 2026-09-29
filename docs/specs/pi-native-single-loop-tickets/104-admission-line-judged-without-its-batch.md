@@ -1,4 +1,4 @@
-Status: ready-for-human (filed 2026-09-29 from the installed-App Dust to Dust table; owner asked "时间行缓存那条…查一下吧"; follow-up of SL-101; owner chose A + B 2026-09-29; implemented 2026-09-29 on claude/sl104-admission-batch-context-20260929, not merged; the live latency check awaits the owner)
+Status: ready-for-human (filed 2026-09-29 from the installed-App Dust to Dust table; owner asked "时间行缓存那条…查一下吧"; follow-up of SL-101; owner chose A + B 2026-09-29; implemented 2026-09-29 on claude/sl104-admission-batch-context-20260929; merged into 0.9.6a at bf65b781a on the owner's word ("直接合"); the live latency check was not run)
 Stage: SL-104 (admission: a line reviewed on its own is judged on its siblings and its rationale, then its refusal is reused for a batch whose siblings changed)
 Spec: docs/kernel-rpc.md §32.4 (reuse key; `why`, `how`, `label`, `decision` outside it), §32.12.3.1 (SL-101: one lane call per line, "each call gets the same §32.3 context and exactly one proposed line", "verdict reuse keys by line"); `extensions/kernel/admission.ts` (`effectSignature` ~295, `admissionRequest` ~309, `lineProposal` ~720), `extensions/kernel/index.ts` (`admissionLines` ~2470, `admitOne` / `settle` ~2620, `state.admission.get(proposal.key)` ~2654)
 
@@ -156,3 +156,13 @@ heading); `admission.test.mjs`'s context test. Mac, single files: the new file 6
 `beyond_travel`, nor `cash`'s `stated`: `{kind: "time", band: "speak_briefly"}` and `{kind: "time", band:
 "library_research"}` have one signature, so within a turn a verdict on one time cost is reused for another. A §32.4 key
 gap older than SL-101; filed as a separate task.
+
+**2026-09-29 -- merged.** The owner said to merge without the live latency check ("直接合"). 0.9.6a had moved 16 commits
+(maps92, §39.4 / §152.4) past the branch's base; merged into the branch without conflict (bf65b781a) and 0.9.6a
+fast-forwarded to it. The box suites above ran on 158e4b076, before that merge. On the merged head leehow-pc was
+unreachable (mDNS unresolved, no matching host key on the /24, WireGuard banner timeout) and amax is off the LAN, and the
+owner's 2026-09-26 ruling keeps the full suites off the Mac, so only single files ran on the Mac: the three admission
+files and every extension test the merge added or changed (`map-living` 8, `map-session-viewer` 9, `map-view` 9,
+`map-words` 23, `visual-identity` 10, `campaign-module-isolation` 1, `contract-section-numbers` 3; the admission files 6,
+18, 18), all green. **Owed:** `ext`, `py` and `loop` on the box at the merged head once leehow-pc is back. The installed
+App does not carry this until it is repackaged.
