@@ -81,3 +81,21 @@ One `apply move` to `martins-beach` printed **two** map cards, 「马丁滩村�
 - [ ] The main session plays the live table as the player on the installed App; screenshots and turn records are cited under `## Comments`.
 
 ## Comments
+
+### Implementation — 2026-09-29 (branch `claude/maps92-living-map-20260929`)
+
+Landed, contract first (§39.4 at `aef173eb6`, §152.4 plus its kernel decisions from the worker branch):
+
+- **Design 1 (one printed visual, one node):** §152.4 — geometry raises the question at publication against the current generation, the visual reviewer answers same/different, same extends the published node, review-unavailable holds the job; existing pairs are queued by the read-ahead and a same verdict writes `variant-of` with an optional reviewed `region_correspondence`. Map readers and handout readers read variants through their survivor (`6ca20de5f`, and the worker's `9b2dabe6d`…`0ccb4b2a6`).
+- **Design 2 (picture once, then update):** first picture is a card; arrival or `apply map` on a pictured map mints an `update` receipt naming what it added, with no map view; a look at a held map is an update row (`d19b5a4b3`).
+- **Design 3 (living map):** `livingMapRegions` feeds board, look, catalog and cards (`d19b5a4b3`).
+- **Design 4:** the outward `occurs-at`/`located-in` walk landed; the region-to-place uncover is deferred (see the note on design 4).
+- **Design 5 (ruled):** player-safe sources drawn whole with only unheld player-safe regions masked; revealable/private never whole, never masked; a composed plan (the Corbitt house: its basement storage is placed away from its source position) stays region-by-region by the transform check.
+- **Design 6 (ruled):** update rows carry no picture and open the case board (`onOpenPanel`).
+- **Small items:** confluence carries `maps_presented`. **Not done:** an arrival path for a map depicting the opening scene.
+
+Automated evidence at `e4bd3a2f3` (before the §152.4 merge): amax `ext` 3955/3955 (a first run under load 148 failed one unrelated source-lease timing case, which passed 3/3 locally and in the clean rerun), `py` 2059 passed / 2 skipped, `loop` 296/296. Mutations killed: renderer base and mask; seven kernel mutations (update, arrival update, catalog, keeper source drawn whole, disagreeing source drawn whole, outward walk, confluence); host look update and update-word projection; transcript `onOpenPanel` threading; five survivor-wiring mutations; spot checks of the worker's collision and handout-survivor code.
+
+The zh-Hans seed for the three new captions was harvested from one owner-approved offline lane run (grok-build/grok-4.5, low) after the fast model at off ran out of its 120 s round twice; only the missing keys were taken. The seed's established word for the case board is 「案板」, which the lane kept.
+
+Live acceptance on the installed App is still owed.
