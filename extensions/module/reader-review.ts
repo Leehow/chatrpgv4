@@ -249,6 +249,8 @@ export async function reviewCandidate(options: {
 	record(row: Row): void; progress(row: Row): void;
 	/** Test seam: the waits between transport retries, in order. Production uses `TRANSPORT_BACKOFF_MS`. */
 	transportBackoffMs?: number[];
+	/** §150.3: asked with the fact units before any reviewer runs; the paths it returns are not sent to a vision reviewer. */
+	claimSupport?(units: string[][]): Promise<ReadonlySet<string> | undefined>;
 }): Promise<number[]> {
 	const backoff = options.transportBackoffMs ?? TRANSPORT_BACKOFF_MS;
 	const guidanceBytes = options.task.purpose === "guidance" ? await readFile(join(options.cwd, "guidance.json"), "utf8") : undefined;
@@ -263,6 +265,9 @@ export async function reviewCandidate(options: {
 	const guidancePaths=[...new Set([...reviewUnits(options.draft,[],undefined,moduleLogicReview(options.task)).flat(),...(Array.isArray(options.task.required_review)?options.task.required_review:[])])];
 	const units = answerTask ? [['/status', '/answer', '/source_refs', '/limitations']] : guidanceBytes ? [guidancePaths]
 		: reviewUnits(options.draft,options.task.required_review??[],moduleLogicReview(options.task)||options.task.opening_scope==='first_interaction'?4:undefined,moduleLogicReview(options.task)), results: Row[] = [], observed = new Set<number>();
+	// §150.3: a record the Jev claim check cleared (`on` mode) is not sent to a vision reviewer; a unit left empty is not run.
+	const cleared = options.claimSupport && !answerTask && !guidanceBytes ? await options.claimSupport(units.map(paths => [...paths])) : undefined;
+	if (cleared?.size) units.splice(0, units.length, ...units.map(paths => paths.filter(path => !cleared.has(path))).filter(paths => paths.length));
 	const scopePages = [...new Set<number>((options.task.review_scope_pages?.length ? options.task.review_scope_pages : [...(options.draft.nodes ?? []), ...(options.draft.claims ?? []),...(options.draft.source_needs??[])]
 		.flatMap((item: Row) => (item.source_refs ?? []).map((ref: Row) => ref.page)))
 		.filter((page: any) => Number.isInteger(page) && page > 0))].sort((a,b) => a-b);

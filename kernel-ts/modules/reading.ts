@@ -21,7 +21,8 @@ import { validSourceLanguage, vocabulary } from './contract.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 import { ModuleStore, validateModuleId } from './store.js';
 import { playsFromReading, bindStarterSource, boundFileIntact, boundReadingState, declaredWindow, freshReadingState, starterDeclarationsForBook, starterSourceDeclaration, windowMatches, windowOf } from './bound-source.js';
-import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, classificationFields, recordContested, reject, resolveStartScene } from './visual.js';
+import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, claimEvidence, classificationFields, recordContested, reject, resolveStartScene } from './visual.js';
+import { CLAIM_SUPPORT_FILE, JEV_REVIEWER } from './claim-support.js';
 import { pageSpans } from './transcription.js';
 import { passageKey } from '../read/table-people.js';
 const object = (value: any): boolean => isJsonObject(value);
@@ -1494,8 +1495,12 @@ export class Reading {
             else {
                 const contract = await this.store.contract(), filled = checkDraft(draft, packet, contract, seen);
                 const reviewPath = await this.contained(work, params.review_path), review = clone(await this.store.context.snapshots.readJson(reviewPath));
+                // §150.3: a Jev-checked row is judged against the host's native-text record of the bound source.
+                const evidencePath = join(work, CLAIM_SUPPORT_FILE);
+                const claims = array(row(review).checked).some(item => row(item).reviewer === JEV_REVIEWER) && await this.store.context.snapshots.pathExists(evidencePath)
+                    ? claimEvidence(await this.store.context.snapshots.readJson(await this.contained(work, evidencePath)), string(meta.source_document.file_sha256)) : undefined;
                 // §22.3.2: a disputed classification is published with its mark; only an unsupported fact refuses.
-                const judged = checkReview(row(draft), filled, review, number(meta.page_count), new Set(array(observations.review_pages)), classificationFields(contract));
+                const judged = checkReview(row(draft), filled, review, number(meta.page_count), new Set(array(observations.review_pages)), classificationFields(contract), claims);
                 const retranscribed: Row[] = [];
                 const graph = assembleVisual(await this.store.readGraph(mid), filled, meta, contract, retranscribed);
                 if(job.purpose==='detail'&&truth(job.question)){
