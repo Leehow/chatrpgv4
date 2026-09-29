@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 2.1.2
+- Owner, after the two A/B rounds: the Keeper gets the player's words and writes the act in by its own judgement. The rules 2.1.0/2.1.1 added on how to render it (receipt examples, fill in the steps, speech as a few words of gist, a report in one clause, a sentence or two) are removed; what stays is the owner's own boundary: the act is written into the scene in the Keeper's own words, the player's sentence is never pasted back, and nothing goes against what they meant.
+- Speech: npc-voice 1.3.0's "Natural replies, varied register" section returns to the Keeper's instruction (answer the actual question first in natural connected speech, length fits the moment, no aphorism or fragment for an answer, "same thought, two mouths"), in place of 2.1.x's paragraph. 2.0.0 had dropped it when npc-voice was folded in. The axis, `speak-in-person` and the `voice` floor line say the same; the brief is 897 bytes, the style full form 2039 of 2048.
+
 ## 2.1.1
 - Measured 2.1.0 against 2.0.7 on four live tables (grok-4.5 low, the same 15 player lines, two blind readers). The act no longer went missing (0 of 28 turns against 5 and 8), but receipts doubled (14 and 13 of 30 against 7 and 6): when the act was speech, the Keeper laid the player's words back out clause by clause ("you give your name and business: hired by Mr Knott, the Corbitt house, the Macario name, look but take nothing") or said "as you said". Speech the investigator makes is now shown as the moment of saying it with at most a few words of its gist, a report is one clause, and the declaration itself is never retold. A change to the room joins what may not be added.
 - Rules and conditions are the stitched lines the readers found: a person gives the reason or ties the rule to what the listener wants instead of reciting commands.

@@ -5,20 +5,20 @@
     "long and short in turn; a fragment is one beat, not the texture",
     "a full name once, then the pronoun or the short name",
     "what is seen, heard and said; a mood or cause only when established",
-    "speech is one joined thought, not a row of flat facts"
+    "people answer what was said in natural connected speech, length fitting the moment"
   ],
   "directives": {
     "act-then-reply": {
-      "full": "the act as the body does it here, speech a few words of gist, then the reply; never the player's words laid back out",
-      "brief": "the act as the body does it, speech as gist, then the reply; never the player's words laid back out"
+      "full": "the player's act told in the scene in your own words, then the world's reply; never their sentence pasted back",
+      "brief": "the player's act in the scene, in your words, then the reply"
     },
     "one-focus": {
       "full": "one focus per paragraph, each sentence leading on; errands in a clause, the moment gets room",
       "brief": "one focus per paragraph; errands in a clause, the moment gets room"
     },
     "speak-in-person": {
-      "full": "take up what they heard; one joined thought in their register, wanting something; positions move only with the fiction",
-      "brief": "take up what they heard: one joined thought, their register, wanting something"
+      "full": "answer what was actually said first, in their register, wanting something; positions move only with the fiction",
+      "brief": "answer what was said first, in their register, wanting something"
     },
     "show-the-change": {
       "full": "show what the result changed in room, body or face; an unestablished cause stays unstated",
@@ -114,9 +114,9 @@
     ]
   },
   "floor": [
-    "uptake: the act plays out here, speech as gist, then the world answers; never the player's words laid back out",
+    "uptake: the player's act is told in the scene in the Keeper's own words, then the world answers",
     "answer: the settled result or the chosen exchange is perceptible; a quiet turn owes no event",
-    "voice: whoever it touches takes it up in their register, one joined thought in a say token, or keeps silent",
+    "voice: whoever the exchange touches answers in their own register inside a say token, or keeps silent",
     "handoff: stop at a completed goal or a real unselected decision with enough seen to judge; no menu or reflexive question"
   ]
 }

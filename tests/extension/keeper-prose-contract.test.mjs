@@ -14,12 +14,12 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.equal(prompt.includes('give a little, refuse harder, or change the subject'), false);
   assert.ok(craft.includes('who does what to whom is never left for the reader to reconstruct'));
   // Owner 2026-09-28 (narration-craft 2.1.0): the declared act is shown in the scene, never retyped; speech is one joined thought.
-  assert.ok(craft.includes('never the declaration itself: no retelling of what the player wrote'));
-  assert.ok(craft.includes('Add no choice, destination, promise, change to the room, feeling or words the player did not declare'));
-  // Four A/B tables (2026-09-28): speech acts retold clause by clause doubled the receipts; they are gist now.
-  assert.ok(craft.includes('with at most a few words of its gist, never gone through clause by clause'));
-  assert.ok(craft.includes('A spoken line is one person\'s turn in a conversation'));
-  assert.ok(craft.includes('Rules and conditions above all'));
+  // Owner, after two A/B rounds (2026-09-28): the Keeper gets the player's words and writes the act in its own words,
+  // unconstrained beyond not pasting the sentence back and not going against it; npc-voice's natural-reply section returns.
+  assert.ok(craft.includes('The player\'s words this turn are what the investigator does'));
+  assert.ok(craft.includes('Their sentence is never pasted back in'));
+  assert.ok(craft.includes('Answer the actual question first, with natural connected speech'));
+  assert.ok(craft.includes('Same thought, two mouths'));
   assert.equal(craft.includes('do not begin with what the investigator did'), false);
   assert.ok(craft.includes('The facts do not change; their patience does.'));
   assert.ok(craft.includes('Sarcasm, contempt and insult land'));
