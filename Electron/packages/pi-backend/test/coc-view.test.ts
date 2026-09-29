@@ -582,12 +582,22 @@ it('the case board merges the journal lane under the kernel glossary on the cold
     (backend as any).live.set(session.id,{});
     vi.spyOn(backend as any,'liveProcessUsable').mockReturnValue(true);
     vi.spyOn((backend as any).extensions,'isMounted').mockReturnValue(true);
-    const forwarded=vi.spyOn(backend as any,'enqueueExtInvoke').mockResolvedValue({ok:true,data:{status:'ready',campaign:'boarded',view:kernelView,maps:[]}});
+    // §39.4: the pack hands each map over by the path of the PNG it stored; the host reads it back, and
+    // only from this campaign's map-views. The answer the panel receives carries pixels and no paths.
+    const views=join(campaign,'map-views');await mkdir(views,{recursive:true});
+    const stored=join(views,'house-v1.png');await writeFile(stored,imageBytes);
+    const maps=[{kind:'map',map:'house',name:'House',document:'ready',view_id:'v1',regions:[],levels:[],image_path:stored},
+      {kind:'map',map:'shed',name:'Shed',document:'ready',view_id:'v2',regions:[],levels:[],image_path:imagePath}];
+    const forwarded=vi.spyOn(backend as any,'enqueueExtInvoke').mockResolvedValue({ok:true,data:{status:'ready',campaign:'boarded',view:kernelView,maps}});
     const live=await backend.handle('invokeExtension',['coc-keeper','board',{}, {sessionId:session.id}]) as any;
     expect(forwarded).toHaveBeenCalledTimes(1);
     expect(live.data.view.labels["Knott's Office"]).toBe('诺特的办公室');
     expect(live.data.view.handouts[0].image).toBe('data:image/png;base64,'+imageBytes.toString('base64'));
     expect(kernelView.handouts[0].image).toBeUndefined();
+    expect(live.data.maps[0].image).toBe('data:image/png;base64,'+imageBytes.toString('base64'));
+    expect(live.data.maps[1]).toMatchObject({map:'shed',document:'none'});
+    expect(live.data.maps[1].image).toBeUndefined();
+    expect(JSON.stringify(live.data.maps)).not.toContain(root);
     (backend as any).live.delete(session.id);
   } finally {await backend.close();}
 },40000);

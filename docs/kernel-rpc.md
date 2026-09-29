@@ -11057,6 +11057,11 @@ It replaces `mapsDepictingScene` for §39.2 arrival and §107.1 late arrival, an
 - *Reader:* the host. It renders only card views, delivers update rows without pixels, and draws bases and masks. The renderer reads `presentation` to choose the row, and the board keeps reading §39.3 rows.
 - *Actor:* the player, who opens the living map from an update row. The Keeper's verbs do not change.
 
+**The board's pixels travel by path (2026-09-29, found on the installed App).** The pack answers a panel's `invoke` through the host bridge's `ext_invoke_result`, whose request body is capped at 4 MiB (`Electron/packages/pi-backend/src/bridge.ts`, `MAX_BODY_BYTES`). The board answer carried every map's picture inline as a data URL. Two whole village maps come to about 4.5 MB of base64, so the result was refused with 413, the host waited out its 15 s invoke ceiling, and the panel said "the pack did not answer". Any table holding three or four collage maps would have reached the same cap.
+- **Pack:** the answer now carries, for each rendered card, `image_path` (and `image_path` on each level image), the PNG the renderer already stored under `<campaign>/map-views/`, and no bytes.
+- **Host:** the player host materializes the pixels at its boundary (`withMapImages`, the pattern §152.3 uses for handouts). It accepts only a regular file inside the current campaign's `map-views/` after realpath, with a PNG signature, at most 8 MiB. It replaces `image_path` with the data URL, and a row it cannot materialize answers `document: "none"`. No path reaches the panel.
+- Transcript cards are unchanged: they reach the conversation as session entries, not through the bridge.
+
 **Not here.** Publication identity (two nodes for one print) is §152.4. Uncovering a region because the investigator reached the graph place it depicts needs a region-to-place reference written at publication, and is left to a later addendum.
 
 ## 40. NPC speech: the say token, speaker colour, and the `npc-voice` lane (2026-09-15)

@@ -18,7 +18,9 @@ export type MapAttachment = {kind:'map'; receipt?:string; map:string; name:strin
      * answer it for a map, so it is always `ready` or `none` here and never `unresolved`: the
      * kernel's own projection carries that third value until this attachment replaces it.
      */
-    document:MapDocumentState; image?:string; media_type?:string; level_images?:Array<{level:string;image:string}>;
+    document:MapDocumentState; image?:string; media_type?:string; level_images?:Array<{level:string;image:string;image_path?:string}>;
+    /** §39.4: the stored PNG behind `image`, for a leg that hands pixels over by path rather than inline (the board). Host-only. */
+    image_path?:string;
     /** §39.4: `update` is a row naming a map the table already holds, with no picture of its own. */
     presentation?:'card'|'update'};
 export type MapDocumentState = 'ready' | 'none';
@@ -102,7 +104,7 @@ export async function renderMapView(viewValue: unknown, options: {modulesRoot:st
     await mkdir(folder,{recursive:true});
     try{await stat(path);}catch{await writeFile(temporary,bytes);await rename(temporary,path);}
     const stored=await readFile(path);
-    const result:MapAttachment={...base,view_id:viewId,document:MAP_DOCUMENT_READY,media_type:'image/png',image:`data:image/png;base64,${stored.toString('base64')}`};
+    const result:MapAttachment={...base,view_id:viewId,document:MAP_DOCUMENT_READY,media_type:'image/png',image:`data:image/png;base64,${stored.toString('base64')}`,image_path:path};
     if(options.splitLevels!==false&&result.levels.length>1){
         const levelImages=[];
         // A base or mask with no level belongs to every level's picture; one with levels, to those.
@@ -111,7 +113,7 @@ export async function renderMapView(viewValue: unknown, options: {modulesRoot:st
             const ids=new Set(regions.filter(region=>region.level===level).map(region=>region.id)),subset=layers.filter(layer=>ids.has(String(layer.region)));
             const rendered=await renderMapView({...view,label,regions:regions.filter(region=>ids.has(region.id)),render:{layers:subset,
                 ...(bases.length?{base:bases.filter(onLevel(level)),masks:masks.filter(onLevel(level))}:{})}}, {...options,splitLevels:false});
-            if(rendered?.image)levelImages.push({level,image:rendered.image});
+            if(rendered?.image)levelImages.push({level,image:rendered.image,...(rendered.image_path?{image_path:rendered.image_path}:{})});
         }
         if(levelImages.length)result.level_images=levelImages;
     }

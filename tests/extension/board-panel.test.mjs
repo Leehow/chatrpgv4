@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -115,13 +115,18 @@ test("a seen map arrives as pixels and its private geometry stops at this hop", 
 		assert.equal(answer.maps.length, 1);
 		const [map] = answer.maps;
 		assert.equal(map.document, "ready");
-		assert.match(map.image, /^data:image\/png;base64,/);
+		// §39.4: the picture leaves this hop by the path of the PNG the renderer stored, never inline --
+		// an invoke answer returns through a bridge capped at 4 MiB, and two whole maps were over it.
+		assert.equal(map.image, undefined);
+		assert.equal(dirname(map.image_path), join(home, ".coc", "campaigns", "c1", "map-views"));
+		assert.deepEqual([...(await readFile(map.image_path)).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 		assert.equal(map.regions[0].label, "Entry Hall");
 		// The words are still the module's: nothing has projected this tag, and a card that is not
 		// wholly projected keeps its authored words rather than going out half in each language.
 		assert.equal(map.words, "source");
 		assert.deepEqual(answer.view.clues.discovered, VIEW.clues.discovered);
 		const text = JSON.stringify(answer);
+		assert.equal(text.includes("base64"), false, "no picture rides the invoke answer");
 		for (const forbidden of ["render", "layers", "source_box", "placement", "redactions", path])
 			assert.equal(text.includes(forbidden), false, `the panel answer must not carry ${forbidden}`);
 	});

@@ -2002,7 +2002,8 @@ export default function (pi: ExtensionAPI) {
 			}
 			try {
 				const map=await renderMapView(value,{modulesRoot,sourceRoots:[campaignModulesRoot],campaignDir,...(receipt?{receipt}:{})});
-				if(map)prepared.push(map);
+				// A card carries its pixels in the session entry; the stored file's path is the board's handle, never the conversation's.
+				if(map){const {image_path:_stored,...card}=map;prepared.push({...card,...(card.level_images?{level_images:card.level_images.map(({image_path:_level,...level})=>level)}:{})});}
 			} catch {
 				const row=value&&typeof value==='object'?value as Record<string,unknown>:{};
 				if(typeof row.map==='string')prepared.push({kind:'map',...(receipt?{receipt}:{}),map:row.map,name:typeof row.name==='string'?row.name:row.map,
