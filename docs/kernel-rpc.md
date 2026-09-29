@@ -29101,7 +29101,11 @@ away. It is not evidence for Keeper decisions and never enters `lookup` or the g
 ### 155.8 Where the transcript row and the board call from
 
 The board panel calls the method through its `api.invoke` (the `board` precedent). The transcript's tool renderer had no
-host call: the host UI now passes `onInvoke(method, params)` to every tool renderer of the extension that registered it,
+host call: the host UI now passes `onInvoke(method, params)` to the presentation entries a tool renderer draws (`coc-mechanics`, `coc-choice`),
 which calls `host.invokeExtension(<that extension>, method, params, {sessionId})`; today `coc-mechanics` is its only user. A handout's mechanics row (§16.2) now carries `handout`, the receipt's handle, because the
 row folds under a display name and a name is not an identifier; a row persisted before this section is given the same
 handle by the host from its receipt id (`handout:<handle>-t<turn>`, `mechanicsEntry`), and a row with neither has no control.
+
+The control's state lives with the row's mount, so a row the list unmounts (scrolled away, a folded card) asks again when
+it is pressed again, and the caches of §155.4 answer without a model run. It does not ask on mount: scrolling a
+transcript must not start jobs.
