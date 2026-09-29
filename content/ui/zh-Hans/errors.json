@@ -5,6 +5,8 @@
   "document_unavailable": "暂时取不到这份纸面。",
   "guidance_not_ready": "建卡指引还没有准备好。",
   "guidance_unavailable": "暂时取不到建卡指引。",
+  "handout_not_available": "这份资料现在读不了。",
+  "handout_reading_failed": "这次没能读出这份资料。",
   "import_other_session": "这份准备属于另一个会话。",
   "interrupted": "这一步被中断了。",
   "invalid_params": "这个请求没有被理解。",

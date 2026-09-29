@@ -12,6 +12,7 @@ import { prepareCharacterPresentation, prepareCluePresentation, prepareJournalPr
 import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
 import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
+import { readHandout } from '../extensions/module/handout-reading.ts';
 import {createFreshSourceNavigator} from '../runtime/jev/fresh-source-navigator.ts';
 import {withStageLease, type ReadingStage} from '../runtime/jev/reading-stage-budget.ts';
 import {createTravelFill} from '../extensions/module/travel-fill.ts';
@@ -100,6 +101,17 @@ async function main() {
     const {model, thinking} = await presentationLaneChoice(context, input);
     input = {...input, model, thinking};
   }
+  if (action === 'handout-reading') {
+    // Contract §155.3. The picture is read on the table's model (it needs image input) in one streamed
+    // completion; the effort is the presentation lane's (§37.10.1) with the caller's `lane` as the
+    // fallback, so reading a page never inherits the Keeper's `high`. What the model has written so
+    // far goes to the host as progress lines, which is how the player watches it arrive.
+    const lane = await presentationLaneChoice(context, input.lane ?? {});
+    return readHandout({home: input.home, contentRoot: context.contentRoot, campaign: input.campaign,
+      play_language: await playLanguageTag(context.contentRoot, input.play_language), image: input.image,
+      vision: input.vision !== false, model: input.model, thinking: lane.thinking, signal: guidanceAbort.signal,
+      runner: runTask, onProgress: partial => emit('progress', {stage: 'reading', title: partial.title, text: partial.text})});
+  }
   if (action === 'document-presentation') {
     const document = await call('mods.document.view', {campaign:input.campaign, actor:input.actor, name:input.name});
     if (document.version !== input.version) throw Object.assign(new Error('The document changed; reload before saving'), {code:'revision_conflict'});
@@ -163,8 +175,10 @@ async function main() {
       // The lane reads the files `apply handout` wrote, which is where a handout's words are: it
       // is on no panel and in no view. Taking them from disk rather than from the kernel also
       // keeps this lane off the campaign lock, so a document handed over mid-turn does not queue
-      // behind the Keeper's own turn.
-      return prepareHandoutPresentation({...input,contentRoot:context.contentRoot,known_labels:{},
+      // behind the Keeper's own turn. A title no file carries -- a pictured handout writes none --
+      // arrives on the request as `handout_names`, from the rows the host already holds, and joins
+      // those files' rows as a row with no body (VT-01).
+      return prepareHandoutPresentation({...input,handout_names:input.handout_names,contentRoot:context.contentRoot,known_labels:{},
         signal:guidanceAbort.signal,runner:runTask});
     }
     // The draft row already carries the kernel's glossary. When the caller hands it over there is

@@ -393,6 +393,23 @@ export function deliveryWords(entry:any):Record<string,string[]> {
   return Object.fromEntries(Object.entries(wanted).filter(([,set])=>set.size).map(([lane,set])=>[lane,[...set].sort()]));
 }
 /**
+ * The titles a set of handout rows shows -- a view's held documents, or a delivery's handout rows --
+ * as the handouts lane's request carries them (`handout_names`, VT-01).
+ *
+ * The lane reads the files `apply handout` wrote, and a pictured handout writes none, so its title
+ * is in no file the lane can read; a pictured one with a transcript folds under the receipt's label,
+ * which its file's heading is not. Both are words the lane's collector counts. Left to the files,
+ * such a title stayed missing after every run, and each run's landing pushed the re-read that
+ * started the next one. The host holds these player-safe rows when it starts the lane, so it hands
+ * the titles over as input.
+ */
+export function handoutTitles(rows:unknown):string[] {
+  const titles=new Set<string>();
+  for(const row of Array.isArray(rows)?rows:[])
+    if(row&&typeof row==='object'&&typeof row.name==='string'&&row.name.trim())titles.add(row.name);
+  return [...titles].sort();
+}
+/**
  * §16.5's middle visibility tier, enforced where the rows leave the backend.
  *
  * A `concealed` roll is one the player declared and the rules keep the die for (CoC 7e Psychology:
@@ -467,6 +484,16 @@ function wordTable(value:unknown):Record<string,string> {
 /** The §40.1 say wrapper, by shape only: the name may be in any script, so the ASCII marker
  *  grammar of §16.6 does not see it. No `g` flag — `test` here must not carry a `lastIndex`. */
 const SAY_TOKEN=/\{\{say:[^{}\n]{1,60}\}\}/;
+/**
+ * A handout row persisted before the kernel carried its handle (§155): the handle is the middle of the
+ * receipt id the kernel minted (`handout:<handle>-t<turn>`), so the controls that address a handout by it
+ * work on an older transcript too. A row whose id has another shape stays as it was.
+ */
+function handoutHandle(row:any):any {
+  if(typeof row.handout==='string'&&row.handout||typeof row.receipt!=='string')return row;
+  const found=/^handout:(.+)-t\d+$/.exec(row.receipt);
+  return found?{...row,handout:found[1]}:row;
+}
 export function mechanicsEntry(row:any, language?:string, presentations?:ReadonlyMap<number,Record<string,unknown>>,
   words:CocHistoryWords={}, current?:Record<string,unknown>, patches?:readonly CocCardPatch[]|CocObjectDetails, context?:CocBinding): HistoryEntry | undefined {
   const lanes=wordTable(words.lanes), chrome=words.ui?{ui:words.ui}:{};
@@ -489,7 +516,7 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
   if(row?.type!=='custom'||row.customType!=='coc-mechanics'||!Array.isArray(row.data?.mechanics))return;
   const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper').map(concealFigures).map((item:any)=>{
     if(item.kind!=='handout')return item;
-    const {image:_existing,...safe}=item,image=handoutImage(safe,context);
+    const {image:_existing,...rest}=item,safe=handoutHandle(rest),image=handoutImage(safe,context);
     return image?{...safe,image}:safe;
   });
   // §16.6: the delivery with its markers still in it, when the Keeper placed any. It rides with the

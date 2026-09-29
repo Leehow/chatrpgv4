@@ -353,6 +353,27 @@ it('every campaign lane is its own job, so a journal projection is never answere
  expect(run).toHaveBeenCalledTimes(5);
 });
 
+it('a handouts request naming other titles never joins a run that was not given them',async()=>{
+ // VT-01: the host hands the titles no handout file carries (a pictured handout's) to the lane as
+ // input. A read that owes another title must reach a run that was given it, the way two deliveries'
+ // rule words do; joining the run in flight would answer without it and leave it owed.
+ const {host}=await service();
+ let release:()=>void=()=>{};const gate=new Promise<void>(done=>{release=done;});
+ const run=vi.spyOn(host as any,'run').mockImplementation(async(_action:any,data:any)=>{
+  await gate;
+  return {play_language:'zh-Hans',texts:Object.fromEntries((data.handout_names??[]).map((name:string)=>[name,`projected ${name}`]))};
+ });
+ const base={campaign:'c1',play_language:'zh-Hans',handouts:true};
+ const first=host.presentation({...base,handout_names:['Map']});
+ const same=host.presentation({...base,handout_names:['Map']});
+ const other=host.presentation({...base,handout_names:['Clipping']});
+ release();
+ expect((await first).texts).toEqual({Map:'projected Map'});
+ expect((await same).texts).toEqual({Map:'projected Map'});
+ expect((await other).texts).toEqual({Clipping:'projected Clipping'});
+ expect(run.mock.calls.map(call=>(call[1] as any).handout_names)).toEqual([['Map'],['Clipping']]);
+});
+
 it('keeps a failed UI projection rejected until the player explicitly retries',async()=>{
  const {host}=await service();
  const presentation=vi.spyOn(host,'presentation').mockRejectedValue(new Error('projection failed'));

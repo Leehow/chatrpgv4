@@ -30,7 +30,17 @@ export type ToolRenderProps = {
   details?: unknown
   /** Typed image blocks delivered with the tool result (b64 + mime), if any. */
   images?: { data: string; mimeType: string }[]
+  /**
+   * Contract §155.8: a host call made on behalf of the extension that registered this renderer,
+   * bound by the host UI to the transcript's session. The controlled loader binds `extensionId` to
+   * its own extension and hands the pack component `onInvoke(method, params)`. Resolves to the
+   * answer's `data`; a refusal rejects with an Error carrying the refusal's `code`.
+   */
+  onInvokeExtension?: RendererInvoke
 }
+
+/** §155.8: `host.invokeExtension` bound to a session, answering `data` or throwing `{code}`. */
+export type RendererInvoke = (extensionId: string, method: string, params: unknown) => Promise<unknown>
 
 export type ToolRendererContribution = {
   toolName: string

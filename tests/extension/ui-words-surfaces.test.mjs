@@ -19,7 +19,7 @@ import { loadPlayLanguages } from "../../runtime/ui-words.ts";
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** The surfaces a player reads, one file per language. `extension` is the extensions' own. */
-const SURFACES = ["board", "choices", "errors", "mechanics", "mods", "onboarding", "paper", "preparation", "sheet", "timeline", "transcript"];
+const SURFACES = ["board", "choices", "errors", "handout", "mechanics", "mods", "onboarding", "paper", "preparation", "sheet", "timeline", "transcript"];
 
 /** The failure codes the contract puts in front of a player, plus the two the renderers add. */
 const CODES = [
@@ -30,7 +30,7 @@ const CODES = [
 	"upload_size_mismatch", "upload_incomplete", "upload_retry", "guidance_not_ready",
 	"guidance_unavailable", "opening_bound", "preparation_pause_first", "scenario_not_ready",
 	"name_and_occupation_required", "unknown_action", "presentation_timeout", "interrupted",
-	"kernel_error", "unknown", "details",
+	"kernel_error", "unknown", "details", "handout_not_available", "handout_reading_failed",
 ];
 
 /** The renderers and components whose words are data now. Each is read whole. */

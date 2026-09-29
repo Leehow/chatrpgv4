@@ -334,8 +334,29 @@ export function identityTexts(view:Row):string[] {
 export function prepareIdentityPresentation(options:TextOptions&{campaign:string;view:Row}):Promise<Row> {
   return prepareGrowingPresentation(options,'identity',identityTexts);
 }
-export async function prepareHandoutPresentation(options:TextOptions&{campaign:string}):Promise<Row> {
-  const handouts=await handoutInput(options.home,options.campaign);
+/** How many titles one request may hand the lane, and how long one may be: shape only (VT-01). */
+const HANDOUT_TITLE_COUNT=256, HANDOUT_TITLE_LENGTH=400;
+/**
+ * The handout titles a request hands the lane, as rows of the lane's own input with no body.
+ *
+ * `handoutInput` reads the files `apply handout` wrote, and a pictured handout (§152.3) writes none:
+ * its row in `table.view` has a `name` and no body. A pictured handout with a transcript has a file,
+ * but its row folds under the receipt's label rather than the file's heading. `handoutTexts` counts
+ * both names, so a lane that could only read the files owed them forever, and a sheet or board read
+ * started it again after every landing. The host holds the player-safe rows when it starts the lane,
+ * so it hands their titles over here. They are host-supplied and still checked, for shape only:
+ * strings, bounded in count and length. What language they are in is the lane's to decide.
+ */
+export function handoutTitleRows(value:unknown):Row[] {
+  if(value===undefined)return [];
+  if(!Array.isArray(value)||value.length>HANDOUT_TITLE_COUNT
+    ||value.some(name=>typeof name!=='string'||!name.trim()||name.length>HANDOUT_TITLE_LENGTH))
+    throw coded('invalid_params','Invalid presentation request');
+  return [...new Set(value as string[])].map(name=>({name,text:null}));
+}
+export async function prepareHandoutPresentation(options:TextOptions&{campaign:string;handout_names?:unknown}):Promise<Row> {
+  const titles=handoutTitleRows(options.handout_names);
+  const handouts=[...await handoutInput(options.home,options.campaign),...titles];
   return prepareGrowingPresentation({...options,view:{play_language:options.play_language,handouts}},'handouts',handoutTexts);
 }
 /** A projection that grows with the table: what its saved file lacks is asked, what it has is kept. */

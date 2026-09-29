@@ -9,7 +9,9 @@
  * The wiring needed no new channel. The kernel's result already carries `rendered_text` and
  * `mechanics` (§16.2), and the extension already hands the whole result over as the tool's
  * `details`. A renderer only gets `{content, details, images}` — no host API — so `play_language`
- * and the rules glossary ride with the delivery as well (§22.7).
+ * and the rules glossary ride with the delivery as well (§22.7). The one host call it may make is
+ * `onInvoke(method, params)` (§155.8), bound by the host to this pack and the transcript's session;
+ * today only a pictured handout's translate control uses it (§155).
  *
  * TWO RULES THIS FILE MUST NOT BREAK:
  *
@@ -338,6 +340,177 @@ function speakerInk(anchor, who) {
 }
 /* >>> end speaker colour <<< */
 
+/* >>> handout reading: shared verbatim between pipicoc/mechanics.js and pipicoc/board.js <<<
+ *
+ * Contract §155. A handout cropped from a PDF page reaches the player as the picture and nothing
+ * else, so a table whose play language is not the module's holds a clipping it cannot read. This
+ * control asks the host for a reading version in the play language (`handout.reading`) and draws it
+ * in the row's body slot under the picture. The picture is never replaced or hidden: the toggle
+ * only chooses what the body slot below it shows.
+ *
+ * The delivery card and the case board draw the same control, and a pack renderer is a `data:`
+ * module that cannot import a sibling, so -- the speaker-colour block's rule -- it is authored once
+ * and copied byte for byte into both files; `tests/extension/handout-reading-control.test.mjs`
+ * fails the moment the copies drift.
+ *
+ * What it sends is `{handout}` and nothing else: the host resolves the path, the campaign, the
+ * digest and the language (§155.1). What it draws are words from the answer's own `ui` block -- the
+ * `handout` surface for its captions, the `errors` surface for a refusal's code -- asked for by
+ * literal key, so the caption scan can see every one. Whether the picture is already in the
+ * player's language is the model's word (`keep`); nothing here reads the text it is handed.
+ *
+ * `invoke(method, params)` resolves to the answer's `data` and rejects with an Error carrying the
+ * refusal's `code`. A `pending` answer is asked again HANDOUT_POLL_MS after it arrived, never
+ * sooner, only while the row is open (`active`), and never once the control is gone. A failed job
+ * is a one-shot mailbox on the host, so the retry is simply the same call again.
+ *
+ * The reading streams (owner, 2026-09-29): a `pending` answer may carry `partial: {title, text}`,
+ * what the host's one streamed completion has written so far. It is drawn where the finished
+ * reading goes, marked `streaming`, under the pending line and with no toggle; a later answer never
+ * shrinks what is already drawn; the `ready` answer then takes the same slot in place. A `keep`
+ * answer shows its caption only, and a refusal drops the half-written text rather than leave it
+ * reading as if it were whole.
+ */
+const HANDOUT_POLL_MS = 400;
+const HANDOUT_STYLE_ID = "pipicoc-handout-reading-style";
+const HANDOUT_CSS = `
+.coc-handout-reading{margin-top:8px}
+.coc-handout-tools{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 6px;
+  color:var(--muted);font-size:11.5px;line-height:1.5}
+.coc-handout-action,.coc-handout-toggle{display:inline-flex;align-items:center;min-height:24px;
+  border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted);
+  padding:2px 10px;font:inherit;cursor:pointer}
+.coc-handout-action:hover,.coc-handout-toggle:hover{color:var(--accent);border-color:var(--accent)}
+.coc-handout-action:focus-visible,.coc-handout-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.coc-handout-toggle[aria-pressed="true"]{color:var(--accent);border-color:var(--accent);
+  background:color-mix(in oklab,var(--accent) 9%,transparent)}
+.coc-handout-status[role="alert"]{color:var(--danger)}
+.coc-handout-why{flex-basis:100%;color:var(--subtle);font-size:11px}
+.coc-handout-why>summary{cursor:pointer}
+.coc-handout-note{margin:0 0 6px;color:var(--subtle);font-family:inherit;font-size:11px;
+  font-style:italic;line-height:1.5;white-space:normal}
+.coc-handout-title{margin:0 0 4px;color:var(--text-strong);font-size:13.5px;font-weight:650;
+  line-height:1.5;white-space:normal}
+.coc-handout-text{white-space:pre-wrap}
+`;
+
+if (typeof document !== "undefined" && !document.getElementById(HANDOUT_STYLE_ID)) {
+  const style = document.createElement("style");
+  style.id = HANDOUT_STYLE_ID;
+  style.textContent = HANDOUT_CSS;
+  document.head.append(style);
+}
+
+/**
+ * What a streaming reading has written so far, grown by one `pending` answer's `partial`. Each of
+ * the two fields keeps whichever is longer, the one drawn or the one just handed over, so a poll
+ * that answers with less (or with nothing) never takes words back off the page mid-stream.
+ */
+function grownPartial(drawn, next) {
+  const was = isRecord(drawn) ? drawn : { title: "", text: "" };
+  if (!isRecord(next)) return was;
+  const title = text(next.title), body = text(next.text);
+  return { title: title.length >= was.title.length ? title : was.title, text: body.length >= was.text.length ? body : was.text };
+}
+
+/**
+ * The control, built from the host's React. `original` is what the body slot held before (an
+ * authored text, or nothing for an image-only clipping) and `bodyClass` is that slot's own class,
+ * so the reading version is set in the same place and the same face.
+ */
+function createHandoutReading(React) {
+  const h = React.createElement;
+  return function HandoutReading(props) {
+    const { handout, ui, original, bodyClass } = props;
+    const active = props.active !== false;
+    // The latest call, never a dependency: a host redraw hands over a new function every time, and
+    // a redraw must not restart the wait.
+    const call = React.useRef(props.invoke);
+    call.current = props.invoke;
+    const alive = React.useRef(true);
+    const asked = React.useRef(0);
+    const [state, setState] = React.useState({ phase: "idle", round: 0 });
+    const [view, setView] = React.useState("reading");
+    React.useEffect(() => {
+      alive.current = true;
+      return () => { alive.current = false; asked.current += 1; };
+    }, []);
+
+    function ask() {
+      const mine = ++asked.current;
+      // A poll keeps what has streamed so far; a press starts from idle or a refusal, which hold none.
+      setState(prior => ({ phase: "asking", round: prior.round, partial: prior.partial }));
+      Promise.resolve()
+        .then(() => call.current("handout.reading", { handout }))
+        .then(data => {
+          if (!alive.current || mine !== asked.current) return;
+          const status = isRecord(data) ? text(data.status) : "";
+          if (status === "pending") setState(prior => ({ phase: "waiting", round: prior.round + 1, partial: grownPartial(prior.partial, data.partial) }));
+          else if (status === "ready") {
+            setState(prior => ({ phase: "ready", round: prior.round, keep: data.keep === true, title: text(data.title), text: text(data.text) }));
+            setView("reading");
+          } else setState(prior => ({ phase: "failed", round: prior.round, code: "", reason: "" }));
+        }, error => {
+          if (!alive.current || mine !== asked.current) return;
+          setState(prior => ({ phase: "failed", round: prior.round,
+            code: isRecord(error) ? text(error.code) : "", reason: error instanceof Error ? error.message : "" }));
+        });
+    }
+
+    // One timer per `pending` answer, started after that answer arrived, cleared when the row
+    // closes or the control goes away: a job the player stopped looking at is not asked about.
+    React.useEffect(() => {
+      if (state.phase !== "waiting" || !active) return undefined;
+      const timer = setTimeout(ask, HANDOUT_POLL_MS);
+      return () => clearTimeout(timer);
+    }, [state.phase, state.round, active]);
+
+    let tools, drawn = state.phase;
+    if (state.phase === "idle") {
+      tools = h("button", { type: "button", className: "coc-handout-action", onClick: ask }, word(ui, "handout", "translate"));
+    } else if (state.phase === "asking" || state.phase === "waiting") {
+      drawn = "pending";
+      tools = h("span", { className: "coc-handout-status", role: "status" }, word(ui, "handout", "pending"));
+    } else if (state.phase === "failed") {
+      tools = [
+        h("span", { key: "why", className: "coc-handout-status", role: "alert" }, word(ui, "errors", state.code, word(ui, "handout", "failed"))),
+        h("button", { key: "retry", type: "button", className: "coc-handout-action", onClick: ask }, word(ui, "handout", "retry")),
+        // The host's reason is English by contract and written for the log: kept, behind a fold.
+        state.reason
+          ? h("details", { key: "reason", className: "coc-handout-why" }, h("summary", null, word(ui, "errors", "details")), state.reason)
+          : null,
+      ];
+    } else if (state.keep) {
+      drawn = "keep";
+      tools = h("span", { className: "coc-handout-status", role: "status" }, word(ui, "handout", "keep"));
+    } else {
+      tools = [
+        h("button", { key: "original", type: "button", className: "coc-handout-toggle", "aria-pressed": view === "original", onClick: () => setView("original") },
+          word(ui, "handout", "original")),
+        h("button", { key: "reading", type: "button", className: "coc-handout-toggle", "aria-pressed": view === "reading", onClick: () => setView("reading") },
+          word(ui, "handout", "reading")),
+      ];
+    }
+    // One slot, one element: the streamed words and the finished reading are the same `div` in the
+    // same place, so the `ready` answer replaces the text in place rather than remounting the slot.
+    const streamed = drawn === "pending" && isRecord(state.partial) && (state.partial.title || state.partial.text) ? state.partial : null;
+    const shown = state.phase === "ready" && !state.keep && view === "reading" ? { title: state.title, text: state.text, mark: "reading" }
+      : streamed ? { title: streamed.title, text: streamed.text, mark: "streaming" }
+      : null;
+    const reading = shown
+      ? h("div", { className: bodyClass ? `${bodyClass} coc-handout-reading-body` : "coc-handout-reading-body", "data-reading": shown.mark,
+          "aria-busy": shown.mark === "streaming" ? "true" : undefined },
+          h("p", { className: "coc-handout-note" }, word(ui, "handout", "note")),
+          shown.title ? h("h4", { className: "coc-handout-title" }, shown.title) : null,
+          h("div", { className: "coc-handout-text" }, shown.text))
+      : null;
+    return h("div", { className: "coc-handout-reading", "data-handout-reading": drawn },
+      h("div", { className: "coc-handout-tools" }, tools),
+      reading || original || null);
+  };
+}
+/* >>> end handout reading <<< */
+
 if (typeof document !== "undefined" && !document.getElementById(STYLE_ID)) {
   const style = document.createElement("style");
   style.id = STYLE_ID;
@@ -625,6 +798,16 @@ function familyLabel(group, t, term) {
 
 export function createComponent(React) {
   const h = React.createElement;
+  const HandoutReading = createHandoutReading(React);
+
+  /**
+   * §155.8: the host call and the words a pictured handout's control needs, handed from the card to
+   * its rows by context rather than by a parameter threaded through every `renderRow`. The value is
+   * `{invoke, ui}` and exists only while the host passed `onInvoke`; a React without context (the
+   * tests' element factories) gets none, and a row with no host call draws exactly as before.
+   */
+  const HostCall = typeof React.createContext === "function" ? React.createContext(null) : null;
+  const useHostCall = () => (HostCall && typeof React.useContext === "function" ? React.useContext(HostCall) : null);
 
   /** The kind's glyph on its disc. */
   function icon(kindKey) {
@@ -738,10 +921,30 @@ export function createComponent(React) {
     ];
   }
 
+  /**
+   * The body slot of a pictured handout: the §155 translate control when the host handed this card
+   * a call to make and the row names its handle (`row.handout`, never derived from a name or a
+   * receipt id), else exactly what the slot always held. It is its own component so the viewer in
+   * `MapRow` -- zoom, floors, pan -- still never reaches the host.
+   */
+  function HandoutSlot(props) {
+    const host = useHostCall();
+    const { handout, active, original } = props;
+    if (!handout || !host || typeof host.invoke !== "function") return original || null;
+    return h(HandoutReading, { key: handout, handout, invoke: host.invoke, ui: host.ui, active, bodyClass: "coc-mech-fold-body", original });
+  }
+
+  /**
+   * A map, or a pictured handout, drawn as its picture. A pictured handout's body slot is a
+   * `HandoutSlot`; a map's never is.
+   */
   function MapRow(props) {
     const { row, name, t, kindKey = 'map' } = props;
     const [zoom, setZoom] = React.useState(100);
     const [broken, setBroken] = React.useState(false);
+    // Whether the player has the row open (null until the first toggle says): a closed row asks
+    // the host nothing more (§155).
+    const [open, setOpen] = React.useState(null);
     const variants = knownLevelImages(row);
     const [level, setLevel] = React.useState(variants[0]?.level || "");
     const shown = variants.find(item => item.level === level)?.image || (playerImage(row.image) ? row.image : "");
@@ -751,6 +954,8 @@ export function createComponent(React) {
     // "not delivered" for all of them, which was false in every case: the map was handed over.
     const openable = row.document === "ready" && Boolean(shown) && !broken;
     const regionLabels = knownRegionLabels(row);
+    const handout = kindKey === 'handout' ? text(row.handout) : "";
+    const body = props.body ? h("div", {className:"coc-mech-fold-body"}, props.body) : null;
     return h("details", {
       className: "coc-mech-row coc-map",
       "data-kind": kindKey,
@@ -759,7 +964,11 @@ export function createComponent(React) {
       "data-view": text(row.view_id) || undefined,
       "data-receipt": text(row.receipt) || undefined,
       title: name,
-      onToggle: event => { if (event.currentTarget.open) setBroken(false); },
+      onToggle: event => {
+        const now = Boolean(event.currentTarget.open);
+        if (now) setBroken(false);
+        setOpen(now);
+      },
     },
       h("summary", { className: "coc-map-head" },
         h("span", { className: "coc-mech-ico", "aria-hidden": "true" }, icon(kindKey)),
@@ -800,7 +1009,7 @@ export function createComponent(React) {
               style: { width: `${zoom}%` },
               onError: () => setBroken(true),
             })),
-            props.body ? h("div", {className:"coc-mech-fold-body"}, props.body) : null,
+            kindKey === 'handout' ? h(HandoutSlot, { handout, active: open !== false, original: body }) : body,
             regionLabels.length ? h("div", { className: "coc-map-regions" }, regionLabels.join(" · ")) : null)
         // Nothing to open: the place the player knows is still worth naming, and it is the only
         // thing here that is true without the pixels.
@@ -1218,7 +1427,7 @@ export function createComponent(React) {
   };
 
   /** @param {{content: string, details?: unknown}} props */
-  return function DeliveryCard(props) {
+  function drawCard(props) {
     const details = isRecord(props.details) ? props.details : {};
     if (isRecord(details.coc_error)) return null; // the host's own error card is better than ours
     const help = helpOf(details);
@@ -1296,5 +1505,20 @@ export function createComponent(React) {
                 h("div", { className: "coc-mech-fam" }, familyLabel(group, t, term)),
                 group.rows.map((row, i) => renderRow(row, t, term, i, sheet)))
               : group.rows.map((row, i) => renderRow(row, t, term, `${key}:${index}:${i}`, sheet)))));
+  }
+
+  /**
+   * The card, inside the §155.8 host-call context. The provider is always there when this React
+   * has context, so the tree keeps one shape whether or not the host passed `onInvoke`; its value
+   * is null without one, and then no row draws a control.
+   *
+   * @param {{content: string, details?: unknown, onInvoke?: (method: string, params: unknown) => Promise<unknown>}} props
+   */
+  return function DeliveryCard(props) {
+    const card = drawCard(props);
+    if (!card || !HostCall) return card;
+    const invoke = typeof props.onInvoke === "function" ? props.onInvoke : null;
+    const ui = isRecord(props.details) ? props.details.ui : null;
+    return h(HostCall.Provider, { value: invoke ? { invoke, ui } : null }, card);
   };
 }
