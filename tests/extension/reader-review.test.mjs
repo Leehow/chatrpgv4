@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput} from '../../extensions/module/reader-review.ts';
+import {reviewCandidate,reviewUnits,checkReviewEvidence,detailReviewInput,readReviewPlan,REVIEW_PLAN_FILE} from '../../extensions/module/reader-review.ts';
 import {createRuntime} from '../../runtime/host.ts';
 
 test('opening review retains kernel-issued retranscription pointers and reviews the interaction choice once',()=>{
@@ -298,11 +298,12 @@ test('unchanged source retries reuse only completed positive review groups and i
  fail=false;assert.deepEqual((await reviewCandidate({...options,round:2})).sort(),[1,2]);assert.equal(runs,6);
  assert.equal(records.filter(row=>row.reused).length,1);
  await reviewCandidate({...options,round:3});assert.equal(runs,6);
- await reviewCandidate({...options,round:4,draft:{...draft,nodes:[{...draft.nodes[0],summary:'Changed source meaning'},draft.nodes[1]]}});assert.equal(runs,8);
- await reviewCandidate({...options,round:5,source:{...options.source,file_sha256:'b'.repeat(64)}});assert.equal(runs,10);
- await reviewCandidate({...options,round:6,reviewVersion:'fixture-v2'});assert.equal(runs,12);
+ // §150.2.1: a unit is keyed by its own records and their connected context; the edited record's unit alone re-runs.
+ await reviewCandidate({...options,round:4,draft:{...draft,nodes:[{...draft.nodes[0],summary:'Changed source meaning'},draft.nodes[1]]}});assert.equal(runs,7);
+ await reviewCandidate({...options,round:5,source:{...options.source,file_sha256:'b'.repeat(64)}});assert.equal(runs,9);
+ await reviewCandidate({...options,round:6,reviewVersion:'fixture-v2'});assert.equal(runs,11);
  const evidence=records.find(row=>row.reused).evidence;await writeFile(evidence,'{}');
- await reviewCandidate({...options,round:7});assert.equal(runs,13,'changed retained proof is a cache miss');
+ await reviewCandidate({...options,round:7});assert.equal(runs,12,'changed retained proof is a cache miss');
 });
 
 test('semantic rejections are never reused as successful review results',async t=>{
@@ -429,4 +430,91 @@ test('a reviewer the transport dropped is asked again after a wait, and only a l
  assert.equal(runs,2);
  assert.equal(failureSeen[0],null);assert.match(failureSeen[1],/omitted assigned fields/);
  assert.deepEqual(rows.filter(row=>row.phase==='verify').map(row=>[row.attempt,row.ok,row.reason]),[[2,false,'review']]);
+});
+
+/**
+ * §150.2.1 (spec jev-decides-llm-writes D-B B1). The review cache key used to contain the whole draft and the whole task:
+ * on Blood05 pages 19-20 a repair touching 3 of 29 claims re-reviewed every unit, and a repair round's own bookkeeping
+ * (`task.repair`) missed even an unchanged draft. A fact unit is now keyed by its own records and their connected context.
+ */
+function unitReviewer(ran){
+ return async request=>{
+  const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));ran.push(task.required_review);
+  const seen=task.review_scope_pages??[1,2,3];
+  request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:seen.map(page=>({page}))}}});
+  await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+  await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:seen.map(page=>({page})),reason:'fixture'}],missing:[]}));
+  return {ok:true,ms:1,stderr:''};
+ };
+}
+test('§150.2.1 an edit to one record re-runs only its unit and coverage; round bookkeeping never misses, a connected edit does',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-unit-identity-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const ran=[],rows=[];
+ const draft={nodes:[{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:[{page:1}],properties:{}},
+  {node_id:'npc-sailor',node_kind:'npc',name:'Sailor',source_refs:[{page:2}],properties:{}},
+  {node_id:'npc-keeper',node_kind:'npc',name:'Keeper',source_refs:[{page:3}],properties:{}}],
+  claims:[{subject_id:'npc-keeper',predicate:'present-in',object:{node_id:'scene-dock'},source_refs:[{page:3}]}],ready_nodes:['scene-dock'],coverage:{}};
+ const task={purpose:'detail',focus:'Dock',question:'',review_scope_pages:[1,2,3]};
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',extractionVersion:'native-v1',task,draft,instructions:'unused',round:1,
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){rows.push(row)},run:unitReviewer(ran)};
+ await reviewCandidate(options);
+ assert.deepEqual(ran.map(paths=>paths[0]).sort(),['/coverage','/nodes/0','/nodes/1','/nodes/2']);
+ // The sailor is edited, and the round carries a repair's bookkeeping and another coverage scope.
+ ran.length=0;rows.length=0;
+ const sailor={...draft,nodes:[draft.nodes[0],{...draft.nodes[1],summary:'Now with a summary.'},draft.nodes[2]]};
+ await reviewCandidate({...options,round:2,draft:sailor,task:{...task,review_scope_pages:[1,2,3,4],must_view_pages:[],review_retry:{refused:[]},
+  repair:{draft:'draft.json',baseline:'baseline.json',findings:{error:'refused'}}}});
+ assert.deepEqual(ran.map(paths=>paths[0]).sort(),['/coverage','/nodes/1'],'only the edited record and coverage are reviewed again');
+ assert.equal(rows.filter(row=>row.reused).length,2,'the dock and the keeper with its claim are reused');
+ // The keeper is edited: its own unit re-runs, and so does the dock, whose connected context holds the keeper.
+ ran.length=0;
+ const keeper={...sailor,nodes:[sailor.nodes[0],sailor.nodes[1],{...sailor.nodes[2],summary:'Keeps the lamp.'}]};
+ await reviewCandidate({...options,round:3,draft:keeper});
+ assert.deepEqual(ran.map(paths=>paths[0]).sort(),['/coverage','/nodes/0','/nodes/2'],'a changed dependency is a changed unit; the sailor is untouched');
+});
+
+test('§150.2.1 a deleted record keeps every surviving unit whole, and reused rows move to the records\' new positions',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-unit-carry-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const ran=[],rows=[];
+ const claim=i=>({subject_id:`npc-${i}`,predicate:'present-in',object:{node_id:`scene-${i}`},truth_status:'authorial',source_refs:[{page:3}]});
+ const draft={nodes:[],claims:Array.from({length:17},(_,i)=>claim(i))};
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'detail',focus:'Street',question:''},draft,instructions:'unused',round:1,
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(row){rows.push(row)},run:unitReviewer(ran)};
+ await reviewCandidate(options);
+ assert.deepEqual(ran.map(paths=>paths.length).sort((a,b)=>a-b),[1,8,8]);
+ const plan=readReviewPlan(await readFile(join(cwd,REVIEW_PLAN_FILE),'utf8'));
+ assert.ok(plan,'the round leaves its plan beside its review');
+ // A repair deletes claim 1. Batched afresh, every later claim would slide into another unit and no unit would match.
+ ran.length=0;rows.length=0;
+ const repaired={...draft,claims:draft.claims.filter((_,i)=>i!==1)};
+ await reviewCandidate({...options,round:2,draft:repaired,previousPlan:plan});
+ assert.deepEqual(ran,[['/claims/0','/claims/1','/claims/2','/claims/3','/claims/4','/claims/5','/claims/6']],'only the unit that lost a record is reviewed again');
+ assert.equal(rows.filter(row=>row.reused).length,2);
+ const review=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
+ const answered=review.checked.flatMap(row=>row.paths).sort();
+ assert.deepEqual(answered,repaired.claims.map((_,i)=>`/claims/${i}`).sort(),'every claim answered once, at its new position');
+});
+
+test('§150.2.1 a reused unit review never carries a row about a record outside the unit',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'coc-unit-foreign-row-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const draft={nodes:[{node_id:'npc-one',source_refs:[{page:1}],properties:{}},{node_id:'npc-two',source_refs:[{page:2}],properties:{}}],claims:[]};
+ let runs=0;
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'detail',focus:'',question:''},draft,instructions:'unused',round:1,
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(){},
+  async run(request){
+   runs++;const task=JSON.parse(await readFile(join(request.cwd,'task.json'),'utf8'));
+   request.onEvent({type:'tool_execution_end',toolCallId:'pages',isError:false,result:{details:{kind:'source_pages',observations:[{page:1},{page:2}]}}});
+   await writeFile(request.eventLog+'.images.jsonl',JSON.stringify({included:['pages']})+'\n');
+   // The second unit's reviewer also volunteers a verdict on the first unit's record.
+   const extra=task.required_review[0]==='/nodes/1'?[{paths:['/nodes/0'],verdict:'supported',source_refs:[{page:1}],reason:'volunteered'}]:[];
+   await writeFile(join(request.cwd,'review.json'),JSON.stringify({checked:[{paths:task.required_review,verdict:'supported',source_refs:[{page:1}],reason:'assigned'},...extra],missing:[]}));
+   return {ok:true,ms:1,stderr:''};
+  }};
+ await reviewCandidate(options);assert.equal(runs,2);
+ assert.equal(JSON.parse(await readFile(join(cwd,'review.json'),'utf8')).checked.filter(row=>row.paths.includes('/nodes/0')).length,2);
+ // The first record changes: its own unit answers for it, and the second unit's reused review brings no stale verdict on it.
+ await reviewCandidate({...options,round:2,draft:{...draft,nodes:[{...draft.nodes[0],summary:'Changed.'},draft.nodes[1]]}});
+ assert.equal(runs,3);
+ const merged=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
+ assert.deepEqual(merged.checked.filter(row=>row.paths.includes('/nodes/0')).map(row=>row.reason),['assigned']);
 });

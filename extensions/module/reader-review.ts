@@ -22,7 +22,24 @@ function numeric(value: any, path: string): string[] {
 	return [];
 }
 
+/**
+ * A draft pointer's record root, spelled canonically (`/nodes/3`), and the rest of the pointer below it.
+ * Anything that is not under a node or a claim (`/coverage`, `/interaction_scene`, `/source_needs`) has none.
+ */
+export function recordRoot(path: unknown): { root: string; collection: 'nodes' | 'claims'; index: number; rest: string } | undefined {
+	const match = typeof path === 'string' ? /^\/(nodes|claims)\/(\d+)(\/.*)?$/.exec(path) : null;
+	if (!match) return undefined;
+	const index = Number(match[2]);
+	if (!Number.isSafeInteger(index)) return undefined;
+	return { root: `/${match[1]}/${index}`, collection: match[1] as 'nodes' | 'claims', index, rest: match[3] ?? '' };
+}
+
 export function reviewUnits(draft: Row, requiredPaths: string[] = [], maxPageUnion?:number, logicReview=false): string[][] {
+	return batchGroups(draft, reviewGroups(draft, requiredPaths, logicReview), maxPageUnion);
+}
+
+/** Every pointer a review must answer, grouped under the record (or the non-record key) that owns it. */
+function reviewGroups(draft: Row, requiredPaths: string[], logicReview: boolean): Map<string, Set<string>> {
 	const groups = new Map<string, Set<string>>();
 	for (const collection of ["nodes", "claims"]) for (const [i, row] of (draft[collection] ?? []).entries()) {
 		const path = `/${collection}/${i}`;
@@ -45,6 +62,11 @@ export function reviewUnits(draft: Row, requiredPaths: string[] = [], maxPageUni
 	}
 	// This unit can find missing source material even when no clue node was proposed.
 	if (draft.ready_nodes?.length) groups.set('/coverage', new Set(['/coverage',...(typeof draft.interaction_scene==='string'?['/interaction_scene']:[]),...(Array.isArray(draft.source_needs)?['/source_needs']:[])]));
+	return groups;
+}
+
+/** Records that cite the same pages share a reviewer, within bounds; anything else is its own unit. */
+function batchGroups(draft: Row, groups: Map<string, Set<string>>, maxPageUnion?: number): string[][] {
 	const batches: {pages: string; paths: string[]; records: number; bytes: number}[] = [];
 	for (const [root, pointers] of groups) {
 		const [, collection, ordinal] = root.split('/');
@@ -59,6 +81,102 @@ export function reviewUnits(draft: Row, requiredPaths: string[] = [], maxPageUni
 		else batches.push({pages, paths:[...pointers], records:1, bytes});
 	}
 	return batches.map(batch => batch.paths);
+}
+
+/**
+ * Contract §150.2.1: what one verify round reviewed, unit by unit, and which candidate and review it belongs to.
+ * `roots` are a fact unit's record roots in unit order and `records` the digests of those records exactly as written;
+ * a unit over non-record paths (`/coverage`) has neither. Written by the reviewer beside `review.json`.
+ */
+export interface ReviewPlanUnit { paths: string[]; roots: string[]; records: string[] }
+export interface ReviewPlan { version: 1; candidate_sha256: string; review_sha256: string; units: ReviewPlanUnit[] }
+export const REVIEW_PLAN_FILE = 'review-plan.json';
+/** The digest a plan binds its candidate by: the draft's canonical JSON, so formatting never unbinds it. */
+export function candidateDigest(draft: Row): string { return digest(canonical(draft)); }
+const recordDigest = (record: unknown) => digest(canonical(record ?? null));
+function planUnit(draft: Row, paths: string[]): ReviewPlanUnit {
+	const roots: string[] = [];
+	for (const path of paths) {
+		const record = recordRoot(path);
+		if (!record) return { paths, roots: [], records: [] };
+		if (!roots.includes(record.root)) roots.push(record.root);
+	}
+	return { paths, roots, records: roots.map(root => recordDigest(pointerValue(draft, root))) };
+}
+/** A retained plan, or `undefined` when the file is absent or not a plan. */
+export function readReviewPlan(text: string): ReviewPlan | undefined {
+	let plan: any;
+	try { plan = JSON.parse(text); } catch { return undefined; }
+	const strings = (value: unknown) => Array.isArray(value) && value.every(item => typeof item === 'string');
+	if (plan?.version !== 1 || typeof plan.candidate_sha256 !== 'string' || typeof plan.review_sha256 !== 'string' || !Array.isArray(plan.units)
+		|| !plan.units.every((unit: any) => strings(unit?.paths) && strings(unit?.roots) && strings(unit?.records) && unit.roots.length === unit.records.length))
+		return undefined;
+	return plan;
+}
+/** Move each path from the root it sits under in `from` to the same position in `to`; `undefined` when one sits under none. */
+function movePaths(paths: unknown[], from: string[], to: string[]): string[] | undefined {
+	const moved: string[] = [];
+	for (const path of paths) {
+		if (typeof path !== 'string') return undefined;
+		const index = from.findIndex(root => path === root || path.startsWith(root + '/'));
+		if (index < 0) return undefined;
+		moved.push(to[index] + path.slice(from[index].length));
+	}
+	return moved;
+}
+/**
+ * Contract §150.2.1: a retained review of a fact unit, its rows moved from the record positions it was written against to
+ * the positions the same records hold now. A path outside the unit's records is not this unit's evidence (its record is
+ * not in the identity, so it may have changed since): it is dropped, and that record's own unit answers for it. Only an
+ * approved review is ever retained, so what is dropped is never a refusal.
+ */
+function moveReview(review: Row, from: string[], to: string[]): Row | undefined {
+	if (!Array.isArray(review?.checked) || from.length !== to.length) return undefined;
+	const checked: Row[] = [];
+	for (const row of review.checked) {
+		const listed = Array.isArray(row?.paths);
+		const moved = (listed ? row.paths : [row?.path]).map((path: unknown) => movePaths([path], from, to)?.[0]).filter((path: unknown): path is string => typeof path === 'string');
+		if (!moved.length) continue;
+		checked.push(listed ? { ...row, paths: moved } : { ...row, path: moved[0] });
+	}
+	return { ...review, checked };
+}
+
+/**
+ * Contract §150.2.1: the units of this candidate, keeping the grouping a previous round's plan gave to records that are
+ * still here byte-identical. Without that, deleting one refused claim shifts every later claim into another batch and
+ * no unit's records match the unit that reviewed them. A previous unit is carried only when every one of its records is
+ * still present and still owes exactly the pointers it owed then; everything else (changed, new or orphaned records,
+ * `/coverage`) is batched afresh, so the units always cover exactly the pointers this candidate owes.
+ */
+export function carriedReviewUnits(draft: Row, requiredPaths: string[] = [], maxPageUnion?: number, logicReview = false, plan?: ReviewPlan): string[][] {
+	const groups = reviewGroups(draft, requiredPaths, logicReview);
+	if (!plan?.units?.length) return batchGroups(draft, groups, maxPageUnion);
+	const present = new Map<string, string[]>();
+	for (const root of groups.keys()) {
+		const record = recordRoot(root);
+		if (!record || record.root !== root) continue;
+		const key = record.collection + ':' + recordDigest(pointerValue(draft, root));
+		present.set(key, [...(present.get(key) ?? []), root]);
+	}
+	const taken = new Set<string>(), carried: string[][] = [];
+	for (const unit of plan.units) {
+		if (!unit.roots.length) continue;
+		const mapped: string[] = [];
+		for (const [index, root] of unit.roots.entries()) {
+			const collection = recordRoot(root)?.collection;
+			const next = collection ? (present.get(collection + ':' + unit.records[index]) ?? []).find(candidate => !taken.has(candidate) && !mapped.includes(candidate)) : undefined;
+			if (!next) break;
+			mapped.push(next);
+		}
+		if (mapped.length !== unit.roots.length) continue;
+		const moved = movePaths(unit.paths, unit.roots, mapped);
+		const owed = mapped.flatMap(root => [...groups.get(root)!]);
+		if (!moved || moved.length !== owed.length || new Set(moved).size !== moved.length || owed.some(path => !moved.includes(path))) continue;
+		for (const root of mapped) taken.add(root);
+		carried.push(moved);
+	}
+	return [...carried, ...batchGroups(draft, new Map([...groups].filter(([root]) => !taken.has(root))), maxPageUnion)];
 }
 
 /**
@@ -154,24 +272,35 @@ function approved(review: Row, guidance: boolean, policy:Row={}): boolean {
 	return blockingModuleFindings(review.missing,policy).length === 0 && review.checked.every((item: Row) => item.verdict === 'supported'||moduleLogicReview(policy)&&advisoryModuleFinding(item))
 		&& (!guidance || moduleGuidanceApproved(review.guidance,policy));
 }
-async function cachedReview(file: string, key: string, paths: string[], guidance: boolean, requiredPages: number[], draft: Row,policy:Row={}): Promise<{review: Row; pages:number[]; evidence:string} | undefined> {
+/**
+ * `roots` (contract §150.2.1): a fact unit's record roots now. A fact unit's entry keeps the roots it was reviewed
+ * under, and its rows are moved to the current ones; an entry without roots is a whole-candidate review, whose
+ * positions cannot have moved without changing its key.
+ */
+async function cachedReview(file: string, key: string, paths: string[], guidance: boolean, requiredPages: number[], draft: Row,policy:Row={},roots?:string[]): Promise<{review: Row; pages:number[]; evidence:string} | undefined> {
 	try {
 		const entry = JSON.parse(await readFile(file,'utf8'));
 		if (entry.key !== key || entry.protocol !== reviewProtocol || typeof entry.evidence_path !== 'string') return;
 		const bytes = await readFile(entry.review_path), images = await readFile(entry.images_path), proof = await readFile(entry.evidence_path);
 		if (digest(bytes) !== entry.review_sha256 || digest(images) !== entry.images_sha256 || digest(proof) !== entry.evidence_sha256) return;
-		const review = JSON.parse(bytes.toString()), pages = JSON.parse(proof.toString()).pages;
+		let review = JSON.parse(bytes.toString());
+		const pages = JSON.parse(proof.toString()).pages;
 		if (!Array.isArray(pages) || pages.some((page: any) => !Number.isInteger(page) || page < 1)) return;
+		if (Array.isArray(entry.roots) || roots) {
+			if (!Array.isArray(entry.roots) || !roots) return;
+			review = moveReview(review, entry.roots, roots);
+			if (!review) return;
+		}
 		checkReviewEvidence(review, paths, new Set(pages), requiredPages, draft);
 		if (approved(review, guidance,policy)) return {review, pages, evidence:entry.review_path};
 	} catch { /* A missing or modified original proof is a cache miss. */ }
 }
-async function retainReview(file: string, key: string, reviewPath: string, imagesPath: string, pages: Set<number>) {
+async function retainReview(file: string, key: string, reviewPath: string, imagesPath: string, pages: Set<number>, roots?: string[]) {
 	await mkdir(join(file,'..'),{recursive:true});
 	const evidencePath = join(reviewPath,'..','observed-pages.json');
 	await writeFile(evidencePath,JSON.stringify({pages:[...pages]})+'\n');
 	const entry = {protocol:reviewProtocol, key, review_path:reviewPath, images_path:imagesPath, evidence_path:evidencePath, evidence_sha256:digest(await readFile(evidencePath)),
-		review_sha256:digest(await readFile(reviewPath)), images_sha256:digest(await readFile(imagesPath)), pages:[...pages]};
+		review_sha256:digest(await readFile(reviewPath)), images_sha256:digest(await readFile(imagesPath)), pages:[...pages], ...(roots ? {roots} : {})};
 	const temporary = file + '.' + randomUUID() + '.tmp';
 	await writeFile(temporary,JSON.stringify(entry)+'\n'); await rename(temporary,file);
 }
@@ -241,10 +370,50 @@ export function detailReviewInput(task: Row, draft: Row, paths: string[]): Row {
 			full_task: 'task.json', full_candidate: 'draft.json', focused_input: 'review-input.json' } };
 }
 
+/**
+ * Round bookkeeping (§150.2.1): what a repair round tells its author, never what a reviewer judges. A review identity
+ * that included them missed on every repair round even for records nobody touched.
+ */
+const ROUND_BOOKKEEPING = ['commands', 'repair', 'must_view_pages', 'review_retry'];
+function withoutBookkeeping(task: Row): Row {
+	return Object.fromEntries(Object.entries(task).filter(([key]) => !ROUND_BOOKKEEPING.includes(key)));
+}
+
+/**
+ * Contract §150.2.1: the review cache identity of one fact unit. It is what the unit's reviewer judges and nothing else:
+ * the protocol and instruction version, the bound source and its native extraction version, the model, the hot task
+ * fields the focused input carries (purpose, policy, focus, question, classification fields, ...), the unit's records
+ * exactly as written with the pointers each owes (relative to its record, so a record that moved is the same record), the
+ * connected known and candidate context the focused input computes, and the pages those records cite. It excludes every
+ * other record, the whole-candidate `required_review`, the coverage unit's `review_scope_pages` and round bookkeeping.
+ * `undefined` for a unit over a non-record path (`/coverage`): that one keeps the whole-candidate identity.
+ */
+export function reviewUnitIdentity(base: { version?: string; source: string; extraction?: string; model: Row }, task: Row, draft: Row, paths: string[]): { identity: string; roots: string[] } | undefined {
+	const roots: string[] = [], owed = new Map<string, string[]>();
+	for (const path of paths) {
+		const record = recordRoot(path);
+		if (!record) return undefined;
+		if (!roots.includes(record.root)) { roots.push(record.root); owed.set(record.root, []); }
+		owed.get(record.root)!.push(record.rest);
+	}
+	if (!roots.length) return undefined;
+	const input = detailReviewInput(withoutBookkeeping(task), draft, roots);
+	const { required_review: _owed, review_scope_pages: _scope, ...hot } = input.task;
+	const records = roots.map(root => ({ collection: recordRoot(root)!.collection, record: pointerValue(draft, root) ?? null, owes: [...owed.get(root)!].sort() }));
+	const pages = [...new Set(records.flatMap(({ record }) => [...(record?.source_refs ?? []), ...(record?.properties?.image_sources ?? [])]
+		.map((ref: Row) => ref?.page).filter((page: unknown): page is number => Number.isSafeInteger(page))))].sort((a, b) => a - b);
+	return { roots, identity: canonical({ protocol: reviewProtocol, unit: 'fact-unit-v1', version: base.version, source: base.source,
+		extraction: base.extraction, model: base.model, task: hot, records, context: { known: input.known_context, candidate: input.candidate_context }, pages }) };
+}
+
 export async function reviewCandidate(options: {
 	cwd: string; task: Row; draft: Row; instructions: string; round: number;
 	model: { id: string; thinking?: string }; source: { pdf: string; cache: string; file_sha256?: string }; signal: AbortSignal;
 	cacheRoot?: string; reviewVersion?: string;
+	/** §150.2.1: the bound source's native extraction version, part of every fact unit's identity. */
+	extractionVersion?: string;
+	/** §150.2.1: the plan of the round that reviewed this candidate's predecessor; its surviving units keep their grouping. */
+	previousPlan?: ReviewPlan;
 	run: (request: ReaderRequest) => Promise<ReaderOutcome>;
 	record(row: Row): void; progress(row: Row): void;
 	/** Test seam: the waits between transport retries, in order. Production uses `TRANSPORT_BACKOFF_MS`. */
@@ -256,13 +425,22 @@ export async function reviewCandidate(options: {
 	const publicFields=publicBytes?validatePublicGuidance(JSON.parse(publicBytes),options.task.source.page_count):undefined;
 	const answerTask = options.task.purpose === 'answer';
 	const candidateBytes = guidanceBytes || answerTask ? await readFile(join(options.cwd,"draft.json")) : Buffer.from(JSON.stringify(options.draft));
-	const {commands: _commands, ...semanticTask} = options.task;
-	const identity = options.cacheRoot && options.source.file_sha256 ? canonical({protocol:reviewProtocol,
+	const semanticTask = withoutBookkeeping(options.task);
+	const cached = !!options.cacheRoot && !!options.source.file_sha256;
+	// The whole-candidate identity: guidance and answer reviews (one unit over the whole artifact) and `/coverage`.
+	const identity = cached ? canonical({protocol:reviewProtocol,
 		version:options.reviewVersion, source:options.source.file_sha256, draft:options.draft,
 		guidance:guidanceBytes,public_fields:publicBytes, task:semanticTask, model:options.model}) : undefined;
 	const guidancePaths=[...new Set([...reviewUnits(options.draft,[],undefined,moduleLogicReview(options.task)).flat(),...(Array.isArray(options.task.required_review)?options.task.required_review:[])])];
 	const units = answerTask ? [['/status', '/answer', '/source_refs', '/limitations']] : guidanceBytes ? [guidancePaths]
-		: reviewUnits(options.draft,options.task.required_review??[],moduleLogicReview(options.task)||options.task.opening_scope==='first_interaction'?4:undefined,moduleLogicReview(options.task)), results: Row[] = [], observed = new Set<number>();
+		: carriedReviewUnits(options.draft,options.task.required_review??[],moduleLogicReview(options.task)||options.task.opening_scope==='first_interaction'?4:undefined,moduleLogicReview(options.task),options.previousPlan), results: Row[] = [], observed = new Set<number>();
+	// §150.2.1: a fact unit is keyed by its own records and their connected context, so an edit elsewhere is not its miss.
+	const unitKey = (paths: string[]): {key: string; roots?: string[]} | undefined => {
+		if (!cached) return undefined;
+		const fact = answerTask || guidanceBytes ? undefined : reviewUnitIdentity({version:options.reviewVersion, source:options.source.file_sha256!,
+			extraction:options.extractionVersion, model:options.model}, semanticTask, options.draft, paths);
+		return fact ? {key: digest(fact.identity), roots: fact.roots} : {key: digest(identity! + canonical(paths))};
+	};
 	const scopePages = [...new Set<number>((options.task.review_scope_pages?.length ? options.task.review_scope_pages : [...(options.draft.nodes ?? []), ...(options.draft.claims ?? []),...(options.draft.source_needs??[])]
 		.flatMap((item: Row) => (item.source_refs ?? []).map((ref: Row) => ref.page)))
 		.filter((page: any) => Number.isInteger(page) && page > 0))].sort((a,b) => a-b);
@@ -276,12 +454,12 @@ export async function reviewCandidate(options: {
 			const index = next++, paths = units[index];
 			const requiredPages = answerTask ? [...new Set<number>((options.draft.source_refs ?? []).map((ref: Row) => ref.page))]
 				: guidanceBytes || paths.includes('/coverage') ? scopePages : [];
-			const key = identity ? digest(identity + canonical(paths)) : undefined;
+			const identified = unitKey(paths), key = identified?.key;
 			const cacheFile = key ? join(options.cacheRoot!,key+'.json') : undefined;
-			const cached = cacheFile ? await cachedReview(cacheFile,key!,paths,!!guidanceBytes,requiredPages,options.draft,options.task) : undefined;
-			if (cached) {
-				results[index] = cached.review; for (const page of cached.pages) observed.add(page); completed++;
-				options.record({lane:'reading',phase:'verify',unit:index+1,ms:0,ok:true,reused:true,evidence:cached.evidence,pages:[...cached.pages].sort((a,b)=>a-b)});
+			const reused = cacheFile ? await cachedReview(cacheFile,key!,paths,!!guidanceBytes,requiredPages,options.draft,options.task,identified!.roots) : undefined;
+			if (reused) {
+				results[index] = reused.review; for (const page of reused.pages) observed.add(page); completed++;
+				options.record({lane:'reading',phase:'verify',unit:index+1,ms:0,ok:true,reused:true,evidence:reused.evidence,pages:[...reused.pages].sort((a,b)=>a-b)});
 				options.progress({stage:'verify',reviewed:completed,review_total:units.length,activeReaders:active});
 				continue;
 			}
@@ -355,7 +533,7 @@ export async function reviewCandidate(options: {
 				if (answerTask) checkAnswerReviewShape(review, Number(options.task.source?.page_count) || Number.MAX_SAFE_INTEGER, pages, requiredPages);
 				results[index] = review;
 				if (cacheFile && approved(review,!!guidanceBytes,options.task)) {
-					try { await retainReview(cacheFile,key!,join(cwd,'review.json'),eventLog+'.images.jsonl',pages); }
+					try { await retainReview(cacheFile,key!,join(cwd,'review.json'),eventLog+'.images.jsonl',pages,identified!.roots); }
 					catch (error) { options.record({lane:'reading',event:'review_cache_unavailable',unit:index+1,detail:String(error)}); }
 				}
 				for (const page of pages) observed.add(page);
@@ -409,13 +587,19 @@ export async function reviewCandidate(options: {
 	if ((guidanceBytes || answerTask) && !(await readFile(join(options.cwd,"draft.json"))).equals(candidateBytes)) throw new Error("Source candidate changed during review");
 	if (guidanceBytes && await readFile(join(options.cwd,"guidance.json"),"utf8") !== guidanceBytes) throw new Error("Source pair changed during review");
 	if(publicBytes&&await readFile(join(options.cwd,'public-fields.json'),'utf8')!==publicBytes)throw new Error('Public source fields changed during review');
-	await writeFile(join(options.cwd, "review.json"), JSON.stringify({
+	const reviewBytes = JSON.stringify({
 		checked: results.flatMap(r => r.checked), missing: results.flatMap(r => r.missing),
 		...(answerTask ? { draft_sha256: digest(candidateBytes) } : {}),
 		...(guidanceBytes ? {guidance: {...results[0].guidance,
 			...(publicBytes?{public_fields_sha256:digest(publicBytes)}:{}),
 			draft_sha256: createHash("sha256").update(candidateBytes).digest("hex"),
 			guidance_sha256: createHash("sha256").update(guidanceBytes).digest("hex")}} : {}),
-	}) + "\n");
+	}) + "\n";
+	await writeFile(join(options.cwd, "review.json"), reviewBytes);
+	// §150.2.1/§150.2.2: which candidate this review judged, and how it was grouped, for the round that repairs it.
+	if (!guidanceBytes && !answerTask) {
+		const plan: ReviewPlan = {version:1, candidate_sha256:candidateDigest(options.draft), review_sha256:digest(reviewBytes), units:units.map(paths => planUnit(options.draft, paths))};
+		await writeFile(join(options.cwd, REVIEW_PLAN_FILE), JSON.stringify(plan) + "\n");
+	}
 	return [...observed];
 }
