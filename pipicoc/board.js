@@ -227,8 +227,15 @@ function speakerInk(anchor, who) {
  * refusal's `code`. A `pending` answer is asked again HANDOUT_POLL_MS after it arrived, never
  * sooner, only while the row is open (`active`), and never once the control is gone. A failed job
  * is a one-shot mailbox on the host, so the retry is simply the same call again.
+ *
+ * The reading streams (owner, 2026-09-29): a `pending` answer may carry `partial: {title, text}`,
+ * what the host's one streamed completion has written so far. It is drawn where the finished
+ * reading goes, marked `streaming`, under the pending line and with no toggle; a later answer never
+ * shrinks what is already drawn; the `ready` answer then takes the same slot in place. A `keep`
+ * answer shows its caption only, and a refusal drops the half-written text rather than leave it
+ * reading as if it were whole.
  */
-const HANDOUT_POLL_MS = 2000;
+const HANDOUT_POLL_MS = 400;
 const HANDOUT_STYLE_ID = "pipicoc-handout-reading-style";
 const HANDOUT_CSS = `
 .coc-handout-reading{margin-top:8px}
@@ -259,6 +266,18 @@ if (typeof document !== "undefined" && !document.getElementById(HANDOUT_STYLE_ID
 }
 
 /**
+ * What a streaming reading has written so far, grown by one `pending` answer's `partial`. Each of
+ * the two fields keeps whichever is longer, the one drawn or the one just handed over, so a poll
+ * that answers with less (or with nothing) never takes words back off the page mid-stream.
+ */
+function grownPartial(drawn, next) {
+  const was = isRecord(drawn) ? drawn : { title: "", text: "" };
+  if (!isRecord(next)) return was;
+  const title = text(next.title), body = text(next.text);
+  return { title: title.length >= was.title.length ? title : was.title, text: body.length >= was.text.length ? body : was.text };
+}
+
+/**
  * The control, built from the host's React. `original` is what the body slot held before (an
  * authored text, or nothing for an image-only clipping) and `bodyClass` is that slot's own class,
  * so the reading version is set in the same place and the same face.
@@ -283,13 +302,14 @@ function createHandoutReading(React) {
 
     function ask() {
       const mine = ++asked.current;
-      setState(prior => ({ phase: "asking", round: prior.round }));
+      // A poll keeps what has streamed so far; a press starts from idle or a refusal, which hold none.
+      setState(prior => ({ phase: "asking", round: prior.round, partial: prior.partial }));
       Promise.resolve()
         .then(() => call.current("handout.reading", { handout }))
         .then(data => {
           if (!alive.current || mine !== asked.current) return;
           const status = isRecord(data) ? text(data.status) : "";
-          if (status === "pending") setState(prior => ({ phase: "waiting", round: prior.round + 1 }));
+          if (status === "pending") setState(prior => ({ phase: "waiting", round: prior.round + 1, partial: grownPartial(prior.partial, data.partial) }));
           else if (status === "ready") {
             setState(prior => ({ phase: "ready", round: prior.round, keep: data.keep === true, title: text(data.title), text: text(data.text) }));
             setView("reading");
@@ -335,11 +355,18 @@ function createHandoutReading(React) {
           word(ui, "handout", "reading")),
       ];
     }
-    const reading = state.phase === "ready" && !state.keep && view === "reading"
-      ? h("div", { className: bodyClass ? `${bodyClass} coc-handout-reading-body` : "coc-handout-reading-body", "data-reading": "reading" },
+    // One slot, one element: the streamed words and the finished reading are the same `div` in the
+    // same place, so the `ready` answer replaces the text in place rather than remounting the slot.
+    const streamed = drawn === "pending" && isRecord(state.partial) && (state.partial.title || state.partial.text) ? state.partial : null;
+    const shown = state.phase === "ready" && !state.keep && view === "reading" ? { title: state.title, text: state.text, mark: "reading" }
+      : streamed ? { title: streamed.title, text: streamed.text, mark: "streaming" }
+      : null;
+    const reading = shown
+      ? h("div", { className: bodyClass ? `${bodyClass} coc-handout-reading-body` : "coc-handout-reading-body", "data-reading": shown.mark,
+          "aria-busy": shown.mark === "streaming" ? "true" : undefined },
           h("p", { className: "coc-handout-note" }, word(ui, "handout", "note")),
-          state.title ? h("h4", { className: "coc-handout-title" }, state.title) : null,
-          h("div", { className: "coc-handout-text" }, state.text))
+          shown.title ? h("h4", { className: "coc-handout-title" }, shown.title) : null,
+          h("div", { className: "coc-handout-text" }, shown.text))
       : null;
     return h("div", { className: "coc-handout-reading", "data-handout-reading": drawn },
       h("div", { className: "coc-handout-tools" }, tools),
