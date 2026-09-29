@@ -116,3 +116,57 @@ test('a symlink inside the module jail cannot expose an outside image',async()=>
   ]}},{modulesRoot:modules,campaignDir:join(root,'.coc/campaigns/c1')});
   assert.equal(result.document,'none');assert.equal(result.image,undefined);
 });
+
+/** Colour counts of a rendered card: `unseen` is the renderer's own dark fill. */
+async function colours(result){
+  const image=await loadImage(Buffer.from(result.image.split(',')[1],'base64'));
+  const canvas=createCanvas(image.width,image.height),ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+  const pixels=ctx.getImageData(0,0,image.width,image.height).data;
+  const at=(x,y)=>{const i=(Math.floor(y*image.height)*image.width+Math.floor(x*image.width))*4;return [pixels[i],pixels[i+1],pixels[i+2]];};
+  return {at};
+}
+
+/** A source whose middle stripe is green: it lies between the two regions and belongs to neither. */
+async function striped(root){
+  const path=join(root,'module','striped.png');
+  await mkdir(join(root,'module'),{recursive:true});
+  const canvas=createCanvas(120,40),ctx=canvas.getContext('2d');
+  ctx.fillStyle='#ff0000';ctx.fillRect(0,0,40,40);
+  ctx.fillStyle='#00ff00';ctx.fillRect(40,0,40,40);
+  ctx.fillStyle='#0000ff';ctx.fillRect(80,0,40,40);
+  await writeFile(path,canvas.toBuffer('image/png'));
+  return path;
+}
+
+test('§39.4: a player-safe base draws the whole source, and a mask paints only the region not held',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'coc-map-base-')),path=await striped(root),campaignDir=join(root,'.coc/campaigns/c1');
+  const digest=createHash('sha256').update(await readFile(path)).digest('hex');
+  const view={map:'village',name:'Village',source_revision:'g1',regions:[{id:'west',label:'West'}],render:{
+    layers:[{region:'west',path,source_box:[0,0,1/3,1],placement:[0,0,1/3,1],source_digest:digest,redactions:[]}],
+    base:[{path,source_box:[0,0,1,1],placement:[0,0,1,1],source_digest:digest,levels:[]}],
+    masks:[{placement:[2/3,0,1,1],levels:[]}],
+  }};
+  const card=await renderMapView(view,{modulesRoot:join(root,'module'),campaignDir,receipt:'map:village-t1'});
+  assert.equal(card.document,'ready');
+  const {at}=await colours(card);
+  const [r]=at(1/6,.5), [,g]=at(.5,.5), [mr,mg,mb]=at(5/6,.5);
+  assert.ok(r>200,'the held region is drawn');
+  // The stripe between the regions is the source's own picture, not the dark between rectangles.
+  assert.ok(g>200,'the whole player-safe source is drawn under the regions');
+  assert.ok(mr<40&&mg<40&&mb<40,'the region not held is masked dark, not shown blue');
+  // Without the base the same card is only the held rectangle.
+  const collage=await renderMapView({...view,render:{layers:view.render.layers}},{modulesRoot:join(root,'module'),campaignDir,receipt:'map:village-t1b'});
+  assert.notEqual(collage.view_id,card.view_id,'bases and masks are part of the view identity');
+  assert.equal(collage.image.startsWith('data:image/png;base64,'),true);
+});
+
+test('§39.4: a base is held to the reviewed digest like a layer',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'coc-map-base-digest-')),path=await striped(root),campaignDir=join(root,'.coc/campaigns/c1');
+  const view={map:'village',name:'Village',source_revision:'g1',regions:[{id:'west',label:'West'}],render:{
+    layers:[{region:'west',path,source_box:[0,0,1/3,1],placement:[0,0,1/3,1],redactions:[]}],
+    base:[{path,source_box:[0,0,1,1],placement:[0,0,1,1],source_digest:'0'.repeat(64),levels:[]}],masks:[],
+  }};
+  const card=await renderMapView(view,{modulesRoot:join(root,'module'),campaignDir,receipt:'map:village-t1'});
+  assert.equal(card.document,'none');
+  assert.equal(card.image,undefined);
+});

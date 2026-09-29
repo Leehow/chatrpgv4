@@ -678,7 +678,36 @@ export class ModuleGraph {
             seen.add(node.node_id);
             result.push(node);
         }
+        // §39.4: a map of a place this scene lies in is a map of this scene too -- the same maps
+        // arrival presents (`mapsForScene`), so the Keeper and the player are handed one list.
+        for (const place of this.placesOutward(scene).slice(1))
+            for (const rel of this.incoming.get(place) ?? []) {
+                const node = this.nodes.get(rel.from_node_id);
+                if (rel.relation_kind !== "depicts" || !node || seen.has(node.node_id) || !array(row(node.properties).map_regions).length)
+                    continue;
+                seen.add(node.node_id);
+                result.push(node);
+            }
         return result;
+    }
+    /**
+     * Contract §39.4: the scene, then the places it occurs at, then every place those lie in by
+     * `located-in`, walking outward. Nearest first, each node once, at most eight steps out.
+     */
+    placesOutward(scene: Row): string[] {
+        const places = [scene.node_id as string], seen = new Set(places);
+        let frontier: string[] = [];
+        for (const rel of this.out.get(scene.node_id) ?? [])
+            if (rel.relation_kind === "occurs-at" && !seen.has(rel.to_node_id)) { seen.add(rel.to_node_id); places.push(rel.to_node_id); frontier.push(rel.to_node_id); }
+        frontier = [scene.node_id, ...frontier];
+        for (let step = 0; step < 8 && frontier.length; step++) {
+            const next: string[] = [];
+            for (const id of frontier)
+                for (const rel of this.out.get(id) ?? [])
+                    if (rel.relation_kind === "located-in" && !seen.has(rel.to_node_id)) { seen.add(rel.to_node_id); places.push(rel.to_node_id); next.push(rel.to_node_id); }
+            frontier = next;
+        }
+        return places;
     }
     private listedNodes(ids: string[], extra: (node: Row) => Row = () => ({})): Row[] {
         const seen = new Set<string>(),

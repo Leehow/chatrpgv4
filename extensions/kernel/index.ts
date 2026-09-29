@@ -1830,8 +1830,9 @@ export default function (pi: ExtensionAPI) {
 		state.attachments = [];
 		const pendingMaps = state.mapAttachments;
 		state.mapAttachments = [];
-		if (pending.length === 0 && pendingMaps.length === 0) return mechanics;
-		const rows = mechanics.map((row) => ({ ...row }));
+		const updates = mechanics.some(row => row.kind === "map" && row.presentation === "update" && row.words === AUTHORED_MAP_WORDS);
+		if (pending.length === 0 && pendingMaps.length === 0 && !updates) return mechanics;
+		const rows = mechanics.map((row) => updates && row.kind === "map" && row.presentation === "update" ? mapUpdateForDelivery(state, row) : { ...row });
 		for (const attachment of pending) {
 			void record({
 				lane: "handout",
@@ -1877,6 +1878,29 @@ export default function (pi: ExtensionAPI) {
 			else rows.push({...map});
 		}
 		return rows;
+	}
+
+	/**
+	 * Contract §39.4: an update row names what an arrival added to a map the table already holds, in
+	 * the module's words when no Keeper ran. It carries no picture, so it never passes `mapForDelivery`;
+	 * its words are projected here by the same all-or-nothing rule, and one that ships authored says so.
+	 */
+	function mapUpdateForDelivery(state: TableState, value: Record<string, unknown>): Record<string, unknown> {
+		const row = { ...value };
+		if (row.words !== AUTHORED_MAP_WORDS) return row;
+		const revealed = Array.isArray(row.revealed) ? row.revealed as Array<Record<string, unknown>> : [];
+		const card = { label: asString(row.label), name: asString(row.name), regions: revealed.map(region => ({ label: asString(region.label), level: asString(region.level) })) };
+		const projection = projectMapCard(card, state.mapWords);
+		if (projection.projected)
+			return { ...row, label: projection.card.label, name: projection.card.name, words: KEEPER_MAP_WORDS,
+				revealed: revealed.map((region, index) => ({ ...region, label: projection.card.regions?.[index]?.label ?? region.label,
+					...(region.level ? { level: projection.card.regions?.[index]?.level ?? region.level } : {}) })) };
+		const texts = mapCardTexts(card);
+		ensureMapWords(state, texts, "update");
+		void record({ lane: "map-words", event: "delivered", ok: false, reason: "not_projected", map: row.map,
+			...(typeof row.receipt === "string" ? { receipt: row.receipt } : {}), texts: texts.length,
+			missing: texts.filter(text => !state.mapWords[text]).length, ...(state.playLanguage ? { play_language: state.playLanguage } : {}) });
+		return row;
 	}
 
 	/** The authored words of one prepared card replaced with the projected ones, or the card marked as still owing them. */
@@ -1961,6 +1985,18 @@ export default function (pi: ExtensionAPI) {
 			campaignModulesRoot=resolve(campaignDir,'../../module-campaigns',basename(campaignDir),'modules'),prepared:MapAttachment[]=[];
 		for(const value of result.map_views) {
 			const receipt=value&&typeof value==='object'&&typeof (value as Record<string,unknown>).receipt==='string'?(value as Record<string,unknown>).receipt as string:undefined;
+			const view=value&&typeof value==='object'?value as Record<string,unknown>:{};
+			// §39.4: a look at a map the table already holds is delivered as a row naming it, never as a
+			// second picture; the living map is on the board.
+			if(view.presentation==='update'&&typeof view.map==='string'){
+				const regions=Array.isArray(view.regions)?view.regions as Record<string,unknown>[]:[];
+				prepared.push({kind:'map',...(receipt?{receipt}:{}),map:view.map,name:typeof view.name==='string'?view.name:view.map,
+					...(typeof view.label==='string'&&view.label?{label:view.label}:{}),...(typeof view.words==='string'?{words:view.words}:{}),
+					...(typeof view.source_revision==='string'?{source_revision:view.source_revision}:{}),
+					view_id:'update',regions,levels:[...new Set(regions.flatMap(region=>typeof region.level==='string'&&region.level?[region.level]:[]))],
+					document:MAP_DOCUMENT_NONE,presentation:'update'});
+				continue;
+			}
 			try {
 				const map=await renderMapView(value,{modulesRoot,sourceRoots:[campaignModulesRoot],campaignDir,...(receipt?{receipt}:{})});
 				if(map)prepared.push(map);
