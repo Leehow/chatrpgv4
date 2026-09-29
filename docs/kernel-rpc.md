@@ -1648,11 +1648,11 @@ anchors amend the historical default below; current authority fields remain thos
 
 **The ruling (owner, 2026-09-26).** A `runLane` zero-tool lane's thinking level now resolves through the same `resolveFastThinking` a `mod` child's model already uses (operator override, then the fast-model setting), but goes one step further before the literal default: **the table's own level** (`ctx.thinkingLevel`), read at the moment the lane runs, the same way the model itself already falls back to the table's ("Follow the table"). `runtime/fast-model.ts`'s `resolveFastThinking` gains an optional `table` argument for exactly this; no existing caller (`runtime/tasks.ts`'s `mod` lane, `presentationLaneChoice`) passes one, so their behaviour — a `mod` child's effort never inherits the table's, by design, §37.11 — is unchanged bit for bit.
 
-Once resolved, `level === "off"` no longer reaches the wire as the literal string `"off"` (not a value any provider's `reasoning_effort` documents). `laneReasoningOptions` mirrors what pi's own `Agent`/`streamSimple` road already does for it — `reasoning: thinkingLevel === "off" ? undefined : thinkingLevel` (`node_modules/@earendil-works/pi-agent-core/dist/agent.js`) — for the four `reasoningEffort`-shaped APIs (`openai-responses`, `azure-openai-responses`, `openai-codex-responses`, `openai-completions`): when the model's own `thinkingLevelMap.off` is not explicitly `null` (an override from §135.27.1's corrections, or simply no entry — pi-ai's own convention for "not marked unsupported"), the field is omitted entirely, and each API's own raw builder in `node_modules/@earendil-works/pi-ai/dist/api/*.js` consults that same map to produce its disabled shape on its own; this is not a new shape invented here, it is the same "absent `reasoningEffort`" branch already proven in that source for all four APIs. A model whose map still says `off: null` (unsupported) keeps the pre-fix, unconditional `{reasoningEffort: "off"}` — the same shape any other level already got, so nothing regresses for it.
+Once resolved, `level === "off"` no longer reaches the wire as the literal string `"off"` (not a value any provider's `reasoning_effort` documents). `laneReasoningOptions` mirrors what pi's own `Agent`/`streamSimple` road already does for it — `reasoning: thinkingLevel === "off" ? undefined : thinkingLevel` (`node_modules/@earendil-works/pi-agent-core/dist/agent.js`) — for the four `reasoningEffort`-shaped APIs (`openai-responses`, `azure-openai-responses`, `openai-codex-responses`, `openai-completions`): when the model's own `thinkingLevelMap.off` is not explicitly `null` (an override from §135.27.1's corrections, or simply no entry — pi-ai's own convention for "not marked unsupported"), the field is omitted entirely, and each API's own raw builder in `node_modules/@earendil-works/pi-ai/dist/api/*.js` consults that same map to produce its disabled shape on its own; this is not a new shape invented here, it is the same "absent `reasoningEffort`" branch already proven in that source for all four APIs. A level the model's map marks `null` (unsupported) — `off: null` included — is first moved to the nearest level the model does take, by pi-ai's own `clampThinkingLevel` (`laneEffectiveLevel`, the same step the Keeper's `streamSimple` road takes), and that level is what the body carries and what `lane_thinking_effective` reports. (Amended 2026-09-29. The first version sent such a model the literal `{reasoningEffort: "off"}`; on `opencode-go/deepseek-v4.1-flash`, whose catalog says `off: null`, opencode-go answered every such call `422 Upstream request failed: Endpoint is unavailable`, so every lane on a table with the fast model at `off` failed -- 59 admission, 30 memory, 30 journal, 15 verifier calls on table `pl-c-0929` -- and no player action could be admitted.)
 
 **`lane_thinking_effective`.** The `start` row's extra fields (the table above undercounted them: `lane_thinking` and `thinking_carried` already rode along, undocumented until this addendum) gain a fourth, written only when the resolved level is `off`: `clampThinkingLevel(model, "off")` (pi-ai's own function, `node_modules/@earendil-works/pi-ai/dist/models.js`) — for a corrected deepseek model this stays `off`; for a model whose map still marks it `null` it reports the real floor the model was bumped to instead (e.g. `grok-4.6` → `minimal`, per the existing `LANE_THINKING_DEFAULT` doc comment in `runtime/fast-model.ts`), so the gap between what was asked and what could actually be delivered is visible on the row itself. For every other level `lane_thinking_effective` equals `lane_thinking`: this addendum does not remap non-`off` levels, only records what the map did to `off`. It is read-only telemetry; only `laneReasoningOptions`'s own `thinkingLevelMap.off !== null` check changes what is actually sent.
 
-*Tests.* `tests/extension/fast-model-resolution.test.mjs` (`resolveFastThinking`'s `table` argument: outranked by the override and by the setting, outranks the literal default, and a caller that omits it is unaffected); `tests/extension/lane-reasoning-budget.test.mjs` (a table at `off` with no fast-thinking setting starts the lane at `off` and `laneReasoningOptions` returns `{}` for the `reasoningEffort` family; an explicit `PI_COC_LANE_THINKING` or fast-thinking setting still outranks the table; a model whose map has no `off` keeps the literal `{reasoningEffort: "off"}` shape and `lane_thinking_effective` reports the real floor it was bumped to). Mutation: drop the `table` fallback and the resolution test fails on the outrank case; drop the `thinkingLevelMap.off !== null` short-circuit in `laneReasoningOptions` and the disabled-shape test fails; drop `lane_thinking_effective` from the `start` row and the telemetry test fails.
+*Tests.* `tests/extension/fast-model-resolution.test.mjs` (`resolveFastThinking`'s `table` argument: outranked by the override and by the setting, outranks the literal default, and a caller that omits it is unaffected); `tests/extension/lane-reasoning-budget.test.mjs` (a table at `off` with no fast-thinking setting starts the lane at `off` and `laneReasoningOptions` returns `{}` for the `reasoningEffort` family; an explicit `PI_COC_LANE_THINKING` or fast-thinking setting still outranks the table; a model whose map marks `off` (or any requested level) `null` is sent the nearest level it takes, never the literal, and `lane_thinking_effective` equals the level sent). Mutation: drop the `table` fallback and the resolution test fails on the outrank case; drop the `thinkingLevelMap.off !== null` short-circuit in `laneReasoningOptions` and the disabled-shape test fails; drop `lane_thinking_effective` from the `start` row and the telemetry test fails.
 
 ### 12.9 内核的决定（已实现）
 
@@ -6264,7 +6264,7 @@ Packages contain `mod.json`, instructions, schemas and optional data/migrations.
 The manifest declares `id`, `version`, `game_api`, `state_version`, `name`,
 `description`, `author`, `default_enabled`, `requires`, `dependencies`, `conflicts`,
 `contributes`, and `settings`; §101 scoped packages also declare `package_files`; a package for particular play
-languages declares `play_languages` (§152).
+languages declares `play_languages` (§153).
 Built-ins live in repository `mods/`; installed
 immutable versions in `<home>/.coc/mods/packages/<id>/<version>/`. A package digest
 covers all files in the immutable legacy format, or, under §101's
@@ -11061,7 +11061,7 @@ Supersedes the `sample_lines` word of §40.5 (`npc-voice` 1.1.0; design and sour
 
 **Owner (2026-09-25).** The lane belongs to a package, not to `npc-voice` by name (user ruling of 2026-09-25, `docs/specs/prose-mod.md` §4). Every `voice.job`, `voice.submit` and `voice.fail` resolves the owner from the campaign's locks and the installed catalog: first the enabled unified expression package (`narration-craft` declaring `npc.voice.consolidation.v1`) when the manifest of its locked version and digest also declares `npc.voice.generation.v2`; otherwise the `npc-voice` lock under the rule it always had (enabled, any version -- frozen 1.0.x/1.1.x locks predate the capability); otherwise nobody, and `voice.job` answers `{job_id: null}`, not an error. Everything the lane reads and writes follows the owner: the namespace `world.mods.state[<owner>].dossier` (established, `taken_masks`, the write), the generation `{version, digest, state_version}` of the owner's lock (the `@digest` suffix of `job_id` and the packet's `generation`), `coarse_language` from the owner's settings, the `mod` stamp on the two records, the job file `<owner>/jobs[/v2/<digest>]/<handle>.json`, and the refusal that names a package which is not enabled. The unified owner's jobs therefore live under `narration-craft/jobs/...` and never share a folder with the legacy lane's. A job minted while another package owned the lane (a legacy job after handover, a unified job after the package is switched off) fails the existing generation check before any write, as before. The legacy owner is byte-identical to the lane before this ruling: the same job ids, paths, digests, records and messages. The task-state partition accepts a lane record stamped with either owner id in either namespace. The §30.7e handover copies cards stamped `npc-voice` into the unified namespace; with the unified package as owner they count as established, so a handed-over person is not generated again. Likewise a new unified generation (a version change with no state migration) keeps the owner's dossier, so settled people stay settled; only a state migration that moves the dossier aside, as `npc-voice`'s 1 to 2 does, starts them over. The owner is resolved in the kernel's voice handlers from the catalog; package locks carry no new field. The host lane (`extensions/npc-voice`) and its instruction (`content/setup/npc-voice.md`) are unchanged: the host asks `voice.job` after every commit and the kernel decides.
 
-**Instruction (2026-09-26).** The lane's instruction ships in the owning package, not in the kernel's content: a package that requires `npc.voice.generation.v2` may name one package Markdown file in `contributes.voice_lane` (listed in `package_files`; a `voice_lane` without the capability is refused at install), and `voice.job` carries that file's text whole as the packet's `instruction`, frozen with the package version like every package file (§26). An owner whose version predates the contribution (npc-voice 1.x, narration-craft 2.0.0 and 2.0.1) reads the frozen copy it was written against, `content/compat/npc-voice-lane.md`, so a saved game keeps its lane; neither readable, the kernel's short fallback in `kernel-ts/voice/jobs.ts`. `content/setup/npc-voice.md` is gone. Narration Craft 2.0.2 is the first owner that contributes it. After the owner's text come the enabled packages' language addenda (§152.3).
+**Instruction (2026-09-26).** The lane's instruction ships in the owning package, not in the kernel's content: a package that requires `npc.voice.generation.v2` may name one package Markdown file in `contributes.voice_lane` (listed in `package_files`; a `voice_lane` without the capability is refused at install), and `voice.job` carries that file's text whole as the packet's `instruction`, frozen with the package version like every package file (§26). An owner whose version predates the contribution (npc-voice 1.x, narration-craft 2.0.0 and 2.0.1) reads the frozen copy it was written against, `content/compat/npc-voice-lane.md`, so a saved game keeps its lane; neither readable, the kernel's short fallback in `kernel-ts/voice/jobs.ts`. `content/setup/npc-voice.md` is gone. Narration Craft 2.0.2 is the first owner that contributes it. After the owner's text come the enabled packages' language addenda (§153.3).
 
 ### 40.8 Natural speech is not compulsory mannerism (2026-09-19)
 
@@ -22034,8 +22034,9 @@ works -- reasoning 0, turn 8 from 59-92s to 3.1-3.5s, tools still called.
 **The ruling** (owner, 2026-09-25). Provider model data the product knows to be wrong is corrected by the product, as
 data, never as a hard-coded list in a code path: a corrections file shipped with the product (provider -> model ->
 override fields, in Pi's own `models.json` `providers.<id>.modelOverrides.<modelId>` shape) is merged into the agent
-home's `models.json` when the host prepares the home for a table. A user's own override for the same provider+model
-always wins and is never replaced; every other provider and field in the user's file is left exactly as read.
+home's `models.json` when the host prepares the home for a table. A user's own value always wins and is never
+replaced -- key by key (amended 2026-09-29, below); every other provider and field in the user's file is left exactly
+as read.
 
 **The corrections file.** `content/providers/model-corrections.json`. Its `providers` object is exactly Pi's
 `modelOverrides` schema (`@earendil-works/pi-coding-agent`'s `core/model-config.js` `ModelOverrideSchema`); a
@@ -22046,10 +22047,14 @@ home. First entries: `opencode-go/deepseek-v4.1-flash` and `opencode-go/deepseek
 **The merge** (`runtime/host.ts`'s `mergeProviderModelCorrections` -- pure, JSON in and out -- and
 `applyProviderModelCorrections`, its filesystem wrapper). Called from `runtime/launch.ts`'s `piLaunch`, in the same
 place and the same style as the existing `settings.json` reconciliation: after the agent home directory is created,
-before Pi is spawned. For every provider+model the corrections file names, an override is added under
-`providers.<id>.modelOverrides.<model>` only when the user's own `models.json` has none there yet for that exact
-model (any keys, not only `thinkingLevelMap` -- an existing override of any shape wins whole, never merged
-field-by-field); every other provider and every other field of an existing entry is left untouched. The merge is
+before Pi is spawned. For every provider+model the corrections file names, the override is merged into
+`providers.<id>.modelOverrides.<model>` key by key: a key the user's own entry already sets -- in `thinkingLevelMap`
+or anywhere else, `null` included -- is the user's and stays; a key it never mentions is filled from the correction;
+an absent entry takes the correction whole. (Amended 2026-09-29. The first version let an existing override of any
+shape win whole, and the installed App's own hand-written `thinkingLevelMap: {minimal: null, low: "low", medium:
+null, high: "high", max: "max"}` -- written to expose the low tier -- shadowed the `off: "off"` correction it never
+mentioned, so a fast model set to `off` resolved to the catalog's `off: null`.) Every other provider and every other
+field of an existing entry is left untouched. The merge is
 idempotent (the same inputs produce the same bytes, so it is safe to run at every launch) and tolerant the same way
 `runtime/tasks.ts`'s `childCatalog` already is about `models-store.json`/`models.json`: a missing corrections file is
 one correction fewer, never a failure, and a hand-broken `models.json` is left untouched rather than blocking the
@@ -28828,7 +28833,29 @@ With Jev available and no explicit legacy switch, a setup session runs on the Ru
 
 `source-claim-support`, `source-need-answered`, `setup-input-route`, `setup-card-fields` and `setup-interest-fit` (151.6 decision 9) enter the Jev inference inventory with owner, budget, gate and fallback.
 
-## 152. Language-scoped Mods: play_languages, a voice-lane language addendum and their own brief ceiling (2026-09-29)
+## 152. Incremental visual discovery beside native-text retrieval
+
+Native text coverage does not certify visual coverage. After a playable source reference exists, read-ahead queues bounded `detail` jobs with a host-issued `visual_scan: {first, last}` (at most 20 physical pages), separately from story-source units. The existing queue, foreground priority, leases, cancellation, retries and publisher own these jobs; no new scheduler or pre-opening barrier is introduced. At most one visual scan is queued/running per module scope. Source-bound job identity and completed materials retain each range; failed ranges stay explicit while later ranges can progress.
+
+The tool-enabled Pi reader sees a labelled overview of the assigned range, nominates visual candidates and opens their original pages before authoring asset/handout crops, map regions and links. Overview delivery is checked separately from original-page evidence. A batch with no usable candidates may publish no nodes and only navigation progress, never a claim that those pages contain no visual facts. Text-rich and sparse pages follow the same visual path. New visual records use existing graph identities and source references; ready nodes are visual assets only. Independent original-page review and safe-region publication remain authoritative. Ordinary gameplay and Jev consume published assets and relations incrementally; undiscovered regions remain private.
+
+Writers: read-ahead issues ranges, host records successfully delivered overview pages, source readers write visual graph deltas, existing reviewers/publisher accept them. Readers: the existing source graph, map/handout lookup and scene projections. Actors: Jev selects published relevant material; Keeper reveals through existing apply effects and the common map/handout UI. A completed scan is navigation coverage, not player revelation or whole-page semantic completeness.
+
+### 152.1 Discovery and asset preparation have separate publication boundaries
+
+Original-PDF probes showed that combining twenty-page discovery with crop/region authoring made the reader repeatedly zoom and delayed every asset. `visual_scan` therefore publishes only `visual_candidates` ({page,kind,label}; kind map/handout/illustration/uncertain) in an otherwise empty delta, with host-verified successful overview delivery. These are private navigation hints under reading.visual_scans and reading.visual_candidates, not graph facts or player revelation. No original-page review is claimed for them.
+
+Read-ahead independently queues at most two nominated-page detail jobs with `visual_asset:{page}`. Each receives its original image directly, reuses graph identities, and independently reviews/publishes its crops, map regions and links. One problematic page cannot hold the other candidates' publication. Such a job cannot be issued for an unnominated page; a foreground need may promote the ordinary detail work. The map fallback also receives nominated map/uncertain pages when no more specific indexed candidates exist. Native text never overrides image review for these jobs. The two phases use separate short prompts; discovery performs no crop refinement or story authoring. This supersedes the combined scan/asset authoring described above while preserving the same queue and no-front-door-wait contract.
+
+### 152.2 Region-place correspondence is checked on rendered pixels
+
+The Dust visual probe published a real source image but its reveal boxes misplaced two named sites. Source-page review alone approved the names without verifying the selected pixels. Visual-asset reviewers now receive private raster overlays: the host renders the exact declared source crop and draws each source_box in that cropped frame, labelled with a host marker and the proposed place name. Successful provider delivery of each required preview is checked; previews remain inside the reader work directory and never enter public map output or original-page evidence. Map instructions apply to record-root units as well as leaf pointers. Wrong region correspondence, source frame or annotation exposure is a logic defect. Map review cache identity is versioned for this gate. Rejected geometry is shown to its original author through the same private previews during repair; accepted unrelated records remain subject to the existing preservation rules.
+
+### 152.3 Delivered image handouts reach the player renderer
+
+Installed-App inspection found a separate consumer gap: image receipts carried a valid path and ready status, while the mechanics renderer and held-handout board supported text only. The player host now materializes bounded raster data URLs from delivered image rows in the current campaign/module scope, for live delivery and restored history. It rejects other schemes, outside/symlink-escaped paths, oversized files and unsupported image signatures. Bytes are presentation data only and do not enter Keeper prompts. table.view includes image descriptors only for world.handouts_shown, using actual delivery receipts; the host supplies their bytes, and the board uses the existing zoom/pan image viewer. No new reveal is created by viewing an already delivered image; private assets and unrevealed maps retain their existing gates.
+
+## 153. Language-scoped Mods: play_languages, a voice-lane language addendum and their own brief ceiling (2026-09-29)
 
 Owner-approved design, 2026-09-29 (the language optimization mod). The play language is open (§23, the 2026-09-09
 ruling): the base registers no language, keeps no table keyed by one and detects none. A package that exists for a play
@@ -28836,7 +28863,7 @@ language declares its own tags; the kernel compares them with the tag the campai
 else. Implementation: `kernel-ts/read/mod-language.ts`, called from `manifestFrom`, `ModRuntime.initializeWorld`,
 `defaultModPlan` and `voice.job`. Numbering: 0.9.6a already publishes §150 and §151, so this section is 152.
 
-### 152.1 The fields
+### 153.1 The fields
 
 - `play_languages` (top-level, optional): a non-empty list of distinct BCP 47 tags, each of the one shape
   `validSourceLanguage` accepts (the shape `campaign.create` takes for `play_language`). Shape only; no list of
@@ -28853,7 +28880,7 @@ else. Implementation: `kernel-ts/read/mod-language.ts`, called from `manifestFro
   unavailable (§41.2).
 - `mods.list` rows carry `play_languages` when declared; `default_enabled` stays the catalog default (§26).
 
-### 152.2 Matching, and when it applies
+### 153.2 Matching, and when it applies
 
 A listed tag matches the campaign's tag when it equals it or is a prefix of it ending at a subtag boundary (RFC 4647
 basic filtering; compared case-insensitively, as BCP 47 tags are): `zh` matches `zh`, `zh-Hans`, `zh-Hant` and
@@ -28871,7 +28898,7 @@ lock to an existing campaign, and the player can enable or disable any package o
 Readings that serve every campaign are not scoped and read the package by its default as before: the reader's dossier
 vocabulary (§28.2), the one-default-style-provider check (§137.4) and the global load-order check.
 
-### 152.3 The voice-lane addendum
+### 153.3 The voice-lane addendum
 
 `voice.job`'s `instruction` is the lane owner's own `contributes.voice_lane` text (§40.7 Instruction), then, for every
 enabled package on the campaign that contributes `voice_lane_addendum`, in the campaign's load order (`activeMods`): a
@@ -28880,7 +28907,7 @@ the only `voice_lane` owner; an addendum adds and never replaces. An owner that 
 `content/compat/npc-voice-lane.md` byte for byte, and the kernel's short fallback is unchanged: neither takes addenda,
 which are written against a current owner's words.
 
-### 152.4 Budgets
+### 153.4 Budgets
 
 A scoped package's per-turn instruction (its `brief`, or its `instructions` when it has no brief: the form every later
 turn carries, §30.7) is at most 400 UTF-8 bytes, checked at load: `details.reason: "language_brief_over_budget"` with
@@ -28889,7 +28916,7 @@ turn carries, §30.7) is at most 400 UTF-8 bytes, checked at load: `details.reas
 (`tests/extension/jev-pacing-mod-alignment.test.mjs`, `tests/kernel/test_mod_director_text.py`); the same tests hold
 each scoped brief to 400. The addendum has no kernel budget: it rides the lane's packet, not the capsule.
 
-### 152.5 The kernel's decisions
+### 153.5 The kernel's decisions
 
 - A build older than this section ignores `play_languages` (an unknown top-level manifest field is not a §28.9 gap), so
   there a scoped package without an addendum would take its plain default on every campaign. A language package that

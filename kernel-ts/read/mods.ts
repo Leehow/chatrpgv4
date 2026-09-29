@@ -32,7 +32,7 @@ MOD_CAPABILITIES.add(VOICE_CONSOLIDATION_CAPABILITY);
  *  the contribution stays readable so those locks load and can be configured to a current version; nothing acts on either. */
 for (const retired of ["context.craft-reference.v1", "context.craft-reference.v2"]) MOD_CAPABILITIES.add(retired);
 MOD_CAPABILITIES.add(STYLE_CAPABILITY);
-/** Contract §152.3: a package adds a Markdown file to the voice lane's instruction, after the lane owner's own words. */
+/** Contract §153.3: a package adds a Markdown file to the voice lane's instruction, after the lane owner's own words. */
 MOD_CAPABILITIES.add(LANGUAGE_ADDENDUM_CAPABILITY);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
@@ -290,7 +290,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     // Contract §40.7 Instruction: only a package that owns the voice lane can say how the lane writes.
     if (manifest.contributes.voice_lane != null && !array(manifest.requires).includes("npc.voice.generation.v2"))
         invalid("contributes.voice_lane is the voice lane's instruction and needs npc.voice.generation.v2");
-    // Contract §152: play_languages, the voice-lane addendum and a language-scoped package's own per-turn ceiling.
+    // Contract §153: play_languages, the voice-lane addendum and a language-scoped package's own per-turn ceiling.
     validateLanguageDeclaration(manifest, files);
     validateSetupSlots(manifest, files);
     // Contract §137.2: the pairing and the path here; the file's lines are checked where the catalog loads.

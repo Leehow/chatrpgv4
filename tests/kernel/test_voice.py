@@ -497,7 +497,7 @@ def test_the_lane_instruction_comes_from_the_owning_package(kernel, tmp_path):
     kernel.table("player_input", text="我仔细观察诺特。")
     packet = job(kernel)
     assert packet["generation"]["version"] == UNIFIED_VERSION
-    # The campaign plays in zh-Hans, so the shipped zh-optimize package (contract §152) appends its addendum after the
+    # The campaign plays in zh-Hans, so the shipped zh-optimize package (contract §153) appends its addendum after the
     # owner's words; the owner's own text still leads, unchanged.
     zh_addendum = (WORKTREE / "mods" / "zh-optimize" / "voice-lane.zh.md").read_text(encoding="utf-8").strip()
     assert packet["instruction"] == ("Package lane instruction: taken_masks, said, and the voice shape."

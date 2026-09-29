@@ -171,7 +171,7 @@ export class ModRuntime {
   }
   /** A fresh world locks every compatible package at its default. `playLanguage` is the tag the campaign was declared
    *  with (`declaredPlayLanguage`), or null when it carries none: a package scoped by `play_languages` is on by default
-   *  only where it names that tag (contract §152.2). A world that already has locks keeps them. */
+   *  only where it names that tag (contract §153.2). A world that already has locks keeps them. */
   async initializeWorld(world: Row, playLanguage: string | null = null): Promise<boolean> {
     if (Object.hasOwn(world, 'mods')) {
       const active = await this.active(world);
@@ -284,7 +284,7 @@ export class ModRuntime {
       ...compatibilityView(mod, latest, locks, catalog, defaults),
       ...Object.fromEntries(['id', 'version', 'name', 'description', 'author', 'compatible', 'requires', 'dependencies', 'conflicts'].map(key => [key, mod[key]])),
       settings: mod.compatible ? mod.settings : {}, default_enabled: newModDefault(mod, defaults, latest),
-      // Contract §152.2: `default_enabled` is the catalog default; a scoped package applies it only where it names the campaign's tag.
+      // Contract §153.2: `default_enabled` is the catalog default; a scoped package applies it only where it names the campaign's tag.
       ...(declaresLanguages(mod) ? {play_languages: [...mod.play_languages]} : {}),
       active: row(locks.active)[mod.id] ?? null, pending: row(locks.pending)[mod.id] ?? null,
       settings_schema: mod.compatible ? mod.settings_schema ?? {} : {},

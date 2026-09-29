@@ -19,7 +19,7 @@ import { KEYS, assertJobGeneration, buildPacket, fail, investigatorIdentity, nex
  *  narration-craft 2.0.0-2.0.1) reads the frozen copy it was written against, `content/compat/npc-voice-lane.md`,
  *  so a saved game keeps its lane. Neither readable: the kernel's short fallback in jobs.ts.
  *
- *  Contract §152.3: after the owner's own `voice_lane` text come the addenda of the campaign's enabled packages that
+ *  Contract §153.3: after the owner's own `voice_lane` text come the addenda of the campaign's enabled packages that
  *  contribute one, in load order. The frozen copy and the fallback are exactly what they were: an addendum is written
  *  against a current owner's words, and an owner that predates them keeps the lane it was written against. */
 const decode = (bytes: Uint8Array): string => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);

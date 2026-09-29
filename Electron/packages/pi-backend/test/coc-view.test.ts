@@ -576,6 +576,9 @@ it('the case board merges the journal lane under the kernel glossary on the cold
     // The live leg: the pack answers `table.view` verbatim, and the host merges the same lanes.
     const kernelView=JSON.parse(JSON.stringify(cold.data.view));
     delete kernelView.labels["Knott's Office"];
+    const imagePath=join(campaign,'public-clipping.png'),imageBytes=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jK1cAAAAASUVORK5CYII=','base64');
+    await writeFile(imagePath,imageBytes);
+    kernelView.handouts=[{handout:'public-clipping',name:'Clipping',text:'',document:'ready',path:imagePath,media_type:'image/png'}];
     (backend as any).live.set(session.id,{});
     vi.spyOn(backend as any,'liveProcessUsable').mockReturnValue(true);
     vi.spyOn((backend as any).extensions,'isMounted').mockReturnValue(true);
@@ -583,6 +586,8 @@ it('the case board merges the journal lane under the kernel glossary on the cold
     const live=await backend.handle('invokeExtension',['coc-keeper','board',{}, {sessionId:session.id}]) as any;
     expect(forwarded).toHaveBeenCalledTimes(1);
     expect(live.data.view.labels["Knott's Office"]).toBe('诺特的办公室');
+    expect(live.data.view.handouts[0].image).toBe('data:image/png;base64,'+imageBytes.toString('base64'));
+    expect(kernelView.handouts[0].image).toBeUndefined();
     (backend as any).live.delete(session.id);
   } finally {await backend.close();}
 },40000);

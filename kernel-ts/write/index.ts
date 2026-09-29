@@ -126,7 +126,7 @@ export interface WriteContributions {
     /** §107.1: the module asset reader the late first-arrival card composes its layers from. */
     asset?(moduleId: string, name: string): Promise<Row | null>;
     mods?: {
-        /** `playLanguage`: the campaign's declared tag, or null (contract §152.2). */
+        /** `playLanguage`: the campaign's declared tag, or null (contract §153.2). */
         initializeWorld(world: Row, playLanguage?: string | null): Promise<boolean>;
         initializeCampaign(campaign: CampaignWriter, world: Row, options?: {pending?: boolean}): Promise<void>;
         validateWorld(world: Row): Promise<void>;

@@ -707,6 +707,7 @@ test('original-context readiness opens setup before graph completion and queues 
   assert.equal(await runtime.source.openingReady(mid,'Harbor'),true);
   await runtime.handlers['module.read.ahead']({module_id:mid,focus:'Harbor'});
   const jobs=(await runtime.source.store.queue(mid)).filter(job=>job.reference_fragment);
+  assert.equal((await runtime.source.store.queue(mid)).filter(job=>job.visual_scan).length,1,'the fast reference path also queues visual discovery');
   assert.deepEqual(jobs.map(job=>[job.source_unit.first,job.source_unit.last]),[[3,4],[5,6]]);
   const first=await runtime.handlers['module.read.claim']({module_id:mid,owner:'test'});assert.equal(first.reference_fragment,true);assert.deepEqual(first.pages,[3,4]);
   assert.equal((await runtime.handlers['module.reference.status']({module_id:mid})).ready,true,'background work cannot revoke original-context access');
@@ -926,5 +927,54 @@ test('§151.4: a need read a waiting Keeper promoted reads as today and records 
    claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['npc-lena'],source_needs:[]});
   const record=Object.values((await book.meta()).reading.source_need_dispositions)[0];
   assert.deepEqual([record.disposition,record.job_id],['read',claimed.job_id]);
+ }finally{await book.close();}
+});
+
+test('visual discovery is a resumable background job and cannot certify page or scene completeness',async()=>{
+ const book=await mapBook('visual-discovery-queue');
+ try{
+  await book.call('module.read.request',{purpose:'detail',focus:'Visual assets pages 1-2',question:'Inspect visual assets',visual_scan:{first:1,last:2},foreground:false});
+  await book.call('module.read.ahead',{});
+  let jobs=(await book.store().queue(book.mid)).filter(job=>job.visual_scan);
+  assert.equal(jobs.length,1);assert.deepEqual(jobs[0].visual_scan,{first:1,last:2});assert.equal(jobs[0].foreground,false);
+  await book.reopen();await book.call('module.read.ahead',{});
+  assert.equal((await book.store().queue(book.mid)).filter(job=>job.visual_scan).length,1);
+  await assert.rejects(book.call('module.read.request',{purpose:'detail',focus:jobs[0].focus,question:jobs[0].question,visual_scan:jobs[0].visual_scan,foreground:true}),/background visual range/);
+  const packet={purpose:'detail',visual_scan:{first:1,last:2},source:{page_count:2},known_nodes:[],known_claims:[]};
+  const empty={nodes:[],claims:[],node_refs:[],ready_nodes:[],coverage:{},dependencies:[],critical:[],visual_candidates:[]};
+  assert.equal(api.checkDraft(empty,packet,contract,new Set()).nodes.length,0,'empty scan publishes only navigation progress');
+  const scene={node_id:'scene-new',node_kind:'scene',name:'New place',properties:{},source_refs:[{page:1}]};
+  assert.throws(()=>api.checkDraft({...empty,nodes:[scene],ready_nodes:[scene.node_id]},packet,contract,new Set([1])),/nominate pages only/);
+  const asset={node_id:'asset-map',node_kind:'asset',name:'Map',visibility:'revealable',source_refs:[{page:1}],properties:{image_sources:[{page:1,box:[0,0,1,1]}]}};
+  const {visual_candidates,...delta}=empty,assetPacket={...packet,visual_scan:undefined,visual_asset:{page:1}};
+  assert.throws(()=>api.checkDraft({...delta,nodes:[asset],ready_nodes:[asset.node_id]},assetPacket,contract,new Set()),/viewed|observed/);
+  assert.ok(api.checkDraft({...delta,nodes:[asset],ready_nodes:[asset.node_id]},assetPacket,contract,new Set([1])).required_review.length>0);
+  const job=await book.claim('test-host');assert.ok(job.visual_scan);
+  const navigation={...empty,visual_candidates:[{page:1,kind:'map',label:'Possible map'}]};
+  await assert.rejects(book.publish(job,navigation),/successfully delivered overview/);
+  const observations=await json(join(job.work_dir,'observations.json'));
+  await writeFile(join(job.work_dir,'observations.json'),JSON.stringify({...observations,overview_pages:[1,2]}));
+  const before=await book.store().readGraph(book.mid);
+  const published=await book.call('module.read.finish',{job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:join(job.work_dir,'draft.json')});
+  assert.equal(published.visual_navigation,true);
+  assert.deepEqual(await book.store().readGraph(book.mid),before,'navigation cannot publish source facts');
+  const meta=await book.store().module(book.mid);
+  assert.deepEqual(meta.reading.visual_candidates,navigation.visual_candidates);
+  assert.equal(meta.reading.visual_scans['1-2'].status,'overviewed');
+  await assert.rejects(book.call('module.read.request',{purpose:'detail',focus:'An unknown candidate',question:'Read it',visual_asset:{page:2}}),/published visual navigation candidate/);
+  assert.equal((await book.call('module.read.request',{purpose:'detail',focus:'Map image',question:'Read the original',visual_asset:{page:1},foreground:true})).state,'queued');
+ }finally{await book.close();}
+});
+
+test('an incomplete text map index cannot hide a separately discovered visual map page',async()=>{
+ const book=await mapBook('visual-candidates-supplement-index');
+ try{
+  const meta=await book.store().module(book.mid);
+  meta.reading.visual_candidates=[{page:1,kind:'map',label:'Possible plan'}];
+  await book.store().writeModule(meta);
+  await book.call('module.read.request',{purpose:'detail',material:'map',focus:'Tower',question:'Prepare its map',foreground:true});
+  const job=await book.claim('test-host');
+  assert.deepEqual(job.pages,[1,2]);
+  assert.deepEqual(job.visual_hints,meta.reading.visual_candidates);
  }finally{await book.close();}
 });

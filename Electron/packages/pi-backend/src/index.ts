@@ -6,6 +6,7 @@ import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPre
   laneLabelsLoaded, reloadLaneLabels, deliveryWords, CocCardLedger, type CocCardPatch,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
+import {withHandoutImages} from './coc-handout-images.js';
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, rmSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
@@ -1541,8 +1542,8 @@ function redactHistoryEntry(entry: HistoryEntry | undefined, secrets: RevealedSe
 type CocHostPaths = {repo: string; contentRoot: string; home: string};
 function visibleHistoryEntry(entry: any, secrets: RevealedSecret[] = [], language?:string,
   presentations?: ReadonlyMap<number, Record<string, unknown>>, words: CocHistoryWords = {},
-  current?: Record<string, unknown>, patches?: readonly CocCardPatch[]): HistoryEntry | undefined {
-  const mechanics = mechanicsEntry(entry, language, presentations, words, current, patches);
+  current?: Record<string, unknown>, patches?: readonly CocCardPatch[], binding?:CocBinding): HistoryEntry | undefined {
+  const mechanics = mechanicsEntry(entry, language, presentations, words, current, patches,binding);
   if (mechanics) return mechanics;
   if (entry?.type === "message") return redactHistoryEntry(historyEntryFromMessage(entry), secrets);
   if (isVisibleCustomMessage(entry)) {
@@ -1710,7 +1711,7 @@ async function readHistoryFallback(
   }
   for (const entry of wantedRows) {
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
-    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft, cocCards.patchesFor(entry?.id));
+    const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft, cocCards.patchesFor(entry?.id),cocBinding);
     if (!mapped) continue;
     mappedById.set(mapped.id, mapped);
   }
@@ -6268,7 +6269,7 @@ export class PiHostBackend implements HostBackend {
       this.historyCache.delete(path);
       // §132: a card that was patched meanwhile keeps its patches in this redraw.
       const owner = live ?? this.live.get(sessionId);
-      const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId), undefined, owner?.cocCards?.patchesFor(raw?.id));
+      const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId), undefined, owner?.cocCards?.patchesFor(raw?.id),binding);
       if (entry) {
         if (owner && typeof raw?.id === "string") owner.cocCardDrawn?.set(raw.id, JSON.stringify(entry.presentation));
         this.stream({type: "presentation", sessionId, entry});
@@ -6306,7 +6307,7 @@ export class PiHostBackend implements HostBackend {
     for (const id of changed) {
       const card = live.cocCardRows?.get(id);
       if (!card) continue;
-      const entry = mechanicsEntry(card, binding?.play_language, undefined, this.cocLiveWords(live.session.id), undefined, ledger.patchesFor(id));
+      const entry = mechanicsEntry(card, binding?.play_language, undefined, this.cocLiveWords(live.session.id), undefined, ledger.patchesFor(id),binding);
       if (!entry) continue;
       const drawn = JSON.stringify(entry.presentation);
       if (live.cocCardDrawn?.get(id) === drawn) continue;
@@ -6342,7 +6343,7 @@ export class PiHostBackend implements HostBackend {
       if(['coc-mechanics','coc-card-patch','coc-object-details'].includes(e.entry?.customType))this.noteCardRow(live,e.entry);
       const entry = isHostDeliveredCustomMessage(e.entry)
         ? visibleHistoryEntry(e.entry,this.sessionSecrets(live.session.id))
-        : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id), undefined, live.cocCards?.patchesFor(e.entry?.id));
+        : mechanicsEntry(e.entry, this.cocSessionBindings.get(live.session.id)?.play_language, undefined, this.cocLiveWords(live.session.id), undefined, live.cocCards?.patchesFor(e.entry?.id),this.cocSessionBindings.get(live.session.id));
       if (entry) {
         const presentationId = typeof e.entry?.id === "string" ? e.entry.id : undefined;
         const projected = live.projectedPresentationIds ??= new Set<string>();
@@ -10050,8 +10051,10 @@ export class PiHostBackend implements HostBackend {
         const answered = await this.enqueueExtInvoke(sessionId, id, method, params);
         const binding = this.cocSessionBindings.get(sessionId)
           ?? await this.locate(sessionId).then(found => readCocBinding(found.path)).catch(() => undefined);
-        if (binding && answered.ok && isRecord(answered.data) && answered.data.status === "ready")
+        if (binding && answered.ok && isRecord(answered.data) && answered.data.status === "ready") {
           await this.cocMergeSheetLanes(sessionId, binding, answered.data.view, retry);
+          return {...answered,data:{...answered.data,view:withHandoutImages(answered.data.view,binding)}};
+        }
         return answered;
       }
       // Cold -- a restored session with no agent yet. The board still opens: it reads the same
@@ -10065,8 +10068,9 @@ export class PiHostBackend implements HostBackend {
       try {
         if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
         const repo = resolve(this.managedNodeModulesRoot, "..");
-        const view = await callColdKernel(repo, context.home, "table.view", {campaign:context.campaign}, this.env, this.cocRuntime);
+        let view = await callColdKernel(repo, context.home, "table.view", {campaign:context.campaign}, this.env, this.cocRuntime);
         await this.cocMergeSheetLanes(sessionId, context, view, retry);
+        view=withHandoutImages(view,context);
         const rows = await callColdKernel(repo, context.home, "table.maps", {campaign:context.campaign}, this.env, this.cocRuntime)
           .catch(() => ({maps:[]}));
         const maps = (isRecord(rows) && Array.isArray(rows.maps) ? rows.maps : []).filter(isRecord).map(row => ({

@@ -345,10 +345,10 @@ export function createComponent(React) {
     const openable = row.document === "ready" && Boolean(shown) && !broken;
     const regionLabels = knownRegionLabels(row);
     const name = term(text(row.label) || text(row.name) || text(row.map));
-    return h("details", { className: "coc-map", open: true, "data-map": text(row.map) || undefined,
+    return h("details", { className: "coc-map", open: true, "data-map": text(row.map) || undefined, "data-handout": text(row.handout) || undefined,
       "data-view": text(row.view_id) || undefined, "data-document": text(row.document) || undefined },
       h("summary", { className: "coc-map-head" },
-        h(Icon, { name: "map" }),
+        h(Icon, { name: row.handout ? 'document' : 'map' }),
         h("span", { className: "coc-map-name" }, name)),
       openable
         ? h("div", { className: "coc-map-body" },
@@ -380,6 +380,7 @@ export function createComponent(React) {
                 style: { width: `${zoom}%` },
                 onError: () => setBroken(true),
               })),
+            row.handout && text(row.text) ? h("div", {className:"coc-clue-doc-body"},term(text(row.text))) : null,
             regionLabels.length ? h("div", { className: "coc-map-regions" }, regionLabels.join(" \u00b7 ")) : null)
         // Nothing to open: the place the player knows is still worth naming, and it is the only
         // thing here that is true without the pixels (§59 -- a `none` page is delivered, not lost).
@@ -409,7 +410,7 @@ export function createComponent(React) {
     // and body go through the glossary: the handouts lane projects exactly these two strings, the
     // same ones the delivery card looks up.
     const documents = (Array.isArray(view.handouts) ? view.handouts : [])
-      .filter(doc => isRecord(doc) && text(doc.text));
+      .filter(doc => isRecord(doc) && (text(doc.text) || playerImage(doc.image)));
     if (!discovered.length && !foundHere.length && !documents.length) {
       return h(Section, { title: t("clues"), icon: "search", anchor: "clues" }, h("p", { className: "coc-sheet-note" }, t("noClues")));
     }
@@ -422,8 +423,9 @@ export function createComponent(React) {
       seen.add(key);
       rows.push(line);
     }
-    const documentRows = documents.map((doc, index) =>
-      h("details", { className: "coc-clue coc-clue-fold coc-clue-doc", key: `doc:${text(doc.handout)}:${index}`, "data-handout": text(doc.handout) },
+    const documentRows = documents.map((doc, index) => playerImage(doc.image)
+      ? h(MapBlock, {key:`doc:${text(doc.handout)}:${index}`,row:doc,t,term})
+      : h("details", { className: "coc-clue coc-clue-fold coc-clue-doc", key: `doc:${text(doc.handout)}:${index}`, "data-handout": text(doc.handout) },
         h("summary", null, h(Icon, { name: "document" }),
           h("span", { className: "coc-clue-name" }, term(text(doc.name) || text(doc.handout)))),
         h("div", { className: "coc-clue-body coc-clue-doc-body" }, term(text(doc.text)))));

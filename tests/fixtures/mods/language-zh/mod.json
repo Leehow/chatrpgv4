@@ -5,7 +5,7 @@
   "state_version": 1,
   "author": "Test fixture",
   "name": "Language fixture",
-  "description": "A language-scoped test package (contract §152): a brief for tables played in zh, and an addendum to the voice lane.",
+  "description": "A language-scoped test package (contract §153): a brief for tables played in zh, and an addendum to the voice lane.",
   "default_enabled": true,
   "play_languages": ["zh"],
   "requires": ["mods.package-files.v1", "npc.voice.language-addendum.v1"],

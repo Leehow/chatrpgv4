@@ -285,14 +285,30 @@ const REASONING_EFFORT_APIS: ReadonlySet<string | undefined> = new Set([
  * deepseek model (§135.27.1) has `off: "off"`. Omitting the field lets that API's own raw builder
  * consult the same map and produce its disabled shape on its own -- this is not a new shape invented
  * here, it is the same "absent `reasoningEffort`" branch already proven in that source for all four
- * APIs. A model whose map still says `off: null` (unsupported) falls through to the switch below
- * unchanged: the same literal `{reasoningEffort: "off"}` every other level already got, so nothing
- * regresses for it (today's behaviour, kept on purpose -- there is nowhere better to put it).
+ * APIs.
+ *
+ * **A level the model's own map marks `null` (2026-09-29).** Such a level is one the model does not
+ * take, and it is never spelled out: it is first moved to the nearest level the model does take,
+ * by pi-ai's own `clampThinkingLevel` (the Keeper's `streamSimple` road does exactly this). Until
+ * then a fast model set to `off` whose map said `off: null` sent the literal
+ * `reasoning_effort: "off"`; opencode-go answered every such call `422 Upstream request failed:
+ * Endpoint is unavailable`, so every lane on that table failed -- admission, memory, journal,
+ * verifier -- and no player action could be admitted. A level the map does not mention is kept as
+ * asked, as before.
  */
-export function laneReasoningOptions(
+export function laneEffectiveLevel(
 	model: { api?: string; thinkingLevelMap?: ThinkingLevelMap },
 	level: ModelThinkingLevel,
+): ModelThinkingLevel {
+	if (model.thinkingLevelMap?.[level] !== null) return level;
+	return clampThinkingLevel({ ...model, reasoning: true } as Parameters<typeof clampThinkingLevel>[0], level);
+}
+
+export function laneReasoningOptions(
+	model: { api?: string; thinkingLevelMap?: ThinkingLevelMap },
+	requested: ModelThinkingLevel,
 ): Record<string, unknown> {
+	const level = laneEffectiveLevel(model, requested);
 	if (level === "off" && REASONING_EFFORT_APIS.has(model.api) && model.thinkingLevelMap?.off !== null) {
 		return {};
 	}
@@ -544,9 +560,10 @@ async function runLaneAttempt<T>(
 			? { level: request.thinking, source: "caller" }
 			: laneThinkingChoice(request.ctx, request.envName);
 		const reasoning = laneReasoningOptions(resolved.model, thinking);
-		// `lane_thinking_effective` (SL-81): only computed -- and only ever different from `thinking`
-		// -- when `off` was asked for; every other level is recorded unmapped, exactly as requested.
-		const effective = thinking === "off" ? clampThinkingLevel(resolved.model, thinking) : thinking;
+		// `lane_thinking_effective` (SL-81): the level the body actually carries -- the same
+		// `laneEffectiveLevel` `laneReasoningOptions` above sends, so the row cannot claim one level
+		// while the request carries another (2026-09-29: the row said `low`, the body said "off").
+		const effective = laneEffectiveLevel(resolved.model, thinking);
 		await rows.start(label, thinking, effective, Object.keys(reasoning).length > 0, thinkingSource);
 		let reply: Awaited<ReturnType<ExtensionContext["modelRegistry"]["complete"]>>;
 		const charges:ProviderCharge[]=[];

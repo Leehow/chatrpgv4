@@ -15,6 +15,7 @@ import { anchors, pages, recordSpans, sameSpan, spanOf, type Anchor } from './tr
 import { REVIEW_VERDICTS, classificationMatcher } from './review-verdicts.js';
 import { CLAIM_SUPPORT_PROTOCOL, JEV_REVIEWER, JEV_REVIEW_RULES, claimRecordPages, claimRecordRoot, claimSupportIneligibility, pathsOverlap, claimRecord } from './claim-support.js';
 import { preserveTravel } from './route-travel.js';
+import {validVisualScan,visualCandidates} from './visual-discovery.js';
 const object = (value: any): boolean => isJsonObject(value);
 export function reject(message: string, path = '/'): never {
     throw new RpcError('invalid_params', message, {
@@ -151,7 +152,7 @@ export function mergeValue(old: any, proposed: any, path = '', transcription?: R
 export function checkDraft(draft: any, packet: Row, contract: ModuleContract, seen?: ReadonlySet<number>): Row {
     if (!object(draft))
         reject('the draft must be an object');
-    const unknown = Object.keys(draft).filter(key => !SHARD_KEYS.includes(key));
+    const unknown = Object.keys(draft).filter(key => !SHARD_KEYS.includes(key)&&!(packet.visual_scan&&key==='visual_candidates'));
     if (unknown.length)
         reject(`unknown draft keys: ${repr(sorted(unknown))}`);
     if ((Object.hasOwn(draft, 'contract_id') ? draft.contract_id : VISUAL_CONTRACT_ID) !== VISUAL_CONTRACT_ID)
@@ -161,7 +162,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
     try{sourceNeeds=validateSourceNeeds(draft.source_needs??[],number(row(packet.source).page_count));}
     catch(error){reject(String(error),'/source_needs');}
     const pending=sourceNeeds!.filter(need=>['source_read','uncertain'].includes(need.kind));
-    if(pending.length&&!packet.source_unit)throw new RpcError('invalid_params','Current source needs remain unresolved',{
+    if(pending.length&&!packet.source_unit&&!packet.visual_asset)throw new RpcError('invalid_params','Current source needs remain unresolved',{
         fix:'Retrieve the required original evidence and repair the candidate; retain runtime inputs and future needs explicitly',
         details:{reason:'reading_failed',rule:'source_needs_pending',path:'/source_needs',requests:pending},
     });
@@ -177,6 +178,13 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         reject(`coverage must be an object mapping domain to status; domains=${repr(vocab.coverage_domains)}, statuses=${repr(sorted(array(vocab.coverage_status)))}; use {} when no domain is prepared`, '/coverage');
     }
     const filled: Row = clone(draft), nodes = filled.nodes as Row[], existing = new Set(array(packet.known_nodes).map(n => n.node_id)), defined = new Set<string>();
+    if(packet.visual_scan){
+        if(!validVisualScan(packet.visual_scan,number(row(packet.source).page_count)))reject('Invalid visual navigation range');
+        try{filled.visual_candidates=visualCandidates(draft.visual_candidates,packet.visual_scan);}catch(error){reject(String(error));}
+        if(nodes.length||filled.claims.length||filled.node_refs.length||filled.ready_nodes.length||filled.critical.length
+            ||Object.keys(filled.coverage).length||array(filled.source_needs).length)
+            reject('Visual navigation may nominate pages only; prepare assets in independent original-page tasks');
+    }
     if(moduleLogicReview(packet))filled.review_policy=packet.review_policy;
     const count = packet.source.page_count;
     for (const [i, node] of nodes.entries()) {
@@ -251,10 +259,26 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             reject('a node reference must name a defined node');
     if (skeleton && filled.ready_nodes.length)
         reject('a skeleton cannot grant material readiness; ready_nodes must be empty', '/ready_nodes');
-    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit)
+    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit && !packet.visual_scan && !packet.visual_asset)
         reject('declare the nodes whose material this task has prepared', '/ready_nodes');
     if (filled.ready_nodes.some((id: string) => !defined.has(id)))
         reject('ready_nodes must be present in the draft so their material can be independently reviewed', '/ready_nodes');
+    if(packet.visual_asset){
+        if(!integer(packet.visual_asset.page)||packet.visual_asset.page<1||packet.visual_asset.page>packet.source.page_count)
+            reject('Invalid visual asset page');
+        if(seen&&!seen.has(packet.visual_asset.page))reject('Visual asset preparation requires the nominated original page');
+        for(const node of nodes){
+            if(!['asset','handout','scene','location'].includes(node.node_kind))
+                reject('Visual discovery prepares visual assets and place identities only','/nodes');
+            if(['scene','location'].includes(node.node_kind)&&Object.keys(row(node.properties)).length)
+                reject('Visual discovery must preserve existing place dossiers','/nodes');
+            if(filled.ready_nodes.includes(node.node_id)&&!['asset','handout'].includes(node.node_kind))
+                reject('Visual discovery cannot grant scene readiness','/ready_nodes');
+            if(['asset','handout'].includes(node.node_kind)&&!array(row(node.properties).image_sources).length)
+                reject('Visual discovery assets require original-page crops','/nodes');
+        }
+        if(Object.keys(filled.coverage).length)reject('A visual scan records navigation coverage separately','/coverage');
+    }
     const knownNodes = new Map(array(packet.known_nodes).map(n => [n.node_id, n]));
     // §22.3.1: a differing value for a published field is judged by span here, before review. A
     // re-transcription of the same span (or one whose span this check cannot see) owes the review.
@@ -282,7 +306,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         const graph=new ModuleGraph(string(packet.module_id),{nodes:[...array(packet.known_nodes),...nodes]},'',{});
         for(const need of sourceNeeds!){
             if(!graph.find(need.focus))reject('A retained source need must name a candidate or accepted entity','/source_needs');
-            if(packet.source_unit&&['source_read','uncertain'].includes(need.kind)&&filled.ready_nodes.includes(graph.find(need.focus)?.node_id))reject('A partial source fragment cannot mark an unresolved entity ready','/ready_nodes');
+            if((packet.source_unit||packet.visual_asset)&&['source_read','uncertain'].includes(need.kind)&&filled.ready_nodes.includes(graph.find(need.focus)?.node_id))reject('A partial source fragment cannot mark an unresolved entity ready','/ready_nodes');
             if(packet.purpose==='detail'&&need.kind==='deferred'&&string(packet.question).trim()===need.question.trim()
                 &&graph.find(string(packet.focus))?.node_id===graph.find(need.focus)?.node_id)
                 reject('A detail reading cannot defer its own requested source question','/source_needs');

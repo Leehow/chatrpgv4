@@ -1,5 +1,5 @@
 /**
- * Contract §152: a language-scoped Mod against the real TS kernel -- `mods.install`, `campaign.create`, the capsule
+ * Contract §153: a language-scoped Mod against the real TS kernel -- `mods.install`, `campaign.create`, the capsule
  * and `voice.job` through the kernel's own handlers. The fixture package lives in tests/fixtures/mods/language-zh;
  * nothing here calls a model or plays a table.
  */

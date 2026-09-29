@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { HistoryEntry } from '@pipi/host-api';
+import {handoutImage} from './coc-handout-images.js';
 
 export type CocBinding = {campaign:string; home:string; play_language:string; mode?:string};
 export type CocColdRuntimeOptions = {contentRoot?:string; nodeExecutable?:string; backend?:'typescript';
@@ -467,7 +468,7 @@ function wordTable(value:unknown):Record<string,string> {
  *  grammar of §16.6 does not see it. No `g` flag — `test` here must not carry a `lastIndex`. */
 const SAY_TOKEN=/\{\{say:[^{}\n]{1,60}\}\}/;
 export function mechanicsEntry(row:any, language?:string, presentations?:ReadonlyMap<number,Record<string,unknown>>,
-  words:CocHistoryWords={}, current?:Record<string,unknown>, patches?:readonly CocCardPatch[]|CocObjectDetails): HistoryEntry | undefined {
+  words:CocHistoryWords={}, current?:Record<string,unknown>, patches?:readonly CocCardPatch[]|CocObjectDetails, context?:CocBinding): HistoryEntry | undefined {
   const lanes=wordTable(words.lanes), chrome=words.ui?{ui:words.ui}:{};
   if(row?.type==='custom'&&row.customType==='coc-character-draft'&&row.data?.sheet) {
     // Contract §23.4: the card draws the campaign's current draft, not the revision that appended
@@ -486,7 +487,11 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
       presentation:{renderer:'coc-choice',details:{...row.data,labels:{...lanes,...wordTable(row.data.labels)},...chrome}}};
   }
   if(row?.type!=='custom'||row.customType!=='coc-mechanics'||!Array.isArray(row.data?.mechanics))return;
-  const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper').map(concealFigures);
+  const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper').map(concealFigures).map((item:any)=>{
+    if(item.kind!=='handout')return item;
+    const {image:_existing,...safe}=item,image=handoutImage(safe,context);
+    return image?{...safe,image}:safe;
+  });
   // §16.6: the delivery with its markers still in it, when the Keeper placed any. It rides with the
   // rows because one component has to own both to draw a row where the sentence is.
   const markedText=typeof row.data.marked_text==='string'?row.data.marked_text:'';

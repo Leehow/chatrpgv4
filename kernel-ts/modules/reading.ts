@@ -35,6 +35,7 @@ import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needEligible,need
 import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy.js';
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
+import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,visualCandidates,type VisualScan} from './visual-discovery.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
  * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
@@ -744,6 +745,32 @@ export class Reading {
         if (!truth(reading.index_complete)) await ask({ purpose: 'index', focus: '' });
         if (!await this.store.readGraph(mid)) return { queued, reason: 'index' };
         const graph = await this.store.graph(mid);
+        const queueVisual = async () => {
+            const visualJobs=(await this.store.queue(mid)).filter(job=>job.visual_scan);
+            if(!visualJobs.some(job=>['queued','running'].includes(job.state))){
+                const seen=new Set(visualJobs.filter(job=>job.state!=='cancelled').map(job=>visualScanKey(job.visual_scan)));
+                for(const value of Object.values(row(reading.visual_scans))){
+                    const record=row(value),range={first:record.first,last:record.last};
+                    if(record.source_sha256===meta.source_document?.file_sha256&&record.status==='overviewed'&&validVisualScan(range,number(meta.page_count)))
+                        seen.add(visualScanKey(range));
+                }
+                const next=visualScanRanges(number(meta.page_count)).find(range=>!seen.has(visualScanKey(range)));
+                if(next)await ask({purpose:'detail',focus:`Visual assets pages ${next.first}-${next.last}`,visual_scan:next,
+                    retry:visualJobs.some(job=>job.state==='cancelled'&&visualScanKey(job.visual_scan)===visualScanKey(next)),
+                    question:'Inspect the assigned contact sheet and nominate candidate pages only. Submit visual_candidates with page, kind and a short navigation label. Do not crop, transcribe, segment, or read scene dossiers; independent asset tasks will reopen the originals.'});
+            }
+            const assetJobs=(await this.store.queue(mid)).filter(job=>job.visual_asset);
+            const active=assetJobs.filter(job=>['queued','running'].includes(job.state)).length;
+            const done=new Set(assetJobs.filter(job=>job.state!=='cancelled').map(job=>job.visual_asset.page));
+            for(const material of array(reading.materials))if(integer(row(material.visual_asset).page))done.add(material.visual_asset.page);
+            const current=await this.store.module(mid);
+            const priority=['map','handout','uncertain','illustration'];
+            const candidates=array(row(current.reading).visual_candidates).sort((a,b)=>priority.indexOf(a.kind)-priority.indexOf(b.kind)||a.page-b.page);
+            for(const page of [...new Set(candidates.map(candidate=>number(candidate.page)))].filter(page=>!done.has(page)).slice(0,Math.max(0,2-active)))
+                await ask({purpose:'detail',focus:`Visual assets on physical page ${page}`,visual_asset:{page},
+                    retry:assetJobs.some(job=>job.state==='cancelled'&&job.visual_asset.page===page),
+                    question:'Prepare the visual assets on this nominated original page and their necessary identity links. Use safe crops and existing map regions; leave unresolved geometry explicit. Do not prepare unrelated pages or story dossiers.'});
+        };
         if(meta.source_reference){
             const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit),active=work.filter(job=>['queued','running'].includes(job.state)).length;
             const seen=new Set(work.filter(job=>job.state!=='cancelled').map(job=>sourceUnitKey(job.source_unit as SourceUnit)));
@@ -755,6 +782,7 @@ export class Reading {
                 await ask({purpose:'detail',focus:unit.section,source_unit:unit,
                     question:'Publish one small usable fragment from only physical pages '+unit.first+'-'+unit.last+'. Reuse known identities. Preserve the facts and their causal links; leave incomplete entities and unresolved cross-references explicit. Do not expand into another chapter or wait for the whole graph. Empty non-story pages may publish only coverage.'});
             await this.queueNeedReads(mid,graph,ask);
+            await queueVisual();
             return {queued:[...new Set(queued)],reference_context:true,graph_complete:false,...(recovered.length?{recovered}:{})};
         }
         if(reading.opening_scope==='first_interaction'&&truth(reading.index_complete)&&Object.values(row(meta.prepared_openings)).some(value=>truth(row(value).opening_ready))){
@@ -1080,6 +1108,22 @@ export class Reading {
                 needMarker = { key: params.source_need, kind: need.kind, node_id: need.node_id };
             }
             let sourceUnit:SourceUnit|undefined;
+            let visualScan:VisualScan|undefined;
+            let visualAsset:Row|undefined;
+            if(params.visual_asset!==undefined){
+                const value=params.visual_asset;
+                if(purpose!=='detail'||material!==undefined||params.source_unit!==undefined||params.source_need!==undefined||params.visual_scan!==undefined
+                    ||!isJsonObject(value)||Object.keys(value).join(',')!=='page'||!integer(value.page)
+                    ||!array(reading.visual_candidates).some(candidate=>candidate.page===value.page))
+                    throw new RpcError('invalid_params','visual_asset must name a published visual navigation candidate');
+                visualAsset={page:value.page};
+            }
+            if(params.visual_scan!==undefined){
+                if(purpose!=='detail'||material!==undefined||params.source_unit!==undefined||params.source_need!==undefined||truth(params.foreground)
+                    ||!validVisualScan(params.visual_scan,number(source.page_count)))
+                    throw new RpcError('invalid_params','visual_scan must name one background visual range of the bound PDF');
+                visualScan=clone(params.visual_scan);
+            }
             if(params.source_unit!==undefined){
                 const unit=params.source_unit;
                 if(purpose!=='detail'||!isJsonObject(unit)||Object.keys(unit).sort().join(',')!=='first,last,section'||
@@ -1093,9 +1137,13 @@ export class Reading {
                 const matching=mapCandidates.filter(candidate=>[candidate.focus,candidate.name].some(value=>Reading.meet(identity(value),wanted)));
                 if(matching.length)mapCandidates=matching;
             }
-            const pages:number[]=sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set(mapCandidates.flatMap(candidate=>array(candidate.pages).map(number)))]
+            const pages:number[]=visualAsset?[visualAsset.page]:sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set([
+                ...mapCandidates.flatMap(candidate=>array(candidate.pages).map(number)),
+                ...array(reading.visual_candidates).filter(candidate=>candidate.kind==='map'||candidate.kind==='uncertain').map(candidate=>candidate.page)])]
                 .filter(page=>page>=1&&page<=source.page_count).sort((a,b)=>a-b):[];
             const identity: any[] = [source.file_sha256, purpose, material ?? '', normalize(focus), question, pages];
+            if(visualScan)identity.push('visual_scan_v1',visualScanKey(visualScan));
+            if(visualAsset)identity.push('visual_asset_v1',visualAsset.page);
             if(sourceUnit)identity.push('source_unit',sourceUnitKey(sourceUnit));
             if (purpose === 'guidance')
                 identity.push(guidanceKey,params.public_progress===true?'public-fields-v1':'');
@@ -1199,6 +1247,9 @@ export class Reading {
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
             if (purpose === 'opening' && params.opening_scope) job.opening_scope = params.opening_scope;
             if(sourceUnit){job.source_unit=sourceUnit;job.review_scope_pages=pages;if(meta.source_reference)job.reference_fragment=true;}
+            if(visualScan)job.visual_scan=visualScan;
+            if(visualAsset)job.visual_asset=visualAsset;
+            if(material==='map')job.visual_hints=array(reading.visual_candidates).filter(candidate=>pages.includes(candidate.page));
             job.class_at = job.at;
             if(preparation)job.task_preparation=clone(preparation);
             if (purpose === 'answer') job.context_generation = meta.generation ?? 0;
@@ -1494,7 +1545,21 @@ export class Reading {
             if (observations.file_sha256 !== meta.source_document.file_sha256)
                 reject('reader observations do not belong to the registered source');
             const seen = new Set(array(observations.read_pages));
+            if(job.visual_scan)requireVisualOverview(job.visual_scan,array(observations.overview_pages));
             const draft = clone(await this.store.context.snapshots.readJson(await this.contained(work, params.draft_path)));
+            if(job.visual_scan){
+                const checked=checkDraft(draft,packet,await this.store.contract(),seen);
+                meta.reading.visual_scans??={};
+                meta.reading.visual_scans[visualScanKey(job.visual_scan)]={...job.visual_scan,source_sha256:meta.source_document.file_sha256,
+                    status:'overviewed',candidates:visualCandidates(checked.visual_candidates,job.visual_scan),job_id:job.job_id};
+                meta.reading.visual_candidates=Object.values(row(meta.reading.visual_scans))
+                    .filter(value=>row(value).source_sha256===meta.source_document.file_sha256).flatMap(value=>array(row(value).candidates));
+                const result={state:'ready',visual_navigation:true,generation:meta.generation??0,candidates:meta.reading.visual_candidates.length};
+                meta.reading.completed??={};meta.reading.completed[job.job_id]=result;
+                Object.assign(job,{state:'completed',result,finished_at:nowIso()});
+                this.owned();await this.store.writeModule(meta);await this.store.writeQueue(mid,queue);await this.release(mid,job.job_id);
+                return result;
+            }
             let guidance: Row | null = null, publicFields:Row|undefined, opening: Row | null = null, publicationGraph:Row|undefined, travel: Row | null = null;
             if (job.purpose === 'index')
                 await this.finishIndex(mid, meta, job, draft, new Set(array(observations.full_pages)));
@@ -1547,6 +1612,8 @@ export class Reading {
             else {
                 const contract = await this.store.contract(), filled = checkDraft(draft, packet, contract, seen);
                 const reviewPath = await this.contained(work, params.review_path), review = clone(await this.store.context.snapshots.readJson(reviewPath));
+                if(job.visual_asset&&array(row(review).checked).some(item=>row(item).reviewer===JEV_REVIEWER))
+                    reject('Visual discovery requires original-image review, not a native-text claim verdict');
                 // §151.3: a Jev-checked row is judged against the host's native-text record of the bound source.
                 const evidencePath = join(work, CLAIM_SUPPORT_FILE);
                 const claims = array(row(review).checked).some(item => row(item).reviewer === JEV_REVIEWER) && await this.store.context.snapshots.pathExists(evidencePath)
@@ -1648,7 +1715,7 @@ export class Reading {
                 meta.reading.materials = array(meta.reading.materials).filter(material => !(material.status === 'unusable'
                     && (material.material ?? null) === (job.material ?? null) && string(job.focus ?? '').trim()
                     && (material.key === job.key || normalize(material.focus ?? '') === normalize(job.focus ?? ''))));
-                meta.reading.materials.push({ key: job.key, purpose: job.purpose, ...(job.material ? { material: job.material } : {}), focus: job.focus, question: job.question, node_ids: filled.ready_nodes, generation: number(meta.generation) + 1 });
+                meta.reading.materials.push({ key: job.key, purpose: job.purpose, ...(job.material ? { material: job.material } : {}), ...(job.visual_asset?{visual_asset:job.visual_asset}:{}), focus: job.focus, question: job.question, node_ids: filled.ready_nodes, generation: number(meta.generation) + 1 });
                 meta.status = meta.opening_ready ? 'installed' : 'assembled';
                 // §22.4.8: the scene's own index row, from the published draft's citation of it.
                 Reading.writeSceneRow(meta, job, filled, observations, array(graph.nodes));

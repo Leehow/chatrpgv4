@@ -30,7 +30,7 @@ async function kernel(t){
 const byId=capsule=>new Map(capsule.mods.instructions.map(row=>[row.mod,row]));
 const utf8=value=>Buffer.byteLength(value,"utf8");
 const SHARED_CEILING=5000,LANGUAGE_CEILING=400;
-/** Contract §152.4: a package that declares play_languages is measured against its own 400-byte ceiling, per package,
+/** Contract §153.4: a package that declares play_languages is measured against its own 400-byte ceiling, per package,
  *  and is left out of the 5000-byte ceiling every other brief shares (§30.7, §40.6). The kernel's listing says which. */
 async function languageScoped(call){
 	return new Set((await call("mods.list")).mods.filter(row=>Array.isArray(row.play_languages)).map(row=>row.id));
@@ -103,7 +103,7 @@ test("the actual kernel assembles aligned full instructions, then exact briefs w
 
 test("a language-scoped brief is measured against its own 400-byte ceiling, outside the shared one",async t=>{
 	// Every shipped package that scopes itself to play languages keeps its per-turn text (the brief, or the full
-	// instruction when it has none, §30.7) inside its own ceiling; the kernel refuses one that does not at load (§152.4).
+	// instruction when it has none, §30.7) inside its own ceiling; the kernel refuses one that does not at load (§153.4).
 	for(const id of await readdir(join(ROOT,"mods"))){
 		let manifest;
 		try{manifest=JSON.parse(await readFile(join(ROOT,"mods",id,"mod.json"),"utf8"));}catch{continue;}

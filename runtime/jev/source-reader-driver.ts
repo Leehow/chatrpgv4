@@ -149,7 +149,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
  adapter?:DecisionPort}):Promise<SourceReaderDriver>{
  const {cwd,source,apiKey}=options;
  const taskBytes=await readFile(join(cwd,'task.json'));
- const task=JSON.parse(taskBytes.toString()) as {source_reference_packet?:SourceReferencePacket;source_reference?:'guidance'|'lookup';materialize_place?:boolean;play_language?:string;review_policy?:string;purpose?:string;module_id?:string;focus?:string;question?:string;guidance_key?:string;known_nodes?:unknown[];
+ const task=JSON.parse(taskBytes.toString()) as {visual_asset?:{page:number};visual_scan?:{first:number;last:number};source_reference_packet?:SourceReferencePacket;source_reference?:'guidance'|'lookup';materialize_place?:boolean;play_language?:string;review_policy?:string;purpose?:string;module_id?:string;focus?:string;question?:string;guidance_key?:string;known_nodes?:unknown[];
    source?:{page_count?:number};source_unit?:{section:string;first:number;last:number};pages?:number[];required_review?:unknown[];review_scope_pages?:number[];
    known_claims?:unknown[];source_need?:unknown;repair?:{kind?:string;pages?:unknown[]}};
  if(!['answer','guidance','opening','detail'].includes(task.purpose??''))throw new Error('Native source reader requires a checked source task');
@@ -248,6 +248,14 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        candidates=[...new Set(referencePacket.excerpts.map(span=>span.page))];
      }
      readSet.splice(0,readSet.length,{kind:'source',resource:source.pdf,revision:info.file_sha256});
+     if(task.visual_scan&&!reviewing){
+       trace({kind:'visual_catalog',runId,source_sha256:info.file_sha256,range:task.visual_scan,native_text_gate:false});
+       return {kind:'catalog',source_sha256:info.file_sha256,page_count:info.page_count};
+     }
+     if(task.visual_asset&&!reviewing){
+       candidates=[task.visual_asset.page];
+       return {kind:'catalog',source_sha256:info.file_sha256,page_count:info.page_count};
+     }
      if(reviewing){
        const assigned=fixedReviewPages.filter(page=>page<=info!.page_count);
        const extracted=assigned.length?await sourceText(source.pdf,{pages:assigned,expected_file_sha256:info.file_sha256},signal):null;
@@ -582,7 +590,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        }finally{lease.close();}
      }catch(error){trace({kind:'source_need_answered_unavailable',runId,error:String(error)});return {kind:'need_answered',answered:false,status:'unavailable'};}
    }
-   const policy:RunPolicy<State>={name:'coc-source-reading',version:'11',initial:()=>({...state0,located:reviewing}),next(view){const s=view.policyState;
+   const policy:RunPolicy<State>={name:'coc-source-reading',version:'13',initial:()=>({...state0,located:reviewing||!!task.visual_scan||!!task.visual_asset}),next(view){const s=view.policyState;
      if(view.pendingProposals.length)return {kind:'operate',proposals:view.pendingProposals,reason:'execute_actual_reader_tools'};
      if(s.submitted)return {kind:'finish',outcome:'undelivered',reason:'checked_source_candidate_no_player_delivery'};
      if(s.needSettled)return {kind:'finish',outcome:'undelivered',reason:'source_need_settled_without_reading'};
@@ -659,6 +667,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          if(proposal.operation==='source.catalog')return {status:'ok',artifact:await catalog(invocation.signal)};
          if(proposal.operation==='source.project'){
            projectedImages=[];
+           if(task.visual_scan&&!reviewing)return {status:'ok',artifact:{kind:'projected',pages:[],original_images:0}};
            if(task.source_reference){
              if(!info)throw Error('Original source identity is unavailable');
              referencePacket??=await selectReferencePacket({pages:pages.filter(page=>candidates.includes(page.page)),allPages:pages,bookmarks:info.bookmarks,
@@ -686,6 +695,9 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        }catch(error){trace({kind:'source_operation_failed',runId,operation:proposal.operation,error:String(error)});return {status:'refused',reason:String(error)};}
      }},
      projection:{project(){if(projectedOnce||!info)return;projectedOnce=true;
+       if(task.visual_scan&&!reviewing)return [{role:'custom',customType:'coc-visual-navigation',display:false,timestamp:Date.now(),content:[{type:'text',text:JSON.stringify({
+         overview:{first_page:task.visual_scan.first,last_page:task.visual_scan.last},
+         instruction:'Call pdf overview for this complete range first. Inspect every tile including text-rich pages. Submit only visual_candidates with page, kind and a short label in an otherwise empty graph delta. Do not open or crop originals in this navigation phase; independent asset jobs own that work. This records an overview pass, never visual completeness.'})}]}] as any;
        if(referencePacket)return [{role:'custom',customType:'coc-source-reference',display:false,timestamp:Date.now(),content:[{type:'text',text:JSON.stringify({
          original_source:referencePacket,requested_language:task.play_language??'en',selected_opening:task.focus??'',
          instruction:'These are host-copied original PDF excerpts, not model summaries. Use them directly. They remain private source context. For guidance, generate only the final player-language introduction and question with submit_reference_guidance; do not write a graph, a dossier, duplicate fields or a separate review. Distinguish authored opening alternatives. Treat every source character recommendation as advice; players may choose differently. Keep hidden antagonists, future encounters and secret identities out of public prose. Use broad content-warning categories.'})}]}] as any;

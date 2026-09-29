@@ -56,7 +56,7 @@ export interface ReaderRequest {
 	maxRequests?: number;
 	systemPrompt?: string;
 	/** The host selects an existing source instruction from its captured content root. */
-	prompt?: { phase: "index" | "read" | "verify"; guidance?: boolean; answer?: boolean; reference?: 'guidance'|'lookup' };
+	prompt?: { phase: "index" | "read" | "verify"; guidance?: boolean; answer?: boolean; visual?:'scan'|'asset'; reference?: 'guidance'|'lookup' };
 	/**
 	 * The child's tool allowlist, when the caller wants a narrower one than the reading default. A
 	 * definition writer needs only its own directory: handed a shell, children have spent most of their

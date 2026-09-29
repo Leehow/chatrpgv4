@@ -15,7 +15,7 @@ import {successfulImageDeliveries} from './reader-image-delivery.ts';
 import {requireCheckedSourceReceipt} from './reader-source-receipt.ts';
 import {PUBLIC_GUIDANCE_FIELDS,validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
 import {validateSourceNeeds} from '../../kernel-ts/modules/source-needs.ts';
-import { publishableAssetNodes, validateMapRegions } from "./map-publication.ts";
+import { publishableAssetNodes, validateMapRegions, draftHasMapRegions } from "./map-publication.ts";
 import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 import type {PublicationTravel, TravelFill} from './travel-fill.ts';
@@ -24,6 +24,8 @@ import {runSourceReference} from './source-reference.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
+import {requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts';
+import {mapReviewPreviews} from './map-review-preview.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
@@ -212,6 +214,7 @@ function validCheckpoint(checkpoint: Row, bytes: Buffer, job: Row): boolean {
 	if (checkpoint.draft_sha256 !== sha(bytes)) return false;
 	const observed = checkpoint.observations;
 	if (observed?.file_sha256 !== job.source.file_sha256) return false;
+	if(job.visual_scan){try{requireVisualOverview(job.visual_scan,observed.overview_pages??[]);}catch{return false;}}
 	return job.purpose === "index"
 		? checkpoint.index_map_audited === true && observed.full_pages?.length > 0
 		: draftPages(JSON.parse(bytes.toString())).every(page => observed.read_pages?.includes(page));
@@ -894,7 +897,7 @@ export class ReadingService implements ReadingBridge {
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
 		const task: Row = { purpose: job.purpose,
-            ...Object.fromEntries(['review_policy','source_unit','review_scope_pages','source_need','carried_needs'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
+            ...Object.fromEntries(['review_policy','source_unit','visual_scan','visual_asset','visual_hints','review_scope_pages','source_need','carried_needs'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {guidance_key:job.guidance_key,public_progress_required:job.public_progress===true,
 				play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes, field_spans: job.field_spans ?? {},
@@ -943,7 +946,7 @@ export class ReadingService implements ReadingBridge {
 					try { checkpoint = JSON.parse(await readFile(join(job.resume_from, "read-complete.json"), "utf8")); }
 					catch (failure) { if ((failure as NodeJS.ErrnoException).code !== "ENOENT") throw failure; }
 					// §151.2.3: an interrupted author left a draft but no checkpoint; salvage it before paying for the author again.
-					if (!checkpoint) {
+					if (!checkpoint && !job.visual_scan) {
 						const bytes = await readFile(join(cwd, "draft.json"));
 						let draft: unknown;
 						try { draft = JSON.parse(bytes.toString()); } catch { draft = undefined; }
@@ -963,7 +966,7 @@ export class ReadingService implements ReadingBridge {
 							accounting.salvaged = true;
 						}
 					}
-					else if (validCheckpoint(checkpoint, await readFile(join(cwd, "draft.json")), job)) {
+					else if (checkpoint && validCheckpoint(checkpoint, await readFile(join(cwd, "draft.json")), job)) {
 						if (job.purpose === "guidance" && checkpoint.guidance_sha256 !== sha(await readFile(join(cwd,"guidance.json")))) throw new Error("guidance checkpoint mismatch");
 						if (job.public_progress===true&&checkpoint.public_fields_sha256!==sha(await readFile(join(cwd,'public-fields.json'))))throw new Error('public setup checkpoint mismatch');
 						Object.assign(observations, checkpoint.observations, { review_pages: [] });
@@ -1047,6 +1050,10 @@ export class ReadingService implements ReadingBridge {
 								if (validCheckpoint(checkpoint, bytes, job)) { previousDraft = JSON.parse(bytes.toString()); previousPages = checkpoint.observations.read_pages; candidateBytes = bytes; }
 							} catch { /* no completed source reading to carry */ }
 							await writeFile(join(cwd, "baseline.json"), JSON.stringify(previousDraft ?? {}) + "\n");
+							if(job.visual_asset&&previousDraft){
+								task.visual_previews=await mapReviewPreviews({draft:previousDraft,paths:['/coverage'],cwd,source:{pdf:job.source.path,cache}});
+								await writeFile(join(cwd,'task.json'),JSON.stringify(task)+'\n');
+							}
 							try {
 								const retained = JSON.parse(await readFile(join(cwd, "draft.json"), "utf8"));
 								task.must_view_pages = previousDraft ? [] : draftPages(retained);
@@ -1113,7 +1120,7 @@ export class ReadingService implements ReadingBridge {
                             if(job.source_unit)for(const page of job.pages??[])if(!reviewScope.includes(page))reviewScope.push(page);
 							// §151.3: the Jev claim check asks before the vision units run and merges its rows after they finish.
 							let claimCheck = undefined as ClaimSupportCheck | undefined;
-							const claimSupport = this.deps.claimSupport && (async (units: string[][]) => (claimCheck = await this.deps.claimSupport!({ cwd, round,
+							const claimSupport = !job.visual_scan && !job.visual_asset && this.deps.claimSupport && (async (units: string[][]) => (claimCheck = await this.deps.claimSupport!({ cwd, round,
 								module: job.module_id, job: job.job_id, ...(campaign !== undefined ? { campaign } : {}), source: { file_sha256: job.source.file_sha256 },
 								task, draft: candidate, units, signal,
 								sourceText: pages => this.runtime().sourceText({ pdf: job.source.path, pages, expected_file_sha256: job.source.file_sha256 }, signal),
@@ -1125,7 +1132,7 @@ export class ReadingService implements ReadingBridge {
 									draft:candidate, instructions, round, previousPlan, extractionVersion: sourceTextVersion,
 									model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 									cacheRoot:join(cache,'..','reviews'),
-									reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'answer' ? 'source-answer.md' : job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
+									reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion+(draftHasMapRegions(candidate)?':map-region-review-v2':'')),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'answer' ? 'source-answer.md' : job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
 									run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request, providerBudget,
 										beforeProviderRequest:signal=>this.waitForPriority(job,key,signal,campaign),
 										...(readingLease ? { readingLease } : {}),
@@ -1144,6 +1151,7 @@ export class ReadingService implements ReadingBridge {
 						const imagePaths = new Set<string>();
 						const imageCalls = new Map<string, string[]>();
 						const pageCalls = new Map<string, Row[]>();
+						const overviewCalls = new Map<string, number[]>(), overviewPages = new Set<number>();
 						const sourcePages = new Set<number>();
 
 						const reads = new Map<string, string>();
@@ -1152,11 +1160,12 @@ export class ReadingService implements ReadingBridge {
 						const sourceRunStartedAt=Date.now();
 						publicProgress('searching');
 						const run = await this.runtime().runTask({ kind: "reader", request: { providerBudget, ...(readingLease ? { readingLease } : {}), cwd, model: model.id, thinking: model.thinking,
+							...(job.visual_scan?{maxRequests:3}:{}),
 							beforeProviderRequest:signal=>this.waitForPriority(job,key,signal,campaign),
 							...(["guidance", "opening", "detail", "answer"].includes(job.purpose) ? {imageHistory:4} : {}),
 							submission:["guidance","opening","detail","answer"].includes(job.purpose),
 							priority: () => job.foreground === false ? "background" : "foreground",
-							prompt: { phase: promptPhase, guidance: job.purpose === "guidance", answer: job.purpose === "answer" }, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 },
+							prompt: { phase: promptPhase, visual:job.visual_scan?'scan':job.visual_asset?'asset':undefined, guidance: job.purpose === "guidance", answer: job.purpose === "answer" }, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 },
 							eventLog,
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
@@ -1166,6 +1175,8 @@ export class ReadingService implements ReadingBridge {
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {
+									if(event.result?.details?.kind==='source_overview')overviewCalls.set(event.toolCallId,
+										(event.result.details.manifest?.tiles??[]).map((tile:Row)=>tile.page).filter(Number.isSafeInteger));
 									const path = reads.get(event.toolCallId); if (path) imageCalls.set(event.toolCallId, [path]);
 									if (event.result?.details?.kind === "source_pages") {
 										const viewed = event.result.details.observations;
@@ -1178,16 +1189,23 @@ export class ReadingService implements ReadingBridge {
 						try{
 							const delivered=await successfulImageDeliveries(eventLog+'.images.jsonl',{file_sha256:job.source.file_sha256,cache});
 							for(const id of delivered.toolCallIds){
+								for(const page of overviewCalls.get(id)??[])overviewPages.add(page);
 								for(const path of imageCalls.get(id)??[])imagePaths.add(path);
 								for(const row of pageCalls.get(id)??[])if(Number.isInteger(row.page)&&(!row.box||JSON.stringify(row.box)==='[0,0,1,1]'))sourcePages.add(row.page);
 							}
 							for(const row of delivered.hostPages){imagePaths.add(row.path);sourcePages.add(row.page);}
-						}catch(error){if(imageCalls.size&&run.ok)throw error;}
+						}catch(error){if((imageCalls.size||overviewCalls.size)&&run.ok)throw error;}
+						if(job.visual_scan&&phase==='read'&&run.ok){
+							requireVisualOverview(job.visual_scan,overviewPages);
+							observations.overview_pages=[...overviewPages].sort((a,b)=>a-b);
+							this.deps.record({lane:'reading',event:'visual_overview',module_id:job.module_id,campaign,job_id:job.job_id,
+								range:job.visual_scan,pages:observations.overview_pages,original_pages:[...sourcePages]});
+						}
 						// The pages this run consumed are read before the row is written, so the row can carry them (#65):
 						// the physical page numbers (1-based) behind the images the reader kept, the same set `read_pages` is built from.
 						// A page log that cannot be read still fails the job as before, after the row has landed.
 						let rows: Row[] = [], pageLogFailure: unknown;
-						if (run.ok) {
+						if (run.ok && !job.visual_scan) {
 							try {
 								const lines = (await readFile(join(cache, "requests.jsonl"), "utf8")).trim().split("\n");
 								rows = lines.map(line => JSON.parse(line)).filter(row => row.file_sha256 === job.source.file_sha256 && imagePaths.has(row.path));

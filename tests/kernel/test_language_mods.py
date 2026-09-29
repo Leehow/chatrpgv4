@@ -1,4 +1,4 @@
-"""Contract §152 over the emitted kernel's RPC: a language-scoped package, installed from its test fixture."""
+"""Contract §153 over the emitted kernel's RPC: a language-scoped package, installed from its test fixture."""
 import shutil
 
 from conftest import MODULE, PREGEN, WORKTREE, campaign_dir, read_json

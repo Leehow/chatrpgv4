@@ -23,7 +23,7 @@ function topological(preferred: string[], active: Row[]): string[] {
     }
     return done;
 }
-/** `playLanguage` is the campaign's declared tag, or null when it carries none (contract §152.2). */
+/** `playLanguage` is the campaign's declared tag, or null when it carries none (contract §153.2). */
 export async function defaultModPlan(context: KernelContext, world: Row, playLanguage: string | null = null): Promise<{
     world: Row;
     changed: boolean;

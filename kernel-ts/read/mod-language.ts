@@ -1,21 +1,21 @@
 /**
- * Contract §152: a language-scoped Mod.
+ * Contract §153: a language-scoped Mod.
  *
  * The play language is open (§23): the base registers no language, and a package that exists for one names its own
  * tags in `play_languages`. The kernel checks only their shape and compares them with the tag a campaign was created
  * with, never with text. Three things follow from the declaration, and all of them live here:
  *
- * - a fresh world enables the package by default only for a campaign whose declared tag it names (§152.2);
- * - its per-turn instruction is measured against its own ceiling, outside the shared one over every other brief (§152.4);
+ * - a fresh world enables the package by default only for a campaign whose declared tag it names (§153.2);
+ * - its per-turn instruction is measured against its own ceiling, outside the shared one over every other brief (§153.4);
  * - independently of the declaration, a package requiring `npc.voice.language-addendum.v1` may add a Markdown file to
- *   the voice lane's instruction, after the lane owner's own words (§152.3).
+ *   the voice lane's instruction, after the lane owner's own words (§153.3).
  */
 import { RpcError } from "../errors.js";
 import { validSourceLanguage } from "../modules/contract.js";
 import { array, row, string, type Row } from "./values.js";
 
 export const LANGUAGE_ADDENDUM_CAPABILITY = "npc.voice.language-addendum.v1";
-/** Contract §152.4: the UTF-8 bytes one language-scoped package may add to every later turn's capsule. */
+/** Contract §153.4: the UTF-8 bytes one language-scoped package may add to every later turn's capsule. */
 export const LANGUAGE_BRIEF_BYTES = 400;
 
 const label = (manifest: Row): string => `${string(manifest.id ?? "?")} ${string(manifest.version ?? "?")}`;
@@ -31,7 +31,7 @@ const decode = (bytes: Uint8Array): string => new TextDecoder("utf-8", { fatal: 
 export const declaresLanguages = (mod: Row | null | undefined): boolean => Array.isArray(row(mod).play_languages);
 
 /**
- * §152.2: whether a package may be on by default in a fresh world for a campaign declared in `tag`. A package that
+ * §153.2: whether a package may be on by default in a fresh world for a campaign declared in `tag`. A package that
  * declares no `play_languages` is not scoped. A listed tag matches the campaign's tag when it is that tag or a prefix of
  * it ending at a subtag boundary (RFC 4647 basic filtering, case-insensitive as BCP 47 tags are): `zh` matches `zh`,
  * `zh-Hans` and `zh-Hant`; `zh-Hans` matches `zh-Hans` and `zh-Hans-CN`, never `zh-Hant`. No declared tag (`null`, a
@@ -95,7 +95,7 @@ export function validateLanguageDeclaration(manifest: Row, files: ReadonlyMap<st
 }
 
 /**
- * §152.3: the voice lane's instruction for a campaign: the owner's `voice_lane` text, then the addendum of every
+ * §153.3: the voice lane's instruction for a campaign: the owner's `voice_lane` text, then the addendum of every
  * enabled package that contributes one, in load order, each under a heading naming the package. `active` is
  * `activeMods`' answer for the campaign: enabled, locked, in load order.
  */

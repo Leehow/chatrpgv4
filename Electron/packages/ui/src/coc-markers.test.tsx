@@ -573,3 +573,13 @@ describe('a handed-over handout opens in the play language', () => {
     expect(opened({})).toBe(TEXT)
   })
 })
+
+describe('delivered raster handouts',()=>{
+ it('opens the original pixels with the existing zoom viewer',()=>{
+  const image='data:image/png;base64,AAAA';
+  const {container}=render(<Delivery details={{turn:1,mechanics:[{kind:'handout',name:'Clipping',document:'ready',image}]}} />);
+  expect(container.querySelector('details[data-kind="handout"]')).toBeTruthy();
+  expect(container.querySelector('img')?.getAttribute('src')).toBe(image);
+  expect(container.querySelector('input[type="range"]')).toBeTruthy();
+ });
+});

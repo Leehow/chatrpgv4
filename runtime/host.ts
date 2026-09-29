@@ -266,9 +266,10 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 // product (`content/providers/model-corrections.json` by default, Pi's own `models.json`
 // `modelOverrides` field shapes) is merged into the agent home's `models.json` whenever the host
 // prepares the home for a table (`runtime/launch.ts`'s `piLaunch`, right where it already
-// creates the home directory and reconciles `settings.json`). A user's own override for the same
-// provider+model always wins and is never replaced; every other provider and field in the user's
-// file is left exactly as read.
+// creates the home directory and reconciles `settings.json`). A user's own value always wins and is
+// never replaced -- key by key: an override the user wrote for the same provider+model keeps every
+// key it sets, and only the keys it never mentions are filled from the correction. Every other
+// provider and field in the user's file is left exactly as read.
 
 export interface ProviderModelCorrectionEntry {
   readonly provider: string;
@@ -295,12 +296,27 @@ function stripDocumentationKeys(value: unknown): unknown {
 }
 
 /**
- * Pure merge: for every provider+model the corrections data names, add its override under the
- * user's `providers.<id>.modelOverrides.<model>` only if the user has none there yet. A model the
- * user already has an override for -- any keys, not just `thinkingLevelMap` -- is never touched;
- * neither is any other provider or field the existing config carries. Takes and returns plain
- * JSON values so it needs no filesystem access and is safe to call from a test with fixtures held
- * only in memory.
+ * Fill `target` with the keys of `source` it does not have, descending into objects both sides hold.
+ * A key `target` already has -- whatever its value, `null` included -- is the user's and stays.
+ */
+function fillMissingKeys(target: Record<string, unknown>, source: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(source)) {
+    if (!Object.prototype.hasOwnProperty.call(target, key)) { target[key] = value; continue; }
+    const mine = target[key];
+    if (mine && typeof mine === "object" && !Array.isArray(mine) && value && typeof value === "object" && !Array.isArray(value))
+      fillMissingKeys(mine as Record<string, unknown>, value as Record<string, unknown>);
+  }
+}
+
+/**
+ * Pure merge: for every provider+model the corrections data names, merge its override into the
+ * user's `providers.<id>.modelOverrides.<model>` key by key. A key the user already set -- in
+ * `thinkingLevelMap` or anywhere else, `null` included -- is the user's and is never replaced; a
+ * key the user never mentions is filled from the correction. (09-29: a hand-written
+ * `thinkingLevelMap: {low: "low"}` used to shadow the whole `off: "off"` correction, so a fast
+ * model set to `off` ran on the catalog's `off: null`.) No other provider or field the existing
+ * config carries is touched. Takes and returns plain JSON values so it needs no filesystem access
+ * and is safe to call from a test with fixtures held only in memory.
  */
 export function mergeProviderModelCorrections(existingModelsJson: unknown, corrections: unknown):
   { config: Record<string, unknown>; entries: ProviderModelCorrectionEntry[] } {
@@ -317,8 +333,10 @@ export function mergeProviderModelCorrections(existingModelsJson: unknown, corre
       providers[providerId] = providerEntry;
       const modelOverrides = jsonObject(providerEntry.modelOverrides);
       providerEntry.modelOverrides = modelOverrides;
-      if (Object.prototype.hasOwnProperty.call(modelOverrides, modelId)) continue; // the user's own override wins, untouched
-      modelOverrides[modelId] = stripDocumentationKeys(override);
+      const correction = jsonObject(stripDocumentationKeys(override));
+      if (!Object.prototype.hasOwnProperty.call(modelOverrides, modelId)) { modelOverrides[modelId] = correction; continue; }
+      const mine = modelOverrides[modelId];
+      if (mine && typeof mine === "object" && !Array.isArray(mine)) fillMissingKeys(mine as Record<string, unknown>, correction);
     }
   }
   return { config, entries };
@@ -329,8 +347,8 @@ function correctionsNote(entries: readonly ProviderModelCorrectionEntry[]): stri
   const lines = entries.map(({ provider, model }) => `//   - ${provider}/${model}`);
   return [
     "// Product corrections merged by chatrpgv4 (contract §135.27.1; source",
-    "// content/providers/model-corrections.json). An entry below is added only where you had none",
-    "// of your own for that exact provider+model; your own overrides are never replaced. The",
+    "// content/providers/model-corrections.json). A key below is filled in only where your own",
+    "// override for that exact provider+model does not set it; a key you set is never replaced. The",
     "// product currently knows a correction for:",
     ...lines,
     "",
