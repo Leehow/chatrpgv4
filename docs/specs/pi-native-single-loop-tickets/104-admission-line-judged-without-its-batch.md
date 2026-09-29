@@ -44,3 +44,7 @@ Recommendation: A + B. Cost to measure before landing: SL-101's per-line latency
 - Resend unchanged, or with only `why` / `label` changed: every line is `reused: true` (§32.4 kept).
 - One-line batches, compile / consequence / typed-settled lines: unchanged.
 - Offline re-run of the lane on this turn's batch and on the long gate #23 batches (admission-jev-bank): report verdict changes and per-call wall time.
+
+## Comments
+
+**2026-09-29, after §156 landed on 0.9.6a.** §156 (a move counts its own journey; a `time` beside it must declare `beyond_travel`) makes turn 25's exact shape rarer: the tool descriptions now steer travel into `move.travel_minutes`, and a duplicated journey `time` is refused by the kernel. It does not close this ticket. Admission runs before the kernel's guard; a move of 0 minutes (turn 25's `travel_minutes: 0`) is outside the guard; and the defect is the class, not the pair. Any line reviewed alone can still be judged on a sibling or on its own `why` and then reused under a key that carries neither: cash beside an item, a clue beside a move, an object beside its usage. When this is picked up, take the evidence cases from reviewed-line pairs other than move and time.
