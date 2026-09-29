@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 /**
  * The `npc-voice` package (contract §40.5) read by the kernel's own manifest loader, not by a
  * hand-written parser: `packageFiles` walks the shipped directory and `manifestFrom` decides it,
@@ -120,7 +121,10 @@ test("the lane instruction is authored in English and asks for exactly the shape
   assert.equal(shipped.contributes.voice_lane, 'voice-lane.md');
   assert.ok(shipped.package_files.includes('voice-lane.md') && shipped.requires.includes('npc.voice.generation.v2'));
   await assert.rejects(readFile(join(ROOT, 'content/setup/npc-voice.md')), 'the base no longer carries the lane instruction');
-  assert.equal(await readFile(join(ROOT, 'content/compat/npc-voice-lane.md'), 'utf8'), instruction, 'the frozen copy matches what 2.0.1 owners used');
+  // The frozen copy is what owners before the contribution used (2.0.1 through 2.1.2 shipped the same bytes); it never
+  // changes, while the package's own instruction may (2.1.4 stopped the masks prescribing rhythm).
+  const frozen = await readFile(join(ROOT, 'content/compat/npc-voice-lane.md'));
+  assert.equal(createHash('sha256').update(frozen).digest('hex'), 'b739b2914c4c40d5f6637884bf7e0f8782c0cf8928c1b907de9101b8e55bf0a9', 'the frozen copy keeps its bytes');
   assert.match(instruction, /\{"voice": \{"mask": "<one line>", "exchanges": \["<stranger> → <reply>", "<stranger> → <reply>", "<stranger> → <reply>"\]\}\}/);
   assert.match(instruction, /200 characters/);
   assert.match(instruction, /taken_masks/);

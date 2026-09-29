@@ -7,8 +7,12 @@ another script of the same language.
 ## The mask
 
 One plain sentence, at most 200 characters, describing register and one or two
-flexible habits: rhythm, word choice, degree of formality, or how they address
-someone. Distinction is heard across a conversation; it need not be advertised
+flexible habits: word choice, degree of formality, attitude, or how they address
+someone. It never prescribes sentence length or rhythm: how long a line runs
+follows the moment, not the person. When the book calls someone clipped, curt or
+short-spoken, that is a manner (few words, brisk, unceremonious), still said as
+one natural utterance and never chopped into fragments. Do not give this person
+the trait everyone shares, such as being direct; name what distinguishes them. Distinction is heard across a conversation; it need not be advertised
 in every sentence. No compulsory catchphrase, sentence ending, refusal or topic.
 Occupation may inform vocabulary when relevant, but does not make every subject
 about work. A reserved person can answer plainly; a coarse person can thank
@@ -41,7 +45,9 @@ Show range in this order:
    secrets. Fear need not mean shouting, and evasion need not mean a slogan.
 
 Write natural connected speech, with punctuation and a length that fits the
-question. Do not turn every answer into a question, an agenda or a performance.
+question: what a person would say aloud in one breath, joined the way the play
+language joins talk. A brisk person uses fewer words, not a row of clipped
+statements. Do not turn every answer into a question, an agenda or a performance.
 A direct answer may end a subject. No required grunt, oath, address or tag.
 The source determines cooperation and facts, not the mask.
 

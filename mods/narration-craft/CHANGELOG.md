@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.1.4 (experimental arm E, 2026-09-28; not for merging unless the owner picks it)
+- Voice cards stop prescribing rhythm. On every A/B table the lane wrote "短促 / 简短 / 短句 / 不绕弯" into nearly every mask, including people the book never calls brief (Ruth Blake: "speaks in asides while filing"; the clerk: "dry, procedural"), and wrote the sample exchanges as rows of clipped statements; the Keeper wore that as cadence. The lane now describes word choice, formality, attitude and address, never sentence length; a book's "clipped" is a manner said as one natural utterance. The Keeper wears a mask in word choice, address and attitude, not cadence.
+
 ## 2.1.2
 - Owner, after the two A/B rounds: the Keeper gets the player's words and writes the act in by its own judgement. The rules 2.1.0/2.1.1 added on how to render it (receipt examples, fill in the steps, speech as a few words of gist, a report in one clause, a sentence or two) are removed; what stays is the owner's own boundary: the act is written into the scene in the Keeper's own words, the player's sentence is never pasted back, and nothing goes against what they meant.
 - Speech: npc-voice 1.3.0's "Natural replies, varied register" section returns to the Keeper's instruction (answer the actual question first in natural connected speech, length fits the moment, no aphorism or fragment for an answer, "same thought, two mouths"), in place of 2.1.x's paragraph. 2.0.0 had dropped it when npc-voice was folded in. The axis, `speak-in-person` and the `voice` floor line say the same; the brief is 897 bytes, the style full form 2039 of 2048.
