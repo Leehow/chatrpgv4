@@ -14,9 +14,12 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.equal(prompt.includes('give a little, refuse harder, or change the subject'), false);
   assert.ok(craft.includes('who does what to whom is never left for the reader to reconstruct'));
   // Owner 2026-09-28 (narration-craft 2.1.0): the declared act is shown in the scene, never retyped; speech is one joined thought.
-  assert.ok(craft.includes('Never retype the player\'s sentence'));
-  assert.ok(craft.includes('Add no choice, destination, promise, feeling or words the player did not declare'));
+  assert.ok(craft.includes('never the declaration itself: no retelling of what the player wrote'));
+  assert.ok(craft.includes('Add no choice, destination, promise, change to the room, feeling or words the player did not declare'));
+  // Four A/B tables (2026-09-28): speech acts retold clause by clause doubled the receipts; they are gist now.
+  assert.ok(craft.includes('with at most a few words of its gist, never gone through clause by clause'));
   assert.ok(craft.includes('A spoken line is one person\'s turn in a conversation'));
+  assert.ok(craft.includes('Rules and conditions above all'));
   assert.equal(craft.includes('do not begin with what the investigator did'), false);
   assert.ok(craft.includes('The facts do not change; their patience does.'));
   assert.ok(craft.includes('Sarcasm, contempt and insult land'));

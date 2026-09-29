@@ -9,8 +9,8 @@
   ],
   "directives": {
     "act-then-reply": {
-      "full": "the declared act plays out here, then the world's reply; the player's words never retyped",
-      "brief": "the declared act here, then the reply; never the player's words retyped"
+      "full": "the act as the body does it here, speech a few words of gist, then the reply; never the player's words laid back out",
+      "brief": "the act as the body does it, speech as gist, then the reply; never the player's words laid back out"
     },
     "one-focus": {
       "full": "one focus per paragraph, each sentence leading on; errands in a clause, the moment gets room",
@@ -21,7 +21,7 @@
       "brief": "take up what they heard: one joined thought, their register, wanting something"
     },
     "show-the-change": {
-      "full": "show what the result changed in the room, body or face; an unestablished cause stays unstated",
+      "full": "show what the result changed in room, body or face; an unestablished cause stays unstated",
       "brief": "show what the result changed; an unestablished cause stays unstated"
     },
     "place-the-eye": {
@@ -37,11 +37,11 @@
       "brief": "carry the action to its first outcome, obstacle, risk or fork"
     },
     "return-by-change": {
-      "full": "on a return, lead with what differs since they last looked; the rest takes half a sentence",
+      "full": "on a return, lead with what differs; the rest in half a sentence",
       "brief": "on a return, lead with what changed; the unchanged in half a sentence"
     },
     "press-and-cost": {
-      "full": "the cost in the body or room, the clock in what people do; never a number, label or warning",
+      "full": "the cost in body or room, the clock in what people do; never a number, label or warning",
       "brief": "the cost in the body or room, the clock in what people do; no labels"
     }
   },
@@ -114,7 +114,7 @@
     ]
   },
   "floor": [
-    "uptake: the declared act plays out here, then the world answers; never the player's words retyped",
+    "uptake: the act plays out here, speech as gist, then the world answers; never the player's words laid back out",
     "answer: the settled result or the chosen exchange is perceptible; a quiet turn owes no event",
     "voice: whoever it touches takes it up in their register, one joined thought in a say token, or keeps silent",
     "handoff: stop at a completed goal or a real unselected decision with enough seen to judge; no menu or reflexive question"
