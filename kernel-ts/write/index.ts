@@ -20,7 +20,7 @@ import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
 import { clockSection, sceneLabel } from '../read/capsule.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
-import { playLanguages, playLanguageOf } from '../read/languages.js';
+import { playLanguages, playLanguageOf, declaredPlayLanguage } from '../read/languages.js';
 import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
 import { array, entries, values, row, clone, number, string, truth, repr, chars, words, equal, integer, normalize, type Row } from '../read/values.js';
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError, parseCallId } from './store.js';
@@ -126,7 +126,8 @@ export interface WriteContributions {
     /** §107.1: the module asset reader the late first-arrival card composes its layers from. */
     asset?(moduleId: string, name: string): Promise<Row | null>;
     mods?: {
-        initializeWorld(world: Row): Promise<boolean>;
+        /** `playLanguage`: the campaign's declared tag, or null (contract §152.2). */
+        initializeWorld(world: Row, playLanguage?: string | null): Promise<boolean>;
         initializeCampaign(campaign: CampaignWriter, world: Row, options?: {pending?: boolean}): Promise<void>;
         validateWorld(world: Row): Promise<void>;
     };
@@ -201,9 +202,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         if(contributions.mods)await contributions.mods.validateWorld(world);
         else await defaultModPlan(context,world);
     }
-    async function initializeNewWorld(world: Row): Promise<Row> {
-        if(contributions.mods){await contributions.mods.initializeWorld(world);return world;}
-        const plan=await defaultModPlan(context,world);await plan.install();return plan.world;
+    async function initializeNewWorld(world: Row, playLanguage: string): Promise<Row> {
+        if(contributions.mods){await contributions.mods.initializeWorld(world,playLanguage);return world;}
+        const plan=await defaultModPlan(context,world,playLanguage);await plan.install();return plan.world;
     }
     async function openCampaign(params: Row, options: {
         requireTurn?: boolean;
@@ -462,7 +463,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 ...base,
                 mods: clone(staged)
             };
-        const plan = await defaultModPlan(context, base);
+        const plan = await defaultModPlan(context, base, declaredPlayLanguage(snapshot.meta));
         await plan.install();
         if (changed || plan.changed) {
             await campaign.writeWorld(plan.world);
@@ -571,7 +572,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const existing = await context.snapshots.pathExists(metadata) ? row(await context.snapshots.readJson(metadata)) : {};
         if (playsFromReading(existing) && !contributions.openingReady)
             missingContribution('visual source creation');
-        if(!contributions.mods)await defaultModPlan(context, {});
+        if(!contributions.mods)await defaultModPlan(context, {}, language);
         if (starter) await registerStarter(context, moduleId);
         const root = await scopedModuleRoot(context, id, moduleId) ?? join(context.stateRoot, 'modules');
         const moduleMeta = clone(row(await context.snapshots.readJson(join(root, moduleId, 'module.json'))));
@@ -611,7 +612,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 throw new RpcError('invalid_params', 'start_scene must name an authored opening');
         }
         const playable = graph && (!playsFromReading(moduleMeta) || await setupOpeningReady(moduleId, chosen || '', id));
-        const [world, start] = playable ? initialWorld(graph!, chosen,!!moduleMeta.source_reference) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null], modConfiguration = await initializeNewWorld(world || {});
+        const [world, start] = playable ? initialWorld(graph!, chosen,!!moduleMeta.source_reference) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null], modConfiguration = await initializeNewWorld(world || {}, language);
         const meta: Row = {
             id,
             title,

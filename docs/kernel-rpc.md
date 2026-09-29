@@ -6263,7 +6263,8 @@ the host names, and acceptance refuses a departure the creator did not state (§
 Packages contain `mod.json`, instructions, schemas and optional data/migrations.
 The manifest declares `id`, `version`, `game_api`, `state_version`, `name`,
 `description`, `author`, `default_enabled`, `requires`, `dependencies`, `conflicts`,
-`contributes`, and `settings`; §101 scoped packages also declare `package_files`.
+`contributes`, and `settings`; §101 scoped packages also declare `package_files`; a package for particular play
+languages declares `play_languages` (§152).
 Built-ins live in repository `mods/`; installed
 immutable versions in `<home>/.coc/mods/packages/<id>/<version>/`. A package digest
 covers all files in the immutable legacy format, or, under §101's
@@ -11060,7 +11061,7 @@ Supersedes the `sample_lines` word of §40.5 (`npc-voice` 1.1.0; design and sour
 
 **Owner (2026-09-25).** The lane belongs to a package, not to `npc-voice` by name (user ruling of 2026-09-25, `docs/specs/prose-mod.md` §4). Every `voice.job`, `voice.submit` and `voice.fail` resolves the owner from the campaign's locks and the installed catalog: first the enabled unified expression package (`narration-craft` declaring `npc.voice.consolidation.v1`) when the manifest of its locked version and digest also declares `npc.voice.generation.v2`; otherwise the `npc-voice` lock under the rule it always had (enabled, any version -- frozen 1.0.x/1.1.x locks predate the capability); otherwise nobody, and `voice.job` answers `{job_id: null}`, not an error. Everything the lane reads and writes follows the owner: the namespace `world.mods.state[<owner>].dossier` (established, `taken_masks`, the write), the generation `{version, digest, state_version}` of the owner's lock (the `@digest` suffix of `job_id` and the packet's `generation`), `coarse_language` from the owner's settings, the `mod` stamp on the two records, the job file `<owner>/jobs[/v2/<digest>]/<handle>.json`, and the refusal that names a package which is not enabled. The unified owner's jobs therefore live under `narration-craft/jobs/...` and never share a folder with the legacy lane's. A job minted while another package owned the lane (a legacy job after handover, a unified job after the package is switched off) fails the existing generation check before any write, as before. The legacy owner is byte-identical to the lane before this ruling: the same job ids, paths, digests, records and messages. The task-state partition accepts a lane record stamped with either owner id in either namespace. The §30.7e handover copies cards stamped `npc-voice` into the unified namespace; with the unified package as owner they count as established, so a handed-over person is not generated again. Likewise a new unified generation (a version change with no state migration) keeps the owner's dossier, so settled people stay settled; only a state migration that moves the dossier aside, as `npc-voice`'s 1 to 2 does, starts them over. The owner is resolved in the kernel's voice handlers from the catalog; package locks carry no new field. The host lane (`extensions/npc-voice`) and its instruction (`content/setup/npc-voice.md`) are unchanged: the host asks `voice.job` after every commit and the kernel decides.
 
-**Instruction (2026-09-26).** The lane's instruction ships in the owning package, not in the kernel's content: a package that requires `npc.voice.generation.v2` may name one package Markdown file in `contributes.voice_lane` (listed in `package_files`; a `voice_lane` without the capability is refused at install), and `voice.job` carries that file's text whole as the packet's `instruction`, frozen with the package version like every package file (§26). An owner whose version predates the contribution (npc-voice 1.x, narration-craft 2.0.0 and 2.0.1) reads the frozen copy it was written against, `content/compat/npc-voice-lane.md`, so a saved game keeps its lane; neither readable, the kernel's short fallback in `kernel-ts/voice/jobs.ts`. `content/setup/npc-voice.md` is gone. Narration Craft 2.0.2 is the first owner that contributes it.
+**Instruction (2026-09-26).** The lane's instruction ships in the owning package, not in the kernel's content: a package that requires `npc.voice.generation.v2` may name one package Markdown file in `contributes.voice_lane` (listed in `package_files`; a `voice_lane` without the capability is refused at install), and `voice.job` carries that file's text whole as the packet's `instruction`, frozen with the package version like every package file (§26). An owner whose version predates the contribution (npc-voice 1.x, narration-craft 2.0.0 and 2.0.1) reads the frozen copy it was written against, `content/compat/npc-voice-lane.md`, so a saved game keeps its lane; neither readable, the kernel's short fallback in `kernel-ts/voice/jobs.ts`. `content/setup/npc-voice.md` is gone. Narration Craft 2.0.2 is the first owner that contributes it. After the owner's text come the enabled packages' language addenda (§152.3).
 
 ### 40.8 Natural speech is not compulsory mannerism (2026-09-19)
 
@@ -28638,3 +28639,73 @@ GUI follow-up found that a combined move-and-conversation declaration was incorr
 Place confirmation separately checks that the copied name denotes a source place and that the player refers to it as the destination, both at 0.8. The context is the original text surrounding the selected name so a city qualifier can be resolved without unrelated later passages diluting the question. A place the player is leaving is not the destination. Confirmation does not authorize entry or waive a source restriction.
 
 External comparison: TypeSafe's official semantic-find and structure-recovery cookbooks enumerate source lines and choose/classify them; its pre-parsed extraction pattern copies selected source values in code. LangChain's retrieval architecture likewise places bounded retrieval before generation while warning that retrieval latency can still vary. This confirms the source-selection approach, not any gameplay speed or completeness claim.
+
+## 152. Language-scoped Mods: play_languages, a voice-lane language addendum and their own brief ceiling (2026-09-29)
+
+Owner-approved design, 2026-09-29 (the language optimization mod). The play language is open (§23, the 2026-09-09
+ruling): the base registers no language, keeps no table keyed by one and detects none. A package that exists for a play
+language declares its own tags; the kernel compares them with the tag the campaign was created with and reads nothing
+else. Implementation: `kernel-ts/read/mod-language.ts`, called from `manifestFrom`, `ModRuntime.initializeWorld`,
+`defaultModPlan` and `voice.job`. Numbering: 0.9.6a already publishes §150 and §151, so this section is 152.
+
+### 152.1 The fields
+
+- `play_languages` (top-level, optional): a non-empty list of distinct BCP 47 tags, each of the one shape
+  `validSourceLanguage` accepts (the shape `campaign.create` takes for `play_language`). Shape only; no list of
+  languages is consulted and any tag is accepted. Absent: the package is not scoped. An empty list, a non-list, a
+  non-tag or a tag named twice (case-insensitively) is refused: `details.reason: "play_languages_shape"`.
+- `contributes.voice_lane_addendum` (optional): one package Markdown file of non-empty UTF-8 text, listed in
+  `package_files` (§101). It requires the capability `npc.voice.language-addendum.v1`; without it,
+  `details.reason: "voice_lane_addendum_capability"`; an empty or non-UTF-8 file, `"voice_lane_addendum_text"`. The
+  capability is in `MOD_CAPABILITIES` (so in `mods.list.capabilities` and every mod job's `capabilities`); a build that
+  predates it marks such a package incompatible (§28.9) instead of refusing a table. The addendum does not require
+  `play_languages`, nor the reverse.
+- Every refusal is `invalid_params` with the message `<id> <version>: ...`, a `fix`, and `details`
+  `{mod, version, field, reason, ...}`. `mods.install` returns it; `readModCatalog` sets the version aside as
+  unavailable (§41.2).
+- `mods.list` rows carry `play_languages` when declared; `default_enabled` stays the catalog default (§26).
+
+### 152.2 Matching, and when it applies
+
+A listed tag matches the campaign's tag when it equals it or is a prefix of it ending at a subtag boundary (RFC 4647
+basic filtering; compared case-insensitively, as BCP 47 tags are): `zh` matches `zh`, `zh-Hans`, `zh-Hant` and
+`zh-Hans-CN`, never `zhx`; `zh-Hans` matches `zh-Hans` and `zh-Hans-CN`, never `zh` or `zh-Hant`.
+
+Only a fresh set of locks reads it: `campaign.create` (the world, or the staged `mods_pending` of a campaign whose
+world does not exist yet), and a world or staged set with no locks when `table.open`, `mods.configure` or `mods.order`
+first locks it. A scoped package is locked `enabled: false` unless one of its tags matches; where one matches it takes
+its default like every package (`mods.defaults`, else `default_enabled`), so a scoped package that defaults off stays
+off. The campaign's tag is `campaign.json`'s `play_language` as `campaign.create` recorded it (the data default when the
+caller named none); a campaign that records none matches nothing, and the data default is never substituted for it
+(`declaredPlayLanguage`, not `playLanguageOf`). Existing locks never change: a language package installed later adds no
+lock to an existing campaign, and the player can enable or disable any package on any campaign by hand (§26).
+
+Readings that serve every campaign are not scoped and read the package by its default as before: the reader's dossier
+vocabulary (§28.2), the one-default-style-provider check (§137.4) and the global load-order check.
+
+### 152.3 The voice-lane addendum
+
+`voice.job`'s `instruction` is the lane owner's own `contributes.voice_lane` text (§40.7 Instruction), then, for every
+enabled package on the campaign that contributes `voice_lane_addendum`, in the campaign's load order (`activeMods`): a
+blank line, the heading line `## Language addendum: <mod id>`, a blank line and the addendum (trimmed). The owner stays
+the only `voice_lane` owner; an addendum adds and never replaces. An owner that predates `voice_lane` keeps
+`content/compat/npc-voice-lane.md` byte for byte, and the kernel's short fallback is unchanged: neither takes addenda,
+which are written against a current owner's words.
+
+### 152.4 Budgets
+
+A scoped package's per-turn instruction (its `brief`, or its `instructions` when it has no brief: the form every later
+turn carries, §30.7) is at most 400 UTF-8 bytes, checked at load: `details.reason: "language_brief_over_budget"` with
+`path`, `bytes` and `limit: 400`. Its first-turn full instruction is not bounded here. Scoped briefs are left out of the
+5000-byte shared ceiling over the active briefs (§30.7, §40.6), which stays a test policy, not kernel code
+(`tests/extension/jev-pacing-mod-alignment.test.mjs`, `tests/kernel/test_mod_director_text.py`); the same tests hold
+each scoped brief to 400. The addendum has no kernel budget: it rides the lane's packet, not the capsule.
+
+### 152.5 The kernel's decisions
+
+- A build older than this section ignores `play_languages` (an unknown top-level manifest field is not a §28.9 gap), so
+  there a scoped package without an addendum would take its plain default on every campaign. A language package that
+  must not run unscoped on an older build should require `npc.voice.language-addendum.v1`.
+- No language package ships in `mods/`. Tests: `tests/extension/language-scoped-mods.test.mjs` with the fixture
+  `tests/fixtures/mods/language-zh`, installed through `mods.install`; `tests/kernel/test_language_mods.py` over the
+  emitted kernel's RPC; and the two ceiling tests above.
