@@ -77,6 +77,25 @@ clears without asking Jev), unanswered rows (`confidence` null: a Jev outage or 
 `keeper_did` verdict, and duplicate `(turn, class, key)` rows, of which the last written is kept (SL-85: the last
 writer is the true close). The script never edits the execute list (`jev_steps.execute`) or any other file.
 
+The verdict is followed by one more section, "executed steps not in the prose" (D6 2b's line "every executed D1 step
+appears in the prose or is reversed by the Keeper with a receipt"), read per table off the `executed: true` rows:
+
+- an executed `clue_follow_up` row is *narrated* when the turn it belongs to carries a Keeper-placed marker for that
+  clue in its delivered `text` (`turns/NNNN.json`): `{{clue:<handle>}}`, where `<handle>` is the part of the row key
+  after `consequence:clue_follow_up:`, optionally followed by `-<n>` or `-t<n>` (the kernel's own repeat suffix and the
+  receipt-id form a Keeper copies, e.g. `{{clue:dooley-macario-madness-t5}}`). The grammar is structural: a marker with
+  another handle that merely starts with this one (`{{clue:ledger-book}}` for `ledger`) is not a marker for it.
+  The turn is the one telemetry puts the row's `run` on (the run's other rows carrying both `run` and `turn`), the
+  row's own `turn` when the run names none or several;
+- `marked_text` is not read: the kernel appends a marker for every receipt the Keeper did not place
+  (`placeUnplacedMechanics`, `kernel-ts/write/text.ts`), so a marker there says nothing about the Keeper. A turn record
+  with no `text` is reported as not checkable, never as narrated;
+- *reversed* cannot be measured: no receipt kind reverses a clue (`apply clue` only appends to `discovered_clues`,
+  `kernel-ts/apply/entities.ts`, and no other write removes from it; none of the 5,133 turn records read for this
+  ticket carries such a kind), so the column is printed `n/a`;
+- *neither* is a row with no Keeper-placed marker: a proxy, since prose that tells the clue without its marker is not
+  seen. Each one is listed with its turn, key and confidence, for the transcript read that stays with the owner.
+
 Usage:
     python3 tests/play/jev-steps-report.py <home> [<home> ...] [--campaign <glob> ...] [--detail]
     python3 tests/play/jev-steps-report.py <root> <glob> [<glob> ...]        # the original form; implies --detail
@@ -87,6 +106,7 @@ the original form the arguments that are not homes are campaign globs, e.g. `lon
 matching campaign is reported in detail, in the order passed, before the verdict.
 """
 import argparse
+import re
 import sys
 import os
 import glob as globmod
@@ -557,9 +577,69 @@ def d6_table(index, loaded):
                         'fn': sum(1 for _, cleared, acted in kept if not cleared and acted),
                         'tn': sum(1 for _, cleared, acted in kept if not cleared and not acted)}
     return {'label': f'h{index}:{loaded["cid"]}', 'cid': loaded['cid'], 'home': index, 'turns': len(loaded['turn_files']),
-            'classes': classes,
+            'classes': classes, 'executed_steps': executed_steps(loaded),
             'cost': {'turns_with_call': len(values), 'mean_ms': statistics.mean(values) if values else None,
                      'median_ms': statistics.median(values) if values else None, 'max_ms': max(values) if values else None}}
+
+
+CLUE_KEY_PREFIX = 'consequence:clue_follow_up:'
+
+
+def run_turns(telemetry):
+    """run id -> the turns the telemetry rows carrying both a `run` and a `turn` put it on. The consequence rows being
+    resolved are left out: the map is independent evidence (bind, budget and residual rows of the same run), never the
+    row's own `turn` read back."""
+    out = collections.defaultdict(set)
+    for row in telemetry:
+        if row.get('lane') == 'route' and row.get('purpose') == 'consequence':
+            continue
+        run, turn = row.get('run'), row.get('turn')
+        if isinstance(run, str) and isinstance(turn, int) and not isinstance(turn, bool):
+            out[run].add(turn)
+    return out
+
+
+def clue_marker(handle):
+    """The Keeper's marker for a clue handle: `{{clue:<handle>}}`, optionally with the kernel's `-<n>` repeat suffix or
+    the `-t<n>` receipt-id form. Anchored on the closing braces, so another handle starting with this one is not it."""
+    return re.compile(r'\{\{clue:' + re.escape(handle) + r'(?:-t?\d+)?\}\}')
+
+
+def executed_steps(loaded):
+    """D6 2b for one table: of the `executed: true` `clue_follow_up` rows, how many the Keeper narrated (a marker for the
+    clue in the turn's delivered `text`) and which it did not. Other executed classes are counted, not checked; a row
+    on an undelivered turn, with no turn record, or with no `text` cannot be checked and is counted as such."""
+    turns_of = run_turns(loaded['telemetry'])
+    latest = {}
+    mismatched = 0
+    for row in loaded['candidate_rows']:
+        if row.get('executed') is not True:
+            continue
+        named = turns_of.get(row.get('run'), set())
+        turn = next(iter(named)) if len(named) == 1 else row.get('turn')
+        if len(named) == 1 and row.get('turn') is not None and row.get('turn') != turn:
+            mismatched += 1
+        latest[(turn, row.get('class'), row.get('key'))] = (turn, row)
+    result = {'executed': 0, 'narrated': 0, 'neither': [], 'not_checkable': collections.Counter(),
+              'other_classes': collections.Counter(), 'turn_mismatch': mismatched}
+    for (turn, cls, key), (_turn, row) in latest.items():
+        if cls != 'clue_follow_up':
+            result['other_classes'][cls] += 1
+            continue
+        result['executed'] += 1
+        record = loaded['turn_records'].get(turn)
+        if turn in loaded['stranded']:
+            result['not_checkable']['undelivered_turn'] += 1
+        elif record is None:
+            result['not_checkable']['no_turn_record'] += 1
+        elif not isinstance(record.get('text'), str):
+            result['not_checkable']['no_text'] += 1
+        elif clue_marker(key[len(CLUE_KEY_PREFIX):] if key.startswith(CLUE_KEY_PREFIX) else key).search(record['text']):
+            result['narrated'] += 1
+        else:
+            result['neither'].append({'turn': turn, 'key': key, 'confidence': row.get('confidence')})
+    result['neither'].sort(key=lambda item: (item['turn'] is None, item['turn'], item['key']))
+    return result
 
 
 def is_table(loaded):
@@ -602,7 +682,12 @@ def aggregate(homes, globs=('*',)):
                          'recall_tables': len(shadow_only),
                          'artifacts': sum(t['classes'][cls]['artifacts'] for t in tables), 'excluded': dict(excluded),
                          'met': bool(rows) and agreement_met and fp_met and cost_met}
-    return {'homes': homes, 'scanned': scanned, 'tables': tables, 'classes': verdicts,
+    executed_total = {'tables': sum(1 for t in tables if t['executed_steps']['executed']),
+                      'executed': sum(t['executed_steps']['executed'] for t in tables),
+                      'narrated': sum(t['executed_steps']['narrated'] for t in tables),
+                      'neither': sum(len(t['executed_steps']['neither']) for t in tables),
+                      'not_checkable': sum(sum(t['executed_steps']['not_checkable'].values()) for t in tables)}
+    return {'homes': homes, 'scanned': scanned, 'tables': tables, 'classes': verdicts, 'executed_steps': executed_total,
             'cost': {'tables_with_data': len(with_cost), 'over': cost_over, 'met': cost_met}}
 
 
@@ -657,6 +742,28 @@ def render_verdict(agg):
         else:
             print(f'  {table["label"]}: {c["turns_with_call"]}/{table["turns"]} turns with a call; mean {c["mean_ms"]:.0f} ms; '
                   f'median {c["median_ms"]:.0f} ms; max {c["max_ms"]:.0f} ms')
+    render_executed_steps(agg)
+
+
+def render_executed_steps(agg):
+    """The "executed steps not in the prose" section (D6 2b), per table with an executed clue row, then the totals."""
+    total = agg['executed_steps']
+    print('\n-- executed steps not in the prose (D6 2b: every executed step appears in the prose or is reversed with a receipt) --')
+    print('  narrated: a Keeper-placed {{clue:<handle>}} marker (also -N / -tN) in the turn\'s delivered `text`; a structural proxy, '
+          'prose that tells the clue without its marker is not seen')
+    print('  reversed: n/a -- no receipt kind reverses a clue (kernel-ts `apply clue` only appends to discovered_clues)')
+    for table in agg['tables']:
+        e = table['executed_steps']
+        if not e['executed'] and not e['other_classes']:
+            continue
+        extras = ''.join(f'; {label} {value}' for label, value in
+                         (('not checkable', dict(e['not_checkable'])), ('other executed classes, not checked', dict(e['other_classes'])),
+                          ('row turn differs from its run\'s turn', e['turn_mismatch'])) if value)
+        print(f'  {table["label"]}: executed {e["executed"]}, narrated {e["narrated"]}, reversed n/a, neither {len(e["neither"])}{extras}')
+        for item in e['neither']:
+            print(f'    neither: turn {item["turn"]} key={item["key"]!r} confidence={item["confidence"]}')
+    print(f'  totals: {total["executed"]} executed clue steps over {total["tables"]} tables; narrated {total["narrated"]}; '
+          f'reversed n/a; neither {total["neither"]}; not checkable {total["not_checkable"]}')
 
 
 def main(argv):

@@ -358,3 +358,98 @@ def test_the_report_writes_nothing_and_leaves_the_execute_list_alone(homes, tmp_
     capsys.readouterr()
     assert snapshot(homes["repo"], homes["user_data"].parent.parent) == before
     assert json.loads(budgets.read_text(encoding="utf-8")) == {"jev_steps": {"execute": ["clue_follow_up"]}}
+
+
+# --- "executed steps not in the prose" (D6 2b) -----------------------------------------------------------------------
+
+def executed(key: str, turn: int, confidence: float = 0.6, **extra) -> dict:
+    return candidate("clue_follow_up", key, turn, cleared=True, did=False, confidence=confidence, executed=True, shadow=False, **extra)
+
+
+def real_shaped_record(text: str, clue_handles: list[str]) -> dict:
+    """A delivered turn as the kernel writes it: `text` is what the Keeper wrote, `marked_text` has a marker appended for
+    every clue receipt the Keeper did not place itself (`placeUnplacedMechanics`)."""
+    appended = "".join(f"\n\n{{{{clue:{handle}}}}}" for handle in clue_handles if f"{{{{clue:{handle}" not in text)
+    return {"text": text, "marked_text": text + appended,
+            "receipts": [{"kind": "clue", "clue": handle, "id": f"clue:{handle}-t0"} for handle in clue_handles]}
+
+
+def steps_of(tmp_path, rows, turns, home="home"):
+    write_campaign(tmp_path / home / ".coc" / "campaigns", "t", rows + [budget(1, 10)], turns=turns)
+    return report.aggregate(resolve(tmp_path / home))["tables"][0]["executed_steps"]
+
+
+def test_an_executed_clue_is_narrated_when_the_keepers_text_places_its_marker(tmp_path):
+    rows = [executed("ledger", 1), executed("diary", 2), executed("map", 3)]
+    turns = {1: real_shaped_record("He slides it over. {{clue:ledger}}", ["ledger"]),
+             2: real_shaped_record("A page. {{clue:diary-t2}}", ["diary"]),        # the receipt-id form a Keeper copies
+             3: real_shaped_record("Two pages. {{clue:map-2}}", ["map"])}          # the kernel's repeat suffix
+    steps = steps_of(tmp_path, rows, turns)
+    assert (steps["executed"], steps["narrated"], steps["neither"]) == (3, 3, [])
+
+
+def test_the_known_real_case_an_executed_clue_the_prose_never_places_is_neither(tmp_path):
+    """longgate19-haunting-1043 turn 5: `dooley-macario-madness` executed, the text carries only a say token; the
+    delivered `marked_text` nevertheless has `{{clue:dooley-macario-madness}}`, appended by the kernel, and must not count."""
+    text = "The newsstand smells of smoke.\n\n{{say:Dooley}}“A paper?” he asks."
+    record = real_shaped_record(text, ["dooley-macario-madness", "burning-eyes-form"])
+    assert "{{clue:dooley-macario-madness}}" in record["marked_text"] and "{{clue:" not in record["text"]
+    rows = [executed("dooley-macario-madness", 5, 0.48), executed("burning-eyes-form", 5, 0.91)]
+    steps = steps_of(tmp_path, rows, {5: record})
+    assert (steps["executed"], steps["narrated"]) == (2, 0)
+    assert steps["neither"] == [{"turn": 5, "key": "consequence:clue_follow_up:burning-eyes-form", "confidence": 0.91},
+                                {"turn": 5, "key": "consequence:clue_follow_up:dooley-macario-madness", "confidence": 0.48}]
+
+
+def test_a_marker_for_another_handle_that_starts_with_this_one_is_not_a_marker_for_it(tmp_path):
+    steps = steps_of(tmp_path, [executed("ledger", 1)], {1: real_shaped_record("{{clue:ledger-book}} {{clue:ledgers}}", [])})
+    assert steps["narrated"] == 0 and [item["key"] for item in steps["neither"]] == ["consequence:clue_follow_up:ledger"]
+
+
+def test_a_step_that_cannot_be_checked_is_counted_as_such_never_as_narrated(tmp_path):
+    rows = [executed("stranded", 1), executed("norecord", 2), executed("notext", 3), executed("plain", 4)]
+    rows.insert(0, run_end(1, "failed"))
+    turns = {1: real_shaped_record("{{clue:stranded}}", ["stranded"]),
+             3: {"marked_text": "{{clue:notext}}", "rendered_text": "x"},   # no `text`: marked_text says nothing about the Keeper
+             4: real_shaped_record("{{clue:plain}}", ["plain"])}
+    steps = steps_of(tmp_path, rows, turns)
+    assert steps["executed"] == 4 and steps["narrated"] == 1 and steps["neither"] == []
+    assert dict(steps["not_checkable"]) == {"undelivered_turn": 1, "no_turn_record": 1, "no_text": 1}
+
+
+def test_the_turn_is_the_one_telemetry_puts_the_run_on(tmp_path):
+    """The row carries no turn of its own here (and a wrong one in the second case); the run's bind row names turn 9."""
+    no_turn = executed("ledger", 3, run="run-9")
+    del no_turn["turn"]
+    wrong_turn = executed("diary", 3, run="run-9")
+    rows = [{"lane": "run", "event": "bind", "turn": 9, "run": "run-9"}, no_turn, wrong_turn]
+    turns = {3: real_shaped_record("{{clue:diary}}{{clue:ledger}}", []),   # the wrong turn would read both as narrated
+             9: real_shaped_record("{{clue:ledger}} only", ["ledger", "diary"])}
+    steps = steps_of(tmp_path, rows, turns)
+    assert (steps["executed"], steps["narrated"]) == (2, 1)
+    assert [item["key"] for item in steps["neither"]] == ["consequence:clue_follow_up:diary"] and steps["neither"][0]["turn"] == 9
+    assert steps["turn_mismatch"] == 1
+
+
+def test_only_executed_clue_rows_are_examined_and_a_row_written_twice_counts_once(tmp_path):
+    rows = [executed("ledger", 1), executed("ledger", 1),
+            candidate("clue_follow_up", "diary", 1, cleared=True, did=False),                  # a shadow row: not executed
+            candidate("time_cost", "docks", 1, cleared=True, did=False, executed=True, shadow=False)]
+    steps = steps_of(tmp_path, rows, {1: real_shaped_record("no markers", ["ledger", "diary"])})
+    assert steps["executed"] == 1 and [item["key"] for item in steps["neither"]] == ["consequence:clue_follow_up:ledger"]
+    assert dict(steps["other_classes"]) == {"time_cost": 1}
+
+
+def test_the_section_prints_per_table_counts_reversed_as_not_available_and_lists_the_misses(tmp_path, capsys):
+    rows = [executed("ledger", 1, 0.7), executed("diary", 2, 0.5)]
+    turns = {1: real_shaped_record("{{clue:ledger}}", ["ledger"]), 2: real_shaped_record("nothing", ["diary"])}
+    write_campaign(tmp_path / "home" / ".coc" / "campaigns", "t", rows + [budget(1, 10)], turns=turns)
+    assert report.main(["jev-steps-report.py", str(tmp_path / "home")]) == 0
+    out = capsys.readouterr().out
+    assert "-- executed steps not in the prose" in out
+    assert "reversed: n/a -- no receipt kind reverses a clue" in out
+    assert "h1:t: executed 2, narrated 1, reversed n/a, neither 1" in out
+    assert "neither: turn 2 key='consequence:clue_follow_up:diary' confidence=0.5" in out
+    assert "totals: 2 executed clue steps over 1 tables; narrated 1; reversed n/a; neither 1; not checkable 0" in out
+    agg = report.aggregate(resolve(tmp_path / "home"))
+    assert agg["executed_steps"] == {"tables": 1, "executed": 2, "narrated": 1, "neither": 1, "not_checkable": 0}
