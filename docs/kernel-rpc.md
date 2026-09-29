@@ -28644,6 +28644,8 @@ External comparison: TypeSafe's official semantic-find and structure-recovery co
 
 ## 150. Ordinary improvisation is playable campaign state (2026-09-28)
 
+Creative authority covers the world and NPC responses while preserving the player's chosen action. Showing or discussing a possession does not authorize surrendering, donating or spending it. An NPC can request custody; the Keeper leaves the decision to the player and settles an actual authorized transfer through apply before describing it. This is carried with the improvisation guidance, without an additional foreground model call or source-readiness gate.
+
 Owner approval: the Keeper Rulebook pp. 189, 199, 201, 217 and 221 permits improvised people, places, evidence and consequences consistent with the situation. Missing source text is not a prohibition on fiction. This supersedes the ordinary-new-destination adaptation requirement in sections 36/149 and the corresponding graph-backed-play specification. Deliberate rewrites of established causes, identities or source bindings keep the explicit adaptation path. Player admission, arithmetic and atomic transactions remain unchanged.
 
 The Keeper can establish a new scene with `apply move {to, establish:{summary}, via}` and a new clue with `apply clue {clue, establish:{summary}, how}`. The existing operation both records the campaign entity and performs the authorized move/discovery in the same transaction. The object declares an intentional addition, never an automatic interpretation of a failed lookup. Existing exact identities are reused; ambiguity and a declaration attempting to replace an authored entity are refused. Names, summaries and causal judgment belong to the Keeper; IDs belong to the kernel. No creator/reviewer job is required for ordinary additions. NPCs retain `walk_on`; objects, notes, rulings and inventory retain their existing owners. Decorative prose needs no new entity.
@@ -28663,6 +28665,8 @@ A typed `mod_check` receipt with an `impression` observes the meeting rather tha
 The GUI police-return test found a source `location-arkham-police` carrying discoverable clues and uses-rule edges, but `move` accepted only scene-kind nodes. The campaign graph now projects authored location nodes as scene views with the same node IDs, handles, source references, properties and relationships. Original source `raw` and canonical-source lookups retain the original location kind. This is a read projection, not creation of another police station or a source publication. It grants neither clue discovery nor access; ordinary admission and relevant authored conditions still apply. Campaign additions remain distinct and are never silently renamed or migrated by this projection.
 
 The module briefing's place roster reads the original source-location records, so projection does not erase them from the Keeper's overview or introduce improvised places as authored ones.
+
+Ordinary apply/resolve calls explicitly pass sceneUse play to the internal material gate, including pinned campaign views. Explicit source validation keeps the default source-readiness requirement. Being able to act in a scene never certifies its source dossier as prepared; existing explicit index-text landing remains available.
 
 ### 150.3 Explicit transcript navigation does not wait for animation frames
 

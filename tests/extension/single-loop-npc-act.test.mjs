@@ -1249,7 +1249,7 @@ test("§143.20 on the emitted kernel: the party left the room where he spoke -- 
  * besides the bare tag was a packet of host English with no player words, and it followed the packet. The request now
  * names the language beside its tag (`npcActLaneInput`, the product lane's own serializer, is what this port records).
  */
-test("§143.21 at the opening: the table's first generation -- no player words, the packet all the host's English -- carries the campaign's play language and its name", async (t) => {
+test("§143.21 at the opening: only an actual consequence generates an act, retaining the campaign language without player words", async (t) => {
 	const ACT = "诺特抬头看了你一眼，问你是来办什么事的。", bodies = [];
 	const npcAct = { generate: async (input) => { bodies.push(JSON.parse(npcActLaneInput(input))); return { act: ACT }; } };
 	const game = await seam(t, { npcAct, act: () => ({ way: "intention_only" }) });
@@ -1257,6 +1257,9 @@ test("§143.21 at the opening: the table's first generation -- no player words, 
 	assert.equal((await game.call("table.status")).turn, 0, "the opening turn");
 	// As the Keeper did at table B's opening: the Mod's first-impression check, made against the person met.
 	await game.write("table.resolve", { action: { intent: "social", decision: "natural-npc:first-impression", target: "Steven Knott", goal: "Introduce myself" } });
+	await game.run(scan());
+	assert.equal(bodies.length, 0, 'an impression alone does not start another NPC author');
+	await game.write('table.apply', {effects:[{kind:'cash',subject:'Thomas Hayes',delta:1,source:'found',with:'Steven Knott',why:'contract fixture: an actual exchange triggers the opening reaction'}]});
 	await game.run(scan());
 	assert.deepEqual(acts(game).map((row) => [row.npc, row.trigger, row.status]), [["steven-knott", "acted_on", "bound"]]);
 	assert.equal(bodies.length, 1);

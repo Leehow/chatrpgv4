@@ -254,6 +254,7 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                     // §22.4.7: a scene the party entered on its index text is not held while its record is read.
                     // §22.4.7.1 (SL-56): the actor and the target stand in a person's seat; a person the book's text names lands on it.
                     const landed = await contributions.requireMaterial(graph, [transaction.world.active_scene, action.actor, action.target], {
+                        sceneUse: 'play',
                         entered: new Set(array(transaction.world.index_scenes).filter((value): value is string => typeof value === 'string')),
                         people: new Set([action.actor, action.target].filter(value => typeof value === 'string' && value)),
                         textPeople: new Set(array(transaction.world.index_people).filter((value): value is string => typeof value === 'string')),
