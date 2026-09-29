@@ -250,3 +250,5 @@ Every new Jev call site is added to the Jev inference inventory with owner, fami
 - Measured evidence roots: `.pi/jpdf-ref-home-blood03/.coc/module-campaigns/jpdf-ref-blood-0{3,5}/modules/book-1/work/`; the reviewer verdict corpus is every `verify-*/unit-*/attempt-*/review.json` under `.pi/` and `.coc/` of this checkout.
 
 ## Comments
+
+- 2026-09-29, B4 calibration (ticket 03): **the §150.3.1 bar was not met; `source_claim_support.mode` stays `shadow`.** Live replay of the retained verdicts of this checkout (186 fact rounds, 3,460 eligible record instances, 2,184 unique claims = 2,130 supported + 54 negative, $0.15): at zero cleared negatives the best point (S 0.8, C 0.1) clears 15.8 % of the supported claims; every point clearing ≥ 50 % also clears 6–9 negatives (≥ 11 %). Claims clear better (24.6 %) than node records (npc/scene/location medians 0.27–0.38), whose reader-derived fields no page states literally. Numbers, grid and method in `jev-decides-llm-writes-tickets/03-jev-claim-support.md`; evidence `.pi/jev-claim-calibration-20260929/` of the ticket's worktree. A redesign needs a new pre-registered bar and a held-out split.
