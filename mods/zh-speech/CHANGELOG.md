@@ -1,5 +1,0 @@
-# 中文口语 (zh-speech)
-
-## 1.0.0 (2026-09-29)
-- First version (owner request, 2026-09-29): Chinese tables' NPC lines read like "several sentences stitched together". Four live A/B rounds on grok-4.5 low traced it to English speech habits carried into Chinese: the voice-card lane rendered a book's "clipped" or "short offers" as 说话短促 and wrote sample exchanges as rows of full-stopped fragments, and the Keeper imitated them; prompt changes and a self-rewrite pass by the same model did not change it.
-- The package, opened on tables whose play_language is Chinese (`play_languages: ["zh"]`, contract §150): a full instruction on Chinese speech (思果's test, curtness as manner not full stops, paratactic run-on sentences, particles as the carriers of tone, 余光中's six marks of English-style Chinese, spoken not official register), a 326-byte brief, and a voice-lane addendum so voice cards' masks name manner not sentence length and their exchanges are spoken Chinese. GUIDE.md explains how to write the same kind of package for another language.
