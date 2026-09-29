@@ -1,5 +1,6 @@
 """Section 150 transaction regressions, not Keeper play acceptance."""
 from contextlib import closing
+import json
 from conftest import RpcClient, campaign_dir, narrate, open_turn, read_json
 
 SHOP = "Riverside photographic shop"
@@ -57,3 +58,65 @@ def test_establish_cannot_replace_authored_scene(tmp_path):
             {"kind": "move", "to": origin, "establish": {"summary": "A different place."}}])
         assert error["code"] == "invalid_params"
         assert not read_json(campaign_dir(client.workspace) / "world.json").get("table_entities")
+
+
+def test_known_memory_reference_is_not_a_note_and_cannot_block_a_legal_move(tmp_path):
+    with closing(RpcClient(tmp_path / "ws")) as client:
+        open_turn(client, "I go to the newspaper office.")
+        # A registry precondition for this deterministic contract test, not a play trace.
+        memory = campaign_dir(client.workspace) / "memory" / "candidates.jsonl"
+        memory.parent.mkdir(parents=True, exist_ok=True)
+        original = json.dumps({"id": "mem:t1-3", "kind": "promise", "statement": "A prior service promise.", "state": "accurate", "status": "candidate"}) + "\n"
+        memory.write_text(original)
+        effects = [{"kind": "move", "to": "newspaper-morgue"},
+                   {"kind": "note", "closes": "mem:t1-3", "name": "service-done", "text": "The service is complete."}]
+        result = client.table("apply", call_id="t1-c1", effects=effects)
+        assert result["world"]["active_scene"] == "newspaper-morgue"
+        assert len(result["receipts"]) == 1
+        assert result["not_landed"][0]["details"]["reason"] == "note_reference_owner"
+        assert memory.read_text() == original
+        assert not (campaign_dir(client.workspace) / "notes.jsonl").exists()
+        assert client.table("apply", call_id="t1-c1", effects=effects)["replayed"]
+
+
+def test_guessed_memory_id_does_not_bypass_atomic_note_validation(tmp_path):
+    with closing(RpcClient(tmp_path / "ws")) as client:
+        open_turn(client)
+        before = read_json(campaign_dir(client.workspace) / "world.json")["active_scene"]
+        error = client.table_err("apply", call_id="t1-c1", effects=[
+            {"kind": "move", "to": "newspaper-morgue"},
+            {"kind": "note", "closes": "mem:t999-3", "name": "replacement", "text": "Not a real memory reference."},
+        ])
+        assert error["details"]["reason"] == "note_not_open"
+        assert read_json(campaign_dir(client.workspace) / "world.json")["active_scene"] == before
+        assert not (campaign_dir(client.workspace) / "notes.jsonl").exists()
+
+
+def test_foreign_note_does_not_relax_linked_or_multiple_note_batches(tmp_path):
+    with closing(RpcClient(tmp_path / "ws")) as client:
+        open_turn(client)
+        memory = campaign_dir(client.workspace) / "memory" / "candidates.jsonl"
+        memory.parent.mkdir(parents=True, exist_ok=True)
+        memory.write_text(json.dumps({"id": "mem:t1-3", "kind": "promise"}) + "\n")
+        before = read_json(campaign_dir(client.workspace) / "world.json")["active_scene"]
+        for notes in [
+            [{"kind": "note", "closes": "mem:t1-3", "intent_ref": "an-intention"}],
+            [{"kind": "note", "closes": "mem:t1-3"}, {"kind": "note", "name": "new-note", "text": "A dependent replacement."}],
+        ]:
+            error = client.table_err("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "newspaper-morgue"}, *notes])
+            assert error["details"]["reason"] == "note_reference_owner"
+            assert read_json(campaign_dir(client.workspace) / "world.json")["active_scene"] == before
+            assert not (campaign_dir(client.workspace) / "notes.jsonl").exists()
+
+
+def test_real_manual_note_wins_over_a_colliding_memory_reference(tmp_path):
+    with closing(RpcClient(tmp_path / "ws")) as client:
+        open_turn(client)
+        memory = campaign_dir(client.workspace) / "memory" / "candidates.jsonl"
+        memory.parent.mkdir(parents=True, exist_ok=True)
+        original = json.dumps({"id": "mem:t1-3", "kind": "promise"}) + "\n"
+        memory.write_text(original)
+        client.table("apply", call_id="t1-c1", effects=[{"kind": "note", "name": "mem:t1-3", "text": "An actual manual note."}])
+        result = client.table("apply", call_id="t1-c2", effects=[{"kind": "note", "closes": "mem:t1-3"}])
+        assert len(result["receipts"]) == 1 and not result.get("not_landed")
+        assert memory.read_text() == original

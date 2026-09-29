@@ -289,15 +289,6 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     refused.push({ index, error });
                 }
             }
-            if (!refused.length && receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed) && contributions.asset) {
-                for (const item of await presentArrivalMaps(context, contributions.asset)) {
-                    receipts.push(item.receipt);
-                    ids.push(string(item.receipt.id));
-                    taken.add(string(item.receipt.id));
-                    events.push({ type: 'map-revealed', data: row(item.event.data), receipt: string(item.receipt.id) });
-                    mapViews.push({...item.view,receipt:item.receipt.id,label:item.receipt.label});
-                }
-            }
             // §11.5.5 (SL-59): a person named nowhere refuses only its own line, in a batch that is only about naming
             // persons. `unknown_entity` on an `npc`/`person` effect names nobody but itself -- no other effect's landing
             // depends on this one existing -- so it alone is isolable, the same shape §32.12.3 already gives an admission
@@ -310,7 +301,24 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const isolable = (entry: { index: number; error: RpcError }): boolean => entry.error.code === 'unknown_entity'
                 && isJsonObject(effects[entry.index]) && ['npc', 'person'].includes(string((effects[entry.index] as Row).kind));
             const allPersonEffects = effects.every(effect => isJsonObject(effect) && ['npc', 'person'].includes(string((effect as Row).kind)));
-            const isolatedRefusals = refused.length && receipts.length && allPersonEffects && refused.every(isolable) ? refused : [];
+            // A proven memory reference has no write authority in the note ledger. Report that
+            // one foreign bookkeeping effect separately; never suppress an unknown note or a dependency.
+            const wrongNoteOwner = refused.length === 1 && refused[0].error.details?.reason === 'note_reference_owner'
+                && refused[0].error.details?.owner === 'memory'
+                && params._fulfillments === undefined && effects.filter(effect=>isJsonObject(effect)&&effect.kind==='note').length === 1
+                && isJsonObject(effects[refused[0].index]) && (effects[refused[0].index] as Row).kind === 'note'
+                && (effects[refused[0].index] as Row).intent_ref == null;
+            const isolatedRefusals = refused.length && receipts.length
+                && (allPersonEffects && refused.every(isolable) || wrongNoteOwner) ? refused : [];
+            if ((!refused.length || isolatedRefusals.length) && receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed) && contributions.asset) {
+                for (const item of await presentArrivalMaps(context, contributions.asset)) {
+                    receipts.push(item.receipt);
+                    ids.push(string(item.receipt.id));
+                    taken.add(string(item.receipt.id));
+                    events.push({ type: 'map-revealed', data: row(item.event.data), receipt: string(item.receipt.id) });
+                    mapViews.push({...item.view,receipt:item.receipt.id,label:item.receipt.label});
+                }
+            }
             if (refused.length && !isolatedRefusals.length) {
                 const [first] = refused;
                 // The first refusal stays exactly what it was -- code, message, fix, index -- because that is
