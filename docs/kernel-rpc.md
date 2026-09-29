@@ -29005,3 +29005,74 @@ each scoped brief to 400. The addendum has no kernel budget: it rides the lane's
 - The first shipped language package is `mods/zh-optimize` (play_languages `["zh"]`, owner 2026-09-29). Tests: `tests/extension/language-scoped-mods.test.mjs` with the fixture
   `tests/fixtures/mods/language-zh`, installed through `mods.install`; `tests/kernel/test_language_mods.py` over the
   emitted kernel's RPC; and the two ceiling tests above.
+
+## 154. Lean `apply` arguments: the machine fills what it can derive (2026-09-29, prototype behind `PI_COC_LEAN_APPLY=1`)
+
+Measured the same day on three 15-turn tables (grok-build/grok-4.5, thinking low): the player waits ~26 s median for the
+first prose character, each Keeper round costs ~0.7 s plus ~2.15 s per 100 output tokens, and `apply` arguments are 54%
+of the Keeper's visible output against 30% for the prose. A large part of those arguments is a `why` nobody reads, a
+value the kernel already derives, or a second booking of what another effect did. This section is a prototype: the
+flag is unset in every shipped configuration, and unset or any value other than `1` is the tool surface and the
+payloads of before, byte for byte -- save that a `_lean` the model itself put in its arguments is dropped (no Keeper
+tool ever declared it).
+
+### 154.1 What changes
+
+- **The tool surface.** With the flag the host registers `leanTools(COC_TOOLS)` (`extensions/kernel/lean-apply.ts`):
+  the same schema shape (types, required fields, bounds, TypeBox's `~optional`/`~kind` markers), with the apply
+  description and the descriptions of the fields below replaced. Nothing a lean call leaves out was required before.
+- **The host.** Every `table.apply` it sends carries host-only `_lean: true`; a model-sent `_lean` is deleted from every
+  call's payload.
+- **The kernel.** `table.apply` accepts `_lean` (a non-boolean is `invalid_params`) and passes it to the effects as
+  `ApplyContext.lean`. Its only effect: a person established without a `why` (an `npc` with `walk_on`, or a `person` a
+  carried passage names) gets the origin line the kernel knows -- `walked on at this table` or `a passage of the source
+  text named them` -- instead of the absent line that renders as `"None"` (`string(null)`) in `origin.reason`. A `why` the
+  Keeper wrote is never replaced. Receipts are unchanged: the person and npc receipts keep `why: null`.
+
+### 154.2 Fields, who reads them, and how each is still served
+
+| field | lean description says | who reads it | how it is served |
+| --- | --- | --- | --- |
+| `time.why` | leave it out | the time receipt and `time-advanced` event only (`kernel-ts/apply/index.ts` time branch): history, recall, the continuity audit's history evidence (`extensions/mods/audit-evidence.ts`) | nothing projects it |
+| `person.why` | leave it out | the person receipt (`kernel-ts/apply/person.ts`); for a passage-named person, their origin line (`establishPerson`) | origin line derived under `_lean` (§154.1) |
+| `threat.why`, `clock.why` | leave it out | `world.table_threats[].why`, threat and clock receipts; `threatPressures` does not project it (`kernel-ts/read/pressures.ts`) | nothing projects it |
+| `ability.why` | leave it out | nobody: the ability receipt has no `why` (`kernel-ts/mods/stage.ts`) | -- |
+| `object.why` | required for a condition change or document write; kept when an NPC gives, takes or is offered the thing; otherwise out, never on `adopt` | refused without it for a condition change or document write (`kernel-ts/mods/stage.ts`); an item receipt's `why` is quoted to the NPC act lane when that NPC is `from` or the holder (`kernel-ts/npc/situation.ts`); the adoption receipts (queued or landed) carry none | kept where read |
+| `npc.why` | required with defense/action/disposition; kept with stance, skill, conditions, dead, walk_on, `intent_outcome: abandoned`; out for a plain `to` or a done result | refused without it for defense/action/disposition (`kernel-ts/apply/entities.ts`); the stance ledger's `because` (`kernel-ts/write/contributions.ts` → `toward_party.because` in `kernel-ts/read/capsule.ts`, and `consequenceRows` in `kernel-ts/read/offer.ts`); the NPC act packet's `because` and giving-up clause (`kernel-ts/npc/situation.ts`); the walk-on's origin line | kept where read; walk-on origin derived under `_lean` when omitted |
+| `flag.why` | out, except on waiving a scene obligation | `waivedBy` (`kernel-ts/read/obligations.ts`): the obligation's last flag write with a `why` is a waiver, without one it is settled | kept where read |
+| `object.definition` | out when it equals `name` | `moveObject` and the queued-adoption lookup already read `definition ?? name` (`kernel-ts/mods/objects.ts`, `kernel-ts/mods/stage.ts`); a queued adoption stores the effect as sent and replays it through the same lookup | derived (existing kernel behaviour) |
+| `define.category` | out for an ordinary item | the kernel's define staging and the Mod host's job input default it to `item` (`kernel-ts/mods/stage.ts`, `extensions/mods/index.ts`) | derived (existing) |
+| `move.travel_minutes` | appended: the move advances the clock by these minutes, never add a `time` effect for the same journey | `stageMove` advances the world clock itself (`kernel-ts/apply/move.ts`) | a `time` effect for the journey was a second booking |
+| `time` (kind) | appended: only for time spent beyond a journey a move counted | same | same |
+| `person.name` | appended: a word already recorded is not sent again | `world.person_labels` | a restated label is a no-op write |
+
+Untouched on purpose, because a reader reads them: `item.why` and `cash.why` (the NPC act packet's `because`,
+`pricesPaid` in the capsule, the weapon-profile question of band recovery in `extensions/kernel/index.ts`),
+`damage.why` (on the damage dice receipt and the `resource-changed` event, `kernel-ts/healing/resources.ts`; not
+measured as a cost and left out of this prototype), `map.why` (required by the schema), and
+`clue.how`, which is the player's clue card (`kernel-ts/read/mechanics.ts`, §80). `resolve` is untouched: `goal` and
+`method` feed skill inference, the social resolution, receipts and admission; `actor` for the sole investigator is already
+documented as omissible.
+
+### 154.3 What the prototype does not do
+
+- **Starting equipment is still the Keeper's.** `unregistered_equipment` (`kernel-ts/read/mods.ts`, `unregisteredEquipment`)
+  is a deterministic list of candidates -- sheet equipment rows minus executable weapon rows, rows with an `object_id`
+  and rows already queued -- but `mods/enhanced-items/agent.md` has the Keeper pick the "weapons and other mechanically
+  meaningful items" among them and write each one's `define` description, which the creator agent turns into parameters,
+  and `auditor.md` re-checks the choice ("mere absence of a definition or instance is insufficient"). Which rows need an
+  instance is a semantic judgement; the host does not register them. Under the flag each adoption pair loses only its
+  derivable parts (`category`, `definition`, `why`).
+- **Mod package text is not changed.** `mods/enhanced-items/agent.md` still says to name the definition in every object
+  call and `mods/natural-npc/agent.md` still shows `why` on a staging `npc` effect; an installed package version is
+  immutable and its digest covers its files (§26), so changing either text is a new package version, not part of this flag. Both shapes stay valid; the Keeper may keep following the package.
+- A flag-off table books a journey twice when the Keeper writes `move` with `travel_minutes` and a `time` effect for the
+  same trip (observed 2026-09-29, `pl-m-0929`). Unchanged here.
+
+### 154.4 Tests
+
+`tests/extension/lean-apply.test.mjs`: the tool list off is `COC_TOOLS` itself and on keeps the shape and markers
+(validated with TypeBox `Check`); the host sends `_lean` only under the flag and strips a model-sent one; the kernel lands
+the same receipts, instance, definition and sheet for an adoption without `definition`/`why`/`category`, both in the
+same call and queued beside the turn and resumed through the Mod host; and the origin line is derived under `_lean` only,
+never replacing the Keeper's.

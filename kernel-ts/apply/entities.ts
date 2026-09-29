@@ -134,7 +134,7 @@ async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:st
     if(other)throw other;
     const passage=passageOf(effect,name),pinned=['skill','archetype','conditions'].some(key=>effect[key]!=null);
     if(walkOn!==true&&(!passage||pinned))throw await notAtThisTable(context,effect,name,refusal);
-    const established=establishPerson(context,name,why,passage);
+    const established=establishPerson(context,name,why??leanOrigin(context,passage),passage);
     return{node:established,established:passage?'passage':'table',...(passage?{from_passage:passage}:{})};
 }
 /**
@@ -164,6 +164,16 @@ async function notAtThisTable(context:ApplyContext,effect:Row,name:string,refusa
     return new RpcError('unknown_entity',refusal instanceof RpcError?refusal.message:`nobody at this table is called ${repr(name)}`,{
         fix:`${pick}${introduce}${pick?'. ':''}To establish someone the book never had, send details.walk_on in place of this effect`,
         details:{query:name,...(present.length?{present}:{}),...(candidates.length?{candidates}:{}),walk_on}});
+}
+/**
+ * §154 (prototype): the origin line of a person a lean call establishes without a `why`. It is read back as the
+ * person's `origin.reason` (capsule, look, roster), and the absent one renders as "None" (`string(null)`), so the kernel
+ * says the one thing it knows -- which road they came by; the turn rides beside it already. Only under the host's
+ * `_lean`: without it an absent `why` stays absent, as before.
+ */
+export const LEAN_ORIGIN = Object.freeze({ passage: 'a passage of the source text named them', walk_on: 'walked on at this table' });
+export function leanOrigin(context:Pick<ApplyContext,'lean'>,passage:Row|null):string|null{
+    return context.lean===true?(passage?LEAN_ORIGIN.passage:LEAN_ORIGIN.walk_on):null;
 }
 /**
  * §87's record of a person the table has and the book (so far) does not; with §11.5.4's `from_passage` when a passage the
