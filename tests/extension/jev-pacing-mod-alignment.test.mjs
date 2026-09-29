@@ -1,6 +1,6 @@
 /** #99 D1-D7 package alignment. Assembly proves wiring; real pacing quality still needs paired play. */
 import assert from "node:assert/strict";
-import {mkdtemp,readFile,rm,symlink} from "node:fs/promises";
+import {mkdtemp,readdir,readFile,rm,symlink} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -11,7 +11,7 @@ const ROOT=resolve(import.meta.dirname,"../..");
 const PACKAGES={
 	"keeper-pacing":{version:"1.3.0",state_version:1,requires:["context.pacing.v1","mods.package-files.v1"],settings:{stall_turns:2},
 		settings_schema:{stall_turns:{minimum:1,maximum:6}}},
-	"narration-craft":{version:"2.0.7",state_version:2,requires:["mods.package-files.v1","context.style.v1","npc.voice.generation.v2","npc.voice.consolidation.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1"],settings:{density_guide:"off",coarse_language:true},
+	"narration-craft":{version:"2.1.4",state_version:2,requires:["mods.package-files.v1","context.style.v1","npc.voice.generation.v2","npc.voice.consolidation.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1"],settings:{density_guide:"off",coarse_language:true},
 		settings_schema:{coarse_language:{title:{["zh-Hans"]:"允许粗话",en:"Coarse language"}},density_guide:{enum:["off","on"]}}},
 };
 
@@ -29,6 +29,20 @@ async function kernel(t){
 
 const byId=capsule=>new Map(capsule.mods.instructions.map(row=>[row.mod,row]));
 const utf8=value=>Buffer.byteLength(value,"utf8");
+const SHARED_CEILING=5000,LANGUAGE_CEILING=400;
+/** Contract §153.4: a package that declares play_languages is measured against its own 400-byte ceiling, per package,
+ *  and is left out of the 5000-byte ceiling every other brief shares (§30.7, §40.6). The kernel's listing says which. */
+async function languageScoped(call){
+	return new Set((await call("mods.list")).mods.filter(row=>Array.isArray(row.play_languages)).map(row=>row.id));
+}
+function assertCeilings(briefs,language){
+	const shared=briefs.filter(row=>!language.has(row.mod)),scoped=briefs.filter(row=>language.has(row.mod));
+	const combined=shared.reduce((sum,row)=>sum+utf8(row.instruction),0);
+	assert.ok(combined<=SHARED_CEILING,`active brief bytes ${combined} exceed the ${SHARED_CEILING}-byte shared ceiling`);
+	for(const row of scoped)
+		assert.ok(utf8(row.instruction)<=LANGUAGE_CEILING,`${row.mod}'s language brief is ${utf8(row.instruction)} bytes; its own ceiling is ${LANGUAGE_CEILING}`);
+	return{shared,scoped,combined};
+}
 function aligned(id,text){
 	if(id==="narration-craft"){
 		// docs/specs/prose-mod.md §6: the prose package states the same boundary in a writer's words.
@@ -83,9 +97,36 @@ test("the actual kernel assembles aligned full instructions, then exact briefs w
 	assert.match(brief.get("keeper-pacing").instruction,/signals prompt inspection only/i);
 	assert.match(brief.get("narration-craft").instruction,/no menu or reflexive question/i);
 	const allBriefs=next.capsule.mods.instructions.filter(row=>row.form==="brief");
-	const combined=allBriefs.reduce((sum,row)=>sum+utf8(row.instruction),0);
-	assert.ok(combined<=5000,`active brief bytes ${combined} exceed the 5000-byte shared ceiling`);
-	assert.equal(combined,allBriefs.map(row=>utf8(row.instruction)).reduce((a,b)=>a+b,0),"measure the exact assembled UTF-8 bytes");
+	const{shared,combined}=assertCeilings(allBriefs,await languageScoped(call));
+	assert.equal(combined,shared.map(row=>utf8(row.instruction)).reduce((a,b)=>a+b,0),"measure the exact assembled UTF-8 bytes");
+});
+
+test("a language-scoped brief is measured against its own 400-byte ceiling, outside the shared one",async t=>{
+	// Every shipped package that scopes itself to play languages keeps its per-turn text (the brief, or the full
+	// instruction when it has none, §30.7) inside its own ceiling; the kernel refuses one that does not at load (§153.4).
+	for(const id of await readdir(join(ROOT,"mods"))){
+		let manifest;
+		try{manifest=JSON.parse(await readFile(join(ROOT,"mods",id,"mod.json"),"utf8"));}catch{continue;}
+		if(!Array.isArray(manifest.play_languages))continue;
+		const file=manifest.contributes.brief??manifest.contributes.instructions;
+		if(file)assert.ok(utf8(await readFile(join(ROOT,"mods",id,file),"utf8"))<=LANGUAGE_CEILING,`mods/${id}/${file} exceeds the ${LANGUAGE_CEILING}-byte language ceiling`);
+	}
+	// Through the kernel: the fixture package is on for a zh-Hans table, its brief rides beside the shared ones and is
+	// counted only against its own ceiling.
+	const game=await kernel(t),call=(method,params={})=>game.call(method,{campaign:"scoped",...params});
+	await game.call("mods.install",{path:join(ROOT,"tests/fixtures/mods/language-zh")});
+	await call("campaign.create",{id:"scoped",module:"the-haunting",pregen:"thomas-hayes",play_language:"zh-Hans"});
+	await call("table.open");
+	await call("table.player_input",{text:"I take the keys and stay with this conversation."});
+	await call("table.narrate",{call_id:"t1-c1",text:"The conversation reaches a quiet resting point."});
+	const next=await call("table.player_input",{text:"I stay with the conversation."});
+	const briefs=next.capsule.mods.instructions.filter(row=>row.form==="brief"),language=await languageScoped(call);
+	// The shipped Chinese package (mods/zh-optimize, play_languages ["zh"]) is on for a zh-Hans table beside the fixture.
+	assert.deepEqual([...language].sort(),["language-zh","zh-optimize"]);
+	const{shared,scoped,combined}=assertCeilings(briefs,language);
+	assert.deepEqual(scoped.map(row=>row.mod).sort(),["language-zh","zh-optimize"],"the language briefs are assembled");
+	assert.ok(!shared.some(row=>row.mod==="language-zh"||row.mod==="zh-optimize"),"and left out of the shared sum");
+	assert.equal(combined+scoped.reduce((sum,row)=>sum+utf8(row.instruction),0),briefs.reduce((sum,row)=>sum+utf8(row.instruction),0));
 });
 
 test("disabling the two packages removes their full and brief instructions from actual assembly",async t=>{

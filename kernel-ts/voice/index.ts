@@ -11,23 +11,30 @@ import { npcView } from '../read/capsule.js';
 import { array, number, repr, row, string, type Row } from '../read/values.js';
 import { createWriteRuntime } from '../write/index.js';
 import { readNpcLedger } from '../write/contributions.js';
-import { readModCatalog } from '../read/mods.js';
+import { activeMods, readModCatalog, type ModCatalog } from '../read/mods.js';
+import { withLanguageAddenda } from '../read/mod-language.js';
 import { KEYS, assertJobGeneration, buildPacket, fail, investigatorIdentity, nextPerson, openJob, parseJobId, readJob, submit, voiceOwner, type VoiceOwner } from './jobs.js';
 /** Contract §40.7 Instruction (2026-09-26): the lane's instruction is the owner package's `contributes.voice_lane`, a
  *  package Markdown file frozen with its version. An owner whose version predates the contribution (npc-voice 1.x,
  *  narration-craft 2.0.0-2.0.1) reads the frozen copy it was written against, `content/compat/npc-voice-lane.md`,
- *  so a saved game keeps its lane. Neither readable: the kernel's short fallback in jobs.ts. */
+ *  so a saved game keeps its lane. Neither readable: the kernel's short fallback in jobs.ts.
+ *
+ *  Contract §153.3: after the owner's own `voice_lane` text come the addenda of the campaign's enabled packages that
+ *  contribute one, in load order. The frozen copy and the fallback are exactly what they were: an addendum is written
+ *  against a current owner's words, and an owner that predates them keeps the lane it was written against. */
 const decode = (bytes: Uint8Array): string => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
-async function laneInstruction(context: KernelContext, owner: VoiceOwner): Promise<string | undefined> {
+async function laneInstruction(context: KernelContext, owner: VoiceOwner, world: Row, catalog: ModCatalog): Promise<string | undefined> {
     const manifest = row(owner.manifest), path = row(manifest.contributes).voice_lane;
     const files = manifest.files instanceof Map ? manifest.files as ReadonlyMap<string, Uint8Array> : undefined;
     if (typeof path === 'string' && files?.has(path)) {
+        let own: string | undefined;
         try {
-            return decode(files.get(path)!).trim() || undefined;
+            own = decode(files.get(path)!).trim() || undefined;
         }
         catch {
             return undefined;
         }
+        return own && withLanguageAddenda(own, await activeMods(context, world, catalog));
     }
     try {
         return decode(await readFile(join(context.content, 'compat', 'npc-voice-lane.md'))).trim() || undefined;
@@ -46,17 +53,18 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
         snapshot.world = await campaign.readWorld();
         const module = await loadCampaignModule(context, string(snapshot.meta.module_id), snapshot.world, campaign.id);
         snapshot.jsonFiles.set('world.json', snapshot.world);
-        return { campaign, snapshot, module, owner: voiceOwner(snapshot.world, await readModCatalog(context)) };
+        const catalog = await readModCatalog(context);
+        return { campaign, snapshot, module, catalog, owner: voiceOwner(snapshot.world, catalog) };
     }
     return Object.freeze({
         'voice.job': async (params) => {
-            const { campaign, snapshot, module, owner } = await load(params), graph = module.graph;
+            const { campaign, snapshot, module, owner, catalog } = await load(params), graph = module.graph;
             const node = await nextPerson(campaign, graph, snapshot.world, owner, params.backfill === true);
             if (!node)
                 return { job_id: null };
             const ledger = await readNpcLedger(campaign), dossier = npcView(graph, snapshot.world, node, ledger);
             const handle = graph.handle(node), said = (await campaign.records()).flatMap((record: Row) => array(record.speech).filter(line => row(row(line).who).npc === handle).map(line => string(row(line).text)));
-            const packet = buildPacket(campaign, graph, snapshot.world, owner, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context, owner), said, await investigatorIdentity(campaign, snapshot.world));
+            const packet = buildPacket(campaign, graph, snapshot.world, owner, node, await playLanguageOf(context, snapshot.meta), dossier, await laneInstruction(context, owner, snapshot.world, catalog), said, await investigatorIdentity(campaign, snapshot.world));
             return openJob(campaign, owner, graph.handle(node), packet);
         },
         'voice.submit': async (params) => {

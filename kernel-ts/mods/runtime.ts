@@ -10,6 +10,7 @@ import { isJsonObject, orderedObject, PythonFloat } from '../json.js';
 import { MOD_CAPABILITIES, buildVocabulary, packageFiles, packageDigest, manifestFrom, runtimePackageFiles, readModCatalog, activeMods, modProviders, effectiveMods,
   compatibleManifest, type ModCatalog, type UnavailablePackage } from '../read/mods.js';
 import { providesStyle, secondProvider, validateStyleContribution } from '../read/style.js';
+import { declaresLanguages, languageAdmits } from '../read/mod-language.js';
 import { array, row, values, entries, string, truth, clone, equal, sorted, type Row } from '../read/values.js';
 import { readZipPackage } from './zip.js';
 import {EXPRESSION_MOD, LEGACY_VOICE_MOD, isUnifiedExpression, newModDefault, inheritedVoiceSettings,
@@ -168,7 +169,10 @@ export class ModRuntime {
   lock(mod: Row, enabled: boolean, settings: Row | null = null): Row {
     return {version: mod.version, digest: mod.digest, state_version: mod.state_version, enabled, settings: clone(merged(mod.settings, settings ?? {}))};
   }
-  async initializeWorld(world: Row): Promise<boolean> {
+  /** A fresh world locks every compatible package at its default. `playLanguage` is the tag the campaign was declared
+   *  with (`declaredPlayLanguage`), or null when it carries none: a package scoped by `play_languages` is on by default
+   *  only where it names that tag (contract §153.2). A world that already has locks keeps them. */
+  async initializeWorld(world: Row, playLanguage: string | null = null): Promise<boolean> {
     if (Object.hasOwn(world, 'mods')) {
       const active = await this.active(world);
       if (!Object.hasOwn(world.mods, 'order')) { world.mods.order = topologicalOrder(await this.order(world), active); return true; }
@@ -177,7 +181,10 @@ export class ModRuntime {
     const latest = this.latest(await this.catalog()), defaults = await this.defaults();
     this.refuseTwoDefaultStyleProviders(latest, defaults);
     world.mods = {game_api: GAME_API, active: {}, state: {}, pending: {}};
-    for (const [id, mod] of latest) { await this.freeze(mod); world.mods.active[id] = this.lock(mod, newModDefault(mod, defaults, latest)); }
+    for (const [id, mod] of latest) {
+      await this.freeze(mod);
+      world.mods.active[id] = this.lock(mod, languageAdmits(mod, playLanguage) ? newModDefault(mod, defaults, latest) : false);
+    }
     world.mods.order = topologicalOrder(await this.order(world), [...latest.values()].filter(mod => truth(world.mods.active[mod.id].enabled)));
     await this.active(world); return true;
   }
@@ -199,8 +206,8 @@ export class ModRuntime {
    *  (§26, 2026-09-10): a request that carries no `settings` keeps only the keys the target version declares, so a
    *  version that dropped a setting is still reachable from the panel's version-only Update; a request that names
    *  an unknown key is refused as before. */
-  async configure(world: Row, change: Row, busy: boolean): Promise<{retired: string[], from: string | null, to: string}> {
-    await this.initializeWorld(world);
+  async configure(world: Row, change: Row, busy: boolean, playLanguage: string | null = null): Promise<{retired: string[], from: string | null, to: string}> {
+    await this.initializeWorld(world, playLanguage);
     const id = change.id, old = row(world.mods.active[id]), version = present(change, 'version', old.version), catalog = await this.catalog();
     const pendingExpression = row(row(world.mods.pending)[EXPRESSION_MOD]);
     if (id === LEGACY_VOICE_MOD && truth(pendingExpression.enabled)
@@ -277,6 +284,8 @@ export class ModRuntime {
       ...compatibilityView(mod, latest, locks, catalog, defaults),
       ...Object.fromEntries(['id', 'version', 'name', 'description', 'author', 'compatible', 'requires', 'dependencies', 'conflicts'].map(key => [key, mod[key]])),
       settings: mod.compatible ? mod.settings : {}, default_enabled: newModDefault(mod, defaults, latest),
+      // Contract §153.2: `default_enabled` is the catalog default; a scoped package applies it only where it names the campaign's tag.
+      ...(declaresLanguages(mod) ? {play_languages: [...mod.play_languages]} : {}),
       active: row(locks.active)[mod.id] ?? null, pending: row(locks.pending)[mod.id] ?? null,
       settings_schema: mod.compatible ? mod.settings_schema ?? {} : {},
     });

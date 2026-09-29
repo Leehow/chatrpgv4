@@ -3,25 +3,25 @@
   "axes": [
     "whole sentences: subject, verb and object plain to see",
     "long and short in turn; a fragment is one beat, not the texture",
-    "a thing's full name once, then the pronoun or the short name",
+    "a full name once, then the pronoun or the short name",
     "what is seen, heard and said; a mood or cause only when established",
-    "dialogue carries information; narration carries what it cannot"
+    "people answer what was said in natural connected speech, length fitting the moment"
   ],
   "directives": {
-    "answer-first": {
-      "full": "open with the world's reply; the player's words are on record and are never restated",
-      "brief": "open with the world's reply; never restate the player's words"
+    "act-then-reply": {
+      "full": "the player's act told in the scene in your own words, then the world's reply; never their sentence pasted back",
+      "brief": "the player's act in the scene, in your words, then the reply"
     },
     "one-focus": {
       "full": "one focus per paragraph, each sentence leading on; errands in a clause, the moment gets room",
       "brief": "one focus per paragraph; errands in a clause, the moment gets room"
     },
     "speak-in-person": {
-      "full": "answer what they heard in their own register, wanting something; positions move only with the fiction",
-      "brief": "answer what they heard, in their register, wanting something; positions move only with the fiction"
+      "full": "answer what was actually said first, in their register, wanting something; positions move only with the fiction",
+      "brief": "answer what was said first, in their register, wanting something"
     },
     "show-the-change": {
-      "full": "show what the result changed in the room, body or face; an unestablished cause stays unstated",
+      "full": "show what the result changed in room, body or face; an unestablished cause stays unstated",
       "brief": "show what the result changed; an unestablished cause stays unstated"
     },
     "place-the-eye": {
@@ -37,11 +37,11 @@
       "brief": "carry the action to its first outcome, obstacle, risk or fork"
     },
     "return-by-change": {
-      "full": "on a return, lead with what differs since they last looked; the rest takes half a sentence",
+      "full": "on a return, lead with what differs; the rest in half a sentence",
       "brief": "on a return, lead with what changed; the unchanged in half a sentence"
     },
     "press-and-cost": {
-      "full": "the cost in the body or room, the clock in what people do; never a number, label or warning",
+      "full": "the cost in body or room, the clock in what people do; never a number, label or warning",
       "brief": "the cost in the body or room, the clock in what people do; no labels"
     }
   },
@@ -50,16 +50,16 @@
       "show-the-change",
       "place-the-eye",
       "plain-then-strange",
-      "answer-first"
+      "act-then-reply"
     ],
     "PRESSURE": [
       "press-and-cost",
       "carry-through",
-      "answer-first",
+      "act-then-reply",
       "one-focus"
     ],
     "CHOICE": [
-      "answer-first",
+      "act-then-reply",
       "speak-in-person",
       "one-focus",
       "carry-through"
@@ -72,12 +72,12 @@
     ],
     "CHARACTER": [
       "speak-in-person",
-      "answer-first",
+      "act-then-reply",
       "one-focus",
       "show-the-change"
     ],
     "RECOVER": [
-      "answer-first",
+      "act-then-reply",
       "speak-in-person",
       "carry-through",
       "return-by-change"
@@ -91,7 +91,7 @@
     "ADVANCE": [
       "carry-through",
       "place-the-eye",
-      "answer-first",
+      "act-then-reply",
       "one-focus"
     ],
     "MONTAGE": [
@@ -114,9 +114,9 @@
     ]
   },
   "floor": [
-    "uptake: the world answers; the player's words are on record and are not repeated back",
+    "uptake: the player's act is told in the scene in the Keeper's own words, then the world answers",
     "answer: the settled result or the chosen exchange is perceptible; a quiet turn owes no event",
-    "voice: whoever the exchange touches speaks in their own register inside a say token, or chooses silence",
+    "voice: whoever the exchange touches answers in their own register inside a say token, or keeps silent",
     "handoff: stop at a completed goal or a real unselected decision with enough seen to judge; no menu or reflexive question"
   ]
 }

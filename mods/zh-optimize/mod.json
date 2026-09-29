@@ -1,0 +1,36 @@
+{
+  "id": "zh-optimize",
+  "version": "1.0.1",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": {
+    "zh-Hans": "中文优化",
+    "en": "Chinese Optimization"
+  },
+  "description": {
+    "zh-Hans": "中文桌的旁白和台词写地道中文：旁白一件事接着一件事说，不一个动作一个句号；英文原文的「简短、干脆」是态度不是碎句；用逗号和虚词、语气词把话接起来，少用书面词、公文腔、被动和英式结构；口吻卡的示例问答也按中文习惯写。只改写法，不改事实和立场。",
+    "en": "Chinese tables read and speak Chinese: narration runs one event into the next instead of a full stop per action; a book's clipped or curt speaker is a manner, not fragments; commas, aspect words and particles join the sentences, and written, official, passive or English-shaped phrasing stays out; voice cards' sample exchanges are written the Chinese way. Wording only; facts and positions do not change."
+  },
+  "default_enabled": true,
+  "play_languages": [
+    "zh"
+  ],
+  "requires": [
+    "mods.package-files.v1",
+    "npc.voice.language-addendum.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "brief.md",
+    "voice-lane.zh.md"
+  ],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {
+    "instructions": "agent.md",
+    "brief": "brief.md",
+    "voice_lane_addendum": "voice-lane.zh.md"
+  }
+}

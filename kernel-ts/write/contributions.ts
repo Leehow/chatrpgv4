@@ -7,6 +7,7 @@ import { writeJsonAtomic, appendJsonl } from '../fileio.js';
 import { RpcError } from '../errors.js';
 import { ModuleGraph } from '../read/module-graph.js';
 import { readModCatalog, activeMods } from '../read/mods.js';
+import { languageAdmits } from '../read/mod-language.js';
 import { array, entries, values, clone, row, string, number, integer, truth, sorted, type Row } from '../read/values.js';
 import { CampaignWriter, missingContribution, nowIso } from './store.js';
 import { foldIntent, receiptGenerated } from '../npc/intents.js';
@@ -22,7 +23,8 @@ function topological(preferred: string[], active: Row[]): string[] {
     }
     return done;
 }
-export async function defaultModPlan(context: KernelContext, world: Row): Promise<{
+/** `playLanguage` is the campaign's declared tag, or null when it carries none (contract §153.2). */
+export async function defaultModPlan(context: KernelContext, world: Row, playLanguage: string | null = null): Promise<{
     world: Row;
     changed: boolean;
     install(): Promise<void>;
@@ -60,7 +62,8 @@ export async function defaultModPlan(context: KernelContext, world: Row): Promis
         for (const mod of packages)
             if (mod.compatible)
                 latest.set(mod.id, mod);
-        const active = [...latest.values()].filter(mod => Object.hasOwn(defaults, mod.id) ? truth(defaults[mod.id]) : mod.default_enabled);
+        const on = (mod: Row): any => !languageAdmits(mod, playLanguage) ? false : Object.hasOwn(defaults, mod.id) ? defaults[mod.id] : mod.default_enabled;
+        const active = [...latest.values()].filter(mod => truth(on(mod)));
         await assertSupported(active);
         staged.mods = {
             game_api: 'pipicoc.game.v1',
@@ -73,7 +76,7 @@ export async function defaultModPlan(context: KernelContext, world: Row): Promis
                 version: mod.version,
                 digest: mod.digest,
                 state_version: mod.state_version,
-                enabled: Object.hasOwn(defaults, id) ? defaults[id] : mod.default_enabled,
+                enabled: on(mod),
                 settings: clone(mod.settings)
             };
         const path = join(context.stateRoot, 'mods', 'load-order.json'), ids = new Set(packages.map(p => p.id));

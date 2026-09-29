@@ -13,7 +13,14 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.equal(prompt.includes('at most one sentence of room and one gesture'), false);
   assert.equal(prompt.includes('give a little, refuse harder, or change the subject'), false);
   assert.ok(craft.includes('who does what to whom is never left for the reader to reconstruct'));
-  assert.ok(craft.includes('do not repeat, paraphrase or summarise them'));
+  // Owner 2026-09-28 (narration-craft 2.1.0): the declared act is shown in the scene, never retyped; speech is one joined thought.
+  // Owner, after two A/B rounds (2026-09-28): the Keeper gets the player's words and writes the act in its own words,
+  // unconstrained beyond not pasting the sentence back and not going against it; npc-voice's natural-reply section returns.
+  assert.ok(craft.includes('The player\'s words this turn are what the investigator does'));
+  assert.ok(craft.includes('Their sentence is never pasted back in'));
+  assert.ok(craft.includes('Answer the actual question first, with natural connected speech'));
+  assert.ok(craft.includes('Same thought, two mouths'));
+  assert.equal(craft.includes('do not begin with what the investigator did'), false);
   assert.ok(craft.includes('The facts do not change; their patience does.'));
   assert.ok(craft.includes('Sarcasm, contempt and insult land'));
   // prose-mod-c (2026-09-26): two of fifteen turns narrated the investigator in the third person; both forms state the viewpoint.
@@ -92,4 +99,18 @@ test('the final audit task brief makes intelligibility a submission-time decisio
   assert.match(host, /claim_source:draft_alias/);
   assert.match(host, /copy every spoken line exactly and in order, then explain/, 'the locked v1 branch remains available for v1 packages');
   assert.match(host, /bed\/body-state phrase standing in for the person and action/);
+});
+
+test('both post-delivery checkers share one player_agency definition: filling in the declared act is the Keeper\'s', async () => {
+  // Owner 2026-09-28: the prose may flesh out what the player declared without going against it. On four live tables the
+  // checker filed a lifted chin, a nod on leaving and a hand on the banister as player_agency, and the Keeper reads its
+  // findings the next turn (capsule `warnings`). Both lanes keep flagging decisions, words, consequences and room changes.
+  const lane = await readFile(new URL('../../extensions/kernel/verifier.ts', import.meta.url), 'utf8');
+  const jev = await readFile(new URL('../../runtime/jev/post-delivery-verifier-domain.ts', import.meta.url), 'utf8');
+  for (const [name, text] of [['model lane', lane], ['Jev lane', jev]]) {
+    assert.ok(text.includes('filling in what that act plainly involves'), `${name} allows the fleshed-out act`);
+    assert.ok(text.includes('a change to the room or to another person'), `${name} still flags a change to the room`);
+    assert.ok(text.includes('words whose content'), `${name} still flags words the player did not say`);
+    assert.ok(text.includes('a new action with a consequence of its own'), `${name} still flags a consequential action`);
+  }
 });
