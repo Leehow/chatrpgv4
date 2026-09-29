@@ -50,7 +50,7 @@ const NONE = 'none';
 const WHY: Record<PostDeliveryFindingKind, string> = {
   reveal: 'The delivered prose appears to disclose Keeper-only material that the player had not earned.',
   uncommitted_state: 'The delivered prose appears to claim a state change absent from the committed facts.',
-  player_agency: 'The delivered prose appears to choose voluntary words or action for the player.',
+  player_agency: 'The delivered prose appears to make a decision, statement or consequential action for the player that the player did not declare.',
   play_language_mismatch: 'The delivered prose appears not to use the campaign play language.',
   unmarked_speech: 'The delivered prose appears to contain spoken words outside the canonical speech spans.',
   investigator_identity_mismatch: 'The delivered prose appears to conflict with the investigator identity already made public.',
@@ -58,7 +58,7 @@ const WHY: Record<PostDeliveryFindingKind, string> = {
 const INSTRUCTIONS: Record<PostDeliveryFindingKind, string> = {
   reveal: 'Select one prose alias that discloses a Keeper-only fact not already public. A repeated public fact is not a reveal. Select none when no remaining passage does this.',
   uncommitted_state: 'Select one prose alias that claims movement, acquisition, resource change, elapsed time, or another world change absent from committedFacts. Select none when no remaining passage does this.',
-  player_agency: 'Select one prose alias that makes an undeclared voluntary choice, action, or spoken statement for the player. Enacting what the player actually chose is allowed. Select none when no remaining passage does this.',
+  player_agency: 'Select one prose alias that makes an undeclared voluntary choice for the player: a decision, a new destination, words whose content the player did not say, a new action with a consequence of its own, a change to the room or to another person, or a thought or feeling. Enacting what the player actually chose is allowed, and so is filling in what that act plainly involves: the steps to get there, where they stand, what their hands do, a nod on leaving. Select none when no remaining passage does this.',
   play_language_mismatch: 'Select one prose alias whose player-facing prose is not written in playLanguage. Proper names, quoted rules terms, and dice notation are allowed. Select none when no remaining passage does this.',
   unmarked_speech: 'Select one prose alias containing a line spoken aloud that is absent from speech. Reported speech, thought, signage, and document text are not spoken lines. Select none when no remaining passage does this.',
   investigator_identity_mismatch: 'Select one prose alias whose pronoun, address, or identity description explicitly conflicts with publicFacts about the investigator. Never infer identity from a name or occupation. Select none when no remaining passage does this.',

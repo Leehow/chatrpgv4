@@ -100,3 +100,17 @@ test('the final audit task brief makes intelligibility a submission-time decisio
   assert.match(host, /copy every spoken line exactly and in order, then explain/, 'the locked v1 branch remains available for v1 packages');
   assert.match(host, /bed\/body-state phrase standing in for the person and action/);
 });
+
+test('both post-delivery checkers share one player_agency definition: filling in the declared act is the Keeper\'s', async () => {
+  // Owner 2026-09-28: the prose may flesh out what the player declared without going against it. On four live tables the
+  // checker filed a lifted chin, a nod on leaving and a hand on the banister as player_agency, and the Keeper reads its
+  // findings the next turn (capsule `warnings`). Both lanes keep flagging decisions, words, consequences and room changes.
+  const lane = await readFile(new URL('../../extensions/kernel/verifier.ts', import.meta.url), 'utf8');
+  const jev = await readFile(new URL('../../runtime/jev/post-delivery-verifier-domain.ts', import.meta.url), 'utf8');
+  for (const [name, text] of [['model lane', lane], ['Jev lane', jev]]) {
+    assert.ok(text.includes('filling in what that act plainly involves'), `${name} allows the fleshed-out act`);
+    assert.ok(text.includes('a change to the room or to another person'), `${name} still flags a change to the room`);
+    assert.ok(text.includes('words whose content'), `${name} still flags words the player did not say`);
+    assert.ok(text.includes('a new action with a consequence of its own'), `${name} still flags a consequential action`);
+  }
+});
