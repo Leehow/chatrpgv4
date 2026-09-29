@@ -134,6 +134,13 @@ B6. **Accounting.** Every background job row gains: author ms, review wall ms, u
 
 - No product change to the classes; under D-A's default they are routed and paired in shadow on every hybrid table.
 - The shadow report accepts a PipiCOC App home (and several homes at once) in addition to a repo checkout. It aggregates across campaigns and prints, per class, the D6 2a line (agreement ≥ 0.9 where the Keeper acted, false positives ≤ 1 per table, added Jev ms per turn ≤ 1.5 s) as met or not met, with the table count. It never edits the execute list.
+- How the report reads D6 2a (`tests/play/jev-steps-report.py`; read-only; homes are a repo checkout, a PipiCOC App home `<userData>/pi-coc`, or the App userData directory `~/Library/Application Support/Pipi/pipicoc`, all with `.coc/campaigns/<cid>/`):
+  - A table is a campaign with at least one consequence route row.
+  - Agreement is `tp/(tp+fp)` over the cleared rows the Keeper's receipts can judge (`keeper_did` true, false or `other`; `tp` is `true`), the reading SL-77 gave "6/6" and SL-78 opened `clue_follow_up` on. Recall `tp/(tp+fn)` is printed beside it as information and is not part of the verdict.
+  - False positives are the cleared rows with `keeper_did` false or `other`, counted per table; the worst table decides. The only automatic exemption is the label/handle pairing artifact of a pre-SL-83 row (proven by the turn's own person and roll receipts). Reading a false positive against the transcript stays the owner's.
+  - Added Jev ms per turn is the per-table mean over the turns that made a shadow call, inclusive at 1.5 s, every table.
+  - Not counted, and printed: stranded turns, `executed` rows, `direct` rows, unanswered rows (no confidence), rows with no `keeper_did` verdict, and duplicate `(turn, class, key)` rows (the last written is kept).
+  - A class with no cleared row the receipts can judge, or no cost row, reads not met (no evidence), never met.
 
 ### D-D. Narrator-only Keeper (SL-79) as a setting
 
