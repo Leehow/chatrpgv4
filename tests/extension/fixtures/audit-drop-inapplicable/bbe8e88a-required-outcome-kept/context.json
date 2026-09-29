@@ -1,0 +1,567 @@
+{
+  "current_input": "我向她道谢，去市政档案厅查科比特宅的契据和房主。",
+  "clock": {
+    "minutes": 360,
+    "elapsed": "6 h 0 min",
+    "at": "1920-10-12T16:00",
+    "day_part": "afternoon"
+  },
+  "scene": {
+    "handle": "hall-of-records",
+    "name": "hall-of-records",
+    "question": "What do civil and church registers reveal about Walter Corbitt's will and burial?"
+  },
+  "intelligibility_review": {
+    "requires_review": true,
+    "definition": "Judge whether every candidate sentence and spoken line is naturally understandable in the play language without restoring omitted grammatical relations. This is not literary style scoring."
+  },
+  "player_address_review": {
+    "requires_review": true,
+    "actors": [
+      {
+        "name": "托马斯·海斯"
+      }
+    ],
+    "definition": "Player-facing narration addresses player-controlled investigators in second person. Natural subject omission is allowed; narrator-side character names or third-person pronouns are not. NPC dialogue and reported speech may refer to them as the fiction requires."
+  },
+  "scene_commitment": {
+    "requires_review": true,
+    "active": {
+      "handle": "hall-of-records",
+      "name": "hall-of-records",
+      "summary": "scene hall of records"
+    },
+    "moves": [
+      {
+        "from": "newspaper-morgue",
+        "to": "hall-of-records",
+        "from_label": "波士顿环球报馆",
+        "to_label": "市政档案厅",
+        "minutes": 30
+      }
+    ],
+    "definition": "active_scene is the persistent gameplay locus, not a physical coordinate.",
+    "promotion_test": "A distinct place needs a scene and move only when it becomes the ongoing locus for subsequent player action or durable location-bound state. Spatial wording, scale and motion do not decide this."
+  },
+  "outcome_commitments": {
+    "requires_review": true,
+    "failed_rolls": [
+      {
+        "call_id": "t6-c3",
+        "actor_label": "托马斯·海斯",
+        "skill": "Appearance",
+        "passed": false,
+        "level": "failure",
+        "family": "mod",
+        "decision": "natural-npc:first-impression",
+        "visibility": "public"
+      }
+    ],
+    "definition": "A failed roll may have consequences, uncertainty or no result; it does not earn the positive action, perception, clue or fact that roll was meant to decide."
+  },
+  "present": [
+    {
+      "name": "the Hall of Records clerk"
+    }
+  ],
+  "receipts": [
+    {
+      "kind": "move",
+      "from_label": "波士顿环球报馆",
+      "to_label": "市政档案厅",
+      "minutes": 30,
+      "from": "newspaper-morgue",
+      "to": "hall-of-records"
+    },
+    {
+      "kind": "time",
+      "minutes": 30
+    },
+    {
+      "kind": "person",
+      "label": "档案厅办事员",
+      "name": "the Hall of Records clerk",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "npc",
+      "skill": null,
+      "label": "档案厅办事员",
+      "to": "hall-of-records",
+      "name": "the Hall of Records clerk"
+    },
+    {
+      "kind": "roll",
+      "actor_label": "托马斯·海斯",
+      "skill": "Appearance",
+      "passed": false,
+      "visibility": "public"
+    },
+    {
+      "kind": "roll",
+      "actor_label": "托马斯·海斯",
+      "skill": "Library Use",
+      "passed": true,
+      "visibility": "public"
+    },
+    {
+      "kind": "clue",
+      "clue": "will-executor-chapel",
+      "label": "科比特遗嘱与执行人",
+      "summary": "Corbitt's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later closed in 1912.",
+      "how": "在市政档案厅用图书检索找到遗嘱与执行人记载",
+      "from": null
+    },
+    {
+      "kind": "clue",
+      "clue": "chapel-closed-1912",
+      "label": "沉思礼拜堂关闭记录",
+      "summary": "The register of churches notes the Chapel of Contemplation closed in 1912.",
+      "how": "同批教会名录中读到该教堂已于一九一二年关闭",
+      "from": null
+    },
+    {
+      "kind": "handout",
+      "handout": "the-haunting-handout-7-will-executor-chapel",
+      "label": "手记七：科比特的执行人与礼拜堂",
+      "summary": "The will executor links Corbitt to Reverend Michael Thomas and the closed Chapel.",
+      "name": "Handout 7: Corbitt's Executor and the Chapel",
+      "visibility": "player-safe"
+    },
+    {
+      "kind": "time",
+      "minutes": 240
+    },
+    {
+      "kind": "definition",
+      "name": "笔记本与短铅笔",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "笔记本与短铅笔",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "开锁工具一套",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "开锁工具一套",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "手电筒",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "手电筒",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "唬人用徽章",
+      "visibility": "keeper"
+    },
+    {
+      "kind": "definition",
+      "name": "唬人用徽章",
+      "visibility": "keeper"
+    }
+  ],
+  "actors": [
+    {
+      "name": "托马斯·海斯",
+      "equipment": [
+        {
+          "name": "科比特宅钥匙",
+          "quantity": 1,
+          "turn": 2,
+          "from": "Steven Knott",
+          "label": "科比特宅钥匙"
+        },
+        {
+          "name": "科比特宅地址纸条",
+          "quantity": 1,
+          "turn": 2,
+          "from": "Steven Knott",
+          "label": "地址纸条"
+        },
+        {
+          "name": "笔记本与短铅笔",
+          "quantity": 1,
+          "object_id": "object-item-1",
+          "description": "一本随身带的薄笔记本和一支磨短的铅笔。翻开的横格纸上还是空的，等着记下时间、门牌和姓名。"
+        },
+        {
+          "name": "开锁工具一套",
+          "quantity": 1,
+          "object_id": "object-item-2",
+          "description": "一卷缝在皮套里的帆布，展开后插着七件钢制小工具：长短不一的撬杆、一张钩片、一把张力扳手和一个末端扁平的撬头。对付寻常门锁、挂锁和简单的抽屉栓扣绰绰有余，但遇上保险柜或锈死的重锁就只能干瞪眼。要真让它帮上忙，你手上得有开锁的门道——工具不会自己动手。"
+        },
+        {
+          "name": "手电筒",
+          "quantity": 1,
+          "object_id": "object-item-3",
+          "description": "一支金属筒身的手电筒，尾部旋盖里装着两节一号电池，按住筒身上的铜片就亮。光柱偏窄、发黄，电池满的时候能照清十几码外的东西；开久了会发烫，电池也撑不了几小时。要换电池或灯泡得旋开尾盖或灯头，花上一分钟左右。除了照明，它没别的用处。"
+        },
+        {
+          "name": "唬人用徽章",
+          "quantity": 1,
+          "object_id": "object-item-4",
+          "description": "你的镍合金盾形徽章，正面压着模糊的市府纹章和「BOSTON」。它磨得发亮，没有编号，也没有发证机关。对着文职办事员一晃，多半比真警察的证件还好使——他们只认得银光和架势。碰上真警察、记者或律师，这层皮就不顶用了。"
+        }
+      ],
+      "cash": "15 dollars",
+      "weapons": [
+        {
+          "name": ".38 Revolver",
+          "skill": "Firearms (Handgun)",
+          "damage": "1D10",
+          "ammo": 6
+        }
+      ]
+    }
+  ],
+  "objects": {
+    "queued_registrations": [],
+    "definitions": [
+      {
+        "name": "笔记本与短铅笔",
+        "category": "item",
+        "document": {
+          "presentation": "notebook",
+          "has_text": false
+        }
+      },
+      {
+        "name": "开锁工具一套",
+        "category": "item",
+        "document": null
+      },
+      {
+        "name": "手电筒",
+        "category": "item",
+        "document": null
+      },
+      {
+        "name": "唬人用徽章",
+        "category": "item",
+        "document": null
+      }
+    ],
+    "instances": [
+      {
+        "name": "笔记本与短铅笔",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "笔记本与短铅笔",
+        "document": {
+          "presentation": "notebook",
+          "text": "",
+          "truncated": false
+        }
+      },
+      {
+        "name": "开锁工具一套",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "开锁工具一套",
+        "document": null
+      },
+      {
+        "name": "手电筒",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "手电筒",
+        "document": null
+      },
+      {
+        "name": "唬人用徽章",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "唬人用徽章",
+        "document": null
+      }
+    ]
+  },
+  "equipment_without_instances": [
+    {
+      "owner": "托马斯·海斯",
+      "name": "科比特宅钥匙",
+      "row": {
+        "name": "科比特宅钥匙",
+        "quantity": 1,
+        "turn": 2,
+        "from": "Steven Knott",
+        "label": "科比特宅钥匙"
+      }
+    },
+    {
+      "owner": "托马斯·海斯",
+      "name": "科比特宅地址纸条",
+      "row": {
+        "name": "科比特宅地址纸条",
+        "quantity": 1,
+        "turn": 2,
+        "from": "Steven Knott",
+        "label": "地址纸条"
+      }
+    }
+  ],
+  "corrections": [],
+  "memory": [
+    {
+      "kind": "knowledge",
+      "subject": "Arty Wilmot",
+      "statement": "威尔莫特说他管的是规矩，不是去替人碰霉头，那栋房子他自己不会去。",
+      "turn": 5,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "Arty Wilmot",
+      "statement": "威尔莫特说规矩仍是规矩：要下剪报库得先预约、拿编辑室批条，或者给他一个能说得过去的理由，否则地下室的门不开。",
+      "turn": 4,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "Arty Wilmot",
+      "statement": "阿蒂·威尔莫特说剪报库不对外，没有预约和编辑室批条就不能进地下室翻查。",
+      "turn": 3,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "Arty Wilmot",
+      "statement": "环球报馆门厅高台后坐着一位衣着整齐、袖口别着编辑笔的男人，盘问访客有没有预约或要找谁。",
+      "turn": 2,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "Steven Knott",
+      "statement": "诺特说，马卡里奥一家入住后不久就出事：夜里闹腾、东西自己动，男主人发疯、女主人带着孩子逃走。",
+      "turn": 1,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "Steven Knott",
+      "statement": "诺特说马卡里奥先生如今关在罗克斯伯里疗养院，院方不许随便探视，得自己想办法。",
+      "turn": 1,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    }
+  ],
+  "recent_history": [
+    {
+      "turn": 3,
+      "player_text": "我是海斯，诺特先生雇我查科比特宅。我想找马卡里奥这个姓和那栋房子的旧报道，只在这里看，不拿走任何纸。",
+      "input_truncated": false,
+      "text": "门厅里的编辑听完你的自报家门，目光在你脸上多停了一拍。那股掂量「一般公众」的劲儿松了些——他甚至微微侧过身，像是愿意多听两句。\n\n「诺特雇的？查房子？」他用笔杆点了点台沿，语气不像刚才那么硬，却仍咬着规矩不放。「剪报库不对外。你说只看不拿，我也没法让人随便进地下室乱翻。没有预约，没有编辑室批条——不行。」\n\n他抬了抬下巴，指尖仍按在台沿上，没有让开的意思；可那双眼睛已经不像一上来就想把你打发走。打字机声从里间一阵一阵涌出来，油墨味混着纸灰。",
+      "truncated": false
+    },
+    {
+      "turn": 4,
+      "player_text": "我下楼，按马卡里奥这个姓和科比特宅的地址查旧剪报。",
+      "input_truncated": false,
+      "text": "门厅高台后的男人抬起下巴，身子没有让开。你朝楼梯口迈了半步，他的指尖在台沿上敲了一下，声音不大，却刚好盖过里间打字机的一阵停顿。\n\n「剪报库在楼下，没错。可没人带你，你也下不去。」\n\n他侧过身，仍挡着通向里间的窄道，目光落在你脸上，语气拿腔，却不像一上来那样只想把人打发走。\n\n「诺特雇你也好，查房子也好——规矩还是规矩。预约、编辑室批条，或者你让我听得过去。否则地下室的门不开。」\n\n油墨味和纸灰从楼梯口飘上来。他等着你的下一个说法，没有再往后退。",
+      "truncated": false
+    },
+    {
+      "turn": 5,
+      "player_text": "我问她：你自己信这些报道吗？这房子你会不会去？",
+      "input_truncated": false,
+      "text": "高台后的男人眉梢一跳，像是没听清称呼，又像故意装作没听见。他用笔杆在台沿上轻轻敲了两下，才慢条斯理开口。\n\n「信不信？报馆的人看多了『耸人听闻』，信一半就算厚道。」\n\n他顿了顿，下巴仍微微抬着，目光从你脸上滑到楼梯口那股油墨味里。\n\n「那栋破房子？我不会去。我管的是规矩，不是去替人碰霉头。你要查旧报道，还是先把话说圆——预约、批条，或者别的让我听得进去的由头。地下室的门，现在照样不开。」\n\n里间打字机又响了一阵。他指尖仍按在台沿上，等着你的下文。",
+      "truncated": false
+    }
+  ],
+  "source_facts": [
+    {
+      "name": "will-executor-chapel",
+      "summary": "Corbitt's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later closed in 1912.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "chapel-closed-1912",
+      "summary": "The register of churches notes the Chapel of Contemplation closed in 1912.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "knott-research-leads",
+      "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper trails before they rush the house.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "knott-keys",
+      "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "will-executor-chapel",
+      "summary": "Corbitt's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later closed in 1912.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "chapel-closed-1912",
+      "summary": "The register of churches notes the Chapel of Contemplation closed in 1912.",
+      "disclosure": "acquired"
+    }
+  ],
+  "connections": {
+    "promises": [],
+    "anchors": [
+      "chapel-closed-1912",
+      "will-executor-chapel",
+      "knott-keys",
+      "knott-research-leads",
+      "hall-of-records",
+      "records-clerk"
+    ],
+    "connections": [
+      {
+        "name": "commission-and-research-frame",
+        "claim": "Knott hired them to clear the house's name; research before entry is wise but not mandatory.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "knott-macario-summary",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at ",
+            "turns": [
+              2
+            ]
+          },
+          {
+            "name": "knott-commission",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and",
+            "turns": [
+              2
+            ]
+          },
+          {
+            "name": "knott-research-leads",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper tr",
+            "turns": [
+              2
+            ]
+          },
+          {
+            "name": "knott-keys",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
+            "turns": [
+              2
+            ]
+          }
+        ],
+        "acquired_total": 5,
+        "truncated": true
+      },
+      {
+        "name": "corbitt-buried-in-basement",
+        "claim": "Walter Corbitt's body was interred in the house basement per his will; his mind still haunts from there.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "will-executor-chapel",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Corbitt's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later cl",
+            "turns": []
+          },
+          {
+            "name": "basement-burial-lawsuit",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "An 1866 obituary notes a lawsuit to stop Corbitt being buried in his own basement as his will requir",
+            "turns": []
+          }
+        ],
+        "acquired_total": 1,
+        "truncated": true
+      },
+      {
+        "name": "corbitt-house-documentary-history",
+        "claim": "Central Library records establish the house's construction, Corbitt's long and hostile tenure, and the unresolved litigation over his burial.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "house-built-1835",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "In 1835, a prosperous merchant built the house, immediately fell ill, and sold it to Walter Corbitt,",
+            "turns": []
+          },
+          {
+            "name": "neighbor-lawsuit-1852",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "In 1852, Corbitt's neighbors sued to force him out because of his strange habits and inauspicious de",
+            "turns": []
+          }
+        ],
+        "acquired_total": 0,
+        "truncated": true
+      }
+    ],
+    "hypotheses": [],
+    "truncated": true
+  },
+  "coverage": {
+    "history_total": 6,
+    "history_previews": 3,
+    "memory_total": 24,
+    "correction_total": 0,
+    "full_evidence_files": [
+      "original.json",
+      "effective.json",
+      "world.json",
+      "current.json",
+      "history.json",
+      "handouts.json",
+      "notes.json",
+      "memory.json"
+    ],
+    "note": "Equipment without an instance is not necessarily missing mechanics: ordinary decorative gear needs no executable definition. Previews are not complete evidence; read the relevant retained file if a decision depends on omitted history or text. Compatible new fiction is not a contradiction merely because the book does not state it."
+  }
+}

@@ -1,0 +1,678 @@
+{
+  "role": "audit",
+  "input": {
+    "text": "高台后的男人眉梢一跳，像是没听清称呼，又像故意装作没听见。他用笔杆在台沿上轻轻敲了两下，才慢条斯理开口。\n\n{{say:门厅里的编辑}}「信不信？报馆的人看多了『耸人听闻』，信一半就算厚道。」{{/say}}\n\n他顿了顿，下巴仍微微抬着，目光从你脸上滑到楼梯口那股油墨味里。\n\n{{say:门厅里的编辑}}「那栋破房子？我不会去。我管的是规矩，不是去替人碰霉头。你要查旧报道，还是先把话说圆——预约、批条，或者别的让我听得进去的由头。地下室的门，现在照样不开。」{{/say}}\n\n里间打字机又响了一阵。他指尖仍按在台沿上，等着你的下文。"
+  },
+  "capabilities": [
+    "agents.tools.v1",
+    "audit.continuity.v1",
+    "audit.continuity.v2",
+    "audit.source.v1",
+    "checks.percentile.v1",
+    "context.craft-reference.v1",
+    "context.craft-reference.v2",
+    "context.npc.v1",
+    "context.pacing.v1",
+    "context.style.v1",
+    "context.thread.v1",
+    "context.workspace.v1",
+    "definitions.v1",
+    "graph.vocabulary.table.v1",
+    "graph.vocabulary.v1",
+    "item-effects.v1",
+    "mods.order.v1",
+    "mods.package-files.v1",
+    "npc.voice.consolidation.v1",
+    "npc.voice.generation.v2",
+    "objects.adopt.v1",
+    "objects.documents.v1",
+    "objects.state.v2",
+    "objects.usages.v1",
+    "objects.v1",
+    "setup.aptitude.v1",
+    "setup.guidance.v1",
+    "spells.v1",
+    "ui.documents.language.v1",
+    "ui.documents.v1",
+    "weapons.preset.v1",
+    "weapons.profile.v2",
+    "weapons.v1"
+  ],
+  "play_language": "zh",
+  "mod_settings": {
+    "enhanced-items": {},
+    "narration-audit": {},
+    "natural-npc": {
+      "language_mixing": "light"
+    }
+  },
+  "scene": {
+    "scene": "newspaper-morgue",
+    "display_name": "波士顿环球报馆",
+    "summary": "scene newspaper morgue",
+    "dramatic_question": "Can the investigators persuade the Globe staff and pull the Corbitt House clippings?",
+    "pressure_moves": [
+      "Arty Wilmot enjoys denying access and makes them work for every courtesy",
+      "Knott telephones if research stretches past a day — time is money"
+    ],
+    "exits": [
+      {
+        "to": "central-library",
+        "display_name": "Central Library",
+        "travel_minutes": 30,
+        "material": "ready"
+      },
+      {
+        "to": "hall-of-records",
+        "display_name": "Hall of Records",
+        "travel_minutes": 30,
+        "material": "ready"
+      },
+      {
+        "to": "neighborhood-gossip",
+        "display_name": "Corbitt House neighborhood",
+        "travel_minutes": 30,
+        "material": "ready"
+      },
+      {
+        "to": "previous-tenants",
+        "display_name": "Roxbury Sanitarium",
+        "travel_minutes": 30,
+        "material": "ready"
+      },
+      {
+        "to": "corbitt-house-ground",
+        "display_name": "The Corbitt House",
+        "travel_minutes": 30,
+        "material": "ready"
+      },
+      {
+        "to": "commission-briefing",
+        "display_name": "Knott's Office",
+        "travel_minutes": 30,
+        "material": "ready"
+      }
+    ],
+    "back": [
+      {
+        "to": "commission-briefing",
+        "display_name": "Knott's Office"
+      }
+    ],
+    "affordances": [
+      {
+        "id": "persuade-arty",
+        "cue": "Use Persuade, Intimidate, Charm, or Fast Talk to win over editor Arty and gain access to the clipping room."
+      },
+      {
+        "id": "search-clippings",
+        "cue": "Search the basement clipping room by street address for stories about the Corbitt House.",
+        "clue": "globe-unpublished-story",
+        "clues": [
+          {
+            "clue": "globe-unpublished-story",
+            "gate": "handout: check unspecified; guarded by obligation globe-clippings-access",
+            "discovered": false
+          },
+          {
+            "clue": "macario-tragedy",
+            "gate": "handout: check unspecified; guarded by obligation globe-clippings-access",
+            "discovered": false
+          }
+        ]
+      },
+      {
+        "id": "befriend-ruth",
+        "cue": "Befriend archivist Ruth Blake or explain your purpose, then ask how far back the clipping room extends and where its older records are missing.",
+        "clue": "globe-fire-cutoff",
+        "clues": [
+          {
+            "clue": "globe-fire-cutoff",
+            "gate": "npc_dialogue: check unspecified",
+            "discovered": false
+          }
+        ],
+        "npc": "Ruth Blake"
+      }
+    ],
+    "keeper_notes": [
+      "invent desk clerks and press-room noise",
+      "never_invent pre-1878 Globe clippings about the house",
+      "tone: musty, bureaucratic, ink-and-heat",
+      "pacing: low / ordinary — Paper trail of accidents — still deniable."
+    ],
+    "assets": [
+      {
+        "name": "Boston Globe City Desk Copy — Held from Print (1918)",
+        "kind": "handout"
+      }
+    ],
+    "places": [],
+    "rules": [],
+    "endings": [],
+    "material": "ready"
+  },
+  "party": [
+    {
+      "schema_version": 1,
+      "id": "thomas-hayes",
+      "name": "托马斯·海斯",
+      "occupation": "私家侦探",
+      "era": "1920s",
+      "own_language": "English",
+      "age": 34,
+      "sex": "M",
+      "residence": "Boston, Massachusetts",
+      "birthplace": "South Boston",
+      "characteristics": {
+        "STR": 60,
+        "CON": 55,
+        "SIZ": 65,
+        "DEX": 60,
+        "APP": 50,
+        "INT": 70,
+        "POW": 55,
+        "EDU": 65,
+        "LUCK": 50
+      },
+      "derived": {
+        "HP": 12,
+        "SAN": 55,
+        "MP": 11,
+        "MOV": 7,
+        "DB": "0",
+        "BUILD": 1
+      },
+      "skills": {
+        "Accounting": 25,
+        "Charm": 35,
+        "Climb": 30,
+        "Credit Rating": 25,
+        "Dodge": 30,
+        "Drive Auto": 40,
+        "Fast Talk": 45,
+        "Fighting (Brawl)": 50,
+        "Firearms (Handgun)": 55,
+        "Intimidate": 45,
+        "Law": 40,
+        "Library Use": 40,
+        "Listen": 45,
+        "Locksmith": 35,
+        "Persuade": 40,
+        "Psychology": 45,
+        "Spot Hidden": 55,
+        "Stealth": 40,
+        "Track": 30
+      },
+      "weapons": [
+        {
+          "weapon_id": "revolver_38_or_9mm",
+          "name": ".38 Revolver",
+          "skill": "Firearms (Handgun)",
+          "damage": "1D10",
+          "range": "15 yards",
+          "attacks": 1,
+          "ammo": 6,
+          "malfunction": 100
+        }
+      ],
+      "equipment": [
+        "notebook and stub pencil",
+        "set of lockpicks",
+        "flashlight",
+        "badge that impresses clerks more than cops",
+        {
+          "name": "科比特宅钥匙",
+          "quantity": 1,
+          "turn": 2,
+          "from": "Steven Knott",
+          "label": "科比特宅钥匙"
+        },
+        {
+          "name": "科比特宅地址纸条",
+          "quantity": 1,
+          "turn": 2,
+          "from": "Steven Knott",
+          "label": "地址纸条"
+        }
+      ],
+      "backstory": {
+        "scenario_id": "the-haunting",
+        "scenario_bound": {
+          "description": "波士顿南区出身的私家侦探，专接房东、律师与保险公司的脏活。Knott 的委托听起来像又一次「清清恶名」——直到他把钥匙拍在桌上。",
+          "significant_people": "前搭档在一次夜间跟踪中失踪，案子至今未结。",
+          "meaningful_locations": "南站附近那间一室办公室。"
+        },
+        "traits": [
+          "先查纸再上门",
+          "不信鬼，但信人会疯",
+          "开枪前会先算退路"
+        ],
+        "ideology": "真相值钱，沉默更贵。",
+        "treasured_possessions": "父亲留下的 .38。",
+        "traits_detail": "说话短，观察长；对官僚系统又恨又熟。"
+      },
+      "credit_rating": 25,
+      "cash": "15 dollars",
+      "notes": "Pregen for The Haunting quick start — classic private investigator seat.",
+      "current_hp": 12,
+      "current_san": 55,
+      "current_mp": 11,
+      "current_luck": 50
+    }
+  ],
+  "objects": {
+    "queued_registrations": [
+      {
+        "name": "笔记本与短铅笔",
+        "category": "item",
+        "adopted": "notebook and stub pencil",
+        "status": "registered; parameters land at the start of the next turn, so do not define or place it again"
+      },
+      {
+        "name": "开锁工具一套",
+        "category": "item",
+        "adopted": "set of lockpicks",
+        "status": "registered; parameters land at the start of the next turn, so do not define or place it again"
+      },
+      {
+        "name": "手电筒",
+        "category": "item",
+        "adopted": "flashlight",
+        "status": "registered; parameters land at the start of the next turn, so do not define or place it again"
+      },
+      {
+        "name": "唬人用徽章",
+        "category": "item",
+        "adopted": "badge that impresses clerks more than cops",
+        "status": "registered; parameters land at the start of the next turn, so do not define or place it again"
+      }
+    ],
+    "definitions": [],
+    "instances": []
+  },
+  "receipts": [],
+  "known_handouts": [],
+  "unregistered_equipment": [
+    {
+      "owner": "托马斯·海斯",
+      "name": "科比特宅钥匙",
+      "row": {
+        "name": "科比特宅钥匙",
+        "quantity": 1,
+        "turn": 2,
+        "from": "Steven Knott",
+        "label": "科比特宅钥匙"
+      }
+    },
+    {
+      "owner": "托马斯·海斯",
+      "name": "科比特宅地址纸条",
+      "row": {
+        "name": "科比特宅地址纸条",
+        "quantity": 1,
+        "turn": 2,
+        "from": "Steven Knott",
+        "label": "地址纸条"
+      }
+    }
+  ],
+  "present": [
+    {
+      "name": "Arty Wilmot",
+      "called": {
+        "name": "门厅里的编辑"
+      },
+      "untold": {
+        "label": "门厅里的编辑",
+        "use": "Private until introduced: appearance only; apply person, then called.name and say token."
+      },
+      "role": "gatekeeper",
+      "wants": "Guard access to the Globe clippings morgue and enjoy the little power of saying no.",
+      "fears": "Looking weak in front of the newsroom if he caves too easily.",
+      "hides": "He is not professionally skilled at social resistance — Regular difficulty social skills can move him; he just starts unhelpful by policy.",
+      "voice": "Pompous, clipped, editorial. Loves denying 'the general public'.",
+      "mask": [
+        "语气拿腔作势，句子切得短，爱用报馆行话；开口便强调规矩与「公众」，对陌生人一律以规条相待，必要时才肯松口。"
+      ],
+      "in exchange": [
+        "找馆长？馆长今天不见客。资料室归我管，你先说明来意。→ 这里是编辑部，不是阅览室。你要查什么，先报上名目，我再看合不合规矩。",
+        "上午十一点前收稿最多，别挑那时候来。→ 十一点前后送来，我就得先应付稿子。你要来，下午两点以后安静些，我还能腾出手。",
+        "我不是不给你看，规矩摆在这儿，谁来都一样。→ 规矩就是规矩，放你进去，明天全城的人都来翻旧报。你总得让我有个说得过去的由头。"
+      ],
+      "personality": {
+        "description": "Arty Wilmot is a gatekeeper by instinct and policy, treating the Globe clippings morgue as his own fiefdom and savoring the small authority of telling people no. His fear is not exposure but appearing weak before the newsroom, which makes him guard his refusals long after the practical reason for them has faded. In practice he is far less formidable than he performs — regular social pressure can move him, and he resists by default posture rather than deep conviction, so a determined or well-judged approach tends to find the man behind the clipped, editorial bluster.",
+        "origin": "table_supplement"
+      },
+      "keeper_note": "Use Charm / Intimidate / Persuade / Fast Talk as appropriate to the approach. Pushed failures escalate (backup muscle, offence, ejection)."
+    },
+    {
+      "name": "Ruth Blake",
+      "called": {
+        "name": "剪报间的女职员"
+      },
+      "untold": {
+        "label": "剪报间的女职员",
+        "use": "Private until introduced: appearance only; apply person, then called.name and say token."
+      },
+      "role": "helpful_staff",
+      "wants": "Do her job in the clippings basement and be treated like a person.",
+      "fears": "Getting in trouble with Arty for letting strangers linger.",
+      "hides": "Friendly investigators learn the 1878 fire cutoff without a roll — the information is color, not the critical clue.",
+      "voice": "Quiet, practical, basement-warm. Speaks in asides while filing.",
+      "mask": [
+        "说话轻，句子平常，一边翻卷一边答话；不摆架子也不寒暄，问到为难处就压低声音，把话岔到手上的活儿上去。"
+      ],
+      "in exchange": [
+        "劳驾，请问这儿能查旧报纸吗？ → 能查。放着的那几摞别动，我给你取。你要哪一年的，说一声就行，我手边正好理到一半。",
+        "那你平时都在这儿待着？一整天见不着几个人吧。 → 是没什么人下来。楼上热闹，地下室安静，倒也合适我。你要坐就坐那边，别挡着道，我一会儿还得搬两箱上去。",
+        "听说这房子以前出过事，你在报馆这么久，就没听过什么？ → 旧报纸上什么都有，真真假假我也分不清。我在这儿管的是剪报，上面让留什么就留什么，旁的不好多说。你要查，就查，别让上头瞧见我陪人闲聊。"
+      ],
+      "personality": {
+        "description": "Ruth Blake takes quiet, practical pride in doing her job well and in being treated like a person rather than furniture; she is helpful staff by disposition, warming to friendly investigators who take her seriously and offering plain, unguarded help within the bounds of her work. Her judgment is cautious and self-protective where authority is concerned, since she fears getting in trouble with Arty for letting strangers linger, so she balances small kindnesses against the risk of drawing attention. She keeps her voice low and basement-warm, furnishing context and small asides as she files more readily than she volunteers anything that could land her in trouble.",
+        "origin": "table_supplement"
+      },
+      "knows": [
+        {
+          "clue": "globe-fire-cutoff",
+          "discovered": false
+        }
+      ],
+      "keeper_note": "Escort into the morgue after Arty relents. Flirting/friendship yields the fire cutoff remark."
+    }
+  ],
+  "player_text": "我问她：你自己信这些报道吗？这房子你会不会去？",
+  "continuity_review": {
+    "schema": 2,
+    "files": [
+      "original.json",
+      "effective.json",
+      "world.json",
+      "current.json",
+      "history.json",
+      "handouts.json",
+      "notes.json",
+      "memory.json",
+      "context.json"
+    ],
+    "current_input": "我问她：你自己信这些报道吗？这房子你会不会去？",
+    "pending_choice": null,
+    "authority": "Preserve established campaign continuity and player choices. Compatible new fiction is allowed without a literal source quote. Recaps must faithfully report prior delivery; NPC assertions and player hypotheses retain attribution. Corrections supersede earlier claims. Kernel receipts remain authoritative for actions and resources.",
+    "sources": {
+      "draft": [
+        {
+          "alias": "draft:0",
+          "text": "高台后的男人眉梢一跳，像是没听清称呼，又像故意装作没听见。"
+        },
+        {
+          "alias": "draft:1",
+          "text": "他用笔杆在台沿上轻轻敲了两下，才慢条斯理开口。\n\n"
+        },
+        {
+          "alias": "draft:2",
+          "text": "{{say:门厅里的编辑}}「信不信？"
+        },
+        {
+          "alias": "draft:3",
+          "text": "报馆的人看多了『耸人听闻』，信一半就算厚道。"
+        },
+        {
+          "alias": "draft:4",
+          "text": "」{{/say}}\n"
+        },
+        {
+          "alias": "draft:6",
+          "text": "他顿了顿，下巴仍微微抬着，目光从你脸上滑到楼梯口那股油墨味里。\n\n"
+        },
+        {
+          "alias": "draft:7",
+          "text": "{{say:门厅里的编辑}}「那栋破房子？"
+        },
+        {
+          "alias": "draft:8",
+          "text": "我不会去。"
+        },
+        {
+          "alias": "draft:9",
+          "text": "我管的是规矩，不是去替人碰霉头。"
+        },
+        {
+          "alias": "draft:10",
+          "text": "你要查旧报道，还是先把话说圆——预约、批条，或者别的让我听得进去的由头。"
+        },
+        {
+          "alias": "draft:11",
+          "text": "地下室的门，现在照样不开。"
+        },
+        {
+          "alias": "draft:12",
+          "text": "」{{/say}}\n"
+        },
+        {
+          "alias": "draft:14",
+          "text": "里间打字机又响了一阵。"
+        },
+        {
+          "alias": "draft:15",
+          "text": "他指尖仍按在台沿上，等着你的下文。"
+        }
+      ],
+      "current_input": [
+        {
+          "alias": "input:0",
+          "text": "我问她：你自己信这些报道吗？"
+        },
+        {
+          "alias": "input:1",
+          "text": "这房子你会不会去？"
+        }
+      ],
+      "speech": [
+        {
+          "alias": "speech:0",
+          "text": "「信不信？报馆的人看多了『耸人听闻』，信一半就算厚道。」",
+          "speaker": "门厅里的编辑"
+        },
+        {
+          "alias": "speech:1",
+          "text": "「那栋破房子？我不会去。我管的是规矩，不是去替人碰霉头。你要查旧报道，还是先把话说圆——预约、批条，或者别的让我听得进去的由头。地下室的门，现在照样不开。」",
+          "speaker": "门厅里的编辑"
+        }
+      ],
+      "evidence": [
+        {
+          "alias": "context:0",
+          "file": "context.json",
+          "text": "科比特宅钥匙"
+        },
+        {
+          "alias": "context:1",
+          "file": "context.json",
+          "text": "科比特宅钥匙"
+        },
+        {
+          "alias": "context:2",
+          "file": "context.json",
+          "text": "地址纸条"
+        },
+        {
+          "alias": "context:3",
+          "file": "context.json",
+          "text": "科比特宅地址纸条"
+        },
+        {
+          "alias": "context:4",
+          "file": "context.json",
+          "text": "托马斯·海斯"
+        },
+        {
+          "alias": "context:5",
+          "file": "context.json",
+          "text": "."
+        },
+        {
+          "alias": "context:6",
+          "file": "context.json",
+          "text": "38 Revolver"
+        },
+        {
+          "alias": "context:7",
+          "file": "context.json",
+          "text": "knott-macario-summary"
+        },
+        {
+          "alias": "context:8",
+          "file": "context.json",
+          "text": "supports"
+        },
+        {
+          "alias": "context:9",
+          "file": "context.json",
+          "text": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at "
+        },
+        {
+          "alias": "context:10",
+          "file": "context.json",
+          "text": "knott-commission"
+        },
+        {
+          "alias": "context:11",
+          "file": "context.json",
+          "text": "supports"
+        },
+        {
+          "alias": "context:12",
+          "file": "context.json",
+          "text": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and"
+        },
+        {
+          "alias": "context:13",
+          "file": "context.json",
+          "text": "knott-research-leads"
+        },
+        {
+          "alias": "context:14",
+          "file": "context.json",
+          "text": "supports"
+        },
+        {
+          "alias": "context:15",
+          "file": "context.json",
+          "text": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper tr"
+        },
+        {
+          "alias": "context:16",
+          "file": "context.json",
+          "text": "knott-keys"
+        },
+        {
+          "alias": "context:17",
+          "file": "context.json",
+          "text": "supports"
+        },
+        {
+          "alias": "context:18",
+          "file": "context.json",
+          "text": "Knott hands over the house keys, the address, and $20 cash in advance."
+        },
+        {
+          "alias": "context:19",
+          "file": "context.json",
+          "text": "commission-and-research-frame"
+        },
+        {
+          "alias": "context:20",
+          "file": "context.json",
+          "text": "globe-unpublished-story"
+        },
+        {
+          "alias": "context:21",
+          "file": "context.json",
+          "text": "supports"
+        },
+        {
+          "alias": "context:22",
+          "file": "context.json",
+          "text": "An unpublished 1918 feature lists prior tenants ruined by accidents, illness, and suicide; the Macar"
+        },
+        {
+          "alias": "context:23",
+          "file": "context.json",
+          "text": "dooley-macario-madness"
+        }
+      ],
+      "objects": [
+        {
+          "alias": "object:0",
+          "category": "item",
+          "name": "科比特宅钥匙"
+        },
+        {
+          "alias": "object:1",
+          "category": "item",
+          "name": "科比特宅地址纸条"
+        },
+        {
+          "alias": "object:2",
+          "category": "weapon",
+          "name": ".38 Revolver"
+        }
+      ],
+      "scenes": [
+        {
+          "alias": "scene:active",
+          "name": "newspaper-morgue"
+        },
+        {
+          "alias": "scene:0",
+          "name": "scene basement rites"
+        },
+        {
+          "alias": "scene:1",
+          "name": "scene central library"
+        },
+        {
+          "alias": "scene:2",
+          "name": "scene chapel of contemplation ruins"
+        },
+        {
+          "alias": "scene:3",
+          "name": "Knott's Office"
+        },
+        {
+          "alias": "scene:4",
+          "name": "scene corbitt confrontation"
+        },
+        {
+          "alias": "scene:5",
+          "name": "scene corbitt house ground"
+        },
+        {
+          "alias": "scene:6",
+          "name": "scene hall of records"
+        },
+        {
+          "alias": "scene:7",
+          "name": "scene higher courts central police"
+        },
+        {
+          "alias": "scene:8",
+          "name": "scene neighborhood gossip"
+        },
+        {
+          "alias": "scene:9",
+          "name": "scene newspaper morgue"
+        },
+        {
+          "alias": "scene:10",
+          "name": "scene previous tenants"
+        },
+        {
+          "alias": "scene:11",
+          "name": "scene upper floor bedroom"
+        }
+      ],
+      "reentry": []
+    }
+  }
+}

@@ -312,6 +312,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
       if (Number.isInteger(status.requests) && status.requests >= 0) requests = Math.max(requests, status.requests);
       if (Number.isInteger(status.artifact_repairs) && status.artifact_repairs >= 0) artifactRepairs = Math.max(artifactRepairs, status.artifact_repairs);
       telemetry.attempt = ordinal; telemetry.requests = requests; telemetry.submitted = submitted;
+      // §130.10: sub-reviews submit_audit dropped as not required this turn, read from its status.
+      if (Array.isArray(status.dropped_subreviews) && status.dropped_subreviews.length)
+        telemetry.dropped_subreviews = status.dropped_subreviews.filter((key: unknown) => typeof key === 'string');
       telemetry.child_ms = outcome.ms ?? null;
       if (outcome.timedOut) telemetry.timed_out = true;
       const model = ranWith(outcome);

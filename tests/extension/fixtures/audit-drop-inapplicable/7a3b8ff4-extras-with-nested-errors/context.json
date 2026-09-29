@@ -1,0 +1,451 @@
+{
+  "current_input": "我推开正对楼梯的那间卧室的门，站在门口先看。",
+  "clock": {
+    "minutes": 740,
+    "elapsed": "12 h 20 min",
+    "at": "1920-10-12T22:20",
+    "day_part": "night"
+  },
+  "scene": {
+    "handle": "upper-floor-bedroom",
+    "name": "upper-floor-bedroom",
+    "question": "Can the investigators survive Corbitt's poltergeist show without being thrown through a window?"
+  },
+  "intelligibility_review": {
+    "requires_review": true,
+    "definition": "Judge whether every candidate sentence and spoken line is naturally understandable in the play language without restoring omitted grammatical relations. This is not literary style scoring."
+  },
+  "player_address_review": {
+    "requires_review": true,
+    "actors": [
+      {
+        "name": "托马斯·海斯"
+      }
+    ],
+    "definition": "Player-facing narration addresses player-controlled investigators in second person. Natural subject omission is allowed; narrator-side character names or third-person pronouns are not. NPC dialogue and reported speech may refer to them as the fiction requires."
+  },
+  "scene_commitment": {
+    "requires_review": true,
+    "active": {
+      "handle": "upper-floor-bedroom",
+      "name": "upper-floor-bedroom",
+      "summary": "scene upper floor bedroom"
+    },
+    "moves": [],
+    "definition": "active_scene is the persistent gameplay locus, not a physical coordinate.",
+    "promotion_test": "A distinct place needs a scene and move only when it becomes the ongoing locus for subsequent player action or durable location-bound state. Spatial wording, scale and motion do not decide this."
+  },
+  "present": [],
+  "receipts": [],
+  "actors": [
+    {
+      "name": "托马斯·海斯",
+      "equipment": [
+        {
+          "name": "笔记本与短铅笔",
+          "quantity": 1,
+          "object_id": "object-item-1",
+          "description": "一本随身带的薄笔记本和一支磨短的铅笔。翻开的横格纸上还是空的，等着记下时间、门牌和姓名。"
+        },
+        {
+          "name": "开锁工具一套",
+          "quantity": 1,
+          "object_id": "object-item-2",
+          "description": "一卷缝在皮套里的帆布，展开后插着七件钢制小工具：长短不一的撬杆、一张钩片、一把张力扳手和一个末端扁平的撬头。对付寻常门锁、挂锁和简单的抽屉栓扣绰绰有余，但遇上保险柜或锈死的重锁就只能干瞪眼。要真让它帮上忙，你手上得有开锁的门道——工具不会自己动手。"
+        },
+        {
+          "name": "手电筒",
+          "quantity": 1,
+          "object_id": "object-item-3",
+          "description": "一支金属筒身的手电筒，尾部旋盖里装着两节一号电池，按住筒身上的铜片就亮。光柱偏窄、发黄，电池满的时候能照清十几码外的东西；开久了会发烫，电池也撑不了几小时。要换电池或灯泡得旋开尾盖或灯头，花上一分钟左右。除了照明，它没别的用处。"
+        },
+        {
+          "name": "唬人用徽章",
+          "quantity": 1,
+          "object_id": "object-item-4",
+          "description": "你的镍合金盾形徽章，正面压着模糊的市府纹章和「BOSTON」。它磨得发亮，没有编号，也没有发证机关。对着文职办事员一晃，多半比真警察的证件还好使——他们只认得银光和架势。碰上真警察、记者或律师，这层皮就不顶用了。"
+        },
+        {
+          "name": "科比特宅钥匙",
+          "quantity": 1,
+          "object_id": "object-item-5",
+          "description": "诺特拍在桌上的那把钥匙：黄铜齿匙，齿口磨得发亮，穿在一枚细环上。他说这是科比特宅正门的钥匙——门锁是原装的，一直没换过。它开的就是那扇正门；别的门、地下室门栓或上了挂锁的地方，它都插不进去。"
+        },
+        {
+          "name": "科比特宅地址纸条",
+          "quantity": 1,
+          "object_id": "object-item-6",
+          "description": "一张对折的白纸条。展开后是你委托人亲笔写下的科比特宅地址，下面一行短话，末尾签着姓名缩写。纸薄而旧，折痕发亮——它只是一张纸条，没有别的用处。"
+        }
+      ],
+      "cash": "15 dollars",
+      "weapons": [
+        {
+          "name": ".38 Revolver",
+          "skill": "Firearms (Handgun)",
+          "damage": "1D10",
+          "ammo": 6
+        }
+      ]
+    }
+  ],
+  "objects": {
+    "queued_registrations": [],
+    "definitions": [
+      {
+        "name": "笔记本与短铅笔",
+        "category": "item",
+        "document": {
+          "presentation": "notebook",
+          "has_text": false
+        }
+      },
+      {
+        "name": "开锁工具一套",
+        "category": "item",
+        "document": null
+      },
+      {
+        "name": "手电筒",
+        "category": "item",
+        "document": null
+      },
+      {
+        "name": "唬人用徽章",
+        "category": "item",
+        "document": null
+      },
+      {
+        "name": "科比特宅钥匙",
+        "category": "item",
+        "document": null
+      },
+      {
+        "name": "科比特宅地址纸条",
+        "category": "item",
+        "document": {
+          "presentation": "paper",
+          "has_text": true
+        }
+      }
+    ],
+    "instances": [
+      {
+        "name": "笔记本与短铅笔",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "笔记本与短铅笔",
+        "document": {
+          "presentation": "notebook",
+          "text": "",
+          "truncated": false
+        }
+      },
+      {
+        "name": "开锁工具一套",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "开锁工具一套",
+        "document": null
+      },
+      {
+        "name": "手电筒",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "手电筒",
+        "document": null
+      },
+      {
+        "name": "唬人用徽章",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "唬人用徽章",
+        "document": null
+      },
+      {
+        "name": "科比特宅钥匙",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "科比特宅钥匙",
+        "document": null
+      },
+      {
+        "name": "科比特宅地址纸条",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "definition": "科比特宅地址纸条",
+        "document": {
+          "presentation": "paper",
+          "text": "科比特宅 —— 波士顿，罗克斯伯里，本森街 20 号。\n\n钥匙另付。房主只想要一件事：把这地方的名声弄清楚。\n\n—— S. Knott",
+          "truncated": false
+        }
+      }
+    ]
+  },
+  "equipment_without_instances": [],
+  "corrections": [],
+  "memory": [
+    {
+      "kind": "knowledge",
+      "subject": "托马斯·海斯",
+      "statement": "海斯登上科比特宅二楼，在楼梯顶停住观察过道两端：一扇门半掩，里面隐约可见塌陷罩布下的床架；另一侧几扇门紧闭，门缝漆黑。",
+      "turn": 12,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "托马斯·海斯",
+      "statement": "海斯注意到二楼过道地板积灰均匀，没有新脚印穿过，墙上没有十字架或烛台，只有剥落的壁纸边。",
+      "turn": 12,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "托马斯·海斯",
+      "statement": "楼梯越往上，闷木头味里掺进更浓的腥潮气，像地窖气从墙缝渗出；整层楼无声无息。",
+      "turn": 12,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "托马斯·海斯",
+      "statement": "科比特宅客厅壁炉架与墙角密布十字架、圣母像、念珠和残烛，像是被人匆忙用来抵挡什么。",
+      "turn": 10,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "托马斯·海斯",
+      "statement": "科比特宅一楼靠街窗框钉满钉子与木板，侧门方向叠着好几道插销。",
+      "turn": 10,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    },
+    {
+      "kind": "knowledge",
+      "subject": "托马斯·海斯",
+      "statement": "海斯在中央图书馆查讣告栏与民事案卷摘要，讣告里同名者几个都对不上那栋宅子，诉讼索引里也没有一条能同时扣住科比特与那处房产。",
+      "turn": 8,
+      "state": "accurate",
+      "status": "candidate",
+      "authority": "conversation_report"
+    }
+  ],
+  "recent_history": [
+    {
+      "turn": 10,
+      "player_text": "我走进门厅，看看一楼的客厅和厨房，不碰那些东西。",
+      "input_truncated": false,
+      "text": "门厅的灰在鞋底下轻轻响。街灯只到门槛，再往里你得靠自己的眼。\n\n客厅门半敞。沙发罩布塌着，茶几上积着一层匀灰；墙角与壁炉架上却密密摆着十字架、圣母小像、念珠，还有烧残的白蜡烛——像有人整间屋子都用来挡什么，又走得太急，没来得及收。靠街的窗框里，钉头一排排发暗，木板把夜色挡在外头；侧门方向能望见好几道插销的影子，叠在一起。\n\n厨房在更里头。水槽干裂，灶台结着陈年油膜，碗柜半开，几只瓷杯倒扣，没有新脚印，也没有被翻过的痕迹。空气仍是木头与灰尘的闷味，楼上没有声响应你。\n\n你站在客厅与厨房之间的过道上，两手空着，什么都没碰。",
+      "truncated": false
+    },
+    {
+      "turn": 11,
+      "player_text": "我站到楼梯口听一会儿，然后决定要不要上楼。",
+      "input_truncated": false,
+      "text": "楼梯口在门厅深处，街灯到不了这里。你站稳，屏住呼吸，把耳朵贴向黑暗里那道往上折的木阶。\n\n木纹里只有自己的心跳，偶尔有宅子老木头收缩时极轻的一声——像远处家具挪了一下，又像什么都没有。楼上没有脚步，没有明确的敲击，也听不出有人走动。\n\n五分钟过去，空气仍是那股闷灰味。楼梯黑洞洞的，一级一级没入上头。要不要上去，还在你手里。",
+      "truncated": false
+    },
+    {
+      "turn": 12,
+      "player_text": "我慢慢上二楼，在楼梯顶停下，看走廊两头。",
+      "input_truncated": false,
+      "text": "木阶在鞋底下一格一格沉下去，扶手粘着一层干灰。越往上，那股闷木头味里掺进一点更浓的腥潮——像地窖气从墙缝里渗出来，贴着鼻腔。\n\n楼梯顶是一段短短的过道。街灯到不了这里，只有你身后楼下门厅透上来的一点灰白。你停稳，两头都看清：\n\n一侧门半掩，里面隐约是床架的轮廓，罩布塌成一团；另一侧几扇门关着，门缝里一片死黑。过道地板积灰均匀，没有新脚印穿过。墙上什么都没有——没有十字架，也没有烛台，只有剥落的壁纸边。\n\n两头都静。没有脚步，没有呼吸。空气在楼板下轻轻发闷，像整层楼都在等你迈出下一步。",
+      "truncated": false
+    }
+  ],
+  "source_facts": [
+    {
+      "name": "poltergeist-bed",
+      "summary": "In Corbitt's old room a bed can fly of its own accord hard enough to hurl someone through a window — accompanied by a Mythos reek.",
+      "disclosure": "keeper_only"
+    },
+    {
+      "name": "blood-pool-manifest",
+      "summary": "Corbitt can form pools of blood on floor, ceiling, or walls to frighten intruders away from his secret.",
+      "disclosure": "keeper_only"
+    },
+    {
+      "name": "mythos-reek",
+      "summary": "A horrible smell manifests whenever Corbitt forces a psychic deed — a sure sign this is no parlor haunting.",
+      "disclosure": "keeper_only"
+    },
+    {
+      "name": "will-executor-chapel",
+      "summary": "Corbitt's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later closed in 1912.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "chapel-closed-1912",
+      "summary": "The register of churches notes the Chapel of Contemplation closed in 1912.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "nailed-windows",
+      "summary": "Ground-floor windows are nailed shut from inside; the side door carries three bolts and two locks.",
+      "disclosure": "acquired"
+    },
+    {
+      "name": "catholic-wards",
+      "summary": "Unusual quantities of crosses, Virgin images, rosaries and candles litter the Macario rooms — wards against something they feared.",
+      "disclosure": "acquired"
+    }
+  ],
+  "connections": {
+    "promises": [],
+    "anchors": [
+      "catholic-wards",
+      "nailed-windows",
+      "chapel-closed-1912",
+      "will-executor-chapel",
+      "upper-floor-bedroom"
+    ],
+    "connections": [
+      {
+        "name": "commission-and-research-frame",
+        "claim": "Knott hired them to clear the house's name; research before entry is wise but not mandatory.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "knott-macario-summary",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott says the Macario family fled after a frightening breakdown and that the father now remains at ",
+            "turns": [
+              2
+            ]
+          },
+          {
+            "name": "knott-commission",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Landlord Steven Knott pays $20/day to examine the Corbitt House, understand the Macario tragedy, and",
+            "turns": [
+              2
+            ]
+          },
+          {
+            "name": "knott-research-leads",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott points them toward the Boston Globe, the Central Library / Hall of Records, and other paper tr",
+            "turns": [
+              2
+            ]
+          },
+          {
+            "name": "knott-keys",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Knott hands over the house keys, the address, and $20 cash in advance.",
+            "turns": [
+              2
+            ]
+          }
+        ],
+        "acquired_total": 5,
+        "truncated": true
+      },
+      {
+        "name": "corbitt-buried-in-basement",
+        "claim": "Walter Corbitt's body was interred in the house basement per his will; his mind still haunts from there.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "will-executor-chapel",
+            "relation": "supports",
+            "acquired": true,
+            "summary": "Corbitt's will executor was Pastor Michael Thomas of the Chapel of Contemplation — a church later cl",
+            "turns": [
+              6
+            ]
+          },
+          {
+            "name": "basement-burial-lawsuit",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "An 1866 obituary notes a lawsuit to stop Corbitt being buried in his own basement as his will requir",
+            "turns": []
+          }
+        ],
+        "acquired_total": 1,
+        "truncated": true
+      },
+      {
+        "name": "corbitt-is-undead-sorcerer",
+        "claim": "Corbitt preserved his identity with Mythos magic and can animate his corpse; he is not a harmless shade.",
+        "disclosure": "keeper_only_synthesis",
+        "evidence": [
+          {
+            "name": "corbitt-animates",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "The 'corpse' spends Magic Points, wards its flesh, and strikes — it is an undead sorcerer animating ",
+            "turns": []
+          },
+          {
+            "name": "mythos-reek",
+            "relation": "supports",
+            "acquired": false,
+            "summary": "A horrible smell manifests whenever Corbitt forces a psychic deed — a sure sign this is no parlor ha",
+            "turns": []
+          }
+        ],
+        "acquired_total": 0,
+        "truncated": true
+      }
+    ],
+    "hypotheses": [],
+    "truncated": true
+  },
+  "coverage": {
+    "history_total": 13,
+    "history_previews": 3,
+    "memory_total": 42,
+    "correction_total": 0,
+    "full_evidence_files": [
+      "original.json",
+      "effective.json",
+      "world.json",
+      "current.json",
+      "history.json",
+      "handouts.json",
+      "notes.json",
+      "memory.json"
+    ],
+    "note": "Equipment without an instance is not necessarily missing mechanics: ordinary decorative gear needs no executable definition. Previews are not complete evidence; read the relevant retained file if a decision depends on omitted history or text. Compatible new fiction is not a contradiction merely because the book does not state it."
+  }
+}

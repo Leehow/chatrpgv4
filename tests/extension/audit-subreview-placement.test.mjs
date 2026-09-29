@@ -24,7 +24,7 @@ const MOVED = ['intelligibility_review', 'player_address_review', 'speech_review
 const RETAINED_SEMANTIC = ['/continuity_review/locus_review/locus_source', '/continuity_review/verdict'];
 
 function semanticPaths(value, request, files, catalog) {
-    const normalized = normalizeContinuityArtifact(value, files);
+    const normalized = normalizeContinuityArtifact(value, files, catalog.speechTexts);
     return auditReferenceIssues(continuityArtifactErrors(normalized, request.input.text, files, catalog.speechTexts)).map(issue => issue.path).sort();
 }
 
@@ -181,4 +181,68 @@ test('an exhausted repair keeps the last error list on the status and in the una
     assert.deepEqual(status.errors.map(issue => issue.path), EVERY_FAULT);
     for (const path of EVERY_FAULT) assert.ok(status.unavailable.includes(path), `the cause names ${path}`);
     assert.equal(last.details.unavailable, status.unavailable);
+});
+
+// §130.10 (2026-09-29): retained rejections from table pl-v-0929 (fast model opencode-go/deepseek-v4.1-flash,
+// thinking off), copied from `.coc/mods/jobs/<job>/`: the job's request.json and context.json unchanged, and
+// the rejected artifact as submitted.json. As in the fixtures above, the review reads only the focused context.
+const dropFixture = async name => {
+    const at = file => new URL(`./fixtures/audit-drop-inapplicable/${name}/${file}`, import.meta.url);
+    const read = async file => JSON.parse(await readFile(at(file), 'utf8'));
+    const request = await read('request.json'), files = {'context.json': await read('context.json')};
+    return {request, files, submitted: await read('submitted.json')};
+};
+const DROP_CASES = {
+    // Every error the job ended with was an extra sub-review: outcome, location and reentry.
+    '4724a1f7-extras-only': ['outcome_review', 'location_review', 'reentry_review'],
+    // Extra sub-reviews carrying their own nested faults (an empty speech_review, a copied field in location_review).
+    '7a3b8ff4-extras-with-nested-errors': ['speech_review', 'outcome_review', 'location_review', 'reentry_review'],
+    // outcome_commitments requires outcome_review here: it is kept and validated; only location and reentry go.
+    'bbe8e88a-required-outcome-kept': ['location_review', 'reentry_review'],
+};
+
+for (const [name, dropped] of Object.entries(DROP_CASES)) test(`retained ${name}: unrequested sub-reviews are dropped and the review is accepted`, async () => {
+    const {request, files, submitted} = await dropFixture(name), before = structuredClone(submitted);
+    const {cwd, submit} = await submitTool(request, files);
+    const outcome = await submit.execute('first', {result: submitted});
+    assert.equal(outcome.details.kind, 'audit_submission', JSON.stringify(outcome.details.errors ?? outcome.content));
+    assert.deepEqual(submitted, before, 'the submission object is not mutated');
+    const written = JSON.parse(await readFile(join(cwd, 'result.json'), 'utf8'));
+    assert.deepEqual(written.continuity_review, Object.fromEntries(Object.entries(before.continuity_review).filter(([key]) => !dropped.includes(key))),
+        'result.json is the dropped version and nothing else changed');
+    const status = JSON.parse(await readFile(join(cwd, 'status.json'), 'utf8'));
+    assert.deepEqual([...status.dropped_subreviews].sort(), [...dropped].sort());
+    assert.equal(status.artifact_repairs, 0);
+});
+
+test('retained bbe8e88a: the kept, required outcome_review is still validated', async () => {
+    const {request, files, submitted} = await dropFixture('bbe8e88a-required-outcome-kept');
+    const missingSelector = structuredClone(submitted); delete missingSelector.continuity_review.outcome_review.claim_sources;
+    const {submit} = await submitTool(request, files);
+    const refused = await submit.execute('first', {result: missingSelector});
+    assert.equal(refused.details.kind, 'audit_artifact_error');
+    assert.deepEqual(refused.details.errors.map(issue => issue.path).filter(path => path.includes('outcome_review')),
+        ['/continuity_review/outcome_review/claim_sources', '/continuity_review/outcome_review/claim_sources']);
+    const absent = structuredClone(submitted); delete absent.continuity_review.outcome_review;
+    const required = await (await submitTool(request, files)).submit.execute('first', {result: absent});
+    assert.ok(required.details.errors.some(issue => issue.path === '/continuity_review/outcome_review'), 'a missing required sub-review is still an error');
+});
+
+test('retained 1a356283: the drop does not hide a real content error in the rest of the review', async () => {
+    const {request, files, submitted} = await dropFixture('1a356283-content-error-remains');
+    const {cwd, submit} = await submitTool(request, files);
+    const refused = await submit.execute('first', {result: submitted});
+    assert.equal(refused.details.kind, 'audit_artifact_error');
+    assert.deepEqual(refused.details.errors.map(issue => issue.path), ['/continuity_review/verdict'], 'a pass beside two missing objects');
+    assert.deepEqual(JSON.parse(await readFile(join(cwd, 'status.json'), 'utf8')).dropped_subreviews.sort(), ['location_review', 'outcome_review']);
+});
+
+test('retained 4724a1f7: a dropped revise never escalates the aggregate verdict', async () => {
+    const {request, files, submitted} = await dropFixture('4724a1f7-extras-only');
+    submitted.continuity_review.outcome_review = {verdict: 'revise', basis: 'unsupported_positive_result', claim_sources: ['draft:0']};
+    const {cwd, submit} = await submitTool(request, files);
+    assert.equal((await submit.execute('first', {result: submitted})).details.kind, 'audit_submission');
+    const written = JSON.parse(await readFile(join(cwd, 'result.json'), 'utf8'));
+    assert.equal(written.continuity_review.verdict, 'pass');
+    assert.equal(Object.hasOwn(written.continuity_review, 'outcome_review'), false);
 });

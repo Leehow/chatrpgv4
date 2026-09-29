@@ -23,7 +23,7 @@ import type {ApplyContext} from '../apply/index.js';
 import {claimedEquipment,discardRegistrationByJob,queuedRegistrations} from './queue.js';
 import type { ModRuntime } from './runtime.js';
 import {SOURCE_AUDIT, auditSourceEvidence, writeAuditSources, verifyAuditSources, validateSourceReview} from './audit-source.js';
-import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2, AUDIT_LIMITS, continuityArtifactErrors} from './audit-result.js';
+import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2, AUDIT_LIMITS, continuityArtifactErrors, dropInapplicableSubreviews, spokenTexts} from './audit-result.js';
 import {buildAuditReferences, materializeAuditReferences, auditReferenceIssues} from './audit-references.js';
 import {PRESET_TABLE, WEAPON_PRESET_CAPABILITY, gatePreset, presetBlock, presetOf, presetOffer, presetStamp, templateProfile} from './preset.js';
 
@@ -548,17 +548,23 @@ export class ModJobs {
         await verifyAuditSources(root, files);
         return {files, binding};
     }
+    /**
+     * §130.10: every writer's artifact gets the same drop `submit_audit` applies, before selectors are
+     * materialized, so a sub-review this turn did not require never voids the review here either.
+     */
     private materializeContinuity(raw: unknown, request: Row, files: Row, identity: Row): Row {
-        if (request.continuity_review?.schema !== 2) return row(raw);
+        if (request.continuity_review?.schema !== 2) return row(dropInapplicableSubreviews(raw, files, spokenTexts(string(row(request.input).text))).value);
         const catalog = buildAuditReferences(request,files,{owner:'audit',campaign:identity.campaign,
-            ...(typeof identity.worldline === 'string' ? {worldline:identity.worldline} : {}),audience:'keeper'}), result = materializeAuditReferences(raw,catalog);
+            ...(typeof identity.worldline === 'string' ? {worldline:identity.worldline} : {}),audience:'keeper'});
+        const result = materializeAuditReferences(dropInapplicableSubreviews(raw,files,catalog.speechTexts).value,catalog);
         if (result.errors.length) throw new RpcError('invalid_params','The audit artifact needs a targeted format repair',
             {details:{reason:'audit_artifact_invalid',errors:result.errors}});
         return result.value!;
     }
     private validateContinuity(raw: unknown, request: Row, files: Row): void {
-        let errors = continuityArtifactErrors(raw, string(row(request.input).text), files,
-            request.continuity_review?.schema === 2 ? buildAuditReferences(request,files).speechTexts : undefined);
+        const text = string(row(request.input).text), canonical = request.continuity_review?.schema === 2 ? buildAuditReferences(request,files).speechTexts : undefined;
+        const applicable = dropInapplicableSubreviews(raw, files, canonical ?? spokenTexts(text)).value;
+        let errors = continuityArtifactErrors(applicable, text, files, canonical);
         if (request.continuity_review?.schema === 2) errors = auditReferenceIssues(errors);
         if (errors.length) throw new RpcError('invalid_params', 'The audit artifact needs a targeted format repair',
             {details: {reason: 'audit_artifact_invalid', errors}});

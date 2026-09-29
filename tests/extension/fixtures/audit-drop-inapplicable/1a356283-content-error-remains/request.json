@@ -1,0 +1,925 @@
+{
+  "role": "audit",
+  "input": {
+    "text": "长柜台后的中年职员抬眼看了你一下，像是在核对你是否还在找同一栋宅子。他用指节在木台上点了两下，声音干、短，却并不推诿。\n\n{{say:档案厅办事员}}「更早的契据、房主名册，本市厅能翻的，你刚才那批基本就到头了。再往前——或者牵扯到刑事案件——不在这儿。」{{/say}}\n\n他侧过身，朝门厅方向抬了抬下巴，像指一条你已经走过的路。\n\n{{say:档案厅办事员}}「重罪案卷去高等法院，或者中央警局。民事遗嘱这边，没有更多了。」{{/say}}\n\n眼镜片后的目光又落回台面，等着你是要抄那两处地址，还是另有事问。"
+  },
+  "capabilities": [
+    "agents.tools.v1",
+    "audit.continuity.v1",
+    "audit.continuity.v2",
+    "audit.source.v1",
+    "checks.percentile.v1",
+    "context.craft-reference.v1",
+    "context.craft-reference.v2",
+    "context.npc.v1",
+    "context.pacing.v1",
+    "context.style.v1",
+    "context.thread.v1",
+    "context.workspace.v1",
+    "definitions.v1",
+    "graph.vocabulary.table.v1",
+    "graph.vocabulary.v1",
+    "item-effects.v1",
+    "mods.order.v1",
+    "mods.package-files.v1",
+    "npc.voice.consolidation.v1",
+    "npc.voice.generation.v2",
+    "objects.adopt.v1",
+    "objects.documents.v1",
+    "objects.state.v2",
+    "objects.usages.v1",
+    "objects.v1",
+    "setup.aptitude.v1",
+    "setup.guidance.v1",
+    "spells.v1",
+    "ui.documents.language.v1",
+    "ui.documents.v1",
+    "weapons.preset.v1",
+    "weapons.profile.v2",
+    "weapons.v1"
+  ],
+  "play_language": "zh",
+  "mod_settings": {
+    "enhanced-items": {},
+    "narration-audit": {},
+    "natural-npc": {
+      "language_mixing": "light"
+    }
+  },
+  "scene": {
+    "scene": "hall-of-records",
+    "display_name": "市政档案厅",
+    "summary": "scene hall of records",
+    "dramatic_question": "What do civil and church registers reveal about Walter Corbitt's will and burial?",
+    "pressure_moves": [
+      "Serious crime files are not here — the clerk hints at county or police holdings",
+      "A courteous investigator gets more help than a rude one"
+    ],
+    "exits": [
+      {
+        "to": "higher-courts-central-police",
+        "display_name": "Higher Courts; Central Police Station",
+        "travel_minutes": 30,
+        "unlock_when": {
+          "condition": "flag_set: records-serious-crime-destination-known",
+          "met": true
+        },
+        "material": "ready"
+      },
+      {
+        "to": "newspaper-morgue",
+        "display_name": "波士顿环球报馆",
+        "travel_minutes": 30,
+        "material": "ready"
+      },
+      {
+        "to": "central-library",
+        "display_name": "Central Library",
+        "travel_minutes": 30,
+        "material": "ready"
+      },
+      {
+        "to": "neighborhood-gossip",
+        "display_name": "Corbitt House neighborhood",
+        "travel_minutes": 30,
+        "material": "ready"
+      },
+      {
+        "to": "previous-tenants",
+        "display_name": "Roxbury Sanitarium",
+        "travel_minutes": 30,
+        "material": "ready"
+      },
+      {
+        "to": "corbitt-house-ground",
+        "display_name": "The Corbitt House",
+        "travel_minutes": 30,
+        "material": "ready"
+      }
+    ],
+    "back": [
+      {
+        "to": "newspaper-morgue",
+        "display_name": "波士顿环球报馆"
+      },
+      {
+        "to": "commission-briefing",
+        "display_name": "Knott's Office"
+      }
+    ],
+    "affordances": [
+      {
+        "id": "library-use-civil",
+        "cue": "Use Library Use to search civil-court and probate records.",
+        "clue": "will-executor-chapel",
+        "clues": [
+          {
+            "clue": "will-executor-chapel",
+            "gate": "skill_check: Library Use (regular)",
+            "discovered": true
+          },
+          {
+            "clue": "chapel-closed-1912",
+            "gate": "obvious: check unspecified",
+            "discovered": true
+          }
+        ]
+      },
+      {
+        "id": "ask-clerk-redirect",
+        "cue": "Politely ask the clerk which court or police office holds felony case files."
+      }
+    ],
+    "keeper_notes": [
+      "invent minor clerks and filing quirks",
+      "never_invent that Corbitt's body was legally buried in a public cemetery",
+      "tone: dusty, formal, paper-labyrinth",
+      "pacing: low / wrongness — Basement burial lawsuit and cult church link."
+    ],
+    "assets": [
+      {
+        "name": "Hall of Records occult star",
+        "kind": "asset"
+      },
+      {
+        "name": "Handout 7: Corbitt's Executor and the Chapel",
+        "kind": "handout",
+        "shown": true
+      }
+    ],
+    "places": [],
+    "rules": [
+      {
+        "name": "Research in the records",
+        "line": "Each Library Use search of the library's or the Hall of Records' files takes half a day.",
+        "mech": "time 240 minutes",
+        "time_cost": {
+          "amount": 240,
+          "unit": "minute"
+        },
+        "handle": "library-research"
+      }
+    ],
+    "endings": [],
+    "material": "ready"
+  },
+  "party": [
+    {
+      "schema_version": 1,
+      "id": "thomas-hayes",
+      "name": "托马斯·海斯",
+      "occupation": "私家侦探",
+      "era": "1920s",
+      "own_language": "English",
+      "age": 34,
+      "sex": "M",
+      "residence": "Boston, Massachusetts",
+      "birthplace": "South Boston",
+      "characteristics": {
+        "STR": 60,
+        "CON": 55,
+        "SIZ": 65,
+        "DEX": 60,
+        "APP": 50,
+        "INT": 70,
+        "POW": 55,
+        "EDU": 65,
+        "LUCK": 50
+      },
+      "derived": {
+        "HP": 12,
+        "SAN": 55,
+        "MP": 11,
+        "MOV": 7,
+        "DB": "0",
+        "BUILD": 1
+      },
+      "skills": {
+        "Accounting": 25,
+        "Charm": 35,
+        "Climb": 30,
+        "Credit Rating": 25,
+        "Dodge": 30,
+        "Drive Auto": 40,
+        "Fast Talk": 45,
+        "Fighting (Brawl)": 50,
+        "Firearms (Handgun)": 55,
+        "Intimidate": 45,
+        "Law": 40,
+        "Library Use": 40,
+        "Listen": 45,
+        "Locksmith": 35,
+        "Persuade": 40,
+        "Psychology": 45,
+        "Spot Hidden": 55,
+        "Stealth": 40,
+        "Track": 30
+      },
+      "weapons": [
+        {
+          "weapon_id": "revolver_38_or_9mm",
+          "name": ".38 Revolver",
+          "skill": "Firearms (Handgun)",
+          "damage": "1D10",
+          "range": "15 yards",
+          "attacks": 1,
+          "ammo": 6,
+          "malfunction": 100
+        }
+      ],
+      "equipment": [
+        {
+          "name": "科比特宅钥匙",
+          "quantity": 1,
+          "turn": 2,
+          "from": "Steven Knott",
+          "label": "科比特宅钥匙"
+        },
+        {
+          "name": "科比特宅地址纸条",
+          "quantity": 1,
+          "turn": 2,
+          "from": "Steven Knott",
+          "label": "地址纸条"
+        },
+        {
+          "name": "笔记本与短铅笔",
+          "quantity": 1,
+          "object_id": "object-item-1",
+          "description": "一本随身带的薄笔记本和一支磨短的铅笔。翻开的横格纸上还是空的，等着记下时间、门牌和姓名。"
+        },
+        {
+          "name": "开锁工具一套",
+          "quantity": 1,
+          "object_id": "object-item-2",
+          "description": "一卷缝在皮套里的帆布，展开后插着七件钢制小工具：长短不一的撬杆、一张钩片、一把张力扳手和一个末端扁平的撬头。对付寻常门锁、挂锁和简单的抽屉栓扣绰绰有余，但遇上保险柜或锈死的重锁就只能干瞪眼。要真让它帮上忙，你手上得有开锁的门道——工具不会自己动手。"
+        },
+        {
+          "name": "手电筒",
+          "quantity": 1,
+          "object_id": "object-item-3",
+          "description": "一支金属筒身的手电筒，尾部旋盖里装着两节一号电池，按住筒身上的铜片就亮。光柱偏窄、发黄，电池满的时候能照清十几码外的东西；开久了会发烫，电池也撑不了几小时。要换电池或灯泡得旋开尾盖或灯头，花上一分钟左右。除了照明，它没别的用处。"
+        },
+        {
+          "name": "唬人用徽章",
+          "quantity": 1,
+          "object_id": "object-item-4",
+          "description": "你的镍合金盾形徽章，正面压着模糊的市府纹章和「BOSTON」。它磨得发亮，没有编号，也没有发证机关。对着文职办事员一晃，多半比真警察的证件还好使——他们只认得银光和架势。碰上真警察、记者或律师，这层皮就不顶用了。"
+        }
+      ],
+      "backstory": {
+        "scenario_id": "the-haunting",
+        "scenario_bound": {
+          "description": "波士顿南区出身的私家侦探，专接房东、律师与保险公司的脏活。Knott 的委托听起来像又一次「清清恶名」——直到他把钥匙拍在桌上。",
+          "significant_people": "前搭档在一次夜间跟踪中失踪，案子至今未结。",
+          "meaningful_locations": "南站附近那间一室办公室。"
+        },
+        "traits": [
+          "先查纸再上门",
+          "不信鬼，但信人会疯",
+          "开枪前会先算退路"
+        ],
+        "ideology": "真相值钱，沉默更贵。",
+        "treasured_possessions": "父亲留下的 .38。",
+        "traits_detail": "说话短，观察长；对官僚系统又恨又熟。"
+      },
+      "credit_rating": 25,
+      "cash": "15 dollars",
+      "notes": "Pregen for The Haunting quick start — classic private investigator seat.",
+      "current_hp": 12,
+      "current_san": 55,
+      "current_mp": 11,
+      "current_luck": 50
+    }
+  ],
+  "objects": {
+    "queued_registrations": [],
+    "definitions": [
+      {
+        "name": "笔记本与短铅笔",
+        "category": "item",
+        "parameters": {
+          "charges": null,
+          "effects": []
+        },
+        "traits": [
+          {
+            "name": "页数",
+            "value": 48,
+            "unit": "页",
+            "basis": "薄笔记本，横格纸双面可用，约合 24 张纸，可在口袋中长期携带而不显臃肿。"
+          },
+          {
+            "name": "尺寸",
+            "value": "约 12 × 8 厘米",
+            "basis": "能塞进大衣内袋的小开本，站立时也能单手托住书写。"
+          },
+          {
+            "name": "重量",
+            "value": 90,
+            "unit": "克",
+            "basis": "薄本加短铅笔合起来的重量，几乎不构成负重。"
+          },
+          {
+            "name": "封面材质",
+            "value": "硬布面",
+            "basis": "深色硬布面封皮，被口袋磨得发亮，能挡潮气但边角已起毛。"
+          },
+          {
+            "name": "铅笔长度",
+            "value": 5,
+            "unit": "厘米",
+            "basis": "磨短的铅笔残长约 5 厘米，仍能握写，但已需用指尖捏住笔尾。"
+          },
+          {
+            "name": "笔芯硬度",
+            "value": "HB",
+            "basis": "普通 HB 石墨笔芯，字迹在薄纸上有轻微压痕，压力大时会洇透背面。"
+          }
+        ],
+        "document": {
+          "presentation": "notebook",
+          "has_text": false
+        }
+      },
+      {
+        "name": "开锁工具一套",
+        "category": "item",
+        "parameters": {
+          "charges": null,
+          "effects": []
+        },
+        "traits": [
+          {
+            "name": "收纳长度",
+            "value": 15,
+            "unit": "厘米",
+            "basis": "卷起的帆布皮套尺寸，可放入外套内袋，符合『便携』描述。"
+          },
+          {
+            "name": "整套重量",
+            "value": 0.2,
+            "unit": "千克",
+            "basis": "若干钢制撬杆与钩片的合计重量，轻到可随身携带而不碍事。"
+          },
+          {
+            "name": "组件数量",
+            "value": 7,
+            "unit": "件",
+            "basis": "四根撬杆、一张钩片、一把张力扳手与一个扁平撬头，构成『一套』。"
+          },
+          {
+            "name": "主要材质",
+            "value": "弹簧钢与黄铜",
+            "basis": "1920 年代制锁匠工具常见材质；钢杆提供韧性，黄铜件防锈。"
+          },
+          {
+            "name": "适用锁型",
+            "value": "普通门锁、挂锁与简单栓扣",
+            "basis": "对应输入描述的适用范围；复杂保险锁与锈死重锁超出其结构能力。"
+          },
+          {
+            "name": "配套技能",
+            "value": "Locksmith",
+            "basis": "工具本身不执行开锁，须由使用者掷 Locksmith 检定；无此技能者徒有其器。"
+          }
+        ],
+        "document": null
+      },
+      {
+        "name": "手电筒",
+        "category": "item",
+        "parameters": {
+          "charges": null,
+          "effects": []
+        },
+        "traits": [
+          {
+            "name": "全长",
+            "value": 20,
+            "unit": "厘米",
+            "basis": "1920 年代两节一号电池手电筒的典型长度，金属管身。"
+          },
+          {
+            "name": "重量",
+            "value": 0.5,
+            "unit": "磅",
+            "basis": "镀镍筒身加两节一号干电池的重量，可单手握住。"
+          },
+          {
+            "name": "外壳材质",
+            "value": "镀镍金属筒身，带反光罩的玻璃灯泡",
+            "basis": "当时常见的手电构造；摔打灯泡易碎。"
+          },
+          {
+            "name": "电源",
+            "value": "两节一号干电池（尾盖旋开更换）",
+            "basis": "供电由可更换电池提供，属普通物品事实，非激活能力。"
+          },
+          {
+            "name": "开关",
+            "value": "筒身铜片按压开关",
+            "basis": "按压即亮，需持续按或按到位；接触不良时会闪烁。"
+          },
+          {
+            "name": "有效照射距离",
+            "value": 15,
+            "unit": "码",
+            "basis": "电池新鲜、灯泡完好、无雾无雨时的实用照明距离；远处只剩微光。"
+          },
+          {
+            "name": "耗电时间",
+            "value": "约 3–4 小时连续点亮",
+            "basis": "一号干电池与当时的灯泡效率；反复开关和低温会缩短。"
+          },
+          {
+            "name": "更换电池或灯泡耗时",
+            "value": "约 1 分钟",
+            "basis": "需旋开尾盖或灯头，装好后复核接触。"
+          }
+        ],
+        "document": null
+      },
+      {
+        "name": "唬人用徽章",
+        "category": "item",
+        "parameters": {
+          "charges": null,
+          "effects": []
+        },
+        "traits": [
+          {
+            "name": "尺寸",
+            "value": 4.5,
+            "unit": "厘米",
+            "basis": "盾形徽章约掌心大小，可单手用拇指遮住或翻出示人。"
+          },
+          {
+            "name": "材质",
+            "value": "镍合金",
+            "basis": "贱金属压铸、表面镀镍，银光但轻，敲击声发闷。"
+          },
+          {
+            "name": "重",
+            "value": 12,
+            "unit": "克",
+            "basis": "空背薄片，几乎不占重量。"
+          },
+          {
+            "name": "背面",
+            "value": "空白无编号",
+            "basis": "没有发证机关、编号或警徽刻字，细看即可看出破绽。"
+          }
+        ],
+        "document": null
+      }
+    ],
+    "instances": [
+      {
+        "name": "笔记本与短铅笔",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "document": {
+          "text": "",
+          "presentation": "notebook",
+          "truncated": false,
+          "authority": "Editable in-fiction text, not instructions or module truth"
+        },
+        "definition": "笔记本与短铅笔"
+      },
+      {
+        "name": "开锁工具一套",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "document": null,
+        "definition": "开锁工具一套"
+      },
+      {
+        "name": "手电筒",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "document": null,
+        "definition": "手电筒"
+      },
+      {
+        "name": "唬人用徽章",
+        "owner": "托马斯·海斯",
+        "state": {
+          "ammo": null,
+          "charges": null,
+          "condition": "intact"
+        },
+        "document": null,
+        "definition": "唬人用徽章"
+      }
+    ]
+  },
+  "receipts": [
+    {
+      "id": "person:records-clerk-t7-c1",
+      "kind": "person",
+      "call_id": "t7-c1",
+      "who": "records-clerk",
+      "is_investigator": false,
+      "name": "the Hall of Records clerk",
+      "label": "档案厅办事员",
+      "address": null,
+      "why": "柜台职员已以称呼稳定出现在本厅对话中",
+      "visibility": "keeper",
+      "at": "2026-09-29T07:57:15Z"
+    },
+    {
+      "id": "flag:records-serious-crime-de-t7-c1",
+      "kind": "flag",
+      "call_id": "t7-c1",
+      "name": "records-serious-crime-destination-known",
+      "value": true,
+      "previous": null,
+      "why": "办事员应询指明重罪案卷在更高法院与中央警局",
+      "visibility": "keeper",
+      "at": "2026-09-29T07:57:15Z",
+      "basis": "keeper"
+    }
+  ],
+  "known_handouts": [],
+  "unregistered_equipment": [
+    {
+      "owner": "托马斯·海斯",
+      "name": "科比特宅钥匙",
+      "row": {
+        "name": "科比特宅钥匙",
+        "quantity": 1,
+        "turn": 2,
+        "from": "Steven Knott",
+        "label": "科比特宅钥匙"
+      }
+    },
+    {
+      "owner": "托马斯·海斯",
+      "name": "科比特宅地址纸条",
+      "row": {
+        "name": "科比特宅地址纸条",
+        "quantity": 1,
+        "turn": 2,
+        "from": "Steven Knott",
+        "label": "地址纸条"
+      }
+    }
+  ],
+  "present": [
+    {
+      "name": "the Hall of Records clerk",
+      "called": {
+        "name": "档案厅办事员"
+      },
+      "untold": {
+        "label": "档案厅办事员",
+        "use": "Private until introduced: appearance only; apply person, then called.name and say token."
+      },
+      "role": "bureaucrat",
+      "wants": "Keep the stacks orderly and point courteous researchers toward the right jurisdiction.",
+      "fears": "Being blamed for missing felony files that were never held here.",
+      "hides": "City civil files stop short; serious crimes live in county/commonwealth/federal or Central Police holdings.",
+      "voice": "Dry, procedural, slightly helpful if thanked.",
+      "mask": [
+        "语气干巴、公事公办，句子平直不带修饰，先问事项再答；被道谢后才稍微松一点，偶尔拿笔点桌面代替催话。"
+      ],
+      "in exchange": [
+        "我想查一份旧案的登记，从哪儿问起？ → 先说案由。民事、契约、遗嘱这类，进右手边那排架子；其余的，说清楚是哪一级办的，我才好告诉你去哪一头。",
+        "这屋里能抄一下编号吗？ → 能，桌上那张空白签条拿去写，抄完放回原处。别把卷宗抽出来摊着，我这边点数要对得上。",
+        "有人说早年几桩重案的材料在你们这儿，能调出来看看吗？ → 那句话传岔了。市厅收的民事和地契到某个年份就断了，再往下那些不归我们这边存。你去问该管那类案子的衙门，别在我这排架子上耗工夫。"
+      ],
+      "personality": {
+        "description": "A bureaucrat of the Hall of Records who values order above all: catalogued stacks, correct jurisdictions, and requests routed to whichever body actually holds the record. Dry and procedural by habit, they warm only slightly when thanked, and they judge an inquiry by whether it respects the proper channels rather than by how urgent it sounds. Their guiding fear is being blamed for felony files that never rested here, so they are scrupulous about what this office does and does not hold, and they will steer researchers onward to county, commonwealth, federal, or Central Police holdings without pretending the trail continues in city civil files.",
+        "origin": "table_supplement"
+      },
+      "keeper_note": "Library Use for Handout 7; courtesy unlocks the redirect about higher courts and police."
+    }
+  ],
+  "player_text": "我问办事员，还有没有别的地方能查到这栋房子更早的记录。",
+  "continuity_review": {
+    "schema": 2,
+    "files": [
+      "original.json",
+      "effective.json",
+      "world.json",
+      "current.json",
+      "history.json",
+      "handouts.json",
+      "notes.json",
+      "memory.json",
+      "context.json"
+    ],
+    "current_input": "我问办事员，还有没有别的地方能查到这栋房子更早的记录。",
+    "pending_choice": null,
+    "authority": "Preserve established campaign continuity and player choices. Compatible new fiction is allowed without a literal source quote. Recaps must faithfully report prior delivery; NPC assertions and player hypotheses retain attribution. Corrections supersede earlier claims. Kernel receipts remain authoritative for actions and resources.",
+    "sources": {
+      "draft": [
+        {
+          "alias": "draft:0",
+          "text": "长柜台后的中年职员抬眼看了你一下，像是在核对你是否还在找同一栋宅子。"
+        },
+        {
+          "alias": "draft:1",
+          "text": "他用指节在木台上点了两下，声音干、短，却并不推诿。\n\n"
+        },
+        {
+          "alias": "draft:2",
+          "text": "{{say:档案厅办事员}}「更早的契据、房主名册，本市厅能翻的，你刚才那批基本就到头了。"
+        },
+        {
+          "alias": "draft:3",
+          "text": "再往前——或者牵扯到刑事案件——不在这儿。"
+        },
+        {
+          "alias": "draft:4",
+          "text": "」{{/say}}\n"
+        },
+        {
+          "alias": "draft:6",
+          "text": "他侧过身，朝门厅方向抬了抬下巴，像指一条你已经走过的路。\n\n"
+        },
+        {
+          "alias": "draft:7",
+          "text": "{{say:档案厅办事员}}「重罪案卷去高等法院，或者中央警局。"
+        },
+        {
+          "alias": "draft:8",
+          "text": "民事遗嘱这边，没有更多了。"
+        },
+        {
+          "alias": "draft:9",
+          "text": "」{{/say}}\n"
+        },
+        {
+          "alias": "draft:11",
+          "text": "眼镜片后的目光又落回台面，等着你是要抄那两处地址，还是另有事问。"
+        }
+      ],
+      "current_input": [
+        {
+          "alias": "input:0",
+          "text": "我问办事员，还有没有别的地方能查到这栋房子更早的记录。"
+        }
+      ],
+      "speech": [
+        {
+          "alias": "speech:0",
+          "text": "「更早的契据、房主名册，本市厅能翻的，你刚才那批基本就到头了。再往前——或者牵扯到刑事案件——不在这儿。」",
+          "speaker": "档案厅办事员"
+        },
+        {
+          "alias": "speech:1",
+          "text": "「重罪案卷去高等法院，或者中央警局。民事遗嘱这边，没有更多了。」",
+          "speaker": "档案厅办事员"
+        }
+      ],
+      "evidence": [
+        {
+          "alias": "context:0",
+          "file": "context.json",
+          "text": "科比特宅钥匙"
+        },
+        {
+          "alias": "context:1",
+          "file": "context.json",
+          "text": "科比特宅钥匙"
+        },
+        {
+          "alias": "context:2",
+          "file": "context.json",
+          "text": "地址纸条"
+        },
+        {
+          "alias": "context:3",
+          "file": "context.json",
+          "text": "科比特宅地址纸条"
+        },
+        {
+          "alias": "context:4",
+          "file": "context.json",
+          "text": "一本随身带的薄笔记本和一支磨短的铅笔。"
+        },
+        {
+          "alias": "context:5",
+          "file": "context.json",
+          "text": "翻开的横格纸上还是空的，等着记下时间、门牌和姓名。"
+        },
+        {
+          "alias": "context:6",
+          "file": "context.json",
+          "text": "笔记本与短铅笔"
+        },
+        {
+          "alias": "context:7",
+          "file": "context.json",
+          "text": "一卷缝在皮套里的帆布，展开后插着七件钢制小工具：长短不一的撬杆、一张钩片、一把张力扳手和一个末端扁平的撬头。"
+        },
+        {
+          "alias": "context:8",
+          "file": "context.json",
+          "text": "对付寻常门锁、挂锁和简单的抽屉栓扣绰绰有余，但遇上保险柜或锈死的重锁就只能干瞪眼。"
+        },
+        {
+          "alias": "context:9",
+          "file": "context.json",
+          "text": "要真让它帮上忙，你手上得有开锁的门道——工具不会自己动手。"
+        },
+        {
+          "alias": "context:10",
+          "file": "context.json",
+          "text": "开锁工具一套"
+        },
+        {
+          "alias": "context:11",
+          "file": "context.json",
+          "text": "一支金属筒身的手电筒，尾部旋盖里装着两节一号电池，按住筒身上的铜片就亮。"
+        },
+        {
+          "alias": "context:12",
+          "file": "context.json",
+          "text": "光柱偏窄、发黄，电池满的时候能照清十几码外的东西；开久了会发烫，电池也撑不了几小时。"
+        },
+        {
+          "alias": "context:13",
+          "file": "context.json",
+          "text": "要换电池或灯泡得旋开尾盖或灯头，花上一分钟左右。"
+        },
+        {
+          "alias": "context:14",
+          "file": "context.json",
+          "text": "除了照明，它没别的用处。"
+        },
+        {
+          "alias": "context:15",
+          "file": "context.json",
+          "text": "手电筒"
+        },
+        {
+          "alias": "context:16",
+          "file": "context.json",
+          "text": "你的镍合金盾形徽章，正面压着模糊的市府纹章和「BOSTON」。"
+        },
+        {
+          "alias": "context:17",
+          "file": "context.json",
+          "text": "它磨得发亮，没有编号，也没有发证机关。"
+        },
+        {
+          "alias": "context:18",
+          "file": "context.json",
+          "text": "对着文职办事员一晃，多半比真警察的证件还好使——他们只认得银光和架势。"
+        },
+        {
+          "alias": "context:19",
+          "file": "context.json",
+          "text": "碰上真警察、记者或律师，这层皮就不顶用了。"
+        },
+        {
+          "alias": "context:20",
+          "file": "context.json",
+          "text": "唬人用徽章"
+        },
+        {
+          "alias": "context:21",
+          "file": "context.json",
+          "text": "托马斯·海斯"
+        },
+        {
+          "alias": "context:22",
+          "file": "context.json",
+          "text": "."
+        },
+        {
+          "alias": "context:23",
+          "file": "context.json",
+          "text": "38 Revolver"
+        }
+      ],
+      "objects": [
+        {
+          "alias": "object:0",
+          "category": "item",
+          "name": "科比特宅钥匙"
+        },
+        {
+          "alias": "object:1",
+          "category": "item",
+          "name": "科比特宅地址纸条"
+        },
+        {
+          "alias": "object:2",
+          "name": "笔记本与短铅笔",
+          "category": "item"
+        },
+        {
+          "alias": "object:3",
+          "name": "开锁工具一套",
+          "category": "item"
+        },
+        {
+          "alias": "object:4",
+          "name": "手电筒",
+          "category": "item"
+        },
+        {
+          "alias": "object:5",
+          "name": "唬人用徽章",
+          "category": "item"
+        },
+        {
+          "alias": "object:6",
+          "category": "item",
+          "name": "笔记本与短铅笔"
+        },
+        {
+          "alias": "object:7",
+          "category": "item",
+          "name": "开锁工具一套"
+        },
+        {
+          "alias": "object:8",
+          "category": "item",
+          "name": "手电筒"
+        },
+        {
+          "alias": "object:9",
+          "category": "item",
+          "name": "唬人用徽章"
+        },
+        {
+          "alias": "object:10",
+          "category": "weapon",
+          "name": ".38 Revolver"
+        }
+      ],
+      "scenes": [
+        {
+          "alias": "scene:active",
+          "name": "hall-of-records"
+        },
+        {
+          "alias": "scene:0",
+          "name": "scene basement rites"
+        },
+        {
+          "alias": "scene:1",
+          "name": "scene central library"
+        },
+        {
+          "alias": "scene:2",
+          "name": "scene chapel of contemplation ruins"
+        },
+        {
+          "alias": "scene:3",
+          "name": "Knott's Office"
+        },
+        {
+          "alias": "scene:4",
+          "name": "scene corbitt confrontation"
+        },
+        {
+          "alias": "scene:5",
+          "name": "scene corbitt house ground"
+        },
+        {
+          "alias": "scene:6",
+          "name": "scene hall of records"
+        },
+        {
+          "alias": "scene:7",
+          "name": "scene higher courts central police"
+        },
+        {
+          "alias": "scene:8",
+          "name": "scene neighborhood gossip"
+        },
+        {
+          "alias": "scene:9",
+          "name": "scene newspaper morgue"
+        },
+        {
+          "alias": "scene:10",
+          "name": "scene previous tenants"
+        },
+        {
+          "alias": "scene:11",
+          "name": "scene upper floor bedroom"
+        }
+      ],
+      "reentry": []
+    }
+  }
+}
