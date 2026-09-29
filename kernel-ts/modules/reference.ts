@@ -7,7 +7,7 @@ import{array,row,string,number,normalize,type Row}from'../read/values.js';
 import{ModuleStore}from'./store.js';
 import{inside,resolvedPath}from'./paths.js';
 import{assembleVisual,applyOpeningChoice,resolveStartScene}from'./visual.js';
-import{validateReferencePacket,SOURCE_REFERENCE_PROTOCOL}from'./reference-contract.js';
+import{validateReferencePacket,referenceEntryExcerpt,SOURCE_REFERENCE_PROTOCOL}from'./reference-contract.js';
 import{validatePublicGuidance}from'./public-guidance.js';
 import{validSourceLanguage}from'./contract.js';
 import{nowIso}from'../write/store.js';
@@ -37,7 +37,7 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  const entryIds=entries.map(entry=>bindings[entry.id].node_id);
  const nodes:Row[]=previous?[]:[{node_id:`module-${mid}`,node_kind:'module',name:meta.title,visibility:'keeper-only',properties:{entry_scene_ids:entryIds,
   ...(entries.length===1&&entries[0].era_text?{era:entries[0].era_text}:{})},source_refs:[{page:entries[0].page}]}];
- for(const entry of entries){const excerpt=packet.excerpts.filter(span=>span.page===entry.page&&packet.fields.opening.includes(span.id)).at(-1);
+ for(const entry of entries){const excerpt=referenceEntryExcerpt(packet,entry);
   if(array(previous?.nodes).some(node=>node.node_id===bindings[entry.id].node_id))continue;
   nodes.push({node_id:entry.id,node_kind:'scene',name:entry.name,summary:excerpt?.text??'',visibility:'keeper-only',source_refs:[{page:entry.page}],
    properties:{is_entrance:true,source_reference_anchor:true,...(entry.era_text?{investigator_setup:{era:entry.era_text}}:{})}});}
@@ -58,7 +58,7 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  await store.writeGraph(meta,graph);
  let guidance:Row|undefined;
  if(chosen){const entry=entries.find(entry=>bindings[entry.id].node_id===chosen)??fail('Selected opening has no original reference');
-  const excerpts=packet.excerpts.filter(span=>span.page===entry.page&&packet.fields.opening.includes(span.id)).slice(-2).map(span=>`[Original physical page ${span.page}]\n${span.text}`).join('\n');
+  const span=referenceEntryExcerpt(packet,entry),excerpts=span?`[Original physical page ${span.page}]\n${span.text}`:'';
   guidance={opening:text,advice:text,scene:bindings[entry.id].name,guide:'',handoff:'Use the bound original source as reference while graph fragments arrive. Original context (private):\n'+excerpts};
   const folder=join(root,'character-guidance',params.guidance_key);
   await writeJsonAtomic(join(folder,'accepted.json'),{fingerprint:params.guidance_key,approved:true,guidance,source_sha256:meta.file_sha256,source_reference:meta.source_reference,at:nowIso()});

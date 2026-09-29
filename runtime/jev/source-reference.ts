@@ -47,7 +47,7 @@ export function sourceNameTokens(text:string):{text:string;start:number;end:numb
  return [...new Intl.Segmenter(undefined,{granularity:'word'}).segment(text)].filter(part=>part.isWordLike)
   .map(part=>({text:part.segment,start:part.index,end:part.index+part.segment.length}));
 }
-async function textPlace(excerpts:ReferenceExcerpt[],question:string,decide:Decide,signal:AbortSignal,record:(value:Row)=>void):Promise<Row|undefined>{
+async function textPlace(excerpts:ReferenceExcerpt[],pages:Page[],question:string,decide:Decide,signal:AbortSignal,record:(value:Row)=>void):Promise<Row|undefined>{
  const choices=excerpts.flatMap(span=>originalSpans([{page:span.page,text:span.text}],240).map(part=>({...part,start:span.start+part.start,end:span.start+part.end}))).slice(0,32);
  const answers=await decisions(decide,'source-reference-place-excerpt',{requested_use:question},[
   {key:'excerpt',target:'requested_use',type:'choice',instructions:'Which original excerpt explicitly names the requested destination itself? Select its literal name, not merely associated people, events or a description nearby. A named institution can identify a place to visit. Repeated mentions of the same place are equivalent; prefer the earliest explicit name. Choose none for an absent destination.',criteria:{...Object.fromEntries(choices.map((span,i)=>['e'+i,{page:span.page,text:span.text}])),none:'The requested destination is not named in these excerpts.'}}
@@ -66,10 +66,14 @@ async function textPlace(excerpts:ReferenceExcerpt[],question:string,decide:Deci
   const chosen=(key:string)=>{const a=result[key];return a?.status==='answered'&&a.type==='choice'?window[Number(String(a.choice).replace(/^t/,''))]:undefined;};
   const start=chosen('start'),end=chosen('end');if(!start||!end||end.end<=start.start||end.end-start.start>160)continue;
   const name=span.text.slice(start.start,end.end);
-  const confirmed=(await decisions(decide,'source-reference-place',{requested_use:question,candidate:{name,page:span.page},original_page:span.text},[
-   {key:'concrete',target:'candidate',type:'noul',instructions:'Does candidate.name identify the requested destination in this original excerpt? A named institution counts as a destination that can be visited; no street address, complete dossier or proof of present access is required. Reject clipped names, descriptive sentences, people, unrelated destinations and unsupported identities. This confirms only source identity; access conditions, disclosure, NPC presence and the player action remain separate.'}
-  ],signal,record)).concrete;
-  if(confirmed?.status==='answered'&&confirmed.noul>=.8)return {id:`scene-source-place-${span.page}-${span.start+start.start}`,name,page:span.page};
+  const page=pages.find(page=>page.page===span.page),absolute=span.start+start.start;
+  const context=page?page.text.slice(Math.max(0,absolute-160),Math.min(page.text.length,span.start+end.end+240)):span.text;
+  record({kind:'source-reference-place-candidate',name,page:span.page,start:absolute});
+  const checked=await decisions(decide,'source-reference-place',{requested_use:question,candidate:{name,page:span.page},original_context:context},[
+   {key:'concrete',target:'candidate',type:'noul',instructions:'Does the quoted original context establish candidate.name as a real physical place or visitable institution in the scenario? Reject a person, clipped word, descriptive sentence or hypothetical example. No address, complete dossier, current access or NPC presence is required.'},
+   {key:'same_place',target:'requested_use',type:'noul',instructions:'Does the player refer to this candidate place as the destination, using the quoted context to resolve its identity? A city or other qualifier supplied by the player may be implicit in the source context; different wording alone is not a different place. Distinguish the destination from a place the player is leaving. This is identity matching, not access authorization.'}
+  ],signal,record);
+  if(['concrete','same_place'].every(key=>checked[key]?.status==='answered'&&checked[key].noul>=.8))return {id:`scene-source-place-${span.page}-${span.start+start.start}`,name,page:span.page};
  }
 }
 export async function selectReferencePacket(input:{pages:Page[];allPages:Page[];bookmarks?:unknown;sourceSha:string;pageCount:number;extractionVersion:string;purpose:string;question:string;materializePlace?:boolean;openingProbePages?:number[];
@@ -121,7 +125,7 @@ export async function selectReferencePacket(input:{pages:Page[];allPages:Page[];
   const pages=new Set<number>();entries=[...roots.values()].sort((a,b)=>a.page-b.page).filter(row=>!pages.has(row.page)&&!!pages.add(row.page)).map(row=>({id:`scene-source-entry-${row.page}`,name:row.name,page:row.page}));
   if(!entries.length||entries.length>16)throw Error('Opening alternatives remain uncertain; use original-page fallback');
   for(const entry of entries){const page=input.allPages.find(row=>row.page===entry.page);if(!page?.text.trim())throw Error('Opening text needs visual inspection');
-   const span=entryExcerpt(page,entry.name);selected.set(span.id,span);if(!fields.opening.includes(span.id))fields.opening.push(span.id);
+   const span=entryExcerpt(page,entry.name);entry.excerpt_id=span.id;selected.set(span.id,span);if(!fields.opening.includes(span.id))fields.opening.push(span.id);
    const sources=[span,...fields.era.map(id=>selected.get(id)!).filter(Boolean)],values:Row[]=[];
    for(const source of sources)for(const match of source.text.matchAll(/[0-9]{3,4}s?/g))if(!values.some(row=>row.text===match[0]))values.push({text:match[0],span:source.id});
    if(values.length&&values.length<200){const criteria=Object.fromEntries(values.map((value,i)=>['v'+i,{value:value.text,source_span:value.span}]));
@@ -144,7 +148,7 @@ export async function selectReferencePacket(input:{pages:Page[];allPages:Page[];
    const answer=(await decisions(input.decide,'source-reference-place',{requested_use:input.question,candidate:lead,original_page:page.text.slice(0,6000)},[{key:'concrete',target:'candidate',type:'noul',instructions:'Does the original page establish this candidate as the requested concrete physical location in the scenario? It must be a usable place identity, not merely a chapter title, example or person. This does not authorize entering it, disclosing secrets or ignoring conditions.'}],input.signal,record)).concrete;
    if(answer?.status==='answered'&&answer.noul>=.8){places=[{id:'scene-source-place-'+lead.page+'-'+lead.index,name:lead.name,page:lead.page}];for(const span of originalSpans([page]))selected.set(span.id,span);}
   }}
-  if(!places){const place=await textPlace([...selected.values()],input.question,input.decide,input.signal,record);if(place)places=[place];}
+  if(!places){const place=await textPlace([...selected.values()],input.allPages,input.question,input.decide,input.signal,record);if(place)places=[place];}
  }
  const packet:SourceReferencePacket={protocol:SOURCE_REFERENCE_PROTOCOL,source_sha256:input.sourceSha,extraction_version:input.extractionVersion,purpose:input.purpose,question:input.question,
   excerpts:[...selected.values()].sort((a,b)=>a.page-b.page||a.start-b.start),fields,entries,...(places?{places}:{}),partial:true,visual_coverage:'unassessed',unavailable_pages:input.allPages.filter(page=>!page.text.trim()).map(page=>page.page)};

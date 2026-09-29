@@ -820,9 +820,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             try{
               const answer=await jev.decide({id:digest([run.runId,'source-destination']),model:JEV_MODEL,family:'source-destination-intake',familyVersion:'1',scope,readSet:current.table.readSet??[],
                 state:{player:run.rawInput,current_scene:current.table.context.scene,available_destinations:current.candidates().filter(candidate=>candidate.family==='move').map(candidate=>candidate.label)},
-                questions:[{key:'needed',target:'player',type:'noul',instructions:'Has the player explicitly chosen to travel now to a named physical place which is neither the current scene nor one of available_destinations? A named institution can be a place to visit. Mere questions about a place, hypothetical plans, staying put, negated movement and a current conversation do not qualify.'}]},lease);
+                questions:[{key:'needed',target:'player',type:'noul',instructions:'Does the player explicitly declare going to or visiting a named physical place now? Going there AND then speaking or investigating still includes movement. A named institution can be visited. Merely asking about a place, a hypothetical future plan, or explicitly staying instead of going does not declare movement.'},
+                  {key:'covered',target:'player',type:'noul',instructions:'Is the declared destination clearly already represented by current_scene or one of available_destinations? A general chapter heading or broader city does not by itself establish a specific venue. Answer yes only for a clearly matching place, not a merely related scene.'}]},lease);
               const selected=answer.answers.needed;
-              if(selected?.status==='answered'&&selected.type==='noul'&&selected.noul>=.85){
+              const covered=answer.answers.covered;
+              record({lane:'source-reference',event:'destination_intake',run:run.runId,status:answer.status,movement:selected?.status==='answered'&&selected.type==='noul'?selected.noul:null,
+                covered:covered?.status==='answered'&&covered.type==='noul'?covered.noul:null,ms:stepNow()-started});
+              // This is evidence acquisition only; ordinary movement admission remains independent.
+              if(selected?.status==='answered'&&selected.type==='noul'&&selected.noul>=.65&&!(covered?.status==='answered'&&covered.type==='noul'&&covered.noul>=.85)){
                 const original=await bridge.prepareSourceDestination(run.rawInput,signal);
                 record({lane:'source-reference',event:'destination_preflight',status:original?.material?'ready':'unavailable',ms:stepNow()-started,run:run.runId,scene:original?.material?.scene});
                 if(original?.material)current=await tableReads(run);

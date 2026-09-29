@@ -174,7 +174,7 @@ test('hybrid source destination intake prepares once before rereading its bound 
  const f=await fixture(t),events=[],bus=new Map(),order=[];
  const adapter=api.createDecisionAdapter({apiKey:'fixture',fetcher:deterministicFetch()});
  const engine=api.createHybridEngine({env:{PI_COC_JEV_PRESELECT:'0',EXT_JEV_APIKEY:'fixture'},npcAct:null,record:row=>events.push(row),
-  decision:{decide:(batch,lease)=>batch.family==='source-destination-intake'?Promise.resolve({status:'complete',answers:{needed:{status:'answered',type:'noul',noul:.99}}}):adapter.decide(batch,lease)}});
+  decision:{decide:(batch,lease)=>batch.family==='source-destination-intake'?Promise.resolve({status:'complete',answers:{needed:{status:'answered',type:'noul',noul:.99},covered:{status:'answered',type:'noul',noul:.01}}}):adapter.decide(batch,lease)}});
  engine.extension({on(){},events:{on:(name,handler)=>bus.set(name,handler),emit(){}},getActiveTools:()=>[]});
  bus.get('coc:kernel-bridge')({campaign:'c1',moduleId:f.mid,call:async(method,params)=>{if(method==='table.apply.options')order.push('candidates');return f.call(method,params);},runtime:f.source,
   prepareSourceDestination:async(need,signal)=>{assert.equal(need,'I go to Harbor Station.');assert(!signal.aborted);order.push('source');return{material:{scene:'harbor-station'}};}});
