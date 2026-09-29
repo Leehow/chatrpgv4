@@ -25,7 +25,7 @@ import type {DecisionPort} from './decision-port.ts';
 import type {DecisionResult, ReadSet, ScopeBinding} from './contracts.ts';
 import {TaskLease} from './task-context.ts';
 import {packDecisionBatch} from './question-packing.ts';
-import {SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY, SETUP_POLICY, SETUP_ROUTE_FAMILY, answerRows, cardPlan, fieldsBatch, interestBatches, interestCandidates, interestPointsLeft,
+import {SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY, SETUP_POLICY, SETUP_ROUTE_FAMILY, answerRows, cardPlan, fieldsBatch, interestBatches, interestCandidates, interestPointsLeft, moveGates,
   interpretFields, interpretInterest, interpretRoute, routeBatch, setupDrivenBudget, type BoundField, type CardPlan, type FieldsOutcome, type InterestOutcome, type OpenProfileKey,
   type RouteOutcome, type SetupDrivenBudget, type SetupRead} from './setup-decisions.ts';
 
@@ -70,6 +70,8 @@ interface SetupPolicyState {
   plan?: CardPlan;
   decisions: number;
   moved?: Moved;
+  /** §150.6 decision 10: the brief's `stop` note `draft_now` recorded before the card-field path. */
+  briefEnded?: Moved;
   bound?: Moved;
   /** §150.6 decision 9: what the interest fit chose, and its revise. */
   interest?: InterestOutcome;
@@ -103,7 +105,10 @@ export function createSetupPolicy(config: {jev: boolean; maxDecisions: number}):
       }
       if (s.interest.status === 'set' && !s.interestRevised)
         return {kind: 'operate', proposals: [{origin: 'policy', operation: 'setup.interest', params: {interest_skills: s.interest.list ?? s.interest.skills}}], reason: 'setup_revise_interest_skills'};
-      return infer('compose', reason, {...extra, interest: {...s.interest, ...(s.interestRevised ? {revised: s.interestRevised.ok} : {})}});
+      // The reply is told exactly which skills were raised and to what (the kernel's revised card), so it cannot call one untouched.
+      const skills = object(object(s.interestRevised?.outcome).card).skills, values = s.interestRevised?.ok && skills && typeof skills === 'object'
+        ? Object.fromEntries(s.interest.skills.filter(name => Object.hasOwn(skills, name)).map(name => [name, (skills as Row)[name]])) : undefined;
+      return infer('compose', reason, {...extra, interest: {...s.interest, ...(s.interestRevised ? {revised: s.interestRevised.ok} : {}), ...(values ? {values} : {})}});
     }
     return infer('compose', reason, extra);
   };
@@ -130,7 +135,11 @@ export function createSetupPolicy(config: {jev: boolean; maxDecisions: number}):
       const move = s.route.move;
       if (!move) return infer('adjudicate', s.route.exit ?? s.route.reason);
       if (move === 'approve_card') return infer('adjudicate', 'approve_card');
-      if (move !== 'card_fields') {
+      // §150.6 decision 10: the player ended the brief; the host records its `stop` note, then the card-field path runs.
+      if (move === 'draft_now') {
+        if (!s.briefEnded) return {kind: 'operate', proposals: [{origin: 'policy', operation: 'setup.move', params: {move, target: null}}], reason: 'setup_move_draft_now'};
+        if (!s.briefEnded.ok) return infer('adjudicate', 'move_refused', {refusal: s.briefEnded.outcome});
+      } else if (move !== 'card_fields') {
         if (!s.moved) return {kind: 'operate', proposals: [{origin: 'policy', operation: 'setup.move', params: {move, target: s.route.target ?? null}}], reason: `setup_move_${move}`};
         return s.moved.ok ? infer('compose', 'moved', {moved: s.moved.outcome}) : infer('adjudicate', 'move_refused', {refusal: s.moved.outcome});
       }
@@ -170,7 +179,8 @@ export function createSetupPolicy(config: {jev: boolean; maxDecisions: number}):
         for (const outcome of observation.outcomes ?? []) {
           const artifact = object(outcome.artifact);
           if (artifact.kind === 'setup_read') { next.read = artifact.read ?? null; next.readReason = artifact.reason; }
-          if (artifact.kind === 'setup_move' || artifact.kind === 'setup_revise') next.moved = {ok: artifact.ok === true, outcome: object(artifact.outcome)};
+          if (artifact.kind === 'setup_move' && artifact.move === 'draft_now') next.briefEnded = {ok: artifact.ok === true, outcome: object(artifact.outcome)};
+          else if (artifact.kind === 'setup_move' || artifact.kind === 'setup_revise') next.moved = {ok: artifact.ok === true, outcome: object(artifact.outcome)};
           if (artifact.kind === 'setup_card') next.bound = {ok: artifact.ok === true, outcome: object(artifact.outcome)};
           if (artifact.kind === 'setup_interest') next.interestRevised = {ok: artifact.ok === true, outcome: object(artifact.outcome)};
         }
@@ -195,6 +205,8 @@ interface SetupRun {
   refusals: Row[];
   modelSteps: Record<Purpose, number>;
   fallback?: string;
+  /** §150.6 decision 10: every legal-move condition that withheld a move at the read, structural names only. */
+  withheld?: string[];
   /** The bind step in progress: what `setup_card` merges and which open keys it accepts. */
   bind?: {first: boolean; closed: Row; open: OpenProfileKey[]; required: OpenProfileKey[]; draftStep?: string};
 }
@@ -275,7 +287,12 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
     if (!jev || !read) return fail('jev_unavailable');
     const {scope, readSet} = scopeOf(run, read);
     const batch = route ? routeBatch({read, scope, readSet}) : fieldsBatch({read, scope, readSet});
-    if (!batch) return fail('no_candidates');
+    if (!batch) {
+      // Nothing to ask is itself a finding: the row names what withheld every move (§150.6 decision 10).
+      record({lane: 'setup', event: 'decide', run: run.runId, step: request.stepId, family: route ? SETUP_ROUTE_FAMILY : SETUP_FIELDS_FAMILY, status: 'no_candidates',
+        withheld: moveGates(read).withheld});
+      return fail('no_candidates');
+    }
     try { packDecisionBatch(batch); } catch (error) { record({lane: 'setup', event: 'decide', run: run.runId, step: request.stepId, family: batch.family, status: 'packing_refused', reason: String(error)}); return fail('packing_limit'); }
     const began = Date.now();
     const lease = new TaskLease({owner: batch.family, goal: `setup run ${run.runId} ${request.purpose}`, scope, capabilities: ['decision'], readSet, signal: request.signal,
@@ -327,10 +344,12 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
       content = {kind: 'setup_step', purpose, reason: step.reason, ...(bound.length ? {bound} : {}), ...(Object.keys(moved).length ? {did: moved} : {}),
         ...(missing.length ? {missing} : {}),
         ...(Object.keys(interest).length ? {interest: {status: interest.status, skills: interest.skills ?? [], ...(interest.revised !== undefined ? {revised: interest.revised} : {}),
+          ...(interest.values ? {values: interest.values} : {}), ...(Array.isArray(interest.held) && interest.held.length ? {held: interest.held} : {}),
           ...(interest.points_left !== undefined ? {points_left: interest.points_left} : {})},
-          interest_note: interest.status === 'set' && interest.revised
-            ? 'The clerk gave the delegated card these interest skills (interest.skills) and the kernel spread the points; say so.'
-            : 'The card\'s interest points are still unspent (the card shows them); tell the player and invite them to name skills for them. Do not name skills yourself as if they were on the card.'} : {}),
+          interest_note: (interest.status === 'set' && interest.revised
+            ? `The clerk gave the delegated card exactly these interest skills and the kernel raised them to the values shown (interest.values): ${(interest.skills ?? []).join(', ')}. Name them as raised; never say one of them was left untouched. `
+            : 'The card\'s interest points are still unspent (the card shows them); tell the player and invite them to name skills for them. Do not name skills yourself as if they were on the card. ')
+            + (Array.isArray(interest.held) && interest.held.length ? `The player asked to keep ${interest.held.join(', ')} at the starting value; they were not raised.` : '')} : {}),
         instruction: 'No setup tool is available in this step. Write your reply to the player now, in play_language: '
           + (missing.length ? 'nothing was written to the card yet; ask for what missing lists, and nothing else. '
             : 'the host has already done what did or the last tool result shows; describe what the card or the table now holds and invite the next change or confirmation. ')
@@ -394,6 +413,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
           try {
             const read = await executor.read();
             run.read = read;
+            run.withheld = moveGates(read).withheld;
             const reason = !read.ready ? 'setup_table_unavailable' : read.blocked ? `blocked_${read.blocked.kind}` : read.complete ? 'setup_complete' : !read.input ? 'no_current_input' : undefined;
             return {status: 'ok', artifact: {kind: 'setup_read', read: reason ? null : read, ...(reason ? {reason} : {})}};
           } catch (error) {
@@ -415,7 +435,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
           if (proposal.operation === 'setup.move') {
             const outcome = await executor.move(String(params.move), object(object(params.target).source ?? object(params.target).opening ?? object(params.target).entry), invocation.signal);
             if (outcome.ok !== true) run.refusals.push({step: String(params.move), code: outcome.code ?? null, message: outcome.message ?? outcome.rejected ?? null});
-            return {status: 'ok', artifact: {kind: 'setup_move', ok: outcome.ok === true, outcome}};
+            return {status: 'ok', artifact: {kind: 'setup_move', move: String(params.move), ok: outcome.ok === true, outcome}};
           }
           if (proposal.operation === 'setup.interest') {
             // The kernel spreads the interest points (auto spread); no number comes from Jev or the model.
@@ -436,7 +456,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
           record({lane: 'setup', event: 'run', run: run.runId, engine: 'hybrid-v1', policy: SETUP_POLICY.name, policy_version: SETUP_POLICY.version,
             status: event.status, reason: event.reason, steps: event.steps, ms: Date.now() - run.started, families: run.families, move: run.move ?? null,
             route_reason: run.routeReason ?? null, plan: run.plan?.kind ?? null, bound: run.bound, written: [...new Set(run.written)],
-            model_steps: run.modelSteps, refusals: run.refusals, fallback: run.fallback ?? null});
+            model_steps: run.modelSteps, refusals: run.refusals, fallback: run.fallback ?? null, withheld: run.withheld ?? null});
           // The session's surface between runs is the full tool (contract §14.4); the next run's first request declares it.
           stepCatalog = undefined;
           setTools([fullTool()]);

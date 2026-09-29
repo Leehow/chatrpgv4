@@ -94,3 +94,58 @@ Test 1 now expects the three families.
 **For the box.** The same test list as before.
 
 **Open.** `interest_skill_max` and the fit gate are starting values, to be calibrated on ticket 08's table.
+
+### 2026-09-29 fix: a brief that still asks offered no move (live acceptance `jev-accept-blood-02`)
+
+**What the table showed.** On the lead's cold Blood PDF table (driven engine confirmed), turn 1's guidance ran the guided-creation brief. On turn 2 the player said 「……其他背景和能力由你按这个概念安排，现在出卡。」 The setup run row read `families: []`, `fallback: "no_candidates"`. The route was never asked, and adjudicate ran 4 model steps with the full tool (one `needs` refusal).
+
+**Cause.** `legalMoves` withheld `card_fields` while `brief_holds && !card`, and nothing else was legal. On the real kernel this happens on every freshly created campaign with the default package: I checked a real read (`the-haunting`, zh-Hans) and the brief holds at the player's first description.
+
+**Fix** (recorded as §150.6 decision 10; decision 4's move list amended):
+- `draft_now` is a new move, issued while the brief holds and no card exists. Its Noul asks whether the player wants the card now, wants the questions to stop, or hands the rest to the Keeper.
+- When it clears, the host records the brief's own `stop` note (§26's record of the player ending the exchange, with the player's input as written). The unchanged card-field path follows: fields, bind, direct, interest fit, compose.
+- A plain answer to a brief question stays `ask_llm`, and the Keeper notes it and asks the next question.
+- `card_fields` stays withheld while the brief holds. A drawn card is never held by the brief.
+
+**Visibility.** `moveGates(read)` returns the offered moves plus every withheld condition as `<move>:<condition>`. The setup `run` row now carries `withheld`, and a route that asks nothing writes a `decide` row with `status: "no_candidates"` and the same list.
+
+**Other conditions checked against a real read.** I looked at `setupRead` and the kernel's setup state after `create-campaign`, and ran a driven turn on the emitted kernel. Only `card_fields:brief_holds` blocks a card move there. `created`, `catalog.occupations`, `investigator_source`, confirmed/loaded and the library lane all pass. The real-kernel test pins this.
+
+**Tests.** `tests/extension/setup-driven-engine.test.mjs` is now 22/22. New cases:
+- With the fake kernel's brief active (`FAKE_SETUP_SLOTS=1`), a 「现在出卡」 input issues only `draft_now`, records the stop note in the player's words, reaches the fields family and the draft (`setup_card` ok), and the run row lists `card_fields:brief_holds`.
+- A plain brief answer asks only the route, runs the full tool once, writes no stop note and no draft, and the run row lists what was withheld.
+- A confirmed card offers no move, and both the `decide` row (`no_candidates`) and the run row name the withheld conditions.
+- A pure check of the structural gate names.
+- On the real kernel (emitted build from the lead's integration worktree, symlinked read-only), a fresh `the-haunting` campaign offers a card move. It offered `draft_now`. No card move is withheld by `no_campaign`, `no_catalog`, `library_lane`, `confirmed` or `loaded`.
+
+**Mutation checks.** 6 mutations, all killed: no `draft_now`, no stop note, `draft_now` composes instead of drafting, a brief answer offers `card_fields`, no `withheld` on the run row, no `no_candidates` decide row.
+
+**Regression, file by file.** setup 25/25, source-intake 2/2, opening-choice 5/5, handoff 9/9, player-reasons 4/4, control-flow-inventory 4/4, system-language 5/5, hybrid-source-wiring 2/2, card-patch 4/4.
+
+### 2026-09-29 fix: holds, interest gate, skill rows, exact reply (live acceptance `jev-accept-blood-03`)
+
+**Context.** The lead's second live read went through: `draft_now` 0.87, Journalist 0.99, `occupation_stated` copied, 2 model steps, 29.6 s, no refusals. It surfaced three defects plus a reply-accuracy gap. All are recorded as §150.6 decision 11.
+
+1. **A player's hold was overridden.** The player said 「驾驶保留基础值」, but the interest fit picked Drive Auto (0.67) and the spread raised it 20 → 55.
+   - Fix: the fit's state now carries `player_input`, and the same fan-out adds one hold row per candidate: "Did the player, in player_input, ask to keep the skill <label (name)> at its starting value, or not to raise it?". A skill whose hold row clears is never picked and is reported as `held`.
+   - The fields family does not track holds, so there was no earlier decision to reuse; the hold row covers it.
+   - At the real catalog size this is 69 candidates → 139 questions → one request (37 KB); splitting stays available.
+2. **The interest gate was too strict.** `interest_row_ratio` in the data is now 1 (effective gate 0.5; `interest_skill_max` stays 6). The code fallback matches.
+3. **Named-skill rows never cleared for 「擅长观察和查资料」.** Finding: the play-language labels exist in the rules data (`localized_labels` zh-Hans: Spot Hidden 侦查, Library Use 图书馆使用), and the kernel catalog already issued them in the rows' state as `label (name)`. The likelier cause is the question's literal "name … or an ability that is exactly this skill" against a player who described abilities.
+   - Fix: each row's question now names the skill as the catalog issues it (`"侦查" (Spot Hidden)`) and asks about the ability it covers, "in any words". A skill to be kept at its starting value or not raised explicitly does not count.
+   - No label table was added in code. Whether Jev now clears these rows needs the next live read.
+4. **The reply could misstate what was raised.** The compose note now carries the exact interest skills set, their raised values (`interest.values`, from the revised card) and the held skills. Its instruction forbids calling a raised skill untouched.
+
+**Tests.** `tests/extension/setup-driven-engine.test.mjs` is 24/24. New and extended cases:
+- a hold on a fitting skill keeps it off the card (`interest_skills: ["Listen"]`, `held: ["Drive Auto"]`, and the note says so);
+- the fit state carries `player_input`;
+- a pure check that a hold wins over a fit;
+- the shipped gate is 0.5 (0.5 clears, 0.49 does not);
+- the skill row names `"侦查" (Spot Hidden)`;
+- the compose note carries the exact list and values.
+
+The fake kernel now gives listed interest skills a value, as the kernel's spread does.
+
+**Mutation checks.** 8 mutations, all killed: hold ignored, no hold rows, no `player_input`, gate ratio 2, no label in the question, name-only skill display, no values in the note, no exact list in the note.
+
+**Regression.** setup 25/25, source-intake 2/2, opening-choice 5/5, handoff 9/9, player-reasons 4/4, control-flow-inventory 4/4, system-language 5/5, card-patch 4/4. These ran against the accept2 build via read-only symlinks.

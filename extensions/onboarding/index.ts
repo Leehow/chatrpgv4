@@ -1220,6 +1220,11 @@ export default function (pi: ExtensionAPI) {
 			if (!preparation) return {ok: false, rejected: 'This setup table has no preparation step to record an opening on.'};
 			return continueSource({start_scene: target.scene}, signal);
 		}
+		if (move === 'draft_now') {
+			// §150.6 decision 10: the player ended the brief's questions. The brief's own record of that is its `stop`
+			// note (§26), with the player's words as they wrote them; after it the brief allows the draft.
+			return execute({step: 'note', slot: 'stop', value: lastPlayerInput.trim(), origin: 'player'}, signal);
+		}
 		if (move === 'load_library') {
 			const browse = stepWithOp('investigator.list'), load = stepWithOp('investigator.load');
 			if (!load) return {ok: false, rejected: 'This setup table has no library step.'};

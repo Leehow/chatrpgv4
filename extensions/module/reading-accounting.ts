@@ -48,6 +48,12 @@ export function tallyReadingRow(accounting: ReadingAccounting, row: Row): void {
 		family.calls += count(row.attempts) || 1; family.ms += count(row.ms);
 		family.input_tokens += count(row.input_tokens); family.output_tokens += count(row.output_tokens);
 	}
+	// §150.3's host check reports its own spend on its `claim_support` row (requests, Jev ms, tokens), not as a jev_decision.
+	if (row?.event === "claim_support" && typeof row.family === "string" && row.family && count(row.calls)) {
+		const family = spend(accounting, row.family);
+		family.calls += count(row.calls); family.ms += count(row.jev_ms);
+		family.input_tokens += count(row.input_tokens); family.output_tokens += count(row.output_tokens);
+	}
 }
 
 /** Add one reader child's Jev traffic from its `source-driver.jsonl` (`jev_transport` attempt and usage events). */

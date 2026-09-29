@@ -47,7 +47,7 @@ export interface SetupDrivenBudget {
 
 /** Used only if the file or its `setup_driven` section cannot be read; the shipped file carries the real values. */
 export const SETUP_DRIVEN_FALLBACK: SetupDrivenBudget = Object.freeze({rowMin: 0.5, rowRatio: 2, choiceMin: 0.5, decisionTimeoutMs: 8000, maxDecisions: 3,
-  interestRowMin: 0.5, interestRowRatio: 2, interestSkillMax: 6});
+  interestRowMin: 0.5, interestRowRatio: 1, interestSkillMax: 6});
 
 let cached: Promise<SetupDrivenBudget> | undefined;
 
@@ -130,26 +130,47 @@ export function answerRows(result: DecisionResult): Record<string, unknown> {
 
 // ---- setup-input-route v1 ------------------------------------------------------------------------------------
 
-export const SETUP_MOVES = ['choose_source', 'pick_opening', 'card_fields', 'approve_card', 'load_library'] as const;
+export const SETUP_MOVES = ['choose_source', 'pick_opening', 'card_fields', 'draft_now', 'approve_card', 'load_library'] as const;
 export type SetupMove = typeof SETUP_MOVES[number];
 
-/** The moves the read issues as legal now (§150.6 decision 4). A move whose target list is empty is not issued. */
-export function legalMoves(read: SetupRead): SetupMove[] {
-  const moves: SetupMove[] = [];
+/**
+ * The moves the read issues as legal now (§150.6 decisions 4 and 10), and every condition that withheld one --
+ * `<move>:<condition>`, structural names only -- so a run that offers nothing says why (the setup `run` row's
+ * `withheld`). A move whose target list is empty is not issued.
+ *
+ * While a §26 package brief still asks and no card exists, the card-field move is withheld (a brief answer is the
+ * Keeper's to note) and `draft_now` is issued instead: the player ending the questions or handing the rest to the
+ * Keeper. Its execution records the brief's own `stop` note, after which the card-field path runs.
+ */
+export function moveGates(read: SetupRead): {moves: SetupMove[]; withheld: string[]} {
+  const moves: SetupMove[] = [], withheld: string[] = [];
+  const offer = (move: SetupMove, failed: Array<[boolean, string]>) => {
+    const reasons = failed.filter(([blocked]) => blocked).map(([, name]) => `${move}:${name}`);
+    if (reasons.length) withheld.push(...reasons); else moves.push(move);
+  };
   const chooseDone = !!read.steps.choose && read.completed.includes(read.steps.choose);
-  if (!chooseDone && read.sources.length) moves.push('choose_source');
-  if (read.openings?.length) moves.push('pick_opening');
+  offer('choose_source', [[chooseDone, 'source_chosen'], [!read.sources.length, 'no_sources']]);
+  offer('pick_opening', [[!read.openings?.length, 'no_opening_question']]);
   const library = read.investigator_source === 'library';
-  if (read.created && !read.confirmed && !read.loaded && !library && read.catalog?.occupations.length && !(read.brief_holds && !read.card)) moves.push('card_fields');
-  if ((read.card && !read.confirmed) || (read.loaded && !read.complete)) moves.push('approve_card');
-  if (read.created && !read.card && !read.loaded && read.library.length && read.investigator_source !== 'new' && read.steps.load) moves.push('load_library');
-  return moves;
+  const cardGates: Array<[boolean, string]> = [[!read.created, 'no_campaign'], [read.confirmed, 'confirmed'], [read.loaded, 'loaded'], [library, 'library_lane'],
+    [!read.catalog?.occupations.length, 'no_catalog']];
+  offer('card_fields', [...cardGates, [read.brief_holds && !read.card, 'brief_holds']]);
+  offer('draft_now', [...cardGates, [!read.brief_holds, 'no_brief'], [!!read.card, 'card_drawn']]);
+  offer('approve_card', [[!((read.card && !read.confirmed) || (read.loaded && !read.complete)), read.confirmed ? 'confirmed' : 'no_card']]);
+  offer('load_library', [[!read.created, 'no_campaign'], [!!read.card, 'card_drawn'], [read.loaded, 'loaded'], [!read.library.length, 'no_library'],
+    [read.investigator_source === 'new', 'new_lane'], [!read.steps.load, 'no_load_step']]);
+  return {moves, withheld};
+}
+
+export function legalMoves(read: SetupRead): SetupMove[] {
+  return moveGates(read).moves;
 }
 
 const MOVE_QUESTIONS: Record<SetupMove, string> = {
   choose_source: 'Does the player choose one of the listed sources (a ready-made starter or an installed module) as the book to start the campaign from? Asking about a source or comparing sources is not choosing one.',
   pick_opening: 'Does the player pick one of the listed openings as the way their campaign starts?',
   card_fields: 'Does the player state or change something about their own investigator (name, trade, age, sex, strengths, skills, background, gear, language), or ask the Keeper to fill in their investigator\'s details?',
+  draft_now: 'Does the player ask to make the investigator card now, to stop the setup questions, or ask the Keeper to fill in the rest of the investigator? Only answering a setup question is not asking for the card.',
   approve_card: 'Does the player approve the investigator card on the table as it is, ready to start play (for example "that is good", "confirm it", "let us begin")? Asking for any change is not approval.',
   load_library: 'Does the player choose one of the listed saved investigators to play in this campaign?',
 };
@@ -168,7 +189,7 @@ export function routeBatch({read, scope, readSet}: RouteQuestionInput): Decision
   const questions: DecisionQuestion[] = moves.map(move => ({key: `move_${move}`, target: 'player_input', type: 'noul' as const, instructions: MOVE_QUESTIONS[move]}));
   questions.push({key: 'exit', target: 'player_input', type: 'choice',
     instructions: 'Besides the listed setup moves, what does player_input need? Choose continue when a listed move carries what the input does.',
-    criteria: {continue: 'A listed move (choosing a source or an opening, stating or changing investigator details, approving the card, choosing a saved investigator) carries what the input does.',
+    criteria: {continue: 'A listed move (choosing a source or an opening, stating or changing investigator details, asking for the card now, approving the card, choosing a saved investigator) carries what the input does.',
       ask_llm: 'Asks a question, discusses or wants an opinion, asks for something no listed move carries out, or anything else the Keeper must answer in words.',
       none_of_above: 'Does none of these.'}});
   const state: Row = {player_input: read.input.text,
@@ -270,6 +291,11 @@ export const STATED_FIELDS: Readonly<Record<string, {asks: string; keys: readonl
 
 export interface FieldsQuestionInput {read: SetupRead; scope: ScopeBinding; readSet: ReadSet}
 
+/** A skill as a question shows it: the play-language label the catalog issues beside the rules' own name. */
+function skillShown(row: {name: string; label?: string}): string {
+  return row.label && row.label !== row.name ? `"${row.label}" (${row.name})` : `"${row.name}"`;
+}
+
 /** The catalog skills a skill list may hold: the kernel marks the others `listed: false` (Credit Rating, Cthulhu Mythos). */
 export function listableSkills(catalog: NonNullable<SetupRead['catalog']>): Array<{name: string; label?: string}> {
   return catalog.skills.filter(row => row.listed !== false);
@@ -305,8 +331,10 @@ export function fieldsBatch({read, scope, readSet}: FieldsQuestionInput): Decisi
     questions.push({key: 'weak', target: 'player_input', type: 'choice',
       instructions: 'Which characteristic does player_input describe as the investigator\'s most notable weakness of body or mind? Choose not_stated unless the player describes one.', criteria});
   }
-  listableSkills(catalog).forEach((_row, index) => questions.push({key: `skill_${index}`, target: `skills[${index}]`, type: 'noul',
-    instructions: `Does player_input name skills[${index}] (or an ability that is exactly this skill) as one the investigator is good at or trained in? A skill the player calls weak, untrained or only at its base value does not count.`}));
+  // §150.6 decision 11: the question names the skill in the play language and in the rules' own name (the catalog's
+  // `label`, from the rules data's localized labels), and asks about the ability the player describes, in any words.
+  listableSkills(catalog).forEach((row, index) => questions.push({key: `skill_${index}`, target: `skills[${index}]`, type: 'noul',
+    instructions: `Does player_input say the investigator is good at, trained in or known for the ability the skill ${skillShown(row)} covers, in any words (naming the skill or describing what it does)? A skill the player calls weak, untrained, to be kept at its starting value or not to be raised does not count.`}));
   for (const [field, spec] of Object.entries(STATED_FIELDS))
     questions.push({key: `stated_${field}`, target: 'player_input', type: 'noul', instructions: `Does player_input state ${spec.asks}?`});
   questions.push({key: 'delegated', target: 'player_input', type: 'noul', instructions: 'Does player_input ask the Keeper to decide or fill in details of the investigator that the player did not state?'});
@@ -448,16 +476,21 @@ const FIT_QUESTION = 'Does this skill fit the investigator as the card describes
 export function interestBatches({read, scope, readSet}: FieldsQuestionInput, pack: (batch: DecisionBatch) => void): DecisionBatch[] {
   const candidates = interestCandidates(read), card = read.card;
   if (!card || !candidates.length) return [];
+  // §150.6 decision 11: the player's own words ride along, so a skill the player asked to keep is asked about too.
+  const playerInput = read.input?.text ?? null;
   const profile = card.profile ?? {};
   const investigator: Row = {occupation: profile.occupation ?? card.summary?.card?.occupation ?? null, ...(profile.occupation_stated ? {occupation_stated: profile.occupation_stated} : {}),
     concept: profile.concept ?? null, backstory: profile.backstory ?? null, era: card.era ?? profile.era ?? null};
   const build = (from: number, to: number, first: boolean): DecisionBatch => {
     const slice = candidates.slice(from, to);
-    const questions: DecisionQuestion[] = slice.map((_row, local) => ({key: `fit_${from + local}`, target: `skills[${local}]`, type: 'noul' as const, instructions: FIT_QUESTION}));
+    const questions: DecisionQuestion[] = slice.flatMap((row, local) => [
+      {key: `fit_${from + local}`, target: `skills[${local}]`, type: 'noul' as const, instructions: FIT_QUESTION},
+      {key: `hold_${from + local}`, target: `skills[${local}]`, type: 'noul' as const,
+        instructions: `Did the player, in player_input, ask to keep the skill ${skillShown(row)} at its starting value, or not to raise it?`}]);
     if (first) questions.push({key: 'exists', target: 'skills', type: 'noul',
       instructions: 'Does any listed skill fit the investigator as the card describes them, so that a player building this character would plausibly give it interest points?'});
     return {id: randomUUID(), model: JEV_MODEL, family: SETUP_INTEREST_FAMILY, familyVersion: '1', scope, readSet,
-      state: {investigator, skills: slice.map(row => row.label && row.label !== row.name ? `${row.label} (${row.name})` : row.name)}, questions};
+      state: {investigator, player_input: playerInput, skills: slice.map(row => row.label && row.label !== row.name ? `${row.label} (${row.name})` : row.name)}, questions};
   };
   const split = (from: number, to: number, first: boolean): DecisionBatch[] => {
     const batch = build(from, to, first);
@@ -480,6 +513,8 @@ export interface InterestOutcome {
   list?: string[];
   /** The interest points the card had left when the fit was asked. */
   points_left?: number;
+  /** Skills the player asked to keep at their starting value: never picked, whatever their fit. */
+  held?: string[];
 }
 
 /** Skills whose Noul clears the family's gate, strongest first, capped by data; none unless `exists` clears too. */
@@ -492,7 +527,10 @@ export function interpretInterest(read: SetupRead, results: DecisionResult[], bu
   const answers: Record<string, DecisionAnswer> = Object.assign({}, ...results.map(result => result.answers));
   if (!clears(answers.exists, gate)) return {status: 'none_cleared', skills: [], reason: 'exists_below_gate'};
   const candidates = interestCandidates(read);
-  const skills = candidates.map((row, index) => ({name: row.name, yes: noul(answers[`fit_${index}`]) ?? 0, cleared: clears(answers[`fit_${index}`], gate)}))
+  // A player's explicit hold wins over any fit (§150.6 decision 11).
+  const held = candidates.filter((_row, index) => clears(answers[`hold_${index}`], gate)).map(row => row.name);
+  const skills = candidates.map((row, index) => ({name: row.name, yes: noul(answers[`fit_${index}`]) ?? 0, cleared: clears(answers[`fit_${index}`], gate) && !held.includes(row.name)}))
     .filter(row => row.cleared).sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name)).slice(0, budget.interestSkillMax).map(row => row.name);
-  return skills.length ? {status: 'set', skills} : {status: 'none_cleared', skills: [], reason: 'no_skill_cleared'};
+  const holds = held.length ? {held} : {};
+  return skills.length ? {status: 'set', skills, ...holds} : {status: 'none_cleared', skills: [], reason: 'no_skill_cleared', ...holds};
 }

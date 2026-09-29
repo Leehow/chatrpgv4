@@ -8,12 +8,14 @@
  * telemetry row.
  */
 import { strict as assert } from "node:assert";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { openTable, waitForIdle } from "./harness.mjs";
 import { createSetupEngine, SETUP_CARD_TOOL } from "../../runtime/jev/setup-engine.ts";
 import { SETUP_DRIVEN_FALLBACK, SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY, SETUP_ROUTE_FAMILY, cardPlan, fieldsBatch, interestBatches, interestCandidates, interpretInterest,
-	interpretRoute, legalMoves, routeBatch } from "../../runtime/jev/setup-decisions.ts";
+	interpretRoute, legalMoves, moveGates, routeBatch, setupDrivenBudget, clears } from "../../runtime/jev/setup-decisions.ts";
 import { packDecisionBatch } from "../../runtime/jev/question-packing.ts";
 import { selectLoopEngine } from "../../runtime/loop-engine.ts";
 import { hybridMainOptions } from "../../runtime/pi-hybrid.ts";
@@ -44,8 +46,10 @@ function answer(batch, set = {}) {
 		let value = set[question.key];
 		const skill = /^skills\[(\d+)\]$/.exec(question.target);
 		if (value === undefined && skill) {
-			const shown = String(batch.state.skills[Number(skill[1])]);
-			const name = Object.keys(set).find((key) => shown === key || shown.endsWith(`(${key})`));
+			// A skill's hold row is set as `hold:<name>`; every other row of that skill as `<name>`.
+			const shown = String(batch.state.skills[Number(skill[1])]), prefix = question.key.startsWith("hold_") ? "hold:" : "";
+			const name = Object.keys(set).filter((key) => key.startsWith(prefix) && (prefix || !key.startsWith("hold:")))
+				.find((key) => shown === key.slice(prefix.length) || shown.endsWith(`(${key.slice(prefix.length)})`));
 			value = name === undefined ? undefined : set[name];
 		}
 		if (question.type === "noul") answers[question.key] = { status: "answered", type: "noul", noul: typeof value === "number" ? value : 0.04 };
@@ -69,7 +73,7 @@ function selection(context, word) {
 }
 
 /** A setup table on the driven engine; `requests` logs the tools every model request declared, in order. */
-async function drivenSetup({ decide, responses, env = {}, budget }) {
+async function drivenSetup({ decide, responses, env = {}, budget, table: options = {} }) {
 	const decisions = [], requests = [];
 	let decider = decide;
 	const engine = createSetupEngine({ env: process.env, ...(budget ? { budget } : {}),
@@ -81,6 +85,7 @@ async function drivenSetup({ decide, responses, env = {}, budget }) {
 		runDriver: engine.runDriver,
 		extraExtensions: [{ name: "coc-setup-engine", factory: engine.extension }],
 		responses: wrap(responses, requests),
+		...options,
 	});
 	return { table, decisions, requests, respond: (next) => table.faux.setResponses(wrap(next, requests)), decide: (next) => { decider = next; } };
 }
@@ -100,10 +105,11 @@ const cardFieldsJev = (fields, interest = {}) => (batch) => batch.family === SET
 const FIRST_FIELDS = { occupation: "o0", occupation_stated: 0.96, occupation_outside: 0.9, strong: "INT", "Spot Hidden": 0.93, "Library Use": 0.81, "Drive Auto": 0.2,
 	stated_name: 0.97, delegated: 0.92 };
 /** The bind step's one call: open words only, the name and the trade words selected from the input, never retyped. */
-const bindCall = (context) => fauxAssistantMessage([fauxToolCall(SETUP_CARD_TOOL, { profile: {
-	name: selection(context, "艾伦"), occupation_stated: selection(context, "自由摄影记者"), sex: "男", concept: "开旧皮卡跑新闻的自由摄影记者", own_language: "英语",
+const bindCallFor = (name) => (context) => fauxAssistantMessage([fauxToolCall(SETUP_CARD_TOOL, { profile: {
+	name: selection(context, name), occupation_stated: selection(context, "自由摄影记者"), sex: "男", concept: "开旧皮卡跑新闻的自由摄影记者", own_language: "英语",
 	backstory: { personal_description: "瘦高，总背着相机。", significant_people: "纽约的图片编辑玛吉。", meaningful_locations: "西德克萨斯的公路。", scenario_bound: "为专题拍荒漠公路。" },
 	key_connection: { backstory_field: "significant_people", summary: "图片编辑玛吉" }, equipment: ["旁轴相机", "旧皮卡"] } })], { stopReason: "toolUse" });
+const bindCall = bindCallFor("艾伦");
 
 test("§150.6: a trade outside the catalog binds the closest catalog occupation, the player's words are copied to occupation_stated, named skills bind by Noul, numbers stay the kernel's, and only the narrowed tool writes the open words", async (t) => {
 	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS), responses: [bindCall, fauxAssistantMessage("艾伦的卡已经放在桌上了。")] });
@@ -280,7 +286,7 @@ const fields = (overrides = {}) => ({ outside: false, skills: [], stated: [], de
 
 test("§150.6: the families keep D2's hygiene: a Noul per issued move with the exit Choice, a Noul per listable catalog skill, and the full batch packs", () => {
 	assert.deepEqual(legalMoves(read()), ["card_fields"]);
-	assert.deepEqual(legalMoves(read({ brief_holds: true })), [], "a package brief still asking holds the first draft");
+	assert.deepEqual(legalMoves(read({ brief_holds: true })), ["draft_now"], "a package brief still asking holds card_fields; only asking for the card is a move");
 	assert.deepEqual(legalMoves(read({ card: { revision: 1, summary: {}, profile: {} } })), ["card_fields", "approve_card"]);
 	assert.deepEqual(legalMoves(read({ completed: [], created: false, sources: [{ kind: "starter", module: "the-haunting" }] })), ["choose_source"]);
 	const route = routeBatch({ read: read({ card: { revision: 1, summary: {}, profile: {} } }), scope, readSet: [] });
@@ -372,7 +378,7 @@ test("§150.6 interest fit: a delegated card gets the cleared skills in probabil
 	for (const never of ["Spot Hidden", "Library Use", "Psychology", "Art and Craft (Photography)", "Credit Rating"])
 		assert.ok(!offered.includes(never), `${never} is on the card, the trade's own, or never listed: not a candidate`);
 	assert.deepEqual(offered.sort(), ["Drive Auto", "First Aid", "Law", "Listen", "Mechanical Repair", "Stealth"]);
-	assert.deepEqual(Object.keys(fit[0].state), ["investigator", "skills"], "state is the card's words and the candidates (D2.3)");
+	assert.deepEqual(Object.keys(fit[0].state), ["investigator", "player_input", "skills"], "state is the card's words, the player's own words and the candidates (D2.3)");
 	assert.equal(fit[0].state.investigator.concept, "开旧皮卡跑新闻的自由摄影记者", "the fit reads the bind step's words");
 	const [revise] = interestRevisions(table);
 	assert.deepEqual(revise.params.profile, { interest_skills: ["Drive Auto", "Listen"] }, "cleared skills, strongest first, cut at interest_skill_max");
@@ -383,6 +389,25 @@ test("§150.6 interest fit: a delegated card gets the cleared skills in probabil
 	const note = JSON.parse(table.session.messages.filter((message) => message.role === "custom" && message.customType === "coc-setup-step").at(-1).content);
 	assert.equal(note.interest.status, "set");
 	assert.equal(note.interest.revised, true);
+	assert.deepEqual(note.interest.values, { "Drive Auto": 40, Listen: 40 }, "the reply is told the exact skills raised and their values");
+	assert.match(note.interest_note, /exactly these interest skills.*Drive Auto, Listen/);
+});
+
+test("§150.6 interest fit: a skill the player asked to keep at its starting value is never picked, whatever its fit, and the reply is told it was held", async (t) => {
+	const input = "我叫艾伦，是自由摄影记者，驾驶保留基础值，其余都帮我决定，出卡吧。";
+	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS, { exists: 0.9, "Drive Auto": 0.95, "hold:Drive Auto": 0.9, Listen: 0.8 }),
+		responses: [bindCall, fauxAssistantMessage("艾伦的卡好了，驾驶保持基础值。")] });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(input);
+	await waitForIdle(run.table.session);
+	const fit = run.decisions.find((batch) => batch.family === SETUP_INTEREST_FAMILY);
+	assert.equal(fit.state.player_input, input, "the hold is judged on the player's own words");
+	assert.ok(fit.questions.some((question) => question.key.startsWith("hold_") && /Drive Auto/.test(question.instructions)), "one hold row per candidate, naming the skill");
+	const [revise] = interestRevisions(run.table);
+	assert.deepEqual(revise.params.profile, { interest_skills: ["Listen"] }, "the held skill is not raised");
+	const note = JSON.parse(run.table.session.messages.filter((message) => message.role === "custom" && message.customType === "coc-setup-step").at(-1).content);
+	assert.deepEqual(note.interest.held, ["Drive Auto"]);
+	assert.match(note.interest_note, /keep Drive Auto at the starting value/);
 });
 
 test("§150.6 interest fit: nothing cleared leaves the points unspent, no revise, and the reply is told the points remain", async (t) => {
@@ -433,12 +458,120 @@ test("§150.6 interest fit: candidates exclude listed, printed and unlisted skil
 	const batches = interestBatches({ read: drawn, scope, readSet: [] }, pack);
 	assert.ok(batches.length > 1, "split");
 	assert.deepEqual(batches.map((batch) => batch.questions.filter((question) => question.key === "exists").length), [1, ...batches.slice(1).map(() => 0)]);
-	assert.equal(new Set(batches.flatMap((batch) => batch.questions.map((question) => question.key))).size, 6, "five fit keys and exists, unique across the fan-out");
+	assert.equal(new Set(batches.flatMap((batch) => batch.questions.map((question) => question.key))).size, 11, "five fit rows, five hold rows and exists, unique across the fan-out");
 	const results = batches.map((batch) => answer(batch, { exists: 0.9, Listen: 0.95, Stealth: 0.8, "First Aid": 0.85 }));
 	assert.deepEqual(interpretInterest(drawn, results, { ...SETUP_DRIVEN_FALLBACK, interestSkillMax: 2 }).skills, ["Listen", "First Aid"]);
 	assert.deepEqual(interpretInterest(drawn, results, { ...SETUP_DRIVEN_FALLBACK, interestRowMin: 0.9 }).skills, ["Listen"], "the family's own gate is data");
 	const noExists = batches.map((batch) => answer(batch, { exists: 0.2, Listen: 0.95 }));
 	assert.equal(interpretInterest(drawn, noExists, SETUP_DRIVEN_FALLBACK).status, "none_cleared", "nothing is picked unless the exists row clears");
+	const holding = batches.map((batch) => answer(batch, { exists: 0.9, Listen: 0.95, "hold:Listen": 0.7, Stealth: 0.6 }));
+	assert.deepEqual(interpretInterest(drawn, holding, SETUP_DRIVEN_FALLBACK), { status: "set", skills: ["Stealth"], held: ["Listen"] }, "a hold wins over the fit");
 	assert.equal(cardPlan(drawn, fields({ delegatedSkills: true })).kind, "interest", "delegated skills on a drawn card: the fit alone");
 	assert.equal(cardPlan(drawn, fields()).kind, "adjudicate");
+});
+
+// ---- §150.6 decision 10: a package brief that still asks (live acceptance jev-accept-blood-02, turn 2) ------------
+
+const BRIEF = { FAKE_SETUP_SLOTS: "1" };
+const DRAFT_NOW_INPUT = "我叫艾琳，35岁，是自由摄影记者，擅长观察和查资料。驾驶保留基础值，其他背景和能力由你按这个概念安排，现在出卡。";
+
+test("§150.6 brief: asking for the card while the brief still asks issues draft_now, records the brief's stop note, and reaches the card fields and the draft", async (t) => {
+	const run = await drivenSetup({ env: BRIEF, responses: [bindCallFor("艾琳"), fauxAssistantMessage("艾琳的卡好了。")],
+		decide: (batch) => batch.family === SETUP_ROUTE_FAMILY ? answer(batch, { exit: "continue", move_draft_now: 0.94 })
+			: batch.family === SETUP_INTEREST_FAMILY ? answer(batch, {}) : answer(batch, { ...FIRST_FIELDS, stated_name: 0.97 }) });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(DRAFT_NOW_INPUT);
+	await waitForIdle(run.table.session);
+	const { table, decisions } = run;
+	assert.deepEqual(decisions[0].questions.map((question) => question.key), ["move_draft_now", "exit"], "the brief withholds card_fields and issues draft_now");
+	assert.equal(decisions[1]?.family, SETUP_FIELDS_FAMILY, "the card-field path runs");
+	const [stop] = kernel(table, "setup.note").filter((row) => row.params.slot === "stop");
+	assert.deepEqual([stop?.params.value, stop?.params.origin], [DRAFT_NOW_INPUT, "player"], "the brief's own stop note, in the player's words");
+	assert.ok(kernel(table, "setup.draft").length, "the draft is no longer held by the brief");
+	assert.equal(toolResults(table, SETUP_CARD_TOOL).at(-1)?.details.ok, true);
+	const [row] = setupRuns(table);
+	assert.equal(row.move, "draft_now");
+	assert.ok(row.withheld.includes("card_fields:brief_holds"));
+});
+
+test("§150.6 brief: answering a brief question without asking for the card stays the Keeper's: no stop note, no fields, no draft, and the run row names what was withheld", async (t) => {
+	const run = await drivenSetup({ env: BRIEF, responses: [fauxAssistantMessage("记者，好。那别人通常说你最擅长什么？")],
+		decide: (batch) => answer(batch, { exit: "ask_llm", move_draft_now: 0.08 }) });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt("我是个自由摄影记者。");
+	await waitForIdle(run.table.session);
+	assert.deepEqual(run.decisions.map((batch) => batch.family), [SETUP_ROUTE_FAMILY]);
+	assert.deepEqual(run.requests, [["setup"]], "the Keeper notes the answer and asks the next question with the full tool");
+	assert.equal(kernel(run.table, "setup.note").filter((row) => row.params.slot === "stop").length, 0);
+	assert.equal(kernel(run.table, "setup.draft").length, 0);
+	const [row] = setupRuns(run.table);
+	assert.equal(row.fallback, "ask_llm");
+	assert.ok(row.withheld.includes("card_fields:brief_holds") && row.withheld.includes("approve_card:no_card"), JSON.stringify(row.withheld));
+});
+
+test("§150.6: a run that offers no move says why: the decide row and the run row list the withheld conditions", async (t) => {
+	// A card already confirmed: no card-field move, nothing to load, nothing left to approve.
+	const run = await drivenSetup({ env: { FAKE_SETUP_RESUME: JSON.stringify({ ...RESUME, completed: [...RESUME.completed, "create-investigator", "confirm-investigator"] }) },
+		responses: [fauxAssistantMessage("好的。")], decide: (batch) => answer(batch, {}) });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt("随便看看。");
+	await waitForIdle(run.table.session);
+	assert.deepEqual(run.decisions, [], "nothing to ask");
+	const decide = run.table.entries("coc-telemetry").find((row) => row.lane === "setup" && row.event === "decide");
+	assert.equal(decide.status, "no_candidates");
+	assert.ok(decide.withheld.includes("card_fields:confirmed") && decide.withheld.includes("load_library:new_lane"), JSON.stringify(decide.withheld));
+	const [row] = setupRuns(run.table);
+	assert.equal(row.fallback, "no_candidates");
+	assert.deepEqual(row.withheld, decide.withheld);
+});
+
+test("§150.6: move gates name every withheld condition structurally", () => {
+	const brief = moveGates(read({ brief_holds: true }));
+	assert.deepEqual(brief.moves, ["draft_now"]);
+	assert.ok(brief.withheld.includes("card_fields:brief_holds") && brief.withheld.includes("choose_source:no_sources"));
+	assert.deepEqual(moveGates(read({ brief_holds: true, card: { revision: 1, summary: {}, profile: {} } })).moves, ["card_fields", "approve_card"], "a drawn card is revised, never held by the brief");
+	assert.ok(moveGates(read({ created: false })).withheld.includes("card_fields:no_campaign"));
+	assert.ok(moveGates(read({ catalog: null })).withheld.includes("draft_now:no_catalog"));
+});
+
+/** A cold call on the emitted kernel, the way the setup tests put a campaign in place before the session opens it. */
+function coldKernel(workspace, requests) {
+	const repo = join(import.meta.dirname, "..", "..");
+	const input = requests.map(([method, params], index) => JSON.stringify({ id: String(index), method, params })).join("\n");
+	const run = spawnSync(process.execPath, [join(repo, "build/kernel/rpc.mjs"), "--workspace", workspace, "--content", join(repo, "content")], { cwd: repo, input: `${input}\n`, encoding: "utf8" });
+	const frames = run.stdout.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line)).filter((frame) => !frame.progress);
+	for (const frame of frames) if (!frame.ok) throw new Error(`cold ${requests[Number(frame.id)][0]} failed: ${JSON.stringify(frame.error)}`);
+	return frames.map((frame) => frame.result);
+}
+
+test("§150.6 on the real kernel: a freshly created campaign's setup read offers a card move when the player first describes the investigator", async (t) => {
+	const campaign = "setup-drive-real";
+	const run = await drivenSetup({ responses: [fauxAssistantMessage("好的。")], decide: (batch) => answer(batch, { exit: "ask_llm" }),
+		env: { FAKE_SETUP_RESUME: undefined, FAKE_SETUP_CATALOG: undefined },
+		table: { campaign, realKernel: true, seedCampaign: false,
+			prepareWorkspace: (workspace) => coldKernel(workspace, [["campaign.create", { id: campaign, module: "the-haunting", play_language: "zh-Hans" }]]) } });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt("我叫艾琳，是自由摄影记者，现在出卡。");
+	await waitForIdle(run.table.session);
+	assert.deepEqual(run.table.extensionErrors, []);
+	const [route] = run.decisions;
+	assert.ok(route, "the route was asked: the real read issues at least one move");
+	const offered = route.questions.filter((question) => question.key.startsWith("move_")).map((question) => question.key.slice(5));
+	assert.ok(offered.includes("card_fields") || offered.includes("draft_now"), `a card move is offered: ${offered}`);
+	const [row] = setupRuns(run.table);
+	for (const blocked of ["no_campaign", "no_catalog", "library_lane", "confirmed", "loaded"])
+		assert.ok(!row.withheld.some((entry) => entry.endsWith(`:${blocked}`) && (entry.startsWith("card_fields") || entry.startsWith("draft_now"))), `${blocked} holds no card move: ${row.withheld}`);
+});
+
+test("§150.6: the shipped interest-fit gate is 0.5 (interest_row_ratio 1), and the named-skill rows carry the play-language label beside the rules name", async () => {
+	const shipped = await setupDrivenBudget(join(import.meta.dirname, "..", "..", "content"));
+	assert.deepEqual([shipped.interestRowMin, shipped.interestRowRatio, shipped.interestSkillMax], [0.5, 1, 6]);
+	const gate = { ...shipped, rowMin: shipped.interestRowMin, rowRatio: shipped.interestRowRatio };
+	assert.equal(clears({ status: "answered", type: "noul", noul: 0.5 }, gate), true);
+	assert.equal(clears({ status: "answered", type: "noul", noul: 0.49 }, gate), false);
+	const batch = fieldsBatch({ read: read(), scope, readSet: [] });
+	const spot = batch.questions.find((question) => question.key.startsWith("skill_") && /Spot Hidden/.test(question.instructions));
+	assert.match(spot.instructions, /"侦查" \(Spot Hidden\)/, "like with like: the label the catalog issues for the play language, beside the rules name");
+	assert.match(spot.instructions, /in any words/);
+	assert.match(spot.instructions, /kept at its starting value/);
 });

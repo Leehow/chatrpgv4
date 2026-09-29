@@ -81,7 +81,7 @@
     "decision_timeout_ms": 8000,
     "max_decisions": 3,
     "interest_row_min": 0.5,
-    "interest_row_ratio": 2,
+    "interest_row_ratio": 1,
     "interest_skill_max": 6
   }
 }
