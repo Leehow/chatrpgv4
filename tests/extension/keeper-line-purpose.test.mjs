@@ -159,13 +159,13 @@ async function b2Table(t, { prepareWorkspace = papersAsked, responses, purpose =
 	return { table, asked, npcAct, workspace: workspace.path };
 }
 
-test("B2 T9: a silent act this turn and the Keeper's added line asking for the papers again -- refused once, the fix names the row; the next delivery goes out", async (t) => {
+test("B2 T9: a repeated pending purpose is checked without generating a separate routine NPC act", async (t) => {
 	const { table, asked, npcAct, workspace } = await b2Table(t, { responses: (ws) => [narrate(ADDED), giveUp(ws), narrate(REWRITTEN)] });
 	const papers = ledgerRef(workspace, PAPERS);
 	assert.match(papers ?? "", /^intent:arty-wilmot:[0-9a-f]{12}$/, "the papers row is on Arty's ledger");
-	// The table's act this turn was generated and bound first: the silent one, a row of this turn.
-	assert.equal(npcAct.calls.length, 1);
-	assert.deepEqual(npcActRows(table).map((row) => [row.trigger, row.status, row.way, row.act]), [["engaged", "bound", "intention_only", SILENT]]);
+	// Ordinary conversation belongs to the Keeper; the existing pending purpose is still checked.
+	assert.equal(npcAct.calls.length, 0);
+	assert.deepEqual(npcActRows(table), []);
 
 	// One batch per delivery: the first reads the added line against the papers row, by §143.14's own question.
 	assert.equal(asked.length, 2, "one batch for each of the two deliveries");

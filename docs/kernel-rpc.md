@@ -28663,6 +28663,8 @@ The GUI police-return test found a source `location-arkham-police` carrying disc
 
 The module briefing's place roster reads the original source-location records, so projection does not erase them from the Keeper's overview or introduce improvised places as authored ones.
 
+Ordinary apply/resolve calls explicitly pass sceneUse play to the internal material gate, including pinned campaign views. Explicit source validation keeps the default source-readiness requirement. Being able to act in a scene never certifies its source dossier as prepared; existing explicit index-text landing remains available.
+
 ### 150.3 Explicit transcript navigation does not wait for animation frames
 
 The GUI continuation completed turns while the shell reported document.visibilityState hidden. The return-to-latest control only queued requestAnimationFrame, which Chromium may suspend for hidden content, leaving the visible transcript behind the committed world. An explicit return-to-latest click now issues the existing Virtuoso auto-scroll immediately; the bounded frame-based settling pass still handles later layout changes. This changes no game state or delivery status. It does not claim to repair the separate native blank-window observation. References: MDN Window.requestAnimationFrame and Electron BrowserWindow Page Visibility.

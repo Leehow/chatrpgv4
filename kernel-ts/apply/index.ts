@@ -144,7 +144,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             const textPeople = new Set(array(transaction.world.index_people).filter((value): value is string => typeof value === 'string'));
             let textLanded: TextLanding[] = [];
             if (contributions.requireMaterial)
-                textLanded = (await contributions.requireMaterial(graph, names, { moves, entered, people, textPeople, land: landRequests(params._land_on_text) })) ?? [];
+                textLanded = (await contributions.requireMaterial(graph, names, { sceneUse: 'play', moves, entered, people, textPeople, land: landRequests(params._land_on_text) })) ?? [];
             else if (playsFromReading(module.meta))
                 throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript apply runtime');
             const indexLanded = textLanded.filter(entry => entry.kind === 'scene');

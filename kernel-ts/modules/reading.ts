@@ -104,6 +104,8 @@ function pageRanges(pages: number[]): number[][] {
 }
 /** §22.4.7: what `requireMaterial` is told about the batch it gates. */
 export interface MaterialGate {
+    /** Ordinary gameplay uses known scene context; explicit source validation retains the default gate. */
+    sceneUse?: 'play';
     /** Move destinations by the name the batch gives `requireMaterial`: the effect's index, and whether the host asked it to land on the index text. */
     moves?: Map<unknown, {effect: number; land: boolean}>;
     /** Scenes the party entered on their index text (`world.index_scenes`): the party's place passes the gate. */
@@ -596,8 +598,10 @@ export class Reading {
      * `land` and the scene has index pages) and people (§22.4.7.1: the host asked with `_land_on_text` and the text names them).
      */
     async requireMaterial(graph: ModuleGraph, names: any[], gate: MaterialGate = {}): Promise<TextLanding[]> {
+        const sceneContext = (node: Row | null, name: unknown): boolean => !!node && node.node_kind === 'scene'
+            && (gate.entered?.has(graph.handle(node)) === true || gate.sceneUse === 'play' && !gate.moves?.get(name)?.land);
         if (graph.materialOverride) {
-            for (const name of names) if (typeof name === 'string' && graph.find(name) && graph.materialOverride(name) !== 'ready')
+            for (const name of names) if (typeof name === 'string' && graph.find(name) && graph.materialOverride(name) !== 'ready' && !sceneContext(graph.find(name), name))
                 throw new RpcError('needs', 'The pinned source material is not prepared; read the source and prepare a reviewed rebase', {details: {reason: 'adaptation_material_missing', focus: name}});
             return [];
         }
@@ -640,7 +644,7 @@ export class Reading {
             }
             // Section 150: a scene dossier is reference coverage, not permission to act here.
             // Retain explicit legacy index landing when the host asks for its source passages.
-            if (node && node.node_kind === 'scene' && !gate.moves?.get(name)?.land)
+            if (sceneContext(node, name))
                 continue;
             const move = gate.moves?.get(name), pages = move && node && node.node_kind === 'scene' ? await this.sceneIndexPages(graph, node) : [];
             if (move?.land && pages.length) {
