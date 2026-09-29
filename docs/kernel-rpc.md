@@ -8282,7 +8282,7 @@ chose, and the player chooses from what the player was told.
 
 ### 32.4 Reuse and cancellation
 
-A verdict is kept for the turn *(amended by §32.12.3.1, 2026-09-26: and each line's own verdict under the key a call of only that line would have)* under a host-owned canonical key of the proposal (`resolve`: actor,
+A verdict is kept for the turn *(amended by §32.12.3.1, 2026-09-26: and each line's own verdict under the key a call of only that line would have; and by §32.12.3.1.1, 2026-09-29: that line key also carries the order-free signatures of the line's reviewed batch-mates, so a line's verdict is reused only beside the same batch)* under a host-owned canonical key of the proposal (`resolve`: actor,
 intent, goal, method, skill, target, weapon, spell, object, push, luck, defense; `apply`: each effect's
 kind and its identifying fields, order-free; `why`, `how`, `label` and `decision` are outside the key,
 so a `needs_choice` retry or a rationale bolted on reuses its verdict). Admitting and refusing verdicts
@@ -9180,7 +9180,8 @@ their own keys (a verdict kept or a round still running) is admitted line by lin
 the batch again at once and nothing else of it is reviewed; otherwise the known lines are reused or re-joined and the
 unknown ones reviewed as a proposal of their own (one call per line when two or more), and the batch's verdict is the
 combination of all of them. So the Keeper's retry without a refused line lands on the kept verdicts of the lines that were
-admitted, with no new review. The next player input still clears every verdict. §32.12.4's prefetch does not start a
+admitted, with no new review *(no longer, since §32.12.3.1.1, 2026-09-29: a line's key carries its batch-mates, so a retry
+whose batch-mates changed is reviewed again, and each line's call reads its batch-mates)*. The next player input still clears every verdict. §32.12.4's prefetch does not start a
 review of a batch one of whose lines is already known under its own key: the real call reuses or re-joins it.
 
 **The outage streak** (§32.2) counts the lines of one call as one review: a batch whose lines all failed is one failure, and
@@ -9222,6 +9223,93 @@ line), and cleared by a new player input; one outage per call; a one-line batch 
 call per line; a §32.12.4 prefetch collected line by line, and none started for a batch one of whose lines is known; the pure rules (`reviewedPerLine`, `lineProposal`,
 `lineReading`, `batchRefusal`'s order). The suites whose premise was one lane call per batch now count one call per line.
 Mutations and the offline estimate for gate #23 are in the SL-101 ticket's Comments.
+
+##### 32.12.3.1.1 Addendum (2026-09-29, SL-104): a line is reviewed beside its batch, and its verdict is kept only beside the same batch (amends §32.3, §32.4 and §32.12.3.1)
+
+**Why.** Installed App, campaign `game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046`, turn 25 (lane `opencode-go/deepseek-v4.1-flash`,
+thinking off). The Keeper's batch `time minutes=55` + `move to=martins-beach-field` was reviewed one line per call
+(§32.12.3.1). The move line was `authorized`; the time line, read alone, was refused `not_authorized` for "only reaching the
+fishing village, not the cemetery" -- judged on its batch-mate's destination, which the lane pieced together from the time's
+own `why` and the player's words without seeing the move. The Keeper changed the destination (`move to=poe-cemetery-visit`)
+and rewrote the time's `why`; the time line's key (`{kind: time, minutes: 55}`) was the same, so the refusal came back
+`reused: true`, `ms: 0`, with grounds about a destination the batch no longer proposed and a `fix` saying not to resend: no
+lawful way was left in the turn. §32.4's reuse is sound only when a verdict depends on nothing outside its key, and
+§32.12.3.1 made that false for lines. The defect is the class, not the pair: any reviewed line whose meaning is read
+against another line of its call -- cash beside the item it pays for, a clue beside the move that makes it reachable, an
+object beside its usage, a time beside a trip -- judged without that line, then reused under a key that carries neither.
+§156 (the same day) makes turn 25's own shape rarer, since a travelling move counts its journey and a `time` beside it must
+declare `beyond_travel`, but it does not close the class: admission runs before the kernel's guard, and a move of 0 minutes
+is outside it. Owner ruling, 2026-09-29: the SL-104 ticket's recommendation, A and B together -- if a line's verdict may
+depend on its batch-mates (A), its key must carry them (B).
+
+**A: a line's call reads its batch.** Each per-line call still judges exactly one line: `[The Keeper now proposes]` holds
+that line alone and the verdict is that line's. Its input also lists the call's other reviewed lines, rendered exactly as
+the batch renders them (a move's `registered_destination` included), under their own heading, placed after `[Already
+refused this turn]` and before `[The Keeper now proposes]`:
+
+```
+[Also proposed in the same call, beside the line you judge -- read only; each is judged in its own review, not in yours]
+- apply move: to="martins-beach-field"; ...; registered_destination={...}
+```
+
+`lineProposal` (`extensions/kernel/admission.ts`) sets the line's `beside` (those lines and their `effectSignature`s);
+`buildAdmissionInput` renders it. The system prompt, the model, thinking and the rest of §32.3's input are unchanged; a
+proposal with no `beside` -- a one-line batch, a `resolve` -- has an input byte for byte what it was. A line refused beside
+its batch is remembered for the turn's later reviews (`[Already refused this turn]`) with the lines it was refused beside,
+`<line> [beside: <line> | <line>] -> <verdict>: <missing>`, so a later review reads that refusal against the batch it
+belonged to, and a line proposed again beside different batch-mates is not taken for the same action in other words.
+
+**B: a line's verdict is kept only beside the same batch.** The key a line's verdict is kept under, and its running round
+parked under (§32.4 keyed by line, §32.12.2), is the key a call of only that line would have extended by the order-free
+signatures (`effectSignature`, §32.4's identifying fields) of the call's other reviewed lines (`besideBatch`, used by
+`admissionLines` in `extensions/kernel/index.ts`). So:
+- a resend that is identical, or differs only in fields `effectSignature` does not read (`why`, `how`, ...), finds every line
+  under the same key: a kept refusal refuses at once, kept admissions are reused and kept rounds re-joined, exactly as
+  §32.12.3.1 says;
+- a resend whose batch-mates changed -- a reviewed line added, dropped, or changed in a field `effectSignature` reads -- finds
+  none of its lines, and each is reviewed again beside its new batch-mates. That includes the Keeper's retry without a
+  refused line: §32.12.3.1's "the Keeper's retry without a refused line lands on the kept verdicts of the lines that were
+  admitted, with no new review" no longer holds, because those verdicts were given beside the line that is gone (the time
+  of a trip admitted beside the trip is not a verdict on the time alone);
+- a one-line batch's key is what it was, and is never the key of a line of a larger batch.
+
+The batch's own key (§32.4: every effect's signature and the move targets) and the combined verdict it keeps when every
+line was admitted are unchanged. An effect no reviewer reads (§32.12.3's owner amendment) is nobody's batch-mate: it is in
+neither the context nor a line's key.
+
+**Lines known and lines not.** When a later call's lines are known under their own keys only in part -- a line whose review
+failed keeps no verdict (§32.2), its batch-mates' verdicts are kept -- the unknown lines are reviewed as a proposal of their
+own that carries the known lines as its `beside`: each unknown line's call reads every other reviewed line of the call,
+and its verdict is kept under the same key a review of the whole batch would have used.
+
+**What is unchanged.** What §32.1 puts to review. The typed reviewer (§32.10, §32.12.3.2): its one attempt already reads
+every line of the proposal it is given and its request is unchanged; a line it settles is kept under that line's key like
+any line. The compile's and the consequence route's exemptions (§32.12, §32.12.5): policy-origin single effects, never
+reviewed per line. §32.12.2's cap, late admission, pending and resend; the batch's verdict (§32.10's mapping; a
+lane-reviewed batch lands whole or not at all); the telemetry's columns (a line row's `key` is the digest of its key as
+defined here). The remainder of §32.12.3's retired split is not reached (§32.12.3.2) and is left as it was.
+
+**Cost (measured offline, no model call).** The ticket asked for SL-101's per-line time before landing. A line's call
+grows by its batch-mates' lines and one heading; its output (one verdict) does not. The admission-jev-bank's multi-line
+`apply` cases, re-projected through the product's own `admissionRequest` and `buildAdmissionInput`, and the lane times
+already measured on those inputs are in the SL-104 ticket's Comments.
+
+**Three ends (§31).** *Writer:* `lineProposal` (`beside`) and `besideBatch` (the key); `admitOne`'s refusal record.
+*Reader:* the lane, through `buildAdmissionInput`; `admitAction`'s per-line reuse (`state.admission`,
+`state.admissionPending`, keyed through `admissionLines`) and §32.12.4's prefetch check, which reads the same keys.
+*Actor:* the lane, judging a line with its batch in view; the Keeper, whose resend with changed batch-mates is judged again
+instead of refused on a verdict about a batch it no longer proposes.
+
+*Tests* (`tests/extension/admission-line-batch-context.test.mjs`; `admission-lines-parallel.test.mjs`'s reuse and
+prefetch tests restated for batch-scoped keys): the pure rules (`lineProposal`'s `beside`, `besideBatch` order-free and a
+no-op with no batch-mates, the input's heading before `[The Keeper now proposes]` and absent for a one-line proposal);
+turn 25's batch reconstructed, the time line's call reading the move beside it and the move's reading the time; the
+destination changed on the resend and the time line reviewed again (`reused: false`), its input carrying the new move and
+the earlier refusal with the move it was refused beside; cash beside an item, the item changed and the cash line reviewed
+again; a clue beside a move, the move's target changed and the clue reviewed again; an identical or `why`-only resend
+reusing every line (a kept refusal at once, a kept admission with no call); a retry without the refused line reviewing the
+admitted one again; a line whose review failed reviewed on the identical resend beside its known batch-mate and kept under
+the batch-scoped key; one-line batches and `resolve` unchanged. Mutations are in the SL-104 ticket's Comments.
 
 #### 32.12.3.2 Addendum (2026-09-27, SL-97 phase 2b): the typed reviewer reads the measured role-first design and settles a line alone only of a class the measurement cleared (amends §32.7, §32.10, §32.11, §32.12.2, §32.12.3 and §32.12.3.1)
 

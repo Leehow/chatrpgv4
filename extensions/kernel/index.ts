@@ -116,6 +116,7 @@ import {
 	reviewAdmissionPrimary,
 	reviewedPerLine,
 	lineProposal,
+	besideBatch,
 	batchRefusal,
 	REFUSING_VERDICTS,
 } from "./admission.ts";
@@ -2470,12 +2471,18 @@ export default function (pi: ExtensionAPI) {
 	 * §32.12.3.1 (SL-101): each reviewed line of a proposal as a call of only that line would propose it -- its effect and
 	 * its own proposal, whose key is the one its verdict is kept under and its running round parked under (§32.4 keyed by
 	 * line). `effects` is what `proposal.effects` indexes (the call's effects, or a remainder's).
+	 *
+	 * §32.12.3.1.1 (SL-104): proposed beside its batch-mates -- the proposal's other lines and those it was itself proposed
+	 * beside (`lineProposal`'s `beside`) -- so the lane reads them and the key carries them (`besideBatch`): a line's verdict
+	 * is reused only beside the same batch.
 	 */
 	function admissionLines(tool: "resolve" | "apply", proposal: AdmissionProposal, effects: Array<Record<string, unknown>>,
 		scopeFor: Awaited<ReturnType<typeof admissionScopeBuilder>>): Array<{ line: string; effect: Record<string, unknown>; proposal: AdmissionProposal }> {
 		return proposal.lines.map((line, index) => {
 			const effect = effects[proposal.effects?.[index] ?? index] ?? {};
-			return { line, effect, proposal: admissionRequest(tool, { effects: [effect] }, scopeFor([effect])) ?? { ...lineProposal(proposal, index), key: `${proposal.key}#${index}` } };
+			const own = lineProposal(proposal, index);
+			const alone = admissionRequest(tool, { effects: [effect] }, scopeFor([effect]));
+			return { line, effect, proposal: alone ? besideBatch(alone, own.beside) : { ...own, key: `${proposal.key}#${index}` } };
 		});
 	}
 
@@ -2649,7 +2656,10 @@ export default function (pi: ExtensionAPI) {
 				if (admitted) return;
 				// §32.12: a review cut at its cap judged nothing a rewording could repeat, so the reviewer is not told it refused.
 				if (timedOut) throw admissionTimedOut(proposal, verdict.capMs ?? 0, ms);
-				state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
+				// §32.12.3.1.1: a line refused beside its batch is remembered with it, so a later review reads the refusal against
+				// the batch it belonged to, not as a bare line a resend beside other batch-mates would repeat in other words.
+				const beside = proposal.beside?.lines.length ? ` [beside: ${proposal.beside.lines.join(" | ")}]` : "";
+				state.admissionRefused.push(`${proposal.lines.join(" | ")}${beside} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
 				throw admissionRefusal(proposal, verdict);
 			};
 			// §32.12.3.1: a line whose outcome is already in hand was not known when its batch's review began; it is settled as is.
@@ -2971,7 +2981,13 @@ export default function (pi: ExtensionAPI) {
 					const statuses: LineStatus[] = p.lines.map(() => ({ admitted: true }));
 					const fresh = lines.flatMap((_, index) => kept[index] ? [] : [index]);
 					const freshEffects = fresh.map((index) => lines[index]!.effect);
-					const freshProposal = fresh.length ? admissionRequest(tool, { effects: freshEffects }, scopeFor(freshEffects)) : null;
+					// §32.12.3.1.1: the unknown lines are proposed beside the known ones, so each one's call reads every other line
+					// of this call and its verdict is kept under the key a review of the whole batch would have used.
+					const knownAt = lines.flatMap((_, index) => kept[index] ? [index] : []);
+					const freshAlone = fresh.length ? admissionRequest(tool, { effects: freshEffects }, scopeFor(freshEffects)) : null;
+					const freshProposal = freshAlone && besideBatch(freshAlone, {
+						lines: [...knownAt.map((index) => lines[index]!.line), ...(p.beside?.lines ?? [])],
+						signatures: [...knownAt.map((index) => effectSignature(lines[index]!.effect)), ...(p.beside?.signatures ?? [])] });
 					const freshFrame: LineFrame = { ...frame, numbers: fresh.map((index) => frame.numbers[index]!) };
 					const streak = { counted: false }, buffer: Array<Record<string, unknown>> = [];
 					await Promise.all([

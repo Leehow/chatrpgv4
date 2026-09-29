@@ -10,7 +10,9 @@
  *   lines still running.
  * - The cap, the late admission and `review_pending` apply per call: the batch is pending only on the lines still under
  *   review, and its resend re-joins only those.
- * - Verdict reuse (§32.4) keys by line.
+ * - Verdict reuse (§32.4) keys by line. Since §32.12.3.1.1 (SL-104) each line's call also reads its batch-mates, and its key
+ *   carries them: the same batch reuses a line's verdict, a batch whose other lines changed is reviewed again
+ *   (`admission-line-batch-context.test.mjs` pins the rule).
  * - A one-line batch and a `resolve` are what they were; the compile's and the consequence route's own admissions are
  *   pinned by `admission-within-turn.test.mjs` and `consequence-admission.test.mjs`, unchanged. Since §32.12.3.2 (SL-97
  *   phase 2b) the typed reading settles a line of the batch (a listed class at the settle confidence) as that line's own
@@ -29,6 +31,7 @@ import { manualClock, runWaitsPastRound } from "./manual-clock.mjs";
 import { installTypedEndpoint } from "./typed-admission-endpoint.mjs";
 import { KernelError } from "../../extensions/kernel/client.ts";
 import {
+	BESIDE_HEADING,
 	REVIEW_PENDING,
 	admissionPending,
 	admissionRefusal,
@@ -70,7 +73,10 @@ function clockLane(clock, T0, cases, count = 8) {
 	const step = async (context) => {
 		const text = userText(context), proposed = admissionProposes(text);
 		const [, row, at] = cases.find(([pattern]) => pattern.test(proposed)) ?? [null, ok("default"), 0];
-		const entry = { startedAt: clock.at() - T0, proposed, lines: proposedLines(text).length, context: text.slice(0, text.indexOf("[The Keeper now proposes]")) };
+		// §32.12.3.1.1: the context every line's call shares ends where its batch-mates are listed.
+		const shared = text.includes(BESIDE_HEADING) ? text.indexOf(BESIDE_HEADING) : text.indexOf("[The Keeper now proposes]");
+		const entry = { startedAt: clock.at() - T0, proposed, lines: proposedLines(text).length, context: text.slice(0, shared),
+			beside: text.slice(shared, text.indexOf("[The Keeper now proposes]")).split("\n").filter((line) => line.startsWith("- ")) };
 		calls.push(entry);
 		await clock.until(T0 + at);
 		return fauxAssistantMessage(JSON.stringify(row));
@@ -89,12 +95,14 @@ const installJev = (t, lines, delayMs = 0, clock) => installTypedEndpoint(t, lin
 
 // ---- the pure rules ---------------------------------------------------------------------------------------------------
 
-test("§32.12.3.1 reviewedPerLine / lineProposal: only an apply batch of more than one reviewed line, one line at a time", () => {
-	const batch = { tool: "apply", key: "k", lines: ["apply time: a", "apply clue: b", "apply move: c"], kinds: ["time", "clue", "move"], effects: [0, 2, 3] };
+test("§32.12.3.1 reviewedPerLine / lineProposal: only an apply batch of more than one reviewed line, one line at a time, beside the others (§32.12.3.1.1)", () => {
+	const batch = { tool: "apply", key: "k", lines: ["apply time: a", "apply clue: b", "apply move: c"], kinds: ["time", "clue", "move"], effects: [0, 2, 3],
+		signatures: ["sa", "sb", "sc"] };
 	assert.equal(reviewedPerLine(batch), true);
 	assert.equal(reviewedPerLine({ ...batch, lines: ["apply time: a"], kinds: ["time"], effects: [0] }), false, "a one-line batch is unchanged");
 	assert.equal(reviewedPerLine({ tool: "resolve", key: "r", lines: ["resolve: x"] }), false, "a resolve is one line");
-	assert.deepEqual(lineProposal(batch, 1), { tool: "apply", key: "k", lines: ["apply clue: b"], kinds: ["clue"], effects: [2] });
+	assert.deepEqual(lineProposal(batch, 1), { tool: "apply", key: "k", lines: ["apply clue: b"], kinds: ["clue"], effects: [2], signatures: ["sb"],
+		beside: { lines: ["apply time: a", "apply move: c"], signatures: ["sa", "sc"] } });
 });
 
 test("§32.12.3.1 lineReading: the batch's typed answer as one line reads it -- that line's verdict and confidence", () => {
@@ -152,6 +160,10 @@ test("§32.12.3.1: a three-line batch is three lane calls at once, one line each
 	assert.deepEqual(lane.calls.map((entry) => entry.startedAt), [0, 0, 0], "all three were in flight before any answered");
 	assert.ok(lane.calls.every((entry) => entry.lines === 1), "each call proposes exactly one line");
 	assert.ok(lane.calls.every((entry) => entry.context === lane.calls[0].context), "each call reads the same context");
+	// §32.12.3.1.1: and beside it, the batch's two other lines.
+	for (const entry of lane.calls) assert.deepEqual(entry.beside.map((line) => line.split(";")[0]).sort(),
+		['- apply clue: clue="corbitt-diaries"', '- apply clue: clue="knott-commission"', "- apply time: minutes=45"].filter((line) => !entry.proposed.includes(line.slice(2))),
+		`${entry.proposed.split("\n")[1]} is read beside the other two`);
 	assert.match(lane.calls[0].context, /我回诺特办公室，把查到的告诉他。/);
 	for (const pattern of [/apply time/, /corbitt-diaries/, /knott-commission/])
 		assert.equal(lane.calls.filter((entry) => pattern.test(entry.proposed)).length, 1, `${pattern} on exactly one call`);
@@ -261,22 +273,31 @@ test("§32.12.3.1: every line past the cap -- the resend of the identical call r
 });
 
 test("§32.12.3.1 with §32.12.4: a response's batch whose line is already known is not prefetched; its call reuses that line and reviews the rest", async (t) => {
+	// §32.12.3.1.1: a line is known only beside the same batch, so the known line comes from the identical batch before it,
+	// whose diaries line failed (a malformed answer twice, §143.15) and so kept no verdict while the time line kept its own.
+	let diaries = 0;
+	const step = async (context) => {
+		const proposed = admissionProposes(userText(context));
+		if (/corbitt-diaries/.test(proposed) && ++diaries <= 2) return fauxAssistantMessage("not json at all");
+		if (/apply time/.test(proposed)) return fauxAssistantMessage(JSON.stringify({ verdict: "entailed", grounds: "reporting back takes the walk" }));
+		return fauxAssistantMessage(JSON.stringify(ok("told on the report")));
+	};
 	const table = await openTable({
 		responses: [call("apply", { effects: [TIME, DIARIES] }),
-			fauxAssistantMessage([fauxToolCall("apply", { effects: [TIME, COMMISSION] }), fauxToolCall("apply", { effects: [MOVE] }),
+			fauxAssistantMessage([fauxToolCall("apply", { effects: [TIME, DIARIES] }), fauxToolCall("apply", { effects: [MOVE] }),
 				fauxToolCall("narrate", { text: "你把查到的事说给诺特听。" })], { stopReason: "toolUse" }), fauxAssistantMessage("after")],
-		laneResponses: { admission: laneByLine([[/apply time/, { verdict: "entailed", grounds: "reporting back takes the walk" }],
-			[/corbitt-diaries/, { verdict: "not_authorized", grounds: "nothing asked of the house", missing: "whether to ask about the house" }, 150],
-			[/knott-commission|apply move/, ok("told on the report"), 100]]) } });
+		laneResponses: { admission: Array.from({ length: 8 }, () => step) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
 	const proposed = table.lanes.admission.requests().map((text) => proposedLines(text)[0].split(":")[0]).sort();
-	assert.deepEqual(proposed, ["- apply clue", "- apply clue", "- apply move", "- apply time"],
-		"the time line was reviewed once, in the first batch; the second batch's call reused it and reviewed only its new line");
+	assert.deepEqual(proposed, ["- apply clue", "- apply clue", "- apply clue", "- apply move", "- apply time"],
+		"the time line was reviewed once, in the first call; the second call reused it and reviewed only the diaries line again");
 	const rows = admissionRows(table);
-	assert.ok(rows.some((row) => row.reused && /^apply time/.test(row.proposed[0]) && row.batch_admitted === true), JSON.stringify(rows));
+	assert.ok(rows.some((row) => row.reused && row.lines?.[0] === 1 && row.batch_admitted === true), JSON.stringify(rows));
+	// §32.12.4: the other write's review was started at message_end and collected; the batch with a known line's was not.
+	assert.deepEqual(rows.filter((row) => row.concurrent).map((row) => row.proposed[0].split(":")[0]), ["apply move"], JSON.stringify(rows));
 	assert.deepEqual(kernelCalls(table, "table.apply").map((entry) => entry.params.effects.map((effect) => effect.clue ?? effect.kind)),
-		[["time", "knott-commission"], ["move"]]);
+		[["time", "corbitt-diaries"], ["move"]]);
 });
 
 test("§32.12.3.1: the cap applies per call -- a line past it is admitted late on its own typed reading while its batch-mate answered", async (t) => {
@@ -392,33 +413,37 @@ test("§32.12.3.1 with §32.12.3.2: once a line's lane has given a verdict, the 
 
 // ---- reuse keyed by line ----------------------------------------------------------------------------------------------------
 
-test("§32.12.3.1: verdict reuse keys by line -- a line judged in one batch is reused in the next, admitting and refusing alike", async (t) => {
+test("§32.12.3.1 with §32.12.3.1.1: verdict reuse keys by line beside its batch -- the same batch reuses, a changed batch is reviewed again", async (t) => {
 	const table = await openTable({
-		responses: [call("apply", { effects: [TIME, DIARIES] }), call("apply", { effects: [{ ...TIME, why: "The walk back." }, COMMISSION] }),
-			call("apply", { effects: [{ ...TIME, why: "Again." }] }), call("apply", { effects: [DIARIES, MOVE] }), ...close],
+		responses: [call("apply", { effects: [TIME, DIARIES] }),
+			call("apply", { effects: [{ ...TIME, why: "The walk back." }, { ...DIARIES, how: "Knott said so." }] }),
+			call("apply", { effects: [TIME, COMMISSION] }), call("apply", { effects: [{ ...TIME, why: "Again." }] }), ...close],
 		laneResponses: { admission: laneByLine([[/apply time/, { verdict: "entailed", grounds: "reporting back takes the walk" }],
 			[/knott-commission/, { verdict: "authorized", grounds: "told on the report" }],
 			[/corbitt-diaries/, { verdict: "not_authorized", grounds: "nothing asked of the house", missing: "whether to ask about the house" }, 150]]) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
-	// The Keeper drops the refused line and adds another: the time line is reused, only the new line is reviewed.
 	const proposed = table.lanes.admission.requests().map((text) => proposedLines(text)[0].split(";")[0]);
-	assert.deepEqual(proposed.sort(), ['- apply clue: clue="corbitt-diaries"', '- apply clue: clue="knott-commission"', "- apply time: minutes=45"],
-		"three lane calls in all: the first batch's two lines, then the one new line");
+	assert.deepEqual(proposed.sort(), ['- apply clue: clue="corbitt-diaries"', '- apply clue: clue="knott-commission"',
+		"- apply time: minutes=45", "- apply time: minutes=45", "- apply time: minutes=45"],
+		"the rationale-only resend made no call; the batch without the diaries line and the time line alone were each reviewed again");
 	const applies = kernelCalls(table, "table.apply");
-	assert.deepEqual(applies.map((entry) => entry.params.effects.map((effect) => effect.clue ?? effect.kind)), [["time", "knott-commission"], ["time"]],
-		"the time line landed on its own kept verdict beside the new line, then alone");
+	assert.deepEqual(applies.map((entry) => entry.params.effects.map((effect) => effect.clue ?? effect.kind)), [["time", "knott-commission"], ["time"]]);
 	const results = toolResults(table.session, "apply");
-	assert.deepEqual(results.map((result) => result.isError), [true, false, false, true]);
-	assert.equal(results[3].details.coc_error.details.missing, "whether to ask about the house", "refused at once on the diaries line's kept verdict");
+	assert.deepEqual(results.map((result) => result.isError), [true, true, false, false]);
+	assert.equal(results[1].details.coc_error.details.missing, "whether to ask about the house", "refused at once on the diaries line's kept verdict");
 	const rows = admissionRows(table);
 	const shape = (row) => [row.verdict, row.reused, row.proposed[0].split(":")[0]];
 	assert.deepEqual(rows.slice(0, 2).map(shape), [["entailed", false, "apply time"], ["not_authorized", false, "apply clue"]]);
-	assert.deepEqual(rows.slice(2, 4).map(shape).sort(), [["authorized", false, "apply clue"], ["entailed", true, "apply time"]]);
-	assert.ok(rows.slice(2, 4).every((row) => row.batch_admitted === true));
-	assert.deepEqual(rows.slice(4).map(shape), [["entailed", true, "apply time"], ["not_authorized", true, "apply clue"]]);
-	assert.equal(rows[4].key, rows[0].key, "the one-line batch's key is the time line's own");
-	assert.ok(!rows.some((row) => /apply move/.test(row.proposed[0])), "the move was not reviewed: the kept refusal decided its batch");
+	assert.deepEqual(rows.slice(2, 3).map(shape), [["not_authorized", true, "apply clue"]], "the same batch reworded: the kept refusal, no call");
+	assert.equal(rows[2].key, rows[1].key);
+	// The time line was admitted beside the diaries line; beside the commission, and alone, it is a different proposal.
+	assert.deepEqual(rows.slice(3, 5).map(shape).sort(), [["authorized", false, "apply clue"], ["entailed", false, "apply time"]]);
+	assert.ok(rows.slice(3, 5).every((row) => row.batch_admitted === true));
+	assert.deepEqual(rows.slice(5).map(shape), [["entailed", false, "apply time"]]);
+	const timeKeys = new Set(rows.filter((row) => /^apply time/.test(row.proposed[0])).map((row) => row.key));
+	assert.equal(timeKeys.size, 3, "beside the diaries, beside the commission, and alone: three keys");
+	assert.equal(rows[5].line_level, undefined, "the time line alone is a one-line call");
 });
 
 test("§32.12.3.1: a new player input clears the lines' kept verdicts with the rest (§32.4)", async (t) => {
@@ -463,6 +488,7 @@ test("§32.12.3.1: a one-line batch and a resolve are one lane call each, and th
 	const requests = table.lanes.admission.requests();
 	assert.equal(requests.length, 2);
 	assert.ok(requests.every((request) => proposedLines(request).length === 1));
+	assert.ok(requests.every((request) => !request.includes(BESIDE_HEADING)), "§32.12.3.1.1: nothing beside a lone line");
 	const rows = admissionRows(table);
 	assert.equal(rows.length, 2);
 	for (const row of rows) for (const field of ["line_level", "line_calls", "line_ms", "batch_ms", "batch_admitted", "batch_key"])
