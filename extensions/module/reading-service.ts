@@ -19,6 +19,7 @@ import type {PublicationTravel, TravelFill} from './travel-fill.ts';
 import {runSourceReference} from './source-reference.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
+import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
@@ -233,6 +234,9 @@ function providerFailure(run: ReaderOutcome, shared: boolean): { error: KernelEr
 /** §22.3.3 (SL-57): what a reader re-reading a refused focus is told (system language). */
 export const REVIEW_RETRY_ASK = "An earlier reading of this focus was refused at independent review: task.review_retry.refused lists each refused field "
 	+ "with the reviewer's reason. Re-read the pages those fields came from and write only what the pages state; correct or drop what they do not.";
+/** §150.4: what a unit reader is told about the retained source needs located inside its pages (system language). */
+export const CARRIED_NEEDS_ASK = "task.carried_needs lists open source questions about known entities whose located pages fall inside your assigned pages. "
+	+ "Answer each one from those pages only, as ordinary records with source_refs, when the pages state it; add nothing for a question they do not answer.";
 function refusedReading(params: Row, refusal: Row, fix: string): KernelError {
 	const of = String(params.focus ?? "").trim(), at = typeof refusal.path === "string" && refusal.path ? ` at ${refusal.path}` : "";
 	const failure = new KernelError({ code: "needs", fix,
@@ -884,7 +888,7 @@ export class ReadingService implements ReadingBridge {
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
 		const task: Row = { purpose: job.purpose,
-            ...Object.fromEntries(['review_policy','source_unit','review_scope_pages'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
+            ...Object.fromEntries(['review_policy','source_unit','review_scope_pages','source_need','carried_needs'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {guidance_key:job.guidance_key,public_progress_required:job.public_progress===true,
 				play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes, field_spans: job.field_spans ?? {},
@@ -1089,7 +1093,7 @@ export class ReadingService implements ReadingBridge {
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`
 								: guidanceProjection ? `${readerInput({task})} The selected entrance and public module facts are already source-reviewed. The host wrote an unchanged scene shard to draft.json; do not rewrite it. Use the original page images supplied in context, and pdf only for a missing or newly needed original page. Write the five guidance fields for task.focus in the player's language where requested. If a necessary public fact is absent, request its source instead of inventing it. Submit guidance and the required public_fields with submit_reading as your sole final tool call. ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}`
-								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}${job.resumed?.reread === true ? " The published material on this focus changed since the retained draft was written: check it against the current task and the pages, and repair what no longer holds." : ""}${job.review_retry ? ` ${REVIEW_RETRY_ASK}` : ""}`,
+								: `${readerInput({task})} Your phase is ${phase}. ${job.repair === "way_on" ? WAY_ON_ASK + " " : ""}Use page images to produce draft.json. If a draft was retained from this same interrupted request, inspect its sources and repair it instead of rewriting merely for style. ${["guidance","opening","detail","answer"].includes(job.purpose) ? "Use submit_reading as your sole final tool call to save/check this batch and finish without a closing reply." : ""} ${round > 1 || job.resume_from ? "Read findings.json if present and address its concrete findings." : ""}${job.resumed?.reread === true ? " The published material on this focus changed since the retained draft was written: check it against the current task and the pages, and repair what no longer holds." : ""}${job.review_retry ? ` ${REVIEW_RETRY_ASK}` : ""}${Array.isArray(job.carried_needs) && job.carried_needs.length ? ` ${CARRIED_NEEDS_ASK}` : ""}`,
 							onEvent(event) {
 								if (event.type === "tool_execution_start" && event.toolName === "read" && event.args?.path) reads.set(event.toolCallId, resolve(cwd, event.args.path));
 								if (event.type === "tool_execution_end" && !event.isError && event.result?.content?.some((c: Row) => c.type === "image")) {
@@ -1121,10 +1125,16 @@ export class ReadingService implements ReadingBridge {
 							} catch (failure) { pageLogFailure = failure; }
 						}
 						const pagesRead = [...new Set(rows.map(row => row.page))];
+						// §150.4: a background need read's decision, read before the row is written so the row can name it.
+						let need: NeedReceipt | undefined, needFailure: unknown;
+						if (run.ok && phase === "read" && task.source_need)
+							try { need = await readNeedReceipt({cwd, command: run.command, startedAt: sourceRunStartedAt, key: task.source_need.key}); }
+							catch (failure) { needFailure = failure; }
 						this.deps.record({ lane: "reading", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "",
 							model: model.id, thinking: model.thinking, phase, round, ms: run.ms, ok: run.ok, image_reads: imagePaths.size,
 							...(run.ok && !pageLogFailure ? { pages: pagesRead } : {}), ...(run.usage ? { usage: run.usage } : {}), ...(run.overruns?.length ? { overruns: run.overruns.length } : {}),
-							...(run.refusal ? { refusal: run.refusal.reason } : run.providerError ? { refusal: "transport" } : {}) });
+							...(run.refusal ? { refusal: run.refusal.reason } : run.providerError ? { refusal: "transport" } : {}),
+							...(need ? { need_disposition: need.disposition } : {}) });
 						overrunRows(run, phase, round);
 						// §20 addendum 2: the reader's cost per page of this book, measured, for the next stage's lease.
 						if (run.usage) await appendFile(join(cwd, "usage.jsonl"), JSON.stringify({ job_id: job.job_id, phase, round, ok: run.ok && !pageLogFailure,
@@ -1138,6 +1148,19 @@ export class ReadingService implements ReadingBridge {
 							throw failure.error;
 						}
 						if (!run.ok) throw new Error(run.error || (run.timedOut ? "reader timed out" : run.stderr || "reader failed"));
+						if (needFailure) throw needFailure;
+						// §150.4: answered, unlocated or carried settles the attempt without an author; `read` goes on as today.
+						if (need) {
+							const decided = { disposition: need.disposition, ...(need.distribution ? { distribution: need.distribution, gate: need.gate } : {}),
+								...(need.units ? { units: need.units } : {}), ...(need.evidence ? { evidence: need.evidence } : {}) };
+							this.note({ lane: "reading", event: "source_need", module_id: job.module_id, campaign, job_id: job.job_id, focus: job.focus ?? "", ...decided });
+							if (need.disposition !== "read") {
+								await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, outcome: "settled",
+									need: { ...decided, material_digest: need.material_digest } }, campaign);
+								await this.call("module.read.ahead", { module_id: job.module_id }, campaign).catch(() => undefined);
+								return;
+							}
+						}
 						await requireCheckedSourceReceipt({cwd,run,sourceSha:job.source.file_sha256,
 							purpose:job.purpose,startedAt:sourceRunStartedAt});
 						if(job.public_progress===true){

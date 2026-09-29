@@ -778,3 +778,153 @@ test('the real source checker reports assigned pages before submission verifies 
  assert.equal(run.status,0,run.stdout||run.stderr);assert.deepEqual(JSON.parse(run.stdout).required_view_pages,[1,2]);
  assert.throws(()=>api.checkDraft(candidate,task,contract,new Set([1])),/assigned original pages/);
 });
+
+// §150.4 (ticket 04): need-driven background reads locate first. The host's Jev decisions arrive as the `settled`
+// finish the reading service sends; these cases hold the kernel's half -- marker, packet, disposition, eligibility, order.
+const NEED_Q='Any later appendix combat profile for Lena if printed separately';
+async function needBook(name){
+ const require=createRequire(import.meta.url),flock=promisify(require('fs-ext').flock);
+ const workspace=join(evidence,name),path=join(evidence,`${name}.pdf`),bytes=Buffer.from(`%PDF-1.7\n${name} need fixture\n`);
+ await writeFile(path,bytes);
+ const context=await api.createKernelContext({workspace,content:join(ROOT,'content'),locks:api.createAdvisoryLocks(flock)});
+ const sha=createHash('sha256').update(bytes).digest('hex'),all=[1,2,3,4];
+ const book={context,runtime:api.createModuleRuntime(context),mid:null};
+ const call=(method,params)=>book.runtime.handlers[method]({module_id:book.mid,...params});
+ Object.assign(book,{call,store:()=>book.runtime.source.store,claim:owner=>call('module.read.claim',{owner}),
+  close:async()=>{await book.runtime.close();await context.git.close();},
+  queue:()=>book.store().queue(book.mid),meta:()=>book.store().module(book.mid),graph:()=>book.store().graph(book.mid),
+  settle:(job,need)=>call('module.read.finish',{job_id:job.job_id,lease:job.lease,outcome:'settled',need}),
+  publish:async(job,draft)=>{
+   await writeFile(join(job.work_dir,'observations.json'),JSON.stringify({file_sha256:sha,read_pages:all,full_pages:all,review_pages:all}));
+   await writeFile(join(job.work_dir,'draft.json'),JSON.stringify(draft));
+   const checked=job.purpose==='index'?[]:api.checkDraft(clone(draft),job,contract,new Set(all)).required_review;
+   await writeFile(join(job.work_dir,'review.json'),JSON.stringify({checked:[{paths:checked,verdict:'supported',source_refs:[{page:1}],reason:'fixture support'}],missing:[]}));
+   return call('module.read.finish',{job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:join(job.work_dir,'draft.json'),review_path:join(job.work_dir,'review.json')});
+  }});
+ book.mid=(await book.runtime.handlers['module.source.bind']({source:{path,page_count:4,file_sha256:sha}})).module_id;
+ await book.publish(await book.claim('test-host'),{title:'The Harbor',language:'en',map_candidates:[],
+  sections:[{name:'Harbor',pages:[[1,2]],entities:['Dock','Lena']},{name:'Tower',pages:[[3,4]],entities:['Tower']}]});
+ await call('module.read.request',{purpose:'opening'});
+ const nodes=[{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:[{page:1}],properties:{is_entrance:true}},
+  {node_id:'scene-tower',node_kind:'scene',name:'Tower',source_refs:[{page:3}],summary:'An old tower beyond the harbor.',properties:{is_final:true}},
+  {node_id:'npc-lena',node_kind:'npc',name:'Lena',source_refs:[{page:1}],properties:{}}];
+ const claims=[['scene-dock','route-to','scene-tower'],['npc-lena','present-in','scene-dock']].map(([subject_id,predicate,node_id])=>({subject_id,predicate,object:{node_id},truth_status:'authored-fact',source_refs:[{page:1}]}));
+ assert.equal((await book.publish(await book.claim('test-host'),{nodes,claims,node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-dock','npc-lena']})).opening_ready,true);
+ // A detail reading of Lena retains one speculative (deferred) source need about her, cited on page 3.
+ await call('module.read.request',{purpose:'detail',focus:'Lena',question:'Prepare Lena for the conversation',foreground:true});
+ await book.publish(await book.claim('test-host'),{nodes:[{node_id:'npc-lena',node_kind:'npc',name:'Lena',source_refs:[{page:1}],properties:{}}],
+  claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['npc-lena'],
+  source_needs:[{kind:'deferred',focus:'Lena',question:NEED_Q,reason:'Not printed on these pages.',trigger:'If a fight with Lena starts.',source_refs:[{page:3}]}]});
+ return book;
+}
+const needReads=async book=>(await book.queue()).filter(job=>job.question===NEED_Q);
+
+test('§150.4: a need-driven read carries its need, and an answered need closes without a reader',async()=>{
+ const book=await needBook('need-answered');
+ try{
+  await book.call('module.read.ahead',{});
+  const [pending]=await needReads(book);
+  assert.ok(pending?.source_need?.key,'the read-ahead marks a need-driven read');assert.equal(pending.foreground,false);
+  const claimed=await book.claim('test-host');
+  assert.equal(claimed.job_id,pending.job_id);
+  assert.equal(claimed.source_need.question,NEED_Q);assert.deepEqual(claimed.source_need.source_refs,[{page:3}]);
+  assert.deepEqual(claimed.source_need.accepted_pages,[1],'the pages its node and the claims about it cite');
+  assert.deepEqual(claimed.source_need.unread_units,[],'this book streams no source units');
+  assert.match(claimed.source_need.material_digest,/^[a-f0-9]{64}$/);
+  const generation=(await book.meta()).generation;
+  const settled=await book.settle(claimed,{disposition:'answered',distribution:{noul:0.93},gate:0.85,material_digest:claimed.source_need.material_digest});
+  assert.deepEqual([settled.state,settled.source_need.disposition],['settled','answered']);
+  const graph=await book.graph();
+  assert.equal(graph.sourceNeeds(graph.find('Lena')).some(need=>need.question===NEED_Q),false,'the answered need is closed');
+  const meta=await book.meta(),resolved=meta.reading.resolved_source_needs.at(-1);
+  assert.equal(meta.generation,generation+1);
+  assert.deepEqual([resolved.question,resolved.resolved_by,resolved.job_id],[NEED_Q,'accepted_material',claimed.job_id]);
+  assert.equal(Number(resolved.distribution.noul),0.93);
+  assert.equal((await book.call('module.read.finish',{job_id:claimed.job_id,lease:claimed.lease,outcome:'failed',detail:'host finally'})).replayed,true);
+  await book.call('module.read.ahead',{});
+  assert.equal((await needReads(book)).length,1,'no reader was queued for an answered need');
+  const keeper=await book.call('module.read.request',{purpose:'detail',focus:'Lena',question:NEED_Q,foreground:true});
+  assert.equal(keeper.state,'queued','a settled attempt never answers a waiting Keeper');assert.notEqual(keeper.job_id,claimed.job_id);
+  assert.equal((await book.queue()).find(job=>job.job_id===keeper.job_id).source_need,undefined);
+ }finally{await book.close();}
+});
+
+test('§150.4: an unlocated need queues nothing until a publication changes its entity material',async()=>{
+ const book=await needBook('need-unlocated');
+ try{
+  await book.call('module.read.ahead',{});
+  const claimed=await book.claim('test-host');assert.equal(claimed.question,NEED_Q);
+  await assert.rejects(book.settle(claimed,{disposition:'unlocated',material_digest:claimed.source_need.material_digest,
+   evidence:{need_leads:[{page:3,score:0.8}],accepted_pages:[1]}}),/no page lead outside/);
+  const settled=await book.settle(claimed,{disposition:'unlocated',material_digest:claimed.source_need.material_digest,
+   evidence:{need_leads:[{page:1,score:0.9}],accepted_pages:[1],candidates:[1],searched_pages:4,partial:false}});
+  assert.equal(settled.source_need.disposition,'unlocated');
+  const record=Object.values((await book.meta()).reading.source_need_dispositions)[0];
+  assert.equal(record.disposition,'unlocated');assert.deepEqual(record.evidence.need_leads.map(lead=>[lead.page,Number(lead.score)]),[[1,0.9]]);
+  const graph=await book.graph();
+  assert.equal(graph.sourceNeeds(graph.find('Lena')).some(need=>need.question===NEED_Q),true,'unlocated is retained, never absent');
+  await book.call('module.read.ahead',{});
+  assert.equal((await needReads(book)).length,1,'the same failed candidate set is not read again');
+  // A publication that gives Lena a page of her own re-opens the need.
+  await book.call('module.read.request',{purpose:'detail',focus:'Tower',question:'Who waits in the tower?',foreground:true});
+  const tower=await book.claim('test-host');assert.equal(tower.focus,'Tower');
+  await book.publish(tower,{nodes:[{node_id:'scene-tower',node_kind:'scene',name:'Tower',source_refs:[{page:3}],properties:{}}],
+   claims:[{subject_id:'npc-lena',predicate:'present-in',object:{node_id:'scene-tower'},truth_status:'authored-fact',source_refs:[{page:3}]}],
+   node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-tower']});
+  await book.call('module.read.ahead',{});
+  const reads=await needReads(book);
+  assert.equal(reads.length,2);assert.equal(reads[1].state,'queued');assert.equal(reads[1].source_need.key,claimed.source_need.key);
+ }finally{await book.close();}
+});
+
+test('§150.4: a speculative need waits for the unit frontier, rides on an unread unit, and re-opens once it settles',async()=>{
+ const book=await needBook('need-carried');
+ try{
+  const meta=await book.meta();meta.reading.opening_scope='first_interaction';await book.store().writeModule(meta);
+  await book.call('module.read.ahead',{});
+  assert.equal((await book.queue()).filter(job=>job.source_unit).length,1);
+  assert.equal((await needReads(book)).length,0,'a deferred need waits while a streamed unit is unqueued');
+  await book.call('module.read.ahead',{});
+  assert.equal((await book.queue()).filter(job=>job.source_unit).length,2);
+  const [pending]=await needReads(book);assert.ok(pending?.source_need);
+  // The scene's adjacent read was queued first; it gives its slot back so the need read and both units can be claimed.
+  let claimed=await book.claim('test-host');
+  if(claimed.job_id!==pending.job_id){
+   assert.equal(claimed.source_unit,undefined);
+   await book.call('module.read.finish',{job_id:claimed.job_id,lease:claimed.lease,outcome:'cancelled'});
+   claimed=await book.claim('test-host');
+  }
+  assert.equal(claimed.job_id,pending.job_id);
+  assert.deepEqual(claimed.source_need.unread_units.map(unit=>[unit.first,unit.last]).sort(),[[1,2],[3,4]]);
+  const unit=claimed.source_need.unread_units.find(unit=>unit.first===3);
+  await assert.rejects(book.settle(claimed,{disposition:'carried',units:[unit],evidence:{need_leads:[{page:1,score:0.9}],accepted_pages:[1]}}),/located only inside/);
+  await assert.rejects(book.settle(claimed,{disposition:'carried',units:[{section:'Elsewhere',first:3,last:4}],evidence:{need_leads:[{page:3,score:0.8}],accepted_pages:[1]}}),/streams/);
+  assert.equal((await book.settle(claimed,{disposition:'carried',units:[unit],evidence:{need_leads:[{page:3,score:0.8}],accepted_pages:[1]}})).source_need.disposition,'carried');
+  const units=[await book.claim('test-host'),await book.claim('test-host')];
+  const carrier=units.find(job=>job.source_unit?.first===3),other=units.find(job=>job.source_unit?.first===1);
+  assert.deepEqual(carrier.carried_needs,[{key:pending.source_need.key,focus:'lena',question:NEED_Q}],'the unit reader is asked the need');
+  assert.equal(other.carried_needs,undefined);
+  await book.call('module.read.ahead',{});
+  assert.equal((await needReads(book)).length,1,'no separate read while the carrying unit reads');
+  await book.publish(carrier,{nodes:[],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[]});
+  await book.call('module.read.ahead',{});
+  const reads=await needReads(book);
+  assert.equal(reads.length,2,'the carrying unit settled: the need is checked again');assert.equal(reads[1].state,'queued');
+ }finally{await book.close();}
+});
+
+test('§150.4: a need read a waiting Keeper promoted reads as today and records its read',async()=>{
+ const book=await needBook('need-promoted');
+ try{
+  await book.call('module.read.ahead',{});
+  const [pending]=await needReads(book);
+  const waiting=await book.call('module.read.request',{purpose:'detail',focus:'Lena',question:NEED_Q,foreground:true});
+  assert.equal(waiting.job_id,pending.job_id,'the Keeper attaches to the queued need read');
+  const claimed=await book.claim('test-host');assert.equal(claimed.job_id,pending.job_id);
+  assert.equal(claimed.source_need,undefined,'a promoted read is not decided by the need path');
+  await book.publish(claimed,{nodes:[{node_id:'npc-lena',node_kind:'npc',name:'Lena',source_refs:[{page:3}],properties:{}}],
+   claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['npc-lena'],source_needs:[]});
+  const record=Object.values((await book.meta()).reading.source_need_dispositions)[0];
+  assert.deepEqual([record.disposition,record.job_id],['read',claimed.job_id]);
+ }finally{await book.close();}
+});
