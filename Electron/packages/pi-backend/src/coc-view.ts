@@ -516,9 +516,7 @@ export async function readColdSheet(repo:string, context:CocBinding, previewRevi
   // A displayed draft is the host's own fact (contract §98): the card entry in the transcript is
   // the acknowledgement, and the kernel no longer keeps a `previewed_revision` to be told about.
   if(previewRevision!==undefined)return {previewed:true,revision:previewRevision,campaign:context.campaign};
-  const view:any=await callColdKernel(repo, context.home, 'table.view', {campaign:context.campaign}, env, runtimeOptions);
-  if(Array.isArray(view?.handouts))view.handouts=view.handouts.map((row:any)=>{const image=handoutImage(row,context);return image?{...row,image}:row;});
-  return view;
+  return callColdKernel(repo, context.home, 'table.view', {campaign:context.campaign}, env, runtimeOptions);
 }
 /**
  * The growing lanes a sheet read tops up, each named after its presentation file and pointing at
