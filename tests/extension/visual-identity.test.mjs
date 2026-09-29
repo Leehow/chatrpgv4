@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
 import {appendFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
-import {join, resolve} from 'node:path';
+import {join, relative, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {ReadingService} from '../../extensions/module/reading-service.ts';
@@ -158,14 +158,18 @@ function service(b, {author, identity, campaign, reads = true}) {
 			const pageCache = join(resolve(request.source.cache));
 			if (request.systemPrompt?.endsWith('instructions-identity.md')) {
 				runs.identity++;
-				runs.identityTasks.push(task);
+				// The tasks as the reviewer sees them, with each preview resolved against its own directory.
+				runs.identityTasks.push({...task, pairs: task.pairs.map(pair => ({...pair, preview: resolve(request.cwd, pair.preview)}))});
 				const ids = [];
 				for (const [index, pair] of task.pairs.entries()) {
 					const id = `read-preview-${runs.identity}-${index}`;
 					ids.push(id);
 					if (!reads) continue;
 					request.onEvent({type: 'tool_execution_start', toolName: 'read', toolCallId: id, args: {path: pair.preview}});
-					request.onEvent({type: 'tool_execution_end', toolCallId: id, isError: false, result: {content: [{type: 'image'}]}});
+					// The real reviewer is a confined reader: a file outside its task directory is refused, not delivered.
+					const inside = !relative(request.cwd, resolve(request.cwd, pair.preview)).startsWith('..');
+					request.onEvent({type: 'tool_execution_end', toolCallId: id, isError: !inside,
+						result: {content: [inside ? {type: 'image'} : {type: 'text', text: 'Reader confinement blocked read: the path is outside the task directory and its bound PDF cache'}]}});
 				}
 				await appendFile(request.eventLog + '.images.jsonl', JSON.stringify({included: ids}) + '\n');
 				const verdicts = task.pairs.map(pair => identity(pair, runs.identity)).filter(Boolean);

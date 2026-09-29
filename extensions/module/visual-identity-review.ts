@@ -6,7 +6,7 @@
  */
 import {createCanvas,loadImage} from '@napi-rs/canvas';
 import {mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
-import {join,resolve} from 'node:path';
+import {join,relative,resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {sourceAsset,validateBox} from './source.ts';
 import {assetAliases} from './map-publication.ts';
@@ -113,12 +113,17 @@ export async function reviewVisualIdentity(options: {
 }): Promise<string> {
 	await mkdir(options.cwd, {recursive: true});
 	const backoff = options.transportBackoffMs ?? TRANSPORT_BACKOFF_MS;
-	const previews = await identityPreviews({pairs: options.pairs, cwd: options.cwd, source: options.source});
-	const task = {protocol: IDENTITY_PROTOCOL,
-		pairs: previews.map(preview => ({key: preview.key, page: preview.page, preview: preview.path, correspondence: preview.correspondence, a: preview.a, b: preview.b}))};
 	let previousFailure: string | undefined, semanticRetried = false, transportRetries = 0;
 	for (let attempt = 1; !options.signal.aborted; attempt++) {
 		const cwd = await mkdtemp(join(options.cwd, `attempt-${attempt}-`)), eventLog = join(cwd, 'events.jsonl');
+		// The previews live in this attempt's own directory: the reviewer is a confined reader, and a
+		// preview beside the attempt instead of inside it is a file it may not open (2026-09-29, the
+		// installed App's first identity review read nothing and was held). The verdict records each
+		// preview relative to `options.cwd`, where the kernel resolves it next to identity-review.json.
+		const previews = (await identityPreviews({pairs: options.pairs, cwd, source: options.source}))
+			.map(preview => ({...preview, file: relative(options.cwd, preview.path)}));
+		const task = {protocol: IDENTITY_PROTOCOL,
+			pairs: previews.map(preview => ({key: preview.key, page: preview.page, preview: relative(cwd, preview.path), correspondence: preview.correspondence, a: preview.a, b: preview.b}))};
 		await writeFile(join(cwd, 'task.json'), JSON.stringify(task, null, 2) + '\n');
 		if (previousFailure) await writeFile(join(cwd, 'failure.json'), JSON.stringify({error: previousFailure}) + '\n');
 		const reads = new Map<string, string>(), images = new Set<string>();
