@@ -3,7 +3,7 @@ import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { isJsonObject } from '../json.js';
 import { readCampaign } from '../read/handlers.js';
-import { playLanguageOf } from '../read/languages.js';
+import { declaredPlayLanguage, playLanguageOf } from '../read/languages.js';
 import { CampaignSnapshot, loadCampaignModule } from '../read/campaign.js';
 import { SessionView } from '../read/session-view.js';
 import { modContext, setupModContext } from '../read/mods.js';
@@ -41,7 +41,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
     const meta = await campaign.readCampaign(), staged = meta.mods_pending;
     let changed = !Object.hasOwn(world, 'mods') && isJsonObject(staged);
     if (changed) world.mods = clone(staged);
-    changed = await runtime.initializeWorld(world) || changed;
+    changed = await runtime.initializeWorld(world, declaredPlayLanguage(meta)) || changed;
     // Contract 41.2: a package that refused its own bytes no longer refuses the table, so the one place it
     // would otherwise go unrecorded is a campaign that does not lock it. One row per initialization, on the
     // read the world init just did -- this never re-reads the packages.
@@ -81,7 +81,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
         let change: {retired: string[], from: string | null, to: string};
         if (!await context.snapshots.pathExists(campaign.path('world.json'))) {
           const meta = await campaign.readCampaign(), config: Row = truth(meta.mods_pending) ? {mods: clone(meta.mods_pending)} : {};
-          change = await runtime.configure(config, params, false); meta.mods_pending = config.mods; await campaign.writeCampaign(meta);
+          change = await runtime.configure(config, params, false, declaredPlayLanguage(meta)); meta.mods_pending = config.mods; await campaign.writeCampaign(meta);
         } else {
           const world = await campaign.readWorld(); await initializeCampaign(campaign, world);
           change = await runtime.configure(world, params, await busy(campaign, world)); await campaign.writeWorld(world);
@@ -95,7 +95,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
         const campaign = await writer.campaign(params, {requireWorld: false});
         if (!await context.snapshots.pathExists(campaign.path('world.json'))) {
           const meta = await campaign.readCampaign(), world: Row = truth(meta.mods_pending) ? {mods: clone(meta.mods_pending)} : {};
-          await runtime.initializeWorld(world); await runtime.reorder(world, params.order); meta.mods_pending = world.mods; await campaign.writeCampaign(meta);
+          await runtime.initializeWorld(world, declaredPlayLanguage(meta)); await runtime.reorder(world, params.order); meta.mods_pending = world.mods; await campaign.writeCampaign(meta);
         } else {
           const world = await campaign.readWorld(); await initializeCampaign(campaign, world);
           await runtime.reorder(world, params.order, await busy(campaign, world)); await campaign.writeWorld(world);
@@ -124,5 +124,5 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
   }
   return Object.freeze({runtime, handlers, initializeCampaign, apply, magicEffects,
     resolveBeforeMain: (input: ModResolveInput) => resolveBeforeMain(context, runtime, input),
-    initializeWorld: (world: Row) => runtime.initializeWorld(world), validateWorld: (world: Row) => runtime.validateWorld(world)});
+    initializeWorld: (world: Row, playLanguage: string | null = null) => runtime.initializeWorld(world, playLanguage), validateWorld: (world: Row) => runtime.validateWorld(world)});
 }

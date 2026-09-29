@@ -1,0 +1,21 @@
+{
+  "id": "language-zh",
+  "version": "1.0.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "Test fixture",
+  "name": "Language fixture",
+  "description": "A language-scoped test package (contract §152): a brief for tables played in zh, and an addendum to the voice lane.",
+  "default_enabled": true,
+  "play_languages": ["zh"],
+  "requires": ["mods.package-files.v1", "npc.voice.language-addendum.v1"],
+  "package_files": ["agent.md", "brief.md", "voice-addendum.md"],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {
+    "instructions": "agent.md",
+    "brief": "brief.md",
+    "voice_lane_addendum": "voice-addendum.md"
+  }
+}

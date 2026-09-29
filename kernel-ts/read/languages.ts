@@ -63,3 +63,9 @@ export async function playLanguageOf(context: KernelContext, meta: Row | null | 
     const tag = row(meta).play_language;
     return validSourceLanguage(tag) ? tag : (await playLanguages(context)).default;
 }
+/** `meta.play_language` when the campaign or draft declares a tag-shaped one, else null -- never the data default.
+ *  For a decision that must not treat "no tag was recorded" as a language (contract §152.2). */
+export function declaredPlayLanguage(meta: Row | null | undefined): string | null {
+    const tag = row(meta).play_language;
+    return validSourceLanguage(tag) ? tag : null;
+}
