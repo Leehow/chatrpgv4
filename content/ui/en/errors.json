@@ -5,6 +5,8 @@
   "document_unavailable": "That paper cannot be reached right now.",
   "guidance_not_ready": "The character guidance is not ready yet.",
   "guidance_unavailable": "The character guidance cannot be reached right now.",
+  "handout_not_available": "That handout cannot be read right now.",
+  "handout_reading_failed": "The handout could not be read this time.",
   "import_other_session": "That preparation belongs to another session.",
   "interrupted": "The step was interrupted.",
   "invalid_params": "That request was not understood.",

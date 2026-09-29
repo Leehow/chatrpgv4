@@ -29005,3 +29005,99 @@ each scoped brief to 400. The addendum has no kernel budget: it rides the lane's
 - The first shipped language package is `mods/zh-optimize` (play_languages `["zh"]`, owner 2026-09-29). Tests: `tests/extension/language-scoped-mods.test.mjs` with the fixture
   `tests/fixtures/mods/language-zh`, installed through `mods.install`; `tests/kernel/test_language_mods.py` over the
   emitted kernel's RPC; and the two ceiling tests above.
+
+## 155. Reading a pictured handout in the player's language (2026-09-29, `docs/specs/visual-handout-translation.md`)
+
+Owner request, 2026-09-29: a clipping cropped from a PDF page reaches the player as the original bitmap (§152.3) and
+nothing else, so a table whose `play_language` is not the module's language holds a picture it cannot read. Every image
+handout row gets a **translate** control that produces a reading version in the play language, beside the picture.
+Numbering: 0.9.6a publishes §153; two unmerged prototype branches already claim §154.
+
+### 155.1 A host control, no kernel RPC, no turn, no receipt
+
+`handout.reading` is a `coc-keeper` host method (§35.1's class: like zoom or the illustration list, it moves no turn and
+writes no receipt). It is answered by the Electron host's cold path on every leg, live session or not, because it needs
+the campaign's `table.view` and the agent home's models and nothing that only a live pack holds. Parameters:
+`{handout}` -- the handle of a row of `view.handouts` -- and the session the invoke names (`sessionId`). The renderer
+never supplies a path, a campaign, a digest or a language: the host resolves all four.
+
+Answers (`ok: true`, `data`):
+
+- `{status: "pending", handout}` -- the job is running. The caller asks again (the Mod document pattern: the invoke
+  channel's 15 s ceiling is never held; the panel and the card poll the same job).
+- `{status: "ready", handout, keep, title, text, digest}` -- `title`/`text` are the reading version in the play language,
+  `digest` the image's `sha256`. `keep: true` means the model judged the picture already in the play language: `text`
+  is then the transcription as it stands and the caller says so instead of offering a second version. `keep` is the
+  model's word (§23: no code inspects a script, a tag prefix or a character class).
+
+A failure is `ok: false` with `error.code` in the `errors` surface: `no_session`, `campaign_unbound`, `invalid_params`
+(no such handle), `handout_not_available` (§155.2), `model_without_images` (§155.3), `handout_reading_failed` and
+`presentation_timeout` (§155.5), `runtime_unavailable`. A failed job is a one-shot mailbox, as `documentPresentationStatus`
+keeps: the next ask starts a fresh job, so the retry control is the same call.
+
+### 155.2 Only what the player holds
+
+The host reads `table.view` (the player-safe projection, §23) and looks the handle up in `view.handouts`. That list is
+`world.handouts_shown` filtered to actually delivered image receipts (§152.3), so a card the table has not been handed
+cannot be named through this control. The row then goes through the same gates as `handoutImage` -- `document: "ready"`,
+not keeper-visible, an absolute path inside the campaign's own folder, its module folder or the installed module folder
+(real paths, so a symlink escape is refused), a regular file of at most 8 MiB, and magic bytes that agree with the
+declared media type -- exposed as `handoutImageFile`, which `handoutImage` now wraps so the two cannot drift. Any failure
+is `handout_not_available`. A hybrid row (image plus authored text) is an image row and is read like any other.
+
+### 155.3 Two steps, two models
+
+1. **Transcribe, once per image.** A tool-enabled Pi reader (a `reader` task, contract §22, no kernel and no extensions in
+   the child) opens the delivered image with `read` and writes the printed text as it stands, in the source language, in
+   reading order, as `transcription.json` -- `{blocks: [{role, text}]}` with `role` one of `headline`, `deck`, `byline`,
+   `dateline`, `body`, `caption`, `label`, `other` -- and marks a stretch it cannot read as `[…]`, never a guess. Its own
+   checker (`node check.mjs`, shape only) runs in the child. Instruction: `content/setup/handout-transcription.md`. The
+   model is the table's model (the reader axis, §37.10.1: it reads a picture, so it needs image input); a table model
+   without image input answers `model_without_images` when the cache lacks the transcription, and nothing is
+   transcribed blind. The graph node's `summary` never enters it.
+2. **Project into the play language, as one document.** The transcription is composed into one title and one body (the
+   first `headline` block, else the first block, is the title; blocks are joined by a blank line) and projected through
+   the existing presentation protocol (`document-presentation-reference-v1`: `keep` or `translate` per issued alias, its
+   own checker, two rounds) under `content/setup/handout-reading.md`. The lane model is the presentation lane's (§37.10.1,
+   `cocFastLane`). The request also carries `known_names`: the entries of the campaign's saved projections (the kernel
+   glossary and every `setup/presentations/*-<tag>.json`) whose source string occurs in the transcription, so a person or
+   place the table already knows keeps the name the table calls them (§23 standing names).
+
+### 155.4 Caches and evidence
+
+Under the agent home, never in the graph, a turn, a capsule or a Keeper prompt:
+
+- `.coc/handout-readings/<sha256>/transcription-<instr>.json` -- keyed by the image's `sha256` (the graph's
+  `asset_digest`, computed by the host from the bytes it read) and the transcription instruction's digest. It serves every
+  campaign and every play language.
+- `.coc/handout-readings/<sha256>/reading-<tag>-<key>.json` -- `key` is a digest of the reading instruction, the
+  transcription and the `known_names` used, so a changed instruction file or a newly projected name re-projects and an
+  unchanged input reuses the file.
+- `.coc/handout-readings/<sha256>/attempts/<id>/` (requests, events, findings) and `.coc/handout-readings/telemetry.jsonl`
+  (one row per model step: `{at, phase, sha256, model, thinking, rounds, ms, tokens, cost_usd}`) are kept as evidence.
+
+### 155.5 The job
+
+The host's onboarding host keeps one job per `(campaign, handle, sha256, tag)` and answers `pending` while it runs, like
+`documentPresentationStatus`; the work is the preparation worker's `handout-reading` action (a child process, so a stall
+cannot hold the host). The deadline is the presentation deadline (`PI_COC_PRESENTATION_DEADLINE_MS`, 360 s), with
+`presentation_timeout` on expiry; a worker that stops without an answer is `handout_reading_failed`.
+
+### 155.6 The three ends (§31)
+
+*Writer:* the `handout-reading` worker action writes the two cache files and the telemetry row. *Reader:* the case
+board's handout block and the transcript's handout row draw the answer; they hold no word table -- captions are the
+`handout` surface and codes the `errors` surface (`content/ui/en/`, projected like every other surface, §23). *Actor:* the
+player, by the control; the Keeper is never shown the reading, and making it Keeper-visible would need its own named lane.
+
+### 155.7 The reading is the model's reading
+
+The text is model-produced reading text for the player's own use, not a verbatim source reference
+(`docs/specs/verbatim-source-references.md`). The control labels it as a reading version and the picture stays one tap
+away. It is not evidence for Keeper decisions and never enters `lookup` or the graph.
+
+### 155.8 Where the transcript row and the board call from
+
+The board panel calls the method through its `api.invoke` (the `board` precedent). The transcript's tool renderer had no
+host call: the host UI now passes `onInvoke(method, params)` to every tool renderer of the extension that registered it,
+which calls `host.invokeExtension(<that extension>, method, params, {sessionId})`; today `coc-mechanics` is its only user.
