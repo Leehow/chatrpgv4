@@ -282,29 +282,24 @@ export const CARRIED_HELD_HEAD = 'A source_answer view marked held is an answer 
   + 'an earlier one, with the question it answered: the host carries it on each turn\'s first step while the party stays at this scene and '
   + 'drops it when the scene changes. It is the same answer the campaign memo holds.';
 /** §22.4.7 (SL-47): what the Keeper is told about a scene's book text (`focus: "scene_text"`). */
-export const CARRIED_SCENE_TEXT_HEAD = 'A view with focus scene_text is the book\'s own text for a scene a move just landed on, page by page, carried '
-  + 'once: the scene\'s reviewed record (its exits, the people there, the things and clues) is still being read. Narrate the arrival from it; do '
-  + 'not invent exits, people, clues or numbers it does not state. The record lands on a later note.';
+export const IMPROVISATION_GUIDANCE = 'Ordinary dialogue and routine completed services need no pending-intention record. The party leaving does not relocate NPCs. Missing source coverage is not a prohibition on fiction. Use established causes, identities and knowledge to improvise plausible details, people, places and leads. Register durable additions through ordinary apply; they are campaign facts, not quotations from the book. Read further only for a concrete unresolved fact needed now. Never turn a technical wait into a fictional obstacle.';
+export const CARRIED_SCENE_TEXT_HEAD = 'A view with focus scene_text carries original scene passages. Its fuller record is still being prepared. Use the supplied facts and access conditions for arrival and further play. '+IMPROVISATION_GUIDANCE;
 /** §22.4.7: what the Keeper is told about a scene record that settled (`focus: "scene_record"`, or the scene view itself). */
 export const CARRIED_SCENE_RECORD_HEAD = 'A view with focus scene_record says a scene\'s reviewed record has landed (look focus=scene when the party '
   + 'is there) or could not be read (the clerk\'s business, never the fiction); a scene view of a scene you were given as scene_text is its '
   + 'reviewed record, carried once.';
 /** §22.4.7.1 (SL-56): what the Keeper is told about a person's book text (`focus: "person_text"`). */
-export const CARRIED_PERSON_TEXT_HEAD = 'A view with focus person_text is the book\'s own text about a person a check or write just named, carried once: '
-  + 'their reviewed record (numbers, what they know, how they act) is still being read. Play them from it; do not invent numbers or facts it '
-  + 'does not state. The record lands on a later note.';
+export const CARRIED_PERSON_TEXT_HEAD = 'A view with focus person_text carries original passages about this person. Preserve their identity, motives and knowledge while playing their response; the fuller record may arrive later. '+IMPROVISATION_GUIDANCE;
 /** §22.4.7.1: what the Keeper is told about a person record that settled (`focus: "person_record"`). */
 export const CARRIED_PERSON_RECORD_HEAD = 'A view with focus person_record says a person\'s reviewed record has landed (look focus=npc shows it) or '
   + 'could not be read (the clerk\'s business, never the fiction).';
 /** §22.4.7.1: what the Keeper is told when a pending row names a person. */
-export const CARRIED_PENDING_PERSON_HEAD = 'A pending row with a person is that person\'s reviewed record: not known yet; play them from the book\'s text '
-  + 'you were given and do not invent what it does not state.';
+export const CARRIED_PENDING_PERSON_HEAD = 'A pending person record is incomplete reference coverage. Their ordinary interactions continue using known motives and knowledge; do not grant unexplained secrets.';
 /** §22.3.3 (SL-57): what the Keeper is told about a record marked unusable. */
 export const CARRIED_RECORD_UNUSABLE_HEAD = 'A record marked unusable could not be read from the book and will not be read again unless asked: play on '
   + 'the book\'s text you were given. It is the clerk\'s business, never the fiction\'s, and it is said once.';
 /** §22.4.7: what the Keeper is told when a pending row names a scene. */
-export const CARRIED_PENDING_SCENE_HEAD = 'A pending row with a scene is that scene\'s reviewed record (its exits, the people there, the things and '
-  + 'clues): not known yet; do not invent them.';
+export const CARRIED_PENDING_SCENE_HEAD = 'A pending scene record is incomplete reference coverage. It does not block ordinary arrival, interaction or compatible campaign additions.';
 /** §135.31.2: what the Keeper is told about the consultations still being read (`pending`). */
 export const CARRIED_PENDING_HEAD = 'pending lists source consultations still being read: their answers are not here yet and will be carried once '
   + 'they land. Use the passages and what you already know, narrate what the investigator does meanwhile, and do not ask for them again this turn.';

@@ -6,6 +6,8 @@ import { array, integer, number, repr, row, sorted, string, type Row } from '../
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
 import { advanceClock } from './clock.js';
+import { establishTableEntity, validateEstablishment } from '../read/table-entities.js';
+import { isAmbiguity } from '../read/module-graph.js';
 export function stageMove(context: ApplyContext, effect: Row): {
     receipt: Row;
     event: DomainEvent | null;
@@ -13,16 +15,26 @@ export function stageMove(context: ApplyContext, effect: Row): {
     const { graph, world, turn, callId, ordinal } = context;
     const to = required(effect, 'to')!, current = graph.scene(world.active_scene), from = graph.handle(current);
     const exits = new Map(graph.sceneExits(current).map(exit => [exit.to, exit]));
+    const summary = validateEstablishment(effect.establish);
+    let established = false;
     let destination: Row;
     try { destination = graph.scene(to); }
     catch (error) {
         if (!(error instanceof RpcError) || error.code !== 'unknown_entity') throw error;
-        if (Array.isArray(error.details?.candidates) && error.details.candidates.length) throw error;
-        throw new RpcError('unknown_entity', `The destination ${repr(to)} is not an identified scene`, {
-            fix: 'A part, entrance, room, floor or counter of a registered place is that place: move to the registered scene and narrate the interior. If this is a genuinely different place the player chose, prepare it with lookup kind adaptation, action prepare, a proposal name, a request and original source anchors. Accept the ready proposal alone with apply adaptation, then move to its new scene name. Do not rename the current scene into a different place.',
-            details: {...error.details, reason: 'destination_missing', requested_destination: to, source_anchor: current.name}
-        });
+        if (isAmbiguity(error)) throw error;
+        if (summary !== undefined) {
+            if (graph.find(to)) throw new RpcError('invalid_params', 'This name already identifies another entity');
+            if (typeof effect.via !== 'string' || !effect.via.trim()) throw new RpcError('invalid_params', 'Establishing a destination requires via to describe the route');
+            destination = establishTableEntity(graph, world, turn, 'scene', to, summary);
+            established = true;
+        } else {
+            throw new RpcError('unknown_entity', `The destination ${repr(to)} is not an identified scene`, {
+                fix: 'Reuse an existing place for its rooms or counters. For a genuinely new player-chosen place consistent with established facts, repeat move with establish: {summary: your description} and via: the route. Missing source coverage does not forbid ordinary improvisation. Consult source for a specific causal question; use adaptation for deliberate changes to established facts.',
+                details: {...error.details, reason: 'destination_missing', requested_destination: to, source_anchor: current.name}
+            });
+        }
     }
+    if (summary !== undefined && !established && !graph.isTableEntity(destination)) throw new RpcError('invalid_params', 'establish cannot replace an authored scene; move to it without establish');
     const target = graph.handle(destination);
     const label = typeof effect.label === 'string' && effect.label.trim() ? effect.label : null;
     if (target === from) {
@@ -46,6 +58,7 @@ export function stageMove(context: ApplyContext, effect: Row): {
     if (!integer(minutes) || number(minutes) < 0)
         throw new RpcError('invalid_params', 'travel_minutes must be a non-negative integer');
     const receipt: Row = { id: `move:${target}-t${turn.turn}-c${ordinal}`, kind: 'move', call_id: callId, from, to: target, from_label: sceneLabel(graph, world, current), to_label: label || sceneLabel(graph, world, destination), minutes, at: nowIso() };
+    if (established) receipt.established = 'table';
     if (via && !exits.has(target) && !trail.includes(target)) {
         receipt.via = via;
         receipt.improvised = true;

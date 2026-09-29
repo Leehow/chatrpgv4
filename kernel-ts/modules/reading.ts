@@ -611,7 +611,7 @@ export class Reading {
                 continue;
             const node = graph.find(name);
             // §22.4.7.1 (SL-56): a person this table established is not book material; nothing is read for them (§87).
-            if (graph.isTablePerson(node))
+            if (graph.isTablePerson(node) || graph.isTableEntity(node))
                 continue;
             if (node === null && !indexed.has(normalize(name)))
                 continue;
@@ -638,8 +638,9 @@ export class Reading {
                         ...(pages.length ? { index: { pages } } : {}) },
                 });
             }
-            // §22.4.7: the party's place, entered on its index text, is not held while its record is read.
-            if (node && node.node_kind === 'scene' && gate.entered?.has(focus))
+            // Section 150: a scene dossier is reference coverage, not permission to act here.
+            // Retain explicit legacy index landing when the host asks for its source passages.
+            if (node && node.node_kind === 'scene' && !gate.moves?.get(name)?.land)
                 continue;
             const move = gate.moves?.get(name), pages = move && node && node.node_kind === 'scene' ? await this.sceneIndexPages(graph, node) : [];
             if (move?.land && pages.length) {

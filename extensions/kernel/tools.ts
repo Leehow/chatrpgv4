@@ -104,7 +104,8 @@ const AdaptationEffect = Type.Object({
 const MoveEffect = Type.Object({
 	...IntentResult,
 	kind: StringEnum(["move"] as const, { description: "change the persistent gameplay locus; ordinary spatial description inside the current locus needs no move" }),
-	to: Type.String({ description: "the registered persistent gameplay locus that subsequent action or durable location-bound state will use; a name the module already gives that place, or a part, entrance, room, floor or counter of it, names this same locus and needs no new one. For a chosen locus absent from the graph, first lookup kind module with expected_kind scene, then prepare and accept the returned adaptation before moving. Never substitute or relabel another physical place" }),
+	to: Type.String({ description: "the persistent gameplay locus chosen by the player. Reuse an existing place for its rooms or counters. For an ordinary new place consistent with established facts, supply establish and via in this same move; no source reading or adaptation job is required just because the graph lacks it. Do not substitute or relabel another place" }),
+	establish: Type.Optional(Type.Object({summary: Type.String({description: "brief description of a new campaign place; preserve known causes and access conditions. This declares an addition, not a replacement of a registered source place"})})),
 	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge" })),
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
 	label: Type.Optional(Type.String({ description: "a display name for the SAME registered gameplay locus in the player's language. It cannot substitute a different locus. Omitted means the existing name" })),
@@ -117,6 +118,7 @@ const ClueEffect = Type.Object({
 		description:
 			"clue name; must be a clue obtainable in the current scene. An echo id from the capsule's worldlines.echoes (it starts with echo:) reveals what another worldline left standing here — you decide whether to show it and how to tell it, never what it says",
 	}),
+	establish: Type.Optional(Type.Object({summary: Type.String({description: "new evidence discovered in this scene, consistent with established causes and the holder's knowledge; include how it was obtained. Existing authored clues use their existing names without establish. This records a campaign fact, not a quotation from the module"})})),
 	how: Type.Optional(Sentence("how they got it")),
 	from: Type.Optional(Type.String({ description: "the NPC who handed it over, when someone did; it goes on their ledger as something they disclosed" })),
 	label: Type.Optional(Type.String({ description: "short name of this clue in the player's language; omitted means the clue name" })),
@@ -310,7 +312,7 @@ const NpcEffect = Type.Object({
 		open_threads:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
 		extend:Type.Optional(Type.Boolean()),
 	},{description:"At a real return encounter offered by the NPC view, establish a modest compatible offstage continuation without simulating it. Write English Keeper-facing background, this NPC's attributed reports and optional open threads, at most four lines of 600 characters each. Empty arrays establish a quiet interval. Preserve personality, prior facts and player decisions. This changes no location, item, money, skill, condition or promise fulfillment; use the proper effects for those. Same-interval history cannot be replaced; extend true appends only genuinely new compatible detail without copying old lines. Use this alone in its NPC effect, then narrate naturally in play_language."})),
-	to: Type.Optional(Type.String({ description: "where they are now: a scene name, `here` for this scene, or `away` to take them off stage" })),
+	to: Type.Optional(Type.String({ description: "where they are now: a scene name, `here` for this scene, or `away` when that NPC actually leaves; the investigator leaving alone does not move the NPC from their existing place" })),
 	stance: Type.Optional(StringEnum(["hostile", "wary", "neutral", "warm"] as const, {
 		description: "your own reading of where they stand with the party; the kernel keeps the settled checks' account on its own, so set this only when you decide something the dice did not",
 	})),
@@ -342,7 +344,7 @@ const NpcEffect = Type.Object({
 		description: "how this person behaves in a fight, when the fiction has shown it: it replaces the book's; each of their turns then reads the disposition table against their wounds, the odds and their stance (session.standing_action). This variant stands alone in one npc effect and needs why",
 	})),
 	intends: Type.Optional(Type.String({
-		description: "a new thing this person sets out to do, in one short sentence: what they try, not what they say (\"shout down the stairs for the porter\", \"back to the door and bolt\", \"offer the key back if he stops\"). Write it the turn they start or announce it; every later result names it by intent_ref. This variant stands alone in one npc effect, with outcome. When the table has already written this person's act this turn (their history.intents row by: table), write one only to overrule it, beside a second npc effect that names theirs by intent_ref with intent_outcome abandoned",
+		description: "Use for a genuine undertaking whose outcome remains unresolved. Ordinary dialogue, questions, and a routine service completed by normal effects need no intention record. A new thing this person sets out to do, in one short sentence: what they try, not what they say (\"shout down the stairs for the porter\", \"back to the door and bolt\", \"offer the key back if he stops\"). Write it the turn they start or announce it; every later result names it by intent_ref. This variant stands alone in one npc effect, with outcome. When the table has already written this person's act this turn (their history.intents row by: table), write one only to overrule it, beside a second npc effect that names theirs by intent_ref with intent_outcome abandoned",
 	})),
 	intent_ref: Type.Optional(Type.String({
 		description: "the ref of an intention (present[].history.intents, director.offer). With outcome and nothing else: this person's own intention, and its next result. Beside to, stance or another change: that change is the result of the intention named, which may be someone else's (the porter comes up because Knott shouted)",

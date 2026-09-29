@@ -1,20 +1,6 @@
-/**
- * SL-47 (contract §22.4.7): a move into a scene not yet read lands on the book's text; the scene's record lands when read.
- *
- * Evidence: SL-45's replay of the batch-4 table's t18 (SL-29 book A) -- with the lease sized and the slot given at once, the
- * bar's detail read plus its review still took 98-118 s against the 120 s foreground wait and the move was refused
- * `reading_timeout`; the bar's native text was on its pages all along.
- *
- * - The emitted kernel, over a read PDF whose Tower is known but unread: the move refuses `material_pending` naming the
- *   Tower's index pages and the move's effect; sent again with `_land_on_index` it lands, the receipt says `index`, the
- *   world keeps the Tower in `index_scenes`, and a check there passes the gate; a scene with no index pages is refused even
- *   when flagged, and names no pages.
- * - The extension seam (hybrid-v1, faux Keeper, the emitted kernel, a stub reading bridge): the move lands in one call; the
- *   next step's note carries the pages once and a pending row naming the scene; the scene's reading was queued blocking
- *   with no waiter; once it lands, the next turn's first step carries the scene's record once. With no native text on
- *   the pages, the move keeps the foreground wait.
- * - The reading service over the emitted kernel and a real PDF: `sourcePages` is the document's own native text, and a
- *   blocking ensure is not demoted when its waiter leaves.
+/** Section 150 supersedes mandatory scene reading. These deterministic seam tests verify ordinary
+ * arrival without a reading job, retained explicit index-page landing, normal walk-on persistence,
+ * and source service/page-budget behavior. Faux messages exercise transport only, never play acceptance.
  */
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
@@ -105,17 +91,11 @@ function harbor(workspace) {
 const world = (workspace) => JSON.parse(readFileSync(join(workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8"));
 const turnRecord = (workspace, turn) => JSON.parse(readFileSync(join(workspace, ".coc/campaigns", CAMPAIGN, "turns", `${String(turn).padStart(4, "0")}.json`), "utf8"));
 
-test("§22.4.7 on the emitted kernel: a move into an unread scene with index pages refuses naming them, lands on them when asked, and the place passes the gate", async (t) => {
+test("§22.4.7 on the emitted kernel: explicit index landing keeps page identity while ordinary arrival needs no dossier", async (t) => {
 	const workspace = await mkdtemp(join(tmpdir(), "scene-text-kernel-"));
 	t.after(() => rm(workspace, { recursive: true, force: true }));
 	harbor(workspace);
 	ok(workspace, [["table.open", { campaign: CAMPAIGN }], ["table.player_input", { campaign: CAMPAIGN, text: "I climb to the tower." }]]);
-	const [refused] = rpc(workspace, [["table.apply", { campaign: CAMPAIGN, call_id: "t1-c1", effects: [{ kind: "time", minutes: 1 }, { kind: "move", to: "Tower" }] }]]);
-	assert.equal(refused.ok, false);
-	assert.equal(refused.error.details.reason, "material_pending");
-	assert.deepEqual(refused.error.details.read, { purpose: "detail", focus: "tower" });
-	assert.deepEqual(refused.error.details.index, { pages: [2, 1, 3] }, "the scene's own page first, then the index row's, at most three");
-	assert.equal(refused.error.details.effect, 1, "the move's index in the batch");
 	const [moved] = ok(workspace, [["table.apply", { campaign: CAMPAIGN, call_id: "t1-c1", effects: [{ kind: "time", minutes: 1 }, { kind: "move", to: "Tower", _land_on_index: true }] }]]);
 	assert.equal(moved.world.active_scene, "tower", "the move landed on the book's text");
 	assert.deepEqual(moved.scene_text, [{ scene: "tower", pages: [2, 1, 3] }]);
@@ -135,8 +115,8 @@ test("§22.4.7 on the emitted kernel: a move into an unread scene with index pag
 	assert.equal(lighthouse.error.details.index, undefined);
 	// The Cellar, known on its own page and never read, would land on it only when the host asks.
 	const [cellar] = rpc(workspace, [["table.apply", { campaign: CAMPAIGN, call_id: "t2-c2", effects: [{ kind: "move", to: "Cellar" }] }]]);
-	assert.deepEqual(cellar.error.details.index, { pages: [3] });
-	assert.equal(world(workspace).active_scene, "tower");
+	assert.equal(cellar.ok, true);
+	assert.equal(world(workspace).active_scene, "cellar");
 });
 
 const clerkNotes = (context) => context.messages.flatMap((message) => {
@@ -181,74 +161,31 @@ async function seam(t, { pageTexts, responses, legacy = false }) {
 const move = (to) => fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to }] })], { stopReason: "toolUse" });
 const narrate = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
 
-test("§22.4.7 at the seam: the move lands on the book's text in one call, the note carries the pages once and the pending scene, and the record lands on the next turn once", async (t) => {
-	const { table, requests, ensures, extractions, land, carriedText } = await seam(t, { pageTexts: PAGES,
-		responses: [move("Tower"), narrate("You climb the winding stair."), narrate("The lamp room is cold."), narrate("You wait by the lamp.")] });
-	await table.session.prompt("I climb to the tower.");
-
-	assert.deepEqual(extractions, [[2, 1, 3]], "the index pages the kernel named, read once");
-	const kernelMoves = table.telemetry(CAMPAIGN).filter((row) => row.tool === "apply");
-	assert.deepEqual(kernelMoves.map((row) => row.ok), [true], "the Keeper's one apply landed");
-	assert.equal(ensures.length, 1, "no foreground wait: the scene's reading was queued once");
-	assert.deepEqual([ensures[0].params.focus, ensures[0].params.foreground, ensures[0].options.allowanceMs, ensures[0].options.blocking], ["tower", true, 0, true],
-		"blocking, with no waiter");
-	const result = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
-	const body = JSON.parse(result.content.map((block) => block.text ?? "").join(""));
-	assert.equal(body.world.active_scene, "tower");
-	assert.deepEqual(body.scene_text.map((entry) => [entry.scene, entry.pages, entry.text]), [["tower", [2, 1, 3], undefined]],
-		"on the hybrid engine the pages ride the note, not the result");
-	const texts = views(requests, "scene_text");
-	assert.equal(texts.length, 1, `the pages are carried once: ${JSON.stringify(texts)}`);
-	assert.equal(texts[0].request, 1, "on the step after the move");
-	assert.deepEqual(Object.values(texts[0].view.view), [PAGES[1], PAGES[0], PAGES[2]]);
-	const note = clerkNotes(requests[1]).at(-1);
-	assert.ok(note.carried.head.includes(CARRIED_SCENE_TEXT_HEAD));
-	assert.deepEqual(note.carried.pending.map((row) => [row.focus, row.scene, row.purpose]), [["tower", "tower", "detail"]], "the pending row names the scene");
-	assert.ok(note.carried.head.includes(CARRIED_PENDING_SCENE_HEAD));
-	assert.equal(turnRecord(table.workspace, 1).closed_by, "narrate");
-	// §11.5.4 (SL-51): the pages the note carried are reported to the host once, as the turn's carried text.
-	assert.deepEqual(carriedText.map((event) => [event.campaign, event.turn, event.passages.map((row) => [row.scene, row.page, row.text])]),
-		[[CAMPAIGN, 1, [["tower", 2, PAGES[1]], ["tower", 1, PAGES[0]], ["tower", 3, PAGES[2]]]]]);
-
-	land({ state: "ready", generation: 3 });
-	await new Promise((resolve) => setTimeout(resolve, 20));
-	await table.session.prompt("I look at the lamp.");
-	const records = distinctNotes(requests).filter(({ note }) => note.carried?.head?.includes(CARRIED_SCENE_RECORD_HEAD));
-	assert.equal(records.length, 1, "the record is carried once");
-	assert.equal(records[0].request, 2, "on the next turn's first model step");
-	assert.ok(records[0].note.carried.views.some((view) => view.focus === "scene" && view.name === "tower"), "the scene's own view: the party is there");
-	assert.equal(views(requests, "scene_text").length, 1, "the pages are not carried again");
-	const rows = table.telemetry(CAMPAIGN).filter((row) => row.lane === "reading" && String(row.event).startsWith("scene_"));
-	assert.deepEqual(rows.map((row) => row.event), ["scene_text", "scene_record_landed"]);
-	await table.session.prompt("I wait.");
-	assert.equal(requests.length, 4);
-	// A turn's request holds only its own run's notes (§135.23), so the third turn's request is read on its own.
-	assert.ok(!clerkNotes(requests[3]).some((note) => note.carried?.head?.includes(CARRIED_SCENE_RECORD_HEAD)), "and never again");
+test("Section 150 at the hybrid seam: ordinary arrival needs no reading job or extra source round", async (t) => {
+ const {table,ensures,extractions}=await seam(t,{pageTexts:PAGES,responses:[move("Tower"),narrate("The stair winds up.")]});
+ await table.session.prompt("I climb to the tower.");
+ assert.equal(world(table.workspace).active_scene,"tower");
+ assert.equal(ensures.length,0);
+ assert.equal(extractions.length,0);
+ assert.deepEqual(table.telemetry(CAMPAIGN).filter(row=>row.tool==='apply'&&!row.event).map(row=>row.ok),[true]);
 });
 
-test("§11.5.4 on the legacy engine: the pages the apply result carried are the turn's carried text, and a person they name is established from them", async (t) => {
-	const pages = [PAGES[0], "The old tower stands beyond the harbor. Its keeper, Silas\nMarsh, trims the lamp.", PAGES[2]];
-	const { table } = await seam(t, { pageTexts: pages, legacy: true, responses: [move("Tower"),
-		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "npc", name: "Silas Marsh", to: "here", why: "the page puts him at the lamp" }] })], { stopReason: "toolUse" }),
-		narrate("The keeper trims the lamp.")] });
-	await table.session.prompt("I climb to the tower.");
-	const rows = table.telemetry(CAMPAIGN);
-	assert.deepEqual(rows.filter((row) => row.lane === "people").map((row) => [row.event, row.name, row.page]), [["passage_named", "Silas Marsh", 2]]);
-	const status = rows.filter((row) => row.tool === "apply" && !row.event).map((row) => row.ok);
-	assert.deepEqual(status, [true, true]);
-	const world = JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8"));
-	const entry = (world.table_people ?? []).find((row) => row.name === "Silas Marsh");
-	assert.equal(entry?.from_passage?.page, 2, "established from the page the result carried");
+test("Section 150 on the legacy engine: an ordinary new person survives an unprepared scene", async(t)=>{
+ const {table,ensures}=await seam(t,{pageTexts:PAGES,legacy:true,responses:[move("Tower"),
+  fauxAssistantMessage([fauxToolCall("apply",{effects:[{kind:'npc',name:'the lamp keeper',walk_on:true,to:'here',why:'A person tending the lamp.'}]})],{stopReason:'toolUse'}),narrate("The lamp keeper looks up.")]});
+ await table.session.prompt("I climb to the tower and speak to whoever tends the lamp.");
+ const state=world(table.workspace);
+ assert.equal(state.active_scene,'tower');
+ const person=state.table_people.find(row=>row.name==='the lamp keeper');
+ assert(person);assert.equal(person.from_passage,undefined,'an improvised person is not represented as extracted source');
+ assert.equal(ensures.length,0);
 });
 
-test("§22.4.7 at the seam: pages with no native text keep the foreground wait", async (t) => {
-	const { table, ensures, extractions } = await seam(t, { pageTexts: ["", " ", ""],
-		responses: [move("Tower"), narrate("The stair is dark."), narrate("You wait.")] });
-	await table.session.prompt("I climb to the tower.");
-	assert.deepEqual(extractions, [[2, 1, 3]]);
-	assert.equal(ensures.length >= 1, true);
-	assert.ok(ensures.every((entry) => !entry.options?.blocking), "the wait of §22.4, not a landing");
-	assert.equal(JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns", CAMPAIGN, "world.json"), "utf8")).active_scene, "dock", "the move did not land");
+test("Section 150 at the seam: empty native text does not turn ordinary arrival into a source wait", async(t)=>{
+ const {table,ensures,extractions}=await seam(t,{pageTexts:['',' ',''],responses:[move('Tower'),narrate('The stair is dark.')]});
+ await table.session.prompt('I climb to the tower.');
+ assert.equal(world(table.workspace).active_scene,'tower');
+ assert.equal(ensures.length,0);assert.equal(extractions.length,0);
 });
 
 test("§22.4.7 the reading service reads a real document's pages, and a blocking ensure keeps its class when its waiter leaves", async (t) => {

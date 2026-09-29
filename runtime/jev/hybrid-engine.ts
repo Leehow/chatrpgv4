@@ -61,7 +61,7 @@ import { readBandRows } from '../../extensions/kernel/band-shadow.ts';
 import { bandMinConfidence } from '../../extensions/kernel/band-recovery.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
-import { CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
+import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {
   CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
   type BindRecord, type Budget, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
@@ -81,7 +81,7 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
  * non-blocking apply goes out with its narrate in one call instead of costing a whole extra model step. Keeper-only,
  * system language.
  */
-export const CLERK_NOTE_HEAD = 'On compose steps, write the final response from supplied source and committed receipts. Do not repeat supplied lookups, restage recorded people, or add optional bookkeeping just to fill fields. Genuine unresolved requirements retain their ordinary operations. '
+export const CLERK_NOTE_HEAD = IMPROVISATION_GUIDANCE+' Use apply move with establish:{summary} and via for a new place, apply clue with establish:{summary} and how for new evidence, and apply npc walk_on for a newcomer. On compose steps, write the final response from supplied source and committed receipts. Do not repeat supplied lookups, restage recorded people, or add optional bookkeeping just to fill fields. Genuine unresolved requirements retain their ordinary operations. '
   + 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). '
   + 'An apply whose landing is fixed by its own arguments is non-blocking: put it and the narrate that follows in the same response, '
   + 'writes first, narrate last; resolve, look, lookup and recall are blocking -- the prose needs a result you do not have yet -- so '
@@ -140,7 +140,6 @@ export function carriedPassages(views: ReadonlyArray<{focus: string; name?: stri
 export interface KernelBridge {
   moduleId?: string;
   runtime?: PrescreenSourceRuntime;
-  prepareSourceDestination?: (need:string,signal:AbortSignal)=>Promise<Row|undefined>;
   campaign?: string;
   call?: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   record?: (row: Record<string, unknown>) => void;
@@ -507,7 +506,6 @@ interface RunState {
    * ran none): reuse requires the same scene, source evidence and player need; read_more refreshes it. The packet excludes issued bodies.
    */
   lastRead?: {scene: string; key: string; outcome?: {step: string; materials: Material[]; message?: Row}};
-  sourceDestinationChecked?: boolean;
   /** §135.6 (SL-22 addendum): what the run's prescreens spent, reported in the budget summary (never the decision budget's). */
   prescreenSpent: {reads: number; jev_calls: number; ms: number};
   /** §135.25 (SL-22 addendum): the policy's decision budget as of its latest step, for the budget summary. */
@@ -857,29 +855,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         async read(_proposal, invocation) {
           const began = stepNow();
           let current=await tableReads(run);
-          if(!run.sourceDestinationChecked&&jev&&bridge?.prepareSourceDestination&&current.table.scope){
-            run.sourceDestinationChecked=true;
-            const started=stepNow(),scope=current.table.scope,signal=AbortSignal.any([invocation.signal,AbortSignal.timeout(15000)]);
-            const lease=new TaskLease({owner:'source-destination-intake',goal:'Locate a player chosen original destination',scope,readSet:current.table.readSet??[],capabilities:['decision'],signal,
-              budget:{deadlineAt:Date.now()+3000,remainingInputTokens:16000,remainingOutputTokens:1000,remainingCostUsd:.1,remainingActions:1}});
-            try{
-              const answer=await jev.decide({id:digest([run.runId,'source-destination']),model:JEV_MODEL,family:'source-destination-intake',familyVersion:'1',scope,readSet:current.table.readSet??[],
-                state:{player:run.rawInput,current_scene:current.table.context.scene,available_destinations:current.candidates().filter(candidate=>candidate.family==='move').map(candidate=>candidate.label)},
-                questions:[{key:'needed',target:'player',type:'noul',instructions:'Does the player explicitly declare going to or visiting a named physical place now? Going there AND then speaking or investigating still includes movement. A named institution can be visited. Merely asking about a place, a hypothetical future plan, or explicitly staying instead of going does not declare movement.'},
-                  {key:'covered',target:'player',type:'noul',instructions:'Is the declared destination clearly already represented by current_scene or one of available_destinations? A general chapter heading or broader city does not by itself establish a specific venue. Answer yes only for a clearly matching place, not a merely related scene.'}]},lease);
-              const selected=answer.answers.needed;
-              const covered=answer.answers.covered;
-              record({lane:'source-reference',event:'destination_intake',run:run.runId,status:answer.status,movement:selected?.status==='answered'&&selected.type==='noul'?selected.noul:null,
-                covered:covered?.status==='answered'&&covered.type==='noul'?covered.noul:null,ms:stepNow()-started});
-              // This is evidence acquisition only; ordinary movement admission remains independent.
-              if(selected?.status==='answered'&&selected.type==='noul'&&selected.noul>=.65&&!(covered?.status==='answered'&&covered.type==='noul'&&covered.noul>=.85)){
-                const original=await bridge.prepareSourceDestination(run.rawInput,signal);
-                record({lane:'source-reference',event:'destination_preflight',status:original?.material?'ready':'unavailable',ms:stepNow()-started,run:run.runId,scene:original?.material?.scene});
-                if(original?.material)current=await tableReads(run);
-              }
-            }catch(error){if(invocation.signal.aborted)throw error;record({lane:'source-reference',event:'destination_preflight',status:'unavailable',ms:stepNow()-started,run:run.runId,error:String(error)});}
-            finally{lease.close();}
-          }
           const {capsule, table, candidates, rows, consequences}=current;
           let bindingArtifact: Extract<StepArtifact, {kind: 'read'}>['binding'];
           if (table.scope && table.readSet && table.binding) {

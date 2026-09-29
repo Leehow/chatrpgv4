@@ -91,13 +91,14 @@ function campaign(workspace, mid, id) {
 		["table.open", { campaign: id }], ["table.narrate", { campaign: id, call_id: "t0-c1", text: "The dock is quiet." }],
 		["table.open", { campaign: id }], ["table.player_input", { campaign: id, text: "I look down the street." }]]);
 }
-/** The pages a move into `to` names (the refusal's `details.index`), without landing. */
+/** Explicit source landing still uses its exact pages; ordinary arrival no longer needs it. */
 function landingPages(workspace, id, to, call) {
-	const [refused] = rpc(workspace, [["table.apply", { campaign: id, call_id: call, effects: [{ kind: "move", to }] }]]);
-	assert.equal(refused.ok, false, `${to} is not read`);
-	assert.equal(refused.error.details.reason, "material_pending");
-	return refused.error.details.index?.pages;
+ const mid=JSON.parse(readFileSync(join(workspace,'.coc/campaigns',id,'campaign.json'),'utf8')).module_id;
+ const probe=id+'-'+to.toLowerCase();campaign(workspace,mid,probe);
+ const [moved]=ok(workspace,[["table.apply",{campaign:probe,call_id:call,effects:[{kind:'move',to,_land_on_index:true}]}]]);
+ return moved.scene_text?.[0]?.pages;
 }
+
 const rows = (workspace, mid) => JSON.parse(readFileSync(join(workspace, ".coc/modules", mid, "module.json"), "utf8")).reading.scene_index ?? [];
 
 test("§22.4.8 on the emitted kernel: a scene's detail read writes its own index row, and a move into it lands on its own pages", async (t) => {

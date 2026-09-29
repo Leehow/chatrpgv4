@@ -1,0 +1,50 @@
+# Ordinary improvisation: implementation and live acceptance
+
+## Intent and baseline
+
+The owner rejected source coverage as a permission gate for fiction. Success means an unlisted but plausible place, person and lead can enter play promptly and remain usable on later turns. A working lookup, a new schema or a large passing test count without playable continuation is insufficient.
+
+Baseline: `11c0d8ccd`, branch `0.9.6a`, initially clean. The prior canonical App's Nora campaign ended its police-return turn by explicitly saying that police-station material was still being read and arrival could not happen. The UI still showed the cemetery. That is retained adverse evidence, not an acceptable degraded outcome.
+
+Primary guidance: the supplied Call of Cthulhu Keeper Rulebook, printed pp. 189, 199, 201, 217 and 221 (PDF pages +12). In particular, p. 201 allows plausible new evidence not listed by a scenario, using established event causality. Cross-checks: [TypeSafe intent routing](https://docs.typesafe.ai/patterns/intent-routing) retains handlers for open LLM work; [Fate Core Scenario In Play](https://fate-srd.com/fate-core/scenario-play) uses motivations and player choices to adapt prepared material. Fate is a different rules system; only the preparation principle is relevant here.
+
+## Implemented prototype
+
+- Contract section 150 supersedes the mandatory adaptation route for ordinary additions.
+- Existing `apply move` and `apply clue` accept an explicit `establish: {summary}` declaration. Route/acquisition context remains required; player admission and ordinary transactions remain owners.
+- World records project into the campaign graph on every load; source graph bytes remain unchanged. NPCs retain the existing `walk_on` path. Decorative detail requires no structured record.
+- Lookup now searches projected campaign entities and marks them usable without source review. A later exact same-name source entry cannot seize the established campaign handle. Nonexact identity reconciliation remains explicit.
+- Unconditional destination-source preflight was removed. Source lookup remains available for actual missing facts. The Keeper receives a normal improvisation instruction, not a new planner or a separate author/reviewer pipeline.
+- A known source scene's incomplete dossier does not by itself prevent arrival. Existing action admission remains unchanged in purpose and includes new establishment content in its reuse key.
+- Divergent worldline entity records refuse confluence instead of silently discarding one branch. Automatic reconciliation is outside this prototype.
+
+## Verification so far
+
+- `npm run check:kernel` and runtime build passed.
+- Full kernel/play suite: 2,026 passed in 357.46 s (`.pi/improvisation-full-py.log`). This run used the first emitted prototype; subsequent lookup-label/provenance and confluence corrections have focused follow-up coverage.
+- Final emitted worldline/improvisation regression: 43 passed in 36.85 s (`.pi/improvisation-final-py.log`).
+- Focused extension/admission/source run: 26 passed (`.pi/improvisation-focused-ext.log`).
+- Bound-PDF test found and then fixed an incorrect `unprepared` label on a campaign-created clue. Adverse run: `.pi/improvisation-pdf-regression.log`; corrected actual-PDF fixture: `.pi/improvisation-pdf-followup.log`.
+- Source immutability, late same-name publication, player-admission binding and confluence preservation: 3 passed in `tests/extension/table-improvisation.test.mjs`.
+- Remote test host probe reported unreachable; tests ran locally. No remote checkout was changed.
+- Full extension suite: 3,804/3,817 passed in 440.80 s (`.pi/improvisation-full-ext.log`). The 13 failures exercised the superseded mandatory scene-material/adaptation route. Updated arrival expectations preserve incomplete-coverage reporting and explicit index-page access. Source-owner mutation/retry/fault tests now read an authored clue rather than require a dossier before ordinary movement; isolation and publication assertions remain.
+- Six affected files: 59 passed, 9 fixture failures after changing the source-owner subject to a clue (`.pi/improvisation-contract-followup.log`). The fixture needed a conclusion supported by that clue and a valid final scene. Corrected source-owner suite: 12/12 passed (`.pi/improvisation-source-owner-followup.log`). This is focused recovery, not a claim of a second full-suite run.
+- Review found source-text headers explicitly prohibited inventing absent people, clues and exits. The scene/person/pending messages now share the section 150 improvisation guidance. Ordinary checks also no longer wait for a complete scene dossier; actual person/evidence/mechanical requirements keep their specific owners.
+- Final typecheck and 18 source/improvisation/system-language/world-state seam checks passed (`.pi/improvisation-final-ext.log`). Review included every scoped tracked diff and the three new code/test files; no unowned changes were staged.
+
+## Live evidence
+
+Package `ed1aa30ff` installed at `/Applications/PipiCOC.app`, receipt 2026-09-29T03:06:51.134Z, PipiUI Dev stable signature verified. Its staging directory was removed. App PID 4063 ran that path. The resume connector still reports unsupported_save_schema; continuation used the actual product UI.
+
+Retained campaign: `game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046`, session `c283ca2b-3df3-43e4-bb85-b82a9d887982`, module `book-5`, App home `/Users/haoli/Library/Application Support/Pipi/pipicoc/pi-coc`.
+
+- Turn 8: the player chose an unlisted photographic shop and asked the cost and collection time. The Keeper used `move.establish`, introduced a shopkeeper with `walk_on`, and delivered a shop interaction. A real move receipt changed the location to `arkham-photo-shop`. No adaptation or source preparation job was required. Runtime interval 70 s (03:08:10–03:09:20Z), three main inferences; acceptance of speed failed. Before composition the host spent approximately 12.6 s on an unnecessary NPC action/repeated-purpose pass, and a model batch later repeated that already abandoned intent, causing an `intent_settled` refusal.
+- Turn 9: the player explicitly accepted $1.25 and requested a collection slip for Nora at 16:00. Cash changed from $9 to $7.75 and a real inventory/document receipt was created. Runtime interval 77 s (03:09:59–03:11:16Z), with repeated recovery. The independent NPC author first generated the routine act of taking money and giving the slip; a pure outcome declaration was then refused as `table_act_unsettled`. The main Keeper abandoned that generated row and completed the normal transaction. A continuity warning also caught incidental prose claiming change was returned despite the exact payment; retain this adverse observation.
+
+These runs prove playable campaign improvisation and expose a second design obstacle, not successful overall latency. Section 150.1 removes conversation/addressing alone as a reason to spawn the independent NPC action pipeline. Ordinary replies belong to the main Keeper. Consequence-driven reactions and forced combat turns remain; pending-fight holds are computed before ordinary replies are delegated. NPC ownership regression: 55/55 passed in 134.44 s (`.pi/improvisation-npc-followup.log`). Historical reaction-binding fixtures now include an actual transaction trigger; dedicated conversation cases assert zero extra author calls and no stakes/intention receipts. Repackage and GUI continuation remain pending.
+
+Package `5319c181f` installed at 03:21:38.540Z, same verified signature/canonical path, PID 17201. Turn 10 correctly logged `npc_reply_owner: keeper` and ran no conversation-triggered NPC author. The police arrival nevertheless took 66 s with three recovery calls: the book held `location-arkham-police`, while move resolved only scenes; declaring a new scene then collided with that already existing location. The Keeper worked around it by creating a separate reception scene. A third failure copied an invented intention reference for the ordinary desk interaction. This remains adverse evidence.
+
+Section 150.2 now projects authored locations as playable scenes with their existing identity and links. Source bytes and source-only lookups remain unchanged. Existing authored scenes take precedence over same-handle locations, avoiding ambiguity (caught by `material-identity`; initial failing log `.pi/improvisation-place-tests.log`, 13 corrected tests in `.pi/improvisation-place-followup.log`). Tool/carried guidance now also says ordinary replies/completed services need no pending-intention record, and the player departing does not relocate the NPC. Final source-language and projection checks passed (`.pi/improvisation-place-final.log`). Another canonical package and GUI continuation remain required.
+
+Package `346802f74` installed at 03:31:40.040Z, verified signature, PID 24891. Turn 11 (03:34:06–03:34:54Z, 48 s) recorded the player's truthful account, preserved the failure to discern footprints, and passed continuity review. It exposed one remaining duplicate NPC trigger: a typed first-impression receipt was treated as an action against that NPC, generating another routine paperwork intention and a refused attempt to mark it done. `actedOn` now excludes the existing typed impression receipt from autonomous reaction triggers while retaining contested rolls and the impression itself. Five projection/admission/impression regressions and all 15 kernel NPC-option tests pass. The recorded 48 s is backend turn time; subsequent CUA views became stale/inconsistent, so final visible acceptance will be repeated after the next restart rather than inferred from the saved narration.

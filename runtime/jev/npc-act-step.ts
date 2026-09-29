@@ -747,26 +747,12 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
 }
 
 /**
- * §143.4 outside a fight, as §143.20 (ticket 21) widened it. Every person present who is in no session acts once a turn
- * when any of three structural facts holds:
- *
- *   - `acted_on`: a receipt this turn was done to them (`npc.act.options`' `acted_on`), or the compile's addressee cleared
- *     on them (§135.30) -- the trigger §143.4 always had;
- *   - `engaged`: they are in the conversation -- `npc.act.options`' `conversation` (they took part, on the newest
- *     committed turn in the scene the investigators are still in, or earlier in this one) -- and the compile's addressee
- *     named no one else. `unclear`, `none` and an answer below the gate clear on no one, so they name no one else.
- *
- * Order: those acted on or addressed in the capsule's order, then those only in the conversation, their latest part
- * first. At most `npc_act.max_per_turn` act a turn; the rest are recorded `skipped_cap` with their trigger. `seen`
- * carries who already acted (or was skipped) this turn, across scans.
- *
- * §143.21 (ticket 22): each read of the situation says whether the declaration was said to this person (`addressed`:
- * false only when the compile named someone else -- addressed, in the conversation, or acted on while the words named no
- * one all hear it, as amended 2026-09-26) and whether it was put before a move brought the investigator to them
- * (`declared_before_move`: a move landed this turn, `moved`, and they were not among the people present when the run
- * began, `firstPresent`). §143.23 (ticket 24): and whether the compile named no one at all (`named_no_one`: the run's
- * `addressees` is empty), so the words they hear say they were said to no one by name and the generator judges whether
- * they were said to them.
+ * Section 150.1: outside combat, a current consequence receipt may trigger an autonomous reaction.
+ * Addressing and prior conversation still identify a pending-fight target, but ordinary replies
+ * belong to the main Keeper and start no author, stakes roll or pending intention. Skipping a reply
+ * does not consume the person's turn: a later actual consequence may still trigger this scan.
+ * Forced combat turns use runNpcAct directly. Existing reaction caps, ordering and heard context
+ * remain unchanged for the NPCs a current receipt actually affected.
  */
 export async function runNpcScan(deps: NpcActDeps, input: {present: readonly string[]; addressees: readonly string[]; seen: Set<string>; count: {acted: number};
   firstPresent?: readonly string[]; moved?: boolean; fightPending?: {named: readonly string[]}; held?: Row[]}): Promise<NpcActOutcome[]> {
@@ -805,6 +791,13 @@ export async function runNpcScan(deps: NpcActDeps, input: {present: readonly str
     }
     due = due.filter(entry => !aimed.includes(entry));
   }
+  // Section 150.1: after preserving any pending-fight hold, leave ordinary replies to
+  // the Keeper. Do not mark them seen: an actual later consequence can still trigger a scan.
+  due = due.filter(entry => {
+    if (entry.actedOn) return true;
+    deps.record({lane:'run',event:'npc_reply_owner',run:deps.runId,step:deps.stepId,npc:entry.handle,owner:'keeper',reason:'conversation_only'});
+    return false;
+  });
   const latest = (a: Due, b: Due) => (b.conversation?.turn ?? -1) - (a.conversation?.turn ?? -1) || (b.conversation?.order ?? -1) - (a.conversation?.order ?? -1);
   const ranked = [...due.filter(entry => entry.trigger === 'acted_on'), ...due.filter(entry => entry.trigger === 'engaged').sort(latest)];
   for (const entry of ranked) {

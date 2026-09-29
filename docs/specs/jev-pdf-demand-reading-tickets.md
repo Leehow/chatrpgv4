@@ -141,6 +141,8 @@ No new generic test framework, replacement Keeper, synthetic player or second im
 
 ## Comments
 
+2026-09-28, active ordinary-improvisation correction: owner approved contract section 150 after reviewing Keeper Rulebook pp. 189/199/201/217/221. Baseline 11c0d8ccd, clean 0.9.6a. Success is ordinary off-book actions progressing with durable place/person/evidence state while preserving causal relationships. Implement a narrow scene/clue addition through existing apply/world projection, remove mandatory destination-source preflight, and repair the Keeper-facing lookup/tool guidance. Then verify transaction/restart/source-isolation regressions, review, package and real GUI play (shop, clerk, return, retained facts). Existing failed campaigns remain evidence; neither a mock Keeper nor passing fixtures satisfy play acceptance. Full regression follows integration, not each edit.
+
 2026-09-27, implementation start: the owner explicitly authorized the `implement` skill and autonomous tests. Ready status reflects that authorization; it does not claim completed work. The pinned evidence requirements above remain binding before each code-bearing ticket.
 
 2026-09-27, prototype-use requirement: the owner explicitly required implementation to consult the completed prototypes. Added pinned commits, a per-ticket evidence map, mandatory pre-code reading and an implementation/verification correspondence checked at review. Every individual ticket links this gate so it survives separate assignment.
