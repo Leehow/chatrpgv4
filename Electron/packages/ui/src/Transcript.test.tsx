@@ -323,6 +323,16 @@ describe('Transcript prepend and follow', () => {
     expect(virtuosoInstances[0]!.followOutput?.(true)).toBe(false)
   })
 
+  it('returns to the latest message immediately while animation frames are suspended', () => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 123)
+    const view = render(<Transcript active messages={makeMessages(3)} {...handlers} />)
+    act(() => virtuosoInstances[0]!.atBottomStateChange?.(false))
+    virtuosoInstances[0]!.scrollToIndex.mockClear()
+    fireEvent.click(view.getByRole('button', { name: '回到最新' }))
+    expect(virtuosoInstances[0]!.scrollToIndex).toHaveBeenCalledWith({ index: 'LAST', align: 'end', behavior: 'auto' })
+    expect(virtuosoInstances[0]!.followOutput?.(false)).toBe('auto')
+  })
+
   it('stops pinning only for real upward user intent and resumes from 回到最新', async () => {
     const first = makeMessages(3, 0)
     const view = render(<Transcript active messages={first} {...handlers} />)
