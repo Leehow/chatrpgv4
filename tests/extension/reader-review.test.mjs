@@ -518,3 +518,43 @@ test('§150.2.1 a reused unit review never carries a row about a record outside 
  const merged=JSON.parse(await readFile(join(cwd,'review.json'),'utf8'));
  assert.deepEqual(merged.checked.filter(row=>row.paths.includes('/nodes/0')).map(row=>row.reason),['assigned']);
 });
+
+/**
+ * §150.2.1, lead decision 2026-09-28: a unit's connected context is checked, not keyed. Removing a connected record
+ * cannot turn the unit's own supported records unsupported (removal is what refused records get); changing or adding
+ * one can. Blood05 read-6: every fact unit touched an endpoint of a deleted claim, so keying the context reused none.
+ */
+function harborUnits(){
+ const node=(node_id,page)=>({node_id,node_kind:node_id.split('-')[0],name:node_id,source_refs:[{page}],properties:{}});
+ const claim=(subject_id,target,page,predicate='present-in')=>({subject_id,predicate,object:{node_id:target},source_refs:[{page}]});
+ // Units: the dock (p1), the sailor (p2), the keeper with its claim on the dock (p3), the sailor's claim on the dock (p4), coverage.
+ return {node,claim,draft:{nodes:[node('scene-dock',1),node('npc-sailor',2),node('npc-keeper',3)],
+  claims:[claim('npc-keeper','scene-dock',3),claim('npc-sailor','scene-dock',4)],ready_nodes:['scene-dock'],coverage:{}}};
+}
+async function contextFixture(t){
+ const cwd=await mkdtemp(join(tmpdir(),'coc-unit-context-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const ran=[],{node,claim,draft}=harborUnits();
+ const options={cwd,cacheRoot:join(cwd,'cache'),reviewVersion:'fixture-v1',task:{purpose:'detail',focus:'Dock',question:'',review_scope_pages:[1,2,3,4,5]},draft,instructions:'unused',round:1,
+  model:{id:'fixture/vision'},source:{pdf:'unused',cache:'unused',file_sha256:'a'.repeat(64)},signal:new AbortController().signal,progress(){},record(){},run:unitReviewer(ran)};
+ await reviewCandidate(options);
+ assert.equal(ran.length,5);ran.length=0;
+ const again=async changed=>{ran.length=0;await reviewCandidate({...options,round:2,draft:changed});return ran.map(paths=>paths.join(',')).sort();};
+ return {node,claim,draft,again};
+}
+test('§150.2.1 removing a connected record reuses every unit whose own records are unchanged',async t=>{
+ const {draft,again}=await contextFixture(t);
+ // The sailor's claim on the dock is removed: the dock and the sailor lose it from their context, nothing else changes.
+ assert.deepEqual(await again({...draft,claims:[draft.claims[0]]}),['/coverage']);
+});
+test('§150.2.1 a changed connected record re-runs the units that saw it',async t=>{
+ const {draft,again}=await contextFixture(t);
+ const claims=[draft.claims[0],{...draft.claims[1],reason:'Now a regular at the dock.'}];
+ assert.deepEqual(await again({...draft,claims}),['/claims/1','/coverage','/nodes/0','/nodes/1','/nodes/2,/claims/0'],
+  'its own unit, and the dock, the sailor and the keeper (through the dock), whose context holds it');
+});
+test('§150.2.1 an added connected record re-runs the units it connects to, and only those',async t=>{
+ const {claim,draft,again}=await contextFixture(t);
+ const claims=[...draft.claims,claim('npc-sailor','npc-keeper',5,'knows')];
+ assert.deepEqual(await again({...draft,claims}),['/claims/1','/claims/2','/coverage','/nodes/1','/nodes/2,/claims/0'],
+  'the new claim, and every unit holding the sailor or the keeper; the dock is not connected to it and is reused');
+});

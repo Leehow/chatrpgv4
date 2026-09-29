@@ -41,3 +41,11 @@ Measured on the retained Blood05 evidence (read-only, `read-6/attempt-2`, pages 
 
 Not done / for the lead: the full suites (`test:ext`, pytest) were not run (box only); files needing `build/` fail here for that reason alone (`displaced-read-resumes`, `host-state-not-fiction`, `jev-provider-budget` hangs without `build/node_modules`). No live Jev, no real table. The acceptance measurement (spec (a)) is ticket 08.
 
+### 2026-09-28 lead decision: connected context is checked, not keyed
+
+The fact-unit key no longer contains the connected context: it covers the unit's records exactly as written, the task fields the reviewer sees, cited pages, source, extraction version, model, protocol/instructions and policy. The approved cache entry stores the per-record digests of the connected known and candidate context at review time; a lookup reuses it only when the key matches and every current connected record has a stored, identical digest (removals allowed; new or changed records re-run). `/coverage`, guidance and answer keep the whole-candidate identity. Contract §150.2.1's implementation decision says so.
+
+Tests (`tests/extension/reader-review.test.mjs`, now 29/30, the 1 failure the pre-existing `build/kernel/rpc.mjs` one): removal-only reuses every unit whose own records are unchanged; a changed connected record re-runs the units that saw it; an added connected record re-runs exactly the units it connects to. Mutation checks: context back in the key kills the removal case; no subset check kills the changed and added cases (and the earlier connected-edit case); requiring the context to be equal instead of a subset kills the removal case. Re-run after the change: `review-repair-salvage` 7/7, `reading-service` 35/36 (pre-existing build failure), `source-answer-allowance` 9/9, `source-reader-driver` 11/11.
+
+Re-measured on Blood05 `read-6/attempt-2` (read-only) with a compliant targeted repair (delete `/claims/0,4,5`, renumber `critical`; the host check passes): round 1 had 5 units (4 fact units + coverage). In round 2, **3 of the 4 fact units are reused** (nodes 0-7, the eight claims now at `/claims/3-10`, the two now at `/claims/11-12`): every unit whose own records are unchanged. The unit that lost the refused claims (`/nodes/8`, `/nodes/9`, `/claims/0-2`) and `/coverage` re-run. With the context in the key it was 0 of 4.
+
