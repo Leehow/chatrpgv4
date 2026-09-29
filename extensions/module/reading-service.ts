@@ -16,6 +16,7 @@ import { publishableAssetNodes, validateMapRegions } from "./map-publication.ts"
 import type { HostRuntime } from "../../runtime/host.ts";
 import type {FreshSourceNavigator} from '../../runtime/jev/fresh-source-navigator.ts';
 import type {PublicationTravel, TravelFill} from './travel-fill.ts';
+import type {ClaimSupportCheck, ClaimSupportRequest} from './claim-support.ts';
 import {runSourceReference} from './source-reference.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -118,6 +119,8 @@ interface Dependencies {
 	 * before `module.read.finish`, so the minutes land in the same generation; never a reason to fail the reading.
 	 */
 	travel?(input: PublicationTravel): Promise<TravelFill | undefined>;
+	/** §150.3: the Jev claim-support check of the verify phase (`createClaimSupport`); absent, every fact unit goes to vision. */
+	claimSupport?(request: ClaimSupportRequest): Promise<ClaimSupportCheck | undefined>;
 	model(): { id: string; vision: boolean; thinking?: string; contextWindow?: number };
 	progress(row: Row): void;
 	record(row: Row): void;
@@ -1056,7 +1059,14 @@ export class ReadingService implements ReadingBridge {
 							const reviewScope=await guidanceReviewPages(cwd,task,job.source.file_sha256,job.source.page_count,
 								job.purpose==='guidance'||job.opening_scope==='first_interaction'?draftPages(candidate):observations.read_pages);
                             if(job.source_unit)for(const page of job.pages??[])if(!reviewScope.includes(page))reviewScope.push(page);
-							observations.review_pages = await reviewCandidate({ cwd, task: {...task, review_scope_pages: reviewScope,
+							// §150.3: the Jev claim check asks before the vision units run and merges its rows after they finish.
+							let claimCheck = undefined as ClaimSupportCheck | undefined;
+							const claimSupport = this.deps.claimSupport && (async (units: string[][]) => (claimCheck = await this.deps.claimSupport!({ cwd, round,
+								module: job.module_id, job: job.job_id, ...(campaign !== undefined ? { campaign } : {}), source: { file_sha256: job.source.file_sha256 },
+								task, draft: candidate, units, signal,
+								sourceText: pages => this.runtime().sourceText({ pdf: job.source.path, pages, expected_file_sha256: job.source.file_sha256 }, signal),
+								record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", ...row, campaign }) }))?.skip);
+							observations.review_pages = await reviewCandidate({ cwd, ...(claimSupport ? { claimSupport } : {}), task: {...task, review_scope_pages: reviewScope,
 								...(requiredReview?{required_review:requiredReview}:{})},
 								draft:candidate, instructions, round,
 								model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
@@ -1071,6 +1081,7 @@ export class ReadingService implements ReadingBridge {
 								// Every verify row names the job and round it belongs to (#65); the reviewer adds unit and attempt.
 								record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", round, ...row, campaign }),
 								progress: row => this.deps.progress({ module_id: job.module_id, job_id: job.job_id,purpose:job.purpose, ...row, campaign }) });
+							await claimCheck?.settle(join(cwd, "review.json"));
 							await writeFile(join(cwd, "observations.json"), JSON.stringify(observations) + "\n");
 							phaseCompleted = true;
 							continue;

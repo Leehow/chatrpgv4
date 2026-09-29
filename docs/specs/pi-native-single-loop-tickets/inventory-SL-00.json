@@ -1598,6 +1598,19 @@
       "lines_at_0b729e8fb": []
     },
     {
+      "file": "extensions/module/claim-support.ts",
+      "symbol": "createClaimSupport",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "module ext: reading service verify phase, family source-claim-support v1 (150.3, jev-decides-llm-writes ticket 03)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a (added at ticket 03)",
+      "note": "Gate: a Jev key and a mode other than off (PI_COC_CLAIM_SUPPORT over host-budgets.json source_claim_support.mode; shipped shadow). Once per verify round of a fact review (never guidance or source-answer), before the vision units run: two Nouls (supported, contradicted) per eligible record against its cited pages' native text, one fanned-out request per candidate (split only past the packing limit or max_pages_per_request). Budget: its own lease, timeout_ms (30 s shipped), token/cost bound from the packed batches, one retry on a dropped connection. Gate: supported >= supported_min and contradicted <= contradicted_max (data). Fallback: an outage, packing refusal or timeout leaves the record with the vision reviewer (off for that record); shadow records only; on removes cleared records from the vision units and appends reviewer:jev rows the publication gate re-checks. Never drives a model run, never refuses a record, never fails the reading.",
+      "lines_at_0b729e8fb": []
+    },
+    {
       "file": "runtime/jev/memory-read-owner.ts",
       "symbol": "registerMemoryReadOperations.execute",
       "kind": "task-runtime",

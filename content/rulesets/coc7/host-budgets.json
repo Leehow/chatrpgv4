@@ -64,5 +64,14 @@
   "source_need_answered": {
     "min_noul": 0.85,
     "timeout_ms": 20000
+  },
+  "source_claim_support": {
+    "mode": "shadow",
+    "supported_min": 0.8,
+    "contradicted_max": 0.1,
+    "timeout_ms": 30000,
+    "page_text_max_bytes": 12000,
+    "record_max_bytes": 6000,
+    "max_pages_per_request": 4
   }
 }
