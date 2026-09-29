@@ -465,27 +465,23 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 const referenceSource=!!module.meta.source_reference||module.meta.source==='pdf'&&!!row(module.meta.source_document).file_sha256,sourceScope=referenceSource||row(module.meta.reading).opening_scope==='first_interaction';
                 const prepared=new Set(array(row(module.meta.reading).materials).flatMap(material=>array(material.node_ids)));
                 const entities = (searched.length ? searched : graph.handleList(query) ?? []).filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => ({...graph.entityView(node),
-                    ...(sourceScope?{material:graph.materialOverride?graph.materialOverride(node.node_id):prepared.has(node.node_id)?'ready':'unprepared',
+                    ...(sourceScope?{material:graph.isTableEntity(node)||graph.isTablePerson(node)?'ready':graph.materialOverride?graph.materialOverride(node.node_id):prepared.has(node.node_id)?'ready':'unprepared',
                         original_pages:[...new Set(array(node.source_refs).filter(ref=>ref.source_id===`pdf:${graph.moduleId}`&&integer(ref.pdf_index)).map(ref=>number(ref.pdf_index)+1))]}:{})}));
-                const scene = !entities.length && typeof world.active_scene === 'string' ? graph.find(world.active_scene, ['scene']) : null;
-                const sourceNodes = array(row(scene?.campaign_origin).sources).map(id => graph.nodes.get(id)).filter((node): node is Row => node !== undefined);
                 const missingScene = !entities.length && expected === 'scene';
                 return {
                     query,
                     ...(expected ? {expected_kind: expected} : {}),
                     entities,
-                    ...(sourceScope&&entities.length?{source_policy:referenceSource?'Published fragments and original reference identities are usable within their stated scope. An incomplete graph is not missing PDF content. Read original source for missing facts and preserve established campaign values.': 'Ready material contains independently reviewed source facts for that scope. Use those facts directly. Request source reading for a missing detail, unsupported parameter, new relation or retained source need; readiness grants no disclosure or action.'}:{}),
+                    ...(sourceScope&&entities.length?{source_policy:'Entries with origin.kind table are established campaign facts, not claims about the book. '+(referenceSource?'Published fragments and original reference identities are usable within their stated scope. An incomplete graph is not missing PDF content. Read original source for a specific missing fact and preserve established campaign values.': 'Ready source material contains independently reviewed facts for that scope. Request source reading for a specific missing fact needed now; readiness grants no disclosure or action.')}:{}),
                     ...(!entities.length ? {
                         status: 'not_found',
-                        note: referenceSource?'No entity matched the partial graph. This does not establish absence from the original PDF. Consult the bound original source before inventing a replacement or preparing an adaptation.':missingScene
-                            ? 'This explicitly requested destination scene is absent. A part, entrance, room, floor or counter of a registered place is that place, not an absent one: search the place itself and move there. Prepare and review only a genuinely different physical place, before movement or arrival narration.'
+                        note: referenceSource?'No entity matched the partial graph. This does not establish absence from the PDF or forbid ordinary improvisation. Use known facts and causal relationships; a specific missing authored fact can be looked up in the original source. An ordinary new place can be established by apply move with establish:{summary} and via; a new clue by apply clue with establish:{summary} and how; a new person by apply npc with walk_on. Source lookup is reference assistance, not permission to continue.':missingScene
+                            ? 'No matching destination is registered. Reuse an existing place for its rooms or counters. An ordinary new player-chosen place can be established in the move itself with establish:{summary} and via. Preserve known facts and access conditions; adaptation is for deliberate changes to established relationships.'
                             // These two sentences and `apply person`'s refusal used to disagree: this one
                             // sent a one-off person to narration, that one sent them to adaptation, and
                             // `apply npc` accepted neither. All three now name the same road.
                             : 'No graph entity matched. Do not open graph adaptation for a physical object or a compatible first-appearance supporting person. Use define/object/item for physical state; ordinary scenery may remain narration. A person the book never had is established at the table by apply npc with walk_on: true under whatever you are already calling them, a description included; open adaptation for them only when they must persist as a source-connected figure. What the player is called to see them by comes from apply person, for anyone at this table. If the player actually chose a missing destination, repeat this lookup with expected_kind scene.',
-                        ...(referenceSource?{preparation:{tool:'lookup',kind:'source',source_mode:missingScene?'prepare':'answer',query,...(!missingScene?{question:'Identify this source entity and its necessary connections.'}:{})}}:missingScene ? {preparation: {tool: 'lookup', kind: 'adaptation', action: 'prepare', purpose: 'new_destination', name: query.slice(0, 120),
-                            anchors: (sourceNodes.length ? sourceNodes : scene ? [scene] : []).slice(0, 4).map(node => node.name),
-                            request: 'Describe the player-chosen destination and its limited connection to the existing campaign. Preserve source causes and all established facts; no automatic clue, NPC appearance, danger or movement.'}} : {})
+                        ...(referenceSource?{reference_lookup:{tool:'lookup',kind:'source',source_mode:'answer',query,question:'Read facts and causal relationships relevant to this entity when needed for the current action.'}}:{})
                     } : {})
                 };
             }

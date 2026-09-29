@@ -377,9 +377,9 @@ test('base continuity lookup works through the kernel; preparation and review ch
     assert.ok(!untypedMiss.preparation); assert.match(untypedMiss.note, /first-appearance/);
     const original = await t.call('table.lookup', {kind: 'module', query: 'Harbor guesthouse', expected_kind: 'scene', canonical_source: true});
     assert.deepEqual(original.entities, []);
-    assert.equal(original.preparation.kind, 'adaptation');
-    assert.equal(original.preparation.action, 'prepare');
-    assert.equal(original.preparation.purpose, 'new_destination');
+    assert.equal(original.preparation, undefined);
+    assert.match(original.note, /establish/);
+    assert.match(original.note, /Preserve known facts/);
     await t.call('table.narrate', {call_id: 't1-c4', text: 'The investigator studies the existing evidence at the Harbor guesthouse.'});
     assert.equal((await t.call('journal.job', {turn: 1})).scene.name, 'Harbor guesthouse');
 });

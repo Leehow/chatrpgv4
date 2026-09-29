@@ -1,5 +1,9 @@
 # Graph-Backed Play Experience
 
+## Current correction: ordinary campaign improvisation (2026-09-28)
+
+Contract section 150 supersedes this document's ordinary-new-destination adaptation requirement. A Keeper may establish a compatible place or clue in the ordinary move/discovery transaction; NPCs retain walk_on. Source preparation and independent adaptation review are not prerequisites for ordinary additions. Existing player admission, causal/knowledge consistency and transaction rules remain. Deliberate changes to established relationships retain adaptation. A known scene's incomplete dossier does not by itself prevent arrival; a specific missing causal fact may still need targeted reading. Historical decisions below record the former design and must not reinstate it.
+
 _Date: 2026-09-11 UTC (local authoring date 2026-09-10). Baseline: 0.9.2a at 0705f713. Status: implemented on 0.9.2a on 2026-09-11 for the parts listed under "2026-09-11 decisions after a code survey" (contract §32); no live regression, latency comparison or uninformed-human gate has run, so no acceptance is claimed. Scope: preserve prior Keeper narrative-quality work and add structural graph-backed play and action-admission requirements._
 
 ## Problem Statement

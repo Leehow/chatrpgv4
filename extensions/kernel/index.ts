@@ -5183,8 +5183,6 @@ export default function (pi: ExtensionAPI) {
 			void record(startupRecord(runtime.resourceRoot, process.env) as unknown as Record<string, unknown>);
 			// The tool surface is fixed: these seven and no reshaping afterwards.
 			pi.setActiveTools([...COC_TOOL_NAMES]);
-			const originalSourceAvailable=readingModule?await kernel.call<Record<string,unknown>>('module.reference.status',{module_id:readingModule,campaign})
-				.then(value=>value.original_source_available===true).catch(()=>false):false;
 			// One Pi session, one kernel subprocess (contract §1), so there is only this one kernel RPC.
 			// The memory extension's lane needs `memory.job` / `submit` / `fail`; it goes over this bridge
 			// on the bus rather than starting a second process.
@@ -5193,8 +5191,6 @@ export default function (pi: ExtensionAPI) {
 				moduleId: readingModule,
 				call: bridgeCall(kernel),
 				runtime,
-				prepareSourceDestination: originalSourceAvailable?async (need:string,signal:AbortSignal) => readingModule&&reading?.reference
-					? reading.reference(readingModule,{campaign,purpose:'detail',focus:need,question:'Locate only the physical destination the player explicitly chose now. '+need,materialize_place:true},signal):undefined:undefined,
 				// The call ordinal lives here, so anything that has to write on the Keeper's behalf mints its
 				// id here too instead of inventing one the kernel refuses -- and never reuses a live ordinal,
 				// which the kernel would read as a replay and answer with somebody else's result.

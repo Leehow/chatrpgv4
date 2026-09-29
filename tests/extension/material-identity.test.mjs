@@ -95,19 +95,15 @@ test('a ready scene wins over an unready same-handle location at the player-faci
   assert.ok(moved.receipts.some(receipt => receipt.startsWith('move:')));
 });
 
-test('an unready scene is still blocked when only its same-handle location is ready', async t => {
+test('ordinary arrival succeeds without claiming an unready same-handle scene dossier is ready', async t => {
   const { home, table, destination } = await preparedTable(t, false);
   const before = await table.call('table.look', { campaign: 'c1', focus: 'scene' });
   assert.equal(before.where.exits.find(exit => exit.to === destination)?.material, 'missing');
   await table.call('table.narrate', { campaign: 'c1', call_id: 't0-c1', text: 'The investigation begins.' });
   await table.call('table.player_input', { campaign: 'c1', text: 'I take the available route.' });
-  const worldPath = join(home, '.coc/campaigns/c1/world.json');
-  const unchanged = await readFile(worldPath, 'utf8');
-  await assert.rejects(table.call('table.apply', { campaign: 'c1', call_id: 't1-c1', effects: [{ kind: 'move', to: destination }] }), error => {
-    assert.equal(error.code, 'needs');
-    assert.equal(error.details.read.focus, destination, 'foreground reading rejoins the same semantic focus used by prefetch');
-    return true;
-  });
-  assert.equal(await readFile(worldPath, 'utf8'), unchanged);
-  assert.equal((await table.call('table.view', { campaign: 'c1' })).scene.name, before.where.scene);
+  const moved = await table.call('table.apply', { campaign: 'c1', call_id: 't1-c1', effects: [{ kind: 'move', to: destination }] });
+  assert.equal(moved.world.active_scene, destination);
+  assert.equal(moved.material_ready, false, 'arrival does not certify source completeness');
+  assert.equal(moved.material, 'missing');
+  assert.equal(JSON.parse(await readFile(join(home, '.coc/campaigns/c1/world.json'), 'utf8')).active_scene, destination);
 });

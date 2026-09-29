@@ -104,7 +104,8 @@ const AdaptationEffect = Type.Object({
 const MoveEffect = Type.Object({
 	...IntentResult,
 	kind: StringEnum(["move"] as const, { description: "change the persistent gameplay locus; ordinary spatial description inside the current locus needs no move" }),
-	to: Type.String({ description: "the registered persistent gameplay locus that subsequent action or durable location-bound state will use; a name the module already gives that place, or a part, entrance, room, floor or counter of it, names this same locus and needs no new one. For a chosen locus absent from the graph, first lookup kind module with expected_kind scene, then prepare and accept the returned adaptation before moving. Never substitute or relabel another physical place" }),
+	to: Type.String({ description: "the persistent gameplay locus chosen by the player. Reuse an existing place for its rooms or counters. For an ordinary new place consistent with established facts, supply establish and via in this same move; no source reading or adaptation job is required just because the graph lacks it. Do not substitute or relabel another place" }),
+	establish: Type.Optional(Type.Object({summary: Type.String({description: "brief description of a new campaign place; preserve known causes and access conditions. This declares an addition, not a replacement of a registered source place"})})),
 	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge" })),
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
 	label: Type.Optional(Type.String({ description: "a display name for the SAME registered gameplay locus in the player's language. It cannot substitute a different locus. Omitted means the existing name" })),
@@ -117,6 +118,7 @@ const ClueEffect = Type.Object({
 		description:
 			"clue name; must be a clue obtainable in the current scene. An echo id from the capsule's worldlines.echoes (it starts with echo:) reveals what another worldline left standing here — you decide whether to show it and how to tell it, never what it says",
 	}),
+	establish: Type.Optional(Type.Object({summary: Type.String({description: "new evidence discovered in this scene, consistent with established causes and the holder's knowledge; include how it was obtained. Existing authored clues use their existing names without establish. This records a campaign fact, not a quotation from the module"})})),
 	how: Type.Optional(Sentence("how they got it")),
 	from: Type.Optional(Type.String({ description: "the NPC who handed it over, when someone did; it goes on their ledger as something they disclosed" })),
 	label: Type.Optional(Type.String({ description: "short name of this clue in the player's language; omitted means the clue name" })),

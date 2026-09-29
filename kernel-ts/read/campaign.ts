@@ -10,6 +10,7 @@ import { campaignModule } from '../adaptation/source.js';
 import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { ModuleStore } from '../modules/store.js';
 import { withTablePeople } from './table-people.js';
+import { withTableEntities } from './table-entities.js';
 import { standingTables, type StandingTables } from '../combat/standing.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 import { playsFromReading } from "../modules/bound-source.js";
@@ -163,7 +164,7 @@ export interface LoadedModule {
 export async function loadCampaignModule(context: KernelContext, id: string, world: Row, campaign?: string): Promise<LoadedModule> {
     // The people this table established ride on both loads, because a table can establish one before
     // it has ever run an adaptation and `campaignModule` answers null until then.
-    return withTablePeople(await campaignModule(context, id, world) ?? await loadModule(context, id, campaign), world);
+    return withTablePeople(withTableEntities(await campaignModule(context, id, world) ?? await loadModule(context, id, campaign), world), world);
 }
 export async function loadModule(context: KernelContext, id: string, campaign?: string): Promise<LoadedModule> {
     // Reads follow the shared library until this campaign's first private write forks it.

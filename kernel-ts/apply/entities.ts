@@ -24,6 +24,7 @@ import {INTENT_OUTCOMES} from '../npc/intents.js';
 import {generatedOf,intentStamp,refuseRepeat,refuseSaidDone,refuseSettled,resolveIntent} from './intent.js';
 import {stageDraw, stageProduce} from './draw.js';
 import {fightTurn} from '../combat/execution.js';
+import {establishTableEntity, validateEstablishment} from '../read/table-entities.js';
 /** §135.30.7 (SL-42): the scenes the party left during this turn, latest departure first, from the turn's own move receipts. */
 function departedThisTurn(context:ApplyContext):string[]{
     const moves=[...array(context.turn.receipts),...(context.staged?.()??[])].filter(receipt=>isJsonObject(receipt)&&receipt.kind==='move'&&receipt.renamed!==true&&typeof receipt.from==='string'&&receipt.from!==receipt.to);
@@ -43,7 +44,17 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
         if(array(world.discovered_echoes??=[]).includes(name))return {receipt,event:null};world.discovered_echoes.push(name);
         return {receipt,event:{type:'clue-discovered',data:{clue:name,scene:echo.scene,how,echo:echo.line}}};
     }
-    const node=graph.clue(name),active=graph.scene(world.active_scene),here=graph.sceneClueIds(active),handle=graph.handle(node);
+    const summary=validateEstablishment(effect.establish),active=graph.scene(world.active_scene);
+    let node:Row,established=false;
+    try { node=graph.clue(name); }
+    catch(error){
+        if(!(error instanceof RpcError)||error.code!=='unknown_entity'||isAmbiguity(error)||summary===undefined)throw error;
+        if(graph.find(name))throw new RpcError('invalid_params','This name already identifies another entity');
+        if(!how?.trim())throw new RpcError('invalid_params','An improvised clue requires how it was obtained');
+        node=establishTableEntity(graph,world,context.turn,'clue',name,summary,graph.handle(active));established=true;
+    }
+    if(summary!==undefined&&!established&&!graph.isTableEntity(node))throw new RpcError('invalid_params','establish cannot replace an authored clue; obtain it without establish');
+    const here=graph.sceneClueIds(active),handle=graph.handle(node);
     // §135.30.7 (SL-42): a clue of a scene the party left during this turn is accepted there. The turn's departures are the
     // `from` of its move receipts (earlier calls, then earlier in this batch; a rename is not a departure), latest first.
     const left=here.includes(node.node_id)?undefined:departedThisTurn(context).map(handle=>graph.scene(handle)).find(value=>graph.sceneClueIds(value).includes(node.node_id));
@@ -58,7 +69,7 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
     }
     // Without a keeper label the receipt files the graph's display name: a handle is a machine word and never reaches the player.
     const receipt={id:`clue:${handle}-t${turn}`,kind:'clue',call_id:context.callId,clue:handle,label:label||graph.displayName(node),summary:node.summary||node.name,scene:graph.handle(scene),how,from:source,
-        ...(left?{left_this_turn:true}:{}),at:nowIso()};
+        ...(left?{left_this_turn:true}:{}),...(established?{established:'table'}:{}),at:nowIso()};
     if(label)(world.clue_labels??={})[handle]=label;
     // §80: the account of how this table came by the clue, kept beside its name because that is
     // what the player's own record of it says. The graph's summary is the Keeper's and stays on

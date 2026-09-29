@@ -392,7 +392,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             if (isolatedRefusals.length) result.not_landed = isolatedRefusals.map(({ index, error }) => ({ index, code: error.code, message: error.message,
                 ...(error.fix ? { fix: error.fix } : {}), ...(error.details ? { details: error.details } : {}) }));
             if (receipts.some(receipt => receipt.kind === 'move' && receipt.renamed) && !receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed))
-                result.location_note = `A rename changed only a display label. The actual scene remains ${graph.displayName(graph.scene(staged.active_scene))}. No arrival at a different place occurred. A player-chosen new destination needs lookup kind adaptation, prepare; accept the ready proposal, then apply move. Never narrate a different place as reached by a rename.`;
+                result.location_note = `A rename changed only a display label. The actual scene remains ${graph.displayName(graph.scene(staged.active_scene))}. No arrival at a different place occurred. For an ordinary new player-chosen destination, apply move with establish:{summary} and via. Never narrate a different place as reached by a rename.`;
             if (receipts.some(receipt => receipt.kind === 'move' && !receipt.renamed)) {
                 const snapshot = new CampaignSnapshot(kernel, campaign.id);
                 snapshot.meta = await campaign.readCampaign();
