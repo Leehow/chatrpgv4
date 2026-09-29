@@ -4837,7 +4837,7 @@ has no word, and keeps `message` (English, for the log) behind a fold captioned
 `upload_incomplete`, `upload_retry`, `guidance_not_ready`, `guidance_unavailable`,
 `opening_bound`, `preparation_pause_first`, `scenario_not_ready`,
 `name_and_occupation_required`, `unknown_action`, `presentation_timeout`,
-`interrupted`, `kernel_error`. Extensions that notify through `ctx.ui` read the
+`interrupted`, `kernel_error`, `handout_not_available`, `handout_reading_failed` (§155). Extensions that notify through `ctx.ui` read the
 `extension` surface for the campaign's language.
 
 **The glossary is generic.** `table.view.labels` is the union of every
@@ -10204,7 +10204,7 @@ asking for a restart the product no longer needs.
 
 The voice lane's outage notice told the operator to set `PI_COC_NPCVOICE_MODEL`, a name nothing reads; it now names `PI_COC_VOICE_MODEL`. Operator `fix` texts (review outage, admission outage, lane outage) name the setting by its new title, *Fast model*, and say it is read the next time the lane runs.
 
-**Deliberately on their own axis.** *Module build and preparation* -- the section reader (`PI_COC_BUILD_MODEL`, §22 and the reader wiring above: "缺省与桌子同模型"), character guidance and the opening -- read the book's page images, require a vision model (`model_without_images` refuses otherwise) and produce the only authored truth the table has; they stay on the table's model. *The image model* and *rerank* have their own settings. *Jev* (speech attribution, prescreens) has its own API and credentials. *The `skills` row* is not a lane: it measures the Keeper's own run, so it is the Keeper's model by definition.
+**Deliberately on their own axis.** *Module build and preparation* -- the section reader (`PI_COC_BUILD_MODEL`, §22 and the reader wiring above: "缺省与桌子同模型"), character guidance and the opening -- read the book's page images, require a vision model (`model_without_images` refuses otherwise) and produce the only authored truth the table has; they stay on the table's model, and so does the transcription of a pictured handout (§155.3: it looks at a picture, so it needs image input; the projection of that transcription is a lane and takes the fast model). *The image model* and *rerank* have their own settings. *Jev* (speech attribution, prescreens) has its own API and credentials. *The `skills` row* is not a lane: it measures the Keeper's own run, so it is the Keeper's model by definition.
 
 **Three ends (§31).** *Writer:* the settings panel, through the host's extension-settings write. *Reader:* `runtime/fast-model.ts` at every lane start (and `cocFastLane` on the host's cold path). *Actor:* each lane above, whose telemetry row carries the `model` it ran on (`lane-call` rows, `mod-agent` rows from the child's own `--model`, `map-words`, `voice`, `adaptation`'s `run-model-N.json`), so a table can be audited from its own files.
 

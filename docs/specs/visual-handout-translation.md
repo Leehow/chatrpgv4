@@ -1,6 +1,6 @@
 # Read a pictured handout in the player's language
 
-Status: proposed (owner request 2026-09-29); nothing implemented. Tickets: [visual-handout-translation-tickets.md](visual-handout-translation-tickets.md).
+Status: implemented on branch `claude/visual-handout-translation-20260929` (contract §155); installed-App acceptance (VT-05) still owed. Tickets: [visual-handout-translation-tickets.md](visual-handout-translation-tickets.md).
 Date: 2026-09-29
 Baseline inspected: 0.9.6a at beafa3019.
 Related contract: §152.3 (image handouts reach the player), §23 / §80 (presentation lanes; module summaries are Keeper material), the Mod document reading version (§ "Projection is host presentation", `extensions/mods/document-presentation.ts`), §35.1 (host controls with no kernel RPC), §37.10.1 (image reading stays on a vision model), §39.2 (map words).

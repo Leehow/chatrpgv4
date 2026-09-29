@@ -24,5 +24,6 @@ if(files.includes('request.json')){
   writeFileSync('transcription.json',JSON.stringify({blocks:[{role:'headline',text:'PRINTED HEADLINE'},{role:'body',text:'Printed body, line one.'}]}));
   Object.assign(record,{phase:'transcription',image,seen_sha256:createHash('sha256').update(readFileSync(image)).digest('hex')});
 }
-execFileSync(process.execPath,['check.mjs'],{stdio:'inherit'});
+// The checker's output is the child's own tool result, never its event stream: stdout is the reader's JSONL channel.
+execFileSync(process.execPath,['check.mjs'],{stdio:['ignore','ignore','inherit']});
 writeFileSync('launch-argv.json',JSON.stringify(record));
