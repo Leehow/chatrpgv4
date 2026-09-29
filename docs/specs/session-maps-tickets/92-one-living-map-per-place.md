@@ -38,7 +38,7 @@ One `apply move` to `martins-beach` printed **two** map cards, 「马丁滩村�
 - The board holds one entry per map node (per printed map, after 1). It is rendered on read from the union of everything the table knows: arrival-shown and `apply map` regions together.
 - The same union feeds `look`, `mapCatalog` and every later card, so the Keeper and the player see the same map.
 
-**4. New places uncover regions on the map that contains them.**
+**4. New places uncover regions on the map that contains them.** *(Contract §39.4 lands the outward walk below; the region-to-place reference is deferred to a later addendum, 2026-09-29.)*
 - At publication, each region may name the graph place it depicts (`region.place: <node id>`), written by the reader and checked by the reviewer.
 - Arriving at a place, or learning of it, uncovers that place's region on every map depicting the place or a place it lies in (`located-in` / `occurs-at`, the walk `sceneAssetNodes` already does). It does not mint another map.
 - The two "which maps depict this scene" computations (`mapsDepictingScene`, `sceneAssetNodes`) become one.
@@ -74,7 +74,8 @@ One `apply move` to `martins-beach` printed **two** map cards, 「马丁滩村�
 
 - [ ] Rebuild Dust to Dust from the PDF (fresh campaign, installed App): page 8's village map is **one** node; cards #1–#5 are one node each. Two concurrent jobs over the same page cannot both publish, and a test drives the race.
 - [ ] The existing campaign `game-5d82fd23…` (two village handles) keeps playing: one board entry, knowledge carried only through a reviewed correspondence, nothing lost.
-- [ ] Arrive at Martin's Beach: one card. Walk to the Poe Street cemetery and to the Felder house: each gives a row naming the uncovered place with no image. The board's single village map shows them.
+- [ ] Arrive at Martin's Beach: one card, and the village map is drawn whole (its source is player-safe, so §39.2 shows every region at once and nothing is black between them). Arriving first at a place inside the village (Poe Street cemetery) presents the same village map, through the outward `located-in` walk.
+- [ ] A map that grows prints its picture once: on The Haunting's Corbitt house, the hidden cellar revealed later by `apply map` arrives as an imageless update row naming it; the board's one Corbitt map shows it. A second `apply map` or `look focus=map` on either map prints no picture.
 - [ ] The session file grows by no image bytes for a delta row (measured).
 - [ ] After arrival, `look focus=map` reports the map as known, with the arrival regions.
 - [ ] The main session plays the live table as the player on the installed App; screenshots and turn records are cited under `## Comments`.
