@@ -494,3 +494,11 @@ test('an issued initial source-presence row becomes a conditional closed NPC ope
  assert.equal(candidate.bound.name,'mae');assert.equal(candidate.bound.to,'dock');assert.equal(candidate.routeFact.selects,'initialize');assert.equal(candidate.unbound.length,0);
  assert.equal(buildCandidates({...reads,applyOptions:{candidates:[{...row,guarded_by:'locked-meeting'}]}},'I walk to the dock.').some(value=>value.family==='source_presence'),false);
 });
+
+test('a minimal source destination still asks whether its access conditions allow movement',()=>{
+ const row={effect:{kind:'move',to:'cemetery'},description:{kind:'move',display_name:'Church Cemetery',source_identity:true,source_context:'Its gate remains locked until dawn.'}};
+ const candidate=buildCandidates({capsule:{},applyOptions:{candidates:[row]},resolveOptions:{}},'I go to the cemetery.').find(value=>value.family==='move');
+ assert.equal(candidate.bound.to,'cemetery');assert.equal(candidate.routeFact.selects,'enter');
+ assert.match(candidate.detail.source_context,/locked until dawn/);
+ assert.equal(buildCandidates({capsule:{},applyOptions:{candidates:[{...row,guarded_by:'gate'}]},resolveOptions:{}},'I go to the cemetery.').some(value=>value.family==='move'),false);
+});

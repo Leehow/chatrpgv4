@@ -30,7 +30,7 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
         'module.reference.status': async params => {const id=required(params,'module_id'),meta=await store.module(id);
             const node=meta.graph_file&&params.focus?(await store.graph(id)).find(string(params.focus)):null;
             return {ready:await reading.referenceReady(id,string(params.focus??'')),graph_complete:false,
-            graph_present:!!meta.graph_file,source_reference:meta.source_reference??null,character_guidance:meta.character_guidance??{},
+            graph_present:!!meta.graph_file,original_source_available:meta.source==='pdf'&&!!row(meta.source_document).file_sha256,source_reference:meta.source_reference??null,character_guidance:meta.character_guidance??{},
             known_nodes:node?[{node_id:node.node_id,node_kind:node.node_kind,name:node.name,aliases:node.aliases??[],summary:node.summary??'',properties:node.properties??{},
                 source_refs:(node.source_refs??[]).map((ref:Row)=>({page:Number(ref.pdf_index)+1}))}]:[]};},
         'module.source.snapshot': async params => {

@@ -360,7 +360,8 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
       label: `Move the party to ${text(description.display_name) || text(effect.to)}`, bound: {kind: 'move', to: text(effect.to)},
       unbound: [{name: 'travel_minutes', required: false, vocabulary: 'open'}, {name: 'label', required: false, vocabulary: 'open'},
         {name: 'via', required: false, vocabulary: 'open'}],
-      detail: {available: true, ...(text(description.material) ? {material: text(description.material)} : {})} as Json,
+      detail: {available: true, ...(text(description.material) ? {material: text(description.material)} : {}),...(description.source_identity?{source_context:description.source_context}: {})} as Json,
+      ...(description.source_identity?{routeFact:{target:'requested original-source destination',instructions:'Does the supplied source permit the declared movement now without an unresolved access condition, obstacle or required check? A named place alone does not waive an entrance restriction. If the source states a relevant condition whose satisfaction is unknown, choose unknown.',criteria:{enter:'The declared ordinary travel has no unresolved source condition.',blocked:'An access condition currently prevents this movement.',unknown:'A relevant source condition requires adjudication first.'},selects:'enter'}}:{}),
       clerk: 'declared_bookkeeping', basis});
     else if(kind==='npc'&&description.kind==='source_presence')push({key:'apply:source-presence:'+text(effect.name),verb:'apply',family:'source_presence',source:'table.apply.options',
       label:'Initialize the authored presence of '+text(description.name)+' at '+text(description.scene),

@@ -29,6 +29,49 @@ async function decisions(decide:Decide,family:string,state:Row,questions:Row[],s
   if(result.status!=='complete')throw Error('Source reference decision is incomplete');return result.answers;
  }finally{lease.close();}
 }
+/** Source syntax only: Jev decides which original line introduces a playable entrance. */
+async function textEntrances(pages:Page[],decide:Decide,signal:AbortSignal,record:(value:Row)=>void):Promise<Row[]>{
+ const found=await Promise.all(pages.filter(page=>page.text.trim()).map(async page=>{
+  const lines=[...new Set(page.text.split(/\r?\n/u).map(line=>line.trim()).filter(line=>line.length>1&&line.length<=400))].slice(0,240);
+  if(!lines.length)return;
+  const answers=await decisions(decide,'source-reference-text-entrances',{page:page.page,original_page:page.text.slice(0,10000)},[
+   {key:'line',target:'original_page',type:'choice',instructions:'Select the original line that best names or introduces an actual initial playable scene or prologue on this page. Prefer its section heading. A contents-list mention, later encounter, hook menu or background biography is not an entrance. Select none if this page does not contain an entrance.',criteria:{...Object.fromEntries(lines.map((line,i)=>['l'+i,line])),none:'No initial playable entrance on this page.'}}
+  ],signal,record);
+  const answer=answers.line,index=answer?.status==='answered'&&answer.type==='choice'?Number(String(answer.choice).replace(/^l/,'')):NaN;
+  if(lines[index])return {name:lines[index],page:page.page,root:page.page,depth:0};
+ }));
+ return found.filter((value):value is Row=>!!value);
+}
+/** Offsets are host-owned; even names crossing a hard-wrapped line remain exact source bytes. */
+export function sourceNameTokens(text:string):{text:string;start:number;end:number}[]{
+ return [...new Intl.Segmenter(undefined,{granularity:'word'}).segment(text)].filter(part=>part.isWordLike)
+  .map(part=>({text:part.segment,start:part.index,end:part.index+part.segment.length}));
+}
+async function textPlace(excerpts:ReferenceExcerpt[],question:string,decide:Decide,signal:AbortSignal,record:(value:Row)=>void):Promise<Row|undefined>{
+ const choices=excerpts.flatMap(span=>originalSpans([{page:span.page,text:span.text}],240).map(part=>({...part,start:span.start+part.start,end:span.start+part.end}))).slice(0,32);
+ const answers=await decisions(decide,'source-reference-place-excerpt',{requested_use:question},[
+  {key:'excerpt',target:'requested_use',type:'choice',instructions:'Which original excerpt explicitly names the requested destination itself? Select its literal name, not merely associated people, events or a description nearby. A named institution can identify a place to visit. Repeated mentions of the same place are equivalent; prefer the earliest explicit name. Choose none for an absent destination.',criteria:{...Object.fromEntries(choices.map((span,i)=>['e'+i,{page:span.page,text:span.text}])),none:'The requested destination is not named in these excerpts.'}}
+ ],signal,record);
+ const answer=answers.excerpt,index=answer?.status==='answered'&&answer.type==='choice'?Number(String(answer.choice).replace(/^e/,'')):NaN,span=choices[index];
+ if(!span)return;
+ const tokens=sourceNameTokens(span.text);
+ // Choose bounded source windows when a paragraph is too long for Choice's vocabulary.
+ const windows=Array.from({length:Math.ceil(tokens.length/96)},(_,i)=>tokens.slice(i*96,Math.min(tokens.length,i*96+112)));
+ for(const window of windows){
+  const criteria={...Object.fromEntries(window.map((token,i)=>['t'+i,{token:token.text,before:span.text.slice(Math.max(0,token.start-8),token.start),after:span.text.slice(token.end,token.end+8)}])),none:'No complete matching place name in this window.'};
+  const result=await decisions(decide,'source-reference-place-name',{requested_use:question,original_excerpt:span.text},[
+   {key:'start',target:'original_excerpt',type:'choice',instructions:'Select the FIRST word of the full name of the requested physical location, copied from this original excerpt. Include a city qualifier only when it is part of this name here. Select none if no matching name is wholly available in the choices.',criteria},
+   {key:'end',target:'original_excerpt',type:'choice',instructions:'Select the LAST word of the full name of the requested physical location, copied from this original excerpt. Do not include following descriptive prose. Select none if no matching name is wholly available in the choices.',criteria}
+  ],signal,record);
+  const chosen=(key:string)=>{const a=result[key];return a?.status==='answered'&&a.type==='choice'?window[Number(String(a.choice).replace(/^t/,''))]:undefined;};
+  const start=chosen('start'),end=chosen('end');if(!start||!end||end.end<=start.start||end.end-start.start>160)continue;
+  const name=span.text.slice(start.start,end.end);
+  const confirmed=(await decisions(decide,'source-reference-place',{requested_use:question,candidate:{name,page:span.page},original_page:span.text},[
+   {key:'concrete',target:'candidate',type:'noul',instructions:'Does candidate.name identify the requested destination in this original excerpt? A named institution counts as a destination that can be visited; no street address, complete dossier or proof of present access is required. Reject clipped names, descriptive sentences, people, unrelated destinations and unsupported identities. This confirms only source identity; access conditions, disclosure, NPC presence and the player action remain separate.'}
+  ],signal,record)).concrete;
+  if(confirmed?.status==='answered'&&confirmed.noul>=.8)return {id:`scene-source-place-${span.page}-${span.start+start.start}`,name,page:span.page};
+ }
+}
 export async function selectReferencePacket(input:{pages:Page[];allPages:Page[];bookmarks?:unknown;sourceSha:string;pageCount:number;extractionVersion:string;purpose:string;question:string;materializePlace?:boolean;openingProbePages?:number[];
  decide:Decide;signal:AbortSignal;record?:(value:Row)=>void}):Promise<SourceReferencePacket>{
  const record=input.record??(()=>{}),spans=originalSpans(input.pages.filter(p=>p.text.trim())),ranked:Row[]=[];
@@ -59,7 +102,8 @@ export async function selectReferencePacket(input:{pages:Page[];allPages:Page[];
   const walk=(list:any[],root?:number,depth=0)=>{for(const item of list??[]){if(typeof item?.name!=='string'||!Number.isSafeInteger(item.page))continue;
    const index=headings.length,group=root??index;headings.push({name:item.name,page:item.page,root:group,depth});walk(item.children,group,depth+1);}};
   walk(Array.isArray(input.bookmarks)?input.bookmarks:[]);
-  if(!headings.length)throw Error('Opening identity requires original-page fallback for this source');
+  if(!headings.length)headings.push(...await textEntrances(input.pages,input.decide,input.signal,record));
+  if(!headings.length)throw Error('No source-backed opening candidate was located');
   const scores:Row[]=[];
   for(let at=0;at<headings.length;at+=80){const group=headings.slice(at,at+80);
    const answers=await decisions(input.decide,'source-reference-entrances',{headings:group,source_context:[...selected.values()].map(({page,text})=>({page,text}))},
@@ -100,6 +144,7 @@ export async function selectReferencePacket(input:{pages:Page[];allPages:Page[];
    const answer=(await decisions(input.decide,'source-reference-place',{requested_use:input.question,candidate:lead,original_page:page.text.slice(0,6000)},[{key:'concrete',target:'candidate',type:'noul',instructions:'Does the original page establish this candidate as the requested concrete physical location in the scenario? It must be a usable place identity, not merely a chapter title, example or person. This does not authorize entering it, disclosing secrets or ignoring conditions.'}],input.signal,record)).concrete;
    if(answer?.status==='answered'&&answer.noul>=.8){places=[{id:'scene-source-place-'+lead.page+'-'+lead.index,name:lead.name,page:lead.page}];for(const span of originalSpans([page]))selected.set(span.id,span);}
   }}
+  if(!places){const place=await textPlace([...selected.values()],input.question,input.decide,input.signal,record);if(place)places=[place];}
  }
  const packet:SourceReferencePacket={protocol:SOURCE_REFERENCE_PROTOCOL,source_sha256:input.sourceSha,extraction_version:input.extractionVersion,purpose:input.purpose,question:input.question,
   excerpts:[...selected.values()].sort((a,b)=>a.page-b.page||a.start-b.start),fields,entries,...(places?{places}:{}),partial:true,visual_coverage:'unassessed',unavailable_pages:input.allPages.filter(page=>!page.text.trim()).map(page=>page.page)};

@@ -26,34 +26,44 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  const publicFields=validatePublicGuidance(receipt.public_fields,number(meta.page_count));
  for(const field of Object.values(publicFields))if(field.status==='value'&&!text.includes(field.text))fail('Public fields must be views of the same final guide');
  const previous=await store.readGraph(mid),contract=await store.contract();
- if(previous&&!meta.source_reference)fail('Existing authored graph keeps its established guidance owner');
- const entries=packet.entries,entryIds=entries.map(entry=>entry.id);
- const nodes:Row[]=[{node_id:`module-${mid}`,node_kind:'module',name:meta.title,visibility:'keeper-only',properties:{entry_scene_ids:entryIds,
+ const entries=packet.entries,bindings:Row={};
+ for(const entry of entries){
+  const scenes=array(previous?.nodes).filter(node=>node.node_kind==='scene');
+  const named=scenes.filter(node=>[node.node_id,node.name,...array(node.aliases)].some(name=>normalize(name)===normalize(entry.name)||name===entry.id));
+  const samePage=scenes.filter(node=>(row(node.properties).is_entrance||array(previous?.entry_scene_ids).includes(node.node_id))&&array(node.source_refs).some(ref=>ref.source_id===`pdf:${mid}`&&number(ref.pdf_index)+1===entry.page));
+  const old=named.length===1?named[0]:!named.length&&samePage.length===1?samePage[0]:undefined;
+  bindings[entry.id]={node_id:old?.node_id??entry.id,name:old?.name??entry.name};
+ }
+ const entryIds=entries.map(entry=>bindings[entry.id].node_id);
+ const nodes:Row[]=previous?[]:[{node_id:`module-${mid}`,node_kind:'module',name:meta.title,visibility:'keeper-only',properties:{entry_scene_ids:entryIds,
   ...(entries.length===1&&entries[0].era_text?{era:entries[0].era_text}:{})},source_refs:[{page:entries[0].page}]}];
  for(const entry of entries){const excerpt=packet.excerpts.filter(span=>span.page===entry.page&&packet.fields.opening.includes(span.id)).at(-1);
+  if(array(previous?.nodes).some(node=>node.node_id===bindings[entry.id].node_id))continue;
   nodes.push({node_id:entry.id,node_kind:'scene',name:entry.name,summary:excerpt?.text??'',visibility:'keeper-only',source_refs:[{page:entry.page}],
    properties:{is_entrance:true,source_reference_anchor:true,...(entry.era_text?{investigator_setup:{era:entry.era_text}}:{})}});}
  const graph=assembleVisual(previous,{nodes,claims:[],node_refs:[],ready_nodes:[],critical:[],required_review:[],coverage:{},dependencies:[],review_policy:'module-logic-v1'},meta,contract);
- const requested=string(params.start_scene??''),chosen=requested?resolveStartScene(graph,requested,contract):entries.length===1?entries[0].id:null;
+ const requested=string(params.start_scene??''),priorChoice=string(row(meta.opening_choice).start_scene??'');
+ const chosen=requested?resolveStartScene(graph,requested,contract):entryIds.includes(priorChoice)?priorChoice:entries.length===1?entryIds[0]:null;
  if(requested&&!chosen)fail('Selected opening is not in the bound original context');
+ if(chosen&&!entryIds.includes(chosen))fail('Selected opening has no bound original reference');
  if(chosen)applyOpeningChoice(graph,chosen,contract);
  const packetFile=join('source-references',String(receipt.packet_sha256),'packet.json');await writeJsonAtomic(join(root,packetFile),packet);
  // The stored representation is canonical JSON, so its persisted digest is measured after writing.
  const packetDigest=await sha256File(join(root,packetFile));
- meta.source_reference={protocol:SOURCE_REFERENCE_PROTOCOL,source_sha256:meta.file_sha256,packet_file:packetFile,packet_sha256:packetDigest,entry_ids:entryIds,at:nowIso()};
- meta.reading??={};meta.reading.materials=array(meta.reading.materials).filter(item=>item.purpose!=='reference-context');
+ meta.source_reference={protocol:SOURCE_REFERENCE_PROTOCOL,source_sha256:meta.file_sha256,packet_file:packetFile,packet_sha256:packetDigest,entry_ids:entryIds,entry_bindings:bindings,at:nowIso()};
+ meta.reading??={};meta.reading.materials=array(meta.reading.materials).filter(item=>item.key!=='source-reference:'+meta.file_sha256);
  meta.reading.materials.push({key:'source-reference:'+meta.file_sha256,purpose:'reference-context',reference_only:true,node_ids:entryIds,generation:number(meta.generation)+1});
  if(!previous){meta.reading.state='preparing';meta.status='assembled';meta.opening_ready=false;meta.opening=await store.opening(graph);meta.opening.opening_ready=false;}
  if(chosen)meta.opening_choice={start_scene:chosen,at:nowIso()};
  await store.writeGraph(meta,graph);
  let guidance:Row|undefined;
- if(chosen){const entry=entries.find(entry=>entry.id===chosen)!;
+ if(chosen){const entry=entries.find(entry=>bindings[entry.id].node_id===chosen)??fail('Selected opening has no original reference');
   const excerpts=packet.excerpts.filter(span=>span.page===entry.page&&packet.fields.opening.includes(span.id)).slice(-2).map(span=>`[Original physical page ${span.page}]\n${span.text}`).join('\n');
-  guidance={opening:text,advice:text,scene:entry.name,guide:'',handoff:'Use the bound original source as reference while graph fragments arrive. Original context (private):\n'+excerpts};
+  guidance={opening:text,advice:text,scene:bindings[entry.id].name,guide:'',handoff:'Use the bound original source as reference while graph fragments arrive. Original context (private):\n'+excerpts};
   const folder=join(root,'character-guidance',params.guidance_key);
   await writeJsonAtomic(join(folder,'accepted.json'),{fingerprint:params.guidance_key,approved:true,guidance,source_sha256:meta.file_sha256,source_reference:meta.source_reference,at:nowIso()});
   await writeJsonAtomic(join(folder,'public.json'),{fingerprint:params.guidance_key,approved:true,fields:publicFields,source_sha256:meta.file_sha256});
-  meta.character_guidance??={};meta.character_guidance[params.guidance_key]={scene:entry.name,play_language:params.play_language,source_reference:true};
+  meta.character_guidance??={};meta.character_guidance[params.guidance_key]={scene:guidance.scene,play_language:params.play_language,source_reference:true};
  }
  await store.writeModule(meta);
  const candidates=await store.candidates(graph);
@@ -65,13 +75,13 @@ export async function referenceReady(store:ModuleStore,mid:string,focus=''):Prom
  if(ref.protocol!==SOURCE_REFERENCE_PROTOCOL||ref.source_sha256!==meta.file_sha256||typeof ref.packet_file!=='string')return false;
  try{const file=await resolvedPath(join(store.moduleDir(mid),ref.packet_file));if(!inside(await resolvedPath(store.moduleDir(mid)),file)||await sha256File(file)!==ref.packet_sha256)return false;
   const packet=validateReferencePacket(JSON.parse(await readFile(file,'utf8')),number(meta.page_count),string(meta.file_sha256));
-  const wanted=focus||string(row(meta.opening_choice).start_scene)||(packet.entries.length===1?packet.entries[0].id:'');
-  return packet.entries.some(entry=>[entry.id,entry.id.replace(/^scene-/,''),entry.name].some(value=>normalize(value)===normalize(wanted)));
+  const wanted=focus||string(row(meta.opening_choice).start_scene??'')||(packet.entries.length===1?packet.entries[0].id:'');
+  return packet.entries.some(entry=>{const bound=row(row(ref.entry_bindings)[entry.id]);return [entry.id,entry.id.replace(/^scene-/,''),entry.name,bound.node_id,string(bound.node_id??'').replace(/^scene-/,''),bound.name].some(value=>typeof value==='string'&&value.trim()&&normalize(value)===normalize(wanted));});
  }catch{return false;}
 }
 /** Publish a requested source place's minimum typed identity, leaving enrichment asynchronous. */
 export async function publishReferencePlace(store:ModuleStore,meta:Row,params:Row):Promise<Row>{
- if(!meta.source_reference)fail('Direct reference materialization requires original-context mode');
+ if(meta.source!=='pdf')fail('Direct reference materialization requires a bound original PDF');
  const mid=string(meta.id),root=await resolvedPath(store.moduleDir(mid)),work=await resolvedPath(string(params.work_dir));
  if(!inside(await resolvedPath(join(root,'work')),work))fail('Reference work must belong to the bound source');
  const packetPath=join(work,'source-reference.json'),receiptPath=join(work,'source-reference-complete.json'),taskPath=join(work,'task.json');

@@ -170,6 +170,22 @@ test('the actual hybrid read port receives original PDF evidence before any Keep
  assert(events.some(row=>row.event==='source_catalog'&&row.candidates>0));
 });
 
+test('hybrid source destination intake prepares once before rereading its bound candidates',async t=>{
+ const f=await fixture(t),events=[],bus=new Map(),order=[];
+ const adapter=api.createDecisionAdapter({apiKey:'fixture',fetcher:deterministicFetch()});
+ const engine=api.createHybridEngine({env:{PI_COC_JEV_PRESELECT:'0',EXT_JEV_APIKEY:'fixture'},npcAct:null,record:row=>events.push(row),
+  decision:{decide:(batch,lease)=>batch.family==='source-destination-intake'?Promise.resolve({status:'complete',answers:{needed:{status:'answered',type:'noul',noul:.99}}}):adapter.decide(batch,lease)}});
+ engine.extension({on(){},events:{on:(name,handler)=>bus.set(name,handler),emit(){}},getActiveTools:()=>[]});
+ bus.get('coc:kernel-bridge')({campaign:'c1',moduleId:f.mid,call:async(method,params)=>{if(method==='table.apply.options')order.push('candidates');return f.call(method,params);},runtime:f.source,
+  prepareSourceDestination:async(need,signal)=>{assert.equal(need,'I go to Harbor Station.');assert(!signal.aborted);order.push('source');return{material:{scene:'harbor-station'}};}});
+ const prepared=await engine.runDriver.prepare({runId:'destination-before-keeper',inputRevision:'fixture-v1',rawInput:'I go to Harbor Station.',session:{}});
+ await prepared.ports.read.read({operation:'read',origin:'policy'},{signal:AbortSignal.timeout(20000),stepId:'first'});
+ assert.deepEqual(order.slice(0,3),['candidates','source','candidates']);
+ await prepared.ports.read.read({operation:'read',origin:'policy'},{signal:AbortSignal.timeout(20000),stepId:'second'});
+ assert.equal(order.filter(item=>item==='source').length,1);
+ assert(events.some(row=>row.event==='destination_preflight'&&row.status==='ready'));
+});
+
 test('late source actors have conditional initial-presence options without overwriting recorded locations',async t=>{
  const f=await fixture(t),params={campaign:'c1',module_id:f.mid};
  await f.call('module.read.request',{...params,purpose:'detail',focus:'Dock',question:'Prepare the newly read dock occupant'});

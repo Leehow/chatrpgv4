@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import{test}from'node:test';
-import{entryExcerpt,originalSpans,selectReferencePacket,checkReferenceGuide}from'../../runtime/jev/source-reference.ts';
+import{entryExcerpt,originalSpans,sourceNameTokens,selectReferencePacket,checkReferenceGuide}from'../../runtime/jev/source-reference.ts';
 import{validateReferencePacket}from'../../kernel-ts/modules/reference-contract.ts';
 import{createSourceReaderDriver}from'../../runtime/jev/source-reader-driver.ts';
 import{mkdtemp,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';
@@ -41,4 +41,22 @@ test('a moderate place-heading candidate reaches original-page confirmation befo
  const packet=await selectReferencePacket({pages,allPages:pages,bookmarks:[{name:'Esso station',page:1}],sourceSha,pageCount:1,extractionVersion:'fixture',purpose:'answer',question:'The town gas station',materializePlace:true,signal:AbortSignal.timeout(1000),
   decide:async batch=>({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>{if(q.key==='concrete')confirmations++;return[q.key,q.type==='choice'?{status:'answered',type:'choice',choice:'p0',confidence:.71}:{status:'answered',type:'noul',noul:.95}]}))})});
  assert.equal(confirmations,1);assert.equal(packet.places[0].name,'Esso station');assert.equal(packet.excerpts[0].text,pages[0].text);
+});
+
+test('a PDF without bookmarks selects an evidenced opening rather than requiring visual graph preparation',async()=>{
+ const pages=[{page:1,text:'Copyright\nThis page is front matter.'},{page:2,text:'The first morning\nYou receive a letter at Harbor in 1925.'}];
+ const packet=await selectReferencePacket({pages,allPages:pages,bookmarks:[],sourceSha,pageCount:2,extractionVersion:'fixture',purpose:'guidance',question:'Character creation',signal:AbortSignal.timeout(1000),
+  decide:async batch=>({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,q.type==='choice'?{status:'answered',type:'choice',choice:batch.family==='source-reference-text-entrances'&&batch.state.page===2?'l0':'none',confidence:.95}:{status:'answered',type:'noul',noul:.95}]))})});
+ assert.deepEqual(packet.entries,[{id:'scene-source-entry-2',name:'The first morning',page:2}]);
+ for(const span of packet.excerpts)assert.equal(pages.find(p=>p.page===span.page).text.slice(span.start,span.end),span.text);
+});
+
+test('a place mentioned only in prose gets an exact source identity, and failed name confirmation publishes none',async()=>{
+ const text='The night watchman works at Church Cemetery. He saw nothing.',pages=[{page:1,text}],tokens=sourceNameTokens(text);
+ for(const confirmed of [true,false]){
+  const packet=await selectReferencePacket({pages,allPages:pages,bookmarks:[],sourceSha,pageCount:1,extractionVersion:'fixture',purpose:'answer',question:'Go to the church cemetery',materializePlace:true,signal:AbortSignal.timeout(1000),
+   decide:async batch=>({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,q.type==='choice'?{status:'answered',type:'choice',choice:q.key==='excerpt'?'e0':'t'+tokens.findIndex(t=>t.text===(q.key==='start'?'Church':'Cemetery')),confidence:.95}:{status:'answered',type:'noul',noul:q.key==='concrete'&&!confirmed?.1:.95}]))})});
+  if(confirmed){assert.equal(packet.places[0].name,'Church Cemetery');assert.equal(packet.places[0].id,'scene-source-place-1-'+text.indexOf('Church'));}
+  else assert.equal(packet.places,undefined);
+ }
 });

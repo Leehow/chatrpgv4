@@ -188,6 +188,13 @@ describe('active-turn waiting placeholder', () => {
     expect(screen.queryByTestId('waiting-placeholder')).toBeNull()
     expect(screen.getByLabelText('发送消息')).toBeTruthy()
     expect(screen.getByRole('button', { name: /个步骤/ }).getAttribute('aria-expanded')).toBe('false')
+    // A hybrid delivery may settle before its final tool result is projected.
+    // Keep the transcript event without resurrecting a wait with no live turn.
+    act(() => { listener?.({ type: 'tool_call', sessionId: 'layout', toolCallId: 'late-narrate', name: 'narrate', delta: '{}' }) })
+    act(() => { listener?.({ type: 'tool_result', sessionId: 'layout', toolCallId: 'late-narrate', content: 'delivered', isError: false }) })
+    act(() => { listener?.({ type: 'thinking', sessionId: 'layout', contentIndex: 1, delta: 'Late transcript fragment' }) })
+    expect(screen.queryByTestId('waiting-placeholder')).toBeNull()
+    expect(screen.queryAllByLabelText('停止生成')).toHaveLength(0)
   })
 
   it('starts the wait for a local send and routes the inline stop to host.stop', async () => {

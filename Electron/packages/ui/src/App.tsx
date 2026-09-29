@@ -1963,12 +1963,10 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
             messagesRef.current = lateNext
             setMessages(lateNext)
           }
-          if (event.type === 'text' && event.delta.trim()) setWaitingVisible(false)
-          else if (event.type === 'thinking') { setWaitingVisible(true); setWaitingPhase('thinking'); setWaitingDetail(undefined) }
-          else if (event.type === 'tool_call') { setWaitingVisible(true); setWaitingPhase('tool'); if (event.name === 'subagent') setWaitingDetail('子任务执行中'); else setWaitingDetail(toolDisplaySummary(event.name, event.delta ?? '')) }
-          else if (event.type === 'hosted_search') { setWaitingVisible(true); setWaitingPhase('tool'); setWaitingDetail(toolDisplaySummary(event.kind, JSON.stringify({ query: event.query, phase: event.phase }))) }
-          else if (event.type === 'hosted_code_interpreter' && event.phase !== 'completed' && event.phase !== 'failed') { setWaitingVisible(true); setWaitingPhase('tool'); setWaitingDetail(toolDisplaySummary('code_interpreter', JSON.stringify({ code: event.code, phase: event.phase }))) }
-          else if (event.type === 'tool_result') { if (streamingAssistantToolsAllFinished(messagesRef.current)) { setWaitingVisible(true); setWaitingStartedAt(Date.now()); setWaitingPhase('thinking'); setWaitingDetail(undefined) } else setWaitingPhase('tool') }
+          // Delayed transcript events do not reopen a finished turn. Only a new
+          // authoritative start or player input may own another waiting indicator.
+          setWaitingVisible(false)
+          setWaitingDetail(undefined)
           freezeProbe('late_live_applied', { session: event.sessionId, type: event.type })
           return
         }

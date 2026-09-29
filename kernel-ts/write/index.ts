@@ -80,7 +80,7 @@ function startScene(graph: ModuleGraph): Row {
         },
     });
 }
-function initialWorld(graph: ModuleGraph, chosen: string | null): [
+function initialWorld(graph: ModuleGraph, chosen: string | null, deferSourcePresence=false): [
     Row,
     string
 ] {
@@ -92,7 +92,9 @@ function initialWorld(graph: ModuleGraph, chosen: string | null): [
     // Museo come earlier in the graph and took all three, so the opening dinner the prologue
     // describes had nobody in it -- `look` answered `present: []`, a first impression had no target,
     // and the opening turn cannot stage anyone because it may not change state.
-    for (const scene of [start, ...graph.kind('scene')])
+    // Original-context graphs may contain conditional or later appearances. Their ordinary
+    // source-presence candidates must evaluate applicability before creating campaign presence.
+    for (const scene of deferSourcePresence?[]:[start, ...graph.kind('scene')])
         for (const id of graph.sceneNpcIds(scene)) {
             const npc = graph.handle(graph.nodes.get(id)!);
             if (!Object.hasOwn(presence, npc))
@@ -252,7 +254,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             if (!await setupOpeningReady(id, meta.opening_scene || '', value.id))
                 return false;
         }
-        const module = await loadModule(context, id, value.id), [world, opening] = initialWorld(module.graph, meta.opening_scene || null);
+        const module = await loadModule(context, id, value.id), [world, opening] = initialWorld(module.graph, meta.opening_scene || null,!!moduleMeta.source_reference);
         await value.writeWorld(world);
         meta.opening_scene = opening;
         meta.module_digest = module.graph.digest;
@@ -609,7 +611,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 throw new RpcError('invalid_params', 'start_scene must name an authored opening');
         }
         const playable = graph && (!playsFromReading(moduleMeta) || await setupOpeningReady(moduleId, chosen || '', id));
-        const [world, start] = playable ? initialWorld(graph!, chosen) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null], modConfiguration = await initializeNewWorld(world || {});
+        const [world, start] = playable ? initialWorld(graph!, chosen,!!moduleMeta.source_reference) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null], modConfiguration = await initializeNewWorld(world || {});
         const meta: Row = {
             id,
             title,

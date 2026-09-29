@@ -447,10 +447,9 @@ export class ReadingService implements ReadingBridge {
 	private async referenceGuidance(mid:string,params:Row,signal:AbortSignal|undefined,options:ReadingOptions):Promise<Row|undefined>{
 		if(!this.deps.runtime?.sourceReferences)return;
 		const status=await this.call('module.reference.status',{module_id:mid,focus:params.start_scene||''},undefined);
-		if(status.graph_present&&!status.source_reference)return;
 		const source=await this.call('module.source.snapshot',{module_id:mid},undefined);
 		if(source.window)return;
-		if(status.character_guidance?.[params.guidance_key])return {state:'ready',setup_ready:true,reference_ready:status.ready,source_reference:true,guidance_key:params.guidance_key,
+		if(status.source_reference&&status.character_guidance?.[params.guidance_key])return {state:'ready',setup_ready:true,reference_ready:status.ready,source_reference:true,guidance_key:params.guidance_key,
 			guidance:await acceptedGuidance(this.deps.home,mid,params.guidance_key),public_fields:await acceptedPublicGuidance(this.deps.home,mid,params.guidance_key)};
 		let packet;
 		if(status.source_reference?.packet_file){
@@ -477,7 +476,6 @@ export class ReadingService implements ReadingBridge {
 		const source=await this.call('module.source.snapshot',{module_id:mid},campaign);
 		if(source.window)return;
 		try{const known=await this.call('module.reference.status',{module_id:mid,focus:params.focus||''},campaign);
-			if(params.materialize_place&&!known.source_reference)return;
 			const result=await runSourceReference({runtime:this.runtime(),source:{...source,cache:join(dirname(source.pdf),'cache','pages')},moduleId:mid,kind:'lookup',materializePlace:params.materialize_place===true,
 			focus:params.focus||'',question:params.question||'Read the requested physical place and its necessary conditions.',knownNodes:known.known_nodes,model:this.deps.model(),signal,record:this.deps.record});
 			let material:Row|undefined;if(params.materialize_place){if(!result.packet.places?.length)return;material=await this.call('module.reference.materialize',{module_id:mid,work_dir:result.workDir},campaign);if(material.state!=='ready')return;void this.call('module.read.ahead',{module_id:mid,focus:material.scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-place');return this.pump(mid,campaign);}).catch(()=>undefined);}

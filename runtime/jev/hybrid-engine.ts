@@ -138,6 +138,7 @@ export function carriedPassages(views: ReadonlyArray<{focus: string; name?: stri
 export interface KernelBridge {
   moduleId?: string;
   runtime?: PrescreenSourceRuntime;
+  prepareSourceDestination?: (need:string,signal:AbortSignal)=>Promise<Row|undefined>;
   campaign?: string;
   call?: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   record?: (row: Record<string, unknown>) => void;
@@ -488,6 +489,7 @@ interface RunState {
    * ran none): reuse requires the same scene, source evidence and player need; read_more refreshes it. The packet excludes issued bodies.
    */
   lastRead?: {scene: string; key: string; outcome?: {step: string; materials: Material[]; message?: Row}};
+  sourceDestinationChecked?: boolean;
   /** §135.6 (SL-22 addendum): what the run's prescreens spent, reported in the budget summary (never the decision budget's). */
   prescreenSpent: {reads: number; jev_calls: number; ms: number};
   /** §135.25 (SL-22 addendum): the policy's decision budget as of its latest step, for the budget summary. */
@@ -809,7 +811,26 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       read: {
         async read(_proposal, invocation) {
           const began = stepNow();
-          const {capsule, table, candidates, rows, consequences} = await tableReads(run);
+          let current=await tableReads(run);
+          if(!run.sourceDestinationChecked&&jev&&bridge?.prepareSourceDestination&&current.table.scope){
+            run.sourceDestinationChecked=true;
+            const started=stepNow(),scope=current.table.scope,signal=AbortSignal.any([invocation.signal,AbortSignal.timeout(15000)]);
+            const lease=new TaskLease({owner:'source-destination-intake',goal:'Locate a player chosen original destination',scope,readSet:current.table.readSet??[],capabilities:['decision'],signal,
+              budget:{deadlineAt:Date.now()+15000,remainingInputTokens:16000,remainingOutputTokens:1000,remainingCostUsd:.1,remainingActions:1}});
+            try{
+              const answer=await jev.decide({id:digest([run.runId,'source-destination']),model:JEV_MODEL,family:'source-destination-intake',familyVersion:'1',scope,readSet:current.table.readSet??[],
+                state:{player:run.rawInput,current_scene:current.table.context.scene,available_destinations:current.candidates().filter(candidate=>candidate.family==='move').map(candidate=>candidate.label)},
+                questions:[{key:'needed',target:'player',type:'noul',instructions:'Has the player explicitly chosen to travel now to a named physical place which is neither the current scene nor one of available_destinations? A named institution can be a place to visit. Mere questions about a place, hypothetical plans, staying put, negated movement and a current conversation do not qualify.'}]},lease);
+              const selected=answer.answers.needed;
+              if(selected?.status==='answered'&&selected.type==='noul'&&selected.noul>=.85){
+                const original=await bridge.prepareSourceDestination(run.rawInput,signal);
+                record({lane:'source-reference',event:'destination_preflight',status:original?.material?'ready':'unavailable',ms:stepNow()-started,run:run.runId,scene:original?.material?.scene});
+                if(original?.material)current=await tableReads(run);
+              }
+            }catch(error){if(invocation.signal.aborted)throw error;record({lane:'source-reference',event:'destination_preflight',status:'unavailable',ms:stepNow()-started,run:run.runId,error:String(error)});}
+            finally{lease.close();}
+          }
+          const {capsule, table, candidates, rows, consequences}=current;
           let bindingArtifact: Extract<StepArtifact, {kind: 'read'}>['binding'];
           if (table.scope && table.readSet && table.binding) {
             run.turn ??= table.turn; run.scope ??= table.scope; run.readSet ??= table.readSet;

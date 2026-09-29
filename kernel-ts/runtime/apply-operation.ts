@@ -42,14 +42,17 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
         const destinations=new Set<string>();
         // §135.30.4: a move row says what the place is, and an unmet unlock names what opens it (the book's own data).
         const conditions=new Map(graph.sceneExits(scene).map(exit=>[string(exit.to),exit.when]));
-        for (const exit of [...array(where.exits),...array(where.back)]) {
+        const referenceIds=new Set(array(row(module.meta.reading).materials).filter(material=>material.reference_only===true).flatMap(material=>array(material.node_ids)));
+        const referenced=graph.kind('scene').filter(node=>(row(node.properties).source_reference_anchor===true||referenceIds.has(node.node_id))&&node.node_id!==scene.node_id)
+            .map(node=>({to:graph.handle(node),display_name:graph.displayName(node),material:module.material?.(node.node_id),source_identity:true}));
+        for (const exit of [...array(where.exits),...array(where.back),...referenced]) {
             if (typeof exit.to!=='string' || destinations.has(exit.to)) continue;
             destinations.add(exit.to);
             const node=graph.find(exit.to,['scene']),unlock=exit.unlock_when;
             const destination=node?destinationView(graph,campaign.world,node,string(exit.display_name||exit.to)):{};
             // §135.30.6 (SL-40): an unmet unlock also says the place and the way to it from here exist.
             const guarded=unlock&&unlock.met===false?{unlock_when:{...unlock,...unlockGuard(graph,campaign.world,conditions.get(exit.to)),...guardedWay(graph,campaign.world,scene)}}:{};
-            add({kind:'move',to:exit.to},{kind:'move',...exit,...guarded,...(Object.keys(destination).length?{destination}:{}),authority:'available_route_not_player_choice'},
+            add({kind:'move',to:exit.to},{kind:'move',...exit,...guarded,...(Object.keys(destination).length?{destination}:{}),...(exit.source_identity?{source_context:node?.summary??''}:{}),authority:'available_route_not_player_choice'},
                 guards.exits.get(string(node?.node_id)));
         }
         // Complete and untruncated, bound to the same revision; absent when the scene states none (§134.10).

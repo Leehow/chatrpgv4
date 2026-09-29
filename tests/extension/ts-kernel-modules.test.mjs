@@ -22,6 +22,8 @@ const exports = [
   ['read/module-graph', ['ModuleGraph']],
   ['read/thread', ['threadSection']],
   ['modules/index', ['createModuleRuntime']],
+  ['modules/reference', ['referenceReady']],
+  ['registry', ['createKernelRuntime']],
   ['modules/reading', ['Reading']],
   ['modules/source-answer',['checkSourceAnswerReview','sourceAnswerResult']],
   ['resolve/context',['npcProfileOf']],
@@ -31,7 +33,7 @@ const exports = [
   ['snapshots', ['snapshots']],
 ];
 await build({ stdin: { contents: exports.map(([path, names]) => `export {${names.join(',')}} from ${JSON.stringify(join(ROOT, 'kernel-ts', path + '.ts'))};`).join('\n'),
-  resolveDir: ROOT, sourcefile: 'source-oracle-api.ts', loader: 'ts' }, outfile: join(evidence, 'api.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent' });
+  resolveDir: ROOT, sourcefile: 'source-oracle-api.ts', loader: 'ts' }, outfile: join(evidence, 'api.mjs'), bundle: true, packages:'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent' });
 const api = await import(pathToFileURL(join(evidence, 'api.mjs')).href);
 const json = async path => api.parsePythonJson(await readFile(path, 'utf8'));
 const clone = value => api.parsePythonJson(api.pythonJsonDumps(value));
@@ -720,9 +722,43 @@ test('original-context readiness opens setup before graph completion and queues 
   assert.equal(await runtime.source.materialReady(mid,'Harbor Station'),false);
   assert.equal((await runtime.handlers['module.reference.materialize']({module_id:mid,work_dir:dir})).state,'ready','original evidence admits an existing partial scene');
   assert.deepEqual((await runtime.source.store.readGraph(mid)).nodes.find(node=>node.name==='Harbor Station'),originalScene,'existing scene fields are not rewritten');
+  // An existing library graph receives references without being replaced or reseeding source people.
+  const legacy=await runtime.source.store.module(mid),oldGraph=await runtime.source.store.readGraph(mid);
+  const oldEntry=oldGraph.nodes.find(node=>node.name==='Harbor');oldEntry.node_id='scene-established-harbor';oldEntry.summary='Existing authored opening description.';
+  oldGraph.entry_scene_ids=[oldEntry.node_id];
+  const conditional={node_id:'npc-conditional',node_kind:'npc',name:'Conditional Visitor',summary:'Appears only if the investigators refuse the hook.',properties:{},source_refs:oldEntry.source_refs};
+  oldGraph.nodes.push(conditional);oldGraph.relations.push({relation_kind:'present-in',from_node_id:conditional.node_id,to_node_id:oldEntry.node_id});
+  delete legacy.source_reference;legacy.character_guidance={};legacy.opening_choice={start_scene:oldEntry.node_id};
+  await runtime.source.store.writeGraph(legacy,oldGraph);await runtime.source.store.writeModule(legacy);
+  await writeFile(join(dir,'task.json'),task);await writeFile(join(dir,'source-reference.json'),body);
+  await writeFile(join(dir,'source-reference-complete.json'),JSON.stringify({protocol:'source-reference-v1',kind:'guidance',source_sha256:sha(pdfBytes),task_sha256:sha(task),packet_sha256:sha(body),text_sha256:sha(guide),checks_policy:'material-issues-v1',checks,public_fields}));
+  const upgraded=await runtime.handlers['module.reference.publish']({module_id:mid,work_dir:dir,guidance_key:'d'.repeat(64),play_language:'en'});
+  assert.equal(upgraded.setup_ready,true);assert.equal(await runtime.source.openingReady(mid,'established-harbor'),true);
+  const preserved=await runtime.source.store.readGraph(mid);
+  assert.equal(preserved.nodes.filter(node=>node.name==='Harbor').length,1);
+  assert.deepEqual(preserved.nodes.find(node=>node.node_id===oldEntry.node_id),oldEntry);
+  assert.equal(await runtime.source.materialReady(mid,'Harbor Station'),true,'republishing guidance preserves previously prepared original places');
+  const kernel=await api.createKernelRuntime(context);
+  try{await kernel.handlers['campaign.create']({id:'reference-campaign',title:'Reference campaign',module:mid,play_language:'en',start_scene:'Harbor'});
+   const world=JSON.parse(await readFile(join(workspace,'.coc/campaigns/reference-campaign/world.json'),'utf8'));
+   assert.deepEqual(world.npc_presence,{},'source-linked conditional people are candidates, not current presence');
+  }finally{await kernel.close();}
   const meta=await runtime.source.store.module(mid);await writeFile(join(runtime.source.store.moduleDir(mid),meta.source_reference.packet_file),'{}');
   assert.equal((await runtime.handlers['module.reference.status']({module_id:mid})).ready,false,'modified evidence cannot keep reference readiness');
  }finally{await runtime.close();await context.git.close();}
+});
+
+test('old multiple-entry reference packets still require an explicit opening choice',async()=>{
+ const dir=join(evidence,'old-multiple-reference');await mkdir(dir,{recursive:true});
+ const spans=[{id:'p1',page:1,start:0,end:5,text:'First'},{id:'p2',page:2,start:0,end:6,text:'Second'}];
+ const packet={protocol:'source-reference-v1',source_sha256:'a'.repeat(64),extraction_version:'fixture',purpose:'guidance',question:'Start',excerpts:spans,
+  fields:Object.fromEntries(['era','place','premise','advice','warnings','opening'].map(key=>[key,spans.map(span=>span.id)])),
+  entries:spans.map(span=>({id:'scene-source-entry-'+span.page,name:span.text,page:span.page})),partial:true,visual_coverage:'unassessed',unavailable_pages:[]};
+ const body=JSON.stringify(packet);await writeFile(join(dir,'packet.json'),body);
+ const meta={page_count:2,file_sha256:packet.source_sha256,source_reference:{protocol:packet.protocol,source_sha256:packet.source_sha256,packet_file:'packet.json',packet_sha256:createHash('sha256').update(body).digest('hex')}};
+ const store={module:async()=>meta,moduleDir:()=>dir};
+ assert.equal(await api.referenceReady(store,'book'),false);
+ assert.equal(await api.referenceReady(store,'book','Second'),true);
 });
 
 test('a background fragment publishes supported facts while an unfinished entity stays explicitly unready',()=>{
