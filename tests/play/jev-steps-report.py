@@ -54,26 +54,28 @@ The verdict (constants `AGREEMENT_MIN`, `FALSE_POSITIVES_MAX_PER_TABLE`, `ADDED_
 *table* is a campaign with at least one consequence route row; every other campaign (setup sessions, tables run
 with `COC_JEV_STEPS=off`) is counted as scanned, never as a table. Per class, over the rows of every table:
 
-- agreement where the Keeper acted = `tp / (tp + fn)`: of the rows whose entity the Keeper's own receipts say it
-  filed the same turn (`keeper_did: true`), the share Jev also cleared. This is the recall the SL-86 section above
-  prints; the older `true/(true+false)` figure above mixes cleared and uncleared rows and is printed only per
-  campaign;
-- false positives = cleared rows the Keeper did not act on (`keeper_did` false or `other`), counted per table, the
-  worst table decides. The transcript read D6 asks for is still the owner's; the only automatic exemption is the
-  label/handle artifact `corrected_npc_reaction` already names (a row the pairing read wrong because the candidate
-  key carried a display label and the roll a handle), reported as `artifacts` and folded into `tp`;
+- agreement = `tp / (tp + fp)`, the owner's own reading of 2a: the ruling that opened `clue_follow_up` ("agreement
+  6/6, 6/6, false positives 0/0/1", SL-78) is SL-77's "every one of its 6 cleared rows paired true", precision over
+  the cleared rows the Keeper's receipts can judge. A row is judged when it is cleared and its `keeper_did` is
+  true, false or `other` (a `null` is no verdict and is not counted); `tp` is the cleared rows with `keeper_did`
+  true, `fp` the cleared rows with false or `other`. A class with no cleared row the receipts can judge has no
+  agreement to measure and reads NOT MET (no evidence): absence of evidence is never a pass;
+- false positives = `fp`, counted per table, the worst table decides. The transcript read D6 asks for is still the
+  owner's; the only automatic exemption is the label/handle artifact `corrected_npc_reaction` already names (a row
+  the pairing read wrong because the candidate key carried a display label and the roll a handle), reported as
+  `artifacts` and counted as the Keeper's own action;
 - added Jev ms per turn = the mean of `consequence_budget` ms over the turns that made a shadow call, per table;
-  every table must be at or under the line. It is one number for all classes.
+  every table must be at or under the line. It is one number for all classes;
+- recall `tp / (tp + fn)` (SL-86: the rows the Keeper filed that Jev did not clear) is printed beside agreement as
+  information only and is not part of the verdict. It is read over the tables that only shadowed the class: in a
+  table that executed the class a cleared row became a clerk write, so its hits are not observable there.
 
-Rows that are not Jev decisions on the shadow route are excluded from the verdict and counted: stranded turns
-(the turn was never delivered), `direct` rows (a stated amount the host clears without asking Jev), unanswered
-rows (`confidence` null: a Jev outage or an incomplete batch), and duplicate `(turn, class, key)` rows, of which
-the last written is kept (SL-85: the last writer is the true close). A table that executed a class (any `executed`
-row of it) is not a shadow table for that class: a cleared row became a clerk write, so whether the Keeper would
-have filed it cannot be observed and the remaining uncleared rows could only read as misses. That class-table is
-left out whole (`class_executes`) and 2a is judged on the tables that only shadowed it. A class with no row where the Keeper acted has
-no agreement to measure and reads NOT MET with that reason -- absence of evidence is never a pass. The script
-never edits the execute list (`jev_steps.execute`) or any other file.
+Rows that are not Jev decisions on the shadow route are excluded and counted: stranded turns (the turn was never
+delivered), `executed` rows (2a is the shadow gate; an executed row is a clerk write, and the Keeper's receipts
+minus the clerk's own cannot say whether the Keeper would have filed it), `direct` rows (a stated amount the host
+clears without asking Jev), unanswered rows (`confidence` null: a Jev outage or an incomplete batch), rows with no
+`keeper_did` verdict, and duplicate `(turn, class, key)` rows, of which the last written is kept (SL-85: the last
+writer is the true close). The script never edits the execute list (`jev_steps.execute`) or any other file.
 
 Usage:
     python3 tests/play/jev-steps-report.py <home> [<home> ...] [--campaign <glob> ...] [--detail]
@@ -492,8 +494,9 @@ def campaign_dirs(homes, globs):
 
 def d6_rows(loaded, cls):
     """The rows of `cls` the D6 2a verdict counts for one table, and why the others are not counted. Returns
-    `(kept, artifacts, excluded)`: `kept` is `[(row, cleared, keeper_acted)]`; `artifacts` how many of them the
-    label/handle correction (`corrected_npc_reaction`) turned from a disagreement into the Keeper's own action."""
+    `(kept, artifacts, excluded, executes)`: `kept` is `[(row, cleared, keeper_acted)]`; `artifacts` how many of
+    them the label/handle correction (`corrected_npc_reaction`) turned from a disagreement into the Keeper's own
+    action; `executes` whether this table ran the class in execute mode (any `executed` row of it)."""
     latest = {}
     for row in loaded['candidate_rows']:
         if row.get('class') == cls:
@@ -501,20 +504,19 @@ def d6_rows(loaded, cls):
     all_rows = [r for r in loaded['candidate_rows'] if r.get('class') == cls]
     excluded = collections.Counter()
     excluded['duplicate'] = len(all_rows) - len(latest)
-    if any(row.get('executed') is True for row in latest.values()):
-        # This table ran the class in execute mode: a cleared row became a clerk write, so whether the Keeper
-        # would have filed it is no longer observable, and the rows that remain (uncleared) can only read as
-        # misses. 2a is the shadow gate; a table that executes the class is not a shadow table for it.
-        excluded['class_executes'] = len(latest)
-        return [], 0, {k: v for k, v in excluded.items() if v}
+    executes = any(row.get('executed') is True for row in latest.values())
     kept_rows = []
     for row in latest.values():
         if row.get('turn') in loaded['stranded']:
             excluded['stranded'] += 1
+        elif row.get('executed') is True:
+            excluded['executed'] += 1
         elif row.get('direct'):
             excluded['direct'] += 1
         elif row.get('confidence') is None:
             excluded['unanswered'] += 1
+        elif row.get('keeper_did') is None:
+            excluded['no_verdict'] += 1
         else:
             kept_rows.append(row)
     corrected = {}
@@ -526,7 +528,7 @@ def d6_rows(loaded, cls):
         if not acted and corrected.get(id(row)) == 'true':
             acted, artifacts = True, artifacts + 1
         kept.append((row, bool(row.get('cleared')), acted))
-    return kept, artifacts, {k: v for k, v in excluded.items() if v}
+    return kept, artifacts, {k: v for k, v in excluded.items() if v}, executes
 
 
 def added_ms_per_turn(loaded):
@@ -548,8 +550,8 @@ def d6_table(index, loaded):
     values = list(per_turn.values())
     classes = {}
     for cls in CLASSES:
-        kept, artifacts, excluded = d6_rows(loaded, cls)
-        classes[cls] = {'rows': len(kept), 'artifacts': artifacts, 'excluded': excluded,
+        kept, artifacts, excluded, executes = d6_rows(loaded, cls)
+        classes[cls] = {'rows': len(kept), 'artifacts': artifacts, 'excluded': excluded, 'executes': executes,
                         'tp': sum(1 for _, cleared, acted in kept if cleared and acted),
                         'fp': sum(1 for _, cleared, acted in kept if cleared and not acted),
                         'fn': sum(1 for _, cleared, acted in kept if not cleared and acted),
@@ -584,7 +586,9 @@ def aggregate(homes, globs=('*',)):
     for cls in CLASSES:
         rows = [t for t in tables if t['classes'][cls]['rows']]
         tp, fp, fn, tn = (sum(t['classes'][cls][k] for t in tables) for k in ('tp', 'fp', 'fn', 'tn'))
-        agreement = rate(tp, tp + fn)
+        shadow_only = [t for t in tables if not t['classes'][cls]['executes']]
+        recall_tp, recall_fn = (sum(t['classes'][cls][k] for t in shadow_only) for k in ('tp', 'fn'))
+        agreement = rate(tp, tp + fp)
         fp_over = [t['label'] for t in tables if t['classes'][cls]['fp'] > FALSE_POSITIVES_MAX_PER_TABLE]
         agreement_met = agreement is not None and agreement >= AGREEMENT_MIN
         fp_met = not fp_over
@@ -594,20 +598,22 @@ def aggregate(homes, globs=('*',)):
         verdicts[cls] = {'tables_with_rows': len(rows), 'tp': tp, 'fp': fp, 'fn': fn, 'tn': tn, 'agreement': agreement,
                          'agreement_met': agreement_met, 'fp_max_per_table': max((t['classes'][cls]['fp'] for t in tables), default=0),
                          'fp_over': fp_over, 'fp_met': fp_met, 'cost_met': cost_met,
+                         'recall': rate(recall_tp, recall_tp + recall_fn), 'recall_tp': recall_tp, 'recall_fn': recall_fn,
+                         'recall_tables': len(shadow_only),
                          'artifacts': sum(t['classes'][cls]['artifacts'] for t in tables), 'excluded': dict(excluded),
                          'met': bool(rows) and agreement_met and fp_met and cost_met}
     return {'homes': homes, 'scanned': scanned, 'tables': tables, 'classes': verdicts,
             'cost': {'tables_with_data': len(with_cost), 'over': cost_over, 'met': cost_met}}
 
 
-def fraction(numerator, denominator):
-    return f'{numerator}/{denominator} = {numerator / denominator:.2f}' if denominator else 'n/a'
+def fraction(numerator, denominator, digits=2):
+    return f'{numerator}/{denominator} = {numerator / denominator:.{digits}f}' if denominator else 'n/a'
 
 
 def render_verdict(agg):
     """The D6 2a verdict, per class, as met / not met with the table count and every table's numbers."""
     tables = agg['tables']
-    print(f'\n{"=" * 100}\nD6 2a verdict (docs/specs/jev-driven-steps.md): per class, agreement >= {AGREEMENT_MIN:.2f} where the Keeper acted; '
+    print(f'\n{"=" * 100}\nD6 2a verdict (docs/specs/jev-driven-steps.md): per class, agreement (precision over the cleared rows the Keeper\'s receipts can judge) >= {AGREEMENT_MIN:.2f}; '
           f'false positives <= {FALSE_POSITIVES_MAX_PER_TABLE} per table; added Jev <= {ADDED_MS_MAX} ms per turn')
     for index, home in enumerate(agg['homes'], 1):
         print(f'  h{index}: {home["campaigns_dir"]}  [{home["layout"]}]')
@@ -617,10 +623,12 @@ def render_verdict(agg):
         v = agg['classes'][cls]
         print(f'\n[{cls}] {"MET" if v["met"] else "NOT MET"} -- {v["tables_with_rows"]} of {len(tables)} tables have rows of this class')
         if v['agreement'] is None:
-            print(f'  agreement where the Keeper acted: n/a -- no row in which the Keeper acted on this class (tp {v["tp"]}, fn {v["fn"]}): NOT MET, no evidence')
+            print(f'  agreement (cleared rows the Keeper\'s receipts can judge, tp/(tp+fp)): n/a -- no such row (tp {v["tp"]}, fp {v["fp"]}): NOT MET, no evidence')
         else:
-            print(f'  agreement where the Keeper acted (tp/(tp+fn)): {fraction(v["tp"], v["tp"] + v["fn"])} (>= {AGREEMENT_MIN:.2f}): '
-                  f'{"met" if v["agreement_met"] else "NOT MET"}; precision {fraction(v["tp"], v["tp"] + v["fp"])}')
+            print(f'  agreement (cleared rows the Keeper\'s receipts can judge, tp/(tp+fp)): {fraction(v["tp"], v["tp"] + v["fp"], 3)} '
+                  f'(>= {AGREEMENT_MIN:.2f}): {"met" if v["agreement_met"] else "NOT MET"}')
+        print(f'  recall tp/(tp+fn), information only, over the {v["recall_tables"]} tables that only shadowed the class: '
+              f'{fraction(v["recall_tp"], v["recall_tp"] + v["recall_fn"])}')
         print(f'  false positives per table: worst {v["fp_max_per_table"]} (<= {FALSE_POSITIVES_MAX_PER_TABLE}): '
               f'{"met" if v["fp_met"] else "NOT MET in " + ", ".join(v["fp_over"])}')
         cost = agg['cost']
@@ -636,7 +644,7 @@ def render_verdict(agg):
                 print(f'    {table["label"]}: not counted {t["excluded"]}')
             if t['rows']:
                 print(f'    {table["label"]}: rows {t["rows"]} tp {t["tp"]} fp {t["fp"]} fn {t["fn"]} tn {t["tn"]} '
-                      f'agreement {fraction(t["tp"], t["tp"] + t["fn"])}' + (f' artifacts {t["artifacts"]}' if t['artifacts'] else '')
+                      f'agreement {fraction(t["tp"], t["tp"] + t["fp"])} recall {fraction(t["tp"], t["tp"] + t["fn"]) if not t["executes"] else "n/a (executed)"}' + (f' artifacts {t["artifacts"]}' if t['artifacts'] else '')
                       + (f' not counted {t["excluded"]}' if t['excluded'] else ''))
     print('\nadded Jev ms per turn (mean over the turns that made a shadow call; each table must be <= '
           f'{ADDED_MS_MAX} ms), all classes:')

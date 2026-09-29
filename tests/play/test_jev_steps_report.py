@@ -68,13 +68,16 @@ def table_a_rows() -> list[dict]:
         candidate("npc_reaction", "kp:dr-smith", 2, cleared=True, did="other"),
         candidate("npc_reaction", "kp:anna", 3, cleared=False, did=True, confidence=0.3),
         candidate("npc_reaction", "kp:bob", 4, cleared=False, did=False, confidence=0.1),
-        # clue_follow_up: this table executed the class (one executed row), so the whole class-table is left out.
+        # clue_follow_up: an executed row (a clerk write, not a shadow decision) and a plain true negative.
         candidate("clue_follow_up", "ledger", 1, cleared=True, did=False, executed=True, shadow=False),
         candidate("clue_follow_up", "diary", 2, cleared=False, did=False, confidence=0.2),
-        # time_cost: a direct row (never asked), an unanswered row (Jev outage), one true positive.
+        # time_cost: a direct row (never asked), an unanswered row (Jev outage), a cleared row with no keeper_did
+        # verdict, one true positive and one miss (uncleared, the Keeper filed it).
         candidate("time_cost", "library", 1, cleared=True, did=True, confidence=None, direct=True),
         candidate("time_cost", "archive", 2, cleared=False, did=True, confidence=None),
         candidate("time_cost", "morgue", 3, cleared=True, did=True, confidence=0.9),
+        candidate("time_cost", "harbor", 4, cleared=True, did=None, confidence=0.9),
+        candidate("time_cost", "dock", 6, cleared=False, did=True, confidence=0.2),
         # a stranded turn: its rows are not paired.
         run_end(5, "failed"),
         candidate("npc_reaction", "kp:ghost", 5, cleared=True, did=False),
@@ -144,12 +147,13 @@ def test_aggregate_over_a_checkout_and_an_app_home_pins_every_number(homes):
     assert [t["label"] for t in agg["tables"]] == ["h1:tbl-a", "h2:game-b"]  # setup-only is scanned, never a table
 
     a, b = agg["tables"]
-    assert a["classes"]["npc_reaction"] == {"rows": 4, "artifacts": 0, "excluded": {"duplicate": 1, "stranded": 1},
+    assert a["classes"]["npc_reaction"] == {"rows": 4, "artifacts": 0, "excluded": {"duplicate": 1, "stranded": 1}, "executes": False,
                                             "tp": 1, "fp": 1, "fn": 1, "tn": 1}
-    assert a["classes"]["clue_follow_up"] == {"rows": 0, "artifacts": 0, "excluded": {"class_executes": 2},
-                                              "tp": 0, "fp": 0, "fn": 0, "tn": 0}
-    assert a["classes"]["time_cost"] == {"rows": 1, "artifacts": 0, "excluded": {"direct": 1, "unanswered": 1},
-                                         "tp": 1, "fp": 0, "fn": 0, "tn": 0}
+    assert a["classes"]["clue_follow_up"] == {"rows": 1, "artifacts": 0, "excluded": {"executed": 1}, "executes": True,
+                                              "tp": 0, "fp": 0, "fn": 0, "tn": 1}
+    assert a["classes"]["time_cost"] == {"rows": 2, "artifacts": 0, "executes": False,
+                                         "excluded": {"direct": 1, "unanswered": 1, "no_verdict": 1},
+                                         "tp": 1, "fp": 0, "fn": 1, "tn": 0}
     assert b["classes"]["npc_reaction"]["artifacts"] == 1  # the label key resolved through the turn's person receipt
     assert (b["classes"]["npc_reaction"]["tp"], b["classes"]["npc_reaction"]["fp"]) == (3, 0)
     assert (b["classes"]["clue_follow_up"]["tp"], b["classes"]["clue_follow_up"]["fp"]) == (2, 2)
@@ -157,10 +161,15 @@ def test_aggregate_over_a_checkout_and_an_app_home_pins_every_number(homes):
     assert b["cost"]["mean_ms"] == 600
 
     npc, clue, time_cost = (agg["classes"][c] for c in ("npc_reaction", "clue_follow_up", "time_cost"))
-    assert (npc["tp"], npc["fn"], npc["fp"]) == (4, 1, 1)
+    assert (npc["tp"], npc["fp"], npc["fn"]) == (4, 1, 1)
     assert npc["agreement"] == pytest.approx(0.8) and not npc["agreement_met"] and npc["fp_met"] and not npc["met"]
-    assert clue["agreement"] == 1.0 and clue["fp_over"] == ["h2:game-b"] and not clue["fp_met"] and not clue["met"]
-    assert time_cost["agreement"] == 1.0 and time_cost["fp_met"] and time_cost["cost_met"] and time_cost["met"]
+    assert npc["recall"] == pytest.approx(0.8) and npc["recall_tables"] == 2
+    # Agreement is precision over judged cleared rows: 2 of 4 here; the executed table is not in the recall.
+    assert clue["agreement"] == 0.5 and clue["fp_over"] == ["h2:game-b"] and not clue["fp_met"] and not clue["met"]
+    assert clue["recall_tables"] == 1 and clue["recall"] == 1.0
+    # Recall is information only: time_cost misses one row the Keeper filed (recall 3/4) and still meets 2a.
+    assert time_cost["agreement"] == 1.0 and time_cost["recall"] == 0.75
+    assert time_cost["fp_met"] and time_cost["cost_met"] and time_cost["met"]
     assert agg["cost"] == {"tables_with_data": 2, "over": [], "met": True}
 
 
@@ -169,11 +178,14 @@ def test_verdict_text_says_met_or_not_met_with_the_table_count_and_per_table_num
     out = capsys.readouterr().out
     assert "tables with consequence telemetry: 2" in out
     assert "[npc_reaction] NOT MET -- 2 of 2 tables have rows of this class" in out
-    assert "[clue_follow_up] NOT MET -- 1 of 2 tables" in out
-    assert "h1:tbl-a: not counted {'class_executes': 2}" in out
+    assert "[clue_follow_up] NOT MET -- 2 of 2 tables" in out
     assert "[time_cost] MET -- 2 of 2 tables" in out
-    assert "h1:tbl-a: rows 4 tp 1 fp 1 fn 1 tn 1" in out
-    assert "h2:game-b: rows 4 tp 2 fp 2 fn 0 tn 0" in out
+    assert "agreement (cleared rows the Keeper's receipts can judge, tp/(tp+fp)): 4/5 = 0.800 (>= 0.90): NOT MET" in out
+    assert "recall tp/(tp+fn), information only, over the 2 tables that only shadowed the class: 4/5 = 0.80" in out
+    assert "recall tp/(tp+fn), information only, over the 1 tables that only shadowed the class: 2/2 = 1.00" in out
+    assert "h1:tbl-a: rows 4 tp 1 fp 1 fn 1 tn 1 agreement 1/2 = 0.50 recall 1/2 = 0.50" in out
+    assert "h1:tbl-a: rows 1 tp 0 fp 0 fn 0 tn 1 agreement n/a recall n/a (executed)" in out
+    assert "h2:game-b: rows 4 tp 2 fp 2 fn 0 tn 0 agreement 2/4 = 0.50 recall 2/2 = 1.00" in out
     assert "h1:tbl-a: 3/5 turns with a call; mean 1500 ms" in out
     assert "campaign: tbl-a" not in out  # the per-campaign sections are opt-in
 
@@ -191,37 +203,61 @@ def test_the_added_ms_line_is_inclusive_and_judged_per_table(tmp_path, ms, met):
     assert agg["classes"]["time_cost"]["met"] is met  # a pooled mean of the two would hide the slow table
 
 
-def test_agreement_line_is_inclusive_at_point_nine(tmp_path):
+def test_agreement_is_precision_over_judged_cleared_rows_and_is_inclusive_at_point_nine(tmp_path):
+    """Two tables of 9 hits and 1 false positive each (one false positive per table is inside the line): 18/20 = 0.9."""
     campaigns = tmp_path / "home" / ".coc" / "campaigns"
 
-    def table(hits: int, misses: int) -> list[dict]:
+    def table(hits: int, false_positives: int) -> list[dict]:
         return ([candidate("time_cost", f"hit{i}", i, cleared=True, did=True) for i in range(hits)]
-                + [candidate("time_cost", f"miss{i}", 100 + i, cleared=False, did=True, confidence=0.2) for i in range(misses)]
-                + [budget(1, 10)])
+                + [candidate("time_cost", f"fp{i}", 100 + i, cleared=True, did="other" if i % 2 else False) for i in range(false_positives)]
+                # uncleared rows are neither hits nor false positives, whatever the Keeper did
+                + [candidate("time_cost", "miss", 200, cleared=False, did=True, confidence=0.2),
+                   candidate("time_cost", "quiet", 201, cleared=False, did=False, confidence=0.1), budget(1, 10)])
 
-    write_campaign(campaigns, "t", table(9, 1))
+    for name in ("one", "two"):
+        write_campaign(campaigns, name, table(9, 1))
     v = report.aggregate(resolve(tmp_path / "home"))["classes"]["time_cost"]
-    assert (v["tp"], v["fn"]) == (9, 1) and v["agreement_met"] and v["met"]
-    write_campaign(campaigns, "t", table(8, 2))
+    assert (v["tp"], v["fp"], v["fn"]) == (18, 2, 2) and v["agreement"] == 0.9
+    assert v["agreement_met"] and v["fp_met"] and v["met"]
+    for name in ("one", "two"):
+        write_campaign(campaigns, name, table(8, 1))
     v = report.aggregate(resolve(tmp_path / "home"))["classes"]["time_cost"]
-    assert (v["tp"], v["fn"]) == (8, 2) and not v["agreement_met"] and not v["met"]
+    assert (v["tp"], v["fp"]) == (16, 2) and v["fp_met"] and not v["agreement_met"] and not v["met"]
 
 
-def test_a_table_that_executed_the_class_is_not_a_shadow_table_for_it(tmp_path):
-    """Under execute mode a cleared clue became a clerk write; the uncleared rows left over can only read as misses,
-    so counting them would fail the class for a reason that is not Jev's agreement. The whole class-table is out."""
+def test_a_ratio_just_under_the_line_is_not_printed_as_the_line(tmp_path, capsys):
     campaigns = tmp_path / "home" / ".coc" / "campaigns"
-    rows = [candidate("clue_follow_up", "ledger", 1, cleared=True, did=False, executed=True, shadow=False),
-            candidate("clue_follow_up", "diary", 2, cleared=False, did=True, confidence=0.2),
-            candidate("clue_follow_up", "map", 3, cleared=False, did=True, confidence=0.2), budget(1, 10)]
-    write_campaign(campaigns, "t", rows)
-    v = report.aggregate(resolve(tmp_path / "home"))["classes"]["clue_follow_up"]
-    assert v["agreement"] is None and v["fn"] == 0 and v["tables_with_rows"] == 0 and v["met"] is False
-    assert v["excluded"] == {"class_executes": 3}
-    # The same misses in a table that only shadowed the class do count.
-    write_campaign(campaigns, "t", rows[1:])
-    v = report.aggregate(resolve(tmp_path / "home"))["classes"]["clue_follow_up"]
-    assert v["fn"] == 2 and v["agreement"] == 0.0
+    rows = [candidate("time_cost", f"hit{i}", i, cleared=True, did=True) for i in range(26)]
+    rows += [candidate("time_cost", f"fp{i}", 100 + i, cleared=True, did=False) for i in range(3)]
+    write_campaign(campaigns, "t", rows + [budget(1, 10)])  # 26/29 = 0.897; three false positives in one table fail too
+    assert report.main(["jev-steps-report.py", str(tmp_path / "home")]) == 0
+    assert "26/29 = 0.897 (>= 0.90): NOT MET" in capsys.readouterr().out
+
+
+def test_a_cleared_row_with_no_keeper_verdict_is_not_judged(tmp_path):
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+    write_campaign(campaigns, "t", [candidate("time_cost", "docks", 1, cleared=True, did=None), budget(1, 10)])
+    v = report.aggregate(resolve(tmp_path / "home"))["classes"]["time_cost"]
+    assert v["agreement"] is None and v["fp"] == 0 and v["excluded"] == {"no_verdict": 1} and v["met"] is False
+
+
+def test_executed_rows_are_out_individually_and_the_tables_that_execute_stay_in_the_verdict(tmp_path):
+    """An executed row is a clerk write, so it is not a shadow decision; the cleared shadow rows beside it still are.
+    No whole-table exclusion: agreement is precision over cleared rows, which executed rows do not bias. The recall
+    (information only) is read over the shadow-only tables, since an executing table's hits are not observable."""
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+    executing = [candidate("clue_follow_up", "ledger", 1, cleared=True, did=False, executed=True, shadow=False),
+                 candidate("clue_follow_up", "diary", 2, cleared=True, did=True),
+                 candidate("clue_follow_up", "map", 3, cleared=False, did=True, confidence=0.2), budget(1, 10)]
+    shadow_only = [candidate("clue_follow_up", "key", 1, cleared=True, did=True),
+                   candidate("clue_follow_up", "lamp", 2, cleared=False, did=True, confidence=0.2), budget(1, 10)]
+    write_campaign(campaigns, "executing", executing)
+    write_campaign(campaigns, "shadowing", shadow_only)
+    agg = report.aggregate(resolve(tmp_path / "home"))
+    v = agg["classes"]["clue_follow_up"]
+    assert v["excluded"] == {"executed": 1} and v["tables_with_rows"] == 2
+    assert (v["tp"], v["fp"]) == (2, 0) and v["agreement"] == 1.0  # the executed row is not a false positive
+    assert v["recall_tables"] == 1 and (v["recall_tp"], v["recall_fn"]) == (1, 1) and v["recall"] == 0.5
 
 
 def test_a_first_impression_roll_without_an_npc_field_is_not_the_keepers_action(tmp_path):
@@ -246,7 +282,7 @@ def test_two_false_positives_in_one_table_fail_and_one_passes(tmp_path):
 
 
 def test_no_evidence_is_never_a_pass(tmp_path, capsys):
-    """No row where the Keeper acted on the class, and a table with no cost row: NOT MET, and the text says why."""
+    """No cleared row the Keeper's receipts can judge, and a table with no cost row: NOT MET, and the text says why."""
     campaigns = tmp_path / "home" / ".coc" / "campaigns"
     write_campaign(campaigns, "t", [candidate("time_cost", "docks", 1, cleared=False, did=False, confidence=0.1)])
     agg = report.aggregate(resolve(tmp_path / "home"))
@@ -255,7 +291,7 @@ def test_no_evidence_is_never_a_pass(tmp_path, capsys):
     assert agg["cost"] == {"tables_with_data": 0, "over": [], "met": False}
     assert report.main(["jev-steps-report.py", str(tmp_path / "home")]) == 0
     out = capsys.readouterr().out
-    assert "no row in which the Keeper acted on this class" in out
+    assert "n/a -- no such row (tp 0, fp 0): NOT MET, no evidence" in out
     assert "no table has a consequence_budget row: NOT MET, no evidence" in out
 
 
