@@ -1,7 +1,7 @@
 /** Source-backed maps and campaign-scoped region knowledge. */
 import { RpcError } from '../errors.js';
 import type { ModuleGraph } from './module-graph.js';
-import { array, normalize, number, numeric, repr, row, type Row } from './values.js';
+import { array, entries, normalize, number, numeric, repr, row, type Row } from './values.js';
 
 export type AssetReader = (moduleId: string, name: string) => Promise<Row | null>;
 
@@ -13,11 +13,13 @@ function box(value: unknown, field: string): number[] {
 }
 
 export function mapNodes(graph: ModuleGraph): Row[] {
-    return [...graph.kind('asset'), ...graph.kind('handout')].filter(node => array(row(node.properties).map_regions).length > 0);
+    // §152.4: a map the reviewer found to be the same print as another is read as that other.
+    return [...graph.kind('asset'), ...graph.kind('handout')].filter(node => array(row(node.properties).map_regions).length > 0 && !graph.isVariant(node));
 }
 
 export function mapNode(graph: ModuleGraph, name: string): Row {
-    const node = graph.resolve(name, ['asset', 'handout'], 'map');
+    // §152.4: a name the table learned for a variant still reaches the map it is a print of.
+    const node = graph.survivorOf(graph.resolve(name, ['asset', 'handout'], 'map'));
     if (!array(row(node.properties).map_regions).length)
         throw new RpcError('invalid_params', `${repr(graph.handle(node))} is not a region map`, {
             fix: 'use one of details.candidates',
@@ -79,9 +81,32 @@ function playerSafeRegions(graph: ModuleGraph, regions: Row[]): Row[] {
  * so a map the player was holding from arrival read as unknown to the Keeper.
  */
 export function livingMapRegions(graph: ModuleGraph, world: Row, node: Row, regions: Row[] = mapRegions(graph, node)): Row[] {
-    const handle = graph.handle(node), known = new Set(knownMapRegions(world, handle)),
-        shown = new Set(array(world.maps_presented).includes(handle) ? playerSafeRegions(graph, regions) : []);
-    return regions.filter(region => known.has(region.id) || shown.has(region));
+    const held = heldState(graph, world, node), shown = new Set(held.presented ? playerSafeRegions(graph, regions) : []);
+    return regions.filter(region => held.known.has(region.id) || shown.has(region));
+}
+
+/**
+ * Contract §152.4: what the table holds of a map, read through its survivor. A table that was shown
+ * a variant was shown this map; a region it learned on a variant, and the Keeper's word for it, carry
+ * over only where the reviewer matched that region to one of this map's on the pixels. Nothing is
+ * moved or rewritten: the variant's own record stays where it was written.
+ */
+function heldState(graph: ModuleGraph, world: Row, node: Row): { known: Set<string>; presented: boolean; labels: Row } {
+    const handle = graph.handle(node), presentedList = array(world.maps_presented), allLabels = row(world.map_labels),
+        own = row(allLabels[handle]), known = new Set(knownMapRegions(world, handle)),
+        regions: Row = { ...row(own.regions) }, levels: Row = { ...row(own.levels) };
+    let presented = presentedList.includes(handle), title = own.title;
+    for (const variant of [...graph.kind('asset'), ...graph.kind('handout')]) {
+        if (variant.node_id === node.node_id || graph.survivorOf(variant).node_id !== node.node_id) continue;
+        const theirs = graph.handle(variant), match = graph.regionCorrespondence(variant, node), labels = row(allLabels[theirs]);
+        if (presentedList.includes(theirs)) presented = true;
+        for (const id of knownMapRegions(world, theirs)) if (typeof match[id] === 'string') known.add(match[id]);
+        for (const [id, label] of entries(row(labels.regions)))
+            if (typeof match[id] === 'string' && regions[match[id]] === undefined) regions[match[id]] = label;
+        for (const [level, label] of entries(row(labels.levels))) if (levels[level] === undefined) levels[level] = label;
+        if (title === undefined && labels.title !== undefined) title = labels.title;
+    }
+    return { known, presented, labels: { ...(title !== undefined ? { title } : {}), regions, levels } };
 }
 
 /** §39.4: a table has pictured a map when it held any of it before the effect being applied. */
@@ -132,7 +157,7 @@ export function mapsForScene(graph: ModuleGraph, scene: Row): Row[] {
     const take = (rels: Row[] | undefined) => {
         for (const rel of rels ?? []) {
             if (rel.relation_kind !== 'depicts') continue;
-            const node = graph.nodes.get(rel.from_node_id);
+            const found = graph.nodes.get(rel.from_node_id), node = found ? graph.survivorOf(found) : undefined;
             if (!node || seen.has(node.node_id) || !array(row(node.properties).map_regions).length) continue;
             seen.add(node.node_id);
             result.push(node);
@@ -242,9 +267,9 @@ async function composeMapView(graph: ModuleGraph, asset: AssetReader, node: Row,
  * is missing, for the host to project (§39.2) -- a card is wholly one or the other.
  */
 async function livingView(graph: ModuleGraph, world: Row, asset: AssetReader, node: Row): Promise<Row> {
-    const handle = graph.handle(node), regions = mapRegions(graph, node), selected = livingMapRegions(graph, world, node, regions),
+    const regions = mapRegions(graph, node), selected = livingMapRegions(graph, world, node, regions),
         hasWord = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
-        labels = row(row(world.map_labels)[handle]), regionLabels = row(labels.regions), levelLabels = row(labels.levels),
+        labels = heldState(graph, world, node).labels, regionLabels = row(labels.regions), levelLabels = row(labels.levels),
         keeperWords = hasWord(labels.title) && selected.every(region => hasWord(regionLabels[region.id]) && (!region.level || hasWord(levelLabels[region.level]))),
         titled = keeperWords ? selected.map(region => ({
             ...region, name: regionLabels[region.id], ...(region.level ? { level: levelLabels[region.level] } : {}),
@@ -326,7 +351,7 @@ export async function presentArrivalMaps(context: {graph: ModuleGraph; world: Ro
     const out: Array<{receipt: Row; event: Row; view?: Row}> = [];
     for (const node of mapsForScene(context.graph, scene)) {
         const handle = context.graph.handle(node);
-        if (presented.includes(handle)) continue;
+        if (heldState(context.graph, context.world, node).presented) continue;
         const regions = mapRegions(context.graph, node), selected = playerSafeRegions(context.graph, regions);
         if (!selected.length) continue;
         const before = livingMapRegions(context.graph, context.world, node, regions), wasPictured = before.length > 0;

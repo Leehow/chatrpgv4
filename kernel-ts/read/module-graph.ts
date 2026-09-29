@@ -672,7 +672,8 @@ export class ModuleGraph {
             if (rel.relation_kind === "occurs-at")
                 links.push(...(this.incoming.get(rel.to_node_id) ?? []).filter(r => r.relation_kind === "depicts"));
         for (const rel of links) {
-            const node = this.nodes.get(rel.from_node_id);
+            // §152.4: a printed visual the reviewer found to be a variant is listed as the print it stands for.
+            const found = this.nodes.get(rel.from_node_id), node = found ? this.survivorOf(found) : undefined;
             if (!["depicts", "discoverable-at", "located-in"].includes(rel.relation_kind) || !node || node.node_kind === "clue" || seen.has(node.node_id))
                 continue;
             seen.add(node.node_id);
@@ -682,7 +683,7 @@ export class ModuleGraph {
         // arrival presents (`mapsForScene`), so the Keeper and the player are handed one list.
         for (const place of this.placesOutward(scene).slice(1))
             for (const rel of this.incoming.get(place) ?? []) {
-                const node = this.nodes.get(rel.from_node_id);
+                const found = this.nodes.get(rel.from_node_id), node = found ? this.survivorOf(found) : undefined;
                 if (rel.relation_kind !== "depicts" || !node || seen.has(node.node_id) || !array(row(node.properties).map_regions).length)
                     continue;
                 seen.add(node.node_id);

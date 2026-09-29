@@ -46,6 +46,11 @@ const RAW = {
             region('c-left', 'composed-map', [0, 0, 0.5, 0.5]),
             region('c-right', 'composed-map', [0.5, 0.5, 1, 1], [0.2, 0.5, 0.7, 1]),
         ]}},
+        // §152.4: a second crop of the village map, found by the reviewer to be the same print.
+        {node_id: 'asset-village-print-2', node_kind: 'asset', name: 'Village map (second crop)', visibility: 'player-safe', properties: {map_regions: [
+            region('v-inn', 'village-print-2', [0.1, 0.1, 0.4, 0.6]),
+            region('v-bank', 'village-print-2', [0.5, 0.1, 0.9, 0.6]),
+        ]}},
         {node_id: 'location-village', node_kind: 'location', name: 'Village'},
         {node_id: 'location-harbor', node_kind: 'location', name: 'Harbor district'},
         {node_id: 'scene-dockside', node_kind: 'scene', name: 'Dockside', properties: {}},
@@ -57,6 +62,9 @@ const RAW = {
         {relation_id: 'r3', relation_kind: 'occurs-at', from_node_id: 'scene-dockside', to_node_id: 'location-harbor'},
         {relation_id: 'r4', relation_kind: 'located-in', from_node_id: 'location-harbor', to_node_id: 'location-village'},
         {relation_id: 'r5', relation_kind: 'depicts', from_node_id: 'asset-composed-map', to_node_id: 'scene-green'},
+        {relation_id: 'r6', relation_kind: 'depicts', from_node_id: 'asset-village-print-2', to_node_id: 'location-village'},
+        {relation_id: 'r7', relation_kind: 'variant-of', from_node_id: 'asset-village-print-2', to_node_id: 'asset-village-map',
+            properties: {region_correspondence: {'v-inn': 'r-inn'}}},
     ],
 };
 // Through the kernel's own JSON reader, so authored boxes carry the numeric identity a loaded graph has.
@@ -149,4 +157,25 @@ test('a merged worldline keeps every map either line was shown', () => {
     const state = (line, world) => ({line, world: {active_scene: 'dockside', ...world}, party: {}, candidates: [], spent: new Set(), engines: {}});
     const merged = api.report(graph(), [state('main', {maps_presented: ['harbor-map']}), state('side', {maps_presented: ['village-map']})], null);
     assert.deepEqual(merged.world.maps_presented, ['harbor-map', 'village-map']);
+});
+
+test('§152.4: a variant is read as the print it stands for, and what the table held of it carries over only through the correspondence', async () => {
+    const g = graph();
+    assert.deepEqual(api.mapsForScene(g, g.scene('dockside')).map((node) => node.node_id), ['asset-harbor-map', 'asset-village-map'],
+        'the second crop is never a second map');
+    assert.deepEqual(api.mapCatalog(g, {}).map((item) => item.name).sort(), ['composed-map', 'harbor-map', 'village-map']);
+    // A name the table learned for the variant reaches the survivor.
+    assert.equal((await api.mapView(g, {map_knowledge: {'village-map': ['r-inn']}}, asset, 'village-print-2')).map, 'village-map');
+    // Knowledge on the variant: only the matched region carries; the unmatched one is not guessed onto the survivor.
+    const learned = {map_knowledge: {'village-print-2': ['v-inn', 'v-bank']}, map_labels: {'village-print-2': {title: 'Village', regions: {'v-inn': 'The inn', 'v-bank': 'The bank'}, levels: {}}}};
+    assert.deepEqual(ids(api.livingMapRegions(g, learned, g.find('village-map'))), ['r-inn']);
+    const view = await api.mapView(g, learned, asset, 'village-map');
+    assert.deepEqual(view.regions, [{id: 'r-inn', label: 'The inn', level: null}], 'the Keeper\'s word for the matched region carries with it');
+    assert.deepEqual(learned.map_knowledge, {'village-print-2': ['v-inn', 'v-bank']}, 'the variant\'s own record is not rewritten');
+    // A table shown the variant was shown the map: arrival presents only the harbor.
+    const world = {active_scene: 'dockside', maps_presented: ['village-print-2']};
+    const arrived = await api.presentArrivalMaps(context(g, world, 7), asset);
+    assert.deepEqual(arrived.map((item) => item.receipt.map), ['harbor-map']);
+    const rows = await api.knownMapViews(g, {maps_presented: ['village-print-2']}, asset);
+    assert.deepEqual(rows.map((item) => item.map), ['village-map'], 'the board lists the print once');
 });
