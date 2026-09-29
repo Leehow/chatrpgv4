@@ -8,6 +8,8 @@ import {objectContext, unregisteredEquipment} from '../read/mods.js';
 import {claimedEquipment} from './queue.js';
 import {array, chars, row, string, truth, type Row} from '../read/values.js';
 
+/** Contract §158.2: what `owed_review` asks the reviewer to name; one sentence for the kernel and any replay of a job. */
+export const OWED_REVIEW_DEFINITION = 'What the candidate tells the player has already happened that no receipt of this turn carries and the ledger lacks: an arrival at a place that becomes the ongoing locus, time passing beyond any journey, a person arriving or leaving. Delivered text is canon: it is never rewritten, and the ledger is brought forward to it. Do not list what open already holds, what a receipt of this turn already carries, or what the candidate only plans, imagines or reports.';
 const pick = (value: Row, names: string[]): Row => Object.fromEntries(names.filter(name => Object.hasOwn(value, name)).map(name => [name, value[name]]));
 /**
  * `owed` (contract §158.2) is given only for a job whose package requires `audit.owed.v1`: the rows already owed and
@@ -46,7 +48,7 @@ export function continuityAuditContext(graph: ModuleGraph, world: Row, turn: Row
             definition: 'active_scene is the persistent gameplay locus, not a physical coordinate.',
             promotion_test: 'A distinct place needs a scene and move only when it becomes the ongoing locus for subsequent player action or durable location-bound state. Spatial wording, scale and motion do not decide this.'},
         ...(owed ? {owed_review: {requires_review: true,
-            definition: 'What the candidate tells the player has already happened that no receipt of this turn carries and the ledger lacks: an arrival at a place that becomes the ongoing locus, time passing beyond any journey, a person arriving or leaving. Delivered text is canon: it is never rewritten, and the ledger is brought forward to it. Do not list what open already holds, what a receipt of this turn already carries, or what the candidate only plans, imagines or reports.',
+            definition: OWED_REVIEW_DEFINITION,
             open: array(owed.open), travel_bands: array(owed.travel_bands), time_bands: array(owed.time_bands)}} : {}),
         ...(failedRolls.length ? {outcome_commitments: {requires_review: true, failed_rolls: failedRolls,
             definition: 'A failed roll may have consequences, uncertainty or no result; it does not earn the positive action, perception, clue or fact that roll was meant to decide.'}} : {}),
