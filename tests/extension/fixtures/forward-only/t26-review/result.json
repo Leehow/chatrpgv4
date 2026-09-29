@@ -1,0 +1,30 @@
+{
+ "continuity_review": {
+  "conflicts": [],
+  "intelligibility_review": {
+   "source": null,
+   "verdict": "pass"
+  },
+  "locus_review": {
+   "basis": "none",
+   "claim_source": "draft:6",
+   "locus_source": "scene:20",
+   "mode": "new_locus",
+   "verdict": "revise"
+  },
+  "player_address_review": {
+   "source": null,
+   "verdict": "pass"
+  },
+  "summary": "草稿的语意通顺、通篇以第二人称面向玩家，未出现叙述者侧的人物名或第三人称指代。主要问题在场景承诺：草稿把马丁滩波街公墓确立为新的持续场景并叙述已抵达，但当前持久场景仍是阿卡姆报摊，且没有任何已结算的移动凭证，这一位移尚未落定。",
+  "verdict": "revise"
+ },
+ "findings": [
+  {
+   "fix": "交付前先结算从阿卡姆前往马丁滩波街公墓的移动并建立对应的已登记场景移动凭证（对应已登记场景「勘查波街公墓」），再把抵达后的描写作为既定事实；若暂不结算移动，则本轮只叙述出城与沿途接近的过程，不把调查员置于新场景。保留玩家已选择的出行路线与目的地，不改动剧情或重掷骰。",
+   "reason": "候选草稿把马丁滩波街公墓写成玩家已经抵达，并把它当作接下来的持续场景（要在此勘查被掘的墓穴）。但当前持久场景仍是阿卡姆街角报摊（scene:active），scenes.moves 为空，没有任何已结算的移动凭证，因此这次出行尚未在场景层落定，直接在草稿中把调查员放到新场景属于未结算的位移。"
+  }
+ ],
+ "missing": [],
+ "schema": 2
+}

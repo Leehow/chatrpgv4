@@ -67,7 +67,8 @@ test('the capsule\'s craft lines come from a context.style.v1 package, never fro
 test('the existing pre-delivery audit revises unintelligible prose without grading literary taste', async () => {
   const manifest = JSON.parse(await readFile(new URL('../../mods/narration-audit/mod.json', import.meta.url), 'utf8'));
   const auditor = await readFile(new URL('../../mods/narration-audit/auditor.md', import.meta.url), 'utf8');
-  assert.equal(manifest.version, '1.2.31');
+  assert.equal(manifest.version, '1.2.32');
+  assert.ok(manifest.requires.includes('audit.owed.v1'), 'contract §158.2: the reviewer names owed state');
   assert.equal(manifest.state_version, 1);
   assert.ok(manifest.requires.includes('audit.continuity.v2'));
   assert.ok(!manifest.requires.includes('audit.continuity.v1'));

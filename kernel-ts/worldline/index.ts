@@ -13,6 +13,7 @@ import {currentLine,head,lineCommit,run,checkout,createBranch,deleteBranch,commi
 import {readAnchor,anchorTurn,anchorMinutes,buildAnchor,records,rewindsKept,clockMinutes,rebaseSaves,writeReset,type ClockEngine} from './reset.js';
 import {readEchoes,writeEchoes,mergeEchoes,generateEchoes} from './echoes.js';
 import * as confluence from './confluence.js';
+import {carryOwed,owedOfTurn} from '../owed/index.js';
 export type {ClockEngine} from './reset.js';
 export {lineSeed} from './identity.js';
 export function createWorldlineRuntime(kernel:KernelContext,engines:readonly ClockEngine[]=[]){
@@ -75,9 +76,12 @@ export function createWorldlineRuntime(kernel:KernelContext,engines:readonly Clo
         const meta=await campaign.readCampaign(),before=clone(meta),source=string(plan.from.line),target=string(plan.line),lines=clone(registry(meta));
         if(plan.operation==='fork'&&plan.mode==='loop'&&!await readAnchor(context))await campaign.writeSave('worldlines/anchor.json',await buildAnchor(context,string(plan.anchor.scene),plan.anchor,source));
         const seal=await commitIfDirty(context,`worldline ${source}: sealed at turn ${turn}`),base=seal||await head(context);let created=false;
+        // §158.3: a fork at a named earlier commit takes that turn's own owed rows, written after its commit, with it.
+        const told=plan.operation==='fork'&&plan.from.commit?await owedOfTurn(campaign,number(plan.from.turn)):[];
         try{
             if(plan.operation==='fork'){const fork=string(plan.from.commit||base);plan.from.commit=fork;await createBranch(context,target,fork);created=true;}
             await checkout(context,target);
+            await carryOwed(kernel,campaign.id,told);
             if(isJsonObject(lines[source])){lines[source].status='dormant';lines[source].last_turn=turn;lines[source].last_commit=base;}
             if(plan.operation==='fork')lines[target]=newLine(campaign.id,target,plan.mode==='loop'?'loop':'if',number(plan.loop),clone(plan.from));
             else if(isJsonObject(lines[target]))lines[target].status='active';

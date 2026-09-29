@@ -1,0 +1,472 @@
+{
+ "current_input": "我谢过摊主，上车沿近海那条路往金斯波特方向出城，跟着路牌一路开到马丁滩，直接去波街公墓。",
+ "clock": {
+  "minutes": 1384,
+  "elapsed": "23 h 4 min",
+  "at": "1925-08-29T08:04",
+  "day_part": "morning"
+ },
+ "scene": {
+  "handle": "arkham-street-newsstand",
+  "name": "arkham-street-newsstand",
+  "question": null
+ },
+ "intelligibility_review": {
+  "requires_review": true,
+  "definition": "Judge whether every candidate sentence and spoken line is naturally understandable in the play language without restoring omitted grammatical relations. This is not literary style scoring."
+ },
+ "player_address_review": {
+  "requires_review": true,
+  "actors": [
+   {
+    "name": "诺拉"
+   }
+  ],
+  "definition": "Player-facing narration addresses player-controlled investigators in second person. Natural subject omission is allowed; narrator-side character names or third-person pronouns are not. NPC dialogue and reported speech may refer to them as the fiction requires."
+ },
+ "scene_commitment": {
+  "requires_review": true,
+  "active": {
+   "handle": "arkham-street-newsstand",
+   "name": "arkham-street-newsstand",
+   "summary": "阿卡姆警局附近街角的报摊：木板摊面、铁丝夹的当日报与近期刊，煤油灯或街灯映着标题；晚间仍开着，卖报、旧刊与香烟火柴。"
+  },
+  "moves": [],
+  "definition": "active_scene is the persistent gameplay locus, not a physical coordinate.",
+  "promotion_test": "A distinct place needs a scene and move only when it becomes the ongoing locus for subsequent player action or durable location-bound state. Spatial wording, scale and motion do not decide this."
+ },
+ "present": [
+  {
+   "name": "报摊摊主"
+  }
+ ],
+ "receipts": [],
+ "actors": [
+  {
+   "name": "诺拉",
+   "equipment": [
+    {
+     "name": "当日阿卡姆消息人",
+     "quantity": 1,
+     "turn": 24,
+     "from": "报摊摊主",
+     "label": "当日《阿卡姆消息人》"
+    },
+    {
+     "name": "诺拉的折合式相机",
+     "quantity": 1,
+     "object_id": "object-item-1",
+     "description": "一台用了多年的一九二〇年代便携折合式箱式相机，皮腔与黄铜配件，肩带可挂，适合新闻与现场摄影。折叠后便于随身携带，展开即可取景曝光。"
+    },
+    {
+     "name": "诺拉的摄影干板与胶卷袋",
+     "quantity": 1,
+     "object_id": "object-item-2",
+     "description": "装感光干板与胶卷的帆布或皮质小袋，挂在身侧或塞进旅行袋，供折合式相机更换底片与胶卷。袋口可系紧遮光，摸起来略有分量。"
+    },
+    {
+     "name": "诺拉的皮质笔记本与铅笔",
+     "quantity": 1,
+     "object_id": "object-item-3",
+     "description": "皮质封面的笔记本，夹着一支削好的铅笔，方便采访与现场速记；内页空白，可随时写下线索与人物备注。"
+    },
+    {
+     "name": "诺拉的记者证",
+     "quantity": 1,
+     "object_id": "object-item-4",
+     "description": "阿卡姆一带通用的摄影记者身份证件：硬卡纸或薄皮夹里的印刷证牌，印有姓名、职业与发证抬头，方便出示以表明采访与摄影身份。"
+    },
+    {
+     "name": "诺拉的阿卡姆本地地图",
+     "quantity": 1,
+     "object_id": "object-item-5",
+     "description": "一张折页式本地街道图，纸面因反复折叠已有细痕。图上标出阿卡姆城内主要街道、街区名，以及通往近郊与周边村镇的干道，便于在城中找路与规划行程。"
+    },
+    {
+     "name": "诺拉的手电筒",
+     "quantity": 1,
+     "object_id": "object-item-6",
+     "description": "一只手掌长短的金属手电筒，筒身略沉，侧面有拨动开关。打开后射出一束够用的白光，方便夜里走路、翻找或照亮角落；电池与灯泡还算正常。"
+    },
+    {
+     "name": "诺拉的小型旅行袋",
+     "quantity": 1,
+     "object_id": "object-item-7",
+     "description": "一只轻便的小型旅行袋，帆布袋身、皮革饰边，正好塞相机附件、胶卷与日常零碎。"
+    },
+    {
+     "name": "诺拉的雨衣",
+     "quantity": 1,
+     "object_id": "object-item-8",
+     "description": "一件可折叠的轻便雨衣，胶布或油布面料，便于塞进旅行袋。为沿海阴雨与潮湿路途准备，穿上后能挡雨遮湿。"
+    },
+    {
+     "name": "诺拉的照相馆取件凭条",
+     "quantity": 1,
+     "object_id": "object-item-9",
+     "description": "阿卡姆沿街照相馆柜台上开出的一小张纸质取件凭条，用钢笔或炭笔写着顾客姓名、普通冲洗加印业务，以及约定的取件时限。纸边略毛，墨迹未干时可能有些晕开，可对折塞进衣袋或相机袋。"
+    },
+    {
+     "name": "墓园现场冲洗照片",
+     "quantity": 1,
+     "object_id": "object-item-10",
+     "description": "一九二〇年代阿卡姆照相馆根据墓园现场干板普通冲洗加印出的纸质相片若干张：黑白影像里可见被掘开的墓穴、翻乱的土面与周围能辨认的地面细节，便于与现场笔记对照。相纸略硬，边角可裁齐或略毛，无特殊药剂或机关。"
+    }
+   ],
+   "cash": "7.73 USD",
+   "weapons": [
+    {
+     "name": "诺拉的手电筒",
+     "display_name": "诺拉的手电筒",
+     "skill": "Fighting (Brawl)",
+     "damage": "1D6",
+     "ammo": null,
+     "magazine": null,
+     "usage": "用手电筒砸击",
+     "usage_mode": "melee"
+    }
+   ]
+  }
+ ],
+ "objects": {
+  "queued_registrations": [],
+  "definitions": [
+   {
+    "name": "折合式相机",
+    "category": "item",
+    "document": null
+   },
+   {
+    "name": "摄影干板与胶卷袋",
+    "category": "item",
+    "document": null
+   },
+   {
+    "name": "皮质笔记本与铅笔",
+    "category": "item",
+    "document": {
+     "presentation": "notebook",
+     "has_text": false
+    }
+   },
+   {
+    "name": "记者证",
+    "category": "item",
+    "document": null
+   },
+   {
+    "name": "阿卡姆本地地图",
+    "category": "item",
+    "document": {
+     "presentation": "paper",
+     "has_text": true
+    }
+   },
+   {
+    "name": "手电筒",
+    "category": "item",
+    "document": null
+   },
+   {
+    "name": "小型旅行袋",
+    "category": "item",
+    "document": null
+   },
+   {
+    "name": "雨衣",
+    "category": "item",
+    "document": null
+   },
+   {
+    "name": "照相馆取件凭条",
+    "category": "item",
+    "document": {
+     "presentation": "paper",
+     "has_text": true
+    }
+   },
+   {
+    "name": "冲洗加印的现场照片",
+    "category": "item",
+    "document": {
+     "presentation": "paper",
+     "has_text": true
+    }
+   }
+  ],
+  "instances": [
+   {
+    "name": "诺拉的折合式相机",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "definition": "折合式相机",
+    "document": null
+   },
+   {
+    "name": "诺拉的摄影干板与胶卷袋",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "definition": "摄影干板与胶卷袋",
+    "document": null
+   },
+   {
+    "name": "诺拉的皮质笔记本与铅笔",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "definition": "皮质笔记本与铅笔",
+    "document": {
+     "presentation": "notebook",
+     "text": "",
+     "truncated": false
+    }
+   },
+   {
+    "name": "诺拉的记者证",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "definition": "记者证",
+    "document": null
+   },
+   {
+    "name": "诺拉的阿卡姆本地地图",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "definition": "阿卡姆本地地图",
+    "document": {
+     "presentation": "paper",
+     "text": "阿卡姆本地街道图\n（折页印刷）\n\n城内主干：教堂街、高街、河滨路、学院大道、梅西街。\n标注：市立图书馆、警局、火车站、河港、公墓方向、大学区。\n近郊干道：通往金斯波特、马丁海滩、波士顿方向的主要公路出城口。\n图例：实线——铺装街道；虚线——次要巷道与近郊土路。\n比例示意，仅供寻路参考。",
+     "truncated": false
+    }
+   },
+   {
+    "name": "诺拉的手电筒",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "definition": "手电筒",
+    "usages": [
+     {
+      "name": "用手电筒砸击",
+      "description": "握紧金属电筒筒身，当作短棒近身砸打对方。光照功能与此无关，只是借坚实的镀镍筒身挥击。",
+      "mode": "melee",
+      "parameters": {
+       "skill": "Fighting (Brawl)",
+       "damage": "1D6",
+       "adds_damage_bonus": true,
+       "base_range_yards": null,
+       "uses_per_round": 1,
+       "magazine": null,
+       "malfunction": null,
+       "impale": false
+      },
+      "applicable": true
+     }
+    ],
+    "document": null
+   },
+   {
+    "name": "诺拉的小型旅行袋",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "definition": "小型旅行袋",
+    "document": null
+   },
+   {
+    "name": "诺拉的雨衣",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "definition": "雨衣",
+    "document": null
+   },
+   {
+    "name": "诺拉的照相馆取件凭条",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "definition": "照相馆取件凭条",
+    "document": {
+     "presentation": "paper",
+     "text": "阿卡姆照相馆·取件凭条\n\n顾客：诺拉\n件：干板冲洗加印（普通）\n取件：今日下午四点前\n已付：一元二角五分\n\n请凭此条取件。",
+     "truncated": false
+    }
+   },
+   {
+    "name": "墓园现场冲洗照片",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "definition": "冲洗加印的现场照片",
+    "document": {
+     "presentation": "paper",
+     "text": "（阿卡姆照相馆·普通冲洗加印·墓园现场）\n\n黑白纸质相片若干张，内容互有重叠：\n\n— 被掘开的墓穴口，棺椁或墓室轮廓依土壁可见；\n— 穴周与通道上翻乱、新近扰动的土面与散土；\n— 周围地面可辨的脚印、工具痕与邻近碑石、围栏或草木边缘等环境细节。\n\n无文字说明；仅作影像对照笔记之用。",
+     "truncated": false
+    }
+   }
+  ]
+ },
+ "equipment_without_instances": [
+  {
+   "owner": "诺拉",
+   "name": "当日阿卡姆消息人",
+   "row": {
+    "name": "当日阿卡姆消息人",
+    "quantity": 1,
+    "turn": 24,
+    "from": "报摊摊主",
+    "label": "当日《阿卡姆消息人》"
+   }
+  }
+ ],
+ "corrections": [],
+ "memory": [
+  {
+   "kind": "knowledge",
+   "subject": "诺拉",
+   "statement": "《消息人》专稿称马丁滩坡街公墓的弗吉尼娅·费尔德遗体在阿卡姆案次夜被盗，汉密尔顿·法布瑞博士悬赏一千美元。",
+   "turn": 24,
+   "state": "accurate",
+   "status": "candidate",
+   "authority": "conversation_report"
+  },
+  {
+   "kind": "knowledge",
+   "subject": "诺拉",
+   "statement": "《消息人》专稿称欧文·塔布勒与阿萨·尼克尔森将马丁滩与阿卡姆两起盗墓案并提，塔布勒拒谈是否与马丁滩那个「徘徊者」有关。",
+   "turn": 24,
+   "state": "accurate",
+   "status": "candidate",
+   "authority": "conversation_report"
+  },
+  {
+   "kind": "knowledge",
+   "subject": "诺拉",
+   "statement": "摊主指点去马丁滩的路：出城朝金斯波特方向、跟近海那条路走，路过岔口别往北边岔，看路牌写马丁滩即可；波街公墓在镇上，新坟场那头，进镇问人也能指路。",
+   "turn": 25,
+   "state": "accurate",
+   "status": "candidate",
+   "authority": "conversation_report"
+  },
+  {
+   "kind": "world_event",
+   "subject": "world",
+   "statement": "街角报摊摊主未整叠递报，只翻开夹中最上《消息人》半页，让诺拉先看报头与主栏标题，并称看标题行、要整份须买走，今儿与旧报皆两分一份。",
+   "turn": 20,
+   "state": "accurate",
+   "status": "candidate",
+   "authority": "conversation_report"
+  },
+  {
+   "kind": "knowledge",
+   "subject": "诺拉",
+   "statement": "今晨《消息人》大字标题称又一桩盗墓案，已故律师马丁·海沃森遗体自教堂公墓被盗，警方怀疑与曼彻斯特、格洛斯特、金斯波特、艾塞克斯弗、克拉克角等地近起掘墓有关。",
+   "turn": 20,
+   "state": "accurate",
+   "status": "candidate",
+   "authority": "conversation_report"
+  },
+  {
+   "kind": "knowledge",
+   "subject": "诺拉",
+   "statement": "摊上昨儿、前儿本地版标题零星点过周边镇子掘墓与遗体失窃，但无比今晨这条更新、更完整的专稿。",
+   "turn": 20,
+   "state": "accurate",
+   "status": "candidate",
+   "authority": "conversation_report"
+  }
+ ],
+ "recent_history": [
+  {
+   "turn": 23,
+   "player_text": "我把两分钱递给摊主，买下今天的新报纸，当场读有关盗墓案的那一则报道。",
+   "input_truncated": false,
+   "text": "桌边这边暂时接不上账目与收付——桌上的动作没法在这一轮落定。不是你的事，也不是摊主不卖。\n\n晨光里，木板摊面、铁丝夹上的当日刊仍在，摊主站在后头，等着你把两分钱递过去、点报，或先扫一眼标题。你说的那一步，下一回输入可以再试。",
+   "truncated": false
+  },
+  {
+   "turn": 24,
+   "player_text": "我把两分钱递给摊主，买下今天的新报纸，当场读有关盗墓案的那一则报道。",
+   "input_truncated": false,
+   "text": "摊主接过两枚铜币，从铁丝夹里抽出当日的《消息人》，对折递过来。「拿好。」\n\n晨光里你就在摊边展开。铅字比昨夜的旧条更密：阿卡姆那一桩的次夜，马丁滩坡街公墓又遭了手——弗吉尼娅·费尔德的遗体被盗。汉密尔顿·法布瑞博士悬赏一千美元。欧文·塔布勒与阿萨·尼克尔森把两案并提；塔布勒拒谈是否与马丁滩那个「徘徊者」有关。\n\n摊主已经去招呼下一位。报页还在你手里，油墨未干。",
+   "truncated": false
+  },
+  {
+   "turn": 25,
+   "player_text": "我把报纸折好收进大衣内袋，向摊主打听去马丁滩怎么走，然后动身前往马丁滩，想亲眼看看波街公墓。",
+   "input_truncated": false,
+   "text": "摊主听你一问，下巴朝城外公路那头一抬。\n\n「金斯波特方向出城，跟着近海那条。路过几个岔口别往北边岔，看路牌写马丁滩就行。公墓在镇上，波街，新坟场那头——进镇问人也能指。」\n\n话就这么多。他把下一份报重新夹上铁丝，不再多看你。\n\n报纸对折，塞进大衣内袋，贴着肋骨一凉。摊还在身后，晨光里铁丝夹上的刊还在晃。出城的路、马丁滩的路牌、波街公墓——方向已经清楚；车还停在街边，钥匙在你这边。",
+   "truncated": false
+  }
+ ],
+ "source_facts": [
+  {
+   "name": "helverson-body-stolen",
+   "summary": "The Arkham Advertiser reports that respected local lawyer Martin Helverson (dead six years) had his body stolen from the church cemetery last night; police link it to a regional series of grave robberies.",
+   "disclosure": "acquired"
+  }
+ ],
+ "connections": {
+  "promises": [],
+  "anchors": [
+   "helverson-body-stolen",
+   "arkham-street-newsstand",
+   "报摊摊主"
+  ],
+  "connections": [],
+  "hypotheses": [],
+  "truncated": false
+ },
+ "coverage": {
+  "history_total": 25,
+  "history_previews": 3,
+  "memory_total": 81,
+  "correction_total": 0,
+  "full_evidence_files": [
+   "original.json",
+   "effective.json",
+   "world.json",
+   "current.json",
+   "history.json",
+   "handouts.json",
+   "notes.json",
+   "memory.json"
+  ],
+  "note": "Equipment without an instance is not necessarily missing mechanics: ordinary decorative gear needs no executable definition. Previews are not complete evidence; read the relevant retained file if a decision depends on omitted history or text. Compatible new fiction is not a contradiction merely because the book does not state it."
+ }
+}

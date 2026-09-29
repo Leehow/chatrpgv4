@@ -160,7 +160,8 @@ export function unrecordedClues(graph: ModuleGraph, world: Row, scene: Row, reco
  * marked `late`. The continuity review's rows lead: a reviewer's verdict stands behind them, and the
  * section is trimmed from the end.
  */
-const CONTINUITY_KINDS: ReadonlySet<string> = new Set(["continuity_conflict", "unsettled_object", "continuity_finding", "source_conflict"]);
+// §158.3: `owed_state` is the continuity review's row too, and leads with the rest.
+const CONTINUITY_KINDS: ReadonlySet<string> = new Set(["continuity_conflict", "owed_state", "unsettled_object", "continuity_finding", "source_conflict"]);
 const warningKey = (turn: unknown, warning: Row): string => JSON.stringify([turn, warning.kind ?? null, warning.quote ?? null, warning.why ?? null]);
 export function capsuleWarnings(records: Row[], last: Row | undefined, turn: number): Row[] {
     if (!last)

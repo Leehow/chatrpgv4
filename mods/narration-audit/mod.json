@@ -1,6 +1,6 @@
 {
   "id": "narration-audit",
-  "version": "1.2.31",
+  "version": "1.2.32",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
@@ -16,6 +16,7 @@
   "requires": [
     "agents.tools.v1",
     "audit.continuity.v2",
+    "audit.owed.v1",
     "mods.package-files.v1"
   ],
   "package_files": [

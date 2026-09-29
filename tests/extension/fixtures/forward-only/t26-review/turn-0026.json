@@ -1,0 +1,50 @@
+{
+ "turn": 26,
+ "player_text": "我谢过摊主，上车沿近海那条路往金斯波特方向出城，跟着路牌一路开到马丁滩，直接去波街公墓。",
+ "text": "引擎低鸣，近海公路在晨光里向金斯波特方向铺开。岔口按摊主说的，不往北，路牌出现「马丁滩」时，渔村的屋顶与桅杆已经落进视野。\n\n进镇不远就是坡街。新坟场那头的铁栏与石碑夹着一条沙土小径；最近被掘开的墓穴仍敞着口，边沿新土翻乱，碑前花环已经萎了。海风从崖下灌上来，带着盐腥。\n\n车停在栏外。波街公墓就在眼前——弗吉尼娅·费尔德被盗的那一夜，留下的就是这一片空穴与乱土。",
+ "rendered_text": "引擎低鸣，近海公路在晨光里向金斯波特方向铺开。岔口按摊主说的，不往北，路牌出现「马丁滩」时，渔村的屋顶与桅杆已经落进视野。\n\n进镇不远就是坡街。新坟场那头的铁栏与石碑夹着一条沙土小径；最近被掘开的墓穴仍敞着口，边沿新土翻乱，碑前花环已经萎了。海风从崖下灌上来，带着盐腥。\n\n车停在栏外。波街公墓就在眼前——弗吉尼娅·费尔德被盗的那一夜，留下的就是这一片空穴与乱土。",
+ "receipts": [],
+ "world": {
+  "scene": {
+   "name": "arkham-street-newsstand",
+   "display_name": "街角报摊"
+  },
+  "clock": {
+   "minutes": 1384
+  },
+  "present": [
+   "报摊摊主"
+  ],
+  "investigators": [
+   {
+    "id": "investigator",
+    "name": "诺拉",
+    "hp": 12,
+    "san": 50,
+    "mp": 10,
+    "luck": 65
+   }
+  ],
+  "session": null,
+  "pending_choice": null
+ },
+ "closed_by": "narrate",
+ "continuity_review": {
+  "mode": "post",
+  "reviewed": true,
+  "verdict": "revise",
+  "job": "f7a10203af2b5a4f8ad7e2f7f5ab66cea0c4fb7edd10de9e0bda9a4196591ea9",
+  "warnings": 1,
+  "at": "2026-09-29T10:06:40Z"
+ },
+ "warnings": [
+  {
+   "lane": "continuity-review",
+   "kind": "continuity_finding",
+   "quote": null,
+   "why": "候选草稿把马丁滩波街公墓写成玩家已经抵达，并把它当作接下来的持续场景（要在此勘查被掘的墓穴）。但当前持久场景仍是阿卡姆街角报摊（scene:active），scenes.moves 为空，没有任何已结算的移动凭证，因此这次出行尚未在场景层落定，直接在草稿中把调查员放到新场景属于未结算的位移。",
+   "fix": "Already delivered: do not rewrite it. Let the next delivery avoid the same problem.",
+   "at": "2026-09-29T10:06:40Z"
+  }
+ ]
+}

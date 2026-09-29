@@ -1,0 +1,1466 @@
+{
+ "role": "audit",
+ "input": {
+  "text": "引擎低鸣，近海公路在晨光里向金斯波特方向铺开。岔口按摊主说的，不往北，路牌出现「马丁滩」时，渔村的屋顶与桅杆已经落进视野。\n\n进镇不远就是坡街。新坟场那头的铁栏与石碑夹着一条沙土小径；最近被掘开的墓穴仍敞着口，边沿新土翻乱，碑前花环已经萎了。海风从崖下灌上来，带着盐腥。\n\n车停在栏外。波街公墓就在眼前——弗吉尼娅·费尔德被盗的那一夜，留下的就是这一片空穴与乱土。"
+ },
+ "capabilities": [
+  "agents.tools.v1",
+  "audit.continuity.v1",
+  "audit.continuity.v2",
+  "audit.source.v1",
+  "checks.percentile.v1",
+  "context.craft-reference.v1",
+  "context.craft-reference.v2",
+  "context.npc.v1",
+  "context.pacing.v1",
+  "context.style.v1",
+  "context.thread.v1",
+  "context.workspace.v1",
+  "definitions.v1",
+  "graph.vocabulary.table.v1",
+  "graph.vocabulary.v1",
+  "item-effects.v1",
+  "mods.order.v1",
+  "mods.package-files.v1",
+  "npc.voice.consolidation.v1",
+  "npc.voice.generation.v2",
+  "npc.voice.language-addendum.v1",
+  "objects.adopt.v1",
+  "objects.documents.v1",
+  "objects.state.v2",
+  "objects.usages.v1",
+  "objects.v1",
+  "setup.aptitude.v1",
+  "setup.guidance.v1",
+  "spells.v1",
+  "ui.documents.language.v1",
+  "ui.documents.v1",
+  "weapons.preset.v1",
+  "weapons.profile.v2",
+  "weapons.v1"
+ ],
+ "play_language": "zh-Hans",
+ "mod_settings": {
+  "enhanced-items": {},
+  "narration-audit": {},
+  "natural-npc": {
+   "language_mixing": "light"
+  }
+ },
+ "scene": {
+  "scene": "arkham-street-newsstand",
+  "origin": {
+   "kind": "table",
+   "reason": "Established during play.",
+   "turn": 19
+  },
+  "display_name": "街角报摊",
+  "summary": "阿卡姆警局附近街角的报摊：木板摊面、铁丝夹的当日报与近期刊，煤油灯或街灯映着标题；晚间仍开着，卖报、旧刊与香烟火柴。",
+  "dramatic_question": null,
+  "pressure_moves": [],
+  "exits": [],
+  "back": [
+   {
+    "to": "arkham-police-station",
+    "display_name": "阿卡姆警局"
+   },
+   {
+    "to": "arkham-street-park-bench",
+    "display_name": "沿街小公园"
+   },
+   {
+    "to": "arkham-photo-shop",
+    "display_name": "阿卡姆沿街照相馆"
+   },
+   {
+    "to": "arkham-church-cemetery",
+    "display_name": "调查阿卡姆教堂公墓"
+   },
+   {
+    "to": "investigator-briefing",
+    "display_name": "给调查员的信息"
+   }
+  ],
+  "affordances": [],
+  "keeper_notes": [],
+  "assets": [],
+  "places": [],
+  "rules": [],
+  "endings": [],
+  "material": "ready"
+ },
+ "party": [
+  {
+   "schema_version": 1,
+   "id": "investigator",
+   "name": "诺拉",
+   "occupation": "Journalist",
+   "era": "1920s",
+   "age": 35,
+   "sex": "女",
+   "characteristics": {
+    "STR": 40,
+    "CON": 60,
+    "SIZ": 60,
+    "DEX": 50,
+    "APP": 50,
+    "INT": 80,
+    "POW": 50,
+    "EDU": 70,
+    "LUCK": 65
+   },
+   "derived": {
+    "HP": 12,
+    "SAN": 50,
+    "MP": 10,
+    "MOV": 7,
+    "DB": "none",
+    "BUILD": 0
+   },
+   "skills": {
+    "Accounting": 5,
+    "Anthropology": 1,
+    "Appraise": 5,
+    "Archaeology": 1,
+    "Art and Craft (Photography)": 70,
+    "Charm": 15,
+    "Climb": 20,
+    "Credit Rating": 9,
+    "Cthulhu Mythos": 0,
+    "Disguise": 5,
+    "Dodge": 25,
+    "Drive Auto": 75,
+    "Electrical Repair": 10,
+    "Fast Talk": 50,
+    "Fighting (Brawl)": 25,
+    "Firearms (Handgun)": 20,
+    "Firearms (Rifle/Shotgun)": 25,
+    "First Aid": 75,
+    "History": 50,
+    "Intimidate": 15,
+    "Jump": 20,
+    "Language (Own)": 70,
+    "Law": 5,
+    "Library Use": 51,
+    "Listen": 50,
+    "Locksmith": 1,
+    "Mechanical Repair": 10,
+    "Medicine": 1,
+    "Natural World": 10,
+    "Navigate": 75,
+    "Occult": 5,
+    "Operate Heavy Machinery": 1,
+    "Persuade": 50,
+    "Pilot": 1,
+    "Psychoanalysis": 1,
+    "Psychology": 50,
+    "Ride": 5,
+    "Science": 1,
+    "Sleight of Hand": 10,
+    "Spot Hidden": 70,
+    "Stealth": 20,
+    "Survival": 10,
+    "Swim": 20,
+    "Throw": 20,
+    "Track": 10
+   },
+   "weapons": [
+    {
+     "skill": "Fighting (Brawl)",
+     "damage": "1D6",
+     "adds_damage_bonus": true,
+     "base_range_yards": null,
+     "uses_per_round": "1",
+     "magazine": null,
+     "malfunction": null,
+     "impale": false,
+     "weapon_id": "usage-7ca276a7a85ccbc3f0a764f4",
+     "object_id": "object-item-6",
+     "usage_id": "usage-7ca276a7a85ccbc3f0a764f4",
+     "usage": "用手电筒砸击",
+     "usage_mode": "melee",
+     "name": "诺拉的手电筒",
+     "display_name": "诺拉的手电筒",
+     "ammo": null,
+     "impales": false
+    }
+   ],
+   "equipment": [
+    {
+     "name": "当日阿卡姆消息人",
+     "quantity": 1,
+     "turn": 24,
+     "from": "报摊摊主",
+     "label": "当日《阿卡姆消息人》"
+    },
+    {
+     "name": "诺拉的折合式相机",
+     "quantity": 1,
+     "object_id": "object-item-1",
+     "description": "一台用了多年的一九二〇年代便携折合式箱式相机，皮腔与黄铜配件，肩带可挂，适合新闻与现场摄影。折叠后便于随身携带，展开即可取景曝光。"
+    },
+    {
+     "name": "诺拉的摄影干板与胶卷袋",
+     "quantity": 1,
+     "object_id": "object-item-2",
+     "description": "装感光干板与胶卷的帆布或皮质小袋，挂在身侧或塞进旅行袋，供折合式相机更换底片与胶卷。袋口可系紧遮光，摸起来略有分量。"
+    },
+    {
+     "name": "诺拉的皮质笔记本与铅笔",
+     "quantity": 1,
+     "object_id": "object-item-3",
+     "description": "皮质封面的笔记本，夹着一支削好的铅笔，方便采访与现场速记；内页空白，可随时写下线索与人物备注。"
+    },
+    {
+     "name": "诺拉的记者证",
+     "quantity": 1,
+     "object_id": "object-item-4",
+     "description": "阿卡姆一带通用的摄影记者身份证件：硬卡纸或薄皮夹里的印刷证牌，印有姓名、职业与发证抬头，方便出示以表明采访与摄影身份。"
+    },
+    {
+     "name": "诺拉的阿卡姆本地地图",
+     "quantity": 1,
+     "object_id": "object-item-5",
+     "description": "一张折页式本地街道图，纸面因反复折叠已有细痕。图上标出阿卡姆城内主要街道、街区名，以及通往近郊与周边村镇的干道，便于在城中找路与规划行程。"
+    },
+    {
+     "name": "诺拉的手电筒",
+     "quantity": 1,
+     "object_id": "object-item-6",
+     "description": "一只手掌长短的金属手电筒，筒身略沉，侧面有拨动开关。打开后射出一束够用的白光，方便夜里走路、翻找或照亮角落；电池与灯泡还算正常。"
+    },
+    {
+     "name": "诺拉的小型旅行袋",
+     "quantity": 1,
+     "object_id": "object-item-7",
+     "description": "一只轻便的小型旅行袋，帆布袋身、皮革饰边，正好塞相机附件、胶卷与日常零碎。"
+    },
+    {
+     "name": "诺拉的雨衣",
+     "quantity": 1,
+     "object_id": "object-item-8",
+     "description": "一件可折叠的轻便雨衣，胶布或油布面料，便于塞进旅行袋。为沿海阴雨与潮湿路途准备，穿上后能挡雨遮湿。"
+    },
+    {
+     "name": "诺拉的照相馆取件凭条",
+     "quantity": 1,
+     "object_id": "object-item-9",
+     "description": "阿卡姆沿街照相馆柜台上开出的一小张纸质取件凭条，用钢笔或炭笔写着顾客姓名、普通冲洗加印业务，以及约定的取件时限。纸边略毛，墨迹未干时可能有些晕开，可对折塞进衣袋或相机袋。"
+    },
+    {
+     "name": "墓园现场冲洗照片",
+     "quantity": 1,
+     "object_id": "object-item-10",
+     "description": "一九二〇年代阿卡姆照相馆根据墓园现场干板普通冲洗加印出的纸质相片若干张：黑白影像里可见被掘开的墓穴、翻乱的土面与周围能辨认的地面细节，便于与现场笔记对照。相纸略硬，边角可裁齐或略毛，无特殊药剂或机关。"
+    }
+   ],
+   "backstory": {
+    "personal_description": "看起来三十多岁，鹅蛋脸，灰绿色眼睛，深褐头发齐肩、常随意挽在耳后。眉峰偏直，左眉尾有一小颗浅痣。常穿深色开领羊毛衫或衬衫，肩上挂着相机带，表情专注而安静。",
+    "ideology_beliefs": "真相值得被看见，镜头和笔记比拳头更靠得住。",
+    "significant_people": "已故律师马丁·海沃森——父亲多年的法律顾问与家族老友；父亲本人仍在阿卡姆一带。",
+    "meaningful_locations": "阿卡姆自己那间堆满底片与剪报的小工作室，以及常去翻旧报的市立图书馆角落。",
+    "treasured_possessions": "一台用了多年的折合式相机，和一本记满人物线索的皮质笔记本。",
+    "traits": "耐得住冷板凳查档，不爱硬碰硬；枪只够自保水平。",
+    "scenario_bound": "读到《阿卡姆消息人》关于海沃森遗体被盗的报道后，因家族私交自行动身调查。",
+    "concept": "父亲老友马丁·海沃森遗体被盗后自行介入的摄影记者，靠观察与资料追查真相"
+   },
+   "key_connection": {
+    "backstory_field": "significant_people",
+    "summary": "马丁·海沃森：父亲多年的律师与家族老友，其遗体被盗是她介入的直接理由"
+   },
+   "own_language": "英语",
+   "occupation_stated": "阿卡姆的自由摄影记者",
+   "credit_rating": 9,
+   "cash": "7.73 USD",
+   "finance": {
+    "credit_rating": 9,
+    "living_standard": "Poor",
+    "cash": {
+     "amount": 7.73,
+     "currency": "USD",
+     "formula": "CR x 1"
+    },
+    "assets": {
+     "amount": 90,
+     "currency": "USD",
+     "formula": "CR x 10"
+    },
+    "spending_level": {
+     "amount": 2,
+     "currency": "USD"
+    },
+    "period": "1920s",
+    "source": "cash-assets.periods.1920s"
+   },
+   "creation": {
+    "seed": "7804105053574073078",
+    "method": "quick_fire",
+    "characteristics": {
+     "method": "quick_fire",
+     "values": {
+      "INT": 80,
+      "EDU": 70,
+      "CON": 60,
+      "SIZ": 60,
+      "DEX": 50,
+      "APP": 50,
+      "POW": 50,
+      "STR": 40
+     },
+     "assignment_order": [
+      "INT",
+      "EDU",
+      "CON",
+      "SIZ",
+      "DEX",
+      "APP",
+      "POW",
+      "STR"
+     ],
+     "array": [
+      80,
+      70,
+      60,
+      60,
+      50,
+      50,
+      50,
+      40
+     ],
+     "aptitude": {
+      "strong": [
+       "INT",
+       "EDU"
+      ],
+      "weak": [
+       "STR"
+      ],
+      "origin": "player"
+     },
+     "source": "characteristic-dice.generation_methods.quick_fire_array"
+    },
+    "age": {
+     "bracket": "20-39",
+     "source": "age-adjustments.brackets",
+     "edu_reduction": 0,
+     "app_reduction": 0,
+     "characteristic_reductions": [],
+     "edu_improvement_checks": [
+      {
+       "roll": 32,
+       "edu": 70
+      }
+     ],
+     "mov_penalty": 0,
+     "luck_rolls_keep_highest": 1
+    },
+    "luck": {
+     "value": 65,
+     "dice": "3D6",
+     "attempts": [
+      {
+       "faces": [
+        1,
+        6,
+        6
+       ],
+       "total": 13
+      }
+     ],
+     "keep_highest": 1,
+     "multiplier": 5,
+     "source": "characteristic-dice.characteristics.Luck"
+    },
+    "derived": {
+     "HP": "derived-attributes.hit_points (CON+SIZ)/10",
+     "SAN": "derived-attributes.sanity (POW)",
+     "MP": "derived-attributes.magic_points (POW)/5",
+     "MOV": "movement-rate.rules both_str_and_dex_less_than_siz - age penalty 0",
+     "DB": "damage-bonus-build STR+SIZ=100",
+     "BUILD": "damage-bonus-build STR+SIZ=100",
+     "LUCK": "characteristic-dice.characteristics.Luck"
+    },
+    "difficulty": {
+     "mode": "preset",
+     "preset": "normal",
+     "custom": {}
+    },
+    "skills": {
+     "standard_sheet": "skills.standard_sheet.1920s",
+     "cap": {
+      "value": 75,
+      "source": "skills.guided_creation_policy.starting_skill_cap"
+     },
+     "occupation": {
+      "id": "Journalist",
+      "resolved": [
+       "Art and Craft (Photography)",
+       "Spot Hidden",
+       "Library Use",
+       "Persuade",
+       "Psychology",
+       "History",
+       "Fast Talk",
+       "Listen"
+      ],
+      "choices_pending": [],
+      "budget": {
+       "formula": "EDU*4",
+       "total": 350,
+       "terms": [
+        "EDU*4"
+       ],
+       "alternative": null
+      },
+      "credit_rating": {
+       "value": 9,
+       "range": [
+        9,
+        30
+       ],
+       "source": "occupations.credit_rating_range[0]"
+      },
+      "points": 341,
+      "spent": 341,
+      "unspent": 0,
+      "allocations": {
+       "Art and Craft (Photography)": 65,
+       "Spot Hidden": 45,
+       "Library Use": 31,
+       "Persuade": 40,
+       "Psychology": 40,
+       "History": 45,
+       "Fast Talk": 45,
+       "Listen": 30
+      },
+      "allocation": "spread",
+      "reserved": []
+     },
+     "interest": {
+      "budget": {
+       "formula": "INT*2",
+       "total": 200,
+       "terms": [
+        "INT*2"
+       ],
+       "alternative": null
+      },
+      "pool": [
+       "Navigate",
+       "First Aid",
+       "Drive Auto"
+      ],
+      "spent": 165,
+      "unspent": 35,
+      "allocations": {
+       "Drive Auto": 55,
+       "First Aid": 45,
+       "Navigate": 65
+      },
+      "allocation": "spread",
+      "tiers": [
+       50,
+       70
+      ],
+      "source": "steps.json create-investigator.interest_allocation"
+     },
+     "bases": {
+      "Accounting": 5,
+      "Anthropology": 1,
+      "Appraise": 5,
+      "Archaeology": 1,
+      "Charm": 15,
+      "Climb": 20,
+      "Cthulhu Mythos": 0,
+      "Disguise": 5,
+      "Dodge": 25,
+      "Drive Auto": 20,
+      "Electrical Repair": 10,
+      "Fast Talk": 5,
+      "Fighting (Brawl)": 25,
+      "Firearms (Handgun)": 20,
+      "Firearms (Rifle/Shotgun)": 25,
+      "First Aid": 30,
+      "History": 5,
+      "Intimidate": 15,
+      "Jump": 20,
+      "Language (Own)": 70,
+      "Law": 5,
+      "Library Use": 20,
+      "Listen": 20,
+      "Locksmith": 1,
+      "Mechanical Repair": 10,
+      "Medicine": 1,
+      "Natural World": 10,
+      "Navigate": 10,
+      "Occult": 5,
+      "Operate Heavy Machinery": 1,
+      "Persuade": 10,
+      "Pilot": 1,
+      "Psychoanalysis": 1,
+      "Psychology": 10,
+      "Ride": 5,
+      "Science": 1,
+      "Sleight of Hand": 10,
+      "Spot Hidden": 25,
+      "Stealth": 20,
+      "Survival": 10,
+      "Swim": 20,
+      "Throw": 20,
+      "Track": 10,
+      "Art and Craft (Photography)": 5
+     },
+     "custom": []
+    },
+    "allocation": {
+     "policy": "spread",
+     "tiers": [
+      50,
+      70
+     ],
+     "source": "steps.json create-investigator.allocation"
+    },
+    "interest_allocation": {
+     "policy": "spread",
+     "tiers": [
+      50,
+      70
+     ],
+     "source": "steps.json create-investigator.interest_allocation",
+     "applied": "spread"
+    },
+    "finance": {
+     "available": true,
+     "source": "cash-assets.periods.1920s"
+    },
+    "equipment": {
+     "source": null,
+     "note": "equipment.json records carry no occupation field; no default kit is invented"
+    },
+    "pins": {
+     "characteristics": {},
+     "skills": {}
+    },
+    "budget": {
+     "occupation": {
+      "total": 350,
+      "spent": 350,
+      "unspent": 0
+     },
+     "interest": {
+      "total": 200,
+      "spent": 165,
+      "unspent": 35
+     },
+     "characteristics": {
+      "total": 460,
+      "spent": 460,
+      "unspent": 0,
+      "source": "characteristic-dice.generation_methods.point_buy_460"
+     },
+     "legal": true,
+     "notes": [
+      {
+       "code": "points_left",
+       "pool": "interest",
+       "amount": 35,
+       "text": "interest points left: 35"
+      }
+     ]
+    }
+   },
+   "current_hp": 12,
+   "current_mp": 10,
+   "current_san": 50,
+   "current_luck": 65
+  }
+ ],
+ "objects": {
+  "queued_registrations": [],
+  "definitions": [
+   {
+    "name": "折合式相机",
+    "category": "item",
+    "parameters": {
+     "charges": null,
+     "effects": []
+    },
+    "traits": [
+     {
+      "name": "长度（折叠）",
+      "value": 12,
+      "unit": "cm",
+      "basis": "Typical compact 1920s folding camera body depth when bellows collapsed for carry"
+     },
+     {
+      "name": "长度（展开）",
+      "value": 18,
+      "unit": "cm",
+      "basis": "Approximate extended length with leather bellows open for focusing"
+     },
+     {
+      "name": "重量",
+      "value": 1.2,
+      "unit": "kg",
+      "basis": "Handheld folding camera with brass fittings and leather covering, portable on a shoulder strap"
+     },
+     {
+      "name": "材质",
+      "value": "皮革皮腔、木质/金属机身与黄铜配件",
+      "basis": "Stated leather bellows and brass fittings; period box/folding construction"
+     }
+    ],
+    "document": null
+   },
+   {
+    "name": "摄影干板与胶卷袋",
+    "category": "item",
+    "parameters": {
+     "charges": null,
+     "effects": []
+    },
+    "traits": [
+     {
+      "name": "长度",
+      "value": 20,
+      "unit": "厘米",
+      "basis": "Compact field pouch sized to hold plates beside a folding camera"
+     },
+     {
+      "name": "重量",
+      "value": 0.6,
+      "unit": "千克",
+      "basis": "Canvas/leather pouch plus a few dry plates and film rolls"
+     },
+     {
+      "name": "材质",
+      "value": "帆布或皮革",
+      "basis": "Request description: canvas or leather small bag"
+     },
+     {
+      "name": "容量",
+      "value": "数块感光干板与数卷胶片",
+      "basis": "Supply for a folding camera on assignment, not bulk studio stock"
+     }
+    ],
+    "document": null
+   },
+   {
+    "name": "皮质笔记本与铅笔",
+    "category": "item",
+    "parameters": {
+     "charges": null,
+     "effects": []
+    },
+    "traits": [
+     {
+      "name": "封面材质",
+      "value": "皮革",
+      "basis": "Input and occupation kit: leather-covered reporter’s notebook"
+     },
+     {
+      "name": "附带文具",
+      "value": "削好的铅笔",
+      "basis": "Input description pairs notebook with a sharpened pencil for interviews and field notes"
+     },
+     {
+      "name": "重量",
+      "value": 0.3,
+      "unit": "kg",
+      "basis": "Light pocket notebook plus one pencil, typical 1920s journalist carry"
+     }
+    ],
+    "document": {
+     "presentation": "notebook",
+     "has_text": false
+    }
+   },
+   {
+    "name": "记者证",
+    "category": "item",
+    "parameters": {
+     "charges": null,
+     "effects": []
+    },
+    "traits": [
+     {
+      "name": "材质",
+      "value": "硬卡纸证牌，可装入薄皮夹",
+      "basis": "1920s press pass common construction; portable ID for a working photographer"
+     },
+     {
+      "name": "尺寸",
+      "value": "约名片大小，可装入口袋或相机袋",
+      "basis": "Handheld credential carried with other journalist kit"
+     }
+    ],
+    "document": null
+   },
+   {
+    "name": "阿卡姆本地地图",
+    "category": "item",
+    "parameters": {
+     "charges": null,
+     "effects": []
+    },
+    "traits": [
+     {
+      "name": "折叠尺寸",
+      "value": "约手掌大小",
+      "basis": "Typical 1920s pocket fold-out town map when closed"
+     },
+     {
+      "name": "材质",
+      "value": "印刷纸",
+      "basis": "Commercial street map stock"
+     },
+     {
+      "name": "重量",
+      "value": 0.05,
+      "unit": "kg",
+      "basis": "Light single-sheet fold map"
+     }
+    ],
+    "document": {
+     "presentation": "paper",
+     "has_text": true
+    }
+   },
+   {
+    "name": "手电筒",
+    "category": "item",
+    "parameters": {
+     "charges": null,
+     "effects": []
+    },
+    "traits": [
+     {
+      "name": "长度",
+      "value": 20,
+      "unit": "厘米",
+      "basis": "Typical compact 1920s tubular hand torch length"
+     },
+     {
+      "name": "重量",
+      "value": 0.4,
+      "unit": "千克",
+      "basis": "Metal body plus dry cells, pocketable for a journalist kit"
+     },
+     {
+      "name": "材质",
+      "value": "镀镍黄铜筒身与玻璃灯罩",
+      "basis": "Common period construction"
+     }
+    ],
+    "document": null
+   },
+   {
+    "name": "小型旅行袋",
+    "category": "item",
+    "parameters": {
+     "charges": null,
+     "effects": []
+    },
+    "traits": [
+     {
+      "name": "材质",
+      "value": "帆布与皮革饰边",
+      "basis": "Common 1920s light travel bag construction for a working journalist."
+     },
+     {
+      "name": "重量",
+      "value": 1.5,
+      "unit": "kg",
+      "basis": "Empty small soft bag; light enough to shoulder with camera gear."
+     },
+     {
+      "name": "容量",
+      "value": "可装相机附件、胶卷袋、笔记本与少量日用",
+      "basis": "Matches input description; ordinary carry, not a quantified inventory engine."
+     }
+    ],
+    "document": null
+   },
+   {
+    "name": "雨衣",
+    "category": "item",
+    "parameters": {
+     "charges": null,
+     "effects": []
+    },
+    "traits": [
+     {
+      "name": "材质",
+      "value": "胶布/油布",
+      "basis": "Common 1920s foldable rainwear finish for coastal damp"
+     },
+     {
+      "name": "形态",
+      "value": "可折叠",
+      "basis": "Input states it is foldable for travel"
+     },
+     {
+      "name": "重量",
+      "value": 1.2,
+      "unit": "kg",
+      "basis": "Light packed raincoat suitable for a small travel bag"
+     }
+    ],
+    "document": null
+   },
+   {
+    "name": "照相馆取件凭条",
+    "category": "item",
+    "parameters": {
+     "charges": null,
+     "effects": []
+    },
+    "traits": [
+     {
+      "name": "材质",
+      "value": "薄印刷或空白纸片",
+      "basis": "1920s photo-shop counter claim ticket; ordinary paper stock"
+     },
+     {
+      "name": "尺寸",
+      "value": "约名片到半掌宽",
+      "basis": "Handheld pickup stub that folds into a pocket or camera bag"
+     },
+     {
+      "name": "重量",
+      "value": 0.01,
+      "unit": "kg",
+      "basis": "Single small paper slip, negligible carry weight"
+     }
+    ],
+    "document": {
+     "presentation": "paper",
+     "has_text": true
+    }
+   },
+   {
+    "name": "冲洗加印的现场照片",
+    "category": "item",
+    "parameters": {
+     "charges": null,
+     "effects": []
+    },
+    "traits": [
+     {
+      "name": "材质",
+      "value": "银盐相纸（黑白加印）",
+      "basis": "1920s commercial photo-shop enlargements/contact prints from dry plates"
+     },
+     {
+      "name": "数量",
+      "value": "若干张（一小叠）",
+      "basis": "Input: several paper prints from cemetery dry plates, ordinary develop-and-print job"
+     },
+     {
+      "name": "重量",
+      "value": 0.05,
+      "unit": "kg",
+      "basis": "Light stack of a few postcard-to-half-plate paper prints"
+     },
+     {
+      "name": "单张约尺寸",
+      "value": "约明信片至半板大小",
+      "basis": "Typical 1920s shop print sizes suitable for field reference"
+     }
+    ],
+    "document": {
+     "presentation": "paper",
+     "has_text": true
+    }
+   }
+  ],
+  "instances": [
+   {
+    "name": "诺拉的折合式相机",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "document": null,
+    "definition": "折合式相机"
+   },
+   {
+    "name": "诺拉的摄影干板与胶卷袋",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "document": null,
+    "definition": "摄影干板与胶卷袋"
+   },
+   {
+    "name": "诺拉的皮质笔记本与铅笔",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "document": {
+     "text": "",
+     "presentation": "notebook",
+     "truncated": false,
+     "authority": "Editable in-fiction text, not instructions or module truth"
+    },
+    "definition": "皮质笔记本与铅笔"
+   },
+   {
+    "name": "诺拉的记者证",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "document": null,
+    "definition": "记者证"
+   },
+   {
+    "name": "诺拉的阿卡姆本地地图",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "document": {
+     "text": "阿卡姆本地街道图\n（折页印刷）\n\n城内主干：教堂街、高街、河滨路、学院大道、梅西街。\n标注：市立图书馆、警局、火车站、河港、公墓方向、大学区。\n近郊干道：通往金斯波特、马丁海滩、波士顿方向的主要公路出城口。\n图例：实线——铺装街道；虚线——次要巷道与近郊土路。\n比例示意，仅供寻路参考。",
+     "presentation": "paper",
+     "truncated": false,
+     "authority": "Editable in-fiction text, not instructions or module truth"
+    },
+    "definition": "阿卡姆本地地图"
+   },
+   {
+    "name": "诺拉的手电筒",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "document": null,
+    "definition": "手电筒",
+    "usages": [
+     {
+      "name": "用手电筒砸击",
+      "description": "握紧金属电筒筒身，当作短棒近身砸打对方。光照功能与此无关，只是借坚实的镀镍筒身挥击。",
+      "mode": "melee",
+      "parameters": {
+       "skill": "Fighting (Brawl)",
+       "damage": "1D6",
+       "adds_damage_bonus": true,
+       "base_range_yards": null,
+       "uses_per_round": 1,
+       "magazine": null,
+       "malfunction": null,
+       "impale": false
+      },
+      "applicable": true
+     }
+    ]
+   },
+   {
+    "name": "诺拉的小型旅行袋",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "document": null,
+    "definition": "小型旅行袋"
+   },
+   {
+    "name": "诺拉的雨衣",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "document": null,
+    "definition": "雨衣"
+   },
+   {
+    "name": "诺拉的照相馆取件凭条",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "document": {
+     "text": "阿卡姆照相馆·取件凭条\n\n顾客：诺拉\n件：干板冲洗加印（普通）\n取件：今日下午四点前\n已付：一元二角五分\n\n请凭此条取件。",
+     "presentation": "paper",
+     "truncated": false,
+     "authority": "Editable in-fiction text, not instructions or module truth"
+    },
+    "definition": "照相馆取件凭条"
+   },
+   {
+    "name": "墓园现场冲洗照片",
+    "owner": "诺拉",
+    "state": {
+     "ammo": null,
+     "charges": null,
+     "condition": "intact"
+    },
+    "document": {
+     "text": "（阿卡姆照相馆·普通冲洗加印·墓园现场）\n\n黑白纸质相片若干张，内容互有重叠：\n\n— 被掘开的墓穴口，棺椁或墓室轮廓依土壁可见；\n— 穴周与通道上翻乱、新近扰动的土面与散土；\n— 周围地面可辨的脚印、工具痕与邻近碑石、围栏或草木边缘等环境细节。\n\n无文字说明；仅作影像对照笔记之用。",
+     "presentation": "paper",
+     "truncated": false,
+     "authority": "Editable in-fiction text, not instructions or module truth"
+    },
+    "definition": "冲洗加印的现场照片"
+   }
+  ]
+ },
+ "receipts": [],
+ "known_handouts": [],
+ "unregistered_equipment": [
+  {
+   "owner": "诺拉",
+   "name": "当日阿卡姆消息人",
+   "row": {
+    "name": "当日阿卡姆消息人",
+    "quantity": 1,
+    "turn": 24,
+    "from": "报摊摊主",
+    "label": "当日《阿卡姆消息人》"
+   }
+  }
+ ],
+ "present": [
+  {
+   "name": "报摊摊主",
+   "untold": {
+    "use": "Private until introduced: appearance only; apply person, then called.name and say token."
+   },
+   "origin": {
+    "kind": "table",
+    "reason": "晚间仍守在街角报摊后，招呼买报的人",
+    "turn": 19
+   },
+   "mask": [
+    "街边报摊的随口闲话，句子短、带点市井气，买卖事说得干脆，不装文雅也不故意呛人。"
+   ],
+   "in exchange": [
+    "你好，这摊还开着吗？→开着呢，要报就拿，别挡道就行。",
+    "附近哪有能买信封的？→拐角杂货铺有，出摊往右走几步就看见。",
+    "你这儿有没有人问起过奇怪的事？→买卖人只卖报，闲话听过也当没听，别问我那些。"
+   ],
+   "personality": {
+    "description": "Keeps a street-corner merchant's pragmatism: time, stock, and small change matter more than grand talk, and he sizes people up by whether they linger, haggle fairly, or waste his morning. Habitually terse and observant, he favors plain answers, remembers regulars' preferences, and will soft-pedal rumor when it might scare off custom or draw trouble to the stall. Trades warmth for efficiency under a rush, but will stretch a conversation or hold a paper aside when trust or a steady tip is on the line—never theatrical, always weighing inconvenience against goodwill.",
+    "origin": "table_supplement"
+   }
+  }
+ ],
+ "player_text": "我谢过摊主，上车沿近海那条路往金斯波特方向出城，跟着路牌一路开到马丁滩，直接去波街公墓。",
+ "continuity_review": {
+  "schema": 2,
+  "files": [
+   "original.json",
+   "effective.json",
+   "world.json",
+   "current.json",
+   "history.json",
+   "handouts.json",
+   "notes.json",
+   "memory.json",
+   "context.json"
+  ],
+  "current_input": "我谢过摊主，上车沿近海那条路往金斯波特方向出城，跟着路牌一路开到马丁滩，直接去波街公墓。",
+  "pending_choice": null,
+  "authority": "Preserve established campaign continuity and player choices. Compatible new fiction is allowed without a literal source quote. Recaps must faithfully report prior delivery; NPC assertions and player hypotheses retain attribution. Corrections supersede earlier claims. Kernel receipts remain authoritative for actions and resources.",
+  "sources": {
+   "draft": [
+    {
+     "alias": "draft:0",
+     "text": "引擎低鸣，近海公路在晨光里向金斯波特方向铺开。"
+    },
+    {
+     "alias": "draft:1",
+     "text": "岔口按摊主说的，不往北，路牌出现「马丁滩」时，渔村的屋顶与桅杆已经落进视野。\n\n"
+    },
+    {
+     "alias": "draft:2",
+     "text": "进镇不远就是坡街。"
+    },
+    {
+     "alias": "draft:3",
+     "text": "新坟场那头的铁栏与石碑夹着一条沙土小径；最近被掘开的墓穴仍敞着口，边沿新土翻乱，碑前花环已经萎了。"
+    },
+    {
+     "alias": "draft:4",
+     "text": "海风从崖下灌上来，带着盐腥。\n\n"
+    },
+    {
+     "alias": "draft:5",
+     "text": "车停在栏外。"
+    },
+    {
+     "alias": "draft:6",
+     "text": "波街公墓就在眼前——弗吉尼娅·费尔德被盗的那一夜，留下的就是这一片空穴与乱土。"
+    }
+   ],
+   "current_input": [
+    {
+     "alias": "input:0",
+     "text": "我谢过摊主，上车沿近海那条路往金斯波特方向出城，跟着路牌一路开到马丁滩，直接去波街公墓。"
+    }
+   ],
+   "speech": [],
+   "evidence": [
+    {
+     "alias": "context:0",
+     "file": "context.json",
+     "text": "当日《阿卡姆消息人》"
+    },
+    {
+     "alias": "context:1",
+     "file": "context.json",
+     "text": "当日阿卡姆消息人"
+    },
+    {
+     "alias": "context:2",
+     "file": "context.json",
+     "text": "一台用了多年的一九二〇年代便携折合式箱式相机，皮腔与黄铜配件，肩带可挂，适合新闻与现场摄影。"
+    },
+    {
+     "alias": "context:3",
+     "file": "context.json",
+     "text": "折叠后便于随身携带，展开即可取景曝光。"
+    },
+    {
+     "alias": "context:4",
+     "file": "context.json",
+     "text": "诺拉的折合式相机"
+    },
+    {
+     "alias": "context:5",
+     "file": "context.json",
+     "text": "装感光干板与胶卷的帆布或皮质小袋，挂在身侧或塞进旅行袋，供折合式相机更换底片与胶卷。"
+    },
+    {
+     "alias": "context:6",
+     "file": "context.json",
+     "text": "袋口可系紧遮光，摸起来略有分量。"
+    },
+    {
+     "alias": "context:7",
+     "file": "context.json",
+     "text": "诺拉的摄影干板与胶卷袋"
+    },
+    {
+     "alias": "context:8",
+     "file": "context.json",
+     "text": "皮质封面的笔记本，夹着一支削好的铅笔，方便采访与现场速记；内页空白，可随时写下线索与人物备注。"
+    },
+    {
+     "alias": "context:9",
+     "file": "context.json",
+     "text": "诺拉的皮质笔记本与铅笔"
+    },
+    {
+     "alias": "context:10",
+     "file": "context.json",
+     "text": "阿卡姆一带通用的摄影记者身份证件：硬卡纸或薄皮夹里的印刷证牌，印有姓名、职业与发证抬头，方便出示以表明采访与摄影身份。"
+    },
+    {
+     "alias": "context:11",
+     "file": "context.json",
+     "text": "诺拉的记者证"
+    },
+    {
+     "alias": "context:12",
+     "file": "context.json",
+     "text": "一张折页式本地街道图，纸面因反复折叠已有细痕。"
+    },
+    {
+     "alias": "context:13",
+     "file": "context.json",
+     "text": "图上标出阿卡姆城内主要街道、街区名，以及通往近郊与周边村镇的干道，便于在城中找路与规划行程。"
+    },
+    {
+     "alias": "context:14",
+     "file": "context.json",
+     "text": "诺拉的阿卡姆本地地图"
+    },
+    {
+     "alias": "context:15",
+     "file": "context.json",
+     "text": "一只手掌长短的金属手电筒，筒身略沉，侧面有拨动开关。"
+    },
+    {
+     "alias": "context:16",
+     "file": "context.json",
+     "text": "打开后射出一束够用的白光，方便夜里走路、翻找或照亮角落；电池与灯泡还算正常。"
+    },
+    {
+     "alias": "context:17",
+     "file": "context.json",
+     "text": "诺拉的手电筒"
+    },
+    {
+     "alias": "context:18",
+     "file": "context.json",
+     "text": "一只轻便的小型旅行袋，帆布袋身、皮革饰边，正好塞相机附件、胶卷与日常零碎。"
+    },
+    {
+     "alias": "context:19",
+     "file": "context.json",
+     "text": "诺拉的小型旅行袋"
+    },
+    {
+     "alias": "context:20",
+     "file": "context.json",
+     "text": "一件可折叠的轻便雨衣，胶布或油布面料，便于塞进旅行袋。"
+    },
+    {
+     "alias": "context:21",
+     "file": "context.json",
+     "text": "为沿海阴雨与潮湿路途准备，穿上后能挡雨遮湿。"
+    },
+    {
+     "alias": "context:22",
+     "file": "context.json",
+     "text": "诺拉的雨衣"
+    },
+    {
+     "alias": "context:23",
+     "file": "context.json",
+     "text": "阿卡姆沿街照相馆柜台上开出的一小张纸质取件凭条，用钢笔或炭笔写着顾客姓名、普通冲洗加印业务，以及约定的取件时限。"
+    }
+   ],
+   "objects": [
+    {
+     "alias": "object:0",
+     "category": "item",
+     "name": "当日阿卡姆消息人"
+    },
+    {
+     "alias": "object:1",
+     "name": "折合式相机",
+     "category": "item"
+    },
+    {
+     "alias": "object:2",
+     "name": "摄影干板与胶卷袋",
+     "category": "item"
+    },
+    {
+     "alias": "object:3",
+     "name": "皮质笔记本与铅笔",
+     "category": "item"
+    },
+    {
+     "alias": "object:4",
+     "name": "记者证",
+     "category": "item"
+    },
+    {
+     "alias": "object:5",
+     "name": "阿卡姆本地地图",
+     "category": "item"
+    },
+    {
+     "alias": "object:6",
+     "name": "手电筒",
+     "category": "item"
+    },
+    {
+     "alias": "object:7",
+     "name": "小型旅行袋",
+     "category": "item"
+    },
+    {
+     "alias": "object:8",
+     "name": "雨衣",
+     "category": "item"
+    },
+    {
+     "alias": "object:9",
+     "name": "照相馆取件凭条",
+     "category": "item"
+    },
+    {
+     "alias": "object:10",
+     "name": "冲洗加印的现场照片",
+     "category": "item"
+    },
+    {
+     "alias": "object:11",
+     "category": "item",
+     "name": "诺拉的折合式相机"
+    },
+    {
+     "alias": "object:12",
+     "category": "item",
+     "name": "诺拉的摄影干板与胶卷袋"
+    },
+    {
+     "alias": "object:13",
+     "category": "item",
+     "name": "诺拉的皮质笔记本与铅笔"
+    },
+    {
+     "alias": "object:14",
+     "category": "item",
+     "name": "诺拉的记者证"
+    },
+    {
+     "alias": "object:15",
+     "category": "item",
+     "name": "诺拉的阿卡姆本地地图"
+    },
+    {
+     "alias": "object:16",
+     "category": "item",
+     "name": "诺拉的手电筒"
+    },
+    {
+     "alias": "object:17",
+     "category": "item",
+     "name": "诺拉的小型旅行袋"
+    },
+    {
+     "alias": "object:18",
+     "category": "item",
+     "name": "诺拉的雨衣"
+    },
+    {
+     "alias": "object:19",
+     "category": "item",
+     "name": "诺拉的照相馆取件凭条"
+    },
+    {
+     "alias": "object:20",
+     "category": "item",
+     "name": "墓园现场冲洗照片"
+    },
+    {
+     "alias": "object:21",
+     "category": "weapon",
+     "name": "诺拉的手电筒"
+    }
+   ],
+   "scenes": [
+    {
+     "alias": "scene:active",
+     "name": "arkham-street-newsstand"
+    },
+    {
+     "alias": "scene:0",
+     "name": "调查阿卡姆教堂公墓"
+    },
+    {
+     "alias": "scene:1",
+     "name": "调查克拉克角墓地"
+    },
+    {
+     "alias": "scene:2",
+     "name": "调查艾塞克斯弗"
+    },
+    {
+     "alias": "scene:3",
+     "name": "拜访法布瑞博士（灯塔山）"
+    },
+    {
+     "alias": "scene:4",
+     "name": "费尔德家地窖"
+    },
+    {
+     "alias": "scene:5",
+     "name": "费尔德地窖蓄水池"
+    },
+    {
+     "alias": "scene:6",
+     "name": "费尔德家外场与车库船库"
+    },
+    {
+     "alias": "scene:7",
+     "name": "费尔德家室内探索"
+    },
+    {
+     "alias": "scene:8",
+     "name": "晚间拜访费尔德"
+    },
+    {
+     "alias": "scene:9",
+     "name": "亡者之家·费尔德别墅高潮"
+    },
+    {
+     "alias": "scene:10",
+     "name": "调查格洛斯特波特斯菲尔德"
+    },
+    {
+     "alias": "scene:11",
+     "name": "马丁·海沃森凌晨来电"
+    },
+    {
+     "alias": "scene:12",
+     "name": "海沃森深夜二次来电"
+    },
+    {
+     "alias": "scene:13",
+     "name": "给调查员的信息"
+    },
+    {
+     "alias": "scene:14",
+     "name": "调查金斯波特乱葬场"
+    },
+    {
+     "alias": "scene:15",
+     "name": "曼彻斯特蔡斯家访谈"
+    },
+    {
+     "alias": "scene:16",
+     "name": "询问曼彻斯特蔡斯一家"
+    },
+    {
+     "alias": "scene:17",
+     "name": "马丁滩治安官办公室"
+    },
+    {
+     "alias": "scene:18",
+     "name": "马丁滩实地调查"
+    },
+    {
+     "alias": "scene:19",
+     "name": "接触玛丽·安·拉斯曼"
+    },
+    {
+     "alias": "scene:20",
+     "name": "勘查波街公墓"
+    },
+    {
+     "alias": "scene:21",
+     "name": "拜访治安官塔布勒"
+    },
+    {
+     "alias": "scene:22",
+     "name": "浪尖旅馆"
+    },
+    {
+     "alias": "scene:23",
+     "name": "接触韦伯与麦克杜高"
+    },
+    {
+     "alias": "scene:24",
+     "name": "韦伯与麦克杜高海边棚屋"
+    }
+   ],
+   "reentry": []
+  }
+ }
+}

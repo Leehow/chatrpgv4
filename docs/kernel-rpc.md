@@ -29293,3 +29293,179 @@ advances once; a time alone is unchanged; zero minutes, a 0-minute move, a renam
 refused; the clerk's separate banded time after a move lands; a non-boolean is refused. Existing fixtures whose batches
 held a travelling move and a `time` spent at or before the place now declare `beyond_travel: true`
 (`test_apply.py`, `test_narrate.py`, `test_facts_warn.py`, `test_system_language.py`, `test_worldline.py`).
+
+## 158. What the player was told is canon: owed state, reconciled forward (2026-09-29, `docs/specs/forward-only-reconciliation.md`; amends §130.4, §130.5, §51.4, §135.2, §135.3, §135.25, §32.12, §36.14 and §15)
+
+Numbering: §157 is taken by the concurrent prose-first branches, so this section is 158.
+
+### 158.1 The ruling and the evidence
+
+The owner's ruling (2026-09-29, verbatim): 「KP 崩坏时账和故事分叉这个可以单独立项，但是肯定不能纠正啊！trpg本来就是一个只能向前开不能回头的车！除非玩家抬杠（强行要求），不然不要认错，就直接编剧情把逻辑圆回来」. As law:
+
+1. **Delivered prose is the past.** What the player was told happened, happened. It is not rewritten, retracted or contradicted later.
+2. **The ledger follows the fiction forward.** Where the ledger disagrees with what the player was told, the missing state lands as something that already happened, and play carries on from there.
+3. **No confession.** The Keeper never tells the player the table erred or a service failed, never narrates a correction, never steps out of the fiction to explain.
+4. **The one exception is the player.** When the player explicitly disputes what happened and asks for it otherwise, the Keeper follows the player.
+
+This refines §17's "narration without a receipt did not happen" and Agents.md's matching invariant. That rule stays true of the Keeper's writing, which lands state first and narrates it second. When prose did reach the player without its receipt, the state is **owed**. It did happen, and the ledger owes it.
+
+Evidence: installed App, campaign `game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046` (Dust to Dust).
+
+- **Turn 26.** A provider outage, one refused write and the §135.25 budget close delivered 「车停在栏外。波街公墓就在眼前」 with no move and no time. The post review caught it twice in structure:
+  - `locus_review {mode: new_locus, basis: none, locus_source: scene:20}`, where `scene:20` is the graph scene `scene-poe-cemetery-visit`, 「勘查波街公墓」, with the claim sentence;
+  - a `finding`.
+
+  §130.4 kept only the finding, as a `continuity_finding` whose fix said "let the next delivery avoid the same problem".
+- **Timing.** That review landed at 10:06:40Z. **Turn 27 had opened at 10:06:27Z**, so turn 27's capsule carried no warning at all. Of this table's 27 reviewed turns, 3 landed after the next turn opened. Reviews usually finish 7–22 s after the close, but a busy table saw 49–210 s.
+- **Turn 27.** The clerk built its move rows from the ledger's position. Its retrace trail offered `arkham-church-cemetery`. Jev read 「蹲在敞开的墓穴旁」 as that destination at 0.93, and the compile landed the move with no model review (§32.12's compile basis).
+- **The Keeper sided with the ledger.** Its thinking read "Turn 26 has a continuity error… the scene is actually Arkham church cemetery", and it narrated 「昨夜盗走的，是马丁·海沃森的遗体」.
+- **Turn 28.** The player disputed it. That is the ruling's exception, and the Keeper handled it without apologising.
+- **Turn 23.** After an admission outage, the Keeper wrote 「桌边这边暂时接不上账目与收付」. The refusal's own `fix` forbids putting the service into the fiction, but `prompts/keeper.md` still told the Keeper to "say so plainly to the player as a service notice", and the Keeper followed the prompt.
+
+### 158.2 The review names what the ledger owes (FR-01)
+
+**Capability.** `audit.owed.v1` (`AUDIT_OWED`, `kernel-ts/mods/audit-result.ts`), declared by `narration-audit` 1.2.32. A continuity job opts in when any of its contributing packages requires it. Such a job:
+
+- carries `request.continuity_review.owed: true`;
+- gets `context.json` `owed_review: {requires_review: true, definition, open, travel_bands, time_bands}`.
+
+A job without the capability reviews exactly as it did: its context, sources, report shape and accepted artifact are unchanged, and only the request's `capabilities` list gains the new name, as it does for every capability. A campaign locked to 1.2.31 keeps reviewing exactly as before (§37 package locks). `open` lists the rows already owed, as `{name, kind, what, turn}`, so the reviewer does not report them again. `travel_bands` is `adjacent` plus the `route-to.travel_minutes` rows (§138.9). `time_bands` is the `time.band` rows without those travel rows.
+
+**The report field.** When `owed_review` requires review, the report's top level holds `owed`. It is required and may be empty, with at most 8 entries. It sits beside `missing`, and schema 2 places it before `findings`. Each entry is what the delivered text establishes as having happened that no receipt carries and the ledger lacks, in `apply` shape:
+
+| kind | schema 2 (selectors) | canonical (schema 1, `accepted.json`) |
+| --- | --- | --- |
+| move | `{kind, source: draft_alias, to_source: scene_alias\|null, place: text\|null, summary: text\|null, via: text, travel}` | `{kind, quote, to, place, summary, via, travel}` |
+| time | `{kind, source: draft_alias, band}` | `{kind, quote, band}` |
+| npc | `{kind, source: draft_alias, person_source: person_alias, presence: "here"\|"away"}` | `{kind, quote, person, presence}` |
+
+- A move names a graph scene (`to_source`) or a new place (`place` plus an English `summary`), never both.
+- `via` is one English sentence for the route the prose told.
+- `travel` is one of `travel_bands`.
+- A time entry is time the prose says passed **beyond** any journey; a journey is its move's (§156). Its `band` is one of `time_bands`.
+- A person alias (`person:N`, a new host alias family) selects someone present or a person node of the effective graph.
+- `quote` is the selected draft occurrence.
+- Objects are not a new kind. `missing` already carries them, and the kernel projects them as owed objects (§158.3).
+
+**Rules** (`continuityArtifactErrors`, schema 1 and 2 alike):
+
+- entries are shaped as above, with the closed kinds, bands and presences;
+- at most one move per report: one told position per delivery;
+- `pass` needs an empty `owed`, and an owed entry counts toward `revise` like a missing object;
+- a `locus_review` with `mode: new_locus` and `basis: none` needs an owed move. The unsupported new locus is the owed arrival, and turn 26 is that case.
+
+Nothing in code reads prose. Every owed entry comes from the reviewer's structured answer, and the kernel checks only shapes, selectors and graph references.
+
+### 158.3 Owed state is state: `owed.json`, the turn record, and the `owed_state` row (FR-01)
+
+`table.warn {lane: "continuity-review", job}` (§130.4) projects the accepted report's `owed` and `missing` (`kernel-ts/owed/`):
+
+- **Anchor.** The quote must be located in the record's `rendered_text` (§139's quotation-mark class). An unanchored entry is dropped with `reason: "quote_not_delivered"`.
+- **Resolve.**
+  - A move's `to` must be a graph scene (`graph.scene`), and the effect is `{kind: "move", to: <handle>, via, travel_minutes}`.
+  - A `place` that already names a graph scene is that scene. Otherwise the effect is `{kind: "move", to: <place>, establish: {summary}, via, travel_minutes}`.
+  - `travel_minutes` is the band's `default`, and `adjacent` is 0 (§138.9: a road's minutes are the row's default, never rolled).
+  - A time entry becomes `{kind: "time", band}`; the kernel rolls it when it lands.
+  - A person must be a graph person or a person this table established. `here` is the same report's owed move destination, else the scene the ledger held at delivery; the effect is `{kind: "npc", name: <handle>, to: <scene>|"away"}`.
+  - What does not resolve is dropped with its reason (`unknown_scene`, `unknown_person`, `unknown_band`).
+- **Objects.** Each `missing` entry is an owed object `{kind: "object", object: {name, category}, quote: null}`. The Keeper lands it; it has no clerk effect.
+- **Record.** Each kept row is `{name: "t<turn>-owed-<n>", turn, kind, effect, quote, what, job, at}`. `what` is a kernel-written English line naming the effect. The rows go:
+  - onto the reviewed turn record as `owed`;
+  - into the campaign's owed ledger `owed.json` as `{open: [rows], closed: [{name, turn, how, receipt?, at}]}` (the last 32 closed).
+
+  A newer owed move closes any older open owed move (`how: "superseded"`): the latest told position is the told position. A newer npc row for the same person closes the older one the same way.
+- **Warnings.** Each kept row is also a `record.warnings` row `{lane, kind: "owed_state", quote, why: what, owed: name, fix}`. `missing` no longer produces `unsettled_object` rows for an owed-capable job; `unsettled_object` joins as one owed kind. For a job without the capability, `missing` keeps its `unsettled_object` row, with the forward fix below.
+
+**Why a file and not a `world.json` key.** The ticket says `world.owed`, but the post review writes after the turn it reviewed has closed, while the next turn is usually already open. `world_revision` and `task_world_revision` digest the whole of `world.json` (`kernel-ts/read/context.ts`). A write there under an open turn would stale that turn's Jev read sets (`runtime/jev/task-host-session.ts`). No lane writes `world.json` outside a turn. Lanes that write after delivery write their own campaign files, as the NPC ledger does (`npc-ledger.json`, written by `memory.submit`). `owed.json` is that kind of file:
+
+- it lives in the campaign directory, so it survives a restart;
+- it is committed with the next turn's commit and sealed before a branch (`commitIfDirty`), so an `if` fork carries it with the line (§15). A fork at an earlier commit (`table.branch`, or a fork naming `from.commit`) checks out that commit's ledger, and the fork turn's own rows, written after its commit, are carried over from that turn's record (`owedOfTurn` / `carryOwed`);
+- it is part of no world revision;
+- it is cleared only by a receipt that lands it (§158.5), inside that `apply`'s own write.
+
+A loop rewind (§15 `loop`) and a confluence each close every open row (`how: "rewound"` / `"merged"`). The rewound circuit and the merged lines are no longer the told position. The merge's own narration is.
+
+**Satisfied is closed.** A row the ledger already agrees with is closed at the next write that sees it (`how: "satisfied"`) and is never shown:
+
+- a move whose `to` is the active scene;
+- an npc whose presence already matches;
+- an object whose instance or definition exists.
+
+This also covers a crash between an `apply`'s world write and its owed write.
+
+**The forward fixes** (the kernel's `FORWARD` table; the reviewer's own fix is still never forwarded):
+
+- `owed_state`: *"Already told: the player was told this happened, so it did, and the ledger owes it. Land it with an ordinary apply as something that already happened (the clerk lands it first when it can) and carry on from there. Do not narrate it again, correct it, retract it or explain it."*
+- `continuity_finding` (replaces "let the next delivery avoid the same problem"): *"Already delivered and read: it is what happened. Do not rewrite, retract or correct it, and do not apologise or explain. Where the ledger disagrees with it, bring the ledger forward with an ordinary apply and carry on in the fiction."*
+- `continuity_conflict`: *"Already delivered and read: it is what happened, and so is what it contradicts. Do not rewrite, retract or correct either; make the logic hold in the fiction from here on, without explaining it."*
+- `unsettled_object`: *"Narrated without reaching the object: it happened. Register it with an ordinary apply as something the investigator already has, and do not narrate it again or explain it."*
+- `source_conflict`: *"Already delivered and read: do not rewrite or retract it. Reconcile it with the source in the fiction from here on, without explaining it."*
+
+Telemetry: the kernel's `continuity-review` `recorded` row adds `owed: <kept>`, and `owed_dropped: [{index, kind, reason}]` when something was dropped.
+
+### 158.4 The next turn starts from the told position (FR-02)
+
+**The capsule's `owed` section.** Open rows from `owed.json`, excluding satisfied ones. Each is `{name, turn, kind, what, quote, clerk}`, where `clerk` says whether the host can land it (move, time, npc) or it is the Keeper's (object). The budget is 1024 (`SLICE2_BUDGETS`). A HEAD sentence says what the rows are: what the player was told and the ledger lacks, already true, landed by the clerk first when it can, never narrated again.
+
+This is state, not the advice §13.7 keeps out of the capsule. The spec decides it ("Owed state is state, not a note"). A row leaves when a receipt lands it, never because it was shown.
+
+**Candidates** (`runtime/jev/candidates.ts`, amends §135.2). The builder reads `capsule.owed` first.
+
+- Every open row whose `clerk` is true is a candidate `apply:owed:<name>`. Its whole effect is bound from the row, plus `owed: <name>` (§158.5). Its clerk authority is `told_bookkeeping` (a new `CLERK_AUTHORITY` member, amends §135.3). Its `basis` is `{read: "table.capsule", path: "owed[i]", row, told: {owed, turn, quote}}`.
+- These candidates run first, in the order move, npc, time, before the read's route or compile question. Nothing the player said this turn is needed: they are owed, not chosen.
+- **While an owed move is open, no other move is a candidate.** The clerk never lands a move that contradicts the told position. Once the owed move lands, the run re-reads (§135.6), and every later candidate is built from the told position.
+- A row that cannot land (refused by the kernel) stays open. The run records `event: "owed", status: "refused", reason`, and move candidates stay withheld. The Keeper sees the row and the refusal, never a ledger position to side with.
+
+**The wait for a review in flight.** A post review of the previous delivery that is still running when the next run starts may be about to name what is owed. The host keeps, per campaign, the promise of the last delivery's post review (`afterDeliveryReview`). The run's first read waits for it for at most `PI_COC_OWED_WAIT_MS` (default 15 000, counted from the run's start), concurrently with the read itself. Measured on this table, the read took 8–12 s, and turn 26's review landed 13 s after turn 27 opened.
+
+The wait is paid only when a review is in flight. A review that lands later is read at the run's next read or the next run. Telemetry: `event: "owed_wait", waited_ms, landed: boolean`.
+
+`deferred_last_turn` (§135.25) is unchanged. It is the clerk's own note, kept in session memory. Owed state does not depend on it.
+
+### 158.5 Owed effects land as consequences, under a `told` admission basis (FR-03)
+
+**The effect field.** `move`, `time` and `npc` effects take `owed?: string`, naming an open owed row. The kernel (`kernel-ts/owed/land.ts`) refuses the batch `invalid_params` when:
+
+- the name is no open row (`reason: "owed_unknown"`);
+- the effect does not land that row (`owed_mismatch`). The kind must match, and `move.to`, `npc.name` / `npc.to` and `time.band` must equal the row's;
+- the row's quote is no longer located in `turns/<row.turn>.rendered_text` (`owed_not_told`).
+
+The basis cannot be forged by the Keeper's own words. Only the review's accepted report, anchored against the delivered record, writes an owed row, and the landing re-checks it against that record.
+
+On success:
+
+- the receipt carries `owed: <name>` and `told_turn`;
+- the row is closed `how: "landed"` with the receipt id;
+- a move to the owed destination without `owed` closes the row too (`satisfied`), whoever landed it.
+
+A landed owed move is an ordinary move receipt. §39.2's first-arrival map placement and every other move consequence fire on it.
+
+**Admission** (§32, amends §32.12). A write is admitted on `basis.told` without asking whether the player chose it. The question is whether the delivered text established it. `toldAdmission` (`extensions/kernel/admission.ts`) accepts a write when:
+
+- every effect it proposes carries `owed`;
+- each named row is open in the owed rows the host last read, and the effect matches it;
+- for a policy-origin write, the candidate's `basis.told` names that row.
+
+The kernel's check above is the final one. A Keeper-origin `apply` whose effects all carry `owed` takes the same path: owed state is not the player's choice this turn. A batch that mixes owed and other effects is reviewed as before.
+
+Admission rows carry `path: "told"`, `reviewer: "told"`, `verdict: "authorized"` and `basis.told: {owed, turn, quote}`, with grounds `told: turn <n>: "<quote>"`. The clerk's bind row and the landed receipt carry `owed`, so owed landings are countable apart from player-chosen ones.
+
+**A row that cannot land** (an unknown place, an invalid target) stays owed and is retried with `establish` for a place. It never flips the fiction to the ledger's version.
+
+### 158.6 The Keeper never corrects or confesses; the player's dispute is the exception (FR-04)
+
+`prompts/keeper.md`:
+
+- **Law 2** keeps "land it first": the world changes only through `apply`. It adds the forward rule: what a delivered turn told the player without a receipt already happened. Land it now as something that already happened, without narrating it again or correcting it; the capsule's `owed` rows are those.
+- **Law 3's canon sentence** adds that when the delivered prose and the ledger disagree about the past, the prose is canon and the ledger is brought forward. Never tell the player the table made a mistake, never apologise, never narrate a correction. The one exception is the player explicitly disputing what happened and asking for it otherwise; then follow the player.
+- **`admission_unavailable`** no longer tells the Keeper to "say so plainly to the player as a service notice". It follows the refusal's own fix (§47 as amended by §22.4.4): the review is the clerk's business, the service stays out of the fiction, and the Keeper carries the fiction on without the refused batch. Service notices are the host's (`coc-admission-status`, §38.10), outside the fiction.
+- **The `unrecorded` HEAD sentence** (§51.4) no longer says the rows name "never which of them is right": the told prose is right about the past, and the row names the call that brings the ledger forward.
+
+The kernel-authored forward fixes are §158.3's.
+
+### 158.7 The three ends (§31)
+
+- *Writer:* the private reviewer through `submit_audit` (the `owed` field), bound by `mods.accept`, projected by `table.warn` into `owed.json` and the record.
+- *Reader:* the capsule's `owed` section (`kernel-ts/read/assemble.ts`), the clerk's candidate builder, admission's `told` basis, and the kernel's `owed` effect check.
+- *Actor:* the clerk (`told_bookkeeping`) or the Keeper, whose ordinary `apply` lands the row and closes it.
+- *Counted:* `owed.json`'s `closed` list, the receipts' `owed`, the admission rows with `path: "told"`, and the run's `owed` / `owed_wait` rows.

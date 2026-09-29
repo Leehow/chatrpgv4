@@ -25,7 +25,8 @@ const plain=()=>({schema:2,missing:[],findings:[],continuity_review:{verdict:'pa
 const files=()=>({'context.json':{current_input:'Keep it. Keep it.',intelligibility_review:{requires_review:true},player_address_review:{requires_review:true},
     scene_commitment:{requires_review:true,active:{name:'Office'},moves:[]}},'memory.json':[{statement:'It remains shut.'},{statement:'It remains shut.'}]});
 function complete(catalog) {
-    const value=plain(); Object.assign(value.continuity_review,{
+    // §158.2: a job whose package requires audit.owed.v1 reports owed state; a pass owes nothing.
+    const value=catalog.owed ? {schema:2,missing:[],owed:[],findings:[],continuity_review:plain().continuity_review} : plain(); Object.assign(value.continuity_review,{
         intelligibility_review:{verdict:'pass',source:null},player_address_review:{verdict:'pass',source:null},
         locus_review:{verdict:'pass',mode:'same_locus',locus_source:null,claim_source:null,basis:'active_scene'},
         ...(catalog.sources.speech.length ? {speech_review:{verdict:'pass',lines:catalog.sources.speech.map(v=>({source:v.alias,verdict:'pass',reason:'A complete spoken statement.'}))}} : {})
