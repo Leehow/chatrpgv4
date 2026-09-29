@@ -28638,3 +28638,72 @@ GUI follow-up found that a combined move-and-conversation declaration was incorr
 Place confirmation separately checks that the copied name denotes a source place and that the player refers to it as the destination, both at 0.8. The context is the original text surrounding the selected name so a city qualifier can be resolved without unrelated later passages diluting the question. A place the player is leaving is not the destination. Confirmation does not authorize entry or waive a source restriction.
 
 External comparison: TypeSafe's official semantic-find and structure-recovery cookbooks enumerate source lines and choose/classify them; its pre-parsed extraction pattern copies selected source values in code. LangChain's retrieval architecture likewise places bounded retrieval before generation while warning that retrieval latency can still vary. This confirms the source-selection approach, not any gameplay speed or completeness claim.
+
+## 150. Jev decides, the LLM writes: clerk execute by default, record-level graph review with a Jev claim check, need reads that locate first, a narrator-only setting, and a driven setup run (2026-09-28, `docs/specs/jev-decides-llm-writes.md`; amends §135.32 addendum 2, §22.3–§22.3.3, §22.4.2, §147–§149)
+
+Owner go 2026-09-28. Every Jev question here follows §135.32's D2 hygiene (one Noul per candidate, a family `exists`/exit, state with only what the question needs, gates as data, model pinned `jev-1.13.0`, outage = today's behaviour). No Jev family generates a name, a quotation, a number or a relation; no lexical pre-parser runs in front of Jev.
+
+### 150.1 Clerk execute mode follows the data default
+
+The consequence-step mode is the env switch when set (`on | shadow | off`); otherwise the host budget data's `jev_steps.shadow` decides (`false` = `on`). The shipped data is `shadow: false` with `execute: ["clue_follow_up"]`: on a default table `clue_follow_up` executes (SL-78 semantics) and every unlisted class is routed and paired in shadow. The effective mode and its source (`env | data`) are recorded on the run's route/residual rows. Nothing else in §135.32 changes.
+
+### 150.2 Background graph work: reuse, targeted repair, salvage
+
+1. **Review reuse is per unit, not per candidate.** A fact unit's cache identity covers the review protocol/instructions, source SHA, model, review policy, the unit's assigned records, the records connected to them (the focused review input's connected set) and the cited pages' image identity and extraction version. It excludes other records and round bookkeeping (`repair`, `must_view_pages`, `review_retry`). `/coverage` keeps the whole-candidate identity. A reused unit is recorded `reused: true`.
+2. **Targeted repair.** A completed review that refuses specific paths and lists no `missing` item is followed by a repair of those records only: the brief names the refused paths, reasons and cited pages; the host requires every other record to be byte-identical after the repair (removal of claims whose subject/object was a removed refused record excepted), else the repair is refused and today's full round runs. `missing` keeps the full round. §22.3.3's retry-once and the two-round bound remain.
+3. **Salvage.** Resuming an interrupted checked source read with no read checkpoint first computes the delivered pages from the interrupted attempt's image log and runs the structural checker on the retained draft; a non-empty draft that passes with every required-view page delivered is read-complete with those observations, and review follows (the coverage unit guards incompleteness). Recorded `salvaged: true`.
+4. **Accounting.** Reading rows carry author ms, review wall ms, units run/reused, Jev calls/ms/tokens by family, `salvaged`, `repair: targeted | full`, and a need disposition (150.4).
+
+### 150.3 Jev claim-support check and the text-evidence amendment
+
+Family `source-claim-support` v1, owned by the reading service's verify phase.
+
+- **Eligible paths** (code, structural): a claim or node field in a fact unit (never `/coverage`, never an image source or map region) whose every cited page has usable native text for the bound source and extraction version.
+- **Questions per claim**, in one fanned-out request per candidate: `supported` (the cited page text states it, literally or as a direct paraphrase, adding nothing) and `contradicted` (the page text states something incompatible). The claim is rendered by code from the record; the page text is data.
+- **Gate** `supported ≥ S and contradicted ≤ C`, both data.
+- **Modes** (env over data): `shadow` records Jev beside the vision verdicts and changes nothing (shipped default until 150.3.1 passes); `on` removes cleared paths from vision units and writes `review.json` rows `{verdict:"supported", reviewer:"jev", source_refs, page_text_sha256, extraction_version, distribution}`; `off` asks nothing.
+- **Jev never refuses.** An uncleared claim is reviewed by the vision reviewer exactly as before.
+
+**Evidence amendment.** The publication gate accepts a `reviewer:"jev"` row only for an eligible path, with page-text digests matching the bound source's native text at that extraction version, and never for a path a vision row marked negative. For those paths, a Jev-checked exact native-text match is source evidence. Images, maps, `/coverage` and visual-only facts keep §22's viewed-original standard.
+
+#### 150.3.1 Calibration bar (pre-registered 2026-09-28)
+
+`on` ships only if an offline replay of retained reviewer verdicts (claim, cited page native text, vision verdict) finds an (S, C) with cleared negatives (`unsupported | contradicted | unclear`) ≤ 1 and ≤ 1% of negatives, and cleared share of `supported` ≥ 50%. Otherwise the data default stays `shadow` and the failure is recorded in the spec.
+
+### 150.4 Need reads locate first
+
+For a background `detail` read queued from a retained source need:
+
+1. **Answered already** (`source-need-answered` v1): one Noul over the need question and the entity's accepted published material. At its data gate the need resolves without a reader (`resolved_by:"accepted_material"`, distribution recorded) through the existing resolved-needs path.
+2. **Unlocated.** The native locate runs. If no page lead clears on a page outside the pages the entity's accepted material was read from, the need is retained `unlocated` with the locate evidence and no author runs; a later unit publication makes it eligible again.
+3. **Carried.** If all located pages lie in source units not yet read, the need rides on those unit tasks as an extra question; no separate read is queued.
+4. **Otherwise** today's read runs on the located pages.
+
+Deferred needs queue only after the source units ahead of the frontier are queued. "Unlocated" is never "absent".
+
+### 150.5 Narrator-only compose catalog (SL-79) as a setting
+
+A setting (env over data, default off): the compose step's catalog is `narrate`, `ask`, `say`, `propose {key}`. `propose` requests one clerk step from the run's offered candidate keys through the same gateway and admission; any other key is refused with the offered keys; at most N per turn (data). Bind and adjudicate steps keep their catalog. Default-on is gated on `docs/specs/jev-driven-steps.md` D6 3.
+
+### 150.6 Setup runs on the driven engine with its own policy
+
+With Jev available and no explicit legacy switch, a setup session runs on the RunDriver with policy `coc-setup-v1` (never the play policy), otherwise legacy exactly as before.
+
+- **Read**: the setup state (step, allowed moves, setup catalog, draft card, guidance/opening candidates, latest input with issued aliases). Jev scope binds to the campaign when it exists, else the setup session.
+- **Decide**: `setup-input-route` v1 (one Noul per legal setup move plus the `ask_llm | none_of_above` exit Choice) and, for a card-field move, `setup-card-fields` v1:
+  - an occupation Choice over the catalog plus `not_stated`, with a `stated?` Noul; the player's own trade words reach `occupation_stated` by host copy from the input alias;
+  - era and aptitude Choices plus `not_stated`;
+  - one Noul per catalog skill ("named as the investigator's");
+  - one `stated?` Noul per open field.
+- **Operate**: the existing setup step executor with the Jev-bound closed fields. Numbers come from the kernel's defaults unless the player wrote them (copied from the alias). A refusal routes to adjudicate with the refusal.
+- **Infer**:
+  - `bind` writes only open keys through a `setup` tool narrowed to open-key revision (a closed key is refused with candidates);
+  - `compose` writes the reply with no setup tool;
+  - `adjudicate` (the `ask_llm` exit, an outage, a budget stop, a kernel refusal) gets today's full `setup` tool.
+- **Confirm**: `setup.confirm` is never executed by Jev.
+- **Guard**: after an LLM step, the next step is direct or finish.
+- **Telemetry**: the engine, families, bound fields with their paths (`jev | stated | rule-default`), model steps by purpose, and refusals.
+
+### 150.7 Inventory
+
+`source-claim-support`, `source-need-answered`, `setup-input-route` and `setup-card-fields` enter the Jev inference inventory with owner, budget, gate and fallback.
