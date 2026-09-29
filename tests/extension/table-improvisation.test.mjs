@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {build} from 'esbuild';
 
-const bundle=await build({stdin:{contents:"export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {withTableEntities,tableEntityId} from './kernel-ts/read/table-entities.ts'; export {admissionRequest} from './extensions/kernel/admission.ts'; export {report} from './kernel-ts/worldline/confluence-plan.ts';",resolveDir:process.cwd()},bundle:true,write:false,platform:'node',format:'esm',logLevel:'silent'});
+const bundle=await build({stdin:{contents:"export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {withTableEntities,tableEntityId} from './kernel-ts/read/table-entities.ts'; export {admissionRequest} from './extensions/kernel/admission.ts'; export {report} from './kernel-ts/worldline/confluence-plan.ts'; export {actedOn} from './kernel-ts/npc/act-options.ts';",resolveDir:process.cwd()},bundle:true,write:false,platform:'node',format:'esm',logLevel:'silent'});
 const api=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 
 test('campaign places and evidence remain readable when later source has the same name; source bytes remain unchanged',()=>{
@@ -61,4 +61,13 @@ test('source locations enter the scene view with their original identity, clues 
  const withScene=new api.ModuleGraph('book',{...raw,nodes:[...raw.nodes,{node_id:'scene-police',node_kind:'scene',name:'Police station',properties:{}}]},'digest',{});
  withScene.projectSourcePlaces();withScene.projectSourcePlaces();
  assert.equal(withScene.scene('police').node_id,'scene-police','an existing authored scene wins over a same-handle location');
+});
+
+
+test('an impression guides the Keeper without a second NPC reaction, while a contested roll still triggers one',()=>{
+ const person={is:value=>value==='the officer'};
+ const impression={id:'first-meeting',kind:'roll',roll_kind:'mod_check',npc:'the officer',actor:'investigator',impression:{reaction:'favorable'}};
+ const check={id:'persuasion',kind:'roll',npc:'the officer',actor:'investigator'};
+ assert.deepEqual(api.actedOn(person,{receipts:[impression]},[],true),[]);
+ assert.deepEqual(api.actedOn(person,{receipts:[impression,check]},[],true),[{receipt:'persuasion',kind:'roll_against'}]);
 });
