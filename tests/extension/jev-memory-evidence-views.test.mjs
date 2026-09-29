@@ -62,6 +62,8 @@ test("promise, capsule, and cross-line consumers use the shared authority and at
 	const rows = [legacy, playerPromise, spokenPromise, malformed];
 
 	const obligations = api.promiseObligations(rows);
+	assert.ok(obligations.every(row => row.owner === 'memory' && !Object.hasOwn(row, 'name')),
+		'a memory reminder must not offer a closable manual-note name');
 	assert.deepEqual(obligations.map(row => [row.state, row.authority, row.attribution]), [
 		[playerPromise.statement, "conversation_report", { kind: "player" }],
 		[spokenPromise.statement, "conversation_report", speech],

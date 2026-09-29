@@ -488,6 +488,14 @@ describe('the plain copy of a drawn delivery is folded away', () => {
     expect(foldMarkedDeliveries([card(MARKED), other])).toHaveLength(2)
   })
 
+  it('folds the kernel delivery after hard-break spaces and marker-only paragraphs are removed', () => {
+    const marked = '**Another grave robbery!**  \nA public report.\n\n{{handout:paper}}\n\nThe vendor waits.\t';
+    const delivered = '**Another grave robbery!**\nA public report.\n\nThe vendor waits.';
+    expect(withoutMechanicsMarkers(marked)).toBe(delivered);
+    expect(foldMarkedDeliveries([card(marked), said(delivered)]).map(row => row.id)).toEqual(['m1']);
+    expect(foldMarkedDeliveries([card(marked), said(delivered + ' A new fact.')])).toHaveLength(2);
+  })
+
   it('changes nothing when no delivery was marked', () => {
     const messages = [said('一段叙事。')]
     expect(foldMarkedDeliveries(messages)).toEqual(messages)
