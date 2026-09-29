@@ -141,6 +141,7 @@ B6. **Accounting.** Every background job row gains: author ms, review wall ms, u
   - Added Jev ms per turn is the per-table mean over the turns that made a shadow call, inclusive at 1.5 s, every table.
   - Not counted, and printed: stranded turns, `executed` rows, `direct` rows, unanswered rows (no confidence), rows with no `keeper_did` verdict, and duplicate `(turn, class, key)` rows (the last written is kept).
   - A class with no cleared row the receipts can judge, or no cost row, reads not met (no evidence), never met.
+  - A further section, "executed steps not in the prose" (D6 2b), lists per table the executed `clue_follow_up` rows whose turn carries no Keeper-placed `{{clue:<handle>}}` marker in its delivered `text` (`marked_text` is not read: the kernel appends a marker for every unplaced receipt). Reversal is printed `n/a`: no receipt kind reverses a clue.
 
 ### D-D. Narrator-only Keeper (SL-79) as a setting
 

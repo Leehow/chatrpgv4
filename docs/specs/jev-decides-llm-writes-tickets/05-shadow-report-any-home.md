@@ -114,3 +114,52 @@ added Jev ms per turn (mean over the turns that made a shadow call; each table m
 Findings: (a) `clue_follow_up` reads 26/29 = 0.897, just under the 0.90 line, and one table (`time-skip-b`) has 2 false positives; the executing tables no longer distort it (recall 26/37 = 0.70 over the 19 shadow-only tables is information only); (b) `npc_reaction` precision is 4/14 = 0.286 with 15 label/handle artifacts already read as the Keeper's action, two tables with 3 and 2 false positives, recall 4/19; (c) `time_cost` has never produced a candidate row on any of the 27 tables, so it has no evidence; (d) one table (`longgate17-haunting-0831`) is over the 1.5 s line (mean 1708 ms) and turns every class's cost line NOT MET; every other table is under.
 
 **Not done / notes for the lead.** No live Jev or model calls. `docs/kernel-rpc.md` is unchanged (the first commit added an Implementation-decision paragraph under section 150.1; this revision removes it, per the coordinator). The reading rules live in `docs/specs/jev-decides-llm-writes.md` D-C and the script docstring. One pytest file, no kernel build needed; include `tests/play/test_jev_steps_report.py` in the full-suite run on the box.
+
+### Addendum: "executed steps not in the prose" (D6 2b), added on the coordinator's request
+
+`tests/play/jev-steps-report.py` prints a further section after the cost block: for every `executed: true` `clue_follow_up` row, per table, whether the Keeper placed a marker for that clue in the turn's delivered text.
+
+- *Narrated* = the turn's `text` (`turns/NNNN.json`) contains `{{clue:<handle>}}`, the handle being the row key after `consequence:clue_follow_up:`, optionally with a `-<n>` or `-t<n>` suffix. The suffixed form is real: the kernel's clue receipt id is `clue:<handle>-t<turn>` and Keepers copy it into the prose (95 of 2,121 clue markers across the worktrees' 5,133 turn records; the placement name the kernel itself resolves is `{{clue:<handle>}}`). The pattern is anchored on the closing braces, so `{{clue:ledger-book}}` is not a marker for `ledger`. Structural only, no word list.
+- *The turn* is the one the run's other telemetry rows (rows carrying both `run` and `turn`, not the consequence rows themselves) put it on, the row's own `turn` when the run names none or several. It never disagreed on the real data (the section would print `row turn differs from its run's turn`).
+- **Deviation from the request, on purpose: `marked_text` is not a fallback.** `kernel-ts/write/text.ts` (`placeUnplacedMechanics`) appends a marker for every receipt the Keeper did not place, so `marked_text` always carries `{{clue:<handle>}}` for a filed clue, narrated or not. The known real case shows it: `longgate19-haunting-1043` turn 5 `text` has only `{{say:Dooley}}`, its `marked_text` ends with `{{clue:dooley-macario-madness}}` and `{{clue:burning-eyes-form}}`. `rendered_text` has every marker stripped. A turn record with no `text` (53 of the 5,133 read) is reported as not checkable, never as narrated; so are undelivered turns and missing turn records.
+- **Reversed: does not exist.** No receipt kind reverses or revokes a clue. `apply clue` (`kernel-ts/apply/entities.ts`) only pushes onto `world.discovered_clues`, nothing removes from it, and the 5,133 real turn records carry receipt kinds `definition roll time clue move npc item handout threat person cash delta note flag session map condition choice ruling adaptation clock ability`, none a reversal. The contract's 2026-09-23 "reverses with a real operation" has no operation behind it for clues. The column is therefore printed `reversed n/a`, with the reason, not a fake 0.
+- *Neither* is a proxy: no Keeper-placed marker. Prose that tells the clue without its marker is not seen; each miss is listed with turn, key and confidence for the transcript read that stays with the owner. Other executed classes are counted, not checked.
+
+**Known real case, verified:** `longgate19-haunting-1043` turn 5 executed `dooley-macario-madness` (confidence 0.48) and `burning-eyes-form` (0.91); the delivered `text` has no marker for either (only a say token, prose about a newsstand), so both are *neither*. The same two clues appear as *neither* in `longgate20-haunting-1050` turn 5.
+
+**Tests** (same file, now 28 tests, `uv run --frozen python -m pytest tests/play/test_jev_steps_report.py`): narrated by the plain, `-tN` and `-N` marker forms; the real case rebuilt in its real record shape (text without a marker, `marked_text` with the appended one) is *neither*; a longer handle starting with this one is not a marker; undelivered turn, missing turn record and missing `text` are not checkable and never narrated; the run-to-turn map (a row with no turn, and a row whose own turn is wrong); shadow rows ignored, a row written twice counted once, other executed classes counted but not checked; the printed section (per-table counts, `reversed n/a`, the miss list, totals). No reversal test: none can exist. **Mutation checks** (script copied aside, one line changed, all killed): any suffix accepted; exact form only; `-tN` dropped; `marked_text` searched; `marked_text` as a fallback when `text` is absent; stranded turns not excluded; own turn only; shadow rows examined; other classes treated as clue rows; no dedupe; the run map built from the consequence rows themselves.
+
+**Real run over the 15 read-only homes** (12 `chatrpgv4-wt-gate-*`, `-npc-actor`, `-pkg-b088de327`, `-time-skip`; 29 campaigns, 27 tables), this section only:
+
+```
+-- executed steps not in the prose (D6 2b: every executed step appears in the prose or is reversed with a receipt) --
+  narrated: a Keeper-placed {{clue:<handle>}} marker (also -N / -tN) in the turn's delivered `text`; a structural proxy, prose that tells the clue without its marker is not seen
+  reversed: n/a -- no receipt kind reverses a clue (kernel-ts `apply clue` only appends to discovered_clues)
+  h2:longgate23-haunting-1350: executed 6, narrated 6, reversed n/a, neither 0
+  h3:longgate21-haunting-1301: executed 9, narrated 6, reversed n/a, neither 3
+    neither: turn 2 key='consequence:clue_follow_up:globe-fire-cutoff' confidence=0.42
+    neither: turn 3 key='consequence:clue_follow_up:basement-burial-lawsuit' confidence=0.42
+    neither: turn 14 key='consequence:clue_follow_up:corbitt-diaries' confidence=0.67
+  h5:longgate25-haunting-0016: executed 6, narrated 5, reversed n/a, neither 1
+    neither: turn 2 key='consequence:clue_follow_up:globe-fire-cutoff' confidence=0.43
+  h6:longgate19-haunting-1043: executed 5, narrated 1, reversed n/a, neither 4
+    neither: turn 2 key='consequence:clue_follow_up:globe-fire-cutoff' confidence=0.44
+    neither: turn 5 key='consequence:clue_follow_up:burning-eyes-form' confidence=0.91
+    neither: turn 5 key='consequence:clue_follow_up:dooley-macario-madness' confidence=0.48
+    neither: turn 7 key='consequence:clue_follow_up:gabriela-night-visitor' confidence=0.58
+  h7:longgate20-haunting-1050: executed 5, narrated 0, reversed n/a, neither 5
+    neither: turn 2 key='consequence:clue_follow_up:macario-tragedy' confidence=0.62
+    neither: turn 5 key='consequence:clue_follow_up:burning-eyes-form' confidence=0.91
+    neither: turn 5 key='consequence:clue_follow_up:dooley-macario-madness' confidence=0.48
+    neither: turn 6 key='consequence:clue_follow_up:gabriela-night-visitor' confidence=0.43
+    neither: turn 17 key='consequence:clue_follow_up:ritual-dagger-is-his' confidence=0.47
+  h8:longgate18-haunting-1035: executed 7, narrated 5, reversed n/a, neither 2
+    neither: turn 1 key='consequence:clue_follow_up:knott-commission' confidence=0.43
+    neither: turn 2 key='consequence:clue_follow_up:globe-fire-cutoff' confidence=0.44
+  h9:longgate22-haunting-1448: executed 6, narrated 6, reversed n/a, neither 0
+  h11:longgate24-haunting-2238: executed 5, narrated 4, reversed n/a, neither 1
+    neither: turn 2 key='consequence:clue_follow_up:globe-fire-cutoff' confidence=0.44
+  totals: 49 executed clue steps over 8 tables; narrated 33; reversed n/a; neither 16; not checkable 0
+```
+
+Totals: 49 executed clue steps over 8 tables (the tables that ran `COC_JEV_STEPS=on`); 33 narrated; 16 neither; 0 not checkable; reversed n/a. Two of the eight tables are clean (`longgate23-haunting-1350`, `longgate22-haunting-1448`, 6/6 each); the worst is `longgate20-haunting-1050` (0/5). Eleven of the 16 misses have confidence at or under 0.5, and the same clue recurs across tables (`globe-fire-cutoff` at turn 2 in five tables; `dooley-macario-madness` and `burning-eyes-form` at turn 5 in two). D6 2b's "every executed step appears in the prose or is reversed" is therefore not met on this evidence, subject to the transcript read of the 16.
