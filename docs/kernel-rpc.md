@@ -10204,7 +10204,7 @@ asking for a restart the product no longer needs.
 
 The voice lane's outage notice told the operator to set `PI_COC_NPCVOICE_MODEL`, a name nothing reads; it now names `PI_COC_VOICE_MODEL`. Operator `fix` texts (review outage, admission outage, lane outage) name the setting by its new title, *Fast model*, and say it is read the next time the lane runs.
 
-**Deliberately on their own axis.** *Module build and preparation* -- the section reader (`PI_COC_BUILD_MODEL`, §22 and the reader wiring above: "缺省与桌子同模型"), character guidance and the opening -- read the book's page images, require a vision model (`model_without_images` refuses otherwise) and produce the only authored truth the table has; they stay on the table's model, and so does the transcription of a pictured handout (§155.3: it looks at a picture, so it needs image input; the projection of that transcription is a lane and takes the fast model). *The image model* and *rerank* have their own settings. *Jev* (speech attribution, prescreens) has its own API and credentials. *The `skills` row* is not a lane: it measures the Keeper's own run, so it is the Keeper's model by definition.
+**Deliberately on their own axis.** *Module build and preparation* -- the section reader (`PI_COC_BUILD_MODEL`, §22 and the reader wiring above: "缺省与桌子同模型"), character guidance and the opening -- read the book's page images, require a vision model (`model_without_images` refuses otherwise) and produce the only authored truth the table has; they stay on the table's model, and so does the reading of a pictured handout (§155.3: one streamed vision completion; it looks at a picture, so it needs image input, at the presentation lane's effort). *The image model* and *rerank* have their own settings. *Jev* (speech attribution, prescreens) has its own API and credentials. *The `skills` row* is not a lane: it measures the Keeper's own run, so it is the Keeper's model by definition.
 
 **Three ends (§31).** *Writer:* the settings panel, through the host's extension-settings write. *Reader:* `runtime/fast-model.ts` at every lane start (and `cocFastLane` on the host's cold path). *Actor:* each lane above, whose telemetry row carries the `model` it ran on (`lane-call` rows, `mod-agent` rows from the child's own `--model`, `map-words`, `voice`, `adaptation`'s `run-model-N.json`), so a table can be audited from its own files.
 
@@ -29010,7 +29010,8 @@ each scoped brief to 400. The addendum has no kernel budget: it rides the lane's
 
 Owner request, 2026-09-29: a clipping cropped from a PDF page reaches the player as the original bitmap (§152.3) and
 nothing else, so a table whose `play_language` is not the module's language holds a picture it cannot read. Every image
-handout row gets a **translate** control that produces a reading version in the play language, beside the picture.
+handout row gets a **translate** control that produces a reading version in the play language, beside the picture, and
+the text **streams in while the model writes it** (owner, 2026-09-29: a ~35 s wait for a whole document is too long).
 Numbering: 0.9.6a publishes §153; two unmerged prototype branches already claim §154.
 
 ### 155.1 A host control, no kernel RPC, no turn, no receipt
@@ -29023,12 +29024,15 @@ never supplies a path, a campaign, a digest or a language: the host resolves all
 
 Answers (`ok: true`, `data`):
 
-- `{status: "pending", handout}` -- the job is running. The caller asks again (the Mod document pattern: the invoke
-  channel's 15 s ceiling is never held; the panel and the card poll the same job).
+- `{status: "pending", handout, partial?}` -- the job is running. `partial` is `{title, text}`, the reading in the play
+  language as far as it is written (absent until the first characters exist; the title fills first, then the body; it only
+  ever grows). The caller asks again a moment later (the Mod document pattern: the invoke channel's 15 s ceiling is never
+  held, and the panel and the card poll the same job); the renderers ask again 400 ms after each answer. A poll for a
+  running job is answered from the job itself and does not read the table again.
 - `{status: "ready", handout, keep, title, text, digest}` -- `title`/`text` are the reading version in the play language,
-  `digest` the image's `sha256`. `keep: true` means the model judged the picture already in the play language: `text`
-  is then the transcription as it stands and the caller says so instead of offering a second version. `keep` is the
-  model's word (§23: no code inspects a script, a tag prefix or a character class).
+  `digest` the image's `sha256`. `keep: true` means the model judged the picture already in the play language: `title`
+  and `text` are then empty and the caller says so instead of offering a second version. `keep` is the model's word
+  (§23: no code inspects a script, a tag prefix or a character class).
 
 A failure is `ok: false` with `error.code` in the `errors` surface: `no_session`, `campaign_unbound`, `invalid_params`
 (no such handle), `handout_not_available` (§155.2), `model_without_images` (§155.3), `handout_reading_failed` and
@@ -29045,52 +29049,60 @@ not keeper-visible, an absolute path inside the campaign's own folder, its modul
 declared media type -- exposed as `handoutImageFile`, which `handoutImage` now wraps so the two cannot drift. Any failure
 is `handout_not_available`. A hybrid row (image plus authored text) is an image row and is read like any other.
 
-### 155.3 Two steps, two models
+### 155.3 One streamed vision completion
 
-1. **Transcribe, once per image.** A tool-enabled Pi reader (a `reader` task, contract §22, no kernel and no extensions in
-   the child) opens the delivered image with `read` and writes the printed text as it stands, in the source language, in
-   reading order, as `transcription.json` -- `{blocks: [{role, text}]}` with `role` one of `headline`, `deck`, `byline`,
-   `dateline`, `body`, `caption`, `label`, `other` -- and marks a stretch it cannot read as `[…]`, never a guess. Its own
-   checker (`node check.mjs`, shape only) runs in the child. Instruction: `content/setup/handout-transcription.md`. The
-   model is the table's model (the reader axis, §37.10.1: it reads a picture, so it needs image input); a table model
-   without image input answers `model_without_images` when the cache lacks the transcription, and nothing is
-   transcribed blind. The graph node's `summary` never enters it.
-2. **Project into the play language, as one document.** The transcription is composed into one title and one body (the
-   first `headline` block, else the first block, is the title; blocks are joined by a blank line) and projected through
-   the existing presentation protocol (`document-presentation-reference-v1`: `keep` or `translate` per issued alias, its
-   own checker, two rounds) under `content/setup/handout-reading.md`. The lane model is the presentation lane's (§37.10.1,
-   `cocFastLane`). The request also carries `known_names`: the entries of the campaign's saved projections (the kernel
-   glossary and every `setup/presentations/*-<tag>.json`) whose source string occurs in the transcription, so a person or
-   place the table already knows keeps the name the table calls them (§23 standing names).
+A Pi child with **no tools** (`--tools ""`, `--mode json`) is given the picture as an `@file` attachment (`ReaderRequest.attachments`:
+a plain file name in its working directory, placed before the `--` that ends the options, since a zero-tool child has no
+`read`) and writes the reading version as its reply. The worker relays the assistant's `text_delta` events as `progress`
+lines (`{stage: "reading", title, text}`, at most every 150 ms and once at the end), the onboarding host keeps the latest
+in the job, and the caller's polls carry it (§155.1). Instruction: `content/setup/handout-reading.md`; the reply's format is
+its first line `keep` or `translate` (the model's verdict on whether everything printed is already in `play_language`), then
+for `translate` a title line, a blank line and the body in reading order, paragraphs separated by a blank line; a stretch it
+cannot read is `[…]`, never a guess. The host parses that format incrementally (`parseReading`) and validates the finished
+reply (`validateReading`: the verdict line, a non-empty title of at most 640 characters, a body of at most 64,000); a reply
+that breaks it is `preparation_failed` and is not cached.
+
+The model is the table's model (the reader axis, §37.10.1: it looks at a picture, so it needs image input) at the
+presentation lane's effort (`presentationLaneChoice`, never the Keeper's). A table model without image input answers
+`model_without_images` when the cache lacks the reading, and nothing is read blind. The graph node's `summary` never enters
+it. The brief carries `Play language: <tag>` and, when the campaign has any, `known_names`: the saved projections of the
+campaign for that tag (the kernel glossary's lanes, `setup/presentations/<kind>-<tag>.json`, at most 150 entries and 6,000
+characters) as `source -> shown` lines, so a person or place the table already knows keeps the name the table calls them
+(§23 standing names); they are a hint at the time of reading and are not part of the cache key.
 
 ### 155.4 Caches and evidence
 
 Under the agent home, never in the graph, a turn, a capsule or a Keeper prompt:
 
-- `.coc/handout-readings/<sha256>/transcription-<instr>.json` -- keyed by the image's `sha256` (the graph's
-  `asset_digest`, computed by the host from the bytes it read) and the transcription instruction's digest. It serves every
-  campaign and every play language.
-- `.coc/handout-readings/<sha256>/readings/<key>/accepted.json` (with its `attempts/`) -- the projection's own cache
-  (`projectReading`, shared with the Mod document reading); `key` is a digest of the composed title and body, the
-  play language, the reading instruction's bytes and the `known_names` used, so a changed instruction file or a newly
-  projected name re-projects and an unchanged input reuses the file.
-- `.coc/handout-readings/<sha256>/attempts/<id>/` (the copied image, requests, events, findings) and
-  `.coc/handout-readings/telemetry.jsonl` (one row per model round: `{at, phase, sha256, campaign, play_language, model,
-  thinking, round, ms, ok, timed_out, input_tokens, output_tokens, cost_usd, actions}`) are kept as evidence.
+- `.coc/handout-readings/<sha256>/readings/<tag>-<instr>.json` -- `{sha256, play_language, keep, title, text}`, keyed by the
+  image's `sha256` (the graph's `asset_digest`, computed by the host from the bytes it read), the play language and the first
+  12 hex digits of the instruction file's digest. A changed instruction file re-reads; an unchanged one reuses; a reading
+  cached under an older instruction stays as evidence. A cached reading is reported whole, at once, and needs no image input.
+- `.coc/handout-readings/<sha256>/attempts/<id>/` (the copied image, the child's event stream, its outcome) and
+  `.coc/handout-readings/telemetry.jsonl` (one row per model round: `{at, phase: "reading", sha256, campaign, play_language,
+  model, thinking, ms, ok, timed_out, input_tokens, output_tokens, cost_usd, actions}`) are kept as evidence.
 
 ### 155.5 The job
 
-The host's onboarding host keeps one job per `(campaign, handle, sha256, tag)` and answers `pending` while it runs, like
+The host's onboarding host keeps one job per `(campaign, handout, sha256, tag)` and answers `pending` while it runs, like
 `documentPresentationStatus`; the work is the preparation worker's `handout-reading` action (a child process, so a stall
 cannot hold the host). The deadline is the presentation deadline (`PI_COC_PRESENTATION_DEADLINE_MS`, 360 s), with
-`presentation_timeout` on expiry; a worker that stops without an answer is `handout_reading_failed`.
+`presentation_timeout` on expiry; a worker that stops without an answer, and any other failure, is `handout_reading_failed`
+(the message keeps the cause for the log). There is no automatic retry: a reading is a paid look at a page and the player's
+retry control asks again.
+
+Measured 2026-09-29 on the two Dust to Dust clippings with `grok-build/grok-4.5` at low effort, in the earlier two-step
+design that this section replaces (a tool-enabled reader wrote a transcription, then a second reader projected it): 21-22 s
+for the transcription and 11-13 s for the projection, so about 35 s before the first character; a tool-enabled child writes
+its answer in one file write (a grok model sends its tool arguments in one piece), which is why it cannot stream.
 
 ### 155.6 The three ends (§31)
 
-*Writer:* the `handout-reading` worker action writes the two cache files and the telemetry row. *Reader:* the case
-board's handout block and the transcript's handout row draw the answer; they hold no word table -- captions are the
-`handout` surface and codes the `errors` surface (`content/ui/en/`, projected like every other surface, §23). *Actor:* the
-player, by the control; the Keeper is never shown the reading, and making it Keeper-visible would need its own named lane.
+*Writer:* the `handout-reading` worker action writes the reading file and the telemetry row, and the job's progress. *Reader:*
+the case board's handout block and the transcript's handout row draw the answer, the partial included; they hold no word
+table -- captions are the `handout` surface and codes the `errors` surface (`content/ui/en/`, projected like every other
+surface, §23). *Actor:* the player, by the control; the Keeper is never shown the reading, and making it Keeper-visible
+would need its own named lane.
 
 ### 155.7 The reading is the model's reading
 
@@ -29101,11 +29113,37 @@ away. It is not evidence for Keeper decisions and never enters `lookup` or the g
 ### 155.8 Where the transcript row and the board call from
 
 The board panel calls the method through its `api.invoke` (the `board` precedent). The transcript's tool renderer had no
-host call: the host UI now passes `onInvoke(method, params)` to the presentation entries a tool renderer draws (`coc-mechanics`, `coc-choice`),
-which calls `host.invokeExtension(<that extension>, method, params, {sessionId})`; today `coc-mechanics` is its only user. A handout's mechanics row (§16.2) now carries `handout`, the receipt's handle, because the
-row folds under a display name and a name is not an identifier; a row persisted before this section is given the same
-handle by the host from its receipt id (`handout:<handle>-t<turn>`, `mechanicsEntry`), and a row with neither has no control.
+host call: the host UI now passes `onInvoke(method, params)` to the presentation entries a tool renderer draws (`coc-mechanics`,
+`coc-choice`), which calls `host.invokeExtension(<that extension>, method, params, {sessionId})`; today `coc-mechanics` is its
+only user. A handout's mechanics row (§16.2) now carries `handout`, the receipt's handle, because the row folds under a
+display name and a name is not an identifier; a row persisted before this section is given the same handle by the host from
+its receipt id (`handout:<handle>-t<turn>`, `mechanicsEntry`), and a row with neither has no control.
 
 The control's state lives with the row's mount, so a row the list unmounts (scrolled away, a folded card) asks again when
 it is pressed again, and the caches of §155.4 answer without a model run. It does not ask on mount: scrolling a
 transcript must not start jobs.
+
+### 155.9 A zero-tool completion, by the owner's ruling (2026-09-29)
+
+Agents.md keeps zero-tool single completions for work that satisfies two conditions and asks before any other. This lane
+is the owner's explicit exception, given in the turn that asked for streaming ("点击按钮之后应该是 sse 流式出现的翻译结果吧,
+如果不是流式等待时间就太长了"; chosen from three options: one streamed step, two steps with a warmed transcription, or the
+status quo with stage captions). Why it fits: the output is a bounded piece of text (a title and at most 64,000 characters, far
+below the channel's ceiling that the tool-enabled rule exists for), and it is on the player's critical path -- they are
+watching it arrive -- where a tool-enabled child that writes one file cannot stream. It stays a Pi child (`--tools ""`), not
+a bare provider call, so model resolution, provider extensions, credentials, the provider budget and the event stream are the
+ones every reader already has. It does not widen the exception: a tool-enabled agent remains the shape for any text work that
+produces a document for the product to keep (module readers, persona and speech authors).
+
+### 155.10 The handouts lane owes no title it cannot answer (VT-01, 2026-09-29)
+
+`table.view.handouts` lists a pictured handout with a `name` and no body (no `.md` is written), and a pictured handout with a
+transcript under the receipt's label. `handoutTexts` counts those names, and `handoutInput` can never supply them, so every
+sheet or board read found the title missing and started the `handouts` lane, whose landing pushed the `sheet_changed` that
+started the next read (seen live in the installed App: a worker respawn every 4-8 s on a campaign holding two image-only
+clippings, with `handouts-zh-Hans.json` at `texts: {}`). The host therefore passes, on `presentation {handouts: true}`,
+`handout_names`: the row names the saved projection still lacks, taken from `view.handouts` on a sheet or board read and from
+the delivery's handout rows on a delivery. `prepareHandoutPresentation` joins them to the file rows as `{name, text: null}`. Shape
+only: non-blank strings, at most 256, each at most 400 code units, else `invalid_params`; never a language check. The onboarding
+host keys a handouts job by these titles. Pinned by `coc-handout-lane.test.ts` (one board read starts one run) and
+`handout-titles-reach-the-lane.test.mjs`.

@@ -205,8 +205,8 @@ test("the map-words lane's row names the model its Mod child actually runs on", 
  * the standing labels and a document's presentation -- are started from `PiBackend`, which has no
  * node-test seam. They used to hand the worker the table's model and effort; every one of them now
  * goes through `cocFastLane`, and the only table model left is module preparation, which reads the
- * book's page images and stays on the table's vision model on purpose (§37.10.1); the transcription
- * of a pictured handout (§155.3) is the second such reader, which is why it counts two sites for the table.
+ * book's page images and stays on the table's vision model on purpose (§37.10.1); the reading
+ * of a pictured handout (§155.3) is the second such vision reader, which is why it counts two sites for the table.
  */
 test("the host's projections ask for the fast lane, and only module preparation keeps the table's model", async () => {
   const host = await readFile(join(ROOT, "Electron", "packages", "pi-backend", "src", "index.ts"), "utf8");
@@ -214,7 +214,7 @@ test("the host's projections ask for the fast lane, and only module preparation 
     if (!/\bui:\s*true/.test(call[0])) assert.match(call[0], /cocFastLane\(|\.\.\.lane\b/, call[0].slice(0, 160));
   const table = [...host.matchAll(/`\$\{state\.model\.provider\}\/\$\{state\.model\.id\}`/g)].map(match => host.slice(match.index - 40, match.index + 140));
   assert.equal(table.length, 3, table.join("\n---\n"));
-  assert.equal(table.filter(site => /vision:/.test(site)).length, 2, "module preparation and a pictured handout's transcription keep the table's vision model");
+  assert.equal(table.filter(site => /vision:/.test(site)).length, 2, "module preparation and a pictured handout's reading keep the table's vision model");
   assert.ok(table.some(site => site.includes("await this.cocLaneModel() ||")), "the other one is the fallback inside cocFastLane itself");
   const fallback = /const COC_LANE_THINKING_DEFAULT = "([a-z]+)";/.exec(host);
   assert.ok(fallback, "the host no longer declares its copy of the lane's own effort");

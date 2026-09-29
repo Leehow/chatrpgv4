@@ -1,10 +1,10 @@
 /**
  * The preparation worker's `handout-reading` action (contract §155), run as the emitted bundle.
  *
- * The worker is the boundary the host actually crosses: it resolves the two models (the table's for the picture, the
- * lane's for the words), launches the child the way every reader is launched, and answers on stdout. The child here is
- * `fixtures/handout-reader.mjs`, so what is under test is the wiring -- which model launched which step, what the
- * child saw, what the worker emitted, what stayed on disk -- not a provider.
+ * The worker is the boundary the host actually crosses: it launches a zero-tool child the way every reader is launched,
+ * relays what the child has written so far as `progress` lines while it is still writing, and answers on stdout. The
+ * child here is `fixtures/handout-reader.mjs`, so what is under test is the wiring -- which model was launched, with
+ * what arguments, what the child saw, what the worker emitted and when, what stayed on disk -- not a provider.
  */
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
@@ -30,60 +30,69 @@ function fixture(t,settings){
   writeFileSync(launcher,`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(root,'tests/extension/fixtures/handout-reader.mjs'))} "$@"\n`,{mode:0o755});
   return {home,agentHome,image,launcher};
 }
-async function readOnce(f,input={}){
+async function readOnce(f,input={},env={}){
   const configuration={layout:'source',backend:'typescript',resourceRoot:root,contentRoot:join(root,'content'),agentHome:f.agentHome,nodeExecutable:f.launcher};
   const request={campaign:'one',handout:'clipping',play_language:'en',home:f.home,image:{path:f.image,media_type:'image/png',sha256:sha},
     model:'table/vision',thinking:'high',vision:true,lane:{model:'fallback/lane',thinking:'medium'},...input};
   const child=spawn(process.execPath,[join(root,'build/pipicoc/onboarding-worker.mjs'),'handout-reading',JSON.stringify(request),JSON.stringify(configuration)],
-    {env:{...process.env,PI_COC_READER_CMD:'',PI_COC_MOD_MODEL:'',PI_COC_MOD_THINKING:''},stdio:['ignore','pipe','pipe']});
-  let stdout='',stderr='';child.stdout.on('data',chunk=>{stdout+=chunk;});child.stderr.on('data',chunk=>{stderr+=chunk;});
+    {env:{...process.env,PI_COC_READER_CMD:'',PI_COC_MOD_MODEL:'',PI_COC_MOD_THINKING:'',HANDOUT_FIXTURE_KEEP:'',...env},stdio:['ignore','pipe','pipe']});
+  const seen=[];let stdout='',stderr='';
+  child.stdout.on('data',chunk=>{stdout+=chunk;});child.stderr.on('data',chunk=>{stderr+=chunk;});
   await new Promise(done=>child.once('close',done));
   const events=stdout.split('\n').filter(Boolean).map(line=>JSON.parse(line));
-  return {events,stderr,result:events.find(event=>event.type==='result')?.data,failure:events.find(event=>event.type==='error')?.data};
+  return {events,stderr,progress:events.filter(event=>event.type==='progress').map(event=>event.data),
+    result:events.find(event=>event.type==='result')?.data,failure:events.find(event=>event.type==='error')?.data};
 }
-/** What each launched child recorded, oldest first. */
+/** What each launched child recorded. */
 function launches(f){
   const attempts=join(f.home,'.coc/handout-readings',sha,'attempts'),rows=[];
-  const walk=folder=>{for(const entry of readdirSync(folder,{withFileTypes:true})){
-    const path=join(folder,entry.name);
-    if(entry.isDirectory())walk(path);else if(entry.name==='launch-argv.json')rows.push(JSON.parse(readFileSync(path,'utf8')));}};
-  if(existsSync(attempts))walk(attempts);
-  const projections=join(f.home,'.coc/handout-readings',sha,'readings');
-  if(existsSync(projections))walk(projections);
+  if(existsSync(attempts))for(const id of readdirSync(attempts)){
+    const path=join(attempts,id,'launch-argv.json');
+    if(existsSync(path))rows.push(JSON.parse(readFileSync(path,'utf8')));
+  }
   return rows;
 }
-const SETTING={extensions:{'coc-keeper':{settings:{'ext.coc-keeper.laneModel':{model:'lanes/settled'},'ext.coc-keeper.laneThinking':{level:'off'}}}}};
+const SETTING={extensions:{'coc-keeper':{settings:{'ext.coc-keeper.laneThinking':{level:'off'}}}}};
 
-test('the picture is read on the table\'s model and the words on the lane setting, and the answer is the reading',async t=>{
+test('the picture goes to a zero-tool child as an attachment, and the reading streams back while it is written',async t=>{
   const f=fixture(t,SETTING);
-  const {result,failure,stderr}=await readOnce(f);
+  const {result,failure,progress,stderr}=await readOnce(f);
   assert.equal(failure,undefined,`the worker failed: ${stderr}`);
-  assert.equal(result.title,'[en] PRINTED HEADLINE');
-  assert.equal(result.text,'[en] Printed body, line one.');
-  assert.equal(result.keep,false);assert.equal(result.digest,sha);
-  const rows=launches(f),transcription=rows.find(row=>row.phase==='transcription'),projection=rows.find(row=>row.phase==='projection');
-  // The reader saw exactly the delivered bytes, under a name that says what they are.
-  assert.equal(transcription.image,'image.png');assert.equal(transcription.seen_sha256,sha);
-  // Two models for two steps. The lane setting outranks the caller's fallback; the table's effort never reaches either step.
-  assert.equal(transcription.model,'table/vision');assert.equal(projection.model,'lanes/settled');
-  assert.equal(transcription.thinking,'off');assert.equal(projection.thinking,'off');
-  // Cost evidence for both steps.
-  const telemetry=readFileSync(join(f.home,'.coc/handout-readings/telemetry.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
-  assert.deepEqual(telemetry.map(row=>[row.phase,row.model]),[['transcription','table/vision'],['projection','lanes/settled']]);
-  assert.ok(telemetry.every(row=>row.sha256===sha&&Number.isFinite(row.ms)));
+  assert.deepEqual([result.title,result.keep,result.digest],['[en] PRINTED HEADLINE',false,sha]);
+  assert.equal(result.text,'[en] Printed body, line one.\n\n[en] Printed body, line two […]');
+  // What the child was launched with: no tools, JSON events, the picture as an attachment before `--`, the table's model,
+  // the lane's effort (the table's `high` never reaches it).
+  const [launch]=launches(f);
+  assert.equal(launch.tools,'');assert.equal(launch.mode,'json');assert.deepEqual(launch.attachments,['@image.png']);
+  assert.equal(launch.model,'table/vision');assert.equal(launch.thinking,'off');
+  assert.equal(launch.seen_sha256,sha,'the child saw exactly the delivered bytes');
+  assert.match(launch.brief,/^Play language: en\n/);
+  // The reading was relayed while the child was still writing: several states, each longer than the last, the last the answer.
+  assert.ok(progress.length>=3,`only ${progress.length} progress lines`);
+  for(let index=1;index<progress.length;index++)
+    assert.ok(progress[index].title.length>progress[index-1].title.length||progress[index].text.length>progress[index-1].text.length);
+  assert.ok(progress.every(row=>row.stage==='reading'));
+  assert.deepEqual(progress.at(-1),{stage:'reading',title:result.title,text:result.text});
+  assert.ok(progress[0].text.length<result.text.length,'the first state is a beginning, not the whole');
+  const [row]=readFileSync(join(f.home,'.coc/handout-readings/telemetry.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+  assert.deepEqual([row.phase,row.model,row.sha256,row.ok],['reading','table/vision',sha,true]);
+  assert.ok(Number.isFinite(row.ms));
 });
 
-test('a second run, in another language, reads no picture again and answers from disk for the same language',async t=>{
+test('a second ask starts no child for the same language, and another language is another reading',async t=>{
   const f=fixture(t,SETTING);
   await readOnce(f);
-  const before=launches(f).length;
-  const other=await readOnce(f,{campaign:'two',play_language:'fr'});
-  assert.equal(other.result.title,'[fr] PRINTED HEADLINE');
-  const after=launches(f);
-  assert.equal(after.filter(row=>row.phase==='transcription').length,1,'one transcription serves both languages');
-  assert.equal(after.length,before+1);
-  await readOnce(f);
-  assert.equal(launches(f).length,before+1,'the same table again starts no child');
+  const again=await readOnce(f,{campaign:'two'});
+  assert.equal(launches(f).length,1);assert.equal(again.result.title,'[en] PRINTED HEADLINE');
+  const french=await readOnce(f,{play_language:'fr'});
+  assert.equal(launches(f).length,2);assert.equal(french.result.title,'[fr] PRINTED HEADLINE');
+});
+
+test('a picture already in the play language is kept, and no text is relayed',async t=>{
+  const f=fixture(t,SETTING);
+  const {result,progress}=await readOnce(f,{},{HANDOUT_FIXTURE_KEEP:'1'});
+  assert.deepEqual([result.keep,result.title,result.text],[true,'','']);
+  assert.deepEqual(progress,[]);
 });
 
 test('a table model without image input is refused before any child starts, and the code reaches the host',async t=>{
@@ -94,7 +103,7 @@ test('a table model without image input is refused before any child starts, and 
   assert.deepEqual(launches(f),[]);
 });
 
-test('a picture that is not the one the host checked is refused, and nothing is transcribed',async t=>{
+test('a picture that is not the one the host checked is refused, and nothing is read',async t=>{
   const f=fixture(t,SETTING);
   writeFileSync(f.image,Buffer.concat([PNG,Buffer.from('replaced')]));
   const {failure}=await readOnce(f);

@@ -21,7 +21,6 @@ export const COMPILED_ENTRIES = Object.freeze({
   jev: 'build/extensions/jev/agent/index.mjs',
   characterGuidance: 'build/extensions/module/character-guidance.mjs',
   characterPresentation: 'build/extensions/module/character-presentation.mjs',
-  handoutReading: 'build/extensions/module/handout-reading.mjs',
   documentPresentation: 'build/extensions/mods/document-presentation.mjs',
   auditSubmit: 'build/extensions/mods/audit-submit.mjs',
   adaptationSubmit: 'build/extensions/kernel/adaptation-submit.mjs',

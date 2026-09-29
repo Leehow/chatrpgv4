@@ -8,65 +8,48 @@ Order: VT-01 first (it touches the same lane key); VT-02 and VT-03 in parallel; 
 
 ## VT-01: settle the handouts lane on image-only rows
 
-Status: needs-triage
+Status: done (merged; contract §155.10)
 
-**What to build.** Research reading (not run) suggests a respawn loop. `handoutTexts(view)` adds an image-only row's `name` to the handouts lane's wanted words (`extensions/module/character-presentation.ts:234-240`), while the lane reads only `.md` files (`:253`), so the word can never be supplied. `laneProjection` reports it missing on every sheet or board read and starts the lane again (`Electron/packages/pi-backend/src/index.ts:10119-10143`), which then emits `sheet_changed` and triggers another read. Prove or disprove it on a real table that holds an image handout (the Dust to Dust campaign holds two). If real, give an image-only row's title a lane that can actually produce it: the title is a handout title, so it belongs to this feature's projection (VT-03) or to the handouts lane's input, not to a word that is wanted forever.
-
-**Acceptance.**
-- [ ] Telemetry or a test on the real host path shows how many `handouts` lane runs one board read of an image-handout table starts, before and after.
-- [ ] A test whose lane mock resolves (the existing one never resolves) fails on the loop and passes on the fix.
-- [ ] An image handout's title reaches the play language or is recorded as owed; it is never silently wanted forever.
-
-## VT-02: transcribe a delivered image handout, once per image
-
-Status: needs-triage
-
-**What to build.**
-- **Host method.** A `coc-keeper` host method (hot `pipicoc/board.ts` handlers and cold `Electron/packages/pi-backend/src/index.ts` dispatch), `handout.reading {campaign, handout}`. It resolves the image with `handoutImage`'s gates: delivered, in `world.handouts_shown`, in scope, magic bytes matching, and under the display cap.
-- **Background job.** It starts one job per `asset_digest`: a tool-enabled Pi reader on the reader axis (vision-capable, §37.10.1) with a dedicated instruction file (`content/setup/handout-transcription.md`) and a checker.
-- **The transcription.** The job writes the printed text as it stands, in reading order, with its structure (headline, deck, byline, body paragraphs, captions), and marks what is illegible. It adds nothing, interprets nothing, and never uses the graph's `summary`.
-- **Cache.** The result lives under a home-level cache keyed by digest and instruction digest, and is never written into the graph or a turn.
-- **Answer shape.** The method answers `{pending:true}` at once, or the finished reading.
-- **Refusals.** A model without image input refuses with `model_without_images`; nothing is transcribed blind.
+**What was built.** The loop was real, seen live in the installed App (a `handouts` worker respawn every 4-8 s on a campaign holding two image-only clippings) and reproduced on the real host path: one board read started 5 lane runs before the test's re-read cap stopped it, and the title never reached the play language. The host now hands the lane the row names no file carries (`handout_names`), and `prepareHandoutPresentation` joins them to the file rows.
 
 **Acceptance.**
-- [ ] Two campaigns holding the same clipping share one transcription (one reader run).
-- [ ] An undelivered handout, a keeper-only one, one outside the campaign or module roots, a symlink escape, and a wrong magic byte are each refused. A test drives each one.
-- [ ] The job's cost (model, rounds, tokens, wall time) is on a telemetry row. Transcription time on the two Dust to Dust clippings is measured and reported.
-- [ ] A reader session on a text-only model refuses rather than answering from nothing.
+- [x] Before/after run counts on the real host path: 5+ (one per re-read, unbounded) before, 1 after, with 0 for the re-read its landing causes (`coc-handout-lane.test.ts`).
+- [x] A test whose lane mock resolves fails on the loop and passes on the fix (mutation-checked: host, presentation layer and onboarding key each reverted in turn).
+- [x] An image handout's title reaches the play language through the lane.
 
-## VT-03: project the transcription into the play language, as one document
+## VT-02 + VT-03: read a delivered image handout in the play language, streamed
 
-Status: needs-triage
+Status: done (contract §155.1-§155.5, §155.9)
 
-**What to build.** Project the transcription through the existing presentation protocol (`keep` / `translate`, checker, retries). The whole transcription is one source string, under a dedicated instruction file (`content/setup/handout-reading.md`: period voice, names as the table already calls them, nothing added, structure kept). The model choice is the presentation lane's (`cocFastLane`). Results are cached by digest, tag and instruction digest (the Mod document reading-version pattern, `extensions/mods/document-presentation.ts`). `keep` means already in the play language, and the UI says so.
+The two tickets became one when the owner asked for streaming (2026-09-29): a transcription step and a projection step, each a tool-enabled child, measured about 35 s before the first character (21-22 s + 11-13 s on `grok-build/grok-4.5`), and a tool-enabled child writes its answer in one file write. The shipped shape is one zero-tool vision completion that streams the reading (§155.3, §155.9).
 
 **Acceptance.**
-- [ ] A zh clipping for an `en` table and an en clipping for a `zh-Hans` table each produce a reading version. The same clipping for a `zh-Hans` table answers `keep`. No code inspects the text's script.
-- [ ] People and places the table already knows are rendered with the table's names (§23 standing names).
-- [ ] A changed instruction file re-projects; an unchanged one reuses the cache.
+- [x] Host method `handout.reading`; the gates of `handoutImage` shared through `handoutImageFile`; an undelivered handout, a keeper-only one, one outside the campaign or module roots, a symlink escape and a wrong magic byte are each refused (`coc-handout-images.test.ts`, `coc-handout-reading.test.ts`).
+- [x] A cost row per model round (model, effort, wall time, tokens) in `telemetry.jsonl`; time measured on the two Dust to Dust clippings (see Comments).
+- [x] A text-only table model refuses with `model_without_images` before any child starts; a cached reading needs none.
+- [x] `keep` is the model's verdict; no code inspects a script (`handout-reading.test.mjs`, the worker test).
+- [x] The reading is reported while it is written (several growing states before the child ends), reused from the cache by digest, tag and instruction; a changed instruction re-reads.
+- [x] The names the table already uses reach the brief.
 
 ## VT-04: the control on the row and on the board
 
-Status: needs-triage
-
-**What to build.**
-- **The control.** An image handout row gets a translate control and an original / reading toggle, both in the transcript (`pipicoc/mechanics.js` `MapRow` for handouts) and on the case board (`pipicoc/board.js`). Neither renderer can call the host from a row today, so a host-call path has to be added (the sheet panel's `api.invoke` and the illustration action are the precedents).
-- **States.** Pending, failed with retry, and "already in your language" are visible.
-- **Layout.** The reading version sits in the row's body slot under the picture; the picture is never replaced.
-- **Words.** Captions and error codes live in `content/ui/en/*.json` and are projected; there are no CJK literals in code, and the guard test stays green.
+Status: done
 
 **Acceptance.**
-- [ ] UI tests: the control renders on image handout rows only; pending → ready → toggle; failure → retry; `keep` state.
-- [ ] Reopening the App shows a finished reading without another model run.
+- [x] The control renders on image handout rows only, in the transcript (`pipicoc/mechanics.js`) and on the case board (`pipicoc/board.js`); the transcript gets a host-call path (`onInvoke`, §155.8); states pending, failed with retry, already in your language, ready with an original / reading toggle.
+- [x] Words are data: the `handout` surface and two `errors` codes, projected; no CJK in the renderers.
+- [x] The reading appears as it is written (400 ms polls of the job's partial reading).
+- [ ] Reopening the App: a row asks again when pressed and the disk cache answers without a model run (it does not ask on mount, so that scrolling starts no job).
 
 ## VT-05: acceptance on the installed App
 
-Status: needs-triage
+Status: owed
 
 **Acceptance.**
-- [ ] On an `en` campaign of Dust to Dust (a zh module), the main session plays as the player and reads both newspaper clippings through the button in the transcript and on the board.
+- [ ] On an `en` campaign of Dust to Dust (a zh module), the main session plays as the player and reads both newspaper clippings through the button in the transcript and on the case board.
 - [ ] On a `zh-Hans` campaign of an English PDF module, the same, with an English clipping.
 - [ ] The evidence (campaign ids, telemetry rows, screenshots) is recorded under `## Comments`.
 
 ## Comments
+
+2026-09-29, host path with a real model (not the installed App): the built worker with a real `pi` child and `grok-build/grok-4.5`, on the two Dust to Dust clippings copied from the installed App's module work folder. First version (two steps, since replaced): clipping 1 to `en` 22 s + 11 s, faithful English with the cropped headline marked `[…]`; the same clipping to `zh-Hans` answered `keep` from the cached transcription in 6 s; clipping 2 to `en` 21 s + 13 s.

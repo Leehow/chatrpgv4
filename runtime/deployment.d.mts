@@ -6,7 +6,7 @@ export interface RuntimeEntrypoints {
   readonly piHybrid: string; readonly sourceWorker: string; readonly source: string;
   readonly onboardingWorker: string; readonly rpc: string; readonly agent: string; readonly readerContext: string;
   readonly readerPdf: string; readonly readerSubmit: string; readonly deepseek: string; readonly imageGen: string; readonly grokBuild: string;
-  readonly characterGuidance: string; readonly characterPresentation: string; readonly documentPresentation: string; readonly handoutReading: string;
+  readonly characterGuidance: string; readonly characterPresentation: string; readonly documentPresentation: string;
   readonly uiPresentation: string;
   readonly jev: string;
   readonly extensions: readonly string[];

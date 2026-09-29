@@ -102,15 +102,15 @@ async function main() {
     input = {...input, model, thinking};
   }
   if (action === 'handout-reading') {
-    // Contract §155.3. The picture is read on the table's model (it needs image input); the projection
-    // runs on the presentation lane, resolved the way every lane resolves it (§37.10.1), with the
-    // caller's `lane` as the fallback. The lane's effort also bounds the transcription: reading a
-    // page is not a Keeper-quality decision, so it must not inherit the Keeper's `high`.
+    // Contract §155.3. The picture is read on the table's model (it needs image input) in one streamed
+    // completion; the effort is the presentation lane's (§37.10.1) with the caller's `lane` as the
+    // fallback, so reading a page never inherits the Keeper's `high`. What the model has written so
+    // far goes to the host as progress lines, which is how the player watches it arrive.
     const lane = await presentationLaneChoice(context, input.lane ?? {});
     return readHandout({home: input.home, contentRoot: context.contentRoot, campaign: input.campaign,
       play_language: await playLanguageTag(context.contentRoot, input.play_language), image: input.image,
-      vision: input.vision !== false, transcribeWith: {model: input.model, thinking: lane.thinking},
-      projectWith: lane, signal: guidanceAbort.signal, owner: runtime!, runner: runTask});
+      vision: input.vision !== false, model: input.model, thinking: lane.thinking, signal: guidanceAbort.signal,
+      runner: runTask, onProgress: partial => emit('progress', {stage: 'reading', title: partial.title, text: partial.text})});
   }
   if (action === 'document-presentation') {
     const document = await call('mods.document.view', {campaign:input.campaign, actor:input.actor, name:input.name});

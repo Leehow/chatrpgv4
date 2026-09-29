@@ -19,7 +19,7 @@ function world(){
   const started:any[]=[];
   const deps=(over:Partial<HandoutReadingDeps>={}):HandoutReadingDeps=>({params:{handout:'clipping'},binding:{home,campaign:'test',play_language:'en'},
     view:async()=>({handouts:rows}),table:async()=>({model:'table/vision',thinking:'high',vision:true}),lane:async()=>({model:'lane/fast',thinking:'low'}),
-    host:{handoutReadingStatus:data=>{started.push(data);return {pending:true};}},...over});
+    host:{handoutReadingStatus:data=>{started.push(data);return {pending:true};},handoutReadingRunning:()=>undefined},...over});
   return {home,path,rows,started,deps};
 }
 const code=(promise:Promise<unknown>)=>promise.then(()=>'ok',error=>(error as {code?:string}).code);
@@ -40,10 +40,10 @@ it('starts a job from a handle alone and hands it only the checked file, its dig
 
 it('answers a finished reading with the reading, whether it is kept, and the picture\'s digest',async()=>{
   const w=world();
-  const ready=await handoutReadingAnswer(w.deps({host:{handoutReadingStatus:()=>({title:'T',text:'Body',keep:false,digest:'ignored'})}}));
+  const ready=await handoutReadingAnswer(w.deps({host:{handoutReadingStatus:()=>({title:'T',text:'Body',keep:false,digest:'ignored'}),handoutReadingRunning:()=>undefined}}));
   expect(ready).toMatchObject({status:'ready',handout:'clipping',keep:false,title:'T',text:'Body'});
   expect((ready as any).digest).toMatch(/^[a-f0-9]{64}$/);
-  expect(await handoutReadingAnswer(w.deps({host:{handoutReadingStatus:()=>({title:'T',text:'B',keep:true})}}))).toMatchObject({keep:true});
+  expect(await handoutReadingAnswer(w.deps({host:{handoutReadingStatus:()=>({title:'T',text:'B',keep:true}),handoutReadingRunning:()=>undefined}}))).toMatchObject({keep:true});
 });
 
 it('refuses what the player does not hold, each with its own code',async()=>{
@@ -57,6 +57,22 @@ it('refuses what the player does not hold, each with its own code',async()=>{
   rmSync(w.path);
   expect(await code(handoutReadingAnswer(w.deps()))).toBe('handout_not_available');
   expect(w.started).toHaveLength(0);
+});
+
+it('a reading that is being written is polled from the job, without reading the table again, and carries what is written so far',async()=>{
+  const w=world();
+  const view=vi.fn(async()=>({handouts:w.rows}));
+  const running=vi.fn((query:{campaign:string;handout:string})=>query.handout==='clipping'?{pending:true,partial:{title:'Grave',text:''}}:undefined);
+  const deps=(handout:string)=>w.deps({view,params:{handout},host:{handoutReadingStatus:()=>({pending:true}),handoutReadingRunning:running}});
+  expect(await handoutReadingAnswer(deps('clipping'))).toEqual({status:'pending',handout:'clipping',partial:{title:'Grave',text:''}});
+  expect(view).not.toHaveBeenCalled();
+  expect(running).toHaveBeenCalledWith({campaign:'test',handout:'clipping'});
+  // A handle nobody is reading still goes through the gates.
+  expect(await code(handoutReadingAnswer(deps('never-delivered')))).toBe('invalid_params');
+  expect(view).toHaveBeenCalledTimes(1);
+  // A first ask that the job answers with a partial passes it on.
+  const started=await handoutReadingAnswer(w.deps({host:{handoutReadingStatus:()=>({pending:true,partial:{title:'T',text:'B'}}),handoutReadingRunning:()=>undefined}}));
+  expect(started).toEqual({status:'pending',handout:'clipping',partial:{title:'T',text:'B'}});
 });
 
 it('a handle the table view does not list is refused even when a row of another campaign would have matched',async()=>{
@@ -116,4 +132,22 @@ it('a handout row on an older transcript gets its handle from the receipt id, an
   expect(entry({kind:'handout',receipt:'handout:old-t3',handout:'kept',name:'Card'}).handout).toBe('kept');
   expect(entry({kind:'handout',receipt:'something-else',name:'Card'}).handout).toBeUndefined();
   expect(entry({kind:'handout',name:'Card'}).handout).toBeUndefined();
+});
+
+it('the job\'s partial reading grows with what the worker reports, never shrinks, and is answered to polls and to the running query',async()=>{
+  const host=service();let finish:(value:any)=>void=()=>{},report:(data:any)=>void=()=>{};
+  vi.spyOn(host as any,'run').mockImplementation((...args:any[])=>new Promise(resolve=>{finish=resolve;report=args[6];}));
+  expect(host.handoutReadingStatus(data())).toEqual({pending:true});
+  expect(host.handoutReadingRunning({campaign:'test',handout:'clipping'})).toEqual({pending:true});
+  report({stage:'reading',title:'Grave',text:''});
+  expect(host.handoutReadingStatus(data())).toEqual({pending:true,partial:{title:'Grave',text:''}});
+  report({stage:'reading',title:'Grave Robbers',text:'By our rep'});
+  report({stage:'reading',title:'Grave',text:'By'});
+  expect(host.handoutReadingRunning({campaign:'test',handout:'clipping'})).toEqual({pending:true,partial:{title:'Grave Robbers',text:'By our rep'}});
+  expect(host.handoutReadingRunning({campaign:'test',handout:'other'})).toBeUndefined();
+  expect(host.handoutReadingRunning({campaign:'two',handout:'clipping'})).toBeUndefined();
+  finish({title:'Grave Robbers',text:'By our reporter',keep:false,digest:'d'});await new Promise(resolve=>setTimeout(resolve,0));
+  expect(host.handoutReadingRunning({campaign:'test',handout:'clipping'})).toBeUndefined();
+  expect(host.handoutReadingStatus(data())).toMatchObject({title:'Grave Robbers',text:'By our reporter'});
+  host.dispose();
 });
