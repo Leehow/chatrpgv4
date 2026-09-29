@@ -106,3 +106,14 @@ it('a failed job is a one-shot mailbox: the refusal a player can act on keeps it
   expect(run).toHaveBeenCalledTimes(4);
   host.dispose();
 });
+
+it('a handout row on an older transcript gets its handle from the receipt id, and a row that has one keeps it',async()=>{
+  const {mechanicsEntry}=await import('../src/coc-view.js');
+  const entry=(row:Record<string,unknown>)=>((mechanicsEntry({type:'custom',id:'d',customType:'coc-mechanics',data:{turn:1,mechanics:[row]}},'en') as any).presentation.details.mechanics[0]);
+  expect(entry({kind:'handout',receipt:'handout:globe-1918-t6',name:'Globe'}).handout).toBe('globe-1918');
+  // A handle that itself contains `-t<digits>` is read from the front: only the turn suffix is dropped.
+  expect(entry({kind:'handout',receipt:'handout:card-t2-t14',name:'Card'}).handout).toBe('card-t2');
+  expect(entry({kind:'handout',receipt:'handout:old-t3',handout:'kept',name:'Card'}).handout).toBe('kept');
+  expect(entry({kind:'handout',receipt:'something-else',name:'Card'}).handout).toBeUndefined();
+  expect(entry({kind:'handout',name:'Card'}).handout).toBeUndefined();
+});

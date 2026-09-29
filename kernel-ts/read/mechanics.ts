@@ -257,6 +257,9 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             document: truth(attachment.available) ? DOCUMENT_READY : DOCUMENT_NONE
         };
         labeled(out, "label", receipt.label);
+        // The handle the player's own controls address this handout by (`handout.reading`, §155): the
+        // row folds under a display name, which is not an identifier.
+        labeled(out, "handout", receipt.handout);
         labeled(out, "path", attachment.path);
         labeled(out, "media_type", attachment.media_type);
         labeled(out, "image_path", attachment.image_path);

@@ -29070,11 +29070,13 @@ Under the agent home, never in the graph, a turn, a capsule or a Keeper prompt:
 - `.coc/handout-readings/<sha256>/transcription-<instr>.json` -- keyed by the image's `sha256` (the graph's
   `asset_digest`, computed by the host from the bytes it read) and the transcription instruction's digest. It serves every
   campaign and every play language.
-- `.coc/handout-readings/<sha256>/reading-<tag>-<key>.json` -- `key` is a digest of the reading instruction, the
-  transcription and the `known_names` used, so a changed instruction file or a newly projected name re-projects and an
-  unchanged input reuses the file.
-- `.coc/handout-readings/<sha256>/attempts/<id>/` (requests, events, findings) and `.coc/handout-readings/telemetry.jsonl`
-  (one row per model step: `{at, phase, sha256, model, thinking, rounds, ms, tokens, cost_usd}`) are kept as evidence.
+- `.coc/handout-readings/<sha256>/readings/<key>/accepted.json` (with its `attempts/`) -- the projection's own cache
+  (`projectReading`, shared with the Mod document reading); `key` is a digest of the composed title and body, the
+  play language, the reading instruction's bytes and the `known_names` used, so a changed instruction file or a newly
+  projected name re-projects and an unchanged input reuses the file.
+- `.coc/handout-readings/<sha256>/attempts/<id>/` (the copied image, requests, events, findings) and
+  `.coc/handout-readings/telemetry.jsonl` (one row per model round: `{at, phase, sha256, campaign, play_language, model,
+  thinking, round, ms, ok, timed_out, input_tokens, output_tokens, cost_usd, actions}`) are kept as evidence.
 
 ### 155.5 The job
 
@@ -29100,4 +29102,6 @@ away. It is not evidence for Keeper decisions and never enters `lookup` or the g
 
 The board panel calls the method through its `api.invoke` (the `board` precedent). The transcript's tool renderer had no
 host call: the host UI now passes `onInvoke(method, params)` to every tool renderer of the extension that registered it,
-which calls `host.invokeExtension(<that extension>, method, params, {sessionId})`; today `coc-mechanics` is its only user.
+which calls `host.invokeExtension(<that extension>, method, params, {sessionId})`; today `coc-mechanics` is its only user. A handout's mechanics row (§16.2) now carries `handout`, the receipt's handle, because the
+row folds under a display name and a name is not an identifier; a row persisted before this section is given the same
+handle by the host from its receipt id (`handout:<handle>-t<turn>`, `mechanicsEntry`), and a row with neither has no control.

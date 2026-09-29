@@ -55,6 +55,7 @@ test('the handouts lane asks for the body the card shows, not the file the kerne
     const texts = new Map(await Promise.all(paths.map(async path => [path, await readFile(path, 'utf8')])));
     const [card] = api.mechanics(receipts, {}, texts).filter(row => row.kind === 'handout');
     assert.ok(card?.text, 'the Globe clipping projects a card with a body');
+    assert.equal(card.handout, 'globe-unpublished-1918', 'the row carries the handle the player\'s controls address it by (§155)');
     const file = texts.get(card.path);
     assert.notEqual(card.text, file, 'the card shows less than the file: the heading is not part of the body');
 

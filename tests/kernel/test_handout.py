@@ -42,7 +42,7 @@ def test_handout_with_authored_text_is_materialized_and_rendered(kernel):
     assert narrated["rendered_text"] == "他把一张剪报推过来。\n\n你读了起来。"
     # §16.2: a text handout's row carries its body so the frontend can unfold it into a readable
     # card -- the materialized file's H1 is the row's own name, so the body drops it.
-    row = {"kind": "handout", "marker": f"handout:{TEXT_HANDOUT}", "receipt": f"handout:{TEXT_HANDOUT}-t1", "name": receipt["name"],
+    row = {"kind": "handout", "marker": f"handout:{TEXT_HANDOUT}", "receipt": f"handout:{TEXT_HANDOUT}-t1", "handout": TEXT_HANDOUT, "name": receipt["name"],
            "document": "ready", "label": "1918 年环球报未刊稿", "path": attachment["path"],
            "media_type": "text/markdown", "call": "t1-c1"}
     assert narrated["mechanics"] == [{**row, "text": narrated["mechanics"][0]["text"]}]

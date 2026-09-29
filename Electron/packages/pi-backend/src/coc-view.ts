@@ -467,6 +467,16 @@ function wordTable(value:unknown):Record<string,string> {
 /** The §40.1 say wrapper, by shape only: the name may be in any script, so the ASCII marker
  *  grammar of §16.6 does not see it. No `g` flag — `test` here must not carry a `lastIndex`. */
 const SAY_TOKEN=/\{\{say:[^{}\n]{1,60}\}\}/;
+/**
+ * A handout row persisted before the kernel carried its handle (§155): the handle is the middle of the
+ * receipt id the kernel minted (`handout:<handle>-t<turn>`), so the controls that address a handout by it
+ * work on an older transcript too. A row whose id has another shape stays as it was.
+ */
+function handoutHandle(row:any):any {
+  if(typeof row.handout==='string'&&row.handout||typeof row.receipt!=='string')return row;
+  const found=/^handout:(.+)-t\d+$/.exec(row.receipt);
+  return found?{...row,handout:found[1]}:row;
+}
 export function mechanicsEntry(row:any, language?:string, presentations?:ReadonlyMap<number,Record<string,unknown>>,
   words:CocHistoryWords={}, current?:Record<string,unknown>, patches?:readonly CocCardPatch[]|CocObjectDetails, context?:CocBinding): HistoryEntry | undefined {
   const lanes=wordTable(words.lanes), chrome=words.ui?{ui:words.ui}:{};
@@ -489,7 +499,7 @@ export function mechanicsEntry(row:any, language?:string, presentations?:Readonl
   if(row?.type!=='custom'||row.customType!=='coc-mechanics'||!Array.isArray(row.data?.mechanics))return;
   const mechanics=row.data.mechanics.filter((x:any)=>x&&typeof x==='object'&&x.visibility!=='keeper').map(concealFigures).map((item:any)=>{
     if(item.kind!=='handout')return item;
-    const {image:_existing,...safe}=item,image=handoutImage(safe,context);
+    const {image:_existing,...rest}=item,safe=handoutHandle(rest),image=handoutImage(safe,context);
     return image?{...safe,image}:safe;
   });
   // §16.6: the delivery with its markers still in it, when the Keeper placed any. It rides with the
