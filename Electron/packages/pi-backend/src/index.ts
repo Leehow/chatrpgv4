@@ -7,6 +7,7 @@ import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPre
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
 import {withHandoutImages} from './coc-handout-images.js';
+import {handoutReadingAnswer} from './coc-handout-reading.js';
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
 import { closeSync, constants as fsConstants, createReadStream, createWriteStream, existsSync, lstatSync, openSync, readFileSync, realpathSync, rmSync, watch, writeSync, promises as fs, type Dirent } from "node:fs";
@@ -9934,6 +9935,26 @@ export class PiHostBackend implements HostBackend {
         ? optsValue.sessionId.trim()
         : [...this.live.keys()].at(-1);
     if (!sessionId) return this.cocDenied("no_session", "no active session");
+    // Contract §155: reading a delivered image handout in the play language. A host control like the
+    // illustration list -- no turn, no receipt -- answered here on every leg: it needs the campaign's
+    // player-safe `table.view` and the agent home's models, never a live pack.
+    if (id === "coc-keeper" && method === "handout.reading") {
+      try {
+        const selected = await this.locate(sessionId), binding = await readCocBinding(selected.path);
+        if (!binding) return this.cocDenied("campaign_unbound", "No campaign is bound");
+        if (!this.managedNodeModulesRoot) throw this.cocRefusal("runtime_unavailable", "Canonical runtime is unavailable");
+        const repo = resolve(this.managedNodeModulesRoot, "..");
+        const host = this.cocOnboardingRegistry.get({...this.cocRuntime, repo, home: binding.home, agentDir: this.sharedProfileDir, env: this.env});
+        const data = await handoutReadingAnswer({params, binding, host,
+          view: () => callColdKernel(repo, binding.home, "table.view", {campaign: binding.campaign}, this.env, this.cocRuntime),
+          table: async () => {
+            const state = await this.getModelState(sessionId);
+            return {model: `${state.model.provider}/${state.model.id}`, thinking: state.thinkingLevel, vision: state.model.supportsImages !== false};
+          },
+          lane: async () => this.cocFastLane(await this.getModelState(sessionId))});
+        return {ok: true, data};
+      } catch (error) { return this.cocDenied(this.cocCode(error), error instanceof Error ? error.message : String(error)); }
+    }
     if (id === 'coc-keeper' && method === 'defense-preference') {
       const selected = await this.locate(sessionId), binding = await readCocBinding(selected.path);
       if (!binding) return this.cocDenied('campaign_unbound', 'No campaign is bound');

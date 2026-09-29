@@ -62,15 +62,28 @@ export function validateDocumentReference(value:unknown, request:{protocol:strin
   catch {throw coded("preparation_failed", "Invalid document reading");}
 }
 
-async function reading(options:Options, title:string, text:string, language:string) {
-  const prompt = options.resourceRoot ? join(options.resourceRoot, 'extensions/mods/document-presentation.md') : defaultPrompt;
+/** Where a projection reads its instruction and keeps its accepted files, and what else its request carries. */
+export type ProjectionSpec = {promptPath:string; cacheRoot:string; extra?:Record<string, unknown>};
+
+/**
+ * One document -- a title and a body -- projected into the play language under the keep/translate
+ * protocol, cached by everything that decides the answer.
+ *
+ * The Mod document reading and the pictured-handout reading (contract §155.3) are the same act on
+ * different instruction files, so this is the one place the request, the checker, the two rounds and
+ * the cache are written. `extra` rides in `request.json` beside the issued aliases (the handout's
+ * `known_names`) and is part of the cache key; without it the key is exactly what it always was, so
+ * a Mod document's accepted files stay valid.
+ */
+export async function projectReading(options:Options, spec:ProjectionSpec, title:string, text:string, language:string) {
+  const prompt = spec.promptPath;
   const instructions = await readFile(prompt, "utf8");
   const source = {title, text, play_language:language};
   const catalog = issuePresentationReferences([title,text],{deduplicate:false,protocol:DOCUMENT_PRESENTATION_REFERENCE_PROTOCOL});
   const parts={title:catalog.sources[0].alias,text:catalog.sources[1].alias};
-  const request = {protocol:catalog.protocol,play_language:language,sources:catalog.sources,parts};
-  const fingerprint = createHash("sha256").update(JSON.stringify([source, instructions])).digest("hex");
-  const directory = join(options.home, ".coc/document-presentations", fingerprint);
+  const request = {protocol:catalog.protocol,play_language:language,sources:catalog.sources,parts,...spec.extra};
+  const fingerprint = createHash("sha256").update(JSON.stringify(spec.extra ? [source, instructions, spec.extra] : [source, instructions])).digest("hex");
+  const directory = join(options.home, spec.cacheRoot, fingerprint);
   const accepted = join(directory, "accepted.json");
   try {return validateDocumentReading(JSON.parse(await readFile(accepted, "utf8")), source);}
   catch { /* Missing or invalid cache entries are regenerated from the same source. */ }
@@ -93,6 +106,7 @@ validateDocumentReference(JSON.parse(readFileSync("result.json","utf8")),JSON.pa
       prepareRound:async round=>{
         if (round === 1) await writeFile(join(attempt, "request.json"), JSON.stringify(request, null, 2));
         return "Read request.json and write one document-presentation-reference-v1 keep or translate operation for each issued title/body alias to result.json. Keep selects exact host bytes, including empty text and line breaks; translate contains only newly generated player-language text. Never copy source strings into output keys or unchanged values. Run node check.mjs and repair any error."
+          + (spec.extra ? " Follow the instruction file's rules for the other fields request.json carries." : "")
           + (round > 1 ? " Read findings.json and repair the retained result." : "");
       },
       recordOutcome:async (outcome, round)=>{
@@ -121,6 +135,11 @@ validateDocumentReference(JSON.parse(readFileSync("result.json","utf8")),JSON.pa
   })();
   pending.set(key, task);
   try {return await task;} finally {pending.delete(key);}
+}
+
+async function reading(options:Options, title:string, text:string, language:string) {
+  const promptPath = options.resourceRoot ? join(options.resourceRoot, 'extensions/mods/document-presentation.md') : defaultPrompt;
+  return projectReading(options, {promptPath, cacheRoot:".coc/document-presentations"}, title, text, language);
 }
 
 export async function presentDocument(options:Options, document:Row):Promise<Row> {

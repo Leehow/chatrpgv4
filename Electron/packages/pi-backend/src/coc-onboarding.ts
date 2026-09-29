@@ -34,6 +34,8 @@ const PRESENTATION_DEADLINE_MS = 360_000;
 /** Backoff between presentation attempts; its length is the retry budget. */
 const PRESENTATION_RETRY_DELAYS_MS = [800, 2_400, 6_000] as const;
 const CHUNK = 1024 * 1024;
+/** The codes a handout reading keeps as they are (contract §155.1); any other failure is `handout_reading_failed`. */
+const HANDOUT_READING_CODES = new Set(['model_without_images','presentation_timeout','handout_not_available','invalid_params']);
 /**
  * How long an `uploading` job may go without a chunk before it is reported as interrupted (§44).
  *
@@ -168,6 +170,8 @@ export class CocOnboardingHost {
   /** One background caption projection per tag (contract §23); a failed one waits for `retryUiWords`. */
   private wordJobs = new Map<string,{task:Promise<void>;failed:boolean}>();
   private documentReadings = new Map<string,{result?:Row;error?:unknown}>();
+  /** One reading job per (campaign, handout, image, tag); the panel and the card poll the same one (contract §155.5). */
+  private handoutReadings = new Map<string,{result?:Row;error?:unknown}>();
   private root: string;
   private options: CocOnboardingOptions;
   private preparation: Promise<PreparationHost>;
@@ -595,7 +599,7 @@ export class CocOnboardingHost {
       return this.attemptPresentation(data,deadline,attempt+1);
     }
   }
-  private boundedPresentation(data:Row,deadline:number):Promise<Row> {
+  private boundedPresentation(data:Row,deadline:number,action='presentation'):Promise<Row> {
     const controller=new AbortController();
     let timer:ReturnType<typeof setTimeout>|undefined;
     const bounded=new Promise<never>((_resolve,reject)=>{
@@ -605,7 +609,7 @@ export class CocOnboardingHost {
       },Math.max(0,deadline-Date.now()));
       timer?.unref?.();
     });
-    return Promise.race([this.run('presentation',data,undefined,undefined,undefined,controller),bounded])
+    return Promise.race([this.run(action,data,undefined,undefined,undefined,controller),bounded])
       .finally(()=>clearTimeout(timer));
   }
   documentPresentationStatus(data:Row):Row {
@@ -620,6 +624,36 @@ export class CocOnboardingHost {
       }
     }
     if(job.error){this.documentReadings.delete(key);throw job.error;}
+    return job.result||{pending:true};
+  }
+  /**
+   * The reading version of one delivered image handout (contract §155): `{pending:true}` while the
+   * job runs, the reading when it has one, and a coded refusal once (a failed job is a one-shot
+   * mailbox, so the next ask is a fresh job -- the retry control is the same call).
+   *
+   * One attempt under the presentation deadline and no automatic retry: a transcription is a vision
+   * model's paid reading of a page, and what it finished is cached by the image's digest, so a
+   * retry the player asks for resumes from the last finished step instead of repeating it.
+   */
+  handoutReadingStatus(data:Row):Row {
+    const key=JSON.stringify([data.campaign,data.handout,data.image?.sha256,data.play_language]);
+    let job=this.handoutReadings.get(key);
+    if(!job) {
+      job={};this.handoutReadings.set(key,job);
+      const current=job,limit=Number(this.options.env.PI_COC_PRESENTATION_DEADLINE_MS)||PRESENTATION_DEADLINE_MS;
+      void this.boundedPresentation(data,Date.now()+limit,'handout-reading').then(result=>{current.result=result;},error=>{current.error=error;});
+      if(this.handoutReadings.size>64)for(const [old,value] of this.handoutReadings) {
+        if(old!==key&&(value.result||value.error)){this.handoutReadings.delete(old);break;}
+      }
+    }
+    if(job.error){
+      this.handoutReadings.delete(key);
+      // Only the refusals a player can act on keep their word; everything else, a worker that stopped
+      // included, is one caption. The message keeps the cause for the log.
+      const code=(job.error as {code?:unknown})?.code;
+      throw refuse(typeof code==='string'&&HANDOUT_READING_CODES.has(code)?code:'handout_reading_failed',
+        job.error instanceof Error?job.error.message:String(job.error));
+    }
     return job.result||{pending:true};
   }
   presentationStatus(data:Row):Row {

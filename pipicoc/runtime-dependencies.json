@@ -101,6 +101,7 @@
     "build/extensions/module/reader-submit.mjs",
     "build/extensions/module/character-guidance.mjs",
     "build/extensions/module/character-presentation.mjs",
+    "build/extensions/module/handout-reading.mjs",
     "build/extensions/mods/document-presentation.mjs",
     "build/extensions/module/ui-presentation.mjs",
     "build/extensions/module/map-presentation.mjs",

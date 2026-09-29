@@ -1,10 +1,17 @@
 /** Materialize approved handout pixels at the player-host boundary, never in model context. */
+import {createHash} from 'node:crypto';
 import {readFileSync,realpathSync,statSync} from 'node:fs';
 import {isAbsolute,join,relative,sep} from 'node:path';
-type Binding={home:string;campaign:string};
+export type Binding={home:string;campaign:string};
 const segment=(value:unknown):value is string=>typeof value==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value);
 const inside=(base:string,file:string)=>{const part=relative(base,file);return !!part&&part!=='..'&&!part.startsWith('..'+sep)&&!isAbsolute(part)};
-export function handoutImage(row:any,binding?:Binding):string|undefined{
+/** One delivered image the player holds, read and checked: the bytes are what the answer was verified against. */
+export type HandoutImageFile={path:string;media_type:string;bytes:Buffer;sha256:string};
+/**
+ * The gate every place that turns a delivered handout row into pixels goes through (contract §152.3,
+ * §155.2): the display data URL below and the reading job's input are the same checks by construction.
+ */
+export function handoutImageFile(row:any,binding?:Binding):HandoutImageFile|undefined{
     const requested=row?.image_path||row?.path,media=row?.image_media_type||row?.media_type;
     if(!binding||typeof binding.home!=='string'||!isAbsolute(binding.home)||!segment(binding.campaign)||row?.document!=='ready'||['keeper','keeper-only'].includes(row.visibility)||typeof requested!=='string'||!isAbsolute(requested))return;
     try{
@@ -21,8 +28,12 @@ export function handoutImage(row:any,binding?:Binding):string|undefined{
             :bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WEBP'?'image/webp'
             :['GIF87a','GIF89a'].includes(bytes.subarray(0,6).toString())?'image/gif':undefined;
         if(!type||media!==type)return;
-        return `data:${type};base64,${bytes.toString('base64')}`;
+        return {path,media_type:type,bytes,sha256:createHash('sha256').update(bytes).digest('hex')};
     }catch{return;}
+}
+export function handoutImage(row:any,binding?:Binding):string|undefined{
+    const file=handoutImageFile(row,binding);
+    return file?`data:${file.media_type};base64,${file.bytes.toString('base64')}`:undefined;
 }
 export function withHandoutImages(view:any,binding?:Binding):any{
     if(!view||!Array.isArray(view.handouts))return view;

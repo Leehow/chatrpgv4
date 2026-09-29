@@ -12,6 +12,7 @@ import { prepareCharacterPresentation, prepareCluePresentation, prepareJournalPr
 import { playLanguageTag, resolveUiWords } from '../runtime/ui-words.ts';
 import { prepareUiWords } from '../extensions/module/ui-presentation.ts';
 import { presentDocument } from '../extensions/mods/document-presentation.ts';
+import { readHandout } from '../extensions/module/handout-reading.ts';
 import {createFreshSourceNavigator} from '../runtime/jev/fresh-source-navigator.ts';
 import {withStageLease, type ReadingStage} from '../runtime/jev/reading-stage-budget.ts';
 import {createTravelFill} from '../extensions/module/travel-fill.ts';
@@ -99,6 +100,17 @@ async function main() {
   if (action === 'presentation' || action === 'document-presentation') {
     const {model, thinking} = await presentationLaneChoice(context, input);
     input = {...input, model, thinking};
+  }
+  if (action === 'handout-reading') {
+    // Contract §155.3. The picture is read on the table's model (it needs image input); the projection
+    // runs on the presentation lane, resolved the way every lane resolves it (§37.10.1), with the
+    // caller's `lane` as the fallback. The lane's effort also bounds the transcription: reading a
+    // page is not a Keeper-quality decision, so it must not inherit the Keeper's `high`.
+    const lane = await presentationLaneChoice(context, input.lane ?? {});
+    return readHandout({home: input.home, contentRoot: context.contentRoot, campaign: input.campaign,
+      play_language: await playLanguageTag(context.contentRoot, input.play_language), image: input.image,
+      vision: input.vision !== false, transcribeWith: {model: input.model, thinking: lane.thinking},
+      projectWith: lane, signal: guidanceAbort.signal, owner: runtime!, runner: runTask});
   }
   if (action === 'document-presentation') {
     const document = await call('mods.document.view', {campaign:input.campaign, actor:input.actor, name:input.name});
