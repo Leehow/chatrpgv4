@@ -2,6 +2,9 @@
 import { row, integer, truth, type Row } from '../read/values.js';
 export const BACKSTORY = Object.freeze(['personal_description', 'ideology_beliefs', 'significant_people', 'meaningful_locations', 'treasured_possessions', 'traits']);
 export const nonempty = (value: any): value is string => typeof value === 'string' && Boolean(value.trim());
+/** The skills a creation skill list never holds: Credit Rating is allocated from the trade's range, and no
+ *  investigator starts with Cthulhu Mythos. The draft refuses them in a list; the setup clerk never offers them. */
+export const NOT_LISTED_SKILLS: readonly string[] = Object.freeze(['Credit Rating', 'Cthulhu Mythos']);
 export function investigatorRow(sheet: Row): Row {
   return {id: sheet.id ?? null, name: sheet.name ?? null, occupation: sheet.occupation ?? null, occupation_stated: sheet.occupation_stated ?? null, hp: sheet.current_hp ?? null,
     san: sheet.current_san ?? null, mp: sheet.current_mp ?? null, luck: sheet.current_luck ?? null};
