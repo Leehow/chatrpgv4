@@ -7,9 +7,17 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { consequenceKeysToExecute, jevStepsMode, jevStepsModeSource, keeperDidFor } from "../../runtime/jev/hybrid-engine.ts";
+import { consequenceKeysToExecute, jevStepsMode, jevStepsModeSource, keeperDidFor, receiptLabel } from "../../runtime/jev/hybrid-engine.ts";
 
 const ROW = (key, cleared, cls = "npc_reaction") => ({ class: cls, key, cleared, confidence: 0.9, distribution: { true: 0.9, false: 0.1 } });
+
+test("§150.1 addendum: a settled check's label names the attempt and whether it succeeded, never a bare `roll`", () => {
+	const failed = { id: "roll:persuade-t2-c1", kind: "roll", skill: "Persuade", skill_label: "Persuade", level: "failure", passed: false };
+	assert.equal(receiptLabel(failed), "Persuade check: failure, failed");
+	assert.equal(receiptLabel({ ...failed, level: "hard", passed: true }), "Persuade check: hard, succeeded");
+	assert.equal(receiptLabel({ kind: "roll", skill_label: "Locksmith", check: { level: "failure", passed: false } }), "Locksmith check: failure, failed", "the nested check shape is read too");
+	assert.equal(receiptLabel({ kind: "roll", decision: "natural-npc:first-impression", actor_label: "Hayes", npc: "knott" }), "first impression: Hayes on knott", "the first impression label is unchanged");
+});
 
 test("§150.1: jevStepsMode defers to the data default only when the switch is absent", () => {
 	assert.equal(jevStepsMode({}, "on"), "on", "no switch: the data default decides");

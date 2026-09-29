@@ -28647,6 +28647,14 @@ Owner go 2026-09-28. Every Jev question here follows §135.32's D2 hygiene (one 
 
 The consequence-step mode is the env switch when set (`on | shadow | off`); otherwise the host budget data's `jev_steps.shadow` decides (`false` = `on`). The shipped data is `shadow: false` with `execute: ["clue_follow_up"]`: on a default table `clue_follow_up` executes (SL-78 semantics) and every unlisted class is routed and paired in shadow. The effective mode and its source (`env | data`) are recorded on the run's route/residual rows. Nothing else in §135.32 changes.
 
+#### 150.1.1 A settled check reaches the consequence route with its outcome (2026-09-28, lead after reading gates #18–#25)
+
+A transcript read of the 49 executed `clue_follow_up` steps on gates #18–#25 found 10 that filed a clue the prose shows was not obtained. Five followed a failed Persuade that denied the clippings room. One followed a Library Use that found nothing for 1866. One followed a failed Locksmith. Three came before the person had told it.
+
+The route's `settled_this_run` rendered every roll receipt as the bare word `roll`. A roll receipt's label is now `<skill> check: <level>, succeeded|failed`, from the receipt's own typed fields. The clue Noul's `not_for` names a failed check, refused access, an unopened lock and an untold person as not reaching the clue. The consequence family moves to version 2.
+
+Until a table measures version 2, the `clue_follow_up` class gate returns to an effective 0.5 (`row_min 0.5, row_ratio 1`). Eight of the ten wrong executions sat below 0.5. At 0.5, gates #18–#25 would have executed 24 steps with 2 wrong, against 49 with 10 wrong at 0.4.
+
 ### 150.2 Background graph work: reuse, targeted repair, salvage
 
 1. **Review reuse is per unit, not per candidate.** A fact unit's cache identity covers the review protocol/instructions, source SHA, model, review policy, the unit's assigned records, the records connected to them (the focused review input's connected set) and the cited pages' image identity and extraction version. It excludes other records and round bookkeeping (`repair`, `must_view_pages`, `review_retry`). `/coverage` keeps the whole-candidate identity. A reused unit is recorded `reused: true`.

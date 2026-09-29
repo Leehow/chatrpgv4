@@ -126,6 +126,18 @@ test("§150.1: with no env switch the shipped data default (`jev_steps.shadow: f
 	assert.equal(residual.steps_mode_source, "data");
 });
 
+test("§150.1 addendum: the consequence route's state carries a failed check this turn as a failed check (the Jev family moves to version 2)", async () => {
+	const h = harness({ env: {}, decide: (batch) => clearNothing(batch) });
+	h.state.applyOptions = { candidates: [clueRow("globe-fire-cutoff")] };
+	h.state.receipts = [{ id: "roll:persuade-t2-c1", kind: "roll", skill_label: "Persuade", level: "failure", passed: false }];
+	await h.read("s1");
+	await h.plan.ports.operations.execute({ origin: "policy", operation: "turn_close" }, h.invocation("s6"));
+	const batch = h.decisions.find((value) => value.family === CONSEQUENCE_FAMILY);
+	assert.ok(batch, "the turn close routed the offered clue");
+	assert.equal(batch.familyVersion, "2");
+	assert.ok(batch.state.settled_this_run.includes("Persuade check: failure, failed"), JSON.stringify(batch.state.settled_this_run));
+});
+
 test("§150.1: an explicit env switch still wins over the data default and is recorded as the source", async () => {
 	const h = harness({ env: { COC_JEV_STEPS: "on" }, decide: (batch) => batch.family === CONSEQUENCE_FAMILY ? clearAllConsequence(batch) : clearNothing(batch) });
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };

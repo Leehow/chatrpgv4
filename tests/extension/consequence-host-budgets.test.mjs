@@ -90,10 +90,10 @@ test("jevStepsBudget (SL-86): mutating a class's row_min changes only that class
 	assert.equal(second.classRowMin.clue_follow_up, 0.2);
 });
 
-test("jevStepsBudget: the shipped file opens `clue_follow_up` at row_min 0.4 with its own row_ratio 0.67 (effective Noul gate 0.4; §135.32 addendum 3.1)", async () => {
+test("jevStepsBudget: the shipped file gates `clue_follow_up` at row_min 0.5 with row_ratio 1 (effective Noul gate 0.5; §150.1 addendum, 8 of 10 wrong executions on gates #18-#25 sat below 0.5)", async () => {
 	const budget = await jevStepsBudget();
-	assert.deepEqual(budget.classRowMin, { clue_follow_up: 0.4 });
-	assert.deepEqual(budget.classRowRatio, { clue_follow_up: 0.67 });
+	assert.deepEqual(budget.classRowMin, { clue_follow_up: 0.5 });
+	assert.deepEqual(budget.classRowRatio, { clue_follow_up: 1 });
 });
 
 // SL-86 finding (owner-facing, ticket 86 Comments): `noulClears`'s row gate is `p >= rowMin AND p >= rowRatio *

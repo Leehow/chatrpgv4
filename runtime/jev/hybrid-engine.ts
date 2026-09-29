@@ -262,6 +262,14 @@ export function receiptLabel(receipt: Row): string {
   if (kind === 'clue') return `clue ${text(receipt.clue)}: ${text(receipt.label) || text(receipt.summary)}`.trim();
   if (kind === 'time') return `${Number.isFinite(receipt.minutes) ? receipt.minutes : '?'} minutes: ${text(receipt.why)}`.trim();
   if (kind === 'roll' && text(receipt.decision) === NPC_REACTION_DECISION) return `first impression: ${text(receipt.actor_label) || text(receipt.actor)} on ${text(receipt.npc)}`;
+  // §150.1 addendum: a settled check says what was attempted and whether it succeeded -- a bare "roll" let the consequence
+  // route file a clue behind a failed Persuade or Locksmith check (10 of 49 executed clue steps on gates #18-#25).
+  if (kind === 'roll') {
+    const attempt = text(receipt.skill_label) || text(receipt.skill) || text(receipt.decision) || text(receipt.roll_kind) || 'check';
+    const level = text(receipt.level) || text(object(receipt.check).level);
+    const passed = typeof receipt.passed === 'boolean' ? receipt.passed : object(receipt.check).passed;
+    return `${attempt} check: ${level || 'unknown level'}${passed === true ? ', succeeded' : passed === false ? ', failed' : ''}`;
+  }
   return text(receipt.decision) || kind;
 }
 /**

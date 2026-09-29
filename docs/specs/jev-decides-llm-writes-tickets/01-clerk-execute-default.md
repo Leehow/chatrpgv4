@@ -32,3 +32,22 @@ Evidence (replay of recorded Noul `yes` over every judged clue row in the 15 gat
 - Raising to 0.5 would drop about half the executions, most of them correct, to prevent a failure that a gate cannot target.
 
 The real failure is an executed step that never reaches the prose (§135.32's "every executed D1 step appears in the prose or is reversed"). Ticket 05's report now counts executed / narrated / reversed / neither per table. The next lever is the question's state for NPC-held clues (a condition the fiction imposes before telling), not the gate.
+
+### 2026-09-28 — decision corrected after reading the 16 unmarked executions (lead)
+The earlier "keep 0.4" rested on marker counts and a few prose reads. Reading all 16 executed steps with no clue marker changed it:
+- 6 were told without a marker (Knott's commission, the Macario clipping, Dooley on #20, the dagger, Gabriela on #19 t7).
+- 10 filed a clue the prose shows was not obtained:
+  - `globe-fire-cutoff` ×5 after a failed Persuade (the editor refused the clippings room);
+  - `basement-burial-lawsuit` after a Library Use that found nothing for 1866;
+  - `corbitt-diaries` after a failed Locksmith;
+  - `dooley-macario-madness`/`burning-eyes-form` on #19 t5 and `gabriela-night-visitor` on #20 t6, before the person spoke.
+
+Root cause: the route's state rendered every roll as the bare word `roll`, so Jev never saw a check fail.
+
+Fixed (§150.1.1):
+- The roll label carries the skill, level and success.
+- The clue Noul's `not_for` names failed and refused attempts.
+- Family version 2.
+- Interim class gate at an effective 0.5: 24 executions with 2 wrong on the same tables, against 49 with 10 wrong.
+
+Tests: the label (unit), the route state carrying a failed Persuade with family version 2 (engine), and the shipped gate. A mutation restoring the bare label fails two tests. Acceptance (b) measures version 2 on a real table before the gate moves again.
