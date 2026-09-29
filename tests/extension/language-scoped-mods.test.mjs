@@ -164,6 +164,10 @@ test("the voice lane appends each enabled package's addendum after the owner's w
 	await game.call("mods.install", {path: await variant(game, "second", manifest => ({...manifest, id: "language-zh-second"}), {"voice-addendum.md": `${second}\n`})});
 	await game.create("zh", "zh-Hans");
 	await game.create("en", "en");
+	// The shipped Chinese package is on in a zh-Hans campaign too and appends its own addendum (see the zh-optimize
+	// test); it is switched off here so the fixtures' order is what this test reads.
+	assert.equal((await lockOf(game, "zh", "zh-optimize"))?.enabled, true);
+	await game.call("mods.configure", {campaign: "zh", id: "zh-optimize", enabled: false});
 	const owner = await ownerLane(), first = await text("voice-addendum.md");
 	await game.call("table.open", {campaign: "en"});
 	const english = await game.call("voice.job", {campaign: "en", backfill: true});
@@ -229,4 +233,22 @@ test("manifest validation: play_languages shape, the addendum's capability and t
 	assert.equal((await game.call("mods.install", {path: await variant(game, "at-ceiling", manifest => ({...manifest, id: "language-zh-at"}), {"brief.md": "x".repeat(400)})})).id, "language-zh-at");
 	const unscoped = await variant(game, "unscoped", manifest => {const {play_languages: _, ...rest} = manifest; return {...rest, id: "unscoped-long-brief"};}, {"brief.md": "x".repeat(1200)});
 	assert.equal((await game.call("mods.install", {path: unscoped})).id, "unscoped-long-brief");
+});
+
+test("the shipped zh-optimize package: on for a zh-Hans table, off for en, its brief each turn and its addendum after the owner's", async t => {
+	const game = await kernel(t, "zh-optimize");
+	await game.create("zh", "zh-Hans");
+	await game.create("en", "en");
+	assert.equal((await lockOf(game, "zh", "zh-optimize"))?.enabled, true);
+	assert.equal((await lockOf(game, "en", "zh-optimize"))?.enabled, false);
+	const shipped = name => readFile(join(ROOT, "mods", "zh-optimize", name), "utf8");
+	const zh = await briefTurn(game, "zh"), en = await briefTurn(game, "en");
+	assert.equal(zh.first.get("zh-optimize")?.instruction, await shipped("agent.md"));
+	assert.equal(zh.next.get("zh-optimize")?.instruction, await shipped("brief.md"));
+	assert.equal(en.next.has("zh-optimize"), false);
+	const owner = await ownerLane();
+	const job = await game.call("voice.job", {campaign: "zh", backfill: true});
+	assert.equal(job.instruction, [owner, addendum("zh-optimize", await shipped("voice-lane.zh.md"))].join("\n\n"));
+	const english = await game.call("voice.job", {campaign: "en", backfill: true});
+	assert.equal(english.instruction, owner);
 });

@@ -121,10 +121,11 @@ test("a language-scoped brief is measured against its own 400-byte ceiling, outs
 	await call("table.narrate",{call_id:"t1-c1",text:"The conversation reaches a quiet resting point."});
 	const next=await call("table.player_input",{text:"I stay with the conversation."});
 	const briefs=next.capsule.mods.instructions.filter(row=>row.form==="brief"),language=await languageScoped(call);
-	assert.deepEqual([...language],["language-zh"]);
+	// The shipped Chinese package (mods/zh-optimize, play_languages ["zh"]) is on for a zh-Hans table beside the fixture.
+	assert.deepEqual([...language].sort(),["language-zh","zh-optimize"]);
 	const{shared,scoped,combined}=assertCeilings(briefs,language);
-	assert.deepEqual(scoped.map(row=>row.mod),["language-zh"],"the language brief is assembled");
-	assert.ok(!shared.some(row=>row.mod==="language-zh"),"and left out of the shared sum");
+	assert.deepEqual(scoped.map(row=>row.mod).sort(),["language-zh","zh-optimize"],"the language briefs are assembled");
+	assert.ok(!shared.some(row=>row.mod==="language-zh"||row.mod==="zh-optimize"),"and left out of the shared sum");
 	assert.equal(combined+scoped.reduce((sum,row)=>sum+utf8(row.instruction),0),briefs.reduce((sum,row)=>sum+utf8(row.instruction),0));
 });
 
