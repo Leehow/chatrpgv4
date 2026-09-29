@@ -23,7 +23,7 @@ export type AccountUsageCapabilities = {
   fetch?: typeof fetch;
   env?: Record<string, string | undefined>;
   /** Parsed JSON or raw JSON from the host's credential stores. */
-  readAuth?: (store: "pi" | "codex" | "opencode") => Promise<unknown>;
+  readAuth?: (store: "pi" | "codex" | "grok" | "opencode") => Promise<unknown>;
   /** Cursor desktop JWT from the host (read-only SQLite). Never refresh this token. */
   readCursorAuth?: () => Promise<string | undefined>;
   /** Optional browser-cookie capability. Values are never returned in snapshots/errors. */
@@ -116,6 +116,12 @@ async function fetchJson(ctx: AccountUsageContext, url: string, init: RequestIni
   const response = await fetchResponse(ctx, url, init);
   if (!response.ok) throw new UsageError("http", `HTTP ${response.status}`);
   return responseJson(response);
+}
+
+async function fetchBytes(ctx: AccountUsageContext, url: string, init: RequestInit): Promise<Uint8Array> {
+  const response = await fetchResponse(ctx, url, init);
+  if (!response.ok) throw new UsageError("http", `HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 function bearer(value: string): Record<string, string> { return { Authorization: `Bearer ${value}`, Accept: "application/json" }; }
@@ -260,6 +266,65 @@ export function openCodeGoWindows(rows: LocalUsageRow[], now: number): UsageWind
   ];
 }
 
+function readVarint(bytes: Uint8Array, offset: number): [number, number] | undefined {
+  let value = 0, shift = 0;
+  for (let index = offset; index < bytes.length && shift <= 49; index++, shift += 7) {
+    const byte = bytes[index]; value += (byte & 0x7f) * 2 ** shift;
+    if ((byte & 0x80) === 0) return [value, index + 1];
+  }
+}
+type ProtobufNumberField = { path: number[]; value: number; order: number };
+type ProtobufScan = { percents: ProtobufNumberField[]; timestamps: ProtobufNumberField[]; nextOrder: number };
+function scanProtobuf(bytes: Uint8Array, depth = 0, path: number[] = [], order = 0): ProtobufScan {
+  const result: ProtobufScan = { percents: [], timestamps: [], nextOrder: order }; let offset = 0;
+  while (offset < bytes.length) {
+    const key = readVarint(bytes, offset); if (!key) break; offset = key[1];
+    const wire = key[0] & 7, fieldNumber = Math.floor(key[0] / 8); if (fieldNumber <= 0) break;
+    const fieldPath = [...path, fieldNumber], fieldOrder = result.nextOrder++;
+    if (wire === 0) { const value = readVarint(bytes, offset); if (!value) break; offset = value[1]; if (value[0] >= 1_700_000_000 && value[0] <= 2_100_000_000) result.timestamps.push({ path: fieldPath, value: value[0] * 1000, order: fieldOrder }); }
+    else if (wire === 5) { if (offset + 4 > bytes.length) break; const value = new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getFloat32(0, true); offset += 4; if (Number.isFinite(value) && value >= 0 && value <= 100) result.percents.push({ path: fieldPath, value, order: fieldOrder }); }
+    else if (wire === 2) { const size = readVarint(bytes, offset); if (!size) break; offset = size[1]; const end = offset + size[0]; if (end > bytes.length) break; if (depth < 6) { const nested = scanProtobuf(bytes.subarray(offset, end), depth + 1, fieldPath, result.nextOrder); result.percents.push(...nested.percents); result.timestamps.push(...nested.timestamps); result.nextOrder = nested.nextOrder; } offset = end; }
+    else if (wire === 1) offset += 8;
+    else break;
+  }
+  return result;
+}
+function grpcWebDataFrames(input: Uint8Array): Uint8Array[] {
+  const frames: Uint8Array[] = []; let offset = 0;
+  while (offset < input.length) {
+    if (offset + 5 > input.length) return [];
+    const flags = input[offset], length = new DataView(input.buffer, input.byteOffset + offset + 1, 4).getUint32(0, false);
+    const start = offset + 5, end = start + length; if (end > input.length) return [];
+    if ((flags & 0x80) === 0) frames.push(input.subarray(start, end));
+    offset = end;
+  }
+  return frames;
+}
+function looksLikeProtobuf(input: Uint8Array): boolean {
+  if (!input.length) return false;
+  const field = input[0] >> 3, wire = input[0] & 7;
+  return field > 0 && [0, 1, 2, 5].includes(wire);
+}
+/** Isolated parser for Grok's undocumented gRPC-web payload; merges data frames and ignores trailers. */
+export function parseGrokWindows(input: Uint8Array, now = Date.now()): UsageWindow[] {
+  let payloads = grpcWebDataFrames(input);
+  if (!payloads.length && looksLikeProtobuf(input)) payloads = [input];
+  const scan: ProtobufScan = { percents: [], timestamps: [], nextOrder: 0 };
+  for (const payload of payloads) {
+    const nested = scanProtobuf(payload, 0, [], scan.nextOrder);
+    scan.percents.push(...nested.percents); scan.timestamps.push(...nested.timestamps); scan.nextOrder = nested.nextOrder;
+  }
+  const used = scan.percents
+    .filter(field => field.path.at(-1) === 1)
+    .sort((a, b) => a.path.length === b.path.length ? a.order - b.order : a.path.length - b.path.length)[0]?.value;
+  if (used === undefined) return [];
+  const future = scan.timestamps.filter(field => field.value > now);
+  const reset = future.filter(field => field.path.join(",") === "1,5,1").sort((a, b) => a.value - b.value)[0]?.value
+    ?? future.sort((a, b) => a.value - b.value)[0]?.value;
+  const label = reset ? codexWindowLabel(Math.max(0, (reset - now) / 1000)) : "额";
+  return [window("credits", used, label === "额度" ? "额" : label, label === "额度" || label === "额" ? "额度" : `${label}额度`, reset)];
+}
+
 const OPEN_CODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 
 export function parseOpenCodeGoUsage(body: unknown): UsageWindow[] {
@@ -277,6 +342,14 @@ const isRelay = (provider: string) => provider.toLowerCase().includes("relay");
 const includes = (...values: string[]) => (provider: string) => !isRelay(provider) && values.some(value => provider.toLowerCase().includes(value));
 
 async function piAuth(ctx: AccountUsageContext) { return ctx.readAuth?.("pi"); }
+/** grok CLI's ~/.grok/auth.json keeps entries keyed by OAuth scope; the auth.x.ai one carries the usable key. */
+function grokCliAccessKey(raw: unknown): string | undefined {
+  const root = record(json(raw)); if (!root) return;
+  const entries = Object.entries(root).filter(([, value]) => record(value));
+  const preferred = entries.find(([scope]) => scope.startsWith("https://auth.x.ai::")) ?? entries.find(([scope]) => scope.includes("/sign-in"));
+  return token(record(preferred?.[1]), "key");
+}
+const GROK_CREDITS_URL = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
 async function apiKey(ctx: AccountUsageContext, providerIds: string[], envNames: string[]) {
   const fromEnv = envToken(ctx, ...envNames); if (fromEnv) return fromEnv;
   const entry = authEntry(await piAuth(ctx), ...providerIds); return token(entry, "key", "access", "access_token");
@@ -288,6 +361,42 @@ async function prepaid(ctx: AccountUsageContext, id: string, label: string, url:
 }
 
 export const builtinAccountUsageAdapters: AccountUsageAdapter[] = [
+  {
+    // SuperGrok credits live on grok.com. The grok-build OAuth login in the agent
+    // auth store is the account this product actually talks to, so it goes first;
+    // an expired token falls through to the xai entry and the grok CLI's own login.
+    // Matched by exact provider id: the host also routes by model id, and
+    // opencode serves models named `grok-*` that bill against another account.
+    id: "grok", kind: "subscription", matches: provider => ["xai", "grok", "grok-build"].includes(provider.toLowerCase()), async load(ctx) {
+      const pi = await piAuth(ctx);
+      const candidates = [
+        token(authEntry(pi, "grok-build"), "access"),
+        token(authEntry(pi, "xai"), "access", "access_token"),
+        grokCliAccessKey(await ctx.readAuth?.("grok")),
+      ].filter((value, index, all): value is string => !!value && all.indexOf(value) === index);
+      if (!candidates.length) return;
+      let failure: unknown;
+      for (const access of candidates) {
+        try {
+          const windows = parseGrokWindows(await fetchBytes(ctx, GROK_CREDITS_URL, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${access}`,
+              Origin: "https://grok.com",
+              Referer: "https://grok.com/?_s=usage",
+              Accept: "*/*",
+              "Content-Type": "application/grpc-web+proto",
+              "x-grpc-web": "1",
+              "x-user-agent": "connect-es/2.1.1",
+            },
+            body: new Uint8Array(5),
+          }), ctx.now());
+          if (windows.length) return { provider: "grok", accountLabel: "Grok 账号额度", windows, source: "subscription" };
+        } catch (error) { failure = error; }
+      }
+      if (failure) throw failure;
+    },
+  },
   {
     id: "cursor", kind: "subscription", matches: includes("cursor"), async load(ctx) {
       const rawToken = clean(await ctx.readCursorAuth?.());
