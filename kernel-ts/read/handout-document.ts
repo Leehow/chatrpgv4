@@ -39,31 +39,38 @@ export function handoutBody(file: string): string {
 }
 
 /**
- * The text handouts this table holds, in the order they were handed over, for `table.view`.
+ * The handouts this table holds, in the order they were handed over, for `table.view`.
  *
  * Membership is `world.handouts_shown` -- the world, not the folder: a worldline rewound past a
- * delivery keeps the file on disk but no longer holds the document. A handout with no file (an
- * image, or a card the module registered without a document) is not a document to reopen and is
- * not listed. `name` is the heading and `text` the card's body, byte for byte, so the handouts
+ * delivery keeps the file on disk but no longer holds the document. Image descriptors come
+ * from actual delivered receipts; their bytes are read only by the scoped player host.
+ * A card without a document is not listed. `name` is the heading and `text` the card's body, byte for byte, so the handouts
  * lane's saved answer is found under the same two strings on the panel as on the delivery card.
  */
-export async function heldHandouts(campaignDir: string, shown: unknown[]): Promise<Array<{ handout: string; name: string | null; text: string }>> {
-    const held: Array<{ handout: string; name: string | null; text: string }> = [];
+export async function heldHandouts(campaignDir: string, shown: unknown[], receipts:Record<string,any>[]=[]): Promise<Array<{ handout: string; name: string | null; text: string; path?:string;media_type?:string;document?:string }>> {
+    const held: Array<{ handout: string; name: string | null; text: string;path?:string;media_type?:string;document?:string }> = [];
+    const images=new Map<string,Record<string,any>>();
+    for(const receipt of receipts)if(receipt&&receipt.kind==='handout'&&typeof receipt.handout==='string'&&receipt.attachment?.available===true
+        &&['player-safe','revealable'].includes(receipt.visibility)
+        &&['image/png','image/jpeg','image/webp','image/gif'].includes(receipt.attachment.image_media_type||receipt.attachment.media_type)
+        &&typeof (receipt.attachment.image_path||receipt.attachment.path)==='string')images.set(receipt.handout,receipt);
     for (const handle of shown) {
         if (typeof handle !== "string" || !handle || handle.includes("/") || handle.includes("\\"))
             continue;
-        let file: string;
+        let file: string='';
         try {
             file = new TextDecoder("utf-8", { fatal: true }).decode(await readFile(join(campaignDir, "handouts", `${handle}.md`)));
         }
         catch {
             // Missing or unreadable: the list is a place to reread what was handed over, and one
             // file it cannot open is not a reason to take the whole table view down with it.
-            continue;
         }
         const text = handoutBody(file);
-        if (text)
-            held.push({ handout: handle, name: handoutHeading(file), text });
+        if(images.has(handle)){
+            const image=images.get(handle)!;
+            held.push({handout:handle,name:image.label||image.name||handle,text,path:image.attachment.image_path||image.attachment.path,media_type:image.attachment.image_media_type||image.attachment.media_type,document:'ready'});
+        }
+        else if(text)held.push({ handout: handle, name: handoutHeading(file), text });
     }
     return held;
 }

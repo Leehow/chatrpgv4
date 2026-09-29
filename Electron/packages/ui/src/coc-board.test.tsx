@@ -254,3 +254,12 @@ describe('module-authored names go through the glossary the answer carries', () 
     expect(container.querySelector('.coc-map-name')?.textContent).toBe('The parlour');
   });
 });
+
+it('keeps an image-only held handout visible and zoomable without a text body',async()=>{
+ const image='data:image/png;base64,AAAA';
+ const {container}=render(<Board api={host(ready({view:{handouts:[{handout:'paper',name:'Newspaper',text:'',document:'ready',image}]}}))} />);
+ await screen.findByRole('img',{name:'Newspaper'});
+ expect(container.querySelector('details[data-handout="paper"]')).toBeTruthy();
+ expect(container.querySelector('input[type="range"]')).toBeTruthy();
+ expect(screen.queryByText(enBoard.noClues)).toBeNull();
+});

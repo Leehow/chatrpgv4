@@ -30,3 +30,12 @@ test('visual discovery does not use native text relevance to omit an assigned im
  state=policy.reduce(state,{kind:'operate',origin:'policy',status:'ok',outcomes:[{artifact:{kind:'projected'}}]},{});
  assert.equal(request(state).kind,'infer','the real tool-enabled vision reader performs discovery');
 });
+
+test('held image handouts follow actual delivered receipts and disappear from the current board after rewind',async t=>{
+ const {heldHandouts}=await import('../../kernel-ts/read/handout-document.ts');
+ const dir=await mkdtemp(join(tmpdir(),'held-handout-images-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const receipt={kind:'handout',handout:'paper',label:'Morning newspaper',visibility:'player-safe',attachment:{path:'/owned/paper.png',media_type:'image/png',available:true}};
+ assert.deepEqual(await heldHandouts(dir,['paper','unrevealed'],[receipt]),[{handout:'paper',name:'Morning newspaper',text:'',path:'/owned/paper.png',media_type:'image/png',document:'ready'}]);
+ assert.deepEqual(await heldHandouts(dir,[],[receipt]),[]);
+ assert.deepEqual(await heldHandouts(dir,['paper'],[{...receipt,visibility:'keeper-only'}]),[]);
+});

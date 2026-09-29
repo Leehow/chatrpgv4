@@ -367,6 +367,12 @@ export async function stageHandout(context:ApplyContext,effect:Row,asset:(module
         let found:string|null=null;for(const path of candidates)if(await context.kernel.snapshots.isFile(path)){found=path;break;}
         Object.assign(attachment,{path:found||(ref?string(ref):null),media_type:media,available:found!=null});
     }
+    // A text transcription does not replace an available original image.
+    if(attachment.media_type==='text/markdown'&&['image/png','image/jpeg','image/webp','image/gif'].includes(registered.media_type||props.media_type)){
+        const ref=registered.path||props.asset_ref,media=registered.media_type||props.media_type;
+        const candidates=typeof ref==='string'?[isAbsolute(ref)?ref:join(context.kernel.stateRoot,'modules',graph.moduleId,ref),ref]:[];
+        for(const path of candidates)if(await context.kernel.snapshots.isFile(path)){Object.assign(attachment,{image_path:path,image_media_type:media});break;}
+    }
     const receipt={id:`handout:${handle}-t${context.turn.turn}`,kind:'handout',call_id:context.callId,handout:handle,name:display,label:label||display,visibility,summary:node.summary??null,attachment,at:nowIso()};
     if(!array(world.handouts_shown??=[]).includes(handle))world.handouts_shown.push(handle);
     return {receipt,event:{type:'handout-shown',data:{handout:handle,name:display,visibility,attachment_available:attachment.available,media_type:attachment.media_type}}};
