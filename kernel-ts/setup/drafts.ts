@@ -21,7 +21,7 @@ import type { CampaignWriter } from '../write/store.js';
 import type { Setup } from './index.js';
 import { ChargenError, resolveRulebookEra } from './chargen.js';
 import type { ResolvedDifficulty } from './difficulty.js';
-import { BACKSTORY, completeness, nonempty } from './sheet.js';
+import { BACKSTORY, NOT_LISTED_SKILLS, completeness, nonempty } from './sheet.js';
 import { flowSkills, limitsOf, emptyPins, pinColumns, LIMIT_FIELDS, PIN_ORIGINS, type Pins, type Soft, type SkillPin } from './card.js';
 const NOTE_VALUE_LIMIT = 400;
 const FIELDS = ['name', 'occupation', 'age', 'sex', 'concept', 'occupation_skills', 'interest_skills', 'custom_skills', 'own_language', 'backstory', 'key_connection', 'equipment', 'weapons', 'era', 'aptitude', 'occupation_stated'];
@@ -80,7 +80,7 @@ export class SetupDrafts {
         if (typeof item !== 'string' || !item.trim()) { issues.push(`${field} must be a list of skill names`); continue; }
         const found = catalog.resolveSkill(item);
         if (found === null) { resolution.unresolved.push({given: item, candidates: catalog.skillCandidates(item)}); continue; }
-        if (['Cthulhu Mythos', 'Credit Rating'].includes(found)) { issues.push('Credit Rating is allocated separately; no starting Cthulhu Mythos'); continue; }
+        if (NOT_LISTED_SKILLS.includes(found)) { issues.push('Credit Rating is allocated separately; no starting Cthulhu Mythos'); continue; }
         if (!out.includes(found)) out.push(found);
       }
       return out;

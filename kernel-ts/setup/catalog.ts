@@ -7,6 +7,7 @@ import { array, row, entries, normalize, string, truth, type Row , normalizeText
 import { specializationIdentity } from '../rules/skills.js';
 import type { RuleTables } from '../rules/tables.js';
 import type { Chargen } from './chargen.js';
+import { NOT_LISTED_SKILLS } from './sheet.js';
 
 export interface Unresolved { given: string; candidates: string[] }
 /** Split a printed phrase at a separator that sits outside every parenthesis. */
@@ -125,7 +126,7 @@ export class SetupCatalog {
    *  and then the era's standard sheet. Returns the list and what was filled in. */
   fillOccupationSkills(id: string, picks: string[], interests: string[], standard: string[]): [string[], string[], string[]] {
     const list: string[] = [], filled: string[] = [], overflow: string[] = [];
-    const take = (name: string, fill: boolean): void => { if (name !== 'Credit Rating' && name !== 'Cthulhu Mythos' && !list.includes(name)) { list.push(name); if (fill) filled.push(name); } };
+    const take = (name: string, fill: boolean): void => { if (!NOT_LISTED_SKILLS.includes(name) && !list.includes(name)) { list.push(name); if (fill) filled.push(name); } };
     for (const name of picks) { if (list.length >= 8) { if (!list.includes(name) && !overflow.includes(name)) overflow.push(name); continue; } take(name, false); }
     for (const phrase of array(row(this.chargen.occupationTable[id]).occupational_skills).map(string)) {
       if (list.length >= 8) break;
@@ -190,9 +191,12 @@ export class SetupCatalog {
         skills: array(row(this.chargen.occupationTable[id]).occupational_skills).map(string),
         credit_rating_range: array(row(this.chargen.occupationTable[id]).credit_rating_range).map(Number),
         formula: string(row(this.chargen.occupationTable[id]).skill_point_formula ?? '')})),
-      skills: Object.keys(this.chargen.skillTable).map(name => ({name, label: this.skillLabel(name, language)})),
+      // `listed: false`: a skill list never holds it (§150.6: the setup clerk never offers it as a named skill).
+      skills: Object.keys(this.chargen.skillTable).map(name => ({name, label: this.skillLabel(name, language), ...(NOT_LISTED_SKILLS.includes(name) ? {listed: false} : {})})),
       weapons: [...new Set([...this.weaponProfiles().values()].map(([, printable]) => printable))].sort(compareUnicode),
       language_specialty: 'Language (Other: English)',
+      // §150.6: the abbreviations `aptitude` names, for the setup clerk's strong/weak Choices.
+      characteristics: this.chargen.characteristics.map(abbr => ({abbr, name: string(row(row(this.chargen.dice.characteristics)[abbr]).name) || abbr})),
     };
   }
 }

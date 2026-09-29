@@ -50,6 +50,7 @@
  *                          resolve, `details.index` for apply) -- not single-shot, like a real name the
  *                          graph does not know, which stays unknown every time it is spelled the same
  *                          way; a call whose name was rewritten to a different string passes as usual.
+ *   FAKE_SETUP_CATALOG     JSON object: what `setup.catalog` answers instead of the one-trade default (§150.6 tests).
  *   FAKE_SETUP_RESUME      JSON object {"completed": [...], "state": {...}}: what `setup.steps {campaign}` answers,
  *                          the shape the kernel gives a setup process reopened on an existing campaign (§14.4) --
  *                          a PDF campaign created before its opening was chosen answers `state.start_scene: null`.
@@ -663,6 +664,8 @@ function handle(method, params) {
             return {ok:true,result:{...card, applied:["reroll"]}};
         }
         case "setup.catalog":
+            // FAKE_SETUP_CATALOG: a whole catalog (§98 shape, §150.6's characteristics and `listed: false`) for a test that needs more than one trade.
+            if (process.env.FAKE_SETUP_CATALOG) return {ok:true,result:JSON.parse(process.env.FAKE_SETUP_CATALOG)};
             return {ok:true,result:{occupations:[{id:"Journalist",label:"记者",skills:["History","Library Use"],credit_rating_range:[9,30],formula:"EDU*4"}],
                 skills:[{name:"Law",label:"法律"},{name:"Archaeology",label:"考古学"}],weapons:[".45 Automatic"],language_specialty:"Language (Other: English)"}};
         case "setup.override": {
@@ -1283,6 +1286,7 @@ process.stdin.on("end", () => process.exit(0));
 
 /** §98 fake card: the sheet shape the extension summarizes, with pins, budget and limits. */
 function fakeCard(revision, profile, pins, budget) {
+    const interestListed = Array.isArray(profile.interest_skills) && profile.interest_skills.length > 0;
     const skills = {Law: 45, Archaeology: 30};
     for (const [name, pin] of Object.entries(pins.skills)) skills[name] = pin.value;
     return {revision, seed: "private-seed", profile: {...profile}, pins,
@@ -1290,7 +1294,8 @@ function fakeCard(revision, profile, pins, budget) {
             characteristics: {STR: 50, CON: 50, SIZ: 60, DEX: 60, APP: 50, INT: 70, POW: 50, EDU: 80, LUCK: 55}, derived: {HP: 11, MP: 10, SAN: 50, MOV: 8, DB: 0, BUILD: 0},
             skills, credit_rating: 9, cash: "45 USD", weapons: [], equipment: profile.equipment ?? [],
             creation: {seed: "private-seed", method: "rolled", characteristics: {multiplier: 5, rolls: {STR: {dice: "3d6", faces: [1, 1, 2], total: 4}}}, age: {edu_improvement_checks: []}, luck: {}, skills: {occupation: {unspent: 0}, interest: {unspent: 0}}}},
-        budget: {occupation: {total: budget.occupation, spent: budget.occupation, unspent: 0}, interest: {total: budget.interest, spent: budget.interest, unspent: 0}, legal: true, notes: []},
+        // As the kernel does: an empty interest list leaves the interest pool unspent (§150.6's interest fit reads this).
+        budget: {occupation: {total: budget.occupation, spent: budget.occupation, unspent: 0}, interest: {total: budget.interest, spent: interestListed ? budget.interest : 0, unspent: interestListed ? 0 : budget.interest}, legal: true, notes: []},
         generation: {method: "rolled", seed: "private-seed"}, completeness: {valid: true, issues: []}, limits: {skill_cap: 75, characteristic_min: 15, characteristic_max: 90, occupation_points: budget.occupation, interest_points: budget.interest, overridden: []}, labels: {}};
 }
 /** A revision: words merge, numbers pin, a skill the card does not list is refused with candidates. */

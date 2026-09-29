@@ -73,5 +73,15 @@
     "page_text_max_bytes": 12000,
     "record_max_bytes": 6000,
     "max_pages_per_request": 4
+  },
+  "setup_driven": {
+    "row_min": 0.5,
+    "row_ratio": 2,
+    "choice_min": 0.5,
+    "decision_timeout_ms": 8000,
+    "max_decisions": 3,
+    "interest_row_min": 0.5,
+    "interest_row_ratio": 2,
+    "interest_skill_max": 6
   }
 }

@@ -362,7 +362,8 @@ test("bin/pi-coc：不写 setup 就是开桌，模式是 play", (t) => {
 /**
  * PI_COC_LOOP_ENGINE (single-loop SL-01): hybrid-v1 starts the same Pi arguments through the hybrid
  * entry (the vendored Pi's main plus the RunDriver); unset or legacy starts the vendored CLI as before;
- * setup always runs legacy; any other value is refused. The child is told the engine it runs.
+ * setup runs driven only with a Jev key and no explicit legacy (contract §150.6); any other value is
+ * refused. The child is told the engine it runs.
  */
 function withHybridEntry(root) {
 	mkdirSync(join(root, "build/runtime"), { recursive: true });
@@ -389,12 +390,23 @@ test("PI_COC_LOOP_ENGINE: hybrid-v1 starts the hybrid entry with the legacy argu
 	assert.deepEqual(hybrid.args, legacy.args, "the engine changes the entry, not a single Pi argument");
 });
 
-test("PI_COC_LOOP_ENGINE: setup always runs legacy, and an unknown engine is refused", (t) => {
+test("PI_COC_LOOP_ENGINE: setup runs driven with a Jev key and no explicit legacy, legacy otherwise, and an unknown engine is refused (§150.6)", (t) => {
 	const root = withHybridEntry(fakeRepo());
 	t.after(() => rmSync(root, { recursive: true, force: true }));
-	const setup = runLauncher(root, ["setup", "--campaign", "camp-f"], { PI_COC_LOOP_ENGINE: "hybrid-v1" });
-	assert.equal(setup.value("entry"), "pi");
-	assert.equal(setup.value("engine"), "legacy");
+	const noKey = { EXT_JEV_APIKEY: "", TYPESAFE_API_KEY: "" };
+	const legacy = runLauncher(root, ["setup", "--campaign", "camp-f"], noKey);
+	const keyless = runLauncher(root, ["setup", "--campaign", "camp-f"], { ...noKey, PI_COC_LOOP_ENGINE: "hybrid-v1" });
+	const driven = runLauncher(root, ["setup", "--campaign", "camp-f"], { EXT_JEV_APIKEY: "fixture" });
+	const explicit = runLauncher(root, ["setup", "--campaign", "camp-f"], { EXT_JEV_APIKEY: "fixture", PI_COC_LOOP_ENGINE: "legacy" });
+	for (const run of [legacy, keyless, explicit]) {
+		assert.equal(run.value("entry"), "pi");
+		assert.equal(run.value("engine"), "legacy");
+	}
+	assert.equal(keyless.value("mode"), "setup");
+	assert.equal(driven.value("entry"), "pi-hybrid", "a setup session with a Jev key starts the hybrid entry");
+	assert.equal(driven.value("engine"), "hybrid-v1", "the child is told it runs driven, so its startup record says so");
+	assert.equal(driven.value("mode"), "setup");
+	assert.deepEqual(driven.args, legacy.args, "the engine changes the entry, not a single Pi argument");
 	assert.throws(() => runLauncher(root, ["--campaign", "camp-f"], { PI_COC_LOOP_ENGINE: "hybrid-v2" }), /PI_COC_LOOP_ENGINE must be one of legacy, hybrid-v1/);
 });
 
