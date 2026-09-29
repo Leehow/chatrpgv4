@@ -16,9 +16,10 @@ import {join} from 'node:path';
 import modsExtension from '../../extensions/mods/index.ts';
 import {CARD_PATCH, patchCard} from '../../extensions/table/card-patch.ts';
 import {publicDefinition, publicUsage} from '../../kernel-ts/mods/public-definition.ts';
-import {CocCardLedger, mechanicsEntry} from '../../Electron/packages/pi-backend/src/coc-view.ts';
+import {piBackend} from './pi-backend-source.mjs';
 import {table, usage} from './object-usages-fixture.mjs';
 import {waitFor} from './wait.mjs';
+const {CocCardLedger, mechanicsEntry} = await piBackend('coc-view.ts');
 
 const until = (predicate, label) => waitFor(predicate, {label});
 

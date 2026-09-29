@@ -21,9 +21,10 @@ import {readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import modsExtension from '../../extensions/mods/index.ts';
 import {publicDefinition} from '../../kernel-ts/mods/public-definition.ts';
-import {mechanicsEntry, objectDetailsOf, pendingObjectNames} from '../../Electron/packages/pi-backend/src/coc-view.ts';
+import {piBackend} from './pi-backend-source.mjs';
 import {table} from './object-usages-fixture.mjs';
 import {waitFor} from './wait.mjs';
+const {mechanicsEntry, objectDetailsOf, pendingObjectNames} = await piBackend('coc-view.ts');
 
 const until = (predicate, label) => waitFor(predicate, {label});
 

@@ -4,7 +4,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { buildSync } from 'esbuild';
-import { callColdKernel, readColdSheet } from '../../Electron/packages/pi-backend/src/coc-view.ts';
+import {piBackend} from './pi-backend-source.mjs';
+const { callColdKernel, readColdSheet } = await piBackend('coc-view.ts');
 
 const ROOT=resolve(import.meta.dirname,'../..');
 

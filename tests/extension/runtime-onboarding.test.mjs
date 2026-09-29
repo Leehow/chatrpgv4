@@ -6,7 +6,8 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { buildSync } from 'esbuild';
 import { createPreparationHost } from '../../runtime/preparation.ts';
-import { CocOnboardingHost } from '../../Electron/packages/pi-backend/src/coc-onboarding.ts';
+import {piBackend} from './pi-backend-source.mjs';
+const { CocOnboardingHost } = await piBackend('coc-onboarding.ts');
 
 const root = resolve(import.meta.dirname, '../..');
 const model = {id: 'fixture/no-provider', thinking: 'low', vision: true};

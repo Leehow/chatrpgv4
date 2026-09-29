@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {PUBLIC_GUIDANCE_FIELDS,validatePublicGuidance} from '../../kernel-ts/modules/public-guidance.ts';
-import {publicPreparationSnapshot} from '../../Electron/packages/pi-backend/src/coc-onboarding.ts';
+import {piBackend} from './pi-backend-source.mjs';
+const {publicPreparationSnapshot} = await piBackend('coc-onboarding.ts');
 
 const fields=()=>Object.fromEntries(PUBLIC_GUIDANCE_FIELDS.map(field=>[field,{status:'value',text:field,source_refs:[{page:1}]}]));
 test('public source fields reject private additions, unbound pages and text in an unresolved field',()=>{
