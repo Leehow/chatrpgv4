@@ -323,6 +323,26 @@ export {buildConsequenceCandidates, clueFollowUpCandidates, NPC_REACTION_DECISIO
  * session's own flee/chase step, so scene moves are not offered then; the ordinary check is not offered either,
  * because the kernel hands a running session to its own resolution owner.
  */
+/**
+ * §158.4: the capsule's owed rows the host can land -- a move, a presence, time the prose already told the player -- as the
+ * run's first steps. Forced: the delivered text established them, so nothing the player says this turn selects them. Every
+ * parameter is the row's own effect, plus `owed` naming the row, which the kernel checks against the delivered record
+ * (§158.5). A running session leaves them to its own steps; the Keeper sees the rows either way.
+ */
+export function owedCandidates(capsule: Row, sessionLive: boolean): Candidate[] {
+  if (sessionLive) return [];
+  return array(capsule.owed).map(object).flatMap((row, index) => {
+    const effect = object(row.effect), name = text(row.name);
+    if (row.clerk !== true || !name || !['move', 'time', 'npc'].includes(text(effect.kind))) return [];
+    return [{key: `apply:owed:${name}`, verb: 'apply' as const, family: 'owed', source: 'table.capsule',
+      label: `Land what turn ${String(row.turn)} already told the player: ${text(row.what)}`,
+      bound: {...effect, owed: name} as Record<string, Json>, unbound: [], clerk: 'told_bookkeeping' as const, forced: true,
+      basis: {read: 'table.capsule', path: `owed[${index}]`, row: row as Json, told: {owed: name, turn: row.turn ?? null, quote: row.quote ?? null} as Json}}];
+  });
+}
+/** §158.4: while the told position is still owed, the ledger's position is not where anyone stands; no move is built from it. */
+export const owedMoveOpen = (capsule: Row): boolean => array(capsule.owed).map(object).some(row => row.kind === 'move');
+
 export function buildCandidates(reads: StateReads, rawInput: string, consumed: ReadonlySet<string> = new Set()): Candidate[] {
   const out: Candidate[] = [], seen = new Set<string>();
   // Scene obligations (contract §135.26): an open one's next step, what the unsettled ones guard, and the Mod
@@ -353,7 +373,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     // The kernel's own availability verdict is the only detail shown: `unlock_when.met` false is not a candidate
     // at all, and the internal `authority` tag is not shown.
     const unlock = object(description.unlock_when);
-    if (kind === 'move' && (unlock.met === false || sessionLive)) continue;
+    if (kind === 'move' && (unlock.met === false || sessionLive || owedMoveOpen(capsule))) continue;
     // A row an unsettled stated obligation guards is withheld until the kernel stops naming the guard (§135.26).
     if (text(row.guarded_by)) continue;
     if (kind === 'move') push({key: `apply:move:${text(effect.to)}`, verb: 'apply', family: 'move', source: 'table.apply.options',
@@ -447,7 +467,8 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     const candidate = damageCandidate(harm, index, bands.damage ?? [], rawInput, bands.gates?.damage);
     if (candidate) push(candidate);
   }
-  const charged = array(object(object(reads.applyOptions).context).current_receipts).some(receipt => object(receipt).kind === 'time');
+  // §158.4: time an owed row landed is the told turn's, not this declaration's; it does not charge this turn's action.
+  const charged = array(object(object(reads.applyOptions).context).current_receipts).some(receipt => object(receipt).kind === 'time' && !object(receipt).owed);
   if (!sessionLive && rawInput.trim() && !charged && bands.time?.length) {
     const candidate = timeCandidate(bands.time, rawInput, bands.gates?.time);
     if (candidate) push(candidate);
@@ -463,6 +484,9 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
       label: `Show the player handout "${entity.label}"`, bound: {kind: 'handout', name: entity.label},
       unbound: [{name: 'label', required: false, vocabulary: 'open'}], clerk: 'declared_bookkeeping', basis});
   }
+  // §158.4: the owed rows last in this list and in reverse, because a forced step is put at the front of the run as it is
+  // read (`applyFresh` unshifts each in turn): the owed move runs first, then a presence, then time, before anything else.
+  for (const candidate of owedCandidates(capsule, sessionLive).reverse()) push(candidate);
   return out;
 }
 

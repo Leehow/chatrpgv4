@@ -65,7 +65,10 @@ export function compileRows(reads: StateReads): FeatureRows {
   // book's other names, its summary, where-words, people and things (the kernel's `destination`). A row whose move is not
   // issued carries the kernel's guard beside its words, never in them: Jev reads the words, the compile reports the guard.
   const obligationNames = new Map(array(applyOptions.obligations).map(object).map(row => [text(row.handle), text(row.name) || text(row.handle)]));
-  const destination = unique(options.filter(row => object(row.effect).kind === 'move').map(row => {
+  // §158.4: while an owed move is open the party stands where the player was told, not where the ledger says, so no
+  // destination is offered from the ledger's position (the owed move lands first and the next read offers the real ones).
+  const toldPending = array(capsule.owed).map(object).some(row => row.kind === 'move');
+  const destination = unique(options.filter(row => object(row.effect).kind === 'move' && !toldPending).map(row => {
     const to = text(object(row.effect).to), description = object(row.description), name = text(description.display_name);
     const guard = guardOf(row, obligationNames);
     return {id: to, describe: {...(name && name !== to ? {place: name, handle: to} : {place: to}), ...object(description.destination)} as Json,

@@ -465,8 +465,12 @@ function defaultLine(candidate: Candidate): string | undefined {
 }
 
 /** Per-run state the ports share; the policy's own state stays in the driver. */
+/** §158.4: the kernel extension's port for the previous delivery's post review still running (`coc:owed-review`). */
+interface OwedReviewPort {campaign: string; settle(elapsedMs: number): Promise<{in_flight: boolean; waited_ms: number; landed: boolean; turn?: number}>}
 interface RunState {
   runId: string;
+  /** §158.4: this run's first read already waited for the previous delivery's review (it waits once). */
+  owedWaited?: boolean;
   /** §135.11.2: the note's head (`CLERK_NOTE_HEAD`) was sent in this run's first note. */
   headShown?: boolean;
   rawInput: string;
@@ -624,6 +628,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const NO_ACT: NpcActPort = {generate: async () => ({unavailable: 'model_unavailable', detail: 'no npc-act generation on this engine'})};
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
+  let owedReview: OwedReviewPort | undefined;
   // §151.1: the consequence-step mode's data default, read once (cached) and awaited by every run's first read.
   let stepsDataDefault: 'on' | 'shadow' = 'shadow';
   const stepsReady = jevStepsBudget().then(budget => { stepsDataDefault = budget.shadow ? 'shadow' : 'on'; });
@@ -855,7 +860,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         async read(_proposal, invocation) {
           const began = stepNow();
           let current=await tableReads(run);
-          const {capsule, table, candidates, rows, consequences}=current;
+          let {capsule, table, candidates, rows, consequences}=current;
+          // §158.4: the run's first read waits beside its prescreen for the previous delivery's review still running, which
+          // may name what the ledger owes; a review that lands in time is read before any candidate is built.
+          const owedPort = !run.owedWaited && owedReview && bridge?.campaign === owedReview.campaign ? owedReview : undefined;
+          run.owedWaited = true;
+          const owedWait = owedPort?.settle(Math.max(0, now() - run.startedAt)).catch(() => undefined);
           let bindingArtifact: Extract<StepArtifact, {kind: 'read'}>['binding'];
           if (table.scope && table.readSet && table.binding) {
             run.turn ??= table.turn; run.scope ??= table.scope; run.readSet ??= table.readSet;
@@ -913,6 +923,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             let content: Row = {};
             try { content = object(JSON.parse(String(outcome.message.content ?? ''))); } catch { content = {}; }
             for (const material of array(content.materials).map(object)) run.passages.push({scene, material});
+          }
+          const waited = owedWait ? await owedWait : undefined;
+          if (waited?.in_flight) {
+            record({lane: 'run', event: 'owed_wait', run: run.runId, stepId: invocation.stepId, waited_ms: waited.waited_ms, landed: waited.landed, turn: waited.turn ?? null});
+            if (waited.landed) { current = await tableReads(run); ({capsule, table, candidates, rows, consequences} = current); }
           }
           // Candidates are built after the locate, so a located clue or handout is among them.
           const fresh = {context: table.context, candidates: candidates(), rows: rows()};
@@ -1727,6 +1742,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.events.on('coc:operation-dispatcher', (data: OperationGateway) => { gateway = data && typeof data.dispatch === 'function' ? data : undefined; });
     pi.events.on('coc:turn-close', (data: TurnClosePort) => { closer = data && typeof data.verdict === 'function' ? data : undefined; });
     pi.events.on('coc:source-answers', (data: SourceAnswersPort) => { consultations = data && typeof data.take === 'function' ? data : undefined; });
+    pi.events.on('coc:owed-review', (data: OwedReviewPort) => { owedReview = data && typeof data.settle === 'function' ? data : undefined; });
     // The run owns the prescreen on this engine (§135.6); the context hook injects what the run prepared.
     const announce = () => { pi.events.emit('coc:loop-engine', {engine: 'hybrid-v1', prescreen: 'run'}); };
     announce();

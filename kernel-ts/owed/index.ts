@@ -246,3 +246,15 @@ export async function carryOwed(context: KernelContext, campaign: string, rows: 
     await writeOwed(context, campaign, mergeOwed(ledger, carried, nowIso()));
     return carried.length;
 }
+
+/**
+ * The capsule's `owed` section (§158.4): what the player was told and the ledger still lacks, newest told first
+ * within each kind's order (move, npc, time, object). `clerk` says whether the host can land it; an object is the Keeper's.
+ */
+export function capsuleOwed(graph: ModuleGraph, world: Row, stored: unknown): Row[] {
+    const order = ['move', 'npc', 'time', 'object'];
+    return owedLedger(stored).open.filter(entry => !owedSatisfied(graph, world, entry))
+        .sort((a, b) => order.indexOf(text(a.kind)) - order.indexOf(text(b.kind)) || number(b.turn) - number(a.turn))
+        .map(entry => ({ name: entry.name, turn: entry.turn, kind: entry.kind, what: entry.what, quote: entry.quote ?? null,
+            ...(entry.effect ? { effect: entry.effect } : {}), clerk: entry.kind !== 'object' && !!entry.effect }));
+}

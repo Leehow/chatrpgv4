@@ -101,6 +101,7 @@ import {
 	type CompileActRead,
 	proposedFightAct,
 	consequenceAdmission,
+	toldAdmission,
 	type ClerkEvidence,
 	declaredAction,
 	effectSignature,
@@ -120,6 +121,7 @@ import {
 	REFUSING_VERDICTS,
 } from "./admission.ts";
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
+import { owedWaitMs, settleOwedReview } from "./owed-review.ts";
 
 /**
  * One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown.
@@ -383,6 +385,10 @@ interface TableState {
 	 * wording, the audit's `preparation_wait` basis, and the steer that closes this turn. It dies with
 	 * the turn that raised it: the next player input is a new context. */
 	sourceWait?: { focus?: string; question?: string };
+	/** §158.5: the owed section of the last capsule the host saw (the turn and quote an owed write's admission row names). */
+	owed?: Array<Record<string, unknown>>;
+	/** §158.4: the previous delivery's post review while it runs; it settles once `table.warn` recorded (or failed). */
+	reviewInFlight?: { turn: number; done: Promise<void> };
 	/** Contract §37.6: the independent source review refused the placement this turn's reentry needs.
 	 * Host-owned, from the kernel's own adaptation result — never prose — and cleared when a later
 	 * proposal is pending, ready or accepted, or when the next turn opens. */
@@ -2069,6 +2075,9 @@ export default function (pi: ExtensionAPI) {
 		const view = capsule as { where?: Record<string, unknown>; present?: unknown; known?: { investigator?: Record<string, unknown> }; recent?: unknown };
 		if (view.where && Object.hasOwn(view.where, 'session'))
 			state.session = (view.where.session ?? null) as SessionSummary | null;
+		// §158.5: the owed rows, for the admission row of a write that lands one.
+		const owedRows = (capsule as { owed?: unknown }).owed;
+		if (Array.isArray(owedRows)) state.owed = owedRows.filter((row): row is Record<string, unknown> => !!row && typeof row === "object");
 		const handle = asString(view.where?.scene);
 		const label = asString(view.where?.display_name);
 		if (handle || label) state.scene = { ...(handle ? { handle } : {}), ...(label ? { label } : {}) };
@@ -2519,6 +2528,8 @@ export default function (pi: ExtensionAPI) {
 	 */
 	async function prefetchAdmission(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>): Promise<void> {
 		if (!state.playerText) return;
+		// §158.5: an owed write is admitted on what was told; there is no review to start early.
+		if (toldAdmission(tool, payload, undefined, state.owed ?? [])?.ok) return;
 		if (tool === "apply" && combatSceneMove(state, payload)) return;
 		const scopeFor = await admissionScopeBuilder(state, tool, payload);
 		const effects = Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : [];
@@ -2612,6 +2623,9 @@ export default function (pi: ExtensionAPI) {
 		// at all, so a class the table stopped listing falls back to the lane on its own, fail closed.
 		const consequenced = consequenceAdmission(evidence, (await jevStepsBudget()).execute);
 		const refusedConsequence = consequenced && !consequenced.ok ? { consequence_refused: consequenced.reason } : {};
+		// §158.5: a write that lands only owed rows is admitted on what was told; the kernel checks the rows themselves.
+		const told = toldAdmission(tool, payload, evidence, state.owed ?? []);
+		const refusedTold = told && !told.ok ? { told_refused: told.reason } : {};
 		const ctx = sessionCtx;
 		const context = (): AdmissionContext => admissionContextFor(state);
 
@@ -2655,6 +2669,12 @@ export default function (pi: ExtensionAPI) {
 			// §32.12.3.1: a line whose outcome is already in hand was not known when its batch's review began; it is settled as is.
 			const remembered = part?.outcome ? undefined : state.admission.get(proposal.key);
 			if (remembered) return settle(remembered, true, 0);
+			if (!part && told?.ok) {
+				const quoted = told.rows.map((row) => `turn ${row.turn ?? "?"}: ${row.quote ? JSON.stringify(row.quote) : row.owed}`).join("; ");
+				return settle({ verdict: "authorized", grounds: `told: ${quoted}`, reviewer: "told", path: "told" }, false, 0, undefined,
+					{ basis: { ...(origin.basis && typeof origin.basis === "object" && !Array.isArray(origin.basis) ? origin.basis as Record<string, unknown> : {}),
+						told: told.rows.length === 1 ? told.rows[0] : told.rows } }, false);
+			}
 			if (!part && compiled?.ok) {
 				const began = Date.now();
 				return settle({ verdict: "authorized", grounds: `compile: ${compiled.predicate} fired on ${Object.entries(compiled.features).map(([family, value]) => `${family}=${String(value.row)}`).join(", ")}`,
@@ -2676,7 +2696,7 @@ export default function (pi: ExtensionAPI) {
 					act: read.choice, confidence: read.confidence, cleared: read.cleared, rows: read.rows } });
 			}
 			if (!ctx && !part?.outcome) {
-				await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...refusedConsequence, ...partRows, ...origin, ...who });
+				await record({ lane: "admission", verb: tool, ok: false, reason: "session_gone", key: digest, path: "none", ms: 0, ...refusedCompile, ...refusedConsequence, ...refusedTold, ...partRows, ...origin, ...who });
 				throw admissionUnavailable(proposal, "session_gone", "the session was gone before the review could start");
 			}
 			const base = context();
@@ -2723,10 +2743,10 @@ export default function (pi: ExtensionAPI) {
 				const failed = outcome, late = lateAdmission(proposal, failed.typed);
 				await record({ lane: "admission", verb: tool, ok: false, reason: failed.reason, detail: failed.detail.slice(0, 200), ms: failed.ms, key: digest,
 					...(failed.model ? { model: failed.model } : {}), ...(failed.reviewer ? { reviewer: failed.reviewer } : {}), path: "lane", ...failed.meta,
-					...refusedCompile, ...refusedConsequence, ...partRows, ...origin, ...who, declared: true, late_rule: late.ok ? "typed_late" : late.reason,
+					...refusedCompile, ...refusedConsequence, ...refusedTold, ...partRows, ...origin, ...who, declared: true, late_rule: late.ok ? "typed_late" : late.reason,
 					then: late.ok ? "typed_late" : "resend" });
 				if (late.ok) {
-					await settle(late.verdict, false, failed.ms, undefined, { ...failed.meta, ...refusedCompile, ...refusedConsequence, ...partRows, cause: "unavailable",
+					await settle(late.verdict, false, failed.ms, undefined, { ...failed.meta, ...refusedCompile, ...refusedConsequence, ...refusedTold, ...partRows, cause: "unavailable",
 						declared: true, late_rule: "typed_late", late_min_confidence: late.minConfidence, confidence: failed.typed?.confidence ?? null, path: "typed_late" });
 					return;
 				}
@@ -2758,14 +2778,14 @@ export default function (pi: ExtensionAPI) {
 				if (outcome.ok === "late") watchLate(outcome.lane, REVIEW_TIMEOUT);
 				return settle({ verdict: REVIEW_TIMEOUT, grounds: `no verdict within the ${hardCapMs} ms hard cap`, reviewer: "lane", path: "lane", capMs: hardCapMs },
 					false, admissionNow() - began, outcome.ok === "late" ? undefined : outcome.model,
-					{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile, ...refusedConsequence });
+					{ ...(outcome.ok === "late" ? {} : outcome.meta ?? {}), ...resent, ...(outcome.ok === false ? { lane_no_grounds: true } : {}), ...refusedCompile, ...refusedConsequence, ...refusedTold });
 			}
 			if (outcome.ok === "late") {
 				// §32.12.2: the cap passed with nothing sufficient. A bookkeeping-only batch the typed reviewer admitted at the late
 				// threshold lands on it; anything else goes back to the Keeper pending, the lane still running for its one resend.
 				// §32.12.3.2: only the line classes the typed reading may settle are admitted late on it.
 				const late = lateAdmission(proposal, outcome.typed, process.env, outcome.settleClasses);
-				const meta = { ...outcome.meta, ...refusedCompile, ...refusedConsequence, late_rule: late.ok ? "typed_late" : late.reason,
+				const meta = { ...outcome.meta, ...refusedCompile, ...refusedConsequence, ...refusedTold, late_rule: late.ok ? "typed_late" : late.reason,
 					...(late.ok ? { late_min_confidence: late.minConfidence, confidence: outcome.typed?.confidence ?? null } : {}) };
 				if (late.ok) {
 					watchLate(outcome.lane, "typed_late");
@@ -2783,7 +2803,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (!outcome.ok) {
 				await emit({ lane: "admission", verb: tool, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), ms: outcome.ms, key: digest, ...(outcome.model ? { model: outcome.model } : {}),
-					...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...partRows, ...origin, ...who });
+					...(outcome.reviewer ? { reviewer: outcome.reviewer } : {}), path: "lane", ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...refusedTold, ...partRows, ...origin, ...who });
 				// §32.12.3.1: the lines of one call are one review for the outage streak -- it counts once however many failed.
 				if (!part?.streak?.counted) state.admissionOutage += 1;
 				if (part?.streak) part.streak.counted = true;
@@ -2816,7 +2836,7 @@ export default function (pi: ExtensionAPI) {
 				state.admissionOutage = 0;
 				state.admissionOutageNotified = false;
 			}
-			await settle(outcome.verdict, false, resentBy || pending ? admissionNow() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...partRows });
+			await settle(outcome.verdict, false, resentBy || pending ? admissionNow() - began : outcome.ms, outcome.model, { ...outcome.meta, ...resent, ...refusedCompile, ...refusedConsequence, ...refusedTold, ...partRows });
 		};
 
 		/**
@@ -2923,7 +2943,7 @@ export default function (pi: ExtensionAPI) {
 			evidence.onVerdict?.(clearedVerdict.verdict);
 			await record({ lane: "admission", verb: tool, ok: true, verdict: clearedVerdict.verdict, admitted: true, reused: false, ms: split.ms, key: keyDigest(p.key),
 				model: ADMISSION_JEV_MODEL, reviewer: "jev", path: "typed", line_level: "admitted", lines: lineNumbers(cleared), of_lines: frame.of,
-				confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...refusedConsequence, ...origin, ...who,
+				confidence: Math.min(...lineVerdicts.map((line) => line.confidence)), ...split.meta, ...refusedCompile, ...refusedConsequence, ...refusedTold, ...origin, ...who,
 				grounds: clearedVerdict.grounds, proposed: clearedLinesText });
 			const statuses: LineStatus[] = p.lines.map(() => ({ admitted: true }));
 			const partRows = { line_level: "remainder", lines: lineNumbers(rest), of_lines: frame.of, batch_key: frame.batchDigest };
@@ -2954,7 +2974,7 @@ export default function (pi: ExtensionAPI) {
 		 */
 		const admitLines = async (p: AdmissionProposal, effects: Array<Record<string, unknown>>, part: AdmitPart | undefined, frame: LineFrame): Promise<LineStatus[]> => {
 			const whole = (status: LineStatus): LineStatus[] => p.lines.map(() => status);
-			if (reviewedPerLine(p) && !part?.attempt && !compiled?.ok && !consequenced?.ok && !known(p.key)) {
+			if (reviewedPerLine(p) && !part?.attempt && !compiled?.ok && !consequenced?.ok && !told?.ok && !known(p.key)) {
 				const lines = admissionLines(tool, p, effects, scopeFor);
 				const kept = lines.map((entry) => known(entry.proposal.key));
 				// A line already refused this turn refuses the batch again at once (§32.4 keyed by line): nothing else of it is
@@ -3188,6 +3208,10 @@ export default function (pi: ExtensionAPI) {
 		const deferred = prepared.deferred;
 		if (deferred) {
 			const closedAt = Date.now();
+			let settled!: () => void;
+			const flight = { turn, done: new Promise<void>(resolve => { settled = resolve; }) };
+			// §158.4: the next run may wait a bounded while for this review, which may name what the ledger owes.
+			state.reviewInFlight = flight;
 			const timer = setTimeout(() => {
 				void (async () => {
 					const outcome = await deferred.run({ turn, closedAt, signal });
@@ -3196,7 +3220,8 @@ export default function (pi: ExtensionAPI) {
 					else noteReviewAnswered(state);
 					await warn(outcome.unreviewed ? { mode: "post", unreviewed: outcome.unreviewed } : { mode: "post", job: outcome.job });
 				})().catch((error) => void record({ lane: "continuity-review", turn, mode: "post", ok: false, reason: "lane_crashed",
-					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) }));
+					detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) }))
+					.finally(() => { settled(); if (state.reviewInFlight === flight) state.reviewInFlight = undefined; });
 			}, 0);
 			timer.unref?.();
 			return;
@@ -5045,6 +5070,7 @@ export default function (pi: ExtensionAPI) {
 		pi.events.emit('coc:operation-dispatcher', undefined);
 		pi.events.emit('coc:turn-close', undefined);
 		pi.events.emit('coc:source-answers', undefined);
+		pi.events.emit('coc:owed-review', undefined);
 		const current = table;
 		table = undefined;
 		if (current) {
@@ -5240,6 +5266,10 @@ export default function (pi: ExtensionAPI) {
 				campaign,
 				verdict: () => operationGate.open ? turnCloseVerdict() : { status: 'none', reason: 'no_table' },
 			}));
+			// §158.4: the next run's first read waits, within `PI_COC_OWED_WAIT_MS` of the run's start, for the previous
+			// delivery's post review still running: it may name what the ledger owes, and the run starts from the told position.
+			pi.events.emit('coc:owed-review', Object.freeze({ campaign, settle: (elapsedMs: number) =>
+				settleOwedReview(table?.campaign === campaign ? table.reviewInFlight : undefined, owedWaitMs(), elapsedMs) }));
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.
 			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: (at?: { scene?: string; run?: string }) => {

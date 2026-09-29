@@ -101,14 +101,18 @@ const AdaptationEffect = Type.Object({
     name: Type.String({description: 'Accept a ready independently reviewed proposal by its semantic name, alone in this batch. This grants no clue, movement, NPC presence, or player action.'}),
 });
 
+/** §158.5: the owed row this effect lands -- what an earlier delivered turn told the player and the ledger lacked. */
+const OwedRef = Type.Optional(Type.String({ description: "the name of a row of the capsule's owed section that this effect lands: what an earlier turn already told the player happened. Send that row's own effect with it, unchanged; the kernel refuses a name that is not open or an effect that does not land it. Leave it out for anything the player chose this turn" }));
+
 const MoveEffect = Type.Object({
 	...IntentResult,
 	kind: StringEnum(["move"] as const, { description: "change the persistent gameplay locus; ordinary spatial description inside the current locus needs no move" }),
-	to: Type.String({ description: "the persistent gameplay locus chosen by the player. Reuse an existing place for its rooms or counters. For an ordinary new place consistent with established facts, supply establish and via in this same move; no source reading or adaptation job is required just because the graph lacks it. Do not substitute or relabel another place" }),
+	to: Type.String({ description: "the persistent gameplay locus chosen by the player, or the one an owed row says they were already told they reached. Reuse an existing place for its rooms or counters. For an ordinary new place consistent with established facts, supply establish and via in this same move; no source reading or adaptation job is required just because the graph lacks it. Do not substitute or relabel another place" }),
 	establish: Type.Optional(Type.Object({summary: Type.String({description: "brief description of a new campaign place; preserve known causes and access conditions. This declares an addition, not a replacement of a registered source place"})})),
 	travel_minutes: Type.Optional(Type.Integer({ description: "minutes spent on the way; omitted means the value on the graph edge. The move itself advances the clock by the journey: add no time effect for the same journey" })),
 	via: Type.Optional(Type.String({ description: "how they got there when the way is not one of the exits you were given — through an unlatched upper window, down a coal chute, following someone in. Say it and the move lands; without it an unlisted destination is refused, and then the world stays where it was while your narration moves on" })),
 	label: Type.Optional(Type.String({ description: "a display name for the SAME registered gameplay locus in the player's language. It cannot substitute a different locus. Omitted means the existing name" })),
+	owed: OwedRef,
 });
 
 const ClueEffect = Type.Object({
@@ -161,6 +165,7 @@ const TimeEffect = Type.Object({
 	why: Type.Optional(Sentence("where the time went")),
 	// §156: the Keeper's declaration; the kernel refuses a clock-advancing time beside a travelling move without it.
 	beyond_travel: Type.Optional(Type.Boolean({ description: "true only when this time is in the same batch as a move and passes beyond that move's journey (after arriving or before setting out); without it such a batch is refused, because the move already counts the journey" })),
+	owed: OwedRef,
 });
 
 /** Things changing hands (contract §5 `item`, #19): what the narration gains or loses reaches the sheet here. */
@@ -359,6 +364,7 @@ const NpcEffect = Type.Object({
 		description: "where that intention stands after this turn: attempted (under way, the world has not answered yet), done (it happened), failed (stopped, or it came to nothing), abandoned (given up for something else). What a person announces gets a result by their next turn, and a settled intention (done, failed, abandoned) is not tried again: what they do next is a new intention. A roll or another effect that carries intent_ref reports the result itself; write this only for a result nothing else records",
 	})),
 	why: Type.Optional(Sentence("why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do")),
+	owed: OwedRef,
 });
 
 /**
