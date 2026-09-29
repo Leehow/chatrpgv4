@@ -238,3 +238,15 @@ test('pre: the gate’s own pass is written onto the record once the delivery co
     const record = requests.findIndex(request => request.method === 'table.warn' && request.params.lane === 'continuity-review');
     assert.ok(narrate >= 0 && narrate < record, 'recorded after the commit, never before it');
 });
+
+test('§37.11.1: the post-delivery reviewer is asked as an after-delivery child; the pre gate is not', async t => {
+    mode(t, 'post');
+    const seen = [];
+    const post = bridgeOn(await mkdtemp(join(directory, 'floor-post-')), {runTask: async task => { seen.push(task.request.afterDelivery); return submits(task); }});
+    const prepared = await post.bridge.prepare('narrate', {campaign: 'c1', text: 'The lamp swings.'});
+    await prepared.deferred.run({turn: 3, closedAt: Date.now()});
+    mode(t, 'pre');
+    const pre = bridgeOn(await mkdtemp(join(directory, 'floor-pre-')), {runTask: async task => { seen.push(task.request.afterDelivery); return submits(task); }});
+    await pre.bridge.prepare('narrate', {campaign: 'c1', text: 'A draft.'});
+    assert.deepEqual(seen, [true, undefined], 'only the review the player is not waiting on takes the floor');
+});

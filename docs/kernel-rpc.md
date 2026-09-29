@@ -10264,6 +10264,35 @@ falls back to the table's; a `reader` task in the same context still launches at
 default, in that order. The panel's advertised level is pinned to the runtime's, and no sentinel for
 following the table is accepted (`tests/extension/coc-lane-model.test.mjs`).
 
+#### 37.11.1 A lane that runs after delivery has a thinking floor (2026-09-29)
+
+**What was measured.** One fast-model setting serves two kinds of lane: the admission review the player waits
+on, and reviews that run after the turn was delivered and must hand back a strict, validated artifact. With the
+fast model `opencode-go/deepseek-v4.1-flash` set to `off` (table `pl-v-0929`, 15 turns) the post-delivery
+continuity review failed its artifact on 13 turns and each of those turns stood unreviewed; with the same
+build and model at `low` (table `pl-l-0929`) it failed on 1 of 14. `off` bought the blocking admission review
+1.4 s per call (median 2.4 s vs 3.8 s); the continuity review, verifier, memory and journal lanes the player
+does not wait on were slower at `low`, but none of that time is the player's.
+
+**The rule.** A lane round or `mod` child that declares `afterDelivery` has its reasoning level raised to
+`after_delivery_lanes.thinking_floor` in `content/rulesets/coc7/host-budgets.json` (`low` shipped; read by
+`runtime/jev/host-budgets.ts`'s `afterDeliveryLaneBudget`, compared by `runtime/fast-model.ts`'s
+`raiseThinkingToFloor`) when that level came from the fast-model setting, the table or the default. Nothing is
+ever lowered, and an operator's explicit choice is left as chosen: `PI_COC_LANE_THINKING`, a lane's own
+`${envName}_THINKING`, `PI_COC_MOD_THINKING` and a caller-named level all outrank the floor. The `start` row's
+`thinking_source` reads `after-delivery-floor` when the floor decided. Callers that declare it: the continuity
+review when it runs after delivery (`post` mode; the `pre` gate does not, since the player waits on it) and the
+verifier lane. The admission lane never declares it.
+
+**Acceptance.** `tests/extension/after-delivery-thinking-floor.test.mjs`: the floor is read from data with a
+fallback for a bad value; a post-delivery zero-tool lane at the setting's `off` runs at the floor and says so on
+its row, a lane without the declaration keeps `off`, an operator override is not raised and a higher setting is
+not lowered; a post-delivery `mod` child launches at the floor while a pre-delivery one keeps `off`, and
+`PI_COC_MOD_THINKING` still wins. `tests/extension/post-delivery-continuity.test.mjs`: the real Mods bridge
+declares it for the post-delivery review and not for the pre gate. Mutations (a copy of each file, never
+`git checkout --`): dropping the floor from `runLaneAttempt`, and from `runTask`'s `mod` branch, each turned
+the corresponding test red.
+
 ### 37.12 A lane child's idle timeout is its own, and is measured, not derived from its budget (2026-09-15)
 
 §37.11's rule with a second dial. `runtime/launch.ts` writes `httpIdleTimeoutMs: 60000` into the agent

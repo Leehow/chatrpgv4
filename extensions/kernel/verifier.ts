@@ -324,6 +324,8 @@ async function incumbent(options: VerifierLaneOptions, timeoutMs: number, signal
 	const lane = await runLane<Finding[]>({
 		ctx: lease ? budgetedVerifierContext(options.ctx, lease, accounting) : options.ctx,
 		envName: "PI_COC_VERIFIER_MODEL",
+		// §37.11.1: the verifier reads the delivered turn after it closed; the player is not waiting on it.
+		afterDelivery: true,
 		// The four `lane: "lane-call"` rows this round leaves (contract §12.8.1) go to the same
 		// telemetry the one `lane: "verifier"` row does, carrying this turn like it.
 		lane: "verifier",

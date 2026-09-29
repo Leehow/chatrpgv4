@@ -14,7 +14,8 @@ import { hostClock, type TaskClock } from "../../runtime/jev/task-context.ts";
 import { clampThinkingLevel, parseJsonWithRepair } from "@earendil-works/pi-ai";
 import type { ModelThinkingLevel, ThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { LANE_THINKING_DEFAULT as FAST_THINKING_DEFAULT, readFastModelChoiceSync, resolveFastModel, resolveFastThinking, type FastModelSource } from "../../runtime/fast-model.ts";
+import { LANE_THINKING_DEFAULT as FAST_THINKING_DEFAULT, raiseThinkingToFloor, readFastModelChoiceSync, resolveFastModel, resolveFastThinking, type FastModelSource } from "../../runtime/fast-model.ts";
+import { afterDeliveryLaneBudget } from "../../runtime/jev/host-budgets.ts";
 import { agentHomeOf } from "../ui/hints.ts";
 
 /**
@@ -199,8 +200,23 @@ const REQUEST_ID_HEADERS: readonly string[] = ["x-request-id", "request-id"];
 const LANE_THINKING_DEFAULT = FAST_THINKING_DEFAULT as ModelThinkingLevel;
 const LANE_THINKING_LEVELS: ReadonlySet<string> = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
-/** Which rank decided a lane's reasoning level; recorded on the `start` row as `thinking_source` (SL-91). */
-export type LaneThinkingSource = "caller" | "lane-operator" | "operator" | "setting" | "table" | "default";
+/**
+ * Which rank decided a lane's reasoning level; recorded on the `start` row as `thinking_source` (SL-91).
+ * `after-delivery-floor` (2026-09-29, §37.11.1): the setting's, table's or default level was below the floor
+ * a post-delivery lane is given, and the floor decided.
+ */
+export type LaneThinkingSource = "caller" | "lane-operator" | "operator" | "setting" | "table" | "default" | "after-delivery-floor";
+
+/** The ranks a post-delivery floor may raise: the product's own defaults, never an operator's or a caller's explicit choice. */
+const FLOORED_SOURCES: ReadonlySet<LaneThinkingSource> = new Set(["setting", "table", "default"]);
+
+/** §37.11.1: `choice`, raised to the post-delivery floor when it came from a floorable rank and sits below it. */
+export async function afterDeliveryFloor(choice: LaneThinkingChoice, contentRoot?: string): Promise<LaneThinkingChoice> {
+	if (!FLOORED_SOURCES.has(choice.source)) return choice;
+	const { thinkingFloor } = await afterDeliveryLaneBudget(contentRoot);
+	const level = raiseThinkingToFloor(choice.level, thinkingFloor) as ModelThinkingLevel;
+	return level === choice.level ? choice : { level, source: "after-delivery-floor" };
+}
 
 export interface LaneThinkingChoice { level: ModelThinkingLevel; source: LaneThinkingSource }
 
@@ -470,6 +486,13 @@ export interface LaneRequest<T> {
 	 */
 	clock?: TaskClock;
 	/**
+	 * 2026-09-29 (contract §37.11.1): this round runs after the turn was delivered -- the player is not waiting on
+	 * it -- and must hand back a strict artifact. A level that came from the fast-model setting, the table or the
+	 * default is raised to `after_delivery_lanes.thinking_floor` (`content/rulesets/coc7/host-budgets.json`); an
+	 * operator's own environment override and a caller-named level are left as chosen.
+	 */
+	afterDelivery?: boolean;
+	/**
 	 * Reasoning effort for this round. Defaults to `laneThinkingLevel(ctx)`; a caller only names one
 	 * when its own budget differs from every other lane's, which none does today.
 	 */
@@ -556,9 +579,10 @@ async function runLaneAttempt<T>(
 		// passed through so a lane whose model came from its own environment override also takes its
 		// thinking level from a matching `${envName}_THINKING`, ranked above the shared resolution;
 		// `request.thinking` (a caller-named level; no caller does today) still outranks everything.
-		const { level: thinking, source: thinkingSource }: LaneThinkingChoice = request.thinking !== undefined
+		const chosen: LaneThinkingChoice = request.thinking !== undefined
 			? { level: request.thinking, source: "caller" }
 			: laneThinkingChoice(request.ctx, request.envName);
+		const { level: thinking, source: thinkingSource } = request.afterDelivery ? await afterDeliveryFloor(chosen) : chosen;
 		const reasoning = laneReasoningOptions(resolved.model, thinking);
 		// `lane_thinking_effective` (SL-81): the level the body actually carries -- the same
 		// `laneEffectiveLevel` `laneReasoningOptions` above sends, so the row cannot claim one level

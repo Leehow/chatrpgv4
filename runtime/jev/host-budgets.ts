@@ -212,6 +212,48 @@ async function readDeliveryFloorBudget(contentRoot?: string): Promise<DeliveryFl
 export function resetDeliveryFloorBudgetCache(): void { deliveryFloorCached = undefined; }
 
 /**
+ * 2026-09-29 (contract §37.11.1): the lowest reasoning level a lane is given when it runs after the turn was
+ * delivered -- the player is not waiting on it -- and it must hand back a strict, validated artifact. One fast
+ * model setting serves both kinds of lane; at `off` the blocking admission review was 1.4 s faster per call
+ * (2.4 s vs 3.8 s median), while the post-delivery continuity review failed its artifact on 13 of 15 turns
+ * (1 of 14 at `low`, same build, same model). The floor keeps the setting's speed where the player waits and
+ * spends reasoning only where they do not.
+ */
+export interface AfterDeliveryLaneBudget {
+  /** `after_delivery_lanes.thinking_floor`: one of Pi's levels; a lane below it is raised to it. */
+  thinkingFloor: string;
+}
+
+/** Used only if `content/rulesets/coc7/host-budgets.json` cannot be read; the shipped file carries the real value. */
+export const AFTER_DELIVERY_LANE_FALLBACK: AfterDeliveryLaneBudget = Object.freeze({thinkingFloor: 'low'});
+
+const afterDeliveryLaneCached = new Map<string, Promise<AfterDeliveryLaneBudget>>();
+const THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+
+/** Read once per content root and cached, like `readingIdleBudget` below; no argument means the extension's own content. */
+export function afterDeliveryLaneBudget(contentRoot?: string): Promise<AfterDeliveryLaneBudget> {
+  const key = contentRoot ?? '';
+  let cached = afterDeliveryLaneCached.get(key);
+  if (!cached) afterDeliveryLaneCached.set(key, cached = readAfterDeliveryLaneBudget(contentRoot));
+  return cached;
+}
+
+async function readAfterDeliveryLaneBudget(contentRoot?: string): Promise<AfterDeliveryLaneBudget> {
+  try {
+    const raw = JSON.parse(await readFile(join(contentRoot ?? extensionContentRoot(), 'rulesets', 'coc7', 'host-budgets.json'), 'utf8')) as {
+      after_delivery_lanes?: {thinking_floor?: unknown};
+    };
+    const floor = raw.after_delivery_lanes?.thinking_floor;
+    return {thinkingFloor: typeof floor === 'string' && THINKING_LEVELS.has(floor) ? floor : AFTER_DELIVERY_LANE_FALLBACK.thinkingFloor};
+  } catch {
+    return AFTER_DELIVERY_LANE_FALLBACK;
+  }
+}
+
+/** Test-only: forgets the cached values. */
+export function resetAfterDeliveryLaneBudgetCache(): void { afterDeliveryLaneCached.clear(); }
+
+/**
  * SL-99 (contract §140.1): how long a **reader** child's provider stream may say nothing before its transport and
  * the stream watchdog give up (`httpIdleTimeoutMs`, written into that child's own project settings by
  * `extensions/module/reader.ts`). Only `runtime/tasks.ts`'s `reader` tasks take it: the Keeper keeps the agent home's

@@ -40,6 +40,12 @@ export interface ReaderRequest {
 	 * `PI_COC_MOD_MODEL` outranks the more specific operator choice (contract §37.10.1).
 	 */
 	pinnedModel?: boolean;
+	/**
+	 * 2026-09-29 (contract §37.11.1): a `mod` child that runs after the turn was delivered (the post-delivery
+	 * continuity review). Its thinking, when it came from the fast-model setting or the default rather than
+	 * `PI_COC_MOD_THINKING`, is raised to `after_delivery_lanes.thinking_floor`.
+	 */
+	afterDelivery?: boolean;
 	thinking?: string;
 	signal?: AbortSignal;
 	timeoutMs?: number;

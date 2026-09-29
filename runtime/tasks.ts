@@ -1,6 +1,6 @@
 import {independentProviderBudget} from "./jev/provider-budget.ts";
 import {openStageProviderBudget} from "./jev/reading-stage-budget.ts";
-import {readingIdleBudget} from "./jev/host-budgets.ts";
+import {afterDeliveryLaneBudget, readingIdleBudget} from "./jev/host-budgets.ts";
 /** Fixed host adapters; checking never opens a kernel or publishes an artifact. */
 import { accessSync, constants, statSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -11,7 +11,7 @@ import { runReader, type ReaderRequest } from "../extensions/module/reader.ts";
 import type { RuntimeCapabilities, RuntimeCheck, RuntimeContext } from "./host.ts";
 import { runHostProcess } from "./process.ts";
 import { stripJsonComments } from "./json-comments.ts";
-import { FAST_MODEL_SETTINGS_FILE, fastModelChoiceOf, readFastModelChoice, resolveFastModel, resolveFastThinking } from "./fast-model.ts";
+import { FAST_MODEL_SETTINGS_FILE, fastModelChoiceOf, raiseThinkingToFloor, readFastModelChoice, resolveFastModel, resolveFastThinking } from "./fast-model.ts";
 
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 const cancelled = () => new KernelError({ code: "internal", message: "Runtime operation was cancelled", details: { reason: "runtime_cancelled" } });
@@ -272,6 +272,9 @@ export const runtimeCapabilities: RuntimeCapabilities = Object.freeze({
       if (!(request.pinnedModel && request.model))
         request.model = resolveFastModel({ override: context.env.PI_COC_MOD_MODEL, choice: chosen, table: request.model }).model;
       request.thinking = resolveFastThinking({ override: context.env.PI_COC_MOD_THINKING, choice: chosen });
+      // §37.11.1: a post-delivery child is raised to the floor, unless the operator named its level outright.
+      if (request.afterDelivery && !context.env.PI_COC_MOD_THINKING?.trim())
+        request.thinking = raiseThinkingToFloor(request.thinking, (await afterDeliveryLaneBudget(context.contentRoot)).thinkingFloor);
       // Same shape as the budget knob below: the host's own environment is the operator's override.
       const idle = Number(context.env.PI_COC_MOD_HTTP_IDLE_TIMEOUT_MS);
       request.httpIdleTimeoutMs ??= idle > 0 ? idle : LANE_HTTP_IDLE_TIMEOUT_MS;

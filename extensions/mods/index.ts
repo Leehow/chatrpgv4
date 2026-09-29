@@ -289,6 +289,8 @@ export default function modsExtension(pi: ExtensionAPI): void {
           // latency and cost; §110 separately replaced the former 40 s deadline with a background-scale
           // process safety ceiling.
           tools: 'read,write,edit,bash', audit: {control}, timeoutMs: limits.timeoutMs,
+          // §37.11.1: after delivery the player is not waiting on this review; its thinking gets the post-delivery floor.
+          ...(post ? {afterDelivery: true} : {}),
           eventLog: join(job.cwd, `audit-agent-${ordinal}.jsonl`),
           onEvent(event) {
             if (event.type === 'message_end' && (event.message as any)?.role === 'assistant' &&

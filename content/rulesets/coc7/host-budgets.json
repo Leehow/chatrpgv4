@@ -35,6 +35,9 @@
   "reading": {
     "idle_ms": 180000
   },
+  "after_delivery_lanes": {
+    "thinking_floor": "low"
+  },
   "admission": {
     "typed_design": "roles-2a.3",
     "typed_settle": {

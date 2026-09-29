@@ -128,6 +128,18 @@ export function resolveFastModel(input: { override?: string; choice: FastModelCh
  * at the literal `"low"` on a table sitting at `off` for 100 calls straight, because nothing between
  * the lane and `LANE_THINKING_DEFAULT` ever looked at the table at all.
  */
+/** Pi's reasoning levels, least to most -- the order a floor compares against. */
+export const THINKING_LEVEL_ORDER: readonly string[] = Object.freeze(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+/**
+ * `level`, raised to `floor` when it sits below it. An unknown level or floor compares as nothing and
+ * is returned unchanged: this only ever moves a known level up to a known one (2026-09-29, contract §37.11.1).
+ */
+export function raiseThinkingToFloor(level: string, floor: string | undefined): string {
+  const at = THINKING_LEVEL_ORDER.indexOf(level), min = floor ? THINKING_LEVEL_ORDER.indexOf(floor) : -1;
+  return at >= 0 && min >= 0 && at < min ? floor! : level;
+}
+
 export function resolveFastThinking(input: { override?: string; choice: FastModelChoice; table?: string }): string {
   return input.override?.trim() || input.choice.thinking || input.table?.trim() || LANE_THINKING_DEFAULT;
 }
