@@ -151,7 +151,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
  const taskBytes=await readFile(join(cwd,'task.json'));
  const task=JSON.parse(taskBytes.toString()) as {source_reference_packet?:SourceReferencePacket;source_reference?:'guidance'|'lookup';materialize_place?:boolean;play_language?:string;review_policy?:string;purpose?:string;module_id?:string;focus?:string;question?:string;guidance_key?:string;known_nodes?:unknown[];
    source?:{page_count?:number};source_unit?:{section:string;first:number;last:number};pages?:number[];required_review?:unknown[];review_scope_pages?:number[];
-   known_claims?:unknown[];source_need?:unknown};
+   known_claims?:unknown[];source_need?:unknown;repair?:{kind?:string;pages?:unknown[]}};
  if(!['answer','guidance','opening','detail'].includes(task.purpose??''))throw new Error('Native source reader requires a checked source task');
  const reviewDraft=Array.isArray(task.required_review)?JSON.parse(await readFile(join(cwd,'draft.json'),'utf8')):null;
  const traceFile=join(cwd,'source-driver.jsonl');
@@ -279,6 +279,12 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
    async function locate(signal:AbortSignal){
      if(!info)throw new Error('Source catalog is unavailable');
      const question=pendingQuery;
+     // §150.2.2: a targeted repair reads the refused records' own pages; nothing is located again.
+     if(task.repair?.kind==='targeted'&&Array.isArray(task.repair.pages)&&requestCount===0){
+       candidates=[...new Set(task.repair.pages.filter((page):page is number=>Number.isSafeInteger(page)&&Number(page)>=1&&Number(page)<=info!.page_count))].slice(0,20);
+       partial=true;trace({kind:'source_targeted_repair',runId,pages:candidates});
+       return {kind:'located',pages:candidates,partial:true};
+     }
      if(task.source_unit&&requestCount===0){
        candidates=(task.pages??[]).filter(page=>Number.isSafeInteger(page)&&page>=task.source_unit!.first&&page<=task.source_unit!.last);
        partial=true;trace({kind:'source_indexed_unit',runId,unit:task.source_unit,pages:candidates,whole_book_complete:false});

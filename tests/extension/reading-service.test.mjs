@@ -1032,6 +1032,7 @@ test("§150.4: a need the native child settled is finished settled, with no revi
 	assert.ok(calls.some(([method]) => method === "module.read.ahead"), "the queue keeps moving after a settlement");
 	assert.equal(rows.find(row => row.phase === "read").need_disposition, "unlocated");
 	assert.equal(rows.find(row => row.event === "source_need").disposition, "unlocated");
+	assert.equal(rows.find(row => row.event === "job_accounting")?.need, "unlocated", "§150.2.4: the job row names the need disposition");
 });
 
 test("§150.4: a need the child decided to read, or a receipt for another task, never settles", async t => {
