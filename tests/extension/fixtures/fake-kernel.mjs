@@ -50,6 +50,7 @@
  *                          resolve, `details.index` for apply) -- not single-shot, like a real name the
  *                          graph does not know, which stays unknown every time it is spelled the same
  *                          way; a call whose name was rewritten to a different string passes as usual.
+ *   FAKE_SETUP_CATALOG     JSON object: what `setup.catalog` answers instead of the one-trade default (§150.6 tests).
  *   FAKE_SETUP_RESUME      JSON object {"completed": [...], "state": {...}}: what `setup.steps {campaign}` answers,
  *                          the shape the kernel gives a setup process reopened on an existing campaign (§14.4) --
  *                          a PDF campaign created before its opening was chosen answers `state.start_scene: null`.
@@ -663,6 +664,8 @@ function handle(method, params) {
             return {ok:true,result:{...card, applied:["reroll"]}};
         }
         case "setup.catalog":
+            // FAKE_SETUP_CATALOG: a whole catalog (§98 shape, §150.6's characteristics and `listed: false`) for a test that needs more than one trade.
+            if (process.env.FAKE_SETUP_CATALOG) return {ok:true,result:JSON.parse(process.env.FAKE_SETUP_CATALOG)};
             return {ok:true,result:{occupations:[{id:"Journalist",label:"记者",skills:["History","Library Use"],credit_rating_range:[9,30],formula:"EDU*4"}],
                 skills:[{name:"Law",label:"法律"},{name:"Archaeology",label:"考古学"}],weapons:[".45 Automatic"],language_specialty:"Language (Other: English)"}};
         case "setup.override": {
