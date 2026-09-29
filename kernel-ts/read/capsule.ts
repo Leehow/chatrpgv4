@@ -796,7 +796,8 @@ function oneLine(graph: ModuleGraph, node: Row, size: number): string {
 export function moduleSection(graph: ModuleGraph, size = 120): Row {
     const module = graph.moduleNode || {},
         record = recordOf(module),
-        roster = (kinds: string[]) => kinds.flatMap(kind => graph.kind(kind).map(node => ({
+        roster = (kinds: string[]) => kinds.flatMap(kind => (kind === 'location'
+            ? array(graph.raw.nodes).filter(node => node.node_kind === 'location') : graph.kind(kind)).map(node => ({
         name: graph.displayName(node),
         line: oneLine(graph, node, size)
     })));

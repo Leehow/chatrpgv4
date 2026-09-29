@@ -28662,6 +28662,8 @@ A typed `mod_check` receipt with an `impression` observes the meeting rather tha
 
 The GUI police-return test found a source `location-arkham-police` carrying discoverable clues and uses-rule edges, but `move` accepted only scene-kind nodes. The campaign graph now projects authored location nodes as scene views with the same node IDs, handles, source references, properties and relationships. Original source `raw` and canonical-source lookups retain the original location kind. This is a read projection, not creation of another police station or a source publication. It grants neither clue discovery nor access; ordinary admission and relevant authored conditions still apply. Campaign additions remain distinct and are never silently renamed or migrated by this projection.
 
+The module briefing's place roster reads the original source-location records, so projection does not erase them from the Keeper's overview or introduce improvised places as authored ones.
+
 ### 150.3 Explicit transcript navigation does not wait for animation frames
 
 The GUI continuation completed turns while the shell reported document.visibilityState hidden. The return-to-latest control only queued requestAnimationFrame, which Chromium may suspend for hidden content, leaving the visible transcript behind the committed world. An explicit return-to-latest click now issues the existing Virtuoso auto-scroll immediately; the bounded frame-based settling pass still handles later layout changes. This changes no game state or delivery status. It does not claim to repair the separate native blank-window observation. References: MDN Window.requestAnimationFrame and Electron BrowserWindow Page Visibility.
