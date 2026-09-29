@@ -1136,7 +1136,8 @@ export default function (pi: ExtensionAPI) {
 		const created = done(ids.create);
 		if (created) await loadCatalog();
 		const draft = asRecord(context.draft);
-		const card = draftRevision !== undefined && Object.keys(draft).length ? {revision: draftRevision, summary: summarize(draft), profile: asRecord(draft.profile)} : null;
+		const era = asString(asRecord(draft.sheet).era);
+		const card = draftRevision !== undefined && Object.keys(draft).length ? {revision: draftRevision, summary: summarize(draft), profile: asRecord(draft.profile), ...(era ? {era} : {})} : null;
 		const confirmed = done(ids.confirm), loaded = done(ids.load);
 		let sources: Array<Record<string, unknown>> = [];
 		if (!done(ids.choose) && bridge) {
@@ -1156,7 +1157,8 @@ export default function (pi: ExtensionAPI) {
 			} catch { /* an unreadable library offers nothing to load */ }
 		}
 		const catalog = catalogRows ? {
-			occupations: (Array.isArray(catalogRows.occupations) ? catalogRows.occupations : []).map(asRecord).filter(row => asString(row.id)).map(row => ({id: asString(row.id), ...(asString(row.label) ? {label: asString(row.label)} : {})})),
+			occupations: (Array.isArray(catalogRows.occupations) ? catalogRows.occupations : []).map(asRecord).filter(row => asString(row.id)).map(row => ({id: asString(row.id), ...(asString(row.label) ? {label: asString(row.label)} : {}),
+				...(Array.isArray(row.skills) ? {skills: (row.skills as unknown[]).filter((name): name is string => typeof name === 'string')} : {})})),
 			skills: (Array.isArray(catalogRows.skills) ? catalogRows.skills : []).map(asRecord).filter(row => asString(row.name)).map(row => ({name: asString(row.name), ...(asString(row.label) ? {label: asString(row.label)} : {}), ...(row.listed === false ? {listed: false} : {})})),
 			characteristics: (Array.isArray(catalogRows.characteristics) ? catalogRows.characteristics : []).map(asRecord).filter(row => asString(row.abbr)).map(row => ({abbr: asString(row.abbr), ...(asString(row.name) ? {name: asString(row.name)} : {})})),
 		} : null;

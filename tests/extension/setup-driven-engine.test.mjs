@@ -12,7 +12,8 @@ import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { openTable, waitForIdle } from "./harness.mjs";
 import { createSetupEngine, SETUP_CARD_TOOL } from "../../runtime/jev/setup-engine.ts";
-import { SETUP_DRIVEN_FALLBACK, SETUP_FIELDS_FAMILY, SETUP_ROUTE_FAMILY, cardPlan, fieldsBatch, interpretRoute, legalMoves, routeBatch } from "../../runtime/jev/setup-decisions.ts";
+import { SETUP_DRIVEN_FALLBACK, SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY, SETUP_ROUTE_FAMILY, cardPlan, fieldsBatch, interestBatches, interestCandidates, interpretInterest,
+	interpretRoute, legalMoves, routeBatch } from "../../runtime/jev/setup-decisions.ts";
 import { packDecisionBatch } from "../../runtime/jev/question-packing.ts";
 import { selectLoopEngine } from "../../runtime/loop-engine.ts";
 import { hybridMainOptions } from "../../runtime/pi-hybrid.ts";
@@ -28,6 +29,8 @@ const CATALOG = {
 	skills: [
 		{ name: "Spot Hidden", label: "侦查" }, { name: "Library Use", label: "图书馆使用" }, { name: "Drive Auto", label: "汽车驾驶" },
 		{ name: "Psychology", label: "心理学" }, { name: "Credit Rating", label: "信用评级", listed: false },
+		{ name: "Art and Craft (Photography)", label: "艺术与手艺（摄影）" }, { name: "First Aid", label: "急救" }, { name: "Law", label: "法律" },
+		{ name: "Stealth", label: "潜行" }, { name: "Listen", label: "聆听" }, { name: "Mechanical Repair", label: "机械维修" },
 	],
 	characteristics: [{ abbr: "STR", name: "Strength" }, { abbr: "DEX", name: "Dexterity" }, { abbr: "INT", name: "Intelligence" }, { abbr: "POW", name: "Power" }],
 	weapons: [".38 Revolver"], language_specialty: "Language (Other: English)",
@@ -66,10 +69,11 @@ function selection(context, word) {
 }
 
 /** A setup table on the driven engine; `requests` logs the tools every model request declared, in order. */
-async function drivenSetup({ decide, responses, env = {} }) {
+async function drivenSetup({ decide, responses, env = {}, budget }) {
 	const decisions = [], requests = [];
 	let decider = decide;
-	const engine = createSetupEngine({ env: process.env, decision: decide === null ? null : { decide: async (batch, lease) => { decisions.push(batch); return decider(batch, lease); } } });
+	const engine = createSetupEngine({ env: process.env, ...(budget ? { budget } : {}),
+		decision: decide === null ? null : { decide: async (batch, lease) => { decisions.push(batch); return decider(batch, lease); } } });
 	const table = await openTable({
 		mode: "setup", campaign: CAMPAIGN,
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1", EXT_JEV_APIKEY: undefined, TYPESAFE_API_KEY: undefined,
@@ -90,9 +94,9 @@ const toolResults = (table, name) => table.session.messages.filter((message) => 
 
 const FIRST_INPUT = "我叫艾伦，是自由摄影记者，眼睛尖、擅长查资料。其余的背景和装备都帮我决定，出卡吧。";
 /** The route clears the card-field move; the card fields bind a trade outside the catalog and two named skills. */
-const cardFieldsJev = (fields) => (batch) => batch.family === SETUP_ROUTE_FAMILY
+const cardFieldsJev = (fields, interest = {}) => (batch) => batch.family === SETUP_ROUTE_FAMILY
 	? answer(batch, { exit: "continue", move_card_fields: 0.95 })
-	: answer(batch, fields);
+	: batch.family === SETUP_INTEREST_FAMILY ? answer(batch, interest) : answer(batch, fields);
 const FIRST_FIELDS = { occupation: "o0", occupation_stated: 0.96, occupation_outside: 0.9, strong: "INT", "Spot Hidden": 0.93, "Library Use": 0.81, "Drive Auto": 0.2,
 	stated_name: 0.97, delegated: 0.92 };
 /** The bind step's one call: open words only, the name and the trade words selected from the input, never retyped. */
@@ -110,7 +114,8 @@ test("§150.6: a trade outside the catalog binds the closest catalog occupation,
 	assert.deepEqual(table.extensionErrors, []);
 	assert.equal(table.session.runEngine, "hybrid-v1");
 
-	assert.deepEqual(decisions.map((batch) => batch.family), [SETUP_ROUTE_FAMILY, SETUP_FIELDS_FAMILY], "one route, then the card fields");
+	assert.deepEqual(decisions.map((batch) => batch.family), [SETUP_ROUTE_FAMILY, SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY],
+		"one route, the card fields, then (a delegated card with points left) the interest fit");
 	// D2 hygiene: one Noul per legal move plus the exit Choice; the catalog skills a list never holds are not offered.
 	assert.deepEqual(decisions[0].questions.map((question) => question.key), ["move_card_fields", "exit"]);
 	assert.ok(!JSON.stringify(decisions[1].state.skills).includes("Credit Rating"), "Credit Rating is never offered as a named skill");
@@ -130,7 +135,7 @@ test("§150.6: a trade outside the catalog binds the closest catalog occupation,
 	const [row] = setupRuns(table);
 	assert.ok(row, "the run wrote its setup telemetry row");
 	assert.equal(row.policy, "coc-setup-v1");
-	assert.deepEqual(row.families, [SETUP_ROUTE_FAMILY, SETUP_FIELDS_FAMILY]);
+	assert.deepEqual(row.families, [SETUP_ROUTE_FAMILY, SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY]);
 	assert.deepEqual(row.model_steps, { bind: 1, compose: 1, adjudicate: 0 });
 	const path = (field) => row.bound.find((entry) => entry.field === field)?.path;
 	assert.equal(path("occupation"), "jev");
@@ -346,4 +351,94 @@ test("§150.6: a route move clears only on its own Noul and target; a different 
 	assert.ok(legalMoves(library).includes("load_library"));
 	const loaded = interpretRoute(library, answer(routeBatch({ read: library, scope, readSet: [] }), { exit: "continue", move_load_library: 0.9, library: "l0" }), SETUP_DRIVEN_FALLBACK);
 	assert.deepEqual(loaded.target, { kind: "library", entry: { library_id: "ada-1", name: "Ada" } });
+});
+
+// ---- §150.6 decision 9: setup-interest-fit v1 ---------------------------------------------------------------------
+
+const fitStateSkills = (batch) => batch.state.skills.map((shown) => /\(([^()]+(?:\([^()]*\))?)\)$/.exec(shown)?.[1] ?? shown);
+const interestRevisions = (table) => kernel(table, "setup.revise").filter((row) => Array.isArray(row.params.profile?.interest_skills));
+
+test("§150.6 interest fit: a delegated card gets the cleared skills in probability order, capped by data, through one direct revise and no extra model request", async (t) => {
+	const run = await drivenSetup({ budget: { ...SETUP_DRIVEN_FALLBACK, interestSkillMax: 2 },
+		decide: cardFieldsJev(FIRST_FIELDS, { exists: 0.93, "Drive Auto": 0.9, Stealth: 0.72, Listen: 0.81, Law: 0.2 }),
+		responses: [bindCall, fauxAssistantMessage("艾伦的卡好了。")] });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);
+	await waitForIdle(run.table.session);
+	const { table, decisions, requests } = run;
+	const fit = decisions.filter((batch) => batch.family === SETUP_INTEREST_FAMILY);
+	assert.equal(fit.length, 1, "one fan-out");
+	const offered = fit.flatMap(fitStateSkills);
+	for (const never of ["Spot Hidden", "Library Use", "Psychology", "Art and Craft (Photography)", "Credit Rating"])
+		assert.ok(!offered.includes(never), `${never} is on the card, the trade's own, or never listed: not a candidate`);
+	assert.deepEqual(offered.sort(), ["Drive Auto", "First Aid", "Law", "Listen", "Mechanical Repair", "Stealth"]);
+	assert.deepEqual(Object.keys(fit[0].state), ["investigator", "skills"], "state is the card's words and the candidates (D2.3)");
+	assert.equal(fit[0].state.investigator.concept, "开旧皮卡跑新闻的自由摄影记者", "the fit reads the bind step's words");
+	const [revise] = interestRevisions(table);
+	assert.deepEqual(revise.params.profile, { interest_skills: ["Drive Auto", "Listen"] }, "cleared skills, strongest first, cut at interest_skill_max");
+	assert.equal(revise.params.auto_spread, true, "the kernel spreads the points; no number comes from Jev or the model");
+	assert.deepEqual(requests, [[SETUP_CARD_TOOL], []], "no extra model request");
+	const [row] = setupRuns(table);
+	assert.deepEqual(row.bound.find((entry) => entry.field === "interest_skills"), { field: "interest_skills", path: "jev", value: ["Drive Auto", "Listen"] });
+	const note = JSON.parse(table.session.messages.filter((message) => message.role === "custom" && message.customType === "coc-setup-step").at(-1).content);
+	assert.equal(note.interest.status, "set");
+	assert.equal(note.interest.revised, true);
+});
+
+test("§150.6 interest fit: nothing cleared leaves the points unspent, no revise, and the reply is told the points remain", async (t) => {
+	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS, { exists: 0.9, "Drive Auto": 0.3, Listen: 0.2 }),
+		responses: [bindCall, fauxAssistantMessage("卡好了，兴趣点还没分。")] });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);
+	await waitForIdle(run.table.session);
+	assert.equal(interestRevisions(run.table).length, 0, "nothing is invented");
+	assert.deepEqual(run.requests, [[SETUP_CARD_TOOL], []]);
+	const note = JSON.parse(run.table.session.messages.filter((message) => message.role === "custom" && message.customType === "coc-setup-step").at(-1).content);
+	assert.equal(note.interest.status, "none_cleared");
+	assert.equal(note.interest.points_left, 90);
+	assert.match(note.interest_note, /still unspent/);
+});
+
+test("§150.6 interest fit: a card the player did not delegate never asks the family", async (t) => {
+	const run = await drivenSetup({ decide: cardFieldsJev({ ...FIRST_FIELDS, delegated: 0.05 }, { exists: 0.95, "Drive Auto": 0.95 }),
+		responses: [bindCall, fauxAssistantMessage("卡好了。")] });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);
+	await waitForIdle(run.table.session);
+	assert.deepEqual(run.decisions.map((batch) => batch.family), [SETUP_ROUTE_FAMILY, SETUP_FIELDS_FAMILY]);
+	assert.equal(interestRevisions(run.table).length, 0);
+});
+
+test("§150.6 interest fit: an outage leaves the card unchanged and the reply says the points remain; no model picks skills", async (t) => {
+	const outage = { batchId: "b", status: "unavailable", answers: {}, coverage: { required: [], answered: [], unknown: [] }, issues: [], failure: { code: "service_error", retryable: true } };
+	const run = await drivenSetup({ decide: (batch) => batch.family === SETUP_INTEREST_FAMILY ? outage : cardFieldsJev(FIRST_FIELDS)(batch),
+		responses: [bindCall, fauxAssistantMessage("卡好了。")] });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);
+	await waitForIdle(run.table.session);
+	assert.equal(interestRevisions(run.table).length, 0, "the card is unchanged");
+	assert.deepEqual(run.requests, [[SETUP_CARD_TOOL], []], "no fallback to the model");
+	const note = JSON.parse(run.table.session.messages.filter((message) => message.role === "custom" && message.customType === "coc-setup-step").at(-1).content);
+	assert.equal(note.interest.status, "unavailable");
+	assert.match(note.interest_note, /still unspent/);
+	assert.equal(setupRuns(run.table)[0].model_steps.adjudicate, 0);
+});
+
+test("§150.6 interest fit: candidates exclude listed, printed and unlisted skills; a batch too large to pack splits into one fan-out with exists on the first; the gate and cap are data", () => {
+	const card = { revision: 1, era: "1920s", summary: { card: { occupation: "Journalist" }, budget: { interest: { unspent: 60 } } },
+		profile: { occupation: "Journalist", concept: "a photographer", backstory: { traits: "quiet" }, occupation_skills: ["Spot Hidden"], interest_skills: ["Law"] } };
+	const drawn = read({ card });
+	assert.deepEqual(interestCandidates(drawn).map((row) => row.name).sort(), ["Drive Auto", "First Aid", "Listen", "Mechanical Repair", "Stealth"]);
+	const pack = (batch) => { if (batch.questions.length > 3) throw new Error("packing_limit"); };
+	const batches = interestBatches({ read: drawn, scope, readSet: [] }, pack);
+	assert.ok(batches.length > 1, "split");
+	assert.deepEqual(batches.map((batch) => batch.questions.filter((question) => question.key === "exists").length), [1, ...batches.slice(1).map(() => 0)]);
+	assert.equal(new Set(batches.flatMap((batch) => batch.questions.map((question) => question.key))).size, 6, "five fit keys and exists, unique across the fan-out");
+	const results = batches.map((batch) => answer(batch, { exists: 0.9, Listen: 0.95, Stealth: 0.8, "First Aid": 0.85 }));
+	assert.deepEqual(interpretInterest(drawn, results, { ...SETUP_DRIVEN_FALLBACK, interestSkillMax: 2 }).skills, ["Listen", "First Aid"]);
+	assert.deepEqual(interpretInterest(drawn, results, { ...SETUP_DRIVEN_FALLBACK, interestRowMin: 0.9 }).skills, ["Listen"], "the family's own gate is data");
+	const noExists = batches.map((batch) => answer(batch, { exists: 0.2, Listen: 0.95 }));
+	assert.equal(interpretInterest(drawn, noExists, SETUP_DRIVEN_FALLBACK).status, "none_cleared", "nothing is picked unless the exists row clears");
+	assert.equal(cardPlan(drawn, fields({ delegatedSkills: true })).kind, "interest", "delegated skills on a drawn card: the fit alone");
+	assert.equal(cardPlan(drawn, fields()).kind, "adjudicate");
 });

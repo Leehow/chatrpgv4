@@ -1286,6 +1286,7 @@ process.stdin.on("end", () => process.exit(0));
 
 /** §98 fake card: the sheet shape the extension summarizes, with pins, budget and limits. */
 function fakeCard(revision, profile, pins, budget) {
+    const interestListed = Array.isArray(profile.interest_skills) && profile.interest_skills.length > 0;
     const skills = {Law: 45, Archaeology: 30};
     for (const [name, pin] of Object.entries(pins.skills)) skills[name] = pin.value;
     return {revision, seed: "private-seed", profile: {...profile}, pins,
@@ -1293,7 +1294,8 @@ function fakeCard(revision, profile, pins, budget) {
             characteristics: {STR: 50, CON: 50, SIZ: 60, DEX: 60, APP: 50, INT: 70, POW: 50, EDU: 80, LUCK: 55}, derived: {HP: 11, MP: 10, SAN: 50, MOV: 8, DB: 0, BUILD: 0},
             skills, credit_rating: 9, cash: "45 USD", weapons: [], equipment: profile.equipment ?? [],
             creation: {seed: "private-seed", method: "rolled", characteristics: {multiplier: 5, rolls: {STR: {dice: "3d6", faces: [1, 1, 2], total: 4}}}, age: {edu_improvement_checks: []}, luck: {}, skills: {occupation: {unspent: 0}, interest: {unspent: 0}}}},
-        budget: {occupation: {total: budget.occupation, spent: budget.occupation, unspent: 0}, interest: {total: budget.interest, spent: budget.interest, unspent: 0}, legal: true, notes: []},
+        // As the kernel does: an empty interest list leaves the interest pool unspent (§150.6's interest fit reads this).
+        budget: {occupation: {total: budget.occupation, spent: budget.occupation, unspent: 0}, interest: {total: budget.interest, spent: interestListed ? budget.interest : 0, unspent: interestListed ? 0 : budget.interest}, legal: true, notes: []},
         generation: {method: "rolled", seed: "private-seed"}, completeness: {valid: true, issues: []}, limits: {skill_cap: 75, characteristic_min: 15, characteristic_max: 90, occupation_points: budget.occupation, interest_points: budget.interest, overridden: []}, labels: {}};
 }
 /** A revision: words merge, numbers pin, a skill the card does not list is refused with candidates. */

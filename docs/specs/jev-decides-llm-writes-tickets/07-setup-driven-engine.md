@@ -45,3 +45,52 @@ Not done / for the lead:
 - `pick_opening` and `load_library` have unit coverage only (the fake kernel has no `investigator.load`, and an opening choice needs the PDF/module preparation path).
 - No live table: acceptance is ticket 08 (cold Blood PDF through `driver.py --launcher bin/pi-coc-setup --expect-engine hybrid-v1`). Gate numbers in `setup_driven` are starting values to calibrate on that table.
 - Known limit (§150.6 decision 8): a delegated card gets no interest skills the player did not name; the card reports interest points left. Owner decision whether to add a per-skill "fits the concept" family.
+
+### 2026-09-28 addendum: `setup-interest-fit` v1 (lead ruling on the delegated-skills limit)
+
+The lead ruled that the known limit is a regression against legacy and that picking interest skills is a closed-set decision, so it goes to Jev. It is recorded as §150.6 decision 9 (decision 8 marked superseded, decision 6 and §150.7 amended) and in the SL-00 inventory note.
+
+**When it runs.** Only when the player delegated the card or its skills. That is the card-fields family's `delegated` Noul or a new `delegated_skills` Noul. The card must also still have interest points left once written, taken from the kernel's `budget.interest.unspent` on a fresh read.
+
+**Order.** No extra model request is added:
+1. The bind step writes the open words.
+2. The fit is asked.
+3. One direct `revise` sets `interest_skills` with `auto_spread: true`.
+4. Compose writes the reply.
+
+On a card already drawn, delegated skills alone go straight to the fit.
+
+**Question shape.**
+- **State (D2.3).** The card's occupation (and `occupation_stated`), concept, backstory and era.
+- **Candidates.** Listable catalog skills minus the card's own lists minus the occupation's printed skills.
+- **Questions.** One Noul per candidate, with the ruling's wording, plus one `exists` Noul.
+- **Packing.** A batch too large to pack is split into several requests of the same fan-out. `exists` rides on the first; keys stay globally unique.
+
+**Selection is code.** Skills whose Noul clears the family's gate, strongest first, up to `interest_skill_max`. They follow any interest skills already on the card. Nothing is picked unless `exists` clears. The kernel spreads the points.
+
+**When nothing is picked.** Nothing cleared, an outage, a packing refusal and a spent budget all leave the card unchanged. The compose note carries `interest` (status, points left) and tells the Keeper the points remain. No model fallback picks skills.
+
+**Data (`setup_driven`).** `max_decisions` is now 3 (route, card fields, interest fit). New keys: `interest_row_min` 0.5, `interest_row_ratio` 2, `interest_skill_max` 6.
+
+**Telemetry.** The family writes a `decide` row, including `status: "not_asked"` with the reason when it was due but asked nothing. `bound` gains `interest_skills` with path `jev`.
+
+**Other changes.**
+- The onboarding read now carries each occupation's printed skills and the card's era.
+- The fake kernel now leaves the interest pool unspent when a card lists no interest skills, as the real kernel does.
+
+**Tests.** `tests/extension/setup-driven-engine.test.mjs` is now 17/17. New cases:
+- A delegated card gets the cleared skills in probability order, capped by data. That means one direct revise with `auto_spread`, candidates that exclude listed, printed and unlisted skills, and no extra model request.
+- Nothing cleared leaves the points unspent, makes no revise, and the note says the points remain.
+- A non-delegated card never asks the family.
+- An outage leaves the card unchanged and does not fall back to the model.
+- Pure checks: candidate set, packing split with `exists` on the first batch only, the gate and cap coming from data, `exists` required, and the `interest` plan kind.
+
+Test 1 now expects the three families.
+
+**Mutation checks.** 11 mutations, all killed: no cap, reversed order, no auto spread, empty set revised, family always asked, printed skills offered, listed skills offered, outage falls back to the model, no `exists` gate, `exists` on every batch, and the non-delegated case run alone.
+
+**Regression.** setup 25/25, source-intake 2/2, opening-choice 5/5, handoff 9/9, player-reasons 4/4, card-patch 4/4, control-flow-inventory 4/4, system-language 5/5, ts-kernel-setup-catalog 1/1, hybrid-source-wiring 2/2.
+
+**For the box.** The same test list as before.
+
+**Open.** `interest_skill_max` and the fit gate are starting values, to be calibrated on ticket 08's table.

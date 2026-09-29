@@ -19,6 +19,7 @@ import type {DecisionAnswer, DecisionBatch, DecisionQuestion, DecisionResult, Re
 
 export const SETUP_ROUTE_FAMILY = 'setup-input-route';
 export const SETUP_FIELDS_FAMILY = 'setup-card-fields';
+export const SETUP_INTEREST_FAMILY = 'setup-interest-fit';
 export const SETUP_POLICY = Object.freeze({name: 'coc-setup-v1', version: '1'});
 
 type Row = Record<string, any>;
@@ -35,12 +36,18 @@ export interface SetupDrivenBudget {
   choiceMin: number;
   /** One decision's deadline. */
   decisionTimeoutMs: number;
-  /** Jev requests per run: the route, then the card fields. */
+  /** Jev decision steps per run: the route, the card fields, the interest fit (one fan-out each). */
   maxDecisions: number;
+  /** `setup-interest-fit`'s own row gate (the same D2.5 form). */
+  interestRowMin: number;
+  interestRowRatio: number;
+  /** At most this many fitting skills are put on the interest list. */
+  interestSkillMax: number;
 }
 
 /** Used only if the file or its `setup_driven` section cannot be read; the shipped file carries the real values. */
-export const SETUP_DRIVEN_FALLBACK: SetupDrivenBudget = Object.freeze({rowMin: 0.5, rowRatio: 2, choiceMin: 0.5, decisionTimeoutMs: 8000, maxDecisions: 2});
+export const SETUP_DRIVEN_FALLBACK: SetupDrivenBudget = Object.freeze({rowMin: 0.5, rowRatio: 2, choiceMin: 0.5, decisionTimeoutMs: 8000, maxDecisions: 3,
+  interestRowMin: 0.5, interestRowRatio: 2, interestSkillMax: 6});
 
 let cached: Promise<SetupDrivenBudget> | undefined;
 
@@ -58,7 +65,9 @@ async function readSetupDrivenBudget(contentRoot?: string): Promise<SetupDrivenB
     const positive = (value: unknown, otherwise: number) => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : otherwise;
     return {rowMin: unit(block.row_min, fallback.rowMin), rowRatio: positive(block.row_ratio, fallback.rowRatio), choiceMin: unit(block.choice_min, fallback.choiceMin),
       decisionTimeoutMs: positive(block.decision_timeout_ms, fallback.decisionTimeoutMs),
-      maxDecisions: Number.isInteger(block.max_decisions) && block.max_decisions >= 1 ? block.max_decisions : fallback.maxDecisions};
+      maxDecisions: Number.isInteger(block.max_decisions) && block.max_decisions >= 1 ? block.max_decisions : fallback.maxDecisions,
+      interestRowMin: unit(block.interest_row_min, fallback.interestRowMin), interestRowRatio: positive(block.interest_row_ratio, fallback.interestRowRatio),
+      interestSkillMax: Number.isInteger(block.interest_skill_max) && block.interest_skill_max >= 1 ? block.interest_skill_max : fallback.interestSkillMax};
   } catch {
     return SETUP_DRIVEN_FALLBACK;
   }
@@ -83,7 +92,8 @@ export interface SetupRead {
   investigator_source: string | null;
   /** The table's step ids by the op each runs (the table names them; the host knows the ops). */
   steps: {choose?: string; prepare?: string; create?: string; draft?: string; confirm?: string; browse?: string; load?: string};
-  card: {revision: number; summary: Row; profile: Row} | null;
+  /** The card on the table: its summary (numbers, budget), its profile (the words and lists) and the rulebook era it is built on. */
+  card: {revision: number; summary: Row; profile: Row; era?: string} | null;
   confirmed: boolean;
   loaded: boolean;
   /** §26: an active package's brief still asks before the first draft. */
@@ -91,7 +101,7 @@ export interface SetupRead {
   sources: Array<{kind: string; module: string; title?: string}>;
   openings: Array<{scene: string; name?: string; summary?: string}> | null;
   library: Array<{library_id: string; name?: string; occupation?: string}>;
-  catalog: {occupations: Array<{id: string; label?: string}>; skills: Array<{name: string; label?: string; listed?: boolean}>; characteristics: Array<{abbr: string; name?: string}>} | null;
+  catalog: {occupations: Array<{id: string; label?: string; skills?: string[]}>; skills: Array<{name: string; label?: string; listed?: boolean}>; characteristics: Array<{abbr: string; name?: string}>} | null;
   eras: string[];
   input: {key: string; text: string} | null;
   play_language: string | null;
@@ -300,6 +310,7 @@ export function fieldsBatch({read, scope, readSet}: FieldsQuestionInput): Decisi
   for (const [field, spec] of Object.entries(STATED_FIELDS))
     questions.push({key: `stated_${field}`, target: 'player_input', type: 'noul', instructions: `Does player_input state ${spec.asks}?`});
   questions.push({key: 'delegated', target: 'player_input', type: 'noul', instructions: 'Does player_input ask the Keeper to decide or fill in details of the investigator that the player did not state?'});
+  questions.push({key: 'delegated_skills', target: 'player_input', type: 'noul', instructions: 'Does player_input ask the Keeper to choose the investigator\'s skills or abilities?'});
   questions.push({key: 'numbers', target: 'player_input', type: 'noul', instructions: 'Does player_input give a specific number (in digits or words) for a characteristic, a skill or credit rating?'});
   if (card) questions.push({key: 'removal', target: 'player_input', type: 'noul', instructions: 'Does player_input ask to remove, lower or take away something already on the investigator\'s card?'});
   return {id: randomUUID(), model: JEV_MODEL, family: SETUP_FIELDS_FAMILY, familyVersion: '1', scope, readSet, state, questions};
@@ -314,6 +325,8 @@ export interface FieldsOutcome {
   skills: Array<{name: string; noul: number}>;
   stated: string[];
   delegated: boolean;
+  /** The player asked the Keeper to choose the skills (the interest fit's other trigger). */
+  delegatedSkills: boolean;
   numbers: boolean;
   removal: boolean;
   reason: string;
@@ -338,16 +351,22 @@ export function interpretFields(read: SetupRead, result: DecisionResult, budget:
     outside: !!occupation && clears(answers.occupation_outside, budget),
     ...(era ? {era} : {}), ...(aptitude ? {aptitude} : {}), skills,
     stated: Object.keys(STATED_FIELDS).filter(field => clears(answers[`stated_${field}`], budget)),
-    delegated: clears(answers.delegated, budget), numbers: clears(answers.numbers, budget), removal: clears(answers.removal, budget),
+    delegated: clears(answers.delegated, budget), delegatedSkills: clears(answers.delegated_skills, budget), numbers: clears(answers.numbers, budget), removal: clears(answers.removal, budget),
     reason: 'fields'};
 }
 
 // ---- The card plan -------------------------------------------------------------------------------------------
 
 export interface BoundField {field: string; path: 'jev' | 'stated' | 'rule-default'; value?: unknown}
+/**
+ * `interest`: after the card is written, `setup-interest-fit` picks interest skills for the points left (§150.6
+ * decision 9) -- only when the player delegated the card or its skills. `kind: 'interest'` is that step alone, on a
+ * card already drawn.
+ */
 export type CardPlan =
-  | {kind: 'direct'; profile: Row; bound: BoundField[]}
-  | {kind: 'bind'; first: boolean; closed: Row; open: OpenProfileKey[]; required: OpenProfileKey[]; bound: BoundField[]}
+  | {kind: 'direct'; profile: Row; bound: BoundField[]; interest?: boolean}
+  | {kind: 'bind'; first: boolean; closed: Row; open: OpenProfileKey[]; required: OpenProfileKey[]; bound: BoundField[]; interest?: boolean}
+  | {kind: 'interest'; bound: BoundField[]; interest: true}
   | {kind: 'compose'; missing: string[]; bound: BoundField[]}
   | {kind: 'adjudicate'; reason: string; bound: BoundField[]};
 
@@ -382,14 +401,98 @@ export function cardPlan(read: SetupRead, fields: FieldsOutcome): CardPlan {
   const open = new Set<OpenProfileKey>(fields.stated.flatMap(field => [...(STATED_FIELDS[field]?.keys ?? [])]));
   // The player's own trade words ride on the card only as a copy of what they wrote (§150.6 Decide).
   if (fields.outside && fields.occupation) open.add('occupation_stated');
+  // §150.6 decision 9: a card the player delegated gets its interest skills from the interest fit once it is written.
+  const interest = fields.delegated || fields.delegatedSkills ? {interest: true as const} : {};
   if (!card) {
     if (!closed.occupation) return fields.delegated ? {kind: 'adjudicate', reason: 'delegated_trade', bound} : {kind: 'compose', missing: ['occupation'], bound};
     if (!fields.stated.includes('name') && !fields.delegated) return {kind: 'compose', missing: ['name'], bound};
     bound.push({field: 'characteristics', path: 'rule-default'}, {field: 'credit_rating', path: 'rule-default'}, {field: 'skill_points', path: 'rule-default'});
     return {kind: 'bind', first: true, closed, open: [...OPEN_PROFILE_KEYS],
-      required: [...FIRST_CARD_OPEN_KEYS, ...(open.has('occupation_stated') ? ['occupation_stated' as const] : [])], bound};
+      required: [...FIRST_CARD_OPEN_KEYS, ...(open.has('occupation_stated') ? ['occupation_stated' as const] : [])], bound, ...interest};
   }
-  if (open.size) return {kind: 'bind', first: false, closed, open: OPEN_PROFILE_KEYS.filter(key => open.has(key)), required: [], bound};
-  if (Object.keys(closed).length) return {kind: 'direct', profile: closed, bound};
+  if (open.size) return {kind: 'bind', first: false, closed, open: OPEN_PROFILE_KEYS.filter(key => open.has(key)), required: [], bound, ...interest};
+  if (Object.keys(closed).length) return {kind: 'direct', profile: closed, bound, ...interest};
+  if (interest.interest) return {kind: 'interest', bound, interest: true};
   return {kind: 'adjudicate', reason: 'nothing_bound', bound};
+}
+
+// ---- setup-interest-fit v1 -----------------------------------------------------------------------------------
+
+/**
+ * The skills the interest fit may pick (§150.6 decision 9): catalog skills a list may hold, not already on the card
+ * (either list) and not the occupation's own printed skills. Structural set arithmetic over names the kernel issued.
+ */
+export function interestCandidates(read: SetupRead): Array<{name: string; label?: string}> {
+  const card = read.card, catalog = read.catalog;
+  if (!card || !catalog) return [];
+  const listed = new Set([...(Array.isArray(card.profile?.occupation_skills) ? card.profile.occupation_skills : []),
+    ...(Array.isArray(card.profile?.interest_skills) ? card.profile.interest_skills : [])].map(String));
+  const occupation = String(card.profile?.occupation ?? card.summary?.card?.occupation ?? '');
+  const printed = new Set((catalog.occupations.find(row => row.id === occupation)?.skills ?? []).map(String));
+  return listableSkills(catalog).filter(row => !listed.has(row.name) && !printed.has(row.name));
+}
+
+/** The interest points the drawn card still has to spend (the kernel's own budget report). */
+export function interestPointsLeft(read: SetupRead): number {
+  const left = Number(read.card?.summary?.budget?.interest?.unspent);
+  return Number.isFinite(left) ? left : 0;
+}
+
+const FIT_QUESTION = 'Does this skill fit the investigator as the card describes them -- their concept, background and way of life -- so that a player building this character would plausibly give it interest points?';
+
+/**
+ * One fan-out: one Noul per candidate skill and one `exists` Noul, split into as many batches as packing needs (the
+ * `exists` question rides on the first). State is minimal (D2.3): the card's occupation, concept and background as
+ * drafted, its era, and the batch's candidates.
+ */
+export function interestBatches({read, scope, readSet}: FieldsQuestionInput, pack: (batch: DecisionBatch) => void): DecisionBatch[] {
+  const candidates = interestCandidates(read), card = read.card;
+  if (!card || !candidates.length) return [];
+  const profile = card.profile ?? {};
+  const investigator: Row = {occupation: profile.occupation ?? card.summary?.card?.occupation ?? null, ...(profile.occupation_stated ? {occupation_stated: profile.occupation_stated} : {}),
+    concept: profile.concept ?? null, backstory: profile.backstory ?? null, era: card.era ?? profile.era ?? null};
+  const build = (from: number, to: number, first: boolean): DecisionBatch => {
+    const slice = candidates.slice(from, to);
+    const questions: DecisionQuestion[] = slice.map((_row, local) => ({key: `fit_${from + local}`, target: `skills[${local}]`, type: 'noul' as const, instructions: FIT_QUESTION}));
+    if (first) questions.push({key: 'exists', target: 'skills', type: 'noul',
+      instructions: 'Does any listed skill fit the investigator as the card describes them, so that a player building this character would plausibly give it interest points?'});
+    return {id: randomUUID(), model: JEV_MODEL, family: SETUP_INTEREST_FAMILY, familyVersion: '1', scope, readSet,
+      state: {investigator, skills: slice.map(row => row.label && row.label !== row.name ? `${row.label} (${row.name})` : row.name)}, questions};
+  };
+  const split = (from: number, to: number, first: boolean): DecisionBatch[] => {
+    const batch = build(from, to, first);
+    try { pack(batch); return [batch]; }
+    catch (error) {
+      if (to - from < 2) throw error;
+      const middle = from + Math.ceil((to - from) / 2);
+      return [...split(from, middle, first), ...split(middle, to, false)];
+    }
+  };
+  return split(0, candidates.length, true);
+}
+
+export interface InterestOutcome {
+  status: 'set' | 'none_cleared' | 'no_points' | 'no_candidates' | 'unavailable' | 'budget';
+  /** The fitting skills, strongest Noul first, at most `interestSkillMax`. */
+  skills: string[];
+  reason?: string;
+  /** The interest list the revise sets: the card's own interest skills first, then the fitting ones (an addition takes what is left, §98). */
+  list?: string[];
+  /** The interest points the card had left when the fit was asked. */
+  points_left?: number;
+}
+
+/** Skills whose Noul clears the family's gate, strongest first, capped by data; none unless `exists` clears too. */
+export function interpretInterest(read: SetupRead, results: DecisionResult[], budget: SetupDrivenBudget): InterestOutcome {
+  if (!results.length || results.some(result => result.status !== 'complete')) {
+    const failed = results.find(result => result.status !== 'complete');
+    return {status: 'unavailable', skills: [], reason: `jev_${failed?.failure?.code ?? failed?.status ?? 'unavailable'}`};
+  }
+  const gate: SetupDrivenBudget = {...budget, rowMin: budget.interestRowMin, rowRatio: budget.interestRowRatio};
+  const answers: Record<string, DecisionAnswer> = Object.assign({}, ...results.map(result => result.answers));
+  if (!clears(answers.exists, gate)) return {status: 'none_cleared', skills: [], reason: 'exists_below_gate'};
+  const candidates = interestCandidates(read);
+  const skills = candidates.map((row, index) => ({name: row.name, yes: noul(answers[`fit_${index}`]) ?? 0, cleared: clears(answers[`fit_${index}`], gate)}))
+    .filter(row => row.cleared).sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name)).slice(0, budget.interestSkillMax).map(row => row.name);
+  return skills.length ? {status: 'set', skills} : {status: 'none_cleared', skills: [], reason: 'no_skill_cleared'};
 }
