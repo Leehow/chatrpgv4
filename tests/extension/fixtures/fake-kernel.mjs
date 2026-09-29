@@ -1288,6 +1288,8 @@ process.stdin.on("end", () => process.exit(0));
 function fakeCard(revision, profile, pins, budget) {
     const interestListed = Array.isArray(profile.interest_skills) && profile.interest_skills.length > 0;
     const skills = {Law: 45, Archaeology: 30};
+    // A listed interest skill takes points, as the kernel's spread gives it (§150.6's reply reads the raised values).
+    if (interestListed) for (const name of profile.interest_skills) skills[name] ??= 40;
     for (const [name, pin] of Object.entries(pins.skills)) skills[name] = pin.value;
     return {revision, seed: "private-seed", profile: {...profile}, pins,
         sheet: {name: profile.name ?? "托马斯·海耶斯", occupation: profile.occupation ?? "journalist", occupation_stated: null, age: profile.age ?? 27, sex: profile.sex ?? "男",

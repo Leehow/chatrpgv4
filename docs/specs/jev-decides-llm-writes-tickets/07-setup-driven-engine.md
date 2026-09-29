@@ -121,3 +121,31 @@ Test 1 now expects the three families.
 **Mutation checks.** 6 mutations, all killed: no `draft_now`, no stop note, `draft_now` composes instead of drafting, a brief answer offers `card_fields`, no `withheld` on the run row, no `no_candidates` decide row.
 
 **Regression, file by file.** setup 25/25, source-intake 2/2, opening-choice 5/5, handoff 9/9, player-reasons 4/4, control-flow-inventory 4/4, system-language 5/5, hybrid-source-wiring 2/2, card-patch 4/4.
+
+### 2026-09-29 fix: holds, interest gate, skill rows, exact reply (live acceptance `jev-accept-blood-03`)
+
+**Context.** The lead's second live read went through: `draft_now` 0.87, Journalist 0.99, `occupation_stated` copied, 2 model steps, 29.6 s, no refusals. It surfaced three defects plus a reply-accuracy gap. All are recorded as §150.6 decision 11.
+
+1. **A player's hold was overridden.** The player said 「驾驶保留基础值」, but the interest fit picked Drive Auto (0.67) and the spread raised it 20 → 55.
+   - Fix: the fit's state now carries `player_input`, and the same fan-out adds one hold row per candidate: "Did the player, in player_input, ask to keep the skill <label (name)> at its starting value, or not to raise it?". A skill whose hold row clears is never picked and is reported as `held`.
+   - The fields family does not track holds, so there was no earlier decision to reuse; the hold row covers it.
+   - At the real catalog size this is 69 candidates → 139 questions → one request (37 KB); splitting stays available.
+2. **The interest gate was too strict.** `interest_row_ratio` in the data is now 1 (effective gate 0.5; `interest_skill_max` stays 6). The code fallback matches.
+3. **Named-skill rows never cleared for 「擅长观察和查资料」.** Finding: the play-language labels exist in the rules data (`localized_labels` zh-Hans: Spot Hidden 侦查, Library Use 图书馆使用), and the kernel catalog already issued them in the rows' state as `label (name)`. The likelier cause is the question's literal "name … or an ability that is exactly this skill" against a player who described abilities.
+   - Fix: each row's question now names the skill as the catalog issues it (`"侦查" (Spot Hidden)`) and asks about the ability it covers, "in any words". A skill to be kept at its starting value or not raised explicitly does not count.
+   - No label table was added in code. Whether Jev now clears these rows needs the next live read.
+4. **The reply could misstate what was raised.** The compose note now carries the exact interest skills set, their raised values (`interest.values`, from the revised card) and the held skills. Its instruction forbids calling a raised skill untouched.
+
+**Tests.** `tests/extension/setup-driven-engine.test.mjs` is 24/24. New and extended cases:
+- a hold on a fitting skill keeps it off the card (`interest_skills: ["Listen"]`, `held: ["Drive Auto"]`, and the note says so);
+- the fit state carries `player_input`;
+- a pure check that a hold wins over a fit;
+- the shipped gate is 0.5 (0.5 clears, 0.49 does not);
+- the skill row names `"侦查" (Spot Hidden)`;
+- the compose note carries the exact list and values.
+
+The fake kernel now gives listed interest skills a value, as the kernel's spread does.
+
+**Mutation checks.** 8 mutations, all killed: hold ignored, no hold rows, no `player_input`, gate ratio 2, no label in the question, name-only skill display, no values in the note, no exact list in the note.
+
+**Regression.** setup 25/25, source-intake 2/2, opening-choice 5/5, handoff 9/9, player-reasons 4/4, control-flow-inventory 4/4, system-language 5/5, card-patch 4/4. These ran against the accept2 build via read-only symlinks.
