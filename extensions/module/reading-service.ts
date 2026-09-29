@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir, copyFile, appendFile, rm } from "node:fs/pr
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
-import { readerInput, wakeReaderSlots, type ReaderOutcome } from "./reader.ts";
+import { readerInput, wakeReaderSlots, type ReaderOutcome, type ReaderRequest } from "./reader.ts";
 import { providerRefusalText } from "../../runtime/jev/provider-budget.ts";
 import { reviewCandidate, type ReviewPlan } from "./reader-review.ts";
 import { checkTargetedRepair, repairDecision, reviewOfCandidate, TARGETED_REPAIR_ASK, type RepairDecision } from "./targeted-repair.ts";
@@ -669,21 +669,17 @@ export class ReadingService implements ReadingBridge {
 	}
 
 	/**
-	 * §152.4: ask the independent visual reviewer whether each colliding pair is one print. The reviewer is a tool-enabled
-	 * Pi child on the job's own provider owner and priority; the verdict file lands in `dir`, inside the job's attempt, and
-	 * its path is what the kernel takes as `identity_review_path`. Throws `IdentityReviewUnavailable` when it cannot answer.
+	 * §152.4: ask the independent visual reviewer whether each colliding pair is one print. Its Pi child runs through the
+	 * job's reviewer owner (`run`); the verdict file lands in `dir`, inside the job's attempt, and its path is what the
+	 * kernel takes as `identity_review_path`. Throws `IdentityReviewUnavailable` when the reviewer cannot answer.
 	 */
-	private async reviewIdentity(job: Row, pairs: Row[], dir: string, context: {campaign?: string; cache: string; signal: AbortSignal; key: string;
-		providerBudget?: TaskProviderBudget; readingLease?: StageBudget; round?: number}): Promise<string> {
+	private async reviewIdentity(job: Row, pairs: Row[], dir: string, context: {campaign?: string; cache: string; signal: AbortSignal; round?: number;
+		run(request: ReaderRequest): Promise<ReaderOutcome>}): Promise<string> {
 		await mkdir(dir, { recursive: true });
 		const instructions = join(dir, "instructions-identity.md");
 		await writeFile(instructions, await readFile(join(this.runtime().contentRoot, "setup", "visual-identity.md")));
 		return reviewVisualIdentity({ cwd: dir, pairs, instructions, model: this.deps.model(), signal: context.signal,
-			source: { pdf: job.source.path, cache: context.cache, file_sha256: job.source.file_sha256 },
-			run: request => this.runtime().runTask({ kind: "reader", request: { ...request, providerBudget: context.providerBudget,
-				...(context.readingLease ? { readingLease: context.readingLease } : {}),
-				beforeProviderRequest: signal => this.waitForPriority(job, context.key, signal, context.campaign),
-				priority: () => job.foreground === false ? "background" : "foreground" } }, request.signal),
+			source: { pdf: job.source.path, cache: context.cache, file_sha256: job.source.file_sha256 }, run: context.run,
 			record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", campaign: context.campaign,
 				...(context.round !== undefined ? { round: context.round } : {}), ...row }) });
 	}
@@ -909,6 +905,14 @@ export class ReadingService implements ReadingBridge {
 		const model = this.deps.model();
 		const cwd = job.work_dir;
 		const key = JSON.stringify([campaign, job.module_id, job.job_id]);
+		// This job's one owner of independent reviewer children (inventory SL-00, `ReadingService.runJob.run`): the source
+		// review's units and the §152.4 identity reviewer both run through it, on the job's provider owner and priority.
+		let reviewLease: StageBudget | undefined;
+		const reviewers = { run: (request: ReaderRequest, prompt?: ReaderRequest["prompt"]) => this.runtime().runTask({ kind: "reader", request: { ...request, providerBudget,
+			beforeProviderRequest: (signal: AbortSignal) => this.waitForPriority(job, key, signal, campaign),
+			...(reviewLease ? { readingLease: reviewLease } : {}),
+			priority: () => job.foreground === false ? "background" : "foreground",
+			...(prompt ? { prompt } : {}) } }, request.signal) };
 		const publicProgress=(state:'searching'|'found'|'checking'|'confirmed',fields?:Row)=>{
 			if(job.purpose!=='guidance'||typeof job.guidance_key!=='string')return;
 			this.deps.progress({stage:'guidance',purpose:job.purpose,module_id:job.module_id,public_preparation:{source_sha256:job.source.file_sha256,
@@ -927,7 +931,7 @@ export class ReadingService implements ReadingBridge {
 		if (job.visual_identity) {
 			await writeFile(join(cwd, "observations.json"), JSON.stringify({ file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] }) + "\n");
 			const pairs: Row[] = Array.isArray(job.visual_identity.pairs) ? job.visual_identity.pairs : [];
-			const path = pairs.length ? await this.reviewIdentity(job, pairs, join(cwd, "identity"), { campaign, cache, signal, key, providerBudget }) : undefined;
+			const path = pairs.length ? await this.reviewIdentity(job, pairs, join(cwd, "identity"), { campaign, cache, signal, run: reviewers.run }) : undefined;
 			const published = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, outcome: "completed",
 				...(path ? { identity_review_path: path } : {}) }, campaign);
 			this.deps.record({ lane: "reading", event: "visual_identity_published", module_id: job.module_id, job_id: job.job_id, campaign, ...(published?.visual_identity ?? {}) });
@@ -1052,7 +1056,7 @@ export class ReadingService implements ReadingBridge {
 		// this book, not a fixed assumption -- a campaign's private fork reads under the exact same rule as the library.
 		// §140.2 (SL-99b): an opening or guidance read outside a stage (the table's setup, `/coc ingest`) is sized too.
 		const stage = providerBudget ? undefined : readingJobStage(job);
-		const readingLease: StageBudget | undefined = stage ? readingStageBudget(stage, { pageCount: Number(job.source?.page_count) || 0,
+		const readingLease: StageBudget | undefined = reviewLease = stage ? readingStageBudget(stage, { pageCount: Number(job.source?.page_count) || 0,
 			perPage: await measuredPageCost(resolve(cwd, "..", "..", "..")), contextWindow: model.contextWindow }) ?? undefined : undefined;
 		if (readingLease) this.deps.record({ lane: "reading", event: "stage_budget", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, ...readingLease });
 		// §20 addendum 3: a call a stage lease refused on an overrun it could pay; the round went on.
@@ -1176,11 +1180,8 @@ export class ReadingService implements ReadingBridge {
 									model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 									cacheRoot:join(cache,'..','reviews'),
 									reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion+(draftHasMapRegions(candidate)?':map-region-review-v2':'')),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'answer' ? 'source-answer.md' : job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
-									run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request, providerBudget,
-										beforeProviderRequest:signal=>this.waitForPriority(job,key,signal,campaign),
-										...(readingLease ? { readingLease } : {}),
-										priority: () => job.foreground === false ? "background" : "foreground",
-										prompt: { phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" } } }, request.signal)
+									run: ({systemPrompt: _instructions, ...request}) => reviewers.run(request,
+										{ phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" })
 										.then(run => overrunRows(run, "verify", round)),
 									// Every verify row names the job and round it belongs to (#65); the reviewer adds unit and attempt.
 									record: row => { tallyReadingRow(accounting, row); this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", round, ...row, campaign }); },
@@ -1394,7 +1395,7 @@ export class ReadingService implements ReadingBridge {
 							if (!pairs || asked >= IDENTITY_ASKS) throw failure;
 							try {
 								finishing.identity_review_path = await this.reviewIdentity(job, pairs, join(cwd, "identity", `round-${round}-${asked + 1}`),
-									{ campaign, cache, signal, key, providerBudget, ...(readingLease ? { readingLease } : {}), round });
+									{ campaign, cache, signal, round, run: request => reviewers.run(request).then(run => overrunRows(run, "identity", round)) });
 							} catch (unanswered) {
 								if (!(unanswered instanceof IdentityReviewUnavailable) || signal.aborted) throw unanswered;
 								identityHeld = unanswered.message;
