@@ -176,7 +176,7 @@ test("SL-85: in `on` mode, a class not on the execute list still carries `shadow
 });
 
 test("SL-85: `shadow` mode is unaffected -- every row, executed-list or not, still reads shadow:true, and no row ever carries `executed`", async () => {
-	const h = harness({ env: {}, decide: (batch) => batch.family === CONSEQUENCE_FAMILY ? clearAllConsequence(batch) : clearAllConsequence(batch) });
+	const h = harness({ env: { COC_JEV_STEPS: "shadow" }, decide: (batch) => batch.family === CONSEQUENCE_FAMILY ? clearAllConsequence(batch) : clearAllConsequence(batch) });
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
 	await h.read("s1");
 	await h.clerkExecute("s2", seedCandidate);

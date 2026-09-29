@@ -11,7 +11,7 @@
   "jev_steps": {
     "row_min": 0.5,
     "row_ratio": 2,
-    "shadow": true,
+    "shadow": false,
     "execute": [
       "clue_follow_up"
     ],

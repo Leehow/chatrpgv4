@@ -7,9 +7,20 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { consequenceKeysToExecute, jevStepsMode, keeperDidFor } from "../../runtime/jev/hybrid-engine.ts";
+import { consequenceKeysToExecute, jevStepsMode, jevStepsModeSource, keeperDidFor } from "../../runtime/jev/hybrid-engine.ts";
 
 const ROW = (key, cleared, cls = "npc_reaction") => ({ class: cls, key, cleared, confidence: 0.9, distribution: { true: 0.9, false: 0.1 } });
+
+test("§150.1: jevStepsMode defers to the data default only when the switch is absent", () => {
+	assert.equal(jevStepsMode({}, "on"), "on", "no switch: the data default decides");
+	assert.equal(jevStepsMode({ COC_JEV_STEPS: "" }, "on"), "on", "an empty switch is absent");
+	assert.equal(jevStepsMode({}, "shadow"), "shadow");
+	assert.equal(jevStepsMode({ COC_JEV_STEPS: "shadow" }, "on"), "shadow", "an explicit shadow beats the data");
+	assert.equal(jevStepsMode({ COC_JEV_STEPS: "off" }, "on"), "off");
+	assert.equal(jevStepsMode({ COC_JEV_STEPS: "SHADOW" }, "on"), "shadow", "an unrecognized explicit value is the safe default, never the data's on");
+	assert.equal(jevStepsModeSource({}), "data");
+	assert.equal(jevStepsModeSource({ COC_JEV_STEPS: "on" }), "env");
+});
 
 test("jevStepsMode: shadow is the default for anything but the two named values", () => {
 	assert.equal(jevStepsMode({}), "shadow");

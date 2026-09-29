@@ -238,14 +238,21 @@ const CONSEQUENCE_INLINE_ROUNDS_CAP = 12;
 
 /**
  * SL-76 (§135.32, §135.3.1): `COC_JEV_STEPS`, read once per process like every other engine env switch here.
- * `shadow` (the default) routes and pairs but never executes; `on` (SL-78's acceptance) additionally executes a
+ * §150.1: when the switch is absent the host budget data's `jev_steps.shadow` decides (`false` = `on`).
+ * `shadow` routes and pairs but never executes; `on` (SL-78's acceptance) additionally executes a
  * cleared candidate through `clerkStep`; `off` builds none of the three classes at all. Any other value is
  * `shadow`: this is a schedule switch, not an open-ended classification, so a fixed default is not the
  * hard-coded-semantic-list the project bans -- there is no text here for it to classify.
  */
-export function jevStepsMode(env: Readonly<NodeJS.ProcessEnv>): 'shadow' | 'on' | 'off' {
+export function jevStepsMode(env: Readonly<NodeJS.ProcessEnv>, dataDefault: 'on' | 'shadow' = 'shadow'): 'shadow' | 'on' | 'off' {
   const raw = String(env.COC_JEV_STEPS ?? '').trim();
-  return raw === 'on' || raw === 'off' ? raw : 'shadow';
+  if (raw === 'on' || raw === 'off') return raw;
+  // §150.1: an explicit but unrecognized value is still the safe default; only an absent switch defers to the data.
+  return raw ? 'shadow' : dataDefault;
+}
+/** §150.1: where the effective consequence-step mode came from, recorded beside the rows it shapes. */
+export function jevStepsModeSource(env: Readonly<NodeJS.ProcessEnv>): 'env' | 'data' {
+  return String(env.COC_JEV_STEPS ?? '').trim() ? 'env' : 'data';
 }
 /** One receipt's own words, for the consequence route's `settled_this_run` state (labels, never ids; D2.3). */
 export function receiptLabel(receipt: Row): string {
@@ -599,6 +606,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const NO_ACT: NpcActPort = {generate: async () => ({unavailable: 'model_unavailable', detail: 'no npc-act generation on this engine'})};
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
+  // §150.1: the consequence-step mode's data default, read once (cached) and awaited by every run's first read.
+  let stepsDataDefault: 'on' | 'shadow' = 'shadow';
+  const stepsReady = jevStepsBudget().then(budget => { stepsDataDefault = budget.shadow ? 'shadow' : 'on'; });
+  const stepsMode = () => jevStepsMode(options.env as NodeJS.ProcessEnv, stepsDataDefault);
+  const stepsModeFields = () => ({steps_mode: stepsMode(), steps_mode_source: jevStepsModeSource(options.env as NodeJS.ProcessEnv)});
   // SL-87: `clock`, when given, is the run's steps' and its Jev work's clock (the read's prescreen allowance, the decision
   // leases); without it every one of them reads the host's real clock and timers, as before. `now` alone stays the policy's.
   const clock = options.clock, stepNow = clock ? () => clock.now() : () => Date.now(), leaseClock = clock ? {clock} : {};
@@ -636,6 +648,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   /** The kernel reads a step needs and the candidates they issue. Read-only. */
   async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]; rows: () => FeatureRows;
     consequences: () => ConsequenceCandidate[]}> {
+    await stepsReady;
     const [capsule, status, applyOptions, resolveOptions, bands] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options'), bandReads()]);
     const table = readTable(capsule, status);
     // SL-76 (D2.3, D4): every receipt this turn's reads have seen, deduped by id -- the consequence route's
@@ -672,7 +685,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       // §135.30: the compile's feature rows, from the same reads.
       rows: () => compileRows({capsule, applyOptions, resolveOptions}),
       // SL-76: the three consequence classes, from the same reads (never merged into `candidates()`'s own list).
-      consequences: () => jevStepsMode(options.env as NodeJS.ProcessEnv) === 'off' ? [] : buildConsequenceCandidates({capsule, applyOptions, resolveOptions}, run.rawInput)};
+      consequences: () => stepsMode() === 'off' ? [] : buildConsequenceCandidates({capsule, applyOptions, resolveOptions}, run.rawInput)};
   }
   /** The fresh read after a write: what the policy folds in (`fresh`), and the turn's receipts as rows (§138.10). */
   const freshOf = (run: RunState, stepId?: string) => tableReads(run).then(async read => {
@@ -726,7 +739,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * path this function otherwise takes is unchanged by that branch existing.
    */
   async function routeConsequences(run: RunState, candidates: ConsequenceCandidate[], context: TurnContext, signal: AbortSignal, stepId: string): Promise<void> {
-    const mode = jevStepsMode(options.env as NodeJS.ProcessEnv);
+    const mode = stepsMode();
     if (mode === 'off' || !candidates.length || !jev || !run.scope || !run.readSet) return;
     const view: ConsequenceView = {runId: run.runId, rawInput: run.rawInput, context, observations: [],
       candidates, settled: run.turnReceipts.map(receiptLabel), present: context.present.map(label => ({label, met: true}))};
@@ -790,7 +803,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    */
   async function routeConsequencesAfterWrite(run: RunState, fresh: {context: TurnContext; consequences: () => ConsequenceCandidate[]} | undefined,
     signal: AbortSignal, stepId: string): Promise<void> {
-    if (!fresh || jevStepsMode(options.env as NodeJS.ProcessEnv) !== 'on') return;
+    if (!fresh || stepsMode() !== 'on') return;
     if ((run.consequenceInlineRounds ?? 0) >= CONSEQUENCE_INLINE_ROUNDS_CAP) return;
     const all = fresh.consequences();
     // Kept for the turn close's own call, which still runs unconditionally (§135.11.2-style belt and suspenders):
@@ -1164,7 +1177,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    */
   function pairConsequences(run: RunState) {
     if (!run.consequenceRows.size && !run.consequenceExists.size) return;
-    const mode = jevStepsMode(options.env as NodeJS.ProcessEnv);
+    const mode = stepsMode();
     for (const [key, row] of run.consequenceRows) {
       // SL-85 (§135.32 addendum 2's "clerk did" line, this ticket's own ruling): an executed candidate's row
       // pairs against the Keeper's writes *other than the clerk's own receipt* -- excluded here by id, never by
@@ -1181,7 +1194,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     for (const [cls, row] of run.consequenceExists) record({lane: 'route', purpose: 'consequence', shadow: mode !== 'on', run: run.runId, class: cls, exists: true,
       cleared: row.cleared, confidence: row.confidence, distribution: row.distribution});
-    if (run.consequenceMs) record({lane: 'run', event: 'consequence_budget', run: run.runId, ms: run.consequenceMs, rows: run.consequenceRows.size});
+    if (run.consequenceMs) record({lane: 'run', event: 'consequence_budget', run: run.runId, ms: run.consequenceMs, rows: run.consequenceRows.size, ...stepsModeFields()});
   }
 
   /**
@@ -1194,9 +1207,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * own executions, never the compile-selected `declared_bookkeeping`/`declared_check`/… ones).
    */
   function recordResidual(run: RunState): void {
-    if (jevStepsMode(options.env as NodeJS.ProcessEnv) !== 'on') return;
+    if (stepsMode() !== 'on') return;
     record({lane: 'residual', run: run.runId, turn: run.turn ?? null, keeper_calls: {...run.keeperCalls}, compile_calls: run.compileCalls,
-      clerk_calls: run.clerkDid.length, consequence_calls: run.consequenceCalls ?? 0});
+      clerk_calls: run.clerkDid.length, consequence_calls: run.consequenceCalls ?? 0, ...stepsModeFields()});
   }
 
   /**
