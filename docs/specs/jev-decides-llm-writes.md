@@ -1,6 +1,6 @@
 # Jev decides, the LLM writes: turn on the clerk's reach, take graph checking off the vision reader, move setup onto the driven run
 
-Status: ready-for-agent (owner go 2026-09-28: 「你就都做吧，to spec skill做spec然后实现就行」)
+Status: implemented on `claude/jev-reach-20260928`; live acceptance recorded in ticket 08 (A, B1–B3, B5, C, D-as-setting, E accepted; B4 shadow by its pre-registered bar)
 Date: 2026-09-28
 Baseline: `0.9.6a` at `bc3979088`. Integration branch: `claude/jev-reach-20260928`.
 Contract: §150 of `docs/kernel-rpc.md` (written with this spec, before code). Links: §22.2–§22.4.8, §135.32, §147–§149.
