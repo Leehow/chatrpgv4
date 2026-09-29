@@ -23,6 +23,7 @@ import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view
 import { AUTHORED_MAP_WORDS, KEEPER_MAP_WORDS, mapCardTexts, type MapWordsOptions, prepareMapWords, projectMapCard, readMapWords } from '../module/map-presentation.ts';
 import { argumentLimitRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRITE_TOOLS } from "./tools.ts";
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
+import { leanApplyEnabled, offeredTools } from "./lean-apply.ts";
 import { stripDialectPrefixes } from "./dialect-prefix.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
@@ -1461,6 +1462,8 @@ export default function (pi: ExtensionAPI) {
 	// verifier lane (contract §14.4). The mode is read in the factory rather than at module top level:
 	// when one process loads this several times, a top-level constant freezes on the first value.
 	const setupMode = cocMode() === "setup";
+	// Contract §154 (prototype): lean `apply` arguments. Read once, like the tool schema itself; off is today's tools and payloads.
+	const leanApply = leanApplyEnabled(process.env);
 
 	// ---- Telemetry --------------------------------------------------------
 
@@ -4363,6 +4366,10 @@ export default function (pi: ExtensionAPI) {
 		delete payload.narrate;
 		// §22.4.7.1 (SL-56): only the host asks the kernel to land a person on the book's text.
 		delete payload._land_on_text;
+		// §154: only the host says this process runs lean, so the kernel fills what a lean call leaves out; a model-sent
+		// `_lean` never reaches it.
+		delete payload._lean;
+		if (spec.name === "apply" && leanApply) payload._lean = true;
         if (dispatcher.tracksMutation(toolCallId)) payload._task_read_set = true;
 		if (WRITE_TOOLS.has(spec.name)) {
 			payload.call_id = takeCallId(state, toolCallId);
@@ -4957,7 +4964,7 @@ export default function (pi: ExtensionAPI) {
 		preparedCallId: id => table?.mintedCallIds.get(id),
 	});
 	// The setup process's tool surface is only onboarding's `setup`: not one of the seven verbs is registered (contract §14.4).
-	for (const spec of setupMode ? [] : COC_TOOLS) {
+	for (const spec of setupMode ? [] : offeredTools(COC_TOOLS, process.env)) {
 		pi.registerTool({
 			name: spec.name,
 			label: spec.label,

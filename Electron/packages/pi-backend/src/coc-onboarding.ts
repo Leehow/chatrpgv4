@@ -34,6 +34,8 @@ const PRESENTATION_DEADLINE_MS = 360_000;
 /** Backoff between presentation attempts; its length is the retry budget. */
 const PRESENTATION_RETRY_DELAYS_MS = [800, 2_400, 6_000] as const;
 const CHUNK = 1024 * 1024;
+/** The codes a handout reading keeps as they are (contract §155.1); any other failure is `handout_reading_failed`. */
+const HANDOUT_READING_CODES = new Set(['model_without_images','presentation_timeout','handout_not_available','invalid_params']);
 /**
  * How long an `uploading` job may go without a chunk before it is reported as interrupted (§44).
  *
@@ -168,6 +170,8 @@ export class CocOnboardingHost {
   /** One background caption projection per tag (contract §23); a failed one waits for `retryUiWords`. */
   private wordJobs = new Map<string,{task:Promise<void>;failed:boolean}>();
   private documentReadings = new Map<string,{result?:Row;error?:unknown}>();
+  /** One reading job per (campaign, handout, image, tag); the panel and the card poll the same one (contract §155.5). */
+  private handoutReadings = new Map<string,{campaign?:unknown;handout?:unknown;partial?:{title:string;text:string};result?:Row;error?:unknown}>();
   private root: string;
   private options: CocOnboardingOptions;
   private preparation: Promise<PreparationHost>;
@@ -348,7 +352,7 @@ export class CocOnboardingHost {
       canHandoff:character==='confirmed'&&(waitingForOpening||handoffCommitted)&&opening.state==='ready'&&!playing,playing,hidden:!!job.hidden,
       model:job.model,thinking:job.thinking,campaign:job.campaign,play_language:job.play_language};
   }
-  private run(action: string, data: Row, job?: Row, phase?:string, attempt?:string, external?: AbortController): Promise<any> {
+  private run(action: string, data: Row, job?: Row, phase?:string, attempt?:string, external?: AbortController, onProgress?: (data:Row)=>void): Promise<any> {
     if(this.lifetime.signal.aborted)return Promise.reject(refuse('runtime_unavailable','The onboarding host is closed'));
     const key=job?this.phaseKey(job,phase||action):undefined;
     const controller=external??new AbortController();
@@ -372,6 +376,7 @@ export class CocOnboardingHost {
             try {event = JSON.parse(line);} catch {continue;}
             if (event.type === 'result') result = event.data;
             if (event.type === 'error') failure = event.data;
+            if (event.type === 'progress' && !job && onProgress) onProgress(event.data);
             if(job && phase && event.type==='progress') {
               const latest=this.load(job.id,job.session),state=latest.preparation?.[phase];
               if(state?.attempt===attempt&&state.state==='running'){
@@ -595,7 +600,7 @@ export class CocOnboardingHost {
       return this.attemptPresentation(data,deadline,attempt+1);
     }
   }
-  private boundedPresentation(data:Row,deadline:number):Promise<Row> {
+  private boundedPresentation(data:Row,deadline:number,action='presentation',onProgress?:(data:Row)=>void):Promise<Row> {
     const controller=new AbortController();
     let timer:ReturnType<typeof setTimeout>|undefined;
     const bounded=new Promise<never>((_resolve,reject)=>{
@@ -605,7 +610,7 @@ export class CocOnboardingHost {
       },Math.max(0,deadline-Date.now()));
       timer?.unref?.();
     });
-    return Promise.race([this.run('presentation',data,undefined,undefined,undefined,controller),bounded])
+    return Promise.race([this.run(action,data,undefined,undefined,undefined,controller,onProgress),bounded])
       .finally(()=>clearTimeout(timer));
   }
   documentPresentationStatus(data:Row):Row {
@@ -621,6 +626,55 @@ export class CocOnboardingHost {
     }
     if(job.error){this.documentReadings.delete(key);throw job.error;}
     return job.result||{pending:true};
+  }
+  /**
+   * The reading version of one delivered image handout (contract §155): `{pending:true}` while the
+   * job runs -- with `partial`, what the model has written so far, once there is any -- the reading
+   * when it has one, and a coded refusal once (a failed job is a one-shot mailbox, so the next ask
+   * is a fresh job: the retry control is the same call).
+   *
+   * One attempt under the presentation deadline and no automatic retry: a reading is a vision
+   * model's paid look at a page, and what it finished is cached by the image's digest, so a retry
+   * the player asks for costs one more reading and nothing else.
+   */
+  handoutReadingStatus(data:Row):Row {
+    const key=JSON.stringify([data.campaign,data.handout,data.image?.sha256,data.play_language]);
+    let job=this.handoutReadings.get(key);
+    if(!job) {
+      job={campaign:data.campaign,handout:data.handout};this.handoutReadings.set(key,job);
+      const current=job,limit=Number(this.options.env.PI_COC_PRESENTATION_DEADLINE_MS)||PRESENTATION_DEADLINE_MS;
+      const written=(progress:Row)=>{
+        const title=typeof progress.title==='string'?progress.title:'',text=typeof progress.text==='string'?progress.text:'';
+        // The reading only grows; a report that would shrink it is stale.
+        if((current.partial?.title.length??0)<=title.length&&(current.partial?.text.length??0)<=text.length)current.partial={title,text};
+      };
+      void this.boundedPresentation(data,Date.now()+limit,'handout-reading',written).then(result=>{current.result=result;},error=>{current.error=error;});
+      if(this.handoutReadings.size>64)for(const [old,value] of this.handoutReadings) {
+        if(old!==key&&(value.result||value.error)){this.handoutReadings.delete(old);break;}
+      }
+    }
+    if(job.error){
+      this.handoutReadings.delete(key);
+      // Only the refusals a player can act on keep their word; everything else, a worker that stopped
+      // included, is one caption. The message keeps the cause for the log.
+      const code=(job.error as {code?:unknown})?.code;
+      throw refuse(typeof code==='string'&&HANDOUT_READING_CODES.has(code)?code:'handout_reading_failed',
+        job.error instanceof Error?job.error.message:String(job.error));
+    }
+    return job.result||{pending:true,...(job.partial?{partial:job.partial}:{})};
+  }
+  /**
+   * The state of a reading that is still being written, if this campaign has one for this handout.
+   *
+   * A poll for a running job is answered from here without resolving the handout again: the job was
+   * started only after the handout passed the host's gates, and re-reading the table's view forty
+   * times while a reading streams would cost more than the reading.
+   */
+  handoutReadingRunning(query:{campaign:string;handout:string}):Row|undefined {
+    for(const job of this.handoutReadings.values())
+      if(job.campaign===query.campaign&&job.handout===query.handout&&!job.result&&!job.error)
+        return {pending:true,...(job.partial?{partial:job.partial}:{})};
+    return undefined;
   }
   presentationStatus(data:Row):Row {
     const job=this.presentationJob(data);
@@ -650,7 +704,11 @@ export class CocOnboardingHost {
     const skills=data.rules===true&&Array.isArray(data.mechanics)
       ? [...new Set(data.mechanics.filter((row:any)=>row?.kind==='roll'&&row.visibility!=='keeper'&&typeof row.skill==='string')
         .map((row:any)=>row.skill.trim()).filter(Boolean))].sort() : [];
-    return JSON.stringify([data.campaign,data.revision,data.play_language,CocOnboardingHost.laneFlags(data),skills]);
+    // A handouts request names the titles no file carries (VT-01); like a delivery's skills, a
+    // request with other titles must not join a run that never saw them.
+    const titles=data.handouts===true&&Array.isArray(data.handout_names)
+      ? [...new Set(data.handout_names.filter((name:unknown)=>typeof name==='string'))].sort() : [];
+    return JSON.stringify([data.campaign,data.revision,data.play_language,CocOnboardingHost.laneFlags(data),skills,titles]);
   }
   /** Different deliveries must not join a run that never saw their terms, nor overwrite its cache.
    *  Each growing lane reads its missing words again after its predecessor has saved them. */

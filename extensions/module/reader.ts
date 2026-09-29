@@ -72,6 +72,11 @@ export interface ReaderRequest {
 	eventLog?: string;
 	source?: { pdf: string; cache: string; file_sha256?: string };
 	imageHistory?: number;
+	/**
+	 * Files in `cwd` handed to the model as `@file` arguments before the prompt (images become attachments).
+	 * A zero-tool child cannot `read` a picture, so this is how it is given one (contract §155.3).
+	 */
+	attachments?: string[];
 	/** Checked guidance/opening artifact submission ends the tool batch without final prose. */
 	submission?: boolean;
 	/** A private audit session has its own checked submission and bounded call allowance. */
@@ -260,6 +265,10 @@ async function runOwnedReader(request: ReaderRequest, context: RuntimeContext): 
 		// Without this the file below is read by nobody: pi loads project settings only for a trusted
 		// project, and a print-mode child with no UI answers the trust question "no".
 		if (ownSettings) command.splice(command.length - 1, 0, "--approve");
+		for (const file of request.attachments ?? []) {
+			if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(file)) throw new Error("An attachment is a plain file name inside the working directory");
+			command.splice(command.length - 1, 0, `@${file}`);
+		}
 		command.push(request.brief);
 	} catch (error) {
 		return {

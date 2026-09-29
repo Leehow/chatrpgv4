@@ -359,6 +359,7 @@ params：`{"call_id": "...", "effects": [{"kind": "move", "to": "<场景名>", "
 - `time`：推进世界时钟，写 `time-advanced` 事件。**时间过去了，伤就该好。**本批 `time` 效果的分钟数相加（同一批两个四小时就是一夜；`move` 的行程分钟不算——赶路不是休息）：≥360 分钟走治疗引擎的休整入口（`handle_time_trigger`：六小时以上算一天，没有重伤则每天回 1 点生命，规则书 p.121；不到这个数一次都不调，因为同一个函数还会清掉当天的急救次数，十分钟不是新的一天），≥60 分钟走魔法点的每小时回复（规则书的单位是小时，引擎的下限会给任何一次推进至少 1 点）。每个真正变动的资源写一条 `delta` 收据与一条 `resource-changed` 事件，result 另给 `recovered: [{investigator, resource, before, after}]`，好让守秘人在写这一夜之前就知道这一夜的人还站不站得起来（数字本身不进正文，§16.3）。**这条规则一直在规则图上**（`rule:coc7:healing:regular-damage-recovery`），两个引擎的入口也一直写着、测着，只是内核从来没有调用过：真桌上 55 个游戏内小时、三夜睡眠、两次看医生，生命值一整局卡在 5/11。
 - `item`（#19）：`{"kind": "item", "name": "<物品名>", "to"?: "<调查员>", "from"?: "<NPC 名>", "weapon"?: "<规则表武器 id 或 profile 名>", "quantity"?: int, "label"?: "<玩家语言短名>", "why"?}`。叙述里到手的东西由此进调查员表：写 `party/<id>.json` 的 `equipment[]`（名字、数量、来源回合），`weapon` 给了就同时写 `weapons[]`（从 `rules-json/weapons.json` 的武器 profile 取伤害、射程、弹容、技能（`equipment.json` 只是价目表），取不到报 `needs`，`details.needs.options` 列可用 id），之后 `resolve` 的 `weapon` 能解析它、战斗开局按它排弹药。收据 `item:<slug>-t<turn>-c<n>`，渲染 `【变化】物品：<人> 得到 <label 或名>`，事件 `item-transferred`（`{name, to, from?, weapon?, quantity}`）。`quantity` 为负是失去（消耗、交出、被夺），表上没有就报 `invalid_params`。
 - `cash`（#19，§58）：`{"kind": "cash", "subject"?: "<调查员>", "delta": <整数，货币单位随时代>, "source": "price"|"quote"|"found", "settlement"?: "cash"|"spending_level", "price_id"?: "<印刷记录 id，source=price 必填>", "currency"?: "<这笔钱的单位>", "with"?: "<NPC 名>", "why"?}`；**`source` 必填**：钱的数额必须说明来源，`price` 由内核到规则书印刷物价表里解析 `price_id`（解析不到就拒），`quote` 要 `with`（场上谁开的价），`found` 是不涉及价格的进出。`settlement` 缺省 `cash`；`spending_level` 只用于不超过调查员消费等级的负向 `price`/`quote`，记录购买但不改现金。`currency` 与余额单位不一致直接拒——内核没有汇率表，不替任何人换算。玩家说的自己兜里有多少是余额不是价格；余额与本局已成交的价在胶囊 `known.investigator.cash` 与 `known.prices_paid` 里。全文见 §58；`with` 是钱的另一头（付给谁、从谁那儿来），落进那个人的账本 `exchanged`（§17.3）与机制投影；不写就只是钱数变了，没有对方。普通结算写表上 `finance.cash`；消费等级结算保留余额（没有 finance 块的时代都先按 `rules-json/cash-assets.json` 建一个），收据均为 `cash:t<turn>-c<n>`，事件分别是 `resource-changed` 与 `purchase-settled`。
+- `time` 另收 `beyond_travel: true`（2026-09-29，§156）：`move` 自己已按行程推进时钟，同一批里再有推进时钟的 `time` 一律拒（`travel_time_duplicated`），除非守秘人声明这段时间在行程之外。
 - `damage`、`time`、`threat`、`flag`、`cash` 另收 `stated: <名字>`（2026-09-23，RD-03）：数额取自书上写明的形状，不与守秘人自己的数额并给（`stated_conflict`）；不带 `stated` 时照旧，收据记 `basis: "keeper"`。见 §136.22。
 - 其余种类报 `not_implemented`。
 result：`{"receipts": ["move:hall-of-records-t3-c2", ...], "world": {"active_scene", "clock"}, "material_ready": true, "recovered"?: [{"investigator", "resource", "before", "after"}]}`。切片 0 `material_ready` 恒为 true；`recovered` 只在这一批的休整真的还了资源时出现。
@@ -4837,7 +4838,7 @@ has no word, and keeps `message` (English, for the log) behind a fold captioned
 `upload_incomplete`, `upload_retry`, `guidance_not_ready`, `guidance_unavailable`,
 `opening_bound`, `preparation_pause_first`, `scenario_not_ready`,
 `name_and_occupation_required`, `unknown_action`, `presentation_timeout`,
-`interrupted`, `kernel_error`. Extensions that notify through `ctx.ui` read the
+`interrupted`, `kernel_error`, `handout_not_available`, `handout_reading_failed` (§155). Extensions that notify through `ctx.ui` read the
 `extension` surface for the campaign's language.
 
 **The glossary is generic.** `table.view.labels` is the union of every
@@ -10204,7 +10205,7 @@ asking for a restart the product no longer needs.
 
 The voice lane's outage notice told the operator to set `PI_COC_NPCVOICE_MODEL`, a name nothing reads; it now names `PI_COC_VOICE_MODEL`. Operator `fix` texts (review outage, admission outage, lane outage) name the setting by its new title, *Fast model*, and say it is read the next time the lane runs.
 
-**Deliberately on their own axis.** *Module build and preparation* -- the section reader (`PI_COC_BUILD_MODEL`, §22 and the reader wiring above: "缺省与桌子同模型"), character guidance and the opening -- read the book's page images, require a vision model (`model_without_images` refuses otherwise) and produce the only authored truth the table has; they stay on the table's model. *The image model* and *rerank* have their own settings. *Jev* (speech attribution, prescreens) has its own API and credentials. *The `skills` row* is not a lane: it measures the Keeper's own run, so it is the Keeper's model by definition.
+**Deliberately on their own axis.** *Module build and preparation* -- the section reader (`PI_COC_BUILD_MODEL`, §22 and the reader wiring above: "缺省与桌子同模型"), character guidance and the opening -- read the book's page images, require a vision model (`model_without_images` refuses otherwise) and produce the only authored truth the table has; they stay on the table's model, and so does the reading of a pictured handout (§155.3: one streamed vision completion; it looks at a picture, so it needs image input, at the presentation lane's effort). *The image model* and *rerank* have their own settings. *Jev* (speech attribution, prescreens) has its own API and credentials. *The `skills` row* is not a lane: it measures the Keeper's own run, so it is the Keeper's model by definition.
 
 **Three ends (§31).** *Writer:* the settings panel, through the host's extension-settings write. *Reader:* `runtime/fast-model.ts` at every lane start (and `cocFastLane` on the host's cold path). *Actor:* each lane above, whose telemetry row carries the `model` it ran on (`lane-call` rows, `mod-agent` rows from the child's own `--model`, `map-words`, `voice`, `adaptation`'s `run-model-N.json`), so a table can be audited from its own files.
 
@@ -29064,3 +29065,290 @@ each scoped brief to 400. The addendum has no kernel budget: it rides the lane's
 - The first shipped language package is `mods/zh-optimize` (play_languages `["zh"]`, owner 2026-09-29). Tests: `tests/extension/language-scoped-mods.test.mjs` with the fixture
   `tests/fixtures/mods/language-zh`, installed through `mods.install`; `tests/kernel/test_language_mods.py` over the
   emitted kernel's RPC; and the two ceiling tests above.
+
+## 154. Lean `apply` arguments: the machine fills what it can derive (2026-09-29; on by default, `PI_COC_LEAN_APPLY=0` turns it off)
+
+**Status (amended 2026-09-29, same day).** Measured against a concurrent control on two scripts (grok-4.5 low, 15 turns
+each, fast model deepseek-v4.1-flash off, Jev on): Keeper output tokens per turn 914 -> 758 and 1026 -> 817 (-17%/-20%),
+first visible prose median 32.4 -> 26.7 s and 31.5 -> 26.8 s, recorded clues/items/resources/NPC changes comparable,
+refused tool calls 11 -> 7 and 10 -> 5, not-admitted 4 -> 3 and 5 -> 0. The user ruled: merge to the mainline, on by
+default. Only an explicit `PI_COC_LEAN_APPLY=0` restores the full shape below ("unset" in the prototype text now reads
+"`0`"). The rest of this section is the prototype's own text.
+
+
+Measured the same day on three 15-turn tables (grok-build/grok-4.5, thinking low): the player waits ~26 s median for the
+first prose character, each Keeper round costs ~0.7 s plus ~2.15 s per 100 output tokens, and `apply` arguments are 54%
+of the Keeper's visible output against 30% for the prose. A large part of those arguments is a `why` nobody reads, a
+value the kernel already derives, or a second booking of what another effect did. This section is a prototype: the
+flag is unset in every shipped configuration, and unset or any value other than `1` is the tool surface and the
+payloads of before, byte for byte -- save that a `_lean` the model itself put in its arguments is dropped (no Keeper
+tool ever declared it).
+
+### 154.1 What changes
+
+- **The tool surface.** With the flag the host registers `leanTools(COC_TOOLS)` (`extensions/kernel/lean-apply.ts`):
+  the same schema shape (types, required fields, bounds, TypeBox's `~optional`/`~kind` markers), with the apply
+  description and the descriptions of the fields below replaced. Nothing a lean call leaves out was required before.
+- **The host.** Every `table.apply` it sends carries host-only `_lean: true`; a model-sent `_lean` is deleted from every
+  call's payload.
+- **The kernel.** `table.apply` accepts `_lean` (a non-boolean is `invalid_params`) and passes it to the effects as
+  `ApplyContext.lean`. Its only effect: a person established without a `why` (an `npc` with `walk_on`, or a `person` a
+  carried passage names) gets the origin line the kernel knows -- `walked on at this table` or `a passage of the source
+  text named them` -- instead of the absent line that renders as `"None"` (`string(null)`) in `origin.reason`. A `why` the
+  Keeper wrote is never replaced. Receipts are unchanged: the person and npc receipts keep `why: null`.
+
+### 154.2 Fields, who reads them, and how each is still served
+
+| field | lean description says | who reads it | how it is served |
+| --- | --- | --- | --- |
+| `time.why` | leave it out | the time receipt and `time-advanced` event only (`kernel-ts/apply/index.ts` time branch): history, recall, the continuity audit's history evidence (`extensions/mods/audit-evidence.ts`) | nothing projects it |
+| `person.why` | leave it out | the person receipt (`kernel-ts/apply/person.ts`); for a passage-named person, their origin line (`establishPerson`) | origin line derived under `_lean` (§154.1) |
+| `threat.why`, `clock.why` | leave it out | `world.table_threats[].why`, threat and clock receipts; `threatPressures` does not project it (`kernel-ts/read/pressures.ts`) | nothing projects it |
+| `ability.why` | leave it out | nobody: the ability receipt has no `why` (`kernel-ts/mods/stage.ts`) | -- |
+| `object.why` | required for a condition change or document write; kept when an NPC gives, takes or is offered the thing; otherwise out, never on `adopt` | refused without it for a condition change or document write (`kernel-ts/mods/stage.ts`); an item receipt's `why` is quoted to the NPC act lane when that NPC is `from` or the holder (`kernel-ts/npc/situation.ts`); the adoption receipts (queued or landed) carry none | kept where read |
+| `npc.why` | required with defense/action/disposition; kept with stance, skill, conditions, dead, walk_on, `intent_outcome: abandoned`; out for a plain `to` or a done result | refused without it for defense/action/disposition (`kernel-ts/apply/entities.ts`); the stance ledger's `because` (`kernel-ts/write/contributions.ts` → `toward_party.because` in `kernel-ts/read/capsule.ts`, and `consequenceRows` in `kernel-ts/read/offer.ts`); the NPC act packet's `because` and giving-up clause (`kernel-ts/npc/situation.ts`); the walk-on's origin line | kept where read; walk-on origin derived under `_lean` when omitted |
+| `flag.why` | out, except on waiving a scene obligation | `waivedBy` (`kernel-ts/read/obligations.ts`): the obligation's last flag write with a `why` is a waiver, without one it is settled | kept where read |
+| `object.definition` | out when it equals `name` | `moveObject` and the queued-adoption lookup already read `definition ?? name` (`kernel-ts/mods/objects.ts`, `kernel-ts/mods/stage.ts`); a queued adoption stores the effect as sent and replays it through the same lookup | derived (existing kernel behaviour) |
+| `define.category` | out for an ordinary item | the kernel's define staging and the Mod host's job input default it to `item` (`kernel-ts/mods/stage.ts`, `extensions/mods/index.ts`) | derived (existing) |
+| `move.travel_minutes` | appended: the move advances the clock by these minutes, never add a `time` effect for the same journey | `stageMove` advances the world clock itself (`kernel-ts/apply/move.ts`) | a `time` effect for the journey was a second booking |
+| `time` (kind) | appended: only for time spent beyond a journey a move counted | same | same |
+| `person.name` | appended: a word already recorded is not sent again | `world.person_labels` | a restated label is a no-op write |
+
+Untouched on purpose, because a reader reads them: `item.why` and `cash.why` (the NPC act packet's `because`,
+`pricesPaid` in the capsule, the weapon-profile question of band recovery in `extensions/kernel/index.ts`),
+`damage.why` (on the damage dice receipt and the `resource-changed` event, `kernel-ts/healing/resources.ts`; not
+measured as a cost and left out of this prototype), `map.why` (required by the schema), and
+`clue.how`, which is the player's clue card (`kernel-ts/read/mechanics.ts`, §80). `resolve` is untouched: `goal` and
+`method` feed skill inference, the social resolution, receipts and admission; `actor` for the sole investigator is already
+documented as omissible.
+
+### 154.3 What the prototype does not do
+
+- **Starting equipment is still the Keeper's.** `unregistered_equipment` (`kernel-ts/read/mods.ts`, `unregisteredEquipment`)
+  is a deterministic list of candidates -- sheet equipment rows minus executable weapon rows, rows with an `object_id`
+  and rows already queued -- but `mods/enhanced-items/agent.md` has the Keeper pick the "weapons and other mechanically
+  meaningful items" among them and write each one's `define` description, which the creator agent turns into parameters,
+  and `auditor.md` re-checks the choice ("mere absence of a definition or instance is insufficient"). Which rows need an
+  instance is a semantic judgement; the host does not register them. Under the flag each adoption pair loses only its
+  derivable parts (`category`, `definition`, `why`).
+- **Mod package text is not changed.** `mods/enhanced-items/agent.md` still says to name the definition in every object
+  call and `mods/natural-npc/agent.md` still shows `why` on a staging `npc` effect; an installed package version is
+  immutable and its digest covers its files (§26), so changing either text is a new package version, not part of this flag. Both shapes stay valid; the Keeper may keep following the package.
+- A flag-off table books a journey twice when the Keeper writes `move` with `travel_minutes` and a `time` effect for the
+  same trip (observed 2026-09-29, `pl-m-0929`). Unchanged here.
+
+### 154.4 Tests
+
+`tests/extension/lean-apply.test.mjs`: the tool list off is `COC_TOOLS` itself and on keeps the shape and markers
+(validated with TypeBox `Check`); the host sends `_lean` only under the flag and strips a model-sent one; the kernel lands
+the same receipts, instance, definition and sheet for an adoption without `definition`/`why`/`category`, both in the
+same call and queued beside the turn and resumed through the Mod host; and the origin line is derived under `_lean` only,
+never replacing the Keeper's.
+
+## 155. Reading a pictured handout in the player's language (2026-09-29, `docs/specs/visual-handout-translation.md`)
+
+Owner request, 2026-09-29: a clipping cropped from a PDF page reaches the player as the original bitmap (§152.3) and
+nothing else, so a table whose `play_language` is not the module's language holds a picture it cannot read. Every image
+handout row gets a **translate** control that produces a reading version in the play language, beside the picture, and
+the text **streams in while the model writes it** (owner, 2026-09-29: a ~35 s wait for a whole document is too long).
+Numbering: 0.9.6a publishes §153; two unmerged prototype branches already claim §154.
+
+### 155.1 A host control, no kernel RPC, no turn, no receipt
+
+`handout.reading` is a `coc-keeper` host method (§35.1's class: like zoom or the illustration list, it moves no turn and
+writes no receipt). It is answered by the Electron host's cold path on every leg, live session or not, because it needs
+the campaign's `table.view` and the agent home's models and nothing that only a live pack holds. Parameters:
+`{handout}` -- the handle of a row of `view.handouts` -- and the session the invoke names (`sessionId`). The renderer
+never supplies a path, a campaign, a digest or a language: the host resolves all four.
+
+Answers (`ok: true`, `data`):
+
+- `{status: "pending", handout, partial?}` -- the job is running. `partial` is `{title, text}`, the reading in the play
+  language as far as it is written (absent until the first characters exist; the title fills first, then the body; it only
+  ever grows). The caller asks again a moment later (the Mod document pattern: the invoke channel's 15 s ceiling is never
+  held, and the panel and the card poll the same job); the renderers ask again 400 ms after each answer. A poll for a
+  running job is answered from the job itself and does not read the table again.
+- `{status: "ready", handout, keep, title, text, digest}` -- `title`/`text` are the reading version in the play language,
+  `digest` the image's `sha256`. `keep: true` means the model judged the picture already in the play language: `title`
+  and `text` are then empty and the caller says so instead of offering a second version. `keep` is the model's word
+  (§23: no code inspects a script, a tag prefix or a character class).
+
+A failure is `ok: false` with `error.code` in the `errors` surface: `no_session`, `campaign_unbound`, `invalid_params`
+(no such handle), `handout_not_available` (§155.2), `model_without_images` (§155.3), `handout_reading_failed` and
+`presentation_timeout` (§155.5), `runtime_unavailable`. A failed job is a one-shot mailbox, as `documentPresentationStatus`
+keeps: the next ask starts a fresh job, so the retry control is the same call.
+
+### 155.2 Only what the player holds
+
+The host reads `table.view` (the player-safe projection, §23) and looks the handle up in `view.handouts`. That list is
+`world.handouts_shown` filtered to actually delivered image receipts (§152.3), so a card the table has not been handed
+cannot be named through this control. The row then goes through the same gates as `handoutImage` -- `document: "ready"`,
+not keeper-visible, an absolute path inside the campaign's own folder, its module folder or the installed module folder
+(real paths, so a symlink escape is refused), a regular file of at most 8 MiB, and magic bytes that agree with the
+declared media type -- exposed as `handoutImageFile`, which `handoutImage` now wraps so the two cannot drift. Any failure
+is `handout_not_available`. A hybrid row (image plus authored text) is an image row and is read like any other.
+
+### 155.3 One streamed vision completion
+
+A Pi child with **no tools** (`--tools ""`, `--mode json`) is given the picture as an `@file` attachment (`ReaderRequest.attachments`:
+a plain file name in its working directory, placed before the `--` that ends the options, since a zero-tool child has no
+`read`) and writes the reading version as its reply. The worker relays the assistant's `text_delta` events as `progress`
+lines (`{stage: "reading", title, text}`, at most every 150 ms and once at the end), the onboarding host keeps the latest
+in the job, and the caller's polls carry it (§155.1). Instruction: `content/setup/handout-reading.md`; the reply's format is
+its first line `keep` or `translate` (the model's verdict on whether everything printed is already in `play_language`), then
+for `translate` a title line, a blank line and the body in reading order, paragraphs separated by a blank line; a stretch it
+cannot read is `[…]`, never a guess. The host parses that format incrementally (`parseReading`) and validates the finished
+reply (`validateReading`: the verdict line, a non-empty title of at most 640 characters, a body of at most 64,000); a reply
+that breaks it is `preparation_failed` and is not cached.
+
+The model is the table's model (the reader axis, §37.10.1: it looks at a picture, so it needs image input) at the
+presentation lane's effort (`presentationLaneChoice`, never the Keeper's). A table model without image input answers
+`model_without_images` when the cache lacks the reading, and nothing is read blind. The graph node's `summary` never enters
+it. The brief carries `Play language: <tag>` and, when the campaign has any, `known_names`: the saved projections of the
+campaign for that tag (the kernel glossary's lanes, `setup/presentations/<kind>-<tag>.json`, at most 150 entries and 6,000
+characters) as `source -> shown` lines, so a person or place the table already knows keeps the name the table calls them
+(§23 standing names); they are a hint at the time of reading and are not part of the cache key.
+
+### 155.4 Caches and evidence
+
+Under the agent home, never in the graph, a turn, a capsule or a Keeper prompt:
+
+- `.coc/handout-readings/<sha256>/readings/<tag>-<instr>.json` -- `{sha256, play_language, keep, title, text}`, keyed by the
+  image's `sha256` (the graph's `asset_digest`, computed by the host from the bytes it read), the play language and the first
+  12 hex digits of the instruction file's digest. A changed instruction file re-reads; an unchanged one reuses; a reading
+  cached under an older instruction stays as evidence. A cached reading is reported whole, at once, and needs no image input.
+- `.coc/handout-readings/<sha256>/attempts/<id>/` (the copied image, the child's event stream, its outcome) and
+  `.coc/handout-readings/telemetry.jsonl` (one row per model round: `{at, phase: "reading", sha256, campaign, play_language,
+  model, thinking, ms, ok, timed_out, input_tokens, output_tokens, cost_usd, actions}`) are kept as evidence.
+
+### 155.5 The job
+
+The host's onboarding host keeps one job per `(campaign, handout, sha256, tag)` and answers `pending` while it runs, like
+`documentPresentationStatus`; the work is the preparation worker's `handout-reading` action (a child process, so a stall
+cannot hold the host). The deadline is the presentation deadline (`PI_COC_PRESENTATION_DEADLINE_MS`, 360 s), with
+`presentation_timeout` on expiry; a worker that stops without an answer, and any other failure, is `handout_reading_failed`
+(the message keeps the cause for the log). There is no automatic retry: a reading is a paid look at a page and the player's
+retry control asks again.
+
+Measured 2026-09-29 on the two Dust to Dust clippings with `grok-build/grok-4.5` at low effort, in the earlier two-step
+design that this section replaces (a tool-enabled reader wrote a transcription, then a second reader projected it): 21-22 s
+for the transcription and 11-13 s for the projection, so about 35 s before the first character; a tool-enabled child writes
+its answer in one file write (a grok model sends its tool arguments in one piece), which is why it cannot stream.
+
+### 155.6 The three ends (§31)
+
+*Writer:* the `handout-reading` worker action writes the reading file and the telemetry row, and the job's progress. *Reader:*
+the case board's handout block and the transcript's handout row draw the answer, the partial included; they hold no word
+table -- captions are the `handout` surface and codes the `errors` surface (`content/ui/en/`, projected like every other
+surface, §23). *Actor:* the player, by the control; the Keeper is never shown the reading, and making it Keeper-visible
+would need its own named lane.
+
+### 155.7 The reading is the model's reading
+
+The text is model-produced reading text for the player's own use, not a verbatim source reference
+(`docs/specs/verbatim-source-references.md`). The control labels it as a reading version and the picture stays one tap
+away. It is not evidence for Keeper decisions and never enters `lookup` or the graph.
+
+### 155.8 Where the transcript row and the board call from
+
+The board panel calls the method through its `api.invoke` (the `board` precedent). The transcript's tool renderer had no
+host call: the host UI now passes `onInvoke(method, params)` to the presentation entries a tool renderer draws (`coc-mechanics`,
+`coc-choice`), which calls `host.invokeExtension(<that extension>, method, params, {sessionId})`; today `coc-mechanics` is its
+only user. A handout's mechanics row (§16.2) now carries `handout`, the receipt's handle, because the row folds under a
+display name and a name is not an identifier; a row persisted before this section is given the same handle by the host from
+its receipt id (`handout:<handle>-t<turn>`, `mechanicsEntry`), and a row with neither has no control.
+
+The control's state lives with the row's mount, so a row the list unmounts (scrolled away, a folded card) asks again when
+it is pressed again, and the caches of §155.4 answer without a model run. It does not ask on mount: scrolling a
+transcript must not start jobs.
+
+### 155.9 A zero-tool completion, by the owner's ruling (2026-09-29)
+
+Agents.md keeps zero-tool single completions for work that satisfies two conditions and asks before any other. This lane
+is the owner's explicit exception, given in the turn that asked for streaming ("点击按钮之后应该是 sse 流式出现的翻译结果吧,
+如果不是流式等待时间就太长了"; chosen from three options: one streamed step, two steps with a warmed transcription, or the
+status quo with stage captions). Why it fits: the output is a bounded piece of text (a title and at most 64,000 characters, far
+below the channel's ceiling that the tool-enabled rule exists for), and it is on the player's critical path -- they are
+watching it arrive -- where a tool-enabled child that writes one file cannot stream. It stays a Pi child (`--tools ""`), not
+a bare provider call, so model resolution, provider extensions, credentials, the provider budget and the event stream are the
+ones every reader already has. It does not widen the exception: a tool-enabled agent remains the shape for any text work that
+produces a document for the product to keep (module readers, persona and speech authors).
+
+### 155.10 The handouts lane owes no title it cannot answer (VT-01, 2026-09-29)
+
+`table.view.handouts` lists a pictured handout with a `name` and no body (no `.md` is written), and a pictured handout with a
+transcript under the receipt's label. `handoutTexts` counts those names, and `handoutInput` can never supply them, so every
+sheet or board read found the title missing and started the `handouts` lane, whose landing pushed the `sheet_changed` that
+started the next read (seen live in the installed App: a worker respawn every 4-8 s on a campaign holding two image-only
+clippings, with `handouts-zh-Hans.json` at `texts: {}`). The host therefore passes, on `presentation {handouts: true}`,
+`handout_names`: the row names the saved projection still lacks, taken from `view.handouts` on a sheet or board read and from
+the delivery's handout rows on a delivery. `prepareHandoutPresentation` joins them to the file rows as `{name, text: null}`. Shape
+only: non-blank strings, at most 256, each at most 400 code units, else `invalid_params`; never a language check. The onboarding
+host keys a handouts job by these titles. Pinned by `coc-handout-lane.test.ts` (one board read starts one run) and
+`handout-titles-reach-the-lane.test.mjs`.
+
+## 156. A move counts its own journey; a `time` beside it must say it is beyond the journey (2026-09-29; amends §5's `table.apply` `move` and `time`, §145.1)
+
+Numbering: §154 and §155 are taken by concurrent 2026-09-29 branches (lean apply, prose-first; pictured handouts), so
+this section is 156.
+
+**The defect.** A `move` advances the clock by its travel minutes (`stageMove` → `advanceClock`; the batch emits
+`time-advanced {why: "travel"}`). On 2026-09-29, in five live driver tables (Keeper grok-4.5), 8 of 8 `apply` calls
+that carried a `move` also carried a `time` with the same minutes and a `why` describing the trip -- e.g. move
+`{to: "newspaper-morgue", travel_minutes: 30}` + time `{minutes: 30, why: "从诺特办公室到环球报馆的路程"}`. The event log
+showed two `time-advanced` rows per trip, so in-fiction time ran twice as fast whenever the party travelled, and every
+clock-driven thing (threat clocks, day parts, deadlines, rest) moved with it.
+
+**The rule.** A move already advances the clock by its journey. Do not add a `time` for the same journey; send `time`
+only for time that passes beyond it. Said where the Keeper decides: the `move.travel_minutes` and `time` descriptions
+in `extensions/kernel/tools.ts`, and the `apply` paragraph of `prompts/keeper.md`.
+
+**The field.** `time` takes `beyond_travel?: boolean` -- the Keeper's declaration that this time passes beyond the
+journey of a move in the same batch (after arriving, before setting out). A non-boolean is refused `invalid_params`,
+`details: {field: "beyond_travel", reason: "beyond_travel_invalid"}`. The time receipt carries `beyond_travel: true`
+when it was declared; the §16.2 projection is unchanged.
+
+**The guard** (`kernel-ts/apply/index.ts`, after every effect has staged, before the batch lands). If the batch staged a
+`move` whose receipt has `minutes > 0` (whatever drove it: `travel_minutes`, or the road's own minutes when it is
+omitted; a rename in place and a move of 0 minutes do not count), every `time` in the same batch whose bound minutes
+are `> 0` is refused unless it carries `beyond_travel: true`. Purely structural: the kernel never reads `why` and never
+compares minutes to guess a duplicate. Forms:
+
+| `time` form | guarded? |
+| --- | --- |
+| `minutes` (> 0) | yes |
+| `stated` (§136.22), `band` (§138) -- an amount the kernel binds | yes, on the bound minutes |
+| `until` (§145.1) staged **before** the travelling move | yes: the journey is added after the moment it names |
+| `until` staged **after** the travelling move | no: it binds against the staged clock, so it counts from the arrival and cannot repeat the journey |
+| any form that binds to 0 minutes | no: it adds no elapsed time |
+| `clock` (pins the opening datetime) | not a `time`; never guarded |
+
+The refusal is `invalid_params` at the `time` effect's `details.index`, with `details: {field: "beyond_travel", reason:
+"travel_time_duplicated", minutes, travel_minutes, moves: [{index, to, minutes}]}`, the message naming the journey and
+the minutes, and the `fix`, which the Keeper executes literally (§34.7):
+
+> Remove this time effect and send the batch again: the move already advanced the clock for the journey. Only if these
+> N minutes pass beyond the journey (after arriving or before setting out), keep the time effect and add
+> beyond_travel: true to it.
+
+Like every batch refusal, nothing is written; the refusal joins the batch's `refused` list in effect order. The host
+records `reason` on the tool's telemetry row as it does for every refusal, so `travel_time_duplicated` is countable.
+
+**Scope.** The guard is per batch. A `time` sent in a later `apply` of the same turn for a journey an earlier `move`
+already counted is not refused (the kernel cannot tell it from time spent at the destination without reading the
+prose). Host paths checked: the clerk writes one candidate per `apply` (`runtime/jev/candidates.ts` `keeperCall`), so its
+move and its banded time (§138.10) are never one batch; an accept step's settlement (§135.30.9.3, `acceptSettlement`) is
+flag, clue, item and cash only; the Mod runtime's deferred registrations are define/object/usage. No host path emits
+`move` + `time` in one batch, so none sets `beyond_travel`. The extension's fake kernel does not mirror the guard.
+
+**Three ends (§31).** *Writer:* the Keeper's `apply` (`beyond_travel`). *Reader:* the kernel's batch check; the Keeper
+reads the refusal's `fix`. *Actor:* the Keeper, dropping the duplicate or declaring it. Counted: the tool rows with
+`reason: "travel_time_duplicated"`, and time receipts with `beyond_travel: true`.
+
+**Tests.** `tests/kernel/test_travel_time_once.py` (emitted kernel): move + time refused with the reason, the fix and
+nothing written; the road's default minutes drive the guard, in either order; a banded time and an `until` before the
+move are guarded; `beyond_travel` lands and the clock advances by both with two `time-advanced` rows; a move alone
+advances once; a time alone is unchanged; zero minutes, a 0-minute move, a rename and an `until` after the move are not
+refused; the clerk's separate banded time after a move lands; a non-boolean is refused. Existing fixtures whose batches
+held a travelling move and a `time` spent at or before the place now declare `beyond_travel: true`
+(`test_apply.py`, `test_narrate.py`, `test_facts_warn.py`, `test_system_language.py`, `test_worldline.py`).

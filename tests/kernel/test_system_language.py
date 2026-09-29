@@ -76,7 +76,7 @@ def test_a_zh_hans_turn_is_delivered_verbatim_with_every_receipt_projected(kerne
                                                     "skill": "Spot Hidden"})
     kernel.table("apply", call_id="t1-c2", effects=[
         {"kind": "clue", "clue": "knott-keys", "label": "钥匙"},
-        {"kind": "time", "minutes": 15},
+        {"kind": "time", "minutes": 15, "beyond_travel": True},
         {"kind": "item", "name": "温彻斯特霰弹枪", "quantity": 1},
         {"kind": "damage", "dice": "1D3", "why": "被抽屉夹了"},
         {"kind": "move", "to": "hall-of-records", "travel_minutes": 20, "label": "档案馆"},

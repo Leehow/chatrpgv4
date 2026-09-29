@@ -26,6 +26,7 @@ import { freezeProbe, freezeProbeHistoryIpcEnd, freezeProbeHistoryIpcStart } fro
 import { QuotaPill } from './QuotaPill'
 import { SessionBranchHeader } from './session-workspace-ui'
 import { subscribeExt } from './subscribe-ext'
+import { rendererInvoke } from './renderer-invoke'
 import { BalancePill } from './BalancePill'
 import { SessionStatsPill } from './SessionStatsPill'
 import { MessageQueue } from './MessageQueue'
@@ -2436,6 +2437,8 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
     })
   }
   const illustrationsById = useMemo<ReadonlyMap<string, IllustrationState>>(() => new Map(Object.entries(illustrations)), [illustrations])
+  // §155.8: the host call a pack's transcript renderer makes as its own extension, on this session.
+  const invokeForRenderer = useMemo(() => rendererInvoke(host, selectedSession), [host, selectedSession])
   const handleResend = (message: ChatMessage) => {
     // Electron has no fork/resend RPC yet: this deliberately sends a new prompt.
     const text = displaySecretPlaceholders(message.role === 'user' ? stripAttachmentPathsForDisplay(message.content) : message.content)
@@ -3012,6 +3015,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                 illustrations={illustrationsById}
                 illustrateDisabled={sessionWorking || branchBusy}
                 actionWords={timeline?.ui?.words?.['message-actions']}
+                onInvokeExtension={invokeForRenderer}
                 onChoose={async (entry,option)=>{
                   if(entry.renderer==='coc-character-draft'){const ack=await host.invokeExtension!("coc-keeper",option==='presentation'?"draft-presentation":"draft-previewed",{revision:(entry.details as any).revision},{sessionId:selectedSession});if(!ack.ok)throw new Error(ack.error?.message||"Preview acknowledgment failed");return ack.data;}
                   const result=await host.invokeExtension!("coc-keeper","choose",{choice:(entry.details as any).name,option},{sessionId:selectedSession});

@@ -207,7 +207,7 @@ def test_batch_is_atomic(kernel):
         {"kind": "clue", "clue": "knott-research-leads"},
         {"kind": "move", "to": "hall-of-records"},
         {"kind": "clue", "clue": "chapel-closed-1912"},
-        {"kind": "time", "minutes": 15},
+        {"kind": "time", "minutes": 15, "beyond_travel": True},  # §156: time spent after arriving
     ])
     assert result["receipts"] == ["clue:knott-research-leads-t1", "move:hall-of-records-t1-c1",
                                   "clue:chapel-closed-1912-t1", "time:t1-c1"]

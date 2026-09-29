@@ -1,0 +1,10 @@
+{
+  "failed": "The picture could not be read this time.",
+  "keep": "This is already in your language.",
+  "note": "A reading of the picture, made for you to read. The picture stays the original.",
+  "original": "Original",
+  "pending": "Reading the picture…",
+  "reading": "Reading version",
+  "retry": "Try again",
+  "translate": "Translate"
+}
