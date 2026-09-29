@@ -1,0 +1,36 @@
+{
+  "id": "zh-speech",
+  "version": "1.0.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": {
+    "zh-Hans": "中文口语",
+    "en": "Chinese Speech"
+  },
+  "description": {
+    "zh-Hans": "中文桌的台词说地道中文：英文原文的「简短、干脆」是态度不是句号，关系紧的话用逗号连着说，用语气词带出口气，少用书面词、公文腔和翻译腔；口吻卡的示例问答也按中文习惯写。只改说法，不改事实和立场。",
+    "en": "Chinese tables speak Chinese: a book's clipped or curt speaker is a manner, not a row of full stops; related points run on with commas, particles carry the tone, and written, official or translated phrasing stays out; voice cards' sample exchanges are written the Chinese way. Wording only; facts and positions do not change."
+  },
+  "default_enabled": true,
+  "play_languages": [
+    "zh"
+  ],
+  "requires": [
+    "mods.package-files.v1",
+    "npc.voice.language-addendum.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "brief.md",
+    "voice-lane.zh.md"
+  ],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {
+    "instructions": "agent.md",
+    "brief": "brief.md",
+    "voice_lane_addendum": "voice-lane.zh.md"
+  }
+}
