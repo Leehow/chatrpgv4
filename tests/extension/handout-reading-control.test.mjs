@@ -5,7 +5,9 @@
  * control under an image handout's picture. The host side (`handout.reading`) is stubbed here: this
  * file pins what the renderers do with its answers -- which rows get a control, what they send,
  * the pending / ready / refused / already-in-your-language states, the original/reading toggle,
- * and that polling waits, stops when the row closes and dies with the control. That the host UI
+ * the streamed reading a `pending` answer carries (drawn as it grows, never shrinking, replaced in
+ * place by the finished one), and that polling waits, stops when the row closes and dies with the
+ * control. That the host UI
  * really hands the card its call is pinned in `Electron/packages/ui/src/coc-handout-reading.test.tsx`,
  * which renders the transcript and the App.
  *
@@ -34,7 +36,8 @@ const UI = { tag: "en", words: {
 const say = (name, key) => UI.words[name][key];
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
-const POLL = 2000;
+/** The owner's streaming ruling (2026-09-29): a pending answer is asked again after 400 ms. */
+const POLL = 400;
 
 // ---------------------------------------------------------------------------------------------
 // A small reconciler: enough React for hooks-by-instance, effects, context and unmount.
@@ -174,6 +177,9 @@ const buttonsIn = (tree) => nodes(tree, (node) => node.type === "button");
 const buttonNamed = (tree, name) => buttonsIn(tree).find((node) => textOf(node) === name);
 const pictures = (tree) => nodes(tree, (node) => node.type === "img" && node.props.className === "coc-map-image");
 const readingBody = (tree) => nodes(tree, (node) => node.props?.["data-reading"] === "reading");
+const streamingBody = (tree) => nodes(tree, (node) => node.props?.["data-reading"] === "streaming");
+/** Every reading slot, streamed or finished: the one place a reading may appear. */
+const anyReading = (tree) => nodes(tree, (node) => node.props?.["data-reading"] !== undefined);
 const withRole = (tree, role) => nodes(tree, (node) => node.props?.role === role);
 
 /** The delivery card's trailing folds start shut; open them the way the player does. */
@@ -197,6 +203,8 @@ function host(script) {
 }
 const refusal = (code, message = "refused") => () => Promise.reject(Object.assign(new Error(message), { code }));
 const PENDING = { status: "pending", handout: "clipping" };
+/** A pending answer carrying what the host's streamed completion has written so far. */
+const streaming = (title, text) => ({ status: "pending", handout: "clipping", partial: { title, text } });
 const READY = { status: "ready", handout: "clipping", keep: false, title: "Grave robbers strike Martin's Beach again", text: "Line one.\n\nLine two.", digest: "abc" };
 
 // ---------------------------------------------------------------------------------------------
@@ -382,20 +390,137 @@ for (const surface_ of SURFACES) {
 		assert.equal(readingBody(view.tree).length, 0);
 		assert.equal(pictures(view.tree).length, 1);
 	});
+
+	test(`${surface_.name}: a streaming reading grows under the pending line, 400 ms per poll, with no toggle`, async (t) => {
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const reading = host([PENDING, streaming("Grave", ""), streaming("Grave robbers", "The body"), streaming("Grave robbers", "The body was gone"), READY]);
+		const view = surface_.open(reading);
+		await view.settle();
+		buttonNamed(view.tree, say("handout", "translate")).props.onClick();
+		await view.settle();
+		assert.equal(anyReading(view.tree).length, 0, "nothing has been written yet: only the pending line");
+		assert.equal(textOf(withRole(controls(view.tree)[0], "status")[0]), say("handout", "pending"));
+
+		const step = async (expectTitle, expectText, calls) => {
+			t.mock.timers.tick(POLL - 1);
+			await view.settle();
+			assert.equal(surface_.calls(view, reading).length, calls - 1, "not asked again before 400 ms");
+			t.mock.timers.tick(1);
+			await view.settle();
+			assert.equal(surface_.calls(view, reading).length, calls, "asked again at 400 ms");
+			const body = streamingBody(view.tree);
+			assert.equal(body.length, 1, "the streamed words sit in the reading slot, marked streaming");
+			assert.equal(readingBody(view.tree).length, 0, "and are not yet the finished reading");
+			const title = nodes(body[0], (node) => node.type === "h4");
+			assert.equal(title.length ? textOf(title[0]) : "", expectTitle);
+			assert.equal(textOf(nodes(body[0], (node) => node.props?.className === "coc-handout-text")[0]), expectText);
+			assert.equal(textOf(nodes(body[0], (node) => node.props?.className === "coc-handout-note")[0]), say("handout", "note"),
+				"labelled a reading while it streams, too");
+			const control = controls(view.tree)[0];
+			assert.equal(textOf(withRole(control, "status")[0]), say("handout", "pending"), "the pending line stays while it streams");
+			assert.equal(buttonsIn(control).length, 0, "no original/reading toggle before ready");
+			assert.equal(pictures(view.tree).length, 1, "the picture stays");
+		};
+		await step("Grave", "", 2);
+		await step("Grave robbers", "The body", 3);
+		await step("Grave robbers", "The body was gone", 4);
+
+		t.mock.timers.tick(POLL);
+		await view.settle();
+		assert.equal(streamingBody(view.tree).length, 0, "the ready answer takes the slot");
+		const done = readingBody(view.tree);
+		assert.equal(done.length, 1);
+		assert.equal(textOf(nodes(done[0], (node) => node.props?.className === "coc-handout-text")[0]), READY.text, "the final text, not the streamed one");
+		assert.equal(textOf(nodes(done[0], (node) => node.type === "h4")[0]), READY.title);
+		assert.ok(buttonNamed(view.tree, say("handout", "original")), "and now the toggle");
+		// The same element in the same place, so React keeps the slot and only its text changes.
+		const slot = (tree) => controls(tree)[0].children.findIndex((child) => child?.props?.["data-reading"] !== undefined);
+		assert.equal(slot(view.tree), 1, "the finished reading sits where the streamed words sat");
+	});
+
+	test(`${surface_.name}: an empty partial draws nothing but the pending line`, async (t) => {
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const reading = host([streaming("", ""), { status: "pending", handout: "clipping", partial: {} }, PENDING]);
+		const view = surface_.open(reading);
+		await view.settle();
+		buttonNamed(view.tree, say("handout", "translate")).props.onClick();
+		await view.settle();
+		for (let poll = 0; poll < 3; poll += 1) {
+			assert.equal(anyReading(view.tree).length, 0, "an empty partial is not a reading");
+			assert.equal(textOf(withRole(controls(view.tree)[0], "status")[0]), say("handout", "pending"));
+			t.mock.timers.tick(POLL);
+			await view.settle();
+		}
+	});
+
+	test(`${surface_.name}: a shorter or empty partial never takes words back off the page`, async (t) => {
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const reading = host([streaming("Grave robbers", "The body was gone"), streaming("Grave", "The body"), streaming("", ""), PENDING]);
+		const view = surface_.open(reading);
+		await view.settle();
+		buttonNamed(view.tree, say("handout", "translate")).props.onClick();
+		await view.settle();
+		for (let poll = 0; poll < 4; poll += 1) {
+			const body = streamingBody(view.tree);
+			assert.equal(body.length, 1, `poll ${poll}: the streamed reading is still drawn`);
+			assert.equal(textOf(nodes(body[0], (node) => node.type === "h4")[0]), "Grave robbers", `poll ${poll}: the title never shrinks`);
+			assert.equal(textOf(nodes(body[0], (node) => node.props?.className === "coc-handout-text")[0]), "The body was gone", `poll ${poll}: the text never shrinks`);
+			t.mock.timers.tick(POLL);
+			await view.settle();
+		}
+		assert.equal(surface_.calls(view, reading).length, 5);
+	});
+
+	test(`${surface_.name}: a keep answer shows its caption only, even after streamed words`, async (t) => {
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const reading = host([streaming("Grave robbers", "The body"), { ...READY, keep: true }]);
+		const view = surface_.open(reading);
+		await view.settle();
+		buttonNamed(view.tree, say("handout", "translate")).props.onClick();
+		await view.settle();
+		assert.equal(streamingBody(view.tree).length, 1);
+		t.mock.timers.tick(POLL);
+		await view.settle();
+		const control = controls(view.tree)[0];
+		assert.equal(textOf(withRole(control, "status")[0]), say("handout", "keep"));
+		assert.equal(anyReading(view.tree).length, 0, "no streamed text and no reading under a keep");
+		assert.doesNotMatch(textOf(view.tree), /The body/);
+		assert.equal(buttonsIn(control).length, 0);
+	});
+
+	test(`${surface_.name}: a refusal mid-stream drops the half-written text, and the retry streams afresh`, async (t) => {
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const reading = host([streaming("Grave robbers", "The body was gone"), refusal("presentation_timeout"), streaming("Gr", ""), READY]);
+		const view = surface_.open(reading);
+		await view.settle();
+		buttonNamed(view.tree, say("handout", "translate")).props.onClick();
+		await view.settle();
+		assert.equal(streamingBody(view.tree).length, 1);
+		t.mock.timers.tick(POLL);
+		await view.settle();
+		assert.equal(textOf(withRole(controls(view.tree)[0], "alert")[0]), say("errors", "presentation_timeout"));
+		assert.equal(anyReading(view.tree).length, 0, "a refused job's words are not left reading as if whole");
+		buttonNamed(view.tree, say("handout", "retry")).props.onClick();
+		await view.settle();
+		const body = streamingBody(view.tree);
+		assert.equal(body.length, 1);
+		assert.equal(textOf(nodes(body[0], (node) => node.type === "h4")[0]), "Gr", "the fresh job's words, not the dropped ones");
+	});
 }
 
 // ---------------------------------------------------------------------------------------------
 // Polling dies with the control and pauses with the row.
 // ---------------------------------------------------------------------------------------------
 
-test("card: unmounting while pending stops the polling", async (t) => {
+test("card: unmounting while streaming stops the polling", async (t) => {
 	t.mock.timers.enable({ apis: ["setTimeout"] });
-	const reading = host([PENDING]);
+	const reading = host([streaming("Grave", "The body")]);
 	const view = card([IMAGE_HANDOUT], reading.invoke);
 	await view.settle();
 	buttonNamed(view.tree, say("handout", "translate")).props.onClick();
 	await view.settle();
 	assert.equal(reading.calls.length, 1);
+	assert.equal(streamingBody(view.tree).length, 1);
 	view.unmount();
 	await view.settle();
 	assert.equal(view.live, 0, "every component is gone");
@@ -404,9 +529,9 @@ test("card: unmounting while pending stops the polling", async (t) => {
 	assert.equal(reading.calls.length, 1, "no poll outlives the control");
 });
 
-test("board: unmounting while pending stops the polling", async (t) => {
+test("board: unmounting while streaming stops the polling", async (t) => {
 	t.mock.timers.enable({ apis: ["setTimeout"] });
-	const reading = host([PENDING]);
+	const reading = host([streaming("Grave", "The body")]);
 	const view = board([{ handout: "clipping", name: "Clipping", text: "", document: "ready", image: PNG }], [], reading);
 	await view.settle();
 	buttonNamed(view.tree, say("handout", "translate")).props.onClick();

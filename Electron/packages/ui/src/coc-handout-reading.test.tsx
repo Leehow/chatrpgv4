@@ -114,6 +114,30 @@ describe('the transcript row forwards the host UI\'s call to the renderer', () =
   })
 })
 
+describe('a streamed reading and the finished one share one slot', () => {
+  const message = { id: 'card-2', role: 'assistant', content: '', timestamp: 1, presentation: { renderer: 'coc-mechanics', details: delivery() } } as unknown as ChatMessage
+
+  it('draws the partial as it streams, then fills the same element with the final reading', async () => {
+    const answers: unknown[] = [{ status: 'pending', handout: 'clipping', partial: { title: 'Grave', text: 'Draft words' } }, READY]
+    const onInvokeExtension = vi.fn(async () => (answers.length > 1 ? answers.shift() : answers[0]))
+    const { container } = render(<MessageView message={message} onInvokeExtension={onInvokeExtension} onCopy={vi.fn(async () => undefined)} onResend={() => undefined} resendDisabled={false} />)
+    fireEvent.click(translate())
+    const streamed = await waitFor(() => {
+      const node = container.querySelector('[data-reading="streaming"]')
+      expect(node).toBeTruthy()
+      return node as HTMLElement
+    })
+    expect(streamed.textContent).toContain('Draft words')
+    expect(streamed.getAttribute('aria-busy')).toBe('true')
+    await waitFor(() => expect(container.querySelector('[data-reading="reading"]')).toBeTruthy(), { timeout: 3000 })
+    // Not a new node: React kept the slot and changed its words, so the text does not flicker.
+    expect(container.querySelector('[data-reading="reading"]')).toBe(streamed)
+    expect(streamed.textContent).toContain(READY.text)
+    expect(streamed.textContent).not.toContain('Draft words')
+    expect(streamed.getAttribute('aria-busy')).toBeNull()
+  })
+})
+
 describe('the App binds the call to the session it shows', () => {
   function history(): HistoryEntry[] {
     return [
