@@ -40,11 +40,20 @@ function stubPi() {
 	};
 }
 
-test("createHybridEngine: the flag off returns the plain ordinary number, not a function -- unchanged from before SL-82", () => {
+test("createHybridEngine: with no active thinking the flag-off cap retains the ordinary allowance", async () => {
 	const env = { PI_COC_TURN_BUDGET_MS: "45000" };
 	const engine = createHybridEngine({ env });
-	assert.equal(typeof engine.keeperCallCapMs, "number");
-	assert.equal(engine.keeperCallCapMs, computeKeeperCallCapMs(env));
+	assert.equal(await engine.keeperCallCapMs(), computeKeeperCallCapMs(env));
+});
+
+test('an actual low-thinking call receives its existing allowance without the experimental flag',async()=>{
+ const env={PI_COC_TURN_BUDGET_MS:'45000'},engine=createHybridEngine({env}),pi=stubPi();let level='low';
+ pi.getThinkingLevel=()=>level;engine.extension(pi);
+ const allowance=(await firstStepThinkingBudget()).callCapMs;
+ assert.equal(await engine.keeperCallCapMs(),Math.max(computeKeeperCallCapMs(env),allowance));
+ await pi.fire('turn_start');await pi.fire('turn_start');
+ assert.equal(await engine.keeperCallCapMs(),Math.max(computeKeeperCallCapMs(env),allowance),'later calls still using thinking are not treated as off');
+ level='off';assert.equal(await engine.keeperCallCapMs(),computeKeeperCallCapMs(env));
 });
 
 test("createHybridEngine: the flag on returns a function sized allowance-on-step-1, ordinary-on-step-2, resetting on new player input", async () => {
