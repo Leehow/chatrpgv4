@@ -1198,7 +1198,8 @@ function handle(method, params) {
 						extraction: { job_id: `extract:${params.campaign}:t${closed}` },
 					};
 			// Contract §16.2: `rendered_text` is the text verbatim, and the mechanics are a language-neutral JSON projection.
-			const mechanics = [...turnMechanics];
+			// FAKE_KERNEL_NARRATE_MECHANICS: rows the real kernel would project for receipts this fake does not mint (§39.4's map updates).
+			const mechanics = [...turnMechanics, ...(process.env.FAKE_KERNEL_NARRATE_MECHANICS ? JSON.parse(process.env.FAKE_KERNEL_NARRATE_MECHANICS) : [])];
 			turnMechanics = [];
 			return {
 				ok: true,

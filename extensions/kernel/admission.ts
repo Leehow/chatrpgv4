@@ -189,6 +189,14 @@ export interface AdmissionProposal {
 	 * review; the others (a `person`, a `threat`, a scene rename, ...) are not shown to either reviewer and land with the batch.
 	 */
 	effects?: number[];
+	/** An `apply` proposal's `effectSignature` per line, in the lines' order (§32.12.3.1.1 keys a line by its batch-mates' ones). */
+	signatures?: string[];
+	/**
+	 * §32.12.3.1.1 (SL-104): the call's other reviewed lines, which this proposal does not itself propose -- a line's
+	 * batch-mates. Read-only context for the lane, rendered under their own heading; their signatures are part of the key
+	 * (`besideBatch`). Absent on a proposal that is its whole call.
+	 */
+	beside?: { lines: string[]; signatures: string[] };
 }
 
 /**
@@ -358,10 +366,13 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 					...(registered.access ? {access: registered.access} : {})})}` : ''}`;
 		};
 		const signatures = effects.map(effectSignature);
+		// Each line's own signature, taken before the sort below reorders `signatures` in place.
+		const lineSignatures = shown.map((index) => signatures[index]!);
 		const ordered = effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
 		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [] });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
-		return { tool: "apply", key, lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown };
+		return { tool: "apply", key, lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
+			signatures: lineSignatures };
 	}
 	return null;
 }
@@ -420,6 +431,12 @@ export function admissionSystemPrompt(): string {
 	].join("\n");
 }
 
+/**
+ * §32.12.3.1.1 (SL-104): the heading a line's batch-mates are read under, just before `[The Keeper now proposes]`. The line
+ * is still judged alone; the batch-mates are what the same call does beside it, each judged in its own review.
+ */
+export const BESIDE_HEADING = "[Also proposed in the same call, beside the line you judge -- read only; each is judged in its own review, not in yours]";
+
 export function buildAdmissionInput(proposal: AdmissionProposal, context: AdmissionContext): string {
 	const who = context.investigators.length
 		? context.investigators.map((i) => (i.occupation ? `${i.name} (${i.occupation})` : i.name)).join(", ")
@@ -453,6 +470,7 @@ export function buildAdmissionInput(proposal: AdmissionProposal, context: Admiss
 		"[Already refused this turn]",
 		context.refused.length ? context.refused.map((line) => `- ${line}`).join("\n") : "(nothing)",
 		"",
+		...(proposal.beside?.lines.length ? [BESIDE_HEADING, proposal.beside.lines.map((line) => `- ${line}`).join("\n"), ""] : []),
 		"[The Keeper now proposes]",
 		proposal.lines.map((line) => `- ${line}`).join("\n"),
 	].join("\n");
@@ -714,12 +732,33 @@ export function reviewedPerLine(proposal: AdmissionProposal): boolean {
 }
 /**
  * §32.12.3.1: line `index` of a batch as the lane reads it -- the batch's proposal with exactly that one line (and its
- * kind and effect index). The key is the batch's: the lane never reads it, and the caller keys each line's verdict by the
- * key a call of only that line would have (§32.4).
+ * kind, effect index and signature). The key is the batch's: the lane never reads it, and the caller keys each line's
+ * verdict by the key a call of only that line would have (§32.4), extended by its batch-mates (`besideBatch`).
+ *
+ * §32.12.3.1.1 (SL-104): the line's `beside` is every other reviewed line of the call -- the batch's other lines and those
+ * the batch itself was proposed beside -- so its call reads what the same call does beside it.
  */
 export function lineProposal(proposal: AdmissionProposal, index: number): AdmissionProposal {
-	return { ...proposal, lines: [proposal.lines[index]!], ...(proposal.kinds ? { kinds: [proposal.kinds[index] ?? "?"] } : {}),
-		...(proposal.effects ? { effects: [proposal.effects[index]!] } : {}) };
+	const others = <T>(values: T[]) => values.filter((_, at) => at !== index);
+	// A hand-built proposal with no signatures is keyed by its lines' text, which only ever makes reuse rarer.
+	const signatures = proposal.signatures ?? proposal.lines;
+	const lines = [...others(proposal.lines), ...(proposal.beside?.lines ?? [])];
+	const besideSignatures = [...others(signatures), ...(proposal.beside?.signatures ?? [])];
+	const { beside: _batchBeside, ...rest } = proposal;
+	return { ...rest, lines: [proposal.lines[index]!], ...(proposal.kinds ? { kinds: [proposal.kinds[index] ?? "?"] } : {}),
+		...(proposal.effects ? { effects: [proposal.effects[index]!] } : {}), signatures: [signatures[index]!],
+		...(lines.length ? { beside: { lines, signatures: besideSignatures } } : {}) };
+}
+/**
+ * §32.12.3.1.1 (SL-104), pure: `proposal` as proposed beside `beside` -- the other reviewed lines of its call. It carries
+ * them for the lane to read, and its key is extended by their signatures, order-free, so a verdict given beside them is
+ * reused only beside the same lines (§32.4's `why` and the other rationale fields stay outside, as `effectSignature` has
+ * them). With no batch-mates the proposal is returned as it is: a one-line call keeps the key it always had.
+ */
+export function besideBatch(proposal: AdmissionProposal, beside: AdmissionProposal["beside"]): AdmissionProposal {
+	if (!beside?.lines.length) return proposal;
+	return { ...proposal, beside: { lines: [...beside.lines], signatures: [...beside.signatures] },
+		key: canonical({ line: proposal.key, beside: [...beside.signatures].sort() }) };
 }
 /**
  * §32.12.3.1: the batch's typed answer as line `index` reads it on its own -- that line's verdict and confidence, which

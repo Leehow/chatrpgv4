@@ -15,7 +15,7 @@ const PNG = "data:image/png;base64,aaa";
 const PNG_B = "data:image/png;base64,bbb";
 const PNG_C = "data:image/png;base64,ccc";
 
-function createReact() {
+function createReact(extra = {}) {
 	const states = [];
 	let cursor = 0;
 	let tree;
@@ -43,7 +43,7 @@ function createReact() {
 	const Card = createComponent(React);
 	function refresh() {
 		cursor = 0;
-		tree = Card({ details });
+		tree = Card({ details, ...extra });
 	}
 	/** The turn's trailing mechanics folds start shut; the player opens them by their own toggles to reach the map. */
 	function openSlip() {
@@ -289,6 +289,43 @@ test("a handout the module registered with no document is not stamped as undeliv
 	assert.match(drawn, /\u8ba3\u544a\u4e0e\u4e0b\u846c\u8bc9\u8bbc/, "the player still reads what they were handed");
 	assert.equal(stamps(tree).length, 0, "no stamp: the card has nothing true to say about opening it");
 	assert.equal(drawn.includes("available"), false);
+});
+
+test("§39.4: a map the table already holds is a row naming what was added, with no picture, that opens the board", () => {
+	const opened = [];
+	const mounted = createReact({ onOpenPanel: panel => opened.push(panel) });
+	const words = { ...WORDS, mapNew: "New on the map:", mapHeld: "On the map:", mapOpenBoard: "Open on the case board" };
+	const tree = mounted.render(delivery([{
+		kind: "map", receipt: "map:house-t2", map: "house", name: "House", label: "The house", words: "play_language",
+		presentation: "update", document: "none",
+		regions: [{ id: "cellar", label: "Cellar", level: null }], revealed: [{ id: "cellar", label: "Cellar", level: null }],
+	}], words).details);
+	assert.equal(mapCards(tree).length, 0, "an update is not a picture card");
+	assert.equal(collect(tree, node => node.type === "img").length, 0, "nothing is pictured again");
+	const rows = collect(tree, node => node.props?.["data-presentation"] === "update");
+	assert.equal(rows.length, 1);
+	assert.match(texts(rows[0]), /The house/);
+	assert.match(texts(rows[0]), /New on the map: Cellar/);
+	const [button] = collect(rows[0], node => node.type === "button");
+	assert.match(texts(button), /Open on the case board/);
+	button.props.onClick();
+	assert.deepEqual(opened, ["coc.board"]);
+	// A look names what is on the map rather than what was added.
+	const look = createReact({ onOpenPanel: () => {} }).render(delivery([{
+		kind: "map", map: "house", name: "House", presentation: "update", document: "none", view_id: "update",
+		regions: [{ id: "hall", label: "Hall", level: null }, { id: "cellar", label: "Cellar", level: null }],
+	}], words).details);
+	assert.match(texts(collect(look, node => node.props?.["data-presentation"] === "update")[0]), /On the map: Hall · Cellar/);
+});
+
+test("§39.4: a host that cannot open panels gets the row without a control", () => {
+	const tree = createReact().render(delivery([{
+		kind: "map", receipt: "map:house-t2", map: "house", name: "House", presentation: "update", document: "none",
+		regions: [], revealed: [{ id: "cellar", label: "Cellar", level: null }],
+	}]).details);
+	const rows = collect(tree, node => node.props?.["data-presentation"] === "update");
+	assert.equal(rows.length, 1);
+	assert.equal(collect(rows[0], node => node.type === "button").length, 0);
 });
 
 function playerSafe(value) {

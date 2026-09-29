@@ -8282,7 +8282,7 @@ chose, and the player chooses from what the player was told.
 
 ### 32.4 Reuse and cancellation
 
-A verdict is kept for the turn *(amended by §32.12.3.1, 2026-09-26: and each line's own verdict under the key a call of only that line would have)* under a host-owned canonical key of the proposal (`resolve`: actor,
+A verdict is kept for the turn *(amended by §32.12.3.1, 2026-09-26: and each line's own verdict under the key a call of only that line would have; and by §32.12.3.1.1, 2026-09-29: that line key also carries the order-free signatures of the line's reviewed batch-mates, so a line's verdict is reused only beside the same batch)* under a host-owned canonical key of the proposal (`resolve`: actor,
 intent, goal, method, skill, target, weapon, spell, object, push, luck, defense; `apply`: each effect's
 kind and its identifying fields, order-free; `why`, `how`, `label` and `decision` are outside the key,
 so a `needs_choice` retry or a rationale bolted on reuses its verdict). Admitting and refusing verdicts
@@ -9180,7 +9180,8 @@ their own keys (a verdict kept or a round still running) is admitted line by lin
 the batch again at once and nothing else of it is reviewed; otherwise the known lines are reused or re-joined and the
 unknown ones reviewed as a proposal of their own (one call per line when two or more), and the batch's verdict is the
 combination of all of them. So the Keeper's retry without a refused line lands on the kept verdicts of the lines that were
-admitted, with no new review. The next player input still clears every verdict. §32.12.4's prefetch does not start a
+admitted, with no new review *(no longer, since §32.12.3.1.1, 2026-09-29: a line's key carries its batch-mates, so a retry
+whose batch-mates changed is reviewed again, and each line's call reads its batch-mates)*. The next player input still clears every verdict. §32.12.4's prefetch does not start a
 review of a batch one of whose lines is already known under its own key: the real call reuses or re-joins it.
 
 **The outage streak** (§32.2) counts the lines of one call as one review: a batch whose lines all failed is one failure, and
@@ -9222,6 +9223,93 @@ line), and cleared by a new player input; one outage per call; a one-line batch 
 call per line; a §32.12.4 prefetch collected line by line, and none started for a batch one of whose lines is known; the pure rules (`reviewedPerLine`, `lineProposal`,
 `lineReading`, `batchRefusal`'s order). The suites whose premise was one lane call per batch now count one call per line.
 Mutations and the offline estimate for gate #23 are in the SL-101 ticket's Comments.
+
+##### 32.12.3.1.1 Addendum (2026-09-29, SL-104): a line is reviewed beside its batch, and its verdict is kept only beside the same batch (amends §32.3, §32.4 and §32.12.3.1)
+
+**Why.** Installed App, campaign `game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046`, turn 25 (lane `opencode-go/deepseek-v4.1-flash`,
+thinking off). The Keeper's batch `time minutes=55` + `move to=martins-beach-field` was reviewed one line per call
+(§32.12.3.1). The move line was `authorized`; the time line, read alone, was refused `not_authorized` for "only reaching the
+fishing village, not the cemetery" -- judged on its batch-mate's destination, which the lane pieced together from the time's
+own `why` and the player's words without seeing the move. The Keeper changed the destination (`move to=poe-cemetery-visit`)
+and rewrote the time's `why`; the time line's key (`{kind: time, minutes: 55}`) was the same, so the refusal came back
+`reused: true`, `ms: 0`, with grounds about a destination the batch no longer proposed and a `fix` saying not to resend: no
+lawful way was left in the turn. §32.4's reuse is sound only when a verdict depends on nothing outside its key, and
+§32.12.3.1 made that false for lines. The defect is the class, not the pair: any reviewed line whose meaning is read
+against another line of its call -- cash beside the item it pays for, a clue beside the move that makes it reachable, an
+object beside its usage, a time beside a trip -- judged without that line, then reused under a key that carries neither.
+§156 (the same day) makes turn 25's own shape rarer, since a travelling move counts its journey and a `time` beside it must
+declare `beyond_travel`, but it does not close the class: admission runs before the kernel's guard, and a move of 0 minutes
+is outside it. Owner ruling, 2026-09-29: the SL-104 ticket's recommendation, A and B together -- if a line's verdict may
+depend on its batch-mates (A), its key must carry them (B).
+
+**A: a line's call reads its batch.** Each per-line call still judges exactly one line: `[The Keeper now proposes]` holds
+that line alone and the verdict is that line's. Its input also lists the call's other reviewed lines, rendered exactly as
+the batch renders them (a move's `registered_destination` included), under their own heading, placed after `[Already
+refused this turn]` and before `[The Keeper now proposes]`:
+
+```
+[Also proposed in the same call, beside the line you judge -- read only; each is judged in its own review, not in yours]
+- apply move: to="martins-beach-field"; ...; registered_destination={...}
+```
+
+`lineProposal` (`extensions/kernel/admission.ts`) sets the line's `beside` (those lines and their `effectSignature`s);
+`buildAdmissionInput` renders it. The system prompt, the model, thinking and the rest of §32.3's input are unchanged; a
+proposal with no `beside` -- a one-line batch, a `resolve` -- has an input byte for byte what it was. A line refused beside
+its batch is remembered for the turn's later reviews (`[Already refused this turn]`) with the lines it was refused beside,
+`<line> [beside: <line> | <line>] -> <verdict>: <missing>`, so a later review reads that refusal against the batch it
+belonged to, and a line proposed again beside different batch-mates is not taken for the same action in other words.
+
+**B: a line's verdict is kept only beside the same batch.** The key a line's verdict is kept under, and its running round
+parked under (§32.4 keyed by line, §32.12.2), is the key a call of only that line would have extended by the order-free
+signatures (`effectSignature`, §32.4's identifying fields) of the call's other reviewed lines (`besideBatch`, used by
+`admissionLines` in `extensions/kernel/index.ts`). So:
+- a resend that is identical, or differs only in fields `effectSignature` does not read (`why`, `how`, ...), finds every line
+  under the same key: a kept refusal refuses at once, kept admissions are reused and kept rounds re-joined, exactly as
+  §32.12.3.1 says;
+- a resend whose batch-mates changed -- a reviewed line added, dropped, or changed in a field `effectSignature` reads -- finds
+  none of its lines, and each is reviewed again beside its new batch-mates. That includes the Keeper's retry without a
+  refused line: §32.12.3.1's "the Keeper's retry without a refused line lands on the kept verdicts of the lines that were
+  admitted, with no new review" no longer holds, because those verdicts were given beside the line that is gone (the time
+  of a trip admitted beside the trip is not a verdict on the time alone);
+- a one-line batch's key is what it was, and is never the key of a line of a larger batch.
+
+The batch's own key (§32.4: every effect's signature and the move targets) and the combined verdict it keeps when every
+line was admitted are unchanged. An effect no reviewer reads (§32.12.3's owner amendment) is nobody's batch-mate: it is in
+neither the context nor a line's key.
+
+**Lines known and lines not.** When a later call's lines are known under their own keys only in part -- a line whose review
+failed keeps no verdict (§32.2), its batch-mates' verdicts are kept -- the unknown lines are reviewed as a proposal of their
+own that carries the known lines as its `beside`: each unknown line's call reads every other reviewed line of the call,
+and its verdict is kept under the same key a review of the whole batch would have used.
+
+**What is unchanged.** What §32.1 puts to review. The typed reviewer (§32.10, §32.12.3.2): its one attempt already reads
+every line of the proposal it is given and its request is unchanged; a line it settles is kept under that line's key like
+any line. The compile's and the consequence route's exemptions (§32.12, §32.12.5): policy-origin single effects, never
+reviewed per line. §32.12.2's cap, late admission, pending and resend; the batch's verdict (§32.10's mapping; a
+lane-reviewed batch lands whole or not at all); the telemetry's columns (a line row's `key` is the digest of its key as
+defined here). The remainder of §32.12.3's retired split is not reached (§32.12.3.2) and is left as it was.
+
+**Cost (measured offline, no model call).** The ticket asked for SL-101's per-line time before landing. A line's call
+grows by its batch-mates' lines and one heading; its output (one verdict) does not. The admission-jev-bank's multi-line
+`apply` cases, re-projected through the product's own `admissionRequest` and `buildAdmissionInput`, and the lane times
+already measured on those inputs are in the SL-104 ticket's Comments.
+
+**Three ends (§31).** *Writer:* `lineProposal` (`beside`) and `besideBatch` (the key); `admitOne`'s refusal record.
+*Reader:* the lane, through `buildAdmissionInput`; `admitAction`'s per-line reuse (`state.admission`,
+`state.admissionPending`, keyed through `admissionLines`) and §32.12.4's prefetch check, which reads the same keys.
+*Actor:* the lane, judging a line with its batch in view; the Keeper, whose resend with changed batch-mates is judged again
+instead of refused on a verdict about a batch it no longer proposes.
+
+*Tests* (`tests/extension/admission-line-batch-context.test.mjs`; `admission-lines-parallel.test.mjs`'s reuse and
+prefetch tests restated for batch-scoped keys): the pure rules (`lineProposal`'s `beside`, `besideBatch` order-free and a
+no-op with no batch-mates, the input's heading before `[The Keeper now proposes]` and absent for a one-line proposal);
+turn 25's batch reconstructed, the time line's call reading the move beside it and the move's reading the time; the
+destination changed on the resend and the time line reviewed again (`reused: false`), its input carrying the new move and
+the earlier refusal with the move it was refused beside; cash beside an item, the item changed and the cash line reviewed
+again; a clue beside a move, the move's target changed and the clue reviewed again; an identical or `why`-only resend
+reusing every line (a kept refusal at once, a kept admission with no call); a retry without the refused line reviewing the
+admitted one again; a line whose review failed reviewed on the identical resend beside its known batch-mate and kept under
+the batch-scoped key; one-line batches and `resolve` unchanged. Mutations are in the SL-104 ticket's Comments.
 
 #### 32.12.3.2 Addendum (2026-09-27, SL-97 phase 2b): the typed reviewer reads the measured role-first design and settles a line alone only of a class the measurement cleared (amends §32.7, §32.10, §32.11, §32.12.2, §32.12.3 and §32.12.3.1)
 
@@ -11017,6 +11105,52 @@ Each row is `{map, name, label, words, regions:[{id,label,level}], levels, rende
 **The board draws `table.view` with the sheet's glossary (2026-09-22).** The board took the sheet's clue and people sections over and looks their graph words up through `term()` against `view.labels`, but the §23 lane merge (`labels = {...lane.texts, ...labels}` for every `SHEET_LANES` file, the kernel glossary winning, and one background run per lane and missing set) stayed in the sheet read. The board therefore looked a journal exchange's `scene` -- the kernel's stamp of the book's display name (§17.10) -- up in the rules glossary alone, and a zh-Hans table read `Knott's Office他用指节…` in the people section while the sheet beside it named the same place in Chinese (real table `game-21ac44b7`). The host now runs the one merge (`cocMergeSheetLanes`) on every board answer, on both legs: the cold kernel read, and the live pack's answer, which carries `table.view` verbatim and is merged after it is forwarded. The pack never reads a presentation file. The renderer draws an exchange's scene as a caption on its own line above the lane's sentence, with no separator character between them, since which punctuation divides two phrases belongs to the play language.
 
 **The three ends (§31).** *Writer:* `apply map` and the arrival hop of §39.2, unchanged -- this read adds no writer of its own. *Reader:* the host's board hop, which composes pixels and keeps `render.layers` to itself. *Actor:* the player, who opens the board and reads what the table already established; refreshing the panel is a host read and starts no turn, exactly as §23 requires of the sheet.
+
+### 39.4 One living map per printed map: later knowledge updates it, the conversation is not reprinted (2026-09-29, `docs/specs/session-maps-tickets/92-one-living-map-per-place.md`; amends §39, §39.2, §39.3 and §107.1)
+
+**Why.** Installed App at ce1fa4138, campaign `game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046` (Dust to Dust), turn 28: one `apply move` onto Martin's Beach printed two map cards and the board listed two maps for what is one printed village map (the publication half is §152.4). Every card embeds its whole PNG in the session entry (§39.2), so that one arrival added about 1.5 MB, and every later reveal on the same map would print the whole picture again. The map a player-safe source already gives in full reached the player as rectangles on black: the renderer paints only region boxes, so roads and sea between them read as hidden places. Owner rulings 2026-09-29: a player-safe map renders whole with only what is not yet known masked; a revealable map keeps the known-regions-only picture; later reveals on a map the table already holds are imageless rows pointing at the living map, and the first card stays as it was delivered.
+
+**The living set.** For a map `M` the table holds `living(M) = known(M) ∪ shown(M)`: the regions `world.map_knowledge[M]` names, and, when `M` is in `world.maps_presented`, the §39.2 arrival selection. One kernel function (`livingMapRegions`, `kernel-ts/read/maps.ts`) computes it, and every reader takes it from there: the §39.3 board row (unchanged in effect), `look focus=map` views and `mapCatalog`'s `known` flag (until now known-only, so a map the player was holding read as unknown to the Keeper), and every card. A table has **pictured** `M` when `living(M)` was non-empty before the effect being applied.
+
+**Card or update.**
+- An arrival (§39.2, §107.1) or `apply map` on a map the table has not pictured delivers a card exactly as before, drawn from `living(M)` after the effect.
+- On a pictured map, the same arrival or `apply map` still mints its `map` receipt (the ledger does not lose the act), but with `presentation: "update"` and `revealed: [{id,label,level}]`, the regions this effect added to `living(M)`. An `apply map` that adds nothing still mints its receipt with `revealed: []`; an arrival that adds nothing mints nothing, as today. The kernel returns no `map_views` entry for an update, so nothing is rendered, embedded or stored, and the mechanics row leaves the kernel with `document: "none"` (§59: there is nothing to open here; the picture is the living map).
+- A card's receipt says `presentation: "card"`. A receipt without the field is an old card.
+- `look focus=map` with a `name` on a pictured map returns its view with `presentation: "update"`. The host delivers an imageless row naming `living(M)` and never renders it. A look on a map the table has not pictured still returns an empty view.
+- Historical cards never change (session-maps Decision 12 is kept). The marker is `{{map:<handle>}}` as before; an update row is placed and bound like any mechanics row.
+
+**Whole rendering of player-safe sources.** `composeMapView` adds two host-only lists beside `render.layers`:
+- `render.base: [{source_asset, path, media_type, source_digest?, placement, levels}]`. Take each distinct source asset used by `M`'s regions whose node is `player-safe`, and whose regions all satisfy one axis-aligned scale-and-offset from `source_box` to `placement` (tolerance 0.002 of the frame). Its base layer is the whole source image placed where that transform sends `[0,0,1,1]`, and `levels` names the levels of its regions.
+- `render.masks: [{placement, levels}]`. These are the placements of regions on those same player-safe sources that are not in the selected set.
+- Regions on `revealable` or private sources are never masked and never contribute a base: a dark box on a public picture would announce a secret. A player-safe source whose regions disagree on the transform gets no base, and its regions render as before.
+
+`renderMapView` (`extensions/kernel/map-view.ts`) takes the frame from the union of base and layer placements. It paints the frame dark, draws each base, paints each mask dark, draws each layer, then paints redactions. A base is confined, size-capped and digest-checked like a layer, and a failure answers `document: "none"` like a layer failure. A level split carries the bases and masks listing that level. `MAP_RENDERER_VERSION` becomes 2, and `view_id` hashes the bases and masks as well.
+
+**Which maps a place has.** `mapsForScene(scene)` returns the map nodes that `depict` any of these places, nearest first:
+- the scene itself;
+- a place it `occurs-at`;
+- any place those lie in by `located-in`, walking outward at most 8 steps and never revisiting a node.
+
+It replaces `mapsDepictingScene` for §39.2 arrival and §107.1 late arrival, and `sceneAssetNodes` lists the same maps. Until now the capsule walked `occurs-at` for assets and arrival did not walk at all, and neither walked outward, so arriving at a place inside a mapped village first presented nothing.
+
+**Worldline.** Confluence unions `world.maps_presented` the way it already unions `map_knowledge` and `map_labels`. It did not carry it before, so a merged line could lose the fact that its maps had been shown.
+
+**The renderer.**
+- An update row draws the map icon, the map's label, and a caption: "newly on the map" followed by the revealed labels for a receipt, or "on the map" followed by the living labels for a look.
+- It also carries a control that opens the case board. Tool renderers gain `onOpenPanel(panelId)`, the way they already carry `onOpenSubagents`, and the control selects `coc.board`.
+- Caption keys live in `content/ui/en/mechanics.json` and are projected like every other product word (§23).
+
+**Three ends (§31).**
+- *Writer:* the kernel. It computes `living(M)`, stamps `presentation` and `revealed` on receipts and on look views, and adds `base`/`masks` to render geometry.
+- *Reader:* the host. It renders only card views, delivers update rows without pixels, and draws bases and masks. The renderer reads `presentation` to choose the row, and the board keeps reading §39.3 rows.
+- *Actor:* the player, who opens the living map from an update row. The Keeper's verbs do not change.
+
+**The board's pixels travel by path (2026-09-29, found on the installed App).** The pack answers a panel's `invoke` through the host bridge's `ext_invoke_result`, whose request body is capped at 4 MiB (`Electron/packages/pi-backend/src/bridge.ts`, `MAX_BODY_BYTES`). The board answer carried every map's picture inline as a data URL. Two whole village maps come to about 4.5 MB of base64, so the result was refused with 413, the host waited out its 15 s invoke ceiling, and the panel said "the pack did not answer". Any table holding three or four collage maps would have reached the same cap.
+- **Pack:** the answer now carries, for each rendered card, `image_path` (and `image_path` on each level image), the PNG the renderer already stored under `<campaign>/map-views/`, and no bytes.
+- **Host:** the player host materializes the pixels at its boundary (`withMapImages`, the pattern §152.3 uses for handouts). It accepts only a regular file inside the current campaign's `map-views/` after realpath, with a PNG signature, at most 8 MiB. It replaces `image_path` with the data URL, and a row it cannot materialize answers `document: "none"`. No path reaches the panel.
+- Transcript cards are unchanged: they reach the conversation as session entries, not through the bridge.
+
+**Not here.** Publication identity (two nodes for one print) is §152.4. Uncovering a region because the investigator reached the graph place it depicts needs a region-to-place reference written at publication, and is left to a later addendum.
 
 ## 40. NPC speech: the say token, speaker colour, and the `npc-voice` lane (2026-09-15)
 
@@ -28938,6 +29072,24 @@ The Dust visual probe published a real source image but its reveal boxes misplac
 ### 152.3 Delivered image handouts reach the player renderer
 
 Installed-App inspection found a separate consumer gap: image receipts carried a valid path and ready status, while the mechanics renderer and held-handout board supported text only. The player host now materializes bounded raster data URLs from delivered image rows in the current campaign/module scope, for live delivery and restored history. It rejects other schemes, outside/symlink-escaped paths, oversized files and unsupported image signatures. Bytes are presentation data only and do not enter Keeper prompts. table.view includes image descriptors only for world.handouts_shown, using actual delivery receipts; the host supplies their bytes, and the board uses the existing zoom/pan image viewer. No new reveal is created by viewing an already delivered image; private assets and unrevealed maps retain their existing gates.
+
+### 152.4 One printed visual is one node (2026-09-29, `docs/specs/session-maps-tickets/92-one-living-map-per-place.md`; amends §152 and §152.1)
+
+**Why.** Dust to Dust generation 36 holds two map nodes for the one village map on physical page 8. `asset-map-martins-beach-village` (box `[0.05,0.05,0.95,0.52]`, 14 regions) came from `read-7`, a `detail` job. `asset-martins-beach-village-map` (box `[0.08,0.03,0.92,0.48]`, 7 regions) came from `read-10`, a `source_unit` job. The two were claimed in the same second after an orphan recovery, and each reader's known-node packet lacked the other's map. Newspaper cards #1–#5 of the same graph have two or three nodes each; there, the reader's packet listed the earlier nodes, and the prompt told it to reuse them, and it still drafted new ones. Publication merges by `node_id` only, and nothing compares assets by page, box or digest, so the table was shown one map twice (§39.4).
+
+**The rule.** A drafted `asset` or `handout` node that carries `image_sources` is checked at publication against the graph generation it is published onto, not the claim-time snapshot. It collides with an existing node when they share a source (`pdf:<module>`) and a physical page and their boxes overlap by at least half of the smaller box's area. Only geometry triggers the check. Whether the two are the same printed visual is a semantic question, and it is answered by the independent visual reviewer, which already receives crops and overlays (§152.2) and here receives both crops side by side. No code decides it from names, labels or text.
+- **Same print:** the draft does not publish a new node. Its new facts attach to the existing node: added map regions are expressed in that node's frame and reviewed on its overlay preview, and added relations point at it. A draft whose only content is the duplicate publishes nothing.
+- **Different prints** (two maps on one page, a clipping beside a photograph): both stand, and the verdict is kept so the pair is not asked again.
+- **Review unavailable:** the draft is held and retried, never published as a new node. An unanswered question is not a "different".
+
+**Graphs that already hold duplicates.** The reviewer's same-print verdict on an existing pair is recorded as a `variant-of` relation from the later node to the survivor (the earlier published one, or the one with more reviewed regions when the owner's repair says so). Readers of maps and handouts (`mapNodes`, `mapsForScene`, handout lookup, `authoredMapWords`) skip a node that is `variant-of` another. Campaign state keyed by the skipped handle is read through the survivor: `maps_presented` and `handouts_shown` membership carries over. `map_knowledge` and `map_labels` carry over only through a reviewed region correspondence, because two crops never share coordinates by assumption (session-maps Decision 5). A region without one stays unknown on the survivor and is not lost from the old handle's record.
+
+**Three ends (§31).**
+- *Writer:* the publisher's collision check, the visual reviewer's verdict and the `variant-of` relation.
+- *Reader:* every map and handout reader named above, and campaign state through the survivor.
+- *Actor:* the table, which sees one card and one board entry per printed visual.
+
+**Kernel decisions (2026-09-29, implementation).** `module.read.finish` computes the collisions inside the module lock, against the generation current at that moment. A collision with no recorded verdict refuses the publication with `needs`, `details.reason: "visual_identity_pending"` and `details.pairs` (each pair's `key`, page, and the published and drafted nodes with their `image_sources` and `map_regions`). The host renders both crops side by side, with each map's regions drawn and labelled, for the tool-enabled visual reviewer (`content/setup/visual-identity.md`), and calls `finish` again with `identity_review_path`. The kernel records each verdict in `module.json` under `reading.visual_identity[key]` before it judges the draft. A key digests the bound source and the two crops, not node ids, so a verdict answers for those pixels wherever they are drafted again. A drafted node that a recorded verdict makes the same print as a published one refuses the publication as a reading failure (`rule: "same_print_duplicate"`, the published node in `details.existing`). The reader's existing repair round then deletes the drafted node, lists the published node with its published `image_sources`, adds only the regions it lacks in that node's frame, and points the relations at it; the ordinary review and overlay preview judge that draft. Publication merges `map_regions` by `region_id`: a published row stays as published and a new id is added. A reviewer that cannot answer holds the job: `finish` with `outcome: "held"` and `reason: "visual_identity_unavailable"` returns it to the queue with its attempt retained, and the next claim resumes from the checkpoint and asks again; the third hold fails the job with `rule: "visual_identity_unavailable"`, and nothing is published either way. Existing pairs are found by the read-ahead (`module.read.ahead`, which the host sends after every publication and when a table opens): it scans the published graph for colliding pairs of nodes that are not variants and have no recorded verdict, and queues one background `detail` job with `visual_identity: {page}` for the lowest such page, at most one queued or running per module, asked again by later read-aheads until it has failed three times. Its claim carries that page's pairs; the host runs the same reviewer, and its `finish` records the verdicts and, in one new generation, writes `variant-of` from the later node to the earlier one for each same verdict, with `properties.region_correspondence` only when the reviewer matched the labelled regions. The earlier node is the one whose first `reading.materials` row has the lower generation; a node that no row lists counts as later, and a tie falls to node id order.
 
 ## 153. Language-scoped Mods: play_languages, a voice-lane language addendum and their own brief ceiling (2026-09-29)
 

@@ -117,6 +117,7 @@ import {
 	reviewAdmissionPrimary,
 	reviewedPerLine,
 	lineProposal,
+	besideBatch,
 	batchRefusal,
 	REFUSING_VERDICTS,
 } from "./admission.ts";
@@ -1839,8 +1840,9 @@ export default function (pi: ExtensionAPI) {
 		state.attachments = [];
 		const pendingMaps = state.mapAttachments;
 		state.mapAttachments = [];
-		if (pending.length === 0 && pendingMaps.length === 0) return mechanics;
-		const rows = mechanics.map((row) => ({ ...row }));
+		const updates = mechanics.some(row => row.kind === "map" && row.presentation === "update" && row.words === AUTHORED_MAP_WORDS);
+		if (pending.length === 0 && pendingMaps.length === 0 && !updates) return mechanics;
+		const rows = mechanics.map((row) => updates && row.kind === "map" && row.presentation === "update" ? mapUpdateForDelivery(state, row) : { ...row });
 		for (const attachment of pending) {
 			void record({
 				lane: "handout",
@@ -1886,6 +1888,29 @@ export default function (pi: ExtensionAPI) {
 			else rows.push({...map});
 		}
 		return rows;
+	}
+
+	/**
+	 * Contract §39.4: an update row names what an arrival added to a map the table already holds, in
+	 * the module's words when no Keeper ran. It carries no picture, so it never passes `mapForDelivery`;
+	 * its words are projected here by the same all-or-nothing rule, and one that ships authored says so.
+	 */
+	function mapUpdateForDelivery(state: TableState, value: Record<string, unknown>): Record<string, unknown> {
+		const row = { ...value };
+		if (row.words !== AUTHORED_MAP_WORDS) return row;
+		const revealed = Array.isArray(row.revealed) ? row.revealed as Array<Record<string, unknown>> : [];
+		const card = { label: asString(row.label), name: asString(row.name), regions: revealed.map(region => ({ label: asString(region.label), level: asString(region.level) })) };
+		const projection = projectMapCard(card, state.mapWords);
+		if (projection.projected)
+			return { ...row, label: projection.card.label, name: projection.card.name, words: KEEPER_MAP_WORDS,
+				revealed: revealed.map((region, index) => ({ ...region, label: projection.card.regions?.[index]?.label ?? region.label,
+					...(region.level ? { level: projection.card.regions?.[index]?.level ?? region.level } : {}) })) };
+		const texts = mapCardTexts(card);
+		ensureMapWords(state, texts, "update");
+		void record({ lane: "map-words", event: "delivered", ok: false, reason: "not_projected", map: row.map,
+			...(typeof row.receipt === "string" ? { receipt: row.receipt } : {}), texts: texts.length,
+			missing: texts.filter(text => !state.mapWords[text]).length, ...(state.playLanguage ? { play_language: state.playLanguage } : {}) });
+		return row;
 	}
 
 	/** The authored words of one prepared card replaced with the projected ones, or the card marked as still owing them. */
@@ -1970,9 +1995,22 @@ export default function (pi: ExtensionAPI) {
 			campaignModulesRoot=resolve(campaignDir,'../../module-campaigns',basename(campaignDir),'modules'),prepared:MapAttachment[]=[];
 		for(const value of result.map_views) {
 			const receipt=value&&typeof value==='object'&&typeof (value as Record<string,unknown>).receipt==='string'?(value as Record<string,unknown>).receipt as string:undefined;
+			const view=value&&typeof value==='object'?value as Record<string,unknown>:{};
+			// §39.4: a look at a map the table already holds is delivered as a row naming it, never as a
+			// second picture; the living map is on the board.
+			if(view.presentation==='update'&&typeof view.map==='string'){
+				const regions=Array.isArray(view.regions)?view.regions as Record<string,unknown>[]:[];
+				prepared.push({kind:'map',...(receipt?{receipt}:{}),map:view.map,name:typeof view.name==='string'?view.name:view.map,
+					...(typeof view.label==='string'&&view.label?{label:view.label}:{}),...(typeof view.words==='string'?{words:view.words}:{}),
+					...(typeof view.source_revision==='string'?{source_revision:view.source_revision}:{}),
+					view_id:'update',regions,levels:[...new Set(regions.flatMap(region=>typeof region.level==='string'&&region.level?[region.level]:[]))],
+					document:MAP_DOCUMENT_NONE,presentation:'update'});
+				continue;
+			}
 			try {
 				const map=await renderMapView(value,{modulesRoot,sourceRoots:[campaignModulesRoot],campaignDir,...(receipt?{receipt}:{})});
-				if(map)prepared.push(map);
+				// A card carries its pixels in the session entry; the stored file's path is the board's handle, never the conversation's.
+				if(map){const {image_path:_stored,...card}=map;prepared.push({...card,...(card.level_images?{level_images:card.level_images.map(({image_path:_level,...level})=>level)}:{})});}
 			} catch {
 				const row=value&&typeof value==='object'?value as Record<string,unknown>:{};
 				if(typeof row.map==='string')prepared.push({kind:'map',...(receipt?{receipt}:{}),map:row.map,name:typeof row.name==='string'?row.name:row.map,
@@ -2479,12 +2517,18 @@ export default function (pi: ExtensionAPI) {
 	 * §32.12.3.1 (SL-101): each reviewed line of a proposal as a call of only that line would propose it -- its effect and
 	 * its own proposal, whose key is the one its verdict is kept under and its running round parked under (§32.4 keyed by
 	 * line). `effects` is what `proposal.effects` indexes (the call's effects, or a remainder's).
+	 *
+	 * §32.12.3.1.1 (SL-104): proposed beside its batch-mates -- the proposal's other lines and those it was itself proposed
+	 * beside (`lineProposal`'s `beside`) -- so the lane reads them and the key carries them (`besideBatch`): a line's verdict
+	 * is reused only beside the same batch.
 	 */
 	function admissionLines(tool: "resolve" | "apply", proposal: AdmissionProposal, effects: Array<Record<string, unknown>>,
 		scopeFor: Awaited<ReturnType<typeof admissionScopeBuilder>>): Array<{ line: string; effect: Record<string, unknown>; proposal: AdmissionProposal }> {
 		return proposal.lines.map((line, index) => {
 			const effect = effects[proposal.effects?.[index] ?? index] ?? {};
-			return { line, effect, proposal: admissionRequest(tool, { effects: [effect] }, scopeFor([effect])) ?? { ...lineProposal(proposal, index), key: `${proposal.key}#${index}` } };
+			const own = lineProposal(proposal, index);
+			const alone = admissionRequest(tool, { effects: [effect] }, scopeFor([effect]));
+			return { line, effect, proposal: alone ? besideBatch(alone, own.beside) : { ...own, key: `${proposal.key}#${index}` } };
 		});
 	}
 
@@ -2663,7 +2707,10 @@ export default function (pi: ExtensionAPI) {
 				if (admitted) return;
 				// §32.12: a review cut at its cap judged nothing a rewording could repeat, so the reviewer is not told it refused.
 				if (timedOut) throw admissionTimedOut(proposal, verdict.capMs ?? 0, ms);
-				state.admissionRefused.push(`${proposal.lines.join(" | ")} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
+				// §32.12.3.1.1: a line refused beside its batch is remembered with it, so a later review reads the refusal against
+				// the batch it belonged to, not as a bare line a resend beside other batch-mates would repeat in other words.
+				const beside = proposal.beside?.lines.length ? ` [beside: ${proposal.beside.lines.join(" | ")}]` : "";
+				state.admissionRefused.push(`${proposal.lines.join(" | ")}${beside} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
 				throw admissionRefusal(proposal, verdict);
 			};
 			// §32.12.3.1: a line whose outcome is already in hand was not known when its batch's review began; it is settled as is.
@@ -2991,7 +3038,13 @@ export default function (pi: ExtensionAPI) {
 					const statuses: LineStatus[] = p.lines.map(() => ({ admitted: true }));
 					const fresh = lines.flatMap((_, index) => kept[index] ? [] : [index]);
 					const freshEffects = fresh.map((index) => lines[index]!.effect);
-					const freshProposal = fresh.length ? admissionRequest(tool, { effects: freshEffects }, scopeFor(freshEffects)) : null;
+					// §32.12.3.1.1: the unknown lines are proposed beside the known ones, so each one's call reads every other line
+					// of this call and its verdict is kept under the key a review of the whole batch would have used.
+					const knownAt = lines.flatMap((_, index) => kept[index] ? [index] : []);
+					const freshAlone = fresh.length ? admissionRequest(tool, { effects: freshEffects }, scopeFor(freshEffects)) : null;
+					const freshProposal = freshAlone && besideBatch(freshAlone, {
+						lines: [...knownAt.map((index) => lines[index]!.line), ...(p.beside?.lines ?? [])],
+						signatures: [...knownAt.map((index) => effectSignature(lines[index]!.effect)), ...(p.beside?.signatures ?? [])] });
 					const freshFrame: LineFrame = { ...frame, numbers: fresh.map((index) => frame.numbers[index]!) };
 					const streak = { counted: false }, buffer: Array<Record<string, unknown>> = [];
 					await Promise.all([

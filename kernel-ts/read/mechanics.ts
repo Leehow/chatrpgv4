@@ -293,6 +293,17 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             // a live card on any path where the attachment never merged.
             document: DOCUMENT_UNRESOLVED,
         };
+        // §39.4: an update names what it added to a map the table already holds; there is no picture
+        // coming for it, so the row says so itself rather than waiting on an attachment.
+        if (receipt.presentation === "update") {
+            out.presentation = "update";
+            out.revealed = array(receipt.revealed).map(region => ({
+                id: row(region).id ?? null,
+                label: row(region).label ?? row(region).id ?? null,
+                level: row(region).level ?? null,
+            }));
+            out.document = DOCUMENT_NONE;
+        }
         labeled(out, "label", receipt.label);
         // Which leg wrote the words above (contract §39.2). The host reads it to know whether this
         // card still owes a projection, and a delivered card that still says `source` is the record

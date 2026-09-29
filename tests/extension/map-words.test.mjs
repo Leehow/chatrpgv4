@@ -452,6 +452,67 @@ test("a Keeper-written card is never rewritten and never asks the lane for anyth
 		"and nothing is asked of the lane on its behalf");
 });
 
+test("§39.4: a look at a map the table holds reaches the player as a row, never as a second picture", async t => {
+	const home = await mkdtemp(join(tmpdir(), "map-words-table-"));
+	const digest = await mapWordsDigest();
+	await mkdir(join(home, ".coc/map-words"), { recursive: true });
+	await writeFile(mapWordsCachePath(home, "zh-Hans", digest), JSON.stringify({
+		play_language: "zh-Hans", digest,
+		texts: { "Corbitt House Investigator Map": "科比特宅邸调查员地图", "Ground-floor entry hall": "一层门厅", "Ground Floor": "一层" },
+	}));
+	const table = await openTable({
+		env: { PI_COC_HOME: home, FAKE_KERNEL_LOOK_MAPS: JSON.stringify([{ ...ARRIVAL_VIEW, presentation: "update",
+			// Geometry the host must not draw: an update is never rendered.
+			render: { layers: [{ region: "ground-entry-hall", path: "/nowhere.png", source_box: [0, 0, 1, 1], placement: [0, 0, 1, 1], redactions: [] }] } }]) },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("look", { focus: "map", name: "house-map" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "你又看了一眼那张图。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("你又看了一眼那张图。"),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我再看看地图");
+
+	const row = mapRow(table);
+	assert.ok(row, "the look is still delivered");
+	assert.equal(row.presentation, "update");
+	assert.equal(row.document, "none");
+	assert.equal(row.image, undefined, "no picture is rendered or embedded for an update");
+	assert.equal(row.label, "科比特宅邸调查员地图", "its words are projected like a card's");
+	assert.deepEqual(row.regions, [{ id: "ground-entry-hall", label: "一层门厅", level: "一层" }]);
+});
+
+test("§39.4: an arrival update the kernel projects is delivered in the play language", async t => {
+	const home = await mkdtemp(join(tmpdir(), "map-words-table-"));
+	const digest = await mapWordsDigest();
+	await mkdir(join(home, ".coc/map-words"), { recursive: true });
+	await writeFile(mapWordsCachePath(home, "zh-Hans", digest), JSON.stringify({
+		play_language: "zh-Hans", digest,
+		texts: { "Corbitt House Investigator Map": "科比特宅邸调查员地图", "Ground-floor entry hall": "一层门厅", "Ground Floor": "一层" },
+	}));
+	const update = { kind: "map", receipt: "map:house-map-t1", map: "house-map", name: "Corbitt House Investigator Map",
+		label: "Corbitt House Investigator Map", words: AUTHORED_MAP_WORDS, presentation: "update", document: "none",
+		source_revision: "digest-1", regions: [{ id: "ground-entry-hall", label: "Ground-floor entry hall", level: "Ground Floor" }],
+		revealed: [{ id: "ground-entry-hall", label: "Ground-floor entry hall", level: "Ground Floor" }] };
+	const table = await openTable({
+		env: { PI_COC_HOME: home, FAKE_KERNEL_NARRATE_MECHANICS: JSON.stringify([update]) },
+		responses: [
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅你已经记下了。" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("门厅你已经记下了。"),
+		],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("我走进门厅");
+
+	const row = mapRow(table);
+	assert.ok(row, "the update reached the delivery");
+	assert.equal(row.words, KEEPER_MAP_WORDS);
+	assert.equal(row.label, "科比特宅邸调查员地图");
+	assert.deepEqual(row.revealed, [{ id: "ground-entry-hall", label: "一层门厅", level: "一层" }],
+		"what the arrival added is named in the player's words");
+	assert.equal(row.image, undefined);
+});
+
 test("the module's captions are projected when the table opens, before any arrival needs them", async t => {
 	const home = await mkdtemp(join(tmpdir(), "map-words-table-"));
 	const table = await openTable({

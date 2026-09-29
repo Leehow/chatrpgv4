@@ -160,9 +160,19 @@ export function registerBoardPanel(pi: ExtensionAPI): void {
 				if (projected.projected) card = { ...projected.card, words: KEEPER_MAP_WORDS };
 			}
 			const composed = await renderMapView(card, { modulesRoot, sourceRoots: [campaignModulesRoot], campaignDir }).catch(() => null);
-			prepared.push(composed ?? unavailable(card));
+			prepared.push(composed ? byPath(composed) : unavailable(card));
 		}
 		return prepared;
+	}
+
+	/**
+	 * Contract §39.4: the pixels leave this hop by path. An `invoke` answer returns through the host
+	 * bridge, whose body is capped at 4 MiB; two whole maps inline were over it, and the panel heard
+	 * nothing. The host reads each stored PNG back at its own boundary (`withMapImages`).
+	 */
+	function byPath(card: MapAttachment): MapAttachment {
+		const { image: _image, level_images, ...rest } = card;
+		return { ...rest, ...(level_images ? { level_images: level_images.map(({ image: _level, ...level }) => level) as MapAttachment["level_images"] } : {}) };
 	}
 
 	async function board(raw: unknown): Promise<BoardAnswer> {

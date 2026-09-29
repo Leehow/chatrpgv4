@@ -188,7 +188,13 @@ def test_secret_region_uses_reviewed_alternate_source_correspondence(kernel):
         level_labels={"Basement": "地下室"},
         why="They found the compartment omitted from the investigator map.",
     )])
-    layer = next(item for item in applied["map_views"][0]["render"]["layers"] if item["region"] == "hidden-cellar")
+    # §39.4: the map was pictured on t1, so this reveal is an update -- a receipt naming the new
+    # region and no second picture. The secret's geometry is the living map's, read by look.
+    assert "map_views" not in applied
+    assert applied["receipts"] == ["map:player-corbitt-house-map-t2"]
+    living = kernel.table("look", focus="map", name=MAP)["map_views"][0]
+    assert living["presentation"] == "update"
+    layer = next(item for item in living["render"]["layers"] if item["region"] == "hidden-cellar")
     assert layer["source_asset"] == KEEPER_BASEMENT
     assert layer["path"] == str(basement) != str(player)
     assert layer["source_box"] == [0.0, 0.0, 0.58, 1.0]
@@ -199,6 +205,9 @@ def test_secret_region_uses_reviewed_alternate_source_correspondence(kernel):
     delivered = narrate(kernel, "t2-c2", "隐秘的那一间这才出现在已经记下的格局里。")
     projected = next(item for item in delivered["mechanics"] if item["kind"] == "map")
     assert {region["id"] for region in projected["regions"]} == {"hidden-cellar"}
+    assert projected["presentation"] == "update" and projected["document"] == "none"
+    assert [region["id"] for region in projected["revealed"]] == ["hidden-cellar"]
+    assert projected["revealed"][0]["label"] == "隐秘地窖"
     assert "path" not in projected and "render" not in projected and "redactions" not in projected
 
 
@@ -366,6 +375,34 @@ def test_returning_does_not_present_the_map_again(kernel):
         "kind": "move", "to": "corbitt-house-ground", "via": "hired car", "travel_minutes": 20, "label": "科比特宅",
     }])
     assert not any(item.startswith("map:") for item in again["receipts"])
+
+
+def test_an_arrival_on_a_map_already_granted_is_an_update_and_look_reads_the_living_map(kernel):
+    """§39.4 over RPC: the map was pictured by a grant, so the arrival names what it adds and pictures nothing."""
+    install_local_map_bytes(kernel)
+    open_turn(kernel, "隔着篱笆，我先看清了门厅。")
+    first = kernel.table("apply", call_id="t1-c1", effects=[reveal(
+        ["ground-entry-hall"], region_labels={"ground-entry-hall": "一层门厅"}, level_labels={"Ground Floor": "一层"})])
+    assert first["map_views"][0]["map"] == MAP, "the first picture of the map is a card"
+    narrate(kernel, "t1-c2", "门厅的轮廓记下了。")
+    kernel.table("player_input", text="我们坐车去科比特宅。")
+    arrived = kernel.table("apply", call_id="t2-c1", effects=[{
+        "kind": "move", "to": "corbitt-house-ground", "via": "hired car", "travel_minutes": 20, "label": "科比特宅",
+    }])
+    assert any(item.startswith("map:player-corbitt-house-map") for item in arrived["receipts"])
+    assert "map_views" not in arrived, "a map the table holds is not pictured again"
+    delivered = narrate(kernel, "t2-c2", "宅子立在暮色里。")
+    row = next(item for item in delivered["mechanics"] if item["kind"] == "map")
+    assert row["presentation"] == "update" and row["document"] == "none"
+    added = [region["id"] for region in row["revealed"]]
+    assert "ground-entry-hall" not in added and "ground-kitchen" in added
+    assert "hidden-cellar" not in added, "the Keeper's secret is not revealed by arriving"
+    flags = known_flags(kernel)
+    assert flags["ground-entry-hall"] and flags["ground-kitchen"] and flags["basement-storage"]
+    assert flags["hidden-cellar"] is False
+    view = kernel.table("look", focus="map", name=MAP)["map_views"][0]
+    assert view["presentation"] == "update"
+    assert {region["id"] for region in view["regions"]} == {name for name, known in flags.items() if known}
 
 
 def test_table_maps_is_empty_until_a_map_is_seen(kernel):

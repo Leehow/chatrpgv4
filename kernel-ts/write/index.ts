@@ -955,7 +955,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             state: 'open',
             capsule: view,
             // §107.1: host-only, consumed by the host's map hop before anything reaches the Keeper (§39.2).
-            ...(lateMaps.length ? { map_views: lateMaps.map(item => ({ ...item.view, receipt: item.receipt.id, label: item.receipt.label })) } : {}),
+            // §39.4: only a first picture carries a view; an update on a map already pictured has none.
+            ...(lateMaps.some(item => item.view) ? { map_views: lateMaps.filter(item => item.view).map(item => ({ ...item.view, receipt: item.receipt.id, label: item.receipt.label })) } : {}),
             _context: await contextBinding(snapshot, module, view)
         };
     }

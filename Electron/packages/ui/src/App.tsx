@@ -3059,7 +3059,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
                 onLoadOlder={loadOlderHistory}
                 documentBasePath={selectedProjectPath}
                 onOpenDocument={openDocument}
-                onOpenSubagents={openSubagents}
+                onOpenSubagents={openSubagents} onOpenPanel={navigateTool}
                 onCopy={handleCopy}
                 onResend={handleResend}
                 resendDisabled={resendDisabled}
@@ -3069,7 +3069,7 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
               </>}
             </div>
           ) : (
-            <Transcript messages={messages} documentBasePath={selectedProjectPath} onOpenDocument={openDocument} onOpenSubagents={openSubagents} onCopy={handleCopy} onResend={handleResend} resendDisabled={resendDisabled} copiedId={copiedId} waiting={firstResponseWaiting ?? subagentWaiting} />
+            <Transcript messages={messages} documentBasePath={selectedProjectPath} onOpenDocument={openDocument} onOpenSubagents={openSubagents} onOpenPanel={navigateTool} onCopy={handleCopy} onResend={handleResend} resendDisabled={resendDisabled} copiedId={copiedId} waiting={firstResponseWaiting ?? subagentWaiting} />
           )}
         </LiveSubagentBindingProvider>
         </TranscriptWords>

@@ -257,7 +257,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         ({receipt,event}=await stageHandout(context,effect,module.asset ? (_id, name) => module.asset!(name) : contributions.asset!) as {receipt:Row;event:DomainEvent});attachments.push(receipt.attachment);
                     }
                     else if(kind==='map'){
-                        const mapped=await revealMap(context,effect,contributions.asset!);receipt=mapped.receipt;event=mapped.event as DomainEvent;mapViews.push({...mapped.view,receipt:receipt.id,label:receipt.label});
+                        const mapped=await revealMap(context,effect,contributions.asset!);receipt=mapped.receipt;event=mapped.event as DomainEvent;
+                        // §39.4: an update on a map already pictured has no picture to prepare.
+                        if(mapped.view)mapViews.push({...mapped.view,receipt:receipt.id,label:receipt.label});
                     }
                     else if(kind==='item')({receipt,event}=await stageItem(context,effect,stagedSheets,()=>{
                         if(!contributions.weaponCatalog)throw new RpcError('not_implemented','The weapon catalog contribution is unavailable');return contributions.weaponCatalog(graph);
@@ -360,7 +362,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     ids.push(string(item.receipt.id));
                     taken.add(string(item.receipt.id));
                     events.push({ type: 'map-revealed', data: row(item.event.data), receipt: string(item.receipt.id) });
-                    mapViews.push({...item.view,receipt:item.receipt.id,label:item.receipt.label});
+                    if (item.view) mapViews.push({...item.view,receipt:item.receipt.id,label:item.receipt.label});
                 }
             }
             if (refused.length && !isolatedRefusals.length) {

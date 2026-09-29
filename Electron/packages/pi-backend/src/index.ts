@@ -7,6 +7,7 @@ import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPre
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
 import {withHandoutImages} from './coc-handout-images.js';
+import {withMapImages} from './coc-map-images.js';
 import {handoutReadingAnswer} from './coc-handout-reading.js';
 import { ChildProcessWithoutNullStreams, execFile, spawn } from "node:child_process";
 import { createExtensionHostWorkers, type ExtensionHostWorkers } from "./extension-host-workers.js";
@@ -10078,9 +10079,12 @@ export class PiHostBackend implements HostBackend {
           ?? await this.locate(sessionId).then(found => readCocBinding(found.path)).catch(() => undefined);
         if (binding && answered.ok && isRecord(answered.data) && answered.data.status === "ready") {
           await this.cocMergeSheetLanes(sessionId, binding, answered.data.view, retry);
-          return {...answered,data:{...answered.data,view:withHandoutImages(answered.data.view,binding)}};
+          // §39.4: the pack hands each map's picture over by the path of its stored PNG; the pixels are read here.
+          return {...answered,data:{...answered.data,view:withHandoutImages(answered.data.view,binding),maps:withMapImages(answered.data.maps,binding)}};
         }
-        return answered;
+        // Whatever else the pack answered, no host path goes on to the panel.
+        return answered.ok && isRecord(answered.data) && Array.isArray(answered.data.maps)
+          ? {...answered,data:{...answered.data,maps:withMapImages(answered.data.maps,binding)}} : answered;
       }
       // Cold -- a restored session with no agent yet. The board still opens: it reads the same
       // player-safe `table.view` the sheet reads, and the map rows without their layers, so a map
