@@ -56,5 +56,9 @@
       "next_day": 240,
       "days": 1440
     }
+  },
+  "source_need_answered": {
+    "min_noul": 0.85,
+    "timeout_ms": 20000
   }
 }

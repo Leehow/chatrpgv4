@@ -8,6 +8,7 @@ import type {SessionRunDriver} from '@earendil-works/pi-coding-agent';
 import type {RunDriverPorts,RunPolicy} from '@earendil-works/pi-agent-core';
 import {sourceInfo,sourcePage,sourceSearch,sourceText,sourceTextVersion} from '../../extensions/module/source.ts';
 import {createDecisionAdapter} from './decision-adapter.ts';
+import type {DecisionPort} from './decision-port.ts';
 import {TaskLease} from './task-context.ts';
 import {READING_STAGE_BUDGET} from './reading-stage-budget.ts';
 import {JEV_MODEL,packDecisionBatch} from './question-packing.ts';
@@ -17,11 +18,14 @@ import {moduleLogicReview} from '../../kernel-ts/modules/module-review-policy.ts
 import {retainSourceNeeds} from '../../extensions/module/source-needs.ts';
 import {selectReferencePacket,checkReferenceGuide} from './source-reference.ts';
 import {validateReferencePacket,type SourceReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
+import {NEED_FACET_KEY,needAnsweredBatch,needAnsweredBudget,needAnsweredState,needDisposition,needFacet,needTaskOf,writeNeedReceipt,type NeedLead,type NeedReceipt} from './source-need-reads.ts';
 
 type Page = {page:number;text:string;label?:string|null;text_status?:'available'|'empty'|'error'|'unavailable'};
 type ImagePage = {page:number;path:string;image_sha256:string;box:number[];data:string};
 type SourceBinding = {pdf:string;cache:string;file_sha256?:string};
-type State = {catalog:boolean;located:boolean;projected:boolean;submitted:boolean;fallback:boolean;inferred:boolean;needsAssessment?:boolean};
+type State = {catalog:boolean;located:boolean;projected:boolean;submitted:boolean;fallback:boolean;inferred:boolean;needsAssessment?:boolean;
+ /** §150.4: the answered check of a need task has run; the need settled without a reader. */
+ needChecked?:boolean;needSettled?:boolean};
 type SourceRequest = {question:string;anchor_pages?:number[];need?:SourceNeed};
 export type SourceReaderDriver = SessionRunDriver & {registerSourceRequest(pi:any):void};
 const sha=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
@@ -140,16 +144,19 @@ export async function continueSourceSearch<T extends SearchPage>(params:{query:s
 }
 
 /** This receipt records a checked candidate, never independent review or publication. */
-export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.ProcessEnv;source:SourceBinding;apiKey?:string}):Promise<SourceReaderDriver>{
+export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.ProcessEnv;source:SourceBinding;apiKey?:string;
+ /** Tests inject a fake decision port; production builds the source child's own adapter. */
+ adapter?:DecisionPort}):Promise<SourceReaderDriver>{
  const {cwd,source,apiKey}=options;
  const taskBytes=await readFile(join(cwd,'task.json'));
  const task=JSON.parse(taskBytes.toString()) as {source_reference_packet?:SourceReferencePacket;source_reference?:'guidance'|'lookup';materialize_place?:boolean;play_language?:string;review_policy?:string;purpose?:string;module_id?:string;focus?:string;question?:string;guidance_key?:string;known_nodes?:unknown[];
-   source?:{page_count?:number};source_unit?:{section:string;first:number;last:number};pages?:number[];required_review?:unknown[];review_scope_pages?:number[]};
+   source?:{page_count?:number};source_unit?:{section:string;first:number;last:number};pages?:number[];required_review?:unknown[];review_scope_pages?:number[];
+   known_claims?:unknown[];source_need?:unknown};
  if(!['answer','guidance','opening','detail'].includes(task.purpose??''))throw new Error('Native source reader requires a checked source task');
  const reviewDraft=Array.isArray(task.required_review)?JSON.parse(await readFile(join(cwd,'draft.json'),'utf8')):null;
  const traceFile=join(cwd,'source-driver.jsonl');
  const trace=(value:Record<string,unknown>)=>appendFileSync(traceFile,compact({at:new Date().toISOString(),...value}));
- const adapter=createDecisionAdapter({apiKey,env:options.env,maxConcurrency:8,retryPolicies:Object.fromEntries(['source-guidance-sections','source-guidance-child-sections','source-search-scope','source-page-lead','source-need-kind','source-reference-spans','source-reference-entrances','source-reference-entrance-evidence','source-reference-era','source-reference-guide-check','source-reference-place'].map(family=>[family,{maxRetries:1,backoffInitialMs:250,backoffMaxMs:1000}])),trace:event=>trace({kind:'jev_transport',event})});
+ const adapter=options.adapter??createDecisionAdapter({apiKey,env:options.env,maxConcurrency:8,retryPolicies:Object.fromEntries(['source-need-answered','source-guidance-sections','source-guidance-child-sections','source-search-scope','source-page-lead','source-need-kind','source-reference-spans','source-reference-entrances','source-reference-entrance-evidence','source-reference-era','source-reference-guide-check','source-reference-place'].map(family=>[family,{maxRetries:1,backoffInitialMs:250,backoffMaxMs:1000}])),trace:event=>trace({kind:'jev_transport',event})});
  let sourceRequest:((request:SourceRequest)=>Promise<void>)|undefined;
  let submitReference:((text:string,signal:AbortSignal)=>Promise<any>)|undefined;
  return {engine:'coc-source-v1',registerSourceRequest(pi:any){
@@ -198,7 +205,15 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      ?'Find public era, starting place and premise, source-backed investigator advice or warnings, and authored opening choices.'
      :'Find material needed for this source answer')).trim(),anchorPages:number[]=[],requestCount=0;
    const requested=new Set<string>([pendingQuery]);
-   let pendingNeed:SourceNeed|undefined;
+   // §150.4: a background need read decides answered/unlocated/carried before any inference; a review child never does.
+   const needTask=needTaskOf(task);
+   let pendingNeed:SourceNeed|undefined=needTask?{kind:needTask.kind as SourceNeed['kind'],focus:needTask.focus,question:needTask.question,
+     reason:needTask.reason,trigger:needTask.trigger,source_refs:needTask.source_refs}:undefined;
+   const settleNeed=async(receipt:Omit<NeedReceipt,'version'|'run_id'|'task_sha256'|'source_sha256'|'key'|'material_digest'>)=>{
+     await writeNeedReceipt(cwd,{version:1,run_id:runId,task_sha256:sha(taskBytes),source_sha256:info?.file_sha256??source.file_sha256??null,
+       key:needTask!.key,material_digest:needTask!.material_digest,...receipt});
+     trace({kind:'source_need_disposition',runId,key:needTask!.key,...receipt});
+   };
    let pendingNeeds:SourceNeed[]=[];
    let needAssessments:Array<{focus:string;question:string;kind:SourceNeed['kind']}>=[];
    const readSet:ReadSet=[];
@@ -283,6 +298,15 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          opening_probe_pages:[...new Set(openingProbePages)],candidate_pages:candidates,cache_digest:cacheDigest}));
        await rename(temporary,file);
      };
+     // §150.4 steps 2-3: the need facet's leads decide, by page arithmetic, whether this need is read at all.
+     const needAfterLocate=async(leads:NeedLead[]|undefined,evidence:{searched_pages?:number;partial:boolean;cached:boolean})=>{
+       if(!needTask||requestCount>0)return undefined;
+       const decided=needDisposition({leads:leads??[],acceptedPages:needTask.accepted_pages,unreadUnits:needTask.unread_units,complete:leads!==undefined});
+       await settleNeed({disposition:decided.disposition,...(decided.units.length?{units:decided.units}:{}),
+         evidence:{need_leads:leads??[],accepted_pages:needTask.accepted_pages,candidates,...evidence}});
+       return decided.disposition==='read'?undefined:decided.disposition;
+     };
+     let hit:{needLeads?:NeedLead[]}|undefined;
      try{
        const prior=JSON.parse(await readFile(navigationFile,'utf8'));
        if(prior.cache_digest===cacheDigest&&prior.page_count===info.page_count&&Array.isArray(prior.candidates)&&
@@ -295,16 +319,20 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          reviewProbePages=Array.isArray(prior.scope_probe_pages)?prior.scope_probe_pages.filter((page:unknown)=>Number.isSafeInteger(page)&&Number(page)>=1&&Number(page)<=info!.page_count):[];
          await saveReviewLeads();
          trace({kind:'source_located',runId,cached:true,cache_digest:cacheDigest,selected:candidates,partial});
-         return {kind:'located',pages:candidates,partial,cached:true};
+         hit={needLeads:Array.isArray(prior.need_leads)?prior.need_leads.filter((lead:any)=>Number.isSafeInteger(lead?.page)&&Number.isFinite(lead?.score)):undefined};
        }
      }catch{}
+     if(hit){
+       const settled=await needAfterLocate(hit.needLeads,{partial,cached:true});
+       return {kind:'located',pages:candidates,partial,cached:true,...(settled?{need_disposition:settled}:{})};
+     }
      let relevant=pages.filter(row=>row.text.trim()),scopeChoice='whole';
      if(knownEntry){scopeChoice='known_selected_entry';relevant=relevant.filter(row=>knownEntry.selected.includes(row.page));
        trace({kind:'source_known_entry',runId,focus:task.focus,selected:knownEntry.selected,opening_probe_pages:openingProbePages});}
      let selectedTopSections:Array<{name:string;first:number;last:number}>=[];
      let topSections:Array<{name:string;first:number;last:number}>=[];
      const topFacets=new Map<number,Set<string>>();
-     const facets=sourceScopeFacets(task.purpose??'');
+     const facets=[...sourceScopeFacets(task.purpose??''),...(needTask&&requestCount===0?[needFacet()]:[])];
      if(facets.length&&requestCount===0&&!knownEntry){
        const sections=topLevelSectionRanges(info.bookmarks,info.page_count);
        if(sections.length){
@@ -478,17 +506,22 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        anchorPages=[];return await locate(signal);
      }
      partial=unanswered>0||scores.length===0||relevant.length<pages.filter(row=>row.text.trim()).length;
+     // An incomplete page-lead pass cannot show that no new page exists: the need then reads as today.
+     const needLeads:NeedLead[]|undefined=needTask&&requestCount===0&&unanswered===0
+       ?scores.filter(row=>row.facet===NEED_FACET_KEY).map(({page,score})=>({page,score})):undefined;
      trace({kind:'source_located',runId,selected:candidates,short_section_pages:[...new Set(shortSectionPages)],selected_facets:selected,located_unselected:allScores.filter(row=>!candidates.includes(row.page)),searched_native_pages:relevant.length,
        unsearched_native_pages:pages.filter(row=>row.text.trim()).length-relevant.length,unanswered_pages:unanswered,jev_input:jevInput,jev_output:jevOutput,jev_calls:jevCalls,partial});
      if(unanswered===0&&scores.length){
        const temporary=navigationFile+'.'+randomUUID()+'.tmp';
        await mkdir(dirname(navigationFile),{recursive:true});
        await writeFile(temporary,compact({cache_digest:cacheDigest,page_count:info.page_count,candidates,short_section_pages:[...new Set(shortSectionPages)],
-         opening_probe_pages:[...new Set(openingProbePages)],scope_probe_pages:[...new Set(reviewProbePages)],located_unselected:allScores.filter(row=>!candidates.includes(row.page)),partial}));
+         opening_probe_pages:[...new Set(openingProbePages)],scope_probe_pages:[...new Set(reviewProbePages)],located_unselected:allScores.filter(row=>!candidates.includes(row.page)),partial,
+         ...(needLeads?{need_leads:needLeads}:{})}));
        await rename(temporary,navigationFile);
      }
      await saveReviewLeads();
-     return {kind:'located',pages:candidates,partial};
+     const settled=await needAfterLocate(needLeads,{searched_pages:relevant.length,partial,cached:false});
+     return {kind:'located',pages:candidates,partial,...(settled?{need_disposition:settled}:{})};
    }
    async function assessNeeds(signal:AbortSignal){
      const needs=pendingNeeds.slice(0,4);
@@ -522,9 +555,32 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      projectedOnce=false;projectedImages=[];
      return {kind:'needs_assessed',retrieve:false};
    }
-   const policy:RunPolicy<State>={name:'coc-source-reading',version:'10',initial:()=>({...state0,located:reviewing}),next(view){const s=view.policyState;
+   /** §150.4 step 1: whether the entity's accepted material already answers the need; an outage or refusal is "no". */
+   async function checkNeedAnswered(signal:AbortSignal){
+     const need=needTask!,state=needAnsweredState(need,task.known_nodes,task.known_claims);
+     if(!state){trace({kind:'source_need_answered',runId,status:'no_material'});return {kind:'need_answered',answered:false,status:'no_material'};}
+     try{
+       const budget=await needAnsweredBudget();
+       const readSet:ReadSet=[{kind:'graph',resource:'module:'+String(task.module_id||'module')+':'+need.node_id,revision:need.material_digest}];
+       const batch=needAnsweredBatch(need,state,scope,readSet);
+       packDecisionBatch(batch);
+       const lease=new TaskLease({owner:'source-need-answered',goal:need.question,scope,readSet,capabilities:['decision'],signal,
+         budget:{deadlineAt:Date.now()+budget.timeoutMs,remainingInputTokens:60000,remainingOutputTokens:2000,remainingCostUsd:0.1,remainingActions:1}});
+       try{
+         const result=await adapter.decide(batch,lease),answer=result.answers?.answered;
+         const noul=result.status==='complete'&&answer?.status==='answered'&&answer.type==='noul'?answer.noul:null;
+         const answered=noul!==null&&noul>=budget.minNoul;
+         trace({kind:'source_need_answered',runId,status:result.status,noul,gate:budget.minNoul,answered,usage:result.usage??null,failure:result.failure??null});
+         if(answered)await settleNeed({disposition:'answered',distribution:{noul:noul!},gate:budget.minNoul,evidence:{accepted_pages:need.accepted_pages}});
+         return {kind:'need_answered',answered,noul,status:result.status};
+       }finally{lease.close();}
+     }catch(error){trace({kind:'source_need_answered_unavailable',runId,error:String(error)});return {kind:'need_answered',answered:false,status:'unavailable'};}
+   }
+   const policy:RunPolicy<State>={name:'coc-source-reading',version:'11',initial:()=>({...state0,located:reviewing}),next(view){const s=view.policyState;
      if(view.pendingProposals.length)return {kind:'operate',proposals:view.pendingProposals,reason:'execute_actual_reader_tools'};
      if(s.submitted)return {kind:'finish',outcome:'undelivered',reason:'checked_source_candidate_no_player_delivery'};
+     if(s.needSettled)return {kind:'finish',outcome:'undelivered',reason:'source_need_settled_without_reading'};
+     if(needTask&&!s.needChecked)return {kind:'decide',purpose:'check_source_need',question:{kind:'source_need_answered'},reason:'close_a_need_the_accepted_material_answers'};
      if(task.source_reference&&s.fallback)return {kind:'finish',outcome:'undelivered',reason:'source_reference_requires_existing_visual_fallback'};
      if(task.source_reference==='lookup'&&s.projected)return {kind:'finish',outcome:'undelivered',reason:'exact_source_reference_no_generation_required'};
      if(s.needsAssessment)return {kind:'decide',purpose:'classify_source_need',question:{kind:'source_need_kind'},reason:'separate_source_gaps_from_runtime_inputs_and_later_uses'};
@@ -546,15 +602,18 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
        }
      }
      if(observation.kind==='decide'){
-       if((observation.artifact as any)?.kind==='needs_assessed'){
+       if((observation.artifact as any)?.kind==='need_answered'){next.needChecked=true;next.needSettled=(observation.artifact as any).answered===true;}
+       else if((observation.artifact as any)?.kind==='needs_assessed'){
          next.needsAssessment=false;next.located=!(observation.artifact as any).retrieve;next.projected=next.located;next.inferred=false;
-       }else{next.located=true;if(observation.status!=='ok'){next.fallback=true;next.needsAssessment=false;}}
+       }else{next.located=true;if(observation.status!=='ok'){next.fallback=true;next.needsAssessment=false;}
+         if(['unlocated','carried'].includes((observation.artifact as any)?.need_disposition))next.needSettled=true;}
      }
      if(observation.kind==='infer')next.inferred=true;
      return next;
    }};
    const ports:RunDriverPorts={
-     decision:{async decide(request){try{return {status:'ok',artifact:await ((request.question as any)?.kind==='source_need_kind'?assessNeeds(request.signal):locate(request.signal))}}catch(error){trace({kind:'source_decision_failed',runId,error:String(error)});return {status:'unavailable',artifact:{kind:'source_locator_unavailable'}};}}},
+     decision:{async decide(request){try{const kind=(request.question as any)?.kind;
+       return {status:'ok',artifact:await (kind==='source_need_answered'&&needTask?checkNeedAnswered(request.signal):kind==='source_need_kind'?assessNeeds(request.signal):locate(request.signal))}}catch(error){trace({kind:'source_decision_failed',runId,error:String(error)});return {status:'unavailable',artifact:{kind:'source_locator_unavailable'}};}}},
      operations:{async execute(proposal,invocation){
        if(proposal.origin==='model'){
          if(!invocation.executeModelTool)return {status:'refused',reason:'Model tool executor unavailable'};

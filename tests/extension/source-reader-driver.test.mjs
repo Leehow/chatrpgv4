@@ -1,7 +1,7 @@
 import {packDecisionBatch,JEV_MODEL} from '../../runtime/jev/question-packing.ts';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {sourcePageQuestionState,createSourceReaderDriver,continueSourceSearch,topLevelSectionRanges,childSectionRanges,selectedEntrySourcePages,neighboringOpeningProbePages,assignedReviewPages,sourceFocusContext} from '../../runtime/jev/source-reader-driver.ts';
@@ -126,4 +126,123 @@ test('first-pass page decisions cross the real strict packing boundary without a
   state:sourcePageQuestionState('Prepare the first interaction',undefined,null,[{page:1,text:'A road leads to the station.'}]),
   questions:[{key:'p1',target:'pages[0]',type:'noul',instructions:'Does this page contain the requested interaction?'}]};
  assert.doesNotThrow(()=>packDecisionBatch(batch));
+});
+
+// §150.4 (ticket 04): a background need read decides answered / unlocated / carried before any inference, with a fake
+// decision port over a real four-page PDF and the driver's own policy and ports.
+function needPdf(texts){
+ const objects=['<< /Type /Catalog /Pages 2 0 R >>',`<< /Type /Pages /Kids [${texts.map((_,index)=>`${4+index*2} 0 R`).join(' ')}] /Count ${texts.length} >>`,
+  '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+ for(const [index,text] of texts.entries()){const stream=`BT /F1 12 Tf 20 160 Td (${text}) Tj ET`;
+  objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 700 200] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5+index*2} 0 R >>`,
+   `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);}
+ let pdf='%PDF-1.7\n';const offsets=[0];
+ for(const [index,object] of objects.entries()){offsets.push(Buffer.byteLength(pdf));pdf+=`${index+1} 0 obj\n${object}\nendobj\n`;}
+ const xref=Buffer.byteLength(pdf),size=objects.length+1;
+ return pdf+`xref\n0 ${size}\n0000000000 65535 f \n${offsets.slice(1).map(value=>String(value).padStart(10,'0')+' 00000 n ').join('\n')}\ntrailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+}
+const NEED_QUESTION='Any later appendix combat profile for Lena if printed separately';
+/** A fake port: the answered Noul, and per-page need leads; every other facet stays under the lead gate. */
+function needPort({answered=0.2,leads={},unavailable=false}={}){
+ const batches=[];
+ return {batches,async decide(batch){
+  batches.push(batch);
+  if(unavailable)return {batchId:batch.id,status:'unavailable',answers:{},coverage:{required:[],answered:[],unknown:[]},issues:[],failure:{code:'service_error',retryable:true}};
+  const answers=Object.fromEntries(batch.questions.map(question=>{
+   if(batch.family==='source-need-answered')return [question.key,{status:'answered',type:'noul',noul:answered}];
+   const match=/^p(\d+)_source_need$/.exec(question.key);
+   return [question.key,question.type==='noul'?{status:'answered',type:'noul',noul:match?leads[Number(match[1])]??0.05:0.05}
+    :{status:'answered',type:'choice',choice:'none_of_the_above',confidence:0.9,probabilities:{none_of_the_above:1}}];
+  }));
+  return {batchId:batch.id,status:'complete',answers,coverage:{required:[],answered:Object.keys(answers),unknown:[]},issues:[],usage:{inputTokens:1,outputTokens:0}};
+ }};
+}
+async function needDriver(t,{port,unread=[],cache}){
+ const cwd=await mkdtemp(join(tmpdir(),'source-need-driver-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const pdf=join(cwd,'source.pdf');
+ await writeFile(pdf,needPdf(['Harbor. Lena keeps the ledgers at the dock.','The dock office and its clerks.','Appendix of later profiles.','Closing notes.']));
+ const task={purpose:'detail',module_id:'book',focus:'lena',question:NEED_QUESTION,pages:[],source:{page_count:4},
+  known_nodes:[{node_id:'npc-lena',node_kind:'npc',name:'Lena',summary:'A harbor clerk.',properties:{agenda:'Keeps the ledgers.',runtime_projection:{record:{}}},source_refs:[{page:1}],ready:true},
+   {node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:[{page:1}]}],
+  known_claims:[{subject_id:'npc-lena',predicate:'present-in',object:{node_id:'scene-dock'},truth_status:'authored-fact',reason:'She works at the dock.'}],
+  source_need:{key:'need-key',kind:'deferred',node_id:'npc-lena',focus:'lena',question:NEED_QUESTION,reason:'Not printed here.',trigger:'If a fight starts.',
+   source_refs:[{page:1}],accepted_pages:[1],material_digest:'d'.repeat(64),unread_units:unread}};
+ await writeFile(join(cwd,'task.json'),JSON.stringify(task));
+ const driver=await createSourceReaderDriver({cwd,env:{},source:{pdf,cache:join(cache??join(cwd,'cache'),'pages')},adapter:port});
+ const {policy,ports}=await driver.prepare({runId:'need-run',inputRevision:'v1',rawInput:'Read the source',session:{}});
+ // Drive the policy's own decide/operate steps until it finishes or reaches a model step (projection or inference).
+ let state=policy.initial({});
+ for(let steps=0;steps<12;steps++){
+  const next=policy.next({policyState:state,pendingProposals:[],steps});
+  if(next.kind==='finish'||next.kind==='infer'||next.kind==='operate'&&next.proposals[0].operation==='source.project')
+   return {next,cwd,receipt:await readFile(join(cwd,'need-disposition.json'),'utf8').then(JSON.parse,()=>null)};
+  if(next.kind==='decide'){const outcome=await ports.decision.decide({question:next.question,signal:AbortSignal.timeout(10000)});
+   state=policy.reduce(state,{kind:'decide',status:outcome.status,artifact:outcome.artifact},{});continue;}
+  const outcome=await ports.operations.execute(next.proposals[0],{signal:AbortSignal.timeout(10000)});
+  state=policy.reduce(state,{kind:'operate',origin:'policy',status:outcome.status,outcomes:[outcome]},{});
+ }
+ throw new Error('the source policy did not settle');
+}
+
+test('a need the accepted material answers settles before the catalog, with no locate and no inference',async t=>{
+ const port=needPort({answered:0.95});
+ const {next,receipt}=await needDriver(t,{port});
+ assert.deepEqual([next.kind,next.reason],['finish','source_need_settled_without_reading']);
+ assert.deepEqual(port.batches.map(batch=>batch.family),['source-need-answered'],'no page lead is asked for an answered need');
+ const state=port.batches[0].state;
+ assert.equal(state.question,NEED_QUESTION);
+ assert.deepEqual(state.accepted_claims,[{subject:'Lena',predicate:'present-in',object:'Dock',note:'She works at the dock.'}]);
+ assert.equal(state.entity.properties.runtime_projection,undefined,'kernel projection fields are not accepted material');
+ assert.equal(port.batches[0].questions.length,1);
+ assert.equal(receipt.disposition,'answered');assert.equal(receipt.distribution.noul,0.95);assert.equal(receipt.gate,0.85);
+ assert.equal(receipt.key,'need-key');assert.equal(receipt.material_digest,'d'.repeat(64));
+});
+
+test('a need whose leads fall only on its accepted pages is retained unlocated, and the cached locate decides the same',async t=>{
+ const cache=await mkdtemp(join(tmpdir(),'source-need-cache-'));t.after(()=>rm(cache,{recursive:true,force:true}));
+ const port=needPort({leads:{1:0.9}});
+ const {next,receipt}=await needDriver(t,{port,cache});
+ assert.deepEqual([next.kind,next.reason],['finish','source_need_settled_without_reading']);
+ assert.equal(receipt.disposition,'unlocated');
+ assert.deepEqual(receipt.evidence.need_leads,[{page:1,score:0.9}]);assert.deepEqual(receipt.evidence.accepted_pages,[1]);
+ const leadQuestions=port.batches.filter(batch=>batch.family==='source-page-lead').flatMap(batch=>batch.questions.map(question=>question.key));
+ assert.ok(leadQuestions.includes('p3_source_need'),'every searched page is asked the need itself');
+ const again=needPort({leads:{3:0.9}}),cached=await needDriver(t,{port:again,cache});
+ assert.equal(cached.receipt.disposition,'unlocated');assert.equal(cached.receipt.evidence.cached,true);
+ assert.deepEqual(again.batches.map(batch=>batch.family),['source-need-answered'],'the cached navigation keeps the need leads');
+});
+
+test('a need located only inside an unread source unit is carried by that unit, not read',async t=>{
+ const unit={section:'Original pages 3-4',first:3,last:4};
+ const {next,receipt}=await needDriver(t,{port:needPort({leads:{1:0.9,3:0.8}}),unread:[{section:'Original pages 1-2',first:1,last:2},unit]});
+ assert.deepEqual([next.kind,next.reason],['finish','source_need_settled_without_reading']);
+ assert.equal(receipt.disposition,'carried');assert.deepEqual(receipt.units,[unit]);
+});
+
+test('a need with a new located page outside unread units reads as today on its located pages',async t=>{
+ const {next,receipt}=await needDriver(t,{port:needPort({leads:{3:0.8}})});
+ assert.equal(next.kind,'operate');assert.equal(next.proposals[0].operation,'source.project');
+ assert.equal(receipt.disposition,'read');
+ assert.ok(receipt.evidence.candidates.includes(3),'the need facet lead joins the read candidates');
+});
+
+test('a Jev outage in the answered check and the locate reads as today',async t=>{
+ const port=needPort({unavailable:true});
+ const {next,receipt}=await needDriver(t,{port,unread:[{section:'Original pages 3-4',first:3,last:4}]});
+ assert.equal(next.kind,'operate');assert.equal(next.proposals[0].operation,'source.project');
+ assert.equal(receipt.disposition,'read');
+ assert.ok(port.batches.some(batch=>batch.family==='source-need-answered')&&port.batches.some(batch=>batch.family==='source-page-lead'));
+});
+
+test('a review child and a task without a need never run the need decisions',async t=>{
+ for(const variant of [{required_review:['/nodes/0']},{source_need:undefined}]){
+  const cwd=await mkdtemp(join(tmpdir(),'source-need-none-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+  await writeFile(join(cwd,'draft.json'),JSON.stringify({nodes:[{source_refs:[{page:1}]}]}));
+  await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'detail',module_id:'book',focus:'lena',question:'q',source:{page_count:4},
+   source_need:{key:'k',node_id:'npc-lena',question:'q',material_digest:'d'.repeat(64),accepted_pages:[],unread_units:[]},...variant}));
+  const driver=await createSourceReaderDriver({cwd,env:{},source:{pdf:join(cwd,'source.pdf'),cache:join(cwd,'cache')},adapter:needPort()});
+  const {policy}=await driver.prepare({runId:'none',inputRevision:'v1',rawInput:'Read',session:{}});
+  const first=policy.next({policyState:policy.initial({}),pendingProposals:[],steps:0});
+  assert.notEqual(first.purpose,'check_source_need');
+ }
 });
