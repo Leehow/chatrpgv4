@@ -8,7 +8,7 @@
  * watches the text arrive instead of waiting for a whole document.
  *
  * This is a zero-tool single completion, which the project reserves for work that is short and on the
- * critical path (Agents.md, "文本工作必须跑成带工具的 Pi agent"); the owner authorized this lane on
+ * critical path (Agents.md, the section on text work needing a tool-enabled Pi agent); the owner authorized this lane on
  * 2026-09-29 (contract §155.9). A tool-enabled reader writes its answer in one file write and cannot
  * stream; that is the whole reason for the exception.
  *
