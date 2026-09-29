@@ -16,10 +16,14 @@ const STOP_KILL_MS = 2_000;
 const realTimer = (callback, milliseconds) => { const handle = setTimeout(callback, milliseconds); return () => clearTimeout(handle); };
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 const within = (root, path) => path === root || path.startsWith(root + sep);
+const appHome = () => resolve(process.env.PIPICOC_APP_HOME || join(homedir(), 'leehow/code/pipicoc-build'));
 export const assemblyStagingRoots = repo => [
-  join(repo, '.build.noindex'), join(repo, '.tmp'),
-  join(process.env.PIPICOC_APP_HOME || join(homedir(), 'leehow/code/pipicoc-build'), '.staging'),
+  join(repo, '.build.noindex'), join(repo, '.tmp'), join(appHome(), '.staging'),
 ];
+// Diagnostics outlive the run, so they sit beside the App receipt that names them. A
+// checkout is never the place: every package run left one more directory in whichever
+// worktree it ran from, and a shared checkout collected them from every session.
+export const assemblyDiagnosticsRoot = () => join(appHome(), 'assembly-evidence');
 const dump = (path, value) => writeFile(path, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
 
 // One removable subscription per operation, retained throughout asynchronous cleanup.
@@ -293,7 +297,7 @@ export async function createAssemblyWorkspace({ repo, output, signal, stopWindow
   output = resolve(repo, output);
   const roots = assemblyStagingRoots(repo);
   if (!roots.some(root => output !== root && within(root, output))) throw new Error('Runtime assembly output must be a dedicated .build.noindex or .tmp staging directory');
-  const outputParent = dirname(output), diagnosticsParent = join(repo, '.build.noindex');
+  const outputParent = dirname(output), diagnosticsParent = assemblyDiagnosticsRoot();
   await mkdir(outputParent, { recursive: true });
   await mkdir(diagnosticsParent, { recursive: true });
   const resolvedParent = await realpath(outputParent);
