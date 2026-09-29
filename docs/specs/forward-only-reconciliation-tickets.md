@@ -96,3 +96,26 @@ Status: needs-triage
 - The kernel-authored forward fixes are §158.3's.
 - **Tests.** A guard test in `tests/extension/keeper-prose-contract.test.mjs`. Whether the model follows it is what the LLM-judged probes measure.
 
+### 2026-09-29 — probes (FR-05's first bullet), live models on the Mac
+
+**Reviewer replay (FR-01).** `tests/play/owed-review-probe.mjs` replays the retained turn-26 job (`f7a10203…`) through the product's `runReader` and brief, as a 1.2.32 job, with the reviewer lane's model on the App (`opencode-go/deepseek-v4.1-flash`).
+
+- Outcomes were pre-registered in the run directory.
+- **3/3 PASS**, each on its first submission with no repair (82 s, 82 s, 174 s).
+- Each named an owed move `to: 勘查波街公墓`, `travel: local_travel`, quoting the told arrival (「波街公墓就在眼前——…」 twice, the Martin's Beach approach sentence once).
+- Evidence: `.coc/playtests/owed-review-probe-2026-09-29T17-49-49-131Z/`.
+
+**Keeper probes (FR-02/03/04).** `tests/play/forward_only_probe.py` lays the haunting out in each shape with the emitted kernel. The driver hands one player sentence to the live Keeper (`grok-build/grok-4.5`, low, hybrid engine). The judge (`opencode-go/deepseek-v4.1-flash`, a tool-enabled `pi -p` whose answers must quote the delivery) answers the pre-registered questions. **6/6 PASS**; I read every delivery as well.
+
+- `told-position` ×2 (turn 26/27):
+  - The first receipt is the owed move to `corbitt-house-ground` (`owed: t2-owed-1`, `told_turn: 2`), admitted on `path: "told"`. The first-arrival map (§39.2) followed.
+  - Then the player's own check and time landed.
+  - The prose continues at the house with no correction.
+- `dispute` ×2 (turn 28): the party ends at the house and the delivery follows the player without apologising. One opens 「你仍站在科比特宅门前」, rounding off the delivered-wrong turn in the fiction.
+- `service-outage` ×2 (turn 23): the admission lane was unavailable (`model_unavailable`, the lane model does not exist). No sentence tells the player the table could not settle, and the scene carries on.
+- Evidence: `.coc/playtests/forward-only-probe-20260929T135408/` and the driver runs `fo-*`.
+
+**Finding outside these tickets (not fixed here).** In both `service-outage` trials the Keeper narrated the refused batch's payment as done (「钱收了」 / 「把钱收下」) although the cash effect never landed. The refusal's own fix says not to narrate the refused batch's effects.
+
+Under the ruling that told payment is now owed cash, but the owed kinds of §158.2 are move, time and npc (and objects through `missing`), not cash. The review can only report it as a `continuity_finding`, whose forward fix asks the Keeper to bring the ledger forward. Two follow-ups are possible: a `cash` owed kind, or a stronger hold on narrating refused effects. Both are new scope and are left for the owner to decide.
+
