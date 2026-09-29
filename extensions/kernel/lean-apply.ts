@@ -21,9 +21,12 @@ import { SENTENCE_MAX } from "./tools.ts";
 
 export const LEAN_APPLY_ENV = "PI_COC_LEAN_APPLY";
 
-/** Whether this process runs with lean `apply` arguments: exactly `1`, nothing else. */
+/**
+ * Whether this process runs with lean `apply` arguments. On by default since 2026-09-29 (user: merge
+ * to the mainline, on by default): only an explicit `0` turns it off, kept as the operator's escape hatch.
+ */
 export function leanApplyEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
-	return env[LEAN_APPLY_ENV]?.trim() === "1";
+	return env[LEAN_APPLY_ENV]?.trim() !== "0";
 }
 
 const sentence = (text: string) => `${text}; one sentence, at most ${SENTENCE_MAX} characters`;

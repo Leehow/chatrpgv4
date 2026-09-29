@@ -35,11 +35,14 @@ function markers(value, path = "", out = {}) {
 	return out;
 }
 
-test("off is the ordinary tool list itself; only exactly 1 turns it on", () => {
-	for (const env of [{}, { [LEAN_APPLY_ENV]: "0" }, { [LEAN_APPLY_ENV]: "" }, { [LEAN_APPLY_ENV]: "true" }]) {
+test("on by default; off (only an explicit 0) is the ordinary tool list itself", () => {
+	// On by default (2026-09-29): only an explicit 0 turns it off.
+	for (const env of [{ [LEAN_APPLY_ENV]: "0" }, { [LEAN_APPLY_ENV]: " 0 " }]) {
 		assert.equal(leanApplyEnabled(env), false, JSON.stringify(env));
 		assert.equal(offeredTools(COC_TOOLS, env), COC_TOOLS, "off registers the very same specs, not a copy");
 	}
+	for (const env of [{}, { [LEAN_APPLY_ENV]: "" }, { [LEAN_APPLY_ENV]: "true" }, { [LEAN_APPLY_ENV]: "1" }])
+		assert.equal(leanApplyEnabled(env), true, JSON.stringify(env));
 	assert.equal(leanApplyEnabled({ [LEAN_APPLY_ENV]: "1" }), true);
 	assert.notEqual(offeredTools(COC_TOOLS, { [LEAN_APPLY_ENV]: "1" }), COC_TOOLS);
 });

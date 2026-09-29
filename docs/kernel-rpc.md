@@ -29006,7 +29006,15 @@ each scoped brief to 400. The addendum has no kernel budget: it rides the lane's
   `tests/fixtures/mods/language-zh`, installed through `mods.install`; `tests/kernel/test_language_mods.py` over the
   emitted kernel's RPC; and the two ceiling tests above.
 
-## 154. Lean `apply` arguments: the machine fills what it can derive (2026-09-29, prototype behind `PI_COC_LEAN_APPLY=1`)
+## 154. Lean `apply` arguments: the machine fills what it can derive (2026-09-29; on by default, `PI_COC_LEAN_APPLY=0` turns it off)
+
+**Status (amended 2026-09-29, same day).** Measured against a concurrent control on two scripts (grok-4.5 low, 15 turns
+each, fast model deepseek-v4.1-flash off, Jev on): Keeper output tokens per turn 914 -> 758 and 1026 -> 817 (-17%/-20%),
+first visible prose median 32.4 -> 26.7 s and 31.5 -> 26.8 s, recorded clues/items/resources/NPC changes comparable,
+refused tool calls 11 -> 7 and 10 -> 5, not-admitted 4 -> 3 and 5 -> 0. The user ruled: merge to the mainline, on by
+default. Only an explicit `PI_COC_LEAN_APPLY=0` restores the full shape below ("unset" in the prototype text now reads
+"`0`"). The rest of this section is the prototype's own text.
+
 
 Measured the same day on three 15-turn tables (grok-build/grok-4.5, thinking low): the player waits ~26 s median for the
 first prose character, each Keeper round costs ~0.7 s plus ~2.15 s per 100 output tokens, and `apply` arguments are 54%
