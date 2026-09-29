@@ -1,5 +1,5 @@
 /**
- * Contract §150.2.2: a review that refused specific records, and missed nothing, is repaired record by record.
+ * Contract §151.2.2: a review that refused specific records, and missed nothing, is repaired record by record.
  *
  * Blood05 pages 19-20 (2026-09-28): the independent review refused 3 of 29 claims -- relations the page does not state --
  * and listed nothing missing. The job paid a full re-author (156 s, longer than the first author) and the repaired draft
@@ -15,7 +15,7 @@ import { advisoryModuleFinding, moduleLogicReview } from "../../kernel-ts/module
 
 type Row = Record<string, any>;
 
-/** What the targeted author is told, in the system language (§150.2.2). */
+/** What the targeted author is told, in the system language (§151.2.2). */
 export const TARGETED_REPAIR_ASK = "This reading repairs a reviewed candidate record by record. draft.json is that candidate. task.repair.refused lists "
 	+ "every path the independent review refused, with its verdict, the reviewer's reason and the pages it cited; task.repair.pages are the original "
 	+ "pages of those records, supplied as images with their native text (use pdf for a closer view). Change only the refused records: correct each "
@@ -94,7 +94,7 @@ function canonical(value: any): string {
 }
 
 /**
- * The host's check after a targeted repair (§150.2.2): every record the review did not refuse is still in the draft,
+ * The host's check after a targeted repair (§151.2.2): every record the review did not refuse is still in the draft,
  * byte-identical (compared as canonical JSON, wherever it now sits), except a claim whose subject or object was a
  * refused node the repair removed. Beyond that the repair may add at most one replacement per refused record of the same
  * collection, and a replacement node carries a refused node's id. `ready_nodes` and `node_refs` lose exactly the removed

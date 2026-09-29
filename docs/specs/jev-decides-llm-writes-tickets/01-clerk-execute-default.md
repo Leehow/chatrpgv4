@@ -1,5 +1,5 @@
 Status: ready-for-human
-Spec: docs/specs/jev-decides-llm-writes.md D-A · Contract §150.1
+Spec: docs/specs/jev-decides-llm-writes.md D-A · Contract §151.1
 
 # 01 — The clerk executes by default
 
@@ -44,7 +44,7 @@ The earlier "keep 0.4" rested on marker counts and a few prose reads. Reading al
 
 Root cause: the route's state rendered every roll as the bare word `roll`, so Jev never saw a check fail.
 
-Fixed (§150.1.1):
+Fixed (§151.1.1):
 - The roll label carries the skill, level and success.
 - The clue Noul's `not_for` names failed and refused attempts.
 - Family version 2.

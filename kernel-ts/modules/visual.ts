@@ -512,10 +512,10 @@ export interface ReviewJudgement { supported: Set<string>; contested: Row[] }
 export function classificationFields(contract: ModuleContract): (path: string) => boolean {
     return classificationMatcher(row(contract.graph.classification_fields).node);
 }
-/** §150.3: the host's native-text record of the bound source, as the gate reads it from `claim-support.json`. */
+/** §151.3: the host's native-text record of the bound source, as the gate reads it from `claim-support.json`. */
 export interface ClaimEvidence { extractionVersion: string; pages: ReadonlyMap<number, { text: string; sha256: string }> }
 /**
- * §150.3: the evidence file, or undefined when it is not one for this source: another protocol, another source's digest,
+ * §151.3: the evidence file, or undefined when it is not one for this source: another protocol, another source's digest,
  * no extraction version, or a page whose text does not hash to the digest it states.
  */
 export function claimEvidence(value: any, sourceSha: string): ClaimEvidence | undefined {
@@ -538,7 +538,7 @@ function refuseJev(rule: string, message: string, path: string): never {
     });
 }
 /**
- * §150.3's evidence amendment for one `reviewer: "jev"` row: one record's paths, `supported`, an eligible record, the
+ * §151.3's evidence amendment for one `reviewer: "jev"` row: one record's paths, `supported`, an eligible record, the
  * page-text digests and extraction version of the evidence file for exactly the record's cited pages, a distribution,
  * and no vision row that marked an overlapping path anything but supported. Returns the paths it reviewed.
  */
@@ -587,7 +587,7 @@ export function checkReview(draft: Row, filled: Row, review: any, count: number,
     if (blockingModuleFindings(review.missing,filled).length)
         reject('the independent review found missing or incorrect material: ' + canonicalJson(review.missing), '/review/missing');
     const supported = new Set<string>(), reviewed = new Set<string>(), contested: Row[] = [];
-    // §150.3: a Jev-checked row is judged first, against every path a vision row did not support.
+    // §151.3: a Jev-checked row is judged first, against every path a vision row did not support.
     const jev = review.checked.filter((item: any) => object(item) && item.reviewer === JEV_REVIEWER);
     if (jev.length) {
         const negative = review.checked.filter((item: any) => object(item) && item.reviewer !== JEV_REVIEWER && item.verdict !== 'supported')

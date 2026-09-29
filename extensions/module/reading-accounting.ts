@@ -1,5 +1,5 @@
 /**
- * Contract §150.2.4: what one reading job spent, on the existing reading telemetry lane, so a saving is measured on the
+ * Contract §151.2.4: what one reading job spent, on the existing reading telemetry lane, so a saving is measured on the
  * real path rather than claimed from component timings. One `job_accounting` row per job run.
  */
 import { readdir, readFile } from "node:fs/promises";
@@ -17,11 +17,11 @@ export interface ReadingAccounting {
 	units_reused: number;
 	/** Jev decisions by family: the reader children's own (from their traces) and the host's (`jev_decision` rows). */
 	jev: Record<string, JevSpend>;
-	/** §150.2.3: this run's read was salvaged from an interrupted attempt. */
+	/** §151.2.3: this run's read was salvaged from an interrupted attempt. */
 	salvaged: boolean;
-	/** §150.2.2: the repair round's kind, when a round repaired a reviewed candidate. */
+	/** §151.2.2: the repair round's kind, when a round repaired a reviewed candidate. */
 	repair?: "targeted" | "full";
-	/** §150.4: the need's disposition, when the job was queued from a retained source need and the host settled it. */
+	/** §151.4: the need's disposition, when the job was queued from a retained source need and the host settled it. */
 	need?: "answered" | "unlocated" | "carried" | "read";
 }
 
@@ -48,7 +48,7 @@ export function tallyReadingRow(accounting: ReadingAccounting, row: Row): void {
 		family.calls += count(row.attempts) || 1; family.ms += count(row.ms);
 		family.input_tokens += count(row.input_tokens); family.output_tokens += count(row.output_tokens);
 	}
-	// §150.3's host check reports its own spend on its `claim_support` row (requests, Jev ms, tokens), not as a jev_decision.
+	// §151.3's host check reports its own spend on its `claim_support` row (requests, Jev ms, tokens), not as a jev_decision.
 	if (row?.event === "claim_support" && typeof row.family === "string" && row.family && count(row.calls)) {
 		const family = spend(accounting, row.family);
 		family.calls += count(row.calls); family.ms += count(row.jev_ms);

@@ -129,7 +129,7 @@ test('first-pass page decisions cross the real strict packing boundary without a
  assert.doesNotThrow(()=>packDecisionBatch(batch));
 });
 
-// §150.4 (ticket 04): a background need read decides answered / unlocated / carried before any inference, with a fake
+// §151.4 (ticket 04): a background need read decides answered / unlocated / carried before any inference, with a fake
 // decision port over a real four-page PDF and the driver's own policy and ports.
 function needPdf(texts){
  const objects=['<< /Type /Catalog /Pages 2 0 R >>',`<< /Type /Pages /Kids [${texts.map((_,index)=>`${4+index*2} 0 R`).join(' ')}] /Count ${texts.length} >>`,
@@ -259,7 +259,7 @@ function textPdf(lines){
  return text+`xref\n0 ${size}\n0000000000 65535 f \n${offsets.map(value=>String(value).padStart(10,'0')+' 00000 n ').join('\n')}\ntrailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 }
 
-// §150.2.2: a targeted repair reads the refused records' own pages -- projected as original images with their native text --
+// §151.2.2: a targeted repair reads the refused records' own pages -- projected as original images with their native text --
 // instead of locating the whole question again.
 test('a targeted repair projects exactly the refused records\' pages without locating again',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'source-targeted-repair-'));t.after(()=>rm(cwd,{recursive:true,force:true}));

@@ -133,7 +133,7 @@ async function readFirstStepThinkingBudget(contentRoot?: string): Promise<FirstS
 export function resetFirstStepThinkingBudgetCache(): void { firstStepThinkingCached = undefined; }
 
 /**
- * §150.5 (SL-79 behind a setting): the narrator-only compose catalog's data default and `propose`'s per-turn cap, from the
+ * §151.5 (SL-79 behind a setting): the narrator-only compose catalog's data default and `propose`'s per-turn cap, from the
  * same rules-data file. `runtime/jev/narrator-catalog.ts`'s `narratorOnlySetting` puts the env switch over `enabled`.
  */
 export interface NarratorOnlyBudget {

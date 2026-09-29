@@ -1,5 +1,5 @@
 /**
- * §150.5 (ticket `docs/specs/jev-decides-llm-writes-tickets/06-narrator-only-setting.md`; SL-79 behind a setting; design
+ * §151.5 (ticket `docs/specs/jev-decides-llm-writes-tickets/06-narrator-only-setting.md`; SL-79 behind a setting; design
  * `docs/specs/jev-driven-steps.md` D5): the narrator-only compose catalog.
  *
  * - Setting seam: `narrator_only` in `content/rulesets/coc7/host-budgets.json` (shipped off, cap 2), the env switch
@@ -114,14 +114,14 @@ function budgetRoot(t, narratorOnly) {
 	return root;
 }
 
-test("§150.5 setting: the data file's narrator_only is read (enabled, propose_per_turn); a bad shape falls back; the shipped file is off with a cap of 2", async (t) => {
+test("§151.5 setting: the data file's narrator_only is read (enabled, propose_per_turn); a bad shape falls back; the shipped file is off with a cap of 2", async (t) => {
 	assert.deepEqual(await narratorOnlyBudget(budgetRoot(t, { enabled: true, propose_per_turn: 3 })), { enabled: true, proposePerTurn: 3 });
 	assert.deepEqual(await narratorOnlyBudget(budgetRoot(t, { enabled: "yes", propose_per_turn: -1 })), NARRATOR_ONLY_FALLBACK);
 	assert.deepEqual(await narratorOnlyBudget(budgetRoot(t, undefined)), NARRATOR_ONLY_FALLBACK);
 	assert.deepEqual(await narratorOnlyBudget(), { enabled: false, proposePerTurn: 2 }, "the shipped default is off");
 });
 
-test("§150.5 setting: the env switch is over the data default -- on/off say so with source env; anything else leaves the data's", () => {
+test("§151.5 setting: the env switch is over the data default -- on/off say so with source env; anything else leaves the data's", () => {
 	const off = { enabled: false, proposePerTurn: 2 }, on = { enabled: true, proposePerTurn: 2 };
 	assert.deepEqual(narratorOnlySetting({ COC_NARRATOR_ONLY: "on" }, off), { on: true, source: "env", proposePerTurn: 2 });
 	assert.deepEqual(narratorOnlySetting({ COC_NARRATOR_ONLY: "off" }, on), { on: false, source: "env", proposePerTurn: 2 });
@@ -129,7 +129,7 @@ test("§150.5 setting: the env switch is over the data default -- on/off say so 
 	assert.deepEqual(narratorOnlySetting({ COC_NARRATOR_ONLY: " yes " }, off), { on: false, source: "data", proposePerTurn: 2 });
 });
 
-test("§150.5 catalog: only a compose step with a decision port narrows; the spent-budget compose, adjudicate and bind keep the whole loadout", () => {
+test("§151.5 catalog: only a compose step with a decision port narrows; the spent-budget compose, adjudicate and bind keep the whole loadout", () => {
 	const on = { on: true };
 	assert.deepEqual(stepCatalog(on, { purpose: "compose", reason: "settled" }, true).narrowed, NARRATOR_CATALOG);
 	assert.equal(stepCatalog(on, { purpose: "compose", reason: "settled" }, false).narrowed, undefined, "a Jev outage keeps today's catalog");
@@ -140,7 +140,7 @@ test("§150.5 catalog: only a compose step with a decision port narrows; the spe
 	assert.deepEqual(stepCatalog({ on: false }, { purpose: "compose", reason: "settled" }, true), { purpose: "compose", propose: false });
 });
 
-test("§150.5 offered: clerk candidates the policy can settle without the Keeper; open parameters, npc acts, forced steps and taken keys are out", () => {
+test("§151.5 offered: clerk candidates the policy can settle without the Keeper; open parameters, npc acts, forced steps and taken keys are out", () => {
 	const clue = { key: "apply:clue:a", verb: "apply", family: "clue", label: "Reveal a", bound: { kind: "clue", clue: "a" }, unbound: [{ name: "how", required: false, vocabulary: "open" }], clerk: "declared_bookkeeping" };
 	const open = { ...clue, key: "apply:move:x", family: "move", unbound: [{ name: "to", required: true, vocabulary: "open" }] };
 	const keeper = { ...clue, key: "apply:clue:b", clerk: undefined };
@@ -155,7 +155,7 @@ test("§150.5 offered: clerk candidates the policy can settle without the Keeper
 		"a closed bind is offered (the policy's bind runs it); the consequence twin of an issued clue is not listed twice");
 });
 
-test("§150.5 proposedCandidate: the Keeper's request rides on the basis; a compile's or a consequence route's evidence never does", () => {
+test("§151.5 proposedCandidate: the Keeper's request rides on the basis; a compile's or a consequence route's evidence never does", () => {
 	const candidate = { key: "apply:clue:a", verb: "apply", family: "clue", label: "Reveal a", bound: { kind: "clue", clue: "a" }, unbound: [], clerk: "declared_bookkeeping",
 		basis: { read: "table.apply.options", row: { clue: "a" }, compile: { predicate: "declared_clue" }, consequence: { class: "clue_follow_up" } } };
 	assert.deepEqual(proposedCandidate(candidate, { run: "r", step: "s3" }).basis,
@@ -165,7 +165,7 @@ test("§150.5 proposedCandidate: the Keeper's request rides on the basis; a comp
 // ---------------------------------------------------------------------------------------------------------------------
 // The engine.
 
-test("§150.5 default off: no propose on the surface, no catalog or offered keys in the note, no refusal announced", async () => {
+test("§151.5 default off: no propose on the surface, no catalog or offered keys in the note, no refusal announced", async () => {
 	const h = harness({ env: {} });
 	await h.sessionStart();
 	assert.equal(h.registered.length, 0, "nothing is registered with the setting off");
@@ -182,7 +182,7 @@ test("§150.5 default off: no propose on the surface, no catalog or offered keys
 	assert.ok(h.announced.every((row) => !Object.hasOwn(row, "refuse")), "no call is announced with a refusal");
 });
 
-test("§150.5 on: the compose step's catalog is narrate/ask/propose with say as spans; adjudicate keeps the whole loadout and gains propose; bind keeps exactly its own", async () => {
+test("§151.5 on: the compose step's catalog is narrate/ask/propose with say as spans; adjudicate keeps the whole loadout and gains propose; bind keeps exactly its own", async () => {
 	const h = harness({ env: { COC_NARRATOR_ONLY: "on" } });
 	await h.sessionStart();
 	assert.deepEqual(h.registered.map((tool) => tool.name), ["propose"]);
@@ -221,7 +221,7 @@ test("§150.5 on: the compose step's catalog is narrate/ask/propose with say as 
 	assert.match(text(proposed), /not in this bind step's catalog/);
 });
 
-test("§150.5 propose on an offered key: queued as one more clerk step, then run through the gateway with the Keeper's request on its basis", async () => {
+test("§151.5 propose on an offered key: queued as one more clerk step, then run through the gateway with the Keeper's request on its basis", async () => {
 	const h = harness({ env: { COC_NARRATOR_ONLY: "on" } });
 	await h.sessionStart();
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
@@ -250,7 +250,7 @@ test("§150.5 propose on an offered key: queued as one more clerk step, then run
 	assert.match(next.proposed_note, /ran the steps you proposed/);
 });
 
-test("§150.5 propose on a free handle: refused with the offered keys; nothing is queued or dispatched", async () => {
+test("§151.5 propose on a free handle: refused with the offered keys; nothing is queued or dispatched", async () => {
 	const h = harness({ env: { COC_NARRATOR_ONLY: "on" } });
 	await h.sessionStart();
 	h.state.applyOptions = { candidates: [clueRow("globe-story"), clueRow("cutoff")] };
@@ -267,7 +267,7 @@ test("§150.5 propose on a free handle: refused with the offered keys; nothing i
 	assert.equal(h.rows.filter((row) => row.event === "propose" && row.status === "refused" && row.reason === "not_offered").length, 3);
 });
 
-test("§150.5 per-turn cap (data, shipped 2): the third accepted propose of a turn is refused; after an accepted propose the rest of its response is held", async () => {
+test("§151.5 per-turn cap (data, shipped 2): the third accepted propose of a turn is refused; after an accepted propose the rest of its response is held", async () => {
 	const h = harness({ env: { COC_NARRATOR_ONLY: "on" } });
 	await h.sessionStart();
 	h.state.applyOptions = { candidates: [clueRow("a"), clueRow("b"), clueRow("c")] };
@@ -318,7 +318,7 @@ function policyRun() {
 	};
 }
 
-test("§150.5 policy: an accepted propose is one more clerk step through the policy's own items, then the compose -- not a fall", () => {
+test("§151.5 policy: an accepted propose is one more clerk step through the policy's own items, then the compose -- not a fall", () => {
 	const run = policyRun();
 	const proposed = { ...CANDIDATE, basis: { proposed: { by: "keeper" } } };
 	run.compose([["propose", { key: CANDIDATE.key }], ["narrate", { text: "x" }]],
@@ -337,7 +337,7 @@ test("§150.5 policy: an accepted propose is one more clerk step through the pol
 	assert.deepEqual([compose.kind, compose.purpose, compose.reason], ["infer", "compose", PROPOSED_REASON]);
 });
 
-test("§150.5 policy: a narrowed compose's fallen batch returns to the compose once, never to the adjudicate; the second fall ends the run", () => {
+test("§151.5 policy: a narrowed compose's fallen batch returns to the compose once, never to the adjudicate; the second fall ends the run", () => {
 	const run = policyRun();
 	const refused = { status: "refused", artifact: { kind: "execute", executed: { ok: false, summary: { tool: "apply" } }, narrator: true, fell: "narrator_catalog" } };
 	run.compose([["apply", { effects: [] }]], [refused]);
@@ -353,7 +353,7 @@ test("§150.5 policy: a narrowed compose's fallen batch returns to the compose o
 	assert.deepEqual([adjudicate.kind, adjudicate.purpose, adjudicate.reason], ["infer", "adjudicate", "batch_fallen"]);
 });
 
-test("§150.5 a settled run delivers prose with zero Keeper tool calls: the compose's prose finishes on the turn close, which reports it delivered", async () => {
+test("§151.5 a settled run delivers prose with zero Keeper tool calls: the compose's prose finishes on the turn close, which reports it delivered", async () => {
 	const h = harness({ env: { COC_NARRATOR_ONLY: "on", COC_JEV_STEPS: "on" } });
 	await h.sessionStart();
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
@@ -374,7 +374,7 @@ test("§150.5 a settled run delivers prose with zero Keeper tool calls: the comp
 	assert.equal(h.dispatches.length, 0);
 });
 
-test("§150.5 a proposed key is the policy's to run: the consequence route never executes it a second time", async () => {
+test("§151.5 a proposed key is the policy's to run: the consequence route never executes it a second time", async () => {
 	const clearing = (batch) => {
 		const answers = {};
 		for (const question of batch.questions) answers[question.key] = { status: "answered", type: "noul", noul: batch.family === CONSEQUENCE_FAMILY ? 0.95 : 0.05 };

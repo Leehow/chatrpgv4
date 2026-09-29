@@ -1,12 +1,12 @@
 /**
- * §150.5 (SL-79 behind a setting; `docs/specs/jev-decides-llm-writes.md` D-D, `docs/specs/jev-driven-steps.md` D5): the
+ * §151.5 (SL-79 behind a setting; `docs/specs/jev-decides-llm-writes.md` D-D, `docs/specs/jev-driven-steps.md` D5): the
  * narrator-only compose catalog. Pure: the setting (env over data), the step's catalog, the offered keys `propose` names,
  * the `propose` tool's declaration and the refusals the Keeper reads. `hybrid-engine.ts` wires them; the kernel extension
  * honours a refusal the engine announced for a model call (`coc:model-step`'s `refuse`).
  *
  * - `say` is not a tool: a person's spoken words are `{{say:Name}}…{{/say}}` spans inside `narrate`/`ask` text (§40), so
  *   the compose step's catalog is the two delivery verbs plus `propose`, and its note names the spans.
- * - The provider-visible tool loadout stays the session's (§150.5 implementation decision): a per-step loadout would
+ * - The provider-visible tool loadout stays the session's (§151.5 implementation decision): a per-step loadout would
  *   re-declare about 67 KB of tool definitions into the transcript at every switch and move the request's tool prefix.
  *   The step's catalog is what it admits: a model call outside it is refused before it runs.
  */
@@ -34,7 +34,7 @@ export interface NarratorOnlySetting {
   proposePerTurn: number;
 }
 
-/** §150.5: env over data. The env switch is a schedule switch over two words, not a classification of any text. */
+/** §151.5: env over data. The env switch is a schedule switch over two words, not a classification of any text. */
 export function narratorOnlySetting(env: Readonly<Record<string, string | undefined>>, budget: NarratorOnlyBudgetShape): NarratorOnlySetting {
   const raw = String(env[NARRATOR_ONLY_ENV] ?? '').trim();
   if (raw === 'on' || raw === 'off') return {on: raw === 'on', source: 'env', proposePerTurn: budget.proposePerTurn};

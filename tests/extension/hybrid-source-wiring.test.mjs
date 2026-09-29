@@ -13,7 +13,7 @@ test('the product launcher selects hybrid when Jev is available and keeps explic
  assert.equal(selectLoopEngine({},'play'),'legacy');
  assert.equal(selectLoopEngine({EXT_JEV_APIKEY:'fixture',PI_COC_TASK_RUNTIME:'1'},'play'),'legacy');
  assert.equal(selectLoopEngine({EXT_JEV_APIKEY:'fixture',PI_COC_LOOP_ENGINE:'legacy'},'play'),'legacy');
- // §150.6: setup is driven too when Jev is available, on its own policy (tests/extension/setup-driven-engine.test.mjs).
+ // §151.6: setup is driven too when Jev is available, on its own policy (tests/extension/setup-driven-engine.test.mjs).
  assert.equal(selectLoopEngine({EXT_JEV_APIKEY:'fixture'},'setup'),'hybrid-v1');
  assert.equal(selectLoopEngine({EXT_JEV_APIKEY:'fixture',PI_COC_LOOP_ENGINE:'legacy'},'setup'),'legacy');
  assert.equal(selectLoopEngine({EXT_JEV_APIKEY:'fixture',PIPIUI_SPAWN_CONTRACT:'v1',PIPIUI_MOUNTED_EXTENSIONS:''},'play'),'legacy');

@@ -1,5 +1,5 @@
 /**
- * §150.2 (spec jev-decides-llm-writes D-B B1-B3, B6) at the reading service's job runner, with a fake runtime and a fake
+ * §151.2 (spec jev-decides-llm-writes D-B B1-B3, B6) at the reading service's job runner, with a fake runtime and a fake
  * kernel whose publication gate refuses exactly what the review refused.
  *
  * Evidence (Blood05, 2026-09-28): on pages 19-20 the review refused 3 of 29 claims (relations the page does not state)
@@ -113,7 +113,7 @@ async function runFixture(t, { author, verdict = () => "supported", missing = ()
 const refuseSailorAtDock = path => path === "/claims/0" ? "unsupported" : "supported";
 const withoutSailorClaim = () => { const draft = candidate(); draft.claims = [draft.claims[1]]; return draft; };
 
-test("§150.2.2 a refusal without missing repairs only the refused record, and the re-review reuses the units nobody touched", async t => {
+test("§151.2.2 a refusal without missing repairs only the refused record, and the re-review reuses the units nobody touched", async t => {
 	const result = await runFixture(t, {
 		author: (_task, _onDisk, pass) => pass === 1 ? candidate() : withoutSailorClaim(),
 		// Round 1 refuses the sailor's relation; the re-review supports everything it is asked.
@@ -139,7 +139,7 @@ test("§150.2.2 a refusal without missing repairs only the refused record, and t
 	assert.equal(result.finishes.at(-1).outcome, "failed", "the finally replay after a publication is unchanged");
 	const repairRow = result.rows.find(row => row.event === "repair");
 	assert.deepEqual([repairRow.repair, repairRow.refused, repairRow.pages], ["targeted", ["/claims/0"], [4]]);
-	// §150.2.4: the job's accounting row.
+	// §151.2.4: the job's accounting row.
 	assert.equal(result.accounting.length, 1);
 	const [spent] = result.accounting;
 	assert.equal(spent.repair, "targeted");
@@ -151,7 +151,7 @@ test("§150.2.2 a refusal without missing repairs only the refused record, and t
 	assert.deepEqual(spent.jev, {});
 });
 
-test("§150.2.2 a targeted repair that changes a record the review did not refuse is refused and the round reads in full", async t => {
+test("§151.2.2 a targeted repair that changes a record the review did not refuse is refused and the round reads in full", async t => {
 	const result = await runFixture(t, {
 		author: (_task, _onDisk, pass) => {
 			if (pass === 1) return candidate();
@@ -178,7 +178,7 @@ test("§150.2.2 a targeted repair that changes a record the review did not refus
 	assert.deepEqual(result.rows.filter(row => row.event === "repair").map(row => [row.repair, row.reason]), [["targeted", undefined], ["full", "targeted_refused"]]);
 });
 
-test("§150.2.2 a review that reports missing material keeps today's full round", async t => {
+test("§151.2.2 a review that reports missing material keeps today's full round", async t => {
 	const result = await runFixture(t, {
 		author: (_task, _onDisk, pass) => pass === 1 ? candidate() : withoutSailorClaim(),
 		verdict: (path, _unit, reads) => reads === 1 ? refuseSailorAtDock(path) : "supported",
@@ -211,7 +211,7 @@ function interrupted(draft, viewed) {
 	};
 }
 
-test("§150.2.3 an interrupted attempt whose draft passes the checker with every required page delivered skips the author", async t => {
+test("§151.2.3 an interrupted attempt whose draft passes the checker with every required page delivered skips the author", async t => {
 	let home;
 	const result = await runFixture(t, {
 		before: async context => { home = context.home; await interrupted(candidate(), [4, 6])(context); },
@@ -231,7 +231,7 @@ test("§150.2.3 an interrupted attempt whose draft passes the checker with every
 	assert.equal(result.accounting[0].author_ms, 0);
 });
 
-test("§150.2.3 one required page the interrupted author never received means the author reads again", async t => {
+test("§151.2.3 one required page the interrupted author never received means the author reads again", async t => {
 	let home;
 	const result = await runFixture(t, {
 		before: async context => { home = context.home; await interrupted(candidate(), [4])(context); },
@@ -247,7 +247,7 @@ test("§150.2.3 one required page the interrupted author never received means th
 	assert.ok(existsSync(join(result.cwd, "read-1.jsonl.images.jsonl")));
 });
 
-test("§150.2.2 the host check: a removed refused node takes its claims and ids with it, and kept pointers follow their records", () => {
+test("§151.2.2 the host check: a removed refused node takes its claims and ids with it, and kept pointers follow their records", () => {
 	const reviewed = { nodes: [node("npc-ghost", "npc", 4), node("scene-dock", "scene", 4), node("npc-keeper", "npc", 6)],
 		claims: [claim("npc-ghost", "present-in", "scene-dock", 4), claim("npc-keeper", "present-in", "scene-dock", 6)],
 		node_refs: ["npc-ghost"], coverage: {}, dependencies: [], ready_nodes: ["npc-ghost", "scene-dock", "npc-keeper"],
@@ -269,7 +269,7 @@ test("§150.2.2 the host check: a removed refused node takes its claims and ids 
 	assert.deepEqual(checkTargetedRepair(reviewed, corrected, ["/nodes/0"]), { ok: true });
 });
 
-test("§150.2.2 only what the publication gate would refuse is repaired; a contest or advisory finding is not a refusal", () => {
+test("§151.2.2 only what the publication gate would refuse is repaired; a contest or advisory finding is not a refusal", () => {
 	const draft = candidate();
 	const row = (path, verdict, extra = {}) => ({ paths: [path], verdict, source_refs: [{ page: 4 }], reason: "r", ...extra });
 	const classification = { classification_fields: { node: ["properties/delivery_kind"] } };

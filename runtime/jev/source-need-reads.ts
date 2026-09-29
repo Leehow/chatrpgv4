@@ -1,5 +1,5 @@
 /**
- * §150.4 (ticket 04): a background read queued from a retained source need locates first, in the native source child.
+ * §151.4 (ticket 04): a background read queued from a retained source need locates first, in the native source child.
  * This module owns the host half of that decision: the `source-need-answered` v1 question over the entity's accepted
  * material, the locate's extra `source_need` facet, the code-only disposition from page leads, and the receipt the
  * reading service settles with. Jev only judges the one closed question; pages, units and gates are code and data.
@@ -112,7 +112,7 @@ export function needAnsweredBatch(need:NeedTask,state:Record<string,unknown>,sco
 }
 
 /**
- * §150.4 steps 2-4 from the locate's need leads, by page arithmetic only. A lead on a page the entity's accepted material
+ * §151.4 steps 2-4 from the locate's need leads, by page arithmetic only. A lead on a page the entity's accepted material
  * was not read from is new; none new is `unlocated`; all new inside units not yet read is `carried`; anything else, or an
  * incomplete page-lead pass, is `read`.
  */

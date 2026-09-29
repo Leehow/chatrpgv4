@@ -112,7 +112,7 @@ test("SL-78: an explicit `shadow` never executes the cleared candidate -- only o
 	assert.equal(h.decisions.filter((batch) => batch.family === CONSEQUENCE_FAMILY).length, 1, "exactly the one turn-close route SL-76 always ran -- byte for byte unchanged by SL-78");
 });
 
-test("§150.1: with no env switch the shipped data default (`jev_steps.shadow: false`) executes a cleared clue_follow_up, and the residual row names the data as its source", async () => {
+test("§151.1: with no env switch the shipped data default (`jev_steps.shadow: false`) executes a cleared clue_follow_up, and the residual row names the data as its source", async () => {
 	const h = harness({ env: {}, decide: (batch) => batch.family === CONSEQUENCE_FAMILY ? clearAllConsequence(batch) : clearNothing(batch) });
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
 	await h.read("s1");
@@ -126,7 +126,7 @@ test("§150.1: with no env switch the shipped data default (`jev_steps.shadow: f
 	assert.equal(residual.steps_mode_source, "data");
 });
 
-test("§150.1 addendum: the consequence route's state carries a failed check this turn as a failed check (the Jev family moves to version 2)", async () => {
+test("§151.1 addendum: the consequence route's state carries a failed check this turn as a failed check (the Jev family moves to version 2)", async () => {
 	const h = harness({ env: {}, decide: (batch) => clearNothing(batch) });
 	h.state.applyOptions = { candidates: [clueRow("globe-fire-cutoff")] };
 	h.state.receipts = [{ id: "roll:persuade-t2-c1", kind: "roll", skill_label: "Persuade", level: "failure", passed: false }];
@@ -138,7 +138,7 @@ test("§150.1 addendum: the consequence route's state carries a failed check thi
 	assert.ok(batch.state.settled_this_run.includes("Persuade check: failure, failed"), JSON.stringify(batch.state.settled_this_run));
 });
 
-test("§150.1: an explicit env switch still wins over the data default and is recorded as the source", async () => {
+test("§151.1: an explicit env switch still wins over the data default and is recorded as the source", async () => {
 	const h = harness({ env: { COC_JEV_STEPS: "on" }, decide: (batch) => batch.family === CONSEQUENCE_FAMILY ? clearAllConsequence(batch) : clearNothing(batch) });
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
 	await h.read("s1");
@@ -225,7 +225,7 @@ test("SL-78 (residual row): `{lane:'residual', turn, keeper_calls, compile_calls
 	assert.equal(residual.consequence_calls, 1, "only the consequence-class execution, not the declared write");
 });
 
-test("SL-78 (residual row): an explicit `shadow`/`off` writes no residual row at all (§150.1: an absent switch now follows the data default, covered above)", async () => {
+test("SL-78 (residual row): an explicit `shadow`/`off` writes no residual row at all (§151.1: an absent switch now follows the data default, covered above)", async () => {
 	for (const env of [{ COC_JEV_STEPS: "shadow" }, { COC_JEV_STEPS: "off" }]) {
 		const h = harness({ env, decide: (batch) => clearNothing(batch) });
 		h.state.applyOptions = { candidates: [clueRow("globe-story")] };

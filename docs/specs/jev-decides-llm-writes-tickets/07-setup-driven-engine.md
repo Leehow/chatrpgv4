@@ -1,5 +1,5 @@
 Status: ready-for-human
-Spec: docs/specs/jev-decides-llm-writes.md D-E · Contract §150.6
+Spec: docs/specs/jev-decides-llm-writes.md D-E · Contract §151.6
 Load the `typesafe-jev` skill first.
 
 # 07 — Setup runs on the driven engine
@@ -12,7 +12,7 @@ Tests at the setup seams (fake decision adapter, fake model steps): a stated cat
 
 ### 2026-09-28 implementation (worker, branch `claude/jev-reach-20260928-07-setup-driven`)
 
-Contract first: §150.6 gained an "Implementation decision" block (engine and entry, one executor, per-step catalogs, route moves, card fields, gates, telemetry, known limit). What changed:
+Contract first: §151.6 gained an "Implementation decision" block (engine and entry, one executor, per-step catalogs, route moves, card fields, gates, telemetry, known limit). What changed:
 
 - **Engine selection** (`runtime/loop-engine.ts`): setup is `hybrid-v1` when `PI_COC_LOOP_ENGINE` is unset or `hybrid-v1`, a Jev key is readable and no S0/TaskRuntime flag is set; otherwise legacy (explicit `legacy`, no key, or explicit `hybrid-v1` without a key). The launcher already hands the child `PI_COC_LOOP_ENGINE`, so the startup record reports `loop_engine: "hybrid-v1"` with `mode: "setup"` and `driver.py --launcher bin/pi-coc-setup --expect-engine hybrid-v1` works without a driver change. `run_start` names policy `coc-setup-v1`.
 - **Entry** (`runtime/pi-hybrid.ts`): `hybridMainOptions(env)` builds the setup engine for `PI_COC_MODE=setup` and the play engine otherwise; setup never reaches the play policy. No new emitted entry.
@@ -23,7 +23,7 @@ Contract first: §150.6 gained an "Implementation decision" block (engine and en
 - **Kernel** (`kernel-ts/setup/catalog.ts`, `sheet.ts`, `drafts.ts`): `setup.catalog` also returns `characteristics: [{abbr, name}]` and marks `listed: false` on Credit Rating and Cthulhu Mythos; `NOT_LISTED_SKILLS` replaces the two literal copies of that pair in drafts/catalog. No behaviour change otherwise; `tsc -p tsconfig.kernel.json` clean.
 - **Inventory**: `runtime/jev/setup-engine.ts#createSetupEngine#createDecisionAdapter` added to `inventory-SL-00.json`/`.md` (app-setup leaf, families, budget, gate, fallback).
 
-Decisions recorded in §150.6 (the ones the spec left open):
+Decisions recorded in §151.6 (the ones the spec left open):
 1. Moves are selected by their own Nouls (D2.1); two cleared moves go to the Keeper (`several_moves`); the exit gets a `continue` option so it is not forced onto the two exits when a move applies (D2.2).
 2. A first card always binds (the kernel needs name, sex, concept, own_language, backstory, key_connection, equipment); no trade bound → compose (ask) unless `delegated` → adjudicate; no name and not delegated → compose.
 3. Named skills: first card → `occupation_skills` in Noul order (the profile's own contract); drawn card → listed ones to the front of their list, unlisted ones to the front of `interest_skills`.
@@ -34,7 +34,7 @@ Decisions recorded in §150.6 (the ones the spec left open):
 Tests (all single files, this Mac):
 - `tests/extension/setup-driven-engine.test.mjs` 12/12 — seam cases: trade outside the catalog → closest catalog occupation + host-copied `occupation_stated` + skills in Noul order + no numbers sent + tools `[setup_card]` then `[]`; catalog occupation on a drawn card → one direct `revise`, one model request with no tool; open field on a drawn card → `setup_card` refuses a closed key with `open_keys`/`bound`, nothing executed, next request has the full tool; a question → adjudicate with `[setup]` and no card-field decision; Jev outage and no Jev → today's full-tool path with no step note; approval → full tool, no `setup.confirm`; listed starter → `choose-source` + `create-campaign` then one tool-less reply; engine selection and `hybridMainOptions`; D2 batch shape and packing at the real catalog's size; `cardPlan` and `interpretRoute` units.
 - `tests/extension/ts-kernel-setup-catalog.test.mjs` 1/1 — bundled TS kernel, `setup.catalog` characteristics and `listed: false`.
-- `tests/extension/launch.test.mjs` — the "setup always legacy" case rewritten for §150.6 (driven with a key; legacy without one or with explicit legacy); 13/15 here, the 2 failures need the full emitted runtime (`build/extensions/...`) and an unrelated `module.reference.status` expectation — both fail the same way without this change.
+- `tests/extension/launch.test.mjs` — the "setup always legacy" case rewritten for §151.6 (driven with a key; legacy without one or with explicit legacy); 13/15 here, the 2 failures need the full emitted runtime (`build/extensions/...`) and an unrelated `module.reference.status` expectation — both fail the same way without this change.
 - `tests/extension/hybrid-source-wiring.test.mjs` 2/2 (setup-with-key assertion updated to `hybrid-v1`).
 - Regression: `setup.test.mjs` 25/25, `setup-source-intake` 2/2, `setup-opening-choice` 5/5, `setup-handoff-and-guidance-retry` 9/9, `setup-player-reasons` 4/4, `jev-setup-input-references` 8/8, `control-flow-inventory` 4/4, `single-loop-run-driver` 4/4, `card-patch` 4/4, `system-language` 5/5, `ui-words` 9/9.
 
@@ -44,11 +44,11 @@ Not done / for the lead:
 - Full suites on the box (`test:ext`, pytest). `tests/kernel/test_setup_card.py` / `test_setup_drafts.py` cover the kernel refactor through the emitted kernel and need `build:runtime` first.
 - `pick_opening` and `load_library` have unit coverage only (the fake kernel has no `investigator.load`, and an opening choice needs the PDF/module preparation path).
 - No live table: acceptance is ticket 08 (cold Blood PDF through `driver.py --launcher bin/pi-coc-setup --expect-engine hybrid-v1`). Gate numbers in `setup_driven` are starting values to calibrate on that table.
-- Known limit (§150.6 decision 8): a delegated card gets no interest skills the player did not name; the card reports interest points left. Owner decision whether to add a per-skill "fits the concept" family.
+- Known limit (§151.6 decision 8): a delegated card gets no interest skills the player did not name; the card reports interest points left. Owner decision whether to add a per-skill "fits the concept" family.
 
 ### 2026-09-28 addendum: `setup-interest-fit` v1 (lead ruling on the delegated-skills limit)
 
-The lead ruled that the known limit is a regression against legacy and that picking interest skills is a closed-set decision, so it goes to Jev. It is recorded as §150.6 decision 9 (decision 8 marked superseded, decision 6 and §150.7 amended) and in the SL-00 inventory note.
+The lead ruled that the known limit is a regression against legacy and that picking interest skills is a closed-set decision, so it goes to Jev. It is recorded as §151.6 decision 9 (decision 8 marked superseded, decision 6 and §151.7 amended) and in the SL-00 inventory note.
 
 **When it runs.** Only when the player delegated the card or its skills. That is the card-fields family's `delegated` Noul or a new `delegated_skills` Noul. The card must also still have interest points left once written, taken from the kernel's `budget.interest.unspent` on a fresh read.
 
@@ -101,7 +101,7 @@ Test 1 now expects the three families.
 
 **Cause.** `legalMoves` withheld `card_fields` while `brief_holds && !card`, and nothing else was legal. On the real kernel this happens on every freshly created campaign with the default package: I checked a real read (`the-haunting`, zh-Hans) and the brief holds at the player's first description.
 
-**Fix** (recorded as §150.6 decision 10; decision 4's move list amended):
+**Fix** (recorded as §151.6 decision 10; decision 4's move list amended):
 - `draft_now` is a new move, issued while the brief holds and no card exists. Its Noul asks whether the player wants the card now, wants the questions to stop, or hands the rest to the Keeper.
 - When it clears, the host records the brief's own `stop` note (§26's record of the player ending the exchange, with the player's input as written). The unchanged card-field path follows: fields, bind, direct, interest fit, compose.
 - A plain answer to a brief question stays `ask_llm`, and the Keeper notes it and asks the next question.
@@ -124,7 +124,7 @@ Test 1 now expects the three families.
 
 ### 2026-09-29 fix: holds, interest gate, skill rows, exact reply (live acceptance `jev-accept-blood-03`)
 
-**Context.** The lead's second live read went through: `draft_now` 0.87, Journalist 0.99, `occupation_stated` copied, 2 model steps, 29.6 s, no refusals. It surfaced three defects plus a reply-accuracy gap. All are recorded as §150.6 decision 11.
+**Context.** The lead's second live read went through: `draft_now` 0.87, Journalist 0.99, `occupation_stated` copied, 2 model steps, 29.6 s, no refusals. It surfaced three defects plus a reply-accuracy gap. All are recorded as §151.6 decision 11.
 
 1. **A player's hold was overridden.** The player said 「驾驶保留基础值」, but the interest fit picked Drive Auto (0.67) and the spread raised it 20 → 55.
    - Fix: the fit's state now carries `player_input`, and the same fan-out adds one hold row per candidate: "Did the player, in player_input, ask to keep the skill <label (name)> at its starting value, or not to raise it?". A skill whose hold row clears is never picked and is reported as `held`.

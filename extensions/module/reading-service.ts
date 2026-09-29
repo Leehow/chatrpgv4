@@ -122,7 +122,7 @@ interface Dependencies {
 	 * before `module.read.finish`, so the minutes land in the same generation; never a reason to fail the reading.
 	 */
 	travel?(input: PublicationTravel): Promise<TravelFill | undefined>;
-	/** §150.3: the Jev claim-support check of the verify phase (`createClaimSupport`); absent, every fact unit goes to vision. */
+	/** §151.3: the Jev claim-support check of the verify phase (`createClaimSupport`); absent, every fact unit goes to vision. */
 	claimSupport?(request: ClaimSupportRequest): Promise<ClaimSupportCheck | undefined>;
 	model(): { id: string; vision: boolean; thinking?: string; contextWindow?: number };
 	progress(row: Row): void;
@@ -240,7 +240,7 @@ function providerFailure(run: ReaderOutcome, shared: boolean): { error: KernelEr
 /** §22.3.3 (SL-57): what a reader re-reading a refused focus is told (system language). */
 export const REVIEW_RETRY_ASK = "An earlier reading of this focus was refused at independent review: task.review_retry.refused lists each refused field "
 	+ "with the reviewer's reason. Re-read the pages those fields came from and write only what the pages state; correct or drop what they do not.";
-/** §150.4: what a unit reader is told about the retained source needs located inside its pages (system language). */
+/** §151.4: what a unit reader is told about the retained source needs located inside its pages (system language). */
 export const CARRIED_NEEDS_ASK = "task.carried_needs lists open source questions about known entities whose located pages fall inside your assigned pages. "
 	+ "Answer each one from those pages only, as ordinary records with source_refs, when the pages state it; add nothing for a question they do not answer.";
 function refusedReading(params: Row, refusal: Row, fix: string): KernelError {
@@ -927,7 +927,7 @@ export class ReadingService implements ReadingBridge {
 		}
 		await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 		const observations: Row = { file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] };
-		// §150.2.4: what this run spends, written once as the job's `job_accounting` row.
+		// §151.2.4: what this run spends, written once as the job's `job_accounting` row.
 		const accounting = readingAccounting();
 		let readComplete = false;
 		if (job.resume_from) {
@@ -942,7 +942,7 @@ export class ReadingService implements ReadingBridge {
 					let checkpoint: Row | undefined;
 					try { checkpoint = JSON.parse(await readFile(join(job.resume_from, "read-complete.json"), "utf8")); }
 					catch (failure) { if ((failure as NodeJS.ErrnoException).code !== "ENOENT") throw failure; }
-					// §150.2.3: an interrupted author left a draft but no checkpoint; salvage it before paying for the author again.
+					// §151.2.3: an interrupted author left a draft but no checkpoint; salvage it before paying for the author again.
 					if (!checkpoint) {
 						const bytes = await readFile(join(cwd, "draft.json"));
 						let draft: unknown;
@@ -1028,9 +1028,9 @@ export class ReadingService implements ReadingBridge {
 			for (let round = 1; round <= lastRound && !signal.aborted; round++) {
 				let phaseCompleted = false;
 				let publishing = false;
-				// §150.2.1: the plan of the review this round's read repairs, so the re-review keeps its surviving units.
+				// §151.2.1: the plan of the review this round's read repairs, so the re-review keeps its surviving units.
 				let previousPlan: ReviewPlan | undefined;
-				// §150.2.2: a targeted repair the host refused this round; the round's read runs again as today's full repair.
+				// §151.2.2: a targeted repair the host refused this round; the round's read runs again as today's full repair.
 				let targetedRefused = false;
 				try {
 					const phases: Array<"index" | "index-audit" | "read" | "verify"> = job.purpose === "index" ? (readComplete ? [] : ["index", "index-audit"]) : (readComplete ? ["verify"] : ["read", "verify"]);
@@ -1053,7 +1053,7 @@ export class ReadingService implements ReadingBridge {
 								if(!guidanceProjection)task.repair = { draft: "draft.json", baseline: "baseline.json", findings: JSON.parse(await readFile(join(cwd, "findings.json"), "utf8").catch(() => "{}")) };
 								await writeFile(join(cwd, "task.json"), JSON.stringify(task, null, 2) + "\n");
 							} catch { /* the first draft has not been written */ }
-							// §150.2.2: this read repairs a reviewed candidate. A review of exactly this candidate that refused specific
+							// §151.2.2: this read repairs a reviewed candidate. A review of exactly this candidate that refused specific
 							// records and missed nothing makes it a targeted repair of those records; anything else is today's full round.
 							if (previousDraft && !guidanceProjection && ["opening", "detail"].includes(job.purpose)) {
 								const reviewed = await reviewOfCandidate([cwd, ...(job.resume_from ? [job.resume_from] : [])], previousDraft);
@@ -1111,7 +1111,7 @@ export class ReadingService implements ReadingBridge {
 							const reviewScope=await guidanceReviewPages(cwd,task,job.source.file_sha256,job.source.page_count,
 								job.purpose==='guidance'||job.opening_scope==='first_interaction'?draftPages(candidate):observations.read_pages);
                             if(job.source_unit)for(const page of job.pages??[])if(!reviewScope.includes(page))reviewScope.push(page);
-							// §150.3: the Jev claim check asks before the vision units run and merges its rows after they finish.
+							// §151.3: the Jev claim check asks before the vision units run and merges its rows after they finish.
 							let claimCheck = undefined as ClaimSupportCheck | undefined;
 							const claimSupport = this.deps.claimSupport && (async (units: string[][]) => (claimCheck = await this.deps.claimSupport!({ cwd, round,
 								module: job.module_id, job: job.job_id, ...(campaign !== undefined ? { campaign } : {}), source: { file_sha256: job.source.file_sha256 },
@@ -1147,7 +1147,7 @@ export class ReadingService implements ReadingBridge {
 						const sourcePages = new Set<number>();
 
 						const reads = new Map<string, string>();
-						// §150.2.2: a targeted pass keeps its own logs, so a full read that follows it in the round counts only its own pages.
+						// §151.2.2: a targeted pass keeps its own logs, so a full read that follows it in the round counts only its own pages.
 						const eventLog = join(cwd, `${phase}-${round}${targeted ? "-targeted" : ""}.jsonl`);
 						const sourceRunStartedAt=Date.now();
 						publicProgress('searching');
@@ -1194,7 +1194,7 @@ export class ReadingService implements ReadingBridge {
 							} catch (failure) { pageLogFailure = failure; }
 						}
 						const pagesRead = [...new Set(rows.map(row => row.page))];
-						// §150.4: a background need read's decision, read before the row is written so the row can name it.
+						// §151.4: a background need read's decision, read before the row is written so the row can name it.
 						let need: NeedReceipt | undefined, needFailure: unknown;
 						if (run.ok && phase === "read" && task.source_need)
 							try { need = await readNeedReceipt({cwd, command: run.command, startedAt: sourceRunStartedAt, key: task.source_need.key}); }
@@ -1206,7 +1206,7 @@ export class ReadingService implements ReadingBridge {
 							...(need ? { need_disposition: need.disposition } : {}) });
 						overrunRows(run, phase, round);
 						accounting.author_ms += Number.isFinite(run.ms) ? run.ms : 0;
-						// §150.2.4 + §150.4: the job row names the need read's disposition (a marked job with no receipt read).
+						// §151.2.4 + §151.4: the job row names the need read's disposition (a marked job with no receipt read).
 						if (task.source_need && phase === "read" && run.ok) accounting.need = need?.disposition ?? "read";
 						// §20 addendum 2: the reader's cost per page of this book, measured, for the next stage's lease.
 						if (run.usage) await appendFile(join(cwd, "usage.jsonl"), JSON.stringify({ job_id: job.job_id, phase, round, ok: run.ok && !pageLogFailure,
@@ -1221,7 +1221,7 @@ export class ReadingService implements ReadingBridge {
 						}
 						if (!run.ok) throw new Error(run.error || (run.timedOut ? "reader timed out" : run.stderr || "reader failed"));
 						if (needFailure) throw needFailure;
-						// §150.4: answered, unlocated or carried settles the attempt without an author; `read` goes on as today.
+						// §151.4: answered, unlocated or carried settles the attempt without an author; `read` goes on as today.
 						if (need) {
 							const decided = { disposition: need.disposition, ...(need.distribution ? { distribution: need.distribution, gate: need.gate } : {}),
 								...(need.units ? { units: need.units } : {}), ...(need.evidence ? { evidence: need.evidence } : {}) };
@@ -1240,7 +1240,7 @@ export class ReadingService implements ReadingBridge {
 							publicProgress('found');
 						}
 						if (pageLogFailure) throw pageLogFailure;
-						// §150.2.2: the host's check of a targeted repair. Any record the review did not refuse that changed refuses the
+						// §151.2.2: the host's check of a targeted repair. Any record the review did not refuse that changed refuses the
 						// repair: the reviewed candidate is put back and this round's read runs again as today's full repair.
 						if (targeted) {
 							const verdict = checkTargetedRepair(previousDraft!, JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")), targeted.roots);
@@ -1373,7 +1373,7 @@ export class ReadingService implements ReadingBridge {
 				}
 			}
 		} finally {
-			// §150.2.4: one row per job run with what it spent, whatever ended it.
+			// §151.2.4: one row per job run with what it spent, whatever ended it.
 			try {
 				await tallyChildJev(accounting, cwd);
 				this.deps.record({ lane: "reading", event: "job_accounting", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose,

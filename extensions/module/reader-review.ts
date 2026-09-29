@@ -84,7 +84,7 @@ function batchGroups(draft: Row, groups: Map<string, Set<string>>, maxPageUnion?
 }
 
 /**
- * Contract §150.2.1: what one verify round reviewed, unit by unit, and which candidate and review it belongs to.
+ * Contract §151.2.1: what one verify round reviewed, unit by unit, and which candidate and review it belongs to.
  * `roots` are a fact unit's record roots in unit order and `records` the digests of those records exactly as written;
  * a unit over non-record paths (`/coverage`) has neither. Written by the reviewer beside `review.json`.
  */
@@ -125,7 +125,7 @@ function movePaths(paths: unknown[], from: string[], to: string[]): string[] | u
 	return moved;
 }
 /**
- * Contract §150.2.1: a retained review of a fact unit, its rows moved from the record positions it was written against to
+ * Contract §151.2.1: a retained review of a fact unit, its rows moved from the record positions it was written against to
  * the positions the same records hold now. A path outside the unit's records is not this unit's evidence (its record is
  * not in the identity, so it may have changed since): it is dropped, and that record's own unit answers for it. Only an
  * approved review is ever retained, so what is dropped is never a refusal.
@@ -143,7 +143,7 @@ function moveReview(review: Row, from: string[], to: string[]): Row | undefined 
 }
 
 /**
- * Contract §150.2.1: the units of this candidate, keeping the grouping a previous round's plan gave to records that are
+ * Contract §151.2.1: the units of this candidate, keeping the grouping a previous round's plan gave to records that are
  * still here byte-identical. Without that, deleting one refused claim shifts every later claim into another batch and
  * no unit's records match the unit that reviewed them. A previous unit is carried only when every one of its records is
  * still present and still owes exactly the pointers it owed then; everything else (changed, new or orphaned records,
@@ -273,7 +273,7 @@ function approved(review: Row, guidance: boolean, policy:Row={}): boolean {
 		&& (!guidance || moduleGuidanceApproved(review.guidance,policy));
 }
 /**
- * `fact` (contract §150.2.1): a fact unit's record roots and connected-context digests now. A fact unit's entry keeps
+ * `fact` (contract §151.2.1): a fact unit's record roots and connected-context digests now. A fact unit's entry keeps
  * the roots it was reviewed under, and its rows are moved to the current ones; it keeps the digests of the connected
  * records its reviewer saw, and is reused only when every connected record now is one of them, unchanged. A connected
  * record removed since cannot turn the unit's own supported records unsupported (a removal is what refused records
@@ -376,7 +376,7 @@ export function detailReviewInput(task: Row, draft: Row, paths: string[]): Row {
 }
 
 /**
- * Round bookkeeping (§150.2.1): what a repair round tells its author, never what a reviewer judges. A review identity
+ * Round bookkeeping (§151.2.1): what a repair round tells its author, never what a reviewer judges. A review identity
  * that included them missed on every repair round even for records nobody touched.
  */
 const ROUND_BOOKKEEPING = ['commands', 'repair', 'must_view_pages', 'review_retry'];
@@ -385,7 +385,7 @@ function withoutBookkeeping(task: Row): Row {
 }
 
 /**
- * Contract §150.2.1: the review cache identity of one fact unit. It is what the unit's reviewer judges and nothing else:
+ * Contract §151.2.1: the review cache identity of one fact unit. It is what the unit's reviewer judges and nothing else:
  * the protocol and instruction version, the bound source and its native extraction version, the model, the hot task
  * fields the focused input carries (purpose, policy, focus, question, classification fields, ...), the unit's records
  * exactly as written with the pointers each owes (relative to its record, so a record that moved is the same record),
@@ -421,15 +421,15 @@ export async function reviewCandidate(options: {
 	cwd: string; task: Row; draft: Row; instructions: string; round: number;
 	model: { id: string; thinking?: string }; source: { pdf: string; cache: string; file_sha256?: string }; signal: AbortSignal;
 	cacheRoot?: string; reviewVersion?: string;
-	/** §150.2.1: the bound source's native extraction version, part of every fact unit's identity. */
+	/** §151.2.1: the bound source's native extraction version, part of every fact unit's identity. */
 	extractionVersion?: string;
-	/** §150.2.1: the plan of the round that reviewed this candidate's predecessor; its surviving units keep their grouping. */
+	/** §151.2.1: the plan of the round that reviewed this candidate's predecessor; its surviving units keep their grouping. */
 	previousPlan?: ReviewPlan;
 	run: (request: ReaderRequest) => Promise<ReaderOutcome>;
 	record(row: Row): void; progress(row: Row): void;
 	/** Test seam: the waits between transport retries, in order. Production uses `TRANSPORT_BACKOFF_MS`. */
 	transportBackoffMs?: number[];
-	/** §150.3: asked with the fact units before any reviewer runs; the paths it returns are not sent to a vision reviewer. */
+	/** §151.3: asked with the fact units before any reviewer runs; the paths it returns are not sent to a vision reviewer. */
 	claimSupport?(units: string[][]): Promise<ReadonlySet<string> | undefined>;
 }): Promise<number[]> {
 	const backoff = options.transportBackoffMs ?? TRANSPORT_BACKOFF_MS;
@@ -438,7 +438,7 @@ export async function reviewCandidate(options: {
 	const publicFields=publicBytes?validatePublicGuidance(JSON.parse(publicBytes),options.task.source.page_count):undefined;
 	const answerTask = options.task.purpose === 'answer';
 	const candidateBytes = guidanceBytes || answerTask ? await readFile(join(options.cwd,"draft.json")) : Buffer.from(JSON.stringify(options.draft));
-	// The whole-candidate identity, unchanged (§150.2.1): guidance and answer reviews (one unit over the whole artifact) and
+	// The whole-candidate identity, unchanged (§151.2.1): guidance and answer reviews (one unit over the whole artifact) and
 	// `/coverage`. It still carries the round's bookkeeping, so a repair round re-reviews an unchanged candidate there.
 	const {commands: _commands, ...semanticTask} = options.task;
 	const cached = !!options.cacheRoot && !!options.source.file_sha256;
@@ -448,10 +448,10 @@ export async function reviewCandidate(options: {
 	const guidancePaths=[...new Set([...reviewUnits(options.draft,[],undefined,moduleLogicReview(options.task)).flat(),...(Array.isArray(options.task.required_review)?options.task.required_review:[])])];
 	const units = answerTask ? [['/status', '/answer', '/source_refs', '/limitations']] : guidanceBytes ? [guidancePaths]
 		: carriedReviewUnits(options.draft,options.task.required_review??[],moduleLogicReview(options.task)||options.task.opening_scope==='first_interaction'?4:undefined,moduleLogicReview(options.task),options.previousPlan), results: Row[] = [], observed = new Set<number>();
-	// §150.3: a record the Jev claim check cleared (`on` mode) is not sent to a vision reviewer; a unit left empty is not run.
+	// §151.3: a record the Jev claim check cleared (`on` mode) is not sent to a vision reviewer; a unit left empty is not run.
 	const cleared = options.claimSupport && !answerTask && !guidanceBytes ? await options.claimSupport(units.map(paths => [...paths])) : undefined;
 	if (cleared?.size) units.splice(0, units.length, ...units.map(paths => paths.filter(path => !cleared.has(path))).filter(paths => paths.length));
-	// §150.2.1: a fact unit is keyed by its own records; its connected context need only be a subset of what the reviewer saw.
+	// §151.2.1: a fact unit is keyed by its own records; its connected context need only be a subset of what the reviewer saw.
 	const unitKey = (paths: string[]): {key: string; fact?: {roots: string[]; context: string[]}} | undefined => {
 		if (!cached) return undefined;
 		const fact = answerTask || guidanceBytes ? undefined : reviewUnitIdentity({version:options.reviewVersion, source:options.source.file_sha256!,
@@ -613,7 +613,7 @@ export async function reviewCandidate(options: {
 			guidance_sha256: createHash("sha256").update(guidanceBytes).digest("hex")}} : {}),
 	}) + "\n";
 	await writeFile(join(options.cwd, "review.json"), reviewBytes);
-	// §150.2.1/§150.2.2: which candidate this review judged, and how it was grouped, for the round that repairs it.
+	// §151.2.1/§151.2.2: which candidate this review judged, and how it was grouped, for the round that repairs it.
 	if (!guidanceBytes && !answerTask) {
 		const plan: ReviewPlan = {version:1, candidate_sha256:candidateDigest(options.draft), review_sha256:digest(reviewBytes), units:units.map(paths => planUnit(options.draft, paths))};
 		await writeFile(join(options.cwd, REVIEW_PLAN_FILE), JSON.stringify(plan) + "\n");

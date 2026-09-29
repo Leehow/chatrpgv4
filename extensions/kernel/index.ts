@@ -1394,7 +1394,7 @@ export default function (pi: ExtensionAPI) {
 	});
 	/**
 	 * §135.31: the run step each model tool call came from, announced by the single-loop engine just before it runs.
-	 * §150.5: with the narrator-only setting on, the engine also announces a call its step's catalog does not admit
+	 * §151.5: with the narrator-only setting on, the engine also announces a call its step's catalog does not admit
 	 * (`refuse`, the sentence the Keeper reads, and `refuse_code`); the tool gate refuses it before anything runs.
 	 */
 	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string }>();
@@ -5186,7 +5186,7 @@ export default function (pi: ExtensionAPI) {
 			pi.appendEntry("coc-session", {campaign, home: cocHome(ctx.cwd), play_language: table.playLanguage, mode: "play"});
 			// The startup record: which run engine and which Pi this table runs on (single-loop spec, story 35).
 			void record(startupRecord(runtime.resourceRoot, process.env) as unknown as Record<string, unknown>);
-			// The tool surface is fixed: these seven and no reshaping afterwards (§150.5: with the narrator-only setting on, the
+			// The tool surface is fixed: these seven and no reshaping afterwards (§151.5: with the narrator-only setting on, the
 			// hybrid engine adds its `propose` once, after this; nothing is ever removed).
 			pi.setActiveTools([...COC_TOOL_NAMES]);
 			const originalSourceAvailable=readingModule?await kernel.call<Record<string,unknown>>('module.reference.status',{module_id:readingModule,campaign})
@@ -5945,7 +5945,7 @@ export default function (pi: ExtensionAPI) {
 			// narrate seventeen times (§77).
 			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? TURN_CLOSED_STOP : TURN_CLOSED_REASON };
 		}
-		// §150.5: a model call the single-loop engine announced outside its step's catalog (a narrowed compose step's, or after
+		// §151.5: a model call the single-loop engine announced outside its step's catalog (a narrowed compose step's, or after
 		// an accepted `propose` in the same response) is refused here, before admission, a call id or a kernel read. It is the
 		// step's structure, never the Keeper's misuse of parameters, so it strikes no refusal class: the same verb is the
 		// Keeper's own again on an adjudicate step of the same turn.

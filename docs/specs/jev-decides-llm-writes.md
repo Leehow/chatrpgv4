@@ -3,7 +3,7 @@
 Status: implemented on `claude/jev-reach-20260928`; live acceptance recorded in ticket 08 (A, B1–B3, B5, C, D-as-setting, E accepted; B4 shadow by its pre-registered bar)
 Date: 2026-09-28
 Baseline: `0.9.6a` at `bc3979088`. Integration branch: `claude/jev-reach-20260928`.
-Contract: §150 of `docs/kernel-rpc.md` (written with this spec, before code). Links: §22.2–§22.4.8, §135.32, §147–§149.
+Contract: §151 of `docs/kernel-rpc.md` (written with this spec, before code). Links: §22.2–§22.4.8, §135.32, §147–§149.
 Related specs: `jev-driven-steps.md` (Stage 2/3, D4–D6 acceptance lines stay binding), `jev-pdf-demand-reading.md` (D4/D5/D8), `pi-native-single-loop.md` (clerk/boss rulings).
 Load the `typesafe-jev` skill before writing or reviewing any Jev question in this spec.
 
@@ -118,7 +118,7 @@ B4. **Jev claim-support check.** A new decision family, `source-claim-support` v
 - Jev never refuses. A non-cleared claim goes to the vision reviewer exactly as today. A Jev outage or packing refusal equals `off` for that fragment.
 - **Calibration** is an offline replay tool over the retained labeled verdicts in a named home: triples of claim, cited page native text and the vision reviewer's verdict. It reports, per (S, C) grid point, the cleared share of `supported` verdicts and the cleared count and rate among negative verdicts (`unsupported`, `contradicted`, `unclear`). Live Jev calls are allowed; they are cheap.
 - **Pre-registered bar to ship `on`.** At the chosen (S, C): cleared negatives ≤ 1 and ≤ 1% of negatives, and cleared share of `supported` ≥ 50%. If no grid point meets it, the default stays `shadow`, and the report and this spec record the failure.
-- **Publication gate.** The kernel's gate accepts a `reviewer: "jev"` row only for eligible paths, with a matching page text digest and extraction version for the bound source, and only for paths no vision reviewer marked negative. This is the evidence-standard amendment §150 records: for text-only claims, a Jev-checked exact native text match is evidence; images, maps, coverage and visual-only facts keep the vision standard.
+- **Publication gate.** The kernel's gate accepts a `reviewer: "jev"` row only for eligible paths, with a matching page text digest and extraction version for the bound source, and only for paths no vision reviewer marked negative. This is the evidence-standard amendment §151 records: for text-only claims, a Jev-checked exact native text match is evidence; images, maps, coverage and visual-only facts keep the vision standard.
 
 B5. **Need-driven reads locate first.** For a background `detail` read queued from a retained source need (not a player or Keeper request):
 - **Answered-already check.** Before any reader runs, one Jev Noul asks whether the entity's accepted published claims and nodes already answer the need's question. At or above its data gate, the need is resolved without reading (`resolved_by: "accepted_material"`, with the distribution) through the existing resolved-needs path.
@@ -225,7 +225,7 @@ E6. **Fallback and accounting.**
 
 ### Inventory and contract
 
-Every new Jev call site is added to the Jev inference inventory with owner, family, version, budget, gate and fallback: `source-claim-support`, `source-need-answered`, plus the setup families. Contract §150 records A–E, including the B4 evidence amendment and the setup policy.
+Every new Jev call site is added to the Jev inference inventory with owner, family, version, budget, gate and fallback: `source-claim-support`, `source-need-answered`, plus the setup families. Contract §151 records A–E, including the B4 evidence amendment and the setup policy.
 
 ## Testing Decisions
 
@@ -236,7 +236,7 @@ Every new Jev call site is added to the Jev inference inventory with owner, fami
   - B4: the reviewer and publication gate with a fake decision adapter. Prior art: the source-reader-driver tests' fake adapter and the Jev audit reference tests. The kernel publication gate through the TS kernel module tests. Calibration is a script run on the Mac (live Jev); its output is evidence, not a unit test.
   - B5: the kernel read-ahead and request path in the TS kernel module tests, plus the source driver's locate with a fake adapter.
   - C: the report's own test with fixture telemetry, including an App-home layout.
-  - E: the setup driver seam (see §150.5) with a fake decision adapter and the existing setup tests.
+  - E: the setup driver seam (see §151.5) with a fake decision adapter and the existing setup tests.
 - **Suites:** `test:ext`, `test:loop` and pytest run on leehow-pc only. The Mac runs single files, live Jev calibration, and real tables.
 - **Acceptance:** real tables through `tests/play/driver.py` with the main session as the only player:
   - (a) A Blood PDF import measured before and after for background author/review/reuse/salvage/need dispositions, same model and settings.
@@ -259,4 +259,4 @@ Every new Jev call site is added to the Jev inference inventory with owner, fami
 
 ## Comments
 
-- 2026-09-29, B4 calibration (ticket 03): **the §150.3.1 bar was not met; `source_claim_support.mode` stays `shadow`.** Live replay of the retained verdicts of this checkout (186 fact rounds, 3,460 eligible record instances, 2,184 unique claims = 2,130 supported + 54 negative, $0.15): at zero cleared negatives the best point (S 0.8, C 0.1) clears 15.8 % of the supported claims; every point clearing ≥ 50 % also clears 6–9 negatives (≥ 11 %). Claims clear better (24.6 %) than node records (npc/scene/location medians 0.27–0.38), whose reader-derived fields no page states literally. Numbers, grid and method in `jev-decides-llm-writes-tickets/03-jev-claim-support.md`; evidence `.pi/jev-claim-calibration-20260929/` of the ticket's worktree. A redesign needs a new pre-registered bar and a held-out split.
+- 2026-09-29, B4 calibration (ticket 03): **the §151.3.1 bar was not met; `source_claim_support.mode` stays `shadow`.** Live replay of the retained verdicts of this checkout (186 fact rounds, 3,460 eligible record instances, 2,184 unique claims = 2,130 supported + 54 negative, $0.15): at zero cleared negatives the best point (S 0.8, C 0.1) clears 15.8 % of the supported claims; every point clearing ≥ 50 % also clears 6–9 negatives (≥ 11 %). Claims clear better (24.6 %) than node records (npc/scene/location medians 0.27–0.38), whose reader-derived fields no page states literally. Numbers, grid and method in `jev-decides-llm-writes-tickets/03-jev-claim-support.md`; evidence `.pi/jev-claim-calibration-20260929/` of the ticket's worktree. A redesign needs a new pre-registered bar and a held-out split.

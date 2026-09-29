@@ -5,7 +5,7 @@ import {readJevApiKey} from '../extensions/jev/agent/config.js';
  * - `legacy` (explicit control or no available Jev credential): Pi's model-first loop, exactly as before;
  * - `hybrid-v1`: Pi's RunDriver (vendored agent-core, ADR-0006) started through `runtime/pi-hybrid.ts`, with the
  *   product's step policy and ports for play (`runtime/jev/hybrid-engine.ts`) and, for a setup session, the setup
- *   policy `coc-setup-v1` and its own ports (`runtime/jev/setup-engine.ts`, contract §150.6). Setup never runs the
+ *   policy `coc-setup-v1` and its own ports (`runtime/jev/setup-engine.ts`, contract §151.6). Setup never runs the
  *   play policy: that one needs a world `setup.confirm` has not created yet.
  *
  * Setup runs driven only when a Jev credential is readable: with none there is nothing to drive it, so even an
@@ -29,6 +29,6 @@ export function selectLoopEngine(env: Readonly<NodeJS.ProcessEnv>, mode: 'play' 
   if (!(LOOP_ENGINES as readonly string[]).includes(requested))
     throw new Error(`PI_COC_LOOP_ENGINE must be one of ${LOOP_ENGINES.join(', ')}; got ${requested}`);
   if (mode === 'play') return requested as LoopEngine;
-  // §150.6: a setup session is driven with Jev available and no explicit legacy switch; otherwise legacy as before.
+  // §151.6: a setup session is driven with Jev available and no explicit legacy switch; otherwise legacy as before.
   return requested === 'hybrid-v1' && jev && !privateLegacy ? 'hybrid-v1' : 'legacy';
 }

@@ -362,7 +362,7 @@ test("bin/pi-coc：不写 setup 就是开桌，模式是 play", (t) => {
 /**
  * PI_COC_LOOP_ENGINE (single-loop SL-01): hybrid-v1 starts the same Pi arguments through the hybrid
  * entry (the vendored Pi's main plus the RunDriver); unset or legacy starts the vendored CLI as before;
- * setup runs driven only with a Jev key and no explicit legacy (contract §150.6); any other value is
+ * setup runs driven only with a Jev key and no explicit legacy (contract §151.6); any other value is
  * refused. The child is told the engine it runs.
  */
 function withHybridEntry(root) {
@@ -390,7 +390,7 @@ test("PI_COC_LOOP_ENGINE: hybrid-v1 starts the hybrid entry with the legacy argu
 	assert.deepEqual(hybrid.args, legacy.args, "the engine changes the entry, not a single Pi argument");
 });
 
-test("PI_COC_LOOP_ENGINE: setup runs driven with a Jev key and no explicit legacy, legacy otherwise, and an unknown engine is refused (§150.6)", (t) => {
+test("PI_COC_LOOP_ENGINE: setup runs driven with a Jev key and no explicit legacy, legacy otherwise, and an unknown engine is refused (§151.6)", (t) => {
 	const root = withHybridEntry(fakeRepo());
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	const noKey = { EXT_JEV_APIKEY: "", TYPESAFE_API_KEY: "" };

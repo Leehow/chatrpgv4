@@ -163,7 +163,7 @@ export async function materializeSetupInputs(catalog:SetupInputCatalog,input:{ca
     }
     return {values,envelope:{version:1,protocol:SETUP_INPUT_PROTOCOL,epoch:input.inputKey,scope,snapshot:structuredClone(catalog.snapshot),bindings}};
 }
-/** §150.6: the host's copy of an issued input selection -- the player's own words for a field the Keeper selects and
+/** §151.6: the host's copy of an issued input selection -- the player's own words for a field the Keeper selects and
  * never retypes (`occupation_stated`). The same word trim a name range gets, no Jev boundary check and no binding:
  * the copied string is an ordinary profile value. A generated form, a stale epoch or a foreign alias is refused. */
 export async function copySetupInputSelection(catalog:SetupInputCatalog,input:{campaign:string;inputKey:string;selection:unknown}):Promise<string> {

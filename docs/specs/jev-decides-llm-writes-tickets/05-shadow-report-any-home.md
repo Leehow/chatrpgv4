@@ -113,7 +113,7 @@ added Jev ms per turn (mean over the turns that made a shadow call; each table m
 
 Findings: (a) `clue_follow_up` reads 26/29 = 0.897, just under the 0.90 line, and one table (`time-skip-b`) has 2 false positives; the executing tables no longer distort it (recall 26/37 = 0.70 over the 19 shadow-only tables is information only); (b) `npc_reaction` precision is 4/14 = 0.286 with 15 label/handle artifacts already read as the Keeper's action, two tables with 3 and 2 false positives, recall 4/19; (c) `time_cost` has never produced a candidate row on any of the 27 tables, so it has no evidence; (d) one table (`longgate17-haunting-0831`) is over the 1.5 s line (mean 1708 ms) and turns every class's cost line NOT MET; every other table is under.
 
-**Not done / notes for the lead.** No live Jev or model calls. `docs/kernel-rpc.md` is unchanged (the first commit added an Implementation-decision paragraph under section 150.1; this revision removes it, per the coordinator). The reading rules live in `docs/specs/jev-decides-llm-writes.md` D-C and the script docstring. One pytest file, no kernel build needed; include `tests/play/test_jev_steps_report.py` in the full-suite run on the box.
+**Not done / notes for the lead.** No live Jev or model calls. `docs/kernel-rpc.md` is unchanged (the first commit added an Implementation-decision paragraph under section 151.1; this revision removes it, per the coordinator). The reading rules live in `docs/specs/jev-decides-llm-writes.md` D-C and the script docstring. One pytest file, no kernel build needed; include `tests/play/test_jev_steps_report.py` in the full-suite run on the box.
 
 ### Addendum: "executed steps not in the prose" (D6 2b), added on the coordinator's request
 

@@ -1,5 +1,5 @@
 /**
- * The two Jev families of the driven setup run (contract §150.6, spec `jev-decides-llm-writes.md` D-E):
+ * The two Jev families of the driven setup run (contract §151.6, spec `jev-decides-llm-writes.md` D-E):
  *
  * - `setup-input-route` v1: what the player's latest input does, over the setup moves the host issues as legal now
  *   (one Noul per move, the `ask_llm | none_of_above` exit Choice, and a target Choice for a move that needs one);
@@ -26,7 +26,7 @@ type Row = Record<string, any>;
 
 // ---- Gates (data) --------------------------------------------------------------------------------------------
 
-/** `setup_driven` in `content/rulesets/coc7/host-budgets.json` (§150.6 decision 6). */
+/** `setup_driven` in `content/rulesets/coc7/host-budgets.json` (§151.6 decision 6). */
 export interface SetupDrivenBudget {
   /** A Noul clears at `yes >= rowMin` ... */
   rowMin: number;
@@ -78,7 +78,7 @@ export function resetSetupDrivenBudgetCache(): void { cached = undefined; }
 
 // ---- The setup read ------------------------------------------------------------------------------------------
 
-/** What the onboarding extension's `read()` returns (§150.6 Read): the setup state, the catalog, the latest input. */
+/** What the onboarding extension's `read()` returns (§151.6 Read): the setup state, the catalog, the latest input. */
 export interface SetupRead {
   ready: boolean;
   blocked: {kind: string; code?: string} | null;
@@ -134,7 +134,7 @@ export const SETUP_MOVES = ['choose_source', 'pick_opening', 'card_fields', 'dra
 export type SetupMove = typeof SETUP_MOVES[number];
 
 /**
- * The moves the read issues as legal now (§150.6 decisions 4 and 10), and every condition that withheld one --
+ * The moves the read issues as legal now (§151.6 decisions 4 and 10), and every condition that withheld one --
  * `<move>:<condition>`, structural names only -- so a run that offers nothing says why (the setup `run` row's
  * `withheld`). A move whose target list is empty is not issued.
  *
@@ -268,7 +268,7 @@ export function interpretRoute(read: SetupRead, result: DecisionResult, budget: 
 // ---- setup-card-fields v1 ------------------------------------------------------------------------------------
 
 /**
- * The open words of the profile (§150.6 decision 3): the only keys `setup_card` writes. `name` and
+ * The open words of the profile (§151.6 decision 3): the only keys `setup_card` writes. `name` and
  * `occupation_stated` are issued input selections (a proposed name may be `{generated}`); everything else is
  * written in the play language. The closed keys (occupation, the skill lists, era, aptitude, numbers, limits) are
  * the clerk's or the kernel's.
@@ -331,7 +331,7 @@ export function fieldsBatch({read, scope, readSet}: FieldsQuestionInput): Decisi
     questions.push({key: 'weak', target: 'player_input', type: 'choice',
       instructions: 'Which characteristic does player_input describe as the investigator\'s most notable weakness of body or mind? Choose not_stated unless the player describes one.', criteria});
   }
-  // §150.6 decision 11: the question names the skill in the play language and in the rules' own name (the catalog's
+  // §151.6 decision 11: the question names the skill in the play language and in the rules' own name (the catalog's
   // `label`, from the rules data's localized labels), and asks about the ability the player describes, in any words.
   listableSkills(catalog).forEach((row, index) => questions.push({key: `skill_${index}`, target: `skills[${index}]`, type: 'noul',
     instructions: `Does player_input say the investigator is good at, trained in or known for the ability the skill ${skillShown(row)} covers, in any words (naming the skill or describing what it does)? A skill the player calls weak, untrained, to be kept at its starting value or not to be raised does not count.`}));
@@ -387,7 +387,7 @@ export function interpretFields(read: SetupRead, result: DecisionResult, budget:
 
 export interface BoundField {field: string; path: 'jev' | 'stated' | 'rule-default'; value?: unknown}
 /**
- * `interest`: after the card is written, `setup-interest-fit` picks interest skills for the points left (§150.6
+ * `interest`: after the card is written, `setup-interest-fit` picks interest skills for the points left (§151.6
  * decision 9) -- only when the player delegated the card or its skills. `kind: 'interest'` is that step alone, on a
  * card already drawn.
  */
@@ -409,7 +409,7 @@ function reorderedLists(profile: Row, named: string[]): Row {
   return {...(same(nextOccupation, occupation) ? {} : {occupation_skills: nextOccupation}), ...(same(nextInterest, interest) ? {} : {interest_skills: nextInterest})};
 }
 
-/** What the run does with the bound fields (§150.6 decision 5). Pure. */
+/** What the run does with the bound fields (§151.6 decision 5). Pure. */
 export function cardPlan(read: SetupRead, fields: FieldsOutcome): CardPlan {
   const bound: BoundField[] = [];
   const card = read.card;
@@ -427,9 +427,9 @@ export function cardPlan(read: SetupRead, fields: FieldsOutcome): CardPlan {
     for (const key of ['occupation_skills', 'interest_skills']) if (closed[key]) bound.push({field: key, path: 'jev', value: closed[key]});
   }
   const open = new Set<OpenProfileKey>(fields.stated.flatMap(field => [...(STATED_FIELDS[field]?.keys ?? [])]));
-  // The player's own trade words ride on the card only as a copy of what they wrote (§150.6 Decide).
+  // The player's own trade words ride on the card only as a copy of what they wrote (§151.6 Decide).
   if (fields.outside && fields.occupation) open.add('occupation_stated');
-  // §150.6 decision 9: a card the player delegated gets its interest skills from the interest fit once it is written.
+  // §151.6 decision 9: a card the player delegated gets its interest skills from the interest fit once it is written.
   const interest = fields.delegated || fields.delegatedSkills ? {interest: true as const} : {};
   if (!card) {
     if (!closed.occupation) return fields.delegated ? {kind: 'adjudicate', reason: 'delegated_trade', bound} : {kind: 'compose', missing: ['occupation'], bound};
@@ -447,7 +447,7 @@ export function cardPlan(read: SetupRead, fields: FieldsOutcome): CardPlan {
 // ---- setup-interest-fit v1 -----------------------------------------------------------------------------------
 
 /**
- * The skills the interest fit may pick (§150.6 decision 9): catalog skills a list may hold, not already on the card
+ * The skills the interest fit may pick (§151.6 decision 9): catalog skills a list may hold, not already on the card
  * (either list) and not the occupation's own printed skills. Structural set arithmetic over names the kernel issued.
  */
 export function interestCandidates(read: SetupRead): Array<{name: string; label?: string}> {
@@ -476,7 +476,7 @@ const FIT_QUESTION = 'Does this skill fit the investigator as the card describes
 export function interestBatches({read, scope, readSet}: FieldsQuestionInput, pack: (batch: DecisionBatch) => void): DecisionBatch[] {
   const candidates = interestCandidates(read), card = read.card;
   if (!card || !candidates.length) return [];
-  // §150.6 decision 11: the player's own words ride along, so a skill the player asked to keep is asked about too.
+  // §151.6 decision 11: the player's own words ride along, so a skill the player asked to keep is asked about too.
   const playerInput = read.input?.text ?? null;
   const profile = card.profile ?? {};
   const investigator: Row = {occupation: profile.occupation ?? card.summary?.card?.occupation ?? null, ...(profile.occupation_stated ? {occupation_stated: profile.occupation_stated} : {}),
@@ -527,7 +527,7 @@ export function interpretInterest(read: SetupRead, results: DecisionResult[], bu
   const answers: Record<string, DecisionAnswer> = Object.assign({}, ...results.map(result => result.answers));
   if (!clears(answers.exists, gate)) return {status: 'none_cleared', skills: [], reason: 'exists_below_gate'};
   const candidates = interestCandidates(read);
-  // A player's explicit hold wins over any fit (§150.6 decision 11).
+  // A player's explicit hold wins over any fit (§151.6 decision 11).
   const held = candidates.filter((_row, index) => clears(answers[`hold_${index}`], gate)).map(row => row.name);
   const skills = candidates.map((row, index) => ({name: row.name, yes: noul(answers[`fit_${index}`]) ?? 0, cleared: clears(answers[`fit_${index}`], gate) && !held.includes(row.name)}))
     .filter(row => row.cleared).sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name)).slice(0, budget.interestSkillMax).map(row => row.name);

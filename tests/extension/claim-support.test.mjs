@@ -1,5 +1,5 @@
 /**
- * Contract §150.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md): the Jev claim-support check of the reading
+ * Contract §151.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md): the Jev claim-support check of the reading
  * service's verify phase, at the host.
  *
  * The question travels through the real decision adapter to a controlled typed endpoint (`fetch` answers the pinned Jev
@@ -146,7 +146,7 @@ async function verifyRound(t, { claimSupport, extra } = {}) {
 }
 const claimRows = (rows, event = "claim_support") => rows.filter((row) => row.event === event);
 
-test("§150.3 eligibility is structural: coverage, image sources, map regions, region citations and pages without native text keep the vision reviewer", () => {
+test("§151.3 eligibility is structural: coverage, image sources, map regions, region citations and pages without native text keep the vision reviewer", () => {
 	const draft = fragment();
 	draft.nodes.push({ node_id: "handout-chart", node_kind: "handout", name: "Harbor chart", visibility: "player-safe", source_refs: [{ page: 4 }],
 		properties: { image_sources: [{ page: 4, box: [0, 0, 1, 1] }] } });
@@ -172,7 +172,7 @@ test("§150.3 eligibility is structural: coverage, image sources, map regions, r
 	assert.deepEqual([small.candidates.length, small.ineligible.record_too_large], [0, 4]);
 });
 
-test("§150.3 the mode is the environment's when it names one, else the data's; an unreadable block is off", async (t) => {
+test("§151.3 the mode is the environment's when it names one, else the data's; an unreadable block is off", async (t) => {
 	const budget = await readClaimSupportBudget(await contentRoot(t));
 	assert.equal(budget.supportedMin, 0.9);
 	assert.deepEqual(claimSupportMode({}, budget), { mode: "shadow", source: "data" });
@@ -186,7 +186,7 @@ test("§150.3 the mode is the environment's when it names one, else the data's; 
 	assert.ok(shipped && ["on", "shadow"].includes(shipped.mode), "the shipped data carries a readable block");
 });
 
-test("§150.3 shadow asks Jev and changes no review outcome: the same units run, review.json is the vision review, the answers sit beside the verdicts", async (t) => {
+test("§151.3 shadow asks Jev and changes no review outcome: the same units run, review.json is the vision review, the answers sit beside the verdicts", async (t) => {
 	const baseline = await verifyRound(t);
 	const requests = installJev(t);
 	const shadow = await verifyRound(t, { claimSupport: createClaimSupport({ env: { ...KEY }, contentRoot: await contentRoot(t) }) });
@@ -211,7 +211,7 @@ test("§150.3 shadow asks Jev and changes no review outcome: the same units run,
 	assert.equal(baseline.rows.filter((row) => String(row.event).startsWith("claim_support")).length, 0);
 });
 
-test("§150.3 on: cleared records skip the vision reviewer, a unit left empty is not run, uncleared and contradicted records still go to vision, and Jev rows carry their evidence", async (t) => {
+test("§151.3 on: cleared records skip the vision reviewer, a unit left empty is not run, uncleared and contradicted records still go to vision, and Jev rows carry their evidence", async (t) => {
 	const requests = installJev(t);
 	const on = await verifyRound(t, { claimSupport: createClaimSupport({ env: { ...KEY, PI_COC_CLAIM_SUPPORT: "on" }, contentRoot: await contentRoot(t) }) });
 	assert.equal(requests.length, 1);
@@ -237,7 +237,7 @@ test("§150.3 on: cleared records skip the vision reviewer, a unit left empty is
 	assert.deepEqual([paired.jev_rows, paired.cleared_unreviewed, paired.overruled], [2, 2, 0]);
 });
 
-test("§150.3 on: a vision reviewer's negative verdict on a cleared record's path wins; that record gets no Jev row", async (t) => {
+test("§151.3 on: a vision reviewer's negative verdict on a cleared record's path wins; that record gets no Jev row", async (t) => {
 	installJev(t);
 	const on = await verifyRound(t, { claimSupport: createClaimSupport({ env: { ...KEY, PI_COC_CLAIM_SUPPORT: "on" }, contentRoot: await contentRoot(t) }),
 		extra: { paths: ["/nodes/0/summary"], verdict: "unsupported", source_refs: [{ page: 1 }], reason: "The page does not say tar." } });
@@ -247,7 +247,7 @@ test("§150.3 on: a vision reviewer's negative verdict on a cleared record's pat
 	assert.equal(paired.overruled, 1);
 });
 
-test("§150.3 an outage equals off: every record goes to vision and no Jev row is written; with the switch off nothing is asked", async (t) => {
+test("§151.3 an outage equals off: every record goes to vision and no Jev row is written; with the switch off nothing is asked", async (t) => {
 	const requests = installJev(t, { status: 503 });
 	const down = await verifyRound(t, { claimSupport: createClaimSupport({ env: { ...KEY, PI_COC_CLAIM_SUPPORT: "on" }, contentRoot: await contentRoot(t) }) });
 	assert.ok(requests.length >= 1, "Jev was asked");

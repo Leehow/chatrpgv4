@@ -216,7 +216,7 @@ export default function (pi: ExtensionAPI) {
   let guidedCap = 3;
   /** The rulebook catalog the setup prompt is given once per session (§98). */
   let catalogText = '';
-  /** The same catalog as rows, for the driven setup run's read (§150.6); read with the text, never separately. */
+  /** The same catalog as rows, for the driven setup run's read (§151.6); read with the text, never separately. */
   let catalogRows: Record<string, unknown> | undefined;
   const guidanceAbort = new AbortController();
   let invokeDisposers:Array<()=>void>=[];
@@ -439,7 +439,7 @@ export default function (pi: ExtensionAPI) {
 
 	/**
 	 * The rulebook catalog (§98), read once a campaign exists: the prompt's text and, for the driven setup run's
-	 * read (§150.6), the same answer as rows. A catalog that cannot be read is not a reason to stop setup; the
+	 * read (§151.6), the same answer as rows. A catalog that cannot be read is not a reason to stop setup; the
 	 * kernel still resolves names, and the next turn asks again.
 	 */
 	async function loadCatalog(): Promise<void> {
@@ -1119,10 +1119,10 @@ export default function (pi: ExtensionAPI) {
 		return shown;
 	}
 
-	// ---- The driven setup run's port (contract §150.6) ----------------------
+	// ---- The driven setup run's port (contract §151.6) ----------------------
 
 	/**
-	 * The setup state the driven setup run reads (§150.6 Read): where the table stands, the kernel's catalog, the card
+	 * The setup state the driven setup run reads (§151.6 Read): where the table stands, the kernel's catalog, the card
 	 * on the table and the latest input. Read-only; the lists it issues are the only candidates the run's decisions
 	 * choose from. The legacy engine never asks for it.
 	 */
@@ -1189,7 +1189,7 @@ export default function (pi: ExtensionAPI) {
 
 	/**
 	 * The preparation and campaign steps the host runs itself once a source or an opening is chosen (§149's
-	 * continuation, §150.6 decision 4): the preparation step when this source has one and it is still owed (or reopened
+	 * continuation, §151.6 decision 4): the preparation step when this source has one and it is still owed (or reopened
 	 * as a remedy), then create-campaign with the bound language when the campaign id is known. Stops at the first
 	 * result that did not go through and returns it.
 	 */
@@ -1209,7 +1209,7 @@ export default function (pi: ExtensionAPI) {
 		return outcome;
 	}
 
-	/** A cleared route move the host executes itself (§150.6 decision 4); each step goes through `execute`, never around it. */
+	/** A cleared route move the host executes itself (§151.6 decision 4); each step goes through `execute`, never around it. */
 	async function setupMove(move: string, target: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
 		if (move === 'choose_source') {
 			const chosen = await execute({step: 'choose-source', kind: target.kind, module: target.module}, signal);
@@ -1221,7 +1221,7 @@ export default function (pi: ExtensionAPI) {
 			return continueSource({start_scene: target.scene}, signal);
 		}
 		if (move === 'draft_now') {
-			// §150.6 decision 10: the player ended the brief's questions. The brief's own record of that is its `stop`
+			// §151.6 decision 10: the player ended the brief's questions. The brief's own record of that is its `stop`
 			// note (§26), with the player's words as they wrote them; after it the brief allows the draft.
 			return execute({step: 'note', slot: 'stop', value: lastPlayerInput.trim(), origin: 'player'}, signal);
 		}
@@ -1237,7 +1237,7 @@ export default function (pi: ExtensionAPI) {
 		return {ok: false, rejected: `The host executes no setup move named ${move}.`};
 	}
 
-	/** The player's own words for a field, copied from an issued input selection (§150.6 decision 2). */
+	/** The player's own words for a field, copied from an issued input selection (§151.6 decision 2). */
 	async function copyInput(selection: unknown): Promise<string> {
 		if (!inputCatalog) throw new Error('Current setup input sources are unavailable');
 		return copySetupInputSelection(inputCatalog, {campaign: String(context.campaign ?? ''), inputKey, selection});
@@ -1435,7 +1435,7 @@ export default function (pi: ExtensionAPI) {
 		if (campaign) context.campaign = campaign;
 		// The setup process's tool surface is only this one (contract §14.4).
 		pi.setActiveTools(["setup"]);
-		// §150.6: the same step executor, for the driven setup run. Only that engine listens; legacy never does.
+		// §151.6: the same step executor, for the driven setup run. Only that engine listens; legacy never does.
 		pi.events.emit("coc:setup-executor", {tool: "setup", execute: (raw: Record<string, unknown>, signal?: AbortSignal) => execute(raw, signal),
 			read: () => setupRead(), move: (move: string, target: Record<string, unknown>, signal: AbortSignal) => setupMove(move, target, signal),
 			copy: (selection: unknown) => copyInput(selection)});

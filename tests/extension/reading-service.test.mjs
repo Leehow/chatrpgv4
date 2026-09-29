@@ -990,7 +990,7 @@ test('reference readiness pumps the explicitly selected campaign instead of the 
  assert.equal(calls.find(row=>row.method==='module.read.claim').params.campaign,'private-table');
 });
 
-// §150.4 (ticket 04): the native child's need receipt decides whether the attempt settles without an author.
+// §151.4 (ticket 04): the native child's need receipt decides whether the attempt settles without an author.
 async function needJobFixture(t, receiptOf) {
 	const home = await mkdtemp(join(tmpdir(), "coc-need-settle-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
@@ -1020,7 +1020,7 @@ async function needJobFixture(t, receiptOf) {
 const needReceipt = (digest, disposition, extra = {}) => ({ version: 1, run_id: "run-1", task_sha256: digest, source_sha256: "source-sha", key: "need-key",
 	disposition, material_digest: "d".repeat(64), evidence: { need_leads: [{ page: 1, score: 0.9 }], accepted_pages: [1] }, ...extra });
 
-test("§150.4: a need the native child settled is finished settled, with no review and no publication", async t => {
+test("§151.4: a need the native child settled is finished settled, with no review and no publication", async t => {
 	const { runs, calls, rows, finishes } = await needJobFixture(t, digest => needReceipt(digest, "unlocated"));
 	assert.deepEqual(runs, ["read"], "no second round and no review for a settled need");
 	const settled = finishes.find(params => params.outcome === "settled");
@@ -1032,10 +1032,10 @@ test("§150.4: a need the native child settled is finished settled, with no revi
 	assert.ok(calls.some(([method]) => method === "module.read.ahead"), "the queue keeps moving after a settlement");
 	assert.equal(rows.find(row => row.phase === "read").need_disposition, "unlocated");
 	assert.equal(rows.find(row => row.event === "source_need").disposition, "unlocated");
-	assert.equal(rows.find(row => row.event === "job_accounting")?.need, "unlocated", "§150.2.4: the job row names the need disposition");
+	assert.equal(rows.find(row => row.event === "job_accounting")?.need, "unlocated", "§151.2.4: the job row names the need disposition");
 });
 
-test("§150.4: a need the child decided to read, or a receipt for another task, never settles", async t => {
+test("§151.4: a need the child decided to read, or a receipt for another task, never settles", async t => {
 	for (const [receiptOf, recorded] of [[digest => needReceipt(digest, "read"), "read"], [() => needReceipt("0".repeat(64), "unlocated"), undefined]]) {
 		const { runs, rows, finishes } = await needJobFixture(t, receiptOf);
 		assert.equal(finishes.some(params => params.outcome === "settled"), false);

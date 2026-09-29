@@ -240,7 +240,7 @@ const CONSEQUENCE_INLINE_ROUNDS_CAP = 12;
 
 /**
  * SL-76 (§135.32, §135.3.1): `COC_JEV_STEPS`, read once per process like every other engine env switch here.
- * §150.1: when the switch is absent the host budget data's `jev_steps.shadow` decides (`false` = `on`).
+ * §151.1: when the switch is absent the host budget data's `jev_steps.shadow` decides (`false` = `on`).
  * `shadow` routes and pairs but never executes; `on` (SL-78's acceptance) additionally executes a
  * cleared candidate through `clerkStep`; `off` builds none of the three classes at all. Any other value is
  * `shadow`: this is a schedule switch, not an open-ended classification, so a fixed default is not the
@@ -249,10 +249,10 @@ const CONSEQUENCE_INLINE_ROUNDS_CAP = 12;
 export function jevStepsMode(env: Readonly<NodeJS.ProcessEnv>, dataDefault: 'on' | 'shadow' = 'shadow'): 'shadow' | 'on' | 'off' {
   const raw = String(env.COC_JEV_STEPS ?? '').trim();
   if (raw === 'on' || raw === 'off') return raw;
-  // §150.1: an explicit but unrecognized value is still the safe default; only an absent switch defers to the data.
+  // §151.1: an explicit but unrecognized value is still the safe default; only an absent switch defers to the data.
   return raw ? 'shadow' : dataDefault;
 }
-/** §150.1: where the effective consequence-step mode came from, recorded beside the rows it shapes. */
+/** §151.1: where the effective consequence-step mode came from, recorded beside the rows it shapes. */
 export function jevStepsModeSource(env: Readonly<NodeJS.ProcessEnv>): 'env' | 'data' {
   return String(env.COC_JEV_STEPS ?? '').trim() ? 'env' : 'data';
 }
@@ -262,7 +262,7 @@ export function receiptLabel(receipt: Row): string {
   if (kind === 'clue') return `clue ${text(receipt.clue)}: ${text(receipt.label) || text(receipt.summary)}`.trim();
   if (kind === 'time') return `${Number.isFinite(receipt.minutes) ? receipt.minutes : '?'} minutes: ${text(receipt.why)}`.trim();
   if (kind === 'roll' && text(receipt.decision) === NPC_REACTION_DECISION) return `first impression: ${text(receipt.actor_label) || text(receipt.actor)} on ${text(receipt.npc)}`;
-  // §150.1 addendum: a settled check says what was attempted and whether it succeeded -- a bare "roll" let the consequence
+  // §151.1 addendum: a settled check says what was attempted and whether it succeeded -- a bare "roll" let the consequence
   // route file a clue behind a failed Persuade or Locksmith check (10 of 49 executed clue steps on gates #18-#25).
   if (kind === 'roll') {
     const attempt = text(receipt.skill_label) || text(receipt.skill) || text(receipt.decision) || text(receipt.roll_kind) || 'check';
@@ -490,7 +490,7 @@ interface RunState {
   fight?: Row;
   clerkDid: ClerkStep[];
   projected: number;
-  /** `proposed` (§150.5): an accepted `propose` of this response holds the rest of it until the proposed step has run. */
+  /** `proposed` (§151.5): an accepted `propose` of this response holds the rest of it until the proposed step has run. */
   batch?: {message: unknown; fell?: string; fellAt?: string; proposed?: true};
   identities: Map<string, OperationIdentity>;
   lease?: TaskLease;
@@ -598,14 +598,14 @@ interface RunState {
    * filed this independently" from "this is the clerk's own receipt, read back off `run.turnReceipts`".
    */
   consequenceExecutedReceiptIds: Map<string, string[]>;
-  /** §150.5: the narrator-only setting as this run resolved it (set by the first model step's note while it is on). */
+  /** §151.5: the narrator-only setting as this run resolved it (set by the first model step's note while it is on). */
   narrator?: NarratorOnlySetting;
-  /** §150.5: the catalog the current model step admits (the latest note's), and the offered keys `propose` names on it. */
+  /** §151.5: the catalog the current model step admits (the latest note's), and the offered keys `propose` names on it. */
   stepCatalog?: StepCatalog;
   offered: Candidate[];
-  /** §150.5: the keys this run's `propose` calls queued (never proposed twice, never executed again by the consequence route). */
+  /** §151.5: the keys this run's `propose` calls queued (never proposed twice, never executed again by the consequence route). */
   proposedKeys: Set<string>;
-  /** §150.5: every `propose` call the Keeper made this run, queued or refused, for the `residual` row. */
+  /** §151.5: every `propose` call the Keeper made this run, queued or refused, for the `residual` row. */
   proposeCalls: number;
 }
 
@@ -626,7 +626,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const NO_ACT: NpcActPort = {generate: async () => ({unavailable: 'model_unavailable', detail: 'no npc-act generation on this engine'})};
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
-  // §150.1: the consequence-step mode's data default, read once (cached) and awaited by every run's first read.
+  // §151.1: the consequence-step mode's data default, read once (cached) and awaited by every run's first read.
   let stepsDataDefault: 'on' | 'shadow' = 'shadow';
   const stepsReady = jevStepsBudget().then(budget => { stepsDataDefault = budget.shadow ? 'shadow' : 'on'; });
   const stepsMode = () => jevStepsMode(options.env as NodeJS.ProcessEnv, stepsDataDefault);
@@ -641,7 +641,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     try { (options.record ?? bridge?.record)?.(row); } catch { /* Telemetry never steers the run. */ }
   };
   /**
-   * §150.5: the narrator-only setting (env over data), resolved once per engine like every other engine switch here; the
+   * §151.5: the narrator-only setting (env over data), resolved once per engine like every other engine switch here; the
    * `propose` verb's per-turn count (`${campaign}:${turn}`, so a second run of the same turn shares it); the outcome each
    * accepted or refused `propose` call hands the registered tool to return (by tool call id); whether the tool is on the surface.
    */
@@ -805,7 +805,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       ...(result?.failure?.status !== undefined ? {jev_status: result.failure.status} : {}), ms, offered: candidates.length});
     // SL-78 (§135.32 addendum 2): only the classes `content/rulesets/coc7/host-budgets.json`'s `jev_steps.execute`
     // names are ever executed here; a cleared row of any other class is left for the shadow pairing exactly as before.
-    // §150.5: a key the Keeper's `propose` queued is the policy's to run; the route never executes it a second time.
+    // §151.5: a key the Keeper's `propose` queued is the policy's to run; the route never executes it a second time.
     for (const key of consequenceKeysToExecute(mode, outcome.rows, new Set([...run.consequenceExecuted, ...run.proposedKeys]), thresholds.execute)) {
       run.consequenceExecuted.add(key);
       const candidate = candidates.find(value => value.key === key);
@@ -993,7 +993,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const reason = `batch_step_fell: ${batch.fell}`;
       return {status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {tool: proposal.operation, skipped: true, after: batch.fellAt ?? null}}, skipped: true}};
     }
-    // §150.5: what this step's catalog does not admit is refused before it runs -- on a narrowed compose, a verb outside
+    // §151.5: what this step's catalog does not admit is refused before it runs -- on a narrowed compose, a verb outside
     // narrate/ask/propose; after an accepted `propose` in the same response, every other call (the proposed step has not
     // run yet). The kernel extension's tool gate honours the refusal this announcement carries.
     const catalog = run.stepCatalog, narrowed = catalog?.narrowed;
@@ -1007,7 +1007,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // SL-78 (§135.32 addendum 2, the `residual` row): every Keeper tool call among the five bookkeeping verbs is
     // counted here, attempt or not -- a refused free-text call is exactly the residual SL-78 measures.
     if (isKeeperResidualKey(proposal.operation)) run.keeperCalls[proposal.operation]++;
-    // §150.5: a `propose` is settled here, before the registered tool returns what was settled: queued or refused.
+    // §151.5: a `propose` is settled here, before the registered tool returns what was settled: queued or refused.
     const queued = proposal.operation === PROPOSE_VERB && proposal.toolCall?.id && proposeRegistered
       ? await proposeStep(run, proposal.toolCall.id, object(proposal.params).key, stepId) : undefined;
     const toolResult = await execute();
@@ -1020,7 +1020,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       : undefined;
     const fell = toolResult.isError ? refuse?.code ?? `${proposal.operation}_refused` : proposal.operation === 'resolve' && failedCheck(toolResult.details) ? 'check_failed' : undefined;
     if (fell) { batch.fell = fell; batch.fellAt = proposal.toolCall?.id; }
-    // §150.5: an accepted `propose` holds the rest of its response until the proposed step has run.
+    // §151.5: an accepted `propose` holds the rest of its response until the proposed step has run.
     if (queued && !toolResult.isError) batch.proposed = true;
     const fresh = !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? (await freshOf(run, stepId))?.fresh : undefined;
     // SL-78: the Keeper's own settled write (never merely proposed) is a point a listed D1 class can newly clear
@@ -1042,7 +1042,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }
 
   /**
-   * §150.5: one `propose {key}` of the Keeper's. Admitted on a step whose catalog has it (a compose or an adjudicate step
+   * §151.5: one `propose {key}` of the Keeper's. Admitted on a step whose catalog has it (a compose or an adjudicate step
    * while the setting is on), for a key of the step's offered set that this run has not proposed, within the per-turn cap
    * (data). An accepted key is queued: the policy runs it as one more clerk step (its own bind, the gateway, admission)
    * before the Keeper's next step. Either way the outcome waits here for the registered tool to return it.
@@ -1283,7 +1283,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (stepsMode() !== 'on') return;
     record({lane: 'residual', run: run.runId, turn: run.turn ?? null, keeper_calls: {...run.keeperCalls}, compile_calls: run.compileCalls,
       clerk_calls: run.clerkDid.length, consequence_calls: run.consequenceCalls ?? 0, ...stepsModeFields(),
-      // §150.5: with the narrator-only setting on, the Keeper's `propose` calls this turn (queued or refused), D6 3's count.
+      // §151.5: with the narrator-only setting on, the Keeper's `propose` calls this turn (queued or refused), D6 3's count.
       ...(run.narrator?.on ? {propose_calls: run.proposeCalls} : {})});
   }
 
@@ -1575,10 +1575,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.11 addendum (SL-20): the compose after the clerk settled the declaration says why it is the compose.
     if (step.reason === 'settled') content.settled_note = 'The clerk settled the player\'s declared step this turn (see clerk_did). Narrate its result '
       + 'and close the turn; a further check or step can wait for the player\'s next input unless the fiction cannot go on without it.';
-    // §150.5: the compose after the steps the Keeper proposed.
+    // §151.5: the compose after the steps the Keeper proposed.
     if (step.reason === PROPOSED_REASON) content.proposed_note = 'The clerk ran the steps you proposed (clerk_did lists each with its receipts or its refusal). '
       + 'Narrate what landed.';
-    // §150.5 (SL-79 behind a setting): this step's catalog and, where `propose` is admitted, the offered keys it names. Off: nothing.
+    // §151.5 (SL-79 behind a setting): this step's catalog and, where `propose` is admitted, the offered keys it names. Off: nothing.
     const setting = await narratorSetting().catch(() => undefined);
     run.stepCatalog = setting ? stepCatalog(setting, step, !!jev) : undefined;
     if (setting?.on && run.stepCatalog) {
@@ -1763,7 +1763,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       } catch { /* No tool surface yet. */ }
     };
     /**
-     * §150.5: `propose` joins the Keeper's surface only while the narrator-only setting is on, and only on a play table (the
+     * §151.5: `propose` joins the Keeper's surface only while the narrator-only setting is on, and only on a play table (the
      * seven verbs are there; a setup session has none, §14.4). Registered once and kept active after the kernel extension's
      * table open set the surface; with the setting off nothing is registered, so the loadout is byte for byte as before.
      */

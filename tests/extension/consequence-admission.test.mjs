@@ -166,7 +166,7 @@ test("SL-90 (engine seam): the executed clue_follow_up's own dispatch carries `b
 	assert.equal(consequenceContext.origin.origin, "policy");
 	assert.equal(consequenceContext.origin.clerk, "consequence_bookkeeping");
 	// `clue_follow_up`'s own gate is the shipped `content/rulesets/coc7/host-budgets.json`'s per-class override
-	// (§150.1.1: row_min 0.5, row_ratio 1), not the shared default -- proving `thresholdsForClass`,
+	// (§151.1.1: row_min 0.5, row_ratio 1), not the shared default -- proving `thresholdsForClass`,
 	// not a literal, produced this row's `gate`.
 	assert.deepEqual(consequenceContext.origin.basis.consequence, {
 		class: "clue_follow_up", key: "consequence:clue_follow_up:globe-story", confidence: 0.95, distribution: { true: 0.95, false: 1 - 0.95 },

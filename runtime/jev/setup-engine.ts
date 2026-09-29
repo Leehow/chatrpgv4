@@ -1,5 +1,5 @@
 /**
- * The driven setup run (contract §150.6, spec `jev-decides-llm-writes.md` D-E): a setup session's runs go through
+ * The driven setup run (contract §151.6, spec `jev-decides-llm-writes.md` D-E): a setup session's runs go through
  * Pi's RunDriver with the policy `coc-setup-v1` and these ports, never through the play policy.
  *
  * - **read**: the onboarding extension's setup state (`coc:setup-executor` `read()`): the step table, the kernel's
@@ -32,7 +32,7 @@ import {SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY, SETUP_POLICY, SETUP_ROUTE_FA
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
 
-/** What the onboarding extension puts on the bus (`coc:setup-executor`, contract §150.6 decision 2). */
+/** What the onboarding extension puts on the bus (`coc:setup-executor`, contract §151.6 decision 2). */
 export interface SetupExecutorPort {
   /** The full setup tool's name: the adjudicate catalog and the session's surface between runs. */
   tool: string;
@@ -53,7 +53,7 @@ export interface SetupEngineOptions {
   maxSteps?: number;
 }
 
-/** The tool of the bind step: open profile keys only (§150.6 decision 3). */
+/** The tool of the bind step: open profile keys only (§151.6 decision 3). */
 export const SETUP_CARD_TOOL = 'setup_card';
 /** A setup-step note the projection adds to the transcript, never shown to the player. */
 export const SETUP_STEP_TYPE = 'coc-setup-step';
@@ -70,10 +70,10 @@ interface SetupPolicyState {
   plan?: CardPlan;
   decisions: number;
   moved?: Moved;
-  /** §150.6 decision 10: the brief's `stop` note `draft_now` recorded before the card-field path. */
+  /** §151.6 decision 10: the brief's `stop` note `draft_now` recorded before the card-field path. */
   briefEnded?: Moved;
   bound?: Moved;
-  /** §150.6 decision 9: what the interest fit chose, and its revise. */
+  /** §151.6 decision 9: what the interest fit chose, and its revise. */
   interest?: InterestOutcome;
   interestRevised?: Moved;
   infers: Record<Purpose, number>;
@@ -93,7 +93,7 @@ function infer(purpose: Purpose, reason: string, request: Row = {}): StepRequest
 export function createSetupPolicy(config: {jev: boolean; maxDecisions: number}): RunPolicy<SetupPolicyState> {
   /**
    * The card has been written (bind, a direct revise, or nothing to write): a delegated card first gets its interest
-   * skills from `setup-interest-fit` and one direct revise (§150.6 decision 9), then the reply. An outage, a packing
+   * skills from `setup-interest-fit` and one direct revise (§151.6 decision 9), then the reply. An outage, a packing
    * refusal or a spent budget leaves the card as it is; the reply says the points remain. No model picks skills.
    */
   const afterCard = (s: SetupPolicyState, reason: string, extra: Row = {}): StepRequest => {
@@ -135,7 +135,7 @@ export function createSetupPolicy(config: {jev: boolean; maxDecisions: number}):
       const move = s.route.move;
       if (!move) return infer('adjudicate', s.route.exit ?? s.route.reason);
       if (move === 'approve_card') return infer('adjudicate', 'approve_card');
-      // §150.6 decision 10: the player ended the brief; the host records its `stop` note, then the card-field path runs.
+      // §151.6 decision 10: the player ended the brief; the host records its `stop` note, then the card-field path runs.
       if (move === 'draft_now') {
         if (!s.briefEnded) return {kind: 'operate', proposals: [{origin: 'policy', operation: 'setup.move', params: {move, target: null}}], reason: 'setup_move_draft_now'};
         if (!s.briefEnded.ok) return infer('adjudicate', 'move_refused', {refusal: s.briefEnded.outcome});
@@ -205,7 +205,7 @@ interface SetupRun {
   refusals: Row[];
   modelSteps: Record<Purpose, number>;
   fallback?: string;
-  /** §150.6 decision 10: every legal-move condition that withheld a move at the read, structural names only. */
+  /** §151.6 decision 10: every legal-move condition that withheld a move at the read, structural names only. */
   withheld?: string[];
   /** The bind step in progress: what `setup_card` merges and which open keys it accepts. */
   bind?: {first: boolean; closed: Row; open: OpenProfileKey[]; required: OpenProfileKey[]; draftStep?: string};
@@ -213,7 +213,7 @@ interface SetupRun {
 
 export function createSetupEngine(options: SetupEngineOptions): {runDriver: SessionRunDriver; extension: (pi: any) => void; policy: typeof createSetupPolicy} {
   let api: any, executor: SetupExecutorPort | undefined, current: SetupRun | undefined;
-  /** The step catalog of the request in flight (§150.6 decision 3); undefined outside a driven infer. */
+  /** The step catalog of the request in flight (§151.6 decision 3); undefined outside a driven infer. */
   let stepCatalog: string[] | undefined;
   const record = (row: Record<string, unknown>) => {
     try {
@@ -228,14 +228,14 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
   const setTools = (names: string[]) => { try { api?.setActiveTools?.(names); } catch { /* No tool surface yet. */ } };
 
   function scopeOf(run: SetupRun, read: SetupRead): {scope: ScopeBinding; readSet: ReadSet} {
-    // §150.6 Read: the campaign once it exists, else this setup session.
+    // §151.6 Read: the campaign once it exists, else this setup session.
     const scope: ScopeBinding = read.created && read.campaign ? {owner: 'setup', campaign: read.campaign, audience: 'keeper'} : {owner: `setup-session:${run.sessionId}`, audience: 'keeper'};
     const readSet: ReadSet = read.card && read.campaign ? [{kind: 'draft', resource: `setup-draft:${read.campaign}`, revision: String(read.card.revision)}] : [];
     return {scope, readSet};
   }
 
   /**
-   * `setup-interest-fit` v1 (§150.6 decision 9) on the card as it is now (a fresh read, after the bind step's words):
+   * `setup-interest-fit` v1 (§151.6 decision 9) on the card as it is now (a fresh read, after the bind step's words):
    * one fan-out, split only as packing needs. Nothing to spend or nothing to pick asks nothing.
    */
   async function decideInterest(run: SetupRun, budget: SetupDrivenBudget, request: {stepId: string; signal: AbortSignal}) {
@@ -288,7 +288,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
     const {scope, readSet} = scopeOf(run, read);
     const batch = route ? routeBatch({read, scope, readSet}) : fieldsBatch({read, scope, readSet});
     if (!batch) {
-      // Nothing to ask is itself a finding: the row names what withheld every move (§150.6 decision 10).
+      // Nothing to ask is itself a finding: the row names what withheld every move (§151.6 decision 10).
       record({lane: 'setup', event: 'decide', run: run.runId, step: request.stepId, family: route ? SETUP_ROUTE_FAMILY : SETUP_FIELDS_FAMILY, status: 'no_candidates',
         withheld: moveGates(read).withheld});
       return fail('no_candidates');
@@ -318,7 +318,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
     return {status: result.status === 'complete' ? 'ok' as const : 'unavailable' as const, artifact: {kind: 'fields', asked: true, fields, ...(plan ? {plan} : {})}};
   }
 
-  /** §150.6 decision 3: the note the step's request carries, and the step's catalog. */
+  /** §151.6 decision 3: the note the step's request carries, and the step's catalog. */
   function project(run: SetupRun, step: {purpose: string; reason: string; request?: unknown}, stepId: string): unknown[] | undefined {
     const request = object(step.request), purpose = step.purpose as Purpose;
     run.modelSteps[purpose] = (run.modelSteps[purpose] ?? 0) + 1;
@@ -487,7 +487,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
         return {content: [{type: 'text', text: JSON.stringify(result)}], details: result};
       },
     });
-    // §150.6 decision 3 (the §128.1 pattern): the request in flight declares the step's catalog, in Pi's forced-prompt shape.
+    // §151.6 decision 3 (the §128.1 pattern): the request in flight declares the step's catalog, in Pi's forced-prompt shape.
     pi.on('context_with_system', (event: {messages: any[]}) => {
       const names = stepCatalog;
       if (!names) return undefined;

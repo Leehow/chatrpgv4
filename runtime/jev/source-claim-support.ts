@@ -1,5 +1,5 @@
 /**
- * Contract §150.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md, spec D-B B4): family `source-claim-support` v1.
+ * Contract §151.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md, spec D-B B4): family `source-claim-support` v1.
  *
  * Before the vision reviewers of a source reading run, every eligible record of the candidate is asked two Nouls
  * against the native text of the pages it cites: `supported` (the page text states it, literally or as a direct
@@ -54,7 +54,7 @@ const positive = (value: unknown): value is number => typeof value === 'number' 
 
 /**
  * The budget as the content root ships it, or undefined when the block is missing or malformed: an unreadable block is
- * `off` (§150.3 implementation decision), so no S or C is ever a literal in code.
+ * `off` (§151.3 implementation decision), so no S or C is ever a literal in code.
  */
 export async function readClaimSupportBudget(contentRoot: string): Promise<ClaimSupportBudget | undefined> {
   try {

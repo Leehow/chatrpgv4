@@ -1,5 +1,5 @@
 /**
- * Contract §150.2.3: an interrupted author's checked work is salvaged instead of rewritten.
+ * Contract §151.2.3: an interrupted author's checked work is salvaged instead of rewritten.
  *
  * Blood05 (2026-09-28): pages 15-16 were authored again and again because an author stopped by closing the App leaves
  * `draft.json` but no read checkpoint, and every resume re-read the images and rewrote the draft from the start. The

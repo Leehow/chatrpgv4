@@ -119,7 +119,7 @@ export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 export interface Candidate {
   /**
    * Host identity, stable while the state it came from is unchanged. Never sent to the model, except as the key the
-   * narrator-only setting's `propose` names from a note's `offered` list (§150.5).
+   * narrator-only setting's `propose` names from a note's `offered` list (§151.5).
    */
   key: string;
   verb: 'apply' | 'resolve';
@@ -1218,9 +1218,9 @@ export type StepArtifact =
    * a check the kernel reports failed); `skipped` a later step of that batch the host did not run.
    */
   | {kind: 'execute'; executed: {ok: boolean; summary: Json}; fresh?: Fresh; fell?: string; skipped?: boolean;
-    /** §150.5: a model call of a narrowed (narrator-only) compose step. */
+    /** §151.5: a model call of a narrowed (narrator-only) compose step. */
     narrator?: boolean;
-    /** §150.5: the candidate an accepted `propose` queued, as the policy runs it. */
+    /** §151.5: the candidate an accepted `propose` queued, as the policy runs it. */
     proposed?: Candidate}
   /** §135.11: what the turn close did for a run with no delivery evidence of its own. */
   | {kind: 'turn_close'; verdict: TurnCloseVerdict};
@@ -1234,9 +1234,9 @@ export interface TurnCloseVerdict {status: 'delivered' | 'steer' | 'none' | 'una
   delivery?: 'accepted' | 'awaiting_player'; call_id?: string | null; turn?: number | null}
 /** Turn-close steers one run follows (§135.11): legacy's bound, once per turn, which one run is. */
 export const TURN_CLOSE_STEERS = 1;
-/** §150.5: the reason of a clerk step the Keeper's `propose` queued, and of the compose that follows it. */
+/** §151.5: the reason of a clerk step the Keeper's `propose` queued, and of the compose that follows it. */
 export const PROPOSED_REASON = 'proposed';
-/** §150.5: the reason of the one compose a narrowed compose step's fallen batch returns to. */
+/** §151.5: the reason of the one compose a narrowed compose step's fallen batch returns to. */
 export const NARRATOR_FALLEN = 'narrator_fallen';
 
 export interface StepPolicyOptions {
@@ -1409,7 +1409,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         const proposed = new Map(driver.observations.flatMap(value => value.proposals ?? []).map(proposal => [proposal.toolCall?.id, proposal]));
         const plan: PlanArtifact = {origin: 'keeper', step: observation.sequence, steps: []};
         let fell: string | undefined;
-        // §150.5: the candidates the Keeper's `propose` calls queued, in order, and whether the step was a narrowed compose.
+        // §151.5: the candidates the Keeper's `propose` calls queued, in order, and whether the step was a narrowed compose.
         const queued: Candidate[] = [];
         let narrowed = false;
         for (const [index, toolResult] of (observation.toolResults ?? []).entries()) {
@@ -1430,12 +1430,12 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         }
         if (plan.steps.length > 1 || fell) view.plan = plan;
         if (queued.length && !view.stopped && observation.delivery === undefined) {
-          // §150.5: each proposed candidate is one more clerk step, carried by the policy's own items (a closed bind asks Jev
+          // §151.5: each proposed candidate is one more clerk step, carried by the policy's own items (a closed bind asks Jev
           // as any clerk bind does) through the same gateway and admission; then the Keeper composes. A call the engine
           // refused because it came after the propose in the same response (`propose_pending`) is not a fall.
           view.pending.unshift(...queued.flatMap(candidate => itemsFor(candidate, PROPOSED_REASON)), {kind: 'infer', purpose: 'compose', reason: PROPOSED_REASON});
         } else if (fell && !view.stopped && observation.delivery === undefined) {
-          // A fallen branch returns to the Keeper at once: the Keeper decides what failure means, not a route. §150.5: on a
+          // A fallen branch returns to the Keeper at once: the Keeper decides what failure means, not a route. §151.5: on a
           // narrowed compose step it returns to the compose once (the adjudicate's whole catalog would reopen the free verbs
           // the step narrowed); a second fall in the run ends it, and the turn close owes the delivery.
           if (!narrowed) view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'batch_fallen'});

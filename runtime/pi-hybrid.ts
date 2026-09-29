@@ -6,7 +6,7 @@
  * mode -- is Pi's, unchanged.
  *
  * A play session gets the play engine (`runtime/jev/hybrid-engine.ts`); a setup session (`PI_COC_MODE=setup`) gets
- * the setup engine and its policy `coc-setup-v1` (`runtime/jev/setup-engine.ts`, contract §150.6), never the play
+ * the setup engine and its policy `coc-setup-v1` (`runtime/jev/setup-engine.ts`, contract §151.6), never the play
  * policy, which reads a world that does not exist before `setup.confirm`.
  */
 import { join, resolve } from 'node:path';

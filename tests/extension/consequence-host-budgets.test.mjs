@@ -61,7 +61,7 @@ test("jevStepsBudget: the shipped `content/rulesets/coc7/host-budgets.json` carr
 	const budget = await jevStepsBudget();
 	assert.equal(budget.rowMin, JEV_STEPS_FALLBACK.rowMin);
 	assert.equal(budget.rowRatio, JEV_STEPS_FALLBACK.rowRatio);
-	assert.equal(budget.shadow, false, "§150.1: the shipped default executes the listed classes when no env switch is set");
+	assert.equal(budget.shadow, false, "§151.1: the shipped default executes the listed classes when no env switch is set");
 	assert.deepEqual(budget.execute, ["clue_follow_up"], "SL-78's ruling: only clue_follow_up executes; npc_reaction and time_cost stay shadow");
 });
 
@@ -90,7 +90,7 @@ test("jevStepsBudget (SL-86): mutating a class's row_min changes only that class
 	assert.equal(second.classRowMin.clue_follow_up, 0.2);
 });
 
-test("jevStepsBudget: the shipped file gates `clue_follow_up` at row_min 0.5 with row_ratio 1 (effective Noul gate 0.5; §150.1 addendum, 8 of 10 wrong executions on gates #18-#25 sat below 0.5)", async () => {
+test("jevStepsBudget: the shipped file gates `clue_follow_up` at row_min 0.5 with row_ratio 1 (effective Noul gate 0.5; §151.1 addendum, 8 of 10 wrong executions on gates #18-#25 sat below 0.5)", async () => {
 	const budget = await jevStepsBudget();
 	assert.deepEqual(budget.classRowMin, { clue_follow_up: 0.5 });
 	assert.deepEqual(budget.classRowRatio, { clue_follow_up: 1 });

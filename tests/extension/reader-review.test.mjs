@@ -298,7 +298,7 @@ test('unchanged source retries reuse only completed positive review groups and i
  fail=false;assert.deepEqual((await reviewCandidate({...options,round:2})).sort(),[1,2]);assert.equal(runs,6);
  assert.equal(records.filter(row=>row.reused).length,1);
  await reviewCandidate({...options,round:3});assert.equal(runs,6);
- // §150.2.1: a unit is keyed by its own records and their connected context; the edited record's unit alone re-runs.
+ // §151.2.1: a unit is keyed by its own records and their connected context; the edited record's unit alone re-runs.
  await reviewCandidate({...options,round:4,draft:{...draft,nodes:[{...draft.nodes[0],summary:'Changed source meaning'},draft.nodes[1]]}});assert.equal(runs,7);
  await reviewCandidate({...options,round:5,source:{...options.source,file_sha256:'b'.repeat(64)}});assert.equal(runs,9);
  await reviewCandidate({...options,round:6,reviewVersion:'fixture-v2'});assert.equal(runs,11);
@@ -433,7 +433,7 @@ test('a reviewer the transport dropped is asked again after a wait, and only a l
 });
 
 /**
- * §150.2.1 (spec jev-decides-llm-writes D-B B1). The review cache key used to contain the whole draft and the whole task:
+ * §151.2.1 (spec jev-decides-llm-writes D-B B1). The review cache key used to contain the whole draft and the whole task:
  * on Blood05 pages 19-20 a repair touching 3 of 29 claims re-reviewed every unit, and a repair round's own bookkeeping
  * (`task.repair`) missed even an unchanged draft. A fact unit is now keyed by its own records and their connected context.
  */
@@ -447,7 +447,7 @@ function unitReviewer(ran){
   return {ok:true,ms:1,stderr:''};
  };
 }
-test('§150.2.1 an edit to one record re-runs only its unit and coverage; round bookkeeping never misses, a connected edit does',async t=>{
+test('§151.2.1 an edit to one record re-runs only its unit and coverage; round bookkeeping never misses, a connected edit does',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-unit-identity-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const ran=[],rows=[];
  const draft={nodes:[{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:[{page:1}],properties:{}},
@@ -473,7 +473,7 @@ test('§150.2.1 an edit to one record re-runs only its unit and coverage; round 
  assert.deepEqual(ran.map(paths=>paths[0]).sort(),['/coverage','/nodes/0','/nodes/2'],'a changed dependency is a changed unit; the sailor is untouched');
 });
 
-test('§150.2.1 a deleted record keeps every surviving unit whole, and reused rows move to the records\' new positions',async t=>{
+test('§151.2.1 a deleted record keeps every surviving unit whole, and reused rows move to the records\' new positions',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-unit-carry-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const ran=[],rows=[];
  const claim=i=>({subject_id:`npc-${i}`,predicate:'present-in',object:{node_id:`scene-${i}`},truth_status:'authorial',source_refs:[{page:3}]});
@@ -495,7 +495,7 @@ test('§150.2.1 a deleted record keeps every surviving unit whole, and reused ro
  assert.deepEqual(answered,repaired.claims.map((_,i)=>`/claims/${i}`).sort(),'every claim answered once, at its new position');
 });
 
-test('§150.2.1 a reused unit review never carries a row about a record outside the unit',async t=>{
+test('§151.2.1 a reused unit review never carries a row about a record outside the unit',async t=>{
  const cwd=await mkdtemp(join(tmpdir(),'coc-unit-foreign-row-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
  const draft={nodes:[{node_id:'npc-one',source_refs:[{page:1}],properties:{}},{node_id:'npc-two',source_refs:[{page:2}],properties:{}}],claims:[]};
  let runs=0;
@@ -520,7 +520,7 @@ test('§150.2.1 a reused unit review never carries a row about a record outside 
 });
 
 /**
- * §150.2.1, lead decision 2026-09-28: a unit's connected context is checked, not keyed. Removing a connected record
+ * §151.2.1, lead decision 2026-09-28: a unit's connected context is checked, not keyed. Removing a connected record
  * cannot turn the unit's own supported records unsupported (removal is what refused records get); changing or adding
  * one can. Blood05 read-6: every fact unit touched an endpoint of a deleted claim, so keying the context reused none.
  */
@@ -541,18 +541,18 @@ async function contextFixture(t){
  const again=async changed=>{ran.length=0;await reviewCandidate({...options,round:2,draft:changed});return ran.map(paths=>paths.join(',')).sort();};
  return {node,claim,draft,again};
 }
-test('§150.2.1 removing a connected record reuses every unit whose own records are unchanged',async t=>{
+test('§151.2.1 removing a connected record reuses every unit whose own records are unchanged',async t=>{
  const {draft,again}=await contextFixture(t);
  // The sailor's claim on the dock is removed: the dock and the sailor lose it from their context, nothing else changes.
  assert.deepEqual(await again({...draft,claims:[draft.claims[0]]}),['/coverage']);
 });
-test('§150.2.1 a changed connected record re-runs the units that saw it',async t=>{
+test('§151.2.1 a changed connected record re-runs the units that saw it',async t=>{
  const {draft,again}=await contextFixture(t);
  const claims=[draft.claims[0],{...draft.claims[1],reason:'Now a regular at the dock.'}];
  assert.deepEqual(await again({...draft,claims}),['/claims/1','/coverage','/nodes/0','/nodes/1','/nodes/2,/claims/0'],
   'its own unit, and the dock, the sailor and the keeper (through the dock), whose context holds it');
 });
-test('§150.2.1 an added connected record re-runs the units it connects to, and only those',async t=>{
+test('§151.2.1 an added connected record re-runs the units it connects to, and only those',async t=>{
  const {claim,draft,again}=await contextFixture(t);
  const claims=[...draft.claims,claim('npc-sailor','npc-keeper',5,'knows')];
  assert.deepEqual(await again({...draft,claims}),['/claims/1','/claims/2','/coverage','/nodes/1','/nodes/2,/claims/0'],

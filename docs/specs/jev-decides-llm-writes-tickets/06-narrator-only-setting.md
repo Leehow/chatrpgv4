@@ -1,5 +1,5 @@
 Status: ready-for-human
-Spec: docs/specs/jev-decides-llm-writes.md D-D · Contract §150.5 · Ticket SL-79 (`pi-native-single-loop-tickets/79-narrator-only-keeper.md`)
+Spec: docs/specs/jev-decides-llm-writes.md D-D · Contract §151.5 · Ticket SL-79 (`pi-native-single-loop-tickets/79-narrator-only-keeper.md`)
 
 # 06 — Narrator-only compose catalog as a setting (default off)
 
@@ -39,7 +39,7 @@ Source: every retained campaign with `lane:"residual"` rows, read-only. None are
 
 ### 2026-09-28 — implementation (branch `claude/jev-reach-20260928-06-narrator-only`)
 
-What changed (contract first: §150.5 gains an "Implementation decision" paragraph; spec D-D is unchanged):
+What changed (contract first: §151.5 gains an "Implementation decision" paragraph; spec D-D is unchanged):
 
 - `content/rulesets/coc7/host-budgets.json`: `narrator_only: {enabled: false, propose_per_turn: 2}`; `runtime/jev/host-budgets.ts`: `narratorOnlyBudget()`.
 - `runtime/jev/narrator-catalog.ts` (new, pure): the setting (`COC_NARRATOR_ONLY` on/off over the data), `stepCatalog` (which step narrows), `offeredForPropose`, `proposedCandidate`, the refusal sentences, the `propose` tool declaration and the notes.
@@ -47,7 +47,7 @@ What changed (contract first: §150.5 gains an "Implementation decision" paragra
 - `runtime/jev/step-policy.ts`: a queued `propose` becomes the policy's own items (`itemsFor`, reason `proposed`) and then a compose; a narrowed compose's fallen batch returns to the compose once (`narrator_fallen`), a second fall stops the run; `Candidate.key`'s comment names the one place a key reaches the model.
 - `extensions/kernel/index.ts`: `coc:model-step` keeps `refuse`/`refuse_code`; the tool gate blocks such a model call right after the closed-turn door, before admission, a call id or a kernel read, with the engine's sentence, and strikes no refusal class.
 
-Decisions (recorded in §150.5):
+Decisions (recorded in §151.5):
 
 - The catalog is what the step admits; the provider-visible loadout stays the session's. A per-step loadout would re-declare 67 KB of tool definitions into the transcript at every compose/adjudicate switch and move the tool prefix. The cost of this choice: the model still sees `apply` and co. on a narrowed compose and can spend a round on a refusal; the `narrator_catalog` blocked rows and `catalog_refused` rows count that at the table.
 - `say` is the `{{say:Name}}…{{/say}}` span, not a tool: the narrowed catalog is `narrate`, `ask`, `propose`.

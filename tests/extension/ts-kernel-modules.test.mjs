@@ -779,7 +779,7 @@ test('the real source checker reports assigned pages before submission verifies 
  assert.throws(()=>api.checkDraft(candidate,task,contract,new Set([1])),/assigned original pages/);
 });
 
-// §150.4 (ticket 04): need-driven background reads locate first. The host's Jev decisions arrive as the `settled`
+// §151.4 (ticket 04): need-driven background reads locate first. The host's Jev decisions arrive as the `settled`
 // finish the reading service sends; these cases hold the kernel's half -- marker, packet, disposition, eligibility, order.
 const NEED_Q='Any later appendix combat profile for Lena if printed separately';
 async function needBook(name){
@@ -819,7 +819,7 @@ async function needBook(name){
 }
 const needReads=async book=>(await book.queue()).filter(job=>job.question===NEED_Q);
 
-test('§150.4: a need-driven read carries its need, and an answered need closes without a reader',async()=>{
+test('§151.4: a need-driven read carries its need, and an answered need closes without a reader',async()=>{
  const book=await needBook('need-answered');
  try{
   await book.call('module.read.ahead',{});
@@ -849,7 +849,7 @@ test('§150.4: a need-driven read carries its need, and an answered need closes 
  }finally{await book.close();}
 });
 
-test('§150.4: an unlocated need queues nothing until a publication changes its entity material',async()=>{
+test('§151.4: an unlocated need queues nothing until a publication changes its entity material',async()=>{
  const book=await needBook('need-unlocated');
  try{
   await book.call('module.read.ahead',{});
@@ -877,7 +877,7 @@ test('§150.4: an unlocated need queues nothing until a publication changes its 
  }finally{await book.close();}
 });
 
-test('§150.4: a speculative need waits for the unit frontier, rides on an unread unit, and re-opens once it settles',async()=>{
+test('§151.4: a speculative need waits for the unit frontier, rides on an unread unit, and re-opens once it settles',async()=>{
  const book=await needBook('need-carried');
  try{
   const meta=await book.meta();meta.reading.opening_scope='first_interaction';await book.store().writeModule(meta);
@@ -913,7 +913,7 @@ test('§150.4: a speculative need waits for the unit frontier, rides on an unrea
  }finally{await book.close();}
 });
 
-test('§150.4: a need read a waiting Keeper promoted reads as today and records its read',async()=>{
+test('§151.4: a need read a waiting Keeper promoted reads as today and records its read',async()=>{
  const book=await needBook('need-promoted');
  try{
   await book.call('module.read.ahead',{});

@@ -1,5 +1,5 @@
 /**
- * Contract §150.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md): which draft records a Jev claim-support check
+ * Contract §151.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md): which draft records a Jev claim-support check
  * may clear, and the evidence file that check leaves in the reading's work directory.
  *
  * One module for both ends, as `review-verdicts.ts` and `obligation-review.ts` are: the host asks Jev only about the
@@ -16,7 +16,7 @@ export const CLAIM_SUPPORT_PROTOCOL = "source-claim-support-v1";
 export const CLAIM_SUPPORT_FILE = "claim-support.json";
 /** The `reviewer` a review row carries when Jev, not a vision reviewer, supported it. */
 export const JEV_REVIEWER = "jev";
-/** The gate's stable rules for a refused jev row (§150.3 implementation decision). */
+/** The gate's stable rules for a refused jev row (§151.3 implementation decision). */
 export const JEV_REVIEW_RULES = Object.freeze({
     ineligible: "review_jev_ineligible",
     evidence: "review_jev_evidence",

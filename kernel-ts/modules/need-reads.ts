@@ -1,5 +1,5 @@
 /**
- * §150.4: a background read queued from a retained source need locates first. The kernel owns the job's marker, what
+ * §151.4: a background read queued from a retained source need locates first. The kernel owns the job's marker, what
  * its claim packet carries, when a settled need may be read again, and the disposition it records; the host runs Jev and
  * reports what it found. Nothing here reads meaning: pages, units and digests only.
  */
@@ -10,7 +10,7 @@ import { sourceNeedKey } from './source-needs.js';
 
 /** The retained need kinds a background reading can close; `runtime_context` waits for live play instead. */
 export const READABLE_NEED_KINDS = ['deferred', 'source_read', 'uncertain'];
-/** The dispositions that settle a need attempt without an author (§150.4 steps 1-3); `read` is a publication. */
+/** The dispositions that settle a need attempt without an author (§151.4 steps 1-3); `read` is a publication. */
 export const SETTLED_DISPOSITIONS = ['answered', 'unlocated', 'carried'];
 /** At most this many carried questions ride on one unit task. */
 const CARRIED_PER_UNIT = 4;

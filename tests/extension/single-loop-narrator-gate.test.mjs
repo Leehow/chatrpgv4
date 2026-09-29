@@ -1,5 +1,5 @@
 /**
- * §150.5 on the extension seam (needs the emitted build: `tests/extension/pi.mjs` loads the vendored Pi from `build/`): a
+ * §151.5 on the extension seam (needs the emitted build: `tests/extension/pi.mjs` loads the vendored Pi from `build/`): a
  * real Pi session on the hybrid engine with the narrator-only setting on, the kernel extension's own tool gate, the fake
  * kernel and the faux provider. The engine announces a model call outside its step's catalog (`coc:model-step`'s
  * `refuse`), and the kernel extension refuses it before admission or a kernel write, with the engine's sentence; `propose`
@@ -37,7 +37,7 @@ async function narratorTable(t, env) {
 const textOf = (message) => (message.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join("");
 const methods = (table) => table.kernelRequests().map((request) => request.method);
 
-test("§150.5 kernel gate: on a narrowed compose the Keeper's apply is refused with the engine's sentence before the kernel hears of it; the next compose's narrate delivers", async (t) => {
+test("§151.5 kernel gate: on a narrowed compose the Keeper's apply is refused with the engine's sentence before the kernel hears of it; the next compose's narrate delivers", async (t) => {
 	const table = await narratorTable(t, { COC_NARRATOR_ONLY: "on" });
 	assert.ok(table.activeTools().includes("propose"), "propose is on the Keeper's surface with the setting on");
 	await table.session.prompt("我推开地窖门");
@@ -50,7 +50,7 @@ test("§150.5 kernel gate: on a narrowed compose the Keeper's apply is refused w
 	assert.equal(table.session.lastDrivenRun.status, "delivered");
 });
 
-test("§150.5 kernel gate: with the setting off the same compose's apply is not blocked by the catalog, and propose is not on the surface", async (t) => {
+test("§151.5 kernel gate: with the setting off the same compose's apply is not blocked by the catalog, and propose is not on the surface", async (t) => {
 	const table = await narratorTable(t, {});
 	assert.ok(!table.activeTools().includes("propose"));
 	await table.session.prompt("我推开地窖门");

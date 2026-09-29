@@ -1,5 +1,5 @@
 /**
- * Contract §150.3's evidence amendment at the kernel's publication gate (`module.read.finish`), on the TS kernel bundled
+ * Contract §151.3's evidence amendment at the kernel's publication gate (`module.read.finish`), on the TS kernel bundled
  * from source: a `reviewer: "jev"` row is source evidence only for an eligible record, with the page-text digests and
  * extraction version of the host's native-text record of the bound source (`claim-support.json` in the reading's work
  * directory), and never for a path a vision row did not support. Every other jev row refuses the publication with a
@@ -119,7 +119,7 @@ const graphOf = (workspace, mid) => {
 };
 const refusal = (frame) => [frame.ok, frame.error?.details?.rule, frame.error?.details?.path];
 
-test("§150.3 the gate accepts Jev rows for eligible records whose digests match the bound source's native text, and refuses every other Jev row by rule", async (t) => {
+test("§151.3 the gate accepts Jev rows for eligible records whose digests match the bound source's native text, and refuses every other Jev row by rule", async (t) => {
 	const workspace = await mkdtemp(join(tmpdir(), "claim-support-gate-"));
 	t.after(() => rm(workspace, { recursive: true, force: true }));
 	const { mid, file_sha256 } = book(workspace), draft = barDraft(), evidence = evidenceOf(file_sha256);
@@ -157,7 +157,7 @@ test("§150.3 the gate accepts Jev rows for eligible records whose digests match
 	assert.ok(graphOf(workspace, mid).nodes.some((node) => node.node_id === "npc-mae"), "the Jev-cleared record is published");
 });
 
-test("§150.3 a Jev row reviews a path but never settles a contest mark a vision reviewer left", async (t) => {
+test("§151.3 a Jev row reviews a path but never settles a contest mark a vision reviewer left", async (t) => {
 	const workspace = await mkdtemp(join(tmpdir(), "claim-support-mark-"));
 	t.after(() => rm(workspace, { recursive: true, force: true }));
 	const { mid, file_sha256 } = book(workspace), draft = barDraft();

@@ -1,5 +1,5 @@
 /**
- * Contract §150.6 (spec jev-decides-llm-writes D-E, ticket 07): a setup session on the driven engine.
+ * Contract §151.6 (spec jev-decides-llm-writes D-E, ticket 07): a setup session on the driven engine.
  *
  * The seam is the product's own: a real Pi session on the vendored build with the RunDriver the setup engine builds
  * (`runtime/jev/setup-engine.ts`, policy `coc-setup-v1`), the onboarding extension's real setup tool and executor, the
@@ -21,7 +21,7 @@ import { selectLoopEngine } from "../../runtime/loop-engine.ts";
 import { hybridMainOptions } from "../../runtime/pi-hybrid.ts";
 
 const CAMPAIGN = "setup-drive";
-/** A catalog with more than one trade: the kernel's §98 shape plus §150.6's characteristics and `listed: false`. */
+/** A catalog with more than one trade: the kernel's §98 shape plus §151.6's characteristics and `listed: false`. */
 const CATALOG = {
 	occupations: [
 		{ id: "Journalist", label: "记者", skills: ["Art and Craft (Photography)", "History", "Library Use", "Psychology"], credit_rating_range: [9, 30], formula: "EDU*4" },
@@ -111,7 +111,7 @@ const bindCallFor = (name) => (context) => fauxAssistantMessage([fauxToolCall(SE
 	key_connection: { backstory_field: "significant_people", summary: "图片编辑玛吉" }, equipment: ["旁轴相机", "旧皮卡"] } })], { stopReason: "toolUse" });
 const bindCall = bindCallFor("艾伦");
 
-test("§150.6: a trade outside the catalog binds the closest catalog occupation, the player's words are copied to occupation_stated, named skills bind by Noul, numbers stay the kernel's, and only the narrowed tool writes the open words", async (t) => {
+test("§151.6: a trade outside the catalog binds the closest catalog occupation, the player's words are copied to occupation_stated, named skills bind by Noul, numbers stay the kernel's, and only the narrowed tool writes the open words", async (t) => {
 	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS), responses: [bindCall, fauxAssistantMessage("艾伦的卡已经放在桌上了。")] });
 	t.after(() => run.table.dispose());
 	await run.table.session.prompt(FIRST_INPUT);
@@ -152,7 +152,7 @@ test("§150.6: a trade outside the catalog binds the closest catalog occupation,
 	assert.equal(row.fallback, null);
 });
 
-test("§150.6: a stated catalog occupation on the card binds without a model call; the one model step is the reply, with no tool", async (t) => {
+test("§151.6: a stated catalog occupation on the card binds without a model call; the one model step is the reply, with no tool", async (t) => {
 	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS), responses: [bindCall, fauxAssistantMessage("卡好了。")] });
 	t.after(() => run.table.dispose());
 	await run.table.session.prompt(FIRST_INPUT);
@@ -175,7 +175,7 @@ test("§150.6: a stated catalog occupation on the card binds without a model cal
 	assert.equal(kernel(table, "setup.confirm").length, 0);
 });
 
-test("§150.6: an open field on the card goes through the narrowed tool, which refuses a closed key with the open keys and the bound values; the refusal goes to the full tool", async (t) => {
+test("§151.6: an open field on the card goes through the narrowed tool, which refuses a closed key with the open keys and the bound values; the refusal goes to the full tool", async (t) => {
 	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS), responses: [bindCall, fauxAssistantMessage("卡好了。")] });
 	t.after(() => run.table.dispose());
 	await run.table.session.prompt(FIRST_INPUT);
@@ -203,7 +203,7 @@ test("§150.6: an open field on the card goes through the narrowed tool, which r
 	assert.ok(last.refusals.some((entry) => entry.code === "closed_key"));
 });
 
-test("§150.6: a question routes to adjudicate with today's full setup tool, and no card field is asked", async (t) => {
+test("§151.6: a question routes to adjudicate with today's full setup tool, and no card field is asked", async (t) => {
 	const run = await drivenSetup({ decide: (batch) => answer(batch, { exit: "ask_llm" }), responses: [fauxAssistantMessage("可以带，但1920年代的枪支要看职业。")] });
 	t.after(() => run.table.dispose());
 	await run.table.session.prompt("调查员能带枪吗？");
@@ -222,7 +222,7 @@ const legacyCard = fauxAssistantMessage([fauxToolCall("setup", { step: "create-i
 for (const [label, decide] of [
 	["a Jev outage", () => ({ batchId: "b", status: "unavailable", answers: {}, coverage: { required: [], answered: [], unknown: [] }, issues: [], failure: { code: "service_error", retryable: true } })],
 	["no Jev at all", null],
-]) test(`§150.6: ${label} runs today's model-led setup: the full tool, the model's own call, no narrowed step`, async (t) => {
+]) test(`§151.6: ${label} runs today's model-led setup: the full tool, the model's own call, no narrowed step`, async (t) => {
 	const run = await drivenSetup({ decide, responses: [legacyCard, fauxAssistantMessage("Alan is on the card.")] });
 	t.after(() => run.table.dispose());
 	await run.table.session.prompt("Make me a journalist called Alan.");
@@ -237,7 +237,7 @@ for (const [label, decide] of [
 	assert.deepEqual(row.model_steps, { bind: 0, compose: 0, adjudicate: 2 });
 });
 
-test("§150.6: approving the card is never the policy's: the route hands it to the full tool, and nothing confirms unless the Keeper does", async (t) => {
+test("§151.6: approving the card is never the policy's: the route hands it to the full tool, and nothing confirms unless the Keeper does", async (t) => {
 	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS), responses: [bindCall, fauxAssistantMessage("卡好了。")] });
 	t.after(() => run.table.dispose());
 	await run.table.session.prompt(FIRST_INPUT);
@@ -255,7 +255,7 @@ test("§150.6: approving the card is never the policy's: the route hands it to t
 	assert.equal(setupRuns(run.table).at(-1).fallback, "approve_card");
 });
 
-test("§150.6: setup is driven only with a Jev key and no explicit legacy switch, and the hybrid entry gives it the setup policy, never the play one", async () => {
+test("§151.6: setup is driven only with a Jev key and no explicit legacy switch, and the hybrid entry gives it the setup policy, never the play one", async () => {
 	const key = { EXT_JEV_APIKEY: "fixture" };
 	assert.equal(selectLoopEngine(key, "setup"), "hybrid-v1");
 	assert.equal(selectLoopEngine({ ...key, PI_COC_LOOP_ENGINE: "hybrid-v1" }, "setup"), "hybrid-v1");
@@ -284,7 +284,7 @@ function read(overrides = {}) {
 const scope = { owner: "setup", campaign: CAMPAIGN, audience: "keeper" };
 const fields = (overrides = {}) => ({ outside: false, skills: [], stated: [], delegated: false, numbers: false, removal: false, reason: "fields", ...overrides });
 
-test("§150.6: the families keep D2's hygiene: a Noul per issued move with the exit Choice, a Noul per listable catalog skill, and the full batch packs", () => {
+test("§151.6: the families keep D2's hygiene: a Noul per issued move with the exit Choice, a Noul per listable catalog skill, and the full batch packs", () => {
 	assert.deepEqual(legalMoves(read()), ["card_fields"]);
 	assert.deepEqual(legalMoves(read({ brief_holds: true })), ["draft_now"], "a package brief still asking holds card_fields; only asking for the card is a move");
 	assert.deepEqual(legalMoves(read({ card: { revision: 1, summary: {}, profile: {} } })), ["card_fields", "approve_card"]);
@@ -302,7 +302,7 @@ test("§150.6: the families keep D2's hygiene: a Noul per issued move with the e
 	assert.doesNotThrow(() => packDecisionBatch(batch));
 });
 
-test("§150.6: the card plan: stated numbers and removals are the full tool's; a first card binds open words, waits for a name, or needs a trade; closed fields alone revise directly", () => {
+test("§151.6: the card plan: stated numbers and removals are the full tool's; a first card binds open words, waits for a name, or needs a trade; closed fields alone revise directly", () => {
 	const journalist = { id: "Journalist", label: "记者" };
 	assert.equal(cardPlan(read(), fields({ occupation: journalist, numbers: true })).kind, "adjudicate");
 	const card = { revision: 2, summary: { card: { occupation: "Journalist" } }, profile: { occupation: "Journalist", occupation_skills: ["History", "Library Use"], interest_skills: ["Dodge"] } };
@@ -322,7 +322,7 @@ test("§150.6: the card plan: stated numbers and removals are the full tool's; a
 	assert.deepEqual(cardPlan(read({ card }), fields({ stated: ["age"] })).open, ["age"]);
 });
 
-test("§150.6: a listed starter the player chooses runs choose-source and the host's own continuation, then one reply with no tool", async (t) => {
+test("§151.6: a listed starter the player chooses runs choose-source and the host's own continuation, then one reply with no tool", async (t) => {
 	const run = await drivenSetup({ decide: (batch) => answer(batch, { exit: "continue", move_choose_source: 0.95, source: "s0", language_change: 0.03 }),
 		responses: [fauxAssistantMessage("好，我们用《the-haunting》开局。")], env: { FAKE_SETUP_RESUME: undefined } });
 	t.after(() => run.table.dispose());
@@ -339,7 +339,7 @@ test("§150.6: a listed starter the player chooses runs choose-source and the ho
 	assert.equal(setupRuns(table)[0].move, "choose_source");
 });
 
-test("§150.6: a route move clears only on its own Noul and target; a different play language stays the Keeper's", () => {
+test("§151.6: a route move clears only on its own Noul and target; a different play language stays the Keeper's", () => {
 	const fresh = read({ completed: [], created: false, sources: [{ kind: "starter", module: "the-haunting" }] });
 	const batch = routeBatch({ read: fresh, scope, readSet: [] });
 	const chosen = interpretRoute(fresh, answer(batch, { exit: "continue", move_choose_source: 0.95, source: "s0", language_change: 0.03 }), SETUP_DRIVEN_FALLBACK);
@@ -359,12 +359,12 @@ test("§150.6: a route move clears only on its own Noul and target; a different 
 	assert.deepEqual(loaded.target, { kind: "library", entry: { library_id: "ada-1", name: "Ada" } });
 });
 
-// ---- §150.6 decision 9: setup-interest-fit v1 ---------------------------------------------------------------------
+// ---- §151.6 decision 9: setup-interest-fit v1 ---------------------------------------------------------------------
 
 const fitStateSkills = (batch) => batch.state.skills.map((shown) => /\(([^()]+(?:\([^()]*\))?)\)$/.exec(shown)?.[1] ?? shown);
 const interestRevisions = (table) => kernel(table, "setup.revise").filter((row) => Array.isArray(row.params.profile?.interest_skills));
 
-test("§150.6 interest fit: a delegated card gets the cleared skills in probability order, capped by data, through one direct revise and no extra model request", async (t) => {
+test("§151.6 interest fit: a delegated card gets the cleared skills in probability order, capped by data, through one direct revise and no extra model request", async (t) => {
 	const run = await drivenSetup({ budget: { ...SETUP_DRIVEN_FALLBACK, interestSkillMax: 2 },
 		decide: cardFieldsJev(FIRST_FIELDS, { exists: 0.93, "Drive Auto": 0.9, Stealth: 0.72, Listen: 0.81, Law: 0.2 }),
 		responses: [bindCall, fauxAssistantMessage("艾伦的卡好了。")] });
@@ -393,7 +393,7 @@ test("§150.6 interest fit: a delegated card gets the cleared skills in probabil
 	assert.match(note.interest_note, /exactly these interest skills.*Drive Auto, Listen/);
 });
 
-test("§150.6 interest fit: a skill the player asked to keep at its starting value is never picked, whatever its fit, and the reply is told it was held", async (t) => {
+test("§151.6 interest fit: a skill the player asked to keep at its starting value is never picked, whatever its fit, and the reply is told it was held", async (t) => {
 	const input = "我叫艾伦，是自由摄影记者，驾驶保留基础值，其余都帮我决定，出卡吧。";
 	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS, { exists: 0.9, "Drive Auto": 0.95, "hold:Drive Auto": 0.9, Listen: 0.8 }),
 		responses: [bindCall, fauxAssistantMessage("艾伦的卡好了，驾驶保持基础值。")] });
@@ -410,7 +410,7 @@ test("§150.6 interest fit: a skill the player asked to keep at its starting val
 	assert.match(note.interest_note, /keep Drive Auto at the starting value/);
 });
 
-test("§150.6 interest fit: nothing cleared leaves the points unspent, no revise, and the reply is told the points remain", async (t) => {
+test("§151.6 interest fit: nothing cleared leaves the points unspent, no revise, and the reply is told the points remain", async (t) => {
 	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS, { exists: 0.9, "Drive Auto": 0.3, Listen: 0.2 }),
 		responses: [bindCall, fauxAssistantMessage("卡好了，兴趣点还没分。")] });
 	t.after(() => run.table.dispose());
@@ -424,7 +424,7 @@ test("§150.6 interest fit: nothing cleared leaves the points unspent, no revise
 	assert.match(note.interest_note, /still unspent/);
 });
 
-test("§150.6 interest fit: a card the player did not delegate never asks the family", async (t) => {
+test("§151.6 interest fit: a card the player did not delegate never asks the family", async (t) => {
 	const run = await drivenSetup({ decide: cardFieldsJev({ ...FIRST_FIELDS, delegated: 0.05 }, { exists: 0.95, "Drive Auto": 0.95 }),
 		responses: [bindCall, fauxAssistantMessage("卡好了。")] });
 	t.after(() => run.table.dispose());
@@ -434,7 +434,7 @@ test("§150.6 interest fit: a card the player did not delegate never asks the fa
 	assert.equal(interestRevisions(run.table).length, 0);
 });
 
-test("§150.6 interest fit: an outage leaves the card unchanged and the reply says the points remain; no model picks skills", async (t) => {
+test("§151.6 interest fit: an outage leaves the card unchanged and the reply says the points remain; no model picks skills", async (t) => {
 	const outage = { batchId: "b", status: "unavailable", answers: {}, coverage: { required: [], answered: [], unknown: [] }, issues: [], failure: { code: "service_error", retryable: true } };
 	const run = await drivenSetup({ decide: (batch) => batch.family === SETUP_INTEREST_FAMILY ? outage : cardFieldsJev(FIRST_FIELDS)(batch),
 		responses: [bindCall, fauxAssistantMessage("卡好了。")] });
@@ -449,7 +449,7 @@ test("§150.6 interest fit: an outage leaves the card unchanged and the reply sa
 	assert.equal(setupRuns(run.table)[0].model_steps.adjudicate, 0);
 });
 
-test("§150.6 interest fit: candidates exclude listed, printed and unlisted skills; a batch too large to pack splits into one fan-out with exists on the first; the gate and cap are data", () => {
+test("§151.6 interest fit: candidates exclude listed, printed and unlisted skills; a batch too large to pack splits into one fan-out with exists on the first; the gate and cap are data", () => {
 	const card = { revision: 1, era: "1920s", summary: { card: { occupation: "Journalist" }, budget: { interest: { unspent: 60 } } },
 		profile: { occupation: "Journalist", concept: "a photographer", backstory: { traits: "quiet" }, occupation_skills: ["Spot Hidden"], interest_skills: ["Law"] } };
 	const drawn = read({ card });
@@ -470,12 +470,12 @@ test("§150.6 interest fit: candidates exclude listed, printed and unlisted skil
 	assert.equal(cardPlan(drawn, fields()).kind, "adjudicate");
 });
 
-// ---- §150.6 decision 10: a package brief that still asks (live acceptance jev-accept-blood-02, turn 2) ------------
+// ---- §151.6 decision 10: a package brief that still asks (live acceptance jev-accept-blood-02, turn 2) ------------
 
 const BRIEF = { FAKE_SETUP_SLOTS: "1" };
 const DRAFT_NOW_INPUT = "我叫艾琳，35岁，是自由摄影记者，擅长观察和查资料。驾驶保留基础值，其他背景和能力由你按这个概念安排，现在出卡。";
 
-test("§150.6 brief: asking for the card while the brief still asks issues draft_now, records the brief's stop note, and reaches the card fields and the draft", async (t) => {
+test("§151.6 brief: asking for the card while the brief still asks issues draft_now, records the brief's stop note, and reaches the card fields and the draft", async (t) => {
 	const run = await drivenSetup({ env: BRIEF, responses: [bindCallFor("艾琳"), fauxAssistantMessage("艾琳的卡好了。")],
 		decide: (batch) => batch.family === SETUP_ROUTE_FAMILY ? answer(batch, { exit: "continue", move_draft_now: 0.94 })
 			: batch.family === SETUP_INTEREST_FAMILY ? answer(batch, {}) : answer(batch, { ...FIRST_FIELDS, stated_name: 0.97 }) });
@@ -494,7 +494,7 @@ test("§150.6 brief: asking for the card while the brief still asks issues draft
 	assert.ok(row.withheld.includes("card_fields:brief_holds"));
 });
 
-test("§150.6 brief: answering a brief question without asking for the card stays the Keeper's: no stop note, no fields, no draft, and the run row names what was withheld", async (t) => {
+test("§151.6 brief: answering a brief question without asking for the card stays the Keeper's: no stop note, no fields, no draft, and the run row names what was withheld", async (t) => {
 	const run = await drivenSetup({ env: BRIEF, responses: [fauxAssistantMessage("记者，好。那别人通常说你最擅长什么？")],
 		decide: (batch) => answer(batch, { exit: "ask_llm", move_draft_now: 0.08 }) });
 	t.after(() => run.table.dispose());
@@ -509,7 +509,7 @@ test("§150.6 brief: answering a brief question without asking for the card stay
 	assert.ok(row.withheld.includes("card_fields:brief_holds") && row.withheld.includes("approve_card:no_card"), JSON.stringify(row.withheld));
 });
 
-test("§150.6: a run that offers no move says why: the decide row and the run row list the withheld conditions", async (t) => {
+test("§151.6: a run that offers no move says why: the decide row and the run row list the withheld conditions", async (t) => {
 	// A card already confirmed: no card-field move, nothing to load, nothing left to approve.
 	const run = await drivenSetup({ env: { FAKE_SETUP_RESUME: JSON.stringify({ ...RESUME, completed: [...RESUME.completed, "create-investigator", "confirm-investigator"] }) },
 		responses: [fauxAssistantMessage("好的。")], decide: (batch) => answer(batch, {}) });
@@ -525,7 +525,7 @@ test("§150.6: a run that offers no move says why: the decide row and the run ro
 	assert.deepEqual(row.withheld, decide.withheld);
 });
 
-test("§150.6: move gates name every withheld condition structurally", () => {
+test("§151.6: move gates name every withheld condition structurally", () => {
 	const brief = moveGates(read({ brief_holds: true }));
 	assert.deepEqual(brief.moves, ["draft_now"]);
 	assert.ok(brief.withheld.includes("card_fields:brief_holds") && brief.withheld.includes("choose_source:no_sources"));
@@ -544,7 +544,7 @@ function coldKernel(workspace, requests) {
 	return frames.map((frame) => frame.result);
 }
 
-test("§150.6 on the real kernel: a freshly created campaign's setup read offers a card move when the player first describes the investigator", async (t) => {
+test("§151.6 on the real kernel: a freshly created campaign's setup read offers a card move when the player first describes the investigator", async (t) => {
 	const campaign = "setup-drive-real";
 	const run = await drivenSetup({ responses: [fauxAssistantMessage("好的。")], decide: (batch) => answer(batch, { exit: "ask_llm" }),
 		env: { FAKE_SETUP_RESUME: undefined, FAKE_SETUP_CATALOG: undefined },
@@ -563,7 +563,7 @@ test("§150.6 on the real kernel: a freshly created campaign's setup read offers
 		assert.ok(!row.withheld.some((entry) => entry.endsWith(`:${blocked}`) && (entry.startsWith("card_fields") || entry.startsWith("draft_now"))), `${blocked} holds no card move: ${row.withheld}`);
 });
 
-test("§150.6: the shipped interest-fit gate is 0.5 (interest_row_ratio 1), and the named-skill rows carry the play-language label beside the rules name", async () => {
+test("§151.6: the shipped interest-fit gate is 0.5 (interest_row_ratio 1), and the named-skill rows carry the play-language label beside the rules name", async () => {
 	const shipped = await setupDrivenBudget(join(import.meta.dirname, "..", "..", "content"));
 	assert.deepEqual([shipped.interestRowMin, shipped.interestRowRatio, shipped.interestSkillMax], [0.5, 1, 6]);
 	const gate = { ...shipped, rowMin: shipped.interestRowMin, rowRatio: shipped.interestRowRatio };

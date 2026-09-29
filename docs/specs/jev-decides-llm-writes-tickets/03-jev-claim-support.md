@@ -1,5 +1,5 @@
 Status: ready-for-human
-Spec: docs/specs/jev-decides-llm-writes.md D-B B4 · Contract §150.3, §150.3.1
+Spec: docs/specs/jev-decides-llm-writes.md D-B B4 · Contract §151.3, §151.3.1
 Load the `typesafe-jev` skill first.
 
 # 03 — Jev claim-support check before the vision reviewer
@@ -7,8 +7,8 @@ Load the `typesafe-jev` skill first.
 Scope:
 1. Family `source-claim-support` v1 (eligibility by structure only; supported/contradicted Nouls per claim, one fanned-out request per candidate; gates as data).
 2. Modes `shadow` (shipped default) / `on` / `off`, env over data; `on` removes cleared paths from vision units and writes `reviewer:"jev"` rows; Jev never refuses; outage = off.
-3. Kernel publication gate accepts `reviewer:"jev"` rows only under §150.3's conditions.
-4. Offline calibration tool over retained verdicts (claim, cited page native text, vision verdict) with a grid over (S, C); run it live on the Mac against this checkout's retained corpus; write the numbers and the bar outcome into this ticket; flip the data default to `on` only if §150.3.1's bar is met.
+3. Kernel publication gate accepts `reviewer:"jev"` rows only under §151.3's conditions.
+4. Offline calibration tool over retained verdicts (claim, cited page native text, vision verdict) with a grid over (S, C); run it live on the Mac against this checkout's retained corpus; write the numbers and the bar outcome into this ticket; flip the data default to `on` only if §151.3.1's bar is met.
 5. Inventory entry.
 
 Tests: eligibility excludes coverage, image/map paths and pages without native text; shadow changes no review outcome; on skips vision for cleared paths only and a unit left empty is not run; an uncleared or contradicted claim still goes to vision; the gate refuses a jev row on an ineligible path, a mismatched page-text digest, or a path a vision row refused.
@@ -18,7 +18,7 @@ Tests: eligibility excludes coverage, image/map paths and pages without native t
 ### 2026-09-29 implementation (worker, branch `claude/jev-reach-20260928-03-claim-check`)
 
 **What changed.**
-- Contract first: §150.3 gains an "Implementation decision (ticket 03)" paragraph — the unit of the check is the record (a claim, or a node with all its fields, i.e. `reviewUnits`' pointer group); structural eligibility is one import-free function both ends load; the evidence file `claim-support.json`; the merge rule; the gate's three refusal rules; a Jev row never settles a contest mark; data block and env switch; outage = the record stays with vision.
+- Contract first: §151.3 gains an "Implementation decision (ticket 03)" paragraph — the unit of the check is the record (a claim, or a node with all its fields, i.e. `reviewUnits`' pointer group); structural eligibility is one import-free function both ends load; the evidence file `claim-support.json`; the merge rule; the gate's three refusal rules; a Jev row never settles a contest mark; data block and env switch; outage = the record stays with vision.
 - `kernel-ts/modules/claim-support.ts` (new, import-free): `claimRecordRoot`, `claimRecordPages`, `claimSupportIneligibility` (not a record / image source / map region / no or invalid citation / region `box` citation / a cited page without native text), protocol and rule names.
 - `runtime/jev/source-claim-support.ts` (new, pure): budget reader (`source_claim_support` in `host-budgets.json`; unreadable = off), mode resolution (`PI_COC_CLAIM_SUPPORT` over data, source recorded), fact-record grouping (never the `/coverage` unit), the code-rendered statement (claim: subject/relation/object by name and kind, truth status, condition, asserted/known by; node: kind, name, aliases, summary, properties; never `reason` or `visibility`), batches (one fan-out per candidate, split only past packing or `max_pages_per_request`, grouped by cited pages), the gate `supported >= S and contradicted <= C`.
 - `extensions/module/claim-support.ts` (new): `createClaimSupport({env, contentRoot})` — native text via the runtime's `sourceText` pinned to the bound digest, own lease (`timeout_ms`, token bound from the packed batches, one network retry), writes `claim-support.json` (work dir + `verify-<round>/` copy), returns the paths to skip (`on` only) and a `settle(review.json)` that appends Jev rows in `on` (none where a vision row gave an overlapping path anything but `supported`) and pairs every asked record with the vision verdicts. Telemetry rows `claim_support` and `claim_support_paired` on the reading lane.
@@ -31,7 +31,7 @@ Tests: eligibility excludes coverage, image/map paths and pages without native t
 
 **Mutation checks** (file copied aside, mutated, test run, copied back): 19 mutations, all killed — unit filtering removed; settle writes no rows; vision negative ignored; settle never called; gate `and`→`or`; image source eligible (both files); `box` eligible; digest unchecked; overrule unchecked; Jev rows settle marks; evidence not passed by `module.read.finish`; page text hash unchecked; shadow skips; env ignored; page without text eligible; coverage unit asked (killed after adding a direct case); extraction version unchecked; Jev allowed to refuse.
 
-**Calibration (§150.3.1), run live 2026-09-29 on this Mac.** Tool `tests/play/jev-claim-calibrate.mjs --home /Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2` (read-only on that checkout); output `.pi/jev-claim-calibration-20260929/` in this worktree (`records.jsonl`, `summary.json`, `grid.md`). It replays the product's own eligibility, statement, batching and questions through the real adapter (`jev-1.13.0`), native text from the retained `native-navigation-v2.json` (same `pdfjs-6.3.289:native-text-v1`) or `sourceText`.
+**Calibration (§151.3.1), run live 2026-09-29 on this Mac.** Tool `tests/play/jev-claim-calibrate.mjs --home /Users/haoli/leehow/code/chatrpgv4-wt-pi-coc-v2` (read-only on that checkout); output `.pi/jev-claim-calibration-20260929/` in this worktree (`records.jsonl`, `summary.json`, `grid.md`). It replays the product's own eligibility, statement, batching and questions through the real adapter (`jev-1.13.0`), native text from the retained `native-navigation-v2.json` (same `pdfjs-6.3.289:native-text-v1`) or `sourceText`.
 - Corpus: 350 retained verify rounds; 150 are guidance/answer (not asked by design), 2 had no module, 12 duplicates merged → 186 fact rounds; 3,460 eligible record instances asked (ineligible: 144 no native text, 100 image source, 2 region citation, 1 too large); 494 requests, 3.48 M input tokens, $0.146; 11 instances unanswered (`packing_limit`).
 - Labels per instance: 3,386 supported, 59 negative, 4 contested (excluded). Unique claims (same statement on the same page texts of the same source): 2,184 = 2,130 supported + 54 negative (a unique negative counts as cleared if any reading clears; a unique supported only if every reading clears).
 - Grid (S × C, unique claims):
@@ -57,7 +57,7 @@ Tests: eligibility excludes coverage, image/map paths and pages without native t
 - Ticket 02 changes the same two files (`reader-review.ts`, `reading-service.ts`); this ticket's hook is three lines in `reviewCandidate` (option, call, splice) and one block plus one `settle` line in the verify phase.
 
 ### 2026-09-28 — lead decision after reading the calibration records
-- The pre-registered bar failed. The data default stays `shadow` (S 0.8 / C 0.1 in data, so new books' shadow rows measure the zero-false-accept point). This is the §150.3.1 outcome, not a tuning target.
+- The pre-registered bar failed. The data default stays `shadow` (S 0.8 / C 0.1 in data, so new books' shadow rows measure the zero-false-accept point). This is the §151.3.1 outcome, not a tuning target.
 - Read of `records.jsonl`: many reviewer-supported records that Jev scores low are structural graph relations the pipeline derives, not sentences on a page. Example: the claim that 血色公路 contains 蛇洞 scores 0.07. Jev's literal reading, a documented failure mode, is behaving as designed.
 - No redesign in this round:
   - Review units are grouped by page and run in parallel. A unit runs its vision review if any record in it stays uncleared, so clearing 15–25% of records rarely empties a unit.

@@ -191,11 +191,11 @@ export class SetupCatalog {
         skills: array(row(this.chargen.occupationTable[id]).occupational_skills).map(string),
         credit_rating_range: array(row(this.chargen.occupationTable[id]).credit_rating_range).map(Number),
         formula: string(row(this.chargen.occupationTable[id]).skill_point_formula ?? '')})),
-      // `listed: false`: a skill list never holds it (§150.6: the setup clerk never offers it as a named skill).
+      // `listed: false`: a skill list never holds it (§151.6: the setup clerk never offers it as a named skill).
       skills: Object.keys(this.chargen.skillTable).map(name => ({name, label: this.skillLabel(name, language), ...(NOT_LISTED_SKILLS.includes(name) ? {listed: false} : {})})),
       weapons: [...new Set([...this.weaponProfiles().values()].map(([, printable]) => printable))].sort(compareUnicode),
       language_specialty: 'Language (Other: English)',
-      // §150.6: the abbreviations `aptitude` names, for the setup clerk's strong/weak Choices.
+      // §151.6: the abbreviations `aptitude` names, for the setup clerk's strong/weak Choices.
       characteristics: this.chargen.characteristics.map(abbr => ({abbr, name: string(row(row(this.chargen.dice.characteristics)[abbr]).name) || abbr})),
     };
   }

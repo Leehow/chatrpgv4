@@ -692,7 +692,7 @@ export class Reading {
         }
         return queued;
     }
-    /** §150.4: the source units this module streams in the background -- reference units, or indexed units under `first_interaction`. */
+    /** §151.4: the source units this module streams in the background -- reference units, or indexed units under `first_interaction`. */
     private async streamedUnits(mid: string, meta: Row): Promise<SourceUnit[]> {
         if (meta.source_reference) return referenceSourceUnits(number(meta.page_count));
         const reading = row(meta.reading);
@@ -702,7 +702,7 @@ export class Reading {
         return [];
     }
     /**
-     * §150.4: the retained needs' background reads, asked after this pass's streamed units. A deferred need waits until no
+     * §151.4: the retained needs' background reads, asked after this pass's streamed units. A deferred need waits until no
      * streamed unit remains unqueued (coverage first, speculative links second); a settled need waits for its eligibility.
      */
     private async queueNeedReads(mid: string, graph: ModuleGraph, ask: (request: Row) => Promise<Row | null>): Promise<void> {
@@ -1064,7 +1064,7 @@ export class Reading {
                 purpose === 'index' && truth(reading.index_complete))
                 return { ...result, state: 'ready' };
             const source = await this.source(meta);
-            // §150.4: the read-ahead's marker of a read queued from a retained source need; the job identity is unchanged.
+            // §151.4: the read-ahead's marker of a read queued from a retained source need; the job identity is unchanged.
             let needMarker: Row | undefined, needGraph: ModuleGraph | undefined;
             if (params.source_need !== undefined) {
                 needGraph = await this.store.graph(mid);
@@ -1173,7 +1173,7 @@ export class Reading {
                     if(boundPreparation||promote)await this.store.writeQueue(mid,queue);
                     return { ...result, state: existing.state === 'running' ? 'reading' : 'queued', job_id: existing.job_id, ...await this.answerKnown(mid, purpose, focus) };
                 }
-                // §150.4: an attempt settled without a read answers only the read-ahead, and only until the need is eligible
+                // §151.4: an attempt settled without a read answers only the read-ahead, and only until the need is eligible
                 // again; any other request (a waiting player or Keeper) queues a fresh read, which reads as today.
                 const settled = settledNeed(existing);
                 if (settled && needMarker && needGraph
@@ -1387,7 +1387,7 @@ export class Reading {
                         if(preparation) {preparation.currentRevision=(await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid)).revision;await this.store.writeQueue(mid,queue);}
                     }
                     const {task_preparation:_privatePreparation,source_need:needMarker,...visibleJob}=job;
-                    // §150.4: a background need read carries what its disposition is decided on; a unit carries the needs riding on it.
+                    // §151.4: a background need read carries what its disposition is decided on; a unit carries the needs riding on it.
                     const units = needMarker || job.source_unit ? await this.streamedUnits(mid, meta) : [];
                     const needTask = needMarker && !truth(job.foreground) ? needPacket(row(needMarker), graph, mid, unreadUnits(units, queue)) : undefined;
                     const carried = job.source_unit ? carriedNeeds(row(row(meta.reading).source_need_dispositions), graph, job.source_unit as SourceUnit) : [];
@@ -1542,7 +1542,7 @@ export class Reading {
             else {
                 const contract = await this.store.contract(), filled = checkDraft(draft, packet, contract, seen);
                 const reviewPath = await this.contained(work, params.review_path), review = clone(await this.store.context.snapshots.readJson(reviewPath));
-                // §150.3: a Jev-checked row is judged against the host's native-text record of the bound source.
+                // §151.3: a Jev-checked row is judged against the host's native-text record of the bound source.
                 const evidencePath = join(work, CLAIM_SUPPORT_FILE);
                 const claims = array(row(review).checked).some(item => row(item).reviewer === JEV_REVIEWER) && await this.store.context.snapshots.pathExists(evidencePath)
                     ? claimEvidence(await this.store.context.snapshots.readJson(await this.contained(work, evidencePath)), string(meta.source_document.file_sha256)) : undefined;
@@ -1560,7 +1560,7 @@ export class Reading {
                         meta.reading.resolved_source_needs=[...array(meta.reading.resolved_source_needs),...resolved.map(need=>({
                             ...need,key:sourceNeedKey(need),job_id:job.job_id,generation:number(meta.generation)+1}))];
                     }
-                    // §150.4: a need-driven read that published is the need's `read` disposition.
+                    // §151.4: a need-driven read that published is the need's `read` disposition.
                     const marker=row(job.source_need);
                     if(typeof marker.key==='string')meta.reading.source_need_dispositions={...row(meta.reading.source_need_dispositions),
                         [marker.key]:{key:marker.key,node_id:marker.node_id??null,kind:marker.kind??null,question:job.question,disposition:'read',job_id:job.job_id,generation:number(meta.generation)+1}};
@@ -1694,7 +1694,7 @@ export class Reading {
         });
     }
     /**
-     * §150.4: an attempt of a need-driven read that ended without an author. `answered` closes the need through the
+     * §151.4: an attempt of a need-driven read that ended without an author. `answered` closes the need through the
      * resolved-needs path (a new generation without it, `resolved_by: "accepted_material"`); `unlocated` and `carried` keep
      * it retained and record what re-opens it. The job completes and replays like any completion.
      */

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Contract §150.3.1 (ticket 03 of docs/specs/jev-decides-llm-writes.md): the offline calibration of the Jev claim-support
+ * Contract §151.3.1 (ticket 03 of docs/specs/jev-decides-llm-writes.md): the offline calibration of the Jev claim-support
  * check against the retained vision reviewer verdicts of one or more homes.
  *
  * What it replays: every retained verify round (`.../verify-<n>/unit-<n>/attempt-<id>/{review.json,draft.json,task.json}`
@@ -8,7 +8,7 @@
  * candidate; the tool rebuilds the round's units from the retained unit tasks, asks the product's own check
  * (`runtime/jev/source-claim-support.ts`: eligibility, statement, batches, the two Nouls) through the real decision
  * adapter against the cited pages' native text of the bound source, and pairs each asked record with the verdicts the
- * vision reviewers gave its paths in that round. Only eligible records are asked (§150.3: text claims or nodes in a fact
+ * vision reviewers gave its paths in that round. Only eligible records are asked (§151.3: text claims or nodes in a fact
  * unit, no image source or map region, no region citation, every cited page with native text).
  *
  * Labels: a record is `negative` when any vision verdict on an overlapping path in that round is `unsupported`,

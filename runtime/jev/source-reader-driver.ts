@@ -24,7 +24,7 @@ type Page = {page:number;text:string;label?:string|null;text_status?:'available'
 type ImagePage = {page:number;path:string;image_sha256:string;box:number[];data:string};
 type SourceBinding = {pdf:string;cache:string;file_sha256?:string};
 type State = {catalog:boolean;located:boolean;projected:boolean;submitted:boolean;fallback:boolean;inferred:boolean;needsAssessment?:boolean;
- /** §150.4: the answered check of a need task has run; the need settled without a reader. */
+ /** §151.4: the answered check of a need task has run; the need settled without a reader. */
  needChecked?:boolean;needSettled?:boolean};
 type SourceRequest = {question:string;anchor_pages?:number[];need?:SourceNeed};
 export type SourceReaderDriver = SessionRunDriver & {registerSourceRequest(pi:any):void};
@@ -205,7 +205,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      ?'Find public era, starting place and premise, source-backed investigator advice or warnings, and authored opening choices.'
      :'Find material needed for this source answer')).trim(),anchorPages:number[]=[],requestCount=0;
    const requested=new Set<string>([pendingQuery]);
-   // §150.4: a background need read decides answered/unlocated/carried before any inference; a review child never does.
+   // §151.4: a background need read decides answered/unlocated/carried before any inference; a review child never does.
    const needTask=needTaskOf(task);
    let pendingNeed:SourceNeed|undefined=needTask?{kind:needTask.kind as SourceNeed['kind'],focus:needTask.focus,question:needTask.question,
      reason:needTask.reason,trigger:needTask.trigger,source_refs:needTask.source_refs}:undefined;
@@ -279,7 +279,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
    async function locate(signal:AbortSignal){
      if(!info)throw new Error('Source catalog is unavailable');
      const question=pendingQuery;
-     // §150.2.2: a targeted repair reads the refused records' own pages; nothing is located again.
+     // §151.2.2: a targeted repair reads the refused records' own pages; nothing is located again.
      if(task.repair?.kind==='targeted'&&Array.isArray(task.repair.pages)&&requestCount===0){
        candidates=[...new Set(task.repair.pages.filter((page):page is number=>Number.isSafeInteger(page)&&Number(page)>=1&&Number(page)<=info!.page_count))].slice(0,20);
        partial=true;trace({kind:'source_targeted_repair',runId,pages:candidates});
@@ -304,7 +304,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
          opening_probe_pages:[...new Set(openingProbePages)],candidate_pages:candidates,cache_digest:cacheDigest}));
        await rename(temporary,file);
      };
-     // §150.4 steps 2-3: the need facet's leads decide, by page arithmetic, whether this need is read at all.
+     // §151.4 steps 2-3: the need facet's leads decide, by page arithmetic, whether this need is read at all.
      const needAfterLocate=async(leads:NeedLead[]|undefined,evidence:{searched_pages?:number;partial:boolean;cached:boolean})=>{
        if(!needTask||requestCount>0)return undefined;
        const decided=needDisposition({leads:leads??[],acceptedPages:needTask.accepted_pages,unreadUnits:needTask.unread_units,complete:leads!==undefined});
@@ -561,7 +561,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
      projectedOnce=false;projectedImages=[];
      return {kind:'needs_assessed',retrieve:false};
    }
-   /** §150.4 step 1: whether the entity's accepted material already answers the need; an outage or refusal is "no". */
+   /** §151.4 step 1: whether the entity's accepted material already answers the need; an outage or refusal is "no". */
    async function checkNeedAnswered(signal:AbortSignal){
      const need=needTask!,state=needAnsweredState(need,task.known_nodes,task.known_claims);
      if(!state){trace({kind:'source_need_answered',runId,status:'no_material'});return {kind:'need_answered',answered:false,status:'no_material'};}

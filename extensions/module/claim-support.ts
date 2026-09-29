@@ -1,5 +1,5 @@
 /**
- * Contract §150.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md): the reading service's Jev claim-support check.
+ * Contract §151.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md): the reading service's Jev claim-support check.
  *
  * Asked once per verify round, before the vision reviewers run: which records of the candidate the cited pages' native
  * text states (`runtime/jev/source-claim-support.ts`). This file is the glue: the mode (env over data), the native text
@@ -7,7 +7,7 @@
  * (`claim-support.json`), the merge of Jev rows into `review.json` and the telemetry rows. It never refuses a record and
  * never fails a reading: anything it cannot do leaves every record with the vision reviewer.
  *
- * - `shadow` (shipped until §150.3.1's bar passes): ask, record the answers beside the vision verdicts, change nothing.
+ * - `shadow` (shipped until §151.3.1's bar passes): ask, record the answers beside the vision verdicts, change nothing.
  * - `on`: the cleared records' paths are taken out of the vision units, and after the review one `reviewer: "jev"` row
  *   per cleared record is appended to `review.json`, except where a vision row did not support an overlapping path.
  * - `off`: no Jev call.
