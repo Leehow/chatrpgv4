@@ -16,7 +16,7 @@ The user will assign other AIs. This update does not launch workers, run a campa
 | [89 — Source compatibility and history](session-maps-tickets/89-source-history.md) | [#89](https://github.com/Leehow/chatrpgv4/issues/89) |
 | [90 — Session viewer](session-maps-tickets/90-session-viewer.md) | [#90](https://github.com/Leehow/chatrpgv4/issues/90) |
 | [91 — Integrated acceptance](session-maps-tickets/91-integrated-acceptance.md) | [#91](https://github.com/Leehow/chatrpgv4/issues/91) |
-| [92 — One living map per place](session-maps-tickets/92-one-living-map-per-place.md) (2026-09-29, needs-triage) | none (local only) |
+| [92 — One living map per place](session-maps-tickets/92-one-living-map-per-place.md) (2026-09-29, ready-for-agent) | none (local only) |
 
 ## Assignment Frontier
 

@@ -1,6 +1,6 @@
 # 92: one living map per place — new places are uncovered on it, not printed as new cards
 
-Status: needs-triage (owner request 2026-09-29; design below, two decisions marked **Owner** still open)
+Status: ready-for-agent (owner request 2026-09-29; both design decisions ruled 2026-09-29 as proposed: 5 and 6 below)
 Parent: [session-maps.md](../session-maps.md). Amends Decisions 11 and 12 and §39 / §39.2 / §39.3; see "Contract to amend" below.
 Remote ticket: none (local only).
 
@@ -43,16 +43,16 @@ One `apply move` to `martins-beach` printed **two** map cards, 「马丁滩村�
 - Arriving at a place, or learning of it, uncovers that place's region on every map depicting the place or a place it lies in (`located-in` / `occurs-at`, the walk `sceneAssetNodes` already does). It does not mint another map.
 - The two "which maps depict this scene" computations (`mapsDepictingScene`, `sceneAssetNodes`) become one.
 
-**5. What is dark** — **Owner** decision.
-- **Proposal:**
+**5. What is dark** — ruled by the owner 2026-09-29 as proposed (「地图两处都按你推荐的来」).
+- **Ruling:**
   - A map whose source is player-safe (a handout-style map the book gives players) renders **whole**, with only regions not yet learned and secret regions masked.
   - A `revealable` map (a Keeper's map revealed by knowledge) keeps today's known-regions-only rendering.
 - **Why:** a public village map read as black patches between rectangles is the artefact the player saw. Masking only the unknown shows the roads, sea and shape, which the book already gave the player.
-- **Alternative:** keep the collage everywhere and only tighten the boxes.
+- **Not chosen:** keep the collage everywhere and only tighten the boxes.
 
-**6. Delta row versus refreshing the first card** — **Owner** decision.
-- **Proposal: 2 as written.** History is immutable; later reveals are imageless rows pointing to the living map.
-- **Alternative:** the first card is patched in place (§132's card patch has no map-row addressing today). This conflicts with Decision 12 and with §39's "an old card cannot silently become a later view".
+**6. Delta row versus refreshing the first card** — ruled by the owner 2026-09-29 as proposed.
+- **Ruling: 2 as written.** History is immutable; later reveals are imageless rows pointing to the living map.
+- **Not chosen:** the first card is patched in place (§132's card patch has no map-row addressing today). This conflicts with Decision 12 and with §39's "an old card cannot silently become a later view".
 
 ## Contract to amend
 
