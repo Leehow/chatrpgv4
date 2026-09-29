@@ -1,5 +1,8 @@
 # 中文优化 (zh-optimize)
 
+## 1.0.1 (2026-09-29)
+- Measured 1.0.0 on two live the-haunting tables against the same stack without it (grok-4.5 low, same 15 lines): NPC lines won 10-1 and 12-1 in blind pairwise reads (5 and 3 ties); narration sentences of 10 characters or fewer fell from 12% to 7%; two readers' translationese tags fell 75 -> 68 and 62 -> 45, with objects as agents, written/official words and listed nouns down. One side effect: long pre-modifiers rose (9 -> 22, 5 -> 13): the joined sentences hung a string of modifiers before the noun. A section now says that joining means commas between short clauses, and that the thing comes first and its description follows in a clause; the tagged lines are its examples. The brief says it in one sentence (398 bytes).
+
 ## 1.0.0 (2026-09-29)
 - First version (owner request, 2026-09-29): Chinese tables' NPC lines (and, the owner added, their narration) read like "several sentences stitched together". Four live A/B rounds on grok-4.5 low traced it to English speech habits carried into Chinese: the voice-card lane rendered a book's "clipped" or "short offers" as 说话短促 and wrote sample exchanges as rows of full-stopped fragments, and the Keeper imitated them; prompt changes and a self-rewrite pass by the same model did not change it.
 - Narration is covered too (owner, same day, with a screenshot of full-stop-per-action narration): events run one into the next with commas and aspect words; a 30-passage tagging of the tables' narration found written/official words, long pre-modifiers, a "像…" simile after every small gesture, and passives most often.
