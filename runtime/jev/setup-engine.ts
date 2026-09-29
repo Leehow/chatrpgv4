@@ -25,7 +25,7 @@ import type {DecisionPort} from './decision-port.ts';
 import type {DecisionResult, ReadSet, ScopeBinding} from './contracts.ts';
 import {TaskLease} from './task-context.ts';
 import {packDecisionBatch} from './question-packing.ts';
-import {SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY, SETUP_POLICY, SETUP_ROUTE_FAMILY, answerRows, cardPlan, fieldsBatch, interestBatches, interestCandidates, interestPointsLeft,
+import {SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY, SETUP_POLICY, SETUP_ROUTE_FAMILY, answerRows, cardPlan, fieldsBatch, interestBatches, interestCandidates, interestPointsLeft, moveGates,
   interpretFields, interpretInterest, interpretRoute, routeBatch, setupDrivenBudget, type BoundField, type CardPlan, type FieldsOutcome, type InterestOutcome, type OpenProfileKey,
   type RouteOutcome, type SetupDrivenBudget, type SetupRead} from './setup-decisions.ts';
 
@@ -70,6 +70,8 @@ interface SetupPolicyState {
   plan?: CardPlan;
   decisions: number;
   moved?: Moved;
+  /** §150.6 decision 10: the brief's `stop` note `draft_now` recorded before the card-field path. */
+  briefEnded?: Moved;
   bound?: Moved;
   /** §150.6 decision 9: what the interest fit chose, and its revise. */
   interest?: InterestOutcome;
@@ -130,7 +132,11 @@ export function createSetupPolicy(config: {jev: boolean; maxDecisions: number}):
       const move = s.route.move;
       if (!move) return infer('adjudicate', s.route.exit ?? s.route.reason);
       if (move === 'approve_card') return infer('adjudicate', 'approve_card');
-      if (move !== 'card_fields') {
+      // §150.6 decision 10: the player ended the brief; the host records its `stop` note, then the card-field path runs.
+      if (move === 'draft_now') {
+        if (!s.briefEnded) return {kind: 'operate', proposals: [{origin: 'policy', operation: 'setup.move', params: {move, target: null}}], reason: 'setup_move_draft_now'};
+        if (!s.briefEnded.ok) return infer('adjudicate', 'move_refused', {refusal: s.briefEnded.outcome});
+      } else if (move !== 'card_fields') {
         if (!s.moved) return {kind: 'operate', proposals: [{origin: 'policy', operation: 'setup.move', params: {move, target: s.route.target ?? null}}], reason: `setup_move_${move}`};
         return s.moved.ok ? infer('compose', 'moved', {moved: s.moved.outcome}) : infer('adjudicate', 'move_refused', {refusal: s.moved.outcome});
       }
@@ -170,7 +176,8 @@ export function createSetupPolicy(config: {jev: boolean; maxDecisions: number}):
         for (const outcome of observation.outcomes ?? []) {
           const artifact = object(outcome.artifact);
           if (artifact.kind === 'setup_read') { next.read = artifact.read ?? null; next.readReason = artifact.reason; }
-          if (artifact.kind === 'setup_move' || artifact.kind === 'setup_revise') next.moved = {ok: artifact.ok === true, outcome: object(artifact.outcome)};
+          if (artifact.kind === 'setup_move' && artifact.move === 'draft_now') next.briefEnded = {ok: artifact.ok === true, outcome: object(artifact.outcome)};
+          else if (artifact.kind === 'setup_move' || artifact.kind === 'setup_revise') next.moved = {ok: artifact.ok === true, outcome: object(artifact.outcome)};
           if (artifact.kind === 'setup_card') next.bound = {ok: artifact.ok === true, outcome: object(artifact.outcome)};
           if (artifact.kind === 'setup_interest') next.interestRevised = {ok: artifact.ok === true, outcome: object(artifact.outcome)};
         }
@@ -195,6 +202,8 @@ interface SetupRun {
   refusals: Row[];
   modelSteps: Record<Purpose, number>;
   fallback?: string;
+  /** §150.6 decision 10: every legal-move condition that withheld a move at the read, structural names only. */
+  withheld?: string[];
   /** The bind step in progress: what `setup_card` merges and which open keys it accepts. */
   bind?: {first: boolean; closed: Row; open: OpenProfileKey[]; required: OpenProfileKey[]; draftStep?: string};
 }
@@ -275,7 +284,12 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
     if (!jev || !read) return fail('jev_unavailable');
     const {scope, readSet} = scopeOf(run, read);
     const batch = route ? routeBatch({read, scope, readSet}) : fieldsBatch({read, scope, readSet});
-    if (!batch) return fail('no_candidates');
+    if (!batch) {
+      // Nothing to ask is itself a finding: the row names what withheld every move (§150.6 decision 10).
+      record({lane: 'setup', event: 'decide', run: run.runId, step: request.stepId, family: route ? SETUP_ROUTE_FAMILY : SETUP_FIELDS_FAMILY, status: 'no_candidates',
+        withheld: moveGates(read).withheld});
+      return fail('no_candidates');
+    }
     try { packDecisionBatch(batch); } catch (error) { record({lane: 'setup', event: 'decide', run: run.runId, step: request.stepId, family: batch.family, status: 'packing_refused', reason: String(error)}); return fail('packing_limit'); }
     const began = Date.now();
     const lease = new TaskLease({owner: batch.family, goal: `setup run ${run.runId} ${request.purpose}`, scope, capabilities: ['decision'], readSet, signal: request.signal,
@@ -394,6 +408,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
           try {
             const read = await executor.read();
             run.read = read;
+            run.withheld = moveGates(read).withheld;
             const reason = !read.ready ? 'setup_table_unavailable' : read.blocked ? `blocked_${read.blocked.kind}` : read.complete ? 'setup_complete' : !read.input ? 'no_current_input' : undefined;
             return {status: 'ok', artifact: {kind: 'setup_read', read: reason ? null : read, ...(reason ? {reason} : {})}};
           } catch (error) {
@@ -415,7 +430,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
           if (proposal.operation === 'setup.move') {
             const outcome = await executor.move(String(params.move), object(object(params.target).source ?? object(params.target).opening ?? object(params.target).entry), invocation.signal);
             if (outcome.ok !== true) run.refusals.push({step: String(params.move), code: outcome.code ?? null, message: outcome.message ?? outcome.rejected ?? null});
-            return {status: 'ok', artifact: {kind: 'setup_move', ok: outcome.ok === true, outcome}};
+            return {status: 'ok', artifact: {kind: 'setup_move', move: String(params.move), ok: outcome.ok === true, outcome}};
           }
           if (proposal.operation === 'setup.interest') {
             // The kernel spreads the interest points (auto spread); no number comes from Jev or the model.
@@ -436,7 +451,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
           record({lane: 'setup', event: 'run', run: run.runId, engine: 'hybrid-v1', policy: SETUP_POLICY.name, policy_version: SETUP_POLICY.version,
             status: event.status, reason: event.reason, steps: event.steps, ms: Date.now() - run.started, families: run.families, move: run.move ?? null,
             route_reason: run.routeReason ?? null, plan: run.plan?.kind ?? null, bound: run.bound, written: [...new Set(run.written)],
-            model_steps: run.modelSteps, refusals: run.refusals, fallback: run.fallback ?? null});
+            model_steps: run.modelSteps, refusals: run.refusals, fallback: run.fallback ?? null, withheld: run.withheld ?? null});
           // The session's surface between runs is the full tool (contract §14.4); the next run's first request declares it.
           stepCatalog = undefined;
           setTools([fullTool()]);
