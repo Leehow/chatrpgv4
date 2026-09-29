@@ -684,7 +684,11 @@ export class CocOnboardingHost {
     const skills=data.rules===true&&Array.isArray(data.mechanics)
       ? [...new Set(data.mechanics.filter((row:any)=>row?.kind==='roll'&&row.visibility!=='keeper'&&typeof row.skill==='string')
         .map((row:any)=>row.skill.trim()).filter(Boolean))].sort() : [];
-    return JSON.stringify([data.campaign,data.revision,data.play_language,CocOnboardingHost.laneFlags(data),skills]);
+    // A handouts request names the titles no file carries (VT-01); like a delivery's skills, a
+    // request with other titles must not join a run that never saw them.
+    const titles=data.handouts===true&&Array.isArray(data.handout_names)
+      ? [...new Set(data.handout_names.filter((name:unknown)=>typeof name==='string'))].sort() : [];
+    return JSON.stringify([data.campaign,data.revision,data.play_language,CocOnboardingHost.laneFlags(data),skills,titles]);
   }
   /** Different deliveries must not join a run that never saw their terms, nor overwrite its cache.
    *  Each growing lane reads its missing words again after its predecessor has saved them. */
