@@ -61,6 +61,9 @@ export function actedOn(me: Person, turn: Row, party: Row[], here: boolean): Row
         const receipt = row(value), id = string(receipt.id);
         // Their own act (a stamp naming them) and their own roll are what they did, not what was done to them.
         if (me.is(row(receipt.intent).npc) || me.is(receipt.actor)) continue;
+        // An impression observes this meeting; it is not an action performed against the NPC.
+        // Its typed result guides the Keeper's ordinary reply without starting another author.
+        if (receipt.roll_kind === 'mod_check' && isJsonObject(receipt.impression)) continue;
         let kind: string | null = null;
         if (receipt.kind === 'roll' && me.is(receipt.npc)) kind = 'roll_against';
         else if (receipt.kind === 'delta' && me.is(receipt.subject)) kind = 'delta';

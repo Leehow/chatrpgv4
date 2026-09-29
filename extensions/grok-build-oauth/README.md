@@ -23,3 +23,14 @@ home (`PI_COC_AGENT_DIR` > `PI_CODING_AGENT_DIR`), never in `~/.pi`.
   copy here is the same artifact, tracked by this repository instead.
 - TypeScript sources, tests, and the `sync-bundled-extension` postbuild —
   PipiUI build machinery; the compiled output is what this tree vendors.
+
+## Local changes to the vendored code
+
+- `agent/catalog.js` reports `GROK_BUILD_SERVED_CONTEXT_WINDOW` (500K) for
+  every catalog model whose listed `context_window` is smaller. The catalog
+  lists 256K, which is the official grok CLI's own compaction budget; the
+  endpoint accepted 267K and refused ~536K with `... > 500000 tokens` on every
+  model when probed on 2026-09-29.
+- `agent/catalog.js` keeps the account catalog online under the compiled
+  deployment (`PI_COC_LAYOUT=compiled`), which sets `PI_OFFLINE`.
+- User-facing error strings are translated to English.

@@ -221,6 +221,8 @@ export class ModuleGraph {
     readonly names = new Map<string, Set<string>>();
     /** Handles for the people this table established; see `addTablePerson`. */
     readonly tableNames = new Map<string, string>();
+    readonly tableEntityNames = new Map<string, string>();
+    readonly sourcePlaceNames = new Map<string, string>();
     readonly moduleNode: Row | null;
     constructor(readonly moduleId: string, readonly raw: Row, readonly digest: string, readonly dossier: Row,
         readonly semanticNames: ReadonlyMap<string, string> = new Map(), readonly campaignView = false) {
@@ -325,6 +327,8 @@ export class ModuleGraph {
         return typeof identity.canonical_name === "string" && identity.canonical_name ? identity.canonical_name : display;
     }
     handle(node: Row): string {
+        if (this.sourcePlaceNames.has(node.node_id)) return this.sourcePlaceNames.get(node.node_id)!;
+        if (this.tableEntityNames.has(node.node_id)) return this.tableEntityNames.get(node.node_id)!;
         if (this.tableNames.has(node.node_id)) return this.tableNames.get(node.node_id)!;
         if (this.semanticNames.has(node.node_id)) return this.semanticNames.get(node.node_id)!;
         return node.node_kind === "scene" && typeof recordOf(node).scene_id === "string" ? recordOf(node).scene_id : stripPrefix(node.node_id, node.node_kind);
@@ -359,6 +363,47 @@ export class ModuleGraph {
         }
         return node;
     }
+    /** A source location is a playable place; preserve its identity and all existing links. */
+    projectSourcePlaces(): void {
+        const locations = this.kind('location');
+        const registered = new Set(this.kind('scene').flatMap(scene => this.nameKeys(scene).map(normalize)));
+        const retained: Row[] = [];
+        for (const location of locations) {
+            // An authored scene already representing this exact place keeps precedence.
+            if (this.nameKeys(location).some(name => registered.has(normalize(name)))) { retained.push(location); continue; }
+            this.sourcePlaceNames.set(location.node_id, this.handle(location));
+            const scene = {...location, node_kind: 'scene', source_kind: 'location'};
+            this.nodes.set(location.node_id, scene);
+            this.byKind.set('scene', [...this.kind('scene'), scene]);
+        }
+        if (locations.length) this.byKind.set('location', retained);
+    }
+    /** Install persisted campaign content without modifying the source graph. */
+    addTableEntity(record: Row): Row {
+        const id = string(record.id), name = string(record.name), kind = string(record.kind);
+        const existing = this.nodes.get(id);
+        if (existing) return existing;
+        if (!id || !name || !['scene', 'clue'].includes(kind)) throw new RpcError('invalid_params', 'Invalid campaign entity record');
+        const node: Row = {node_id: id, node_kind: kind, name, aliases: [], summary: record.summary,
+            visibility: 'keeper-only', properties: {name, semantic_name: name}, campaign_origin: {kind: 'table', reason: 'Established during play.', turn: record.turn}};
+        this.nodes.set(id, node);
+        this.tableEntityNames.set(id, name);
+        this.byKind.set(kind, [...this.kind(kind), node]);
+        for (const key of this.nameKeys(node)) {
+            const normalized = normalize(key);
+            this.names.set(normalized, new Set([...(this.names.get(normalized) ?? []), id]));
+        }
+        if (kind === 'clue' && record.scene) {
+            const scene = this.scene(record.scene);
+            const relation = {from_node_id: id, to_node_id: scene.node_id, relation_kind: 'discoverable-at', properties: {}};
+            this.out.set(id, [relation]);
+            this.incoming.set(scene.node_id, [...(this.incoming.get(scene.node_id) ?? []), relation]);
+        }
+        return node;
+    }
+    isTableEntity(node: Row | null | undefined): boolean {
+        return !!node && this.tableEntityNames.has(string(node.node_id));
+    }
     /** True for a person `apply npc` established at the table rather than the book or a reviewed adaptation. */
     isTablePerson(node: Row | null | undefined): boolean {
         return !!node && this.tableNames.has(string(node.node_id));
@@ -383,6 +428,9 @@ export class ModuleGraph {
         return this.moduleNode?.name ? string(this.moduleNode.name) : this.moduleId;
     }
     resolve(name: string, kinds?: string[], what = "entity"): Row {
+        // Later source publication cannot steal an established campaign handle.
+        const table = [...this.tableEntityNames].filter(([id, label]) => normalize(label) === normalize(name) && (!kinds?.length || kinds.includes(this.nodes.get(id)!.node_kind)));
+        if (table.length === 1) return this.nodes.get(table[0][0])!;
         const key = normalize(name),
             wanted = (id: string) => !kinds?.length || kinds.includes(this.nodes.get(id)!.node_kind),
             exact = [...this.nodes.values()].filter(n => wanted(n.node_id) && key === normalize(this.handle(n)));
@@ -875,7 +923,8 @@ export class ModuleGraph {
             Row
         ]> = [],
             summaries: Row[] = [];
-        array(this.raw.nodes).forEach((node, order) => {
+        [...this.nodes.values()].forEach((node, order) => {
+            if (!this.isTableEntity(node) && [...this.tableEntityNames].some(([id, name]) => this.nodes.get(id)!.node_kind === node.node_kind && normalize(name) === normalize(node.name))) return;
             const keys = this.searchKeys(node).map(normalize);
             if (keys.includes(key))
                 exact.push(node);

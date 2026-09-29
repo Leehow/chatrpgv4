@@ -166,11 +166,11 @@ test("SL-90 (engine seam): the executed clue_follow_up's own dispatch carries `b
 	assert.equal(consequenceContext.origin.origin, "policy");
 	assert.equal(consequenceContext.origin.clerk, "consequence_bookkeeping");
 	// `clue_follow_up`'s own gate is the shipped `content/rulesets/coc7/host-budgets.json`'s per-class override
-	// (§135.32 addendum 3.1: row_min 0.4, row_ratio 0.67), not the shared default -- proving `thresholdsForClass`,
+	// (§151.1.1: row_min 0.5, row_ratio 1), not the shared default -- proving `thresholdsForClass`,
 	// not a literal, produced this row's `gate`.
 	assert.deepEqual(consequenceContext.origin.basis.consequence, {
 		class: "clue_follow_up", key: "consequence:clue_follow_up:globe-story", confidence: 0.95, distribution: { true: 0.95, false: 1 - 0.95 },
-		gate: { row_min: 0.4, row_ratio: 0.67 },
+		gate: { row_min: 0.5, row_ratio: 1 },
 	});
 	// The candidate's own provenance (never a Jev/model-visible field) survives beside the new evidence.
 	assert.equal(consequenceContext.origin.basis.read, "table.apply.options");

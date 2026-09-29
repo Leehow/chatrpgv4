@@ -248,6 +248,8 @@ export function Transcript({ stateKey, messages: rawMessages, transcriptRef, wai
     userDetachedRef.current = false
     userDetachedSawAwayRef.current = false
     setSeekingId(null)
+    // Explicit navigation must work even when a hidden native view suspends animation frames.
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
     requestPin()
   }
   const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {

@@ -21,7 +21,8 @@ import { validSourceLanguage, vocabulary } from './contract.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 import { ModuleStore, validateModuleId } from './store.js';
 import { playsFromReading, bindStarterSource, boundFileIntact, boundReadingState, declaredWindow, freshReadingState, starterDeclarationsForBook, starterSourceDeclaration, windowMatches, windowOf } from './bound-source.js';
-import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, classificationFields, recordContested, reject, resolveStartScene } from './visual.js';
+import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, checkReview, claimEvidence, classificationFields, recordContested, reject, resolveStartScene } from './visual.js';
+import { CLAIM_SUPPORT_FILE, JEV_REVIEWER } from './claim-support.js';
 import { pageSpans } from './transcription.js';
 import { passageKey } from '../read/table-people.js';
 const object = (value: any): boolean => isJsonObject(value);
@@ -30,6 +31,7 @@ import { ROUTE_TRAVEL_FIELD, applyTravelFill, type TravelRow } from './route-tra
 import { bandRows } from '../rules/bands.js';
 import {validatePublicGuidance} from './public-guidance.js';
 import {sourceNeedKey} from './source-needs.js';
+import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needEligible,needPacket,retainedNeed,settledNeed,unitJobs,unreadUnits} from './need-reads.js';
 import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy.js';
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
@@ -609,7 +611,7 @@ export class Reading {
                 continue;
             const node = graph.find(name);
             // §22.4.7.1 (SL-56): a person this table established is not book material; nothing is read for them (§87).
-            if (graph.isTablePerson(node))
+            if (graph.isTablePerson(node) || graph.isTableEntity(node))
                 continue;
             if (node === null && !indexed.has(normalize(name)))
                 continue;
@@ -636,8 +638,9 @@ export class Reading {
                         ...(pages.length ? { index: { pages } } : {}) },
                 });
             }
-            // §22.4.7: the party's place, entered on its index text, is not held while its record is read.
-            if (node && node.node_kind === 'scene' && gate.entered?.has(focus))
+            // Section 150: a scene dossier is reference coverage, not permission to act here.
+            // Retain explicit legacy index landing when the host asks for its source passages.
+            if (node && node.node_kind === 'scene' && !gate.moves?.get(name)?.land)
                 continue;
             const move = gate.moves?.get(name), pages = move && node && node.node_kind === 'scene' ? await this.sceneIndexPages(graph, node) : [];
             if (move?.land && pages.length) {
@@ -690,6 +693,30 @@ export class Reading {
         }
         return queued;
     }
+    /** §151.4: the source units this module streams in the background -- reference units, or indexed units under `first_interaction`. */
+    private async streamedUnits(mid: string, meta: Row): Promise<SourceUnit[]> {
+        if (meta.source_reference) return referenceSourceUnits(number(meta.page_count));
+        const reading = row(meta.reading);
+        if (reading.opening_scope === 'first_interaction' && truth(reading.index_complete)
+            && Object.values(row(meta.prepared_openings)).some(value => truth(row(value).opening_ready)))
+            return backgroundSourceUnits(await this.store.indexRows(mid, meta), number(meta.page_count));
+        return [];
+    }
+    /**
+     * §151.4: the retained needs' background reads, asked after this pass's streamed units. A deferred need waits until no
+     * streamed unit remains unqueued (coverage first, speculative links second); a settled need waits for its eligibility.
+     */
+    private async queueNeedReads(mid: string, graph: ModuleGraph, ask: (request: Row) => Promise<Row | null>): Promise<void> {
+        const meta = await this.store.module(mid), queue = await this.store.queue(mid), jobs = unitJobs(queue);
+        const unqueued = (await this.streamedUnits(mid, meta)).filter(unit => !jobs.has(sourceUnitKey(unit))).length;
+        const dispositions = row(row(meta.reading).source_need_dispositions);
+        const needs = array(graph.raw.source_needs).filter(need => READABLE_NEED_KINDS.includes(need.kind) && need.source_sha256 === meta.file_sha256
+            && (need.kind !== 'deferred' || unqueued === 0) && needEligible(dispositions, graph.raw, need, queue, mid));
+        for (const need of needs.slice(0, 2)) {
+            const node = graph.nodes.get(string(need.node_id));
+            if (node) await ask({ purpose: 'detail', focus: graph.handle(node), question: need.question, source_need: sourceNeedKey(need) });
+        }
+    }
     /** Maintain source-backed routes without interpreting page order or the scene's prose. */
     async queueAheadReading(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id), queued: string[] = [];
@@ -713,10 +740,6 @@ export class Reading {
         if (!truth(reading.index_complete)) await ask({ purpose: 'index', focus: '' });
         if (!await this.store.readGraph(mid)) return { queued, reason: 'index' };
         const graph = await this.store.graph(mid);
-        for(const need of array(graph.raw.source_needs).filter(need=>['deferred','source_read','uncertain'].includes(need.kind)&&need.source_sha256===meta.file_sha256).slice(0,2)){
-            const node=graph.nodes.get(string(need.node_id));
-            if(node)await ask({purpose:'detail',focus:graph.handle(node),question:need.question});
-        }
         if(meta.source_reference){
             const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit),active=work.filter(job=>['queued','running'].includes(job.state)).length;
             const seen=new Set(work.filter(job=>job.state!=='cancelled').map(job=>sourceUnitKey(job.source_unit as SourceUnit)));
@@ -727,6 +750,7 @@ export class Reading {
             for(const unit of units.filter(unit=>!seen.has(sourceUnitKey(unit))).slice(0,Math.max(0,2-active)))
                 await ask({purpose:'detail',focus:unit.section,source_unit:unit,
                     question:'Publish one small usable fragment from only physical pages '+unit.first+'-'+unit.last+'. Reuse known identities. Preserve the facts and their causal links; leave incomplete entities and unresolved cross-references explicit. Do not expand into another chapter or wait for the whole graph. Empty non-story pages may publish only coverage.'});
+            await this.queueNeedReads(mid,graph,ask);
             return {queued:[...new Set(queued)],reference_context:true,graph_complete:false,...(recovered.length?{recovered}:{})};
         }
         if(reading.opening_scope==='first_interaction'&&truth(reading.index_complete)&&Object.values(row(meta.prepared_openings)).some(value=>truth(row(value).opening_ready))){
@@ -746,6 +770,7 @@ export class Reading {
                     question:'Prepare the indexed source unit in physical pages '+next.first+'-'+next.last+' for later reference. Retain source-backed identities, conditions and connections; keep incomplete entities and later cross-references explicit. Do not replay already accepted facts or expand this unit into the whole chapter.'});
             }
         }
+        await this.queueNeedReads(mid, graph, ask);
         let scene: Row;
         try { scene = truth(params.focus) ? graph.scene(string(params.focus)) : graph.startScene(); }
         catch (error) { if (!(error instanceof RpcError)) throw error; return { queued, reason: 'no_scene' }; }
@@ -1040,6 +1065,16 @@ export class Reading {
                 purpose === 'index' && truth(reading.index_complete))
                 return { ...result, state: 'ready' };
             const source = await this.source(meta);
+            // §151.4: the read-ahead's marker of a read queued from a retained source need; the job identity is unchanged.
+            let needMarker: Row | undefined, needGraph: ModuleGraph | undefined;
+            if (params.source_need !== undefined) {
+                needGraph = await this.store.graph(mid);
+                const need = retainedNeed(needGraph.raw, params.source_need);
+                if (purpose !== 'detail' || material !== undefined || params.source_unit !== undefined || !need || typeof need.node_id !== 'string'
+                    || needGraph.find(focus)?.node_id !== need.node_id || string(need.question).trim() !== question.trim())
+                    throw new RpcError('invalid_params', 'source_need must name a retained source need of this detail focus and question');
+                needMarker = { key: params.source_need, kind: need.kind, node_id: need.node_id };
+            }
             let sourceUnit:SourceUnit|undefined;
             if(params.source_unit!==undefined){
                 const unit=params.source_unit;
@@ -1139,7 +1174,13 @@ export class Reading {
                     if(boundPreparation||promote)await this.store.writeQueue(mid,queue);
                     return { ...result, state: existing.state === 'running' ? 'reading' : 'queued', job_id: existing.job_id, ...await this.answerKnown(mid, purpose, focus) };
                 }
-                if (existing.state === 'completed') {
+                // §151.4: an attempt settled without a read answers only the read-ahead, and only until the need is eligible
+                // again; any other request (a waiting player or Keeper) queues a fresh read, which reads as today.
+                const settled = settledNeed(existing);
+                if (settled && needMarker && needGraph
+                    && !needEligible(row(reading.source_need_dispositions), needGraph.raw, retainedNeed(needGraph.raw, needMarker.key)!, queue, mid))
+                    return { ...result, state: 'settled', job_id: existing.job_id, disposition: row(row(existing.result).source_need).disposition };
+                if (existing.state === 'completed' && !settled) {
                     if (purpose === 'answer') throw new RpcError('needs', 'the completed source answer has no accepted evidence', { details: { reason: 'source_answer_integrity' } });
                     // A refusal names what is missing (§46.1); a completed reading that still answers
                     // nothing is the snapshot's own list, and an empty one is not a refusal at all.
@@ -1148,7 +1189,7 @@ export class Reading {
                         return { ...result, state: 'ready' };
                     return { ...result, state: 'blocked', missing, opening: meta.opening ?? null, fix: 'choose an authored opening, then request preparation again' };
                 }
-                if (!truth(params.retry))
+                if (!settled && !truth(params.retry))
                     return { ...result, state: 'blocked', missing: [existing.detail ?? 'reading failed'], ...(existing.refusal ? { refusal: existing.refusal } : {}), job_state: existing.state, failed_job: existing.job_id, fix: 'request the same reading with retry: true' };
             }
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
@@ -1175,7 +1216,9 @@ export class Reading {
             if (purpose === 'guidance')
                 for (const key of ['guidance_key', 'play_language', 'occupations', 'public_progress'])
                     if (Object.hasOwn(params, key)) job[key] = params[key];
-            if (truth(existing?.work_dir))
+            if (needMarker) job.source_need = needMarker;
+            // A settled need attempt authored nothing: there is no draft to resume from.
+            if (truth(existing?.work_dir) && !settledNeed(existing))
                 job.resume_from = existing!.work_dir;
             queue.push(job);
             await this.store.writeQueue(mid, queue);
@@ -1344,8 +1387,12 @@ export class Reading {
                         await this.store.writeModule(meta);
                         if(preparation) {preparation.currentRevision=(await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid)).revision;await this.store.writeQueue(mid,queue);}
                     }
-                    const {task_preparation:_privatePreparation,...visibleJob}=job;
-                    const packet = { ...visibleJob,...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    const {task_preparation:_privatePreparation,source_need:needMarker,...visibleJob}=job;
+                    // §151.4: a background need read carries what its disposition is decided on; a unit carries the needs riding on it.
+                    const units = needMarker || job.source_unit ? await this.streamedUnits(mid, meta) : [];
+                    const needTask = needMarker && !truth(job.foreground) ? needPacket(row(needMarker), graph, mid, unreadUnits(units, queue)) : undefined;
+                    const carried = job.source_unit ? carriedNeeds(row(row(meta.reading).source_need_dispositions), graph, job.source_unit as SourceUnit) : [];
+                    const packet = { ...visibleJob, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;
@@ -1400,8 +1447,10 @@ export class Reading {
                 : job.state !== 'running' || job.lease !== params.lease)
                 throw new RpcError('invalid_params', 'this reading attempt no longer owns publication');
             const outcome = params.outcome;
-            if (!['completed', 'failed', 'cancelled'].includes(outcome))
-                throw new RpcError('invalid_params', 'outcome must be completed, failed or cancelled');
+            if (!['completed', 'failed', 'cancelled', 'settled'].includes(outcome))
+                throw new RpcError('invalid_params', 'outcome must be completed, failed, cancelled or settled');
+            if (outcome === 'settled')
+                return this.settleNeed(mid, meta, queue, job, params.need);
             if (outcome !== 'completed') {
                 const refusal = refusalOf(params.refusal);
                 // §22.4.8: a detail reading refused after its read phase still says where its scene is.
@@ -1494,8 +1543,12 @@ export class Reading {
             else {
                 const contract = await this.store.contract(), filled = checkDraft(draft, packet, contract, seen);
                 const reviewPath = await this.contained(work, params.review_path), review = clone(await this.store.context.snapshots.readJson(reviewPath));
+                // §151.3: a Jev-checked row is judged against the host's native-text record of the bound source.
+                const evidencePath = join(work, CLAIM_SUPPORT_FILE);
+                const claims = array(row(review).checked).some(item => row(item).reviewer === JEV_REVIEWER) && await this.store.context.snapshots.pathExists(evidencePath)
+                    ? claimEvidence(await this.store.context.snapshots.readJson(await this.contained(work, evidencePath)), string(meta.source_document.file_sha256)) : undefined;
                 // §22.3.2: a disputed classification is published with its mark; only an unsupported fact refuses.
-                const judged = checkReview(row(draft), filled, review, number(meta.page_count), new Set(array(observations.review_pages)), classificationFields(contract));
+                const judged = checkReview(row(draft), filled, review, number(meta.page_count), new Set(array(observations.review_pages)), classificationFields(contract), claims);
                 const retranscribed: Row[] = [];
                 const graph = assembleVisual(await this.store.readGraph(mid), filled, meta, contract, retranscribed);
                 if(job.purpose==='detail'&&truth(job.question)){
@@ -1508,6 +1561,10 @@ export class Reading {
                         meta.reading.resolved_source_needs=[...array(meta.reading.resolved_source_needs),...resolved.map(need=>({
                             ...need,key:sourceNeedKey(need),job_id:job.job_id,generation:number(meta.generation)+1}))];
                     }
+                    // §151.4: a need-driven read that published is the need's `read` disposition.
+                    const marker=row(job.source_need);
+                    if(typeof marker.key==='string')meta.reading.source_need_dispositions={...row(meta.reading.source_need_dispositions),
+                        [marker.key]:{key:marker.key,node_id:marker.node_id??null,kind:marker.kind??null,question:job.question,disposition:'read',job_id:job.job_id,generation:number(meta.generation)+1}};
                 }
                 recordContested(graph, filled, judged, mid, job.job_id, number(meta.generation) + 1);
                 // Contract §138.9: the host's band for each new road lands inside this one publication, never as a
@@ -1636,6 +1693,41 @@ export class Reading {
             await this.release(mid, job.job_id);
             return result;
         });
+    }
+    /**
+     * §151.4: an attempt of a need-driven read that ended without an author. `answered` closes the need through the
+     * resolved-needs path (a new generation without it, `resolved_by: "accepted_material"`); `unlocated` and `carried` keep
+     * it retained and record what re-opens it. The job completes and replays like any completion.
+     */
+    private async settleNeed(mid: string, meta: Row, queue: Row[], job: Row, report: unknown): Promise<Row> {
+        const marker = row(job.source_need);
+        if (job.purpose !== 'detail' || typeof marker.key !== 'string')
+            throw new RpcError('invalid_params', 'only a background read of a retained source need settles without a read');
+        const raw = await this.store.readGraph(mid) || {};
+        let record: Row;
+        try { record = needDispositionRecord(report, marker, raw, mid, await this.streamedUnits(mid, meta), string(job.job_id), number(meta.page_count)); }
+        catch (error) { throw new RpcError('invalid_params', error instanceof Error ? error.message : String(error)); }
+        meta.reading ??= Reading.initialState();
+        const retained = retainedNeed(raw, marker.key);
+        if (record.disposition === 'answered' && retained) {
+            const graph = clone(raw);
+            graph.source_needs = array(graph.source_needs).filter(need => sourceNeedKey(need) !== marker.key);
+            this.owned();
+            await this.store.writeGraph(meta, graph);
+            meta.reading.resolved_source_needs = [...array(meta.reading.resolved_source_needs), { ...retained, key: marker.key, job_id: job.job_id,
+                generation: number(meta.generation), resolved_by: 'accepted_material', distribution: record.distribution }];
+        }
+        record.generation = meta.generation ?? 0;
+        meta.reading.source_need_dispositions = { ...row(meta.reading.source_need_dispositions), [marker.key]: record };
+        const result: Row = { state: 'settled', generation: meta.generation ?? 0, source_need: { key: marker.key, disposition: record.disposition } };
+        meta.reading.completed ??= {};
+        meta.reading.completed[job.job_id] = result;
+        Object.assign(job, { state: 'completed', result, finished_at: nowIso() });
+        this.owned();
+        await this.store.writeModule(meta);
+        await this.store.writeQueue(mid, queue);
+        await this.release(mid, job.job_id);
+        return result;
     }
     /** §138.9: write the host's road bands onto this publication's graph; `filled` counts relations, `skipped` says why. */
     private async fillTravel(graph: Row, entries: unknown): Promise<Row> {

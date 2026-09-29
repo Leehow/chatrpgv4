@@ -146,7 +146,12 @@ export async function stageNote(context:ApplyContext,effect:Row,staged:Row[]):Pr
         const old=current.get(normalize(closes));
         if(!old||old.status!=='open'){
             const open=[...current.values()].filter(value=>value.status==='open').map(value=>string(value.name));
-            throw new RpcError('invalid_params',`no open note named ${repr(closes)}`,{fix:open.length?`close one of ${repr(open)}`:'there is no open note to close',details:{closes,open}});
+            if(!old&&(await context.kernel.snapshots.readJsonl(join(context.campaign.directory,'memory/candidates.jsonl')))
+                .some(value=>isJsonObject(value)&&value.id===closes))
+                throw new RpcError('invalid_params',`${repr(closes)} is a memory reference, not a manual note`,{
+                    fix:'Memory maintenance owns this record. No memory or note was changed; do not retry it through apply note.',
+                    details:{reason:'note_reference_owner',owner:'memory',closes,open}});
+            throw new RpcError('invalid_params',`no open note named ${repr(closes)}`,{fix:(open.length?`close one of ${repr(open)}`:'there is no open note to close')+'; memory references are maintained separately and are not manual notes',details:{reason:'note_not_open',closes,open}});
         }
         closed={...publicRow(old),status:'closed',closed_turn:context.turn.turn,closed_by:context.callId};rows.push(closed);
     }

@@ -10,6 +10,7 @@ import {
   parseCodexWindows,
   parseCursorWindows,
   parseDeepSeekBalance,
+  parseGrokWindows,
   parseKimiWindows,
   parseMoonshotBalance,
   parseOpenCodeGoUsage,
@@ -18,6 +19,20 @@ import {
   parseSiliconFlowBalance,
   type AccountUsageAdapter,
 } from "../src/index.js";
+
+const percentField = (value: number) => {
+  const bytes = new Uint8Array(5); bytes[0] = 0x0d;
+  new DataView(bytes.buffer).setFloat32(1, value, true); return bytes;
+};
+const nestedPercent = (value: number) => new Uint8Array([0x12, 5, ...percentField(value)]);
+const grpcWeb = (frames: Array<[number, Uint8Array]>) => {
+  const out: number[] = [];
+  for (const [flags, payload] of frames) {
+    const header = new Uint8Array(5); header[0] = flags;
+    new DataView(header.buffer).setUint32(1, payload.length, false); out.push(...header, ...payload);
+  }
+  return new Uint8Array(out);
+};
 
 const response = (body: unknown, status = 200) =>
   new Response(typeof body === "string" ? body : JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -78,6 +93,20 @@ describe("provider parsers", () => {
     expect(parseOpenCodeGoUsage({})).toEqual([]);
   });
 
+  it("isolates Grok's protobuf parser", () => {
+    const payload = new Uint8Array(7);
+    payload[0] = 0x0d;
+    new DataView(payload.buffer).setFloat32(1, 25, true);
+    payload[5] = 0x10; payload[6] = 0x01;
+    expect(parseGrokWindows(payload)[0]).toMatchObject({ usedPercent: 25, title: "额度" });
+  });
+
+  it("selects Grok's shortest field-1 percent across data frames and ignores trailers", () => {
+    const input = grpcWeb([[0, nestedPercent(99)], [0, percentField(27)], [0x80, new TextEncoder().encode("grpc-status: 0\r\n")]]);
+    expect(parseGrokWindows(input)[0]).toMatchObject({ usedPercent: 27, title: "额度" });
+    expect(parseGrokWindows(new Uint8Array())).toEqual([]);
+  });
+
   it("returns stable empty values for malformed provider payloads", () => {
     expect(parseCodexWindows(null)).toEqual([]);
     expect(parseClaudeWindows({ five_hour: { utilization: "bad" } })).toEqual([]);
@@ -103,6 +132,11 @@ describe("registry routing", () => {
     expect(registry.resolve("deepseek")?.id).toBe("deepseek");
     expect(registry.resolve("deepseek-extended")?.id).toBe("deepseek");
     expect(registry.resolve("deepseek-relay")).toBeUndefined();
+    expect(registry.resolve("grok-build")?.id).toBe("grok");
+    expect(registry.resolve("xai")?.id).toBe("grok");
+    // Model-id fallback in the host must not bill opencode's grok-* models to SuperGrok.
+    expect(registry.resolve("grok-4.6")).toBeUndefined();
+    expect(registry.resolve("grok-relay")).toBeUndefined();
   });
 
   it("prioritizes subscription quota over prepaid balance", () => {
@@ -271,6 +305,54 @@ describe("built-in adapters", () => {
     await expect(empty.snapshot("anthropic")).resolves.toEqual({ status: "no-data", reason: "missing-credential" });
     await expect(empty.snapshot("qwen-token-plan")).resolves.toEqual({ status: "no-data", reason: "missing-capability" });
     await expect(empty.snapshot("opencode-go")).resolves.toEqual({ status: "no-data", reason: "missing-capability" });
+  });
+});
+
+describe("Grok credits via grok.com", () => {
+  const credits = (percent: number) => new Response(grpcWeb([[0, percentField(percent)]]), { status: 200 });
+
+  it("uses the grok-build OAuth login from the agent auth store first", async () => {
+    const seen: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toContain("GetGrokCreditsConfig");
+      seen.push(new Headers(init?.headers).get("authorization") ?? "");
+      return credits(31);
+    }) as unknown as typeof fetch;
+    const monitor = new AccountUsageMonitor({
+      fetch: fetcher,
+      readAuth: async store => store === "pi" ? { "grok-build": { type: "oauth", access: "build-token" } }
+        : store === "grok" ? { "https://auth.x.ai::account": { key: "cli-token" } } : undefined,
+    });
+    const result = await monitor.snapshot("grok-build", true);
+    expect(result).toMatchObject({ status: "ready", snapshot: { provider: "grok", accountLabel: "Grok 账号额度", windows: [{ usedPercent: expect.closeTo(31, 3) }] } });
+    expect(seen).toEqual(["Bearer build-token"]);
+  });
+
+  it("falls through to the grok CLI login when the grok-build token is rejected", async () => {
+    const seen: string[] = [];
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const auth = new Headers(init?.headers).get("authorization") ?? ""; seen.push(auth);
+      return auth === "Bearer build-token" ? new Response("", { status: 401 }) : credits(40);
+    }) as unknown as typeof fetch;
+    const monitor = new AccountUsageMonitor({
+      fetch: fetcher,
+      readAuth: async store => store === "pi" ? { "grok-build": { type: "oauth", access: "build-token" } }
+        : store === "grok" ? { "https://auth.x.ai::account": { key: "cli-token" } } : undefined,
+    });
+    await expect(monitor.snapshot("grok-build", true)).resolves.toMatchObject({ status: "ready", snapshot: { windows: [{ usedPercent: 40 }] } });
+    expect(seen).toEqual(["Bearer build-token", "Bearer cli-token"]);
+  });
+
+  it("reports the HTTP failure when every login is rejected, and no-data without any login", async () => {
+    const rejected = new AccountUsageMonitor({
+      fetch: vi.fn(async () => new Response("", { status: 403 })) as unknown as typeof fetch,
+      readAuth: async store => store === "pi" ? { "grok-build": { type: "oauth", access: "build-token" } } : undefined,
+    });
+    const failed = await rejected.snapshot("grok-build", true);
+    expect(failed).toMatchObject({ status: "error", code: "http" });
+    expect(JSON.stringify(failed)).not.toContain("build-token");
+    const none = new AccountUsageMonitor({ fetch: vi.fn() as unknown as typeof fetch, readAuth: async () => ({}) });
+    await expect(none.snapshot("grok-build", true)).resolves.toEqual({ status: "no-data", reason: "missing-credential" });
   });
 });
 

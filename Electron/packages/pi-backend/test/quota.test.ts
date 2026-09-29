@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -30,6 +30,10 @@ describe("quotaProviderFor mirrors Swift ModelInfo.quotaProvider", () => {
     expect(quotaProviderFor("opencode-go")).toBe("opencodeGo");
     expect(quotaProviderFor("opencode")).toBeUndefined(); // pay-as-you-go has no caps
     expect(quotaProviderFor("deepseek")).toBeUndefined();
+    expect(quotaProviderFor("grok-build")).toBe("grok");
+    expect(quotaProviderFor("xai")).toBe("grok");
+    expect(quotaProviderFor("grok-relay")).toBeUndefined();
+    expect(quotaProviderFor("grok-4.6")).toBeUndefined(); // an opencode model id is not a SuperGrok login
   });
 });
 
@@ -175,6 +179,22 @@ describe("QuotaStore", () => {
     const store = new QuotaStore({}, { fetch: (async () => new Response(JSON.stringify({ rate_limit: { primary_window: { used_percent: 4, limit_window_seconds: 18000 }, secondary_window: { used_percent: 41, limit_window_seconds: 604800 } } }), { status: 200 })) as unknown as typeof fetch, readCodexAuth: authReader });
     const snapshot = await store.snapshot("openai-codex");
     expect(snapshot).toEqual({ provider: "codex", accountLabel: "Codex 账号额度", windows });
+  });
+
+  it("reads SuperGrok credits with the grok-build login from the agent-dir auth.json", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "quota-grok-"));
+    try {
+      await writeFile(join(agentDir, "auth.json"), JSON.stringify({ "grok-build": { type: "oauth", access: "build-token", refresh: "r", expires: 1 } }));
+      const payload = new Uint8Array(10); payload[4] = 5; payload[5] = 0x0d;
+      new DataView(payload.buffer).setFloat32(6, 18, true);
+      const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig");
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer build-token");
+        return new Response(payload, { status: 200 });
+      });
+      const store = new QuotaStore({}, { agentDir, fetch: fetcher as unknown as typeof fetch, readGrokAuth: async () => undefined });
+      expect(await store.snapshot("grok-build")).toEqual({ provider: "grok", accountLabel: "Grok 账号额度", windows: [{ id: "credits", usedPercent: 18, label: "额", title: "额度" }] });
+    } finally { await rm(agentDir, { recursive: true, force: true }); }
   });
 
   it("returns null for unmapped and relay providers, and balance providers without a key", async () => {

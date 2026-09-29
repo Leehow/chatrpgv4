@@ -1,0 +1,455 @@
+"""Tests for tests/play/jev-steps-report.py (ticket 05 of docs/specs/jev-decides-llm-writes.md, D-C): the report
+reads any number of homes -- a repo checkout, a PipiCOC App home, an App userData directory -- and prints the D6 2a
+verdict of docs/specs/jev-driven-steps.md aggregated over every campaign found.
+
+Synthetic telemetry in the shapes `runtime/jev/hybrid-engine.ts` writes (`pairConsequences`'s candidate rows, the
+`consequence_budget` cost row, the `run_end` row) stands in for real tables, so the counting rules are pinned
+without live playtest data. The App layout is `<userData>/pi-coc/.coc/campaigns/<cid>/`, read off
+`Electron/apps/electron/src/main/runtime-assets.ts` (`join(userData, 'pi-coc')` is the packaged home) and
+`pipicoc/product.json` (`userDataDirname: "Pipi/pipicoc"`).
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+
+import pytest
+
+SCRIPT = Path(__file__).with_name("jev-steps-report.py")
+_spec = importlib.util.spec_from_file_location("jev_steps_report", SCRIPT)
+report = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(report)
+
+FIRST_IMPRESSION = "natural-npc:first-impression"
+
+
+def write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+
+
+def write_campaign(campaigns: Path, cid: str, rows: list[dict], turns: dict[int, dict] | None = None) -> Path:
+    folder = campaigns / cid
+    write_jsonl(folder / "telemetry.jsonl", rows)
+    for turn, record in (turns or {}).items():
+        target = folder / "turns" / f"{turn:04d}.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"turn": turn, "player_text": "", "receipts": [], **record}), encoding="utf-8")
+    return folder
+
+
+def candidate(cls: str, key: str, turn: int, *, cleared: bool, did, confidence: float | None = 0.8, **extra) -> dict:
+    return {"lane": "route", "purpose": "consequence", "shadow": True, "run": f"run-{turn}", "class": cls,
+            "key": f"consequence:{cls}:{key}", "cleared": cleared, "confidence": confidence,
+            "distribution": None if confidence is None else {"true": confidence, "false": 1 - confidence},
+            "keeper_did": did, "turn": turn, **extra}
+
+
+def budget(turn: int, ms: float, run: str | None = None) -> dict:
+    return {"lane": "run", "event": "consequence_budget", "turn": turn, "run": run or f"run-{turn}", "ms": ms, "rows": 1}
+
+
+def run_end(turn: int, status: str) -> dict:
+    return {"lane": "run", "type": "run_end", "turn": turn, "status": status}
+
+
+def person_and_roll(who: str, name: str) -> dict:
+    return {"receipts": [{"kind": "person", "who": who, "name": name},
+                         {"kind": "roll", "decision": FIRST_IMPRESSION, "npc": who}]}
+
+
+def table_a_rows() -> list[dict]:
+    """A repo-checkout table: every counting rule in one campaign."""
+    return [
+        # npc_reaction: tp, fp ('other'), fn, tn; a duplicate of the tp row written earlier says false and must lose.
+        candidate("npc_reaction", "kp:vittorio-macario", 1, cleared=True, did=False),
+        candidate("npc_reaction", "kp:vittorio-macario", 1, cleared=True, did=True),
+        candidate("npc_reaction", "kp:dr-smith", 2, cleared=True, did="other"),
+        candidate("npc_reaction", "kp:anna", 3, cleared=False, did=True, confidence=0.3),
+        candidate("npc_reaction", "kp:bob", 4, cleared=False, did=False, confidence=0.1),
+        # clue_follow_up: an executed row (a clerk write, not a shadow decision) and a plain true negative.
+        candidate("clue_follow_up", "ledger", 1, cleared=True, did=False, executed=True, shadow=False),
+        candidate("clue_follow_up", "diary", 2, cleared=False, did=False, confidence=0.2),
+        # time_cost: a direct row (never asked), an unanswered row (Jev outage), a cleared row with no keeper_did
+        # verdict, one true positive and one miss (uncleared, the Keeper filed it).
+        candidate("time_cost", "library", 1, cleared=True, did=True, confidence=None, direct=True),
+        candidate("time_cost", "archive", 2, cleared=False, did=True, confidence=None),
+        candidate("time_cost", "morgue", 3, cleared=True, did=True, confidence=0.9),
+        candidate("time_cost", "harbor", 4, cleared=True, did=None, confidence=0.9),
+        candidate("time_cost", "dock", 6, cleared=False, did=True, confidence=0.2),
+        # a stranded turn: its rows are not paired.
+        run_end(5, "failed"),
+        candidate("npc_reaction", "kp:ghost", 5, cleared=True, did=False),
+        # an `exists` row belongs to no verdict.
+        {"lane": "route", "purpose": "consequence", "shadow": True, "class": "npc_reaction", "exists": True, "cleared": True,
+         "confidence": 0.9, "turn": 1},
+        # cost: three turns, the middle one written twice by the same run (SL-85 pre-fix) -> mean (1000+2000+1500)/3.
+        budget(1, 1000), budget(2, 2000), budget(2, 2000), budget(3, 1500),
+    ]
+
+
+def table_b_rows() -> list[dict]:
+    """An App-home table: a pre-SL-83 label key the pairing read wrong, plus clean rows and two false positives."""
+    return [
+        candidate("npc_reaction", "kp:Vittorio Macario", 1, cleared=True, did="other"),  # artifact: same entity as the roll
+        candidate("npc_reaction", "kp:anna", 2, cleared=True, did=True),
+        candidate("npc_reaction", "kp:bob", 3, cleared=True, did=True),
+        candidate("clue_follow_up", "ledger", 1, cleared=True, did=True),
+        candidate("clue_follow_up", "diary", 2, cleared=True, did=True),
+        candidate("clue_follow_up", "map", 3, cleared=True, did=False),
+        candidate("clue_follow_up", "key", 4, cleared=True, did="other"),
+        candidate("time_cost", "docks", 1, cleared=True, did=True),
+        candidate("time_cost", "church", 2, cleared=True, did=True),
+        budget(1, 500), budget(2, 700),
+    ]
+
+
+@pytest.fixture()
+def homes(tmp_path):
+    """A repo checkout with two campaigns (one a setup session), and an App userData directory with one."""
+    repo = tmp_path / "repo"
+    write_campaign(repo / ".coc" / "campaigns", "tbl-a", table_a_rows(), turns={t: {} for t in range(1, 6)})
+    write_campaign(repo / ".coc" / "campaigns", "setup-only", [{"lane": "run", "type": "run_end", "turn": 0, "status": "delivered"}])
+    user_data = tmp_path / "Application Support" / "Pipi" / "pipicoc"
+    write_campaign(user_data / "pi-coc" / ".coc" / "campaigns", "game-b", table_b_rows(),
+                   turns={1: person_and_roll("vittorio-macario", "Vittorio Macario"), 2: {}, 3: {}, 4: {}})
+    return {"repo": repo, "user_data": user_data, "app_home": user_data / "pi-coc"}
+
+
+def resolve(*paths):
+    found, globs, errors = report.split_arguments([str(p) for p in paths])
+    assert not globs and not errors
+    return found
+
+
+def test_resolve_home_recognises_every_layout(homes, tmp_path):
+    repo, user_data, app_home = homes["repo"], homes["user_data"], homes["app_home"]
+    assert report.resolve_home(str(repo)) == (str(repo / ".coc" / "campaigns"), "home")
+    assert report.resolve_home(str(app_home)) == (str(app_home / ".coc" / "campaigns"), "home")
+    assert report.resolve_home(str(user_data)) == (str(app_home / ".coc" / "campaigns"), "app-userdata")
+    assert report.resolve_home(str(app_home / ".coc")) == (str(app_home / ".coc" / "campaigns"), "workspace")
+    assert report.resolve_home(str(app_home / ".coc" / "campaigns")) == (str(app_home / ".coc" / "campaigns"), "campaigns-dir")
+    assert report.resolve_home(str(tmp_path / "nowhere")) is None
+    (tmp_path / "empty").mkdir()
+    assert report.resolve_home(str(tmp_path / "empty")) is None
+
+
+def test_the_same_campaigns_dir_named_two_ways_is_one_home(homes):
+    found = resolve(homes["user_data"], homes["app_home"], homes["app_home"] / ".coc")
+    assert len(found) == 1
+
+
+def test_aggregate_over_a_checkout_and_an_app_home_pins_every_number(homes):
+    agg = report.aggregate(resolve(homes["repo"], homes["user_data"]))
+
+    assert agg["scanned"] == 3
+    assert [t["label"] for t in agg["tables"]] == ["h1:tbl-a", "h2:game-b"]  # setup-only is scanned, never a table
+
+    a, b = agg["tables"]
+    assert a["classes"]["npc_reaction"] == {"rows": 4, "artifacts": 0, "excluded": {"duplicate": 1, "stranded": 1}, "executes": False,
+                                            "tp": 1, "fp": 1, "fn": 1, "tn": 1}
+    assert a["classes"]["clue_follow_up"] == {"rows": 1, "artifacts": 0, "excluded": {"executed": 1}, "executes": True,
+                                              "tp": 0, "fp": 0, "fn": 0, "tn": 1}
+    assert a["classes"]["time_cost"] == {"rows": 2, "artifacts": 0, "executes": False,
+                                         "excluded": {"direct": 1, "unanswered": 1, "no_verdict": 1},
+                                         "tp": 1, "fp": 0, "fn": 1, "tn": 0}
+    assert b["classes"]["npc_reaction"]["artifacts"] == 1  # the label key resolved through the turn's person receipt
+    assert (b["classes"]["npc_reaction"]["tp"], b["classes"]["npc_reaction"]["fp"]) == (3, 0)
+    assert (b["classes"]["clue_follow_up"]["tp"], b["classes"]["clue_follow_up"]["fp"]) == (2, 2)
+    assert a["cost"] == {"turns_with_call": 3, "mean_ms": 1500, "median_ms": 1500, "max_ms": 2000}
+    assert b["cost"]["mean_ms"] == 600
+
+    npc, clue, time_cost = (agg["classes"][c] for c in ("npc_reaction", "clue_follow_up", "time_cost"))
+    assert (npc["tp"], npc["fp"], npc["fn"]) == (4, 1, 1)
+    assert npc["agreement"] == pytest.approx(0.8) and not npc["agreement_met"] and npc["fp_met"] and not npc["met"]
+    assert npc["recall"] == pytest.approx(0.8) and npc["recall_tables"] == 2
+    # Agreement is precision over judged cleared rows: 2 of 4 here; the executed table is not in the recall.
+    assert clue["agreement"] == 0.5 and clue["fp_over"] == ["h2:game-b"] and not clue["fp_met"] and not clue["met"]
+    assert clue["recall_tables"] == 1 and clue["recall"] == 1.0
+    # Recall is information only: time_cost misses one row the Keeper filed (recall 3/4) and still meets 2a.
+    assert time_cost["agreement"] == 1.0 and time_cost["recall"] == 0.75
+    assert time_cost["fp_met"] and time_cost["cost_met"] and time_cost["met"]
+    assert agg["cost"] == {"tables_with_data": 2, "over": [], "met": True}
+
+
+def test_verdict_text_says_met_or_not_met_with_the_table_count_and_per_table_numbers(homes, capsys):
+    assert report.main(["jev-steps-report.py", str(homes["repo"]), str(homes["user_data"])]) == 0
+    out = capsys.readouterr().out
+    assert "tables with consequence telemetry: 2" in out
+    assert "[npc_reaction] NOT MET -- 2 of 2 tables have rows of this class" in out
+    assert "[clue_follow_up] NOT MET -- 2 of 2 tables" in out
+    assert "[time_cost] MET -- 2 of 2 tables" in out
+    assert "agreement (cleared rows the Keeper's receipts can judge, tp/(tp+fp)): 4/5 = 0.800 (>= 0.90): NOT MET" in out
+    assert "recall tp/(tp+fn), information only, over the 2 tables that only shadowed the class: 4/5 = 0.80" in out
+    assert "recall tp/(tp+fn), information only, over the 1 tables that only shadowed the class: 2/2 = 1.00" in out
+    assert "h1:tbl-a: rows 4 tp 1 fp 1 fn 1 tn 1 agreement 1/2 = 0.50 recall 1/2 = 0.50" in out
+    assert "h1:tbl-a: rows 1 tp 0 fp 0 fn 0 tn 1 agreement n/a recall n/a (executed)" in out
+    assert "h2:game-b: rows 4 tp 2 fp 2 fn 0 tn 0 agreement 2/4 = 0.50 recall 2/2 = 1.00" in out
+    assert "h1:tbl-a: 3/5 turns with a call; mean 1500 ms" in out
+    assert "campaign: tbl-a" not in out  # the per-campaign sections are opt-in
+
+
+@pytest.mark.parametrize("ms, met", [(1500, True), (1501, False)])
+def test_the_added_ms_line_is_inclusive_and_judged_per_table(tmp_path, ms, met):
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+    good = [candidate("time_cost", "docks", 1, cleared=True, did=True), budget(1, 100)]
+    bad = [candidate("time_cost", "docks", 1, cleared=True, did=True), budget(1, ms)]
+    write_campaign(campaigns, "good", good)
+    write_campaign(campaigns, "edge", bad)
+    agg = report.aggregate(resolve(tmp_path / "home"))
+    assert agg["cost"]["met"] is met
+    assert agg["cost"]["over"] == ([] if met else ["h1:edge"])
+    assert agg["classes"]["time_cost"]["met"] is met  # a pooled mean of the two would hide the slow table
+
+
+def test_agreement_is_precision_over_judged_cleared_rows_and_is_inclusive_at_point_nine(tmp_path):
+    """Two tables of 9 hits and 1 false positive each (one false positive per table is inside the line): 18/20 = 0.9."""
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+
+    def table(hits: int, false_positives: int) -> list[dict]:
+        return ([candidate("time_cost", f"hit{i}", i, cleared=True, did=True) for i in range(hits)]
+                + [candidate("time_cost", f"fp{i}", 100 + i, cleared=True, did="other" if i % 2 else False) for i in range(false_positives)]
+                # uncleared rows are neither hits nor false positives, whatever the Keeper did
+                + [candidate("time_cost", "miss", 200, cleared=False, did=True, confidence=0.2),
+                   candidate("time_cost", "quiet", 201, cleared=False, did=False, confidence=0.1), budget(1, 10)])
+
+    for name in ("one", "two"):
+        write_campaign(campaigns, name, table(9, 1))
+    v = report.aggregate(resolve(tmp_path / "home"))["classes"]["time_cost"]
+    assert (v["tp"], v["fp"], v["fn"]) == (18, 2, 2) and v["agreement"] == 0.9
+    assert v["agreement_met"] and v["fp_met"] and v["met"]
+    for name in ("one", "two"):
+        write_campaign(campaigns, name, table(8, 1))
+    v = report.aggregate(resolve(tmp_path / "home"))["classes"]["time_cost"]
+    assert (v["tp"], v["fp"]) == (16, 2) and v["fp_met"] and not v["agreement_met"] and not v["met"]
+
+
+def test_a_ratio_just_under_the_line_is_not_printed_as_the_line(tmp_path, capsys):
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+    rows = [candidate("time_cost", f"hit{i}", i, cleared=True, did=True) for i in range(26)]
+    rows += [candidate("time_cost", f"fp{i}", 100 + i, cleared=True, did=False) for i in range(3)]
+    write_campaign(campaigns, "t", rows + [budget(1, 10)])  # 26/29 = 0.897; three false positives in one table fail too
+    assert report.main(["jev-steps-report.py", str(tmp_path / "home")]) == 0
+    assert "26/29 = 0.897 (>= 0.90): NOT MET" in capsys.readouterr().out
+
+
+def test_a_cleared_row_with_no_keeper_verdict_is_not_judged(tmp_path):
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+    write_campaign(campaigns, "t", [candidate("time_cost", "docks", 1, cleared=True, did=None), budget(1, 10)])
+    v = report.aggregate(resolve(tmp_path / "home"))["classes"]["time_cost"]
+    assert v["agreement"] is None and v["fp"] == 0 and v["excluded"] == {"no_verdict": 1} and v["met"] is False
+
+
+def test_executed_rows_are_out_individually_and_the_tables_that_execute_stay_in_the_verdict(tmp_path):
+    """An executed row is a clerk write, so it is not a shadow decision; the cleared shadow rows beside it still are.
+    No whole-table exclusion: agreement is precision over cleared rows, which executed rows do not bias. The recall
+    (information only) is read over the shadow-only tables, since an executing table's hits are not observable."""
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+    executing = [candidate("clue_follow_up", "ledger", 1, cleared=True, did=False, executed=True, shadow=False),
+                 candidate("clue_follow_up", "diary", 2, cleared=True, did=True),
+                 candidate("clue_follow_up", "map", 3, cleared=False, did=True, confidence=0.2), budget(1, 10)]
+    shadow_only = [candidate("clue_follow_up", "key", 1, cleared=True, did=True),
+                   candidate("clue_follow_up", "lamp", 2, cleared=False, did=True, confidence=0.2), budget(1, 10)]
+    write_campaign(campaigns, "executing", executing)
+    write_campaign(campaigns, "shadowing", shadow_only)
+    agg = report.aggregate(resolve(tmp_path / "home"))
+    v = agg["classes"]["clue_follow_up"]
+    assert v["excluded"] == {"executed": 1} and v["tables_with_rows"] == 2
+    assert (v["tp"], v["fp"]) == (2, 0) and v["agreement"] == 1.0  # the executed row is not a false positive
+    assert v["recall_tables"] == 1 and (v["recall_tp"], v["recall_fn"]) == (1, 1) and v["recall"] == 0.5
+
+
+def test_a_first_impression_roll_without_an_npc_field_is_not_the_keepers_action(tmp_path):
+    """The label/handle correction must not read a roll that names nobody as a match for a target nobody resolved."""
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+    write_campaign(campaigns, "t", [candidate("npc_reaction", "kp:Unknown Person", 1, cleared=True, did="other"), budget(1, 10)],
+                   turns={1: {"receipts": [{"kind": "roll", "decision": FIRST_IMPRESSION}]}})
+    v = report.aggregate(resolve(tmp_path / "home"))["classes"]["npc_reaction"]
+    assert (v["tp"], v["fp"], v["artifacts"]) == (0, 1, 0)
+
+
+def test_two_false_positives_in_one_table_fail_and_one_passes(tmp_path):
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+    hits = [candidate("time_cost", f"k{i}", i, cleared=True, did=True) for i in range(20)]
+    one = candidate("time_cost", "fp1", 30, cleared=True, did=False)
+    two = candidate("time_cost", "fp2", 31, cleared=True, did=False)
+    write_campaign(campaigns, "t", hits + [one, budget(1, 10)])
+    assert report.aggregate(resolve(tmp_path / "home"))["classes"]["time_cost"]["met"] is True
+    write_campaign(campaigns, "t", hits + [one, two, budget(1, 10)])
+    v = report.aggregate(resolve(tmp_path / "home"))["classes"]["time_cost"]
+    assert v["fp_over"] == ["h1:t"] and v["met"] is False
+
+
+def test_no_evidence_is_never_a_pass(tmp_path, capsys):
+    """No cleared row the Keeper's receipts can judge, and a table with no cost row: NOT MET, and the text says why."""
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+    write_campaign(campaigns, "t", [candidate("time_cost", "docks", 1, cleared=False, did=False, confidence=0.1)])
+    agg = report.aggregate(resolve(tmp_path / "home"))
+    assert agg["classes"]["time_cost"]["agreement"] is None and agg["classes"]["time_cost"]["met"] is False
+    assert agg["classes"]["npc_reaction"]["met"] is False and agg["classes"]["npc_reaction"]["tables_with_rows"] == 0
+    assert agg["cost"] == {"tables_with_data": 0, "over": [], "met": False}
+    assert report.main(["jev-steps-report.py", str(tmp_path / "home")]) == 0
+    out = capsys.readouterr().out
+    assert "n/a -- no such row (tp 0, fp 0): NOT MET, no evidence" in out
+    assert "no table has a consequence_budget row: NOT MET, no evidence" in out
+
+
+def test_same_campaign_id_in_two_homes_is_two_tables(tmp_path):
+    for name in ("one", "two"):
+        write_campaign(tmp_path / name / ".coc" / "campaigns", "same", [candidate("time_cost", "docks", 1, cleared=True, did=True), budget(1, 5)])
+    agg = report.aggregate(resolve(tmp_path / "one", tmp_path / "two"))
+    assert [t["label"] for t in agg["tables"]] == ["h1:same", "h2:same"]
+    assert agg["classes"]["time_cost"]["tp"] == 2
+
+
+def test_campaign_filter_applies_across_homes(homes):
+    agg = report.aggregate(resolve(homes["repo"], homes["user_data"]), ["game-*"])
+    assert agg["scanned"] == 1 and [t["label"] for t in agg["tables"]] == ["h2:game-b"]
+
+
+def test_original_root_and_glob_form_still_prints_every_campaign_then_the_verdict(homes, capsys):
+    assert report.main(["jev-steps-report.py", str(homes["repo"]), "tbl-*"]) == 0
+    out = capsys.readouterr().out
+    assert "campaign: tbl-a" in out and "campaign: setup-only" not in out
+    assert "-- per class (candidate rows) --" in out
+    assert "D6 2a verdict" in out and "[time_cost] " in out
+    assert report.main(["jev-steps-report.py", str(homes["repo"]), "no-such-*"]) == 1
+
+
+def test_detail_flag_prints_the_per_campaign_sections(homes, capsys):
+    assert report.main(["jev-steps-report.py", str(homes["user_data"]), "--detail"]) == 0
+    out = capsys.readouterr().out
+    assert "campaign: game-b" in out and "D6 2a verdict" in out
+
+
+def test_a_directory_that_is_no_home_is_an_error_not_no_data(tmp_path, capsys):
+    (tmp_path / "typo").mkdir()
+    assert report.main(["jev-steps-report.py", str(tmp_path / "typo")]) == 1
+    assert "holds no .coc/campaigns" in capsys.readouterr().out
+    assert report.main(["jev-steps-report.py", str(tmp_path / "missing")]) == 1  # not a directory: read as a glob, no home
+
+
+def test_no_arguments_prints_the_docstring(capsys):
+    assert report.main(["jev-steps-report.py"]) == 2
+    assert "D6 2a verdict" in capsys.readouterr().out
+
+
+def test_an_unreadable_turn_file_is_a_missing_turn_not_a_crash(tmp_path, capsys):
+    campaigns = tmp_path / "home" / ".coc" / "campaigns"
+    folder = write_campaign(campaigns, "t", [candidate("time_cost", "docks", 1, cleared=True, did=True), budget(1, 5)])
+    (folder / "turns").mkdir()
+    (folder / "turns" / "0001.json").write_text('{"turn": 1, "receipts": [', encoding="utf-8")  # a live App mid-write
+    (folder / "turns" / "notes.json").write_text("{}", encoding="utf-8")
+    assert report.main(["jev-steps-report.py", str(tmp_path / "home"), "--detail"]) == 0
+    assert "[time_cost] MET" in capsys.readouterr().out
+
+
+def snapshot(*roots: Path) -> dict[str, tuple[int, int]]:
+    return {str(p): (p.stat().st_size, p.stat().st_mtime_ns) for root in roots for p in [root, *root.rglob("*")]}
+
+
+def test_the_report_writes_nothing_and_leaves_the_execute_list_alone(homes, tmp_path, capsys):
+    budgets = homes["repo"] / "content" / "rulesets" / "coc7" / "host-budgets.json"
+    budgets.parent.mkdir(parents=True)
+    budgets.write_text(json.dumps({"jev_steps": {"execute": ["clue_follow_up"]}}), encoding="utf-8")
+    before = snapshot(homes["repo"], homes["user_data"].parent.parent)
+    assert report.main(["jev-steps-report.py", str(homes["repo"]), str(homes["user_data"]), "--detail"]) == 0
+    capsys.readouterr()
+    assert snapshot(homes["repo"], homes["user_data"].parent.parent) == before
+    assert json.loads(budgets.read_text(encoding="utf-8")) == {"jev_steps": {"execute": ["clue_follow_up"]}}
+
+
+# --- "executed steps not in the prose" (D6 2b) -----------------------------------------------------------------------
+
+def executed(key: str, turn: int, confidence: float = 0.6, **extra) -> dict:
+    return candidate("clue_follow_up", key, turn, cleared=True, did=False, confidence=confidence, executed=True, shadow=False, **extra)
+
+
+def real_shaped_record(text: str, clue_handles: list[str]) -> dict:
+    """A delivered turn as the kernel writes it: `text` is what the Keeper wrote, `marked_text` has a marker appended for
+    every clue receipt the Keeper did not place itself (`placeUnplacedMechanics`)."""
+    appended = "".join(f"\n\n{{{{clue:{handle}}}}}" for handle in clue_handles if f"{{{{clue:{handle}" not in text)
+    return {"text": text, "marked_text": text + appended,
+            "receipts": [{"kind": "clue", "clue": handle, "id": f"clue:{handle}-t0"} for handle in clue_handles]}
+
+
+def steps_of(tmp_path, rows, turns, home="home"):
+    write_campaign(tmp_path / home / ".coc" / "campaigns", "t", rows + [budget(1, 10)], turns=turns)
+    return report.aggregate(resolve(tmp_path / home))["tables"][0]["executed_steps"]
+
+
+def test_an_executed_clue_is_narrated_when_the_keepers_text_places_its_marker(tmp_path):
+    rows = [executed("ledger", 1), executed("diary", 2), executed("map", 3)]
+    turns = {1: real_shaped_record("He slides it over. {{clue:ledger}}", ["ledger"]),
+             2: real_shaped_record("A page. {{clue:diary-t2}}", ["diary"]),        # the receipt-id form a Keeper copies
+             3: real_shaped_record("Two pages. {{clue:map-2}}", ["map"])}          # the kernel's repeat suffix
+    steps = steps_of(tmp_path, rows, turns)
+    assert (steps["executed"], steps["narrated"], steps["neither"]) == (3, 3, [])
+
+
+def test_the_known_real_case_an_executed_clue_the_prose_never_places_is_neither(tmp_path):
+    """longgate19-haunting-1043 turn 5: `dooley-macario-madness` executed, the text carries only a say token; the
+    delivered `marked_text` nevertheless has `{{clue:dooley-macario-madness}}`, appended by the kernel, and must not count."""
+    text = "The newsstand smells of smoke.\n\n{{say:Dooley}}“A paper?” he asks."
+    record = real_shaped_record(text, ["dooley-macario-madness", "burning-eyes-form"])
+    assert "{{clue:dooley-macario-madness}}" in record["marked_text"] and "{{clue:" not in record["text"]
+    rows = [executed("dooley-macario-madness", 5, 0.48), executed("burning-eyes-form", 5, 0.91)]
+    steps = steps_of(tmp_path, rows, {5: record})
+    assert (steps["executed"], steps["narrated"]) == (2, 0)
+    assert steps["neither"] == [{"turn": 5, "key": "consequence:clue_follow_up:burning-eyes-form", "confidence": 0.91},
+                                {"turn": 5, "key": "consequence:clue_follow_up:dooley-macario-madness", "confidence": 0.48}]
+
+
+def test_a_marker_for_another_handle_that_starts_with_this_one_is_not_a_marker_for_it(tmp_path):
+    steps = steps_of(tmp_path, [executed("ledger", 1)], {1: real_shaped_record("{{clue:ledger-book}} {{clue:ledgers}}", [])})
+    assert steps["narrated"] == 0 and [item["key"] for item in steps["neither"]] == ["consequence:clue_follow_up:ledger"]
+
+
+def test_a_step_that_cannot_be_checked_is_counted_as_such_never_as_narrated(tmp_path):
+    rows = [executed("stranded", 1), executed("norecord", 2), executed("notext", 3), executed("plain", 4)]
+    rows.insert(0, run_end(1, "failed"))
+    turns = {1: real_shaped_record("{{clue:stranded}}", ["stranded"]),
+             3: {"marked_text": "{{clue:notext}}", "rendered_text": "x"},   # no `text`: marked_text says nothing about the Keeper
+             4: real_shaped_record("{{clue:plain}}", ["plain"])}
+    steps = steps_of(tmp_path, rows, turns)
+    assert steps["executed"] == 4 and steps["narrated"] == 1 and steps["neither"] == []
+    assert dict(steps["not_checkable"]) == {"undelivered_turn": 1, "no_turn_record": 1, "no_text": 1}
+
+
+def test_the_turn_is_the_one_telemetry_puts_the_run_on(tmp_path):
+    """The row carries no turn of its own here (and a wrong one in the second case); the run's bind row names turn 9."""
+    no_turn = executed("ledger", 3, run="run-9")
+    del no_turn["turn"]
+    wrong_turn = executed("diary", 3, run="run-9")
+    rows = [{"lane": "run", "event": "bind", "turn": 9, "run": "run-9"}, no_turn, wrong_turn]
+    turns = {3: real_shaped_record("{{clue:diary}}{{clue:ledger}}", []),   # the wrong turn would read both as narrated
+             9: real_shaped_record("{{clue:ledger}} only", ["ledger", "diary"])}
+    steps = steps_of(tmp_path, rows, turns)
+    assert (steps["executed"], steps["narrated"]) == (2, 1)
+    assert [item["key"] for item in steps["neither"]] == ["consequence:clue_follow_up:diary"] and steps["neither"][0]["turn"] == 9
+    assert steps["turn_mismatch"] == 1
+
+
+def test_only_executed_clue_rows_are_examined_and_a_row_written_twice_counts_once(tmp_path):
+    rows = [executed("ledger", 1), executed("ledger", 1),
+            candidate("clue_follow_up", "diary", 1, cleared=True, did=False),                  # a shadow row: not executed
+            candidate("time_cost", "docks", 1, cleared=True, did=False, executed=True, shadow=False)]
+    steps = steps_of(tmp_path, rows, {1: real_shaped_record("no markers", ["ledger", "diary"])})
+    assert steps["executed"] == 1 and [item["key"] for item in steps["neither"]] == ["consequence:clue_follow_up:ledger"]
+    assert dict(steps["other_classes"]) == {"time_cost": 1}
+
+
+def test_the_section_prints_per_table_counts_reversed_as_not_available_and_lists_the_misses(tmp_path, capsys):
+    rows = [executed("ledger", 1, 0.7), executed("diary", 2, 0.5)]
+    turns = {1: real_shaped_record("{{clue:ledger}}", ["ledger"]), 2: real_shaped_record("nothing", ["diary"])}
+    write_campaign(tmp_path / "home" / ".coc" / "campaigns", "t", rows + [budget(1, 10)], turns=turns)
+    assert report.main(["jev-steps-report.py", str(tmp_path / "home")]) == 0
+    out = capsys.readouterr().out
+    assert "-- executed steps not in the prose" in out
+    assert "reversed: n/a -- no receipt kind reverses a clue" in out
+    assert "h1:t: executed 2, narrated 1, reversed n/a, neither 1" in out
+    assert "neither: turn 2 key='consequence:clue_follow_up:diary' confidence=0.5" in out
+    assert "totals: 2 executed clue steps over 1 tables; narrated 1; reversed n/a; neither 1; not checkable 0" in out
+    agg = report.aggregate(resolve(tmp_path / "home"))
+    assert agg["executed_steps"] == {"tables": 1, "executed": 2, "narrated": 1, "neither": 1, "not_checkable": 0}

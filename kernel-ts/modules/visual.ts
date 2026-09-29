@@ -1,6 +1,6 @@
 /** Pure source-draft validation shared by publication and the offline host check. */
 import { RpcError } from '../errors.js';
-import { canonicalJson, isJsonObject, orderedObject } from '../json.js';
+import { canonicalJson, isJsonObject, orderedObject, sha256Text } from '../json.js';
 import { array, clone, entries, equal, integer, normalize, number, numeric, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { startSceneCandidates } from '../write/source.js';
@@ -13,6 +13,7 @@ import {validateSourceNeeds,sourceNeedKey} from './source-needs.js';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings} from './module-review-policy.js';
 import { anchors, pages, recordSpans, sameSpan, spanOf, type Anchor } from './transcription.js';
 import { REVIEW_VERDICTS, classificationMatcher } from './review-verdicts.js';
+import { CLAIM_SUPPORT_PROTOCOL, JEV_REVIEWER, JEV_REVIEW_RULES, claimRecordPages, claimRecordRoot, claimSupportIneligibility, pathsOverlap, claimRecord } from './claim-support.js';
 import { preserveTravel } from './route-travel.js';
 const object = (value: any): boolean => isJsonObject(value);
 export function reject(message: string, path = '/'): never {
@@ -511,20 +512,95 @@ export interface ReviewJudgement { supported: Set<string>; contested: Row[] }
 export function classificationFields(contract: ModuleContract): (path: string) => boolean {
     return classificationMatcher(row(contract.graph.classification_fields).node);
 }
+/** §151.3: the host's native-text record of the bound source, as the gate reads it from `claim-support.json`. */
+export interface ClaimEvidence { extractionVersion: string; pages: ReadonlyMap<number, { text: string; sha256: string }> }
+/**
+ * §151.3: the evidence file, or undefined when it is not one for this source: another protocol, another source's digest,
+ * no extraction version, or a page whose text does not hash to the digest it states.
+ */
+export function claimEvidence(value: any, sourceSha: string): ClaimEvidence | undefined {
+    if (!object(value) || value.protocol !== CLAIM_SUPPORT_PROTOCOL || value.source_sha256 !== sourceSha
+        || typeof value.extraction_version !== 'string' || !value.extraction_version || !Array.isArray(value.pages))
+        return undefined;
+    const pages = new Map<number, { text: string; sha256: string }>();
+    for (const page of value.pages) {
+        if (!object(page) || !integer(page.page) || typeof page.text !== 'string' || typeof page.text_sha256 !== 'string'
+            || sha256Text(page.text) !== page.text_sha256 || pages.has(number(page.page)))
+            return undefined;
+        pages.set(number(page.page), { text: page.text, sha256: page.text_sha256 });
+    }
+    return { extractionVersion: value.extraction_version, pages };
+}
+function refuseJev(rule: string, message: string, path: string): never {
+    throw new RpcError('invalid_params', `Jev-checked review row refused at ${path}: ${message}`, {
+        fix: 'review this record with the vision reviewer against its original pages; preserve the completed author draft',
+        details: { reason: 'reading_failed', path, rule },
+    });
+}
+/**
+ * §151.3's evidence amendment for one `reviewer: "jev"` row: one record's paths, `supported`, an eligible record, the
+ * page-text digests and extraction version of the evidence file for exactly the record's cited pages, a distribution,
+ * and no vision row that marked an overlapping path anything but supported. Returns the paths it reviewed.
+ */
+function checkJevRow(draft: Row, item: Row, count: number, claims: ClaimEvidence | undefined, negative: string[]): string[] {
+    const paths = Object.hasOwn(item, 'paths') ? item.paths : [item.path ?? null];
+    const at = typeof array(paths)[0] === 'string' ? array(paths)[0] : '/';
+    if (!Array.isArray(paths) || !paths.length || paths.some(path => typeof path !== 'string'))
+        refuseJev(JEV_REVIEW_RULES.ineligible, 'a Jev row names one record\'s draft pointers', at);
+    const root = claimRecordRoot(paths[0]);
+    if (root === null || paths.some((path: string) => claimRecordRoot(path) !== root))
+        refuseJev(JEV_REVIEW_RULES.ineligible, 'a Jev row covers the paths of one claim or node record', at);
+    for (const path of paths)
+        pointer(draft, path);
+    if (item.verdict !== 'supported')
+        refuseJev(JEV_REVIEW_RULES.ineligible, 'Jev only clears a record; it never refuses one', root);
+    if (!claims)
+        refuseJev(JEV_REVIEW_RULES.evidence, 'no native-text evidence of the bound source accompanies this review', root);
+    const why = claimSupportIneligibility(draft, root, page => (claims.pages.get(page)?.text.trim() ?? '') !== '');
+    if (why !== null)
+        refuseJev(JEV_REVIEW_RULES.ineligible, `this record keeps the vision standard (${why})`, root);
+    const cited = claimRecordPages(claimRecord(draft, root)!) as { pages: number[] };
+    if (item.extraction_version !== claims.extractionVersion)
+        refuseJev(JEV_REVIEW_RULES.evidence, 'the extraction version differs from the native text on record', root);
+    const digests = row(item.page_text_sha256), named = Object.keys(digests);
+    const refs = references(item.source_refs, count).map(ref => number(ref.page));
+    if (named.length !== cited.pages.length || cited.pages.some(page => digests[String(page)] !== claims.pages.get(page)?.sha256)
+        || refs.length !== cited.pages.length || refs.some(page => !cited.pages.includes(page)))
+        refuseJev(JEV_REVIEW_RULES.evidence, 'the page-text digests do not match the record\'s cited pages on record', root);
+    const distribution = row(item.distribution), probability = (value: any) => numeric(value) && number(value) >= 0 && number(value) <= 1;
+    if (!probability(distribution.supported) || !probability(distribution.contradicted))
+        refuseJev(JEV_REVIEW_RULES.evidence, 'a Jev row carries the distribution it was judged on', root);
+    const overruled = paths.find((path: string) => negative.some(other => pathsOverlap(path, other)));
+    if (overruled !== undefined)
+        refuseJev(JEV_REVIEW_RULES.overruled, 'a vision reviewer did not support this path', overruled);
+    return paths;
+}
 /**
  * The publication gate's review check (§22.3, §22.3.2). A `supported` path is reviewed; any other verdict on a
  * classification field is a contest (reviewed, never a refusal); any other verdict on anything else -- a record's root,
  * a fact field, a word outside the verdicts -- refuses, naming that path, the verdict as written and the reviewer's reason.
  */
-export function checkReview(draft: Row, filled: Row, review: any, count: number, seen: ReadonlySet<number>, classifies: (path: string) => boolean = () => false): ReviewJudgement {
+export function checkReview(draft: Row, filled: Row, review: any, count: number, seen: ReadonlySet<number>, classifies: (path: string) => boolean = () => false,
+    claims?: ClaimEvidence): ReviewJudgement {
     if (!object(review) || !Array.isArray(review.missing) || !Array.isArray(review.checked))
         reject('review must contain checked facts and an empty missing list');
     if (blockingModuleFindings(review.missing,filled).length)
         reject('the independent review found missing or incorrect material: ' + canonicalJson(review.missing), '/review/missing');
     const supported = new Set<string>(), reviewed = new Set<string>(), contested: Row[] = [];
+    // §151.3: a Jev-checked row is judged first, against every path a vision row did not support.
+    const jev = review.checked.filter((item: any) => object(item) && item.reviewer === JEV_REVIEWER);
+    if (jev.length) {
+        const negative = review.checked.filter((item: any) => object(item) && item.reviewer !== JEV_REVIEWER && item.verdict !== 'supported')
+            .flatMap((item: Row) => Object.hasOwn(item, 'paths') ? array(item.paths) : [item.path]).filter((path: any) => typeof path === 'string');
+        for (const item of jev)
+            for (const path of checkJevRow(draft, item, count, claims, negative))
+                reviewed.add(path);
+    }
     for (const item of review.checked) {
         if (!object(item))
             reject('review entries must be objects');
+        if (item.reviewer === JEV_REVIEWER)
+            continue;
         const paths = Object.hasOwn(item, 'paths') ? item.paths : [item.path ?? null];
         if (!Array.isArray(paths) || !paths.length)
             reject('review entries need path or a non-empty paths array');

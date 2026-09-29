@@ -8,6 +8,16 @@ import { GROK_BUILD_CAPABILITIES, GROK_BUILD_CHAT_API, GROK_BUILD_CONVERSATION_M
 export const GROK_BUILD_CATALOG_URL = "https://cli-chat-proxy.grok.com/v1/models";
 export const CATALOG_MAX_AGE_MS = 15 * 60 * 1000;
 export const CATALOG_TIMEOUT_MS = 3_000;
+/**
+ * The catalog's `context_window` is the official grok CLI's own working budget
+ * (it compacts at `auto_compact_threshold_percent` of it), not what the Grok
+ * Build endpoint serves. Probed 2026-09-29 through api.x.ai/v1/responses with
+ * the grok-build token: grok-4.6 accepted 267,572 input tokens against a listed
+ * 256,000, and grok-4.5 / 4.6 / 4.7 / 4.7-build-fast all refused ~536K with
+ * `input_too_large (... > 500000 tokens)`. The listed value is kept only when
+ * it is larger.
+ */
+export const GROK_BUILD_SERVED_CONTEXT_WINDOW = 500_000;
 const record = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 const positive = (v) => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -40,7 +50,7 @@ export function parseGrokBuildCatalog(value) {
             id, name: typeof row.name === "string" && row.name.trim() ? row.name : id,
             api: GROK_BUILD_CHAT_API, reasoning, input: ["text", "image"],
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: row.context_window,
+            contextWindow: Math.max(row.context_window, GROK_BUILD_SERVED_CONTEXT_WINDOW),
             maxTokens: positive(row.max_completion_tokens) ? row.max_completion_tokens : 16384,
             ...(reasoning ? { thinkingLevelMap, compat: { supportsReasoningEffort: true } } : {}),
             capabilities: {

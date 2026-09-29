@@ -14,11 +14,11 @@ import {
 } from "@pipi/account-usage-core";
 import type { QuotaSnapshot, QuotaWindow } from "@pipi/host-api";
 
-export type QuotaProviderKind = "claude" | "codex" | "cursor" | "kimi" | "qwenTokenPlan" | "opencodeGo";
+export type QuotaProviderKind = "grok" | "claude" | "codex" | "cursor" | "kimi" | "qwenTokenPlan" | "opencodeGo";
 export type BalanceProviderKind = "deepseek" | "moonshot" | "siliconflow" | "openrouter";
 
 export const QUOTA_ACCOUNT_LABELS: Record<QuotaProviderKind, string> = {
-  claude: "Claude 账号额度", codex: "Codex 账号额度",
+  grok: "Grok 账号额度", claude: "Claude 账号额度", codex: "Codex 账号额度",
   cursor: "Cursor 账号额度", kimi: "Kimi 账号额度", qwenTokenPlan: "Qwen Token Plan 额度", opencodeGo: "OpenCode Go 本机用量",
 };
 export const BALANCE_ACCOUNT_LABEL = "账户余额";
@@ -74,6 +74,7 @@ export type QuotaFetchDeps = {
   /** Agent-profile `.env` (layered under the process env for env-key providers). */
   readEnvFile?: () => Promise<string | undefined>;
   readPiAuth?: () => Promise<string | undefined>;
+  readGrokAuth?: () => Promise<string | undefined>;
   readOpenCodeAuth?: () => Promise<string | undefined>;
   openCodeDatabasePath?: string;
   readCookie?: AccountUsageCapabilities["readCookie"];
@@ -181,6 +182,7 @@ async function capabilities(env: NodeJS.ProcessEnv, deps: QuotaFetchDeps): Promi
     readAuth: async store => {
       const raw = store === "pi" ? await readPi()
         : store === "codex" ? await (deps.readCodexAuth ?? (() => optionalFile(join(codexHome(env), "auth.json"))))()
+        : store === "grok" ? await (deps.readGrokAuth ?? (() => optionalFile(join(homedir(), ".grok", "auth.json"))))()
         : await readOpenCode();
       return parsed(raw);
     },

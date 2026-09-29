@@ -153,7 +153,8 @@ export function clueFollowUpCandidates(reads: ConsequenceReads): ConsequenceCand
           true: {what: `The action, as settled, does the thing the cue describes at the place the book puts clue ${clue}${summary ? ` (${summary})` : ''}.`,
             ...(cues.length ? {examples: cues} : {})},
           false: {not_for: 'Naming the place from afar, moving toward it without acting, or a different room, object or person than the ones the book '
-            + 'names for this clue.'},
+            + 'names for this clue. A settled check that failed, access that was refused, a lock that did not open, or a person who has not yet told '
+            + 'it has not reached the clue, whatever the player intended.'},
         },
       },
     });

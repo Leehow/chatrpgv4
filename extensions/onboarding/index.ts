@@ -4,7 +4,7 @@ import { playerReason } from './reasons.ts';
 /** Setup ordering comes from setup.steps; source preparation uses the shared visual reader. */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from 'node:crypto';
-import {buildSetupInputCatalog,setupUserTextFields,materializeSetupInputs,type SetupInputCatalog,type SetupInputField,type NameBoundaryCheckInput,type NameBoundaryDecision} from '../../runtime/jev/setup-input-references.ts';
+import {buildSetupInputCatalog,setupUserTextFields,materializeSetupInputs,copySetupInputSelection,type SetupInputCatalog,type SetupInputField,type NameBoundaryCheckInput,type NameBoundaryDecision} from '../../runtime/jev/setup-input-references.ts';
 import {nameBoundaryBindings,checkNameBoundary,NAME_BOUNDARY_FAMILY} from '../../runtime/jev/setup-name-boundary-domain.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
 import {preparationBudget} from '../../runtime/jev/preparation-budget.ts';
@@ -216,6 +216,8 @@ export default function (pi: ExtensionAPI) {
   let guidedCap = 3;
   /** The rulebook catalog the setup prompt is given once per session (§98). */
   let catalogText = '';
+  /** The same catalog as rows, for the driven setup run's read (§151.6); read with the text, never separately. */
+  let catalogRows: Record<string, unknown> | undefined;
   const guidanceAbort = new AbortController();
   let invokeDisposers:Array<()=>void>=[];
   let completing=false;
@@ -433,6 +435,26 @@ export default function (pi: ExtensionAPI) {
 			loading = undefined;
 		});
 		await loading;
+	}
+
+	/**
+	 * The rulebook catalog (§98), read once a campaign exists: the prompt's text and, for the driven setup run's
+	 * read (§151.6), the same answer as rows. A catalog that cannot be read is not a reason to stop setup; the
+	 * kernel still resolves names, and the next turn asks again.
+	 */
+	async function loadCatalog(): Promise<void> {
+		if (catalogText || !bridge || !context.campaign || !completed.has('create-campaign')) return;
+		try {
+			const catalog=asRecord(await bridge.call('setup.catalog',{campaign:context.campaign}));
+			const occupations=(Array.isArray(catalog.occupations)?catalog.occupations:[]) as Array<Record<string,unknown>>;
+			const skills=(Array.isArray(catalog.skills)?catalog.skills:[]) as Array<Record<string,unknown>>;
+			const weapons=(Array.isArray(catalog.weapons)?catalog.weapons:[]) as string[];
+			catalogText='\n\nThe rulebook catalog. Write these names (or the label after the slash) in occupation, occupation_skills, interest_skills, numbers.skills and weapons; the kernel resolves either. A trade with no entry here is drafted under the closest entry with the player\'s own words in occupation_stated.'+
+				'\nOccupations (credit rating range; skill points; printed skill list):\n'+occupations.map(o=>`- ${String(o.id)}${o.label&&o.label!==o.id?' / '+String(o.label):''} (${(o.credit_rating_range as number[]).join('-')}; ${String(o.formula)}): ${(o.skills as string[]).join('; ')}`).join('\n')+
+				'\nSkills: '+skills.map(s=>s.label&&s.label!==s.name?`${String(s.name)} / ${String(s.label)}`:String(s.name)).join(', ')+'; a language is written '+String(catalog.language_specialty??'Language (Other: English)')+'.'+
+				'\nWeapons the tables print (anything else is equipment): '+weapons.join(', ');
+			catalogRows=catalog;
+		} catch { /* a catalog that cannot be read is not a reason to stop setup; the kernel still resolves names */ }
 	}
 
 	// ---- Parameters -------------------------------------------------------
@@ -1097,6 +1119,130 @@ export default function (pi: ExtensionAPI) {
 		return shown;
 	}
 
+	// ---- The driven setup run's port (contract §151.6) ----------------------
+
+	/**
+	 * The setup state the driven setup run reads (§151.6 Read): where the table stands, the kernel's catalog, the card
+	 * on the table and the latest input. Read-only; the lists it issues are the only candidates the run's decisions
+	 * choose from. The legacy engine never asks for it.
+	 */
+	async function setupRead(): Promise<Record<string, unknown>> {
+		await ensureSteps();
+		const table = steps ?? [];
+		const id = (method: string) => stepWithOp(method)?.id;
+		const ids = {choose: 'choose-source', prepare: id('module.prepare'), create: id('campaign.create'), draft: id('setup.draft'), confirm: id('setup.confirm'),
+			browse: id('investigator.list'), load: id('investigator.load')};
+		const done = (step: string | undefined) => !!step && completed.has(step);
+		const created = done(ids.create);
+		if (created) await loadCatalog();
+		const draft = asRecord(context.draft);
+		const era = asString(asRecord(draft.sheet).era);
+		const card = draftRevision !== undefined && Object.keys(draft).length ? {revision: draftRevision, summary: summarize(draft), profile: asRecord(draft.profile), ...(era ? {era} : {})} : null;
+		const confirmed = done(ids.confirm), loaded = done(ids.load);
+		let sources: Array<Record<string, unknown>> = [];
+		if (!done(ids.choose) && bridge) {
+			const catalogue = await sourceCatalogue(), kinds = catalogue.kinds as string[];
+			sources = [
+				...(kinds.includes('starter') ? (catalogue.starters as string[]).map(module => ({kind: 'starter', module})) : []),
+				...(kinds.includes('module') ? (catalogue.installed_modules as Array<Record<string, unknown>>).map(row => ({kind: 'module', module: asString(row.module_id) ?? asString(row.id), ...(asString(row.title) ? {title: asString(row.title)} : {})}))
+					.filter(row => row.module && !(catalogue.starters as string[]).includes(String(row.module))) : []),
+			];
+		}
+		let library: Array<Record<string, unknown>> = [];
+		if (created && !card && !loaded && ids.load && investigatorSource !== 'new' && bridge) {
+			try {
+				const listed = asRecord(await bridge.call('investigator.list', {}));
+				library = (Array.isArray(listed.investigators) ? listed.investigators : []).map(asRecord).filter(row => asString(row.library_id))
+					.map(row => ({library_id: asString(row.library_id), ...(asString(row.name) ? {name: asString(row.name)} : {}), ...(asString(row.occupation) ? {occupation: asString(row.occupation)} : {})}));
+			} catch { /* an unreadable library offers nothing to load */ }
+		}
+		const catalog = catalogRows ? {
+			occupations: (Array.isArray(catalogRows.occupations) ? catalogRows.occupations : []).map(asRecord).filter(row => asString(row.id)).map(row => ({id: asString(row.id), ...(asString(row.label) ? {label: asString(row.label)} : {}),
+				...(Array.isArray(row.skills) ? {skills: (row.skills as unknown[]).filter((name): name is string => typeof name === 'string')} : {})})),
+			skills: (Array.isArray(catalogRows.skills) ? catalogRows.skills : []).map(asRecord).filter(row => asString(row.name)).map(row => ({name: asString(row.name), ...(asString(row.label) ? {label: asString(row.label)} : {}), ...(row.listed === false ? {listed: false} : {})})),
+			characteristics: (Array.isArray(catalogRows.characteristics) ? catalogRows.characteristics : []).map(asRecord).filter(row => asString(row.abbr)).map(row => ({abbr: asString(row.abbr), ...(asString(row.name) ? {name: asString(row.name)} : {})})),
+		} : null;
+		return {
+			ready: !!steps && !!bridge,
+			blocked: setupBlock ? {kind: setupBlock.kind, ...(setupBlock.code ? {code: setupBlock.code} : {})} : null,
+			complete: completed.has('complete'),
+			campaign: asString(context.campaign) ?? null,
+			created,
+			next: steps ? nextStep(steps, state())?.id ?? null : null,
+			allowed: steps ? allowedSteps(steps, state()).map(row => row.id) : [],
+			completed: [...completed],
+			source_kind: sourceKind ?? null,
+			investigator_source: investigatorSource ?? null,
+			steps: Object.fromEntries(Object.entries(ids).filter(([, value]) => value && table.some(row => row.id === value))),
+			card, confirmed, loaded,
+			brief_holds: setupSlots.length > 0 && draftRevision === undefined && computeMove(setupSlots, setupNotes, guidedCap).move === 'ask',
+			sources,
+			openings: openingQuestion ? openingQuestion.map(asRecord).filter(row => asString(row.scene)).map(row => ({scene: asString(row.scene),
+				...(asString(row.name) ? {name: asString(row.name)} : {}), ...(asString(row.summary) ? {summary: asString(row.summary)} : {})})) : null,
+			library,
+			catalog,
+			eras: Array.isArray(context.rulebook_eras) ? (context.rulebook_eras as unknown[]).filter((era): era is string => typeof era === 'string') : [],
+			input: inputCatalog && inputKey ? {key: inputKey, text: lastPlayerInput} : null,
+			play_language: playLanguage() ?? null,
+		};
+	}
+
+	/**
+	 * The preparation and campaign steps the host runs itself once a source or an opening is chosen (§149's
+	 * continuation, §151.6 decision 4): the preparation step when this source has one and it is still owed (or reopened
+	 * as a remedy), then create-campaign with the bound language when the campaign id is known. Stops at the first
+	 * result that did not go through and returns it.
+	 */
+	async function continueSource(args: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
+		let outcome: Record<string, unknown> = {ok: true};
+		const preparation = stepWithOp('module.prepare');
+		if (preparation && applies(preparation, state()) && (!completed.has(preparation.id) || remedyOpen(preparation.id))) {
+			signal.throwIfAborted();
+			outcome = await execute({step: preparation.id, ...args}, signal);
+			if (outcome.ok !== true) return outcome;
+		}
+		const creation = stepWithOp('campaign.create');
+		if (creation && context.campaign && !completed.has(creation.id)) {
+			signal.throwIfAborted();
+			outcome = await execute({step: creation.id, id: context.campaign, play_language: await boundLanguage()}, signal);
+		}
+		return outcome;
+	}
+
+	/** A cleared route move the host executes itself (§151.6 decision 4); each step goes through `execute`, never around it. */
+	async function setupMove(move: string, target: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
+		if (move === 'choose_source') {
+			const chosen = await execute({step: 'choose-source', kind: target.kind, module: target.module}, signal);
+			return chosen.ok === true ? continueSource({}, signal) : chosen;
+		}
+		if (move === 'pick_opening') {
+			const preparation = stepWithOp('module.prepare');
+			if (!preparation) return {ok: false, rejected: 'This setup table has no preparation step to record an opening on.'};
+			return continueSource({start_scene: target.scene}, signal);
+		}
+		if (move === 'draft_now') {
+			// §151.6 decision 10: the player ended the brief's questions. The brief's own record of that is its `stop`
+			// note (§26), with the player's words as they wrote them; after it the brief allows the draft.
+			return execute({step: 'note', slot: 'stop', value: lastPlayerInput.trim(), origin: 'player'}, signal);
+		}
+		if (move === 'load_library') {
+			const browse = stepWithOp('investigator.list'), load = stepWithOp('investigator.load');
+			if (!load) return {ok: false, rejected: 'This setup table has no library step.'};
+			if (browse && !completed.has(browse.id)) {
+				const browsed = await execute({step: browse.id}, signal);
+				if (browsed.ok !== true) return browsed;
+			}
+			return execute({step: load.id, library_id: target.library_id}, signal);
+		}
+		return {ok: false, rejected: `The host executes no setup move named ${move}.`};
+	}
+
+	/** The player's own words for a field, copied from an issued input selection (§151.6 decision 2). */
+	async function copyInput(selection: unknown): Promise<string> {
+		if (!inputCatalog) throw new Error('Current setup input sources are unavailable');
+		return copySetupInputSelection(inputCatalog, {campaign: String(context.campaign ?? ''), inputKey, selection});
+	}
+
 	// ---- The tool ---------------------------------------------------------
 
   const inputSelection=Type.Object({source:Type.String({description:'Choose a current issued input alias; never copy source text or offsets'}),
@@ -1245,18 +1391,7 @@ export default function (pi: ExtensionAPI) {
     }
     // The catalog (§98): every trade, skill and printed weapon with the play language's label, once,
     // so the model writes names the kernel accepts instead of guessing at them refusal by refusal.
-    if(!catalogText && bridge && context.campaign && completed.has('create-campaign')) {
-      try {
-        const catalog=asRecord(await bridge.call('setup.catalog',{campaign:context.campaign}));
-        const occupations=(Array.isArray(catalog.occupations)?catalog.occupations:[]) as Array<Record<string,unknown>>;
-        const skills=(Array.isArray(catalog.skills)?catalog.skills:[]) as Array<Record<string,unknown>>;
-        const weapons=(Array.isArray(catalog.weapons)?catalog.weapons:[]) as string[];
-        catalogText='\n\nThe rulebook catalog. Write these names (or the label after the slash) in occupation, occupation_skills, interest_skills, numbers.skills and weapons; the kernel resolves either. A trade with no entry here is drafted under the closest entry with the player\'s own words in occupation_stated.'+
-          '\nOccupations (credit rating range; skill points; printed skill list):\n'+occupations.map(o=>`- ${String(o.id)}${o.label&&o.label!==o.id?' / '+String(o.label):''} (${(o.credit_rating_range as number[]).join('-')}; ${String(o.formula)}): ${(o.skills as string[]).join('; ')}`).join('\n')+
-          '\nSkills: '+skills.map(s=>s.label&&s.label!==s.name?`${String(s.name)} / ${String(s.label)}`:String(s.name)).join(', ')+'; a language is written '+String(catalog.language_specialty??'Language (Other: English)')+'.'+
-          '\nWeapons the tables print (anything else is equipment): '+weapons.join(', ');
-      } catch { /* a catalog that cannot be read is not a reason to stop setup; the kernel still resolves names */ }
-    }
+    await loadCatalog();
     if(!guidance)return {systemPrompt:base+setupPackages+catalogText+inputPrompt};
     if(context.campaign&&!completed.has('complete'))prepareOpeningInBackground(String(context.campaign),campaignOpening??asString(context.start_scene)??guidance.scene);
     // A terminal or driver setup shows the opening on its first turn, right after the player's first
@@ -1300,6 +1435,10 @@ export default function (pi: ExtensionAPI) {
 		if (campaign) context.campaign = campaign;
 		// The setup process's tool surface is only this one (contract §14.4).
 		pi.setActiveTools(["setup"]);
+		// §151.6: the same step executor, for the driven setup run. Only that engine listens; legacy never does.
+		pi.events.emit("coc:setup-executor", {tool: "setup", execute: (raw: Record<string, unknown>, signal?: AbortSignal) => execute(raw, signal),
+			read: () => setupRead(), move: (move: string, target: Record<string, unknown>, signal: AbortSignal) => setupMove(move, target, signal),
+			copy: (selection: unknown) => copyInput(selection)});
 		// When the kernel extension loaded first the bridge is already here and the table is fetched now; when it comes later, the first tool call fetches it.
 		if (bridge) await ensureSteps();
 		paint();

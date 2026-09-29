@@ -12,9 +12,9 @@ import {advanceSourceReadSet} from '../../runtime/jev/read-set.ts';
 const root=resolve(import.meta.dirname,'../..'),scope={owner:'session:source-preparation-contract',campaign:'c1',worldline:'main',loop:0,audience:'keeper'};
 const budget=()=>({deadlineAt:Date.now()+120000,remainingInputTokens:10000,remainingOutputTokens:10000,remainingCostUsd:10,remainingActions:30});
 const sets=from=>[{kind:'source',resource:'c1',revision:from},{kind:'world',resource:'c1',revision:'unchanged-world'}];
-const makeLease=()=>new TaskLease({owner:'table',goal:'Move to the tower',scope,capabilities:['apply'],budget:budget(),readSet:sets('before')});
-const proposal=task=>({id:'operation-1',taskId:task.context.id,operation:'apply',capability:'apply',scope:task.context.scope,args:{effects:[{kind:'move',to:'Tower'}]},readSet:task.context.readSet});
-const pending={details:{reason:'material_pending',read:{purpose:'detail',focus:'Tower'}}};
+const makeLease=()=>new TaskLease({owner:'table',goal:'Read the tower inscription',scope,capabilities:['apply'],budget:budget(),readSet:sets('before')});
+const proposal=task=>({id:'operation-1',taskId:task.context.id,operation:'apply',capability:'apply',scope:task.context.scope,args:{effects:[{kind:'clue',clue:'Tower inscription'}]},readSet:task.context.readSet});
+const pending={details:{reason:'material_pending',read:{purpose:'detail',focus:'Tower inscription'}}};
 const authority=task=>({version:1,owner:'module-reading',token:'request-token',taskId:task.context.id,rootId:task.context.rootId,operationId:'operation-1',callId:'t1-c1',campaign:'c1',moduleId:'book',scope,turn:1,from:'before'});
 const advance=task=>({...authority(task),publicationId:'publication-1',jobId:'read-1',lease:'source-lease',to:'after'});
 const code=expected=>error=>error?.code===expected||error?.details?.reason===expected;
@@ -26,7 +26,7 @@ before(async()=>{
 });
 after(async()=>{if(bundle)await rm(bundle,{recursive:true,force:true});});
 test('source advance is exact, source-only, branch-bound and idempotent across checkpoints',()=>{
- const parent=makeLease(),child=parent.child({owner:'source-dependent-operation',goal:'Move',capabilities:['apply'],budget:budget()}),sibling=parent.child({owner:'other',goal:'Other',capabilities:['apply'],budget:budget()});
+ const parent=makeLease(),child=parent.child({owner:'source-dependent-operation',goal:'Read source evidence',capabilities:['apply'],budget:budget()}),sibling=parent.child({owner:'other',goal:'Other',capabilities:['apply'],budget:budget()});
  const publication=advance(child),{to:_to,...expected}=publication;
  try {
   child.advanceSource(publication,expected);assert.deepEqual(child.context.readSet,sets('after'));assert.deepEqual(parent.context.readSet,sets('after'));assert.deepEqual(sibling.context.readSet,sets('before'));
@@ -41,7 +41,7 @@ test('foreign module, operation, lease scope, old source and answer-only request
  const task=makeLease(),valid=advance(task),{to:_to,...expected}=valid;
  try {
   for(const changed of [{jobId:'foreign'},{lease:'foreign'},{publicationId:'foreign'},{moduleId:'foreign'},{operationId:'foreign'},{campaign:'foreign'},{scope:{...scope,loop:1}},{scope:{...scope,owner:'session:foreign'}},{taskId:'foreign'},{rootId:'foreign'},{callId:'foreign'},{token:'foreign'},{from:'old'}])assert.throws(()=>advanceSourceReadSet(sets('before'),{...valid,...changed},expected));
-  for(const [p,failure] of [[{...proposal(task),operation:'look',capability:'look'},pending],[proposal(task),{details:{reason:'material_pending',read:{purpose:'answer',focus:'Tower',question:'What is it?'}}}],[proposal(task),{details:{reason:'unrelated',read:{purpose:'detail',focus:'Tower'}}}]]) {
+  for(const [p,failure] of [[{...proposal(task),operation:'look',capability:'look'},pending],[proposal(task),{details:{reason:'material_pending',read:{purpose:'answer',focus:'Tower inscription',question:'What is it?'}}}],[proposal(task),{details:{reason:'unrelated',read:{purpose:'detail',focus:'Tower inscription'}}}]]) {
    let calls=0;await assert.rejects(runOwnedSourcePreparation({task,proposal:p,callId:'t1-c1',moduleId:'book',failure,validateCurrent:async()=>{},ensure:async()=>{calls++;return {};}}));assert.equal(calls,0);
   }
   assert.deepEqual(task.context.readSet,sets('before'));
@@ -69,25 +69,26 @@ async function visualFixture(){
  const observed=job=>write(join(job.work_dir,'observations.json'),{file_sha256:job.source.file_sha256,read_pages:[1,2],full_pages:[1,2],review_pages:[1,2]});
  const finish=(job,campaign)=>call('module.read.finish',{module_id:mid,...(campaign?{campaign}:{}),job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:join(job.work_dir,'draft.json'),review_path:join(job.work_dir,'review.json')});
  await call('module.read.request',{module_id:mid,purpose:'index'});let job=await call('module.read.claim',{module_id:mid,owner:'contract-source-owner'});await observed(job);
- await write(join(job.work_dir,'draft.json'),{title:'Harbor',language:'en',sections:[{name:'Dock and tower',pages:[[1,2]],topics:['opening'],entities:['Dock','Tower','Lena'],references:[]}]});await finish(job);
+ await write(join(job.work_dir,'draft.json'),{title:'Harbor',language:'en',sections:[{name:'Dock and tower',pages:[[1,2]],topics:['opening'],entities:['Dock','Tower inscription','Lena'],references:[]}]});await finish(job);
  await call('module.read.request',{module_id:mid,purpose:'opening'});job=await call('module.read.claim',{module_id:mid,owner:'contract-source-owner'});await observed(job);
- const refs=[{page:1}],draft={nodes:[{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:refs,properties:{is_entrance:true}},
- {node_id:'scene-tower',node_kind:'scene',name:'Tower',summary:'An old tower.',source_refs:[{page:2}],properties:{is_final:true}},
- {node_id:'npc-lena',node_kind:'npc',name:'Lena',source_refs:refs,properties:{mechanics:{profile:{characteristics:{STR:50}}}}}],
- claims:[['scene-dock','route-to','scene-tower'],['npc-lena','present-in','scene-dock']].map(([subject_id,predicate,id])=>({subject_id,predicate,object:{node_id:id},truth_status:'authored-fact',source_refs:refs})),node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-dock','npc-lena']};
- await write(join(job.work_dir,'draft.json'),draft);await write(join(job.work_dir,'review.json'),{checked:['/nodes/0','/nodes/2','/nodes/2/properties/mechanics/profile/characteristics/STR','/claims/0','/claims/1','/coverage'].map(path=>({path,verdict:'supported',source_refs:refs,reason:'Contract source evidence'})),missing:[]});await finish(job);
+ const refs=[{page:1}],draft={nodes:[{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:refs,properties:{is_entrance:true,is_final:true}},
+ {node_id:'clue-tower-inscription',node_kind:'clue',name:'Tower inscription',summary:'The original tower inscription.',source_refs:[{page:2}],properties:{}},
+ {node_id:'npc-lena',node_kind:'npc',name:'Lena',source_refs:refs,properties:{mechanics:{profile:{characteristics:{STR:50}}}}},
+ {node_id:'conclusion-tower',node_kind:'conclusion',name:'The tower schedule',source_refs:refs,properties:{}}],
+ claims:[['clue-tower-inscription','discoverable-at','scene-dock'],['npc-lena','present-in','scene-dock'],['clue-tower-inscription','supports','conclusion-tower']].map(([subject_id,predicate,id])=>({subject_id,predicate,object:{node_id:id},truth_status:'authored-fact',source_refs:refs})),node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-dock','npc-lena']};
+ await write(join(job.work_dir,'draft.json'),draft);await write(join(job.work_dir,'review.json'),{checked:['/nodes/0','/nodes/2','/nodes/2/properties/mechanics/profile/characteristics/STR','/claims/0','/claims/1','/claims/2','/coverage'].map(path=>({path,verdict:'supported',source_refs:refs,reason:'Contract source evidence'})),missing:[]});await finish(job);
  await call('campaign.create',{id:'card-source',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});
  const saved=await call('investigator.save',{campaign:'card-source'});await call('campaign.create',{id:'c1',module:mid,play_language:'en'});
  await call('investigator.load',{campaign:'c1',library_id:saved.library_id});await call('setup.complete',{campaign:'c1'});await call('table.open',{campaign:'c1'});
- await call('table.narrate',{campaign:'c1',call_id:'t0-c1',text:'The harbor waits.'});await call('table.player_input',{campaign:'c1',text:'I go to the tower.'});
+ await call('table.narrate',{campaign:'c1',call_id:'t0-c1',text:'The harbor waits.'});await call('table.player_input',{campaign:'c1',text:'I read the tower inscription.'});
  return {home,kernel,runtime,call,mid,observed,finish};
 }
 test('actual pending mutation uses scoped source publication and retries unchanged call exactly once',async()=>{
  const f=await visualFixture();let task;
  try {
-  const args={campaign:'c1',call_id:'t1-c1',effects:[{kind:'move',to:'Tower'}]},before=await f.call('table.capsule',{campaign:'c1'}),context=before._context;
+  const args={campaign:'c1',call_id:'t1-c1',effects:[{kind:'clue',clue:'Tower inscription'}]},before=await f.call('table.capsule',{campaign:'c1'}),context=before._context;
   let failure;try{await f.call('table.apply',args);}catch(error){failure=error;}assert.equal(failure?.details?.reason,'material_pending');
-  task=new TaskLease({owner:'table',goal:'Move to the tower',scope:{...scope,worldline:context.worldline,loop:context.loop},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:context.task_source_revision}]});
+  task=new TaskLease({owner:'table',goal:'Read the tower inscription',scope:{...scope,worldline:context.worldline,loop:context.loop},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:context.task_source_revision}]});
   const request=proposal(task);let publication,job,params;
   await runOwnedSourcePreparation({task,proposal:request,callId:'t1-c1',moduleId:f.mid,failure,
    validateCurrent:async()=>{const current=(await f.call('table.capsule',{campaign:'c1'}))._context;assert.equal(task.revalidate([{kind:'source',resource:'c1',revision:current.task_source_revision}]).status,'current');},
@@ -96,7 +97,7 @@ test('actual pending mutation uses scoped source publication and retries unchang
     // Refuse a changed/foreign owner instead of treating any module publication as this operation's work.
     await assert.rejects(f.call('module.read.request',{...params,_task_prepare:{...value._task_prepare,authority:{...value._task_prepare.authority,operationId:'foreign'}}}));
     job=await f.call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'contract-source-owner'});assert.equal(job.job_id,queued.job_id);assert.equal(job.task_preparation,undefined);await f.observed(job);
-    const refs=[{page:2}],draft={nodes:[{node_id:'scene-tower',node_kind:'scene',name:'Tower',summary:'An old tower.',source_refs:refs,properties:{is_final:true}}],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['scene-tower']};
+    const refs=[{page:2}],draft={nodes:[{node_id:'clue-tower-inscription',node_kind:'clue',name:'Tower inscription',summary:'The original tower inscription.',source_refs:refs,properties:{}}],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:['clue-tower-inscription']};
     await write(join(job.work_dir,'draft.json'),draft);await write(join(job.work_dir,'review.json'),{checked:['/nodes/0','/coverage'].map(path=>({path,verdict:'supported',source_refs:refs,reason:'Contract source evidence'})),missing:[]});
     publication=await f.finish(job,'c1');assert.ok(publication._task_source_advance);assert.equal(publication._task_source_advance.from,context.task_source_revision);
     const replay=await f.finish(job,'c1');assert.deepEqual(replay._task_source_advance,publication._task_source_advance);
@@ -104,11 +105,11 @@ test('actual pending mutation uses scoped source publication and retries unchang
    }});
   assert.equal(publication._task_source_advance.operationId,request.id);assert.equal(publication._task_source_advance.lease,job.lease);
   const result=await f.call('table.apply',args),replay=await f.call('table.apply',args);assert.equal(replay.replayed,true);assert.deepEqual(replay.receipts,result.receipts);
-  const turn=await new api.CampaignWriter(f.kernel,'c1').readTurn();assert.equal(turn.receipts.filter(value=>value.kind==='move').length,1);
+  const turn=await new api.CampaignWriter(f.kernel,'c1').readTurn();assert.equal(turn.receipts.filter(value=>value.kind==='clue').length,1);
   assert.equal(task.context.capabilities.includes('source.prepare'),false);
  }finally{task?.close();await f.runtime.close();}
 });
-async function draftDetail(f,job,node={node_id:'scene-tower',node_kind:'scene',name:'Tower',summary:'An old tower.',source_refs:[{page:2}],properties:{is_final:true}}){
+async function draftDetail(f,job,node={node_id:'clue-tower-inscription',node_kind:'clue',name:'Tower inscription',summary:'The original tower inscription.',source_refs:[{page:2}],properties:{}}){
  await f.observed(job);const refs=node.source_refs;
  await write(join(job.work_dir,'draft.json'),{nodes:[node],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[node.node_id]});
  await write(join(job.work_dir,'review.json'),{checked:['/nodes/0','/coverage'].map(path=>({path,verdict:'supported',source_refs:refs,reason:'Contract source evidence'})),missing:[]});
@@ -116,12 +117,12 @@ async function draftDetail(f,job,node={node_id:'scene-tower',node_kind:'scene',n
 for(const state of ['running'])test(`tracked preparation cannot adopt an unowned ${state} source job`,async()=>{
  const f=await visualFixture();let task;
  try {
-  const params={campaign:'c1',module_id:f.mid,purpose:'detail',focus:'Tower',foreground:false};
+  const params={campaign:'c1',module_id:f.mid,purpose:'detail',focus:'Tower inscription',foreground:false};
   const queued=await f.call('module.read.request',params);
   let job=state==='running'?await f.call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'background-owner'}):undefined;
   const binding=await api.sourcePreparationSnapshot(f.kernel,'c1',f.mid);
-  task=new TaskLease({owner:'table',goal:'Move',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
-  const owned={authority:{...authority(task),scope:task.context.scope,moduleId:f.mid,from:binding.revision},read:{purpose:'detail',focus:'Tower'}};
+  task=new TaskLease({owner:'table',goal:'Read source evidence',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
+  const owned={authority:{...authority(task),scope:task.context.scope,moduleId:f.mid,from:binding.revision},read:{purpose:'detail',focus:'Tower inscription'}};
   const queuePath=join(f.home,'.coc/module-campaigns/c1/modules',f.mid,'deepen-queue.json'),before=await readFile(queuePath,'utf8');
   for(let attempt=0;attempt<2;attempt++) {
    await assert.rejects(f.call('module.read.request',{...params,foreground:true,retry:attempt>0,_task_prepare:owned}),code('source_preparation_foreign_job'));
@@ -137,9 +138,9 @@ for(const state of ['running'])test(`tracked preparation cannot adopt an unowned
 test('only one exact operation can initially bind an untouched queued prefetch',async()=>{
  const f=await visualFixture();let task;
  try {
-  const read={purpose:'detail',focus:'Tower'},params={campaign:'c1',module_id:f.mid,...read};
+  const read={purpose:'detail',focus:'Tower inscription'},params={campaign:'c1',module_id:f.mid,...read};
   const queued=await f.call('module.read.request',params),binding=await api.sourcePreparationSnapshot(f.kernel,'c1',f.mid);
-  task=new TaskLease({owner:'table',goal:'Move',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
+  task=new TaskLease({owner:'table',goal:'Read source evidence',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
   const a={authority:{...authority(task),scope:task.context.scope,moduleId:f.mid,from:binding.revision},read};
   const b={...a,authority:{...a.authority,token:'second-token',operationId:'second-operation'}};
   const replies=await Promise.allSettled([a,b].map(_task_prepare=>f.call('module.read.request',{...params,foreground:true,_task_prepare})));
@@ -156,8 +157,8 @@ test('exact source authority can rejoin queued and running jobs while foreign au
  const f=await visualFixture();let task;
  try {
   const binding=await api.sourcePreparationSnapshot(f.kernel,'c1',f.mid);
-  task=new TaskLease({owner:'table',goal:'Move',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
-  const owned={authority:{...authority(task),scope:task.context.scope,moduleId:f.mid,from:binding.revision},read:{purpose:'detail',focus:'Tower'}};
+  task=new TaskLease({owner:'table',goal:'Read source evidence',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
+  const owned={authority:{...authority(task),scope:task.context.scope,moduleId:f.mid,from:binding.revision},read:{purpose:'detail',focus:'Tower inscription'}};
   const params={...owned.read,campaign:'c1',module_id:f.mid,_task_prepare:owned,foreground:true};
   const queued=await f.call('module.read.request',params),queuePath=join(f.home,'.coc/module-campaigns/c1/modules',f.mid,'deepen-queue.json');
   let job;
@@ -186,14 +187,14 @@ test('actual source owner emits no advance for answer-only, cancelled, or foreig
   const answered=await f.finish(answer,'c1');assert.equal(answered._task_source_advance,undefined);assert.equal(answered.source_answer.prepared,false);
   assert.equal((await api.sourcePreparationSnapshot(f.kernel,'c1',f.mid)).revision,answerBefore.revision);
   assert.notEqual((await f.call('table.capsule',{campaign:'c1'}))._context.source_revision,legacyBefore);
-  const binding=await api.sourcePreparationSnapshot(f.kernel,'c1',f.mid);task=new TaskLease({owner:'table',goal:'Move',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
-  const owned={authority:{...authority(task),scope:task.context.scope,moduleId:f.mid,from:binding.revision},read:{purpose:'detail',focus:'Tower'}};
+  const binding=await api.sourcePreparationSnapshot(f.kernel,'c1',f.mid);task=new TaskLease({owner:'table',goal:'Read source evidence',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
+  const owned={authority:{...authority(task),scope:task.context.scope,moduleId:f.mid,from:binding.revision},read:{purpose:'detail',focus:'Tower inscription'}};
   const params={...owned.read,campaign:'c1',module_id:f.mid,_task_prepare:owned,foreground:true};
   await f.call('module.read.request',params);const cancelled=await f.call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'cancelled-owner'});
   const stopped=await f.call('module.read.finish',{campaign:'c1',module_id:f.mid,job_id:cancelled.job_id,lease:cancelled.lease,outcome:'cancelled'});assert.equal(stopped._task_source_advance,undefined);assert.equal(stopped.state,'cancelled');
   await f.call('module.read.request',{...params,retry:true});const pendingJob=await f.call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'owned-owner'});assert.ok(pendingJob.work_dir,JSON.stringify(pendingJob));await draftDetail(f,pendingJob);
   await f.call('module.read.request',{campaign:'c1',module_id:f.mid,purpose:'detail',focus:'Dock',question:'An independent recheck.',foreground:false});
-  const foreign=await f.call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'foreign-owner'});assert.notEqual(foreign.job_id,pendingJob.job_id);await draftDetail(f,foreign,{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:[{page:1}],properties:{is_entrance:true}});
+  const foreign=await f.call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'foreign-owner'});assert.notEqual(foreign.job_id,pendingJob.job_id);await draftDetail(f,foreign,{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:[{page:1}],properties:{is_entrance:true,is_final:true}});
   const published=await f.finish(foreign,'c1');assert.equal(published._task_source_advance,undefined);
   await assert.rejects(f.finish(pendingJob,'c1'),code('source_preparation_stale'));
   await assert.rejects(f.call('module.read.request',params),code('source_preparation_stale'));
@@ -205,11 +206,11 @@ for(const fault of ['after-graph','before-completion','after-completion','before
  const prototype=api.ModuleStore.prototype,original={writeGraph:prototype.writeGraph,writeModule:prototype.writeModule,writeQueue:prototype.writeQueue};
  const restore=()=>{for(const [name,method] of Object.entries(original))prototype[name]=method;};
  try {
-  const mutation={campaign:'c1',call_id:'t1-c1',effects:[{kind:'move',to:'Tower'}]};
+  const mutation={campaign:'c1',call_id:'t1-c1',effects:[{kind:'clue',clue:'Tower inscription'}]};
   await assert.rejects(f.call('table.apply',mutation),code('material_pending'));
   const binding=await api.sourcePreparationSnapshot(f.kernel,'c1',f.mid);
-  task=new TaskLease({owner:'table',goal:'Move',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
-  const owned={authority:{...authority(task),scope:task.context.scope,moduleId:f.mid,from:binding.revision},read:{purpose:'detail',focus:'Tower'}};
+  task=new TaskLease({owner:'table',goal:'Read source evidence',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
+  const owned={authority:{...authority(task),scope:task.context.scope,moduleId:f.mid,from:binding.revision},read:{purpose:'detail',focus:'Tower inscription'}};
   const params={...owned.read,campaign:'c1',module_id:f.mid,_task_prepare:owned,foreground:true};
   await f.call('module.read.request',params);const job=await f.call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'fault-contract-owner'});await draftDetail(f,job);
   const finishParams={campaign:'c1',module_id:f.mid,job_id:job.job_id,lease:job.lease,outcome:'completed',draft_path:join(job.work_dir,'draft.json'),review_path:join(job.work_dir,'review.json')};
@@ -257,14 +258,14 @@ for(const fault of ['after-graph','before-completion','after-completion','before
   assert.deepEqual((await call('module.read.request',params))._task_source_advance,advance);
   if(fault==='before-queue'){
    await call('module.read.request',{campaign:'c1',module_id:f.mid,purpose:'detail',focus:'Dock',question:'An independent later publication.'});
-   const foreign=await call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'foreign-contract-owner'});await draftDetail(f,foreign,{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:[{page:1}],properties:{is_entrance:true}});
+   const foreign=await call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'foreign-contract-owner'});await draftDetail(f,foreign,{node_id:'scene-dock',node_kind:'scene',name:'Dock',source_refs:[{page:1}],properties:{is_entrance:true,is_final:true}});
    await call('module.read.finish',{...finishParams,job_id:foreign.job_id,lease:foreign.lease,draft_path:join(foreign.work_dir,'draft.json'),review_path:join(foreign.work_dir,'review.json')});
    await assert.rejects(call('module.read.request',params),code('source_preparation_stale'));
    assert.deepEqual((await call('module.read.finish',finishParams))._task_source_advance,advance,'Historical completion never reanchors itself to a later source');
    assert.notEqual((await api.sourcePreparationSnapshot(f.kernel,'c1',f.mid)).revision,advance.to);
   }else{
    const applied=await call('table.apply',mutation),again=await call('table.apply',mutation);assert.equal(again.replayed,true);assert.deepEqual(again.receipts,applied.receipts);
-   assert.equal((await new api.CampaignWriter(f.kernel,'c1').readTurn()).receipts.filter(value=>value.kind==='move').length,1);
+   assert.equal((await new api.CampaignWriter(f.kernel,'c1').readTurn()).receipts.filter(value=>value.kind==='clue').length,1);
   }
  } finally {restore();task?.close();await restarted?.close();await f.runtime.close();}
 });

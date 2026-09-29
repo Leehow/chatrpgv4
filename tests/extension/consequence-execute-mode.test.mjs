@@ -100,8 +100,8 @@ test("SL-78: with `on`, a cleared clue_follow_up executes inline -- before turn 
 	assert.equal(h.rows.some((row) => row.lane === "run" && row.event === "operation_stage"), false, "no assertion needed on stage rows; dispatch is the seam here");
 });
 
-test("SL-78: `shadow` (the default) never executes the cleared candidate -- only one dispatch, the declared write's own, and only turn close's own single consequence route ever runs", async () => {
-	const h = harness({ env: {}, decide: (batch) => batch.family === CONSEQUENCE_FAMILY ? clearAllConsequence(batch) : clearNothing(batch) });
+test("SL-78: an explicit `shadow` never executes the cleared candidate -- only one dispatch, the declared write's own, and only turn close's own single consequence route ever runs", async () => {
+	const h = harness({ env: { COC_JEV_STEPS: "shadow" }, decide: (batch) => batch.family === CONSEQUENCE_FAMILY ? clearAllConsequence(batch) : clearNothing(batch) });
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
 	await h.read("s1");
 	await h.clerkExecute("s2", seedCandidate);
@@ -110,6 +110,41 @@ test("SL-78: `shadow` (the default) never executes the cleared candidate -- only
 	await h.plan.ports.operations.execute({ origin: "policy", operation: "turn_close" }, h.invocation("s6"));
 	assert.equal(h.dispatches.length, 1, "turn close's own route still never executes anything under shadow");
 	assert.equal(h.decisions.filter((batch) => batch.family === CONSEQUENCE_FAMILY).length, 1, "exactly the one turn-close route SL-76 always ran -- byte for byte unchanged by SL-78");
+});
+
+test("§151.1: with no env switch the shipped data default (`jev_steps.shadow: false`) executes a cleared clue_follow_up, and the residual row names the data as its source", async () => {
+	const h = harness({ env: {}, decide: (batch) => batch.family === CONSEQUENCE_FAMILY ? clearAllConsequence(batch) : clearNothing(batch) });
+	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
+	await h.read("s1");
+	await h.clerkExecute("s2", seedCandidate);
+	assert.equal(h.dispatches.length, 2, "the default table executes the listed class inline, exactly as `on`");
+	assert.deepEqual(h.dispatches[1].args.effects[0].clue, "globe-story");
+	await h.plan.ports.operations.execute({ origin: "policy", operation: "turn_close" }, h.invocation("s6"));
+	const residual = h.rows.find((row) => row.lane === "residual");
+	assert.ok(residual, "the default table writes the residual row");
+	assert.equal(residual.steps_mode, "on");
+	assert.equal(residual.steps_mode_source, "data");
+});
+
+test("§151.1 addendum: the consequence route's state carries a failed check this turn as a failed check (the Jev family moves to version 2)", async () => {
+	const h = harness({ env: {}, decide: (batch) => clearNothing(batch) });
+	h.state.applyOptions = { candidates: [clueRow("globe-fire-cutoff")] };
+	h.state.receipts = [{ id: "roll:persuade-t2-c1", kind: "roll", skill_label: "Persuade", level: "failure", passed: false }];
+	await h.read("s1");
+	await h.plan.ports.operations.execute({ origin: "policy", operation: "turn_close" }, h.invocation("s6"));
+	const batch = h.decisions.find((value) => value.family === CONSEQUENCE_FAMILY);
+	assert.ok(batch, "the turn close routed the offered clue");
+	assert.equal(batch.familyVersion, "2");
+	assert.ok(batch.state.settled_this_run.includes("Persuade check: failure, failed"), JSON.stringify(batch.state.settled_this_run));
+});
+
+test("§151.1: an explicit env switch still wins over the data default and is recorded as the source", async () => {
+	const h = harness({ env: { COC_JEV_STEPS: "on" }, decide: (batch) => batch.family === CONSEQUENCE_FAMILY ? clearAllConsequence(batch) : clearNothing(batch) });
+	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
+	await h.read("s1");
+	await h.clerkExecute("s2", seedCandidate);
+	await h.plan.ports.operations.execute({ origin: "policy", operation: "turn_close" }, h.invocation("s6"));
+	assert.equal(h.rows.find((row) => row.lane === "residual")?.steps_mode_source, "env");
 });
 
 test("SL-78 (§135.32 addendum 2): an npc_reaction candidate never executes under `on` -- neither inline nor at turn close -- only a listed class does, even though it clears", async () => {
@@ -190,8 +225,8 @@ test("SL-78 (residual row): `{lane:'residual', turn, keeper_calls, compile_calls
 	assert.equal(residual.consequence_calls, 1, "only the consequence-class execution, not the declared write");
 });
 
-test("SL-78 (residual row): `shadow`/`off` write no residual row at all -- unaffected by this ticket, byte for byte", async () => {
-	for (const env of [{}, { COC_JEV_STEPS: "shadow" }, { COC_JEV_STEPS: "off" }]) {
+test("SL-78 (residual row): an explicit `shadow`/`off` writes no residual row at all (§151.1: an absent switch now follows the data default, covered above)", async () => {
+	for (const env of [{ COC_JEV_STEPS: "shadow" }, { COC_JEV_STEPS: "off" }]) {
 		const h = harness({ env, decide: (batch) => clearNothing(batch) });
 		h.state.applyOptions = { candidates: [clueRow("globe-story")] };
 		await h.read("s1");

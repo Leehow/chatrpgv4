@@ -144,9 +144,7 @@ test("§22.3.3 on the emitted kernel: a refused detail read is read once more in
 
 	// The scene still lands on its index text, and a check there passes; nothing is read for it.
 	ok(workspace, [["table.open", { campaign: CAMPAIGN }], ["table.player_input", { campaign: CAMPAIGN, text: "I climb to the tower." }]]);
-	const [move] = rpc(workspace, [["table.apply", { campaign: CAMPAIGN, call_id: "t1-c1", effects: [{ kind: "move", to: "Tower" }] }]]);
-	assert.deepEqual([move.error?.details?.reason, move.error?.details?.index?.pages], ["material_pending", [2, 1, 3]], "refused only to land on its pages");
-	const [moved] = ok(workspace, [["table.apply", { campaign: CAMPAIGN, call_id: "t1-c1", effects: [{ kind: "move", to: "Tower", _land_on_index: true }] }]]);
+	const [moved] = ok(workspace, [["table.apply", { campaign: CAMPAIGN, call_id: "t1-c1", effects: [{ kind: "move", to: "Tower" }] }]]);
 	assert.equal(moved.world.active_scene, "tower");
 	const [checked] = rpc(workspace, [["table.resolve", { campaign: CAMPAIGN, call_id: "t1-c2", action: { intent: "investigate", goal: "look around",
 		method: "look around the lamp room", skill: "Spot Hidden", decision: "core-check:ordinary-check" } }]]);

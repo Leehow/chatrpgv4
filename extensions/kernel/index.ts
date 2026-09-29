@@ -1392,13 +1392,18 @@ export default function (pi: ExtensionAPI) {
 		if (typeof data.campaign !== "string" || typeof data.turn !== "number" || !Array.isArray(data.passages)) return;
 		carriedText.note(data.campaign, data.turn, data.passages as Array<Record<string, unknown>>);
 	});
-	/** §135.31: the run step each model tool call came from, announced by the single-loop engine just before it runs. */
-	const modelSteps = new Map<string, { run: string; step: string }>();
+	/**
+	 * §135.31: the run step each model tool call came from, announced by the single-loop engine just before it runs.
+	 * §151.5: with the narrator-only setting on, the engine also announces a call its step's catalog does not admit
+	 * (`refuse`, the sentence the Keeper reads, and `refuse_code`); the tool gate refuses it before anything runs.
+	 */
+	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string }>();
 	pi.events.on("coc:model-step", (value) => {
 		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
 		if (typeof data.toolCallId !== "string" || typeof data.run !== "string" || typeof data.step !== "string") return;
 		if (modelSteps.size >= 256) modelSteps.clear();
-		modelSteps.set(data.toolCallId, { run: data.run, step: data.step });
+		modelSteps.set(data.toolCallId, { run: data.run, step: data.step,
+			...(typeof data.refuse === "string" && data.refuse ? { refuse: data.refuse, refuseCode: typeof data.refuse_code === "string" ? data.refuse_code : "narrator_catalog" } : {}) });
 	});
 	/**
 	 * §135.11.1 (SL-50): the model step the Keeper's next message answers, announced by the single-loop engine before each
@@ -5181,10 +5186,9 @@ export default function (pi: ExtensionAPI) {
 			pi.appendEntry("coc-session", {campaign, home: cocHome(ctx.cwd), play_language: table.playLanguage, mode: "play"});
 			// The startup record: which run engine and which Pi this table runs on (single-loop spec, story 35).
 			void record(startupRecord(runtime.resourceRoot, process.env) as unknown as Record<string, unknown>);
-			// The tool surface is fixed: these seven and no reshaping afterwards.
+			// The tool surface is fixed: these seven and no reshaping afterwards (§151.5: with the narrator-only setting on, the
+			// hybrid engine adds its `propose` once, after this; nothing is ever removed).
 			pi.setActiveTools([...COC_TOOL_NAMES]);
-			const originalSourceAvailable=readingModule?await kernel.call<Record<string,unknown>>('module.reference.status',{module_id:readingModule,campaign})
-				.then(value=>value.original_source_available===true).catch(()=>false):false;
 			// One Pi session, one kernel subprocess (contract §1), so there is only this one kernel RPC.
 			// The memory extension's lane needs `memory.job` / `submit` / `fail`; it goes over this bridge
 			// on the bus rather than starting a second process.
@@ -5193,8 +5197,6 @@ export default function (pi: ExtensionAPI) {
 				moduleId: readingModule,
 				call: bridgeCall(kernel),
 				runtime,
-				prepareSourceDestination: originalSourceAvailable?async (need:string,signal:AbortSignal) => readingModule&&reading?.reference
-					? reading.reference(readingModule,{campaign,purpose:'detail',focus:need,question:'Locate only the physical destination the player explicitly chose now. '+need,materialize_place:true},signal):undefined:undefined,
 				// The call ordinal lives here, so anything that has to write on the Keeper's behalf mints its
 				// id here too instead of inventing one the kernel refuses -- and never reuses a live ordinal,
 				// which the kernel would read as a replay and answer with somebody else's result.
@@ -5938,6 +5940,16 @@ export default function (pi: ExtensionAPI) {
 			// instruction to do the one thing this gate refuses -- the advice that kept a Keeper calling
 			// narrate seventeen times (§77).
 			return { block: true, reason: blocked >= RUNAWAY_STOP_AT ? TURN_CLOSED_STOP : TURN_CLOSED_REASON };
+		}
+		// §151.5: a model call the single-loop engine announced outside its step's catalog (a narrowed compose step's, or after
+		// an accepted `propose` in the same response) is refused here, before admission, a call id or a kernel read. It is the
+		// step's structure, never the Keeper's misuse of parameters, so it strikes no refusal class: the same verb is the
+		// Keeper's own again on an adjudicate step of the same turn.
+		const announced = modelSteps.get(event.toolCallId);
+		if (announced?.refuse && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: announced.refuseCode ?? "narrator_catalog",
+				run: announced.run, step: announced.step });
+			return { block: true, reason: announced.refuse };
 		}
 		// Only an adaptation wait owns anything, and only the writes that need what it is building (§135.11 addendum,
 		// SL-23): one named job with its own control verb. A source wait is not here on purpose -- one unread page never

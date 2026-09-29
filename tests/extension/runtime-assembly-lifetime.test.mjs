@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { assembleRuntime } from '../../scripts/package-runtime.mjs';
-import { createAssemblyWorkspace, DIAGNOSTIC_LIMIT_BYTES, removeAssemblyTreeSync } from '../../scripts/assembly-workspace.mjs';
+import { assemblyDiagnosticsRoot, createAssemblyWorkspace, DIAGNOSTIC_LIMIT_BYTES, removeAssemblyTreeSync } from '../../scripts/assembly-workspace.mjs';
 import { waitForJson } from './wait.mjs';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
@@ -40,9 +40,16 @@ async function until(check, label, timeout = 8_000) {
  */
 const handshake = (path, label, timeout = 8_000) => waitForJson(path, { timeoutMs: timeout, label });
 
+// In-process assembly reads PIPICOC_APP_HOME for its diagnostics root; point it into the
+// throwaway repo so no test writes beside the real App receipt.
 async function tempRepo(t) {
   const repo = await realpath(await mkdtemp(join(tmpdir(), 'pi-coc-assembly-test-')));
-  t.after(() => removeAssemblyTreeSync(repo));
+  const previous = process.env.PIPICOC_APP_HOME;
+  process.env.PIPICOC_APP_HOME = join(repo, 'package-home');
+  t.after(() => {
+    if (previous === undefined) delete process.env.PIPICOC_APP_HOME; else process.env.PIPICOC_APP_HOME = previous;
+    removeAssemblyTreeSync(repo);
+  });
   return repo;
 }
 
@@ -132,9 +139,11 @@ test('actual assembler failure cleans work, preserves diagnostics, and detaches 
   catch (error) { failure = error; }
   assert.match(failure?.message ?? '', /Supplied archive is missing/);
   const evidence = failure.message.match(/Assembly evidence retained at (.+)$/m)?.[1];
-  assert.ok(evidence?.startsWith(join(repo, '.build.noindex/')));
+  assert.ok(evidence?.startsWith(join(repo, 'package-home/assembly-evidence/')));
+  assert.equal(assemblyDiagnosticsRoot(), join(repo, 'package-home/assembly-evidence'));
   assert.equal((await json(join(evidence, 'failure.json'))).diagnostics, evidence);
   assert.deepEqual(await readdir(join(repo, '.tmp')), []);
+  assert.equal(await present(join(repo, '.build.noindex')), false, 'a run leaves nothing in the checkout');
   assert.deepEqual(listenerCounts(), before);
 });
 
@@ -360,8 +369,8 @@ fsp.rm=async(path,options)=>{
 };
 fs.rmSync=(path,options)=>{
   if(basename(path).startsWith('package-')){
-    const entries=fs.readdirSync(join(repo,'.build.noindex')).filter(name=>name.startsWith('assembly-'));
-    const evidence=entries.map(name=>join(repo,'.build.noindex',name));
+    const entries=fs.readdirSync(join(repo,'package-home/assembly-evidence')).filter(name=>name.startsWith('assembly-'));
+    const evidence=entries.map(name=>join(repo,'package-home/assembly-evidence',name));
     if(!diagnosticWriteCode&&!evidence.some(path=>fs.existsSync(join(path,'failure.json'))))throw new Error('Outer purge raced diagnostics');
     publish(join(repo,'outer-purged.json'),{evidence});
   }
@@ -421,9 +430,10 @@ for (const [route, orphan] of [['imported', false], ['cli', false], ['packager',
     assert.equal(unrelated.child.exitCode, null);
     assert.equal(unrelated.child.signalCode, null);
     assert.equal(process.kill(unrelated.child.pid, 0), true);
-    const evidence = (await readdir(join(repo, '.build.noindex'))).filter(name => name.startsWith('assembly-'));
+    const evidence = (await readdir(join(repo, 'package-home/assembly-evidence'))).filter(name => name.startsWith('assembly-'));
     assert.equal(evidence.length, 1);
-    assert.match((await json(join(repo, '.build.noindex', evidence[0], 'failure.json'))).message, new RegExp(signal));
+    assert.match((await json(join(repo, 'package-home/assembly-evidence', evidence[0], 'failure.json'))).message, new RegExp(signal));
+    assert.equal(await present(join(repo, '.build.noindex')), false);
     if (route === 'imported') { const { before, after } = JSON.parse(result.stdout.trim()); assert.deepEqual(after, before); }
     if (route === 'packager') {
       assert.deepEqual(await readdir(join(repo, 'package-home/.staging')), []);

@@ -79,7 +79,7 @@ export function consequenceBatch(view: ConsequenceView, scope: ScopeBinding, rea
       candidates: candidateView, policy: CONSEQUENCE_POLICY} as unknown as Json;
     const questions = [...candidateQuestions, ...existsQuestions];
     const batch: DecisionBatch = {id: digest([CONSEQUENCE_FAMILY, view.runId, view.observations.length, state, questions]), model: JEV_MODEL,
-      family: CONSEQUENCE_FAMILY, familyVersion: '1', scope, readSet, state, questions};
+      family: CONSEQUENCE_FAMILY, familyVersion: '2', scope, readSet, state, questions};
     try { packDecisionBatch(batch); return {batch, asked: rows}; }
     catch (error) {
       if (!(error instanceof PackingError) || error.failure !== 'packing_limit' || (previews === 0 && previewChars <= 0)) throw error;

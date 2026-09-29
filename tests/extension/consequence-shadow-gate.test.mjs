@@ -7,9 +7,28 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { consequenceKeysToExecute, jevStepsMode, keeperDidFor } from "../../runtime/jev/hybrid-engine.ts";
+import { consequenceKeysToExecute, jevStepsMode, jevStepsModeSource, keeperDidFor, receiptLabel } from "../../runtime/jev/hybrid-engine.ts";
 
 const ROW = (key, cleared, cls = "npc_reaction") => ({ class: cls, key, cleared, confidence: 0.9, distribution: { true: 0.9, false: 0.1 } });
+
+test("§151.1 addendum: a settled check's label names the attempt and whether it succeeded, never a bare `roll`", () => {
+	const failed = { id: "roll:persuade-t2-c1", kind: "roll", skill: "Persuade", skill_label: "Persuade", level: "failure", passed: false };
+	assert.equal(receiptLabel(failed), "Persuade check: failure, failed");
+	assert.equal(receiptLabel({ ...failed, level: "hard", passed: true }), "Persuade check: hard, succeeded");
+	assert.equal(receiptLabel({ kind: "roll", skill_label: "Locksmith", check: { level: "failure", passed: false } }), "Locksmith check: failure, failed", "the nested check shape is read too");
+	assert.equal(receiptLabel({ kind: "roll", decision: "natural-npc:first-impression", actor_label: "Hayes", npc: "knott" }), "first impression: Hayes on knott", "the first impression label is unchanged");
+});
+
+test("§151.1: jevStepsMode defers to the data default only when the switch is absent", () => {
+	assert.equal(jevStepsMode({}, "on"), "on", "no switch: the data default decides");
+	assert.equal(jevStepsMode({ COC_JEV_STEPS: "" }, "on"), "on", "an empty switch is absent");
+	assert.equal(jevStepsMode({}, "shadow"), "shadow");
+	assert.equal(jevStepsMode({ COC_JEV_STEPS: "shadow" }, "on"), "shadow", "an explicit shadow beats the data");
+	assert.equal(jevStepsMode({ COC_JEV_STEPS: "off" }, "on"), "off");
+	assert.equal(jevStepsMode({ COC_JEV_STEPS: "SHADOW" }, "on"), "shadow", "an unrecognized explicit value is the safe default, never the data's on");
+	assert.equal(jevStepsModeSource({}), "data");
+	assert.equal(jevStepsModeSource({ COC_JEV_STEPS: "on" }), "env");
+});
 
 test("jevStepsMode: shadow is the default for anything but the two named values", () => {
 	assert.equal(jevStepsMode({}), "shadow");

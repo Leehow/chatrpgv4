@@ -170,20 +170,34 @@ test('the actual hybrid read port receives original PDF evidence before any Keep
  assert(events.some(row=>row.event==='source_catalog'&&row.candidates>0));
 });
 
-test('hybrid source destination intake prepares once before rereading its bound candidates',async t=>{
- const f=await fixture(t),events=[],bus=new Map(),order=[];
+test('a missing destination does not start a mandatory source preparation before Keeper inference',async t=>{
+ const f=await fixture(t),events=[],bus=new Map(),questions=[];
  const adapter=api.createDecisionAdapter({apiKey:'fixture',fetcher:deterministicFetch()});
  const engine=api.createHybridEngine({env:{PI_COC_JEV_PRESELECT:'0',EXT_JEV_APIKEY:'fixture'},npcAct:null,record:row=>events.push(row),
-  decision:{decide:(batch,lease)=>batch.family==='source-destination-intake'?Promise.resolve({status:'complete',answers:{needed:{status:'answered',type:'noul',noul:.99},covered:{status:'answered',type:'noul',noul:.01}}}):adapter.decide(batch,lease)}});
+  decision:{decide:(batch,lease)=>{questions.push(batch.family);return adapter.decide(batch,lease);}}});
  engine.extension({on(){},events:{on:(name,handler)=>bus.set(name,handler),emit(){}},getActiveTools:()=>[]});
- bus.get('coc:kernel-bridge')({campaign:'c1',moduleId:f.mid,call:async(method,params)=>{if(method==='table.apply.options')order.push('candidates');return f.call(method,params);},runtime:f.source,
-  prepareSourceDestination:async(need,signal)=>{assert.equal(need,'I go to Harbor Station.');assert(!signal.aborted);order.push('source');return{material:{scene:'harbor-station'}};}});
- const prepared=await engine.runDriver.prepare({runId:'destination-before-keeper',inputRevision:'fixture-v1',rawInput:'I go to Harbor Station.',session:{}});
- await prepared.ports.read.read({operation:'read',origin:'policy'},{signal:AbortSignal.timeout(20000),stepId:'first'});
- assert.deepEqual(order.slice(0,3),['candidates','source','candidates']);
- await prepared.ports.read.read({operation:'read',origin:'policy'},{signal:AbortSignal.timeout(20000),stepId:'second'});
- assert.equal(order.filter(item=>item==='source').length,1);
- assert(events.some(row=>row.event==='destination_preflight'&&row.status==='ready'));
+ bus.get('coc:kernel-bridge')({campaign:'c1',moduleId:f.mid,call:f.call,runtime:f.source});
+ const prepared=await engine.runDriver.prepare({runId:'unlisted-destination',inputRevision:'fixture-v1',rawInput:'I visit a photographic shop.',session:{}});
+ const read=await prepared.ports.read.read({operation:'read',origin:'policy'},{signal:AbortSignal.timeout(20000),stepId:'first'});
+ assert(read.artifact);
+ assert(!questions.includes('source-destination-intake'));
+ assert(!events.some(row=>row.event==='destination_preflight'));
+});
+
+test('a bound PDF accepts an ordinary off-book place, person and clue without a source job',async t=>{
+ const f=await fixture(t),base={campaign:'c1'};
+ const before=await f.call('module.status',{module_id:f.mid,campaign:'c1'});
+ const result=await f.call('table.apply',{...base,call_id:'t1-c1',effects:[
+  {kind:'move',to:'Riverside photographic shop',establish:{summary:'A photographic shop with a public counter.'},via:'Walk along the street'},
+  {kind:'npc',name:'the shopkeeper',walk_on:true,to:'here'},
+  {kind:'clue',clue:'Shop collection slip',establish:{summary:'The plates may be collected this afternoon.'},how:'The shopkeeper gives the collection time.',from:'the shopkeeper'}]});
+ assert.equal(result.world.active_scene,'Riverside photographic shop');
+ assert.equal(result.material_ready,true);
+ const found=await f.call('table.lookup',{...base,kind:'module',query:'Shop collection slip'});
+ assert.equal(found.entities[0].material,'ready');
+ assert.equal(found.entities[0].origin.kind,'table');
+ const after=await f.call('module.status',{module_id:f.mid,campaign:'c1'});
+ assert.equal(after.generation,before.generation,'ordinary additions do not publish a source graph');
 });
 
 test('late source actors have conditional initial-presence options without overwriting recorded locations',async t=>{

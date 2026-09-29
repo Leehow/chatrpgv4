@@ -16,15 +16,15 @@
  * loses it, and the record is then what `look` returns once the reading has published.
  */
 type Row = Record<string, any>;
+import {IMPROVISATION_GUIDANCE} from '../../runtime/jev/carried-views.ts';
 
 /** What the Keeper is told beside the scene's text (Keeper-only, system language); also the legacy apply result's note. */
 export const SCENE_TEXT_NOTE = 'The move landed on the book\'s own text for this scene: its pages are carried here once. The scene\'s reviewed '
 	+ 'record (its exits, the people there, the things and clues) is still being read and lands on a later note. Narrate the arrival from '
-	+ 'these pages; do not invent exits, people, clues or numbers they do not state, and do not put the reading into the fiction.';
+	+ 'these pages and continue ordinary play. '+IMPROVISATION_GUIDANCE;
 /** §22.4.7.1: what the Keeper is told beside a person's text on the legacy engine (Keeper-only, system language). */
 export const PERSON_TEXT_NOTE = 'This person is played on the book\'s own text: the passage or pages that name them are carried here once. Their '
-	+ 'reviewed record (numbers, what they know, how they act) is still being read and lands on a later note. Play them from this text; do not '
-	+ 'invent numbers or facts it does not state, and do not put the reading into the fiction.';
+	+ 'fuller record is still being read. Preserve their identity, motives and knowledge while playing their response. '+IMPROVISATION_GUIDANCE;
 
 export interface SceneReading {
 	/** The focus the reading reads (a scene handle, a person's handle or given name). */
