@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir, copyFile, appendFile, rm } from "node:fs/pr
 import { createHash } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { KernelError , isKernelError } from "../kernel/client.ts";
-import { readerInput, wakeReaderSlots, type ReaderOutcome } from "./reader.ts";
+import { readerInput, wakeReaderSlots, type ReaderOutcome, type ReaderRequest } from "./reader.ts";
 import { providerRefusalText } from "../../runtime/jev/provider-budget.ts";
 import { reviewCandidate, type ReviewPlan } from "./reader-review.ts";
 import { checkTargetedRepair, repairDecision, reviewOfCandidate, TARGETED_REPAIR_ASK, type RepairDecision } from "./targeted-repair.ts";
@@ -26,6 +26,7 @@ import {validateReferencePacket} from '../../kernel-ts/modules/reference-contrac
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
 import {requireVisualOverview} from '../../kernel-ts/modules/visual-discovery.ts';
 import {mapReviewPreviews} from './map-review-preview.ts';
+import {IdentityReviewUnavailable,reviewVisualIdentity} from './visual-identity-review.ts';
 
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
@@ -262,6 +263,13 @@ function refusedReading(params: Row, refusal: Row, fix: string): KernelError {
 const WAY_ON_ASK = "This reading repairs one thing: the opening scene publishes no way on. Keep every node and claim already in the retained draft exactly as it is, including ready_nodes, and add only what the pages state: either the relation the book gives from this scene to the place it leads to (route-to, play-precedes, may-lead-to, alternative-to or hands-off-to) together with the target scene node the book names for it, or, when the book ends in this scene, is_final on this scene. Do not invent a destination the pages do not name, and do not remove anything.";
 function finishSemanticRejection(failure: unknown): boolean {
 	return isKernelError(failure) && failure.code === "invalid_params";
+}
+/** §152.4: how many times one publication asks the identity reviewer before the refusal is the reading's own. */
+const IDENTITY_ASKS = 3;
+/** §152.4: the pairs a publication refused as `visual_identity_pending`, or undefined for any other refusal. */
+function identityPending(failure: unknown): Row[] | undefined {
+	return isKernelError(failure) && failure.code === "needs" && failure.details?.reason === "visual_identity_pending" && Array.isArray(failure.details.pairs)
+		? failure.details.pairs as Row[] : undefined;
 }
 /** Resolve a JSON pointer against a draft, or `undefined` when it does not land. */
 function atPointer(draft: Row, pointer: unknown): unknown {
@@ -661,6 +669,22 @@ export class ReadingService implements ReadingBridge {
 	}
 
 	/**
+	 * §152.4: ask the independent visual reviewer whether each colliding pair is one print. Its Pi child runs through the
+	 * job's reviewer owner (`run`); the verdict file lands in `dir`, inside the job's attempt, and its path is what the
+	 * kernel takes as `identity_review_path`. Throws `IdentityReviewUnavailable` when the reviewer cannot answer.
+	 */
+	private async reviewIdentity(job: Row, pairs: Row[], dir: string, context: {campaign?: string; cache: string; signal: AbortSignal; round?: number;
+		run(request: ReaderRequest): Promise<ReaderOutcome>}): Promise<string> {
+		await mkdir(dir, { recursive: true });
+		const instructions = join(dir, "instructions-identity.md");
+		await writeFile(instructions, await readFile(join(this.runtime().contentRoot, "setup", "visual-identity.md")));
+		return reviewVisualIdentity({ cwd: dir, pairs, instructions, model: this.deps.model(), signal: context.signal,
+			source: { pdf: job.source.path, cache: context.cache, file_sha256: job.source.file_sha256 }, run: context.run,
+			record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", campaign: context.campaign,
+				...(context.round !== undefined ? { round: context.round } : {}), ...row }) });
+	}
+
+	/**
 	 * How a stopped attempt is published. A job this host aborted because it went quiet is `failed`
 	 * with the silence named, not `cancelled`: `cancelled` reads as "somebody asked for this to stop"
 	 * and leaves no reason on disk, and only `failed` offers the retry the Keeper and the operator need.
@@ -881,6 +905,14 @@ export class ReadingService implements ReadingBridge {
 		const model = this.deps.model();
 		const cwd = job.work_dir;
 		const key = JSON.stringify([campaign, job.module_id, job.job_id]);
+		// This job's one owner of independent reviewer children (inventory SL-00, `ReadingService.runJob.run`): the source
+		// review's units and the §152.4 identity reviewer both run through it, on the job's provider owner and priority.
+		let reviewLease: StageBudget | undefined;
+		const reviewers = { run: (request: ReaderRequest, prompt?: ReaderRequest["prompt"]) => this.runtime().runTask({ kind: "reader", request: { ...request, providerBudget,
+			beforeProviderRequest: (signal: AbortSignal) => this.waitForPriority(job, key, signal, campaign),
+			...(reviewLease ? { readingLease: reviewLease } : {}),
+			priority: () => job.foreground === false ? "background" : "foreground",
+			...(prompt ? { prompt } : {}) } }, request.signal) };
 		const publicProgress=(state:'searching'|'found'|'checking'|'confirmed',fields?:Row)=>{
 			if(job.purpose!=='guidance'||typeof job.guidance_key!=='string')return;
 			this.deps.progress({stage:'guidance',purpose:job.purpose,module_id:job.module_id,public_preparation:{source_sha256:job.source.file_sha256,
@@ -894,6 +926,19 @@ export class ReadingService implements ReadingBridge {
 		// it from the bound source keeps host and reader confinement in agreement by construction.
 		const cache = join(dirname(job.source.path), "cache", "pages");
 		await mkdir(cache, { recursive: true });
+		// §152.4: an identity job over published pairs has no author. Its reviewer answers each pair of its page and the
+		// kernel keeps the verdicts; a reviewer that cannot answer fails the job, and a later read-ahead asks again.
+		if (job.visual_identity) {
+			await writeFile(join(cwd, "observations.json"), JSON.stringify({ file_sha256: job.source.file_sha256, read_pages: [], full_pages: [], review_pages: [] }) + "\n");
+			const pairs: Row[] = Array.isArray(job.visual_identity.pairs) ? job.visual_identity.pairs : [];
+			const path = pairs.length ? await this.reviewIdentity(job, pairs, join(cwd, "identity"), { campaign, cache, signal, run: reviewers.run }) : undefined;
+			const published = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, outcome: "completed",
+				...(path ? { identity_review_path: path } : {}) }, campaign);
+			this.deps.record({ lane: "reading", event: "visual_identity_published", module_id: job.module_id, job_id: job.job_id, campaign, ...(published?.visual_identity ?? {}) });
+			// The next page's pairs are queued by the read-ahead, one identity job at a time.
+			await this.call("module.read.ahead", { module_id: job.module_id }, campaign).catch(() => undefined);
+			return;
+		}
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
 		const task: Row = { purpose: job.purpose,
@@ -1011,7 +1056,7 @@ export class ReadingService implements ReadingBridge {
 		// this book, not a fixed assumption -- a campaign's private fork reads under the exact same rule as the library.
 		// §140.2 (SL-99b): an opening or guidance read outside a stage (the table's setup, `/coc ingest`) is sized too.
 		const stage = providerBudget ? undefined : readingJobStage(job);
-		const readingLease: StageBudget | undefined = stage ? readingStageBudget(stage, { pageCount: Number(job.source?.page_count) || 0,
+		const readingLease: StageBudget | undefined = reviewLease = stage ? readingStageBudget(stage, { pageCount: Number(job.source?.page_count) || 0,
 			perPage: await measuredPageCost(resolve(cwd, "..", "..", "..")), contextWindow: model.contextWindow }) ?? undefined : undefined;
 		if (readingLease) this.deps.record({ lane: "reading", event: "stage_budget", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose, ...readingLease });
 		// §20 addendum 3: a call a stage lease refused on an overrun it could pay; the round went on.
@@ -1023,6 +1068,8 @@ export class ReadingService implements ReadingBridge {
 		let detail = "the reader did not produce a valid draft";
 		// §22.3.1: the refused field and the gate's reason, as findings.json records them, travel with the failure.
 		let refusal: Row | undefined;
+		// §152.4: the identity reviewer could not answer for this attempt's draft; the job is held, not failed or published.
+		let identityHeld: string | undefined;
 		try {
 			if (!model.vision) throw error("vision_required", "the reader has no image input", "select a model that supports images");
 			// Reader/check/review failures keep the existing two rounds. One opening semantic rejection
@@ -1133,11 +1180,8 @@ export class ReadingService implements ReadingBridge {
 									model, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 }, signal,
 									cacheRoot:join(cache,'..','reviews'),
 									reviewVersion:sha(Buffer.concat([Buffer.from(sourceRenderVersion+(draftHasMapRegions(candidate)?':map-region-review-v2':'')),await readFile(join(this.runtime().contentRoot,'setup',job.purpose === 'answer' ? 'source-answer.md' : job.purpose === 'guidance' ? 'visual-guidance.md' : 'visual-reader.md'))])),
-									run: ({systemPrompt: _instructions, ...request}) => this.runtime().runTask({ kind: "reader", request: { ...request, providerBudget,
-										beforeProviderRequest:signal=>this.waitForPriority(job,key,signal,campaign),
-										...(readingLease ? { readingLease } : {}),
-										priority: () => job.foreground === false ? "background" : "foreground",
-										prompt: { phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" } } }, request.signal)
+									run: ({systemPrompt: _instructions, ...request}) => reviewers.run(request,
+										{ phase: "verify", guidance: job.purpose === "guidance", answer: job.purpose === "answer" })
 										.then(run => overrunRows(run, "verify", round)),
 									// Every verify row names the job and round it belongs to (#65); the reviewer adds unit and attempt.
 									record: row => { tallyReadingRow(accounting, row); this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", round, ...row, campaign }); },
@@ -1338,9 +1382,27 @@ export class ReadingService implements ReadingBridge {
 						if (travel) this.deps.record({ ...travel.row, module_id: job.module_id, job_id: job.job_id, campaign });
 					}
 					publishing = true;
-					const published = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
+					const finishing: Row = { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
 						outcome: "completed", draft_path: join(cwd, "draft.json"), review_path: join(cwd, "review.json"), assets,
-						...(travel?.entries.length ? { travel: travel.entries } : {}) }, campaign);
+						...(travel?.entries.length ? { travel: travel.entries } : {}) };
+					let published: Row | undefined;
+					// §152.4: a drafted visual overlapping a published one on its page waits for the reviewer's verdict on each
+					// pair, then publishes again; a concurrent publication may raise new pairs, so it asks at most IDENTITY_ASKS times.
+					for (let asked = 0; ; asked++) {
+						try { published = await this.call("module.read.finish", finishing, campaign); break; }
+						catch (failure) {
+							const pairs = identityPending(failure);
+							if (!pairs || asked >= IDENTITY_ASKS) throw failure;
+							try {
+								finishing.identity_review_path = await this.reviewIdentity(job, pairs, join(cwd, "identity", `round-${round}-${asked + 1}`),
+									{ campaign, cache, signal, round, run: request => reviewers.run(request).then(run => overrunRows(run, "identity", round)) });
+							} catch (unanswered) {
+								if (!(unanswered instanceof IdentityReviewUnavailable) || signal.aborted) throw unanswered;
+								identityHeld = unanswered.message;
+								return;
+							}
+						}
+					}
 					publishing = false;
 					if(published?.public_fields)publicProgress('confirmed',validatePublicGuidance(published.public_fields,job.source.page_count));
 					if (travel?.entries.length) this.deps.record({ lane: "travel-fill", event: "published", module_id: job.module_id, job_id: job.job_id, campaign,
@@ -1405,6 +1467,14 @@ export class ReadingService implements ReadingBridge {
 			}
 			// §22.4.6: a displaced reading gives its slot back and keeps its attempt; it is not finished.
 			if (this.displaced.has(key)) { await this.yieldSlot(job, campaign, key); return; }
+			// §152.4: an unanswered identity question holds the job with its attempt; the next claim resumes and asks again.
+			if (identityHeld !== undefined && !signal.aborted) {
+				const held = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
+					outcome: "held", reason: "visual_identity_unavailable", detail: identityHeld }, campaign).catch(() => undefined);
+				this.note({ lane: "reading", event: "identity_held", module_id: job.module_id, campaign, job_id: job.job_id, purpose: job.purpose,
+					focus: job.focus ?? "", state: held?.state ?? null, held: held?.held ?? null });
+				return;
+			}
 			// Completed jobs replay here; failed attempts release their claim and preserve all artifacts.
 			const outcome = this.jobOutcome(key, signal.aborted, detail);
 			const finished = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,

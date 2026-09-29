@@ -1078,4 +1078,83 @@ export class ModuleGraph {
         return {kind: 'campaign_adaptation', reason: chars(string(value.reason), 400),
             sources: array(value.sources).flatMap(id => {const node = this.nodes.get(id); return node ? [{kind: node.node_kind, name: node.name}] : [];})};
     }
+    /**
+     * Contract §152.4: the `variant-of` hops a printed-visual node takes toward the node it stands for. Only a relation
+     * from one visual node (`asset` or `handout`) to another counts; a node with several takes the first in relation
+     * order. The walk stops at a node with no such relation, before revisiting a node, or after `VARIANT_STEPS` hops.
+     */
+    private variantWalk(node: Row): { path: Row[]; hops: Row[]; cycle: number } {
+        const path: Row[] = [node], hops: Row[] = [], seen = new Set<string>([string(node.node_id)]);
+        if (!VISUAL_KINDS.includes(node.node_kind)) return { path, hops, cycle: -1 };
+        let current = node;
+        for (let step = 0; step < VARIANT_STEPS; step++) {
+            const hop = (this.out.get(string(current.node_id)) ?? []).find(rel => rel.relation_kind === "variant-of"
+                && VISUAL_KINDS.includes(this.nodes.get(string(rel.to_node_id))?.node_kind) && rel.to_node_id !== current.node_id);
+            if (!hop) return { path, hops, cycle: -1 };
+            const next = this.nodes.get(string(hop.to_node_id))!;
+            if (seen.has(string(next.node_id))) return { path, hops: [...hops, hop], cycle: path.findIndex(item => item.node_id === next.node_id) };
+            seen.add(string(next.node_id));
+            path.push(next);
+            hops.push(hop);
+            current = next;
+        }
+        return { path, hops, cycle: -1 };
+    }
+    /**
+     * Contract §152.4: the node a printed-visual variant stands for, following `variant-of` to the node that is not one.
+     * Where the relations close a cycle, the cycle's first node in node-id order stands for all of it, so the survivor of a
+     * survivor is itself. Any node that is not a variant (a scene, a person, a map nobody linked) is its own survivor.
+     */
+    survivorOf(node: Row): Row {
+        const walk = this.variantWalk(node);
+        if (walk.cycle < 0) return walk.path[walk.path.length - 1];
+        return [...walk.path.slice(walk.cycle)].sort((a, b) => compareUnicode(string(a.node_id), string(b.node_id)))[0];
+    }
+    /** Contract §152.4: a printed visual the reviewer found to be the same print as another; map and handout readers skip it. */
+    isVariant(node: Row): boolean {
+        return this.survivorOf(node).node_id !== node.node_id;
+    }
+    /**
+     * Contract §152.4: which region of `survivor` each region of `variant` is, as the reviewer matched them on the
+     * pixels (`properties.region_correspondence` on each `variant-of` hop between them, composed along the way). A region
+     * the reviewer did not match is absent: two crops never share coordinates by assumption (session-maps Decision 5).
+     * Empty when `survivor` is not where `variant` leads or when no hop carries a correspondence.
+     */
+    regionCorrespondence(variant: Row, survivor: Row): Record<string, string> {
+        if (variant.node_id === survivor.node_id) return {};
+        // A survivor inside a cycle is still on the path: the walk lists every node once before it would revisit one.
+        const walk = this.variantWalk(variant), end = walk.path.findIndex((node, index) => index > 0 && node.node_id === survivor.node_id);
+        if (end <= 0) return {};
+        let mapped: Record<string, string> | null = null;
+        for (const hop of walk.hops.slice(0, end)) {
+            const step = row(row(hop.properties).region_correspondence), next: Record<string, string> = {};
+            for (const [from, to] of mapped ? entries(mapped) : entries(step).map(([key]) => [key, key] as [string, string]))
+                if (typeof step[to] === "string") next[from] = step[to];
+            mapped = next;
+            if (!Object.keys(mapped).length) return {};
+        }
+        return mapped ?? {};
+    }
+    /** Contract §152.4: a visual node's handle read through its survivor; a handle no visual node carries stays as it is. */
+    survivorHandle(handle: string): string {
+        const node = [...this.nodes.values()].find(item => VISUAL_KINDS.includes(item.node_kind) && this.handle(item) === handle);
+        return node ? this.handle(this.survivorOf(node)) : handle;
+    }
+    /**
+     * Contract §152.4: `world.handouts_shown` read through survivors -- a handout shown under a variant's handle counts as
+     * shown for its survivor -- in the order first shown, each survivor once.
+     */
+    shownThroughSurvivors(shown: readonly unknown[]): string[] {
+        const out: string[] = [];
+        for (const value of shown) {
+            if (typeof value !== "string" || !value) continue;
+            const handle = this.survivorHandle(value);
+            if (!out.includes(handle)) out.push(handle);
+        }
+        return out;
+    }
 }
+/** Contract §152.4: the node kinds a printed visual is published as, the only ends a `variant-of` hop is read between. */
+const VISUAL_KINDS: readonly string[] = ["asset", "handout"];
+/** Contract §152.4: the most `variant-of` hops a survivor walk takes. */
+const VARIANT_STEPS = 64;
