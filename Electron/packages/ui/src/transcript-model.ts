@@ -250,7 +250,8 @@ const MECHANICS_MARKER = /\{\{[a-z0-9][a-z0-9:_-]*\}\}|\{\{say:[^{}\n]{1,60}\}\}
 
 /** A delivery with its markers taken out, the way the kernel strips them for `rendered_text`. */
 export function withoutMechanicsMarkers(text: string): string {
-  return text.replace(MECHANICS_MARKER, '').replace(/[ \t]{2,}/g, ' ').trim()
+  return text.replace(MECHANICS_MARKER, '').replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 /**

@@ -28669,6 +28669,8 @@ Ordinary apply/resolve calls explicitly pass sceneUse play to the internal mater
 
 ### 150.3 Explicit transcript navigation does not wait for animation frames
 
+Mechanics-card/plain-delivery deduplication uses the kernel's marker-free whitespace normalization: remove horizontal trailing whitespace and collapse empty marker paragraphs. A Markdown hard-break space in an improvised handout scene must not make the one delivery appear twice. Matching remains exact after that deterministic normalization; unrelated narration remains visible.
+
 The GUI continuation completed turns while the shell reported document.visibilityState hidden. The return-to-latest control only queued requestAnimationFrame, which Chromium may suspend for hidden content, leaving the visible transcript behind the committed world. An explicit return-to-latest click now issues the existing Virtuoso auto-scroll immediately; the bounded frame-based settling pass still handles later layout changes. This changes no game state or delivery status. It does not claim to repair the separate native blank-window observation. References: MDN Window.requestAnimationFrame and Electron BrowserWindow Page Visibility.
 
 Source retrieval supplies relevant facts and causal constraints. A graph miss, low relevance or pending read reports incomplete evidence and leaves ordinary improvisation with the Keeper. There is no unconditional destination-source preflight before every first Keeper inference. Existing evidence retrieval remains available; known facts and authored restrictions still matter. Foreground source work is justified by the particular unresolved question, not by the absence of a complete location dossier. A prepared source identity is one usable route, not the only route into play.
