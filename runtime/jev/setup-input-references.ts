@@ -163,6 +163,13 @@ export async function materializeSetupInputs(catalog:SetupInputCatalog,input:{ca
     }
     return {values,envelope:{version:1,protocol:SETUP_INPUT_PROTOCOL,epoch:input.inputKey,scope,snapshot:structuredClone(catalog.snapshot),bindings}};
 }
+/** §151.6: the host's copy of an issued input selection -- the player's own words for a field the Keeper selects and
+ * never retypes (`occupation_stated`). The same word trim a name range gets, no Jev boundary check and no binding:
+ * the copied string is an ordinary profile value. A generated form, a stale epoch or a foreign alias is refused. */
+export async function copySetupInputSelection(catalog:SetupInputCatalog,input:{campaign:string;inputKey:string;selection:unknown}):Promise<string> {
+    checkSnapshot(catalog.snapshot);if(!nonempty(input.campaign)||catalog.snapshot.epoch!==input.inputKey) fail('stale_setup_input_epoch');
+    return (await selected(catalog.snapshot,input.selection,scopeFor(input.campaign),{trimToWord:true})).value;
+}
 /** Called inside the existing setup lock, before draft/prologue mutation. */
 export function validateSetupInputs(value:unknown,input:{campaign:string;inputKey:unknown;values:Partial<Record<SetupInputField,unknown>>}):SetupInputEnvelope {
     if(!closed(value,['version','protocol','epoch','scope','snapshot','bindings'])||value.version!==1||value.protocol!==SETUP_INPUT_PROTOCOL

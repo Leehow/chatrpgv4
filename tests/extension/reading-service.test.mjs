@@ -989,3 +989,59 @@ test('reference readiness pumps the explicitly selected campaign instead of the 
  assert.equal(result.readiness,'source-reference');await until(()=>calls.some(row=>row.method==='module.read.claim'));
  assert.equal(calls.find(row=>row.method==='module.read.claim').params.campaign,'private-table');
 });
+
+// §151.4 (ticket 04): the native child's need receipt decides whether the attempt settles without an author.
+async function needJobFixture(t, receiptOf) {
+	const home = await mkdtemp(join(tmpdir(), "coc-need-settle-"));
+	t.after(() => rm(home, { recursive: true, force: true }));
+	const cwd = join(home, "work", "read-9", "attempt-1");
+	await mkdir(cwd, { recursive: true });
+	const runs = [], calls = [], rows = [];
+	const runtime = { contentRoot: join(ROOT, "content"),
+		async runTask({ request }) {
+			runs.push(request.prompt.phase);
+			const bytes = await readFile(join(request.cwd, "task.json")), task = JSON.parse(bytes);
+			assert.equal(task.source_need.key, "need-key", "the need reaches the reader's task");
+			const receipt = receiptOf(createHash("sha256").update(bytes).digest("hex"));
+			if (receipt) await writeFile(join(request.cwd, "need-disposition.json"), JSON.stringify(receipt));
+			return { ok: true, code: 0, timedOut: false, ms: 3, stderr: "", command: [process.execPath, join(ROOT, "runtime", "pi-source-reader.mjs")] };
+		},
+		async check() { return { ok: true }; }, async sourceInfo() { throw new Error("not a guidance job"); } };
+	const service = new ReadingService({ home, runtime, model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }), progress() {},
+		record(row) { rows.push(row); }, async call(method, params) { calls.push([method, params]); return params.outcome === "settled" ? { state: "settled" } : { replayed: true }; } });
+	t.after(() => service.close());
+	const job = { job_id: "read-9", module_id: "book", purpose: "detail", focus: "lena", question: "Any later profile?", foreground: false, lease: "lease-9",
+		work_dir: cwd, pages: [], source: { path: join(home, "source.pdf"), page_count: 4, file_sha256: "source-sha" }, index: [], known_nodes: [], known_claims: [],
+		vocabulary: {}, coverage_domains: [], source_need: { key: "need-key", kind: "deferred", node_id: "npc-lena", focus: "lena", question: "Any later profile?",
+			reason: "r", trigger: "t", source_refs: [{ page: 3 }], accepted_pages: [1], material_digest: "d".repeat(64), unread_units: [] } };
+	await service.runJob(job, new AbortController().signal, undefined);
+	return { runs, calls, rows, finishes: calls.filter(([method]) => method === "module.read.finish").map(([, params]) => params) };
+}
+const needReceipt = (digest, disposition, extra = {}) => ({ version: 1, run_id: "run-1", task_sha256: digest, source_sha256: "source-sha", key: "need-key",
+	disposition, material_digest: "d".repeat(64), evidence: { need_leads: [{ page: 1, score: 0.9 }], accepted_pages: [1] }, ...extra });
+
+test("§151.4: a need the native child settled is finished settled, with no review and no publication", async t => {
+	const { runs, calls, rows, finishes } = await needJobFixture(t, digest => needReceipt(digest, "unlocated"));
+	assert.deepEqual(runs, ["read"], "no second round and no review for a settled need");
+	const settled = finishes.find(params => params.outcome === "settled");
+	assert.ok(settled, "the attempt is settled through module.read.finish");
+	assert.equal(settled.need.disposition, "unlocated");
+	assert.equal(settled.need.material_digest, "d".repeat(64));
+	assert.deepEqual(settled.need.evidence.need_leads, [{ page: 1, score: 0.9 }]);
+	assert.equal(finishes.some(params => params.outcome === "completed"), false);
+	assert.ok(calls.some(([method]) => method === "module.read.ahead"), "the queue keeps moving after a settlement");
+	assert.equal(rows.find(row => row.phase === "read").need_disposition, "unlocated");
+	assert.equal(rows.find(row => row.event === "source_need").disposition, "unlocated");
+	assert.equal(rows.find(row => row.event === "job_accounting")?.need, "unlocated", "§151.2.4: the job row names the need disposition");
+});
+
+test("§151.4: a need the child decided to read, or a receipt for another task, never settles", async t => {
+	for (const [receiptOf, recorded] of [[digest => needReceipt(digest, "read"), "read"], [() => needReceipt("0".repeat(64), "unlocated"), undefined]]) {
+		const { runs, rows, finishes } = await needJobFixture(t, receiptOf);
+		assert.equal(finishes.some(params => params.outcome === "settled"), false);
+		assert.deepEqual(runs, ["read", "read"], "the attempt goes on as today (and fails here without a checked submission)");
+		assert.equal(finishes.at(-1).outcome, "failed");
+		assert.equal(rows.find(row => row.event === "source_need")?.disposition, recorded);
+		assert.equal(rows.find(row => row.phase === "read").need_disposition, recorded);
+	}
+});

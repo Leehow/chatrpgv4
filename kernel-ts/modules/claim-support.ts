@@ -1,0 +1,89 @@
+/**
+ * Contract §151.3 (ticket 03 of docs/specs/jev-decides-llm-writes.md): which draft records a Jev claim-support check
+ * may clear, and the evidence file that check leaves in the reading's work directory.
+ *
+ * One module for both ends, as `review-verdicts.ts` and `obligation-review.ts` are: the host asks Jev only about the
+ * records `claimSupportIneligibility` accepts, and the kernel's publication gate refuses a `reviewer: "jev"` row on any
+ * record it refuses. Two copies of this rule would let the host clear a record the gate then rejects, so this file has
+ * no imports and both sides load it.
+ *
+ * Eligibility is structural and never reads meaning: a record whose facts live in an image (an image source, a map
+ * region, a region-of-page citation) or on a page with no native text keeps the vision reviewer.
+ */
+
+export const CLAIM_SUPPORT_PROTOCOL = "source-claim-support-v1";
+/** The evidence file's name inside the reading's work directory. */
+export const CLAIM_SUPPORT_FILE = "claim-support.json";
+/** The `reviewer` a review row carries when Jev, not a vision reviewer, supported it. */
+export const JEV_REVIEWER = "jev";
+/** The gate's stable rules for a refused jev row (§151.3 implementation decision). */
+export const JEV_REVIEW_RULES = Object.freeze({
+    ineligible: "review_jev_ineligible",
+    evidence: "review_jev_evidence",
+    overruled: "review_jev_overruled",
+} as const);
+
+type Row = Record<string, unknown>;
+const plain = (value: unknown): value is Row => value !== null && typeof value === "object" && !Array.isArray(value)
+    && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+/** A JSON integer as either end parses it: a number, or the kernel's bigint for a large one. */
+const whole = (value: unknown): number | undefined => {
+    const n = typeof value === "bigint" ? Number(value) : value;
+    return typeof n === "number" && Number.isSafeInteger(n) ? n : undefined;
+};
+
+/** `/claims/<i>` or `/nodes/<i>` for a pointer under a record (canonical ordinals only), else null. */
+export function claimRecordRoot(path: unknown): string | null {
+    if (typeof path !== "string") return null;
+    const match = /^\/(claims|nodes)\/(0|[1-9][0-9]*)(?=\/|$)/.exec(path);
+    return match ? match[0] : null;
+}
+
+/** Two draft pointers overlap when one is the other or lies under it. */
+export function pathsOverlap(left: string, right: string): boolean {
+    return left === right || left.startsWith(right + "/") || right.startsWith(left + "/");
+}
+
+/** The record a root names, or undefined when the draft has none there. */
+export function claimRecord(draft: unknown, root: string): Row | undefined {
+    const match = /^\/(claims|nodes)\/(0|[1-9][0-9]*)$/.exec(root);
+    if (!match || !plain(draft)) return undefined;
+    const collection = draft[match[1]], record = Array.isArray(collection) ? collection[Number(match[2])] : undefined;
+    return plain(record) ? record : undefined;
+}
+
+/**
+ * The physical pages a record cites, ascending and unique, or why they cannot stand for it: `no_source_refs` when it
+ * cites nothing, `invalid_ref` for a citation that is not a positive page, `region_ref` for a citation of a region
+ * (`box`) -- a region is what an image shows, and native text belongs to the whole page.
+ */
+export function claimRecordPages(record: Row): {pages: number[]} | {reason: "no_source_refs" | "invalid_ref" | "region_ref"} {
+    const refs = record.source_refs;
+    if (!Array.isArray(refs) || !refs.length) return {reason: "no_source_refs"};
+    const pages = new Set<number>();
+    for (const ref of refs) {
+        const page = plain(ref) ? whole(ref.page) : undefined;
+        if (page === undefined || page < 1) return {reason: "invalid_ref"};
+        if (Object.hasOwn(ref as Row, "box")) return {reason: "region_ref"};
+        pages.add(page);
+    }
+    return {pages: [...pages].sort((a, b) => a - b)};
+}
+
+/**
+ * Why a record may not be cleared by a text check, or null when it may. `hasText(page)` says whether the host's native
+ * text of that physical page is usable (non-empty) for the bound source; the kernel answers it from the evidence file.
+ */
+export function claimSupportIneligibility(draft: unknown, root: string, hasText: (page: number) => boolean): string | null {
+    const record = claimRecord(draft, root);
+    if (!record) return "not_a_record";
+    if (root.startsWith("/nodes/")) {
+        const properties = plain(record.properties) ? record.properties : {};
+        if (Array.isArray(properties.image_sources) && properties.image_sources.length) return "image_source";
+        if (Array.isArray(properties.map_regions) && properties.map_regions.length) return "map_region";
+    }
+    const cited = claimRecordPages(record);
+    if ("reason" in cited) return cited.reason;
+    if (cited.pages.some(page => !hasText(page))) return "no_native_text";
+    return null;
+}

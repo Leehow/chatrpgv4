@@ -50,7 +50,9 @@ import { buildCandidates, buildConsequenceCandidates, keeperCall, NPC_REACTION_D
 import { compileRows } from './compile-rows.ts';
 import { actGated, interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
 import { candidateWithConsequenceBasis, CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
-import { firstStepThinkingBudget, jevStepsBudget, npcActBudget, thresholdsForClass } from './host-budgets.ts';
+import { firstStepThinkingBudget, jevStepsBudget, narratorOnlyBudget, npcActBudget, thresholdsForClass } from './host-budgets.ts';
+import { catalogRefusal, NARRATOR_NOTE, narratorOnlySetting, offeredForPropose, offeredView, PROPOSE_NOTE, PROPOSE_PENDING_REFUSAL, PROPOSE_TOOL, PROPOSE_VERB,
+  proposedCandidate, proposeQueuedText, proposeRefusal, stepCatalog, type NarratorOnlySetting, type StepCatalog } from './narrator-catalog.ts';
 import { firstStepCallCapMs, firstStepThinkingEnabled } from '../../extensions/kernel/first-step-thinking.ts';
 import { createNpcActLane, type NpcActPort } from './npc-act.ts';
 import { isNpcAct, runNpcAct, runNpcScan, struckReceipts, type NpcActDeps, type NpcActOutcome } from './npc-act-step.ts';
@@ -61,7 +63,7 @@ import { obligationClerkLine, obligationCrossing } from './obligation-candidates
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
 import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {
-  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, missedUnlocks, npcScanDue, overRun, ROUTE_FAMILY,
+  CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
   type BindRecord, type Budget, type Candidate, type DeferredStep, type Material, type RunView, type StepArtifact, type StepPolicyState, type TurnContext,
 } from './step-policy.ts';
 
@@ -237,14 +239,21 @@ const CONSEQUENCE_INLINE_ROUNDS_CAP = 12;
 
 /**
  * SL-76 (§135.32, §135.3.1): `COC_JEV_STEPS`, read once per process like every other engine env switch here.
- * `shadow` (the default) routes and pairs but never executes; `on` (SL-78's acceptance) additionally executes a
+ * §151.1: when the switch is absent the host budget data's `jev_steps.shadow` decides (`false` = `on`).
+ * `shadow` routes and pairs but never executes; `on` (SL-78's acceptance) additionally executes a
  * cleared candidate through `clerkStep`; `off` builds none of the three classes at all. Any other value is
  * `shadow`: this is a schedule switch, not an open-ended classification, so a fixed default is not the
  * hard-coded-semantic-list the project bans -- there is no text here for it to classify.
  */
-export function jevStepsMode(env: Readonly<NodeJS.ProcessEnv>): 'shadow' | 'on' | 'off' {
+export function jevStepsMode(env: Readonly<NodeJS.ProcessEnv>, dataDefault: 'on' | 'shadow' = 'shadow'): 'shadow' | 'on' | 'off' {
   const raw = String(env.COC_JEV_STEPS ?? '').trim();
-  return raw === 'on' || raw === 'off' ? raw : 'shadow';
+  if (raw === 'on' || raw === 'off') return raw;
+  // §151.1: an explicit but unrecognized value is still the safe default; only an absent switch defers to the data.
+  return raw ? 'shadow' : dataDefault;
+}
+/** §151.1: where the effective consequence-step mode came from, recorded beside the rows it shapes. */
+export function jevStepsModeSource(env: Readonly<NodeJS.ProcessEnv>): 'env' | 'data' {
+  return String(env.COC_JEV_STEPS ?? '').trim() ? 'env' : 'data';
 }
 /** One receipt's own words, for the consequence route's `settled_this_run` state (labels, never ids; D2.3). */
 export function receiptLabel(receipt: Row): string {
@@ -252,6 +261,14 @@ export function receiptLabel(receipt: Row): string {
   if (kind === 'clue') return `clue ${text(receipt.clue)}: ${text(receipt.label) || text(receipt.summary)}`.trim();
   if (kind === 'time') return `${Number.isFinite(receipt.minutes) ? receipt.minutes : '?'} minutes: ${text(receipt.why)}`.trim();
   if (kind === 'roll' && text(receipt.decision) === NPC_REACTION_DECISION) return `first impression: ${text(receipt.actor_label) || text(receipt.actor)} on ${text(receipt.npc)}`;
+  // §151.1 addendum: a settled check says what was attempted and whether it succeeded -- a bare "roll" let the consequence
+  // route file a clue behind a failed Persuade or Locksmith check (10 of 49 executed clue steps on gates #18-#25).
+  if (kind === 'roll') {
+    const attempt = text(receipt.skill_label) || text(receipt.skill) || text(receipt.decision) || text(receipt.roll_kind) || 'check';
+    const level = text(receipt.level) || text(object(receipt.check).level);
+    const passed = typeof receipt.passed === 'boolean' ? receipt.passed : object(receipt.check).passed;
+    return `${attempt} check: ${level || 'unknown level'}${passed === true ? ', succeeded' : passed === false ? ', failed' : ''}`;
+  }
   return text(receipt.decision) || kind;
 }
 /**
@@ -472,7 +489,8 @@ interface RunState {
   fight?: Row;
   clerkDid: ClerkStep[];
   projected: number;
-  batch?: {message: unknown; fell?: string; fellAt?: string};
+  /** `proposed` (§151.5): an accepted `propose` of this response holds the rest of it until the proposed step has run. */
+  batch?: {message: unknown; fell?: string; fellAt?: string; proposed?: true};
   identities: Map<string, OperationIdentity>;
   lease?: TaskLease;
   /** The NPC turn whose held or fled standing the Keeper was last told (`<npc>:r<round>`). */
@@ -578,6 +596,15 @@ interface RunState {
    * filed this independently" from "this is the clerk's own receipt, read back off `run.turnReceipts`".
    */
   consequenceExecutedReceiptIds: Map<string, string[]>;
+  /** §151.5: the narrator-only setting as this run resolved it (set by the first model step's note while it is on). */
+  narrator?: NarratorOnlySetting;
+  /** §151.5: the catalog the current model step admits (the latest note's), and the offered keys `propose` names on it. */
+  stepCatalog?: StepCatalog;
+  offered: Candidate[];
+  /** §151.5: the keys this run's `propose` calls queued (never proposed twice, never executed again by the consequence route). */
+  proposedKeys: Set<string>;
+  /** §151.5: every `propose` call the Keeper made this run, queued or refused, for the `residual` row. */
+  proposeCalls: number;
 }
 
 /**
@@ -597,6 +624,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const NO_ACT: NpcActPort = {generate: async () => ({unavailable: 'model_unavailable', detail: 'no npc-act generation on this engine'})};
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
+  // §151.1: the consequence-step mode's data default, read once (cached) and awaited by every run's first read.
+  let stepsDataDefault: 'on' | 'shadow' = 'shadow';
+  const stepsReady = jevStepsBudget().then(budget => { stepsDataDefault = budget.shadow ? 'shadow' : 'on'; });
+  const stepsMode = () => jevStepsMode(options.env as NodeJS.ProcessEnv, stepsDataDefault);
+  const stepsModeFields = () => ({steps_mode: stepsMode(), steps_mode_source: jevStepsModeSource(options.env as NodeJS.ProcessEnv)});
   // SL-87: `clock`, when given, is the run's steps' and its Jev work's clock (the read's prescreen allowance, the decision
   // leases); without it every one of them reads the host's real clock and timers, as before. `now` alone stays the policy's.
   const clock = options.clock, stepNow = clock ? () => clock.now() : () => Date.now(), leaseClock = clock ? {clock} : {};
@@ -606,6 +638,17 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const record = (row: Record<string, unknown>) => {
     try { (options.record ?? bridge?.record)?.(row); } catch { /* Telemetry never steers the run. */ }
   };
+  /**
+   * §151.5: the narrator-only setting (env over data), resolved once per engine like every other engine switch here; the
+   * `propose` verb's per-turn count (`${campaign}:${turn}`, so a second run of the same turn shares it); the outcome each
+   * accepted or refused `propose` call hands the registered tool to return (by tool call id); whether the tool is on the surface.
+   */
+  let narratorResolved: Promise<NarratorOnlySetting> | undefined;
+  const narratorSetting = (): Promise<NarratorOnlySetting> =>
+    narratorResolved ??= narratorOnlyBudget().then(budget => narratorOnlySetting(options.env as Record<string, string | undefined>, budget));
+  let proposeTurn: {id: string; used: number} | undefined;
+  const proposeOutcomes = new Map<string, {ok: boolean; text: string; details?: Row}>();
+  let proposeRegistered = false;
   // SL-84 (contract §122 "Jev attempt/batch failure telemetry" addendum): the adapter's own AdapterTrace, which
   // otherwise went nowhere, now writes the `attempt_failed`/`batch_failed` rows.
   const jev = options.decision === null ? undefined
@@ -634,6 +677,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   /** The kernel reads a step needs and the candidates they issue. Read-only. */
   async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]; rows: () => FeatureRows;
     consequences: () => ConsequenceCandidate[]}> {
+    await stepsReady;
     const [capsule, status, applyOptions, resolveOptions, bands] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options'), bandReads()]);
     const table = readTable(capsule, status);
     // SL-76 (D2.3, D4): every receipt this turn's reads have seen, deduped by id -- the consequence route's
@@ -670,7 +714,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       // §135.30: the compile's feature rows, from the same reads.
       rows: () => compileRows({capsule, applyOptions, resolveOptions}),
       // SL-76: the three consequence classes, from the same reads (never merged into `candidates()`'s own list).
-      consequences: () => jevStepsMode(options.env as NodeJS.ProcessEnv) === 'off' ? [] : buildConsequenceCandidates({capsule, applyOptions, resolveOptions}, run.rawInput)};
+      consequences: () => stepsMode() === 'off' ? [] : buildConsequenceCandidates({capsule, applyOptions, resolveOptions}, run.rawInput)};
   }
   /** The fresh read after a write: what the policy folds in (`fresh`), and the turn's receipts as rows (§138.10). */
   const freshOf = (run: RunState, stepId?: string) => tableReads(run).then(async read => {
@@ -724,7 +768,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * path this function otherwise takes is unchanged by that branch existing.
    */
   async function routeConsequences(run: RunState, candidates: ConsequenceCandidate[], context: TurnContext, signal: AbortSignal, stepId: string): Promise<void> {
-    const mode = jevStepsMode(options.env as NodeJS.ProcessEnv);
+    const mode = stepsMode();
     if (mode === 'off' || !candidates.length || !jev || !run.scope || !run.readSet) return;
     const view: ConsequenceView = {runId: run.runId, rawInput: run.rawInput, context, observations: [],
       candidates, settled: run.turnReceipts.map(receiptLabel), present: context.present.map(label => ({label, met: true}))};
@@ -759,7 +803,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       ...(result?.failure?.status !== undefined ? {jev_status: result.failure.status} : {}), ms, offered: candidates.length});
     // SL-78 (§135.32 addendum 2): only the classes `content/rulesets/coc7/host-budgets.json`'s `jev_steps.execute`
     // names are ever executed here; a cleared row of any other class is left for the shadow pairing exactly as before.
-    for (const key of consequenceKeysToExecute(mode, outcome.rows, run.consequenceExecuted, thresholds.execute)) {
+    // §151.5: a key the Keeper's `propose` queued is the policy's to run; the route never executes it a second time.
+    for (const key of consequenceKeysToExecute(mode, outcome.rows, new Set([...run.consequenceExecuted, ...run.proposedKeys]), thresholds.execute)) {
       run.consequenceExecuted.add(key);
       const candidate = candidates.find(value => value.key === key);
       const row = outcome.rows.find(value => value.key === key);
@@ -788,7 +833,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    */
   async function routeConsequencesAfterWrite(run: RunState, fresh: {context: TurnContext; consequences: () => ConsequenceCandidate[]} | undefined,
     signal: AbortSignal, stepId: string): Promise<void> {
-    if (!fresh || jevStepsMode(options.env as NodeJS.ProcessEnv) !== 'on') return;
+    if (!fresh || stepsMode() !== 'on') return;
     if ((run.consequenceInlineRounds ?? 0) >= CONSEQUENCE_INLINE_ROUNDS_CAP) return;
     const all = fresh.consequences();
     // Kept for the turn close's own call, which still runs unconditionally (§135.11.2-style belt and suspenders):
@@ -915,7 +960,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }
 
   /** One Keeper call of the batch its response made. A step that fails sends the rest of the batch back unrun. */
-  async function modelStep(run: RunState, proposal: {operation: string; assistantMessage?: unknown; toolCall?: {id: string}}, execute: () => Promise<any>,
+  async function modelStep(run: RunState, proposal: {operation: string; params?: unknown; assistantMessage?: unknown; toolCall?: {id: string}}, execute: () => Promise<any>,
     stepId: string, signal: AbortSignal) {
     if (run.batch?.message !== proposal.assistantMessage) run.batch = {message: proposal.assistantMessage};
     const batch = run.batch!;
@@ -923,11 +968,23 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const reason = `batch_step_fell: ${batch.fell}`;
       return {status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {tool: proposal.operation, skipped: true, after: batch.fellAt ?? null}}, skipped: true}};
     }
+    // §151.5: what this step's catalog does not admit is refused before it runs -- on a narrowed compose, a verb outside
+    // narrate/ask/propose; after an accepted `propose` in the same response, every other call (the proposed step has not
+    // run yet). The kernel extension's tool gate honours the refusal this announcement carries.
+    const catalog = run.stepCatalog, narrowed = catalog?.narrowed;
+    const refuse = proposal.operation === PROPOSE_VERB ? undefined
+      : batch.proposed ? {code: 'propose_pending', text: PROPOSE_PENDING_REFUSAL}
+        : narrowed && !narrowed.includes(proposal.operation) ? {code: 'narrator_catalog', text: catalogRefusal(proposal.operation, run.offered)} : undefined;
     // §135.31: the kernel extension's tool row names the step a model call came from (announced before it runs).
-    if (proposal.toolCall?.id) api?.events?.emit?.('coc:model-step', {toolCallId: proposal.toolCall.id, run: run.runId, step: stepId, operation: proposal.operation});
+    if (proposal.toolCall?.id) api?.events?.emit?.('coc:model-step', {toolCallId: proposal.toolCall.id, run: run.runId, step: stepId, operation: proposal.operation,
+      ...(refuse ? {refuse: refuse.text, refuse_code: refuse.code} : {})});
+    if (refuse) record({lane: 'run', event: 'catalog_refused', run: run.runId, step: stepId, operation: proposal.operation, reason: refuse.code});
     // SL-78 (§135.32 addendum 2, the `residual` row): every Keeper tool call among the five bookkeeping verbs is
     // counted here, attempt or not -- a refused free-text call is exactly the residual SL-78 measures.
     if (isKeeperResidualKey(proposal.operation)) run.keeperCalls[proposal.operation]++;
+    // §151.5: a `propose` is settled here, before the registered tool returns what was settled: queued or refused.
+    const queued = proposal.operation === PROPOSE_VERB && proposal.toolCall?.id && proposeRegistered
+      ? await proposeStep(run, proposal.toolCall.id, object(proposal.params).key, stepId) : undefined;
     const toolResult = await execute();
     // SL-92: an apply whose embedded narrate landed closed the turn exactly as an explicit narrate would (the
     // kernel extension ran the same table.narrate call, on a synthetic call of its own); `DELIVERY_VERBS` only
@@ -936,8 +993,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       ? DELIVERY_VERBS[proposal.operation]
         ?? (proposal.operation === 'apply' && (toolResult.details as {narrate_in_apply?: unknown} | undefined)?.narrate_in_apply === true ? 'accepted' : undefined)
       : undefined;
-    const fell = toolResult.isError ? `${proposal.operation}_refused` : proposal.operation === 'resolve' && failedCheck(toolResult.details) ? 'check_failed' : undefined;
+    const fell = toolResult.isError ? refuse?.code ?? `${proposal.operation}_refused` : proposal.operation === 'resolve' && failedCheck(toolResult.details) ? 'check_failed' : undefined;
     if (fell) { batch.fell = fell; batch.fellAt = proposal.toolCall?.id; }
+    // §151.5: an accepted `propose` holds the rest of its response until the proposed step has run.
+    if (queued && !toolResult.isError) batch.proposed = true;
     const fresh = !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? (await freshOf(run, stepId))?.fresh : undefined;
     // SL-78: the Keeper's own settled write (never merely proposed) is a point a listed D1 class can newly clear
     // from, the same as a clerk write. `off`/`shadow` return at once inside `routeConsequencesAfterWrite`.
@@ -953,7 +1012,34 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // turn that is closing by a Keeper delivery instead of a `turn_close` proposal.
     if (delivery) closeConsequences(run);
     return {status: toolResult.isError ? 'refused' as const : 'ok' as const, toolResult, ...(delivery ? {delivery} : {}),
-      artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation}}, ...(fresh ? {fresh} : {}), ...(fell ? {fell} : {})}};
+      artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation, ...(queued ? {proposed: queued.key} : {})}},
+        ...(fresh ? {fresh} : {}), ...(fell ? {fell} : {}), ...(narrowed ? {narrator: true} : {}), ...(queued && !toolResult.isError ? {proposed: queued} : {})}};
+  }
+
+  /**
+   * §151.5: one `propose {key}` of the Keeper's. Admitted on a step whose catalog has it (a compose or an adjudicate step
+   * while the setting is on), for a key of the step's offered set that this run has not proposed, within the per-turn cap
+   * (data). An accepted key is queued: the policy runs it as one more clerk step (its own bind, the gateway, admission)
+   * before the Keeper's next step. Either way the outcome waits here for the registered tool to return it.
+   */
+  async function proposeStep(run: RunState, toolCallId: string, key: unknown, stepId: string): Promise<Candidate | undefined> {
+    run.proposeCalls++;
+    const setting = await narratorSetting();
+    const turnId = `${bridge?.campaign ?? ''}:${run.turn ?? ''}`, used = proposeTurn?.id === turnId ? proposeTurn.used : 0;
+    const refusal = run.stepCatalog?.propose !== true
+      ? {code: 'not_in_catalog', text: `propose is not in this ${run.stepCatalog?.purpose ?? 'model'} step's catalog: call the verb the note names; nothing was carried out.`}
+      : proposeRefusal({key, offered: run.offered, proposed: run.proposedKeys, used, cap: setting.proposePerTurn});
+    if (refusal) {
+      proposeOutcomes.set(toolCallId, {ok: false, text: refusal.text});
+      record({lane: 'run', event: 'propose', run: run.runId, step: stepId, key: typeof key === 'string' ? key.slice(0, 200) : null, status: 'refused', reason: refusal.code});
+      return undefined;
+    }
+    const candidate = run.offered.find(value => value.key === key)!;
+    proposeTurn = {id: turnId, used: used + 1};
+    run.proposedKeys.add(candidate.key);
+    proposeOutcomes.set(toolCallId, {ok: true, text: proposeQueuedText(candidate), details: {proposed: candidate.key}});
+    record({lane: 'run', event: 'propose', run: run.runId, step: stepId, key: candidate.key, family: candidate.family, clerk: candidate.clerk ?? null, status: 'queued'});
+    return proposedCandidate(candidate, {run: run.runId, step: stepId});
   }
 
   /**
@@ -1139,7 +1225,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    */
   function pairConsequences(run: RunState) {
     if (!run.consequenceRows.size && !run.consequenceExists.size) return;
-    const mode = jevStepsMode(options.env as NodeJS.ProcessEnv);
+    const mode = stepsMode();
     for (const [key, row] of run.consequenceRows) {
       // SL-85 (§135.32 addendum 2's "clerk did" line, this ticket's own ruling): an executed candidate's row
       // pairs against the Keeper's writes *other than the clerk's own receipt* -- excluded here by id, never by
@@ -1156,7 +1242,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     for (const [cls, row] of run.consequenceExists) record({lane: 'route', purpose: 'consequence', shadow: mode !== 'on', run: run.runId, class: cls, exists: true,
       cleared: row.cleared, confidence: row.confidence, distribution: row.distribution});
-    if (run.consequenceMs) record({lane: 'run', event: 'consequence_budget', run: run.runId, ms: run.consequenceMs, rows: run.consequenceRows.size});
+    if (run.consequenceMs) record({lane: 'run', event: 'consequence_budget', run: run.runId, ms: run.consequenceMs, rows: run.consequenceRows.size, ...stepsModeFields()});
   }
 
   /**
@@ -1169,9 +1255,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * own executions, never the compile-selected `declared_bookkeeping`/`declared_check`/… ones).
    */
   function recordResidual(run: RunState): void {
-    if (jevStepsMode(options.env as NodeJS.ProcessEnv) !== 'on') return;
+    if (stepsMode() !== 'on') return;
     record({lane: 'residual', run: run.runId, turn: run.turn ?? null, keeper_calls: {...run.keeperCalls}, compile_calls: run.compileCalls,
-      clerk_calls: run.clerkDid.length, consequence_calls: run.consequenceCalls ?? 0});
+      clerk_calls: run.clerkDid.length, consequence_calls: run.consequenceCalls ?? 0, ...stepsModeFields(),
+      // §151.5: with the narrator-only setting on, the Keeper's `propose` calls this turn (queued or refused), D6 3's count.
+      ...(run.narrator?.on ? {propose_calls: run.proposeCalls} : {})});
   }
 
   /**
@@ -1462,6 +1550,24 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.11 addendum (SL-20): the compose after the clerk settled the declaration says why it is the compose.
     if (step.reason === 'settled') content.settled_note = 'The clerk settled the player\'s declared step this turn (see clerk_did). Narrate its result '
       + 'and close the turn; a further check or step can wait for the player\'s next input unless the fiction cannot go on without it.';
+    // §151.5: the compose after the steps the Keeper proposed.
+    if (step.reason === PROPOSED_REASON) content.proposed_note = 'The clerk ran the steps you proposed (clerk_did lists each with its receipts or its refusal). '
+      + 'Narrate what landed.';
+    // §151.5 (SL-79 behind a setting): this step's catalog and, where `propose` is admitted, the offered keys it names. Off: nothing.
+    const setting = await narratorSetting().catch(() => undefined);
+    run.stepCatalog = setting ? stepCatalog(setting, step, !!jev) : undefined;
+    if (setting?.on && run.stepCatalog) {
+      run.narrator = setting;
+      const policy = view.policyState?.view as {candidates?: unknown} | undefined;
+      const issued = Array.isArray(policy?.candidates) ? policy!.candidates as Candidate[] : run.issued ?? [];
+      run.offered = run.stepCatalog.propose ? offeredForPropose(issued, run.consequenceCandidates, new Set([...run.consequenceExecuted, ...run.proposedKeys])) : [];
+      if (run.stepCatalog.narrowed) Object.assign(content, {catalog: [...run.stepCatalog.narrowed], catalog_note: NARRATOR_NOTE});
+      else if (run.stepCatalog.propose) content.propose_note = PROPOSE_NOTE;
+      if (run.stepCatalog.propose) content.offered = offeredView(run.offered) as unknown as Json;
+      record({lane: 'run', event: 'catalog', run: run.runId, step: stepId, purpose: step.purpose, reason: step.reason,
+        catalog: run.stepCatalog.narrowed ? [...run.stepCatalog.narrowed] : null, propose: run.stepCatalog.propose, offered: run.offered.map(value => value.key),
+        source: setting.source});
+    }
     const fresh = run.clerkDid.slice(run.projected);
     run.projected = run.clerkDid.length;
     if (fresh.length) Object.assign(content, {clerk_did: fresh,
@@ -1607,7 +1713,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         prescreenSpent: {reads: 0, jev_calls: 0, ms: 0},
         consequenceRows: new Map(), consequenceExists: new Map(), consequenceExecuted: new Set(), consequenceMs: 0, turnReceipts: [], consequenceCandidates: [],
         present: [], npcSeen: new Set(), npcCount: {acted: 0},
-        keeperCalls: {apply: 0, resolve: 0, look: 0, lookup: 0, recall: 0}, compileCalls: 0, consequenceExecutedReceiptIds: new Map()};
+        keeperCalls: {apply: 0, resolve: 0, look: 0, lookup: 0, recall: 0}, compileCalls: 0, consequenceExecutedReceiptIds: new Map(),
+        offered: [], proposedKeys: new Set(), proposeCalls: 0};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
         ...(options.compile === false ? {compile: false} : {})});
       return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
@@ -1630,14 +1737,39 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         if (active.includes('submit_plan_packet')) pi.setActiveTools(active.filter(name => name !== 'submit_plan_packet'));
       } catch { /* No tool surface yet. */ }
     };
+    /**
+     * §151.5: `propose` joins the Keeper's surface only while the narrator-only setting is on, and only on a play table (the
+     * seven verbs are there; a setup session has none, §14.4). Registered once and kept active after the kernel extension's
+     * table open set the surface; with the setting off nothing is registered, so the loadout is byte for byte as before.
+     */
+    const withPropose = async () => {
+      const setting = await narratorSetting().catch(() => undefined);
+      if (!setting?.on || typeof pi.registerTool !== 'function' || typeof pi.getActiveTools !== 'function') return;
+      try {
+        if (!(pi.getActiveTools() as string[]).includes('narrate')) return;
+        if (!proposeRegistered) {
+          pi.registerTool({...PROPOSE_TOOL, executionMode: 'sequential', execute: async (toolCallId: string) => {
+            // What the run settled for this call (`proposeStep`); a call the run never saw carries nothing out.
+            const outcome = proposeOutcomes.get(toolCallId);
+            proposeOutcomes.delete(toolCallId);
+            if (!outcome) throw new Error('propose runs only as a step of the table\'s own run; nothing was carried out.');
+            if (!outcome.ok) throw new Error(outcome.text);
+            return {content: [{type: 'text', text: outcome.text}], details: outcome.details ?? {}};
+          }});
+          proposeRegistered = true;
+        }
+        const active = pi.getActiveTools() as string[];
+        if (!active.includes(PROPOSE_VERB)) pi.setActiveTools([...active, PROPOSE_VERB]);
+      } catch { /* No tool surface yet. */ }
+    };
     // §143.3: the npc-act lane runs on the session's own model registry; the context is the latest one an event gave.
     if (options.npcAct === undefined && typeof pi.on === 'function')
       npcActLane = createNpcActLane(pi, {ctx: () => sessionCtx, campaign: () => bridge?.campaign});
-    pi.on('session_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; announce(); withoutPlanTool(); });
+    pi.on('session_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; announce(); withoutPlanTool(); await withPropose(); });
     // §135.29 addendum 2 (SL-82): `step`'s own reset/increment, exactly matching the kernel extension's
     // `table.roundTrips` contract (extensions/kernel/first-step-thinking.ts's isFirstStepOfTurn) so the two
     // independent counters always agree: 0 on new player input, +1 on every turn_start thereafter.
-    pi.on('before_agent_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; withoutPlanTool(); step = 0; });
+    pi.on('before_agent_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; withoutPlanTool(); step = 0; await withPropose(); });
     pi.on('turn_start', async () => { step += 1; });
   };
   return {runDriver, extension, bridge: () => bridge,
