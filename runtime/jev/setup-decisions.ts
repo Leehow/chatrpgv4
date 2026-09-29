@@ -47,7 +47,7 @@ export interface SetupDrivenBudget {
 
 /** Used only if the file or its `setup_driven` section cannot be read; the shipped file carries the real values. */
 export const SETUP_DRIVEN_FALLBACK: SetupDrivenBudget = Object.freeze({rowMin: 0.5, rowRatio: 2, choiceMin: 0.5, decisionTimeoutMs: 8000, maxDecisions: 3,
-  interestRowMin: 0.5, interestRowRatio: 2, interestSkillMax: 6});
+  interestRowMin: 0.5, interestRowRatio: 1, interestSkillMax: 6});
 
 let cached: Promise<SetupDrivenBudget> | undefined;
 
@@ -291,6 +291,11 @@ export const STATED_FIELDS: Readonly<Record<string, {asks: string; keys: readonl
 
 export interface FieldsQuestionInput {read: SetupRead; scope: ScopeBinding; readSet: ReadSet}
 
+/** A skill as a question shows it: the play-language label the catalog issues beside the rules' own name. */
+function skillShown(row: {name: string; label?: string}): string {
+  return row.label && row.label !== row.name ? `"${row.label}" (${row.name})` : `"${row.name}"`;
+}
+
 /** The catalog skills a skill list may hold: the kernel marks the others `listed: false` (Credit Rating, Cthulhu Mythos). */
 export function listableSkills(catalog: NonNullable<SetupRead['catalog']>): Array<{name: string; label?: string}> {
   return catalog.skills.filter(row => row.listed !== false);
@@ -326,8 +331,10 @@ export function fieldsBatch({read, scope, readSet}: FieldsQuestionInput): Decisi
     questions.push({key: 'weak', target: 'player_input', type: 'choice',
       instructions: 'Which characteristic does player_input describe as the investigator\'s most notable weakness of body or mind? Choose not_stated unless the player describes one.', criteria});
   }
-  listableSkills(catalog).forEach((_row, index) => questions.push({key: `skill_${index}`, target: `skills[${index}]`, type: 'noul',
-    instructions: `Does player_input name skills[${index}] (or an ability that is exactly this skill) as one the investigator is good at or trained in? A skill the player calls weak, untrained or only at its base value does not count.`}));
+  // §150.6 decision 11: the question names the skill in the play language and in the rules' own name (the catalog's
+  // `label`, from the rules data's localized labels), and asks about the ability the player describes, in any words.
+  listableSkills(catalog).forEach((row, index) => questions.push({key: `skill_${index}`, target: `skills[${index}]`, type: 'noul',
+    instructions: `Does player_input say the investigator is good at, trained in or known for the ability the skill ${skillShown(row)} covers, in any words (naming the skill or describing what it does)? A skill the player calls weak, untrained, to be kept at its starting value or not to be raised does not count.`}));
   for (const [field, spec] of Object.entries(STATED_FIELDS))
     questions.push({key: `stated_${field}`, target: 'player_input', type: 'noul', instructions: `Does player_input state ${spec.asks}?`});
   questions.push({key: 'delegated', target: 'player_input', type: 'noul', instructions: 'Does player_input ask the Keeper to decide or fill in details of the investigator that the player did not state?'});
@@ -469,16 +476,21 @@ const FIT_QUESTION = 'Does this skill fit the investigator as the card describes
 export function interestBatches({read, scope, readSet}: FieldsQuestionInput, pack: (batch: DecisionBatch) => void): DecisionBatch[] {
   const candidates = interestCandidates(read), card = read.card;
   if (!card || !candidates.length) return [];
+  // §150.6 decision 11: the player's own words ride along, so a skill the player asked to keep is asked about too.
+  const playerInput = read.input?.text ?? null;
   const profile = card.profile ?? {};
   const investigator: Row = {occupation: profile.occupation ?? card.summary?.card?.occupation ?? null, ...(profile.occupation_stated ? {occupation_stated: profile.occupation_stated} : {}),
     concept: profile.concept ?? null, backstory: profile.backstory ?? null, era: card.era ?? profile.era ?? null};
   const build = (from: number, to: number, first: boolean): DecisionBatch => {
     const slice = candidates.slice(from, to);
-    const questions: DecisionQuestion[] = slice.map((_row, local) => ({key: `fit_${from + local}`, target: `skills[${local}]`, type: 'noul' as const, instructions: FIT_QUESTION}));
+    const questions: DecisionQuestion[] = slice.flatMap((row, local) => [
+      {key: `fit_${from + local}`, target: `skills[${local}]`, type: 'noul' as const, instructions: FIT_QUESTION},
+      {key: `hold_${from + local}`, target: `skills[${local}]`, type: 'noul' as const,
+        instructions: `Did the player, in player_input, ask to keep the skill ${skillShown(row)} at its starting value, or not to raise it?`}]);
     if (first) questions.push({key: 'exists', target: 'skills', type: 'noul',
       instructions: 'Does any listed skill fit the investigator as the card describes them, so that a player building this character would plausibly give it interest points?'});
     return {id: randomUUID(), model: JEV_MODEL, family: SETUP_INTEREST_FAMILY, familyVersion: '1', scope, readSet,
-      state: {investigator, skills: slice.map(row => row.label && row.label !== row.name ? `${row.label} (${row.name})` : row.name)}, questions};
+      state: {investigator, player_input: playerInput, skills: slice.map(row => row.label && row.label !== row.name ? `${row.label} (${row.name})` : row.name)}, questions};
   };
   const split = (from: number, to: number, first: boolean): DecisionBatch[] => {
     const batch = build(from, to, first);
@@ -501,6 +513,8 @@ export interface InterestOutcome {
   list?: string[];
   /** The interest points the card had left when the fit was asked. */
   points_left?: number;
+  /** Skills the player asked to keep at their starting value: never picked, whatever their fit. */
+  held?: string[];
 }
 
 /** Skills whose Noul clears the family's gate, strongest first, capped by data; none unless `exists` clears too. */
@@ -513,7 +527,10 @@ export function interpretInterest(read: SetupRead, results: DecisionResult[], bu
   const answers: Record<string, DecisionAnswer> = Object.assign({}, ...results.map(result => result.answers));
   if (!clears(answers.exists, gate)) return {status: 'none_cleared', skills: [], reason: 'exists_below_gate'};
   const candidates = interestCandidates(read);
-  const skills = candidates.map((row, index) => ({name: row.name, yes: noul(answers[`fit_${index}`]) ?? 0, cleared: clears(answers[`fit_${index}`], gate)}))
+  // A player's explicit hold wins over any fit (§150.6 decision 11).
+  const held = candidates.filter((_row, index) => clears(answers[`hold_${index}`], gate)).map(row => row.name);
+  const skills = candidates.map((row, index) => ({name: row.name, yes: noul(answers[`fit_${index}`]) ?? 0, cleared: clears(answers[`fit_${index}`], gate) && !held.includes(row.name)}))
     .filter(row => row.cleared).sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name)).slice(0, budget.interestSkillMax).map(row => row.name);
-  return skills.length ? {status: 'set', skills} : {status: 'none_cleared', skills: [], reason: 'no_skill_cleared'};
+  const holds = held.length ? {held} : {};
+  return skills.length ? {status: 'set', skills, ...holds} : {status: 'none_cleared', skills: [], reason: 'no_skill_cleared', ...holds};
 }

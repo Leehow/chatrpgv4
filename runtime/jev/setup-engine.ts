@@ -105,7 +105,10 @@ export function createSetupPolicy(config: {jev: boolean; maxDecisions: number}):
       }
       if (s.interest.status === 'set' && !s.interestRevised)
         return {kind: 'operate', proposals: [{origin: 'policy', operation: 'setup.interest', params: {interest_skills: s.interest.list ?? s.interest.skills}}], reason: 'setup_revise_interest_skills'};
-      return infer('compose', reason, {...extra, interest: {...s.interest, ...(s.interestRevised ? {revised: s.interestRevised.ok} : {})}});
+      // The reply is told exactly which skills were raised and to what (the kernel's revised card), so it cannot call one untouched.
+      const skills = object(object(s.interestRevised?.outcome).card).skills, values = s.interestRevised?.ok && skills && typeof skills === 'object'
+        ? Object.fromEntries(s.interest.skills.filter(name => Object.hasOwn(skills, name)).map(name => [name, (skills as Row)[name]])) : undefined;
+      return infer('compose', reason, {...extra, interest: {...s.interest, ...(s.interestRevised ? {revised: s.interestRevised.ok} : {}), ...(values ? {values} : {})}});
     }
     return infer('compose', reason, extra);
   };
@@ -341,10 +344,12 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
       content = {kind: 'setup_step', purpose, reason: step.reason, ...(bound.length ? {bound} : {}), ...(Object.keys(moved).length ? {did: moved} : {}),
         ...(missing.length ? {missing} : {}),
         ...(Object.keys(interest).length ? {interest: {status: interest.status, skills: interest.skills ?? [], ...(interest.revised !== undefined ? {revised: interest.revised} : {}),
+          ...(interest.values ? {values: interest.values} : {}), ...(Array.isArray(interest.held) && interest.held.length ? {held: interest.held} : {}),
           ...(interest.points_left !== undefined ? {points_left: interest.points_left} : {})},
-          interest_note: interest.status === 'set' && interest.revised
-            ? 'The clerk gave the delegated card these interest skills (interest.skills) and the kernel spread the points; say so.'
-            : 'The card\'s interest points are still unspent (the card shows them); tell the player and invite them to name skills for them. Do not name skills yourself as if they were on the card.'} : {}),
+          interest_note: (interest.status === 'set' && interest.revised
+            ? `The clerk gave the delegated card exactly these interest skills and the kernel raised them to the values shown (interest.values): ${(interest.skills ?? []).join(', ')}. Name them as raised; never say one of them was left untouched. `
+            : 'The card\'s interest points are still unspent (the card shows them); tell the player and invite them to name skills for them. Do not name skills yourself as if they were on the card. ')
+            + (Array.isArray(interest.held) && interest.held.length ? `The player asked to keep ${interest.held.join(', ')} at the starting value; they were not raised.` : '')} : {}),
         instruction: 'No setup tool is available in this step. Write your reply to the player now, in play_language: '
           + (missing.length ? 'nothing was written to the card yet; ask for what missing lists, and nothing else. '
             : 'the host has already done what did or the last tool result shows; describe what the card or the table now holds and invite the next change or confirmation. ')
