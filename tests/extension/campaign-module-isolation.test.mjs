@@ -18,6 +18,8 @@ const refs = [{ page: 1 }];
 const scene = (name, entrance = false) => ({ node_id: `scene-${name.toLowerCase()}`, node_kind: 'scene', name,
   properties: entrance ? { is_entrance: true } : {}, source_refs: refs });
 const shard = (nodes, ready_nodes, claims = []) => ({ nodes, ready_nodes, claims, node_refs: [], coverage: {}, critical: [], dependencies: [] });
+// Two different prints on the book's one page: crops that overlap would be one question for the visual reviewer (§152.4).
+const RECEIPT_CROP = [{ page: 1, box: [0, 0, 1, 0.5] }], PLATE_CROP = [{ page: 1, box: [0, 0.5, 1, 1] }];
 const route = from => ({ subject_id: `scene-${from}`, predicate: 'route-to', object: { node_id: 'scene-cellar' }, truth_status: 'authored-fact', source_refs: refs });
 
 // A deterministic source fixture, not an agent transcript or a live-play acceptance run.
@@ -43,6 +45,10 @@ const [root, workspace] = process.argv.slice(2);
 const require = createRequire(root + '/package.json');
 const context = await createKernelContext({ workspace, content: root + '/content', locks: createAdvisoryLocks(promisify(require('fs-ext').flock)) });
 const runtime = createModuleRuntime(context);
+// IPC is JSON: a fractional crop box read from a graph is a PythonFloat, which travels as its plain number.
+const plain = value => Array.isArray(value) ? value.map(plain) : value && typeof value === 'object'
+  ? ([Object.prototype, null].includes(Object.getPrototypeOf(value)) ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, plain(item)]))
+    : typeof value.valueOf() === 'number' ? value.valueOf() : value) : value;
 process.on('message', async ({ id, method, params }) => {
   try {
     let result;
@@ -72,7 +78,7 @@ process.on('message', async ({ id, method, params }) => {
         sourcePath: await runtime.source.graphPath(params.module_id, params.campaign),
         asset: loaded.asset ? await loaded.asset('Receipt') : null };
     } else result = await runtime.handlers[method](params);
-    process.send({ id, result }, () => { if (method === 'close') process.disconnect(); });
+    process.send({ id, result: plain(result) }, () => { if (method === 'close') process.disconnect(); });
   } catch (error) { process.send({ id, error: typeof error.toJson === 'function' ? error.toJson() : { message: error.message } }); }
 });
 process.send({ ready: true, workspace: context.workspace, pid: process.pid });
@@ -179,7 +185,7 @@ test('two kernel processes isolate one source module per campaign in the same ho
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGk0AAAAASUVORK5CYII=', 'base64');
   const image = join(initial.work_dir, 'receipt.png'); await writeFile(image, png);
   await finish(first, undefined, initial, shard([scene('Dock', true), scene('Tower', true), scene('Cellar'),
-    { node_id: 'handout-receipt', node_kind: 'handout', name: 'Receipt', visibility: 'player-safe', source_refs: refs, properties: { image_sources: refs } }],
+    { node_id: 'handout-receipt', node_kind: 'handout', name: 'Receipt', visibility: 'player-safe', source_refs: refs, properties: { image_sources: RECEIPT_CROP } }],
     ['scene-dock', 'scene-tower', 'handout-receipt'], [route('dock'), route('tower')]), [{ node_id: 'handout-receipt', path: image, sha256: sha(png) }]);
   const acceptedAnswerJob = await claim(first, undefined, { purpose: 'answer', focus: 'Entrances', question: 'Where do both entrances lead?', foreground: true });
   await finishAnswer(first, undefined, acceptedAnswerJob, { status: 'answered', answer: 'Both entrances lead to the Cellar.',
@@ -304,7 +310,7 @@ test('two kernel processes isolate one source module per campaign in the same ho
   rootBytes = await treeDigest(store());
   const plate = join(jobA.work_dir, 'plate.png'); await writeFile(plate, png);
   const mapDraft = shard([{ ...scene('Cellar'), summary: 'Cellar contains a ledger.' },
-    { node_id: 'asset-plate', node_kind: 'asset', name: 'Atlas Plate', visibility: 'player-safe', source_refs: refs, properties: { image_sources: refs } },
+    { node_id: 'asset-plate', node_kind: 'asset', name: 'Atlas Plate', visibility: 'player-safe', source_refs: refs, properties: { image_sources: PLATE_CROP } },
     { node_id: 'handout-atlas', node_kind: 'handout', name: 'Atlas', visibility: 'player-safe', source_refs: refs,
       properties: { map_regions: [{ region_id: 'dock', name: 'Dock', source_asset: 'asset-plate', source_box: [0, 0, 1, 1], placement: [0, 0, 1, 1] }] } }],
     ['scene-cellar', 'asset-plate', 'handout-atlas']);
