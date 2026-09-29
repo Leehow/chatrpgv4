@@ -12,3 +12,4 @@ Spec: docs/specs/jev-driven-steps.md D5/D6; §135.32; §135.4 (one tool catalog)
 5. Gate #16 pre-registered on D6 3.
 
 ## Comments
+- 2026-09-28: scope 1–4 are built behind the setting by `docs/specs/jev-decides-llm-writes-tickets/06-narrator-only-setting.md` (contract §150.5 and its implementation decision): `COC_NARRATOR_ONLY` over `narrator_only` in the host budget data, default off. Scope 3's measurement is in that ticket's Comments: two view gaps remain for the owner (a present, already-met person no candidate names; the Keeper's own targeted question of the book). This ticket's status is unchanged: turning the setting on stays gated on D6 3 (scope 5).

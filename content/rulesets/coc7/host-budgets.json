@@ -25,6 +25,10 @@
   "first_step_thinking": {
     "call_cap_ms": 60000
   },
+  "narrator_only": {
+    "enabled": false,
+    "propose_per_turn": 2
+  },
   "delivery_floor": {
     "min_prose_chars": 40
   },

@@ -61,7 +61,7 @@ test("jevStepsBudget: the shipped `content/rulesets/coc7/host-budgets.json` carr
 	const budget = await jevStepsBudget();
 	assert.equal(budget.rowMin, JEV_STEPS_FALLBACK.rowMin);
 	assert.equal(budget.rowRatio, JEV_STEPS_FALLBACK.rowRatio);
-	assert.equal(budget.shadow, JEV_STEPS_FALLBACK.shadow);
+	assert.equal(budget.shadow, false, "§150.1: the shipped default executes the listed classes when no env switch is set");
 	assert.deepEqual(budget.execute, ["clue_follow_up"], "SL-78's ruling: only clue_follow_up executes; npc_reaction and time_cost stay shadow");
 });
 
