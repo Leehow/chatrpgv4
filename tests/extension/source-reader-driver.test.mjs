@@ -1,7 +1,8 @@
 import {packDecisionBatch,JEV_MODEL} from '../../runtime/jev/question-packing.ts';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtemp,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile,readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {sourcePageQuestionState,createSourceReaderDriver,continueSourceSearch,topLevelSectionRanges,childSectionRanges,selectedEntrySourcePages,neighboringOpeningProbePages,assignedReviewPages,sourceFocusContext} from '../../runtime/jev/source-reader-driver.ts';
@@ -126,4 +127,36 @@ test('first-pass page decisions cross the real strict packing boundary without a
   state:sourcePageQuestionState('Prepare the first interaction',undefined,null,[{page:1,text:'A road leads to the station.'}]),
   questions:[{key:'p1',target:'pages[0]',type:'noul',instructions:'Does this page contain the requested interaction?'}]};
  assert.doesNotThrow(()=>packDecisionBatch(batch));
+});
+
+/** A PDF whose pages carry native text, one line per page. */
+function textPdf(lines){
+ const objects=['<< /Type /Catalog /Pages 2 0 R >>',`<< /Type /Pages /Kids [${lines.map((_,i)=>`${4+i*2} 0 R`).join(' ')}] /Count ${lines.length} >>`,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+ for(const [i,line] of lines.entries()){const stream=`BT /F1 10 Tf 10 100 Td (${line}) Tj ET`;
+  objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 200] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5+i*2} 0 R >>`,`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);}
+ let text='%PDF-1.7\n';const offsets=[];
+ for(const [i,object] of objects.entries()){offsets.push(Buffer.byteLength(text));text+=`${i+1} 0 obj\n${object}\nendobj\n`;}
+ const xref=Buffer.byteLength(text),size=objects.length+1;
+ return text+`xref\n0 ${size}\n0000000000 65535 f \n${offsets.map(value=>String(value).padStart(10,'0')+' 00000 n ').join('\n')}\ntrailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+}
+
+// §150.2.2: a targeted repair reads the refused records' own pages -- projected as original images with their native text --
+// instead of locating the whole question again.
+test('a targeted repair projects exactly the refused records\' pages without locating again',async t=>{
+ const cwd=await mkdtemp(join(tmpdir(),'source-targeted-repair-'));t.after(()=>rm(cwd,{recursive:true,force:true}));
+ const pdf=join(cwd,'source.pdf');await writeFile(pdf,textPdf(['The harbor dock.','The old tower stands on the hill.','The cellar floods.']));
+ const sha=createHash('sha256').update(await readFile(pdf)).digest('hex');
+ await writeFile(join(cwd,'task.json'),JSON.stringify({purpose:'detail',module_id:'book',focus:'Tower',question:'',source:{page_count:3},
+  repair:{draft:'draft.json',baseline:'baseline.json',findings:{},kind:'targeted',refused:[{path:'/claims/0',verdict:'unsupported',reason:'not stated'}],pages:[2]}}));
+ const driver=await createSourceReaderDriver({cwd,env:{},source:{pdf,cache:join(cwd,'cache','pages'),file_sha256:sha}});
+ const {ports}=await driver.prepare({runId:'targeted-run',inputRevision:'v1',rawInput:'Repair the refused records',session:{}});
+ const signal=AbortSignal.timeout(20000);
+ assert.equal((await ports.operations.execute({origin:'policy',operation:'source.catalog',readOnly:true},{signal})).status,'ok');
+ const located=await ports.decision.decide({question:{kind:'source_pages'},signal});
+ assert.deepEqual([located.status,located.artifact.pages],['ok',[2]]);
+ assert.equal((await ports.operations.execute({origin:'policy',operation:'source.project',readOnly:true},{signal})).artifact.original_images,1);
+ const [message]=ports.projection.project();
+ assert.deepEqual(message.details.pages.map(row=>row.page),[2],'only the refused record\'s page is supplied as an image');
+ const navigation=JSON.parse(message.content[0].text);
+ assert.deepEqual(navigation.pages.map(row=>[row.page,row.text.includes('tower')]),[[2,true]],'with its native text');
 });

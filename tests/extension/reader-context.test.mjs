@@ -78,7 +78,7 @@ test("read/write/edit stay in the task and bound source cache across traversal a
 	for (const path of ["../outside.json", join(fixture.outside, "new.json"), "escape.txt", "escape-dir/new.json"])
 		for (const toolName of ["write", "edit"])
 			assert.match(guard({ toolName, input: { path } }).reason, new RegExp(`blocked ${toolName}`));
-	for (const path of ["task.json", "packet.json", "baseline.json", "findings.json", "observations.json", "read-complete.json", "review-input.json", "source-driver-complete.json", "source-driver.jsonl", "source-navigation-review.json", "read-1.jsonl.images.jsonl", "host-bin/coc-read-check"])
+	for (const path of ["task.json", "packet.json", "baseline.json", "findings.json", "observations.json", "read-complete.json", "review-input.json", "source-driver-complete.json", "source-driver.jsonl", "source-navigation-review.json", "read-1.jsonl.images.jsonl", "review-plan.json", "host-bin/coc-read-check"])
 		assert.match(guard({ toolName: "write", input: { path } }).reason, /host-owned/);
 	for (const path of ["task.json", "draft.json", "baseline.json", "findings.json", "review.json", fixture.source])
 		assert.equal(guard({ toolName: "read", input: { path } }), undefined);
