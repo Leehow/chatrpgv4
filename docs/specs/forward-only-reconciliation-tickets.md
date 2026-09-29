@@ -53,7 +53,7 @@ Status: ready-for-human (wording landed; contract §158.3 fixes and §158.6; the
 
 ## FR-05: acceptance on the real product path
 
-Status: needs-triage
+Status: ready-for-human (probes 3/3 and 6/6; live table on the installed App's runtime at `a1c3d9374`; not merged into 0.9.6a -- see Comments)
 
 **What to build.** First seeded probes, then a live table on the installed App.
 
@@ -118,4 +118,42 @@ Status: needs-triage
 **Finding outside these tickets (not fixed here).** In both `service-outage` trials the Keeper narrated the refused batch's payment as done (「钱收了」 / 「把钱收下」) although the cash effect never landed. The refusal's own fix says not to narrate the refused batch's effects.
 
 Under the ruling that told payment is now owed cash, but the owed kinds of §158.2 are move, time and npc (and objects through `missing`), not cash. The review can only report it as a `continuity_finding`, whose forward fix asks the Keeper to bring the ledger forward. Two follow-ups are possible: a `cash` owed kind, or a stronger hold on narrating refused effects. Both are new scope and are left for the owner to decide.
+
+### 2026-09-29 — live table on the installed App (FR-05's second bullet)
+
+**Package.** `/Applications/PipiCOC.app` was packaged from a clean worktree at `a1c3d9374`, which merges 0.9.6a@60b9dd842. The receipt's commit before was `34ca80a82`, an ancestor, so nothing the App already had was dropped. The package holds the kernel's owed landing, the hybrid engine's `told_bookkeeping` and `coc:owed-review`, `keeper.md`'s new laws, and narration-audit 1.2.32.
+
+**How it was driven.** Control of the App's window was declined, so the table was driven through the App's own runtime:
+
+- `tests/play/driver.py --launcher /Applications/PipiCOC.app/Contents/Resources/pi-coc/bin/pi-coc`, compiled layout.
+- A fresh home: `.coc/playtests/fr05-live-20260929-1419/`, campaign `fr05-live`, the haunting, created with the App's own kernel.
+- The main session as the only player, one sentence per turn; Keeper `grok-build/grok-4.5` at low.
+
+**Forcing the divergence.** Two of the product's own settings emulate turn 26 (runs `fr05-live-b`):
+
+- `PI_COC_TURN_BUDGET_MS=1` makes every run a budget close, so the clerk's declared move is deferred.
+- The admission lane's model is set to one that does not exist (`PI_COC_ADMISSION_MODEL`, with typed settling off), so the Keeper's own move is refused `admission_unavailable`.
+
+**Turn by turn.**
+
+- **Turns 1–2** (budget only): the Keeper landed the arrival at the house itself. No divergence.
+- **Turn 3**: the Keeper's move was refused. It wrote the drive as still under way (「路还在脚下」), which agrees with the ledger, and said nothing about a service.
+- **Turn 4** (player: 「到了报社，我找到资料室的管理员…」): the prose put the investigator in the Globe's clippings room with no receipt, while the ledger stayed at `corbitt-house-ground`. This is the divergence.
+  - The post review, the App's 1.2.32, recorded `t4-owed-1`: a move to `newspaper-morgue`, `local_travel`, quote 「你穿过报馆门厅，按指示找到资料室。」.
+  - It also recorded `t4-owed-2` (the clerk present) and an owed object.
+- **Turn 5**: no catch-up. With a 1 ms budget §135.25 skips the run's read altogether, so no candidate was built. This is an artifact of the forcing setting; a fresh run on a real table starts inside its budget.
+  - The delivery was also malformed: the Keeper wrote the narrate call as text, and the host delivered 「```json {"narrate": …}```」 to the player. That is a separate defect, recorded here and not fixed.
+- **Turn 6** (run `fr05-live-c`, default budget, admission lane still unavailable): the ledger caught up.
+  - The first read was still at the house.
+  - The first step was `apply:owed:t4-owed-1` (`told_bookkeeping`), admitted on `path: "told"`, while the same turn's other writes were refused `model_unavailable`. Its receipt is `move:newspaper-morgue-t6-c1` with `owed: t4-owed-1`, `told_turn: 4`, and `owed.json` closed the row `landed`.
+  - The next read was at `newspaper-morgue`.
+  - The Keeper's prose continued at the clippings table, with no correction, retraction, apology or service notice.
+
+**Accepted, with one qualification: the catch-up came on turn 6, not turn 5.** Turn 5 was still under the forcing budget, which suppresses the read that builds the owed step.
+
+**Findings left open (owner's call):**
+
+- (a) Refused payment narrated as paid, in the probes: no `cash` owed kind.
+- (b) Tool-call JSON delivered as prose under a spent budget.
+- (c) The reviewer reports every starting item without an instance as `missing`. Each is now a standing owed object row (turns 0–1 of `fr05-live`). They sort last in the capsule's `owed` section, so they never displace a move, but they are noise until registered.
 
