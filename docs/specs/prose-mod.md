@@ -141,3 +141,19 @@ W3 style-contract ───┘
 ```
 
 W1/W2/W3 各自从 `claude/prose-mod-20260925` 开 worktree 与分支 `claude/prose-mod-w<N>-20260925`，只跑定向测试（自己改的文件），全套件由 lead 在 leehow-pc 跑。分票见 [prose-mod-tickets.md](prose-mod-tickets.md)。
+
+## 9. 2.1.0：玩家行动写进正文，NPC 说连贯的话（owner，2026-09-28）
+
+owner 在 0.9.6a（grok-4.5 low）的 PDF 局看到两件事：玩家「带着剪报去阿卡姆警局，出示记者证，说明马丁是我父亲的老朋友，询问能否找负责人谈谈」，正文只写了值班警员怎么接，调查员自己做的事几乎不在；值班警员那句「报上写的那些，就是能对外说的。现场还在查，没有正式通报。你要是记者，等官方消息就行。」像几句拼起来的，不像人一口气说的话。App 最近 45 句 NPC 台词大多同形：一串短陈述，各自句号收住。
+
+裁定（owner 原话要点）：玩家行动要**体现**在正文里，**不是一比一复制**；玩家描述不细时，剧情可以**细化**玩家行动让剧情连贯，但**不能违反玩家意图**。NPC 的话要像一段人能说出的连贯的话。
+
+根因在本包自己：2.0.0 为治「回执式复述」（§1）写了「do not repeat, paraphrase or summarise them, and do not begin with what the investigator did」，地板 `uptake` 与指令 `answer-first` 同义，于是行动整个消失；轴「dialogue carries information」与「whole sentences: subject, verb and object plain」被当成说话的规则。基底 keeper.md 本来就允许（「What they declared is theirs to have done」「a step the chosen goal plainly requires is theirs already」），也禁止代玩家（不编想法、感受、话语、主动行动）。
+
+2.1.0 的写法：
+
+- 回合从玩家声明的行动在此地发生起笔，**演出来，不报告决定**；不重打玩家原句，不写回执（「你决定……」「你说清楚了……」）。声明简略时补上行动顺理成章包含的步骤与在此地的样子（进门、站在哪、手上做什么）；不加玩家没选的去处、承诺、感受、话语；会改变玩家选择的细节不写。玩家引号里的话在需要时逐字进调查员的 say；只是描述的话（「我说明……」「我问能否……」）写成转述，意思不变，不编引语。行动一两句，谈话进行中更少；然后把篇幅给世界的回答。
+- 说话是一个人在对话里的一轮：先接住刚听到的（那句话、提到的人、请求、语气），再顺着一个念头说下去，事实作为这个人的理由、条件、结论出现，用本语言说话时的连接词与语气词连起来；不是一串各自句号收住的短陈述。只有此刻被逼得短才说短句，也只一拍。不列任何语言的词表（Agents.md 的开放语义禁令）。
+- 预算：所有默认包的 brief 共用 5000 字节（改前 4991），style 全量形 2048 字节（改前已近满）。brief 删掉每回合轴线已带的句子后为 945 字节；style 为腾位把「a thing's full name once」一轴改短、意思不变。
+
+验收：同 15 句、同 KP 模型 grok-4.5 low 的 A（0.9.6a）/B（2.1.0）两桌，盲读类别预注册在 `.coc/playtests/prose-act-speech-20260928/preregistration.md`；第 1 类「回执式复述」改为只数回执与照抄，演出来的行动不算，另加「行动缺席」「代玩家越界」「台词拼凑」三类。

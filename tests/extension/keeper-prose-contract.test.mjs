@@ -13,7 +13,11 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.equal(prompt.includes('at most one sentence of room and one gesture'), false);
   assert.equal(prompt.includes('give a little, refuse harder, or change the subject'), false);
   assert.ok(craft.includes('who does what to whom is never left for the reader to reconstruct'));
-  assert.ok(craft.includes('do not repeat, paraphrase or summarise them'));
+  // Owner 2026-09-28 (narration-craft 2.1.0): the declared act is shown in the scene, never retyped; speech is one joined thought.
+  assert.ok(craft.includes('Never retype the player\'s sentence'));
+  assert.ok(craft.includes('Add no choice, destination, promise, feeling or words the player did not declare'));
+  assert.ok(craft.includes('A spoken line is one person\'s turn in a conversation'));
+  assert.equal(craft.includes('do not begin with what the investigator did'), false);
   assert.ok(craft.includes('The facts do not change; their patience does.'));
   assert.ok(craft.includes('Sarcasm, contempt and insult land'));
   // prose-mod-c (2026-09-26): two of fifteen turns narrated the investigator in the third person; both forms state the viewpoint.

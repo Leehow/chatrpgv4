@@ -3,22 +3,22 @@
   "axes": [
     "whole sentences: subject, verb and object plain to see",
     "long and short in turn; a fragment is one beat, not the texture",
-    "a thing's full name once, then the pronoun or the short name",
+    "a full name once, then the pronoun or the short name",
     "what is seen, heard and said; a mood or cause only when established",
-    "dialogue carries information; narration carries what it cannot"
+    "speech is one joined thought, not a row of flat facts"
   ],
   "directives": {
-    "answer-first": {
-      "full": "open with the world's reply; the player's words are on record and are never restated",
-      "brief": "open with the world's reply; never restate the player's words"
+    "act-then-reply": {
+      "full": "the declared act plays out here, then the world's reply; the player's words never retyped",
+      "brief": "the declared act here, then the reply; never the player's words retyped"
     },
     "one-focus": {
       "full": "one focus per paragraph, each sentence leading on; errands in a clause, the moment gets room",
       "brief": "one focus per paragraph; errands in a clause, the moment gets room"
     },
     "speak-in-person": {
-      "full": "answer what they heard in their own register, wanting something; positions move only with the fiction",
-      "brief": "answer what they heard, in their register, wanting something; positions move only with the fiction"
+      "full": "take up what they heard; one joined thought in their register, wanting something; positions move only with the fiction",
+      "brief": "take up what they heard: one joined thought, their register, wanting something"
     },
     "show-the-change": {
       "full": "show what the result changed in the room, body or face; an unestablished cause stays unstated",
@@ -50,16 +50,16 @@
       "show-the-change",
       "place-the-eye",
       "plain-then-strange",
-      "answer-first"
+      "act-then-reply"
     ],
     "PRESSURE": [
       "press-and-cost",
       "carry-through",
-      "answer-first",
+      "act-then-reply",
       "one-focus"
     ],
     "CHOICE": [
-      "answer-first",
+      "act-then-reply",
       "speak-in-person",
       "one-focus",
       "carry-through"
@@ -72,12 +72,12 @@
     ],
     "CHARACTER": [
       "speak-in-person",
-      "answer-first",
+      "act-then-reply",
       "one-focus",
       "show-the-change"
     ],
     "RECOVER": [
-      "answer-first",
+      "act-then-reply",
       "speak-in-person",
       "carry-through",
       "return-by-change"
@@ -91,7 +91,7 @@
     "ADVANCE": [
       "carry-through",
       "place-the-eye",
-      "answer-first",
+      "act-then-reply",
       "one-focus"
     ],
     "MONTAGE": [
@@ -114,9 +114,9 @@
     ]
   },
   "floor": [
-    "uptake: the world answers; the player's words are on record and are not repeated back",
+    "uptake: the declared act plays out here, then the world answers; never the player's words retyped",
     "answer: the settled result or the chosen exchange is perceptible; a quiet turn owes no event",
-    "voice: whoever the exchange touches speaks in their own register inside a say token, or chooses silence",
+    "voice: whoever it touches takes it up in their register, one joined thought in a say token, or keeps silent",
     "handoff: stop at a completed goal or a real unselected decision with enough seen to judge; no menu or reflexive question"
   ]
 }
