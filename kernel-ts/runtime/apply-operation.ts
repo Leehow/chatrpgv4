@@ -37,7 +37,10 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
             const names=new Set([node.name,...array(node.aliases)].filter(value=>typeof value==='string').map(normalize));
             if(Object.keys(row(campaign.world.npc_presence)).some(existing=>{const known=graph.actor(existing);return known&&[known.name,...array(known.aliases)].some(value=>typeof value==='string'&&names.has(normalize(value)));}))continue;
             add({kind:'npc',name:handle,to:graph.handle(scene)},{kind:'source_presence',name:graph.displayName(node),scene:graph.displayName(scene),
-                actor:graph.entityView(node),scene_context:scene.summary??'',authority:'authored_initial_presence_not_a_new_arrival'},guards.people.get(id));
+                actor:{name:handle,display_name:graph.displayName(node),summary:graph.summary(node),
+                    placement_conditions:{...Object.fromEntries(['when','unlock_when','conditions'].filter(key=>Object.hasOwn(row(node.properties),key)).map(key=>[key,row(node.properties)[key]])),
+                        relations:(graph.out.get(id)??[]).filter(rel=>rel.relation_kind==='present-in'&&rel.to_node_id===scene.node_id).map(rel=>row(rel.properties))}},
+                scene_context:scene.summary??'',authority:'authored_initial_presence_not_a_new_arrival'},guards.people.get(id));
         }
         const destinations=new Set<string>();
         // §135.30.4: a move row says what the place is, and an unmet unlock names what opens it (the book's own data).
