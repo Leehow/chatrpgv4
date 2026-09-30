@@ -270,9 +270,9 @@ test('§22.3.3 × §152.4: a refused identity reading is read once more as the i
 		[1, [[MAP_A.node_id, MAP_B.node_id]]], "the retry's packet asks the identity question of the page's pair, not a reader for a draft");
 });
 
-test('§22.3.3 × §151.4: a refused reference fragment is read once more as the same unit of the same pages', async () => {
-	const b = await book('reference-fragment', 6);
-	// The fast reference path (§151.4): published guidance and an original-context entry, and no graph yet.
+/** The fast reference path (§151.4) over six pages: published guidance and an original-context entry on page 3, and no graph yet. */
+async function referenceBook(name) {
+	const b = await book(name, 6);
 	const dir = join(b.store().moduleDir(b.mid), 'work', 'source-reference-fixture');
 	await mkdir(dir, {recursive: true});
 	const sha = value => createHash('sha256').update(value).digest('hex');
@@ -290,6 +290,11 @@ test('§22.3.3 × §151.4: a refused reference fragment is read once more as the
 	await writeFile(join(dir, 'source-reference-complete.json'), JSON.stringify({protocol: 'source-reference-v1', kind: 'guidance', source_sha256: b.sha,
 		task_sha256: sha(task), packet_sha256: sha(body), text_sha256: sha(text), checks_policy: 'material-issues-v1', checks, public_fields}));
 	assert.equal((await b.call('module.reference.publish', {work_dir: dir, guidance_key: 'd'.repeat(64), play_language: 'en'})).setup_ready, true);
+	return b;
+}
+
+test('§22.3.3 × §151.4: a refused reference fragment is read once more as the same unit of the same pages', async () => {
+	const b = await referenceBook('reference-fragment');
 	await b.call('module.read.ahead', {focus: 'Harbor'});
 	const queued = (await b.queue()).find(row => row.reference_fragment);
 	assert.deepEqual([queued?.source_unit.first, queued?.source_unit.last, queued?.review_scope_pages], [3, 4, [3, 4]]);
@@ -300,6 +305,37 @@ test('§22.3.3 × §151.4: a refused reference fragment is read once more as the
 	const units = (await b.queue()).filter(row => row.source_unit && ['queued', 'running'].includes(row.state));
 	assert.deepEqual(units.map(row => [row.source_unit.first, row.job_id === retry.job_id]).sort(), [[3, true], [5, false]],
 		'the read-ahead counts the retry among its two units in flight and queues no third');
+});
+
+test("§22.3.3 × §152.1: a visual-asset page settled unusable counts as prepared, so a campaign fork's read-ahead asks the pages after it", async () => {
+	const b = await referenceBook('asset-settled');
+	/** The next claim that is `wanted`, asking the read-ahead first: it asks again for a page whose reading was cancelled unread. */
+	const claimAhead = async wanted => {
+		for (let tries = 0; tries < 12; tries++) {
+			await b.call('module.read.ahead', {focus: 'Harbor'});
+			const job = await b.claim();
+			if (!job.job_id) continue;
+			if (wanted(job)) return job;
+			await b.call('module.read.finish', {job_id: job.job_id, lease: job.lease, outcome: 'cancelled'});
+		}
+		throw new Error('the wanted reading was never claimed');
+	};
+	const scan = await claimAhead(job => job.visual_scan);
+	await b.publish(scan, delta([], [], [], {visual_candidates: [1, 2, 3].map(page => ({page, kind: 'map', label: `Plan ${page}`}))}), {overview_pages: b.pages});
+	// Pages 1 and 2 are each refused at review twice: read once more, then settled.
+	for (const page of [1, 2]) {
+		const {requeued} = await b.refuse(await claimAhead(row => row.visual_asset?.page === page && !row.review_retry));
+		const settled = await b.refuse(await claimAhead(row => row.job_id === requeued.job_id));
+		assert.equal(settled.requeued, undefined, 'read once more, not twice');
+	}
+	const unusable = (await b.meta()).reading.materials.filter(row => row.status === 'unusable');
+	assert.deepEqual(unusable.map(row => row.visual_asset), [{page: 1}, {page: 2}], 'each settlement records the page it could not prepare');
+	// A campaign's fork starts with an empty queue and the library's materials: only the settlements say pages 1 and 2 are done.
+	await b.kernel('campaign.create', {id: 'fork-camp', module: b.mid, play_language: 'en', start_scene: 'Harbor'});
+	await b.kernel('module.read.ahead', {module_id: b.mid, campaign: 'fork-camp'});
+	const fork = JSON.parse(await readFile(join(b.workspace, '.coc/module-campaigns/fork-camp/modules', b.mid, 'deepen-queue.json'), 'utf8'));
+	assert.deepEqual(fork.filter(row => row.visual_asset).map(row => [row.visual_asset.page, row.state]), [[3, 'queued']],
+		"the fork's read-ahead asks page 3 instead of spending both of its asks on the settled pages");
 });
 
 const NEED_Q = 'Any later appendix combat profile for Lena if printed separately';

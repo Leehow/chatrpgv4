@@ -479,8 +479,10 @@ export class Reading {
         meta.reading ??= Reading.initialState();
         const materials = array(meta.reading.materials);
         if (materials.some(material => material.key === job.key)) return false;
-        meta.reading.materials = [...materials, { key: job.key, purpose: 'detail', focus: job.focus, question: job.question,
-            status: 'unusable', reason: reason.slice(0, 1000), job_id: job.job_id, node_ids: [], generation: meta.generation ?? 0 }];
+        // A settled visual-asset page is done for the read-ahead, as its publication would be: a campaign's fork starts with an
+        // empty queue, and without the page it would ask the settled page again on every pass (§22.3.3, 2026-09-30).
+        meta.reading.materials = [...materials, { key: job.key, purpose: 'detail', ...(job.visual_asset ? { visual_asset: job.visual_asset } : {}), focus: job.focus,
+            question: job.question, status: 'unusable', reason: reason.slice(0, 1000), job_id: job.job_id, node_ids: [], generation: meta.generation ?? 0 }];
         return true;
     }
     /**

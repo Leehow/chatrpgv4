@@ -3617,7 +3617,10 @@ here; `retry: true` reads it, as §22.2 has it.
 **A second refusal settles.** The retry's `failed` finish with `review_unsupported` writes, once per identity,
 `meta.reading.materials += {key, purpose: "detail", focus, question, status: "unusable", reason, job_id, node_ids: [],
 generation}` -- §107.1's settlement without `material` -- and queues nothing. `reason` is the refusal's message. A retry
-that fails for another reason is only failed (no settlement; `retry: true` reads it).
+that fails for another reason is only failed (no settlement; `retry: true` reads it). The settlement of a visual-asset
+reading also carries its `visual_asset: {page}` (2026-09-30), as its publication would: the read-ahead counts a page as
+prepared from its queue and from the material rows, and a campaign's fork starts with an empty queue, so without the page
+the fork asked the settled pages again on every pass and never reached the candidates after them.
 - *Not raised again.* `module.read.request` for the identity answers `{state: "unusable", reason}` (the path §107.1
   already had for any `detail` key); the reading service's waiter resolves with that reply instead of polling on. The
   material gate (`requireMaterial`) passes a settled focus, except where it can still land on the book's text: a move into
