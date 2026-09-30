@@ -166,7 +166,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     input.lease.assertActive();
     if (calls >= (input.maxCalls ?? 24)) throw new Error('check_selection_budget');
     const batch: DecisionBatch = {id: digest([purpose, state, questions, input.scope, input.readSet]), model: JEV_MODEL,
-      family: `check-selection-${purpose}`, familyVersion: '18', scope: input.scope, readSet: input.readSet, state, questions};
+      family: `check-selection-${purpose}`, familyVersion: '19', scope: input.scope, readSet: input.readSet, state, questions};
     packDecisionBatch(batch);
     calls++;
     const result = await withinCheckLease(input.lease, () => input.decision.decide(batch, input.lease));
@@ -225,6 +225,29 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       && currentSceneReceipts.some(receipt => receipt.kind === 'roll' && receipt.actor === option.action.actor && receipt.skill === option.action.skill
         && (receipt.decision == null || receipt.decision === option.action.decision))));
     if (!eligible.length) return {status: 'no_roll', needs: [], calls};
+    const socialActors = [...new Set(eligible.filter(option => option.action.decision === 'social:adjudicate-difficulty'
+      && option.facts?.actor_role === 'investigator').map(option => String(option.action.actor)))];
+    if (socialActors.length) {
+      const context = isPlainRecord(input.context) ? input.context : {};
+      const result = await decide('social-method', {declaration: input.declaration,
+        public_context: {exchange: context.public_exchange ?? null, narration: context.public_narration ?? null},
+        investigators: Object.fromEntries(socialActors.map((name, index) => [`actor_${index}`, name]))},
+      socialActors.map((name, index) => ({key: `actor_${index}`, target: `${name}'s actual influence method`, type: 'noul' as const,
+        instructions: 'Does this investigator actually use persuasive argument, personal appeal, deception or intimidation to change another person\'s decision, willingness or belief now? '
+          + 'Judge the declared method before considering a target. Greeting someone, asking ordinary factual questions, or requesting and coordinating routine services is not such a method by itself. '
+          + 'Wanting an NPC response alone does not establish an influence attempt. A request to alter disputed terms, or an explicit attempt to overcome refusal or withholding through one of these approaches, can qualify. '
+          + 'Exclude hypothetical discussion and freely agreed cooperation. Use only the declaration and supplied public context.',
+        criteria: {true: 'This investigator makes an actual influence attempt.', false: 'No such influence method is declared.'}})));
+      const active = new Set<string>();
+      for (const [index, actor] of socialActors.entries()) {
+        const p = yes(result, `actor_${index}`);
+        if (p !== undefined && p >= gates.applicability) active.add(actor);
+        else if (p === undefined || p > gates.noNeed) return unresolved(['social_influence_method_uncertain']);
+      }
+      eligible = eligible.filter(option => option.action.decision !== 'social:adjudicate-difficulty'
+        || option.facts?.actor_role !== 'investigator' || active.has(String(option.action.actor)));
+      if (!eligible.length) return {status: 'no_roll', needs: [], calls};
+    }
     // A Choice distribution is a retrieval beam, not a mutually exclusive decision about which
     // declared method exists. Re-check each retained method independently below.
     const simple = eligible.filter(option => option.action.decision === 'core-check:ordinary-check'

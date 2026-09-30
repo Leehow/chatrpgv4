@@ -30287,3 +30287,13 @@ Selector policy states that distinction. Social preparation excludes ordinary fa
 questions without established resistance or withholding; conversation alone is not an influence
 attempt. Requests to change willingness, a decision or belief remain eligible. Family version 18
 records this boundary without changing thresholds or excluding source-mandated information gates.
+
+With two NPCs present, a routine room-viewing request still produced an uncertain need for the
+second possible target. Version 19 screens the investigator's actual influence method before
+target-specific necessity. One Noul per issued investigator reads only declaration and public
+exchange/narration, with no NPC identities, routing intent or private context. A confident negative
+withholds that investigator's generic social options; a positive proceeds to existing target,
+prerequisite, parameter and admission gates. Unknown stays unresolved. Ordinary service coordination
+or a desired NPC response alone is not an influence method. Source-mandated checks keep their owners.
+This method screen uses the existing applicability gate (.65), like ordinary method fit; it only
+retains candidates. Target-specific necessity (.85), bindings and mutation admission are unchanged.
