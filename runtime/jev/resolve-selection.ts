@@ -56,6 +56,14 @@ export type CheckSelection = {
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** Rule eligibility is already host-owned; these questions ask only the remaining semantic trigger. */
 export function specializedTriggerQuestion(option: CheckOption): string | undefined {
+  if (option.action.decision === 'social:adjudicate-difficulty' && option.facts?.stage === 'difficulty_adjudication'
+    && option.facts?.actor_role === 'investigator')
+    return 'Does this investigator make a concrete current attempt to influence this target through the declared social approach? '
+      + 'This operation is preliminary difficulty adjudication, not yet a dice roll: the kernel uses it to determine whether the goal is automatic, conditional or requires a roll. '
+      + 'The investigator is the executor; the NPC is the target. The NPC agreeing to a favor is the sought effect, not an NPC work attempt that must already be agreed. '
+      + 'Do not require the target to agree before adjudicating the investigator\'s influence attempt. '
+      + 'Exclude a hypothetical plan, a rules question, already freely agreed routine cooperation or an attempt already settled by receipts. '
+      + 'Missing facts do not establish target agreement or the attempt\'s outcome.';
   if (option.action.decision === 'chase:start')
     return 'Does the player choose an attempt by this investigator to pursue this escaping person or flee from this person? '
       + 'Judge the chosen pursuit or flight, not whether it succeeds or whether speeds have already been compared. The kernel performs that comparison. '
@@ -155,7 +163,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     input.lease.assertActive();
     if (calls >= (input.maxCalls ?? 24)) throw new Error('check_selection_budget');
     const batch: DecisionBatch = {id: digest([purpose, state, questions, input.scope, input.readSet]), model: JEV_MODEL,
-      family: `check-selection-${purpose}`, familyVersion: '16', scope: input.scope, readSet: input.readSet, state, questions};
+      family: `check-selection-${purpose}`, familyVersion: '17', scope: input.scope, readSet: input.readSet, state, questions};
     packDecisionBatch(batch);
     calls++;
     const result = await withinCheckLease(input.lease, () => input.decision.decide(batch, input.lease));
