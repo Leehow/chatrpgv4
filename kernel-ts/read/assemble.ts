@@ -24,6 +24,7 @@ import { array, row, number, string, truth, chars, clone, normalize, type Row } 
 import type { ModuleGraph } from "./module-graph.js";
 import {openIntents} from '../npc/intents.js';
 import {allReceipts, coercionPressures} from '../resolve/coercion.js';
+import { capsuleOwed } from "../owed/index.js";
 /**
  * §135.11.1 (SL-50 re-ruling, 2026-09-25): writes are silent. Prose beside a write or read call is dropped before anyone
  * sees it (long gates #3-#5: 46 drops, the Keeper announcing its bookkeeping), and the run then asks for the turn again.
@@ -68,10 +69,13 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "unrecorded is what an earlier turn's prose already gave the player while the ledger still disagrees, " +
     "of three kinds: a clue still called undiscovered, a person you gave lines to here whom the books " +
     "put in another scene or off the board, and a stretch of time the prose skipped that the clock never moved for. " +
-    "Each row names the call that closes the gap, and says only " +
-    "that the two records disagree, never which of them is right. It is not a debt to invent anything — the " +
-    "player was told, and only the books disagree. Record it, or leave it: a clue or person row stays until they " +
+    "Each row names the call that closes the gap. What the prose told the player is what happened, so the call " +
+    "brings the books forward to it; nothing told is retracted or corrected. It is not a debt to invent anything — " +
+    "the player was told, and only the books lag. Record it, or leave it: a clue or person row stays until they " +
     "walk away, a time row until time next lands. " +
+    "owed is what a delivered turn told the player that the ledger still lacks: it already happened. The clerk lands " +
+    "each row it can first, as something that already happened; land any other row yourself with an ordinary apply " +
+    "whose effect carries owed: <name>, and never narrate it again, correct it or explain it. " +
     "untold is the other half: a turn that settled receipts and then ended with nothing said to the player " +
     "(the run stopped before it could deliver). Its rows are already on the books and the ledger already " +
     "counts them, so do not write this turn as if none of it happened; say what landed, in your own prose, " +
@@ -89,6 +93,8 @@ export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
 });
 export const SLICE2_BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     memory: 1536,
+    // Contract §158.4: a row is a name, a kind, one line, the quote and the effect that lands it; a few are open at most.
+    owed: 1024,
     warnings: 1024,
     // Contract §51.4. Small on purpose: a row is a handle, a turn, the sentence that gave it away and
     // the call that closes it, and the list only holds what is still findable in this one scene.
@@ -160,7 +166,8 @@ export function unrecordedClues(graph: ModuleGraph, world: Row, scene: Row, reco
  * marked `late`. The continuity review's rows lead: a reviewer's verdict stands behind them, and the
  * section is trimmed from the end.
  */
-const CONTINUITY_KINDS: ReadonlySet<string> = new Set(["continuity_conflict", "unsettled_object", "continuity_finding", "source_conflict"]);
+// §158.3: `owed_state` is the continuity review's row too, and leads with the rest.
+const CONTINUITY_KINDS: ReadonlySet<string> = new Set(["continuity_conflict", "owed_state", "unsettled_object", "continuity_finding", "source_conflict"]);
 const warningKey = (turn: unknown, warning: Row): string => JSON.stringify([turn, warning.kind ?? null, warning.quote ?? null, warning.why ?? null]);
 export function capsuleWarnings(records: Row[], last: Row | undefined, turn: number): Row[] {
     if (!last)
@@ -435,6 +442,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
                 ? { closed: "stranded", receipts: array(record.receipts).length }
                 : record.closed_how ? { closed: record.closed_how, receipts: array(record.receipts).length } : {})
         })),
+        // §158.4: what the player was told and the ledger still lacks; the clerk lands it first, the Keeper never re-tells it.
+        owed: capsuleOwed(graph, world, campaign.jsonFiles.get("owed.json")),
         warnings: capsuleWarnings(campaign.records, warningRecord, number(turn.turn)),
         // Clues first: a row that is still findable in this room outranks a person the player heard
         // in it, and the section is trimmed from the end.

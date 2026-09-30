@@ -7,6 +7,7 @@ import type {ModuleGraph} from '../read/module-graph.js';
 import {nowIso} from '../write/store.js';
 import {blob,tree,diskFiles,restoreTree,within,SAVE_KEEP,type WorldlineContext} from './history.js';
 import {persistedHandles,persistedKeys} from './identity.js';
+import {closeAllOwed} from '../owed/index.js';
 export interface ClockEngine {readonly name:string;readonly paths:readonly string[];rebase(state:Row,delta:number):Row}
 export async function records(context:WorldlineContext):Promise<Row[]>{
     const root=join(context.campaign.directory,'turns'),result:Row[]=[];
@@ -59,6 +60,8 @@ export async function writeReset(context:WorldlineContext,graph:ModuleGraph,plan
     const anchor=await readAnchor(context);if(!anchor)throw new RpcError('commit_failed','the loop anchor snapshot is missing',{details:{anchor:plan.anchor??null}});
     const policy=isJsonObject(plan.reset)?plan.reset:{clock:'anchor',investigators:'anchor'},world=await context.campaign.readWorld(),party=await context.campaign.party();
     await context.campaign.writeWorld(resetWorld(anchor,world,graph,policy));for(const sheet of resetSheets(anchor,[...party],graph,policy))await context.campaign.writeSheet(sheet);
+    // §158.3: the rewound circuit is no longer the told position; what it owed closes as rewound.
+    await closeAllOwed(context.kernel,context.campaign.id,'rewound');
     if(policy.investigators!=='keep'){if(typeof anchor.commit==='string'&&anchor.commit)await restoreTree(context,anchor.commit,'save',SAVE_KEEP);}
     else if(rewindsKept(policy))await rebaseSaves(context,engines,clockMinutes(anchor.world)-clockMinutes(world),true);
 }

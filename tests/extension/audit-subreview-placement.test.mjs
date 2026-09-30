@@ -8,7 +8,7 @@ import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import auditSubmit from '../../extensions/mods/audit-submit.ts';
-import {AUDIT_SUBREVIEWS, AUDIT_SUBREVIEW_PLACEMENT, auditArtifactIssues, buildAuditReferences, materializeAuditReferences, placeAuditSubreviews,
+import {AUDIT_SUBREVIEWS, AUDIT_SUBREVIEW_PLACEMENT, AUDIT_SUBREVIEW_PLACEMENT_OWED, auditArtifactIssues, buildAuditReferences, materializeAuditReferences, placeAuditSubreviews,
     auditReferenceIssues} from '../../kernel-ts/mods/audit-references.ts';
 import {continuityArtifactErrors, normalizeContinuityArtifact} from '../../kernel-ts/mods/audit-result.ts';
 
@@ -129,11 +129,19 @@ test('the prompt, the tool description and the package state one placement sente
     for (const key of AUDIT_SUBREVIEWS) assert.ok(AUDIT_SUBREVIEW_PLACEMENT.includes(key));
     const {request, files} = await retained(), {submit} = await submitTool(request, files);
     assert.ok(submit.parameters.properties.result.description.includes(AUDIT_SUBREVIEW_PLACEMENT));
+    // §158.2: a job that reports owed state names owed among the top-level fields, in the tool and the package.
+    const owedRequest = {...request, continuity_review: {...request.continuity_review, owed: true}};
+    const owedFiles = {'context.json': {...files['context.json'], owed_review: {requires_review: true, open: [], travel_bands: ['adjacent'], time_bands: []}}};
+    const {submit: owedSubmit} = await submitTool(owedRequest, owedFiles);
+    assert.ok(owedSubmit.parameters.properties.result.description.includes(AUDIT_SUBREVIEW_PLACEMENT_OWED));
+    assert.ok(!submit.parameters.properties.result.description.includes('owed'), 'a job without the capability hears nothing of owed');
     const host = await readFile(new URL('../../extensions/mods/index.ts', import.meta.url), 'utf8');
     const schema2 = host.slice(host.indexOf('job.continuity_schema === 2 ?'), host.indexOf('JSON.stringify({candidate: input.text, context: job.focus}) :'));
-    assert.ok(schema2.includes('${AUDIT_SUBREVIEW_PLACEMENT}'), 'the schema 2 brief interpolates the shared sentence');
+    assert.ok(schema2.includes('${auditSubreviewPlacement(job.continuity_owed === true)}'), 'the schema 2 brief interpolates the shared sentence');
     const auditor = await readFile(new URL('../../mods/narration-audit/auditor.md', import.meta.url), 'utf8');
-    assert.ok(auditor.includes(AUDIT_SUBREVIEW_PLACEMENT), 'a changed sentence needs a re-issued narration-audit package');
+    const manifest = JSON.parse(await readFile(new URL('../../mods/narration-audit/mod.json', import.meta.url), 'utf8'));
+    assert.ok(manifest.requires.includes('audit.owed.v1'));
+    assert.ok(auditor.includes(AUDIT_SUBREVIEW_PLACEMENT_OWED), 'a changed sentence needs a re-issued narration-audit package');
 });
 
 // §130.9: the retained first submission, plus one leftover v1 field and one differing duplicate.

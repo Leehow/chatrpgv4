@@ -1,0 +1,286 @@
+{
+ "graph": {
+  "nodes": [
+   {
+    "node_id": "npc-ammie-pierce",
+    "node_kind": "npc",
+    "name": "老安米·皮尔斯"
+   },
+   {
+    "node_id": "npc-art-webb",
+    "node_kind": "npc",
+    "name": "阿特·韦伯"
+   },
+   {
+    "node_id": "npc-asa-nicholson",
+    "node_kind": "npc",
+    "name": "阿萨·尼克尔森"
+   },
+   {
+    "node_id": "npc-billy-claymore",
+    "node_kind": "npc",
+    "name": "比利·克雷摩尔 Billy Claymore"
+   },
+   {
+    "node_id": "npc-catherine-brown",
+    "node_kind": "npc",
+    "name": "凯瑟琳"
+   },
+   {
+    "node_id": "npc-cory-brown",
+    "node_kind": "npc",
+    "name": "科里·布朗"
+   },
+   {
+    "node_id": "npc-donnie-mcdougall",
+    "node_kind": "npc",
+    "name": "唐尼·麦克杜高"
+   },
+   {
+    "node_id": "npc-dr-hamilton-fabry",
+    "node_kind": "npc",
+    "name": "汉密尔顿·法布瑞博士"
+   },
+   {
+    "node_id": "npc-duncan-miller",
+    "node_kind": "npc",
+    "name": "邓肯·米勒"
+   },
+   {
+    "node_id": "npc-eleanor-tuck",
+    "node_kind": "npc",
+    "name": "埃莉诺·塔克"
+   },
+   {
+    "node_id": "npc-elias-danforth-wanderer",
+    "node_kind": "npc",
+    "name": "埃利亚斯·丹佛斯（马丁海滩徘徊者）"
+   },
+   {
+    "node_id": "npc-eric-helverson",
+    "node_kind": "npc",
+    "name": "艾瑞克·海沃森"
+   },
+   {
+    "node_id": "npc-gerard-chase",
+    "node_kind": "npc",
+    "name": "盖拉德·蔡斯"
+   },
+   {
+    "node_id": "npc-gobbo-pender",
+    "node_kind": "npc",
+    "name": "戈波·潘德"
+   },
+   {
+    "node_id": "npc-grave-robber-pair",
+    "node_kind": "npc",
+    "name": "两名本地渔民掘墓贼"
+   },
+   {
+    "node_id": "npc-hamilton-fabry",
+    "node_kind": "npc",
+    "name": "汉密尔顿·法布瑞"
+   },
+   {
+    "node_id": "npc-laura-chase",
+    "node_kind": "npc",
+    "name": "劳拉·蔡斯"
+   },
+   {
+    "node_id": "npc-leonard-chase",
+    "node_kind": "npc",
+    "name": "莱纳德·蔡斯"
+   },
+   {
+    "node_id": "npc-luis-reis",
+    "node_kind": "npc",
+    "name": "路易斯·里斯"
+   },
+   {
+    "node_id": "npc-martin-helverson-malformed",
+    "node_kind": "npc",
+    "name": "马丁·海沃森（畸形复生）"
+   },
+   {
+    "node_id": "npc-martin-helverson-revived",
+    "node_kind": "npc",
+    "name": "马丁·海沃森（初复活）"
+   },
+   {
+    "node_id": "npc-mary-ann-lassman",
+    "node_kind": "npc",
+    "name": "玛丽·安·拉斯曼"
+   },
+   {
+    "node_id": "npc-michael-felder",
+    "node_kind": "npc",
+    "name": "迈克尔·费尔德"
+   },
+   {
+    "node_id": "npc-mrs-jarvis",
+    "node_kind": "npc",
+    "name": "贾维斯夫人"
+   },
+   {
+    "node_id": "npc-nora-chase",
+    "node_kind": "npc",
+    "name": "诺拉·蔡斯"
+   },
+   {
+    "node_id": "npc-orthea-brown",
+    "node_kind": "npc",
+    "name": "奥瑟娅·布朗"
+   },
+   {
+    "node_id": "npc-owen-tabler",
+    "node_kind": "npc",
+    "name": "欧文·塔布勒"
+   },
+   {
+    "node_id": "npc-robert-allen-revived",
+    "node_kind": "npc",
+    "name": "罗伯特·艾伦 Robert Allen（复生）"
+   },
+   {
+    "node_id": "npc-virginia-felder",
+    "node_kind": "npc",
+    "name": "弗吉尼娅·费尔德"
+   },
+   {
+    "node_id": "npc-virginia-felder-revived",
+    "node_kind": "npc",
+    "name": "弗吉尼娅·费尔德（复生）"
+   },
+   {
+    "node_id": "npc-willie-stephens",
+    "node_kind": "npc",
+    "name": "威利·斯蒂芬"
+   },
+   {
+    "node_id": "scene-arkham-church-cemetery",
+    "node_kind": "scene",
+    "name": "调查阿卡姆教堂公墓"
+   },
+   {
+    "node_id": "scene-clarks-corners-investigation",
+    "node_kind": "scene",
+    "name": "调查克拉克角墓地"
+   },
+   {
+    "node_id": "scene-essex-falls-investigation",
+    "node_kind": "scene",
+    "name": "调查艾塞克斯弗"
+   },
+   {
+    "node_id": "scene-fabry-beacon-hill-interview",
+    "node_kind": "scene",
+    "name": "拜访法布瑞博士（灯塔山）"
+   },
+   {
+    "node_id": "scene-felder-cellar",
+    "node_kind": "scene",
+    "name": "费尔德家地窖"
+   },
+   {
+    "node_id": "scene-felder-cistern-chamber",
+    "node_kind": "scene",
+    "name": "费尔德地窖蓄水池"
+   },
+   {
+    "node_id": "scene-felder-cottage-grounds",
+    "node_kind": "scene",
+    "name": "费尔德家外场与车库船库"
+   },
+   {
+    "node_id": "scene-felder-cottage-interior",
+    "node_kind": "scene",
+    "name": "费尔德家室内探索"
+   },
+   {
+    "node_id": "scene-felder-evening-call",
+    "node_kind": "scene",
+    "name": "晚间拜访费尔德"
+   },
+   {
+    "node_id": "scene-felder-house-climax",
+    "node_kind": "scene",
+    "name": "亡者之家·费尔德别墅高潮"
+   },
+   {
+    "node_id": "scene-gloucester-investigation",
+    "node_kind": "scene",
+    "name": "调查格洛斯特波特斯菲尔德"
+   },
+   {
+    "node_id": "scene-helverson-dawn-phone",
+    "node_kind": "scene",
+    "name": "马丁·海沃森凌晨来电"
+   },
+   {
+    "node_id": "scene-helverson-night-call",
+    "node_kind": "scene",
+    "name": "海沃森深夜二次来电"
+   },
+   {
+    "node_id": "scene-investigator-briefing",
+    "node_kind": "scene",
+    "name": "给调查员的信息"
+   },
+   {
+    "node_id": "scene-kingsport-investigation",
+    "node_kind": "scene",
+    "name": "调查金斯波特乱葬场"
+   },
+   {
+    "node_id": "scene-manchester-chase-family",
+    "node_kind": "scene",
+    "name": "曼彻斯特蔡斯家访谈"
+   },
+   {
+    "node_id": "scene-manchester-chase-inquiry",
+    "node_kind": "scene",
+    "name": "询问曼彻斯特蔡斯一家"
+   },
+   {
+    "node_id": "scene-martins-beach-constable-office",
+    "node_kind": "scene",
+    "name": "马丁滩治安官办公室"
+   },
+   {
+    "node_id": "scene-martins-beach-field",
+    "node_kind": "scene",
+    "name": "马丁滩实地调查"
+   },
+   {
+    "node_id": "scene-mary-ann-contact",
+    "node_kind": "scene",
+    "name": "接触玛丽·安·拉斯曼"
+   },
+   {
+    "node_id": "scene-poe-cemetery-visit",
+    "node_kind": "scene",
+    "name": "勘查波街公墓"
+   },
+   {
+    "node_id": "scene-tabler-interview",
+    "node_kind": "scene",
+    "name": "拜访治安官塔布勒"
+   },
+   {
+    "node_id": "scene-wavecrest-inn",
+    "node_kind": "scene",
+    "name": "浪尖旅馆"
+   },
+   {
+    "node_id": "scene-webb-mcdougall-contact",
+    "node_kind": "scene",
+    "name": "接触韦伯与麦克杜高"
+   },
+   {
+    "node_id": "scene-webb-mcdougall-shack",
+    "node_kind": "scene",
+    "name": "韦伯与麦克杜高海边棚屋"
+   }
+  ]
+ }
+}

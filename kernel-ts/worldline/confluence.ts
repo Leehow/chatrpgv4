@@ -10,6 +10,7 @@ import { abortMerge, blob, checkout, commitIfDirty, createBranch, deleteBranch, 
 import { newLine, registry, validateName } from './identity.js';
 import { generateEchoes, mergeEchoes, readEchoes, writeEchoes } from './echoes.js';
 import { parseDispositions, report, settle, spentItemKey, type ConfluenceState } from './confluence-plan.js';
+import { closeAllOwed } from '../owed/index.js';
 export { DISPOSITIONS, BOOK, MIRRORED, conflictId, engineView, parseDispositions, report, settle, spentItemKey } from './confluence-plan.js';
 export type { ConfluenceState } from './confluence-plan.js';
 function candidateRows(text: string): Row[] {
@@ -177,6 +178,8 @@ export async function plan(context: WorldlineContext, graph: ModuleGraph, meta: 
 }
 async function writeState(context: WorldlineContext, settled: Row): Promise<void> {
     await context.campaign.writeWorld(settled.world);
+    // §158.3: the merge's own narration is the told position now; what the merged lines owed closes as merged.
+    await closeAllOwed(context.kernel, context.campaign.id, 'merged');
     for (const sheet of values(settled.party))
         await context.campaign.writeSheet(sheet);
     await restoreTree(context, `wl/${string(settled.engine_line)}`, 'save', SAVE_KEEP);

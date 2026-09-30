@@ -71,7 +71,8 @@ export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
                 // §135.2: the handouts already handed over, as world state, so no reader offers one again by its words.
                 handouts_shown:array(campaign.world.handouts_shown).filter(value=>typeof value==='string'),
                 current_receipts:array(campaign.turn.receipts).map(receipt=>Object.fromEntries(
-                    ['kind','actor_label','skill','level','passed','outcome','clue','to','from','quantity','delta','currency','before','after']
+                    // §158.5: `owed` says a receipt landed told state, not this turn's own action.
+                    ['kind','actor_label','skill','level','passed','outcome','clue','to','from','quantity','delta','currency','before','after','owed']
                         .filter(key=>Object.hasOwn(receipt,key)).map(key=>[key,receipt[key]]))),
                 coverage:{effect_families:['clue','move','source_presence'],other_families:'Use the incumbent owner; no quantity, amount, profile or novel definition is inferred.'}}};
     }};

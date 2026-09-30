@@ -420,7 +420,8 @@ async function installLegacyAudit(call, home) {
     await cp(join(root, 'mods/narration-audit'), path, {recursive: true});
     const manifest = JSON.parse(await readFile(join(path, 'mod.json'), 'utf8'));
     manifest.id = 'legacy-audit-fixture'; manifest.version = '1.0.0';
-    manifest.requires = manifest.requires.filter(cap => !cap.startsWith('audit.continuity.')).concat('audit.continuity.v1');
+    // A legacy v1 package predates owed state (§158.2) too, so it does not inherit the shipped package's audit.owed.v1.
+    manifest.requires = manifest.requires.filter(cap => !cap.startsWith('audit.continuity.') && cap !== 'audit.owed.v1').concat('audit.continuity.v1');
     manifest.default_enabled = true; manifest.contributes.audit_slot = 'narration-audit';
     await writeFile(join(path, 'mod.json'), JSON.stringify(manifest));
     await writeFile(join(path, 'auditor.md'), 'Legacy v1 continuity artifact contract fixture. No model is invoked.');

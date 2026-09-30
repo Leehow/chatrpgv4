@@ -23,7 +23,8 @@ import type {ApplyContext} from '../apply/index.js';
 import {claimedEquipment,discardRegistrationByJob,queuedRegistrations} from './queue.js';
 import type { ModRuntime } from './runtime.js';
 import {SOURCE_AUDIT, auditSourceEvidence, writeAuditSources, verifyAuditSources, validateSourceReview} from './audit-source.js';
-import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2, AUDIT_LIMITS, continuityArtifactErrors, dropInapplicableSubreviews, spokenTexts} from './audit-result.js';
+import {AUDIT_OWED, CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2, AUDIT_LIMITS, continuityArtifactErrors, dropInapplicableSubreviews, spokenTexts} from './audit-result.js';
+import {closeSatisfied, owedBands, readOwed} from '../owed/index.js';
 import {buildAuditReferences, materializeAuditReferences, auditReferenceIssues} from './audit-references.js';
 import {PRESET_TABLE, WEAPON_PRESET_CAPABILITY, gatePreset, presetBlock, presetOf, presetOffer, presetStamp, templateProfile} from './preset.js';
 
@@ -81,6 +82,12 @@ export class ModJobs {
             const reviewed = !invalid && !!budget.blocked && budget.blocked_reviewed === true;
             return {enabled: true, paused: !!reason, reason, service, reviewed, turn: turn.turn};
         } catch { return {enabled: true, paused: true, reason: 'Retained review accounting is unreadable', turn: turn.turn}; }
+    }
+    /** §158.2: what the reviewer is told is already owed, and the bands an owed move or time may name. */
+    async owedReview(campaign: string, graph: ModuleGraph, world: Row): Promise<Row> {
+        const ledger = closeSatisfied(graph, world, await readOwed(this.context, campaign), '').ledger, bands = await owedBands(this.context);
+        return {open: ledger.open.map(entry => ({name: entry.name, kind: entry.kind, what: entry.what, turn: entry.turn})),
+            travel_bands: bands.travel, time_bands: bands.time};
     }
     async knownHandouts(graph: ModuleGraph, world: Row): Promise<Row[]> {
         const result: Row[] = [];
@@ -252,9 +259,12 @@ export class ModJobs {
         const packageRow = candidates[0], party = preview?.party ?? await campaign.party() as Row[];
         const continuity = role === 'audit' && candidates.some(mod => array(mod.requires).some(cap => [CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2].includes(cap)));
         const continuityV2 = continuity && candidates.some(mod => array(mod.requires).includes(CONTINUITY_AUDIT_V2));
+        // §158.2: a package that requires audit.owed.v1 also asks the review what the ledger owes.
+        const continuityOwed = continuity && candidates.some(mod => array(mod.requires).includes(AUDIT_OWED));
         const sourceAudit = !continuity && role === 'audit' && candidates.some(mod => array(mod.requires).includes(SOURCE_AUDIT));
         const wait = row(row(params.input).preparation_wait), refused = row(row(params.input).rebinding_refused);
-        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity, wait, refused,row(row(params.input).source_consultations)) : null;
+        const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity, wait, refused,row(row(params.input).source_consultations),
+            continuityOwed ? await this.owedReview(campaign.id, graph, world) : null) : null;
         const request: Row = {role, input: params.input ?? null, capabilities: sorted(MOD_CAPABILITIES), play_language: await playLanguageOf(this.context, meta),
             mod_settings: Object.fromEntries(candidates.map(mod => [mod.id, (world as Row).mods.active[mod.id].settings])),
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: prefetch ? [] : field(turn, 'receipts', []),
@@ -264,7 +274,7 @@ export class ModJobs {
             request.present = presentSection(graph, world, graph.scene(world.active_scene as string));
             request.player_text = turn.player_text ?? null;
         }
-        if (evidence) request[continuity ? 'continuity_review' : 'source_review'] = evidence.descriptor;
+        if (evidence) request[continuity ? 'continuity_review' : 'source_review'] = continuityOwed ? {...evidence.descriptor, owed: true} : evidence.descriptor;
         if (continuityV2) request.continuity_review = {...request.continuity_review, schema:2,
             sources:buildAuditReferences(request,evidence!.files,{owner:'audit',campaign:campaign.id,
                 ...(typeof meta.active_worldline === 'string' ? {worldline:meta.active_worldline} : {}),audience:'keeper'}).sources};
@@ -321,7 +331,7 @@ export class ModJobs {
         return {enabled: true, job: key, cwd: root, system_prompt: join(root, 'prompt.md'), mod: packageRow.id, digest: packageRow.digest,
             accepted: await this.context.snapshots.pathExists(join(root, 'accepted.json')), role, ...(sourceAudit ? {source_review: true} : {}),
             ...(taken ? {preset: {weapon: taken.id, confidence: clone(taken.confidence ?? null)}} : {}),
-            ...(continuity ? {continuity_review: true, ...(continuityV2 ? {continuity_schema:2} : {}),
+            ...(continuity ? {continuity_review: true, ...(continuityV2 ? {continuity_schema:2} : {}), ...(continuityOwed ? {continuity_owed: true} : {}),
                 focus: {...evidence!.files['context.json'], ...(continuityV2 ? {sources:request.continuity_review.sources} : {})}, limits: AUDIT_LIMITS,
                 review_scope: this.reviewScope(campaign.id, meta, turn)} : {})};
     }
@@ -423,7 +433,8 @@ export class ModJobs {
         }
         const wait = row(row(request.input).preparation_wait), refused = row(row(request.input).rebinding_refused);
         const evidence = !(sourceAudit || continuity) ? null : afterDelivery ? await this.retainedEvidence(root, request, continuity, identity)
-            : await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait, refused,row(row(request.input).source_consultations));
+            : await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait, refused,row(row(request.input).source_consultations),
+                row(request.continuity_review).owed === true ? await this.owedReview(campaign.id, module.graph, world) : null);
         if (evidence && !afterDelivery) {
             if (evidence.binding !== identity.source_binding) throw new RpcError('needs', 'Source audit no longer matches the current campaign evidence',
                 {details: {reason: 'mod_audit_stale'}, fix: 'Retry the same narration to prepare a current source audit; do not reroll settled actions'});

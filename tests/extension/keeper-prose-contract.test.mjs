@@ -67,7 +67,8 @@ test('the capsule\'s craft lines come from a context.style.v1 package, never fro
 test('the existing pre-delivery audit revises unintelligible prose without grading literary taste', async () => {
   const manifest = JSON.parse(await readFile(new URL('../../mods/narration-audit/mod.json', import.meta.url), 'utf8'));
   const auditor = await readFile(new URL('../../mods/narration-audit/auditor.md', import.meta.url), 'utf8');
-  assert.equal(manifest.version, '1.2.31');
+  assert.equal(manifest.version, '1.2.32');
+  assert.ok(manifest.requires.includes('audit.owed.v1'), 'contract §158.2: the reviewer names owed state');
   assert.equal(manifest.state_version, 1);
   assert.ok(manifest.requires.includes('audit.continuity.v2'));
   assert.ok(!manifest.requires.includes('audit.continuity.v1'));
@@ -113,4 +114,20 @@ test('both post-delivery checkers share one player_agency definition: filling in
     assert.ok(text.includes('words whose content'), `${name} still flags words the player did not say`);
     assert.ok(text.includes('a new action with a consequence of its own'), `${name} still flags a consequential action`);
   }
+});
+
+test('§158.6: the Keeper is told the delivered turn is canon, the ledger follows it, and only the player\'s dispute reverses it', async () => {
+  const prompt = await readFile(new URL('../../prompts/keeper.md', import.meta.url), 'utf8');
+  const laws = prompt.slice(prompt.indexOf('Four laws:'), prompt.indexOf('Your tools:'));
+  // Law 2 names the owed rows and how they land; law 3 says who wins about the past and the one exception.
+  assert.match(laws, /owed state \(the capsule's `owed` rows\)/);
+  assert.match(laws, /effect carries `owed`/);
+  assert.match(laws, /the delivered turn is canon and the ledger is brought forward to it/);
+  assert.match(laws, /never tell the player the table made a mistake or that a service failed, never apologise and never narrate a correction/);
+  assert.match(laws, /when they explicitly dispute what happened and ask for it to be otherwise, follow them/);
+  assert.doesNotMatch(laws, /without an `apply` did not happen/, 'told prose without a receipt is owed, not unhappened');
+  // Turn 23 of the installed table followed the old line and told the player the table could not settle.
+  assert.doesNotMatch(prompt, /say so plainly to the player as a service notice/);
+  assert.doesNotMatch(prompt, /say that the table cannot settle actions/);
+  assert.match(prompt, /keep the review, the service and its failure out of the fiction and the prose/);
 });

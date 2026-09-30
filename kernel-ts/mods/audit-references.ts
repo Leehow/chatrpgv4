@@ -41,6 +41,8 @@ export interface AuditReferenceCatalog {
     sources: Row;
     speechTexts: string[];
     resolve(alias: unknown, families: string[]): Row;
+    /** §158.2: this job's report carries `owed`, and `person` aliases are issued for it. */
+    owed?: boolean;
 }
 /** Rebuilt from immutable job input and evidence on accept/replay. No mutable alias registry exists. */
 export function buildAuditReferences(request: Row, files: Row, scope: ScopeBinding = {owner:'audit',audience:'keeper'}): AuditReferenceCatalog {
@@ -48,7 +50,10 @@ export function buildAuditReferences(request: Row, files: Row, scope: ScopeBindi
     // The catalog is a projection of the originals, never part of its own source revision.
     delete pinnedRequest.continuity_review;
     const snapshots = new Map<string,SourceSnapshot>(), entries = new Map<string,{family:string; refs:Record<string,SourceRef>; metadata:Row}>();
-    const sources: Row = {draft:[],current_input:[],speech:[],evidence:[],objects:[],scenes:[],reentry:[]};
+    // §158.2: the person family exists only for a job that reports owed state, so every other job's
+    // request (and so its identity and key) is unchanged.
+    const owed = pinnedFiles['context.json']?.owed_review?.requires_review === true;
+    const sources: Row = {draft:[],current_input:[],speech:[],evidence:[],objects:[],scenes:[],reentry:[],...(owed ? {persons:[]} : {})};
     const snapshot = (resource: string, data: Pick<SourceSnapshot,'text'|'record'|'allowedFields'>, sourceType: SourceRef['sourceType'] = 'record') => {
         const value: SourceSnapshot = {scope,resource,revision:digest(data),sourceType,...data}; snapshots.set(resource,value); return value;
     };
@@ -130,7 +135,20 @@ export function buildAuditReferences(request: Row, files: Row, scope: ScopeBindi
         fieldEntry('bridge','reentry','reentry','context.json',context,{clue:['causal_reentry','bridge','clue'],relation:['causal_reentry','bridge','relation']});
     for (const [i,value] of childEntries(reentry.known)) if (typeof value.name === 'string' && typeof value.relation === 'string')
         fieldEntry(`known:${i}`,'reentry','reentry','context.json',context,{clue:['causal_reentry','known',i,'name'],relation:['causal_reentry','known',i,'relation']});
-    return {sources,speechTexts:speech.map(line => line.text),resolve};
+    if (owed) {
+        // Who an owed presence names: the people present, then the effective graph's persons, each name once.
+        const named = new Set<string>();
+        let personOrdinal=0;
+        const person = (document:string,original:Row,path:string[],name:string) => {
+            if (named.has(name)) return;
+            named.add(name);
+            fieldEntry(`person:${personOrdinal++}`,'person','persons',document,original,{name:path});
+        };
+        for (const [i,value] of childEntries(context.present)) if (typeof value?.name === 'string') person('context.json',context,['present',i,'name'],value.name);
+        for (const [i,node] of childEntries(pinnedFiles['effective.json']?.graph?.nodes))
+            if (node.node_kind === 'npc' && typeof node.name === 'string') person('effective.json',pinnedFiles['effective.json'],['graph','nodes',i,'name'],node.name);
+    }
+    return {sources,speechTexts:speech.map(line => line.text),resolve,owed};
 }
 
 /**
@@ -139,12 +157,18 @@ export function buildAuditReferences(request: Row, files: Row, scope: ScopeBindi
  * `submit_audit` description and the package instructions, so the three cannot drift apart.
  */
 export const AUDIT_TOP_LEVEL = Object.freeze(['schema','missing','findings','continuity_review']);
+/** §158.2: the top level of a report that also names owed state; `owed` sits beside `missing`. */
+export const AUDIT_TOP_LEVEL_OWED = Object.freeze(['schema','missing','owed','findings','continuity_review']);
 export {AUDIT_SUBREVIEWS};
-export const AUDIT_SUBREVIEW_PLACEMENT = `Nest every required subreview (${AUDIT_SUBREVIEWS.join(', ')}) inside continuity_review, beside verdict, summary and conflicts; the top level holds only ${AUDIT_TOP_LEVEL.slice(0,-1).join(', ')} and ${AUDIT_TOP_LEVEL.at(-1)}.`;
+const placement = (top: readonly string[]) => `Nest every required subreview (${AUDIT_SUBREVIEWS.join(', ')}) inside continuity_review, beside verdict, summary and conflicts; the top level holds only ${top.slice(0,-1).join(', ')} and ${top.at(-1)}.`;
+export const AUDIT_SUBREVIEW_PLACEMENT = placement(AUDIT_TOP_LEVEL);
+export const AUDIT_SUBREVIEW_PLACEMENT_OWED = placement(AUDIT_TOP_LEVEL_OWED);
+/** The placement sentence for one job: a job that reports owed state names `owed` among the top-level fields. */
+export const auditSubreviewPlacement = (owed: boolean): string => owed ? AUDIT_SUBREVIEW_PLACEMENT_OWED : AUDIT_SUBREVIEW_PLACEMENT;
 // Closed schema renames: the v1 copied field and the schema 2 selector that replaces it in the same object.
 const V1_SELECTORS: Record<string,string> = {quote:'source',claim:'claim_source',evidence:'evidence_sources',claims:'claim_sources',
     locus:'locus_source',current_scene:'current_scene_source',asserted_elsewhere:'asserted_elsewhere_sources',name:'subject',
-    clue:'evidence_source',relation:'evidence_source'};
+    clue:'evidence_source',relation:'evidence_source',to:'to_source',person:'person_source'};
 
 /**
  * A subreview submitted beside `continuity_review` is moved to its schema 2 place, not refused: the
@@ -200,7 +224,7 @@ export function materializeAuditReferences(submitted: any, catalog: AuditReferen
         const seen = new Set();
         return list(values,path,(v,p) => {if (seen.has(v)) add(p,'Duplicate occurrence selection'); seen.add(v); return select(v,families,p,field);},max);
     };
-    if (!shape(value,[...AUDIT_TOP_LEVEL],'')) return {errors};
+    if (!shape(value,[...(catalog.owed ? AUDIT_TOP_LEVEL_OWED : AUDIT_TOP_LEVEL)],'')) return {errors};
     if (value.schema !== 2) add('/schema','Expected schema 2');
     const missingSeen = new Set();
     const output: Row = {missing:list(value.missing,'/missing',(v,p) => {
@@ -209,7 +233,27 @@ export function materializeAuditReferences(submitted: any, catalog: AuditReferen
         missingSeen.add(v.subject);
         const selected = select(v.subject,['object'],`${p}/subject`,'name');
         return {name:selected,category:v.category,reason:v.reason};
-    },16),findings:value.findings};
+    },16)};
+    // §158.2: owed entries select the draft sentence that told it and, for a move or a presence, the scene or person.
+    // A missing `owed` is already the shape error above; listing it again would name one fault twice.
+    if (catalog.owed && Object.hasOwn(value,'owed')) output.owed = list(value.owed,'/owed',(v,p) => {
+        if (!record(v)) {add(p,'Expected an object'); return v;}
+        if (v.kind === 'move') {
+            if (!shape(v,['kind','source','to_source','place','summary','via','travel'],p)) return v;
+            return {kind:v.kind,quote:select(v.source,['draft'],`${p}/source`),to:select(v.to_source,['scene'],`${p}/to_source`,'name',true),
+                place:v.place,summary:v.summary,via:v.via,travel:v.travel};
+        }
+        if (v.kind === 'time') {
+            if (!shape(v,['kind','source','band'],p)) return v;
+            return {kind:v.kind,quote:select(v.source,['draft'],`${p}/source`),band:v.band};
+        }
+        if (v.kind === 'npc') {
+            if (!shape(v,['kind','source','person_source','presence'],p)) return v;
+            return {kind:v.kind,quote:select(v.source,['draft'],`${p}/source`),person:select(v.person_source,['person'],`${p}/person_source`,'name'),presence:v.presence};
+        }
+        add(`${p}/kind`,'Expected move, time or npc'); return v;
+    },8);
+    output.findings = value.findings;
     const review = value.continuity_review, path='/continuity_review';
     if (!shape(review,['verdict','summary','conflicts',...AUDIT_SUBREVIEWS.filter(key => Object.hasOwn(review ?? {},key))],path,
         ['verdict','summary','conflicts',...AUDIT_SUBREVIEWS])) return {errors};
@@ -317,6 +361,9 @@ export function auditReferenceIssues(errors: readonly AuditIssue[]): AuditIssue[
     return errors.map(issue => {
         let path=issue.path;
         path=path.replace(/^\/missing\/(\d+)\/name$/, '/missing/$1/subject')
+            .replace(/^(\/owed\/\d+)\/quote$/, '$1/source')
+            .replace(/^(\/owed\/\d+)\/to$/, '$1/to_source')
+            .replace(/^(\/owed\/\d+)\/person$/, '$1/person_source')
             .replace(/(\/conflicts\/\d+)\/claim$/, '$1/claim_source')
             .replace(/(\/conflicts\/\d+)\/evidence(?:\/(\d+)(?:\/(?:file|quote))?)?$/, (_all,prefix,index) => `${prefix}/evidence_sources${index === undefined ? '' : `/${index}`}`)
             .replace(/(\/(?:intelligibility_review|player_address_review))\/quote$/, '$1/source')

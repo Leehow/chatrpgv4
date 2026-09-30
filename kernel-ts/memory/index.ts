@@ -18,6 +18,7 @@ import { history, recallMemory, transcript } from './recall.js';
 import {validateRecallRequest} from './pages.js';
 import {referencedJob, referencedSource, submitReferenced} from './referenced.js';
 import {createMemoryEvidenceOwner} from './evidence.js';
+import {closeSatisfied, mergeOwed, owedNames, projectOwed, readOwed, writeOwed} from '../owed/index.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
 /**
@@ -35,27 +36,31 @@ function revealedClue(graph: ModuleGraph, finding: Row): string | null {
     catch { return null; }
 }
 /**
- * Contract §130.4: the continuity review's verdict on a delivery the player has already read. Every
- * row points forward -- the turn is published and stays published -- and none carries the reviewer's
- * own `fix`, which was written for an unpublished draft and is executed literally if it arrives (§34.7).
+ * Contract §130.4 as amended by §158.3: the continuity review's verdict on a delivery the player has already read.
+ * Every row points forward -- what the player was told is what happened (owner ruling 2026-09-29) -- and none
+ * carries the reviewer's own `fix`, which was written for an unpublished draft and is executed literally if it
+ * arrives (§34.7).
  */
 const CONTINUITY_LANE = 'continuity-review';
 const FORWARD: Readonly<Record<string, string>> = Object.freeze({
-    continuity_conflict: 'Already delivered and read: do not rewrite or retract it. Carry the discrepancy in the fiction from here on.',
-    unsettled_object: 'Narrated without reaching the object: if it still stands, register it with an ordinary apply; otherwise let the fiction account for it.',
-    continuity_finding: 'Already delivered: do not rewrite it. Let the next delivery avoid the same problem.',
-    source_conflict: 'Already delivered and read: do not rewrite or retract it. Reconcile it with the source in the fiction from here on.'
+    continuity_conflict: 'Already delivered and read: it is what happened, and so is what it contradicts. Do not rewrite, retract or correct either; make the logic hold in the fiction from here on, without explaining it.',
+    unsettled_object: 'Narrated without reaching the object: it happened. Register it with an ordinary apply as something the investigator already has, and do not narrate it again or explain it.',
+    continuity_finding: 'Already delivered and read: it is what happened. Do not rewrite, retract or correct it, and do not apologise or explain. Where the ledger disagrees with it, bring the ledger forward with an ordinary apply and carry on in the fiction.',
+    source_conflict: 'Already delivered and read: do not rewrite or retract it. Reconcile it with the source in the fiction from here on, without explaining it.',
+    owed_state: 'Already told: the player was told this happened, so it did, and the ledger owes it. Land it with an ordinary apply as something that already happened (the clerk lands it first when it can) and carry on from there. Do not narrate it again, correct it, retract it or explain it.'
 });
-function continuityRows(accepted: Row, rendered: string): Row[] {
+/** `owed`: the rows §158.3 recorded for an owed-capable job; they replace that job's `unsettled_object` rows. */
+function continuityRows(accepted: Row, rendered: string, owed: Row[] | null = null): Row[] {
     const rows: Row[] = [], at = nowIso();
-    const add = (kind: string, quote: unknown, why: string) => {
+    const add = (kind: string, quote: unknown, why: string, extra: Row = {}) => {
         if (rows.length >= 10 || !why.trim()) return;
         const anchored = locateExcerpt(rendered, quote);
         rows.push({ lane: CONTINUITY_LANE, kind, quote: anchored ? chars(anchored, 120) : null,
-            why: chars(why, 200), fix: FORWARD[kind], at });
+            why: chars(why, 200), ...extra, fix: FORWARD[kind], at });
     };
     for (const conflict of array(row(accepted.continuity_review).conflicts)) add('continuity_conflict', conflict.claim, string(conflict.reason));
-    for (const missing of array(accepted.missing)) add('unsettled_object', null, `${string(missing.name)} (${string(missing.category)}): ${string(missing.reason)}`);
+    if (owed) for (const entry of owed) add('owed_state', entry.quote, string(entry.what), { owed: entry.name });
+    else for (const missing of array(accepted.missing)) add('unsettled_object', null, `${string(missing.name)} (${string(missing.category)}): ${string(missing.reason)}`);
     for (const finding of array(accepted.findings)) add('continuity_finding', null, string(finding.reason));
     for (const claim of array(row(accepted.source_review).claims)) if (claim.verdict !== 'supported') add('source_conflict', claim.quote, string(claim.reason));
     return rows;
@@ -66,7 +71,7 @@ function acceptedVerdict(accepted: Row): string {
     const source = row(accepted.source_review);
     return array(accepted.missing).length || array(accepted.findings).length || (Object.keys(source).length && source.verdict !== 'supported') ? 'revise' : 'pass';
 }
-async function warnContinuity(context: KernelContext, campaign: CampaignWriter, params: Row): Promise<Row> {
+async function warnContinuity(context: KernelContext, campaign: CampaignWriter, graph: ModuleGraph, params: Row): Promise<Row> {
     const turn = number(params.turn), mode = params.mode, job = params.job, unreviewed = params.unreviewed;
     if (!['pre', 'post'].includes(mode as string))
         unsupported('mode', mode, ['pre', 'post'], `unknown review mode ${repr(mode)}`);
@@ -82,7 +87,7 @@ async function warnContinuity(context: KernelContext, campaign: CampaignWriter, 
     // that nothing was read (a replayed delivery prepares a second pin that can only come back stale).
     if (byJob ? prior.job === job : prior.reviewed === true)
         return { turn, lane: CONTINUITY_LANE, accepted: 0, dropped: [], continuity_review: prior };
-    let review: Row, rows: Row[] = [];
+    let review: Row, rows: Row[] = [], owed: Row[] = [], owedDropped: Row[] = [];
     if (byJob) {
         const root = join(context.stateRoot, 'mods', 'jobs', string(job));
         let identity: Row, request: Row, accepted: Row;
@@ -95,7 +100,21 @@ async function warnContinuity(context: KernelContext, campaign: CampaignWriter, 
         if (identity.campaign !== campaign.id || number(identity.turn) !== turn || request.role !== 'audit'
             || string(row(request.input).text) !== string(record.text))
             throw new RpcError('invalid_params', 'the review job did not read this delivery', { details: { job, turn } });
-        rows = continuityRows(accepted, string(record.rendered_text || ''));
+        // §158.3: an owed-capable job names what the delivered text established and no receipt carries; it becomes
+        // owed state on the record and in the campaign's owed ledger, never a request to avoid it next time.
+        const owedCapable = row(request.continuity_review).owed === true;
+        if (owedCapable) {
+            const world = await campaign.readWorld(), at = nowIso();
+            let ledger = await readOwed(context, campaign.id);
+            // A retry after the ledger was written but the record was not reuses this job's rows instead of minting twins.
+            const already = ledger.open.filter(entry => entry.job === job);
+            if (already.length) owed = already;
+            else ({ rows: owed, dropped: owedDropped } = await projectOwed(context, graph, world, record, accepted, string(job), owedNames(ledger)));
+            ledger = closeSatisfied(graph, world, mergeOwed(ledger, owed, at), at).ledger;
+            await writeOwed(context, campaign.id, ledger);
+            record.owed = owed;
+        }
+        rows = continuityRows(accepted, string(record.rendered_text || ''), owedCapable ? owed : null);
         review = { mode, reviewed: true, verdict: acceptedVerdict(accepted), job, warnings: rows.length, at: nowIso() };
     } else {
         const cause = row(unreviewed);
@@ -104,7 +123,8 @@ async function warnContinuity(context: KernelContext, campaign: CampaignWriter, 
     if (rows.length) record.warnings = [...array(record.warnings), ...rows];
     record.continuity_review = review;
     await campaign.writeTurnRecord(record);
-    await campaign.telemetry({ lane: CONTINUITY_LANE, event: 'recorded', turn, mode, reviewed: review.reviewed, verdict: review.verdict ?? null, warnings: rows.length });
+    await campaign.telemetry({ lane: CONTINUITY_LANE, event: 'recorded', turn, mode, reviewed: review.reviewed, verdict: review.verdict ?? null, warnings: rows.length,
+        ...(owed.length ? { owed: owed.length } : {}), ...(owedDropped.length ? { owed_dropped: owedDropped } : {}) });
     return { turn, lane: CONTINUITY_LANE, accepted: rows.length, dropped: [], continuity_review: review };
 }
 async function warn(context: KernelContext, loaded: { campaign: CampaignWriter; module: { graph: ModuleGraph } }, params: Row): Promise<Row> {
@@ -113,7 +133,7 @@ async function warn(context: KernelContext, loaded: { campaign: CampaignWriter; 
     if (!integer(turn) || number(turn) < 0)
         throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
     if (lane === CONTINUITY_LANE)
-        return warnContinuity(context, campaign, params);
+        return warnContinuity(context, campaign, module.graph, params);
     if (lane !== 'verifier')
         unsupported('lane', lane, ['verifier', CONTINUITY_LANE], `unknown lane ${repr(lane)}`);
     if (!Array.isArray(findings))

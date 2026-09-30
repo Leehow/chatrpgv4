@@ -98,14 +98,14 @@ export interface AdmissionVerdict {
 	capMs?: number;
 }
 /** Which path decided an admission row (§32.12, §32.12.2): the compile's evidence, the typed reviewer (at once, or late at the cap), the lane, or no review at all. */
-export type AdmissionPath = "compile" | "typed" | "typed_late" | "lane" | "none";
+export type AdmissionPath = "compile" | "consequence" | "told" | "typed" | "typed_late" | "lane" | "none";
 
 /**
  * Which reviewer gave a verdict (§32.10): the typed family, the lane, or the compile's evidence (§32.12). Since §32.12.3.2
  * (SL-97 phase 2b) no setting picks the reviewer: `PI_COC_ADMISSION_REVIEWER` and `PI_COC_ADMISSION_JEV_MIN_CONFIDENCE`
  * (§32.10's family rule, under which a v1 verdict at 0.9 stood, refusals included) are read by nothing.
  */
-export type AdmissionReviewer = "jev" | "lane" | "compile";
+export type AdmissionReviewer = "jev" | "lane" | "compile" | "consequence" | "told";
 
 /** Cap on the typed attempt, `PI_COC_ADMISSION_JEV_TIMEOUT_MS`; its expiry leaves every line to the lane, never admits. */
 const DEFAULT_ADMISSION_JEV_TIMEOUT_MS = 4_000;
@@ -1337,6 +1337,30 @@ const isProbability = (value: unknown): value is number => typeof value === "num
  * 2's "only the listed classes execute"). Pure, and it fails closed: every missing or malformed field is a
  * refusal of the exemption, which means an ordinary lane review.
  */
+/** §158.5: an owed write admitted on what was told; each row as the admission row names it. */
+export type ToldAdmission = { ok: true; rows: Array<{ owed: string; turn: number | null; quote: string | null }> } | { ok: false; reason: string };
+/**
+ * Contract §158.5: a write whose every effect lands an owed row is admitted on basis `told` -- the question is whether
+ * the delivered text established it, not whether the player chose it this turn. The final answer is the kernel's: it
+ * lands a row only when it is open, the effect lands it, and its quote is still in the turn it came from, and it refuses
+ * the whole batch otherwise; so a name the Keeper writes cannot carry anything the review did not find told. A policy
+ * write must name the row its candidate carried (`basis.told`). `open` is the owed section of the last capsule the host
+ * saw, for the row's turn and quote on the admission row. `undefined` when the call lands no owed row at all; a batch
+ * that mixes owed and other effects is reviewed as any other.
+ */
+export function toldAdmission(tool: string, payload: Record<string, unknown>, evidence: ClerkEvidence | undefined, open: readonly Record<string, unknown>[]): ToldAdmission | undefined {
+	if (tool !== "apply" || !Array.isArray(payload.effects) || !payload.effects.length) return undefined;
+	const effects = payload.effects as unknown[];
+	const named = effects.map((effect) => record(effect)?.owed);
+	if (!named.every((name) => typeof name === "string" && name.trim())) return undefined;
+	const told = record(record(evidence?.basis)?.told);
+	if (evidence?.origin === "policy" && (!told || named.length !== 1 || told.owed !== named[0])) return { ok: false, reason: "told_basis_mismatch" };
+	return { ok: true, rows: (named as string[]).map((name) => {
+		const row = (told && told.owed === name ? told : undefined) ?? open.find((entry) => entry.name === name);
+		const turn = row ? (row as Record<string, unknown>).turn : undefined, quote = row ? (row as Record<string, unknown>).quote : undefined;
+		return { owed: name, turn: typeof turn === "number" ? turn : null, quote: typeof quote === "string" ? quote : null };
+	}) };
+}
 export function consequenceAdmission(evidence: ClerkEvidence | undefined, executeClasses: readonly string[]): ConsequenceAdmission | undefined {
 	if (evidence?.origin !== "policy") return undefined;
 	const consequence = record(record(evidence.basis)?.consequence);

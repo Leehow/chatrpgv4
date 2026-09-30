@@ -3,7 +3,7 @@ import {readFileSync, writeFileSync, renameSync} from 'node:fs';
 import {join, basename} from 'node:path';
 import {Type} from 'typebox';
 import {continuityArtifactErrors, dropInapplicableSubreviews, normalizeContinuityArtifact, spokenTexts} from '../../kernel-ts/mods/audit-result.ts';
-import {AUDIT_SUBREVIEW_PLACEMENT, auditArtifactIssues, buildAuditReferences} from '../../kernel-ts/mods/audit-references.ts';
+import {auditArtifactIssues, auditSubreviewPlacement, buildAuditReferences} from '../../kernel-ts/mods/audit-references.ts';
 import {auditEvidenceView} from './audit-evidence.ts';
 
 const MAX_RETAINED_ERRORS = 64, SUMMARY_CHARS = 1500;
@@ -24,6 +24,8 @@ export default function auditSubmit(pi: any) {
     const control = JSON.parse(readFileSync(controlPath, 'utf8')), cwd = process.cwd();
     const request = JSON.parse(readFileSync(join(cwd, 'request.json'), 'utf8'));
     const schema = request.continuity_review?.schema === 2 ? 2 : 1;
+    // §158.2: a job whose package requires audit.owed.v1 also reports owed state beside missing.
+    const owed = request.continuity_review?.owed === true;
     const evidenceFiles = () => Object.fromEntries(request.continuity_review.files.map((name: string) => {
         if (!['context.json', 'original.json', 'effective.json', 'world.json', 'current.json', 'history.json', 'handouts.json', 'notes.json', 'memory.json'].includes(name)) throw new Error('Invalid evidence file index');
         return [name, JSON.parse(readFileSync(join(cwd, name), 'utf8'))];
@@ -78,7 +80,7 @@ export default function auditSubmit(pi: any) {
         name: 'submit_audit', label: 'Submit continuity review', executionMode: 'sequential',
         description: 'Submit the review directly as result, or omit it to validate result.json. Successful validation ends this audit immediately. Invalid fields are returned together for one targeted repair; do not rewrite the Keeper candidate or recheck unrelated evidence.',
         parameters: Type.Object({result: Type.Optional(Type.Any({description: schema === 2
-            ? `Schema 2 review object. ${AUDIT_SUBREVIEW_PLACEMENT} Use only issued aliases for subject, claim_source, evidence_sources, source, claim_sources, scene sources and reentry evidence_source. Generated summary, reasons and fixes remain ordinary English. Pass needs empty issue lists.`
+            ? `Schema 2 review object. ${auditSubreviewPlacement(owed)} Use only issued aliases for subject, claim_source, evidence_sources, source, claim_sources, scene sources${owed ? ', owed to_source and person_source' : ''} and reentry evidence_source. Generated summary, reasons and fixes remain ordinary English. Pass needs empty issue lists.`
             : 'Review object: {missing:[], findings:[], continuity_review:{verdict:"pass"|"revise"|"unavailable",summary:string,conflicts:[]}} with the exact required intelligibility_review, player_address_review, candidate-dependent speech_review and conditional locus_review, outcome_review and reentry_review objects nested inside continuity_review. Only material conflicts need {claim,reason,evidence:[{file,quote}]}. Pass needs empty issue lists.'}))}),
         async execute(_id: string, params: any) {
             let result: any, files: Record<string, any> = {};

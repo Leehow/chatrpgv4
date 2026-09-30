@@ -11,7 +11,7 @@ import {array, row, string,clone, type Row} from '../read/values.js';
 import {continuityAuditContext} from './continuity-audit.js';
 
 export const SOURCE_AUDIT = 'audit.source.v1';
-export async function auditSourceEvidence(context: KernelContext, campaign: Pick<CampaignWritePort, 'id'>, module: LoadedModule, world: Row, turn: Row, party: Row[], continuity = false, preparationWait: Row | null = null, rebindingRefused: Row | null = null, sourceConsultations:Row|null=null) {
+export async function auditSourceEvidence(context: KernelContext, campaign: Pick<CampaignWritePort, 'id'>, module: LoadedModule, world: Row, turn: Row, party: Row[], continuity = false, preparationWait: Row | null = null, rebindingRefused: Row | null = null, sourceConsultations:Row|null=null, owed: Row | null = null) {
     const original = module.adapted ? await pinnedSource(context, row(world.adaptation).source) : module;
     const source = (loaded: LoadedModule) => ({graph: loaded.graph.raw,
         material: [...loaded.graph.nodes.values()].map(node => ({name: loaded.graph.handle(node), status: loaded.material(node.node_id)}))});
@@ -29,7 +29,7 @@ export async function auditSourceEvidence(context: KernelContext, campaign: Pick
         'notes.json': await snapshot.log('notes.jsonl'), 'memory.json': await snapshot.log('memory/candidates.jsonl')
     };
     if (continuity) {
-        files['context.json'] = continuityAuditContext(module.graph, world, turn, party, files);
+        files['context.json'] = continuityAuditContext(module.graph, world, turn, party, files, owed);
         if(sourceConsultations&&['pending','unavailable','answers'].some(key=>array(sourceConsultations[key]).length))
             row(files['context.json']).source_consultations=clone(sourceConsultations);
         if (preparationWait && ['source', 'adaptation'].includes(string(preparationWait.kind)))

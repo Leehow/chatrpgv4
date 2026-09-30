@@ -110,10 +110,12 @@ export interface CandidateVariant {label: string; bound: Record<string, Json>; u
  *   kernel rolls inside (never a road's time, which the move carries; never inside a session, whose time is rounds);
  * - `stated_hazard` (g, §138.10): the harm a book-stated step this turn reached leaves unstated
  *   (`table.apply.options.unstated_damage`), as a rung of the severity ladder the kernel rolls.
+ * - `told_bookkeeping` (§158.4): what an earlier delivered turn told the player and the ledger lacks (the capsule's
+ *   `owed` rows the post review found), landed first and forced -- owed, not chosen, so it is never a route question.
  * Fetching data (d) is the read step itself, not a candidate. Everything else is the Keeper's.
  */
 export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared_check', 'session_step', 'disposition_inference', 'stated_obligation', 'first_blow',
-  'consequence_bookkeeping', 'npc_act', 'declared_time', 'stated_hazard'] as const;
+  'consequence_bookkeeping', 'npc_act', 'declared_time', 'stated_hazard', 'told_bookkeeping'] as const;
 export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {
@@ -1078,10 +1080,12 @@ export function settleRead(view: RunView, step: number, read: ReadResult, fresh:
 export function consumedByEffects(effects: Row[] | undefined): string[] {
   const keys: string[] = [];
   for (const effect of effects ?? []) {
+    // §158.5: an effect that lands an owed row takes that row's clerk step too.
+    if (typeof effect?.owed === 'string' && effect.owed) keys.push(`apply:owed:${effect.owed}`);
     const key = effect?.kind === 'move' ? `apply:move:${effect.to}` : effect?.kind === 'person' ? `apply:person:${effect.who}`
       : effect?.kind === 'clue' ? `apply:clue:${effect.clue}` : effect?.kind === 'handout' ? `apply:handout:${effect.name}`
         // §138.10: the Keeper's own time charges the declared action's time; the clerk's band is not offered after it.
-        : effect?.kind === 'time' ? TIME_CANDIDATE_KEY : undefined;
+        : effect?.kind === 'time' && !effect.owed ? TIME_CANDIDATE_KEY : undefined;
     if (key) keys.push(key);
   }
   return keys;

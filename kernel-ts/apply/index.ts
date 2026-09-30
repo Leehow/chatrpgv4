@@ -39,6 +39,8 @@ import {activeScene, openGuards} from '../read/obligations.js';
 import {bindStated, stampBasis, type StatedEffect} from './stated.js';
 import {bindBand} from './band.js';
 import { bindUntil } from './until.js';
+import { readOwed } from '../owed/index.js';
+import { owedRowFor, settleOwed } from '../owed/land.js';
 const KINDS = ['ability', 'adaptation', 'cash', 'clock', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'person', 'ruling', 'switch', 'threat', 'time', 'usage'];
 export interface ApplyContext {
     readonly kernel: KernelContext;
@@ -190,6 +192,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             let stagedWorldline:Row|null=null;
             // §22.4.7.1 (SL-56): the people this batch names that landed on the book's text, registered before their effects stage.
             const personText = landPeople(context, textLanded);
+            // §158.5: an effect may land a row the post review found owed; the ledger is read only when one names a row.
+            const owedLedger = effects.some(effect => isJsonObject(effect) && effect.owed !== undefined) ? await readOwed(kernel, campaign.id) : null;
+            const owedUsed = new Set<string>();
             for (const [index, given] of effects.entries()) {
                 try {
                     if (!isJsonObject(given) || typeof given.kind !== 'string')
@@ -199,6 +204,11 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                         unsupported('kind', kind, KINDS, `unknown effect kind ${repr(kind)}`);
                     // Contract §136.22: `stated` takes the amount from the book; §138: `band` rolls it inside a rules row;
                     // §145.1: `until` names the moment a time effect runs to. Without any of them the amount is the Keeper's.
+                    const owedRow = owedLedger ? await owedRowFor(campaign, graph, staged, owedLedger, given) : null;
+                    if (owedRow && owedUsed.has(string(owedRow.name)))
+                        throw new RpcError('invalid_params', `owed row ${string(owedRow.name)} is landed once`, {
+                            fix: 'Keep owed on one effect of the batch; the row is landed by that one.', details: { field: 'owed', reason: 'owed_repeated', owed: owedRow.name } });
+                    if (owedRow) owedUsed.add(string(owedRow.name));
                     const bound: StatedEffect = await bindBand(context, bindStated(context, bindUntil(context, given))), effect = bound.effect, amounts = ['damage', 'time', 'threat', 'flag', 'cash'].includes(kind);
                     if(['fork','switch','merge'].includes(kind)){
                         const moved=await contributions.worldlines!.stage(campaign,graph,staged,effect,turn,index,effects.length,context.mint,started.callId);
@@ -282,6 +292,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                             ...(effect.until != null ? { until: effect.until } : {}), ...(beyond === true ? { beyond_travel: true } : {}), at: nowIso() };
                         event = { type: 'time-advanced', data: { minutes, why, clock: clone(clock) } };
                     }
+                    // §158.5: the receipt says which told state it landed, and from which delivered turn.
+                    if (owedRow) Object.assign(receipt, { owed: owedRow.name, told_turn: owedRow.turn });
                     if (amounts)
                         stampBasis(receipt, bound);
                     // §142.2: an effect that is the result of what someone set out to do says whose and which.
@@ -399,6 +411,8 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 staged.index_scenes = [...new Set([...array(staged.index_scenes).filter(value => typeof value === 'string'), ...landedHere.map(entry => entry.focus)])];
             await commitInventorySheets(context,stagedSheets);
             await campaign.writeWorld(staged);
+            // §158.5: the rows this batch landed close, and so do the rows the ledger now agrees with, whoever landed them.
+            await settleOwed(kernel, campaign.id, graph, staged, receipts, nowIso());
             // §142.5: a person who spent their own turn of the fight on this batch's hold or intention passes it, once the
             // whole batch has landed -- a refused batch passes nothing. The writer already checked it is their turn.
             // §143.3 (spec D9): a weapon a person in the running fight drew is in their hands there too.

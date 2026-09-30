@@ -26,7 +26,8 @@ async function writeRevise(job) {
     assert.equal(job.continuity_schema, 2);
     const sources = job.focus.sources;
     const evidence = sources.evidence.find(source => source.text === 'I swing the chair at Knott.') ?? sources.evidence[0];
-    await writeFile(join(job.cwd, 'result.json'), JSON.stringify({schema: 2, missing: [],
+    // §158.2: the product package requires audit.owed.v1, so the report carries owed (nothing owed here).
+    await writeFile(join(job.cwd, 'result.json'), JSON.stringify({schema: 2, missing: [], ...(job.continuity_owed ? {owed: []} : {}),
         findings: [{reason: 'The desk position contradicts the retained scene.', fix: 'Rewrite the whole candidate so Knott stays where he stood.'}],
         continuity_review: {verdict: 'revise', summary: 'Knott was never at the desk.', conflicts: [
             {claim_source: sources.draft.find(source => source.text.includes('Knott')).alias, reason: 'The retained turn places Knott elsewhere.', evidence_sources: [evidence.alias]}],

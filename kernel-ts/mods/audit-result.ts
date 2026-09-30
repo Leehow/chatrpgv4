@@ -2,6 +2,13 @@
 export const CONTINUITY_AUDIT = 'audit.continuity.v1';
 export const CONTINUITY_AUDIT_V2 = 'audit.continuity.v2';
 /**
+ * Contract §158.2: a continuity job whose package requires this also reports what the delivered text established
+ * that no receipt carries (`owed`). Without it the review is exactly what it was.
+ */
+export const AUDIT_OWED = 'audit.owed.v1';
+/** At most this many owed entries in one report (§158.2). */
+export const OWED_LIMIT = 8;
+/**
  * A continuity review is a tool-enabled background task, so elapsed wall time is not a semantic budget.
  * These are hour-scale process safety ceilings (contract §110), while request/rewrite/repair counts remain
  * the actual review bounds. The shared ceiling holds the initial review plus its one permitted repair.
@@ -103,7 +110,10 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
         if (v.length > max) add(path, `At most ${max} entries are allowed`);
         return v.slice(0, max);
     };
-    if (!keys(value, ['missing', 'findings', 'continuity_review'], '')) return errors;
+    const context = object(files['context.json']) ? files['context.json'] : {};
+    // §158.2: `owed` belongs to the report only when this job's context asks for it.
+    const owedReview = object(context.owed_review) && context.owed_review.requires_review === true ? context.owed_review : null;
+    if (!keys(value, ['missing', ...(owedReview ? ['owed'] : []), 'findings', 'continuity_review'], '')) return errors;
     for (const [i, v] of list(value.missing, '/missing', 16).entries()) {
         const path = `/missing/${i}`;
         if (!keys(v, ['name', 'category', 'reason'], path)) continue;
@@ -115,7 +125,38 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
         if (!keys(v, ['reason', 'fix'], path)) continue;
         for (const name of ['reason', 'fix']) if (!words(v[name])) add(`${path}/${name}`, 'Expected nonempty bounded text');
     }
-    const context = object(files['context.json']) ? files['context.json'] : {};
+    // A missing `owed` is already the required-field error above; listing it again would name one fault twice.
+    const owed = owedReview && Object.hasOwn(value, 'owed') ? list(value.owed, '/owed', OWED_LIMIT) : [];
+    if (owedReview) {
+        const travel = array(owedReview.travel_bands), bands = array(owedReview.time_bands);
+        const told = (v: any, path: string, what: string) => {
+            if (!words(v.quote, 1000) || !candidate.includes(v.quote)) add(`${path}/quote`, `Copy an exact candidate excerpt that ${what}`, {excerpt: String(v.quote).slice(0, 1000)});
+        };
+        for (const [i, v] of owed.entries()) {
+            const path = `/owed/${i}`;
+            if (!object(v)) { add(path, 'Expected an object'); continue; }
+            if (v.kind === 'move') {
+                if (!keys(v, ['kind', 'quote', 'to', 'place', 'summary', 'via', 'travel'], path)) continue;
+                told(v, path, 'establishes the arrival');
+                const scene = words(v.to, 300), place = words(v.place, 120);
+                if (scene === place) add(`${path}/to`, 'Name exactly one destination: a graph scene in to, or a new place in place');
+                if (place && !words(v.summary, 700)) add(`${path}/summary`, 'A new place needs a short English summary');
+                if (!place && v.summary != null) add(`${path}/summary`, 'A graph scene uses null summary');
+                if (!words(v.via, 300)) add(`${path}/via`, 'Say in one English sentence the route the candidate told');
+                if (!travel.includes(v.travel)) add(`${path}/travel`, `Expected one of ${travel.join(', ')}`);
+            } else if (v.kind === 'time') {
+                if (!keys(v, ['kind', 'quote', 'band'], path)) continue;
+                told(v, path, 'says the time passed');
+                if (!bands.includes(v.band)) add(`${path}/band`, `Expected one of ${bands.join(', ')}`);
+            } else if (v.kind === 'npc') {
+                if (!keys(v, ['kind', 'quote', 'person', 'presence'], path)) continue;
+                told(v, path, 'puts the person here or takes them away');
+                if (!words(v.person, 300)) add(`${path}/person`, 'Name the person');
+                if (!['here', 'away'].includes(v.presence)) add(`${path}/presence`, 'Expected here or away');
+            } else add(`${path}/kind`, 'Expected move, time or npc');
+        }
+        if (owed.filter(v => object(v) && v.kind === 'move').length > 1) add('/owed', 'At most one owed move: a delivery tells one position');
+    }
     const locationAuthority = object(context.location_authority) && context.location_authority.requires_review === true ? context.location_authority : null;
     const sceneCommitment = object(context.scene_commitment) && context.scene_commitment.requires_review === true ? context.scene_commitment : null;
     const outcomeCommitments = object(context.outcome_commitments) && context.outcome_commitments.requires_review === true ? context.outcome_commitments : null;
@@ -269,6 +310,9 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
                 if (locus.claim != null) add(`${path}/claim`, 'same_locus and transition use null claim');
                 if (locus.basis !== 'active_scene') add(`${path}/basis`, 'same_locus and transition use active_scene');
             }
+            // §158.2: an unsupported new locus is the arrival the ledger owes.
+            if (owedReview && locus.mode === 'new_locus' && locus.basis === 'none' && !owed.some(v => object(v) && v.kind === 'move'))
+                add('/owed', 'A new locus without a move receipt is an owed arrival: add an owed move to it');
             if (locus.verdict === 'revise' && review.verdict !== 'revise') add('/continuity_review/verdict', 'A locus revision requires overall revise');
             if (review.verdict === 'pass' && locus.verdict !== 'pass') add(`${path}/verdict`, 'Overall pass requires a passing locus review');
         }
@@ -344,9 +388,9 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
             if (review.verdict === 'pass' && !['pass', 'defer'].includes(reentry.verdict)) add(`${path}/verdict`, 'Overall pass requires a passing or structurally deferred reentry review');
         }
     }
-    const count = conflicts.length + (Array.isArray(value.findings) ? value.findings.length : 0) + (Array.isArray(value.missing) ? value.missing.length : 0)
+    const count = conflicts.length + (Array.isArray(value.findings) ? value.findings.length : 0) + (Array.isArray(value.missing) ? value.missing.length : 0) + owed.length
         + Number(review.intelligibility_review?.verdict === 'revise' || review.player_address_review?.verdict === 'revise' || review.speech_review?.verdict === 'revise' || review.location_review?.verdict === 'revise' || review.locus_review?.verdict === 'revise' || review.reentry_review?.verdict === 'revise');
-    if (review.verdict === 'pass' && count) add('/continuity_review/verdict', 'Pass cannot contain conflicts, missing objects or findings');
+    if (review.verdict === 'pass' && count) add('/continuity_review/verdict', owedReview ? 'Pass cannot contain conflicts, missing objects, owed state or findings' : 'Pass cannot contain conflicts, missing objects or findings');
     if (review.verdict === 'revise' && !count) add('/continuity_review/verdict', 'Revise needs an actionable conflict, missing object or finding');
     return errors;
 }

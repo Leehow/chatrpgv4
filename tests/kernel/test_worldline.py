@@ -995,3 +995,70 @@ def test_recall_history_lines_returns_the_tree_of_worldlines(kernel):
     assert rows["side"]["forked_from"]["commit"]
     # Without the flag nothing changes.
     assert "lines" not in kernel.table("recall", what="history")
+
+
+# ---- §158.3 owed state and the worldlines ----------------------------------------------------
+
+def owed_ledger(client: RpcClient) -> dict:
+    path = campaign_dir(client.workspace) / "owed.json"
+    return read_json(path) if path.exists() else {"open": [], "closed": []}
+
+
+def seed_owed(client: RpcClient, turn: int) -> dict:
+    """What `table.warn` writes for an owed-capable review (§158.3): an open row in `owed.json` and
+    the same row on the delivered record, both after that turn's commit. Written directly here, because
+    this file tests the worldline wiring; tests/extension/owed-state.test.mjs covers the review. A time
+    row is never satisfied by the ledger on its own, so only the worldline operation can close it."""
+    row = {"name": f"t{turn}-owed-1", "turn": turn, "kind": "time",
+           "effect": {"kind": "time", "band": "quick_observation"}, "quote": "时间过去了一会儿。",
+           "what": "time that passed beyond any journey: quick_observation", "job": "0" * 64,
+           "at": "2026-09-29T00:00:00Z"}
+    directory = campaign_dir(client.workspace)
+    (directory / "owed.json").write_text(json.dumps({"open": [row], "closed": []}), encoding="utf-8")
+    path = directory / "turns" / f"{turn:04d}.json"
+    record = read_json(path)
+    record["owed"] = [row]
+    path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+    return row
+
+
+def test_a_fork_from_an_earlier_turn_carries_that_turns_owed_rows(kernel):
+    play_to_turn(kernel, 3)
+    row = seed_owed(kernel, 2)
+    fork(kernel, 4, "rewound", from_turn=2)
+    assert meta_of(kernel)["active_worldline"] == "rewound"
+    # Turn 2's commit predates its review; the row the review wrote goes with the line anyway.
+    assert [entry["name"] for entry in owed_ledger(kernel)["open"]] == [row["name"]]
+
+
+def test_a_rewind_closes_what_the_rewound_circuit_owed(tmp_path):
+    client = client_for(tmp_path, content=loop_content(tmp_path))
+    try:
+        play_to_turn(client, 1)
+        client.table("player_input", text="我们去柯比特老宅。")
+        client.table("apply", call_id="t2-c1", effects=[{"kind": "move", "to": HOUSE}])
+        narrate(client, "t2-c2", "你们走到了老宅门前。")
+        row = seed_owed(client, 2)
+        client.table("player_input", text="我要回到今天早上。")
+        client.table("apply", call_id="t3-c1", effects=[{"kind": "fork", "name": "loop-2", "mode": "loop"}])
+        narrate(client, "t3-c2", "你眼前一黑，又回到了诺特的办公室。")
+        ledger = owed_ledger(client)
+        assert ledger["open"] == []
+        assert [(entry["name"], entry["how"]) for entry in ledger["closed"]] == [(row["name"], "rewound")]
+    finally:
+        client.close()
+
+
+def test_a_confluence_closes_what_the_merged_lines_owed(kernel):
+    two_lines_that_disagree(kernel)
+    row = seed_owed(kernel, turn_json(kernel)["turn"] - 1)
+    turn = turn_json(kernel)["turn"]
+    kernel.table("player_input", text="把两条线并起来。")
+    conflicts = merge_err(kernel, f"t{turn}-c1")["details"]["conflicts"]
+    kernel.table("apply", call_id=f"t{turn}-c2",
+                 effects=[{"kind": "merge", "name": "joined", "lines": ["main", "side"],
+                           "dispositions": {conflicts[0]["id"]: {"mode": "from", "line": "side"}}}])
+    narrate(kernel, f"t{turn}-c3", "两条线合到了一起。")
+    ledger = owed_ledger(kernel)
+    assert ledger["open"] == []
+    assert [(entry["name"], entry["how"]) for entry in ledger["closed"]] == [(row["name"], "merged")]

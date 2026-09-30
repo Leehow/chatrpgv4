@@ -12,7 +12,7 @@ import { pacingSection } from "./pacing.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, repr, type Row } from "./values.js";
 import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods/queue.js";
 import { publicDefinition, publicUsage } from "../mods/public-definition.js";
-import {CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2} from '../mods/audit-result.js';
+import {AUDIT_OWED, CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2} from '../mods/audit-result.js';
 import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
 import {WEAPON_PRESET_CAPABILITY} from '../mods/preset.js';
 import {publicOffer} from '../mods/object-offer.js';
@@ -23,6 +23,8 @@ import { LANGUAGE_ADDENDUM_CAPABILITY, validateLanguageDeclaration } from "./mod
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
+// Contract §158.2: a continuity reviewer that also names what the ledger owes.
+MOD_CAPABILITIES.add(AUDIT_OWED);
 MOD_CAPABILITIES.add(USAGE_CAPABILITY);
 /** Contract §138.7: a materializer that copies the weapon preset the host names and states every departure from it. */
 MOD_CAPABILITIES.add(WEAPON_PRESET_CAPABILITY);
