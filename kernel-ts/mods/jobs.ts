@@ -222,7 +222,7 @@ export class ModJobs {
             const basis = usagePhysicalBasis(world,item), immediate = row(item.owner);
             const covered = candidates.length > 0 && await this.context.snapshots.pathExists(join(this.jobRoot(this.jobKey(
                 this.proposalIdentity(campaign.id,meta.active_worldline ?? null,candidates,{object:item.name,propose:true},basis))), 'accepted.json'));
-            instances.push({id:item.id,name:item.name,
+            instances.push({id:item.id,name:item.name,category:row(row(row(world.objects).definitions)[item.definition]).category,
                 owner:{kind:['investigator','npc','scene'].includes(immediate.kind) ? immediate.kind : 'other',
                     ...Object.fromEntries(['id','name'].filter(key => Object.hasOwn(immediate,key)).map(key => [key,immediate[key]]))},
                 definition_digest:basis.definition_digest,condition:basis.condition,has_any_usage:used.has(item.id),covered});
@@ -242,6 +242,9 @@ export class ModJobs {
         if (!['create', 'usage', 'audit'].includes(role)) throw new RpcError('invalid_params', 'Mod job role must be create, usage or audit');
         if (role === 'usage' && !prefetch) validateUsageRequest(params.input);
         const physicalBasis = role === 'usage' ? usagePhysicalBasis(world, string(params.input.object)) : null;
+        if (prefetch && row(row(row(world.objects).definitions)[string(physicalBasis!.definition)]).category !== 'weapon')
+            throw new RpcError('needs', 'An ordinary item needs an actual chosen attack before preparing its usage',
+                {details:{reason:'usage_requires_action'},fix:'Use apply usage for the actual player or NPC attack; keep the object as an item'});
         // §129.4: a usage prepared against a placeholder would be bound to parameters that are about to be
         // replaced -- stale on arrival, and a proposal would mark the object as having a usage for good.
         if (physicalBasis && isPlaceholder(row(row(world.objects).definitions)[string(physicalBasis.definition)]))
@@ -453,6 +456,9 @@ export class ModJobs {
             throw new RpcError('needs','The object physical state changed while its usage was prepared',{details:{reason:'usage_stale'}});
         if (prefetch && (request.role !== 'usage' || request.preview != null)) throw new RpcError('invalid_params','Invalid retained usage proposal');
         if (prefetch) validateUsageProposal(request.input);
+        if (prefetch && row(row(row(usageWorld.objects).definitions)[string(identity.physical_basis.definition)]).category !== 'weapon')
+            throw new RpcError('needs', 'An ordinary item proposal cannot be activated without a chosen attack',
+                {details:{reason:'usage_requires_action'},fix:'Use apply usage for the actual player or NPC attack'});
         const finishPrefetch = async (accepted: Row): Promise<Row> => {
             const store = await this.writer.campaign(params);
             if (accepted.usage !== null) {

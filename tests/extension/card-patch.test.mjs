@@ -148,16 +148,23 @@ test('a dropped registration patches the fold closed again', async t => {
   assert.equal(closed.object, undefined);
 });
 
-test('a prefetched usage for a held object patches the card that named it with what the sheet shows', async t => {
+test('a prefetched usage for an explicit held weapon patches the card that named it with what the sheet shows', async t => {
   const game = await table(t);
   const prior = process.env.PI_COC_MOD_PREFETCH_LIMIT;
   process.env.PI_COC_MOD_PREFETCH_LIMIT = '5';
   t.after(() => { if (prior === undefined) delete process.env.PI_COC_MOD_PREFETCH_LIMIT; else process.env.PI_COC_MOD_PREFETCH_LIMIT = prior; });
-  await game.apply([{kind: 'object', name: 'Desk chair', definition: 'Chair frame', to: game.sheet.name},
-    {kind: 'object', name: 'Scene chair', definition: 'Chair frame', to: 'here'}]);
-  const delivery = await game.call('table.narrate', {call_id: game.next(), text: 'Two more wooden chairs: one by your desk, one by the door.'});
+  const profile=usage('Swing');
+  const definition={name:'Wooden club',category:'weapon',description:'A wooden club made for fighting.',basis:'An explicit weapon.',
+    parameters:profile.parameters,player_view:{description:'A club carried in one hand.',fields:['skill','damage']}};
+  const job=await game.call('mods.job',{role:'create',input:{name:definition.name,category:'weapon',description:definition.description}});
+  await writeFile(join(job.cwd,'result.json'),JSON.stringify(definition));
+  const accepted=await game.call('mods.accept',{job:job.job});
+  await game.apply([{kind:'define',name:definition.name,category:'weapon',_definition:accepted.definition,_provenance:accepted.provenance},
+    {kind: 'object', name: 'Held club', definition: definition.name, to: game.sheet.name},
+    {kind: 'object', name: 'Scene club', definition: definition.name, to: 'here'}]);
+  const delivery = await game.call('table.narrate', {call_id: game.next(), text: 'Two wooden clubs: one in your hands, one by the door.'});
   const card = {type: 'custom', id: 'card-t1', customType: 'coc-mechanics', timestamp: '2026-09-22', data: {turn: delivery.turn, mechanics: delivery.mechanics}};
-  assert.ok(delivery.mechanics.some(item => item.kind === 'item' && item.name === 'Desk chair'), 'the card names the held chair');
+  assert.ok(delivery.mechanics.some(item => item.kind === 'item' && item.name === 'Held club'), 'the card names the held club');
   const rows = [];
   const h = host(game, {record: row => { if (row.lane === 'usage-prefetch') rows.push(row); },
     runTask: async task => {
@@ -167,26 +174,26 @@ test('a prefetched usage for a held object patches the card that named it with w
   h.pi.events.emit('coc:turn-committed', {campaign: 'c1', turn: delivery.turn});
   await until(() => rows.some(row => row.event === 'scan'), 'the prefetch scan finished');
   const landed = rows.filter(row => row.event !== 'scan' && row.ok && row.enabled && !row.negative).map(row => row.object).sort();
-  assert.ok(landed.includes('Desk chair') && landed.includes('Scene chair'), `both chairs were prefetched: ${landed}`);
+  assert.ok(landed.includes('Held club') && landed.includes('Scene club'), `both explicit weapons were prefetched: ${landed}`);
 
   const patches = h.entries.filter(entry => entry.customType === CARD_PATCH);
   const named = patches.flatMap(entry => Object.keys(entry.data.patch.objects ?? {}));
-  assert.ok(named.includes('Desk chair'));
-  assert.equal(named.includes('Scene chair'), false, 'the sheet shows no usage for an object nobody holds, so neither does the card');
-  const desk = patches.find(entry => entry.data.patch.objects?.['Desk chair']);
+  assert.ok(named.includes('Held club'));
+  assert.equal(named.includes('Scene club'), false, 'the sheet shows no usage for an object nobody holds, so neither does the card');
+  const desk = patches.find(entry => entry.data.patch.objects?.['Held club']);
   assert.equal(desk.data.source, 'usage-prefetch');
   assert.deepEqual(desk.data.card, {}, 'the prefetch knows the object, not the card, so the backend matches the row by name');
   const world = await game.world();
-  const record = Object.values(world.objects.usages).find(value => value.name === 'Swing' && world.objects.instances[value.object_id]?.name === 'Desk chair');
+  const record = Object.values(world.objects.usages).find(value => value.name === 'Swing' && world.objects.instances[value.object_id]?.name === 'Held club');
   assert.ok(record, 'the proposal was accepted into the world');
-  assert.deepEqual(desk.data.patch, {objects: {'Desk chair': {usages: {Swing: publicUsage(record)}}}});
+  assert.deepEqual(desk.data.patch, {objects: {'Held club': {usages: {Swing: publicUsage(record)}}}});
   assert.deepEqual(publicUsage(record), {name: 'Swing', parameters: {skill: 'Fighting (Brawl)', damage: '1D6'}});
 
-  // Through the backend: the row that named the chair carries the usage, and nothing the sheet hides.
-  const chair = drawn(card, h.entries).mechanics.find(item => item.kind === 'item' && item.name === 'Desk chair');
+  // Through the backend: the row that named the club carries the usage, and nothing the sheet hides.
+  const chair = drawn(card, h.entries).mechanics.find(item => item.kind === 'item' && item.name === 'Held club');
   assert.deepEqual(chair.usages, {Swing: {name: 'Swing', parameters: {skill: 'Fighting (Brawl)', damage: '1D6'}}});
   for (const hidden of [record.basis, record.description, record.player_view.description])
     assert.equal(JSON.stringify(chair).includes(hidden), false);
-  const scene = drawn(card, h.entries).mechanics.find(item => item.kind === 'item' && item.name === 'Scene chair');
+  const scene = drawn(card, h.entries).mechanics.find(item => item.kind === 'item' && item.name === 'Scene club');
   assert.equal(scene?.usages, undefined);
 });

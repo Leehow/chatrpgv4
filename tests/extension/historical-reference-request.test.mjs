@@ -4,6 +4,10 @@ import assert from 'node:assert/strict';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable,waitForIdle} from './harness.mjs';
 import {EXA_ENV} from '../../runtime/historical-reference.ts';
+import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
+import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
+import {spawnSync} from 'node:child_process';
+import {resolve,join} from 'node:path';
 const excerpt='The period reference describes bound newspaper volumes and a subject index kept for visiting researchers.';
 const call=(tool,args)=>fauxAssistantMessage([fauxToolCall(tool,args)],{stopReason:'toolUse'});
 test('selected Exa excerpts arrive unchanged in the next main Pi provider request',async t=>{
@@ -102,4 +106,61 @@ test('real Pi price lookup reads player consent from the host and reuses anchors
     errors: table.extensionErrors}));
   assert.equal(playerInputs.at(-1), challenge);
   assert.deepEqual(table.extensionErrors, []);
+});
+
+test('real Pi loop hands a spent historical lane to final prose and allows the next player saved read',async t=>{
+  const original=globalThis.fetch;let searches=0,closedSeen=false,freshSeen=false;
+  globalThis.fetch=async(url,init)=>{
+    if(String(url)==='https://api.exa.ai/search'){
+      searches++;
+      if(searches===1)return Response.json({results:[{title:'Historical archive',url:'https://example.org/archive',highlights:[excerpt]}]});
+      return new Promise((_resolve,reject)=>init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true}));
+    }
+    if(String(url)==='https://api.typesafe.ai/v1/systemone'){
+      const body=JSON.parse(init.body),questions=Object.entries(body.questions);
+      return Response.json({model:body.model,answers:Object.fromEntries(questions.map(([key,q])=>[key,
+        key==='query_kind'?{type:'choice',choice:'context',confidence:1,probabilities:{context:1,price_anchor:0,item_price:0,unclear:0}}
+          : q.type==='noul'?{type:'noul',noul:key.startsWith('saved_')?.99:.01}
+          : {type:'choice',choice:'direct',confidence:1,probabilities:{direct:1,analogous:0,uncertain:0,reject:0}}])),usage:{input_tokens:100,output_tokens:10}});
+    }
+    return original(url,init);
+  };
+  t.after(()=>{globalThis.fetch=original;});
+  const env={[EXA_ENV]:'test-exa',TYPESAFE_API_KEY:'test-jev',PI_COC_JEV_PRESELECT:'0'};
+  const decision={async decide(batch){return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>{
+    if(q.type==='noul')return[q.key,{status:'answered',type:'noul',noul:q.key==='historical_reference_needed'?.99:.01}];
+    const choice='finish' in q.criteria?'finish':'later' in q.criteria?'later':Object.keys(q.criteria)[0];
+    return[q.key,{status:'answered',type:'choice',choice,confidence:1,probabilities:{[choice]:1}}];
+  })),{inputTokens:1,outputTokens:1,costUsd:0});}};
+  const engine=createHybridEngine({env,decision,npcAct:null,interactionScope:{mode:'reference',reason:'test_reference_scope',calls:0}});
+  const reply='The saved excerpt describes bound newspaper volumes and a subject index. Other details are not established by that excerpt.';
+  const table=await openTable({realKernel:true,env,runDriver:engine.runDriver,extraExtensions:[{name:'history-loop',factory:engine.extension}],
+    prepareWorkspace:workspace=>{
+      const root=resolve(import.meta.dirname,'../..'),calls=[['table.open',{}],['table.player_input',{text:'I wait in the office.'}],
+        ['table.narrate',{call_id:'t1-c1',text:'You remain beside the desk while Knott waits.'}]];
+      const r=spawnSync(process.execPath,[join(root,'build/kernel/rpc.mjs'),'--workspace',workspace,'--content',join(root,'content')],
+        {cwd:root,encoding:'utf8',input:calls.map(([method,params],id)=>JSON.stringify({id:String(id),method,params:{campaign:'test-camp',...params}})).join('\n')+'\n'});
+      assert.equal(r.status,0,r.stderr);for(const line of r.stdout.trim().split('\n')){const frame=JSON.parse(line);if(!frame.progress)assert.equal(frame.ok,true,JSON.stringify(frame));}
+    },responses:[call('lookup',{kind:'historical_reference',query:'1920 newspaper archive'}),context=>{
+      assert(JSON.stringify(context.messages).includes(excerpt));
+      return call('lookup',{kind:'historical_reference',reference_mode:'web',query:'1920 archive additional detail'});
+    },context=>{
+      const result=context.messages.findLast(m=>m.role==='toolResult'&&m.toolName==='lookup');
+      assert.equal(JSON.parse(result.content.find(c=>c.type==='text').text).retrieval.state,'closed');
+      const body=JSON.stringify(context.messages);
+      assert(body.includes('Historical retrieval is closed for this input'));assert(body.includes(excerpt));closedSeen=true;
+      return fauxAssistantMessage(reply);
+    }]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('This is an out-of-fiction request for archive background.');await waitForIdle(table.session);
+  assert(closedSeen,JSON.stringify({searches,errors:table.extensionErrors,messages:table.session.messages.filter(m=>m.role==='toolResult'||m.role==='assistant'),
+    history:table.telemetry().filter(r=>r.lane==='historical-reference')}));
+  assert.equal(searches,2);assert.equal(table.session.lastDrivenRun.status,'delivered');
+  assert.equal(table.telemetry().filter(r=>r.lane==='historical-reference'&&r.event==='closed_received').length,1);
+  table.faux.setResponses([call('lookup',{kind:'historical_reference',reference_mode:'saved',query:'1920 newspaper archive'}),context=>{
+    const result=JSON.parse(context.messages.findLast(m=>m.role==='toolResult'&&m.toolName==='lookup').content.find(c=>c.type==='text').text);
+    assert.equal(result.status,'ready');assert.equal(result.retrieval,undefined);freshSeen=true;return fauxAssistantMessage(reply);
+  }]);
+  await table.session.prompt('And the source? Read the saved excerpt.');await waitForIdle(table.session);
+  assert(freshSeen);assert.equal(searches,2);assert.deepEqual(table.extensionErrors,[]);
 });

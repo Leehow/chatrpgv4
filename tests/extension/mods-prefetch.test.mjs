@@ -16,7 +16,7 @@ async function until(predicate) {
     await new Promise(resolve => setTimeout(resolve, 5));
   }
 }
-const item = (name, extra = {}) => ({id: name, name, owner: {kind: 'scene', name: 'Study'},
+const item = (name, extra = {}) => ({id: name, name, category:'weapon', owner: {kind: 'scene', name: 'Study'},
   definition_digest: 'definition', condition: 'intact', has_any_usage: false, covered: false, ...extra});
 
 async function harness(t, options = {}) {
@@ -80,7 +80,7 @@ async function harness(t, options = {}) {
     input: () => hooks.get('input')({text: 'My next action'})};
 }
 
-test('a real committed turn prepares an uncovered scene object through proposal acceptance without receipts', async t => {
+test('a real committed turn leaves ordinary objects unchanged until an actual usage is requested', async t => {
   const game = await table(t);
   const priorUsage = await game.prepare(); await game.apply([priorUsage.effect]);
   await game.apply([{kind: 'object', name: 'Scene chair', definition: 'Chair frame', to: 'here'}]);
@@ -89,27 +89,32 @@ test('a real committed turn prepares an uncovered scene object through proposal 
   const h = await harness(t, {call: game.call});
   h.commit(delivery.turn);
   assert.equal(h.runs.length, 0, 'the commit event returns before any creator starts');
-  await until(() => h.telemetry.length === 1);
-  assert.equal(h.telemetry[0].ok, true);
+  await until(() => h.scans.length === 1);
   const proposals = h.operations.filter(row => row.method === 'mods.job');
-  assert.deepEqual(proposals.map(row => row.params.input), [{object: 'Scene chair', propose: true}]);
+  assert.deepEqual(proposals, []);
   assert.equal(h.operations.some(row => row.method === 'mods.accept'), false);
   const after = await game.world();
   const records = Object.values(after.objects.usages).filter(row => row.provenance.prefetched);
-  assert.equal(records.length, 1);
-  assert.equal(records[0].name, 'Swing');
+  assert.equal(records.length, 0);
+  assert.deepEqual(after, before, 'background scanning changes no ordinary item or capability');
   assert.deepEqual(after.clock, before.clock);
   assert.deepEqual(await game.call('table.status'), status);
   assert.ok(delivery.rendered_text);
   assert.equal(h.events.length, 0, 'prefetch does not emit progress or other panel events');
-  assert.equal(h.telemetry[0].turn, delivery.turn);
   assert.equal(status.turn, delivery.turn + 1, 'the retained turn advances at commit');
-  assert.equal(h.telemetry[0].lane, 'usage-prefetch');
+  assert.equal(h.scans[0].skipped.ordinary_item, 2);
   await game.call('table.player_input', {text: 'I swing the scene chair.'});
   const effect = {kind: 'usage', object: 'Scene chair', name: 'Swing', description: 'Swing the chair at an attacker'};
   await h.bridge.prepare('apply', {campaign: 'c1', effects: [effect]});
-  assert.ok(effect._usage.provenance.reused_usage, 'the ordinary action job reuses the prepared record');
-  assert.equal(h.runs.length, 1, 'the action has no creator wait on a prepared hit');
+  assert.ok(effect._usage.usage, 'the actual chosen action prepares an accepted usage');
+  assert.equal(h.runs.length, 1, 'only the actual action starts a creator');
+});
+
+test('ordinary possessions are filtered before the weapon budget, even with an explicit high limit', async t => {
+  const h = await harness(t, {limit:20, items:[item('Fountain pen', {category:'item'}), item('Door key', {category:'item'}), item('Unknown', {category:undefined}), item('Pocket knife')]});
+  h.commit(); await until(() => h.scans.length === 1);
+  assert.deepEqual(h.operations.filter(row => row.method === 'mods.job').map(row => row.params.input.object), ['Pocket knife']);
+  assert.equal(h.scans[0].skipped.ordinary_item, 3);
 });
 
 test('a commit starts prefetch on the next retained turn while telemetry belongs to the committed turn', async t => {
@@ -144,7 +149,7 @@ test('filtering precedes the default budget; jobs are serial and negative result
   assert.ok(h.telemetry.every(row => row.negative && row.turn === 1));
   const scan = h.scans.find(row => row.reason === 'completed');
   assert.equal(scan.scanned, 5); assert.equal(scan.candidates, 3); assert.equal(scan.started, 2);
-  assert.deepEqual(scan.skipped, {has_any_usage: 1, covered: 1});
+  assert.deepEqual(scan.skipped, {ordinary_item:0, has_any_usage: 1, covered: 1});
   h.view.turn = 3; h.commit(); await until(() => h.telemetry.length === 3);
   assert.equal(h.operations.filter(row => row.method === 'mods.job').at(-1).params.input.object, 'Third');
   assert.equal(h.telemetry.at(-1).turn, 2);
@@ -232,7 +237,7 @@ test('zero candidates still leave a scan summary without player-visible output',
     const h = await harness(t, {items}); h.commit();
     await until(() => h.scans.length === 1);
     assert.deepEqual(h.scans[0], {lane: 'usage-prefetch', event: 'scan', campaign: 'c1', turn: 1, prefetched: true,
-      scanned: items.length, candidates: 0, started: 0, skipped: {has_any_usage: items.length / 2, covered: items.length / 2},
+      scanned: items.length, candidates: 0, started: 0, skipped: {ordinary_item:0, has_any_usage: items.length / 2, covered: items.length / 2},
       reason: 'completed', retained_turn: 2, state: 'awaiting_player', worldline: 'main'});
     assert.equal(h.runs.length, 0); assert.equal(h.events.length, 0);
   });

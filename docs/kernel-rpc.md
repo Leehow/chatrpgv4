@@ -6577,6 +6577,34 @@ their evidence and do not pretend the item worked.
 
 #### Prepared usages (prefetch)
 
+**2026-09-30 amendment: ordinary possessions wait for an actual attack.**
+An ordinary `item` remains an inventory object. Only a definition explicitly
+categorized as `weapon` is eligible for speculative attack-usage prefetch;
+the host filters the declared category and the kernel enforces it at job creation
+and acceptance. `mods.prefetch.targets` includes `category` beside each instance's
+existing fields. No name classifier, damage default or arbitrary property editor
+is introduced. A player- or NPC-chosen improvised attack uses the existing
+`apply usage` then `resolve` path in the same turn.
+
+Already recorded ordinary-item usages with `provenance.prefetched: true` are
+retained as preparation evidence, but are neither executable nor projected as
+player-known capabilities until `apply usage` registers that actual chosen use.
+The registration may reuse its unchanged parameters and id. It records
+`world.objects.usage_activations[usage_id] = true` separately from the immutable
+usage record; ordinary action-generated records remain active without this map.
+Only the existing apply registration writes activation. Combat selection, NPC
+weapon choice, object look/context and public views read the same activation
+gate. Physical-basis and ownership checks still apply after activation. Reading
+an old save does not rewrite its definitions, usages or evidence.
+
+The public sheet keeps an ordinary item in inventory even after an attack usage
+is registered. Its object view carries `usages: [{name, parameters}]`, restricted
+to applicable active usages and each usage's existing `player_view.fields`.
+The inventory detail fold displays those named uses below the object's own facts;
+it does not move the item into the weapons section. Explicit weapons retain their
+weapon presentation. The internal combat catalog may still hold usage-backed rows
+for either category; the public sheet is a separate projection.
+
 **Who writes, who reads, who acts.** After a committed turn the host may request
 optional usage proposals for physical instances in the active scene or held by
 investigators/NPCs. The same tool-enabled creator writes at most one plausible
@@ -19179,6 +19207,14 @@ Historical results also live in a durable, campaign/worldline/loop-scoped refere
 `lookup kind=historical_reference` accepts `reference_mode: auto|saved|catalog|read|web` (default auto). Auto tries retained excerpts before a new Exa search; saved never calls Exa. Catalog returns a bounded, paginated list of titles, URLs and acquisition context; read uses a returned name to retrieve the original stored text and recheck current applicability. Names are descriptive host-issued titles, never filesystem paths or opaque digests. Catalog/read/saved require an active Mod but do not require a fresh web-search grant or an Exa key; selection still uses the existing Jev key. Web explicitly requests new material and keeps the original grant, credential and request-count gates. Read metadata remains available without either key.
 
 Library discovery uses a bounded Jev choice over retained descriptive entries, followed by the existing excerpt-selection batch; exact saved queries bypass catalogue selection. Unknown/omitted scope is reported, not called empty. Saved text is always restored into a requesting tool result even after compaction. The preparation allowance charges active retrieval/filter time across calls, excluding the main Keeper's time between calls; it is never replenished by another query. Only actual Exa calls consume the two-request network limit. Material snapshots are not deleted when the Mod is disabled.
+
+#### Retrieval termination (2026-09-30, authorized repair)
+
+An exhausted preparation allowance is a terminal resource state for this input, not a retryable tool failure. The historical reader owns the transition and returns `retrieval: {state: "closed", reason: "budget_exhausted"}` with its result. A successfully returned body is retained even if that call consumes the last allowance. Once closed, auto/web/saved/read/catalog calls on the same binding return the closed result without another provider, selection or catalogue discovery. Ordinary reads with allowance left remain available. A fresh host player input owns a fresh allowance; closing this lane never deletes its library or changes gameplay authority.
+
+The single-loop engine reads that host-produced result, retains closure across its scene refreshes, replaces the historical offer with an explicit answer-from-available-material note, and refuses later historical calls including the catalogue. It does not disable other gameplay verbs or reference kinds. On an out-of-fiction reference compose after closure, the supported native provider request disables tool use for that final answer while retaining the declared tool definitions and prior transcript. Plain Keeper prose follows the existing reference-scope delivery path. The closure is cleared for a new run and at agent end; it cannot leak into another player request, world action, setup or background session. No research agent, summary call, extra Jev decision or new public tool parameter is introduced. Telemetry records both the resource closure and the affected final request.
+
+The repair must reproduce the original timeout -> catalogue -> failed named reads seam, show that the next request carries the closure instead of an available offer, preserve earlier useful excerpts, block disguised mode/query retries, and prove normal positive reads and a later player's saved read remain open. Native request checks and genuine Keeper/App checks are separate evidence layers.
 
 ## 125. Shared foreground evidence and NPC preparation (#109)
 

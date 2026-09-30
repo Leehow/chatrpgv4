@@ -44,17 +44,45 @@ test('public player sheet projects object usage fields from the accepted usage v
   assert.ok(sheet, 'the player view includes the investigator sheet');
   assert.equal(sheet.objects.filter(item => item.name === 'Study chair').length, 1, 'the usage does not duplicate the physical item');
 
-  const chair = sheet.weapons.find(row => row.name === 'Study chair' && row.usage === 'swing');
-  assert.ok(chair, 'the usage-backed weapon row carries its natural usage name');
-  assert.equal(chair.skill, 'Fighting (Brawl)');
-  assert.equal(chair.damage, '1D6');
-  assert.equal(chair.object_id, Object.values(world.objects.instances).find(value => value.name === 'Study chair').id);
+  assert.equal(sheet.weapons.some(row => row.name === 'Study chair'), false, 'an attack usage does not turn an ordinary item into a weapon');
+  assert.equal(sheet.equipment.filter(row => row.name === 'Study chair').length, 1);
+  const chair = sheet.objects.find(row => row.name === 'Study chair').usages.find(row => row.name === 'swing');
+  assert.ok(chair, 'the ordinary object carries its named attack usage');
+  assert.equal(chair.parameters.skill, 'Fighting (Brawl)');
+  assert.equal(chair.parameters.damage, '1D6');
   for (const hidden of ['uses_per_round', 'base_range_yards', 'impale', 'impales', 'adds_damage_bonus', 'basis', 'provenance', 'physical_basis', 'digest'])
-    assert.equal(Object.hasOwn(chair, hidden), false, `${hidden} stays private on the player sheet`);
+    assert.equal(Object.hasOwn(chair.parameters, hidden), false, `${hidden} stays private on the player sheet`);
 
   const legacy = sheet.weapons.find(row => row.name === 'Pocket knife');
   assert.ok(legacy, 'legacy object-backed weapons still project through definition.player_view');
   assert.equal(legacy.damage, '1D4');
   assert.equal(Object.hasOwn(legacy, 'skill'), false);
   assert.equal(Object.hasOwn(legacy, 'uses_per_round'), false);
+});
+
+test('an old speculative profile does not leave damage on the current item sheet and can be activated by apply usage', async t => {
+  const game = await table(t), prepared = await game.prepare();
+  await game.apply([prepared.effect]);
+  const world = await game.world(), retained = Object.values(world.objects.usages)[0];
+  retained.provenance.prefetched = true;
+  const evidence = structuredClone(retained);
+  await writeFile(join(game.directory, 'world.json'), JSON.stringify(world));
+  const before = publicInvestigator(await game.call('table.view'), game.sheet.name);
+  assert.equal(before.weapons.some(row => row.name === 'Study chair'), false);
+  assert.equal(before.objects.find(row => row.name === 'Study chair').usages, undefined);
+  assert.equal(before.equipment.filter(row => row.name === 'Study chair').length, 1);
+  await assert.rejects(game.call('mods.job', {role:'usage', input:{object:'Study chair', propose:true}}), error => error.details.reason === 'usage_requires_action');
+  const chosen = await game.prepare();
+  assert.equal(chosen.accepted.provenance.reused_usage, retained.id);
+  await game.apply([chosen.effect]);
+  const after = publicInvestigator(await game.call('table.view'), game.sheet.name);
+  assert.equal(after.weapons.some(row => row.name === 'Study chair'), false);
+  assert.deepEqual(after.objects.find(row => row.name === 'Study chair').usages, [{name:'swing', parameters:{skill:'Fighting (Brawl)', damage:'1D6'}}]);
+  const settled = await game.world();
+  assert.deepEqual(settled.objects.usages[retained.id], evidence);
+  assert.equal(settled.objects.usage_activations[retained.id], true);
+  await game.apply([{kind:'npc', name:'Steven Knott', archetype:'ordinary_adult'}]);
+  const attack = await game.call('table.resolve', {call_id:game.next(), action:{intent:'combat', object:'Study chair', usage:'swing', target:'Steven Knott', defense:'none', goal:'strike'}});
+  assert.equal(attack.outcome.object_usage.usage, 'swing');
+  assert.ok(attack.outcome.rolls.length > 0, 'the activated historical profile reaches the real combat executor');
 });
