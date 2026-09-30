@@ -236,11 +236,17 @@ test('§39.4 read-ahead: one background job for the lowest-page map without a ki
 	assert.equal(jobs[0].question, api.MAP_SCOPE_QUESTION);
 	await b.call('module.read.ahead', {});
 	assert.equal((await b.scopeJobs()).length, 1, 'not a second while one is queued');
+	// Another reading grows the village map and says its kind while the village's job still waits: the cellar is next,
+	// but not beside a job that is still queued.
+	await b.publish(await claimDetail(b, 'harbor lighthouse'), delta([withProps(VILLAGE, props => ({...props,
+		map_regions: [region('lighthouse', [0.7, 0.1, 0.9, 0.3], VILLAGE.node_id)]}))]));
+	await b.call('module.read.ahead', {});
+	assert.deepEqual((await b.scopeJobs()).map(row => [row.map_scope.node, row.state]), [[VILLAGE.node_id, 'queued']], 'at most one queued or running per module');
 	// Asked directly about a map that already has a kind, or with a malformed marker, the kernel queues nothing.
 	await assert.rejects(b.call('module.read.request', {purpose: 'detail', focus: 'x', question: 'y', map_scope: {node: VILLAGE.node_id, pages: [1]}}), {code: 'invalid_params'});
+	assert.deepEqual(await b.call('module.read.request', {purpose: 'detail', focus: 'x', question: 'y', map_scope: {node: VILLAGE.node_id}}), {generation: (await b.store().module(b.mid)).generation, missing: [], state: 'ready'});
 	const job = await claimScope(b);
 	await b.publish(job, scopeDraft(VILLAGE, 'area'));
-	assert.deepEqual(await b.call('module.read.request', {purpose: 'detail', focus: 'x', question: 'y', map_scope: {node: VILLAGE.node_id}}), {generation: (await b.store().module(b.mid)).generation, missing: [], state: 'ready'});
 	await b.call('module.read.ahead', {});
 	jobs = await b.scopeJobs();
 	assert.deepEqual(jobs.map(row => [row.map_scope.node, row.pages, row.state]), [[VILLAGE.node_id, [1], 'completed'], [CELLAR.node_id, [2], 'queued']]);
@@ -248,6 +254,23 @@ test('§39.4 read-ahead: one background job for the lowest-page map without a ki
 	await b.call('module.read.ahead', {});
 	assert.equal((await b.scopeJobs()).length, 2, 'every survivor has a kind: nothing more to ask');
 	assert.equal(Object.hasOwn((await b.node(COPY.node_id)).properties, 'map_scope'), false, 'the variant was never asked');
+});
+
+test('§39.4 a failed map-scope job is asked again, until it has failed three times; then the next map is asked', async () => {
+	const b = await book('failures');
+	await publishMaps(b, VILLAGE, CELLAR);
+	await b.beforeTheRuling([VILLAGE.node_id, CELLAR.node_id]);
+	for (let attempt = 1; attempt <= 3; attempt++) {
+		await b.call('module.read.ahead', {});
+		const job = await claimScope(b);
+		assert.deepEqual(job.map_scope, {node: VILLAGE.node_id}, `attempt ${attempt} asks about the village again`);
+		await b.call('module.read.finish', {job_id: job.job_id, lease: job.lease, outcome: 'failed', detail: 'the reader could not open the page',
+			refusal: {message: 'the reader could not open the page', rule: 'reader_failed'}});
+	}
+	await b.call('module.read.ahead', {});
+	const jobs = await b.scopeJobs();
+	assert.deepEqual(jobs.map(row => [row.map_scope.node, row.state]), [[VILLAGE.node_id, 'failed'], [VILLAGE.node_id, 'failed'], [VILLAGE.node_id, 'failed'],
+		[CELLAR.node_id, 'queued']], 'three failures, then the cellar');
 });
 
 test('§39.4 a map-scope reading views every page its map is printed on, not only the one it cites', async () => {
