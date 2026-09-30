@@ -248,9 +248,9 @@ test('§22.3.3 × §152.1: a refused visual scan is read once more as the same s
 /** One village map on page 1, drafted twice: a graph that already holds a colliding pair with no verdict (§152.4). */
 const region = (id, box, asset) => ({region_id: id, name: id, source_asset: asset, source_box: box, placement: box});
 const MAP_A = {node_id: 'asset-map-harbor-village', node_kind: 'asset', name: 'Harbor village', visibility: 'player-safe', source_refs: REFS,
-	properties: {image_sources: [{page: 1, box: [0.05, 0.05, 0.95, 0.52]}], map_regions: [region('inn', [0.1, 0.1, 0.3, 0.3], 'asset-map-harbor-village')]}};
+	properties: {image_sources: [{page: 1, box: [0.05, 0.05, 0.95, 0.52]}], map_scope: 'area', map_regions: [region('inn', [0.1, 0.1, 0.3, 0.3], 'asset-map-harbor-village')]}};
 const MAP_B = {node_id: 'asset-harbor-village-map', node_kind: 'asset', name: 'Harbor village map', visibility: 'player-safe', source_refs: REFS,
-	properties: {image_sources: [{page: 1, box: [0.08, 0.03, 0.92, 0.48]}], map_regions: [region('inn-b', [0.12, 0.15, 0.32, 0.4], 'asset-harbor-village-map')]}};
+	properties: {image_sources: [{page: 1, box: [0.08, 0.03, 0.92, 0.48]}], map_scope: 'area', map_regions: [region('inn-b', [0.12, 0.15, 0.32, 0.4], 'asset-harbor-village-map')]}};
 
 test('§22.3.3 × §152.4: a refused identity reading is read once more as the identity question of the same page and pairs', async () => {
 	const b = await book('visual-identity', 2);

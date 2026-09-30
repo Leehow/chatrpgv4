@@ -38,6 +38,7 @@ import {publishReferencePlace,publishReferenceContext,referenceReady as sourceRe
 import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,visualCandidates,type VisualScan} from './visual-discovery.js';
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
+import {MAP_SCOPE_FAILURES,MAP_SCOPE_QUESTION,mapScopeFocus,mapsLackingScope} from './map-scope.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
  * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
@@ -64,7 +65,7 @@ const REFUSED_FIELDS = 8;
  * `request` gains is listed here. `task_preparation` is not a marker: it is one pending operation's authority for one turn,
  * and its owner binds the retry by requesting the identity again (§22.4).
  */
-const JOB_MARKERS = ['source_unit', 'review_scope_pages', 'reference_fragment', 'visual_scan', 'visual_asset', 'visual_identity', 'source_need'];
+const JOB_MARKERS = ['source_unit', 'review_scope_pages', 'reference_fragment', 'visual_scan', 'visual_asset', 'visual_identity', 'map_scope', 'source_need'];
 /** §22.2.1: the purposes that read graph material of a named focus, one reading of a focus at a time. */
 const FOCUSED = ['opening', 'detail'];
 /** §22.4.3 (SL-36): at most this many memoised answers (and index rows) travel with one consultation reply. */
@@ -93,11 +94,12 @@ function answerKey(sourceSha: string, focus: string, question: string, generatio
  * is what only some purposes add (guidance, opening scope, repair, answer protocol).
  */
 function readingKey(sha: string, purpose: string, material: string | undefined, focus: string, question: string, pages: number[],
-    markers: { visualScan?: VisualScan; visualAsset?: Row; visualIdentity?: Row; sourceUnit?: SourceUnit }, tail: any[] = []): string {
+    markers: { visualScan?: VisualScan; visualAsset?: Row; visualIdentity?: Row; mapScope?: Row; sourceUnit?: SourceUnit }, tail: any[] = []): string {
     const identity: any[] = [sha, purpose, material ?? '', normalize(focus), question, pages];
     if (markers.visualScan) identity.push('visual_scan_v1', visualScanKey(markers.visualScan));
     if (markers.visualAsset) identity.push('visual_asset_v1', markers.visualAsset.page);
     if (markers.visualIdentity) identity.push('visual_identity_v1', markers.visualIdentity.page, markers.visualIdentity.keys);
+    if (markers.mapScope) identity.push('map_scope_v1', markers.mapScope.node);
     if (markers.sourceUnit) identity.push('source_unit', sourceUnitKey(markers.sourceUnit));
     return jsonDigest([...identity, ...tail]);
 }
@@ -767,6 +769,22 @@ export class Reading {
             if (node) await ask({ purpose: 'detail', focus: graph.handle(node), question: need.question, source_need: sourceNeedKey(need) });
         }
     }
+    /**
+     * §39.4 (2026-09-30): a published map whose kind no reader has written is asked about in the background, one map at a
+     * time per module, lowest page first. A map whose job failed `MAP_SCOPE_FAILURES` times is not asked again; a map
+     * whose request queues nothing gives way to the next.
+     */
+    private async queueMapScope(mid: string, ask: (request: Row) => Promise<Row | null>): Promise<void> {
+        const queue = await this.store.queue(mid);
+        if (queue.some(job => job.map_scope && ['queued', 'running'].includes(job.state))) return;
+        for (const map of mapsLackingScope(await this.store.readGraph(mid), mid)) {
+            const asked = queue.filter(job => row(job.map_scope).node === map.node);
+            if (asked.filter(job => job.state === 'failed').length >= MAP_SCOPE_FAILURES) continue;
+            const reply = await ask({ purpose: 'detail', focus: mapScopeFocus(map.node), question: MAP_SCOPE_QUESTION, map_scope: { node: map.node },
+                ...(asked.some(job => ['failed', 'cancelled'].includes(job.state)) ? { retry: true } : {}) });
+            if (['queued', 'reading'].includes(string(reply?.state))) return;
+        }
+    }
     /** Maintain source-backed routes without interpreting page order or the scene's prose. */
     async queueAheadReading(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id), queued: string[] = [];
@@ -806,6 +824,7 @@ export class Reading {
                 }
             }
         }
+        await this.queueMapScope(mid, ask);
         const queueVisual = async () => {
             const visualJobs=(await this.store.queue(mid)).filter(job=>job.visual_scan);
             if(!visualJobs.some(job=>['queued','running'].includes(job.state))){
@@ -1191,6 +1210,16 @@ export class Reading {
                 if(!keys.length)return {...result,state:'ready'};
                 visualIdentity={page:number(value.page),keys};
             }
+            // §39.4 (2026-09-30): a published map whose kind no reader has written; the kernel names its pages, never the caller.
+            let mapScope:{node:string;pages:number[]}|undefined;
+            if(params.map_scope!==undefined){
+                const value=params.map_scope;
+                if(purpose!=='detail'||material!==undefined||params.source_unit!==undefined||params.source_need!==undefined||params.visual_scan!==undefined
+                    ||params.visual_asset!==undefined||params.visual_identity!==undefined||!isJsonObject(value)||Object.keys(value).join(',')!=='node'||typeof value.node!=='string')
+                    throw new RpcError('invalid_params','map_scope names one published map of this module by its node_id');
+                mapScope=mapsLackingScope(await this.store.readGraph(mid),mid).find(map=>map.node===value.node);
+                if(!mapScope)return {...result,state:'ready'};
+            }
             if(params.visual_scan!==undefined){
                 if(purpose!=='detail'||material!==undefined||params.source_unit!==undefined||params.source_need!==undefined||truth(params.foreground)
                     ||!validVisualScan(params.visual_scan,number(source.page_count)))
@@ -1210,7 +1239,7 @@ export class Reading {
                 const matching=mapCandidates.filter(candidate=>[candidate.focus,candidate.name].some(value=>Reading.meet(identity(value),wanted)));
                 if(matching.length)mapCandidates=matching;
             }
-            const pages:number[]=visualIdentity?[visualIdentity.page]:visualAsset?[visualAsset.page]:sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set([
+            const pages:number[]=visualIdentity?[visualIdentity.page]:mapScope?mapScope.pages:visualAsset?[visualAsset.page]:sourceUnit?sourceUnitPages(sourceUnit):material==='map'?[...new Set([
                 ...mapCandidates.flatMap(candidate=>array(candidate.pages).map(number)),
                 ...array(reading.visual_candidates).filter(candidate=>candidate.kind==='map'||candidate.kind==='uncertain').map(candidate=>candidate.page)])]
                 .filter(page=>page>=1&&page<=source.page_count).sort((a,b)=>a-b):[];
@@ -1221,7 +1250,7 @@ export class Reading {
             if (repair)
                 tail.push('repair', repair);
             if (purpose === 'answer') tail.push(SOURCE_ANSWER_PROTOCOL, meta.generation ?? 0);
-            const key = readingKey(source.file_sha256, purpose, material, focus, question, pages, { visualScan, visualAsset, visualIdentity, sourceUnit }, tail);
+            const key = readingKey(source.file_sha256, purpose, material, focus, question, pages, { visualScan, visualAsset, visualIdentity, mapScope, sourceUnit }, tail);
             if (purpose === 'answer') {
                 const accepted = row(reading.answers)[key];
                 if (accepted) {
@@ -1316,12 +1345,13 @@ export class Reading {
             }
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
             if (purpose === 'opening' && params.opening_scope) job.opening_scope = params.opening_scope;
-            // §22.3.3: the markers set on a detail job from its request (these four lines and `source_need` below) are in
+            // §22.3.3: the markers set on a detail job from its request (these five lines and `source_need` below) are in
             // JOB_MARKERS, which its review retry carries.
             if(sourceUnit){job.source_unit=sourceUnit;job.review_scope_pages=pages;if(meta.source_reference)job.reference_fragment=true;}
             if(visualScan)job.visual_scan=visualScan;
             if(visualAsset)job.visual_asset=visualAsset;
             if(visualIdentity)job.visual_identity=visualIdentity;
+            if(mapScope)job.map_scope={node:mapScope.node};
             if(material==='map')job.visual_hints=array(reading.visual_candidates).filter(candidate=>pages.includes(candidate.page));
             job.class_at = job.at;
             if(preparation)job.task_preparation=clone(preparation);

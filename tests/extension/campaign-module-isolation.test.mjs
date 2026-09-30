@@ -312,7 +312,7 @@ test('two kernel processes isolate one source module per campaign in the same ho
   const mapDraft = shard([{ ...scene('Cellar'), summary: 'Cellar contains a ledger.' },
     { node_id: 'asset-plate', node_kind: 'asset', name: 'Atlas Plate', visibility: 'player-safe', source_refs: refs, properties: { image_sources: PLATE_CROP } },
     { node_id: 'handout-atlas', node_kind: 'handout', name: 'Atlas', visibility: 'player-safe', source_refs: refs,
-      properties: { map_regions: [{ region_id: 'dock', name: 'Dock', source_asset: 'asset-plate', source_box: [0, 0, 1, 1], placement: [0, 0, 1, 1] }] } }],
+      properties: { map_scope: 'area', map_regions: [{ region_id: 'dock', name: 'Dock', source_asset: 'asset-plate', source_box: [0, 0, 1, 1], placement: [0, 0, 1, 1] }] } }],
     ['scene-cellar', 'asset-plate', 'handout-atlas']);
   const result = await finish(ownerA, A, jobA, mapDraft, [{ node_id: 'asset-plate', path: plate, sha256: sha(png) }]);
   assert.equal(result.generation, dock.generation + 1);

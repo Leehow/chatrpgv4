@@ -59,9 +59,9 @@ const REFS = [{page: 1}];
 const BOX_A = [0.05, 0.05, 0.95, 0.52], BOX_B = [0.08, 0.03, 0.92, 0.48];
 const region = (id, box, asset) => ({region_id: id, name: id, source_asset: asset, source_box: box, placement: box});
 const MAP_A = {node_id: 'asset-map-harbor-village', node_kind: 'asset', name: 'Harbor village', visibility: 'player-safe', source_refs: REFS,
-	properties: {image_sources: [{page: 1, box: BOX_A}], map_regions: [region('inn', [0.1, 0.1, 0.3, 0.3], 'asset-map-harbor-village'), region('church', [0.5, 0.5, 0.7, 0.7], 'asset-map-harbor-village')]}};
+	properties: {image_sources: [{page: 1, box: BOX_A}], map_scope: 'area', map_regions: [region('inn', [0.1, 0.1, 0.3, 0.3], 'asset-map-harbor-village'), region('church', [0.5, 0.5, 0.7, 0.7], 'asset-map-harbor-village')]}};
 const MAP_B = {node_id: 'asset-harbor-village-map', node_kind: 'asset', name: 'Harbor village map', visibility: 'player-safe', source_refs: REFS,
-	properties: {image_sources: [{page: 1, box: BOX_B}], map_regions: [region('inn-b', [0.12, 0.15, 0.32, 0.4], 'asset-harbor-village-map'), region('lighthouse', [0.7, 0.1, 0.9, 0.3], 'asset-harbor-village-map')]}};
+	properties: {image_sources: [{page: 1, box: BOX_B}], map_scope: 'area', map_regions: [region('inn-b', [0.12, 0.15, 0.32, 0.4], 'asset-harbor-village-map'), region('lighthouse', [0.7, 0.1, 0.9, 0.3], 'asset-harbor-village-map')]}};
 /** The lighthouse of MAP_B expressed in MAP_A's frame: the same page coordinates, divided by MAP_A's own crop. */
 const LIGHTHOUSE_IN_A = region('lighthouse', [0.687, 0.053, 0.873, 0.245], 'asset-map-harbor-village');
 const depicts = subject => ({subject_id: subject, predicate: 'depicts', object: {node_id: 'scene-dock'}, truth_status: 'authored-fact', source_refs: REFS});
@@ -261,7 +261,8 @@ test('§152.4 same print: the reviewer is asked once, the draft is repaired onto
 		assert.equal(findings.details.existing.node_id, MAP_A.node_id);
 		assert.deepEqual(findings.details.existing.image_sources, MAP_A.properties.image_sources);
 		assert.deepEqual(findings.details.existing.map_regions.map(row => row.region_id), ['inn', 'church']);
-		return delta([{...MAP_A, properties: {image_sources: MAP_A.properties.image_sources, map_regions: [LIGHTHOUSE_IN_A]}}], [depicts(MAP_A.node_id)]);
+		// §39.4: a draft that grows a map says its kind; this reader's packet was claimed before the published map existed.
+		return delta([{...MAP_A, properties: {image_sources: MAP_A.properties.image_sources, map_scope: 'area', map_regions: [LIGHTHOUSE_IN_A]}}], [depicts(MAP_A.node_id)]);
 	}});
 	await host.run(second);
 	assert.equal(host.runs.identity, 1, 'the identity reviewer was asked once');

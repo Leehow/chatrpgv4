@@ -50,7 +50,7 @@ export async function checkSourceDraft(content: string, packetPath: string, draf
         if (packet.opening_batch === true && packet.purpose === 'opening') checkOpeningBatch(row(draft),packet.focus,packet.known_nodes,packet.opening_scope==='first_interaction',packet.known_claims);
         const path = join(dirname(packetPath), 'baseline.json');
         const baseline = await snapshots.pathExists(path) ? row(await snapshots.readJson(path)) : null;
-        return { ok: true, required_review: filled.required_review, required_view_pages: [...new Set([...requiredViewPages(row(draft), baseline),...(packet.source_unit?array(packet.pages).map(number):[])])] };
+        return { ok: true, required_review: filled.required_review, required_view_pages: [...new Set([...requiredViewPages(row(draft), baseline),...(packet.source_unit||packet.map_scope?array(packet.pages).map(number):[])])] };
     }
     catch (error) {
         if (error instanceof RpcError)
