@@ -30264,3 +30264,19 @@ with no provider call. The reducer preserves landed receipts and composes only e
 Checks remain unresolved, and the existing check-selection notice carries the packing reason outside
 the fiction. The prose model receives no authority to select a check or invent its outcome. The guard's
 UTF-8-byte token upper bound and confidence gates remain unchanged.
+
+### 159.7 Social preliminary adjudication and executor identity (2026-09-30)
+
+Two real requests for an NPC to waive labor remained unresolved at necessity probabilities .69-.76.
+The catalog issued `social:adjudicate-difficulty`, but the selector asked whether a dice check was
+required before the operation that determines automatic/conditional/roll feasibility had run. The
+same generic question's NPC-executor condition could also be read as requiring the NPC target to
+agree to the requested favor first. Agreement is the sought effect, not the player's prerequisite.
+
+The kernel issues social option facts `stage:difficulty_adjudication`, `actor_role` and `target_role`
+from canonical party/presence identity. For an investigator executor the selector asks whether the
+player makes the current influence attempt requiring this preliminary adjudication. It does not
+require target agreement, choose a social outcome or assert that a roll must follow. Already agreed
+routine cooperation, hypothetical discussion and settled attempts remain excluded. NPC-executed
+work retains its existing consent requirement. Kernel arithmetic still computes social feasibility
+and difficulty; subsequent roll ownership remains Jev. No confidence gate is lowered.

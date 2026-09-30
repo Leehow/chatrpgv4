@@ -177,7 +177,9 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         for (const person of people) {
             const skills = own.map(profile => profile.skill).filter(skill => Object.values(SOCIAL_APPROACH_SKILLS).includes(skill));
             add('social:adjudicate-difficulty', `${actor}: influence ${person.name} with a social approach`, {actor, target: person.name, intent: 'social'},
-                [parameter('skill', 'Which social skill implements the player-chosen approach?', skills), ...modifiers()]);
+                [parameter('skill', 'Which social skill implements the player-chosen approach?', skills), ...modifiers()], [], 'declaration',
+                {stage: 'difficulty_adjudication', actor_role: campaign.party.some(sheet => sheet.name === actor) ? 'investigator'
+                    : people.some(person => person.name === actor) ? 'npc' : 'unknown', target_role: 'npc'});
             if (own.some(profile => profile.skill === 'Psychology'))
                 add('psychology:observe-concealed', `${actor}: observe ${person.name} with Psychology`, {actor, target: person.name, skill: 'Psychology'});
             const opposing = [...Object.keys(row(row(person.profile).skills)), ...Object.keys(row(row(person.profile).characteristics))];

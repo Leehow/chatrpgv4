@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {selectCheck, validateCheckOptions} from '../../runtime/jev/resolve-selection.ts';
+import {selectCheck, specializedTriggerQuestion, validateCheckOptions} from '../../runtime/jev/resolve-selection.ts';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {initialView, next, startStep, settleCheckSelection, settleExecute, settleRead, keeperOwns, interpretBind, interpretRoute} from '../../runtime/jev/step-policy.ts';
@@ -10,6 +10,34 @@ const scope = {owner: 'check-selection', campaign: 'table', worldline: 'main', l
 const listen = {key: 'listen', family: 'core-check', label: 'Listen', action: {actor: 'Ada', decision: 'core-check:ordinary-check', skill: 'Listen'},
   parameters: [], needs: [], authorization: 'declaration'};
 const spot = {...listen, key: 'spot', label: 'Spot Hidden', action: {...listen.action, skill: 'Spot Hidden'}};
+
+const social = {key: 'social', family: 'social', label: 'Ada influences the attendant',
+  action: {actor: 'Ada', target: 'Attendant', decision: 'social:adjudicate-difficulty', intent: 'social'},
+  facts: {stage: 'difficulty_adjudication', actor_role: 'investigator', target_role: 'npc'},
+  parameters: [{name: 'skill', question: 'Which declared social approach?', options: [{label: 'Persuade', value: 'Persuade'}]}],
+  needs: [], authorization: 'declaration'};
+
+test('a player influence attempt reaches preliminary adjudication without requiring NPC work consent or claiming a roll', async t => {
+  const {input, seen} = setup(t, (_batch, question) => question.type === 'noul' ? noul(.99) : choice(question, 'value_0'), [social]);
+  input.declaration = 'I ask the attendant to waive the labor fee and try to persuade him that I cannot afford it.';
+  input.context = {public_exchange: 'The attendant offered paid help. No waiver has been agreed.', current_receipts: []};
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'selected');
+  assert.equal(result.action.decision, 'social:adjudicate-difficulty');
+  assert.equal(result.action.skill, 'Persuade');
+  const batch = seen.find(batch => batch.family === 'check-selection-need');
+  assert.deepEqual(batch.state.checks.check_0.facts, social.facts);
+  assert.ok(batch.questions[0].instructions.includes('preliminary difficulty adjudication, not yet a dice roll'));
+  assert.equal(result.action.motive, undefined, 'the trigger must not invent target willingness or motive');
+});
+
+test('the social preparation question preserves negative and unresolved verdicts and NPC executor consent', async t => {
+  for (const [p, status] of [[.1, 'no_roll'], [.5, 'unresolved']]) {
+    const {input} = setup(t, () => noul(p), [social]);
+    assert.equal((await selectCheck(input)).status, status);
+  }
+  assert.equal(specializedTriggerQuestion({...social, facts: {...social.facts, actor_role: 'npc'}}), undefined);
+});
 
 test('source-specific checks reach their binder before a general skill search', () => {
   const ordinary = {key: 'ordinary', verb: 'resolve', family: 'core-check', label: 'ordinary check', clerk: 'declared_check',

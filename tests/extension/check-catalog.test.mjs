@@ -87,6 +87,8 @@ test('a wounded NPC is a bound patient before necessity, and an out-of-session p
   const candidates = buildCandidates({capsule: await call('table.capsule'), applyOptions: await call('table.apply.options'), resolveOptions: options}, 'I treat the porter.');
   assert.ok(candidates.some(row => row.bound.decision === 'chase:start'), 'starting a chase does not require an existing chase');
   const pursuit = options.selection.options.find(option => option.action.decision === 'chase:start');
+  const influence = options.selection.options.find(option => option.action.decision === 'social:adjudicate-difficulty' && option.action.actor !== 'Porter' && option.action.target === 'Porter');
+  assert.deepEqual(influence.facts, {stage: 'difficulty_adjudication', actor_role: 'investigator', target_role: 'npc'});
   assert.equal(pursuit.action.target, 'Porter');
   assert.equal(pursuit.action.intent, undefined, 'an unbound intent is not a contradictory default fact');
   assert.equal(candidates.find(row => row.bound.decision === 'healing:first-aid-ordinary').detail.check_options[0].action.target, 'Porter');
