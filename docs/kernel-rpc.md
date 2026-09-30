@@ -30249,7 +30249,7 @@ focus=session. The candidate builder reads this preparation metadata only for it
 
 The Blood Road live run failed before check selection: compile packed, but the next route exceeded
 the local state-plus-question upper bound. Kernel objects are not decision projections. Source-presence
-options now issue only the actor's identity, summary and authored placement conditions, plus the scene
+options now issue only the actor's identity, summary, runtime source needs and authored placement conditions, plus the scene
 summary; unrelated biography properties, statistics and relations stay in the graph. Route shares equal
 scene summaries once. It supplies concrete action/trigger facts, not the detailed family guidance used
 by the selected check binder. No source condition is truncated to make a request fit.
