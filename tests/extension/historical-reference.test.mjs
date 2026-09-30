@@ -87,6 +87,19 @@ test('an open allowance still permits catalogue and named source recovery in the
   assert.equal(read.status,'ready');assert.deepEqual(read.materials[0].excerpts,raw.results[0].highlights);
   assert.equal(f.requests.length,1);
 });
+test('a host-owned parent closure returns advisory unavailability before any historical work',async t=>{
+  let decisions=0;const f=await fixture(t,{decide:async batch=>{decisions++;return decision(batch);}});
+  const retrieval={state:'closed',reason:'turn_budget_exhausted'};
+  await f.service.search({...f.input,reference_mode:'catalog',retrieval});
+  for(const reference_mode of ['auto','web','saved','catalog','read']){
+    const result=await f.service.search({...f.input,reference_mode,name:'Any saved name'});
+    assert.equal(result.status,'unavailable');assert.equal(result.reason,'turn_budget_exhausted');
+    assert.deepEqual(result.retrieval,retrieval);
+  }
+  assert.equal(f.requests.length,0);assert.equal(decisions,0);
+  assert.equal((await f.service.search({...f.input,retrieval,current:()=>false})).reason,'stale_or_cancelled');
+  assert.equal((await f.service.search({...f.input,binding:'next-input',turn:2})).status,'ready');
+});
 test('source-less results and unselected excerpts stay empty',async t=>{
   const f=await fixture(t,{fetcher:async()=>Response.json({results:[{url:'https://example.org',title:'Title only'}]})});
   assert.equal((await f.service.search(f.input)).status,'empty');

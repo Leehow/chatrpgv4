@@ -4,12 +4,13 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {EXA_ENV,HISTORY_NEED,HISTORY_CLOSED,historyFinalAnswerPayload} from '../../runtime/historical-reference.ts';
 import {JEV_MODEL} from '../../runtime/jev/question-packing.ts';
 
-async function table({enabled=true,needed=true,narrator=true}={}) {
+async function table({enabled=true,needed=true,narrator=true,now}={}) {
   const bus=new Map(),handlers=new Map(),announced=[],batches=[];
   let scene='archive';
   const pi={events:{on:(name,fn)=>bus.set(name,fn),emit:(name,value)=>{if(name==='coc:model-step')announced.push(value);bus.get(name)?.(value);}},
     on:(name,fn)=>handlers.set(name,fn),registerTool:()=>{},getActiveTools:()=>['look','lookup','recall','apply','resolve','narrate','ask'],setActiveTools:()=>{}};
   const engine=createHybridEngine({env:{[EXA_ENV]:'test-exa-key',TYPESAFE_API_KEY:'test-jev-key',COC_NARRATOR_ONLY:narrator?'on':'off'},
+    ...(now?{now}:{}),
     npcAct:null,decision:{decide:async batch=>{batches.push(batch);return {batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key===HISTORY_NEED&&needed?0.95:0.01}])),issues:[],coverage:{required:[],answered:[],unknown:[]}};}}});
   engine.extension(pi);
   pi.events.emit('coc:kernel-bridge',{campaign:'c',call:async method=>method==='table.capsule'
@@ -62,7 +63,9 @@ for(const narrator of [false,true])test(`terminal history result reaches the nex
   await f.refresh();assert((await f.project()).includes(HISTORY_CLOSED),'a scene refresh cannot reopen the same input resource');
   for(const reference_mode of ['auto','web','saved','catalog','read']){
     const result=await f.call('historical_reference',{reference_mode,query:'another topic',name:'Another source'});
-    assert.equal(result.refuse_code,'historical_retrieval_closed');assert.equal(result.refuse,HISTORY_CLOSED);
+    assert.equal(result.refuse,undefined,'optional resource closure is advisory, not a batch-cancelling error');
+    assert.equal(result.historical_reference.allowed,false);
+    assert.deepEqual(result.historical_reference.retrieval,{state:'closed',reason:'budget_exhausted'});
   }
   const tools=[{type:'function',name:'lookup'},{type:'function',name:'narrate'}];
   const request={input:[{role:'user',content:'Answer from the saved excerpts.'}],tools};
@@ -92,4 +95,16 @@ test('native final-answer modes keep the stable tool definitions and transport f
     assert.equal(payload.config.toolConfig.functionCallingConfig.mode,'ANY');
   }
   assert.equal(historyFinalAnswerPayload('unsupported',{}),undefined);
+});
+test('the existing whole-turn budget closes optional history even when local reads are fast',async()=>{
+  let elapsed=0;const f=await table({now:()=>elapsed,narrator:false});
+  await f.call('historical_reference',{reference_mode:'saved'},{kind:'historical_reference',status:'ready',materials:[{excerpts:['A saved period fact.']}]});
+  assert((await f.project()).includes('Historical reference is available'));
+  elapsed=45001;
+  const note=await f.project();assert(note.includes(HISTORY_CLOSED));assert(note.includes('turn_budget_exhausted'));
+  const attempted=await f.call('historical_reference',{reference_mode:'catalog'});
+  assert.equal(attempted.refuse,undefined);
+  assert.deepEqual(attempted.historical_reference.retrieval,{state:'closed',reason:'turn_budget_exhausted'});
+  const final=f.handlers.get('before_provider_request')({payload:{input:[],tools:[]}},{model:{api:'openai-responses'}});
+  assert.equal(final.tool_choice,'none');
 });
