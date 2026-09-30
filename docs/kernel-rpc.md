@@ -6567,6 +6567,34 @@ their evidence and do not pretend the item worked.
 
 #### Prepared usages (prefetch)
 
+**2026-09-30 amendment: ordinary possessions wait for an actual attack.**
+An ordinary `item` remains an inventory object. Only a definition explicitly
+categorized as `weapon` is eligible for speculative attack-usage prefetch;
+the host filters the declared category and the kernel enforces it at job creation
+and acceptance. `mods.prefetch.targets` includes `category` beside each instance's
+existing fields. No name classifier, damage default or arbitrary property editor
+is introduced. A player- or NPC-chosen improvised attack uses the existing
+`apply usage` then `resolve` path in the same turn.
+
+Already recorded ordinary-item usages with `provenance.prefetched: true` are
+retained as preparation evidence, but are neither executable nor projected as
+player-known capabilities until `apply usage` registers that actual chosen use.
+The registration may reuse its unchanged parameters and id. It records
+`world.objects.usage_activations[usage_id] = true` separately from the immutable
+usage record; ordinary action-generated records remain active without this map.
+Only the existing apply registration writes activation. Combat selection, NPC
+weapon choice, object look/context and public views read the same activation
+gate. Physical-basis and ownership checks still apply after activation. Reading
+an old save does not rewrite its definitions, usages or evidence.
+
+The public sheet keeps an ordinary item in inventory even after an attack usage
+is registered. Its object view carries `usages: [{name, parameters}]`, restricted
+to applicable active usages and each usage's existing `player_view.fields`.
+The inventory detail fold displays those named uses below the object's own facts;
+it does not move the item into the weapons section. Explicit weapons retain their
+weapon presentation. The internal combat catalog may still hold usage-backed rows
+for either category; the public sheet is a separate projection.
+
 **Who writes, who reads, who acts.** After a committed turn the host may request
 optional usage proposals for physical instances in the active scene or held by
 investigators/NPCs. The same tool-enabled creator writes at most one plausible

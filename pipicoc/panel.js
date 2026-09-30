@@ -743,6 +743,7 @@ export function createComponent(React) {
         // also among its player fields, once more as a parameter. The prose is printed; the
         // parameter only stays when it says something the prose does not.
         const description=object?.description?text(object.description):"";
+        const usages=object?.category==="item"?(object.usages || []):[];
         if(description)line.details=line.details.filter(({key,value})=>key!=="description"||text(value)!==description);
         if(object){
           for(const trait of object.traits || []) line.details.push({key:`trait:${trait.name}`,label:term(trait.name),value:`${term(text(trait.value))}${trait.unit?' '+term(trait.unit):''}`});
@@ -760,10 +761,14 @@ export function createComponent(React) {
           writable?.container?h("p",{className:"coc-sheet-note",key:"container"},props.insideLabel," ",term(writable.container)):null,
           line.details.length?h("dl",{className:"coc-inventory-params",key:"params"},line.details.map(({key,label,value,wide})=>
             h("div",{key,className:wide?"coc-inventory-wide":undefined},h("dt",null,label||t(`item.${key}`,term(key))),h("dd",null,valueText(value))))):null,
+          ...usages.map(usage=>h("div",{className:"coc-inventory-usage",key:`usage:${usage.name}`},
+            h("strong",null,term(text(usage.name))),
+            h("dl",{className:"coc-inventory-params"},weaponDetails(usage.parameters || {}).map(({key,value,wide})=>
+              h("div",{key,className:wide?"coc-inventory-wide":undefined},h("dt",null,t(`item.${key}`,term(key))),h("dd",null,valueText(value))))))),
         ].filter(Boolean);
         // Keyed by name so an entry that changes place is drawn afresh (closed) rather than
         // inheriting the open fold of whatever stood at its index before.
-        return h("li",{className:"coc-inventory-entry",key:`${line.title}:${index}`,"data-detailed":line.details.length>0?"true":"false"},
+        return h("li",{className:"coc-inventory-entry",key:`${line.title}:${index}`,"data-detailed":line.details.length>0||usages.length>0?"true":"false"},
           body.length
             ? h("details",{className:"coc-inventory-fold"},
                 h("summary",{className:"coc-inventory-heading"},nameNode,h("span",{className:"coc-inventory-trail"},quantity)),
@@ -1144,18 +1149,16 @@ export function createComponent(React) {
       sheet ? h(Skills, { sheet, t, term }) : null,
       documentWindow,
       h("style",null,PAPER_STYLE),
-      sheet ? h(ItemSection, { title: t("weapons"), icon: "swords", anchor: "weapons", list: sheet.weapons, objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term,
+      sheet ? h(ItemSection, { title: t("weapons"), icon: "swords", anchor: "weapons", list: (sheet.weapons || []).filter(weapon=>!(sheet.objects || []).some(item=>item.name===weapon.name&&item.category==="item")), objects:(sheet.objects || []).filter(item=>item.category==="weapon"), t, term,
         documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
         onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
       sheet && view.presentation_status ? h(Section,{title:t("equipment"),icon:"backpack",anchor:"equipment"},
         h("p",{className:"coc-sheet-note",role:"status"},view.presentation_status==="failed"?t("errorDetail"):t("loading")),
         view.presentation_status==="failed"?h("button",{type:"button",onClick:()=>{void load(true);}},t("retry")):null) :
-      // A carried gun is both: a combat profile in `weapons` and an inventory row in `equipment`, which
-      // is right in the data and wrong on the page -- a live sheet drew the same pistol in the weapons
-      // box and again in the inventory one. An object with a combat profile is drawn where that profile
-      // lives, once.
+      // Explicit weapons appear once under weapons. An ordinary object keeps its inventory identity;
+      // its applicable attack usages are details of that object, not a reason to move it.
       sheet ? h(ItemSection, { title: t("equipment"), icon: "backpack", anchor: "equipment", list: (sheet.equipment || []).filter(item => !view.finance_equipment?.includes(item)
-        && !(item && item.object_id && (sheet.weapons || []).some(weapon => weapon && weapon.object_id === item.object_id))), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
+        && !(item && item.object_id && !(sheet.objects || []).some(object=>object.name===item.name&&object.category==="item") && (sheet.weapons || []).some(weapon => weapon && weapon.object_id === item.object_id))), objects:(sheet.objects || []).filter(item=>item.category!=="weapon"), empty: t("noEquipment"), t, term,
         documents:sheet.objects, insideLabel:word(ui,"paper","inside"), paperLabel:word(ui,"paper","open"),
         onOpenDocument:name=>setDocumentTarget({name,actor:sheet.id,campaign:answer.campaign}) }) : null,
       sheet ? h(Finance, { sheet, t, term }) : null,

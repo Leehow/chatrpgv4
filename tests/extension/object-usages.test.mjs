@@ -33,6 +33,25 @@ test('ordinary objects gain executable usages without replacing their definition
   assert.notEqual(weapon.weapon_id,'o1');
 });
 
+test('historical ordinary-item prefetch remains evidence until the chosen usage is registered', () => {
+  const w = world(), basis = api.usagePhysicalBasis(w, 'Study chair');
+  const prepared = api.registerUsage(w, 'Study chair', raw(), basis, {mod:'enhanced-items', digest:'provider', job:'old-proposal', prefetched:true});
+  const evidence = structuredClone(w.objects.usages), physical = structuredClone(w.objects.instances);
+  assert.deepEqual(api.usageWeaponRows(w, 'p1'), [], 'speculative preparation is not an attack capability');
+  assert.deepEqual(api.usageViews(w, 'Study chair'), []);
+  assert.throws(() => api.selectObjectWeapon(w, 'Study chair', 'swing', 'p1'), /prepared usage/);
+  const active = accept(w);
+  assert.equal(active.id, prepared.id, 'the real action reuses the same accepted parameters');
+  assert.deepEqual(w.objects.usages, evidence, 'historical evidence remains immutable');
+  assert.deepEqual(w.objects.instances, physical, 'activation neither moves nor duplicates the item');
+  assert.equal(w.objects.usage_activations[prepared.id], true);
+  assert.equal(api.selectObjectWeapon(w, 'Study chair', 'swing', 'p1').damage, '1D6');
+  w.objects.instances.o1.owner = {kind:'npc', id:'n1', name:'Keeper actor'};
+  assert.equal(api.selectObjectWeapon(w, 'Study chair', 'swing', 'n1').object_id, 'o1');
+  w.objects.instances.o1.state.condition = 'broken';
+  assert.deepEqual(api.usageWeaponRows(w, 'n1'), [], 'activation does not bypass physical-basis checks');
+});
+
 test('accepted parameters are immutable and reused across transfers and resource changes', () => {
   const w=world(), first=accept(w), before=JSON.stringify(w.objects.usages);
   assert.equal(accept(w).id,first.id);

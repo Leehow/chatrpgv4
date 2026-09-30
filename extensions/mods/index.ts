@@ -157,13 +157,14 @@ export default function modsExtension(pi: ExtensionAPI): void {
       // Commit events name the delivered turn; the retained idle turn may already be its successor.
       const ready = (view: any): boolean => !stopped && epoch === prefetchEpoch && view.turn >= turn
         && view.state === 'awaiting_player' && !view.pending_choice;
-      const scan = {scanned: 0, candidates: 0, started: 0, skipped: {has_any_usage: 0, covered: 0},
+      const scan = {scanned: 0, candidates: 0, started: 0, skipped: {ordinary_item: 0, has_any_usage: 0, covered: 0},
         reason: 'not_idle', retained_turn: null as number | null, state: null as string | null, worldline: null as string | null};
       try {
         const view = await current('mods.prefetch.targets', {campaign});
         scan.retained_turn = view.turn; scan.state = view.state; scan.worldline = view.worldline;
         scan.scanned = view.instances.length;
         const candidates = view.instances.filter((item: any) => {
+          if (item.category !== 'weapon') { scan.skipped.ordinary_item++; return false; }
           if (item.has_any_usage) { scan.skipped.has_any_usage++; return false; }
           if (item.covered) { scan.skipped.covered++; return false; }
           return true;
@@ -180,7 +181,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
           if (!ready(latest)) { scan.reason = 'not_idle'; break; }
           if (latest.worldline !== view.worldline) { scan.reason = 'worldline_changed'; break; }
           const target = latest.instances.find((value: any) => value.id === item.id);
-          if (!target || target.has_any_usage || target.covered) continue;
+          if (!target || target.category !== 'weapon' || target.has_any_usage || target.covered) continue;
           const began = Date.now();
           try {
             const guard = async () => {

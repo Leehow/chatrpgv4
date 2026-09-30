@@ -714,6 +714,24 @@ describe('a possession folds everything past its name', () => {
   });
 });
 
+it('keeps an ordinary object in inventory and displays chosen attack usages beneath it', async () => {
+  const carried={...investigator,
+    weapons:[{name:'Fountain pen',object_id:'pen-1',usage:'Jab',damage:'1D4'}],
+    equipment:[{name:'Fountain pen',object_id:'pen-1',quantity:1}],
+    objects:[{name:'Fountain pen',category:'item',parameters:{},state:{condition:'intact'},traits:[],
+      usages:[{name:'Jab',parameters:{damage:'1D4',skill:'Fighting (Brawl)'}},{name:'Throw',parameters:{damage:'1D3'}}]}]};
+  render(<Panel api={host({ok:true,data:{status:'ready',view:view({play_language:'en',investigators:[carried]}),campaign:'c1'}})}/>);
+  const pen=await screen.findByText('Fountain pen');
+  expect(screen.getAllByText('Fountain pen')).toHaveLength(1);
+  expect(pen.closest('section')?.getAttribute('data-anchor')).toBe('equipment');
+  expect(screen.queryByText('Weapons')).toBeNull();
+  expect(pen.closest('li')?.querySelectorAll('.coc-inventory-usage')).toHaveLength(2);
+  expect(screen.getByText('Jab')).toBeTruthy();
+  expect(screen.getByText('1D4')).toBeTruthy();
+  expect(screen.getByText('Throw')).toBeTruthy();
+  expect(screen.getByText('1D3')).toBeTruthy();
+});
+
 it('draws a carried weapon once, under the box its combat profile lives in', async () => {
   // The sheet keeps a gun twice on purpose -- a combat profile in `weapons`, an inventory row in
   // `equipment` -- and a live sheet drew the same pistol under 武器 and again under 物品.

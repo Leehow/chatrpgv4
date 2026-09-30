@@ -5,6 +5,17 @@
 - 关联：`docs/kernel-rpc.md` §26（objects.usages.v1）、`docs/specs/action-derived-object-usages.md`、ADR 0005
 - 实测证据：`.coc/campaigns/object-usages-live-sep15/`（turn 12 = 94 s，其中 creator 子进程 14.9 s；turn 13 复用 = 0 s）
 
+## Current boundary (2026-09-30)
+
+The ordinary-item prefetch behavior recorded below is superseded by the user
+ruling in kernel contract section 26: ordinary possessions acquire attack usages
+only for an actual player/NPC attack. Speculative proposals are restricted to
+explicit weapon definitions. Historical ordinary-item proposal records remain
+evidence and may be reused by `apply usage`, but are not active until that write.
+An active attack usage appears under the ordinary item's inventory details; it
+does not change the item's category or move it to the weapons section. Existing
+foreground preparation progress and parameter validation remain in use.
+
 ## Problem Statement
 
 真桌实测：玩家即兴用一件尚无用法记录的物件时，带工具的 creator 子进程约 15 秒，且发生在回合内——玩家在无声等待，之后骰子与叙事才一起回来。同一用法的第二次使用（turn 13）已经是 0 秒。
