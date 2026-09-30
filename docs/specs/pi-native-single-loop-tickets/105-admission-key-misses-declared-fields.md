@@ -1,4 +1,4 @@
-Status: ready-for-human (filed 2026-09-29, found in passing during SL-104; fixed on `claude/admission-effect-signature-20260929`)
+Status: ready-for-human (filed 2026-09-29, found in passing during SL-104; fixed on `claude/admission-effect-signature-20260929` and fast-forwarded into 0.9.6a the same day, owner: "合进兵提交")
 Stage: SL-105 (admission: the reuse key missed fields the reviewed kinds declare, so a verdict on one time cost was reused for another)
 Spec: docs/kernel-rpc.md §32.4 (reuse key), §32.4.1 and §32.4.2 (this ticket), §32.12.3.1.1 (SL-104's batch-mates in a line key), §32.12.3 (whole-batch resend recognition), §32.12.3.1 (line keys); `extensions/kernel/admission.ts` (`effectSignature`, `admissionRequest`), `extensions/kernel/tools.ts` (the `apply` effect schemas, the `resolve` action, `SENTENCE_FIELDS`)
 
@@ -47,10 +47,11 @@ Fixing the class means the next field cannot slip past unnoticed.
   is reused for something it never saw, wider and a key change re-sends the reviewer the same input. So "does this field
   identify a `resolve`" became "should the reviewer read it", answered by §32.2 (the choice, never the result):
   - read and keyed, new: `skills`, `support`, `rule`, `obligation`, `intent_ref`, `intent_outcome`; `outcome` was already
-    read and is now keyed (a verdict on `investigators_win` was reused for `fled`); `usage` was already keyed;
+    read and is now keyed (a verdict on `investigators_win` was reused for `fled`); `usage` was already keyed; `decision`
+    since §159.5 (see the Comments: it landed first, and moved `decision` here from the list below);
   - read, not keyed: `stakes` (unchanged);
   - neither: `modifiers`, `coercion`, `surprise`, `motive`, `mode`, `step`, `san_loss`, `involuntary`, `interrupted`, `rest`,
-    `ending`, `scenario_san_reward_expr`, `decision`, `choice`.
+    `ending`, `scenario_san_reward_expr`, `choice`.
   A `resolve` without the added fields reads and keys byte for byte as before (checked against the pre-change module).
 
 ## Tests (`tests/extension/admission-effect-signature.test.mjs`)
@@ -112,3 +113,67 @@ is clean.
 | R4 | the pre-change line list, new key | support seam, resolve schema guard |
 | R5 | `modifiers` read and keyed | stakes/dice seam, resolve schema guard |
 | R6 | `outcome` dropped from the key only | resolve schema guard, legacy line/key (outcome) |
+
+**2026-09-29, box suites on 0.9.6a's head** (leehow-pc; the two SL-105 commits rebased onto 0.9.6a@60b9dd842, code head
+195813da3):
+
+```
+== ext on leehow-pc @ 195813da3e9ec1f66290bc16d17f9b09f13911ae: exit=0 wall=310s   (tests 4046, pass 4046, fail 0)
+== py on leehow-pc @ 195813da3e9ec1f66290bc16d17f9b09f13911ae: exit=0 wall=304s   (2069 passed, 2 skipped)
+```
+
+The same suites were green at c85f040c4 + this ticket (ext 4043/4043, py 2069 passed). Before that rebase, ext at
+7fc05498d had one red: SL-104's pure case that used `via` as an unkeyed batch-mate field (see "Not done here"). The App
+was not repackaged.
+
+**2026-09-29, later: the guard caught its first new field.** While the fast-forward waited on the shared checkout,
+0.9.6a gained §158.5's `owed` on `move`, `time`, `cash` and `object` (and `npc`, which no reviewer reads). Rebased onto
+cf25d5f3c, the schema guard went red with `move.owed is declared but not read by effectSignature (§32.4.1)`: exactly the
+drift this ticket is about, stopped at test time instead of reaching a table. `owed` names the owed row the kernel lands (a
+write), so it is identifying: added to `IDENTIFYING_FIELDS` and to §32.4.1's table. A batch whose every effect is owed is
+admitted on `told` with no review (§158.5); in a mixed batch the lane reads `owed=` like any field, so its verdict can
+turn on it.
+
+Box suites after `owed` (leehow-pc, rebased onto 0.9.6a@cf25d5f3c, head e0e8cc14b):
+
+```
+== ext on leehow-pc @ e0e8cc14b8e27c3b39df3059146c4942e19f5a6c: exit=1 wall=319s   (tests 4080, pass 4079, fail 1)
+== py on leehow-pc @ e0e8cc14b8e27c3b39df3059146c4942e19f5a6c: exit=0 wall=324s   (2072 passed, 2 skipped)
+```
+
+The one ext failure is 0.9.6a's own: `contract-section-numbers.test.mjs` ("a section number cited from the code exists in
+the contract") names §157, cited by `experiments/first-prose-latency/prose_first_by_window.py` (7afbd6aec) before the
+contract has that section. It fails the same way on cf25d5f3c alone (a detached worktree, the one file).
+
+Rebased again onto 0.9.6a@6d870987b (head 007e66ee3), while the fast-forward still waited on the shared checkout:
+
+```
+== ext on leehow-pc @ 007e66ee3da4cef2d6b7523d92ca4fcc0d26a1ee: exit=0 wall=332s   (tests 4113, pass 4113, fail 0)
+== py on leehow-pc @ 007e66ee3da4cef2d6b7523d92ca4fcc0d26a1ee: exit=1 wall=296s   (2 failed, 2072 passed, 2 skipped)
+```
+
+The §157 failure is gone (6d870987b wrote the section). The two py failures are 6d870987b's own, in
+`tests/kernel/test_jev_resolve.py` (`test_options_is_read_only_and_uses_canonical_sheet_and_rule_vocabulary`,
+`test_options_does_not_change_the_existing_resolve_call_or_exact_replay`): the same two fail on 6d870987b alone
+(`== py on leehow-pc @ 6d870987b...: exit=1`, 2 failed, 6 passed). SL-105 touches no `kernel-ts/` file.
+
+**2026-09-30, merged into 0.9.6a on the owner's instruction.** The shared checkout's uncommitted work (another session's,
+idle since 09:36) was committed as found on the owner's word ("那你都提交了吧") as e8607be3b. It carried §159.5, which had
+already changed the `resolve` line this ticket changes: heading `settle the specified rule operation`, `decision` read and
+keyed, `outcome` keyed ("permission for one ending cannot authorize another"). The rebase conflicted in `admissionRequest`;
+resolved by keeping §159.5's heading and putting `decision` in `RESOLVE_REVIEWED_FIELDS` (after `actor`, §159.5's order).
+§32.4.2 and §32.4's pointer now say so, and the test's not-read list no longer names `decision`. §159.5 and §32.4.2 agree
+on the rule (the key is what the reviewer reads); §32.4.2 had filed `decision` under "outside by §32.4", which §159.5
+superseded with a reason this ticket did not have (a `combat:end` refused as an unrequested roll).
+
+Box suites on the branch rebased onto e8607be3b (head bfa16d999), before the fast-forward:
+
+```
+== ext on leehow-pc @ bfa16d9995497b85e8b6597f51c87c69b1bf10f1: exit=0 wall=549s   (tests 4171, pass 4171, fail 0)
+== py on leehow-pc @ bfa16d9995497b85e8b6597f51c87c69b1bf10f1: exit=1 wall=322s   (3 failed, 2071 passed, 2 skipped)
+```
+
+The three py failures are the base's, all three reproduced on e8607be3b alone (`== py on leehow-pc @ e8607be3b...:
+exit=1`, the two files, 3 failed, 11 passed): the two `tests/kernel/test_jev_resolve.py` cases from 6d870987b and
+`tests/kernel/test_npc_produce.py::test_the_budget_cuts_what_the_table_brought_out_before_what_he_holds`, which arrived
+with e8607be3b. SL-105 adds no failure. Owed to whoever owns those two workstreams, not to this ticket.
