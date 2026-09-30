@@ -89,14 +89,14 @@ def publish_tower_map(kernel, mid, job):
         {"node_id": "asset-tower-plate", "node_kind": "asset", "name": "Tower plate", "visibility": "player-safe",
          "source_refs": REFS, "properties": {"image_sources": [{"page": 2}]}},
         {"node_id": "handout-tower-plan", "node_kind": "handout", "name": "Tower plan", "visibility": "player-safe",
-         "source_refs": REFS, "properties": {"map_regions": [{"region_id": "top-room", "name": "Top room",
+         "source_refs": REFS, "properties": {"map_scope": "interior", "map_regions": [{"region_id": "top-room", "name": "Top room",
             "source_asset": "asset-tower-plate", "source_box": [0, 0, 1, 1], "placement": [0, 0, 1, 1]}]}}],
         "claims": [{"subject_id": "handout-tower-plan", "predicate": "depicts", "object": {"node_id": "scene-tower"},
                     "truth_status": "authored-fact", "source_refs": REFS}],
         "node_refs": [], "coverage": {}, "dependencies": [], "critical": [], "ready_nodes": ["asset-tower-plate", "handout-tower-plan"]}
     boxes = [f"/nodes/1/properties/map_regions/0/{box}/{n}" for box in ("source_box", "placement") for n in range(4)]
     write(work / "draft.json", draft)
-    write(work / "review.json", {"checked": [{"paths": ["/nodes/0", "/nodes/1", *boxes, "/claims/0", "/coverage"],
+    write(work / "review.json", {"checked": [{"paths": ["/nodes/0", "/nodes/1", "/nodes/1/properties/map_scope", *boxes, "/claims/0", "/coverage"],
         "verdict": "supported", "source_refs": REFS}], "missing": []})
     return finish(kernel, job, campaign="c1", assets=[{"node_id": "asset-tower-plate", "path": str(plate),
         "sha256": hashlib.sha256(IMAGE).hexdigest()}])

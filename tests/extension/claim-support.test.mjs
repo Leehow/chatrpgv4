@@ -146,18 +146,20 @@ async function verifyRound(t, { claimSupport, extra } = {}) {
 }
 const claimRows = (rows, event = "claim_support") => rows.filter((row) => row.event === event);
 
-test("§151.3 eligibility is structural: coverage, image sources, map regions, region citations and pages without native text keep the vision reviewer", () => {
+test("§151.3 eligibility is structural: coverage, image sources, map regions, a map's kind, region citations and pages without native text keep the vision reviewer", () => {
 	const draft = fragment();
 	draft.nodes.push({ node_id: "handout-chart", node_kind: "handout", name: "Harbor chart", visibility: "player-safe", source_refs: [{ page: 4 }],
 		properties: { image_sources: [{ page: 4, box: [0, 0, 1, 1] }] } });
 	draft.nodes.push({ node_id: "location-docks-map", node_kind: "location", name: "Docks", source_refs: [{ page: 1 }],
 		properties: { map_regions: [{ id: "north", box: [0, 0, 1, 0.5] }] } });
+	// §39.4: a map's kind is read off the printed picture, even on a page whose native text is usable.
+	draft.nodes.push({ node_id: "asset-harbor-map", node_kind: "asset", name: "Harbor map", source_refs: [{ page: 1 }], properties: { map_scope: "area" } });
 	const units = reviewUnits(draft);
 	assert.ok(units.some((paths) => paths.includes("/coverage")), "the fragment has a coverage unit");
 	const hasText = (page) => TEXT[page].trim() !== "";
 	const { candidates, ineligible } = claimCandidates(draft, units, { known_nodes: [] }, hasText, 6000);
 	assert.deepEqual(candidates.map((candidate) => candidate.root).sort(), ["/claims/0", "/nodes/0", "/nodes/1", "/nodes/2"]);
-	assert.deepEqual(ineligible, { image_source: 1, map_region: 1, no_native_text: 1, region_ref: 1 });
+	assert.deepEqual(ineligible, { image_source: 1, map_region: 1, map_scope: 1, no_native_text: 1, region_ref: 1 });
 	assert.ok(!candidates.some((candidate) => candidate.paths.includes("/coverage")), "omission review is never asked of Jev");
 	assert.deepEqual(claimCandidates(draft, [["/coverage", "/nodes/0"]], { known_nodes: [] }, hasText, 6000).candidates, [],
 		"a record reviewed inside the coverage unit stays with the vision reviewer");

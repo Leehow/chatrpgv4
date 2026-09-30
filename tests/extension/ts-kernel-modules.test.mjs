@@ -252,7 +252,7 @@ test('visual source publication validates map regions and private-source redacti
   const draft=clone(base);
   draft.nodes.push(
     {node_id:'asset-player-plan',node_kind:'asset',name:'Player plan',visibility:'player-safe',aliases:[],source_refs:refs,
-      properties:{image_sources:[{page:1}],map_regions:[{region_id:'entry',name:'Entry',source_asset:'player-plan',source_box:[0,0,.5,1],placement:[0,0,.5,1]}]}},
+      properties:{image_sources:[{page:1}],map_scope:'interior',map_regions:[{region_id:'entry',name:'Entry',source_asset:'player-plan',source_box:[0,0,.5,1],placement:[0,0,.5,1]}]}},
     {node_id:'asset-keeper-cellar',node_kind:'asset',name:'Keeper cellar',visibility:'keeper-only',aliases:[],source_refs:refs,
       properties:{image_sources:[{page:1}]}});
   draft.ready_nodes.push('asset-player-plan','asset-keeper-cellar');

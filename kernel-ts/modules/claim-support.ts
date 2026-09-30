@@ -8,7 +8,7 @@
  * no imports and both sides load it.
  *
  * Eligibility is structural and never reads meaning: a record whose facts live in an image (an image source, a map
- * region, a region-of-page citation) or on a page with no native text keeps the vision reviewer.
+ * region, a map's kind, a region-of-page citation) or on a page with no native text keeps the vision reviewer.
  */
 
 export const CLAIM_SUPPORT_PROTOCOL = "source-claim-support-v1";
@@ -81,6 +81,8 @@ export function claimSupportIneligibility(draft: unknown, root: string, hasText:
         const properties = plain(record.properties) ? record.properties : {};
         if (Array.isArray(properties.image_sources) && properties.image_sources.length) return "image_source";
         if (Array.isArray(properties.map_regions) && properties.map_regions.length) return "map_region";
+        // Contract §39.4: a map's kind is read off the printed picture.
+        if (Object.hasOwn(properties, "map_scope")) return "map_scope";
     }
     const cited = claimRecordPages(record);
     if ("reason" in cited) return cited.reason;

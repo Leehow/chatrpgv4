@@ -16,6 +16,7 @@ import { REVIEW_VERDICTS, classificationMatcher } from './review-verdicts.js';
 import { CLAIM_SUPPORT_PROTOCOL, JEV_REVIEWER, JEV_REVIEW_RULES, claimRecordPages, claimRecordRoot, claimSupportIneligibility, pathsOverlap, claimRecord } from './claim-support.js';
 import { preserveTravel } from './route-travel.js';
 import {validVisualScan,visualCandidates} from './visual-discovery.js';
+import { checkMapScopeDraft, checkMapScopes } from './map-scope.js';
 const object = (value: any): boolean => isJsonObject(value);
 export function reject(message: string, path = '/'): never {
     throw new RpcError('invalid_params', message, {
@@ -169,6 +170,8 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
         reject(`unknown draft keys: ${repr(sorted(unknown))}`);
     if ((Object.hasOwn(draft, 'contract_id') ? draft.contract_id : VISUAL_CONTRACT_ID) !== VISUAL_CONTRACT_ID)
         reject('use the visual shard contract coc.module-graph-shard.v4');
+    // §39.4 (2026-09-30): a map-scope job's draft writes only the kind of its one map, before any other law is read.
+    if (packet.map_scope) checkMapScopeDraft(draft, packet, seen);
     let sourceNeeds;
     if(Object.hasOwn(draft,'source_needs')&&!['guidance','opening','detail'].includes(packet.purpose))reject('source_needs belongs to a checked source reading','/source_needs');
     try{sourceNeeds=validateSourceNeeds(draft.source_needs??[],number(row(packet.source).page_count));}
@@ -266,12 +269,14 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
                 reject('private map sources require reviewed redactions and safe_after_redactions', `/nodes/${i}/properties/map_regions/${n}`);
         }
     }
+    // §39.4 (2026-09-30): which kind of map each drafted map is.
+    checkMapScopes(nodes, array(packet.known_nodes));
     for (const id of [...filled.node_refs, ...filled.ready_nodes])
         if (typeof id !== 'string' || !ids.has(id))
             reject('a node reference must name a defined node');
     if (skeleton && filled.ready_nodes.length)
         reject('a skeleton cannot grant material readiness; ready_nodes must be empty', '/ready_nodes');
-    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit && !packet.visual_scan && !packet.visual_asset)
+    if (!filled.ready_nodes.length && !skeleton && !packet.source_unit && !packet.visual_scan && !packet.visual_asset && !packet.map_scope)
         reject('declare the nodes whose material this task has prepared', '/ready_nodes');
     if (filled.ready_nodes.some((id: string) => !defined.has(id)))
         reject('ready_nodes must be present in the draft so their material can be independently reviewed', '/ready_nodes');
@@ -340,6 +345,9 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
             required.add(path);
         if (filled.ready_nodes.includes(node.node_id) || packet.purpose === 'guidance')
             required.add(`/nodes/${i}`);
+        // §39.4: a map's kind is checked against the original page, under either review policy.
+        if (Object.hasOwn(row(node.properties), 'map_scope'))
+            required.add(`/nodes/${i}/properties/map_scope`);
     }
     for (const [i, claim] of (filled.claims as Row[]).entries()) {
         if (!object(claim) || Object.keys(claim).some(key => !CLAIM_KEYS.includes(key)))

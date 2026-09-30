@@ -89,11 +89,11 @@ function towerWithALateMap(published) {
 		writeFileSync(plate, IMAGE);
 		read(workspace, job, { nodes: [
 			{ node_id: "asset-tower-plate", node_kind: "asset", name: "Tower plate", visibility: "player-safe", source_refs: TOWER, properties: { image_sources: [{ page: 2 }] } },
-			{ node_id: "handout-tower-plan", node_kind: "handout", name: "Tower plan", visibility: "player-safe", source_refs: TOWER, properties: { map_regions: [
+			{ node_id: "handout-tower-plan", node_kind: "handout", name: "Tower plan", visibility: "player-safe", source_refs: TOWER, properties: { map_scope: "interior", map_regions: [
 				{ region_id: "top-room", name: "Top room", source_asset: "asset-tower-plate", source_box: [0, 0, 1, 1], placement: [0, 0, 1, 1] }] } }],
 			claims: [{ subject_id: "handout-tower-plan", predicate: "depicts", object: { node_id: "scene-tower" }, truth_status: "authored-fact", source_refs: TOWER }],
 			node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ["asset-tower-plate", "handout-tower-plan"] },
-			["/nodes/0", "/nodes/1", ...["source_box", "placement"].flatMap((box) => [0, 1, 2, 3].map((n) => `/nodes/1/properties/map_regions/0/${box}/${n}`)), "/claims/0", "/coverage"],
+			["/nodes/0", "/nodes/1", "/nodes/1/properties/map_scope", ...["source_box", "placement"].flatMap((box) => [0, 1, 2, 3].map((n) => `/nodes/1/properties/map_regions/0/${box}/${n}`)), "/claims/0", "/coverage"],
 			{ campaign: CAMPAIGN, assets: [{ node_id: "asset-tower-plate", path: plate, sha256: createHash("sha256").update(IMAGE).digest("hex") }] });
 	};
 }
