@@ -8,7 +8,7 @@ Order: FR-01 → FR-02 → FR-03 → FR-04; FR-05 closes. FR-04's wording can la
 
 ## FR-01: the review that detects a divergence names what the ledger owes
 
-Status: ready-for-human (implemented on `claude/forward-only-reconciliation-20260929`; contract §158.2–§158.3; live review replay on the retained turn-26 record pending, see Comments)
+Status: ready-for-human (implemented on `claude/forward-only-reconciliation-20260929`; contract §158.2–§158.3; the retained turn-26 record replayed through the live reviewer 3/3, see Comments)
 
 **What to build.** Turn 26's post continuity review found the unlanded arrival, but in free text that became a `continuity_finding` whose fix says "avoid the same problem". The review should return what the delivered text established and no receipt carries as structured **owed effects**, in `apply` shape: a move (to a graph handle, or a new place with `establish`), elapsed time, an object handed over, an NPC present or gone, and so on. The kernel records them on the turn record and in `world.owed`, with the delivered quote that established each. §130.4 gains an `owed_state` row kind whose kernel `fix` points forward: land it with an ordinary `apply` as something that already happened, and do not narrate it again or correct it. `unsettled_object` joins it as one owed kind rather than staying a special case.
 
@@ -42,7 +42,7 @@ Status: ready-for-human (implemented; contract §158.5; see Comments)
 
 ## FR-04: the Keeper never corrects or confesses; the player's dispute is the exception
 
-Status: ready-for-human (wording landed; contract §158.3 fixes and §158.6; the LLM-judged probes are pending, see Comments)
+Status: ready-for-human (wording landed; contract §158.3 fixes and §158.6; the LLM-judged probes passed 6/6, see Comments)
 
 **What to build.** The Keeper's rules (prompt and contract) and every kernel-authored forward fix say the same thing: the delivered fiction is the past; when the ledger disagrees, bring the ledger forward and continue in the fiction; never retract, rewrite, apologise, or tell the player the table erred or a service failed. When the player explicitly disputes what happened and asks for it otherwise, follow the player. §130.4's `continuity_finding` fix ("avoid the same problem") is replaced.
 
@@ -72,7 +72,7 @@ Status: ready-for-human (probes 3/3 and 6/6; live table on the installed App's r
 - **Deviation: "owed travel time" is the move's own.** §156 (same day) made a move count its journey. An owed move carries `travel_minutes` from a travel band's default (§138.9), and an owed `time` is only time beyond the journey.
 - **Evidence.** The turn-26 retained job is the fixture: `tests/extension/fixtures/forward-only/t26-review/`, with `effective.json` trimmed to its scene and npc nodes so the job's own aliases hold. With `owed:[move to scene:20]` it materializes to `to: 勘查波街公墓` and the claim sentence. With `owed: []` it is refused, because the locus review already says the arrival has no move.
 - **Tests.** `tests/extension/owed-state.test.mjs` and `tests/kernel/test_worldline.py`: fork carry, rewind and merge close. 14 mutations, all killed.
-- **Still open.** Replaying the retained record through the live reviewer (the reviewer lane's configured model) is part of the probes below.
+- **Replay.** Replaying the retained record through the live reviewer (the reviewer lane's configured model) is in the probes below: 3/3.
 
 **FR-02.** The capsule has an `owed` section (from `owed.json`, excluding satisfied rows).
 
@@ -149,11 +149,11 @@ Under the ruling that told payment is now owed cash, but the owed kinds of §158
   - The next read was at `newspaper-morgue`.
   - The Keeper's prose continued at the clippings table, with no correction, retraction, apology or service notice.
 
-**Accepted, with one qualification: the catch-up came on turn 6, not turn 5.** Turn 5 was still under the forcing budget, which suppresses the read that builds the owed step.
+**Accepted, with one qualification: the catch-up came on turn 6, not turn 5.** Turn 5 was still under the forcing budget, which suppresses the read that builds the owed step. The Keeper did try to land `t4-owed-1` itself on turn 5, but in one batch with an `npc` and a `clue` effect. A mixed batch has no `told` basis, so the whole batch was refused with the outage. See FR-07 in the follow-ups.
 
-**Findings left open (owner's call):**
+**Findings left open (owner's call).** Written up with evidence, options and a recommendation each in [forward-only-reconciliation-followups.md](forward-only-reconciliation-followups.md) (FR-06..FR-09):
 
-- (a) Refused payment narrated as paid, in the probes: no `cash` owed kind.
-- (b) Tool-call JSON delivered as prose under a spent budget.
-- (c) The reviewer reports every starting item without an instance as `missing`. Each is now a standing owed object row (turns 0–1 of `fr05-live`). They sort last in the capsule's `owed` section, so they never displace a move, but they are noise until registered.
-
+- (a) FR-06: a refused payment narrated as paid, in the probes; there is no `cash` owed kind.
+- (b) FR-08: tool-call JSON delivered as prose under a spent budget.
+- (c) FR-09: the reviewer reports every starting item without an instance as `missing`. Each is now a standing owed object row (turns 0–1 of `fr05-live`). They sort last in the capsule's `owed` section, so they never displace a move, but they are noise until registered.
+- (d) FR-07: an owed effect bundled with other effects loses its `told` basis (turn 5, above).
