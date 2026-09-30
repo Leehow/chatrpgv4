@@ -1069,6 +1069,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // §145.2: nor is the host's reading of a time skip.
         const { keeper_reads: readsIn, time_reading: timeIn, ...delivered } = params, reads = keeperReads(readsIn), reading = timeReading(timeIn);
         params = delivered;
+        const interactionScope = params._interaction_scope;
+        if (interactionScope !== undefined && !['reference', 'uncertain'].includes(interactionScope))
+            throw new RpcError('invalid_params', 'The host interaction scope is reference or uncertain');
+        const reference = interactionScope !== undefined;
         const { campaign, snapshot, module } = await load(params), turn = snapshot.turn;
         const started = await createTurnTransaction(campaign, snapshot.world, turn).beginWrite('table.narrate', params, {
             allowOpening: true
@@ -1083,12 +1087,13 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // `let`: §143.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
         let text = required(params, 'text')!;
         let { placed, ...delivery } = deliveryText(text, receipts, speakers), rendered = delivery.rendered_text;
-        const hostRepeats = await refuseRepeatedLine(snapshot, campaign, delivery.speech, hostAttributed(params, delivery.speech));
+        if (reference) delivery.speech = [];
+        const hostRepeats = reference ? [] : await refuseRepeatedLine(snapshot, campaign, delivery.speech, hostAttributed(params, delivery.speech));
         // Contract §143.24 (ticket 25): the host asked Jev §143.14's purpose question of the lines the Keeper gives a person
         // against that person's rows never carried out, and names what it read (`purpose_repeats`, host-only). Only a row
         // that is that speaker's thread in this delivery counts. Refused once per turn; a later delivery this turn goes out,
         // with a finding. Checked after §113 D and before §142.7: the prose's lines first, then what its receipts owe.
-        const purposeRepeats = Array.isArray(params.purpose_repeats) && params.purpose_repeats.length
+        const purposeRepeats = !reference && Array.isArray(params.purpose_repeats) && params.purpose_repeats.length
             ? namedRepeats(params.purpose_repeats, speakerThreads(module.graph, snapshot, row(await snapshot.optional('npc-ledger.json')),
                 await stanceTable(context), array(delivery.speech), hostAttributed(params, delivery.speech))) : [];
         if (purposeRepeats.length && !truth(turn.purpose_gate)) {
@@ -1102,7 +1107,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         }
         // Contract §142.7: someone present set out to do something on an earlier turn and nothing of this turn reports how
         // it went. Refused once per set of owed intentions; the same set a second time is delivered, with a finding.
-        const owed = owedIntents(module.graph, snapshot.world, row(await snapshot.optional('npc-ledger.json')), turn);
+        const owed = reference ? [] : owedIntents(module.graph, snapshot.world, row(await snapshot.optional('npc-ledger.json')), turn);
         const owedKey = owed.map(item => string(item.ref)).sort().join(' ');
         if (owed.length && string(row(turn.intent_gate).refs) !== owedKey) {
             await campaign.writeTurn({ ...turn, intent_gate: { refs: owedKey } });
@@ -1114,7 +1119,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // Contract §143.10: player-facing prose carries no markup. A syntax check over the rendered text (the host's own
         // tokens already stripped), refused once per turn; a later delivery this turn that still carries it is delivered,
         // with a finding. Checked after §142.7, so a turn pays at most one refusal of each kind.
-        const markup = markupInProse(typeof rendered === 'string' ? rendered : '');
+        const markup = reference ? null : markupInProse(typeof rendered === 'string' ? rendered : '');
         if (markup && !truth(turn.markup_gate)) {
             await campaign.writeTurn({ ...turn, markup_gate: { call_id: started.callId } });
             await campaign.telemetry({ lane: 'delivery', turn: number(turn.turn), ok: false, reason: 'markup_in_prose', outcome: 'refused',
@@ -1141,7 +1146,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         }
         // Contract §145.3: the host read a time skip in this delivery; the kernel holds it against its own clock. Refused
         // once a turn when the host can hand the refusal back; otherwise delivered, with a finding §145.4 keeps raising.
-        const gap = timeGap(reading, receipts, clockSection(module.graph, snapshot.world));
+        const gap = reference ? null : timeGap(reading, receipts, clockSection(module.graph, snapshot.world));
         if (gap && reading!.refusable && !truth(turn.time_gate)) {
             await campaign.writeTurn({ ...turn, time_gate: { call_id: started.callId } });
             await campaign.telemetry({ ...timeRow(gap, turn, started.callId, params), ok: false, outcome: 'refused' }).catch(() => undefined);
@@ -1155,8 +1160,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         report?.('validate');
         const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
         // The public record the verifier reads beside the Keeper-only list (contract §32.6): the two deliveries before this one.
-        const earlier = (await Promise.all([number(turn.turn) - 1, number(turn.turn) - 2].filter(t => t >= 0).map(t => campaign.readTurnRecord(t)))).flatMap(r => r ? [r] : []);
-        const factLists = facts(module.graph, snapshot.world, snapshot.party, receipts, world, turn.player_text,
+        const earlier = (await Promise.all([number(turn.turn) - 1, number(turn.turn) - 2].filter(t => t >= 0).map(t => campaign.readTurnRecord(t))))
+            .flatMap(r => r && r.interaction_scope !== 'reference' && r.interaction_scope !== 'uncertain' ? [r] : []);
+        const factLists = reference ? undefined : facts(module.graph, snapshot.world, snapshot.party, receipts, world, turn.player_text,
             publicContext(snapshot.party, row(row(snapshot.meta.setup).handoff).prologue, earlier)), labels = await playerGlossary(context, language);
         report?.('project');
         const standing = standingStates(snapshot.party, receipts);
@@ -1168,10 +1174,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             turn: n,
             receipt,
             commit: null,
-            facts: factLists,
-            extraction: {
+            ...(reference ? {interaction_scope: interactionScope} : {facts: factLists, extraction: {
                 job_id: `extract:${campaign.id}:t${n}`
-            },
+            }}),
             ...(hostRepeats.length ? { repeated_lines: {
                 lines: hostRepeats.map(repeat => ({ name: repeat.name, line: repeat.line, earlier_turn: repeat.earlier_turn })),
                 note: 'the host wrapped these lines (§128.3) and they repeat what the same person already said; delivered, not refused, and recorded as a finding for the next turn'
@@ -1194,7 +1199,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(delivery.marked_text ? { marked_text: delivery.marked_text } : {}),
             closed_by: 'narrate',
             closed_how: truth(params.implicit) ? 'implicit' : 'explicit',
-            facts: factLists,
+            ...(reference ? {interaction_scope: interactionScope} : {facts: factLists}),
             director_adoption: await adoption(campaign, module, turn, world, 'narrate', snapshot.world),
             worldline: turn.worldline ?? null,
             ...(reads.length ? { reads } : {}),
@@ -1230,7 +1235,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                     at: nowIso() }] : []), ...(gap ? [timeWarning(gap, nowIso())] : [])] } : {})
         };
         await campaign.writeTurnRecord(record);
-        await updateNpcLedger(campaign, module.graph, record);
+        if (!reference) await updateNpcLedger(campaign, module.graph, record);
         await campaign.appendTranscript(n, 'keeper', rendered);
         await campaign.appendEvent(n, {
             type: 'turn-finalized',

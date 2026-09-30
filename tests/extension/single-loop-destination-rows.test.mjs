@@ -23,7 +23,7 @@ import { openTable } from "./harness.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, compileBatch, guardedDestinations, interpretCompile } from "../../runtime/jev/route-compile.ts";
-import { GUARDED_NOTE, createHybridEngine, withEntrance } from "../../runtime/jev/hybrid-engine.ts";
+import { GUARDED_NOTE, createHybridEngine, withEntrance } from "./hybrid-engine-fixture.mjs";
 import { CARRIED_VIEW_BYTES } from "../../runtime/jev/carried-views.ts";
 import { initialView, next, settleCompile, startStep } from "../../runtime/jev/step-policy.ts";
 

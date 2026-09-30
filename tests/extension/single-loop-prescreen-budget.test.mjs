@@ -25,7 +25,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
 import { runDriver } from "./pi-agent-core.mjs";
 import { supportChoices } from "./support-agent-helpers.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, createStepPolicy, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";

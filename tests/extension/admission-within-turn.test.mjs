@@ -23,7 +23,7 @@ import { openTable } from "./harness.mjs";
 import { askWords, isAskRow } from "./compile-ask.mjs";
 import { withOriginTamper } from "./origin-tamper.mjs";
 import { DECLARED_CLERKS, DEFAULT_ADMISSION_TIMEOUT_MS, REVIEW_PENDING, REVIEW_TIMEOUT, admissionTimeoutMs, compileAdmission, declaredAction } from "../../extensions/kernel/admission.ts";
-import { admissionBindings, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { admissionBindings, createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, CLERK_AUTHORITY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY, COMPILE_PREDICATES, FEATURE_FAMILIES, interpretCompile } from "../../runtime/jev/route-compile.ts";
 
@@ -484,7 +484,7 @@ test("SL-21 (§32.12): the check the compile selected keeps its evidence through
 
 /**
  * Jev for the ordinary check at the office: the compile reads `investigate` 0.95 and no destination (0.96); the ordinary
- * binder answers an ordinary Spot Hidden (its profile answer as given); every route: finish.
+ * family route selects the ordinary tool, which answers Spot Hidden (its profile answer as given).
  */
 function scopedCheckJev({method = 0.99, uncertainty = 0.99, difficultyOverride = 0.01, penaltyOverride = 0.01} = {}) {
   return {async decide(batch) {
@@ -507,6 +507,10 @@ function scopedCheckJev({method = 0.99, uncertainty = 0.99, difficultyOverride =
         return [question.key, {status: 'answered', type: 'noul', noul: p}];
       }
       let value;
+      if (batch.family === 'single-loop-route' && question.key.startsWith('need_')) {
+        const candidate = batch.state.candidates[question.key.replace('need_', 'candidate_')];
+        if (candidate?.bound?.decision === 'core-check:ordinary-check') value = 'now';
+      }
       if (batch.family === 'check-selection-profiles') value = aliasWhere(question, option => option?.skill === 'Spot Hidden');
       if (batch.family === 'check-selection-bind') value = aliasWhere(question, option => option === ({intent: 'investigate', difficulty: 'hard', penalty: 'one'})[question.target]);
       value ??= question.key === 'exit' ? 'finish' : 'unknown' in question.criteria ? 'unknown' : 'later' in question.criteria ? 'later' : Object.keys(question.criteria)[0];
@@ -521,7 +525,8 @@ test('the agent-selected check uses the scoped Jev binder; an unclear method nev
       engine: {decision: scopedCheckJev({method})}, responses: narrateOnly('The desk stands in the quiet office.')});
     await table.session.prompt('I carefully search the desk for a hidden compartment.');
     const rows = table.telemetry('test-camp');
-    assert.ok(rows.some(row => row.lane === 'route' && row.purpose === 'compile' && row.fired?.some(item => item.predicate === 'ordinary_check')));
+    assert.ok(rows.some(row => row.lane === 'route' && row.purpose === 'route' && row.selected?.some(key => key.startsWith('resolve:check:core-check:ordinary-check:'))));
+    assert.ok(!rows.some(row => row.lane === 'route' && row.purpose === 'compile' && row.fired?.some(item => item.predicate === 'ordinary_check')));
     const rolls = rows.filter(row => row.tool === 'resolve' && row.origin === 'policy' && row.ok);
     assert.equal(rolls.length, method > 0.85 ? 1 : 0);
     if (method > 0.85) {
@@ -560,7 +565,7 @@ test('a complete Jev-selected check can be refused by canonical admission withou
   assert.ok(admissionRows(table, 'test-camp').some(row => row.verb === 'resolve' && row.admitted === false));
 });
 
-test('a compile-selected intent does not force a roll when the check tool finds routine action or unresolved necessity', async t => {
+test('a routed ordinary family does not force a roll when the check tool finds routine action or unresolved necessity', async t => {
   for (const uncertainty of [0.01, 0.5]) await t.test('uncertainty ' + uncertainty, async tt => {
     const table = await hybrid(tt, {prepare: tookTheJob, compile: () => undefined,
       engine: {decision: scopedCheckJev({uncertainty})}, responses: narrateOnly('You remain by the desk.')});

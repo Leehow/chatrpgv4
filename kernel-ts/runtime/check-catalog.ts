@@ -15,9 +15,12 @@ import {jsonDigest} from '../json.js';
 import {RuleTables} from '../rules/tables.js';
 import {ENDING_KINDS} from '../development/plan.js';
 import {magicLearningSources} from '../magic/facts.js';
+import {npcPatient} from '../healing/patient.js';
+import {healingStatePath} from '../healing/session.js';
+import {evaluateCondition, factsFromState, RuleObservations} from '../read/rule-facts.js';
 
-interface Parameter {name: string; question: string; options: Array<{label: string; value: any}>; multiple?: {minimum: number}; default?: {value: any; question: string}}
-interface Option {key: string; family: string; label: string; definition?: string; action: Row; parameters: Parameter[]; needs: string[]; authorization: 'declaration' | 'consequence'}
+interface Parameter {selection?: 'compatible'; name: string; question: string; options: Array<{label: string; value: any}>; multiple?: {minimum: number}; default?: {value: any; question: string}}
+interface Option {key: string; family: string; label: string; definition?: string; facts?: Row; action: Row; parameters: Parameter[]; needs: string[]; authorization: 'declaration' | 'consequence'}
 const parameter = (name: string, question: string, values: string[]): Parameter => ({name, question, options: values.map(value => ({label: value, value}))});
 const modifiers = (): Parameter[] => [
     {...parameter('difficulty', 'What success level does the established difficulty require? Use regular when no harder difficulty is established.', ['regular', 'hard', 'extreme']),
@@ -58,11 +61,13 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     const actors = [...new Set(profiles.map(profile => string(profile.actor)))];
     const has = (decision: string): boolean => decisions.some(row => row.name === decision);
     const add = (decision: string, label: string, action: Row, parameters: Parameter[] = [], needs: string[] = [],
-        authorization: Option['authorization'] = 'declaration') => {
+        authorization: Option['authorization'] = 'declaration', facts?: Row) => {
         if (!has(decision)) return;
         covered.add(decision);
+        const boundAction: Row = {intent: 'investigate', goal: declaration, method: declaration, decision, ...action};
+        for (const parameter of parameters) delete boundAction[parameter.name];
         options.push({key: `check:${options.length}`, family: string(decisions.find(row => row.name === decision)?.family ?? ''), label,
-            action: {intent: 'investigate', goal: declaration, method: declaration, decision, ...action}, parameters, needs, authorization});
+            action: boundAction, parameters, needs, authorization, ...(facts ? {facts} : {})});
     };
     // Active combat/chase candidates are already issued by sessionCandidates. Do not invent another
     // session executor or let an out-of-session candidate bypass a pending choice.
@@ -75,8 +80,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             parameter('weapon', 'Which available weapon or unarmed method did the player choose?', array(opening.weapons)),
             ...modifiers(),
         ]);
-        add('chase:start', `${opening.actor}: begin a declared pursuit or flight`, {actor: opening.actor}, [
-            parameter('target', 'Who is the person the player explicitly follows or flees from?', array(opening.targets)),
+        for (const target of array(opening.targets)) add('chase:start', `${opening.actor}: pursue or flee from ${target}`, {actor: opening.actor, target}, [
             parameter('intent', 'Is the investigator fleeing this person or moving after them?', ['flee', 'move']),
         ]);
     }
@@ -92,6 +96,9 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     }
     const learningSources = magicLearningSources({graph, world: campaign.world, npcProfile: handle => npcProfileOf(graph, campaign.world, handle)});
     const receipts = [...owners.history.flatMap(record => array(record.receipts)), ...array(campaign.turn.receipts)];
+    let visitStart = 0;
+    receipts.forEach((receipt, index) => { if (receipt.kind === 'move' && receipt.from !== receipt.to) visitStart = index + 1; });
+    const visitReceipts = receipts.slice(visitStart);
     const publicChecks: Row[] = [];
     const descriptions = row((await new RuleTables(campaign.context).skillDescriptions()).skills);
     for (const profile of profiles) {
@@ -108,9 +115,21 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         const added = options.at(-1);
         if (added && added.action.skill === profile.skill && typeof definition === 'string') added.definition = definition;
     }
-    const patients = [...campaign.party.map(sheet => ({name: sheet.name, hp: sheet.current_hp ?? null, max: row(sheet.derived).HP ?? null, conditions: array(sheet.conditions)})),
-        ...people.map(person => ({name: person.name, hp: row(row(campaign.world.npc_resources)[graph.handle(person.node)]).current_hp ?? null,
-            max: row(person.profile).HP ?? null, conditions: array(row(row(campaign.world.npc_resources)[graph.handle(person.node)]).conditions)}))];
+    const patients: Row[] = [];
+    const observations = await RuleObservations.load(campaign.context);
+    const now = Number(row(campaign.world.clock).minutes ?? 0);
+    for (const patient of [...campaign.party, ...people.filter(person => person.profile !== null).map(person => npcPatient(graph, campaign.world, person.name)).filter((patient): patient is Row => patient !== null)]) {
+        const healing = row(await campaign.optional(`save/${healingStatePath(string(patient.id))}`));
+        const conditions = Array.isArray(healing.conditions) ? healing.conditions : array(patient.conditions);
+        const facts = factsFromState({...patient, investigator_id: patient.id, conditions,
+            wound_ledger: array(healing.wound_ledger), major_wound_recovery_ledger: array(healing.major_wound_recovery_ledger)}, patient, now);
+        const hp = patient.current_hp ?? null, max = row(patient.derived).HP ?? null;
+        const usage = row(healing.healing_usage), wound = string(usage.active_wound_id || usage.wound_id || 'active-wound'), day = string(usage.active_day_id || usage.day_id || 'day-0');
+        const flags = Object.keys(row(usage.records)).length ? row(row(row(usage.records)[wound])[day]) : usage;
+        patients.push({name: patient.name, hp, max, conditions, injured: typeof hp === 'number' && typeof max === 'number' ? hp < max : null,
+            minutes_since_injury: facts['time.minutes_since_injury'] ?? null, first_aid_used: flags.first_aid_used === true,
+            medicine_used: flags.medicine_used === true, rule_facts: facts});
+    }
     for (const actor of actors) {
         const own = profiles.filter(profile => profile.actor === actor && profile.availability === 'bound');
         if (own.length >= 2) add('core-check:combined-check', `${actor}: one source-required combined roll using multiple skills, not a sequence of separate attempts`, {actor}, [
@@ -132,12 +151,28 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             }
             const loss = statedSanLoss(mechanics.sanity_loss);
             if (loss) add('sanity:check', `${actor}: source-stated sanity check for ${graph.displayName(node)}`, {actor, rule, san_loss: loss.join('/')},
-                [parameter('involuntary', 'Which involuntary response fits the established situation if sanity is lost?', [...INVOLUNTARY_KINDS])], [], 'consequence');
+                [{...parameter('involuntary', 'Assume the upcoming SAN roll fails. The SAN rule then authorizes the Keeper to choose one brief involuntary response from these legal options; this is not a voluntary player decision. Judge its immediate compatibility, not whether the roll has already failed. Do not choose an extended strategy.', [...INVOLUNTARY_KINDS]), selection: 'compatible'}], [], 'consequence');
         }
         for (const [skill, prefix] of [['First Aid', 'first-aid'], ['Medicine', 'medicine']]) {
             if (!own.some(profile => profile.skill === skill)) continue;
-            for (const kind of ['ordinary', 'stabilization']) add(`healing:${prefix}-${kind}`, `${actor}: ${skill} ${kind} treatment`,
-                {actor, skill}, [parameter('target', 'Who is the patient explicitly treated by this declaration?', patients.map(patient => patient.name))]);
+            for (const kind of ['ordinary', 'stabilization']) {
+                const decision = `healing:${prefix}-${kind}`;
+                covered.add(decision);
+                for (const patient of patients) {
+                    const conditions = array(patient.conditions), used = prefix === 'first-aid' ? patient.first_aid_used : patient.medicine_used;
+                    if (conditions.includes('dead') || used || kind === 'ordinary' && patient.injured === false && !conditions.includes('unconscious')) continue;
+                    const gates = observations.conditionsFor(`decision:coc7:${decision}`).filter(condition => condition.hard_gate === true)
+                        .map(condition => evaluateCondition(row(condition.properties).expression, patient.rule_facts));
+                    if (gates.includes(false)) continue;
+                    const {rule_facts: _facts, ...clinical} = patient;
+                    const needs = gates.includes(null) || patient.injured === null ? ['patient_treatment_state_incomplete'] : [];
+                    add(decision, `${actor}: ${skill} ${kind} for patient ${patient.name}`, {actor, skill, target: patient.name}, [], needs,
+                        'declaration', {patient: clinical, clinical_eligibility: needs.length ? 'unknown' : 'eligible'});
+                    const added = options.at(-1);
+                    if (added?.action.decision === decision) added.definition = 'The actor is the rescuer; the target is the patient. Clinical conditions apply to the patient, not the rescuer. '
+                        + 'The host evaluates injury, timing and prior-treatment limits. Judge whether this rescuer is performing this listed treatment on this patient; do not replace an eligible First Aid or Medicine roll with automatic recovery.';
+                }
+            }
         }
         for (const person of people) {
             const skills = own.map(profile => profile.skill).filter(skill => Object.values(SOCIAL_APPROACH_SKILLS).includes(skill));
@@ -152,8 +187,12 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             const profile = row(person.profile);
             let loss = statedSanLoss(profile.sanity_loss);
             for (const key of ['san_loss', 'san_loss_to_see', 'sanity_loss']) if (!loss) loss = parseSanLoss(profile[key]);
-            if (loss) add('sanity:check', `${actor}: source-stated sanity check on perceiving ${person.name}`, {actor, target: person.name, san_loss: loss.join('/')},
-                [parameter('involuntary', 'Which involuntary response fits this person and the established situation if sanity is lost?', [...INVOLUNTARY_KINDS])], [], 'consequence');
+            const investigator = campaign.party.find(sheet => sheet.name === actor);
+            const alreadyExposed = investigator && visitReceipts.some(receipt => receipt.kind === 'roll' && receipt.roll_kind === 'sanity_check'
+                && receipt.actor === investigator.id && receipt.npc_exposure === graph.handle(person.node));
+            if (loss && investigator) covered.add('sanity:check');
+            if (loss && investigator && !alreadyExposed) add('sanity:check', `${actor}: source-stated sanity check on perceiving ${person.name}`, {actor, target: person.name, san_loss: loss.join('/')},
+                [{...parameter('involuntary', 'Assume the upcoming SAN roll fails. The SAN rule then authorizes the Keeper to choose one brief involuntary response from these legal options; this is not a voluntary player decision. Judge its immediate compatibility, not whether the roll has already failed. Do not choose an extended strategy.', [...INVOLUNTARY_KINDS]), selection: 'compatible'}], [], 'consequence');
         }
         add('push-luck:luck-roll', `${actor}: a Luck percentile check`, {actor}, modifiers());
         const sheet = campaign.party.find(sheet => sheet.name === actor);
@@ -214,5 +253,5 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     return {version: 1, owner: 'jev', options, profiles_revision: jsonDigest(profiles), coverage: decisions.map(decision => ({decision: decision.name, executable: covered.has(decision.name)
         && options.some(option => option.action.decision === decision.name && !option.needs.length),
         phase: owners.phases[decision.name], owner: options.some(option => option.action.decision === decision.name) ? 'jev' : 'existing-phase'})),
-        situation: {patients, public_checks: publicChecks, people: people.map(person => ({name: person.name, profile_available: person.profile !== null}))}};
+        situation: {patients: patients.map(({rule_facts: _facts, ...patient}) => patient), public_checks: publicChecks, people: people.map(person => ({name: person.name, profile_available: person.profile !== null}))}};
 }

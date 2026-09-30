@@ -419,3 +419,7 @@ Packaged correction (§149.1): `source-reference-text-entrances` selects origina
 §149: `extensions/onboarding/source-intake.ts#selectSetupSource` uses one bounded Jev batch to select an explicitly chosen existing PDF. Source paths are host-enumerated syntax; campaign-start intent and language compatibility are semantic decisions. The existing setup step table owns preparation and campaign creation before the first Keeper request.
 
 Setup prologue display now uses triggerTurn:false in session_start, execute and afterPreparation. These are display writes, not three additional run/steer entry points; the current Pi request or the next player input owns continuation.
+
+### Historical reference (§124.12, #110, 2026-09-30)
+
+`runtime/historical-reference.ts#HistoricalReference.constructor` captures fetch for a bounded Exa Search and creates the existing DecisionAdapter for batched search-policy/library selection and material applicability. Price policy reuses saved anchors for ordinary quotations and permits item-specific paid searches only on a host-supplied player challenge. Saved anchors get priority over newer unrelated references in the bounded candidate window. These are app-play-gated leaves: the Mod must be enabled; new web requests still require configured credentials and a Jev-issued need. The caller's main Keeper loop owns continuation. No query-author, researcher, summary model or second run is created; excerpts return through the original lookup result. The need question is appended to an existing compile/route batch.

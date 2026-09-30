@@ -13,6 +13,7 @@ import { providesStyle, secondProvider, validateStyleContribution } from '../rea
 import { declaresLanguages, languageAdmits } from '../read/mod-language.js';
 import { array, row, values, entries, string, truth, clone, equal, sorted, type Row } from '../read/values.js';
 import { readZipPackage } from './zip.js';
+import {hostSettingsView} from './host-settings.js';
 import {EXPRESSION_MOD, LEGACY_VOICE_MOD, isUnifiedExpression, newModDefault, inheritedVoiceSettings,
   stageVoiceOwner, handoverVoiceState, compatibilityView} from './voice-consolidation.js';
 
@@ -288,6 +289,7 @@ export class ModRuntime {
       ...(declaresLanguages(mod) ? {play_languages: [...mod.play_languages]} : {}),
       active: row(locks.active)[mod.id] ?? null, pending: row(locks.pending)[mod.id] ?? null,
       settings_schema: mod.compatible ? mod.settings_schema ?? {} : {},
+      host_settings: mod.compatible ? hostSettingsView(mod.host_settings) : [],
     });
     return {game_api: GAME_API, capabilities: sorted(MOD_CAPABILITIES), mods, order: await this.order(world), pending_order: locks.pending_order ?? null,
       // Contract 41.2: a package that refused its own bytes is listed here rather than dropped, so the

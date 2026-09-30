@@ -20,6 +20,7 @@ import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
 import {VOICE_CONSOLIDATION_CAPABILITY, EXPRESSION_MOD, LEGACY_VOICE_MOD, newModDefault} from '../mods/voice-consolidation.js';
 import { STYLE_CAPABILITY, validateStyleDeclaration, validateStyleContribution, providesStyle, secondProvider } from "./style.js";
 import { LANGUAGE_ADDENDUM_CAPABILITY, validateLanguageDeclaration } from "./mod-language.js";
+import {HISTORY_CAPABILITY, validHostSettings} from '../mods/host-settings.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
@@ -36,6 +37,7 @@ for (const retired of ["context.craft-reference.v1", "context.craft-reference.v2
 MOD_CAPABILITIES.add(STYLE_CAPABILITY);
 /** Contract §153.3: a package adds a Markdown file to the voice lane's instruction, after the lane owner's own words. */
 MOD_CAPABILITIES.add(LANGUAGE_ADDENDUM_CAPABILITY);
+MOD_CAPABILITIES.add(HISTORY_CAPABILITY);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -221,6 +223,9 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
             invalid(`${field} must be an object`);
     if (typeof manifest.default_enabled !== "boolean")
         invalid("default_enabled must be boolean");
+    if (manifest.host_settings !== undefined && (!validHostSettings(manifest.host_settings)
+        || !manifest.requires.includes(HISTORY_CAPABILITY)))
+        invalid('host_settings must name registered slots and require their host capability');
     const scoped = manifest.requires.includes("mods.package-files.v1"), declared = manifest.package_files;
     if (scoped !== Array.isArray(declared))
         invalid("mods.package-files.v1 and package_files must be declared together");

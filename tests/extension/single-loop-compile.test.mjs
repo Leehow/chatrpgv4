@@ -26,7 +26,7 @@ import { fanAsk } from "./compile-ask.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch, compileOnly, compileReaches, interpretCompile, predicateOf } from "../../runtime/jev/route-compile.ts";
-import { bindRecords, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { bindRecords, createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { ROUTE_FAMILY, compileDue, createStepPolicy, initialView, interpretRoute, next, routeBatch, settleCheckSelection, settleCompile, settleExecute, settleInfer, settleRead, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
 
 const scope = { owner: "campaign:test", campaign: "test", worldline: "main", loop: 0, audience: "keeper" };

@@ -20,7 +20,7 @@ import { createServer } from "node:net";
 import { test } from "node:test";
 import { configureHttpDispatcher } from "../../build/node_modules/@earendil-works/pi-coding-agent/dist/core/http-dispatcher.js";
 import { customMessages, openTable, waitFor } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
 

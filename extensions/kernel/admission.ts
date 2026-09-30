@@ -332,9 +332,9 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		}
 		const pick = (keys: readonly string[]): Record<string, unknown> =>
 			Object.fromEntries(keys.map((k) => [k, action[k]]).filter(([, v]) => v !== undefined && v !== null && v !== ""));
-		const shown = pick(["actor", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "usage", "stakes", "push", "luck", "defense", "outcome"]);
-		const lines = [`resolve (roll the dice for an action): ${Object.entries(shown).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("; ")}`];
-		const key = canonical({ tool, action: pick(["actor", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "usage", "push", "luck", "defense"]) });
+		const shown = pick(["actor", "decision", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "usage", "stakes", "push", "luck", "defense", "outcome"]);
+		const lines = [`resolve (settle the specified rule operation): ${Object.entries(shown).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("; ")}`];
+		const key = canonical({ tool, action: pick(["actor", "decision", "intent", "goal", "method", "skill", "target", "weapon", "spell", "object", "usage", "push", "luck", "defense", "outcome"]) });
 		return { tool: "resolve", key, lines };
 	}
 	if (tool === "apply") {

@@ -6,7 +6,7 @@ import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
-import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
+import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 const manifest = JSON.parse(await readFile(join(root, 'mods/narration-craft/mod.json'), 'utf8'));

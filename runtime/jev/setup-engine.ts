@@ -57,8 +57,18 @@ export interface SetupEngineOptions {
 export const SETUP_CARD_TOOL = 'setup_card';
 /** A setup-step note the projection adds to the transcript, never shown to the player. */
 export const SETUP_STEP_TYPE = 'coc-setup-step';
+/** A mandatory write uses the transport's tool channel; catalog selection alone is optional. */
+export function requireSetupCardTool(payload: unknown): Row | undefined {
+  const body = object(payload), tools = body.tools;
+  if (!Array.isArray(tools) || tools.length !== 1 || tools[0]?.type !== 'function') return;
+  const name = Array.isArray(body.input) ? tools[0].name
+    : Array.isArray(body.messages) ? tools[0].function?.name : undefined;
+  if (name !== SETUP_CARD_TOOL) return;
+  return {...body, tool_choice: 'required', parallel_tool_calls: false};
+}
 /** How many adjudicate model steps one run may take: the model-first loop's own shape, bounded. */
 const MAX_ADJUDICATE_STEPS = 24;
+const BIND_RESPONSE_ERROR = 'The setup model did not return one setup_card tool call. No card changes were made. Please retry.';
 
 type Purpose = 'bind' | 'compose' | 'adjudicate';
 type Moved = {ok: boolean; outcome: Row};
@@ -117,9 +127,9 @@ export function createSetupPolicy(config: {jev: boolean; maxDecisions: number}):
     next(view: RunView<SetupPolicyState>): StepRequest {
       const s = view.policyState, last = view.lastObservation;
       if (view.pendingProposals.length) return {kind: 'operate', proposals: view.pendingProposals, reason: 'execute_model_calls'};
-      if (last?.kind === 'infer') return {kind: 'finish', outcome: 'undelivered', reason: `setup_${last.purpose ?? 'infer'}_written`};
-      // The bind step's call ran: its card goes to one compose; a refused call, or a response that made no card call,
-      // goes to the full tool with what happened.
+      if (last?.kind === 'infer') return {kind: 'finish', outcome: 'undelivered', reason: last.message?.errorMessage === BIND_RESPONSE_ERROR
+        ? 'setup_bind_missing_call' : `setup_${last.purpose ?? 'infer'}_written`};
+      // Executed bind calls go to compose; refused calls go to the full tool with what happened.
       if (s.lastInfer === 'bind') return s.bound?.ok ? afterCard(s, 'bound')
         : infer('adjudicate', s.bound ? 'bind_refused' : 'bind_without_card', s.bound ? {refusal: s.bound.outcome} : {});
       if (s.lastInfer === 'adjudicate') return s.infers.adjudicate >= MAX_ADJUDICATE_STEPS
@@ -215,6 +225,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
   let api: any, executor: SetupExecutorPort | undefined, current: SetupRun | undefined;
   /** The step catalog of the request in flight (§151.6 decision 3); undefined outside a driven infer. */
   let stepCatalog: string[] | undefined;
+  let projectedStep: string | undefined;
   const record = (row: Record<string, unknown>) => {
     try {
       if (options.record) options.record(row);
@@ -326,6 +337,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
     if (purpose === 'adjudicate') run.fallback ??= step.reason;
     const catalog = purpose === 'bind' ? [SETUP_CARD_TOOL] : purpose === 'compose' ? [] : [fullTool()];
     stepCatalog = catalog;
+    projectedStep = stepId;
     setTools(catalog);
     const plan = request.plan as CardPlan | undefined;
     const bound = (plan?.bound ?? []).map(({field, path, value}) => ({field, path, ...(value !== undefined ? {value} : {})}));
@@ -405,6 +417,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
         modelSteps: {bind: 0, compose: 0, adjudicate: 0}};
       current = run;
       stepCatalog = undefined;
+      projectedStep = undefined;
       setTools([fullTool()]);
       const policy = createSetupPolicy({jev: !!jev && !!executor, maxDecisions: budget.maxDecisions});
       const ports: RunDriverPorts = {
@@ -459,6 +472,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
             model_steps: run.modelSteps, refusals: run.refusals, fallback: run.fallback ?? null, withheld: run.withheld ?? null});
           // The session's surface between runs is the full tool (contract §14.4); the next run's first request declares it.
           stepCatalog = undefined;
+          projectedStep = undefined;
           setTools([fullTool()]);
           if (current === run) current = undefined;
         }},
@@ -487,13 +501,38 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
         return {content: [{type: 'text', text: JSON.stringify(result)}], details: result};
       },
     });
+    pi.on('before_provider_request', (event: {payload: unknown}) => {
+      if (stepCatalog?.length !== 1 || stepCatalog[0] !== SETUP_CARD_TOOL) return;
+      const payload = requireSetupCardTool(event.payload);
+      record({lane: 'setup', event: 'bind_request', run: current?.runId, step: projectedStep,
+        required_tool: payload ? SETUP_CARD_TOOL : null});
+      return payload;
+    });
+    pi.on('message_end', (event: {message: Row}) => {
+      const message = event.message;
+      if (!current || stepCatalog?.length !== 1 || stepCatalog[0] !== SETUP_CARD_TOOL || message.role !== 'assistant'
+        || ['error', 'aborted', 'length'].includes(message.stopReason)) return;
+      const calls = (message.content ?? []).filter((block: Row) => block.type === 'toolCall');
+      if (calls.length === 1 && calls[0].name === SETUP_CARD_TOOL) {
+        if (!(message.content ?? []).some((block: Row) => block.type === 'text')) return;
+        pi.appendEntry('coc-setup-output-rejected', {run: current.runId, step: projectedStep,
+          reason: 'setup_bind_working_text', message: structuredClone(message)});
+        return {message: {...message, content: message.content.filter((block: Row) => block.type !== 'text')}};
+      }
+      pi.appendEntry('coc-setup-output-rejected', {run: current.runId, step: projectedStep,
+        reason: 'setup_bind_missing_call', message: structuredClone(message)});
+      return {message: {...message, content: [], stopReason: 'error', errorMessage: BIND_RESPONSE_ERROR}};
+    });
     // §151.6 decision 3 (the §128.1 pattern): the request in flight declares the step's catalog, in Pi's forced-prompt shape.
     pi.on('context_with_system', (event: {messages: any[]}) => {
       const names = stepCatalog;
       if (!names) return undefined;
-      const messages = event.messages;
+      // Instructions belong to a single model step, not to later questions. Keep the durable evidence unchanged.
+      const messages = event.messages.filter(message => message.role !== 'custom' || message.customType !== SETUP_STEP_TYPE
+        || (message.details?.run === current?.runId && message.details?.step === projectedStep));
       const declared = getCurrentTools(messages).map(tool => tool.name);
-      if (declared.length === names.length && names.every(name => declared.includes(name))) return undefined;
+      if (declared.length === names.length && names.every(name => declared.includes(name)))
+        return messages.length === event.messages.length ? undefined : {messages};
       const known = new Map(getDeclaredTools(messages).map(tool => [tool.name, tool]));
       for (const info of typeof pi.getAllTools === 'function' ? pi.getAllTools() : [])
         if (!known.has(info.name)) known.set(info.name, toToolDeclaration({name: info.name, description: info.description, parameters: info.parameters} as any));

@@ -1,3 +1,4 @@
+import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
  * The pi-coc kernel extension: it starts the Python kernel, wires the seven verbs onto RPC,
  * and mirrors the turn state machine on the extension side. Responsibilities in
@@ -5,6 +6,7 @@
  */
 
 import { textToolCall } from "./text-tool-call.ts";
+import {HistoricalReference, historyEnabled, historyBindingMatches, type HistoryInput} from '../../runtime/historical-reference.ts';
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
@@ -309,6 +311,7 @@ interface CampaignRow {
 interface RosterPerson { name: string; called?: string; address?: string; untold: boolean; label?: string }
 
 interface TableState {
+  interactionScope?: 'world' | 'reference' | 'uncertain';
 	kernel: KernelClient;
 	campaign: string;
 	telemetryPath: string;
@@ -843,7 +846,7 @@ export function besideSteer(kinds: readonly string[]): string {
 		+ "Write no prose beside apply, resolve or lookup calls. The turn's prose goes through narrate, or is the text of your final step, "
 		+ "in the same response as the writes whenever none of them needs its result first.";
 }
-/** The rule both §40 speech steers restate: how a line is wrapped and whose name it carries. */
+/** The rule the speech steer restates: how a line is wrapped and whose name it carries. */
 const SPEECH_RULE =
 	"Every line anyone says aloud goes inside {{say:Name}}\u2026{{/say}}, with the quotation marks it is written in kept " +
 	"inside the token, Name exactly as present[].name or called.name gives it (the investigator too, when you render " +
@@ -1376,6 +1379,11 @@ export default function (pi: ExtensionAPI) {
 		drivenEngine = typeof engine === "string" && engine !== "legacy";
 	});
 	const checkNotices = new Set<string>();
+	pi.events.on('coc:interaction-scope', (value: any) => {
+		if (!table || value?.campaign !== table.campaign || value.turn !== table.turn
+			|| value.player_text !== table.playerText || !['world', 'reference', 'uncertain'].includes(value.mode)) return;
+		table.interactionScope = value.mode;
+	});
 	pi.events.on('coc:check-selection-unresolved', async (value: any) => {
 		const state = table;
 		if (!state || value?.campaign !== state.campaign || value.turn !== state.turn || !Array.isArray(value.needs) || !value.needs.length) return;
@@ -1420,12 +1428,14 @@ export default function (pi: ExtensionAPI) {
 	 * §151.5: with the narrator-only setting on, the engine also announces a call its step's catalog does not admit
 	 * (`refuse`, the sentence the Keeper reads, and `refuse_code`); the tool gate refuses it before anything runs.
 	 */
-	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string }>();
+	let historicalReference: HistoricalReference | undefined;
+	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; history?: Partial<HistoryInput> }>();
 	pi.events.on("coc:model-step", (value) => {
 		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
 		if (typeof data.toolCallId !== "string" || typeof data.run !== "string" || typeof data.step !== "string") return;
 		if (modelSteps.size >= 256) modelSteps.clear();
 		modelSteps.set(data.toolCallId, { run: data.run, step: data.step,
+			...(data.historical_reference && typeof data.historical_reference === 'object' ? {history: data.historical_reference as Partial<HistoryInput>} : {}),
 			...(typeof data.refuse === "string" && data.refuse ? { refuse: data.refuse, refuseCode: typeof data.refuse_code === "string" ? data.refuse_code : "narrator_catalog" } : {}) });
 	});
 	/**
@@ -1758,6 +1768,7 @@ export default function (pi: ExtensionAPI) {
 	 * once the delivery replacement is done.
 	 */
 	function noteCommit(state: TableState, result: Record<string, unknown>, mechanics: Array<Record<string, unknown>>): void {
+		if (result.interaction_scope === 'reference' || result.interaction_scope === 'uncertain') return;
 		const renderedText = asString(result.rendered_text);
 		if (!renderedText) return;
 		const extraction = (result.extraction ?? {}) as { job_id?: unknown };
@@ -4415,6 +4426,10 @@ export default function (pi: ExtensionAPI) {
 		const closesOpening = spec.name === "narrate" && state.openingPending;
 		if(spec.name==='ask' && params.kind!=='mechanics')throw new Error('Use narrate for ordinary story questions and await free input; ask only accepts mechanics');
     const payload: Record<string, unknown> = { ...params, campaign: state.campaign };
+		const referenceScope = state.interactionScope !== undefined && state.interactionScope !== 'world';
+		const referenceDelivery = spec.name === 'narrate' && referenceScope;
+		delete payload._interaction_scope;
+		if (referenceDelivery) payload._interaction_scope = state.interactionScope;
 		// SL-92 ("apply carries the narration that closes the turn"): apply's own optional closing prose is
 		// host-only -- table.apply's own schema never carries it. Captured before it is stripped; delivered, after
 		// every effect below lands, through the same path an explicit narrate call takes (see the end of this
@@ -4455,7 +4470,7 @@ export default function (pi: ExtensionAPI) {
 		};
 		try {
 			// Cold/legacy pending attacks wait for an actual open turn, never a UI read or a closed ask.
-			const recoveredDefense = await recoverStandingDefense(state, signal);
+			const recoveredDefense = state.interactionScope !== undefined && state.interactionScope !== 'world' ? undefined : await recoverStandingDefense(state, signal);
 			if (recoveredDefense) {
 				// Defense owns these receipts. An intercepted proposal has not executed and must not
 				// acquire them as its own success in either canonical or incumbent dispatch.
@@ -4510,6 +4525,27 @@ export default function (pi: ExtensionAPI) {
 			let sourceMaterial: Record<string, any> | undefined;
 			let memoryAnswer: Record<string, unknown> | undefined;
 			let supportAnswer: Record<string, unknown> | undefined;
+			let historicalAnswer: Record<string, unknown> | undefined;
+			if (spec.name === 'lookup' && params.kind === 'historical_reference') {
+				const grant = fromStep?.history;
+				const campaign = state.campaign, turn = state.turn;
+				const capsule = await state.kernel.call('table.capsule', {campaign});
+				const referenceScope = {owner:'historical-reference', campaign, audience:'keeper' as const,
+					worldline: (capsule as any)._context?.worldline, loop: (capsule as any)._context?.loop};
+				historicalReference ??= new HistoricalReference({home: cocHome(sessionCtx.cwd), record:event=>{void record(event);}});
+				historicalAnswer = {...await historicalReference.search({binding: `${fromStep?.run ?? campaign}:${turn}`, turn,
+					scope: referenceScope, enabled: historyEnabled(capsule),
+					allowed: grant?.allowed === true && grant.turn === turn && historyBindingMatches(capsule, grant.scope, turn),
+					query: String(params.query ?? ''), objective: typeof params.objective === 'string' ? params.objective : undefined,
+					player_input: state.playerText ?? '',
+					reference_mode: params.reference_mode as HistoryInput['reference_mode'], name: typeof params.name === 'string' ? params.name : undefined,
+					reference_cursor: typeof params.reference_cursor === 'number' ? params.reference_cursor : undefined,
+					context: {where: (capsule as any).where ?? null, period: (capsule as any).campaign?.era ?? null},
+					signal: signal ?? new AbortController().signal, deadlineAt: providerBudget?.deadlineAt,
+					current: async()=>table === state && state.campaign === campaign && state.turn === turn
+						&& historyBindingMatches(await state.kernel.call('table.capsule', {campaign}), referenceScope, turn),
+				})};
+			}
 			if(spec.name==='lookup'&&params.kind==='support'){
 				if(Object.keys(params).some(key=>!['kind','query'].includes(key)))throw new KernelError({code:'invalid_params',message:'Support lookup accepts only kind and query'});
 				dispatcher.requireCapability(toolCallId,'lookup.support');
@@ -4600,7 +4636,7 @@ export default function (pi: ExtensionAPI) {
 			// §143.24: `purpose_repeats` is the host's reading of the Keeper's lines; the Keeper never supplies it.
 			delete payload.purpose_repeats;
 			if (spec.name === "ask") state.speechAttribution = undefined;
-			if (spec.name === "narrate" && typeof payload.text === "string") {
+			if (spec.name === "narrate" && typeof payload.text === "string" && !referenceDelivery) {
 				// The purpose reading takes the Keeper's own text (its tokens are all the Keeper's), beside attribution; §145.2's
 				// time skip is read at the same time too (attribution only adds say tokens, which the reading strips) and rides
 				// on the call after the Mod hooks.
@@ -4612,7 +4648,7 @@ export default function (pi: ExtensionAPI) {
 				if (repeats.length) payload.purpose_repeats = repeats;
 				timeReading = read;
 			}
-      if (mods) {
+      if (mods && !referenceScope) {
         if (Array.isArray(payload.effects)) payload.effects = payload.effects.map(effect => ({...(effect as Record<string, unknown>)}));
         if (spec.name === 'narrate' && state.preparationWait) payload.preparation_wait = {
           kind: state.preparationWait.kind, ...(state.preparationWait.name ? {name: state.preparationWait.name} : {})};
@@ -4625,7 +4661,8 @@ export default function (pi: ExtensionAPI) {
         if (spec.name === 'narrate' || spec.name === 'ask') notePrepared(state, prepared);
       }
 			try {
-                if (supportAnswer) result = supportAnswer;
+                if (historicalAnswer) result = historicalAnswer;
+                else if (supportAnswer) result = supportAnswer;
                 else if (memoryAnswer) result = memoryAnswer;
                 else if (sourceAnswer) result = { source_answer: sourceAnswer,...(sourceMaterial?{material_ready:true,entities:[{name:sourceMaterial.name??sourceMaterial.scene,kind:'scene',material:'ready',scope:'original-place-identity'}],instruction:'This original place is already registered and ready for an ordinary player-authorized move. Use its supplied name with apply move and describe the route in via when needed. Do not prepare a duplicate destination or adaptation just because background enrichment is unfinished. People, rules and assets keep their own use-specific requirements.'}:{}) };
                 else if (spec.name === 'lookup' && params.kind === 'adaptation') {
@@ -4746,7 +4783,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (spec.name === "recall") result = state.recallPages.accept(result);
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
-			if (mods?.after) await mods.after(spec.name, payload, signal, providerBudget);
+			if (mods?.after && !referenceScope) await mods.after(spec.name, payload, signal, providerBudget);
 			if (spec.name === "lookup" && params.kind === "module" && params.question) {
 				result.note = "This is published graph material. Use lookup kind source only if an original-page recheck is needed.";
 			}
@@ -5793,6 +5830,7 @@ export default function (pi: ExtensionAPI) {
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
 			state.playerText = text;
+			state.interactionScope = undefined;
 			// §71: a hold belongs to the turn that was running when it arrived and never outlives it.
 			state.resend = undefined;
 			state.admission = new Map();
@@ -6059,6 +6097,10 @@ export default function (pi: ExtensionAPI) {
 		// step's structure, never the Keeper's misuse of parameters, so it strikes no refusal class: the same verb is the
 		// Keeper's own again on an adjudicate step of the same turn.
 		const announced = modelSteps.get(event.toolCallId);
+		if (state.interactionScope !== undefined && state.interactionScope !== 'world' && !permitsReferenceOperation(name, event.input)) {
+			await record({tool: name, ok: false, code: 'blocked', reason: 'interaction_scope'});
+			return {block: true, reason: 'This message does not authorize fictional progression. Answer the reference question or clarify it; do not alter the world.'};
+		}
 		if (drivenEngine && name === "resolve" && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "check_selection_owned" });
 			return { block: true, reason: "Jev and the host own check selection. No model-origin resolve was executed. Report unresolved check needs and narrate only committed receipts." };
@@ -6427,7 +6469,7 @@ export default function (pi: ExtensionAPI) {
 			// passing through narrate or ask. It leaves with the message, like the drafts below it.
 			if (!prose || !canClose || state.closedThisRun) return dropText(failedLeg ? "failed_leg_not_delivered" : "text_not_a_delivery");
 			try {
-				const defense = await recoverStandingDefense(state);
+				const defense = state.interactionScope !== undefined && state.interactionScope !== 'world' ? undefined : await recoverStandingDefense(state);
 				if (defense) {
 					state.deliveryFix = {kind: 'standing-defense', text: `The live attack settled under the player standing defense preference: ${JSON.stringify(defense)}. Continue from these receipts and deliver with narrate, not ask.`};
 					return dropText('standing_defense_settled');
@@ -6461,7 +6503,8 @@ export default function (pi: ExtensionAPI) {
 			// survives in the capsule and the next turn owes it again.
 			const pending = state.pendingChoice;
 			const owesAsk = pending?.for === "player" && Array.isArray(pending.options) && pending.options.length >= 2;
-			if (owesAsk && !state.steeredThisTurn) return dropText("owes_ask");
+			const referenceAnswer = state.interactionScope !== undefined && state.interactionScope !== 'world';
+			if (owesAsk && !state.steeredThisTurn && !referenceAnswer) return dropText("owes_ask");
 			// Turn floor (docs/specs/turn-floor.md D4): the Keeper wrote prose and called no tool at all this
 			// turn. Once, the host drops that draft and steers it back to the capsule; whatever the second leg
 			// brings is honoured, an explicit narrate or prose closed implicitly as before. The opening is
@@ -6476,25 +6519,15 @@ export default function (pi: ExtensionAPI) {
 			// path keeps SL-80's two conditions and no length check.
 			const opening = state.state === "awaiting_player" && state.openingPending;
 			const speechOnly = !opening && !state.steeredThisTurn && isSpeechOnlyDraft(prose);
-			if ((state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn) {
+			if ((state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn && !referenceAnswer) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
 				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips, ...(speechOnly ? { reason: "speech_only" } : {}) });
 				return dropText("floor_steer");
 			}
-			// §40 (2026-09-15): people are on stage and the draft carries no say token. Once, the host drops
-			// the draft and asks for the same turn with its lines wrapped; the second leg is honoured however it
-			// comes, and a second leg that brings nothing falls back to this draft like the floor steer's.
-			// Nothing here reads the prose: a machine token is searched for, and present[] is the capsule's.
-			// PI_COC_SPEECH_STEER=0 turns the steer off for an experiment (a control arm); the product default is on.
-			// A fix already pending (an explicit delivery this turn was refused and its repair steer waits) wins:
-			// the draft goes through the audit like any other, one concern per steer.
-			// §128.2 widens it: a draft that wraps some lines but leaves passages in the same quotation marks
-			// outside every token is steered the same way, once. The marks are the ones the Keeper's own
-			// spans are written in (§40.1 keeps them inside the token), so no table of marks or languages is
-			// read, and nothing decides who speaks. This one is not exempt at the opening: the draft itself
-			// shows that someone speaks, where present[] is not yet known to the host.
-			const speechSteerOn = process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && !state.steeredThisTurn;
+			// The existing fictional speech repair applies only to world turns. Reference answers
+			// do not inherit dialogue obligations from NPCs still present in the paused scene.
+			const speechSteerOn = !referenceAnswer && process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && !state.steeredThisTurn;
 			const bareOfTokens = state.present.length > 0 && !opening && !/\{\{say:/.test(prose);
 			const unwrapped = speechSteerOn && !bareOfTokens ? unwrappedQuotes(prose, state.speechMarks) : [];
 			if (speechSteerOn && (bareOfTokens || unwrapped.length > 0)) {
@@ -6521,11 +6554,11 @@ export default function (pi: ExtensionAPI) {
 				// kernel's fix back (§135.11). The opening is never read: keyed on the opening itself, not on `opening`, which
 				// also asks for awaiting_player -- an opening whose own Mod writes moved the turn to acting is still the opening
 				// (live table time-skip-a, turn 0).
-				const timeRead = state.openingPending ? undefined : readTimeSkip(state, draft, "implicit", !state.steeredThisTurn, state.lanes.signal, foregroundProviderBudget?.());
+				const timeRead = state.openingPending || referenceAnswer ? undefined : readTimeSkip(state, draft, "implicit", !state.steeredThisTurn, state.lanes.signal, foregroundProviderBudget?.());
 				// The same draft sent again keeps the attribution it already has: no second Jev batch for the same words. The
 				// §143.24 purpose reading rides with it, read from the Keeper's own draft beside attribution, once per draft.
 				if (attributed === undefined || attributedDraft !== draft) {
-					const [wrapped, read] = await Promise.all([attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.()),
+					const [wrapped, read] = referenceAnswer ? [{text: draft}, []] as const : await Promise.all([attributeUnwrappedSpeech(state, draft, state.lanes.signal, foregroundProviderBudget?.()),
 						purposeRepeats(state, draft, state.lanes.signal, foregroundProviderBudget?.())]);
 					attributed = wrapped;
 					repeats = read;
@@ -6538,6 +6571,7 @@ export default function (pi: ExtensionAPI) {
 				const began = Date.now();
 				try {
 					const params: Record<string, unknown> = { campaign: state.campaign, call_id: callId, text: attributed.text, implicit: true,
+						...(referenceAnswer ? {_interaction_scope: state.interactionScope} : {}),
 						...(attributed.hostAttributed?.length ? { host_attributed: attributed.hostAttributed } : {}),
 						...(repeats.length ? { purpose_repeats: repeats } : {}),
 						...(state.preparationWait ? {preparation_wait: {kind: state.preparationWait.kind,
@@ -6548,7 +6582,7 @@ export default function (pi: ExtensionAPI) {
 					params.source_consultations=sourceConsultationsForAudit(state);
 					state.skillRun?.tool_names.push(tool);
 					await guardTaskDelivery(event.message);
-					const prepared = await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
+					const prepared = referenceAnswer ? undefined : await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
 					// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
 					notePrepared(state, prepared);
 					await guardTaskDelivery(event.message, 'committing');

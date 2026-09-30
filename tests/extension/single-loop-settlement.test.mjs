@@ -24,7 +24,7 @@ import { isRunEvent, runDriver } from "./pi-agent-core.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch } from "../../runtime/jev/route-compile.ts";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, createStepPolicy, initialView, next, routeBatch, settleCompile, settleExecute, settleInfer, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
 import { fanAsk, isAskRow } from "./compile-ask.mjs";
 

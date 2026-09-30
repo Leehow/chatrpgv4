@@ -55,7 +55,8 @@ export async function records(campaign: CampaignWriter): Promise<Map<number, Row
     return new Map((await campaign.files('turns')).map(value => [number(value.turn), value]));
 }
 export async function committedRecords(campaign: CampaignWriter): Promise<Map<number, Row>> {
-    return new Map([...await records(campaign)].filter(([, value]) => value.closed_by === 'narrate' && truth(value.commit)));
+    return new Map([...await records(campaign)].filter(([, value]) => value.closed_by === 'narrate' && truth(value.commit)
+        && value.interaction_scope !== 'reference' && value.interaction_scope !== 'uncertain'));
 }
 export function parseJobId(campaign: CampaignWriter, value: any): number {
     const found = typeof value === 'string' ? /^(extract|reconcile):([A-Za-z0-9][A-Za-z0-9._-]{0,63}):t(\d+)(?:-(\d+)(?::[a-f0-9]{12})?)?$/.exec(value) : null;

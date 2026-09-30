@@ -21,7 +21,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { customMessages, openTable, waitFor } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
 

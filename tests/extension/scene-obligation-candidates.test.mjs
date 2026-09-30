@@ -24,7 +24,7 @@ import { buildCandidates, keeperCall, obligationCandidates } from "../../runtime
 import { COMPILE_FAMILY, compileBatch } from "../../runtime/jev/route-compile.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { BIND_FAMILY, CLERK_AUTHORITY, ROUTE_FAMILY, bindBatch, bindingOf, initialView, interpretBind, interpretRoute, next, routeBatch, settleCompile, settleExecute, settleRead, startStep } from "../../runtime/jev/step-policy.ts";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { issuedSection, readCandidateBodies } from "../../runtime/jev/candidate-bodies.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -453,6 +453,7 @@ test("the clerk rolls the gatekeeper's check with its claim through the gateway;
 	assert.equal(row.basis.obligation, ACCESS, "the operation carries basis: obligation <handle>");
 	const admission = telemetry.find((entry) => entry.lane === "admission" && entry.origin === "policy");
 	assert.equal(admission?.basis?.obligation, ACCESS, "so the §32 research reads obligation checks as their own row");
+	assert.ok(requests.length, JSON.stringify(telemetry.filter(entry => entry.lane === 'run').slice(-6)));
 	const note = clerkNotes(requests.at(-1)).find((entry) => entry.clerk_did);
 	const did = note.clerk_did.find((entry) => entry.operation === "resolve");
 	assert.match(did.obligation, new RegExp(`^obligation ${ACCESS}: Persuade \\(regular\\) passed, settled; receipt \\S+; pdf p\\.448$`));

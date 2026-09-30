@@ -23,7 +23,7 @@ import { buildCandidates, keeperCall } from "../../runtime/jev/candidates.ts";
 import { highestOffered, obligationCandidates } from "../../runtime/jev/obligation-candidates.ts";
 import { ORDINARY_RULE_DEFAULTS, interpretOrdinaryRoute } from "../../runtime/jev/ordinary-resolve-domain.ts";
 import { composeSentence } from "../../runtime/jev/composed-arguments.ts";
-import { admissionBindings, bindRecords, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { admissionBindings, bindRecords, createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { compileAdmission } from "../../extensions/kernel/admission.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";

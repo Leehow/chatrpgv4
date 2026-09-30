@@ -19,7 +19,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRealCampaign, openTable } from "./harness.mjs";
 import { createFixtureNpcActPort } from "../../runtime/jev/npc-act.ts";
 import { NPC_ACT_BIND_FAMILY } from "../../runtime/jev/npc-act-step.ts";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { CARD_FIELD_ORDER, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, fitView, namedPeople, PRESENT_FIELDS, readCarriedViews } from "../../runtime/jev/carried-views.ts";
 import { readArguments } from "../../extensions/kernel/index.ts";

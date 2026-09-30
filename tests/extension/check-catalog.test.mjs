@@ -7,7 +7,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {validateCheckOptions} from '../../runtime/jev/resolve-selection.ts';
 import {buildCandidates} from '../../runtime/jev/candidates.ts';
-import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
+import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
@@ -43,7 +43,7 @@ test('current kernel issues a complete rule inventory and executable ordinary/tr
   const listen = checks.find(option => option.action.skill === 'Listen');
   const spot = checks.find(option => option.action.skill === 'Spot Hidden');
   assert.ok(listen && spot && listen.key !== spot.key, 'two methods do not share a mutually exclusive skill selector');
-  assert.ok(checks.some(option => option.action.decision === 'healing:first-aid-ordinary' && !option.needs.length));
+  assert.ok(!checks.some(option => option.action.decision === 'healing:first-aid-ordinary'), 'a healthy party supplies no First Aid patient');
   assert.deepEqual(await call('table.status'), before, 'catalog projection cannot roll or change the turn');
   const candidates = buildCandidates({capsule: await call('table.capsule'), applyOptions: await call('table.apply.options'), resolveOptions: options}, 'I listen carefully, then inspect the office.');
   assert.ok(candidates.filter(candidate => candidate.unbound.some(parameter => parameter.binder === 'resolve-selection')).length > 1);
@@ -52,12 +52,49 @@ test('current kernel issues a complete rule inventory and executable ordinary/tr
     'one current binder owns ordinary checks; the earlier preflight does not repeat them');
   assert.ok(candidates.filter(candidate => candidate.verb === 'resolve').every(candidate => candidate.checkOwner === 'jev'));
   assert.deepEqual(candidates.find(candidate => candidate.bound.decision === 'core-check:ordinary-check').detail.rule_guidance, guidance.map(rule => rule.text));
-  const action = {...listen.action, modifiers: {difficulty: 'regular', bonus_dice: 0, penalty_dice: 0, reason: 'the declared method'}};
+  const action = {...listen.action, intent: 'investigate', modifiers: {difficulty: 'regular', bonus_dice: 0, penalty_dice: 0, reason: 'the declared method'}};
   const result = await call('table.resolve', {action, call_id: 't1-c1'});
   assert.ok(result.receipts.length, 'an issued ordinary action reaches the real TS resolver');
   const next = await call('table.resolve.options');
   assert.notEqual(next.world_revision, options.world_revision, 'the execution invalidates earlier selection snapshots');
   assert.ok(next.context.current_receipts.some(receipt => receipt.skill === 'Listen'));
+});
+
+test('a wounded NPC is a bound patient before necessity, and an out-of-session pursuit is reachable', async t => {
+  const home = await mkdtemp(join(bundle, 'patient-'));
+  const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'patient-check', locks: api.nativeAdvisoryLocks()});
+  const kernel = api.createKernelRuntime(context);
+  t.after(() => kernel.close());
+  const call = (method, params = {}) => kernel.handlers[method]({campaign: 'patient', ...params});
+  await call('campaign.create', {id: 'patient', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+  await call('table.open');
+  await call('table.player_input', {text: 'I use First Aid to bandage the injured porter.'});
+  await call('table.apply', {call_id: 't1-c1', effects: [{kind: 'npc', name: 'Porter', walk_on: true, to: 'here', archetype: 'ordinary_adult', why: 'The porter is the prepared patient.'}]});
+  await call('table.apply', {call_id: 't1-c2', effects: [{kind: 'damage', subject: 'Porter', dice: '1D1+2', why: 'A fresh cut.'}]});
+  const options = await call('table.resolve.options');
+  const patient = options.selection.situation.patients.find(row => row.name === 'Porter');
+  assert.equal(patient.max - patient.hp, 3);
+  assert.equal(patient.injured, true);
+  const aid = options.selection.options.find(row => row.action.decision === 'healing:first-aid-ordinary');
+  assert.equal(aid.action.target, 'Porter');
+  assert.notEqual(aid.action.actor, aid.action.target);
+  assert.equal(aid.facts.clinical_eligibility, 'eligible');
+  assert.equal(aid.parameters.some(row => row.name === 'target'), false);
+  const candidates = buildCandidates({capsule: await call('table.capsule'), applyOptions: await call('table.apply.options'), resolveOptions: options}, 'I treat the porter.');
+  assert.ok(candidates.some(row => row.bound.decision === 'chase:start'), 'starting a chase does not require an existing chase');
+  const pursuit = options.selection.options.find(option => option.action.decision === 'chase:start');
+  assert.equal(pursuit.action.target, 'Porter');
+  assert.equal(pursuit.action.intent, undefined, 'an unbound intent is not a contradictory default fact');
+  assert.equal(candidates.find(row => row.bound.decision === 'healing:first-aid-ordinary').detail.check_options[0].action.target, 'Porter');
+  await call('table.resolve', {call_id: 't1-c3', action: aid.action});
+  const status = await call('table.status');
+  const rolled = status.receipts.find(row => row.kind === 'roll' && row.skill === 'First Aid');
+  assert.equal(rolled.actor, 'thomas-hayes');
+  const after = await call('table.resolve.options');
+  const body = after.selection.situation.patients.find(row => row.name === 'Porter');
+  assert.equal(body.hp, patient.hp + (rolled.passed ? 1 : 0));
+  assert.equal(body.first_aid_used, true);
+  assert.ok(!after.selection.options.some(row => row.action.decision === 'healing:first-aid-ordinary' && row.action.target === 'Porter'));
 });
 
 for (const skills of [['Listen'], ['Listen', 'Spot Hidden']]) test(`the agent commits ${skills.join(' then ')} through the canonical gateway without a model resolve`, async t => {
@@ -116,4 +153,59 @@ for (const skills of [['Listen'], ['Listen', 'Spot Hidden']]) test(`the agent co
   assert.ok(telemetry.some(row => row.lane === 'check-selection' && row.status === 'no_roll'));
   assert.ok(!table.activeTools().includes('resolve'));
   assert.equal(table.session.lastDrivenRun.status, 'delivered');
+});
+
+test('a source NPC SAN receipt covers the same exposure after the turn commits', async t => {
+  const home = await mkdtemp(join(bundle, 'exposure-'));
+  const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'san-exposure', locks: api.nativeAdvisoryLocks()});
+  const kernel = api.createKernelRuntime(context);
+  t.after(() => kernel.close());
+  const call = (method, params = {}) => kernel.handlers[method]({campaign: 'exposure', ...params});
+  await call('campaign.create', {id: 'exposure', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+  await call('table.open');
+  await call('table.player_input', {text: 'I look at Corbitt.'});
+  let n = 0;
+  for (const to of ['corbitt-house-ground', 'basement-rites', 'corbitt-confrontation'])
+    await call('table.apply', {call_id: `t1-c${++n}`, effects: [{kind: 'move', to, travel_minutes: 0}]});
+  const options = await call('table.resolve.options');
+  const san = options.selection.options.find(option => option.action.decision === 'sanity:check' && option.action.target === 'Walter Corbitt');
+  assert.equal(san.action.san_loss, '1/1D8');
+  assert.equal(san.parameters.find(parameter => parameter.name === 'involuntary').selection, 'compatible');
+  await call('table.resolve', {call_id: `t1-c${++n}`, action: {...san.action, involuntary: 'freeze'}});
+  const status = await call('table.status');
+  assert.ok(status.receipts.some(receipt => receipt.skill === 'SAN' && typeof receipt.npc_exposure === 'string' && receipt.npc_exposure.length), JSON.stringify(status.receipts));
+  await call('table.narrate', {call_id: `t1-c${++n}`, text: 'The shriveled body opens its eyes before you.'});
+  await call('table.player_input', {text: 'I keep watching the same body.'});
+  const next = await call('table.resolve.options');
+  assert.ok(!next.selection.options.some(option => option.action.decision === 'sanity:check' && option.action.target === 'Walter Corbitt'));
+});
+
+test('combat end exposes the engine outcomes and actually closes a live session', async t => {
+  const home = await mkdtemp(join(bundle, 'combat-end-'));
+  const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'combat-outcomes', locks: api.nativeAdvisoryLocks()});
+  const kernel = api.createKernelRuntime(context);
+  t.after(() => kernel.close());
+  const call = (method, params = {}) => kernel.handlers[method]({campaign: 'combat-end', ...params});
+  await call('campaign.create', {id: 'combat-end', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+  await call('table.open');
+  await call('table.player_input', {text: 'We begin a practice bout.'});
+  await call('table.apply', {call_id: 't1-c1', effects: [{kind: 'npc', name: 'Steven Knott', archetype: 'ordinary_adult', why: 'Prepared sparring partner.'}]});
+  await call('table.resolve', {call_id: 't1-c2', action: {intent: 'combat', decision: 'combat:attack', target: 'Steven Knott', weapon: 'unarmed', goal: 'Practice a punch', method: 'Unarmed sparring'}});
+  let n = 2, options = await call('table.resolve.options');
+  const pending = options.context.session.pending_defense;
+  if (pending) {
+    await call('table.resolve', {call_id: `t1-c${++n}`, action: {intent: 'combat', decision: 'combat:defend', actor: pending.actor, defense: 'dodge', goal: 'Evade the punch', method: 'Dodge'}});
+    options = await call('table.resolve.options');
+  }
+  const end = options.context.session.actions.find(action => action.decision === 'combat:end');
+  assert.deepEqual(options.context.combat_outcomes, ['fled', 'investigators_win', 'monsters_win', 'stalemate']);
+  const investigator = options.context.session.participants.find(person => person.side === 'investigator').name;
+  const candidates = buildCandidates({capsule: {}, applyOptions: {}, resolveOptions: {...options, context: {...options.context,
+    session: {...options.context.session, turn_of: investigator, actions: [{...end, actor: investigator}]}}}}, 'We agree to stop sparring.');
+  const ending = candidates.find(candidate => candidate.bound.decision === 'combat:end');
+  assert.equal(ending.unbound[0].vocabulary, 'closed');
+  assert.deepEqual(ending.unbound[0].options, options.context.combat_outcomes);
+  await call('table.resolve', {call_id: `t1-c${++n}`, action: {intent: 'combat', decision: 'combat:end', outcome: 'stalemate', goal: 'End the agreed practice', method: 'Both stop'}});
+  assert.ok((await call('table.status')).receipts.some(receipt => receipt.kind === 'session' && receipt.transition === 'end' && receipt.outcome === 'stalemate'));
+  assert.equal((await call('table.resolve.options')).context.session, null);
 });

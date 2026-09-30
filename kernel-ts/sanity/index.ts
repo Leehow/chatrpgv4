@@ -97,7 +97,9 @@ export const executeSanity: SettlementExecutor = async (context, args, plan) => 
                 involuntaryKind: involuntary, involuntarySummary: string(payload.involuntary_summary || ''), alone: truth(payload.alone),
                 creatureType: typeof payload.creature_type === 'string' ? payload.creature_type : null });
             if (event.type === 'sanity_check_skipped') turnState(string(row(event.payload).summary || 'SAN check skipped'));
-            const ids = recordSanityRolls(context, session, { source: string(payload.source || '') }), result = row(event.payload);
+            const perceived = typeof context.action.target === 'string' ? context.graph.find(context.action.target, ['npc']) : null;
+            const ids = recordSanityRolls(context, session, { source: string(payload.source || ''),
+                ...(perceived ? {npc_exposure: context.graph.handle(perceived)} : {}) }), result = row(event.payload);
             const sanRoll = ids.length ? row(context.receipts.find(receipt => receipt.id === ids[0])) : {};
             data.check = { skill: 'SAN', target: before, roll: sanRoll.roll ?? null, level: result.roll_outcome ?? null, passed: SUCCESS_OUTCOMES.has(result.roll_outcome),
                 san_loss: result.san_loss ?? null, source: result.source ?? null };

@@ -12,6 +12,8 @@ export interface CheckParameter {
   options: Array<{label: string; value: Json}>;
   /** A set-valued argument is independent membership questions, with host-owned cardinality. */
   multiple?: {minimum: number};
+  /** One permissible ruling, rather than recovery of a unique already-established fact. */
+  selection?: 'compatible';
   default?: {value: Json; question: string};
 }
 export interface CheckOption {
@@ -19,6 +21,7 @@ export interface CheckOption {
   family: string;
   label: string;
   definition?: string;
+  facts?: Record<string, Json>;
   action: Record<string, Json>;
   parameters: CheckParameter[];
   needs: string[];
@@ -39,8 +42,8 @@ export interface CheckSelectionInput {
   record?(row: Record<string, unknown>): void;
 }
 /** Screening negatives, mutation authority and closed Choice probability are separate gates. */
-export interface CheckSelectionGates {applicability: number; need: number; noNeed: number; choice: number}
-export const CHECK_SELECTION_GATES: Readonly<CheckSelectionGates> = Object.freeze({applicability: 0.65, need: 0.85, noNeed: 0.35, choice: 0.85});
+export interface CheckSelectionGates {applicability: number; need: number; noNeed: number; choice: number; adjudication: number}
+export const CHECK_SELECTION_GATES: Readonly<CheckSelectionGates> = Object.freeze({applicability: 0.65, need: 0.85, noNeed: 0.35, choice: 0.85, adjudication: 0.75});
 export type CheckSelection = {
   status: 'selected' | 'no_roll' | 'deferred' | 'unresolved';
   option?: CheckOption;
@@ -51,6 +54,25 @@ export type CheckSelection = {
 };
 
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** Rule eligibility is already host-owned; these questions ask only the remaining semantic trigger. */
+export function specializedTriggerQuestion(option: CheckOption): string | undefined {
+  if (option.action.decision === 'chase:start')
+    return 'Does the player choose an attempt by this investigator to pursue this escaping person or flee from this person? '
+      + 'Judge the chosen pursuit or flight, not whether it succeeds or whether speeds have already been compared. The kernel performs that comparison. '
+      + 'Walking toward a stationary person, merely discussing a chase, or a hypothetical future pursuit does not qualify.';
+  if (option.family === 'healing' && option.facts?.clinical_eligibility === 'eligible')
+    return 'Does the player choose an attempt by this rescuer to treat this patient with the listed medical skill? '
+      + 'Judge the chosen attempt, not whether treatment has already succeeded or completed. '
+      + 'The host has already verified the patient is eligible for this rule-required treatment roll. Do not reassess injury, timing or arithmetic. '
+      + 'Cleaning and bandaging a wound are part of First Aid, not earlier separate checks. A calm setting does not replace the treatment roll. '
+      + 'Exclude a hypothetical discussion, merely asking another person for help, or a different rescuer/patient/method. The actor is the rescuer and the target is the patient.';
+  if (option.action.decision === 'sanity:check' && option.action.san_loss)
+    return 'Does this investigator perceive the listed source of horror now, including directly uncovering or looking at it in the declared action, '
+      + 'or has that exposure already been narrated without its SAN check? The source requires the listed SAN check once exposed. '
+      + 'Mere proximity while the horror stays concealed is not perception. Exclude an exposure already settled by a SAN receipt. '
+      + 'No player request for dice or voluntary willingness to be frightened is required.';
+  return undefined;
+}
 /** One distinguishable attempt; changing modifiers cannot mint another attempt at the same thing. */
 export function checkAttemptIdentity(action: Record<string, Json>, scene: string): string {
   return digest([scene, ...['actor', 'decision', 'skill', 'skills', 'target', 'rule', 'step', 'spell', 'object', 'weapon', 'push', 'luck']
@@ -96,6 +118,7 @@ export function validateCheckOptions(value: unknown): CheckOption[] | undefined 
   for (const entry of value) {
     if (!isPlainRecord(entry) || typeof entry.key !== 'string' || !entry.key || keys.has(entry.key)
       || entry.definition !== undefined && typeof entry.definition !== 'string'
+      || entry.facts !== undefined && !isPlainRecord(entry.facts)
       || typeof entry.family !== 'string' || typeof entry.label !== 'string' || !isPlainRecord(entry.action)
       || !['declaration', 'consequence'].includes(String(entry.authorization)) || !Array.isArray(entry.needs)
       || entry.needs.some(need => typeof need !== 'string') || !Array.isArray(entry.parameters)) return undefined;
@@ -107,6 +130,7 @@ export function validateCheckOptions(value: unknown): CheckOption[] | undefined 
         || parameter.options.some(option => !isPlainRecord(option) || typeof option.label !== 'string' || !Object.hasOwn(option, 'value'))) return undefined;
       if (parameter.multiple !== undefined && (!isPlainRecord(parameter.multiple) || !Number.isSafeInteger(parameter.multiple.minimum)
         || Number(parameter.multiple.minimum) < 1 || Number(parameter.multiple.minimum) > parameter.options.length)) return undefined;
+      if (parameter.selection !== undefined && (parameter.selection !== 'compatible' || parameter.multiple !== undefined || parameter.default !== undefined)) return undefined;
       if (parameter.default !== undefined && (!isPlainRecord(parameter.default) || parameter.multiple !== undefined
         || typeof parameter.default.question !== 'string' || !Object.hasOwn(parameter.default, 'value')
         || !parameter.options.some(option => digest(option.value) === digest(parameter.default!.value)))) return undefined;
@@ -131,7 +155,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     input.lease.assertActive();
     if (calls >= (input.maxCalls ?? 24)) throw new Error('check_selection_budget');
     const batch: DecisionBatch = {id: digest([purpose, state, questions, input.scope, input.readSet]), model: JEV_MODEL,
-      family: `check-selection-${purpose}`, familyVersion: '13', scope: input.scope, readSet: input.readSet, state, questions};
+      family: `check-selection-${purpose}`, familyVersion: '16', scope: input.scope, readSet: input.readSet, state, questions};
     packDecisionBatch(batch);
     calls++;
     const result = await withinCheckLease(input.lease, () => input.decision.decide(batch, input.lease));
@@ -226,7 +250,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     const refinable: Array<{option: CheckOption; index: number; state: Json; questions: DecisionBatch['questions']; explicitMethod: boolean}> = [];
     await Promise.all(pages.map(async page => {
       const state = {declaration: input.declaration, context: input.context, policy: POLICY,
-        checks: Object.fromEntries(page.map((option, index) => [optionAlias(index), {family: option.family, label: option.label, trigger: option.authorization, action: actionView(option.action), ...(option.definition ? {definition: option.definition} : {})}]))};
+        checks: Object.fromEntries(page.map((option, index) => [optionAlias(index), {family: option.family, label: option.label, trigger: option.authorization, action: actionView(option.action), ...(option.definition ? {definition: option.definition} : {}), ...(option.facts ? {facts: option.facts} : {})}]))};
       const questions: DecisionBatch['questions'] = page.flatMap((option, index) => option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined ? [
         {key: optionAlias(index), target: option.label, type: 'noul' as const,
           instructions: 'Does this actor use this listed skill in a concrete method they actually declare? Judge only the fit between method and skill, not whether a roll is needed. Use its supplied rule definition when available.',
@@ -235,12 +259,13 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
           instructions: 'According to `context.rules` and this profile\'s supplied definition, does this attempt require a check rather than automatic resolution? Distinguish merely using a skill from a situation calling for a roll. Missing source details do not themselves require a roll or prove a discovery.',
           criteria: {true: 'The applicable rules require a roll for this attempt.', false: 'This attempt does not require a roll under the applicable rules.'}},
       ] : [{key: optionAlias(index), target: option.label, type: 'noul' as const,
-        instructions: 'Does this one listed check need to be resolved now, before narration, for the declared action or an established '
+        instructions: specializedTriggerQuestion(option) ?? 'Does this one listed check need to be resolved now, before narration, for the declared action or an established '
           + 'consequence? Judge necessity, not whether a skill is merely relevant. Exclude routine success, alternatives to the chosen '
           + 'method, checks already covered by receipts, and attempts at a place not reached yet. An active attempt to detect concealed '
           + 'information under uncertainty calls for its appropriate check even if the source does not state what will be found; the '
           + 'player need not ask for dice. Do not assume success or failure from missing source facts. An NPC must already be undertaking '
-          + 'the attempt; a favor merely requested but not agreed to is not an NPC check. Other checks can also be necessary.',
+          + 'the attempt; a favor merely requested but not agreed to is not an NPC check. Read the candidate definition and host facts: the actor may be a rescuer and target a different patient. '
+          + 'A source-mandated SAN check on a perceived horror is a consequence, even without a player request for dice. Other checks can also be necessary.',
         criteria: {true: 'This check is required now.', false: 'This check is not currently required.'}}]).concat(page.map((option, index) => ({
         key: optionAlias(index) + '_blocked', target: option.label, type: 'noul' as const,
         instructions: 'Does resolving this attempt now have an unmet prerequisite in the declaration or current location? Explicit earlier actions must have settled first; a conditional attempt waits for its condition to hold. Independent other checks are not prerequisites.',
@@ -318,7 +343,11 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     if (parameters.length) {
       const state = {declaration: input.declaration, context: input.context,
         selected: {label: selected.label, action}, policy: POLICY};
-      const questions = parameters.flatMap((parameter, index): DecisionBatch['questions'] => parameter.multiple
+      const questions = parameters.flatMap((parameter, index): DecisionBatch['questions'] => parameter.selection === 'compatible'
+          ? parameter.options.map((option, optionIndex) => ({key: `${parameterAlias(index)}_${optionIndex}`, target: `${parameter.name}: ${option.label}`,
+            type: 'noul', instructions: `${parameter.question} Judge only this option: is it a permissible choice consistent with the supplied situation? It need not already have happened. Other options may also be permissible.`,
+            criteria: {true: 'This option is compatible with the situation and the rule.', false: 'This option contradicts the situation or exceeds what the rule permits.'}}))
+          : parameter.multiple
           ? parameter.options.map((option, optionIndex) => ({key: `${parameterAlias(index)}_${optionIndex}`, target: `${parameter.name}: ${option.label}`,
             type: 'noul', instructions: `${parameter.question} Judge only this listed member, independently: does the declared combined attempt require it?`,
             criteria: {true: 'This member is required in the combined attempt.', false: 'This member is not required.'}}))
@@ -330,6 +359,11 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       const confirmationQuestions: DecisionBatch['questions'] = [];
       for (const [index, parameter] of parameters.entries()) {
         const key = parameterAlias(index);
+        if (parameter.selection === 'compatible') {
+          if (!parameter.options.some((_, i) => (yes(result, `${key}_${i}`) ?? 0) >= gates.adjudication))
+            confirmationQuestions.push(...questions.filter(question => question.key.startsWith(key + '_') && ambiguous(yes(result, question.key))));
+          continue;
+        }
         if (parameter.multiple) {
           confirmationQuestions.push(...questions.filter(question => question.key.startsWith(key + '_') && ambiguous(yes(result, question.key))));
           continue;
@@ -347,6 +381,15 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       const refined = await refine('bind', state, confirmationQuestions);
       const missing: string[] = [];
       for (const [index, parameter] of parameters.entries()) {
+        if (parameter.selection === 'compatible') {
+          const chosen = parameter.options.map((option, i) => {
+            const key = `${parameterAlias(index)}_${i}`;
+            return {option, p: (refined && confirmationQuestions.some(question => question.key === key) ? yes(refined, key) : yes(result, key)) ?? 0};
+          }).filter(value => value.p >= gates.adjudication).sort((a, b) => b.p - a.p)[0];
+          if (!chosen) missing.push(`unbound:${parameter.name}`);
+          else action[parameter.name] = structuredClone(chosen.option.value);
+          continue;
+        }
         if (parameter.multiple) {
           const members = parameter.options.map((option, optionIndex) => {
             const key = `${parameterAlias(index)}_${optionIndex}`;

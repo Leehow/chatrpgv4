@@ -36,12 +36,23 @@ export function onLine(value: Row, scope: Row): boolean {
  * The committed turn records on the campaign's current line, and the newest of them before this turn. `all` is the
  * campaign's turn records (`campaign.records` once preloaded; a minimal read passes the ones it read itself).
  */
-export function committedOnLine(campaign: CampaignSnapshot, all: Row[] = campaign.records): {scope: Row; records: Row[]; previous: Row | null} {
+export function committedOnLine(campaign: CampaignSnapshot, all: Row[] = campaign.records, includeReference = false): {scope: Row; records: Row[]; previous: Row | null} {
     const worldline = string(campaign.meta.active_worldline || 'main');
     const scope = {worldline, loop: number(row(row(campaign.meta.worldlines)[worldline]).loop)};
-    const records = all.filter(record => truth(record.commit) && onLine(record, scope));
+    const records = all.filter(record => truth(record.commit) && onLine(record, scope)
+        && (includeReference || record.interaction_scope !== 'reference' && record.interaction_scope !== 'uncertain'));
     const previous = records.filter(record => number(record.turn) < number(campaign.turn.turn)).sort((a, b) => number(b.turn) - number(a.turn))[0] ?? null;
     return {scope, records, previous};
+}
+
+/** The conversation frame includes reference replies, even though fictional NPC memory does not. */
+export async function lastInteraction(campaign: CampaignSnapshot): Promise<Row | null> {
+    try {
+        const records = campaign.records.length ? campaign.records : await campaign.files('turns');
+        const {previous} = committedOnLine(campaign, records, true);
+        return previous ? {turn: number(previous.turn), mode: previous.interaction_scope ?? 'world',
+            player_text: clip(previous.player_text, 2000), answer: clip(previous.rendered_text ?? previous.text, 4000)} : null;
+    } catch { return null; }
 }
 
 /**

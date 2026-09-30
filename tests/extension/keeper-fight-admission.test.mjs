@@ -20,7 +20,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { compileActRead, compileActRefusal, proposedFightAct } from "../../extensions/kernel/admission.ts";

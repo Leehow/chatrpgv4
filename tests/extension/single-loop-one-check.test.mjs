@@ -27,7 +27,7 @@ import { askWords, fanAsk, isAskRow } from "./compile-ask.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch } from "../../runtime/jev/route-compile.ts";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, ORDINARY_CHECK_KEY, bindBatch, initialView, next, settleBind, settleCompile, settleExecute, settleOrdinaryBind, startStep } from "../../runtime/jev/step-policy.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -233,19 +233,19 @@ const oneRoll = (telemetry) => {
 test("§135.30.8 on the emitted kernel: gate #4 turn 2's sentence and answers roll one check -- the obligation's", async (t) => {
 	const { telemetry, compiles } = await turnTwo(t, gate4Jev());
 	assert.deepEqual(compiles[0].selected, ["resolve:obligation:globe-clippings-access"]);
-	assert.ok(compiles[0].decided.some(key => key.startsWith("resolve:check:core-check:ordinary-check:")), "the first compile decides the ordinary check: the act is the obligation's");
+	assert.ok(!compiles[0].decided.some(key => key.startsWith("resolve:check:core-check:ordinary-check:")), "catalog checks remain owned by the family route and receipt-aware binder");
 	assert.deepEqual(compiles[0].acts_settled, ["social"]);
 	assert.ok(!compiles.some((row) => row.selected.some(key => key.startsWith("resolve:check:core-check:ordinary-check:"))), "no compile selects the ordinary check");
 	oneRoll(telemetry);
 });
 
-test("§135.30.8 on the emitted kernel: with the first compile's act unclear, the rolled check's intent settles it and the second compile's row decides the ordinary check", async (t) => {
+test("§135.30.8 on the emitted kernel: with the first act unclear, the obligation settles it without selecting a second catalog check", async (t) => {
 	const { telemetry, compiles } = await turnTwo(t, gate4Jev({ firstAct: null }));
 	assert.deepEqual(compiles[0].selected, ["resolve:obligation:globe-clippings-access"]);
 	assert.ok(compiles[0].fell_through.some(key => key.startsWith("resolve:check:core-check:ordinary-check:")), "no act read at the first compile: nothing settled there");
 	assert.equal(compiles[0].acts_settled, undefined);
 	assert.deepEqual(compiles[1].selected, [], "the second compile reads social again and rolls nothing");
-	assert.ok(compiles[1].decided.some(key => key.startsWith("resolve:check:core-check:ordinary-check:")), "its row says what the policy did: the check decided");
+	assert.ok(!compiles[1].decided.some(key => key.startsWith("resolve:check:core-check:ordinary-check:")), "the compile does not replace the catalog's receipt-aware check selection");
 	assert.deepEqual(compiles[1].acts_settled, ["social"], "the act the clerk rolled the check with (its bind's intent)");
 	oneRoll(telemetry);
 });

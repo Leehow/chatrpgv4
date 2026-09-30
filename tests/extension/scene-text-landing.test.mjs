@@ -13,7 +13,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { CARRIED_PENDING_SCENE_HEAD, CARRIED_SCENE_TEXT_HEAD, CARRIED_SCENE_RECORD_HEAD, SCENE_TEXT_VIEW_BYTES, readCarriedViews } from "../../runtime/jev/carried-views.ts";
 import { createRuntime } from "../../runtime/host.ts";
 import { ReadingService } from "../../extensions/module/reading-service.ts";

@@ -19,7 +19,7 @@ import { Type } from "typebox";
 import { openTable } from "./harness.mjs";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { operationCapability } from "../../extensions/kernel/canonical-operation-dispatcher.ts";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { CANDIDATE_BODIES_BYTES, CANDIDATE_BODY_BYTES, fitBody, readCandidateBodies } from "../../runtime/jev/candidate-bodies.ts";
 import { argumentLimitRefusal, COC_TOOLS, SENTENCE_MAX } from "../../extensions/kernel/tools.ts";
 import { capsuleUpdate, CAPSULE_UPDATE_TYPE } from "../../extensions/table/context-policy.ts";

@@ -72,7 +72,8 @@ function unavailableCoverage(error: unknown): Row {
 async function memoryCoverageKnown(campaign: CampaignSnapshot): Promise<Row> {
     // Restored canonical records may legitimately originate on a parent line. Job commits,
     // rather than origin-line equality, distinguish inherited work from reused turn numbers.
-    const records = campaign.records.filter(record => record.closed_by === 'narrate' && truth(record.commit))
+    const records = campaign.records.filter(record => record.closed_by === 'narrate' && truth(record.commit)
+        && record.interaction_scope !== 'reference' && record.interaction_scope !== 'uncertain')
         .sort((left, right) => number(left.turn) - number(right.turn));
     const backlog = new Set((await campaign.log('memory/backlog.jsonl'))
         .filter(entry => entry.status === 'pending')

@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
 import { supportChoices } from "./support-agent-helpers.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { CARRIED_ANSWERS_HEAD, CARRIED_HELD_HEAD, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, HELD_ANSWERS_BYTES, carriedSection, readCarriedViews } from "../../runtime/jev/carried-views.ts";

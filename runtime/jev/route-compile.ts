@@ -321,7 +321,8 @@ export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
   // §135.30.8 (SL-43): an act an obligation step of the run settled is not rolled again. The cleared act being one of them
   // decides the check (consumed: the Keeper's for the run) without firing; any other act reads as before.
   {name: 'ordinary_check', features: ['act', 'addressee', 'ask', 'destination'], askable: rows => has(rows, 'act'),
-    reads: candidate => candidate.clerk === 'declared_check' && candidate.bound.decision === ORDINARY_CHECK,
+    reads: candidate => candidate.clerk === 'declared_check' && candidate.bound.decision === ORDINARY_CHECK
+      && !candidate.unbound.some(parameter => parameter.binder === 'resolve-selection'),
     decided: (cleared, _candidate, run) => actSettled(cleared, run),
     fires: (_candidate, cleared, _rows, run) => {
       const act = cleared.act?.row;
@@ -716,4 +717,3 @@ export function interpretReask(view: Pick<CompileView, 'candidates'>, input: Rea
   }
   return {filed, answers, reason: !complete ? `jev_${result?.failure?.code ?? result?.status ?? 'unavailable'}` : filed.length ? `filed_${filed.length}` : 'filed_none'};
 }
-

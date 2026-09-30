@@ -17,7 +17,7 @@ import { createServer } from "node:net";
 import { test } from "node:test";
 import { configureHttpDispatcher } from "../../build/node_modules/@earendil-works/pi-coding-agent/dist/core/http-dispatcher.js";
 import { openTable, waitFor, customMessages } from "./harness.mjs";
-import { createHybridEngine, keeperCallCapMs as computeKeeperCallCapMs } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine, keeperCallCapMs as computeKeeperCallCapMs } from "./hybrid-engine-fixture.mjs";
 import { firstStepThinkingBudget } from "../../runtime/jev/host-budgets.ts";
 
 // ---------------------------------------------------------------------------

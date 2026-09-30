@@ -25,6 +25,7 @@ import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.
 import {answerOf, clears} from './decision-gate.ts';
 import {npcScanCandidate} from './npc-act-step.ts';
 import type {CheckSelection} from './resolve-selection.ts';
+import type {InteractionScope} from './interaction-scope.ts';
 import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, FIGHT_FAMILIES, fightAct, interpretCompile, interpretReask, ORDINARY_CHECK,
   reachable, REASK_FAMILY, reaskBatch, reaskOf, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput} from './route-compile.ts';
 
@@ -237,6 +238,9 @@ export interface Budget {jevCalls: number; jevMs: number; steps: number; runMs: 
 /** A clerk step still pending when the run's time budget was spent: listed, never executed (§135.25). */
 export interface DeferredStep {key: string; label: string; family: string; clerk: string | null; stage: string}
 export interface RunView {
+  interactionScope?: InteractionScope;
+  requireInteractionScope?: boolean;
+  referenceRouted?: boolean;
   /** §159: a check that remains unresolved is a notice, never a model-owned operation. */
   unresolvedChecks?: Array<{candidate: string; needs: string[]}>;
   checkRefreshUsed?: boolean;
@@ -320,6 +324,7 @@ export interface RunView {
 export interface StagedClue {after: string; key: string; compile: Json}
 export interface StagedUnlock {after: string; to: string; compile: Json; guarded: GuardedDestination}
 export type StepRequest =
+  | {kind: 'decide'; purpose: 'interaction-scope'}
   | {kind: 'direct'; item: PendingItem}
   | {kind: 'decide'; purpose: 'route'; digest: string}
   /** §135.30: the typed-feature compile, before a route question, when the read offers a candidate no compile of the run was asked over. */
@@ -397,8 +402,9 @@ const turnWriting = (request: StepRequest): boolean => request.kind === 'infer' 
  * run's time budget (§143.25: not a clerk's bind handed to the model).
  */
 export function next(view: RunView): StepRequest {
+  if (view.requireInteractionScope && !view.interactionScope) return {kind: 'decide', purpose: 'interaction-scope'};
   const request = routeNext(view);
-  if (turnWriting(request) && npcScanDue(view) && !overRun(view.budget)) return {kind: 'direct', item: npcScanItem(view)};
+  if ((!view.interactionScope || view.interactionScope.mode === 'world') && turnWriting(request) && npcScanDue(view) && !overRun(view.budget)) return {kind: 'direct', item: npcScanItem(view)};
   return request;
 }
 function routeNext(view: RunView): StepRequest {
@@ -406,6 +412,11 @@ function routeNext(view: RunView): StepRequest {
   const last = view.observations.at(-1), head = view.pending[0];
   // Guard 2: an LLM result is followed by direct execution or completion, never a Jev re-review.
   if (last?.kind === 'infer') return head?.kind === 'direct' ? {kind: 'direct', item: head} : {kind: 'finish', reason: `after_infer_${last.purpose}`};
+  if (view.interactionScope && view.interactionScope.mode !== 'world') {
+    if (head?.kind === 'direct' && head.purpose === 'read') return {kind: 'direct', item: head};
+    if (view.interactionScope.mode === 'reference' && !view.referenceRouted) return {kind: 'decide', purpose: 'route', digest: routeDigest(view)};
+    return {kind: 'infer', purpose: 'compose', reason: view.interactionScope.mode === 'reference' ? 'reference_request' : 'interaction_scope_uncertain'};
+  }
   // The run's time budget (§135.25): past it the next model step is the compose, whatever the route said. The model's
   // own pending proposals were already run by the driver (a batch is never cut), a running step was never interrupted
   // (this is read only between steps), and a step the kernel forces still runs when it needs no model. A compose
@@ -453,7 +464,11 @@ export {MARGIN_MIN, MARGIN_RATIO} from './decision-gate.ts';
 const PRECEDENCE: Record<string, number> = {person: 0, mod_check: 1, obligation_check: 2, 'core-check': 3, clue: 4, handout: 4, move: 5,
   // §138.10: the declared action's time last, so its bind is judged with everything the turn settled in front of it.
   time: 6};
-const rank = (candidate: Candidate): number => PRECEDENCE[candidate.family] ?? PRECEDENCE['core-check'];
+const rank = (candidate: Candidate): number => {
+  const base = PRECEDENCE[candidate.family] ?? PRECEDENCE['core-check'];
+  return candidate.checkOwner === 'jev' && candidate.bound.decision !== ORDINARY_CHECK
+    && candidate.unbound.some(parameter => parameter.binder === 'resolve-selection') ? Math.min(base, PRECEDENCE['core-check'] - 0.5) : base;
+};
 
 /**
  * §135.30: the compile is owed: not switched off, and some offered candidate is one a predicate can select that no compile
@@ -542,6 +557,7 @@ export function routeBatch(view: RunView, scope: ScopeBinding, readSet: ReadSet)
     const ruleGuidance = Object.fromEntries(offered.filter(candidate => Array.isArray(object(candidate.detail).rule_guidance))
       .map(candidate => [candidate.family, object(candidate.detail).rule_guidance]));
     const state = {purpose: 'route the next steps of this turn', player_input: view.rawInput,
+      ...(view.interactionScope ? {interaction_scope: view.interactionScope.mode} : {}),
       ...(Object.keys(ruleGuidance).length ? {rule_guidance: ruleGuidance} : {}),
       now: {scene: view.context.scene, clock: view.context.clock, present: view.context.present},
       done_this_turn: doneThisTurn(view), materials, candidates, policy: ROUTE_POLICY} as Json;
@@ -761,6 +777,7 @@ const observe = (view: RunView, value: Omit<Observation, 'step'>) => view.observ
 /** Count the step and take what it consumes off the view. Returns the step number. */
 export function startStep(view: RunView, request: Exclude<StepRequest, {kind: 'finish'}>): number {
   view.budget.steps++;
+  if (request.kind === 'decide' && request.purpose === 'interaction-scope') return view.budget.steps;
   // §143.4: the scan is issued by `next`, never taken from `pending`: nothing is shifted for it.
   if (request.kind === 'direct' && request.item.scan) return view.budget.steps;
   if (request.kind === 'decide' && request.purpose === 'route') view.asked.push(request.digest);
@@ -1008,7 +1025,8 @@ export function settleCheckSelection(view: RunView, candidate: Candidate, result
   view.budget.jevCalls += result.calls;
   view.budget.jevMs += ms;
   view.consumed.push(candidate.key);
-  view.unresolvedChecks = view.unresolvedChecks?.filter(entry => entry.candidate !== candidate.label);
+  const label = result.option?.label ?? candidate.label;
+  view.unresolvedChecks = view.unresolvedChecks?.filter(entry => entry.candidate !== candidate.label && entry.candidate !== label);
   if (result.status === 'selected' && result.action && result.option) {
     const {difficulty, bonus, penalty, ...action} = result.action;
     const dice: Record<string, number> = {none: 0, one: 1, two: 2};
@@ -1024,8 +1042,11 @@ export function settleCheckSelection(view: RunView, candidate: Candidate, result
     view.pending.unshift({kind: 'direct', purpose: 'execute', candidate: selected});
   } else if (result.status === 'unresolved') {
     holdCheckDecision(view, candidate);
-    view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate: result.option?.label ?? candidate.label, needs: result.needs}];
+    view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate: label, needs: result.needs}];
   }
+  // There need not be a fresh read before the next route. Retire this evaluated snapshot now.
+  view.candidates = view.candidates.filter(item => !view.consumed.includes(item.key)
+    && (!checkHoldKey(view.context.scene, item) || !view.heldCheckDecisions?.includes(checkHoldKey(view.context.scene, item)!)));
   observe(view, {kind: 'decide', purpose: 'check-selection', status: result.status,
     summary: {option: result.option?.label ?? null, needs: result.needs}});
 }
@@ -1100,7 +1121,7 @@ function holdCheckDecision(view: RunView, candidate: Candidate): void {
   if (key && !view.heldCheckDecisions?.includes(key)) view.heldCheckDecisions = [...(view.heldCheckDecisions ?? []), key];
 }
 function applyFresh(view: RunView, fresh: Fresh): void {
-  view.context = fresh.context;view.candidates = fresh.candidates.filter(candidate => !view.consumed.includes(candidate.key)
+  view.context = fresh.context;view.candidates = fresh.candidates.filter(candidate => (!view.interactionScope || view.interactionScope.mode === 'world') && !view.consumed.includes(candidate.key)
     && (!checkHoldKey(fresh.context.scene, candidate) || !view.heldCheckDecisions?.includes(checkHoldKey(fresh.context.scene, candidate)!)));view.stateVersion++;
   if (fresh.rows) view.rows = fresh.rows;
   // A forced step the state no longer forces (the Keeper's own batch settled it first) is not owed any more.
@@ -1278,6 +1299,7 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
 
 /** Artifacts the product ports return, per step, so `reduce` can fold them with the transitions above. */
 export type StepArtifact =
+  | {kind: 'interaction-scope'; scope: InteractionScope}
   | {kind: 'route'; result: DecisionResult}
   | {kind: 'compile'; result: DecisionResult}
   | {kind: 'reask'; result: DecisionResult}
@@ -1314,6 +1336,9 @@ export const PROPOSED_REASON = 'proposed';
 export const NARRATOR_FALLEN = 'narrator_fallen';
 
 export interface StepPolicyOptions {
+  /** Trusted host context may already classify a fixture or an explicitly selected input mode. */
+  interactionScope?: InteractionScope;
+  requireInteractionScope?: boolean;
   /** Jev scope of the run when known up front; otherwise the first read step binds it. */
   scope?: ScopeBinding;
   readSet?: (view: RunView) => ReadSet;
@@ -1397,6 +1422,8 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       const startedAt = options.clock ? options.startedAt ?? options.clock() : undefined;
       const view = initialView({runId: input.runId, rawInput: input.rawInput, context: options.context,
         candidates: options.candidates ?? [], budget: options.budget, readFirst: options.readFirst, compile: options.compile});
+      view.interactionScope = options.interactionScope;
+      view.requireInteractionScope = options.requireInteractionScope;
       stamp(view, startedAt);
       return {gate, view, ...(startedAt !== undefined ? {startedAt} : {})};
     },
@@ -1406,6 +1433,8 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       if (driver.delivery === 'accepted') return {kind: 'finish', outcome: 'delivered', reason: closed?.implicit ? 'implicit_narrate' : 'delivery_accepted'};
       if (driver.delivery === 'awaiting_player') return {kind: 'finish', outcome: 'awaiting_player', reason: 'pending_choice'};
       const state = driver.policyState.view, request = next(state), binding = bindingFor(driver.policyState);
+      if (request.kind === 'decide' && request.purpose === 'interaction-scope')
+        return {kind: 'decide', purpose: 'interaction-scope', question: {rawInput: state.rawInput}};
       if (request.kind === 'finish') {
         // §135.11: no delivery evidence yet. Ask the turn close what it did before the run ends without any.
         if (owesTurnClose(driver)) return {kind: 'operate', reason: 'turn_close',
@@ -1530,10 +1559,17 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       // A policy operate carries one proposal; its outcome's artifact is the step's.
       const artifact = (observation.kind === 'operate' ? observation.outcomes?.[0]?.artifact : observation.artifact) as StepArtifact | undefined;
       let bound: Pick<StepPolicyState, 'scope' | 'readSet' | 'intent'> = {};
-      if (request.kind === 'decide' && request.purpose === 'route') {
+      if (request.kind === 'decide' && request.purpose === 'interaction-scope') {
+        const scope = artifact?.kind === 'interaction-scope' ? artifact.scope : {mode: 'uncertain' as const, reason: 'scope_unavailable', calls: 0};
+        view.interactionScope = scope;
+        view.budget.jevCalls += scope.calls;
+        view.budget.jevMs += observation.ms;
+        observe(view, {kind: 'decide', purpose: 'interaction-scope', status: scope.mode, summary: {...scope}});
+      } else if (request.kind === 'decide' && request.purpose === 'route') {
         const {batch, offered} = binding ? routeBatch(policyState.view, binding.scope, binding.readSet)
           : {batch: {state: null} as unknown as DecisionBatch, offered: policyState.view.candidates};
         settleRoute(view, step, batch, offered, decisionOf(observation), observation.ms, policyState.gate);
+        if (view.interactionScope?.mode === 'reference') { view.referenceRouted = true; view.pending = []; }
       } else if (request.kind === 'decide' && request.purpose === 'compile') {
         const batch = binding ? compileBatch(policyState.view, binding.scope, binding.readSet, doneThisTurn(policyState.view))
           : {family: COMPILE_FAMILY, questions: []} as unknown as DecisionBatch;

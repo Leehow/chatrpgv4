@@ -19011,6 +19011,26 @@ conversion. That file's earlier case, "a public source-owner answer change durin
 the voiding by `source_revision` this addendum retires; it is replaced by the two cases above. The mutation record is in the
 SL-44 ticket's Comments.
 
+### 124.12 Historical reference: direct search in the Keeper turn (#110, 2026-09-30)
+
+**Price anchors (2026-09-30 user amendment).** Ordinary item prices are Keeper estimates based on saved, source-backed price anchors for the setting. A new object is not a reason to buy another Exa search. The historical reader batches a closed query-category decision, an explicit quotation-challenge decision over host-owned player input, and saved-reference relevance before any auto/web search can spend credit. A routine price request returns applicable anchors regardless of the objects those anchors price; if none exist, it requests a broad price baseline instead of searching the specific item. A baseline search is permitted only when no usable anchor for that market is available. Even explicit web mode reuses suitable anchors for routine prices. Only a concrete player challenge permits a targeted item-price search, still under the ordinary grant, credential, cancellation and budget gates. Unknown policy spends no Exa credit. Applicability selection qualifies original excerpts as price anchors only when they contain useful monetary amounts with currency, unit and period; an additive library marker records that role without changing old packets. Estimates are not stored as historical sources, and references do not change purchase arithmetic, Spending Level or already committed quotations/transactions. No new research or summary agent is added.
+
+The optional `historical-reference` Mod defaults on for new campaigns; explicit disables and existing package locks remain authoritative. It requires `context.historical-reference.v1`. Its `host_settings: ["exa_api_key"]` declaration binds only the host-registered secret slot, never an arbitrary setting name. The right-hand Mod panel uses the existing app secret settings API for `ext.coc-keeper.exaApiKey`; ordinary Mod settings, campaign snapshots, model messages and exports never contain its value. Saving a credential neither searches nor changes the Mod switch. Missing credentials leave play available. Secret replacement and clearing use the host's idle restart boundary.
+
+`lookup {kind:"historical_reference",query:string,objective?:string}` is a host-only read. The main Keeper writes its own query in its ordinary inference; no researcher, query author, summarizer or translator process is created. Jev adds one optional need question to the existing compile/route decision; a granted need permits this one lookup subtype even during narrator-only composition, without widening other verbs. The host checks active Mod, credentials, current run/turn and the grant before execution. An unavailable reference never becomes an unresolved gameplay obligation.
+
+The host calls Exa Search with compact highlights and cached contents, then uses one bounded Jev batch to select useful supplied excerpts and qualify direct, analogous or uncertain applicability. Text is copied from the actual result, not generated. No Exa answer, summary, output schema or deep-research mode is used. Results return through this same tool invocation as `historical_reference`, with `ready|empty|unavailable`, reason, material bodies, source URLs, retrieval metadata and applicability. They are advisory external excerpts, never module truth, player knowledge, consent, price-table identifiers or settled effects. Existing prices and fiction are not retroactively changed; cash still follows §58.
+
+Initial limits are five source candidates, three selected sources, 12 KiB delivered text and a shared four-second per-input search/filter allowance (further bounded by its parent), at most two distinct queries. Cancellation and stale binding suppress publication. Source excerpts may be cached, but applicability is judged against the current scene; repeated delivery uses content identity and must restore bodies after compaction. Telemetry separates obtained, selected, delivered and actual narrative use, and measures whole-player-turn latency rather than claiming the provider's search time as the product result. Implementation and acceptance follow the [historical reference specification](specs/historical-reference-mod.md).
+
+#### Session reference library (owner, 2026-09-30)
+
+Historical results also live in a durable, campaign/worldline/loop-scoped reference library, independently of the global exact-query cache and the model's current context. Immutable packets retain actual excerpts, URLs, retrieval timestamps, original queries and selection records; no generated summaries and no player-knowledge claims. Restart and compaction do not discard this library. Different campaign namespaces cannot read each other's packets.
+
+`lookup kind=historical_reference` accepts `reference_mode: auto|saved|catalog|read|web` (default auto). Auto tries retained excerpts before a new Exa search; saved never calls Exa. Catalog returns a bounded, paginated list of titles, URLs and acquisition context; read uses a returned name to retrieve the original stored text and recheck current applicability. Names are descriptive host-issued titles, never filesystem paths or opaque digests. Catalog/read/saved require an active Mod but do not require a fresh web-search grant or an Exa key; selection still uses the existing Jev key. Web explicitly requests new material and keeps the original grant, credential and request-count gates. Read metadata remains available without either key.
+
+Library discovery uses a bounded Jev choice over retained descriptive entries, followed by the existing excerpt-selection batch; exact saved queries bypass catalogue selection. Unknown/omitted scope is reported, not called empty. Saved text is always restored into a requesting tool result even after compaction. The preparation allowance charges active retrieval/filter time across calls, excluding the main Keeper's time between calls; it is never replenished by another query. Only actual Exa calls consume the two-request network limit. Material snapshots are not deleted when the Mod is disabled.
+
 ## 125. Shared foreground evidence and NPC preparation (#109)
 
 Specification: [NPC reactions in shared Keeper preparation](specs/npc-prescreen-integration.md). This integration preserves sections 123 and 124's authority and background owners. Its acceptance follows the actual Keeper provider request and real player interaction, not callback counts.
@@ -29047,6 +29067,10 @@ With Jev available and no explicit legacy switch, a setup session runs on the Ru
 
 11. **Holds, the interest gate and the skill rows (live acceptance `jev-accept-blood-03`, 2026-09-29).** The player said 「驾驶保留基础值」 (keep Drive at its base); the interest fit picked Drive Auto (0.67) and the kernel's spread raised it 20 → 55, and the reply then called driving untouched. (a) A player's explicit hold wins: the interest fit's state now carries `player_input`, and the same fan-out asks, per candidate, "Did the player, in player_input, ask to keep the skill <label (name)> at its starting value, or not to raise it?"; a candidate whose hold row clears the family's gate is never picked, whatever its fit, and is reported as `held`. (b) The fit's gate was too strict (`interest_row_ratio: 2` makes the effective Noul gate 0.667: 2 of 69 cleared and 35 points stayed unspent on a delegated card); the shipped data is now `interest_row_ratio: 1` (effective 0.5), cap still `interest_skill_max: 6` by probability. (c) The card-fields named-skill rows never cleared for 「擅长观察和查资料」 (0.02–0.25). The rules data does carry play-language labels (`localized_labels`, e.g. Spot Hidden → 侦查, Library Use → 图书馆使用) and the kernel catalog already issued them in the rows' state as `label (name)`; the question itself asked whether the player *named* the skill "or an ability that is exactly this skill", which a description of abilities does not satisfy literally. Each row's question now names the skill as the catalog issues it (`"<label>" (<name>)`) and asks whether the player says the investigator is good at, trained in or known for the ability it covers, in any words; a skill the player calls weak, untrained, to be kept at its starting value or not to be raised does not count. No label table lives in code. (d) The compose note after the fit states the exact interest skills set and the values the kernel raised them to (`interest.values`, from the revised card) and the held skills, so the reply cannot call a raised skill untouched.
 
+12. **The card-writing response is a tool call (2026-09-30, canonical-App setup failure).** `bind` requires one native `setup_card` call; plain text containing its arguments is not a completed card and is never interpreted as an operation. For OpenAI-compatible Responses/Chat requests whose sole function is `setup_card`, the request hook sets `tool_choice: required` and disables parallel calls. Other provider formats keep their existing transport. Every provider is checked at message completion: a normally completed bind response without exactly one `setup_card` call is retained in a hidden diagnostic entry, replaced by an explicit model-output error with no final prose, and ends with `setup_bind_missing_call`. Provider errors, cancellation and output truncation keep their original semantics. Normal setup questions and compose replies remain free text; no tool requirement leaks into them. Request projection keeps only the current step's private instruction, while the durable transcript retains previous instructions as evidence. This prevents a failed bind's write-only instruction from steering a later adjudicate or player question. Regression covers native request conversion, bare argument JSON, normal calls, failure preservation and the following question; canonical-App play remains a separate gate. This uses the existing Pi request and message-finalization hooks, with no vendor change or extra research/model lane. References: [xAI function calling](https://docs.x.ai/developers/tools/function-calling) defines optional versus required tool use; [Pi's tool-selection example](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/extensions/tools.ts) controls the available catalog, which alone does not force a call.
+
+The bind step's accompanying text is private working output even when a valid tool call is present. Its original message is retained in the same hidden diagnostic stream with reason `setup_bind_working_text`; finalization keeps the real tool call but removes that text from the player-facing message. The subsequent compose remains the ordinary player-facing response. Canonical App acceptance exposed this mixed text/call response, so its regression verifies one real draft operation and an unchanged compose reply.
+
 ### 151.7 Inventory
 
 `source-claim-support`, `source-need-answered`, `setup-input-route`, `setup-card-fields` and `setup-interest-fit` (151.6 decision 9) enter the Jev inference inventory with owner, budget, gate and fallback.
@@ -29927,3 +29951,74 @@ consent, ordering and receipt requirements remain this contract's own obligation
 The earlier opt-in ordinary-roll experiment remains on `claude/jev-rolls-prod-20260929`. Its results
 and scope are preserved in [the handoff](handoff-first-prose-latency-20260929.md). The owner continued
 the work under this broader check-selection contract; the prototype is not implicitly merged.
+
+### 159.5 Root-cause repair of scope and specialized checks (approved 2026-09-30)
+
+The staged acceptance found independent request-scope, candidate-projection and NPC-proposal failures.
+A classification of investigate cannot authorize fictional progression when the request is a reference
+question. An interaction-scope decision must precede automatic gameplay effects and be consumed by
+the same RunDriver, the model-operation gate and delivery checks. Meta-only and undetermined scopes
+allow reference reads and an answer/clarification, not fictional clock, check, movement or NPC acts.
+NPC presence in the paused scene imposes no dialogue obligation on a reference answer; the existing in-fiction speech policy remains.
+
+The host stamps reference/uncertain deliveries with `interaction_scope` in the committed turn and result, stripping any model-supplied `_interaction_scope`. These answers retain their transcript and close the input turn, but have no fact extraction, NPC ledger update or fictional last-exchange contribution. Memory backfill and coverage omit them. The scope bus binding includes campaign, turn and exact player input. Both explicit and implicit delivery bypass fictional time, standing defense, speech and Mod effects. Read-only lookup subtypes are allowed; graph/source preparation is not. Jev unavailable or an unclear scope remains non-world and asks for clarification.
+
+Check candidates shown to route must carry their concrete actors, targets, source triggers and named
+gaps. Existing session ownership excludes only actions it actually supplies; the out-of-session chase
+start must remain reachable. Treatment candidates bind rescuer and patient before necessity is judged,
+using the kernel's patient projection and host-derived injury/attempt facts. Unknown clinical state
+is a named need, not a fabricated healthy patient. SAN candidates carry the source's loss and perception
+trigger, and exact settled receipts prevent the same exposure from being treated as unrolled.
+
+The NPC stakes/surprise mechanism in section 143 remains. Surprise permission supplies an unknown
+item; it does not by itself authorize discarding recorded interaction constraints or changing the
+stakes of agreed conduct. NPC generation and its bounded semantic review read the same canonical
+context. A contradictory generated act is not executed just because a rulebook entry matches it.
+The host retains numeric and structural validation; no semantic keyword/regex classifier is added.
+
+The current catalog's ordinary-check group is selected by the existing family route, like the other
+check tools. The broad compile act (`investigate`, `social`, `move`) cannot preempt this route with
+an ordinary-skill search. The older ordinary binder retains its prior compile contract. Among routed
+catalog tools, specific rule families precede the general ordinary group. This avoids exhausting the
+same bounded decision budget on a generic skill search before a source-required consequence is even
+examined. It adds no second planner and does not lower a mutation confidence gate.
+
+`table.status.last_interaction` carries the latest committed conversation frame, including reference
+and uncertain answers, for scope interpretation of short follow-ups. `last_exchange` remains purely
+fictional. The next fictional fact extraction also excludes earlier reference records.
+
+Closed parameters distinguish fact binding from permissible adjudication. A SAN involuntary response
+is chosen for a possible failed roll; it need not already have happened. Its issued parameter uses
+`selection: compatible`: Jev answers independent compatibility Nouls over the rule's closed options,
+and the host chooses the highest answer clearing its separate adjudication gate of .75 (stable issued order breaks
+ties). Exact source/actor/target binding and roll necessity retain .85. The conditional SAN probes
+put compatible brief responses around .76-.82, while .50 remains unresolved; these are task-specific
+calibration examples, not a measured general accuracy rate. It never requires competing valid responses to be disproved. No passing option remains an
+unresolved named parameter. Actor/target/source bindings keep their stricter factual Choice contract.
+
+A source-stated check for seeing an NPC writes the canonical NPC exposure identity on its SAN roll
+receipt. The candidate reader consumes that identity per investigator during the current continuous
+scene visit, so the same perceived NPC is not rolled again on a later look. Leaving and re-entering
+starts a new visit. This does not suppress distinct authored rule triggers or infer identity from prose.
+
+Chase candidates, like treatment candidates, bind each offered participant pair before trigger
+judgment. Parameter names still awaiting selection are absent from the action facts: a default
+`investigate` cannot masquerade as an already-bound chase intent when `move`/`flee` is the pending
+choice. Evaluated check snapshots are removed from the current route immediately, even if there
+has been no intervening read; unresolved holds persist across ordinary bookkeeping in the same run.
+
+The preserved combat-session owner must also expose `combat:end` with the kernel's closed outcome
+vocabulary. Previously it marked outcome as open and withheld the investigator candidate, leaving
+an agreed stop narratable but with no session-ending operation after model resolve was removed.
+The resolve-options read now carries the combat engine's exact outcomes; the existing session binder
+selects one and sends combat:end through canonical admission. No invented victory or new end enum.
+
+Admission must see the actual rule decision. Its previous resolve summary omitted `decision` and
+called every resolve a dice roll, causing a correct combat:end selection to be refused as an
+unrequested attack/roll. The summary now says rule settlement and includes decision; the admission
+cache key also includes decision and outcome so permission for one ending cannot authorize another.
+The reviewer still decides authorization; this is no exemption from player agency.
+
+The outcome vocabulary lives at `table.resolve.options.context.combat_outcomes`, beside the public
+session view. It does not modify the carried session body, which remains byte-identical to look
+focus=session. The candidate builder reads this preparation metadata only for its closed end binder.

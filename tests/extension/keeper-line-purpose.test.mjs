@@ -22,7 +22,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { customMessages, openTable, waitForIdle } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { createFixtureNpcActPort } from "../../runtime/jev/npc-act.ts";
 import { NPC_ACT_BIND_FAMILY, SAME_QUESTION } from "../../runtime/jev/npc-act-step.ts";
 

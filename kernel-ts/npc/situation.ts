@@ -25,7 +25,7 @@ import type {ModuleGraph} from '../read/module-graph.js';
 import {activeMods, contactRows} from '../read/mods.js';
 import {capsuleRow, obligationNodes, sceneObligations} from '../read/obligations.js';
 import {SessionView} from '../read/session-view.js';
-import {array, clone, normalize, number, row, string, values, type Row} from '../read/values.js';
+import {array, chars, clone, normalize, number, row, string, values, type Row} from '../read/values.js';
 import {stanceNow} from '../combat/standing.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {emptyLedgerEntry, foldNpcTurn, stanceTable} from '../write/contributions.js';
@@ -369,15 +369,15 @@ function constraintsOf(graph: ModuleGraph, world: Row, party: Row[], me: Person,
 }
 
 /**
- * The budget (§143.1): while the packet is over `maxBytes`, cut in order -- constraints; at_hand's objects, exits;
+ * The budget (§143.1): while the packet is over `maxBytes`, cut in order -- at_hand's objects, exits;
  * the oldest of `table_brought_out` (§143.30); at_hand's brought_out (§143.29), holdings, present; the oldest `done` rows but never the newest (`history`); the oldest own utterances; the oldest
  * `happened` sentences but never the closing one (the player's declaration, or the arrival that stands in for it,
- * §143.21); who's relationships and commitments. Each section cut is named once in `truncated`, in the order cut.
+ * §143.21); who's relationships and commitments; canonical context excerpts; then constraints last. Each section cut
+ * is named once in `truncated`. A packet that lost constraints cannot authorize an NPC act.
  */
 export function fitSituation(packet: Row, maxBytes: number, declared: boolean): void {
     const truncated: string[] = packet.truncated, over = () => jsonSize(packet) > maxBytes;
     const cut = (name: string) => { if (!truncated.includes(name)) truncated.push(name); };
-    while (over() && packet.constraints.length) { packet.constraints.pop(); cut('constraints'); }
     for (const key of ['objects', 'exits', 'table_brought_out', 'brought_out', 'holdings', 'present']) {
         const list = key === 'table_brought_out' ? packet.table_brought_out : packet.at_hand[key];
         while (over() && Array.isArray(list) && list.length) { list.pop(); cut(key === 'table_brought_out' ? key : 'at_hand'); }
@@ -387,6 +387,13 @@ export function fitSituation(packet: Row, maxBytes: number, declared: boolean): 
     while (over() && packet.happened.length > (declared ? 1 : 0)) { packet.happened.shift(); cut('happened'); }
     for (const key of ['relationships', 'commitments'])
         while (over() && Array.isArray(packet.who[key]) && packet.who[key].length) { packet.who[key].pop(); cut('who'); }
+    for (const key of ['scene', 'previous_narration']) {
+        while (over() && typeof packet.canonical_context?.[key] === 'string' && packet.canonical_context[key].length > 80) {
+            packet.canonical_context[key] = clip(packet.canonical_context[key], Math.floor(Array.from(packet.canonical_context[key]).length / 2));
+            cut('canonical_context');
+        }
+    }
+    while (over() && packet.constraints.length) { packet.constraints.pop(); cut('constraints'); }
 }
 
 /**
@@ -463,6 +470,11 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             const seen = tableBroughtOut(graph, world);
             const packet: Row = {
                 npc: {handle: me.handle, name: graph.displayName(node)},
+                canonical_context: {
+                    scene: place ? chars(graph.summary(place), 1600) : '',
+                    previous_narration: chars(string(previous?.rendered_text ?? ''), 2000),
+                    player_declaration: string(row(turn.player_input).text ?? turn.player_text ?? ''),
+                },
                 who: {personality: view.personality ?? null, goals: view.goals ?? null, fears: view.fears ?? null,
                     commitments: view.commitments ?? [], relationships: view.relationships ?? []},
                 happened,

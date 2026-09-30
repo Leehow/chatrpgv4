@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitFor } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { customMessage, PRESCREEN_TYPE } from "../../extensions/table/context-policy.ts";
@@ -80,7 +80,11 @@ async function hybridTable({ decide, responses, realKernel = false, env = {}, pr
  */
 const HITS_BACK = "他反手一拳砸过来。";
 const knottHitsBack = () => createFixtureNpcActPort({ "steven-knott": HITS_BACK });
-const attackAnswer = (batch) => answered(batch, (question) => question.key === "way" ? "attack" : undefined);
+const attackAnswer = (batch) => {
+  const result = answered(batch, question => question.key === 'way' ? 'attack' : undefined);
+  if (batch.questions.some(question => question.key === 'grounded')) result.answers.grounded = {status: 'answered', type: 'noul', noul: 0.99};
+  return result;
+};
 const requestText = (context) => JSON.stringify(context.messages);
 const clerkNotes = (context) => context.messages.flatMap((message) => {
 	const text = typeof message.content === "string" ? message.content : (message.content ?? []).map((block) => block.text ?? "").join("");
@@ -507,7 +511,7 @@ test("§143.16 (C4 T7/T10 replay): \"我又是一拳\" -- act combat:attack clea
 
 	const route = telemetry.find((row) => row.lane === "route" && row.purpose === "route");
 	assert.ok(route.selected.includes(INVESTIGATOR_ATTACK), "the route selected the attack the compile read");
-	assert.deepEqual(route.act_gated, ["resolve:combat:flee:thomas-hayes"], "the attack is not gated -- the declaration is the attack; the flight is");
+	assert.deepEqual(route.act_gated, ["resolve:combat:flee:thomas-hayes", "resolve:combat:end:thomas-hayes"], "the declared attack is allowed; an undeclared flight or ending is gated");
 	const [bind] = attackBinds(telemetry);
 	assert.equal(bind?.status, "succeeded", "the attack's bind row, as today");
 	assert.deepEqual(["target", "weapon"].map((name) => bind.bindings.find((entry) => entry.name === name)?.path), ["stated", "stated"]);

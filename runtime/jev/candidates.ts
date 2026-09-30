@@ -141,7 +141,7 @@ const DEFENSE_OPTIONS: Readonly<Record<string, string>> = Object.freeze({
  * `route-compile.ts`); a demand, a question or an aside in a fight is the Keeper's turn, and these rows stay in the
  * session view the Keeper reads.
  */
-function sessionCandidates(session: Row, rawInput: string, answering: readonly string[], pendingChoice: Row, fighter: Row = {}, relationships: Row[] = []): Candidate[] {
+function sessionCandidates(session: Row, rawInput: string, answering: readonly string[], pendingChoice: Row, fighter: Row = {}, relationships: Row[] = [], combatOutcomes: string[] = []): Candidate[] {
   const kind = text(session.kind);
   if (kind === 'sanity_bout' && session.status === 'active') {
     const participant = array(session.participants).map(object).find(row => row.name === session.turn_of);
@@ -215,11 +215,20 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
         if (parameter.bound !== undefined) bound[name] = parameter.bound; else unbound.push(parameter.unbound!);
       }
       if (decision === 'combat:attack' && !strings(action.targets).length) continue;
-      // What the session view does not issue is not invented here: a manoeuvre's kind and an ending's outcome. No data
-      // source gives them, so the player's manoeuvre or ending is the Keeper's to propose and is not issued to the clerk
-      // (§135.28); an NPC's stays one of its issued actions, and choosing it hands the turn to the Keeper.
+      // A manoeuvre still needs a supplied goal. Combat end uses the engine-issued outcome vocabulary.
       if (decision === 'combat:maneuver') { delete bound.goal; unbound.push({name: 'goal', required: true, vocabulary: 'open'}); }
-      if (decision === 'combat:end') unbound.push({name: 'outcome', required: true, vocabulary: 'open'});
+      if (decision === 'combat:end') {
+        const outcomes = strings(action.outcomes).length ? strings(action.outcomes) : combatOutcomes;
+        if (!outcomes.length) unbound.push({name: 'outcome', required: true, vocabulary: 'open'});
+        else {
+          const outcome = closedParameter('outcome', outcomes);
+          if (outcome.bound !== undefined) bound.outcome = outcome.bound;
+          else unbound.push({...outcome.unbound!, instruction: 'Select the ending the confrontation actually reached. '
+            + 'investigators_win requires the opposition to be defeated or surrender; monsters_win requires the investigators to be defeated or surrender. '
+            + 'fled means an actual escape. stalemate includes an agreed cessation with no winner, such as both capable sides stopping a practice bout. '
+            + 'Taking less damage or being the player does not establish victory. Choose unknown if the ending is not established.'});
+        }
+      }
       if (investigator(actor) && unbound.some(value => value.required && value.vocabulary === 'open')) continue;
       const described = [bound.target ? `at ${label(String(bound.target))}` : '', bound.weapon ? `with ${String(bound.weapon)}` : ''].filter(Boolean).join(' ');
       own.push({...base, key: `resolve:${decision}:${actor}${turnKey}`, label: `${label(actor)}: ${decision}${described ? ` ${described}` : ''}`, bound, unbound,
@@ -377,7 +386,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     : {bound: {}, unbound: [{name: 'actor', required: true, vocabulary: 'closed', options: actors}]};
   // A structurally determined step goes first: its candidate is the only thing the kernel accepts next.
   const relationships = array(object(capsule.mods).relationships).map(object);
-  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships))
+  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships, strings(resolveContext.combat_outcomes)))
     if (candidate.forced) push(candidate);
   // Effects the kernel issues for the current state.
   for (const [index, row] of array(object(reads.applyOptions).candidates).map(object).entries()) {
@@ -464,8 +473,8 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
     const groups = new Map<string, Row[]>();
     for (const option of array(selection.options).map(object)) {
       const decision = text(object(option.action).decision);
-      // These steps already have first-blow/session candidates and their canonical owners.
-      if (!decision || ['combat', 'chase'].includes(text(option.family))) continue;
+      // The first blow has its own owner. A chase start has no running session to own it yet.
+      if (!decision || text(option.family) === 'combat' || text(option.family) === 'chase' && decision !== 'chase:start') continue;
       const group = groups.get(decision) ?? [];
       group.push(option); groups.set(decision, group);
     }
@@ -473,7 +482,22 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
       const row = array(object(reads.resolveOptions).decisions).map(object).find(row => row.name === decision);
       push({key: `resolve:check:${decision}:${identity}`, verb: 'resolve', family: text(group[0].family), source: 'table.resolve.options',
         label: text(row?.description) || decision,
-        detail: {rule_family: text(group[0].family), rule_guidance: array(row?.guidance).map(rule => text(object(rule).text)).filter(Boolean)},
+        routeFact: {target: `examine ${decision} for this declaration or its consequences`, selects: 'now',
+          instructions: 'Should the bounded check-selection tool examine this rule family for the current declaration or an established consequence? '
+            + 'This calls the selection tool, not a roll. It separately verifies the actual trigger, prerequisites and parameters. '
+            + 'Read the concrete check_options: an action directly revealing a source of horror includes examining its SAN rule before narration. '
+            + 'Select now for a potentially applicable listed check; select later when the family is unrelated or only hypothetical.',
+          criteria: {now: 'This family may apply; inspect its concrete checks before narrating.',
+            later: 'No listed check in this family applies to the current declaration or consequence.', unknown: 'The supplied facts do not identify a relevant family.'}},
+        detail: {rule_family: text(group[0].family), rule_guidance: array(row?.guidance).map(rule => text(object(rule).text)).filter(Boolean),
+          ...(decision === 'core-check:ordinary-check' ? {} : {check_options: group.map(option => {
+            const {goal: _goal, method: _method, ...action} = object(option.action);
+            return {label: option.label, trigger: option.authorization, action, needs: option.needs,
+              ...(option.definition ? {definition: option.definition} : {}), ...(option.facts ? {facts: option.facts} : {}),
+              parameters: array(option.parameters).map(parameter => ({name: object(parameter).name,
+                ...(['actor', 'target'].includes(object(parameter).name)
+                  ? {options: array(object(parameter).options).map(value => object(value).label)} : {})}))};
+          })})},
         bound: {decision},
         unbound: [{name: 'current check parameters', required: true, vocabulary: 'closed', binder: 'resolve-selection'}],
         clerk: 'declared_check', basis: {read: 'table.resolve.options', path: 'selection', decision, revision: object(reads.resolveOptions).revision}});
@@ -491,7 +515,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   // The first blow (§135.30.2, SL-19): outside a fight, the investigator's attack as the kernel's first-blow row issues it.
   // Only the compile selects it (its `first_blow` predicate): the target it reads, the weapon a closed Jev bind.
   if (!sessionLive) { const blow = firstBlowCandidate(object(resolveContext.first_blow), rawInput); if (blow) push(blow); }
-  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships))
+  for (const candidate of sessionCandidates(session, rawInput, reads.answering ?? [], object(resolveContext.pending_choice), object(reads.fighter), relationships, strings(resolveContext.combat_outcomes)))
     if (!candidate.forced) push(candidate);
   // §138.10: the harm a stated step this turn reached leaves unstated is forced (the book says it happened) and bound
   // to a severity rung; the declared action's time is routed by a fact about the declaration and bound to a time row.

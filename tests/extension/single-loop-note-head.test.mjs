@@ -16,7 +16,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
-import { CLERK_NOTE_HEAD, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { CLERK_NOTE_HEAD, createHybridEngine } from "./hybrid-engine-fixture.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "test-camp";

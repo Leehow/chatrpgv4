@@ -32,7 +32,7 @@ import { compileAdmission } from "../../extensions/kernel/admission.ts";
 import { buildCandidates, keeperCall } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, REASK_FAMILY, compileBatch, interpretCompile, reaskBatch } from "../../runtime/jev/route-compile.ts";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { initialView, missedUnlocks, next, settleCompile, settleExecute, settleReask, startStep } from "../../runtime/jev/step-policy.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

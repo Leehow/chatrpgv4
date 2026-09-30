@@ -6,7 +6,9 @@
   "description": "Call of Cthulhu at a real table: the Keeper is the product, seven verbs reach a deterministic kernel, and the module graph is the only authored truth.",
   "capabilities": [
     "invoke.agent",
-    "bridge.emit"
+    "bridge.emit",
+    "settings.read",
+    "settings.write"
   ],
   "defaultEnabled": false,
   "agent": {
@@ -28,6 +30,12 @@
       "schema": {
         "type": "object",
         "properties": {
+          "ext.coc-keeper.exaApiKey": {
+            "type": "string",
+            "format": "secret",
+            "title": "Exa API key",
+            "description": "Historical Reference credential. Saved in the app vault; existing sessions refresh at their next idle boundary."
+          },
           "ext.coc-keeper.difficulty": {
             "type": "object",
             "title": "Creation difficulty",

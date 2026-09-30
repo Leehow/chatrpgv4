@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { isRunEvent, RUN_EVENT_SCHEMA_VERSION, RUN_LOOP_PROTOCOL } from "./pi-agent-core.mjs";
 import { LOOP_PROTOCOLS } from "../../runtime/loop-engine.ts";

@@ -19,7 +19,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { runDriver } from "./pi-agent-core.mjs";
 import { buildCandidates, keeperCall } from "../../runtime/jev/candidates.ts";
 import { damageQuestion, timeQuestion } from "../../runtime/jev/band-shadow-domain.ts";
-import { bandRolls, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { bandRolls, createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { ROUTE_TRAVEL_ROWS } from "../../kernel-ts/modules/route-travel.ts";
 import {
 	BIND_FAMILY, bindBatch, bindingOf, CLERK_AUTHORITY, consumedByEffects, createStepPolicy, initialView, interpretBind, itemsFor, next, routeBatch, settleRead, startStep,

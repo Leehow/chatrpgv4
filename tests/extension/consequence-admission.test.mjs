@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
 import { consequenceAdmission } from "../../extensions/kernel/admission.ts";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { candidateWithConsequenceBasis, CONSEQUENCE_FAMILY } from "../../runtime/jev/consequence-route.ts";
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 

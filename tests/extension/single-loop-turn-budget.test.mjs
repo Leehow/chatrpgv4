@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
 import { runDriver } from "./pi-agent-core.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { createStepPolicy, DEFAULT_TURN_BUDGET_MS, initialView, next, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

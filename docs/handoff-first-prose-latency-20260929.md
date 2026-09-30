@@ -102,6 +102,121 @@ arguments and narrower absolute checks; their thresholds do not establish game-d
 and [Kubernetes resource versions](https://kubernetes.io/docs/reference/using-api/api-concepts/) support
 rejecting stale writes; our refresh repeats selection rather than blindly resending a mutation.
 
+## Authorized subsystem acceptance (2026-09-30, in progress)
+
+The owner explicitly authorized direct scene construction for combat, chase, SAN and healing.
+This is a current-turn exception for fixture preparation; model decisions and gameplay results
+still come from real Grok 4.5 low driver turns, one player input after each observed reply.
+The prepared opening and its kernel calls are labeled fixture-only and excluded from acceptance.
+The initial test request authorized no production repair. The subsequent owner instruction now explicitly
+authorizes root-cause research and repair of these failures, followed by the same staged live acceptance.
+
+Four separate campaigns use the current built TS kernel and the default hybrid agent. The fixed
+starting situations, expected observations and exact staging calls are retained under
+.coc/playtests/jev-subsystems-20260930/. The individual driver runs will preserve full raw events.
+Success requires the intended rule family, correct actor/target, actual kernel receipts and matching
+narration; a clear source/parameter/provider block is reported as a block, never a pass. No model
+resolve fallback and no duplicate settlement are common gates. Dice success itself is not required.
+
+State: source 6d870987b plus preserved concurrent historical-reference/setup changes; runtime rebuilt
+on leehow-pc. Four fixtures are ready; staging turn 1 is excluded. Combat and chase have failed live
+acceptance; SAN and healing have also failed. All four live drivers are stopped. No production
+code was changed during this acceptance. Final case verdicts are retained at
+.coc/playtests/jev-subsystems-20260930/verdicts.json.
+
+- Combat, jev-accept-combat-20260930 turn 2: the player explicitly chose agreed unarmed sparring.
+  The first-blow owner selected unarmed correctly, but the NPC act generator authored a chainsaw
+  attack; Jev/host binding accepted the modern catalogue chainsaw, and the investigator fell from
+  12 HP to 0. A redundant ordinary Fighting (Brawl) need also stayed unresolved after the combat
+  path had run. This is a failure, not proof that combat is ready. The driver is stopped.
+- Chase, jev-accept-chase-20260930 turn 2: compile read move and Running Courier correctly, but
+  no resolve occurred and no chase started, while prose claimed pursuit began. The candidate
+  builder excludes every combat/chase catalog option; its old path adds the first blow and running
+  sessions, but no out-of-session chase start. The driver is stopped.
+
+- SAN, jev-accept-sanity-20260930 turns 2-3: the source-backed sanity candidate was offered,
+  but route marked it later at .83 and .67; no SAN selector invocation or SAN receipt occurred.
+  On turn 2 an ordinary Spot Hidden attempt remained unresolved while prose exposed the living
+  corpse. A following in-fiction fear reaction still did not settle SAN. The driver is stopped.
+
+- Healing, jev-accept-healing-20260930 turn 2: route chose healing:first-aid-ordinary, but
+  necessity was rejected at .16/.15 and no treatment roll or HP recovery occurred. The proposed
+  actor was the investigator and target was still unbound; NPC patient HP was 9 with max:null.
+  check-catalog.ts reads the flat profile.HP although profiles carry derived.HP. This projection
+  defect is confirmed; its precise contribution to the semantic rejection is not isolated. Prose
+  nevertheless claimed completed treatment. The driver is stopped.
+
+The owner also asked to diagnose the historical-reference meta-request regression. Read-only
+inspection of historical-reference-app-20260930/session-snapshot.jsonl confirms turn 3 selected
+investigate at probabilities .76/.74 despite the explicit request not to advance fiction, and
+incorrectly selected Steven Knott as addressee. The selector ultimately said no_roll twice (no
+resolve), but time:t3-c1 advanced 94 minutes. speech_steer was the host's NPC-present/no-token
+condition, not a second Jev intent result; its repair compose took 19,420 ms. A read-only
+counterfactual using the exact retained message and explicit scope questions returned world_action
+.04 and system_request .87 from Jev 1.13.0. This supports testing a message-scope gate; it is not a
+production repair or broad accuracy proof. No repair was applied.
+
+## Root-cause repair (owner approved, completed 2026-09-30)
+
+The two reported failures are repaired in source. Jev's broad action classification confused the
+subject of a reference request with permission to act in fiction. Independently, the host applied
+fictional time and speech checks to that reference answer. The current RunDriver now reads a bounded
+interaction scope first and carries it through policy, operation admission, explicit/implicit
+delivery, committed turn metadata and memory readers. Reference or unclear scope authorizes no
+fictional effect, roll, clock, NPC act or speech repair. Unknown Jev remains unresolved.
+
+Further gaps found by the authorized staged tests are repaired through their existing owners:
+
+- Treatment binds the actual patient and uses canonical HP, wound timing and attempt facts before
+  judging the chosen treatment. Chase binds its target before judging pursuit and exposes chase:start
+  before a session exists. Unbound parameter fields are not presented as already-established facts.
+- The ordinary catalog group uses the existing family route, with specific rule tools before a
+  generic skill search. Concrete facts reach routing; large parameter vocabularies stay in the binder.
+  This removes an input-packing overflow and avoids spending the decision budget before SAN selection.
+- SAN uses source-authored loss. Its involuntary response is a conditional permissible ruling,
+  assessed by independent Nouls at a separate .75 adjudication gate; factual binding and necessity
+  retain .85. The restrained-person counterfactual admitted freeze (.81) while excluding cry_out
+  (.10), flee (.15), combat (.29), movement (.71) and startle (.40). These examples are calibration,
+  not a general accuracy estimate. Canonical npc_exposure receipts suppress the same exposure on a
+  later look during the same visit. Evaluated unresolved snapshots are retired before the next route.
+- NPC generation and its bounded grounding review receive canonical scene/declaration context.
+  Contradictory acts get at most one repair and cannot reach the write gateway; missing constraints
+  block generation. The existing severe-surprise feature remains, within the interaction's stakes.
+- Combat end has the engine's closed outcome vocabulary at resolve-options context.combat_outcomes.
+  The public session body remains identical across its readers. Ending descriptions distinguish an
+  agreed cessation from victory. Admission now sees decision and describes rule settlement rather
+  than calling every resolve a dice roll; its cache key also distinguishes decision and outcome.
+
+### Verification and retained evidence
+
+All live Keeper runs used grok-build/grok-4.5 with low thinking. Fixture turn 1 is excluded. These
+were real driver turns with the main session as the player, not scripted Keeper outcomes. Affected
+seams were rerun after repairs; adverse intermediate variants remain retained and are not relabelled.
+
+| Case | Final verified behavior | Evidence |
+| --- | --- | --- |
+| Original reference request | Reference .98, world direction .06; no apply/resolve, no receipts, no speech steer; reference reads remained available. | .coc/playtests/jev-root-repair-20260930/reference-final-evidence.json; campaign jev-repaired-reference-20260930 turn 3 |
+| Combat | Unarmed practice produced real attack/defense receipts; the final natural stop produced combat:end with stalemate and a concluded session. Earlier unclosed stop turns remain adverse. | .coc/playtests/jev-root-repair-20260930/combat-final-evidence.json; campaign jev-repaired-combat-20260930 turns 2 and 7 |
+| Chase | Investigator pursuer, courier quarry; real speed checks, movement and escaped end receipt. | .coc/playtests/jev-root-chase-v2-20260930/chase-evidence.json |
+| SAN | Source 1/1D8; roll 37 against 55 passed, SAN 55 to 54. Looking again produced no second SAN roll/loss. | .coc/playtests/jev-root-repair-v4-20260930/sanity-evidence.json |
+| Treatment | Investigator treated the NPC; First Aid 91 against 30 failed, with no HP gain. The same-wound follow-up produced no second treatment roll. | .coc/playtests/jev-root-repair-v2-20260930/healing-evidence.json |
+
+Final validation: LAN extension suite 4162/4162 (exit 0, .tmp/jev-root-ext6.log); focused TS-kernel
+RPC tests 29/29 (.tmp/jev-root-kernel2.log); kernel typecheck and diff whitespace check passed.
+The additional NPC write-guard regression passed locally after that suite snapshot. Source/build
+comparison checked 883 project source files with zero mismatches (final-build-audit.json in the main
+repair evidence directory). No successful model-origin resolve is present in the accepted cases.
+
+Limitations: the real historical-reference read returned no usable excerpts and exhausted its own
+budget; this repair does not claim successful historical content retrieval. Existing unrelated owed
+item/intent refusals are retained in the play logs. This is source-mode verification, not packaged-App
+acceptance. These repair changes remain uncommitted; HEAD remains 6d870987b. Concurrent historical
+reference, UI and setup work has been preserved.
+
+Research used TypeSafe's official function-calling, skill-suggestion and model-jaggedness guidance,
+and browser-use/jev-ultrafast as an independent precedent: bounded semantic questions need complete
+facts and code-owned constraints. No dependency, second planner or semantic keyword classifier was added.
+
 ## Historical handoff (superseded where the owner decided above)
 
 The following is retained historical evidence. The owner's later approval of Jev check ownership

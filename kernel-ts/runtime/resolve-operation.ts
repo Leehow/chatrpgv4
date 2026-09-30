@@ -15,6 +15,7 @@ import {npcsPresent} from '../read/capsule.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {weaponOptions} from '../combat/profiles.js';
+import {VALID_OUTCOMES} from '../combat/engine.js';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {checkCatalog} from './check-catalog.js';
 import {committedOnLine, lastExchange} from '../read/exchange.js';
@@ -67,6 +68,7 @@ export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {
         const openingAttack = firstBlow(module.graph, campaign.world, campaign.party, sessions.activeSession());
         const phases = Object.fromEntries(rules.decisionNodes().map(node => [semanticName(node.node_id), string(row(row(node.properties).implementation).phase)]));
         const selection = await checkCatalog(campaign, module.graph, sessions, profiles, decisions, {phases, openingAttack, history: history.records, publicText});
+        const activeSession = sessions.activeSession();
         return {version: 1, profiles, decisions, selection, revision: jsonDigest({profiles, graph: rules.graphGeneration, selection}),
             world_revision: taskWorldRevision(campaign.world, campaign.party, campaign.turn.receipts, campaign.turn.pending_choice),
             context: {_binding:{campaign:campaign.id,worldline:string(campaign.meta.active_worldline||'main'),
@@ -75,7 +77,8 @@ export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {
                 public_exchange: await lastExchange(campaign, module.graph),
                 public_narration: {text: publicText.slice(-4000), truncated: publicText.length > 4000},
                 pending_choice: sessions.pendingChoice() || campaign.turn.pending_choice || null,
-                session: sessions.activeSession(), first_blow: openingAttack, conditions: campaign.party.map(sheet => ({actor: sheet.name, conditions: array(sheet.conditions)})),
+                session: activeSession, first_blow: openingAttack, conditions: campaign.party.map(sheet => ({actor: sheet.name, conditions: array(sheet.conditions)})),
+                ...(activeSession?.kind === 'combat' ? {combat_outcomes: [...VALID_OUTCOMES].filter(value => value !== null).sort()} : {}),
                 current_receipts: array(campaign.turn.receipts).map(receipt => ({kind: receipt.kind, actor: receipt.actor_label ?? null,
                     scene_change: receipt.kind === 'move' && receipt.from !== receipt.to,
                     skill: receipt.skill ?? null, outcome: receipt.outcome ?? row(receipt.check).outcome ?? receipt.level ?? null,

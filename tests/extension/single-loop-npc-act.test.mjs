@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { createRealCampaign, openTable } from "./harness.mjs";
 import { buildCandidates } from "../../runtime/jev/candidates.ts";
-import { createHybridEngine, readTable } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine, readTable } from "./hybrid-engine-fixture.mjs";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { createFixtureNpcActPort, npcActLaneInput } from "../../runtime/jev/npc-act.ts";
 import { KNOWN_QUESTION, NPC_ACT_BIND_FAMILY, SAME_QUESTION, interpretNpcAct, npcActBatch, npcActWrites, npcProduceBatch, npcScanCandidate, producePart, runNpcAct, struckReceipts } from "../../runtime/jev/npc-act-step.ts";
@@ -60,10 +60,11 @@ const aliasWhere = (question, match) => Object.entries(question?.criteria ?? {})
  * `known` (§143.27): "new" or "known", or a function of the batch giving one -- whether what the act brings out was
  * already at the table.
  */
-function actAnswer(batch, { way = "unknown", params = {}, same = "none", produce = "none", known = "new" } = {}) {
+function actAnswer(batch, { way = "unknown", params = {}, same = "none", produce = "none", known = "new", grounded = 0.99 } = {}) {
 	const answers = {};
 	for (const question of batch.questions) {
-		if (question.key === "way") answers.way = choice(way);
+		if (question.key === 'grounded') answers.grounded = {status: 'answered', type: 'noul', noul: grounded};
+		else if (question.key === "way") answers.way = choice(way);
 		else if (question.key === "produces_known") answers.produces_known = choice(typeof known === "function" ? known(batch) : known);
 		else if (question.key === "same") answers.same = choice(typeof same === "function" ? aliasWhere(question, same) ?? "none" : same);
 		else if (question.key === "produce") answers.produce = choice(typeof produce === "function" ? aliasWhere(question, produce) ?? "none" : produce);
@@ -111,10 +112,26 @@ const PACKET = { npc: { handle: "steven-knott", name: "Steven Knott" }, state: {
 const batchOf = (input = {}) => npcActBatch({ runId: "r", person: "Steven Knott", act: SHOUT, packet: PACKET, options: fightOptions(), rows: [], ...input }, scope, []);
 const PISTOL = "袖珍手枪";
 
+test('a surprising item does not authorize an ungrounded escalation of agreed stakes', () => {
+	const {batch, plan} = batchOf({produces: PISTOL, packet: {...PACKET, canonical_context: {
+		scene: 'An agreed unarmed sparring exercise. Either participant may stop.',
+		player_declaration: 'I throw a practice punch.', previous_narration: 'The partner agrees to practice safely.'}}});
+	assert.equal(plan.grounding, true);
+	const refused = interpretNpcAct(plan, actAnswer(batch, {way: 'attack', grounded: 0.04,
+		params: {'attack.weapon': 'weapon_drawn'}, produce: label => label.startsWith('.38')}), 0.6);
+	assert.equal(refused.reason, 'act_ungrounded');
+	assert.equal(refused.produced, null);
+	assert.deepEqual(refused.params, {});
+	const accepted = interpretNpcAct(plan, actAnswer(batch, {way: 'attack', grounded: 0.99,
+		params: {'attack.weapon': 'weapon_drawn'}, produce: label => label.startsWith('.38')}), 0.6);
+	assert.equal(accepted.judged, true, 'the independent grounding verdict controls acceptance, not a weapon blacklist');
+	assert.equal(accepted.produced.source, 'catalog');
+});
+
 test("§143.3 batch: one closed question for the way, one per parameter with a choice, the produced record only when the act brings something out, the same-row question over the rows", () => {
 	const { batch } = batchOf();
 	assert.equal(batch.family, NPC_ACT_BIND_FAMILY);
-	assert.equal(batch.familyVersion, "2", "§143.19: the draw question became the produce question");
+	assert.equal(batch.familyVersion, "3", "canonical context adds an independent grounding decision");
 	assert.deepEqual(batch.questions.map((question) => question.key), ["way", "check.skill"], "one target and one weapon are bound without a question");
 	assert.deepEqual(Object.keys(batch.questions[0].criteria), ["attack", "flee", "check", "intention_only", "unknown"]);
 	assert.equal(batch.state.act, SHOUT, "keyed on the act the generation wrote");
@@ -764,7 +781,7 @@ const fledFromKnott = (workspace) => {
 test("ticket 03 pursuit: the investigator fled -- 'goes after him' and Jev's pursue start a chase with Knott as the pursuer", async (t) => {
 	const npcAct = createFixtureNpcActPort({ "steven-knott": "他追出门去。" });
 	const game = await seam(t, { npcAct, prepare: fledFromKnott, act: (batch) => {
-		assert.ok(Object.keys(batch.questions[0].criteria).includes("pursue"), "pursue is offered: he was fled from and no chase runs");
+		assert.ok(Object.keys(batch.questions.find(question => question.key === 'way').criteria).includes("pursue"), "pursue is offered: he was fled from and no chase runs");
 		return { way: "pursue" };
 	} });
 	await game.run(scan());
@@ -1674,4 +1691,35 @@ test("§143.29: the thing his act brought out is in the next packet's at_hand.br
 	assert.deepEqual(npcAct.calls[1].packet.at_hand.brought_out, [{ name: PHOTO, turn: 2, ref: shown.ref, status: "attempted" }], JSON.stringify(npcAct.calls[1].packet.at_hand));
 	const bind = game.decisions.filter((batch) => batch.family === NPC_ACT_BIND_FAMILY).at(-1);
 	assert.deepEqual(bind.state.situation.at_hand.brought_out, npcAct.calls[1].packet.at_hand.brought_out, "the same-purpose question's batch reads it too");
+});
+
+test('an ungrounded NPC proposal is repaired at most once and never reaches the write gateway', async () => {
+  const bad = 'He draws a chainsaw and cuts into the practice partner.';
+  const good = 'He keeps his fists raised for the agreed unarmed practice.';
+  for (const repair of [bad, good]) {
+    const writes = [], generated = [];
+    const packet = {...PACKET, canonical_context: {scene: 'An agreed unarmed practice. Either partner may stop.', player_declaration: 'I throw a practice punch.'},
+      happened: [], constraints: ['No lethal escalation has been established.'], truncated: [], stakes: {surprise: true, outcome: 'severe'}};
+    const deps = {
+      call: async (method, params) => method === 'npc.situation' ? packet : method === 'npc.act.options'
+        ? {...fightOptions(), play_language: 'en', place: 'yard', in_session: true, my_turn: true,
+          ...(params.act ? {act: {line: params.act, ref: 'intent:steven-knott:bbbbbbbbbbbb', continues: null}} : {})} : {},
+      generate: async input => { generated.push(input.packet); return generated.length === 1 ? {act: bad, produces: 'chainsaw'} : {act: repair}; },
+      decide: async batch => actAnswer(batch, {way: 'intention_only', grounded: batch.state.act === bad ? .01 : .99}),
+      write: async call => { writes.push(call); return {ok: true, callId: 'test-write', receipts: ['npc:test'], status: 'succeeded'}; },
+      record() {}, scope, readSet: [], runId: 'grounding', stepId: 's1', turn: 2, gate: .6,
+      budget: {timeoutMs: 8000, maxPerTurn: 2, sameActRows: 5}, signal: new AbortController().signal,
+    };
+    const result = await runNpcAct(deps, 'Steven Knott', 'turn');
+    assert.equal(generated.length, 2);
+    assert.equal(result.reask, true);
+    assert.ok(!JSON.stringify(writes).includes('chainsaw'));
+    if (repair === bad) { assert.equal(result.status, 'refused'); assert.deepEqual(writes, []); }
+    else { assert.equal(result.status, 'bound'); assert.ok(writes.length); assert.ok(JSON.stringify(writes).includes(good)); }
+    generated.length = 0; writes.length = 0;
+    packet.truncated = ['constraints'];
+    assert.equal((await runNpcAct(deps, 'Steven Knott', 'turn')).reason, 'binding_constraints_truncated');
+    assert.equal(generated.length, 0);
+    assert.deepEqual(writes, []);
+  }
 });

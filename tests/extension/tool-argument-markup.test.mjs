@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitFor, waitForIdle } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { COC_TOOLS } from "../../extensions/kernel/tools.ts";
 import { unwrapArgumentMarkup } from "../../extensions/kernel/tool-argument-markup.ts";
 

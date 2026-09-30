@@ -3,12 +3,25 @@ import assert from 'node:assert/strict';
 import {selectCheck, validateCheckOptions} from '../../runtime/jev/resolve-selection.ts';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
-import {initialView, next, startStep, settleCheckSelection, settleExecute, settleRead, keeperOwns, interpretBind} from '../../runtime/jev/step-policy.ts';
+import {initialView, next, startStep, settleCheckSelection, settleExecute, settleRead, keeperOwns, interpretBind, interpretRoute} from '../../runtime/jev/step-policy.ts';
+import {COMPILE_PREDICATES} from '../../runtime/jev/route-compile.ts';
 
 const scope = {owner: 'check-selection', campaign: 'table', worldline: 'main', loop: 0, audience: 'keeper'};
 const listen = {key: 'listen', family: 'core-check', label: 'Listen', action: {actor: 'Ada', decision: 'core-check:ordinary-check', skill: 'Listen'},
   parameters: [], needs: [], authorization: 'declaration'};
 const spot = {...listen, key: 'spot', label: 'Spot Hidden', action: {...listen.action, skill: 'Spot Hidden'}};
+
+test('source-specific checks reach their binder before a general skill search', () => {
+  const ordinary = {key: 'ordinary', verb: 'resolve', family: 'core-check', label: 'ordinary check', clerk: 'declared_check',
+    checkOwner: 'jev', source: 'catalog', bound: {decision: 'core-check:ordinary-check'},
+    unbound: [{name: 'parameters', required: true, vocabulary: 'closed', binder: 'resolve-selection'}]};
+  const sanity = {...ordinary, key: 'san', family: 'sanity', bound: {decision: 'sanity:check'}};
+  assert.ok(!COMPILE_PREDICATES.some(predicate => predicate.reads(ordinary)), 'a broad investigate act does not preempt family routing');
+  const view = initialView({runId: 'r', rawInput: 'I uncover the moving corpse.', context: {scene: 'cellar', receipts: [], present: [], clock: {}}, candidates: [ordinary, sanity]});
+  const choice = {status: 'answered', type: 'choice', choice: 'now', confidence: 1, probabilities: {now: 1}};
+  const routed = interpretRoute(view, [ordinary, sanity], {status: 'complete', answers: {need_1: choice, need_2: choice}}, .6);
+  assert.deepEqual(routed.selected, ['san', 'ordinary']);
+});
 function setup(t, choose, options = [listen, spot]) {
   const lease = new TaskLease({owner: 'check-selection', goal: 'Listen then look', scope, readSet: [], capabilities: ['decision'],
     budget: {deadlineAt: Date.now() + 10_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
@@ -334,6 +347,7 @@ test('ordinary bookkeeping cannot re-open an unresolved check in the same run an
   const context = {scene: 'hall', clock: {}, present: []};
   const view = initialView({runId: 'held-run', rawInput: 'I listen.', context, candidates: [request]});
   settleCheckSelection(view, request, {status: 'unresolved', needs: ['check_necessity_uncertain'], calls: 2}, 2);
+  assert.deepEqual(view.candidates, [], 'the next route cannot retry the same question even without a fresh read');
   const refreshed = {...request, key: 'new-revision'};
   const treatment = {...request, key: 'treatment', bound: {decision: 'healing:first-aid-ordinary'}};
   const read = {materials: [], summary: {}, calls: 0, ms: 0};
@@ -375,4 +389,20 @@ test('catalog rejects duplicate issued identities and duplicate argument binding
   assert.equal(validateCheckOptions([listen, listen]), undefined);
   assert.equal(validateCheckOptions([{...listen, parameters: [{name: 'skill', question: 'x', options: []}, {name: 'skill', question: 'y', options: []}]}]), undefined);
   assert.deepEqual(validateCheckOptions([listen]), [listen]);
+});
+
+test('a permissible SAN response does not require every other permissible response to be disproved', async t => {
+  const option = {key: 'san', family: 'sanity', label: 'SAN on seeing the horror', authorization: 'consequence', needs: [],
+    action: {actor: 'Ada', decision: 'sanity:check', target: 'The horror', san_loss: '1/1D8'},
+    parameters: [{name: 'involuntary', selection: 'compatible', question: 'Choose an immediate involuntary response.',
+      options: [{label: 'cry_out', value: 'cry_out'}, {label: 'freeze', value: 'freeze'}]}]};
+  const {input, seen} = setup(t, (batch, q) => noul(batch.family.startsWith('check-selection-bind') ? q.target.endsWith('freeze') ? .79 : .76 : .99), [option]);
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'selected');
+  assert.equal(result.action.involuntary, 'freeze');
+  assert.ok(seen.filter(batch => batch.family === 'check-selection-bind').every(batch => batch.questions.every(q => q.type === 'noul')));
+  const doubtful = setup(t, (batch) => noul(batch.family.startsWith('check-selection-bind') ? .5 : .99), [option]);
+  const unresolved = await selectCheck(doubtful.input);
+  assert.equal(unresolved.status, 'unresolved');
+  assert.deepEqual(unresolved.needs, ['unbound:involuntary']);
 });

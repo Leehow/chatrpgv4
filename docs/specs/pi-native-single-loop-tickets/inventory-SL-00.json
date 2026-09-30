@@ -1989,6 +1989,30 @@
       "role": "leaf",
       "trace": "source-intake tests; live setup acceptance pending",
       "note": "One bounded typed choice/intent/language batch over existing local PDF path candidates. Host advances existing deterministic setup steps; no extra narrative model."
+    },
+    {
+      "file": "runtime/historical-reference.ts",
+      "symbol": "HistoricalReference.constructor",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "Historical Reference (contract 124.12)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "historical-reference telemetry and request-supply tests",
+      "note": "Enabled Mod, configured credentials and a Jev-issued need; bounded retrieval and selection return to the same main Keeper tool. No second agent."
+    },
+    {
+      "file": "runtime/historical-reference.ts",
+      "symbol": "HistoricalReference.constructor",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "Historical Reference (contract 124.12)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "historical-reference telemetry and request-supply tests",
+      "note": "Enabled Mod, configured credentials and a Jev-issued need; bounded retrieval and selection return to the same main Keeper tool. No second agent."
     }
   ]
 }

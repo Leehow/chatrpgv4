@@ -145,7 +145,8 @@ def test_thirty_settled_intentions_fit_the_budget_and_the_newest_survives(knott)
         knott.table("apply", call_id=f"t1-c{n}", effects=[{"kind": "npc", "name": "Steven Knott", "intends": line, "outcome": "done"}])
     packet = situation(knott)
     assert packet_bytes(packet) <= 6144, packet_bytes(packet)
-    assert packet["truncated"] == ["constraints", "at_hand", "history"], "the ticket's order: constraints, what is at hand, the oldest done"
+    assert packet["truncated"] == ["at_hand", "history"], "binding constraints survive before optional surroundings and old intentions"
+    assert packet["canonical_context"]["player_declaration"] == "I keep Knott talking all afternoon."
     assert packet["at_hand"] == {"holdings": [], "objects": [], "exits": [], "present": []}
     assert 1 <= len(packet["done"]) < 30
     assert packet["done"][0]["intent"] == lines[-1], "the newest row is the one kept"
@@ -165,8 +166,8 @@ def test_the_budget_is_the_named_default_in_host_budgets(tmp_path):
         open_turn(client, "I look Knott over.")
         packet = situation(client)
         assert packet_bytes(packet) <= 1024, packet_bytes(packet)
-        assert packet["truncated"] == ["constraints"], "the first section cut, and the only one this packet needed"
-        assert packet["at_hand"]["exits"] and packet["at_hand"]["present"]
+        assert packet["truncated"] == ["at_hand", "constraints"], "constraints are cut last, with an explicit unavailable marker for the actor"
+        assert not packet["at_hand"]["exits"] and not packet["at_hand"]["present"]
         assert packet["happened"][-1].endswith('declared: "I look Knott over."'), "the declaration is never cut"
     finally:
         client.close()

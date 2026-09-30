@@ -22,7 +22,7 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { customMessages, openTable, waitFor, waitForIdle } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { isRunEvent } from "./pi-agent-core.mjs";
 
 const root = resolve(import.meta.dirname, "../..");

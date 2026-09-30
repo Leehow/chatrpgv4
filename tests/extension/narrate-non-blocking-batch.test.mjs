@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitForIdle } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
 

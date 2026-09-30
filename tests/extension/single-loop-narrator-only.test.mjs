@@ -19,7 +19,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { NARRATOR_ONLY_FALLBACK, narratorOnlyBudget } from "../../runtime/jev/host-budgets.ts";
 import { NARRATOR_CATALOG, narratorOnlySetting, offeredForPropose, proposedCandidate, stepCatalog } from "../../runtime/jev/narrator-catalog.ts";
 import { CONSEQUENCE_FAMILY } from "../../runtime/jev/consequence-route.ts";

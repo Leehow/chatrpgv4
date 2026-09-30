@@ -96,7 +96,7 @@ test("candidates come from the kernel's own reads: each carries its clerk author
 	// The check groups are ordinary agent candidates, each backed by an issued decision.
 	const checkGroups = candidates.filter(candidate => candidate.unbound.some(parameter => parameter.binder === 'resolve-selection'));
 	assert.deepEqual(new Set(checkGroups.map(candidate => candidate.bound.decision)),
-		new Set(state.resolveOptions.selection.options.filter(option => !['combat', 'chase'].includes(option.family)).map(option => option.action.decision)));
+		new Set(state.resolveOptions.selection.options.filter(option => !['combat', 'chase'].includes(option.family) || option.action.decision === 'chase:start').map(option => option.action.decision)));
 	assert.ok(checkGroups.every(candidate => candidate.checkOwner === 'jev'));
 	assert.equal(candidates.some(candidate => candidate.family === 'check_selection'), false, 'no second global selector before compose');
 	// The active natural-npc Mod declares a first-impression check for meeting him: the clerk's by authority (b).
@@ -430,8 +430,8 @@ test("§143.16 (NAF-17): on the investigator's own turn the clerk takes a fight 
 	assert.equal(state.resolveOptions.context.session.turn_of, "thomas-hayes");
 	const DEMAND = "钱呢？你说的二十块，现在就给我。";
 	const candidates = buildCandidates(state, DEMAND);
-	assert.deepEqual(candidates.filter(fightStep).map((candidate) => candidate.key), ["resolve:combat:attack:thomas-hayes", "resolve:combat:flee:thomas-hayes"],
-		"the investigator's issued fight steps (a manoeuvre and an ending are never the clerk's)");
+	assert.deepEqual(candidates.filter(fightStep).map((candidate) => candidate.key), ["resolve:combat:attack:thomas-hayes", "resolve:combat:flee:thomas-hayes", "resolve:combat:end:thomas-hayes"],
+		"the investigator's fight steps include the engine-bound ending; a manoeuvre still needs its goal");
 	const rows = compileRows(state);
 
 	/** One run: the compile answers `act`, the route answers `now` on the listed steps, then `ask_llm`. */
@@ -453,12 +453,12 @@ test("§143.16 (NAF-17): on the investigator's own turn the clerk takes a fight 
 		}), 5, 0.6);
 		return { view, row };
 	};
-	const ATTACK = "resolve:combat:attack:thomas-hayes", FLEE = "resolve:combat:flee:thomas-hayes";
+	const ATTACK = "resolve:combat:attack:thomas-hayes", FLEE = "resolve:combat:flee:thomas-hayes", END = "resolve:combat:end:thomas-hayes";
 
 	// The demand, its act below the gate and the margin: the route says now on the attack and on the flight, and selects neither.
 	const demand = run(["none", 0.5, { none: 0.5, act_1: 0.3, unclear: 0.2 }], [ATTACK, FLEE]);
 	assert.equal(demand.view.declaredActs, undefined, "no act cleared");
-	assert.deepEqual([demand.row.detail.selected, demand.row.detail.act_gated], [[], [ATTACK, FLEE]]);
+	assert.deepEqual([demand.row.detail.selected, demand.row.detail.act_gated], [[], [ATTACK, FLEE, END]]);
 	assert.ok([ATTACK, FLEE].every((key) => demand.view.consumed.includes(key)), "the Keeper's for the run");
 	assert.ok(!demand.view.pending.some((item) => item.candidate && fightStep(item.candidate)), "no clerk fight step pending");
 	assert.deepEqual([next(demand.view).kind, next(demand.view).purpose, next(demand.view).reason], ["infer", "adjudicate", "ask_llm"], "the turn is the Keeper's");
@@ -467,14 +467,18 @@ test("§143.16 (NAF-17): on the investigator's own turn the clerk takes a fight 
 	// the flight is not what was declared.
 	const punch = run(["combat:attack", 1], [ATTACK, FLEE]);
 	assert.deepEqual(punch.view.declaredActs, ["combat:attack"]);
-	assert.deepEqual([punch.row.detail.selected, punch.row.detail.act_gated], [[ATTACK], [FLEE]]);
+	assert.deepEqual([punch.row.detail.selected, punch.row.detail.act_gated], [[ATTACK], [FLEE, END]]);
 	assert.deepEqual([punch.view.pending[0].kind, punch.view.pending[0].purpose, punch.view.pending[0].candidate.key], ["direct", "execute", ATTACK],
 		"one target and one weapon: the attack runs as it did");
 
 	// The flight read as the act opens the flight; the attack was already the compile's to decide (another act: the Keeper's).
 	const flight = run(["combat:flee", 0.9], [ATTACK, FLEE]);
-	assert.deepEqual([flight.row.detail.selected, flight.row.detail.act_gated], [[FLEE], undefined]);
+	assert.deepEqual([flight.row.detail.selected, flight.row.detail.act_gated], [[FLEE], [END]]);
 	assert.ok(flight.view.consumed.includes(ATTACK) && !flight.row.detail.offered_keys.includes(ATTACK), "decided by the compile, never offered to the route");
+	const stopped = run(['combat:end', .95], [ATTACK, FLEE, END]);
+	assert.deepEqual(stopped.row.detail.selected, [END]);
+	assert.equal(stopped.view.pending[0].purpose, 'bind');
+	assert.deepEqual(stopped.view.pending[0].candidate.unbound[0].options, state.resolveOptions.context.combat_outcomes);
 });
 
 test("§143.16: a flight the session issues alone still owes a compile -- the only read that can open it to the clerk", () => {

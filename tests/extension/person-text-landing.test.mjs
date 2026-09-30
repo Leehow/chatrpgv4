@@ -24,7 +24,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { CARRIED_PENDING_PERSON_HEAD, CARRIED_PERSON_RECORD_HEAD, CARRIED_PERSON_TEXT_HEAD } from "../../runtime/jev/carried-views.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

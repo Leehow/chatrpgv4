@@ -13,7 +13,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { CONSEQUENCE_FAMILY } from "../../runtime/jev/consequence-route.ts";
 import { NPC_REACTION_DECISION } from "../../runtime/jev/consequence-candidates.ts";
 

@@ -13,7 +13,7 @@ import { SessionView } from "./session-view.js";
 import { dispositionTable } from "../combat/standing.js";
 import { RuleObservations } from "./rule-facts.js";
 import { buildCapsule } from "./assemble.js";
-import { lastExchange } from "./exchange.js";
+import { lastExchange, lastInteraction } from "./exchange.js";
 import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
 import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection } from "./capsule.js";
@@ -352,7 +352,8 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 pending_choice: turn.pending_choice ?? null,
                 // §143.23: the newest committed turn's words and attributed lines while the investigators still stand
                 // where it closed -- what the host's compile reads "you" and "he" by. Null otherwise.
-                last_exchange: await lastExchange(campaign, module.graph)
+                last_exchange: await lastExchange(campaign, module.graph),
+                last_interaction: await lastInteraction(campaign)
             };
         },
         "table.workspace.read": async (params) => workspaceRead(context, params),

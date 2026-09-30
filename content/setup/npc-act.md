@@ -27,6 +27,11 @@ have already set out to do, newest first, each with its status; a row still
 `constraints` are what the book or the table's rules already settle about this
 person, and they bind you. `truncated` names any part of the situation that was
 cut to fit; do not guess what was cut.
+`canonical_context` carries the current place, the previous delivered narration
+and the player's exact declaration. Preserve the established scope and stakes
+of this interaction. A mutually agreed exercise is not a deadly ambush without
+an established motive or event that changes it. Constraints and commitments do
+not disappear because the latest receipt describes an attack.
 `stakes`, when present, says how far this person goes this turn: its `line` is
 a degree, never an act, and a `null` stakes or an `outcome` of `nothing` means
 nothing pushes them beyond their situation.
@@ -47,9 +52,10 @@ did not know they had, and only such a thing: nothing already in `at_hand`,
 60 characters, as `produces` beside `act` in your JSON object, and let the act
 use it or show it. It fits who they are and this moment; with no surprise,
 leave `produces` out. When `stakes.outcome` is `severe` too, the surprise is
-for the table's fun and need not fit or be plausible: the less anyone could
-have guessed it, the better, as long as the table can picture them bringing it
-out right now, and it is not the same kind of thing as anything in
+for the table's fun and may be implausible or anachronistic. This permission concerns the item, not
+permission to change the interaction's agreed stakes, contradict an established
+fact, or harm someone without a motive grounded in the situation. It must not
+repeat a previous surprise: choose something not the same kind of thing as anything in
 `table_brought_out`.
 
 ## What you answer

@@ -41,6 +41,37 @@ export function groupMods(rows) {
 export function createComponent(React) {
   const h = React.createElement;
   const {useState, useEffect, useRef} = React;
+  function SecretSetting({api, field, ui, dependency}) {
+    const [present, setPresent] = useState(null), [draft, setDraft] = useState('');
+    const [saving, setSaving] = useState(false), [status, setStatus] = useState('');
+    const generation = useRef(0), inFlight = useRef(false);
+    const t = key => word(ui, 'mods', key);
+    useEffect(() => {
+      const mine = ++generation.current; setDraft(''); setPresent(null); setStatus('');
+      if (!api.settings?.get || !api.settings?.update) {setStatus('secretUnavailable'); return;}
+      void api.settings.get().then(values => {if (mine === generation.current) setPresent(values?.[field.key] === true);})
+        .catch(() => {if (mine === generation.current) setStatus('secretUnavailable');});
+      return () => {generation.current++;};
+    }, [api, field.key]);
+    async function save(value) {
+      if (inFlight.current || !api.settings?.update) return;
+      const mine = generation.current; inFlight.current = true; setSaving(true); setStatus('');
+      try {
+        const result = await api.settings.update({[field.key]: value});
+        if (mine !== generation.current) return;
+        if (!result?.ok) {setStatus('secretFailure'); return;}
+        setDraft(''); setPresent(value !== null); setStatus('secretSaved');
+      } catch {if (mine === generation.current) setStatus('secretFailure');}
+      finally {inFlight.current = false; if (mine === generation.current) setSaving(false);}
+    }
+    return h('form', {onSubmit:event=>{event.preventDefault(); if (draft.trim()) void save(draft.trim());}, style:{marginTop:12}},
+      h('label', null, t(field.caption), ' ', h('input', {type:'password', autoComplete:'off', spellCheck:false,
+        'aria-label':t(field.caption), value:draft, disabled:saving || present === null, onChange:event=>setDraft(event.target.value)})),
+      h('p', {role:'status'}, status ? t(status) : present === null ? '…' : t(present ? 'secretConfigured' : 'secretMissing')),
+      dependency?.jev_configured === false && h('p', {role:'status'}, t('secretJevMissing')),
+      h('button', {type:'submit', disabled:saving || present === null || !draft.trim()}, t('secretSave')), ' ',
+      h('button', {type:'button', disabled:saving || !present, onClick:()=>void save(null)}, t('secretClear')));
+  }
   return function ModsPanel(props) {
     const api = props.api ?? EMPTY_API;
     const [answer, setAnswer] = useState(null);
@@ -156,6 +187,8 @@ export function createComponent(React) {
           pending && h("p", {role:"status", style:{color:"var(--accent)"}},
             `${t("pending")}: ${pending.version} · ${t(pending.enabled ? "enabled" : "disabled")}`),
           h("details", null, h("summary", {style:{cursor:"pointer", color:"var(--muted)"}}, t("settings")),
+            ...(row.host_settings ?? []).filter(field=>field.format === 'secret').map(field=>
+              h(SecretSetting, {key:field.slot, api, field, ui, dependency:answer.historical_reference_status})),
             ...Object.entries(row.settings ?? {}).map(([key, fallback]) => {
               const current = active?.version === row.version ? (active.settings?.[key] ?? fallback) : fallback;
               const schema = row.settings_schema?.[key] ?? {};

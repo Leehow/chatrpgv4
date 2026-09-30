@@ -24,7 +24,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, waitForIdle } from "./harness.mjs";
-import { createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
+import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
 import { DELIVERY_FLOOR_FALLBACK, deliveryFloorBudget, resetDeliveryFloorBudgetCache } from "../../runtime/jev/host-budgets.ts";

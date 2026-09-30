@@ -8,12 +8,13 @@
  * telemetry row.
  */
 import { strict as assert } from "node:assert";
+import { stream as responsesStream } from "@earendil-works/pi-ai/api/openai-responses";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { openTable, waitForIdle } from "./harness.mjs";
-import { createSetupEngine, SETUP_CARD_TOOL } from "../../runtime/jev/setup-engine.ts";
+import { createSetupEngine, SETUP_CARD_TOOL, requireSetupCardTool } from "../../runtime/jev/setup-engine.ts";
 import { SETUP_DRIVEN_FALLBACK, SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY, SETUP_ROUTE_FAMILY, cardPlan, fieldsBatch, interestBatches, interestCandidates, interpretInterest,
 	interpretRoute, legalMoves, moveGates, routeBatch, setupDrivenBudget, clears } from "../../runtime/jev/setup-decisions.ts";
 import { packDecisionBatch } from "../../runtime/jev/question-packing.ts";
@@ -110,6 +111,102 @@ const bindCallFor = (name) => (context) => fauxAssistantMessage([fauxToolCall(SE
 	backstory: { personal_description: "瘦高，总背着相机。", significant_people: "纽约的图片编辑玛吉。", meaningful_locations: "西德克萨斯的公路。", scenario_bound: "为专题拍荒漠公路。" },
 	key_connection: { backstory_field: "significant_people", summary: "图片编辑玛吉" }, equipment: ["旁轴相机", "旧皮卡"] } })], { stopReason: "toolUse" });
 const bindCall = bindCallFor("艾伦");
+
+test("a real bind call executes once without exposing its accompanying argument JSON as prose", async t => {
+	const raw = '{"profile":{"name":"working draft"}}';
+	const run = await drivenSetup({decide: cardFieldsJev(FIRST_FIELDS), responses: [context => {
+		const call = bindCall(context);
+		return {...call, content: [{type: "text", text: raw}, ...call.content]};
+	}, fauxAssistantMessage("The card is ready.")]});
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);
+	await waitForIdle(run.table.session);
+	assert.equal(kernel(run.table, "setup.draft").length, 1);
+	const bound = run.table.session.messages.find(m => m.role === "assistant" && m.content.some(b => b.type === "toolCall"));
+	assert.equal(bound.content.some(block => block.type === "text"), false);
+	assert.equal(run.table.entries("coc-setup-output-rejected")[0].message.content[0].text, raw);
+	assert.equal(run.table.session.messages.findLast(m => m.role === "assistant").content[0].text, "The card is ready.");
+});
+
+test("bind requires the sole native function without changing ordinary or unsupported requests", () => {
+	for (const payload of [
+		{input: [], tools: [{type: "function", name: SETUP_CARD_TOOL, parameters: {type: "object"}}]},
+		{messages: [], tools: [{type: "function", function: {name: SETUP_CARD_TOOL, parameters: {type: "object"}}}]},
+	]) {
+		const before = structuredClone(payload), result = requireSetupCardTool(payload);
+		assert.equal(result.tool_choice, "required");
+		assert.equal(result.parallel_tool_calls, false);
+		assert.deepEqual(result.tools, payload.tools);
+		assert.deepEqual(payload, before);
+	}
+	for (const payload of [{input: [], tools: []}, {input: [], tools: [{type: "function", name: "setup"}]},
+		{input: [], tools: [{type: "function", name: SETUP_CARD_TOOL}, {type: "web_search"}]},
+		{messages: [], tools: [{name: SETUP_CARD_TOOL, input_schema: {type: "object"}}]}])
+		assert.equal(requireSetupCardTool(payload), undefined);
+});
+
+test("bare bind arguments fail explicitly, preserve evidence and do not instruct the following question", async t => {
+	const raw = JSON.stringify({profile: {name: {generated: "Alan"}, sex: "male"}});
+	const run = await drivenSetup({decide: cardFieldsJev(FIRST_FIELDS), responses: [fauxAssistantMessage(raw)]});
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);
+	await waitForIdle(run.table.session);
+	assert.equal(kernel(run.table, "setup.draft").length, 0);
+	const message = run.table.session.messages.findLast(m => m.role === "assistant");
+	assert.equal(message.stopReason, "error");
+	assert.equal(message.content.some(block => block.type === "text"), false);
+	assert.match(message.errorMessage, /setup_card/);
+	assert.equal(setupRuns(run.table).at(-1).reason, "setup_bind_missing_call");
+	assert.equal(run.table.entries("coc-setup-output-rejected")[0].message.content[0].text, raw);
+	run.decide(batch => answer(batch, {exit: "ask_llm"}));
+	run.respond([context => {
+		const text = context.messages.flatMap(message => typeof message.content === "string" ? [message.content]
+			: (message.content ?? []).filter(block => block.type === "text").map(block => block.text)).join("\n");
+		assert.equal(text.includes('"purpose":"bind"'), false);
+		assert.deepEqual(getCurrentTools(context.messages).map(tool => tool.name), ["setup"]);
+		return fauxAssistantMessage("A private investigator can carry ordinary notebooks.");
+	}]);
+	await run.table.session.prompt("Can a private investigator carry a notebook?");
+	await waitForIdle(run.table.session);
+	assert.equal(run.table.session.messages.findLast(m => m.role === "assistant").stopReason, "stop");
+	assert.ok(run.table.session.messages.some(m => m.role === "custom" && m.customType === "coc-setup-step"));
+	assert.deepEqual(run.table.extensionErrors, []);
+});
+
+test("the real Responses converter and setup hook require bind, then release the compose request", async () => {
+	const engine = createSetupEngine({env: {}, decision: null}), handlers = new Map(), tools = [];
+	engine.extension({events: {on() {}}, registerTool: tool => tools.push(tool), on: (name, fn) => handlers.set(name, fn),
+		getAllTools: () => tools, setActiveTools() {}, appendEntry() {}});
+	const run = await engine.runDriver.prepare({session: {sessionId: "request-probe"}, runId: "request-probe"});
+	const model = {api: "openai-responses", provider: "grok-build", id: "grok-4.7-build-fast", baseUrl: "https://example.invalid/v1",
+		input: ["text"], reasoning: true, cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}, contextWindow: 256000, maxTokens: 16384};
+	for (const purpose of ["bind", "compose"]) {
+		await run.ports.projection.project({step: {kind: "infer", purpose, reason: "request-probe", request: {}}, stepId: purpose});
+		const messages = [{role: "system", content: "Setup", timestamp: 0},
+			{role: "user", content: [{type: "text", text: "Make the card."}], timestamp: 1}];
+		const projected = handlers.get("context_with_system")({messages})?.messages ?? messages;
+		let payload;
+		const stream = responsesStream(model, {messages: projected}, {apiKey: "fixture", onPayload: value => {
+			payload = handlers.get("before_provider_request")({payload: value}) ?? value;
+			throw new Error("Captured before network");
+		}, fetch: () => {throw new Error("No network is allowed");}});
+		await stream.result();
+		assert.ok(payload);
+		assert.deepEqual(payload.tools?.map(tool => tool.name) ?? [], purpose === "bind" ? [SETUP_CARD_TOOL] : []);
+		assert.equal(payload.tool_choice, purpose === "bind" ? "required" : undefined);
+	}
+});
+
+for (const stopReason of ["error", "aborted", "length"]) test(`bind preserves the provider's ${stopReason} outcome`, async t => {
+	const response = fauxAssistantMessage("Partial output", {stopReason, ...(stopReason === "error" ? {errorMessage: "Provider rejected request"} : {})});
+	const run = await drivenSetup({decide: cardFieldsJev(FIRST_FIELDS), responses: [response]});
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);
+	await waitForIdle(run.table.session);
+	assert.equal(run.table.session.messages.findLast(m => m.role === "assistant").stopReason, stopReason);
+	assert.equal(run.table.entries("coc-setup-output-rejected").length, 0);
+	assert.equal(kernel(run.table, "setup.draft").length, 0);
+});
 
 test("§151.6: a trade outside the catalog binds the closest catalog occupation, the player's words are copied to occupation_stated, named skills bind by Noul, numbers stay the kernel's, and only the narrowed tool writes the open words", async (t) => {
 	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS), responses: [bindCall, fauxAssistantMessage("艾伦的卡已经放在桌上了。")] });

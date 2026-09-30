@@ -1,4 +1,5 @@
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
+import {historyConfigured, historyEnabled, historyNeedQuestion, historyNeed, isSavedHistoryRead, HISTORY_OFFER, HISTORY_LOCAL_OFFER} from '../historical-reference.ts';
 /**
  * The product side of `PI_COC_LOOP_ENGINE=hybrid-v1`: the policy and the ports Pi's RunDriver (vendored
  * agent-core, ADR-0006) drives each player input with. Pi knows nothing of what is here. Contract §135.
@@ -43,6 +44,7 @@ import { JEV_MODEL } from './question-packing.ts';
 import { preparationProviderBudget } from './preparation-budget.ts';
 import { prepareCheckPreflight } from './check-preflight.ts';
 import {checkAttemptIdentity, selectCheck, validateCheckOptions, withinCheckLease, type CheckSelection} from './resolve-selection.ts';
+import {interactionScopeBatch, interpretInteractionScope, permitsReferenceOperation, REFERENCE_SCOPE_NOTE, UNCERTAIN_SCOPE_NOTE, type InteractionScope} from './interaction-scope.ts';
 import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
@@ -178,6 +180,8 @@ export interface OperationGateway {
 }
 
 export interface HybridEngineOptions {
+  /** A trusted caller can supply an already determined input scope; the ordinary launcher never does. */
+  interactionScope?: InteractionScope;
   env: Readonly<NodeJS.ProcessEnv>;
   /** Jev's decision port; defaults to the product adapter when a Jev key is configured, none otherwise. */
   decision?: JevDecisionPort | null;
@@ -471,6 +475,8 @@ function defaultLine(candidate: Candidate): string | undefined {
 /** §158.4: the kernel extension's port for the previous delivery's post review still running (`coc:owed-review`). */
 interface OwedReviewPort {campaign: string; settle(elapsedMs: number): Promise<{in_flight: boolean; waited_ms: number; landed: boolean; turn?: number}>}
 interface RunState {
+  interactionScope?: InteractionScope;
+  history?: {enabled: boolean; allowed: boolean; asked: boolean; scene: string; context: Json};
   unresolvedNoticeKey?: string;
   unresolvedAttack?: boolean;
   runId: string;
@@ -690,6 +696,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     await stepsReady;
     const [capsule, status, applyOptions, resolveOptions, bands] = await Promise.all([call('table.capsule'), call('table.status'), quiet('table.apply.options'), quiet('table.resolve.options'), bandReads()]);
     const table = readTable(capsule, status);
+    const historyScene = text(object(capsule.where).scene);
+    if (!run.history || run.history.scene !== historyScene) run.history = {enabled: false, allowed: false, asked: false,
+      scene: historyScene, context: {where: capsule.where ?? null, period: object(capsule.campaign).era ?? null} as Json};
+    run.history.enabled = historyEnabled(capsule);
+    if (!run.history.enabled) run.history.allowed = false;
     // SL-76 (D2.3, D4): every receipt this turn's reads have seen, deduped by id -- the consequence route's
     // "settled this run" state and the turn-close pairing both read this, never the model-origin call's own args.
     for (const receipt of array(status.receipts).map(object)) {
@@ -778,6 +789,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * path this function otherwise takes is unchanged by that branch existing.
    */
   async function routeConsequences(run: RunState, candidates: ConsequenceCandidate[], context: TurnContext, signal: AbortSignal, stepId: string): Promise<void> {
+    if (run.interactionScope && run.interactionScope.mode !== 'world') return;
     const mode = stepsMode();
     if (mode === 'off' || !candidates.length || !jev || !run.scope || !run.readSet) return;
     const view: ConsequenceView = {runId: run.runId, rawInput: run.rawInput, context, observations: [],
@@ -888,7 +900,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           const reuse = !_proposal.params?.refresh && run.lastRead?.key === readKey ? run.lastRead.outcome : undefined;
           // Why a read ran without it (§135.6, 2026-09-24): live gate #4's rows said only `not_run`, and the cause -- the
           // preselect setting off in its launch -- had to be found by reading the launcher.
-          const skipped = !jev ? 'no_jev' : !prescreenEnabled(options.env as NodeJS.ProcessEnv) && !_proposal.params?.refresh ? 'preselect_off' : !table.binding ? 'no_binding'
+          const skipped = run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world' ? 'reference_scope'
+            : !jev ? 'no_jev' : !prescreenEnabled(options.env as NodeJS.ProcessEnv) && !_proposal.params?.refresh ? 'preselect_off' : !table.binding ? 'no_binding'
             : run.providerBudget.actions <= 0 ? 'allowance_spent' : !(bridge?.call && bridge.campaign) ? 'no_bridge' : undefined;
           let materials: Material[] = [], calls = 0, prescreen: Row = {status: 'not_run', reason: skipped ?? null}, packet: Row | undefined;
           let outcome: {step: string; materials: Material[]; message?: Row} | undefined;
@@ -975,7 +988,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         },
       },
       projection: {project: ({view, step, stepId}) => projection(run, view as unknown as {policyState: StepPolicyState}, step, stepId)},
-      ...(jev ? {decision: {decide: request => decide(run, request)}} : {}),
+      decision: {decide: request => decide(run, request)},
     };
   }
 
@@ -994,15 +1007,22 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const catalog = run.stepCatalog, narrowed = catalog?.narrowed;
     const presumedHit = proposal.operation === 'apply' && run.unresolvedAttack === true
       && array(object(proposal.params).effects).some(effect => object(effect).kind === 'damage');
-    const refuse = presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
+    const outsideScope = run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world'
+      && !permitsReferenceOperation(proposal.operation, proposal.params);
+    const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
+      : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
       + 'Nothing in this apply was executed. Narrate only established facts and retain the unresolved attack.'}
       : proposal.operation === 'resolve' ? {code: 'check_selection_owned', text: 'Jev and the host own check selection. This model-origin resolve was not executed. '
       + 'Narrate only committed receipts and report unresolved check needs; do not choose a replacement check.'}
       : proposal.operation === PROPOSE_VERB ? undefined
       : batch.proposed ? {code: 'propose_pending', text: PROPOSE_PENDING_REFUSAL}
-        : narrowed && !narrowed.includes(proposal.operation) ? {code: 'narrator_catalog', text: catalogRefusal(proposal.operation, run.offered)} : undefined;
+        : narrowed && !narrowed.includes(proposal.operation)
+          && !(proposal.operation === 'lookup' && run.history?.enabled && (isSavedHistoryRead(proposal.params)
+            || object(proposal.params).kind === 'historical_reference' && run.history.allowed))
+          ? {code: 'narrator_catalog', text: catalogRefusal(proposal.operation, run.offered)} : undefined;
     // §135.31: the kernel extension's tool row names the step a model call came from (announced before it runs).
     if (proposal.toolCall?.id) api?.events?.emit?.('coc:model-step', {toolCallId: proposal.toolCall.id, run: run.runId, step: stepId, operation: proposal.operation,
+      ...(run.history && run.scope ? {historical_reference: {...run.history, scope: run.scope, turn: run.turn}} : {}),
       ...(refuse ? {refuse: refuse.text, refuse_code: refuse.code} : {})});
     if (refuse) record({lane: 'run', event: 'catalog_refused', run: run.runId, step: stepId, operation: proposal.operation, reason: refuse.code});
     // SL-78 (§135.32 addendum 2, the `residual` row): every Keeper tool call among the five bookkeeping verbs is
@@ -1129,6 +1149,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   async function clerkStep(run: RunState, params: Row, invocation: {runId: string; stepId: string; operationId: string; signal: AbortSignal}) {
     const candidate = params.candidate as Candidate | undefined, extra = object(params.extra) as Record<string, Json>;
     const refuse = (reason: string) => ({status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {origin: 'policy', refused: reason}}}});
+    if (run.interactionScope && run.interactionScope.mode !== 'world') return refuse('interaction_scope');
     if (!candidate) return refuse('no_candidate');
     // The IntentBinding is required: no policy-origin write before a read has bound the run to this player input.
     if (!run.intent || !run.scope || run.turn === undefined) return refuse('intent_unbound');
@@ -1353,6 +1374,26 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   /** Jev's decisions: route and closed bind through the DecisionPort, the ordinary check through its binder. */
   async function decide(run: RunState, request: {runId: string; stepId: string; purpose: string; question: unknown; signal: AbortSignal}) {
     const question = object(request.question);
+    if (request.purpose === 'interaction-scope') {
+      let scope = interpretInteractionScope(undefined, 0);
+      if (jev && bridge?.campaign) {
+        const lease = new TaskLease({owner: 'interaction-scope', goal: 'Read whether this user authorizes fictional action',
+          scope: {owner: run.runId, campaign: bridge.campaign, audience: 'keeper'}, readSet: [], capabilities: ['decision'], signal: request.signal,
+          budget: {deadlineAt: Date.now() + 15_000, remainingInputTokens: 30_000, remainingOutputTokens: 3000, remainingCostUsd: 1, remainingActions: 1}});
+        try {
+          const status = await withinCheckLease(lease, () => call('table.status'));
+          run.turn = Number(status.turn);
+          const batch = interactionScopeBatch(run.rawInput, status.last_interaction ?? status.last_exchange ?? null, lease.context.scope);
+          const answer = await withinCheckLease(lease, () => jev.decide(batch, lease));
+          scope = interpretInteractionScope(answer);
+          record({lane: 'interaction-scope', run: run.runId, ...scope, state: batch.state, questions: batch.questions, answers: answer.answers});
+        } catch (error) { scope = {...scope, reason: error instanceof Error ? error.message : 'scope_unavailable'}; }
+        finally { lease.close(); }
+      }
+      run.interactionScope = scope;
+      return {status: 'ok' as const, artifact: {kind: 'interaction-scope', scope} as StepArtifact};
+    }
+    if (!jev) return {status: 'unavailable' as const, reason: 'jev_unavailable'};
     // SL-78 (the `residual` row): every compile decision this run asked, whatever it answers -- counted here,
     // at the one place every `purpose: "compile"` request passes, rather than duplicated at each call site.
     if (request.purpose === 'compile') run.compileCalls++;
@@ -1440,15 +1481,23 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         return {status: 'ok' as const, artifact: {kind: 'bind-ordinary', bound} as StepArtifact};
       } finally { lease.close(); }
     }
-    const batch = question.batch as DecisionBatch | undefined;
+    let batch = question.batch as DecisionBatch | undefined;
     if (!batch || (request.purpose !== 'route' && request.purpose !== 'bind' && request.purpose !== 'compile' && request.purpose !== 'reask'))
       return {status: 'unavailable' as const, artifact: {reason: batch ? `no_${request.purpose}_decider` : 'no_scope_binding'}};
+    const askHistory = run.history?.enabled && historyConfigured(options.env as NodeJS.ProcessEnv)
+      && !run.history.asked && ['compile', 'route'].includes(request.purpose);
+    if (askHistory) batch = {...batch, id: digest([batch.id, 'historical-reference']), questions: [...batch.questions, historyNeedQuestion()]};
     const began = stepNow();
     const lease = new TaskLease({owner: batch.family, goal: `run ${request.runId} ${request.purpose}`, scope: batch.scope, capabilities: ['decision'],
       readSet: batch.readSet, signal: request.signal, ...leaseClock,
       budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
     try {
       const result = await jev!.decide(batch, lease);
+      if (askHistory && run.history) {
+        run.history.asked = true; run.history.allowed = historyNeed(result);
+        record({lane: 'historical-reference', event: 'need', run: run.runId, turn: run.turn, allowed: run.history.allowed,
+          answer: result.answers.historical_reference_needed ?? null, status: result.status});
+      }
       const answers = result.status === 'complete' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
         value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;
       // Every answer's distribution is retained (spec user story 28): the gates can be re-read from a live table.
@@ -1603,6 +1652,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.11.2 (SL-50 stage 2): the run's first note opens with the head line (right after `kind`), once per run.
     const head = !run.headShown;
     const content: Row = {kind: 'single_loop_step', ...(head ? {head: CLERK_NOTE_HEAD} : {}), purpose: step.purpose, reason: step.reason};
+    run.interactionScope = view.policyState.view.interactionScope ?? run.interactionScope;
+    if (run.interactionScope && bridge?.campaign && run.turn !== undefined) {
+      api?.events?.emit?.('coc:interaction-scope', {campaign: bridge.campaign, turn: run.turn, run: run.runId,
+        player_text: run.rawInput, mode: run.interactionScope.mode});
+      if (run.interactionScope.mode !== 'world') Object.assign(content, {interaction_scope: run.interactionScope.mode,
+        interaction_scope_note: run.interactionScope.mode === 'reference' ? REFERENCE_SCOPE_NOTE : UNCERTAIN_SCOPE_NOTE});
+    }
     run.unresolvedAttack = view.policyState?.view?.fightDeclared === true && view.policyState?.view?.fightLanded !== true;
     const unresolvedChecks = [...(view.policyState?.view?.unresolvedChecks ?? [])];
     if (step.reason.startsWith('jev_') && step.reason !== 'jev_budget'
@@ -1673,6 +1729,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         catalog: run.stepCatalog.narrowed ? [...run.stepCatalog.narrowed] : null, propose: run.stepCatalog.propose, offered: run.offered.map(value => value.key),
         source: setting.source});
     }
+    if (run.history?.enabled) content.historical_reference = run.history.allowed ? HISTORY_OFFER : HISTORY_LOCAL_OFFER;
     const fresh = run.clerkDid.slice(run.projected);
     run.projected = run.clerkDid.length;
     if (fresh.length) Object.assign(content, {clerk_did: fresh,
@@ -1821,7 +1878,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         keeperCalls: {apply: 0, resolve: 0, look: 0, lookup: 0, recall: 0}, compileCalls: 0, consequenceExecutedReceiptIds: new Map(),
         offered: [], proposedKeys: new Set(), proposeCalls: 0};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
+        requireInteractionScope: true,
+        interactionScope: options.interactionScope ?? (!context.rawInput.trim() ? {mode: 'world', reason: 'host_opening', calls: 0} : undefined),
         ...(options.compile === false ? {compile: false} : {})});
+      run.interactionScope = options.interactionScope ?? (!context.rawInput.trim() ? {mode: 'world', reason: 'host_opening', calls: 0} : undefined);
       return {policy: budgetRows(run, policy), ports: makePorts(run), maxSteps: options.maxSteps ?? 48};
     },
   };
