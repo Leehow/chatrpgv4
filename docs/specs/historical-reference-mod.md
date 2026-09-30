@@ -151,6 +151,7 @@ Exa highlights 记作提供方返回的网页摘录。宿主保存本次摘录�
 | 是否补充历史资料 | Jev 在当前决策批次作闭合选择 | 主模型本次工具提示与宿主允许列表 | 有需要才允许查询；未选中或 Mod 关闭不发请求 |
 | 原始候选片段 | Exa 返回，宿主保留快照 | Jev 批量筛选 | 请求、候选、所选片段可逐项追溯，不靠生成摘要作中介 |
 | 所选参考材料 | 宿主按选择精确组装 | 同一主 agent 的下一次实际模型请求 | 出站请求包含正文与适用范围；旧/迟到材料不混入 |
+| 本轮历史取材结束状态 | 读取器在共享预算耗尽时写入 | 主循环当前 run、后续工具闸门与原生请求钩子 | 收回历史入口，桌外最终请求关闭工具；旧材料保留、下一条玩家输入恢复，分别以服务、真实 Pi 接缝与真桌验证 |
 | 最终场景与报价 | KP 融合材料产出 | 玩家；涉及状态变化时仍走内核 | 人工核查叙述采用是否合理，必要收据与现有规则一致 |
 
 沿用现有遥测记录需求判定、是否调用、Exa 与 Jev 耗时、候选/选中/交付数量、字节、缓存、预算退出和模型请求变化。网页与查询证据不进入产品可见错误详情中的大段日志。实际语义采用由真实玩测审核，不能用关键词命中率冒充；未采用不是 KP 欠下的任务，不写成下一回合义务。
@@ -218,6 +219,18 @@ Implementation scope: the existing historical-reference reader/library, its host
 Precedent check: [TypeSafe speculative fan-out](https://docs.typesafe.ai/patterns/fan-out) supports batching independent decisions and routing in host code. [Exa Search](https://exa.ai/docs/reference/search) supplies original highlights and content-cache controls; provider content caching is not a replacement for the application's decision to avoid another paid search. Keep the existing direct Search transport and four-second preparation budget.
 
 Price optimization progress:
+
+#### Retrieval termination repair — approved (2026-09-30)
+
+The user authorized a design repair after the retained 120.261-second run exposed a missing resource lifecycle seam: the reader returned `budget_exhausted`, but the loop kept offering history and the catalogue remained readable, causing three additional model continuations and failed named reads. The repair makes exhausted historical preparation terminal for the current host input. The reader writes that state; the loop reads it, removes the available offer and gates further historical calls; an out-of-fiction final compose uses native no-tool mode so the result becomes an answer instead of another lookup. Already delivered excerpts stay in context and the durable library. A later player input resets the resource, so ordinary source recovery and genuine price challenges still work. No extra researcher, summarizer, Jev decision or semantic retry classifier is added. World actions retain their ordinary tool authority.
+
+Precedent comparison: [Anthropic's tool-choice control](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#forcing-tool-use) confirms native `none` can disable calls while keeping tool definitions; its cache guidance cautions that message cache entries can still change. [LangGraph's maintained agent executor](https://github.com/langchain-ai/langgraph/blob/main/libs/prebuilt/langgraph/prebuilt/chat_agent_executor.py) treats remaining steps as host state and refuses another tool loop at exhaustion. The shared principle is host-owned termination. PipiCOC retains the real Keeper's answer and existing reference delivery instead of using LangGraph's canned exhaustion sentence, and preserves the stable tool-definition prefix. This repair is scoped to historical resource closure; it does not rewrite the general interaction classifier, check assertions or unrelated narration.
+
+Pending validation: focused service/loop/native-request and actual Pi seams, needed LAN checks, original natural-language reference scenario with a real Keeper, and canonical App verification after shared runtime ownership is idle. Keep old slow/incomplete evidence alongside the new run. Implementation progress will be appended here; no completion is claimed from the design alone.
+
+Source progress: implemented as Mod 1.0.4. The initial deterministic regression failed on the old reader's missing closure marker, then passed after the repair. Service/loop/native-request checks passed 21 cases; price/library regressions passed 17. The actual Pi/TS-kernel closure and next-player recovery seam passed; its first fixture attempt omitted required Choice distributions and was corrected without changing production thresholds or check-task assertions. Kernel typecheck passed. The LAN box currently has other full suites in flight, so integration build/full regression and live/canonical-App checks remain pending. Automation `mod` stays paused.
+
+#### Price-anchor implementation and verification
 
 - Implemented as Mod 1.0.3 without new lookup parameters or a new agent. The host passes `state.playerText`; query/objective cannot supply the dispute authorization. Search policy and saved-reference scoring share one Jev batch. Qualified originals carry additive `price_anchor` metadata; old packets remain readable. Marked anchors are prioritized over newer unrelated sources; if the bounded window omits other known anchors, a new baseline is withheld rather than paid for without checking those records.
 - Focused transport/library/price/Pi-seam/loop/inventory checks passed 38 cases, followed by the additional long-library regression (the price file now has seven cases). The Pi seam verifies actual host player input across real session turns; a fixture initially raced the automatic opening, and was corrected to await that opening before issuing player turns. No runtime guard was weakened to accommodate the fixture.

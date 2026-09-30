@@ -55,6 +55,38 @@ test('same pending query is coalesced and keeps its complete body',async t=>{
   const f=await fixture(t); const [a,b]=await Promise.all([f.service.search(f.input),f.service.search(f.input)]);
   assert.deepEqual(a,b); assert.equal(f.requests.length,1);
 });
+test('spent retrieval closes every mode while keeping earlier evidence and reopening on a fresh input',async t=>{
+  let fetched=0,decisions=0;
+  const f=await fixture(t,{decide:async batch=>{decisions++;return decision(batch);},fetcher:async(_url,init)=>{
+    fetched++;
+    if(fetched===1)return Response.json(raw);
+    return new Promise((_resolve,reject)=>init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true}));
+  }});
+  const input={...f.input,deadlineAt:Date.now()+1000};
+  const first=await f.service.search(input);assert.equal(first.status,'ready');
+  const stopped=await f.service.search({...input,query:'another detail',reference_mode:'web'});
+  assert.deepEqual(stopped.retrieval,{state:'closed',reason:'budget_exhausted'});
+  const atStop={fetched,decisions};
+  for(const reference_mode of ['auto','web','saved','catalog','read']){
+    const result=await f.service.search({...input,query:`retry ${reference_mode}`,reference_mode,name:'Archive visitor guide'});
+    assert.equal(result.reason,'budget_exhausted',reference_mode);
+    assert.deepEqual(result.retrieval,stopped.retrieval);
+    assert.match(result.usage,/closed for this input/);
+  }
+  assert.deepEqual({fetched,decisions},atStop,'a changed query or catalogue cannot restart the spent lane');
+  assert.deepEqual(first.materials[0].excerpts,raw.results[0].highlights,'earlier delivered evidence remains intact');
+  const next=await f.service.search({...input,binding:'test:main:2',turn:2,deadlineAt:Date.now()+2000,reference_mode:'saved'});
+  assert.equal(next.status,'ready');assert.equal(next.origin,'library');assert.equal(next.retrieval,undefined);
+  assert.deepEqual(next.materials[0].excerpts,first.materials[0].excerpts);assert.equal(fetched,2);
+});
+test('an open allowance still permits catalogue and named source recovery in the same input',async t=>{
+  const f=await fixture(t);await f.service.search(f.input);
+  const catalog=await f.service.search({...f.input,reference_mode:'catalog'});
+  assert.equal(catalog.status,'ready');assert.equal(catalog.retrieval,undefined);
+  const read=await f.service.search({...f.input,reference_mode:'read',name:catalog.catalogue[0].name});
+  assert.equal(read.status,'ready');assert.deepEqual(read.materials[0].excerpts,raw.results[0].highlights);
+  assert.equal(f.requests.length,1);
+});
 test('source-less results and unselected excerpts stay empty',async t=>{
   const f=await fixture(t,{fetcher:async()=>Response.json({results:[{url:'https://example.org',title:'Title only'}]})});
   assert.equal((await f.service.search(f.input)).status,'empty');

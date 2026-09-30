@@ -44,6 +44,21 @@ export function historyNeed(result: DecisionResult): boolean {
   return answer?.status === 'answered' && answer.type === 'noul' && answer.noul > 0.5;
 }
 export const HISTORY_OFFER = 'Historical reference is available: lookup kind=historical_reference with query and optional objective first reuses this campaign\'s saved references, then searches if needed. reference_mode=catalog lists saved names; read with name retrieves one; saved searches only the library; web requests fresh results. For prices, establish a reusable period/region baseline once, then invent item quotations from saved price anchors. Only a concrete player price challenge permits an item-specific web check. Existing references survive restart and compaction. No researcher or report is needed.';
+export const HISTORY_CLOSED = 'Historical retrieval is closed for this input because its preparation allowance is spent. Do not call historical_reference again, including catalog, read, saved, auto or web. Answer the player\'s actual question from the excerpts already returned and existing material, not merely with an acknowledgement that retrieval ended. Acknowledge missing evidence and keep ordinary prices as estimates. The saved library remains intact and a new player input gets a fresh allowance.';
+/** A spent reference-only compose writes its answer without another tool loop; tool definitions stay stable. */
+export function historyFinalAnswerPayload(api: string | undefined, payload: unknown): Record<string, any> | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+  const body = payload as Record<string, any>;
+  switch (api) {
+    case 'openai-responses': case 'azure-openai-responses': case 'openai-codex-responses': case 'openai-completions':
+      return {...body, tool_choice: 'none', parallel_tool_calls: false};
+    case 'anthropic-messages': return {...body, tool_choice: {type: 'none'}};
+    case 'google-generative-ai': case 'google-vertex':
+      return {...body, config: {...body.config, toolConfig: {...body.config?.toolConfig,
+        functionCallingConfig: {mode: 'NONE'}}}};
+    default: return;
+  }
+}
 export const HISTORY_LOCAL_OFFER = 'Saved historical references can be read without a web-search grant: lookup kind=historical_reference with reference_mode=catalog, read (with name), or saved (with query). Do not fetch new web material unless that read is offered.';
 export function isSavedHistoryRead(args: any): boolean {
   return args?.kind === 'historical_reference' && ['catalog', 'read', 'saved'].includes(args.reference_mode);
@@ -72,9 +87,10 @@ export interface HistoryResult {
   next_cursor?: number | null;
   library?: {total: number; omitted: number; unreadable: number; price_anchors_omitted?: number};
   materials: Array<HistoryMaterial & {alias: string; applicability: string; price_anchor?: boolean}>;
+  retrieval?: {state: 'closed'; reason: 'budget_exhausted'};
 }
 type Decide = (batch: DecisionBatch, lease: TaskLease) => Promise<DecisionResult>;
-interface TurnBudget {remainingMs: number; networkCalls: number; requests: Map<string, Promise<HistoryResult>>; tail: Promise<unknown>}
+interface TurnBudget {remainingMs: number; networkCalls: number; requests: Map<string, Promise<HistoryResult>>; tail: Promise<unknown>; closed?: boolean}
 
 /** Reading the body is covered by the same cancellation and byte allowance as the request. */
 async function responseJson(response: Response, signal: AbortSignal): Promise<any> {
@@ -167,12 +183,19 @@ export class HistoricalReference {
     this.#decide = options.decide ?? ((batch, lease) => adapter.decide(batch, lease)); this.#record = options.record ?? (() => {});
   }
   async search(input: HistoryInput): Promise<HistoryResult> {
-    const empty = (reason: string): HistoryResult => ({kind: 'historical_reference', status: 'unavailable', reason,
-      authority: 'advisory_external_excerpt', usage: HISTORY_USE, materials: [], cached: false});
+    const close = (result: HistoryResult): HistoryResult => ({...result, retrieval: {state: 'closed', reason: 'budget_exhausted'},
+      usage: `${result.usage} ${HISTORY_CLOSED}`});
+    const empty = (reason: string): HistoryResult => {
+      const result: HistoryResult = {kind: 'historical_reference', status: 'unavailable', reason,
+        authority: 'advisory_external_excerpt', usage: HISTORY_USE, materials: [], cached: false};
+      return reason === 'budget_exhausted' ? close(result) : result;
+    };
     if (!input.enabled) return empty('disabled');
     const mode = input.reference_mode ?? 'auto';
     if (!['auto', 'saved', 'catalog', 'read', 'web'].includes(mode)) return empty('invalid_mode');
     if (input.signal.aborted || !await input.current()) return empty('stale_or_cancelled');
+    const binding = digest([input.binding, input.scope.campaign ?? input.scope.owner, input.scope.worldline, input.scope.loop]);
+    if (this.#turns.get(binding)?.closed) return empty('budget_exhausted');
     if (mode === 'catalog') {
       const cursor = input.reference_cursor ?? 0;
       if (!Number.isSafeInteger(cursor) || cursor < 0) return empty('invalid_cursor');
@@ -189,7 +212,6 @@ export class HistoricalReference {
     if (!input.query?.trim() || input.query.length > 4096 || (mode !== 'read' && input.query.length > 2048)
       || (input.objective?.length ?? 0) > 512) return empty('invalid_query');
     if (mode === 'web' && !input.allowed) return empty('not_selected');
-    const binding = digest([input.binding, input.scope.campaign ?? input.scope.owner, input.scope.worldline, input.scope.loop]);
     let budget = this.#turns.get(binding);
     if (!budget) {
       budget = {remainingMs: Math.max(0, Math.min(HISTORY_LIMITS.allowanceMs, (input.deadlineAt ?? Infinity) - Date.now())),
@@ -205,14 +227,28 @@ export class HistoricalReference {
       return input.signal.aborted || !await input.current() ? empty('stale_or_cancelled') : structuredClone(result);
     }
     const owned = budget;
+    const markClosed = () => {
+      if (owned.closed) return;
+      owned.closed = true;
+      this.#record({lane: 'historical-reference', event: 'closed', turn: input.turn, reason: 'budget_exhausted'});
+    };
     const pending = owned.tail.then(async () => {
       // Provider AbortSignal timeouts require integer milliseconds; active-time accounting is fractional.
       const deadline = Math.floor(Math.min(Date.now() + owned.remainingMs, input.deadlineAt ?? Infinity));
-      if (deadline <= Date.now()) return empty('budget_exhausted');
+      if (owned.closed || deadline <= Date.now()) {markClosed();return empty('budget_exhausted');}
       if (input.signal.aborted || !await input.current()) return empty('stale_or_cancelled');
       const start = performance.now();
-      try {return await this.#search(input, key, deadline, owned);}
-      finally {owned.remainingMs = Math.max(0, owned.remainingMs - (performance.now() - start));}
+      let result: HistoryResult;
+      try {result = await this.#search(input, key, deadline, owned);}
+      finally {
+        owned.remainingMs = Math.max(0, owned.remainingMs - (performance.now() - start));
+        if (owned.remainingMs <= 0) markClosed();
+      }
+      if (result.reason === 'budget_exhausted' || owned.remainingMs <= 0) {
+        markClosed();
+        return close(result);
+      }
+      return result;
     });
     owned.tail = pending.catch(() => {}); owned.requests.set(requestKey, pending);
     return pending;

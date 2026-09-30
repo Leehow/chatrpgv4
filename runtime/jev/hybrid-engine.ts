@@ -1,5 +1,5 @@
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
-import {historyConfigured, historyEnabled, historyNeedQuestion, historyNeed, isSavedHistoryRead, HISTORY_OFFER, HISTORY_LOCAL_OFFER} from '../historical-reference.ts';
+import {historyConfigured, historyEnabled, historyNeedQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
 /**
  * The product side of `PI_COC_LOOP_ENGINE=hybrid-v1`: the policy and the ports Pi's RunDriver (vendored
  * agent-core, ADR-0006) drives each player input with. Pi knows nothing of what is here. Contract §135.
@@ -476,7 +476,7 @@ function defaultLine(candidate: Candidate): string | undefined {
 interface OwedReviewPort {campaign: string; settle(elapsedMs: number): Promise<{in_flight: boolean; waited_ms: number; landed: boolean; turn?: number}>}
 interface RunState {
   interactionScope?: InteractionScope;
-  history?: {enabled: boolean; allowed: boolean; asked: boolean; scene: string; context: Json};
+  history?: {enabled: boolean; allowed: boolean; asked: boolean; scene: string; context: Json; closed?: boolean};
   unresolvedNoticeKey?: string;
   unresolvedAttack?: boolean;
   runId: string;
@@ -640,6 +640,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
   let owedReview: OwedReviewPort | undefined;
+  let historyFinalAnswer: {run: string; step: string} | undefined;
   // §151.1: the consequence-step mode's data default, read once (cached) and awaited by every run's first read.
   let stepsDataDefault: 'on' | 'shadow' = 'shadow';
   const stepsReady = jevStepsBudget().then(budget => { stepsDataDefault = budget.shadow ? 'shadow' : 'on'; });
@@ -698,6 +699,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const table = readTable(capsule, status);
     const historyScene = text(object(capsule.where).scene);
     if (!run.history || run.history.scene !== historyScene) run.history = {enabled: false, allowed: false, asked: false,
+      ...(run.history?.closed ? {closed: true} : {}),
       scene: historyScene, context: {where: capsule.where ?? null, period: object(capsule.campaign).era ?? null} as Json};
     run.history.enabled = historyEnabled(capsule);
     if (!run.history.enabled) run.history.allowed = false;
@@ -1009,7 +1011,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       && array(object(proposal.params).effects).some(effect => object(effect).kind === 'damage');
     const outsideScope = run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world'
       && !permitsReferenceOperation(proposal.operation, proposal.params);
-    const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
+    const historyClosed = proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference' && run.history?.closed;
+    const refuse = historyClosed ? {code: 'historical_retrieval_closed', text: HISTORY_CLOSED}
+      : outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
       : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
       + 'Nothing in this apply was executed. Narrate only established facts and retain the unresolved attack.'}
       : proposal.operation === 'resolve' ? {code: 'check_selection_owned', text: 'Jev and the host own check selection. This model-origin resolve was not executed. '
@@ -1032,6 +1036,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const queued = proposal.operation === PROPOSE_VERB && proposal.toolCall?.id && proposeRegistered
       ? await proposeStep(run, proposal.toolCall.id, object(proposal.params).key, stepId) : undefined;
     const toolResult = await execute();
+    if (!toolResult.isError && proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference'
+      && object(object(toolResult.details).retrieval).state === 'closed' && run.history && !run.history.closed) {
+      run.history.closed = true;
+      record({lane: 'historical-reference', event: 'closed_received', run: run.runId, step: stepId, turn: run.turn,
+        reason: object(object(toolResult.details).retrieval).reason});
+    }
     // SL-92: an apply whose embedded narrate landed closed the turn exactly as an explicit narrate would (the
     // kernel extension ran the same table.narrate call, on a synthetic call of its own); `DELIVERY_VERBS` only
     // ever named the two real delivery verbs, so this apply's own `narrate_in_apply` flag is read beside it.
@@ -1485,7 +1495,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (!batch || (request.purpose !== 'route' && request.purpose !== 'bind' && request.purpose !== 'compile' && request.purpose !== 'reask'))
       return {status: 'unavailable' as const, artifact: {reason: batch ? `no_${request.purpose}_decider` : 'no_scope_binding'}};
     const askHistory = run.history?.enabled && historyConfigured(options.env as NodeJS.ProcessEnv)
-      && !run.history.asked && ['compile', 'route'].includes(request.purpose);
+      && !run.history.closed && !run.history.asked && ['compile', 'route'].includes(request.purpose);
     if (askHistory) batch = {...batch, id: digest([batch.id, 'historical-reference']), questions: [...batch.questions, historyNeedQuestion()]};
     const began = stepNow();
     const lease = new TaskLease({owner: batch.family, goal: `run ${request.runId} ${request.purpose}`, scope: batch.scope, capabilities: ['decision'],
@@ -1681,6 +1691,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     const base = Object.keys(content).length;
     run.lastInferAt = now() - run.startedAt;
+    historyFinalAnswer = run.history?.closed && run.interactionScope?.mode === 'reference' && step.purpose === 'compose'
+      ? {run: run.runId, step: stepId} : undefined;
     // §135.11.1 (SL-50): the model step the Keeper's next message answers, for the kernel extension's drop row.
     api?.events?.emit?.('coc:model-infer', {run: run.runId, step: stepId});
     // §135.25: the compose the budget chose lists the clerk steps it left undone; the next run's first note says so once.
@@ -1729,7 +1741,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         catalog: run.stepCatalog.narrowed ? [...run.stepCatalog.narrowed] : null, propose: run.stepCatalog.propose, offered: run.offered.map(value => value.key),
         source: setting.source});
     }
-    if (run.history?.enabled) content.historical_reference = run.history.allowed ? HISTORY_OFFER : HISTORY_LOCAL_OFFER;
+    if (run.history?.enabled) content.historical_reference = run.history.closed ? HISTORY_CLOSED : run.history.allowed ? HISTORY_OFFER : HISTORY_LOCAL_OFFER;
     const fresh = run.clerkDid.slice(run.projected);
     run.projected = run.clerkDid.length;
     if (fresh.length) Object.assign(content, {clerk_did: fresh,
@@ -1867,6 +1879,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // outside a step; until a read has bound it, a route question carries no batch and degrades to the Keeper.
     prepare: context => {
       currentRunId = context.runId;
+      historyFinalAnswer = undefined;
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, prescreenAllowanceMs: allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
@@ -1893,6 +1906,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.events.on('coc:turn-close', (data: TurnClosePort) => { closer = data && typeof data.verdict === 'function' ? data : undefined; });
     pi.events.on('coc:source-answers', (data: SourceAnswersPort) => { consultations = data && typeof data.take === 'function' ? data : undefined; });
     pi.events.on('coc:owed-review', (data: OwedReviewPort) => { owedReview = data && typeof data.settle === 'function' ? data : undefined; });
+    pi.on('before_provider_request', (event: {payload: unknown}, ctx: any) => {
+      if (!historyFinalAnswer || historyFinalAnswer.run !== currentRunId) return;
+      const payload = historyFinalAnswerPayload(ctx?.model?.api, event.payload);
+      record({lane: 'historical-reference', event: 'final_answer_request', ...historyFinalAnswer,
+        api: ctx?.model?.api ?? null, tools_disabled: !!payload});
+      return payload;
+    });
+    pi.on('agent_end', () => {historyFinalAnswer = undefined;});
     // The run owns the prescreen on this engine (§135.6); the context hook injects what the run prepared.
     const announce = () => { pi.events.emit('coc:loop-engine', {engine: 'hybrid-v1', prescreen: 'run'}); };
     announce();
