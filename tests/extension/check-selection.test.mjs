@@ -41,6 +41,28 @@ test('the social preparation question preserves negative and unresolved verdicts
   assert.equal(specializedTriggerQuestion({...social, facts: {...social.facts, actor_role: 'npc'}}), undefined);
 });
 
+test('routine service requests do not become uncertain influence checks against a second possible NPC', async t => {
+  const second = {...social, key: 'second', label: 'Ada influences the other attendant', action: {...social.action, target: 'Other attendant'}};
+  const {input, seen} = setup(t, batch => noul(batch.family === 'check-selection-social-method' ? .1 : .5), [social, second]);
+  input.declaration = 'I greet the person in charge and ask to see a room before deciding whether to rent it.';
+  input.context = {public_narration: 'Two people are present behind the counter and at the kitchen door.',
+    public_exchange: '', secret: 'Unrelated private source context must not enter method classification.'};
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'no_roll');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].family, 'check-selection-social-method');
+  assert.equal(JSON.stringify(seen[0].state).includes('secret'), false);
+  assert.equal(JSON.stringify(seen[0].state).includes('Other attendant'), false, 'target ambiguity cannot contaminate method recognition');
+});
+
+test('social method retrieval does not substitute its applicability gate for target necessity', async t => {
+  for (const [need, expected] of [[.5, 'unresolved'], [.9, 'selected']]) {
+    const {input} = setup(t, (batch, question) => batch.family === 'check-selection-social-method' ? noul(.7)
+      : question.type === 'noul' ? noul(need) : choice(question, 'value_0'), [social]);
+    assert.equal((await selectCheck(input)).status, expected);
+  }
+});
+
 test('source-specific checks reach their binder before a general skill search', () => {
   const ordinary = {key: 'ordinary', verb: 'resolve', family: 'core-check', label: 'ordinary check', clerk: 'declared_check',
     checkOwner: 'jev', source: 'catalog', bound: {decision: 'core-check:ordinary-check'},
