@@ -12,7 +12,8 @@ test('route fits rich shared scene evidence and retains placement conditions wit
   const scene = 'The attendants wait in the shade. '.repeat(200);
   const reads = {capsule: {where: {scene: 'station'}}, applyOptions: {candidates: Array.from({length: 3}, (_, i) => ({
     effect: {kind: 'npc', name: `Attendant ${i}`, to: 'station'}, description: {kind: 'source_presence', name: `Attendant ${i}`, scene: 'station',
-      actor: {name: `Attendant ${i}`, summary: 'Present only during the day.', placement_conditions: {when: {kind: 'daylight'}}}, scene_context: scene},
+      actor: {name: `Attendant ${i}`, summary: 'Present only during the day.', placement_conditions: {when: {kind: 'daylight'}},
+        source_needs: [{kind: 'runtime_context', question: 'Has the shift started?', trigger: 'initial presence'}]}, scene_context: scene},
   }))}, resolveOptions: {revision: 'r', decisions: Array.from({length: 23}, (_, i) => ({name: `family:${i}`, description: `Inspect rule family ${i}`,
     guidance: [{text: 'Detailed rules for the selected check only. '.repeat(300)}]})), selection: {version: 1, owner: 'jev',
     options: Array.from({length: 23}, (_, i) => ({family: 'rules', label: `Concrete trigger ${i}`, action: {decision: `family:${i}`, actor: 'Jack'},
@@ -25,6 +26,7 @@ test('route fits rich shared scene evidence and retains placement conditions wit
   assert.equal(Object.keys(batch.state.source_presence_contexts).length, 1);
   assert.equal(batch.state.source_presence_contexts.scene_1, scene, 'the source text is shared exactly, not truncated');
   assert.deepEqual(batch.state.candidates.candidate_1.detail.actor.placement_conditions, {when: {kind: 'daylight'}});
+  assert.equal(batch.state.candidates.candidate_1.detail.actor.source_needs[0].question, 'Has the shift started?');
   assert.equal(batch.state.rule_guidance, undefined);
   assert.ok(candidates.find(row => row.bound.decision === 'family:0').detail.rule_guidance[0].length > 10000,
     'full guidance remains host-owned for the selected binder');
