@@ -32,17 +32,23 @@ export function needMaterial(raw: Row, nodeId: string, moduleId: string): { page
     return { pages: [...pages].sort((a, b) => a - b), digest: jsonDigest([node, claims]) };
 }
 
-/** The latest job of each source unit; a cancelled job never counts as its unit's reading. */
-export function unitJobs(queue: Row[]): Map<string, Row> {
+/**
+ * The latest reading of each source unit: its latest job in this queue (a cancelled job never counts), else the state of its
+ * material row (`rows`, from the kernel's `unitRows`: `completed` read, `failed` settled). A campaign's fork starts with an
+ * empty queue and the library's rows, so a unit read before the fork is known there only by its row (2026-09-30).
+ */
+export function unitJobs(queue: Row[], rows: Map<string, string>): Map<string, Row> {
     const jobs = new Map<string, Row>();
+    for (const [key, state] of rows)
+        jobs.set(key, { state });
     for (const job of queue)
         if (job.source_unit && job.state !== 'cancelled') jobs.set(sourceUnitKey(job.source_unit as SourceUnit), job);
     return jobs;
 }
 
 /** Streamed units not yet read: no job for the unit, or a job that is still waiting in the queue. */
-export function unreadUnits(units: SourceUnit[], queue: Row[]): SourceUnit[] {
-    const jobs = unitJobs(queue);
+export function unreadUnits(units: SourceUnit[], queue: Row[], rows: Map<string, string>): SourceUnit[] {
+    const jobs = unitJobs(queue, rows);
     return units.filter(unit => { const job = jobs.get(sourceUnitKey(unit)); return !job || job.state === 'queued'; });
 }
 
@@ -51,12 +57,12 @@ export function unreadUnits(units: SourceUnit[], queue: Row[]): SourceUnit[] {
  * locate against the same pages would decide the same way); `carried` re-opens once every carrying unit has settled, so
  * the next pass's answered check can close what the unit read.
  */
-export function needEligible(dispositions: Row, raw: Row, need: Row, queue: Row[], moduleId: string): boolean {
+export function needEligible(dispositions: Row, raw: Row, need: Row, queue: Row[], moduleId: string, rows: Map<string, string>): boolean {
     const record = row(dispositions[sourceNeedKey(need)]);
     if (record.disposition === 'unlocated')
         return typeof need.node_id !== 'string' || needMaterial(raw, need.node_id, moduleId).digest !== record.material_digest;
     if (record.disposition === 'carried') {
-        const jobs = unitJobs(queue);
+        const jobs = unitJobs(queue, rows);
         return array(record.units).every(key => ['completed', 'failed'].includes(jobs.get(String(key))?.state));
     }
     return true;
