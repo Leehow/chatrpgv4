@@ -58,6 +58,13 @@ function refusalOf(value: any): Row | null {
 }
 /** §22.3.3 (SL-57): at most this many refused fields travel with a refusal to the retry that reads with them. */
 const REFUSED_FIELDS = 8;
+/**
+ * §22.3.3 (2026-09-30): the fields `request` sets from a marker, which bound what a detail job reads, how it is claimed and
+ * counted, and what its finish publishes. A review retry is the same reading once more, so it carries every one; a marker
+ * `request` gains is listed here. `task_preparation` is not a marker: it is one pending operation's authority for one turn,
+ * and its owner binds the retry by requesting the identity again (§22.4).
+ */
+const JOB_MARKERS = ['source_unit', 'review_scope_pages', 'reference_fragment', 'visual_scan', 'visual_asset', 'visual_identity', 'source_need'];
 /** §22.2.1: the purposes that read graph material of a named focus, one reading of a focus at a time. */
 const FOCUSED = ['opening', 'detail'];
 /** §22.4.3 (SL-36): at most this many memoised answers (and index rows) travel with one consultation reply. */
@@ -1276,6 +1283,8 @@ export class Reading {
             }
             const job: Row = { job_id: `read-${queue.length + 1}`, key, purpose, ...(material ? { material } : {}), ...(repair ? { repair } : {}), focus, question, pages, foreground: truth(params.foreground), state: 'queued', attempts: 0, at: nowIso() };
             if (purpose === 'opening' && params.opening_scope) job.opening_scope = params.opening_scope;
+            // §22.3.3: the markers set on a detail job from its request (these four lines and `source_need` below) are in
+            // JOB_MARKERS, which its review retry carries.
             if(sourceUnit){job.source_unit=sourceUnit;job.review_scope_pages=pages;if(meta.source_reference)job.reference_fragment=true;}
             if(visualScan)job.visual_scan=visualScan;
             if(visualAsset)job.visual_asset=visualAsset;
@@ -1557,6 +1566,7 @@ export class Reading {
                 if (outcome === 'failed' && job.purpose === 'detail' && !truth(job.material) && refusal?.rule === 'review_unsupported') {
                     if (!truth(job.review_retry)) {
                         const retry: Row = { job_id: `read-${queue.length + 1}`, key: job.key, purpose: 'detail', focus: job.focus, question: job.question, pages: job.pages ?? [],
+                            ...Object.fromEntries(JOB_MARKERS.filter(field => job[field] !== undefined).map(field => [field, clone(job[field])])),
                             foreground: false, state: 'queued', attempts: 0, at: nowIso(), review_retry: { of: job.job_id, message: refusal.message, refused: array(refusal.refused) },
                             ...(truth(job.work_dir) ? { resume_from: job.work_dir } : {}) };
                         retry.class_at = retry.at;

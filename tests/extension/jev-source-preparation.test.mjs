@@ -109,6 +109,29 @@ test('actual pending mutation uses scoped source publication and retries unchang
   assert.equal(task.context.capabilities.includes('source.prepare'),false);
  }finally{task?.close();await f.runtime.close();}
 });
+test('§22.3.3: a prepared read refused at review is retried without the preparation, and its exact authority binds the retry by requesting again',async()=>{
+ const f=await visualFixture();let task;
+ try {
+  const binding=await api.sourcePreparationSnapshot(f.kernel,'c1',f.mid);
+  task=new TaskLease({owner:'table',goal:'Read source evidence',scope:{...binding.scope,owner:scope.owner},capabilities:['apply'],budget:budget(),readSet:[{kind:'source',resource:'c1',revision:binding.revision}]});
+  const owned={authority:{...authority(task),scope:task.context.scope,moduleId:f.mid,from:binding.revision},read:{purpose:'detail',focus:'Tower inscription'}};
+  const params={...owned.read,campaign:'c1',module_id:f.mid,_task_prepare:owned,foreground:true};
+  const queued=await f.call('module.read.request',params),queuePath=join(f.home,'.coc/module-campaigns/c1/modules',f.mid,'deepen-queue.json');
+  const job=await f.call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'owned-owner'});assert.equal(job.job_id,queued.job_id);
+  const refused=await f.call('module.read.finish',{campaign:'c1',module_id:f.mid,job_id:job.job_id,lease:job.lease,outcome:'failed',detail:'refused at review',
+   refusal:{message:'visual review found /nodes/0/summary unsupported (unsupported): the page does not say this',path:'/nodes/0/summary',rule:'review_unsupported',
+    reason:'reading_failed',refused:[{path:'/nodes/0/summary',verdict:'unsupported',reason:'the page does not say this'}]}});
+  assert.equal(refused.requeued?.reason,'review_refused');
+  const retryRow=async()=>JSON.parse(await readFile(queuePath,'utf8')).find(row=>row.job_id===refused.requeued.job_id);
+  assert.equal((await retryRow()).task_preparation,undefined,"one turn's authority does not travel into a background retry");
+  const again=await f.call('module.read.request',params);
+  assert.deepEqual([again.job_id,again.state],[refused.requeued.job_id,'queued'],'the exact authority rejoins the retry');
+  const bound=await retryRow();
+  assert.deepEqual([bound.task_preparation?.request.authority.token,bound.foreground],[owned.authority.token,false],'bound, and still a background retry');
+  const claimed=await f.call('module.read.claim',{campaign:'c1',module_id:f.mid,owner:'owned-owner'});assert.equal(claimed.job_id,bound.job_id);
+  await draftDetail(f,claimed);const published=await f.finish(claimed,'c1');assert.equal(published._task_source_advance.token,owned.authority.token);
+ }finally{task?.close();await f.runtime.close();}
+});
 async function draftDetail(f,job,node={node_id:'clue-tower-inscription',node_kind:'clue',name:'Tower inscription',summary:'The original tower inscription.',source_refs:[{page:2}],properties:{}}){
  await f.observed(job);const refs=node.source_refs;
  await write(join(job.work_dir,'draft.json'),{nodes:[node],claims:[],node_refs:[],coverage:{},dependencies:[],critical:[],ready_nodes:[node.node_id]});
