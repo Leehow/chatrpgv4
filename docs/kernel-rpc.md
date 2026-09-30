@@ -30280,3 +30280,10 @@ require target agreement, choose a social outcome or assert that a roll must fol
 routine cooperation, hypothetical discussion and settled attempts remain excluded. NPC-executed
 work retains its existing consent requirement. Kernel arithmetic still computes social feasibility
 and difficulty; subsequent roll ownership remains Jev. No confidence gate is lowered.
+
+The subsequent ordinary lodging question exposed a second boundary: a candidate's fixed
+`action.intent:social` is invocation routing data, not proof of a declared influence attempt.
+Selector policy states that distinction. Social preparation excludes ordinary factual/service
+questions without established resistance or withholding; conversation alone is not an influence
+attempt. Requests to change willingness, a decision or belief remain eligible. Family version 18
+records this boundary without changing thresholds or excluding source-mandated information gates.

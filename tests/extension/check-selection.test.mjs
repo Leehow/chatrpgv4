@@ -28,6 +28,8 @@ test('a player influence attempt reaches preliminary adjudication without requir
   const batch = seen.find(batch => batch.family === 'check-selection-need');
   assert.deepEqual(batch.state.checks.check_0.facts, social.facts);
   assert.ok(batch.questions[0].instructions.includes('preliminary difficulty adjudication, not yet a dice roll'));
+  assert.ok(batch.state.policy.includes('possible tool invocation template'));
+  assert.ok(batch.questions[0].instructions.includes('Ordinary factual questions or service inquiries'));
   assert.equal(result.action.motive, undefined, 'the trigger must not invent target willingness or motive');
 });
 
