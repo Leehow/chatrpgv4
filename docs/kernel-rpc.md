@@ -30171,3 +30171,23 @@ The reviewer still decides authorization; this is no exemption from player agenc
 The outcome vocabulary lives at `table.resolve.options.context.combat_outcomes`, beside the public
 session view. It does not modify the carried session body, which remains byte-identical to look
 focus=session. The candidate builder reads this preparation metadata only for its closed end binder.
+
+### 159.6 Bounded route projections and packing refusal (approved 2026-09-30)
+
+The Blood Road live run failed before check selection: compile packed, but the next route exceeded
+the local state-plus-question upper bound. Kernel objects are not decision projections. Source-presence
+options now issue only the actor's identity, summary and authored placement conditions, plus the scene
+summary; unrelated biography properties, statistics and relations stay in the graph. Route shares equal
+scene summaries once. It supplies concrete action/trigger facts, not the detailed family guidance used
+by the selected check binder. No source condition is truncated to make a request fit.
+
+The check catalog withholds structurally inactive dying clocks, weekly recovery and delusion checks.
+The canonical conditions select the appropriate dying clock; the existing wound/recovery facts own
+the weekly due comparison. An unknown due time remains a named unresolved need. Coverage still
+inventories these decisions even when they have no currently applicable option.
+
+Packing refusal while constructing route, compile, reask or bind is a typed unavailable policy step,
+with no provider call. The reducer preserves landed receipts and composes only established results.
+Checks remain unresolved, and the existing check-selection notice carries the packing reason outside
+the fiction. The prose model receives no authority to select a check or invent its outcome. The guard's
+UTF-8-byte token upper bound and confidence gates remain unchanged.

@@ -1403,13 +1403,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       run.interactionScope = scope;
       return {status: 'ok' as const, artifact: {kind: 'interaction-scope', scope} as StepArtifact};
     }
+    // Local packing refusals are policy observations even when no provider is configured.
+    if (question.offline) return {status: 'unavailable' as const, artifact: {reason: `offline_${text(question.offline)}`}};
     if (!jev) return {status: 'unavailable' as const, reason: 'jev_unavailable'};
     // SL-78 (the `residual` row): every compile decision this run asked, whatever it answers -- counted here,
     // at the one place every `purpose: "compile"` request passes, rather than duplicated at each call site.
     if (request.purpose === 'compile') run.compileCalls++;
     if (request.purpose === 'locate') return {status: 'ok' as const, artifact: {kind: 'locate', calls: 0, ms: 0, summary: {folded_into: 'read'}} as StepArtifact};
-    // §135.28: a clerk bind the policy settles without Jev (its budget is spent) asks nothing here.
-    if (question.offline) return {status: 'unavailable' as const, artifact: {reason: `offline_${text(question.offline)}`}};
     if (request.purpose === 'check-selection') {
       const candidate = question.candidate as Candidate | undefined;
       const missing = (reason: string, calls = 0): CheckSelection => ({status: 'unresolved', needs: [reason], calls});
@@ -1671,7 +1671,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     run.unresolvedAttack = view.policyState?.view?.fightDeclared === true && view.policyState?.view?.fightLanded !== true;
     const unresolvedChecks = [...(view.policyState?.view?.unresolvedChecks ?? [])];
-    if (step.reason.startsWith('jev_') && step.reason !== 'jev_budget'
+    if ((!run.interactionScope || run.interactionScope.mode === 'world') && step.reason.startsWith('jev_') && step.reason !== 'jev_budget'
       && view.policyState?.view?.candidates?.some(candidate => candidate.checkOwner === 'jev'))
       unresolvedChecks.push({candidate: 'check selection', needs: ['check_selection_unavailable']});
     if (unresolvedChecks.length) {

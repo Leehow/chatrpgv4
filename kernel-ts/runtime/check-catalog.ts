@@ -214,15 +214,21 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                         question: 'Select only the number of Luck points the player explicitly chose to spend. Do not compute or choose an unstated cost.',
                         options: Array.from({length: luck}, (_, index) => ({label: `Spend ${index + 1} Luck point(s)`, value: index + 1}))}]);
             }
-            for (const decision of ['healing:dying-hour-clock', 'healing:dying-round-clock'])
-                add(decision, `${actor}: ${decision} for an existing dying condition`, {actor}, [], [], 'consequence');
-            add('healing:weekly-major-wound-recovery', `${actor}: a due weekly major-wound recovery check`, {actor}, [{name: 'rest',
+            const patient = patients.find(patient => patient.name === actor), conditions = array(patient?.conditions), facts = row(patient?.rule_facts);
+            for (const decision of ['healing:dying-hour-clock', 'healing:dying-round-clock', 'healing:weekly-major-wound-recovery', 'sanity:reality-check']) covered.add(decision);
+            if (conditions.includes('dying') && !conditions.includes('dead')) {
+                const decision = conditions.includes('stabilized') ? 'healing:dying-hour-clock' : 'healing:dying-round-clock';
+                add(decision, `${actor}: ${decision} for an existing dying condition`, {actor}, [], [], 'consequence', {conditions});
+            }
+            if (conditions.includes('major_wound') && !conditions.includes('dying') && !conditions.includes('dead') && facts['actor.recovery.major_wound_week_due'] !== false)
+                add('healing:weekly-major-wound-recovery', `${actor}: a due weekly major-wound recovery check`, {actor}, [{name: 'rest',
                 question: 'Which convalescence conditions are established for the completed recovery interval?', options: [
                     {label: 'Complete rest in adequate surroundings', value: {complete: true, poor_environment: false}},
                     {label: 'Incomplete rest in adequate surroundings', value: {complete: false, poor_environment: false}},
                     {label: 'Complete rest in poor surroundings', value: {complete: true, poor_environment: true}},
                     {label: 'Incomplete rest in poor surroundings', value: {complete: false, poor_environment: true}},
-                ]}], [], 'consequence');
+                ]}], facts['actor.recovery.major_wound_week_due'] === true ? [] : ['major_wound_recovery_due_unknown'], 'consequence',
+                    {conditions, week_due: facts['actor.recovery.major_wound_week_due'] ?? null});
             const sanity = row(sessions.sanity.get(string(sheet.id)));
             if (sanity.active_delusion) add('sanity:reality-check', `${actor}: test the existing delusion against reality`, {actor});
             const magic = row(await campaign.optional(`save/${magicStateName(string(sheet.id))}`));

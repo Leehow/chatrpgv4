@@ -404,7 +404,8 @@ const turnWriting = (request: StepRequest): boolean => request.kind === 'infer' 
 export function next(view: RunView): StepRequest {
   if (view.requireInteractionScope && !view.interactionScope) return {kind: 'decide', purpose: 'interaction-scope'};
   const request = routeNext(view);
-  if ((!view.interactionScope || view.interactionScope.mode === 'world') && turnWriting(request) && npcScanDue(view) && !overRun(view.budget)) return {kind: 'direct', item: npcScanItem(view)};
+  const packingRefused = request.kind === 'infer' && ['jev_packing_limit', 'jev_schema_error'].includes(request.reason);
+  if (!packingRefused && (!view.interactionScope || view.interactionScope.mode === 'world') && turnWriting(request) && npcScanDue(view) && !overRun(view.budget)) return {kind: 'direct', item: npcScanItem(view)};
   return request;
 }
 function routeNext(view: RunView): StepRequest {
@@ -546,19 +547,27 @@ export function doneThisTurn(view: RunView): Json[] {
     .map(value => ({step: value.step, kind: value.kind, purpose: value.purpose, status: value.status, ...(value.summary !== undefined ? {what: value.summary} : {})}));
 }
 
-/** The route question: one need per candidate plus the exit. Packing halves material previews until the documented Jev limits hold. */
+/** Route needs share scene evidence; detailed rule guidance belongs to the selected check binder. */
 export function routeBatch(view: RunView, scope: ScopeBinding, readSet: ReadSet): {batch: DecisionBatch; offered: Candidate[]} {
   const offered = view.candidates;
   let previews = view.materials.length, previewChars = 400;
   for (;;) {
     const materials = view.materials.map((value, index) => ({alias: `material_${index + 1}`, kind: value.kind, label: value.label,
       ...(index < previews ? {content: Array.from(value.preview).slice(0, previewChars).join('')} : {})}));
-    const candidates = Object.fromEntries(offered.map((candidate, index) => [`candidate_${index + 1}`, candidateView(candidate)]));
-    const ruleGuidance = Object.fromEntries(offered.filter(candidate => Array.isArray(object(candidate.detail).rule_guidance))
-      .map(candidate => [candidate.family, object(candidate.detail).rule_guidance]));
+    const presenceContexts: Record<string, Json> = {}, contextAliases = new Map<string, string>();
+    const candidates = Object.fromEntries(offered.map((candidate, index) => {
+      const projected = object(candidateView(candidate));
+      if (candidate.family === 'source_presence' && object(projected.detail).scene_context !== undefined) {
+        const {scene_context, ...detail} = object(projected.detail), key = JSON.stringify(scene_context);
+        let alias = contextAliases.get(key);
+        if (!alias) { alias = `scene_${contextAliases.size + 1}`; contextAliases.set(key, alias); presenceContexts[alias] = scene_context; }
+        projected.detail = {...detail, scene_context: {ref: alias}};
+      }
+      return [`candidate_${index + 1}`, projected as Json];
+    }));
     const state = {purpose: 'route the next steps of this turn', player_input: view.rawInput,
       ...(view.interactionScope ? {interaction_scope: view.interactionScope.mode} : {}),
-      ...(Object.keys(ruleGuidance).length ? {rule_guidance: ruleGuidance} : {}),
+      ...(Object.keys(presenceContexts).length ? {source_presence_contexts: presenceContexts} : {}),
       now: {scene: view.context.scene, clock: view.context.clock, present: view.context.present},
       done_this_turn: doneThisTurn(view), materials, candidates, policy: ROUTE_POLICY} as Json;
     const needQuestion = (candidate: Candidate, index: number) => candidate.routeFact
@@ -1433,6 +1442,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       if (driver.delivery === 'accepted') return {kind: 'finish', outcome: 'delivered', reason: closed?.implicit ? 'implicit_narrate' : 'delivery_accepted'};
       if (driver.delivery === 'awaiting_player') return {kind: 'finish', outcome: 'awaiting_player', reason: 'pending_choice'};
       const state = driver.policyState.view, request = next(state), binding = bindingFor(driver.policyState);
+      try {
       if (request.kind === 'decide' && request.purpose === 'interaction-scope')
         return {kind: 'decide', purpose: 'interaction-scope', question: {rawInput: state.rawInput}};
       if (request.kind === 'finish') {
@@ -1470,7 +1480,9 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       if (request.kind === 'decide' && request.purpose === 'reask') {
         if (!binding) return {kind: 'decide', purpose: 'reask', question: unbound};
         const input = request.item.extra as unknown as ReaskInput;
-        return {kind: 'decide', purpose: 'reask', question: {batch: reaskBatch(state, input, binding.scope, binding.readSet, doneThisTurn(state)),
+        const batch = reaskBatch(state, input, binding.scope, binding.readSet, doneThisTurn(state));
+        packDecisionBatch(batch);
+        return {kind: 'decide', purpose: 'reask', question: {batch,
           input: input as unknown as Json, candidates: state.candidates, gate: driver.policyState.gate}};
       }
       if (request.kind === 'decide') {
@@ -1481,9 +1493,12 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         // §135.28: a clerk bind past the Jev budget is settled without a question (rules defaults, else the Keeper).
         if (request.offline) return {kind: 'decide', purpose: candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve') ? 'bind-ordinary' : 'bind',
           question: {batch: undefined, candidate, offline: request.offline, reason: request.offline}};
-        return candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve')
-          ? {kind: 'decide', purpose: 'bind-ordinary', question: {candidate, gate: driver.policyState.gate}}
-          : {kind: 'decide', purpose: 'bind', question: binding ? {batch: bindBatch(state, candidate, binding.scope, binding.readSet), candidate: candidate.key} : unbound};
+        if (candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve'))
+          return {kind: 'decide', purpose: 'bind-ordinary', question: {candidate, gate: driver.policyState.gate}};
+        if (!binding) return {kind: 'decide', purpose: 'bind', question: unbound};
+        const batch = bindBatch(state, candidate, binding.scope, binding.readSet);
+        packDecisionBatch(batch);
+        return {kind: 'decide', purpose: 'bind', question: {batch, candidate: candidate.key}};
       }
       const item = request.item;
       const proposal: OperationProposal = item.purpose === 'read' ? {origin: 'policy', operation: 'read', readOnly: true, label: 'read the table state',...(item.reason==='read_more'?{params:{refresh:true}}:{})}
@@ -1492,6 +1507,11 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
             params: {candidate: item.candidate, extra: item.extra ?? {}, intent: driver.policyState.intent ?? null,
               ...(item.bindings ? {bindings: item.bindings as unknown as Json} : {})}};
       return {kind: 'operate', proposals: [proposal]};
+      } catch (error) {
+        if (!(error instanceof PackingError) || request.kind !== 'decide') throw error;
+        // A local refusal is observed like an unavailable decision; never let it escape the RunDriver.
+        return {kind: 'decide', purpose: request.purpose, question: {offline: error.failure}};
+      }
     },
     reduce(policyState, observation, driver) {
       const view = structuredClone(policyState.view);
@@ -1556,6 +1576,16 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       const request = next(view), binding = bindingFor(policyState);
       if (request.kind === 'finish') return policyState;
       const step = startStep(view, request);
+      const packingReason = object(observation.artifact).reason;
+      if (observation.kind === 'decide' && ['offline_packing_limit', 'offline_schema_error'].includes(packingReason)) {
+        const reason = packingReason === 'offline_packing_limit' ? 'packing_limit' : 'schema_error';
+        if ((!view.interactionScope || view.interactionScope.mode === 'world') && view.candidates.some(candidate => candidate.checkOwner === 'jev'))
+          view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate: 'check selection', needs: [reason]}];
+        view.pending = [{kind: 'infer', purpose: 'compose', reason: `jev_${reason}`}];
+        observe(view, {kind: 'decide', purpose: request.kind === 'decide' ? request.purpose : 'route', status: 'unavailable', reason});
+        stamp(view, policyState.startedAt);
+        return {...policyState, ...requirements, view};
+      }
       // A policy operate carries one proposal; its outcome's artifact is the step's.
       const artifact = (observation.kind === 'operate' ? observation.outcomes?.[0]?.artifact : observation.artifact) as StepArtifact | undefined;
       let bound: Pick<StepPolicyState, 'scope' | 'readSet' | 'intent'> = {};

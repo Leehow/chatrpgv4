@@ -44,6 +44,10 @@ test('current kernel issues a complete rule inventory and executable ordinary/tr
   const spot = checks.find(option => option.action.skill === 'Spot Hidden');
   assert.ok(listen && spot && listen.key !== spot.key, 'two methods do not share a mutually exclusive skill selector');
   assert.ok(!checks.some(option => option.action.decision === 'healing:first-aid-ordinary'), 'a healthy party supplies no First Aid patient');
+  for (const decision of ['healing:dying-hour-clock', 'healing:dying-round-clock', 'healing:weekly-major-wound-recovery', 'sanity:reality-check']) {
+    assert.ok(!checks.some(option => option.action.decision === decision), `${decision} has no active condition`);
+    assert.ok(options.selection.coverage.some(entry => entry.decision === decision), 'inactive decisions remain inventoried');
+  }
   assert.deepEqual(await call('table.status'), before, 'catalog projection cannot roll or change the turn');
   const candidates = buildCandidates({capsule: await call('table.capsule'), applyOptions: await call('table.apply.options'), resolveOptions: options}, 'I listen carefully, then inspect the office.');
   assert.ok(candidates.filter(candidate => candidate.unbound.some(parameter => parameter.binder === 'resolve-selection')).length > 1);
