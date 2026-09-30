@@ -232,29 +232,56 @@ def test_what_anyone_at_the_table_brought_out_is_in_every_packet_newest_first_an
         client.close()
 
 
-def test_the_budget_cuts_what_the_table_brought_out_before_what_he_holds(tmp_path):
-    """§143.30: `table_brought_out` is cut after at_hand's objects and exits and before his own `brought_out` and
-    `holdings`, oldest first, and named once in `truncated`."""
-    content = tmp_path / "content"
+THING = "a long and particular thing of hers, number {:02d}"
+
+
+def _table_of_things(tmp_path, name, max_bytes):
+    """Knott's photo (his own act), Edna Hale walked on, and twelve things of hers: the situation under `max_bytes`."""
+    content = tmp_path / name / "content"
     shutil.copytree(CONTENT_DIR, content)
     path = content / "rulesets" / "coc7" / "host-budgets.json"
     budgets = json.loads(path.read_text(encoding="utf-8"))
-    budgets["npc_situation"]["max_bytes"] = 1024
+    budgets["npc_situation"]["max_bytes"] = max_bytes
     path.write_text(json.dumps(budgets), encoding="utf-8")
-    client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "1"}, content=content)
+    client = RpcClient(tmp_path / name / "ws", env={"COC_KERNEL_SEED": "1"}, content=content)
     try:
         open_turn(client, "I look Knott over.")
         client.table("apply", call_id="t1-c1", effects=[{"kind": "npc", "name": "Steven Knott", "_produces": {"name": PHOTO, "description": ACT}}])
         edna_walks_on(client, "t1-c2")
         client.table("apply", call_id="t1-c3", effects=[{"kind": "npc", "name": "Edna Hale",
-                                                         "_produces": {"name": f"a long and particular thing of hers, number {n:02d}", "description": SAW_ACT}}
+                                                         "_produces": {"name": THING.format(n), "description": SAW_ACT}}
                                                          for n in range(1, 13)])
-        packet = situation(client)
-        assert "table_brought_out" in packet["truncated"], packet["truncated"]
-        assert packet["at_hand"]["holdings"] == [PHOTO] and [entry["name"] for entry in packet["at_hand"]["brought_out"]] == [PHOTO], \
-            "what he holds, and what his own act brought out, outlast the table's list"
-        kept = [entry["name"] for entry in packet["table_brought_out"]]
-        assert len(kept) < 12 and kept == [f"a long and particular thing of hers, number {n:02d}" for n in range(12, 12 - len(kept), -1)], \
-            "the oldest go first"
+        return situation(client)
     finally:
         client.close()
+
+
+def _packet_bytes(packet):
+    # The kernel's measure (`jsonSize`, as tests/kernel/test_npc_situation.py's `packet_bytes`).
+    return len(json.dumps(packet, ensure_ascii=False).encode("utf-8"))
+
+
+def test_the_budget_cuts_what_the_table_brought_out_before_what_he_holds(tmp_path):
+    """§143.30: `table_brought_out` is cut after at_hand's objects and exits and before his own `brought_out` and
+    `holdings`, oldest first, and named once in `truncated`.
+
+    The budget is derived from the packet, not a fixed number: the size the packet has once at_hand's objects and exits
+    and the six oldest of the table's things are gone. A fixed 1024 bytes was sized for the packet before §159.5 kept
+    `constraints` and `canonical_context` to the last, and then held nothing of his either -- the order under test had
+    not changed, the packet had."""
+    whole = _table_of_things(tmp_path, "whole", 1_000_000)
+    assert whole["truncated"] == [] and len(whole["table_brought_out"]) == 12, whole["truncated"]
+    assert whole["at_hand"]["holdings"] == [PHOTO]
+    fits = json.loads(json.dumps(whole))
+    at_hand_cut = bool(fits["at_hand"]["objects"] or fits["at_hand"]["exits"])
+    fits["at_hand"]["objects"], fits["at_hand"]["exits"] = [], []
+    fits["table_brought_out"] = fits["table_brought_out"][:6]
+    fits["truncated"] = (["at_hand"] if at_hand_cut else []) + ["table_brought_out"]
+
+    packet = _table_of_things(tmp_path, "budgeted", _packet_bytes(fits))
+    assert "table_brought_out" in packet["truncated"], packet["truncated"]
+    assert packet["at_hand"]["holdings"] == [PHOTO] and [entry["name"] for entry in packet["at_hand"]["brought_out"]] == [PHOTO], \
+        "what he holds, and what his own act brought out, outlast the table's list"
+    kept = [entry["name"] for entry in packet["table_brought_out"]]
+    assert 0 < len(kept) < 12 and kept == [THING.format(n) for n in range(12, 12 - len(kept), -1)], \
+        "the oldest go first"

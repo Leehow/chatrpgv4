@@ -28584,6 +28584,11 @@ module's era) fails the chainsaw table test ("the weapon part lists the modern r
 other eras"); `table_brought_out` left out of the packet fails both packet tests (`KeyError` and the budget's
 `truncated`); `holdings` cut before `table_brought_out` fails the budget test. **Not verified live.**
 
+*Note, 2026-09-30:* that test's budget is now derived from the packet (the size once `at_hand`'s objects and exits and the
+six oldest of the table's things are gone) instead of 1024 bytes. §159.5 keeps `constraints` and the new
+`canonical_context` to the last, so at 1024 bytes the packet cut his holdings too: the order this section states had not
+changed, the packet's size had.
+
 ## 144. A Keeper tool argument that carries the model's own tool-call markup is unwrapped at the host boundary (2026-09-26; amends §135.21's `prepareArguments` and §19.2)
 
 **Evidence.** Some models write a tool call in an XML dialect and the provider hands it back as JSON, so the tool-call serialization can end up inside a string argument. Across about 34,000 turn records (playtests, the long gates on `claude/integ-single-loop-20260923`, the App's own campaigns) four delivered turns carried it, all `narrate.text`, all on deepseek-v4.1-flash through opencode-go: two ended in `\n</text>\n` (temper-g t6, coarse-h2 t2), so the player read `</text>`; two went on after `</text>` with `<parameter name="workpad_patch">{…}` (longgate10 t18, longgate13 t7), so the player read the Keeper's private workpad JSON and the patch itself never reached the workpad, because the call's arguments were only `text` (and `using_skill`). The leaked text was then carried on: into the next turns' `recent` context, the memory extraction job, the NPC journal job and the Mod audits.
@@ -30040,6 +30045,21 @@ ownership is marked `session_owned`; those choices keep their existing subsystem
 options revision includes the catalog; world and context revisions remain separate freshness checks.
 Unimplemented action bindings appear in coverage and can produce a named unresolved need, never a
 fallback ordinary roll. Inventory completeness is distinct from executable family coverage.
+
+*Note, 2026-09-30 (the fields §159 added to `table.resolve.options` beside `selection`, found when two kernel tests went red
+on them).* The implementation (6d870987b) also gave the snapshot three things this section had not named; each has a reader:
+- `context.public_narration` `{text, truncated}` (the last committed delivery's `rendered_text`, its last 4000 characters)
+  and `context.public_exchange` (the last exchange, `null` before one): what the player was last told. The check selector
+  reads the whole context but `_binding` (`runtime/jev/hybrid-engine.ts`) to judge whether an option is consistent with
+  the situation; check-preflight digests it as `context_revision`. Player-visible text only.
+- `context.current_receipts[]` gains `scene_change`, `goal`, `passed`, `decision` (the semantic name) and `rule`, with
+  `outcome` falling back to the check's outcome and then its level: the selector reads them so it does not ask a settled
+  question again (`runtime/jev/resolve-selection.ts`).
+- `decisions[].guidance` `[{text, source_refs}]`: the family's rule texts, for the selector's "does this attempt need a
+  check" question.
+
+Because the options revision includes the catalog, and the catalog is read against the turn's situation, a settled roll
+may move `revision` while `profiles` and `decisions` stay as they were (`tests/kernel/test_jev_resolve.py`).
 
 The normal policy retains existing typed Jev ordinary/obligation/subsystem paths and adds a complete
 catalog-selection step before prose. Their receipts are supplied to the latter, so it only selects

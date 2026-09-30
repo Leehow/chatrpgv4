@@ -52,6 +52,10 @@ def test_options_is_read_only_and_uses_canonical_sheet_and_rule_vocabulary(kerne
         "conditions": [{"actor": "托马斯·海斯", "conditions": []}],
         "current_receipts": [],
         "declared_action": "我仔细观察诺特。",
+        # §159 (6d870987b): what the player was last told, for the Jev check selector's "is this option consistent with
+        # the situation" (runtime/jev/hybrid-engine.ts hands it the whole context but `_binding`). Player-visible text only.
+        "public_exchange": None,
+        "public_narration": {"text": "开场。\n\n诺特把钥匙拍在桌上。", "truncated": False},
     }
 
     rows = snapshot["profiles"]
@@ -70,7 +74,10 @@ def test_options_is_read_only_and_uses_canonical_sheet_and_rule_vocabulary(kerne
 
     decisions = snapshot["decisions"]
     assert len(decisions) == len({row["name"] for row in decisions})
-    assert all(set(row) == {"name", "family", "description", "capability"} for row in decisions)
+    # §159 (6d870987b): each decision carries its family's rule text for the check selector, with its sources.
+    assert all(set(row) == {"name", "family", "description", "capability", "guidance"} for row in decisions)
+    assert all(isinstance(row["guidance"], list) and all(set(item) == {"text", "source_refs"} for item in row["guidance"])
+               for row in decisions)
     ordinary = next(row for row in decisions if row["name"] == "core-check:ordinary-check")
     assert ordinary["family"] == "core-check" and ordinary["capability"] == "check"
     assert ordinary["description"]
@@ -173,10 +180,20 @@ def test_options_does_not_change_the_existing_resolve_call_or_exact_replay(kerne
 
     assert replayed == {**settled, "replayed": True}
     assert fingerprint(kernel) == after_settlement, "exact replay and the following options read add no second settlement"
-    assert current["revision"] == initial["revision"], "profile and rule vocabulary did not change"
+    assert (current["profiles"], current["decisions"]) == (initial["profiles"], initial["decisions"]), \
+        "profile and rule vocabulary did not change"
+    # §159: the options revision includes the check catalog, which is read against the turn's situation, so a settled
+    # roll may move it; it moves exactly when the catalog does (world and context revisions are separate checks).
+    assert (current["revision"] == initial["revision"]) == (current["selection"] == initial["selection"])
+    assert options(kernel)["revision"] == current["revision"], "a second read of the same state is the same revision"
     assert current["world_revision"] != initial["world_revision"], "the settled receipt changes task-world freshness"
+    # §159: the receipt as the check selector reads it, so it does not ask a settled question again. The roll is
+    # unseeded; its level and pass are the receipt's own.
+    roll = kernel.table("status")["receipts"][0]
     assert current["context"]["current_receipts"] == [{
-        "kind": "roll", "actor": "托马斯·海斯", "skill": "Spot Hidden", "outcome": None,
+        "kind": "roll", "actor": "托马斯·海斯", "scene_change": False, "skill": "Spot Hidden",
+        "outcome": roll["check"]["outcome"], "goal": "check the room", "passed": roll["passed"],
+        "decision": "core-check:ordinary-check", "rule": None,
     }]
     assert len(kernel.table("status")["receipts"]) == 1
 
