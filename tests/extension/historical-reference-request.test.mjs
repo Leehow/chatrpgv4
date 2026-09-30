@@ -164,3 +164,21 @@ test('real Pi loop hands a spent historical lane to final prose and allows the n
   await table.session.prompt('And the source? Read the saved excerpt.');await waitForIdle(table.session);
   assert(freshSeen);assert.equal(searches,2);assert.deepEqual(table.extensionErrors,[]);
 });
+
+test('a closed optional lookup does not cancel the delivery following it in the same real Pi batch',async t=>{
+  const text='You remain in the office beside the desk. The commission is still open, and the room is quiet while you consider it.';
+  const table=await openTable({realKernel:true,env:{[EXA_ENV]:'test-exa',TYPESAFE_API_KEY:'test-jev'},
+    extraExtensions:[pi=>pi.on('tool_call',event=>{
+      if(event.toolName==='lookup')pi.events.emit('coc:model-step',{toolCallId:event.toolCallId,run:'closed-read',step:'compose',
+        historical_reference:{enabled:true,allowed:false,turn:0,scope:{owner:'test',audience:'keeper',campaign:'test-camp',worldline:'main',loop:0},
+          retrieval:{state:'closed',reason:'turn_budget_exhausted'}}});
+    })],responses:[fauxAssistantMessage([fauxToolCall('lookup',{kind:'historical_reference',reference_mode:'catalog'}),
+      fauxToolCall('narrate',{text})],{stopReason:'toolUse'}),fauxAssistantMessage('Done.')]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I remain in the office.');await waitForIdle(table.session);
+  const lookup=table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='lookup');
+  assert.equal(lookup.isError,false);assert.equal(lookup.details.reason,'turn_budget_exhausted');
+  const delivery=table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='narrate');
+  assert(delivery);assert.equal(delivery.isError,false);assert.equal(delivery.details.rendered_text,text);
+  assert.deepEqual(table.extensionErrors,[]);
+});

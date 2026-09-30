@@ -476,7 +476,8 @@ function defaultLine(candidate: Candidate): string | undefined {
 interface OwedReviewPort {campaign: string; settle(elapsedMs: number): Promise<{in_flight: boolean; waited_ms: number; landed: boolean; turn?: number}>}
 interface RunState {
   interactionScope?: InteractionScope;
-  history?: {enabled: boolean; allowed: boolean; asked: boolean; scene: string; context: Json; closed?: boolean};
+  history?: {enabled: boolean; allowed: boolean; asked: boolean; scene: string; context: Json; closed?: boolean;
+    closedReason?: 'budget_exhausted' | 'turn_budget_exhausted'};
   unresolvedNoticeKey?: string;
   unresolvedAttack?: boolean;
   runId: string;
@@ -640,7 +641,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
   let owedReview: OwedReviewPort | undefined;
-  let historyFinalAnswer: {run: string; step: string} | undefined;
+  let historyFinalAnswer: {run: string; step: string; reason?: string} | undefined;
   // §151.1: the consequence-step mode's data default, read once (cached) and awaited by every run's first read.
   let stepsDataDefault: 'on' | 'shadow' = 'shadow';
   const stepsReady = jevStepsBudget().then(budget => { stepsDataDefault = budget.shadow ? 'shadow' : 'on'; });
@@ -699,7 +700,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const table = readTable(capsule, status);
     const historyScene = text(object(capsule.where).scene);
     if (!run.history || run.history.scene !== historyScene) run.history = {enabled: false, allowed: false, asked: false,
-      ...(run.history?.closed ? {closed: true} : {}),
+      ...(run.history?.closed ? {closed: true, closedReason: run.history.closedReason} : {}),
       scene: historyScene, context: {where: capsule.where ?? null, period: object(capsule.campaign).era ?? null} as Json};
     run.history.enabled = historyEnabled(capsule);
     if (!run.history.enabled) run.history.allowed = false;
@@ -1003,6 +1004,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const reason = `batch_step_fell: ${batch.fell}`;
       return {status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {tool: proposal.operation, skipped: true, after: batch.fellAt ?? null}}, skipped: true}};
     }
+    if (proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference'
+      && run.history?.enabled && !run.history.closed && now() - run.startedAt >= run.budgetMs) {
+      run.history.closed = true;
+      run.history.closedReason = 'turn_budget_exhausted';
+      record({lane: 'historical-reference', event: 'closed_received', run: run.runId, step: stepId, turn: run.turn,
+        reason: run.history.closedReason});
+    }
     // §151.5: what this step's catalog does not admit is refused before it runs -- on a narrowed compose, a verb outside
     // narrate/ask/propose; after an accepted `propose` in the same response, every other call (the proposed step has not
     // run yet). The kernel extension's tool gate honours the refusal this announcement carries.
@@ -1011,9 +1019,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       && array(object(proposal.params).effects).some(effect => object(effect).kind === 'damage');
     const outsideScope = run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world'
       && !permitsReferenceOperation(proposal.operation, proposal.params);
-    const historyClosed = proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference' && run.history?.closed;
-    const refuse = historyClosed ? {code: 'historical_retrieval_closed', text: HISTORY_CLOSED}
-      : outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
+    const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
       : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
       + 'Nothing in this apply was executed. Narrate only established facts and retain the unresolved attack.'}
       : proposal.operation === 'resolve' ? {code: 'check_selection_owned', text: 'Jev and the host own check selection. This model-origin resolve was not executed. '
@@ -1022,11 +1028,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       : batch.proposed ? {code: 'propose_pending', text: PROPOSE_PENDING_REFUSAL}
         : narrowed && !narrowed.includes(proposal.operation)
           && !(proposal.operation === 'lookup' && run.history?.enabled && (isSavedHistoryRead(proposal.params)
-            || object(proposal.params).kind === 'historical_reference' && run.history.allowed))
+            || object(proposal.params).kind === 'historical_reference' && (run.history.allowed || run.history.closed)))
           ? {code: 'narrator_catalog', text: catalogRefusal(proposal.operation, run.offered)} : undefined;
     // §135.31: the kernel extension's tool row names the step a model call came from (announced before it runs).
     if (proposal.toolCall?.id) api?.events?.emit?.('coc:model-step', {toolCallId: proposal.toolCall.id, run: run.runId, step: stepId, operation: proposal.operation,
-      ...(run.history && run.scope ? {historical_reference: {...run.history, scope: run.scope, turn: run.turn}} : {}),
+      ...(run.history && run.scope ? {historical_reference: {...run.history, allowed: run.history.allowed && !run.history.closed,
+        ...(run.history.closed ? {retrieval: {state: 'closed', reason: run.history.closedReason ?? 'budget_exhausted'}} : {}),
+        scope: run.scope, turn: run.turn}} : {}),
       ...(refuse ? {refuse: refuse.text, refuse_code: refuse.code} : {})});
     if (refuse) record({lane: 'run', event: 'catalog_refused', run: run.runId, step: stepId, operation: proposal.operation, reason: refuse.code});
     // SL-78 (§135.32 addendum 2, the `residual` row): every Keeper tool call among the five bookkeeping verbs is
@@ -1039,6 +1047,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (!toolResult.isError && proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference'
       && object(object(toolResult.details).retrieval).state === 'closed' && run.history && !run.history.closed) {
       run.history.closed = true;
+      run.history.closedReason = object(object(toolResult.details).retrieval).reason === 'turn_budget_exhausted'
+        ? 'turn_budget_exhausted' : 'budget_exhausted';
       record({lane: 'historical-reference', event: 'closed_received', run: run.runId, step: stepId, turn: run.turn,
         reason: object(object(toolResult.details).retrieval).reason});
     }
@@ -1691,8 +1701,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     const base = Object.keys(content).length;
     run.lastInferAt = now() - run.startedAt;
+    if (run.history?.enabled && !run.history.closed && step.purpose === 'compose' && now() - run.startedAt >= run.budgetMs) {
+      run.history.closed = true;
+      run.history.closedReason = 'turn_budget_exhausted';
+      record({lane: 'historical-reference', event: 'closed_received', run: run.runId, step: stepId, turn: run.turn,
+        reason: run.history.closedReason});
+    }
     historyFinalAnswer = run.history?.closed && run.interactionScope?.mode === 'reference' && step.purpose === 'compose'
-      ? {run: run.runId, step: stepId} : undefined;
+      ? {run: run.runId, step: stepId, reason: run.history.closedReason} : undefined;
     // §135.11.1 (SL-50): the model step the Keeper's next message answers, for the kernel extension's drop row.
     api?.events?.emit?.('coc:model-infer', {run: run.runId, step: stepId});
     // §135.25: the compose the budget chose lists the clerk steps it left undone; the next run's first note says so once.
@@ -1742,6 +1758,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         source: setting.source});
     }
     if (run.history?.enabled) content.historical_reference = run.history.closed ? HISTORY_CLOSED : run.history.allowed ? HISTORY_OFFER : HISTORY_LOCAL_OFFER;
+    if (run.history?.closed) content.historical_reference_status = {state: 'closed', reason: run.history.closedReason ?? 'budget_exhausted'};
     const fresh = run.clerkDid.slice(run.projected);
     run.projected = run.clerkDid.length;
     if (fresh.length) Object.assign(content, {clerk_did: fresh,

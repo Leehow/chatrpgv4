@@ -4536,6 +4536,7 @@ export default function (pi: ExtensionAPI) {
 				historicalAnswer = {...await historicalReference.search({binding: `${fromStep?.run ?? campaign}:${turn}`, turn,
 					scope: referenceScope, enabled: historyEnabled(capsule),
 					allowed: grant?.allowed === true && grant.turn === turn && historyBindingMatches(capsule, grant.scope, turn),
+					retrieval: grant?.turn === turn && historyBindingMatches(capsule, grant.scope, turn) ? grant.retrieval : undefined,
 					query: String(params.query ?? ''), objective: typeof params.objective === 'string' ? params.objective : undefined,
 					player_input: state.playerText ?? '',
 					reference_mode: params.reference_mode as HistoryInput['reference_mode'], name: typeof params.name === 'string' ? params.name : undefined,
