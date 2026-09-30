@@ -1,9 +1,9 @@
 # Forward-only reconciliation — open follow-ups
 
-Status: implemented and regression-verified on codex/forward-only-followups; mainline integration follows
+Status: implemented and merged into 0.9.6a (fix commit 4af3f172d); regression-verified
 Date: 2026-09-29
 Parent: [forward-only-reconciliation.md](forward-only-reconciliation.md), [forward-only-reconciliation-tickets.md](forward-only-reconciliation-tickets.md). Contract: §158.
-Branch where they were found: `claude/forward-only-reconciliation-20260929` (not merged into 0.9.6a).
+Branch where they were found: `claude/forward-only-reconciliation-20260929` (unmerged when recorded; now integrated into 0.9.6a).
 
 The four findings are below. Each one records what was seen, where it lives in the code, the options, and a recommendation. The owner authorized all four fixes and integration of FR-01..FR-05 on 2026-09-29, then requested an isolated worktree and direct mainline merge. Historical findings and options below are preserved as evidence.
 
@@ -165,3 +165,5 @@ Regression evidence:
 External comparison: [AWS transactional outbox](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html) and [Azure compensating transactions](https://learn.microsoft.com/en-us/azure/architecture/patterns/compensating-transaction) support retained retry state and idempotent consumers. This product reconciles forward; it does not undo delivered fiction. [JSON-RPC request validation](https://www.jsonrpc.org/specification) and [Pydantic AI output validation](https://pydantic.dev/docs/ai/core-concepts/output/) support structural validation before dispatch; neither authorizes interpreting arbitrary prose as actions.
 
 Validation: 90 targeted regressions passed locally, plus the later acquired-key landing and candidate cases. TypeScript kernel typecheck passed. The LAN extension suite completed with 4,070/4,071 passing (337 seconds); its only failure is the pre-existing missing §157 documentation heading, supplied by the concurrent mainline documentation update and checked again after integration. The FR-08 routing-removal mutation failed as expected. These are deterministic source/session/kernel checks, not a new live Keeper table or packaged-App acceptance.
+
+Mainline closeout: FR-01..FR-05 entered through merge 31ac360d4 and FR-06..FR-09 through 4af3f172d. Mainline kernel typecheck, all three contract-number gates, and 28 combined owed/object/check-selection regressions passed after integration. Concurrent Jev selection changes remain unstaged and are not part of the forward-only fix commit. The candidate merge keeps owed steps first and retains the concurrent checkOwner marking. The committed forward-only §158 keeps its identity; the concurrent historical Jev-rolls placeholder is retained as prose beneath §159. No original playtest evidence, package, deployment, or remote Git branch was changed.
