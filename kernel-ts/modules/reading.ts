@@ -85,7 +85,41 @@ export const SCENE_INDEX_PAGES = 3;
  * at the generation it was checked at (§22.4.6.1, SL-54).
  */
 function answerKey(sourceSha: string, focus: string, question: string, generation: any): string {
-    return jsonDigest([sourceSha, 'answer', '', normalize(focus), question, [], SOURCE_ANSWER_PROTOCOL, generation ?? 0]);
+    return readingKey(sourceSha, 'answer', undefined, focus, question, [], {}, [SOURCE_ANSWER_PROTOCOL, generation ?? 0]);
+}
+/**
+ * §22.2: a reading's identity -- the `key` of its job and of the material row its finish writes. `request` digests every
+ * reading with it; the read-ahead digests a source unit's to find the unit read or settled in this module (§151.4). `tail`
+ * is what only some purposes add (guidance, opening scope, repair, answer protocol).
+ */
+function readingKey(sha: string, purpose: string, material: string | undefined, focus: string, question: string, pages: number[],
+    markers: { visualScan?: VisualScan; visualAsset?: Row; visualIdentity?: Row; sourceUnit?: SourceUnit }, tail: any[] = []): string {
+    const identity: any[] = [sha, purpose, material ?? '', normalize(focus), question, pages];
+    if (markers.visualScan) identity.push('visual_scan_v1', visualScanKey(markers.visualScan));
+    if (markers.visualAsset) identity.push('visual_asset_v1', markers.visualAsset.page);
+    if (markers.visualIdentity) identity.push('visual_identity_v1', markers.visualIdentity.page, markers.visualIdentity.keys);
+    if (markers.sourceUnit) identity.push('source_unit', sourceUnitKey(markers.sourceUnit));
+    return jsonDigest([...identity, ...tail]);
+}
+/** §151.4: what the read-ahead asks of a streamed unit -- a reference fragment, or an indexed unit under `first_interaction`. */
+function unitQuestion(meta: Row, unit: SourceUnit): string {
+    return meta.source_reference
+        ? 'Publish one small usable fragment from only physical pages '+unit.first+'-'+unit.last+'. Reuse known identities. Preserve the facts and their causal links; leave incomplete entities and unresolved cross-references explicit. Do not expand into another chapter or wait for the whole graph. Empty non-story pages may publish only coverage.'
+        : 'Prepare the indexed source unit in physical pages '+unit.first+'-'+unit.last+' for later reference. Retain source-backed identities, conditions and connections; keep incomplete entities and later cross-references explicit. Do not replay already accepted facts or expand this unit into the whole chapter.';
+}
+/**
+ * §151.4 (2026-09-30): the streamed units whose reading has a material row in this module -- `completed` when read, `failed`
+ * when settled unusable (§22.3.3) -- keyed by unit. A campaign's fork starts with an empty queue and the library's rows, so
+ * there the rows are the only record of a unit read before the fork; `unitJobs` counts them beside the queue's jobs.
+ */
+function unitRows(meta: Row, units: SourceUnit[]): Map<string, string> {
+    const rows = new Map(array(row(meta.reading).materials).map(material => [material.key, material]));
+    const sha = string(row(meta.source_document).file_sha256), out = new Map<string, string>();
+    for (const unit of units) {
+        const material = rows.get(readingKey(sha, 'detail', undefined, unit.section, unitQuestion(meta, unit), sourceUnitPages(unit), { sourceUnit: unit }));
+        if (material) out.set(sourceUnitKey(unit), material.status === 'unusable' ? 'failed' : 'completed');
+    }
+    return out;
 }
 /**
  * §22.4.6.1 addendum (SL-55): how many times an answer whose focus's material was published while it read is read again
@@ -723,11 +757,11 @@ export class Reading {
      * streamed unit remains unqueued (coverage first, speculative links second); a settled need waits for its eligibility.
      */
     private async queueNeedReads(mid: string, graph: ModuleGraph, ask: (request: Row) => Promise<Row | null>): Promise<void> {
-        const meta = await this.store.module(mid), queue = await this.store.queue(mid), jobs = unitJobs(queue);
-        const unqueued = (await this.streamedUnits(mid, meta)).filter(unit => !jobs.has(sourceUnitKey(unit))).length;
+        const meta = await this.store.module(mid), queue = await this.store.queue(mid), units = await this.streamedUnits(mid, meta), rows = unitRows(meta, units);
+        const jobs = unitJobs(queue, rows), unqueued = units.filter(unit => !jobs.has(sourceUnitKey(unit))).length;
         const dispositions = row(row(meta.reading).source_need_dispositions);
         const needs = array(graph.raw.source_needs).filter(need => READABLE_NEED_KINDS.includes(need.kind) && need.source_sha256 === meta.file_sha256
-            && (need.kind !== 'deferred' || unqueued === 0) && needEligible(dispositions, graph.raw, need, queue, mid));
+            && (need.kind !== 'deferred' || unqueued === 0) && needEligible(dispositions, graph.raw, need, queue, mid, rows));
         for (const need of needs.slice(0, 2)) {
             const node = graph.nodes.get(string(need.node_id));
             if (node) await ask({ purpose: 'detail', focus: graph.handle(node), question: need.question, source_need: sourceNeedKey(need) });
@@ -800,14 +834,14 @@ export class Reading {
         };
         if(meta.source_reference){
             const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit),active=work.filter(job=>['queued','running'].includes(job.state)).length;
-            const seen=new Set(work.filter(job=>job.state!=='cancelled').map(job=>sourceUnitKey(job.source_unit as SourceUnit)));
+            // §151.4: a unit is seen when its job is in this queue or its reading has a material row (read here, or in the library before this fork).
+            const seen=unitJobs(queue,unitRows(meta,referenceSourceUnits(number(meta.page_count))));
             let anchor=truth(params.focus)?graph.find(string(params.focus)):null;
             if(!anchor)try{anchor=graph.startScene();}catch{}
             const first=Math.min(...array(anchor?.source_refs).map(ref=>number(ref.pdf_index)+1).filter(page=>page>0),number(meta.page_count));
             const units=referenceSourceUnits(number(meta.page_count)).sort((a,b)=>Number(a.last<first)-Number(b.last<first)||a.first-b.first);
             for(const unit of units.filter(unit=>!seen.has(sourceUnitKey(unit))).slice(0,Math.max(0,2-active)))
-                await ask({purpose:'detail',focus:unit.section,source_unit:unit,
-                    question:'Publish one small usable fragment from only physical pages '+unit.first+'-'+unit.last+'. Reuse known identities. Preserve the facts and their causal links; leave incomplete entities and unresolved cross-references explicit. Do not expand into another chapter or wait for the whole graph. Empty non-story pages may publish only coverage.'});
+                await ask({purpose:'detail',focus:unit.section,source_unit:unit,question:unitQuestion(meta,unit)});
             await this.queueNeedReads(mid,graph,ask);
             await queueVisual();
             return {queued:[...new Set(queued)],reference_context:true,graph_complete:false,...(recovered.length?{recovered}:{})};
@@ -815,18 +849,19 @@ export class Reading {
         if(reading.opening_scope==='first_interaction'&&truth(reading.index_complete)&&Object.values(row(meta.prepared_openings)).some(value=>truth(row(value).opening_ready))){
             const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit);
             if(work.filter(job=>['queued','running'].includes(job.state)).length<2){
-                const seen=new Set(work.filter(job=>job.state!=='cancelled').map(job=>sourceUnitKey(job.source_unit as SourceUnit)));
                 let anchorNode=truth(params.focus)?graph.find(string(params.focus)):null;
                 if(!anchorNode)try{anchorNode=graph.startScene();}catch{}
                 const interactionId=row(row(meta.prepared_openings)[anchorNode?.node_id]).interaction_scene;
                 if(typeof interactionId==='string')anchorNode=graph.nodes.get(interactionId)??anchorNode;
                 const after=Math.max(0,...array(anchorNode?.source_refs).map(ref=>number(ref.pdf_index)+1));
                 const units=backgroundSourceUnits(await this.store.indexRows(mid,meta),number(meta.page_count));
+                // §151.4: a unit is seen when its job is in this queue or its reading has a material row (read here, or in the library before this fork).
+                const seen=unitJobs(queue,unitRows(meta,units));
                 units.sort((a,b)=>Number(a.first<=after)-Number(b.first<=after)||a.first-b.first);
                 const next=units.find(unit=>!seen.has(sourceUnitKey(unit)));
                 if(next)await ask({purpose:'detail',focus:next.section,source_unit:next,
                     retry:work.some(job=>job.state==='cancelled'&&sourceUnitKey(job.source_unit as SourceUnit)===sourceUnitKey(next)),
-                    question:'Prepare the indexed source unit in physical pages '+next.first+'-'+next.last+' for later reference. Retain source-backed identities, conditions and connections; keep incomplete entities and later cross-references explicit. Do not replay already accepted facts or expand this unit into the whole chapter.'});
+                    question:unitQuestion(meta,next)});
             }
         }
         await this.queueNeedReads(mid, graph, ask);
@@ -1179,18 +1214,14 @@ export class Reading {
                 ...mapCandidates.flatMap(candidate=>array(candidate.pages).map(number)),
                 ...array(reading.visual_candidates).filter(candidate=>candidate.kind==='map'||candidate.kind==='uncertain').map(candidate=>candidate.page)])]
                 .filter(page=>page>=1&&page<=source.page_count).sort((a,b)=>a-b):[];
-            const identity: any[] = [source.file_sha256, purpose, material ?? '', normalize(focus), question, pages];
-            if(visualScan)identity.push('visual_scan_v1',visualScanKey(visualScan));
-            if(visualAsset)identity.push('visual_asset_v1',visualAsset.page);
-            if(visualIdentity)identity.push('visual_identity_v1',visualIdentity.page,visualIdentity.keys);
-            if(sourceUnit)identity.push('source_unit',sourceUnitKey(sourceUnit));
+            const tail: any[] = [];
             if (purpose === 'guidance')
-                identity.push(guidanceKey,params.public_progress===true?'public-fields-v1':'');
-            if (purpose === 'opening' && params.opening_scope) identity.push(params.opening_scope);
+                tail.push(guidanceKey,params.public_progress===true?'public-fields-v1':'');
+            if (purpose === 'opening' && params.opening_scope) tail.push(params.opening_scope);
             if (repair)
-                identity.push('repair', repair);
-            if (purpose === 'answer') identity.push(SOURCE_ANSWER_PROTOCOL, meta.generation ?? 0);
-            const key = jsonDigest(identity);
+                tail.push('repair', repair);
+            if (purpose === 'answer') tail.push(SOURCE_ANSWER_PROTOCOL, meta.generation ?? 0);
+            const key = readingKey(source.file_sha256, purpose, material, focus, question, pages, { visualScan, visualAsset, visualIdentity, sourceUnit }, tail);
             if (purpose === 'answer') {
                 const accepted = row(reading.answers)[key];
                 if (accepted) {
@@ -1269,7 +1300,7 @@ export class Reading {
                 // again; any other request (a waiting player or Keeper) queues a fresh read, which reads as today.
                 const settled = settledNeed(existing);
                 if (settled && needMarker && needGraph
-                    && !needEligible(row(reading.source_need_dispositions), needGraph.raw, retainedNeed(needGraph.raw, needMarker.key)!, queue, mid))
+                    && !needEligible(row(reading.source_need_dispositions), needGraph.raw, retainedNeed(needGraph.raw, needMarker.key)!, queue, mid, unitRows(meta, await this.streamedUnits(mid, meta))))
                     return { ...result, state: 'settled', job_id: existing.job_id, disposition: row(row(existing.result).source_need).disposition };
                 if (existing.state === 'completed' && !settled) {
                     if (purpose === 'answer') throw new RpcError('needs', 'the completed source answer has no accepted evidence', { details: { reason: 'source_answer_integrity' } });
@@ -1487,7 +1518,7 @@ export class Reading {
                     const {task_preparation:_privatePreparation,source_need:needMarker,...visibleJob}=job;
                     // §151.4: a background need read carries what its disposition is decided on; a unit carries the needs riding on it.
                     const units = needMarker || job.source_unit ? await this.streamedUnits(mid, meta) : [];
-                    const needTask = needMarker && !truth(job.foreground) ? needPacket(row(needMarker), graph, mid, unreadUnits(units, queue)) : undefined;
+                    const needTask = needMarker && !truth(job.foreground) ? needPacket(row(needMarker), graph, mid, unreadUnits(units, queue, unitRows(meta, units))) : undefined;
                     const carried = job.source_unit ? carriedNeeds(row(row(meta.reading).source_need_dispositions), graph, job.source_unit as SourceUnit) : [];
                     // §152.4: an identity job is claimed with its page's pairs as they stand now, both crops of each.
                     const identityTask: Row = job.visual_identity ? { visual_identity: { page: job.visual_identity.page,
