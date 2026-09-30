@@ -68,7 +68,7 @@ SETTLE_EXIT_CODES = {"settled": 0, "undelivered_with_tools": 5, "empty": 4, "tim
 NOTICE_DETAIL_KEYS = frozenset({
     "provider_outage", "commit_unavailable", "delivery_cut_short", "refused_effect",
     "preparation_wait", "resend_held", "turn_unfinished", "standing_conditions",
-    "input_refused", "empty_input", "review_unavailable",
+    "input_refused", "empty_input", "review_unavailable", "check_selection_unresolved",
 })
 
 
@@ -677,7 +677,11 @@ class Daemon:
                     })
                     if rec["name"] in ("narrate", "ask") and event.get("isError", False):
                         rejected_delivery = True
-                    if rec["name"] in ("narrate", "ask") and not event.get("isError", False):
+                    raw_result = event.get("result")
+                    result_details = raw_result.get("details") if isinstance(raw_result, dict) else {}
+                    embedded_narrate = (rec["name"] == "apply" and isinstance(result_details, dict)
+                                        and result_details.get("narrate_in_apply") is True)
+                    if (rec["name"] in ("narrate", "ask") or embedded_narrate) and not event.get("isError", False):
                         try:
                             body = json.loads(extract_result_text(event.get("result")) or "{}")
                         except (ValueError, TypeError):
@@ -690,7 +694,7 @@ class Daemon:
                             # (§16.2/§16.3: numbers never enter the prose, PipiCOC draws them from
                             # here). Keeping the parsed delivery means a reader of this run does not
                             # have to re-parse `result_text`, which is truncated.
-                            delivery = {"kind": rec["name"],
+                            delivery = {"kind": "narrate" if embedded_narrate else rec["name"],
                                         "rendered_text": body.get("rendered_text") or "",
                                         "mechanics": body.get("mechanics") or [],
                                         "pending_choice": body.get("pending_choice")}
@@ -706,6 +710,11 @@ class Daemon:
                             setup_openings.append(opening)
                     elif entry.get("customType") == "coc-telemetry" and data.get("tool") == "narrate" and data.get("implicit"):
                         rejected_delivery = data.get("ok") is False
+                        if data.get("ok") is True and delivery and delivery["kind"] == "notice":
+                            # An informational check notice cannot replace a later committed implicit
+                            # narration. Keep the notice separately and use the ordinary prose fallback.
+                            delivery = None
+                            delivered = ""
                 elif etype == "agent_settled":
                     if not saw_work:
                         # The previous run finishing, not this turn. Keep waiting for this one.

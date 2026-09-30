@@ -99,6 +99,39 @@ def review_notice(**overrides):
                         "streak": 0, "service": False}, **overrides}
 
 
+def test_check_notice_does_not_replace_embedded_apply_narration():
+    notice = review_notice(details={"coc_delivery": True, "turn": 1, "check_selection_unresolved": True})
+    prose = "The room remains quiet. " * 240
+    body = {"narrate_in_apply": True, "rendered_text": prose, "mechanics": [{"kind": "time", "minutes": 1}]}
+    result = replay_turn([
+        (0, {"type": "agent_start"}),
+        (.1, {"type": "message_end", "message": notice}),
+        (.2, {"type": "tool_execution_start", "toolName": "apply", "toolCallId": "write", "args": {}}),
+        (.3, {"type": "tool_execution_end", "toolName": "apply", "toolCallId": "write", "isError": False,
+              "result": {"content": [{"type": "text", "text": json.dumps(body)}], "details": body}}),
+        (.4, {"type": "agent_end"}),
+    ])
+    assert result["delivery"]["kind"] == "narrate"
+    assert result["final_text"] == prose.strip()
+    assert result["delivery"]["rendered_text"] == prose
+    assert result["delivery"]["mechanics"] == body["mechanics"]
+    assert result["notices"] == [{"content": notice["content"], "details": notice["details"]}]
+
+
+def test_notice_cannot_shadow_confirmed_implicit_narration():
+    notice = review_notice(details={"coc_delivery": True, "turn": 1, "check_selection_unresolved": True})
+    for accepted in (True, False):
+        result = replay_turn([
+            (0, {"type": "agent_start"}),
+            (.1, {"type": "message_end", "message": notice}),
+            (.2, {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "The door is open."}]}}),
+            (.3, {"type": "entry_appended", "entry": {"customType": "coc-telemetry", "data": {"tool": "narrate", "implicit": True, "ok": accepted}}}),
+            (.4, {"type": "agent_settled"}),
+        ])
+        assert result["final_text"] == ("The door is open." if accepted else notice["content"])
+        assert result["notices"] == [{"content": notice["content"], "details": notice["details"]}]
+
+
 def failed_narrate_events():
     return [
         (0, {"type": "agent_start"}),

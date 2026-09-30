@@ -18,7 +18,7 @@ import { createRealCampaign } from "./harness.mjs";
 import { buildCandidates, keeperCall, obligationCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { actGated, compileBatch, compileReaches, fightStep } from "../../runtime/jev/route-compile.ts";
-import { bindBatch, bindingOf, CLERK_AUTHORITY, initialView, interpretBind, next, routeBatch, settleCompile, settleRead, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
+import { bindBatch, bindingOf, CLERK_AUTHORITY, initialView, interpretBind, next, routeBatch, settleCheckSelection, settleCompile, settleRead, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "camp";
@@ -93,8 +93,12 @@ test("candidates come from the kernel's own reads: each carries its clerk author
 	assert.equal(bindingOf(person), "none");
 	assert.deepEqual([person.bound.name, person.composed], ["房东", ["why"]]);
 	assert.equal(person.bound.why, 'The table\'s own label for Steven Knott in this scene, staged for the player\'s declared action; player: "我先看看这间办公室"');
-	// Outside a session only the ordinary check is offered of the rule decisions; no sanity, development or combat family.
-	assert.deepEqual(candidates.filter((candidate) => candidate.verb === "resolve" && candidate.family !== "mod_check").map((candidate) => candidate.key), ["resolve:core-check:ordinary-check"]);
+	// The check groups are ordinary agent candidates, each backed by an issued decision.
+	const checkGroups = candidates.filter(candidate => candidate.unbound.some(parameter => parameter.binder === 'resolve-selection'));
+	assert.deepEqual(new Set(checkGroups.map(candidate => candidate.bound.decision)),
+		new Set(state.resolveOptions.selection.options.filter(option => !['combat', 'chase'].includes(option.family)).map(option => option.action.decision)));
+	assert.ok(checkGroups.every(candidate => candidate.checkOwner === 'jev'));
+	assert.equal(candidates.some(candidate => candidate.family === 'check_selection'), false, 'no second global selector before compose');
 	// The active natural-npc Mod declares a first-impression check for meeting him: the clerk's by authority (b).
 	const contact = candidates.find((candidate) => candidate.family === "mod_check");
 	assert.equal(contact?.clerk, "mod_contact");
@@ -116,7 +120,8 @@ test("boss only: nobody off the roster, no rule family without its session, no e
 		resolveOptions: { profiles: [{ actor: "Tom" }], decisions: [{ name: "sanity:check", family: "sanity" }, { name: "combat:attack", family: "combat" }, { name: "healing:first-aid", family: "healing" }],
 			context: { session: { kind: "sanity_bout", status: "active", turn_of: "tom", actions: [{ decision: "sanity:bout-tick", actor: "tom" }] } } },
 	}, "anything");
-	assert.deepEqual(candidates, [], "an introduced person, a map, a cash debit, damage, a gated move, and every non-ordinary rule family: none of them is the clerk's");
+	assert.deepEqual(candidates.map(candidate => candidate.family), ['sanity'], 'only the already-active sanity bout is issued; unrelated actions remain absent');
+	assert.deepEqual(candidates[0].unbound[0].options, ['sanity:bout-tick']);
 });
 
 test("SL-07: an NPC's pending defence carries the kernel's standing, so it is bound and runs directly -- never a decide, never an infer", async (t) => {
@@ -180,7 +185,7 @@ test("an NPC's pending defence without a standing keeps the closed choice: sever
 	assert.deepEqual(interpretBind(defend, batch, answer("fight_back"), 0.6).pending.map((item) => [item.kind, item.purpose, item.extra?.defense]), [["direct", "execute", "fight_back"]]);
 	// §135.28: a defence among several has no rules default, so Jev's unknown hands the turn to the Keeper -- never an LLM bind.
 	assert.deepEqual(interpretBind(defend, batch, answer("unknown"), 0.6).pending.map((item) => [item.kind, item.purpose, item.reason, item.extra?.unresolved]),
-		[["infer", "adjudicate", "clerk_unbound", ["defense"]]]);
+		[["infer", "compose", "check_unresolved", ["defense"]]]);
 	// One legal option: bound at build time, run directly.
 	const single = buildCandidates({ ...state, resolveOptions: { ...state.resolveOptions, context: { ...state.resolveOptions.context,
 		session: { ...state.resolveOptions.context.session, pending_defense: { ...unstanding, options: ["dodge"] } } } } }, "我揍他");

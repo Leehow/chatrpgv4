@@ -199,7 +199,7 @@ test("§135.31 at a pending defence: the defender's card and the session view, b
 	assert.equal(carried.omitted, undefined);
 });
 
-test("§135.31 with a session active: carried before every model step it changed for, never repeated unchanged; a Keeper look is recorded with its arguments and step, and the turn record keeps them beside the digest", async (t) => {
+test("§159 with a session active: refused model resolve leaves the carried view unchanged; an explicit look is still recorded", async (t) => {
 	const table = await hybridTable({
 		prepareWorkspace: knottFight(),
 		// §143.4: his own turn is his act -- he hits back (the fixture generation), bound to the fight's attack.
@@ -220,16 +220,15 @@ test("§135.31 with a session active: carried before every model step it changed
 	const { requests, events } = table;
 	assert.equal(requests.length, 3);
 	const sections = newCarried(requests).filter(Boolean);
-	assert.equal(sections.length, 2, "carried before the first step and before the step after the fight changed; not before the step after the Keeper's look");
-	const [first, second] = sections;
+	assert.equal(sections.length, 1, "a refused model attack and a read do not create another session state");
+	const [first] = sections;
 	assert.deepEqual(first.views.map((entry) => entry.focus), ["session", "npc"]);
-	assert.deepEqual(second.views.map((entry) => entry.focus), ["session"], "the changed session again; Knott's card is not repeated");
-	assert.notDeepEqual(first.views[0].view, second.views[0].view);
-	assert.equal(second.views[0].view.session.round, first.views[0].view.session.round + 1, "the Keeper's punch closed a round");
 	const [lookSession] = kernelSteps(table.table.workspace, [["table.look", { focus: "session" }]]);
-	assert.deepEqual(second.views[0].view, { session: lookSession.session, pending_choice: lookSession.pending_choice });
+	assert.deepEqual(first.views[0].view, { session: lookSession.session, pending_choice: lookSession.pending_choice });
 	const rows = table.table.telemetry(CAMPAIGN);
-	assert.equal(rows.filter((row) => row.lane === "run" && row.event === "carried").length, 2);
+	assert.equal(rows.filter((row) => row.lane === "run" && row.event === "carried").length, 1);
+	assert.ok(table.table.session.messages.some(message => message.role === 'toolResult' && message.toolName === 'resolve' && message.isError),
+		'the model attack was refused; prior fixture rolls and automatic defences remain legitimate');
 
 	// The Keeper looked anyway: its row keeps the arguments and the step, and the turn record keeps them beside the digest.
 	const look = rows.find((row) => row.tool === "look");

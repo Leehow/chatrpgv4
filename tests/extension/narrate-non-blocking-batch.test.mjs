@@ -100,20 +100,21 @@ test("§135.5: a refused first write leaves the narrate of the same message unex
 	assert.ok(record.rendered_text.includes("什么都没找到"), "delivered from the Keeper's second message, not the fallen batch's draft");
 });
 
-test("§135.5.1: a batch carrying a resolve before its narrate still runs to completion (guidance only, no host refusal)", async (t) => {
+test("§159: model resolve blocks the dependent narration in its batch; a later narration can report the unresolved action", async (t) => {
 	// SL-93: this narrate now needs to clear the new length floor too, unrelated to what this test is about.
 	const table = await hybridTable({ responses: [
 		fauxAssistantMessage([
 			fauxToolCall("resolve", { action: { intent: "investigate", skill: "Library Use", goal: "find the file", method: "search the clippings" } }),
 			fauxToolCall("narrate", { text: "你查了一下剪报索引，指尖沾了灰，纸页边缘也磨得发毛，才把这条线索的年份和版面大致理出来。" }),
 		], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall('narrate', {text: 'The search remains unresolved. The papers lie where you left them, and no finding has been established.'})], {stopReason: 'toolUse'}),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我翻一翻剪报索引。");
 	await waitForIdle(table.session);
 
-	assert.ok(table.telemetry().some((entry) => entry.tool === "resolve" && entry.ok === true), "the resolve ran");
+	assert.ok(!table.telemetry().some((entry) => entry.tool === "resolve" && entry.ok === true), "the model cannot execute its own selected check");
 	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true && entry.event === undefined).length, 1,
-		"the narrate of the same message still ran and closed the turn -- the shape is guidance, not a host gate");
+		"only the later narration closes the turn");
 	assert.equal(turnRecord(table.workspace, 2).closed_by, "narrate");
 });

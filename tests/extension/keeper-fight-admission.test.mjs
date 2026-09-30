@@ -111,79 +111,25 @@ const investigatorBlows = (table) => table.mechanics().filter((payload) => paylo
 const combatSettled = (table) => table.telemetry(CAMPAIGN).filter((row) => row.turn === 2 && row.tool === "resolve" && row.ok === true && row.outcome_kind === "combat");
 const refusalReason = (result) => result?.details?.coc_error?.details?.reason;
 
-test("§143.18 (C4 T8 replay): the demand read as no fight action -- the Keeper's manoeuvre and then its attack are refused not_authorized on the compile's evidence, no lane call, no Fighting roll", async (t) => {
-	const { table, calls } = await fightTable(t, {
-		// The live compile row: act none 0.91 (none 0.93 / unclear 0.07), target none 0.55.
-		decide: fightTurnPort({ act: ["none", 0.91, { none: 0.93, unclear: 0.07 }], target: ["none", 0.55, { none: 0.7, unclear: 0.13 }] }),
-		responses: [keeper(fauxToolCall("resolve", { action: MANEUVER })), keeper(fauxToolCall("resolve", { action: ATTACK })),
-			keeper(fauxToolCall("narrate", { text: HANDS_UP }))],
-	});
-	await table.session.prompt(DEMAND);
-
-	const compile = table.telemetry(CAMPAIGN).find((row) => row.lane === "route" && row.purpose === "compile" && row.turn === 2);
-	assert.deepEqual([compile.features.act.choice, compile.features.act.cleared], ["none", true], "the compile read no fight action");
-	const [maneuver, attack] = keeperResolves(calls);
-	assert.equal(attack?.input.action.decision, "combat:attack", "the Keeper sent both of C4's resolves");
-	for (const call of [maneuver, attack]) {
-		const result = resultOf(calls, call);
-		assert.equal(result.isError, true);
-		assert.equal(refusalReason(result), "action_not_authorized", "admission's refusal, not the kernel's manoeuvre needs");
-	}
-	const rows = admissionRows(table);
-	assert.deepEqual(rows.map((row) => [row.verdict, row.admitted, row.path, row.reviewer, row.origin, row.fight_act]),
-		[["not_authorized", false, "compile", "compile", "model", "combat:maneuver"], ["not_authorized", false, "compile", "compile", "model", "combat:attack"]]);
-	for (const row of rows) {
-		assert.equal(row.compile_read.act, "none");
-		assert.equal(row.compile_read.confidence, 0.91);
-		assert.ok(row.compile_read.rows.includes(row.fight_act), "the compile asked over this very act");
-		assert.equal(row.compile_read.run, compile.run, "the run the Keeper's call came from");
-		assert.match(row.grounds, /^compile: /);
-		assert.ok(row.missing, "the choice the player has not made");
-	}
-	assert.equal(table.lanes.admission.requests().length, 0, "no lane call: the typed evidence decided");
-	assert.deepEqual(combatSettled(table), [], "no fight action settled");
-	assert.deepEqual(investigatorBlows(table), [], "no Fighting roll landed");
-	const refusals = table.telemetry(CAMPAIGN).filter((row) => row.turn === 2 && row.tool === "resolve" && row.ok === false);
-	assert.deepEqual(refusals.map((row) => row.reason), ["action_not_authorized", "action_not_authorized"], "refused before the kernel");
-	assert.equal(calls.find((call) => call.phase === "result" && call.tool === "narrate")?.isError, false, "the Keeper closed the turn in the fiction");
-});
-
-test("§143.18: the demand whose act does not clear (none 0.50) -- the Keeper's attack by the sheet's handle is reviewed by the lane, and its refusal stands", async (t) => {
-	const { table, calls } = await fightTable(t, {
-		decide: fightTurnPort({ act: ["none", 0.5, { none: 0.5, act_1: 0.3, unclear: 0.2 }], target: ["unclear", 0.5] }),
-		responses: [keeper(fauxToolCall("resolve", { action: ATTACK })), keeper(fauxToolCall("narrate", { text: HANDS_UP }))],
-		admission: [fauxAssistantMessage(JSON.stringify({ verdict: "not_authorized", grounds: "钱呢？你说的二十块，现在就给我。 asks for money; no blow",
-			missing: "whether to strike Knott" }))],
-	});
-	await table.session.prompt(DEMAND);
-
-	const [attack] = keeperResolves(calls);
-	assert.equal(refusalReason(resultOf(calls, attack)), "action_not_authorized");
-	const [row] = admissionRows(table);
-	assert.deepEqual([row.verdict, row.path, row.origin], ["not_authorized", "lane", "model"], "reviewed: before §143.18 this call had no row at all");
-	assert.equal(row.fight_act, undefined, "no typed evidence: the act did not clear");
-	assert.equal(table.lanes.admission.requests().length, 1);
-	assert.ok(JSON.stringify(table.lanes.admission.requests()[0]).includes(DEMAND), "reviewed against the player's own words");
-	assert.deepEqual(investigatorBlows(table), [], "no Fighting roll landed");
-});
-
-test("§143.18 (C4 T7/T10's words): \"我又是一拳。\" -- act combat:attack cleared; the Keeper's own attack is reviewed by the lane, admitted, and the Fighting roll lands", async (t) => {
-	const { table, calls } = await fightTable(t, {
-		// The compile reads the punch; the route's need says later, so the attack is the Keeper's to resolve this time.
-		decide: fightTurnPort({ act: ["combat:attack", 1], target: ["unclear", 0.41] }),
-		responses: [keeper(fauxToolCall("resolve", { action: { ...ATTACK, goal: "又是一拳", method: "挥拳" } })),
-			keeper(fauxToolCall("narrate", { text: "你又是一拳砸过去。" })), keeper(fauxToolCall("narrate", { text: "你又是一拳砸过去。" }))],
-	});
-	await table.session.prompt("我又是一拳。");
-
-	const [attack] = keeperResolves(calls);
-	assert.equal(resultOf(calls, attack).isError, false, "the attack settles");
-	const [row] = admissionRows(table);
-	assert.deepEqual([row.verdict, row.admitted, row.path, row.origin], ["authorized", true, "lane", "model"]);
-	assert.equal(table.lanes.admission.requests().length, 1, "the lane reviewed it, as any Keeper proposal");
-	const settled = combatSettled(table);
-	assert.deepEqual(settled.map((entry) => entry.origin ?? "model"), ["model", "policy"], "the Keeper's attack, then Knott's standing defence by the clerk");
-	assert.equal(investigatorBlows(table).length, 1, "the investigator's Fighting roll landed");
+for (const scenario of [
+  {name: 'a demand with a cleared no-fight act', act: ['none', 0.91, {none: 0.93, unclear: 0.07}], target: ['none', 0.55], words: DEMAND, actions: [MANEUVER, ATTACK]},
+  {name: 'a demand with an ambiguous act', act: ['none', 0.5, {none: 0.5, act_1: 0.3, unclear: 0.2}], target: ['unclear', 0.5], words: DEMAND, actions: [ATTACK]},
+  {name: 'a declared punch the host has not selected to execute', act: ['combat:attack', 1], target: ['unclear', 0.41], words: 'I punch him again.', actions: [ATTACK]},
+]) test('§159: the model cannot select a fight check for ' + scenario.name, async t => {
+  const {table, calls} = await fightTable(t, {
+    decide: fightTurnPort(scenario),
+    responses: [...scenario.actions.map(action => keeper(fauxToolCall('resolve', {action}))),
+      keeper(fauxToolCall('narrate', {text: HANDS_UP}))],
+  });
+  await table.session.prompt(scenario.words);
+  const results = table.session.messages.filter(message => message.role === 'toolResult' && message.toolName === 'resolve');
+  assert.equal(results.length, scenario.actions.length);
+  assert.ok(results.every(result => result.isError));
+  assert.deepEqual(keeperResolves(calls), [], 'model checks stop before the canonical tool pipeline');
+  assert.equal(admissionRows(table).filter(row => row.origin === 'model').length, 0);
+  assert.equal(table.lanes.admission.requests().length, 0, 'no LLM review replaces Jev selection');
+  assert.deepEqual(combatSettled(table), []);
+  assert.deepEqual(investigatorBlows(table), [], 'an unresolved declaration has no attack receipt');
 });
 
 test("§143.18 pure: the fight act a resolve proposes, the compile's act record, and the refusal on it", () => {

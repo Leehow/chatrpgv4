@@ -151,8 +151,8 @@ test("§151.5 offered: clerk candidates the policy can settle without the Keeper
 	const twin = { key: "consequence:clue_follow_up:a", verb: "apply", family: "clue_follow_up", label: "a", bound: { kind: "clue", clue: "a", how: "h" }, unbound: [], clerk: "consequence_bookkeeping" };
 	const taken = { ...clue, key: "apply:clue:c", bound: { kind: "clue", clue: "c" } };
 	const offered = offeredForPropose([clue, open, keeper, act, forced, taken], [closed, twin], new Set(["apply:clue:c"]));
-	assert.deepEqual(offered.map((candidate) => candidate.key), ["apply:clue:a", "consequence:npc_reaction:hayes:knott"],
-		"a closed bind is offered (the policy's bind runs it); the consequence twin of an issued clue is not listed twice");
+	assert.deepEqual(offered.map((candidate) => candidate.key), ["apply:clue:a"],
+		"check choices belong to Jev even through propose; the consequence twin of an issued clue is not listed twice");
 });
 
 test("§151.5 proposedCandidate: the Keeper's request rides on the basis; a compile's or a consequence route's evidence never does", () => {
@@ -165,28 +165,30 @@ test("§151.5 proposedCandidate: the Keeper's request rides on the basis; a comp
 // ---------------------------------------------------------------------------------------------------------------------
 // The engine.
 
-test("§151.5 default off: no propose on the surface, no catalog or offered keys in the note, no refusal announced", async () => {
+test("§159 with narrator mode off: resolve still belongs to Jev; other tools keep their behavior", async () => {
 	const h = harness({ env: {} });
 	await h.sessionStart();
 	assert.equal(h.registered.length, 0, "nothing is registered with the setting off");
-	assert.deepEqual(h.active(), SEVEN, "the tool surface is the seven verbs, unchanged");
+	assert.deepEqual(h.active(), SEVEN.filter(name => name !== "resolve"), "resolve is host-owned regardless of narrator mode");
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
 	await h.read("s1");
 	const note = await h.project("s2", "compose", "settled");
 	for (const key of ["catalog", "catalog_note", "offered", "propose_note"]) assert.equal(Object.hasOwn(note, key), false, `no ${key}`);
 	assert.ok(!h.rows.some((row) => row.event === "catalog"));
-	for (const operation of ["apply", "resolve", "look", "lookup", "recall"]) {
+	for (const operation of ["apply", "look", "lookup", "recall"]) {
 		const outcome = await h.model("s3", operation);
 		assert.equal(outcome.status, "ok", `${operation} runs as before`);
 	}
 	assert.ok(h.announced.every((row) => !Object.hasOwn(row, "refuse")), "no call is announced with a refusal");
+	assert.equal((await h.model("s4", "resolve")).status, "refused");
+	assert.equal(h.announced.at(-1).refuse_code, "check_selection_owned");
 });
 
 test("§151.5 on: the compose step's catalog is narrate/ask/propose with say as spans; adjudicate keeps the whole loadout and gains propose; bind keeps exactly its own", async () => {
 	const h = harness({ env: { COC_NARRATOR_ONLY: "on" } });
 	await h.sessionStart();
 	assert.deepEqual(h.registered.map((tool) => tool.name), ["propose"]);
-	assert.deepEqual(h.active(), [...SEVEN, "propose"], "propose joins the surface after the seven verbs");
+	assert.deepEqual(h.active(), [...SEVEN.filter(name => name !== "resolve"), "propose"], "propose does not restore model-owned resolve");
 	h.state.applyOptions = { candidates: [clueRow("globe-story")] };
 	await h.read("s1");
 	const compose = await h.project("s2", "compose", "settled");
@@ -199,10 +201,13 @@ test("§151.5 on: the compose step's catalog is narrate/ask/propose with say as 
 		const outcome = await h.model("s3", operation);
 		assert.equal(outcome.status, "refused", `${operation} is refused on the compose step`);
 		const announced = h.announced.at(-1);
-		assert.equal(announced.refuse_code, "narrator_catalog");
-		assert.match(announced.refuse, new RegExp(`^${operation} is not in this narrator-only compose step's catalog`));
-		assert.match(announced.refuse, /Offered keys: apply:clue:globe-story/);
-		assert.equal(outcome.artifact.fell, "narrator_catalog");
+		assert.equal(announced.refuse_code, operation === "resolve" ? "check_selection_owned" : "narrator_catalog");
+		if (operation === "resolve") assert.match(announced.refuse, /Jev and the host own check selection/);
+		else {
+			assert.match(announced.refuse, new RegExp(`^${operation} is not in this narrator-only compose step's catalog`));
+			assert.match(announced.refuse, /Offered keys: apply:clue:globe-story/);
+		}
+		assert.equal(outcome.artifact.fell, operation === "resolve" ? "check_selection_owned" : "narrator_catalog");
 		assert.equal(outcome.artifact.narrator, true);
 	}
 	for (const operation of ["narrate", "ask"]) {
@@ -214,6 +219,7 @@ test("§151.5 on: the compose step's catalog is narrate/ask/propose with say as 
 	assert.equal(Object.hasOwn(adjudicate, "catalog"), false, "the adjudicate step keeps the whole loadout");
 	assert.deepEqual(adjudicate.offered.map((value) => value.key), ["apply:clue:globe-story"]);
 	assert.equal((await h.model("s6", "apply")).status, "ok", "apply runs on an adjudicate step");
+	assert.equal((await h.model("s6b", "resolve")).status, "refused", "adjudication never restores LLM check selection");
 	const bind = await h.project("s7", "bind", "open_parameters");
 	assert.equal(Object.hasOwn(bind, "catalog") || Object.hasOwn(bind, "offered"), false, "the bind step's note is as before");
 	const proposed = await h.model("s8", "propose", { key: "apply:clue:globe-story" });

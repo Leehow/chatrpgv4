@@ -2,7 +2,7 @@ import {readJevApiKey} from '../extensions/jev/agent/config.js';
 /**
  * `PI_COC_LOOP_ENGINE` selects the Keeper's run engine (spec pi-native-single-loop, SL-01):
  *
- * - `legacy` (explicit control or no available Jev credential): Pi's model-first loop, exactly as before;
+ * - `legacy` (explicit control, private experiments, or setup without Jev): Pi's model-first loop;
  * - `hybrid-v1`: Pi's RunDriver (vendored agent-core, ADR-0006) started through `runtime/pi-hybrid.ts`, with the
  *   product's step policy and ports for play (`runtime/jev/hybrid-engine.ts`) and, for a setup session, the setup
  *   policy `coc-setup-v1` and its own ports (`runtime/jev/setup-engine.ts`, contract §151.6). Setup never runs the
@@ -25,7 +25,8 @@ export const LOOP_PROTOCOLS: Readonly<Record<LoopEngine, string>> = Object.freez
 export function selectLoopEngine(env: Readonly<NodeJS.ProcessEnv>, mode: 'play' | 'setup'): LoopEngine {
   const privateLegacy=env.PI_COC_JEV_S0==='1'||env.PI_COC_TASK_RUNTIME==='1';
   const jev=!!readJevApiKey(env);
-  const requested = env.PI_COC_LOOP_ENGINE?.trim() || (!privateLegacy&&jev?'hybrid-v1':'legacy');
+  // Normal play keeps the check owner even without credentials; unavailability is not LLM authority (§159).
+  const requested = env.PI_COC_LOOP_ENGINE?.trim() || (!privateLegacy&&(mode==='play'||jev)?'hybrid-v1':'legacy');
   if (!(LOOP_ENGINES as readonly string[]).includes(requested))
     throw new Error(`PI_COC_LOOP_ENGINE must be one of ${LOOP_ENGINES.join(', ')}; got ${requested}`);
   if (mode === 'play') return requested as LoopEngine;

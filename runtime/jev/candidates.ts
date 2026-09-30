@@ -12,6 +12,7 @@
  * field (prototype runs 5-7: with that tag in the detail every move came back "later").
  */
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
+import {createHash} from 'node:crypto';
 import {TIME_CANDIDATE_KEY, type Candidate, type Json, type Unbound} from './step-policy.ts';
 import {DICE, guardsOf, obligationCandidates, preordainedContacts} from './obligation-candidates.ts';
 import {composeSentence} from './composed-arguments.ts';
@@ -142,6 +143,18 @@ const DEFENSE_OPTIONS: Readonly<Record<string, string>> = Object.freeze({
  */
 function sessionCandidates(session: Row, rawInput: string, answering: readonly string[], pendingChoice: Row, fighter: Row = {}, relationships: Row[] = []): Candidate[] {
   const kind = text(session.kind);
+  if (kind === 'sanity_bout' && session.status === 'active') {
+    const participant = array(session.participants).map(object).find(row => row.name === session.turn_of);
+    const actor = text(participant?.label) || text(session.turn_of);
+    const actions = array(session.actions).map(object).filter(row => typeof row.decision === 'string');
+    if (!actor || !actions.length) return [];
+    return [{key: `resolve:sanity:turn:${actor}:${Number(session.round ?? 0)}`, verb: 'resolve', family: 'sanity',
+      source: 'table.resolve.options', label: `Advance the current bout of madness for ${actor}`, clerk: 'session_step',
+      bound: {actor, intent: 'investigate', goal: rawInput, method: rawInput}, composed: ['goal', 'method'],
+      unbound: [{name: 'decision', required: true, vocabulary: 'closed', options: actions.map(action => action.decision),
+        instruction: 'Select the current bout continuation justified by its state: advance one tick while its duration remains, or end it when it has ended. Never end a bout merely to enable another action.'}],
+      detail: {bout: object(session.bout)} as Json, basis: {read: 'table.resolve.options', path: 'context.session.actions'}}];
+  }
   if ((kind !== 'combat' && kind !== 'chase') || session.status !== 'active') return [];
   const participants = array(session.participants).map(object);
   const label = (id: string): string => text(participants.find(value => text(value.name) === id)?.label) || id;
@@ -444,7 +457,29 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   // The ordinary check is always live outside a session and has a closed host binder (route + profile); the
   // specialised families are offered only as the running session's own steps (above and below), never as the
   // compiled decision list (prototype run 1 offered all 52 decisions and Jev's right answer came back at 0.53).
-  if (!sessionLive) for (const decision of array(object(reads.resolveOptions).decisions).map(object)) {
+  const selection = object(object(reads.resolveOptions).selection);
+  const catalogOwned = selection.version === 1 && selection.owner === 'jev';
+  if (catalogOwned && selection.session_owned !== true) {
+    const identity = createHash('sha256').update(JSON.stringify([object(reads.resolveOptions).revision, object(reads.resolveOptions).world_revision])).digest('hex');
+    const groups = new Map<string, Row[]>();
+    for (const option of array(selection.options).map(object)) {
+      const decision = text(object(option.action).decision);
+      // These steps already have first-blow/session candidates and their canonical owners.
+      if (!decision || ['combat', 'chase'].includes(text(option.family))) continue;
+      const group = groups.get(decision) ?? [];
+      group.push(option); groups.set(decision, group);
+    }
+    for (const [decision, group] of groups) {
+      const row = array(object(reads.resolveOptions).decisions).map(object).find(row => row.name === decision);
+      push({key: `resolve:check:${decision}:${identity}`, verb: 'resolve', family: text(group[0].family), source: 'table.resolve.options',
+        label: text(row?.description) || decision,
+        detail: {rule_family: text(group[0].family), rule_guidance: array(row?.guidance).map(rule => text(object(rule).text)).filter(Boolean)},
+        bound: {decision},
+        unbound: [{name: 'current check parameters', required: true, vocabulary: 'closed', binder: 'resolve-selection'}],
+        clerk: 'declared_check', basis: {read: 'table.resolve.options', path: 'selection', decision, revision: object(reads.resolveOptions).revision}});
+    }
+  }
+  if (!catalogOwned && !sessionLive) for (const decision of array(object(reads.resolveOptions).decisions).map(object)) {
     const name = text(decision.name);
     if (name !== 'core-check:ordinary-check') continue;
     const actor = actorBinding();
@@ -487,7 +522,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
   // §158.4: the owed rows last in this list and in reverse, because a forced step is put at the front of the run as it is
   // read (`applyFresh` unshifts each in turn): the owed move runs first, then a presence, then time, before anything else.
   for (const candidate of owedCandidates(capsule, sessionLive).reverse()) push(candidate);
-  return out;
+  return selection.owner === 'jev' ? out.map(candidate => candidate.verb === 'resolve' ? {...candidate, checkOwner: 'jev'} : candidate) : out;
 }
 
 /** The kernel call a fully bound candidate becomes. Optional unbound parameters are omitted, never invented. */

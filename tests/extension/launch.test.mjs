@@ -104,6 +104,7 @@ fs.writeFileSync(process.env.PI_STUB_LOG,[
  'mode='+(process.env.PI_COC_MODE??'<unset>'),'runtime='+process.env.PI_COC_RUNTIME,'grokimage='+(process.env.PI_GROK_BUILD_IMAGE_TOOLS??'<unset>'),
  ...process.argv.slice(2).map(arg=>'arg='+arg)].join('\\n')+'\\n');\n`);
 	chmodSync(piStub, 0o755);
+	writeFileSync(join(root, 'build/runtime/pi-hybrid.mjs'), `import ${JSON.stringify('../' + VENDORED_PI.replace(/^build\//, ''))};\n`);
 	return root;
 }
 
@@ -319,7 +320,7 @@ test("bin/pi-coc：没装 pi 时报清楚", (t) => {
 	rmSync(join(root, VENDORED_PI));
 
 	assert.throws(
-		() => execFileSync(join(root, "bin", "pi-coc"), ["--campaign", "camp-a"], { encoding: "utf8", stdio: "pipe" }),
+		() => execFileSync(join(root, "bin", "pi-coc"), ["--campaign", "camp-a"], { encoding: "utf8", stdio: "pipe", env: {...process.env, PI_COC_LOOP_ENGINE: 'legacy'} }),
 		(error) => {
 			assert.equal(error.status, 1);
 			assert.match(error.stderr, /ENOENT/);
@@ -376,14 +377,14 @@ fs.writeFileSync(process.env.PI_STUB_LOG, ['entry=pi-hybrid','engine='+(process.
 	return root;
 }
 
-test("PI_COC_LOOP_ENGINE: hybrid-v1 starts the hybrid entry with the legacy arguments; unset and legacy start the vendored CLI", (t) => {
+test("PI_COC_LOOP_ENGINE: normal play starts hybrid even without a key; explicit legacy retains the same arguments", (t) => {
 	const root = withHybridEntry(fakeRepo());
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	const legacy = runLauncher(root, ["--campaign", "camp-e"]);
 	const explicit = runLauncher(root, ["--campaign", "camp-e"], { PI_COC_LOOP_ENGINE: "legacy" });
 	const hybrid = runLauncher(root, ["--campaign", "camp-e"], { PI_COC_LOOP_ENGINE: "hybrid-v1" });
-	assert.equal(legacy.value("entry"), "pi");
-	assert.equal(legacy.value("engine"), "legacy");
+	assert.equal(legacy.value("entry"), "pi-hybrid");
+	assert.equal(legacy.value("engine"), "hybrid-v1");
 	assert.equal(explicit.value("entry"), "pi");
 	assert.equal(hybrid.value("entry"), "pi-hybrid");
 	assert.equal(hybrid.value("engine"), "hybrid-v1");

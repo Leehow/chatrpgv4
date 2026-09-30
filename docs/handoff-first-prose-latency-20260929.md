@@ -1,4 +1,111 @@
-# First-visible-prose latency: jev-rolls and prose-first — handoff 2026-09-29
+# First-visible-prose latency: Jev check ownership — continuation 2026-09-30
+
+## Current implementation and scoped verification
+
+The owner approved moving check selection and closed parameter binding to Jev. The existing Pi
+RunDriver remains the sole controller: compile/route selects a check capability, its scoped binder
+returns one proposal, and the existing canonical dispatcher, admission, Mod hooks and TS kernel
+execute it. There is no second whole-turn planner, global next-check Choice, generated numerical
+argument or LLM check-selection fallback. Ordinary, source-stated, combined/opposed, healing,
+sanity, explicit push/Luck and other rule adapters use host-issued options; existing combat/chase
+and obligation owners remain. Missing source/arguments remain named needs. Canonical admission
+is still the existing authorization service and may use its existing LLM review lane; it does not
+choose the check or change the proposed parameters.
+
+The owner's requested extra Jev round is implemented. One answered gray predicate or parameter
+can receive one narrower Noul refinement per binding, with the same evidence, lease and call budget.
+A weak Choice can nominate only an issued value for a Noul that tests whether it is established.
+Primary probabilities are not supplied as evidence. Strong negatives, unknown/provider failures,
+missing source and known unmet prerequisites are not retried into permission. An established method
+with gray necessity is refined before a different ready method can hide it. Still unclear means
+unresolved, not a lower threshold or an LLM answer. Ordinary applicability is 0.65; the limited
+calibration and its weaknesses are in the tracked check-selection calibration JSON.
+
+Settlement is a host fact: ordinary actor/skill receipts after the last real scene change remove
+already rolled profiles, including failures. Retrieval no longer has a separate all-settled Noul,
+and ordinary receipt context omits a broad goal that can quote several methods. A stale selected
+proposal can be rebound once by the same driver on fresh state; the stale write itself never runs.
+Other refusals stay unresolved. An unresolved decision is held for the rest of the same run/scene,
+so incidental bookkeeping cannot turn one refinement into repeated attempts to obtain approval.
+
+Accepted RuleGraph family statements and skill definitions are materialized for the agent with
+source references. This answers the rules-brief suggestion by using existing accepted material;
+no new whole-rulebook distillation pipeline or alternate rules authority was added. The normal play
+launcher remains hybrid if the Jev key is absent. Explicit legacy/private control engines and the
+separate setup policy retain their own routes. Model-origin resolve/propose bypasses are blocked
+inside hybrid play. Test Keeper is always explicit grok-build/grok-4.5 low after the owner's correction;
+the source's default model setting is unchanged.
+
+## Verification
+
+- Validation used latest 0.9.6a at shared HEAD cf25d5f3c plus the task changes. On the owner's
+  explicit commit request, these check changes form a separate local commit. Historical-reference
+  work belongs to another session; its files and overlapping independent hunks remain outside this
+  commit. No push, package, installed-App test or unrelated setting change was made.
+- Full LAN extension suite on implementation v15: **4120/4120**, 336 seconds;
+  log: .tmp/jev-check-selection-ext-v15-20260930.log. Earlier v14: 4118/4118. Earlier failed runs
+  v12 (8 failures) and v13 (17 failures) are retained, not replaced by the green logs.
+- The later pending-outcome wording and same-run hold have **31/31** focused selector/narrator
+  tests passing; kernel typecheck and diff whitespace checks pass. Final v17 full LAN run was
+  **4130/4132**, 336 seconds (.tmp/jev-check-selection-ext-v17-20260930.log). The two failures
+  were obsolete assertions: byte-pressure observation was treated as a fold, and a concurrently added
+  historical-reference offer was treated as a repeated budget note. The assertions now retain the
+  actual no-fold and one-budget-explanation invariants. Both focused reruns pass (2/2), recorded at
+  .tmp/jev-check-v17-final-two.log. A second full run after those test-only changes was not performed.
+- Driver suite was 75/75 on LAN; no driver edits followed that successful run.
+- Emitted source audit v16 checked 386 local sources. All check-task sources matched; the separately
+  owned runtime/historical-reference.ts changed after the build. Its two map mismatches are recorded
+  in .tmp/jev-check-build-v16-audit.json. Final v17 audit checked **386 sources, zero mismatches**,
+  recorded at .tmp/jev-check-build-v17-audit.json.
+
+## Real play evidence and limits
+
+All campaigns, events and telemetry remain intact. They are genuine one-line-at-a-time driver play,
+with this main session as player and Grok 4.5 low as Keeper. Fixtures and read-only Jev probes are
+implementation evidence, not live acceptance or a latency comparison.
+
+The retained campaign is jev-checks-v13-20260930. Driver runs v13 through v17 are all stopped.
+The final run naturally withdrew from the commission and returned the key; the mystery was not solved.
+In that campaign:
+
+- Turn 1: ordinary commission conversation was correctly no-roll with no unresolved notice.
+- Turn 3: Jev selected STR; policy-origin canonical resolve produced 78 against 60, a failure.
+  The Keeper narrated the unsuccessful window pull from that actual receipt.
+- Turn 4 (v13): Listen was selected and admitted, but execution was refused as check_selection_stale.
+  No roll happened, yet the Keeper narrated negative findings. This is adverse evidence. The exact
+  originating state change was not isolated; stale handling now rebinds once and has revision probes.
+- Turn 6 (v14): Spot Hidden produced 23 against 55, success. The earlier gray Listen need had been
+  skipped, and a separate all-settled Noul then hid it. This was not successful two-check acceptance;
+  the explicit-gray priority and receipt/retrieval changes address that discovered path.
+- Turn 7 (v15): the narrower need-refine ran for Listen (method .89, need .55, blocked .26), remained
+  unresolved, rolled nothing and displayed the host notice. The Keeper still narrated negative
+  findings; that delivery is adverse evidence, not success.
+- Turn 8 (v16): unresolved delivery stayed at the listening posture and did not claim whether anyone
+  was behind the door. The host notice appeared. A later bookkeeping write reopened the same decision;
+  the new same-run/scene hold addresses that repetition and is covered by a focused regression.
+- Turn 9 (v17): the clarified listening-only declaration selected Listen through Jev and the canonical
+  policy gateway. The actual roll was **27 against 45, success**. Later same-turn reads were no-roll;
+  the Keeper narrated the result without selecting or executing a model-origin resolve.
+- Turn 10 (v17): the player withdrew from the commission, returned the key, and ended this playtest.
+
+No successful current-version live two-roll sequence or comprehensive live combat/chase/healing/SAN
+coverage is claimed. Controlled real-TS gateway regressions do execute Listen then Spot Hidden in
+order. Some quiet-door Listen cases land in Jev's uncertainty interval and intentionally remain unresolved
+under the owner's policy; the clarified single-method follow-up did execute successfully. No measured latency improvement is claimed without a concurrent
+control. The old adverse runs and the initial one-roll success before these revisions are preserved.
+
+Design references: [TypeSafe function calling](https://docs.typesafe.ai/cookbooks/function_calling)
+and [skill shortlist verification](https://docs.typesafe.ai/cookbooks/skill_suggestion) support bounded
+arguments and narrower absolute checks; their thresholds do not establish game-domain accuracy.
+[Browser-use Jev](https://github.com/browser-use/jev-ultrafast) keeps execution host-owned.
+[Conditional requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Conditional_requests)
+and [Kubernetes resource versions](https://kubernetes.io/docs/reference/using-api/api-concepts/) support
+rejecting stale writes; our refresh repeats selection rather than blindly resending a mutation.
+
+## Historical handoff (superseded where the owner decided above)
+
+The following is retained historical evidence. The owner's later approval of Jev check ownership
+supersedes its pending jev-rolls question only; no prose-first, source-wait or package scope was added.
 
 ## State at handoff
 

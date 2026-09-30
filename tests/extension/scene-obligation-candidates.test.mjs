@@ -265,15 +265,12 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	assert.deepEqual(check.unbound.find((value) => value.name === "skill").ruleDefault, { rule: "jev_lead", fallback: { rule: "highest_offered_skill", value: "Intimidate" } },
 		"SL-21: Jev's lead first; the investigator's highest only when Jev answers unknown or not at all");
 	const defaulted = interpretBind(check, batch, answer({ skill: "unknown", bonus: "none", penalty: "none", intent: "social" }), 0.6);
-	assert.deepEqual(defaulted.pending.map((item) => [item.kind, item.purpose, item.extra?.skill]), [["direct", "execute", "Intimidate"]]);
-	assert.deepEqual([defaulted.pending[0].candidate.basis.binding, defaulted.pending[0].candidate.basis.rule_default],
-		["rule-default", { skill: { value: "Intimidate", rule: "highest_offered_skill" } }]);
-	assert.deepEqual(defaulted.bindings.map((entry) => [entry.name, entry.path, entry.value]),
-		[["skill", "rule-default", "Intimidate"], ["bonus", "jev", "none"], ["penalty", "jev", "none"], ["intent", "jev", "social"]]);
+	assert.deepEqual(defaulted.pending.map((item) => [item.kind, item.purpose, item.reason]), [["infer", "compose", "check_unresolved"]]);
+	assert.deepEqual(defaulted.pending[0].extra.unresolved, ['skill'], 'unknown does not choose the highest skill');
 	// Below the gate everywhere: the approach and the dice take their defaults, but the intent has none (the obligation
 	// states no intent), so the check is the Keeper's turn -- never an LLM bind.
 	const low = interpretBind(check, batch, answer({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" }, 0.4), 0.6);
-	assert.deepEqual(low.pending.map((item) => [item.kind, item.purpose, item.reason, item.extra?.unresolved]), [["infer", "adjudicate", "clerk_unbound", ["intent"]]]);
+	assert.deepEqual(low.pending.map((item) => [item.kind, item.purpose, item.reason, item.extra?.unresolved]), [["infer", "compose", "check_unresolved", ["skill", "intent"]]]);
 
 	// The clerk's call is the Keeper's resolve with the claim; the dice word becomes a modifier with its reason.
 	const { tool, args } = keeperCall(check, bound.pending[0].extra);
@@ -480,7 +477,7 @@ test("a clerk refusal stays off the Keeper's refusal budget: recorded on the cle
 	assert.ok(clerk, "the clerk's refusal is recorded on its side");
 	assert.deepEqual([clerk.reason, clerk.counted, clerk.clerk, clerk.refusal], ["clerk_refusal", false, "stated_obligation", "action_not_authorized"]);
 	const keeperRefused = telemetry.filter((entry) => entry.tool === "resolve" && entry.ok === false && entry.origin !== "policy");
-	assert.equal(keeperRefused.length, 2, "the Keeper's two attempts reached the review and were refused");
+	assert.equal(keeperRefused.length, 0, "model check attempts cannot reach the check pipeline or spend its refusal budget");
 	assert.deepEqual(telemetry.filter((entry) => entry.lane === "refusals" && entry.reason === "class_limit"), [],
 		"two Keeper strikes of the class: the clerk's refusal is not the third");
 	assert.ok(!telemetry.some((entry) => entry.code === "blocked" && entry.reason === "refusal_budget"));
@@ -579,21 +576,18 @@ test("§135.30 addendum: seeks at arrival without the compile's ask -- the fact 
 	assert.ok(!(route.selected ?? []).includes(`resolve:obligation:${ACCESS}`), "and selects nothing");
 });
 
-test("SL-12 (§135.28): Jev cannot tell the approach -- the clerk rolls the rules default, the first of the investigator's highest, with no LLM step", async (t) => {
+test("§159: an unknown approach stays unresolved instead of choosing the investigator's highest skill", async (t) => {
 	const { table, calls, requests } = await arrival({ fact: "seeks", compile: "demand", bind: { skill: "unknown", bonus: "none", penalty: "none", intent: "social" },
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
 	const roll = calls.find((value) => value.id.startsWith("clerk:") && value.input.action?.obligation === ACCESS);
 	// Thomas Hayes: Intimidate 45 and Fast Talk 45 are his highest of the four; Intimidate is stated first.
-	assert.deepEqual([roll?.input.action.skill, roll?.input.action.intent], ["Intimidate", "social"]);
+	assert.equal(roll, undefined);
 	const telemetry = table.telemetry("test-camp");
 	const row = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.ok);
-	assert.deepEqual([row?.basis?.obligation, row?.basis?.binding, row?.basis?.rule_default], [ACCESS, "rule-default", { skill: { value: "Intimidate", rule: "highest_offered_skill" } }],
-		"the default is on the operation's basis, which every row of the call carries");
-	const bind = telemetry.find((entry) => entry.lane === "run" && entry.event === "bind" && entry.candidate === `resolve:obligation:${ACCESS}`);
-	assert.deepEqual(bind.bindings.filter((entry) => ["skill", "intent", "goal"].includes(entry.name)).map((entry) => [entry.name, entry.path]),
-		[["goal", "composed"], ["skill", "rule-default"], ["intent", "jev"]]);
+	assert.equal(row, undefined, 'no dice were rolled for an unknown approach');
+	assert.ok(table.session.messages.some(message => message.customType === 'coc-delivery' && message.details?.check_selection_unresolved));
 	assert.equal(requests.length, 1, "one model request, the compose: none for the approach");
 	assert.ok(!telemetry.some((entry) => entry.event === "llm_bound"), "no LLM bind");
 });

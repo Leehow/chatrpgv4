@@ -1375,6 +1375,20 @@ export default function (pi: ExtensionAPI) {
 		const engine = value && typeof value === "object" ? (value as { engine?: unknown }).engine : undefined;
 		drivenEngine = typeof engine === "string" && engine !== "legacy";
 	});
+	const checkNotices = new Set<string>();
+	pi.events.on('coc:check-selection-unresolved', async (value: any) => {
+		const state = table;
+		if (!state || value?.campaign !== state.campaign || value.turn !== state.turn || !Array.isArray(value.needs) || !value.needs.length) return;
+		const key = `${state.campaign}:${state.turn}:${value.run}`;
+		if (checkNotices.has(key)) return;
+		checkNotices.add(key);
+		let line = 'A check is still unresolved, so it has not been rolled. Results already settled are kept. Clarify what you want to do, or send another message to try again.';
+		try { line = (await surface.words()).line('check_selection_unresolved_notice'); } catch { /* The authored fallback still reports the unresolved check. */ }
+		if (table !== state || state.turn !== value.turn) return;
+		pi.sendMessage({customType: 'coc-delivery', content: line, display: true,
+			details: {coc_delivery: true, turn: value.turn, check_selection_unresolved: true}}, {triggerTurn: false});
+		void record({lane: 'delivery', turn: value.turn, reason: 'check_selection_unresolved_notice', needs: value.needs});
+	});
 	pi.events.on("coc:reading-bridge", (value) => {
 		reading = value && typeof (value as any).ensure === "function" ? value as any : undefined;
 	});
@@ -6045,6 +6059,10 @@ export default function (pi: ExtensionAPI) {
 		// step's structure, never the Keeper's misuse of parameters, so it strikes no refusal class: the same verb is the
 		// Keeper's own again on an adjudicate step of the same turn.
 		const announced = modelSteps.get(event.toolCallId);
+		if (drivenEngine && name === "resolve" && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
+			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "check_selection_owned" });
+			return { block: true, reason: "Jev and the host own check selection. No model-origin resolve was executed. Report unresolved check needs and narrate only committed receipts." };
+		}
 		if (announced?.refuse && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: announced.refuseCode ?? "narrator_catalog",
 				run: announced.run, step: announced.step });

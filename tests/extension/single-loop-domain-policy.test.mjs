@@ -554,8 +554,7 @@ test("a Keeper batch whose step fails returns to the Keeper at once: the rest is
 	t.after(() => table.dispose());
 	await table.table.session.prompt("我拿起那个东西");
 	const { events, decisions, calls, requests } = table;
-	const refused = calls.find((call) => call.phase === "result" && call.tool === "resolve");
-	assert.equal(refused.isError, true, "the first step fell: the kernel refused it");
+	assert.equal(calls.some(call => call.tool === 'resolve'), false, 'model resolve is refused before the kernel tool pipeline');
 	assert.equal(calls.some((call) => call.tool === "apply"), false, "the second step never reached the tool pipeline");
 	const results = table.table.session.messages.filter((message) => message.role === "toolResult");
 	assert.deepEqual(results.map((message) => [message.toolName, message.isError]), [["resolve", true], ["apply", true], ["narrate", false]],

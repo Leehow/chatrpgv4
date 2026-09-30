@@ -27,7 +27,7 @@ import { buildCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { COMPILE_FAMILY, NONE, UNCLEAR, compileBatch, compileOnly, compileReaches, interpretCompile, predicateOf } from "../../runtime/jev/route-compile.ts";
 import { bindRecords, createHybridEngine } from "../../runtime/jev/hybrid-engine.ts";
-import { ROUTE_FAMILY, compileDue, createStepPolicy, initialView, interpretRoute, next, routeBatch, settleCompile, settleExecute, settleInfer, settleRead, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
+import { ROUTE_FAMILY, compileDue, createStepPolicy, initialView, interpretRoute, next, routeBatch, settleCheckSelection, settleCompile, settleExecute, settleInfer, settleRead, settleRoute, startStep } from "../../runtime/jev/step-policy.ts";
 
 const scope = { owner: "campaign:test", campaign: "test", worldline: "main", loop: 0, audience: "keeper" };
 const context = { scene: "office", clock: null, present: ["史蒂文·诺特"], receipts: [] };
@@ -282,7 +282,7 @@ test("§135.30 addendum (live gate #4, turn 1): an exit the Keeper's clue unlock
 	assert.deepEqual([opening.kind, opening.purpose], ["decide", "compile"], "the ordinary check owes the compile at the first read");
 	const openingBatch = compileBatch(view, scope, [], []);
 	const opened_ = settleCompile(view, startStep(view, opening), openingBatch, answer({ act: [alias(openingBatch, "act", "move", view.rows), 0.9] }), 5, 0.6);
-	assert.deepEqual([opened_.detail.selected, opened_.detail.decided, opened_.detail.fell_through.includes("resolve:core-check:ordinary-check")], [[], [], true]);
+	assert.deepEqual([opened_.detail.selected, opened_.detail.decided, opened_.detail.fell_through.some(key => key.startsWith("resolve:check:core-check:ordinary-check:"))], [[], [], true]);
 	const route = next(view);
 	assert.deepEqual([route.kind, route.purpose], ["decide", "route"], "nothing a predicate selected: the route, as at the table");
 	const { batch, offered } = routeBatch(view, scope, []);

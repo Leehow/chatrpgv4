@@ -261,7 +261,8 @@ test("threshold reached: `before_agent_start` pre-empts, accepting both a fracti
 test("threshold not reached: the default 80% is far away, so nothing is folded (D4)", async (t) => {
 	const table = await openPlayed(t, { campaign: "bounded-below-threshold", turns: 2 });
 
-	assert.deepEqual(foldRows(table), [], "no telemetry row before the threshold");
+	assert.ok(foldRows(table).every(row => row.event === 'raw-pressure-observed' && row.token_pressure === false && row.percent < 80),
+		"below-threshold byte-pressure telemetry is observational; no fold is attempted");
 	assert.equal(compactionEntries(table).length, 0, "no fold before the threshold");
 });
 

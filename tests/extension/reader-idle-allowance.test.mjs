@@ -130,6 +130,8 @@ test("a Keeper session keeps the table's 60 s even when the content carries a re
   await json(join(root, "content", "rulesets", "coc7", "host-budgets.json"), { schema_version: 1, reading: { idle_ms: 123_456 } });
   await mkdir(dirname(join(root, PI_ENTRIES.pi)), { recursive: true });
   await writeFile(join(root, PI_ENTRIES.pi), "");
+  await mkdir(join(root, 'build/runtime'), { recursive: true });
+  await writeFile(join(root, 'build/runtime/pi-hybrid.mjs'), "");
   const env = { ...process.env };
   for (const key of ["PI_COC_LOOP_ENGINE", "PI_COC_LAYOUT", "PI_CODING_AGENT_DIR", "PI_COC_HOME", "PI_COC_CONTENT_ROOT", "PI_COC_CAMPAIGN"]) delete env[key];
   await piLaunch(["--campaign", "keeper-idle"], { resourceRoot: root, env });

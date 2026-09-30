@@ -61,7 +61,9 @@ export function ordinaryRouteBatch(input:{rawInput:string;goal:string;plan?:Json
     const actors=[...new Set(input.options.profiles.map(value=>value.actor))];
     const {_binding,...context}=input.options.context;
   return{model:JEV_MODEL,family:'ordinary-resolve',familyVersion:ORDINARY_RESOLVE_VERSION,
-    state:{rawInput:input.rawInput,goal:input.goal,...(input.plan===undefined?{}:{plan:input.plan}),context:context as Json,decisions:input.options.decisions as unknown as Json},questions:[
+    state:{rawInput:input.rawInput,goal:input.goal,...(input.plan===undefined?{}:{plan:input.plan}),context:context as Json,
+      // This broad advisory route needs decision descriptors, not every family's expanded source guidance.
+      decisions:input.options.decisions.map(({name,family,description,capability})=>({name,family,description,capability})) as unknown as Json},questions:[
       choice('route','Classify the actual player action using the supplied compiled decisions. Use ordinary only for one uncertain skill/characteristic check outside specialized treatment, social adjudication, combat, chase, magic, sanity and continuation families. A quiet conversation or uncontested action needs no roll.',
         {ordinary:'One ordinary skill/characteristic check is required.',incumbent:'A specialized or nonordinary rule owner is required.',no_roll:'No uncertain rule check is required.',needs_player:'A genuine consequential player choice is still missing.',unknown:'The required rule family is unclear.'}),
       choice('consent','Judge only the raw player declaration and established public context. A plan or retrieved private fact never grants consent. Push, luck spending, defense and resource expenditure need their own explicit player choice.',

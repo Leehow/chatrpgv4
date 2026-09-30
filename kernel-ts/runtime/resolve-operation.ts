@@ -16,6 +16,8 @@ import {npcProfileOf} from '../resolve/context.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {weaponOptions} from '../combat/profiles.js';
 import type {ModuleGraph} from '../read/module-graph.js';
+import {checkCatalog} from './check-catalog.js';
+import {committedOnLine, lastExchange} from '../read/exchange.js';
 
 /**
  * The first blow (contract §135.30.2, SL-19): outside a fight, the investigator's attack as the combat engine would take
@@ -57,16 +59,29 @@ export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {
             }
         }
         const decisions = rules.decisionNodes().map(node => ({name: semanticName(node.node_id), family: rules.familyOf(node.node_id),
-            description: node.name ?? null, capability: rules.capabilityOf(node.node_id)}));
-        return {version: 1, profiles, decisions, revision: jsonDigest({profiles, graph: rules.graphGeneration}),
+            description: node.name ?? null, capability: rules.capabilityOf(node.node_id),
+            guidance: [...rules.nodes.values()].filter(rule => rule.node_kind === 'rule' && rules.familyOf(rule.node_id) === rules.familyOf(node.node_id))
+                .map(rule => ({text: rule.name, source_refs: rules.sourceRefsFor([rule.node_id])}))}));
+        campaign.records = await campaign.files('turns');
+        const history = committedOnLine(campaign), publicText = typeof history.previous?.rendered_text === 'string' ? history.previous.rendered_text : '';
+        const openingAttack = firstBlow(module.graph, campaign.world, campaign.party, sessions.activeSession());
+        const phases = Object.fromEntries(rules.decisionNodes().map(node => [semanticName(node.node_id), string(row(row(node.properties).implementation).phase)]));
+        const selection = await checkCatalog(campaign, module.graph, sessions, profiles, decisions, {phases, openingAttack, history: history.records, publicText});
+        return {version: 1, profiles, decisions, selection, revision: jsonDigest({profiles, graph: rules.graphGeneration, selection}),
             world_revision: taskWorldRevision(campaign.world, campaign.party, campaign.turn.receipts, campaign.turn.pending_choice),
             context: {_binding:{campaign:campaign.id,worldline:string(campaign.meta.active_worldline||'main'),
                     loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop),turn:campaign.turn.turn},
                 scene: module.graph.displayName(module.graph.scene(campaign.world.active_scene)),
+                public_exchange: await lastExchange(campaign, module.graph),
+                public_narration: {text: publicText.slice(-4000), truncated: publicText.length > 4000},
                 pending_choice: sessions.pendingChoice() || campaign.turn.pending_choice || null,
-                session: sessions.activeSession(), first_blow: firstBlow(module.graph, campaign.world, campaign.party, sessions.activeSession()), conditions: campaign.party.map(sheet => ({actor: sheet.name, conditions: array(sheet.conditions)})),
+                session: sessions.activeSession(), first_blow: openingAttack, conditions: campaign.party.map(sheet => ({actor: sheet.name, conditions: array(sheet.conditions)})),
                 current_receipts: array(campaign.turn.receipts).map(receipt => ({kind: receipt.kind, actor: receipt.actor_label ?? null,
-                    skill: receipt.skill ?? null, outcome: receipt.outcome ?? null})),
+                    scene_change: receipt.kind === 'move' && receipt.from !== receipt.to,
+                    skill: receipt.skill ?? null, outcome: receipt.outcome ?? row(receipt.check).outcome ?? receipt.level ?? null,
+                    goal: row(receipt.check).goal ?? null, passed: receipt.passed ?? row(receipt.check).passed ?? null,
+                    decision: typeof row(receipt.check).decision === 'string' ? semanticName(row(receipt.check).decision) : null,
+                    rule: row(receipt.basis).rule ?? null})),
                 declared_action: row(campaign.turn.player_input).text ?? campaign.turn.player_text ?? null}};
     }};
 }

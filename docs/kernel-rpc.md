@@ -29448,6 +29448,12 @@ refused; the clerk's separate banded time after a move lands; a non-boolean is r
 held a travelling move and a `time` spent at or before the place now declare `beyond_travel: true`
 (`test_apply.py`, `test_narrate.py`, `test_facts_warn.py`, `test_system_language.py`, `test_worldline.py`).
 
+## 157. Prose-first prototype (unmerged)
+
+The earlier prose-first experiment remains on `claude/prose-first-ui-20260929`; its failed gates,
+unresolved UX choices and evidence are recorded in [the handoff](handoff-first-prose-latency-20260929.md).
+This heading reserves its already-cited identity; it does not authorize or enable that prototype.
+
 ## 158. What the player was told is canon: owed state, reconciled forward (2026-09-29, `docs/specs/forward-only-reconciliation.md`; amends §130.4, §130.5, §51.4, §135.2, §135.3, §135.25, §32.12, §36.14 and §15)
 
 Numbering: §157 is taken by the concurrent prose-first branches, so this section is 158.
@@ -29664,3 +29670,260 @@ ownership/queue completion and real message_end tool routing with the steer alre
 Precedent: AWS transactional outbox guidance requires idempotent consumers; Azure compensating
 transactions require retained progress and idempotent retry. These support durable owed rows
 and receipt closure, but do not authorize undoing delivered fiction or splitting an atomic apply.
+
+## 159. Jev owns check selection (2026-09-29, implemented with scoped verification)
+
+Owner decision: Jev takes the entire check-selection job, including ordinary skills, combat, chase,
+sanity and treatment. On explicit follow-up the owner chose unresolved-with-notice for unavailable or
+ambiguous Jev, never LLM fallback. This replaces the ordinary binder's handoff in §135.28/§135.30.3
+and the check-selection part of budget, repeated-question and unavailable exits. It does not transfer
+arithmetic, authored truth, player choices or transaction ownership to Jev.
+
+### 159.1 Candidate and execution boundary
+
+The kernel issues current rule/profile/source options. The host materializes closed action candidates
+from those options; Jev selects the necessary check and its closed parameters. Goal and method can
+reuse the player's exact declaration. Open source facts, absent values and genuine player decisions
+remain named needs. An arbitrary loss expression, skill percentage, resource spend or new rule must
+never be invented to fill a missing binding. Rule-family selection cannot disappear simply because
+the selected family lacks an executable candidate: that is an explicit coverage need.
+
+Ordinary multi-act declarations are not a single mutually exclusive skill question. Candidate needs
+are judged independently, and dependent attempts are selected against fresh receipts after the
+preceding attempt. A selected skill says neither that a roll is needed nor that the player chose an
+action: necessity and authorization are explicit judgments over the current declaration and public
+context. Private source material may establish difficulty/necessity, never grant consent. A roll
+already settled by a scene obligation, Mod, subsystem or earlier attempt is not repeated as an
+ordinary check. Do not remove a consent refusal merely because another question chose a roll.
+
+Execution remains the canonical operation dispatcher, admission, Mod hooks and `table.resolve`.
+Every execution rechecks current bindings; stale choices are re-evaluated within the turn budget.
+Failed checks, refused operations, unknown selection, provider failure and deadline exhaustion have
+distinct recorded outcomes. Budget exhaustion never becomes permission for model-origin resolve.
+
+A selection invalidated before kernel invocation returns `check_selection_stale` to the existing
+policy with a refreshed catalog. The policy may rebind that decision once per run, under its
+remaining budget, using a new operation identity. It never reuses the old action or bypasses a
+failed admission. A second stale result or any other refused check is projected as unresolved;
+no failed operation is treated as a settled roll. Stale telemetry records expected/actual revisions
+and current decision context so a background change can be distinguished from a false mismatch.
+
+The multi-method live probe exposed a gray explicit Listen method being skipped in favor of a
+ready Spot Hidden check. Refinement therefore gives priority to an established method whose need
+or readiness is gray, even when another candidate is ready. If it remains gray, the operation is
+unresolved rather than silently discarding it. Ordinary profile retrieval does not independently
+decide that all methods were settled: the host removes actual actor/skill receipts first, then
+retrieval ranks the remaining profiles. Ordinary receipt context omits the broad `goal` string,
+which can quote several methods and is not proof that all of them have rolled.
+
+An unresolved decision is held for the remainder of this run in the same scene. Incidental
+bookkeeping and a new catalog revision cannot ask the same unresolved question again. A new
+player run, or a genuinely new scene, may issue a fresh request. The narrow stale-before-execution
+refresh above is separate: it applies only to a proposal that was selected and then invalidated.
+The Keeper's projection repeats the unresolved outcome boundary before each infer step, including
+that negative findings are outcomes; it must not complete the held attempt while reporting a notice.
+
+### 159.2 LLM and unresolved projection
+
+The LLM consumes settled receipts and source for prose. It cannot call resolve to choose or repair a
+check, including on compose, adjudication, retry, no-key and budget-exhausted paths. A model-proposed
+check also cannot become authority merely by naming a candidate: Jev must own its necessity and
+binding. Existing non-check world authoring remains in scope of its ordinary tools.
+
+The normal play launcher therefore keeps `hybrid-v1` when a Jev credential is absent. It must not
+silently start the old model-first engine on that failure path. Explicit legacy/control and private
+experimental engines remain opt-in controls; setup retains its separate §151.6 selection rule.
+
+Unresolved check data is projected with the operation/family, reason and missing parameters; the
+LLM reports the limitation in play_language without claiming a roll or consequence occurred. The
+host records this separately from a cleared no-roll decision. User-facing success cannot be inferred
+from zero model-origin resolve calls: expected checks must actually execute, or a justified need must
+be delivered. Existing evidence is preserved.
+
+### 159.3 Validation and the three ends
+
+Writer: kernel option reads and Jev's recorded decisions. Reader: the host's selector/binder, canonical
+dispatcher and the model's receipt/unresolved projection. Actor: only host-selected canonical resolve
+calls create mechanical receipts; the LLM narrates them or reports the unresolved need.
+
+Regression gates cover ordinary and multi-act checks, specialized rule families, multiple actors,
+source-stated checks, no-roll, rejected consent, fresh pending choices, duplicates, stale state,
+unavailable Jev, missing credentials and spent budgets. Real acceptance follows `docs/acceptance.md`:
+main session as player, one naturally chosen line per response, canonical RPC driver. Report actual
+host selection, admitted executions, receipts, unmet coverage and first-visible-prose timing. A
+scripted A/B instrument or fixtures alone do not establish acceptance. No latency improvement is
+claimed until measured against a contemporaneous control.
+
+### 159.4 Implementation decisions
+
+Version `13`, owner follow-up 2026-09-30: an answered but ambiguous check predicate or closed
+parameter may receive one narrower Jev refinement request per binding invocation. It uses the
+same declaration, source evidence, receipts, lease and call budget; first-pass probabilities and
+answers are not fed back as evidence. Necessity refinement isolates one otherwise eligible
+candidate; parameter refinement isolates unresolved fields and their issued alternatives. A weak
+Choice may nominate an issued value for an absolute Noul question asking whether that exact value
+is established and alternatives are excluded. The existing Noul acceptance gates still apply;
+neither probability multiplication nor a majority vote grants authority. Strong negatives, known
+unmet prerequisites, unknown/provider failures, absent source facts and unissued values cannot
+trigger this refinement. A second ambiguous or unavailable result stays unresolved. This is a
+bounded phase of the check tool, not another agent loop, retry-until-pass or consent review.
+
+Owner correction, 2026-09-30: the existing Pi/Jev RunDriver remains the sole controller. The
+check capability does not own a whole-turn plan or a second action scheduler. Version `7` removes
+the pre-compose global catalog sentinel. Instead, host-issued check decision groups join the
+existing candidate catalog and compile/route policy. A binding request carries that selected
+candidate; only its decision and already-bound actor/target/intent constrain the check inventory.
+Current player text remains evidence, not a new global planning request. Existing combat/chase
+and obligation owners are retained.
+
+Within one selected check operation, independent method/necessity/settlement/readiness questions
+can admit several profiles. Readiness asks whether this attempt can run on the current snapshot,
+respecting explicit sequence and unmet conditions. There is no global winner Choice: the host
+takes the first ready issued profile, executes through the canonical gateway, and returns its
+receipt to the same RunDriver. The refreshed candidate revision permits remaining work to be
+considered by that driver. A known later attempt is deferred, not described as ambiguous; an
+unknown answer remains unresolved. This is bounded check binding, not planning or execution
+inside the tool. Rule defaults and no-LLM-fallback behavior retain the owner's current ruling.
+
+The selected compile intent is reused as an input binding, not as proof that a roll is necessary.
+For the new check capability, §135.30.3's old `act_settled` shortcut does not bypass its no-roll
+judgment: ordinary conversation can have a social intent without requiring a check. A shortlist
+request also asks whether any relevant attempt remains unsettled, so an all-settled operation can
+return no-roll without forcing a profile from the residual roster. These are local checks of the
+selected operation; no whole-turn family selection is reintroduced.
+The check binder keeps the existing decision-owned 15-second lease, separately from prescreen
+time. The same RunDriver gates entry on its decision budget, accounts actual calls/time afterwards,
+and owns cancellation and further scheduling; the binder cannot replenish the run's call budget.
+
+Version `9` removes the binder's duplicate authorization model. It returns a fully specified check
+proposal to the existing canonical admission service; it does not assert consent. The selected
+compile record is retained as `check_request_compile` for provenance, not as an admission exemption.
+Unknown method or arguments never produce a proposal. The canonical service reviews the exact
+actor, target, push, Luck and consequence under its existing public-context contract and may refuse
+it; neither reviewer nor LLM is allowed to replace the proposed check's parameters. Existing
+obligation and subsystem admission owners are unchanged.
+
+Existing rule-family statements, with their evidence-span references, are projected verbatim from
+the RuleGraph onto each decision's `guidance`. This is materialization of already accepted rules,
+not newly authored/distilled rules text. Agent route state deduplicates their text by family; the
+selected check binder receives only its family's statements beside the skill definition. References
+remain in the kernel projection for audit. No keyword classifier or second rules authority is added.
+
+Version `10` separates ordinary applicability from settlement/parameter gates. Method fit and
+rule necessity use `applicability=0.75`; missing-settlement, specialized needs, modifier presence
+and set membership retain `need=0.85`; Choice remains 0.85 and confident negatives remain 0.35.
+The initial calibration is recorded in `.tmp/jev-check-calibration/results.json`: 14 fixed Chinese
+cases (eight calibration, six holdout) plus the retained real force-window attempt. At 0.85 a clear
+eavesdrop case and the real STR attempt were withheld; 0.75 covered them without an extra selected
+skill in those controls. This is small-sample evidence, not a general accuracy or live-acceptance
+claim; the holdout has only one positive example. No permission gate was lowered: canonical
+admission still reviews the complete proposal under its own existing policy.
+
+Version `11` removes the ordinary unsettled-attempt Noul. Actual roll receipts after the most
+recent real scene-change receipt deterministically exclude the same actor/skill from the current
+ordinary request; a failure is settled too. The receipt projection supplies `scene_change` from
+the move's stored `from`/`to`, so a label-only move does not reopen an attempt, while a real scene
+change can expose new work. Source-bound/specialized checks retain their existing receipt-aware
+need judgments and dispatcher identity guard. Jev still judges prerequisites and conditional
+facts; it does not re-estimate whether a recorded ordinary roll exists.
+
+Version `12` sets ordinary applicability to 0.65 after full-context robustness evaluation. Ten
+fixed variants used the actual captured scene state: clear positive necessity scores varied from
+0.68 to 0.77, and the largest observed false applicability was 0.39. The 0.65 candidate was then
+fixed before six additional prospective cases (three positive, three negative); all six passed
+without an extra selected profile. The earlier split became development evidence once inspected.
+Both datasets and their limits are retained in the calibration JSON. This remains a small, mostly
+STR-focused evaluation; no broad accuracy or latency claim follows. The 0.35 negative cutoff,
+specialized and parameter gates, canonical admission and receipt-based deduplication are unchanged.
+
+Family version `4` splits ordinary necessity into independent method-fit, outcome-uncertainty and
+unsettled-attempt Nouls in the same request. The host requires every positive gate; any confident
+negative excludes the candidate, and any remaining unknown preserves it unresolved. Existing rule
+descriptions accompany shortlisted skills verbatim. This does not change thresholds or authorize
+alternative methods. Specialized rule settlements retain their own necessity question because not
+every settlement is a random uncertain outcome. Uncertainty asks whether the method needs rule
+adjudication, not whether the hidden sound/object exists; missing source evidence never means
+automatic success. Version 3 failed live listening attempts through that ambiguity; its evidence
+is retained, and the thresholds are unchanged.
+
+Version `5` gives rule-default parameters `default:{value,question}`. A separate Noul first asks
+whether an established condition overrides that default. A confident negative applies the exact
+host-owned default; a confident positive proceeds to the closed value Choice. Missing or ambiguous
+answers remain unresolved, including service failure. This distinguishes zero dice from unknown
+instead of treating absence of a modifier as missing mandatory information. Default values must
+belong to the parameter's issued options and cannot be attached to set-valued arguments.
+
+Version `6` likewise separates declaration authorization into method choice, executor identity and
+target choice (when present). The public projection supplies the names of player-controlled
+investigators. Push method/risk acceptance, discretionary Luck spending and a selected defence each
+have their own applicable question; ordinary attempts do not inherit the stricter pushed-retry
+conditions. Every applicable answer must pass the existing authority gate. A wrong-executor
+counterfactual probe is retained alongside the real-declaration probe; neither is play acceptance.
+
+`table.resolve.options.selection` adds `{version:1, owner:"jev", options, coverage, situation}`.
+Each option has a host key, family, label, exact action template, closed parameter value/label rows,
+explicit missing needs and `authorization: declaration|consequence`. Current session/pending-choice
+ownership is marked `session_owned`; those choices keep their existing subsystem candidates. The
+options revision includes the catalog; world and context revisions remain separate freshness checks.
+Unimplemented action bindings appear in coverage and can produce a named unresolved need, never a
+fallback ordinary roll. Inventory completeness is distinct from executable family coverage.
+
+The normal policy retains existing typed Jev ordinary/obligation/subsystem paths and adds a complete
+catalog-selection step before prose. Their receipts are supplied to the latter, so it only selects
+still-unsettled attempts. An unclear ordinary skill can no longer execute through LLM review.
+Jev asks independent family needs, then independent check needs in bounded concurrent batches. More
+than one needed check, or unresolved potentially earlier needs, requires an order choice. Only one
+check is dispatched; fresh receipts precede selecting the remainder. Necessity does not answer
+authorization. Declaration authorization uses a separate public-only request; consequence authority
+can read established state. Closed binding maps issued aliases back to exact host values. Provider
+failure, missing bindings, stale state and exhausted budgets produce unresolved notices.
+
+The hybrid model surface omits `resolve`; its operation port and the driven extension's tool gate
+also refuse model-origin resolve. `propose` offers no resolve candidate. This applies independently
+of the narrator-only setting. Existing canonical policy-origin operations still use the same gateway.
+When the typed compile has established a declared fight action but no host settlement has landed,
+model-origin `apply damage` is refused as `check_outcome_unresolved`; it cannot replace the missing
+attack check. This uses the policy's existing fight-declared/fight-landed state, not a text classifier.
+
+Validation to date: selector/policy unit seams 10/10; real TS catalog and ordinary receipt seam 1/1;
+updated narrator/propose boundary seams 14/14. Full extension suite and genuine play remain pending.
+
+The continued implementation uses family version `2`. Family screening keeps a beam of three and
+every family with a positive majority; it is retrieval, never roll authority. Separate gates are
+`need=0.85`, `authority=0.85`, `choice=0.85` (selected-option probability, not normalized Choice
+confidence), and `noNeed=0.35`. The earlier trials' negative cutoff was too strict and their family
+filter hid concrete checks; those trials remain failed evidence. Each batch records its version,
+gates, exact state, questions and answers. No gate result implies a measured latency improvement.
+
+Parameters are `{name,question,options:[{label,value}],multiple?:{minimum}}`. Set-valued arguments
+use one Noul per member and host cardinality checks. Authorization runs **after** binding against the
+complete action, including its patient, cost and risk. Its public input includes the committed prior
+narration/exchange and public recent check facts; private source is not supplied to declaration
+authorization. A pushed risk is selected verbatim from published sentence spans; explicit Luck
+amounts are selected from available integer points. No model computes or invents those values.
+
+Current catalog owners include ordinary, combined, opposed, treatment, source sanity, source-stated
+rules, available first attacks/chase starts, known casting/available teaching and ending development.
+Active subsystem and automatic/read-only rule phases remain with their existing owners. Missing
+bindings are inventoried separately. During an investigator's combat turn the catalog can also
+offer ordinary/treatment checks; pending defence, chase and bout ownership remain fenced. Current
+profile digests, world revisions and the dispatcher's pre-invoke checks invalidate stale choices.
+
+Unresolved notices use the existing generated UI-word surface and `coc-delivery` with
+`check_selection_unresolved:true`, always `triggerTurn:false`. They do not select a check, steer a
+model or count as story prose. The driver recognizes that notice and genuine `apply`-embedded
+narration separately, retaining full delivered text even when its tool-log excerpt is truncated.
+
+Ordinary profile screening is retrieval too: when more than twelve simple actor/skill options are
+eligible, a Choice distribution over each bounded group (at most 128 options) retains its top eight
+issued profiles. It never executes the winning Choice. Independent need questions then validate
+those profiles alongside every non-profile/source-stated option, and order/parameter/authorization
+gates still apply. An unresolved shortlist is not a no-roll verdict. This follows the TypeSafe
+[skill-suggestion pattern](https://docs.typesafe.ai/cookbooks/skill_suggestion); the game-specific
+consent, ordering and receipt requirements remain this contract's own obligations.
+
+### Earlier Jev-rolls prototype (superseded continuation)
+
+The earlier opt-in ordinary-roll experiment remains on `claude/jev-rolls-prod-20260929`. Its results
+and scope are preserved in [the handoff](handoff-first-prose-latency-20260929.md). The owner continued
+the work under this broader check-selection contract; the prototype is not implicitly merged.

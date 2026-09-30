@@ -233,19 +233,19 @@ const oneRoll = (telemetry) => {
 test("§135.30.8 on the emitted kernel: gate #4 turn 2's sentence and answers roll one check -- the obligation's", async (t) => {
 	const { telemetry, compiles } = await turnTwo(t, gate4Jev());
 	assert.deepEqual(compiles[0].selected, ["resolve:obligation:globe-clippings-access"]);
-	assert.ok(compiles[0].decided.includes(ORDINARY), "the first compile decides the ordinary check: the act is the obligation's");
+	assert.ok(compiles[0].decided.some(key => key.startsWith("resolve:check:core-check:ordinary-check:")), "the first compile decides the ordinary check: the act is the obligation's");
 	assert.deepEqual(compiles[0].acts_settled, ["social"]);
-	assert.ok(!compiles.some((row) => row.selected.includes(ORDINARY)), "no compile selects the ordinary check");
+	assert.ok(!compiles.some((row) => row.selected.some(key => key.startsWith("resolve:check:core-check:ordinary-check:"))), "no compile selects the ordinary check");
 	oneRoll(telemetry);
 });
 
 test("§135.30.8 on the emitted kernel: with the first compile's act unclear, the rolled check's intent settles it and the second compile's row decides the ordinary check", async (t) => {
 	const { telemetry, compiles } = await turnTwo(t, gate4Jev({ firstAct: null }));
 	assert.deepEqual(compiles[0].selected, ["resolve:obligation:globe-clippings-access"]);
-	assert.ok(compiles[0].fell_through.includes(ORDINARY), "no act read at the first compile: nothing settled there");
+	assert.ok(compiles[0].fell_through.some(key => key.startsWith("resolve:check:core-check:ordinary-check:")), "no act read at the first compile: nothing settled there");
 	assert.equal(compiles[0].acts_settled, undefined);
 	assert.deepEqual(compiles[1].selected, [], "the second compile reads social again and rolls nothing");
-	assert.ok(compiles[1].decided.includes(ORDINARY), "its row says what the policy did: the check decided");
+	assert.ok(compiles[1].decided.some(key => key.startsWith("resolve:check:core-check:ordinary-check:")), "its row says what the policy did: the check decided");
 	assert.deepEqual(compiles[1].acts_settled, ["social"], "the act the clerk rolled the check with (its bind's intent)");
 	oneRoll(telemetry);
 });

@@ -70,7 +70,7 @@ export function stepCatalog(setting: Pick<NarratorOnlySetting, 'on'>, step: {pur
  * `clue_follow_up` whose clue an issued clue candidate already files is the same write and is not listed twice.
  */
 export function offeredForPropose(issued: readonly Candidate[], consequences: readonly Candidate[], taken: ReadonlySet<string>): Candidate[] {
-  const eligible = (candidate: Candidate) => !!candidate.clerk && (CLERK_AUTHORITY as readonly string[]).includes(candidate.clerk)
+  const eligible = (candidate: Candidate) => candidate.verb !== 'resolve' && !!candidate.clerk && (CLERK_AUTHORITY as readonly string[]).includes(candidate.clerk)
     && candidate.clerk !== 'npc_act' && candidate.forced !== true && bindingOf(candidate) !== 'open' && !taken.has(candidate.key);
   const out: Candidate[] = [];
   // The clues an issued candidate files, offered or already taken: the consequence twin is that same write either way.

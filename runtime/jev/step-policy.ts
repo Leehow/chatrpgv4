@@ -24,6 +24,7 @@ import {PREPARATION_DECISION_BUDGET} from './preparation-budget.ts';
 import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.js';
 import {answerOf, clears} from './decision-gate.ts';
 import {npcScanCandidate} from './npc-act-step.ts';
+import type {CheckSelection} from './resolve-selection.ts';
 import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, FIGHT_FAMILIES, fightAct, interpretCompile, interpretReask, ORDINARY_CHECK,
   reachable, REASK_FAMILY, reaskBatch, reaskOf, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput} from './route-compile.ts';
 
@@ -58,7 +59,7 @@ export interface RuleDefault {rule: 'jev_lead' | 'highest_offered_skill' | 'no_m
  */
 export interface BandParameter {table: string; field: string; primitive: 'choice' | 'score'; gate?: number}
 /** closed: the host can issue the complete vocabulary; open: only a language model can produce the value. */
-export interface Unbound {name: string; required: boolean; vocabulary: 'closed' | 'open'; options?: string[]; binder?: 'ordinary-resolve';
+export interface Unbound {name: string; required: boolean; vocabulary: 'closed' | 'open'; options?: string[]; binder?: 'ordinary-resolve' | 'resolve-selection';
   /** What each closed option means, from the contract or the kernel row that issued it (the bind's criteria). */
   descriptions?: Record<string, string>;
   /** The bind question's own instruction, when the generic one (the player's declaration, else the actor's choice) does not fit. */
@@ -119,6 +120,8 @@ export const CLERK_AUTHORITY = ['declared_bookkeeping', 'mod_contact', 'declared
 export type ClerkAuthority = typeof CLERK_AUTHORITY[number];
 /** A host-issued step candidate (design §5.1): what the host can perform now, and what it still needs. */
 export interface Candidate {
+  /** §159: unresolved rule choices cannot be handed to the prose model. */
+  checkOwner?: 'jev';
   /**
    * Host identity, stable while the state it came from is unchanged. Never sent to the model, except as the key the
    * narrator-only setting's `propose` names from a note's `offered` list (§151.5).
@@ -234,6 +237,10 @@ export interface Budget {jevCalls: number; jevMs: number; steps: number; runMs: 
 /** A clerk step still pending when the run's time budget was spent: listed, never executed (§135.25). */
 export interface DeferredStep {key: string; label: string; family: string; clerk: string | null; stage: string}
 export interface RunView {
+  /** §159: a check that remains unresolved is a notice, never a model-owned operation. */
+  unresolvedChecks?: Array<{candidate: string; needs: string[]}>;
+  checkRefreshUsed?: boolean;
+  heldCheckDecisions?: string[];
   runId: string;
   rawInput: string;
   stateVersion: number;
@@ -514,9 +521,10 @@ const ROUTE_POLICY = 'You route one step of a Keeper turn in a Call of Cthulhu t
 
 function candidateView(candidate: Candidate): Json {
   const {goal, method, ...bound} = candidate.bound as Row;
+  const {rule_guidance, ...remainingDetail} = object(candidate.detail);
   return {verb: candidate.verb, family: candidate.family, label: candidate.label, bound: bound as Json,
     needs: candidate.unbound.filter(value => value.required).map(value => value.name),
-    ...(candidate.detail !== undefined ? {detail: candidate.detail} : {})};
+    ...(candidate.detail !== undefined ? {detail: rule_guidance === undefined ? candidate.detail : remainingDetail as Json} : {})};
 }
 export function doneThisTurn(view: RunView): Json[] {
   return view.observations.filter(value => value.kind === 'direct' || value.kind === 'infer')
@@ -531,7 +539,10 @@ export function routeBatch(view: RunView, scope: ScopeBinding, readSet: ReadSet)
     const materials = view.materials.map((value, index) => ({alias: `material_${index + 1}`, kind: value.kind, label: value.label,
       ...(index < previews ? {content: Array.from(value.preview).slice(0, previewChars).join('')} : {})}));
     const candidates = Object.fromEntries(offered.map((candidate, index) => [`candidate_${index + 1}`, candidateView(candidate)]));
+    const ruleGuidance = Object.fromEntries(offered.filter(candidate => Array.isArray(object(candidate.detail).rule_guidance))
+      .map(candidate => [candidate.family, object(candidate.detail).rule_guidance]));
     const state = {purpose: 'route the next steps of this turn', player_input: view.rawInput,
+      ...(Object.keys(ruleGuidance).length ? {rule_guidance: ruleGuidance} : {}),
       now: {scene: view.context.scene, clock: view.context.clock, present: view.context.present},
       done_this_turn: doneThisTurn(view), materials, candidates, policy: ROUTE_POLICY} as Json;
     const needQuestion = (candidate: Candidate, index: number) => candidate.routeFact
@@ -669,7 +680,14 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
   }
   const defaults: Record<string, Json> = {}, unresolved: string[] = [];
   for (const parameter of later) {
-    const taken = ruleDefaultOf(parameter.ruleDefault, parameter, candidate, extra, leads[parameter.name]);
+    const lead = leads[parameter.name], evidence = answerOf(result, parameter.name);
+    const clearedLead = parameter.ruleDefault?.rule === 'jev_lead' && lead !== undefined && lead !== 'unknown'
+      && clears(result, parameter.name, lead, evidence.confidence ?? 0, gate);
+    const permittedDefault = candidate.checkOwner === 'jev'
+      ? parameter.ruleDefault?.rule === 'no_modifier' ? parameter.ruleDefault
+        : clearedLead ? {...parameter.ruleDefault, fallback: undefined} as RuleDefault : undefined
+      : parameter.ruleDefault;
+    const taken = ruleDefaultOf(permittedDefault, parameter, candidate, extra, leads[parameter.name]);
     if (!taken) { unresolved.push(parameter.name); continue; }
     const {value} = taken, {rule, read, composed} = taken.rule;
     extra[parameter.name] = value; defaults[parameter.name] = {value, rule, ...(read?.length ? {read: [...read]} : {})};
@@ -707,6 +725,8 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
  * step starts, so it is not offered again this run.
  */
 export function keeperOwns(candidate: Candidate, cause: string, unresolved: string[], bindings: BindRecord[] = []): PendingItem[] {
+  if (candidate.verb === 'resolve' && candidate.checkOwner === 'jev') return [{kind: 'infer', purpose: 'compose', reason: 'check_unresolved', candidate,
+    extra: {cause, unresolved, ...(bindings.length ? {bindings: bindings as unknown as Json} : {})}}];
   return [{kind: 'infer', purpose: 'adjudicate', reason: 'clerk_unbound', candidate,
     extra: {cause, unresolved, ...(bindings.length ? {bindings: bindings as unknown as Json} : {})}}];
 }
@@ -756,7 +776,7 @@ export function startStep(view: RunView, request: Exclude<StepRequest, {kind: 'f
     if (request.reason === 'jev_budget' && request.purpose === 'bind' && request.item?.candidate)
       view.pending.unshift({kind: 'direct', purpose: 'llm_proposal', candidate: request.item.candidate});
     // A clerk candidate handed to the Keeper (§135.28) is dropped for the run: not offered again, whoever does it now.
-    const dropped = request.purpose === 'adjudicate' ? request.item?.candidate : undefined;
+    const dropped = request.purpose === 'adjudicate' || request.reason === 'check_unresolved' ? request.item?.candidate : undefined;
     if (dropped) {
       if (!view.consumed.includes(dropped.key)) view.consumed.push(dropped.key);
       view.candidates = view.candidates.filter(value => value.key !== dropped.key);
@@ -958,7 +978,8 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
   // with a skill that cleared the check is rolled, and the basis says so; with one that did not, the binder's `no_roll` stands.
   const binderNoRoll = object(object(candidate.basis).compile).predicate === 'ordinary_check' && bound.route?.choice === 'no_roll' && bound.disposition === 'ordinary';
   const skillCleared = records.find(entry => entry.name === 'skill')?.cleared === true;
-  const disposition = settledAct && bound.disposition === 'ordinary' ? 'act_settled' : binderNoRoll && !skillCleared ? 'no_roll' : bound.disposition;
+  const disposition = settledAct && bound.disposition === 'ordinary' ? 'act_settled' : binderNoRoll && !skillCleared ? 'no_roll'
+    : candidate.checkOwner === 'jev' && bound.disposition === 'ordinary' && !skillCleared ? 'unknown' : bound.disposition;
   // SL-31 (§135.28): a default the binder took is stamped on the basis every row of the call and the Keeper's note carry.
   const defaults = ordinaryDefaults(bound.paths);
   const stamped = Object.keys(defaults).length
@@ -969,7 +990,8 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
     ? [{kind: 'direct', purpose: 'execute', candidate: executed, extra: action, bindings: records}]
     : disposition === 'no_roll' || disposition === 'act_settled' ? []
       : disposition === 'needs_player' ? [{kind: 'infer', purpose: 'compose', reason: 'needs_player'}]
-        : unsettled;
+        : candidate.checkOwner === 'jev' && bound.disposition === 'ordinary' && !skillCleared
+          ? keeperOwns(candidate, 'check_skill_uncertain', ['skill'], records) : unsettled;
   if (disposition === 'no_roll' || disposition === 'act_settled') view.consumed.push(candidate.key);
   view.pending.unshift(...pending);
   const reason = disposition === 'act_settled' ? 'ordinary_act_settled'
@@ -979,6 +1001,33 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
     ...(disposition === 'act_settled' ? {binder: bound.disposition, act: intent ?? null} : {})} as Json});
   return {step, kind: 'decide', purpose: 'bind', choice: candidate.key, confidence: null, ms, jev_calls: bound.calls,
     reason, detail: disposition === 'ordinary' ? action ?? null : null};
+}
+
+/** §159: the check selector owns the next resolve, including its unresolved/no-roll exits. */
+export function settleCheckSelection(view: RunView, candidate: Candidate, result: CheckSelection, ms: number): void {
+  view.budget.jevCalls += result.calls;
+  view.budget.jevMs += ms;
+  view.consumed.push(candidate.key);
+  view.unresolvedChecks = view.unresolvedChecks?.filter(entry => entry.candidate !== candidate.label);
+  if (result.status === 'selected' && result.action && result.option) {
+    const {difficulty, bonus, penalty, ...action} = result.action;
+    const dice: Record<string, number> = {none: 0, one: 1, two: 2};
+    if (difficulty !== undefined || bonus !== undefined || penalty !== undefined) action.modifiers = {
+      difficulty: difficulty ?? 'regular', bonus_dice: dice[String(bonus)] ?? 0, penalty_dice: dice[String(penalty)] ?? 0,
+      reason: view.rawInput,
+    };
+    // The binder returns a proposal. Its parent's compile selected a capability, not these exact parameters.
+    const {compile, ...basis} = object(candidate.basis);
+    const selected: Candidate = {...candidate, key: `${candidate.key}:${result.option.key}`, family: result.option.family,
+      label: result.option.label, bound: action, unbound: [], composed: ['goal', 'method'],
+      basis: {...basis, ...(compile ? {check_request_compile: compile} : {}), selection: result.option.key, ...(result.snapshot ? {selection_snapshot: result.snapshot} : {})}};
+    view.pending.unshift({kind: 'direct', purpose: 'execute', candidate: selected});
+  } else if (result.status === 'unresolved') {
+    holdCheckDecision(view, candidate);
+    view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate: result.option?.label ?? candidate.label, needs: result.needs}];
+  }
+  observe(view, {kind: 'decide', purpose: 'check-selection', status: result.status,
+    summary: {option: result.option?.label ?? null, needs: result.needs}});
 }
 
 /** `offline`: the bind was settled without asking Jev (§135.28, its budget spent), so it spends none of it. */
@@ -1044,8 +1093,15 @@ export function itemsFor(candidate: Candidate, reason?: string): PendingItem[] {
  * A candidate the kernel forces (the only operation it accepts next, e.g. an NPC's pending defence) goes to
  * the front of the run at once: that step is determined by structure, so it is never a route question.
  */
+const checkHoldKey = (scene: string, candidate: Candidate): string | undefined => candidate.checkOwner === 'jev' && typeof candidate.bound.decision === 'string'
+  ? JSON.stringify([scene, candidate.bound.decision]) : undefined;
+function holdCheckDecision(view: RunView, candidate: Candidate): void {
+  const key = checkHoldKey(view.context.scene, candidate);
+  if (key && !view.heldCheckDecisions?.includes(key)) view.heldCheckDecisions = [...(view.heldCheckDecisions ?? []), key];
+}
 function applyFresh(view: RunView, fresh: Fresh): void {
-  view.context = fresh.context;view.candidates = fresh.candidates.filter(candidate => !view.consumed.includes(candidate.key));view.stateVersion++;
+  view.context = fresh.context;view.candidates = fresh.candidates.filter(candidate => !view.consumed.includes(candidate.key)
+    && (!checkHoldKey(fresh.context.scene, candidate) || !view.heldCheckDecisions?.includes(checkHoldKey(fresh.context.scene, candidate)!)));view.stateVersion++;
   if (fresh.rows) view.rows = fresh.rows;
   // A forced step the state no longer forces (the Keeper's own batch settled it first) is not owed any more.
   const live = new Set(view.candidates.map(candidate => candidate.key));
@@ -1142,6 +1198,10 @@ function settleStruck(view: RunView, fresh: Fresh | undefined): void {
   view.landed = [...new Set([...(view.landed ?? []), ...struck])];
 }
 export function settleExecute(view: RunView, step: number, item: PendingItem, executed: {ok: boolean; summary: Json}, fresh: Fresh | undefined, ms: number): TelemetryRow {
+  const checkFailed = !item.call && !executed.ok && item.candidate?.verb === 'resolve' && item.candidate.checkOwner === 'jev';
+  const refreshedCheck = checkFailed && !view.checkRefreshUsed && object(executed.summary).refusal === 'check_selection_stale'
+    ? fresh?.candidates.find(candidate => candidate.checkOwner === 'jev' && candidate.bound.decision === item.candidate!.bound.decision
+      && candidate.unbound.some(parameter => parameter.binder === 'resolve-selection')) : undefined;
   if (item.call) {
     if (item.candidate) view.consumed.push(item.candidate.key);
     // A model-origin apply consumes the host candidates it carried out, by the same structural keys the host
@@ -1172,7 +1232,12 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
       view.settled = [...(view.settled ?? []), key];
     // A clerk step that was refused is dropped for the run (its key is consumed above) and the turn goes to the Keeper
     // (§135.26): the clerk does not route around its own refusal.
-    if (!executed.ok) view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'clerk_refused'});
+    if (checkFailed && !refreshedCheck) {
+      holdCheckDecision(view, item.candidate!);
+      view.unresolvedChecks = [...(view.unresolvedChecks ?? []),
+        {candidate: item.candidate!.label, needs: [String(object(executed.summary).refusal ?? 'check_execution_refused')]}];
+    }
+    if (!executed.ok && !refreshedCheck) view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'clerk_refused'});
   }
   // §143.28: a blow the Keeper (or the kernel's forced defence) landed on a held person ends the hold and owes them the scan.
   settleStruck(view, fresh);
@@ -1187,6 +1252,10 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     const found = executed.ok && !item.call && item.candidate?.then ? view.candidates.find(value => value.key === item.candidate!.then) : undefined;
     const follow = found && carryCompile(found, item.candidate!.thenCompile);
     if (follow) view.pending.unshift(...itemsFor(follow));
+  }
+  if (refreshedCheck) {
+    view.checkRefreshUsed = true;
+    view.pending.unshift(...itemsFor(refreshedCheck));
   }
   // §135.30.5 (SL-38): the guard of a move staged after this clerk step is evaluated now, by the fresh read after its
   // effect: the kernel issues the move when the effect met it, and the move runs next with the compile's record of it.
@@ -1214,6 +1283,7 @@ export type StepArtifact =
   | {kind: 'reask'; result: DecisionResult}
   | {kind: 'bind'; result: DecisionResult}
   | {kind: 'bind-ordinary'; bound: OrdinaryBinding}
+  | {kind: 'check-selection'; selection: CheckSelection}
   | {kind: 'locate'; calls: number; ms: number; summary: Json}
   /** A read binds the Jev scope of the run (the table's worldline, loop and source revision) and the run's IntentBinding. */
   | {kind: 'read'; read: ReadResult; fresh: Fresh; binding?: {scope: ScopeBinding; readSet: ReadSet; intent?: IntentBinding}}
@@ -1353,7 +1423,8 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
             // Host-only: the kernel row the chosen operation came from, recorded with the step; never put in front of the model.
             ...(request.item.candidate.basis !== undefined ? {basis: request.item.candidate.basis} : {}),
             // §135.28: a clerk candidate handed to the Keeper says what the clerk could not settle, and why.
-            ...(request.item.reason === 'clerk_unbound' ? {clerk_unbound: (request.item.extra ?? {}) as Json} : {})} : {})}};
+            ...(request.item.reason === 'clerk_unbound' ? {clerk_unbound: (request.item.extra ?? {}) as Json} : {}),
+            ...(request.item.reason === 'check_unresolved' ? {check_unresolved: (request.item.extra ?? {}) as Json} : {})} : {})}};
       if (request.kind === 'decide' && request.purpose === 'route') {
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};
         const {batch, offered} = routeBatch(state, binding.scope, binding.readSet);
@@ -1375,6 +1446,9 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       }
       if (request.kind === 'decide') {
         const candidate = request.item.candidate!;
+        if (candidate.unbound.some(value => value.binder === 'resolve-selection')) return {kind: 'decide', purpose: 'check-selection',
+          question: {candidate, remainingCalls: Math.max(0, state.budget.maxJevCalls - state.budget.jevCalls),
+            ...(request.offline ? {offline: request.offline} : {})}};
         // §135.28: a clerk bind past the Jev budget is settled without a question (rules defaults, else the Keeper).
         if (request.offline) return {kind: 'decide', purpose: candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve') ? 'bind-ordinary' : 'bind',
           question: {batch: undefined, candidate, offline: request.offline, reason: request.offline}};
@@ -1473,7 +1547,12 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         settleLocate(view, step, artifact?.kind === 'locate' ? artifact : {calls: 0, ms: 0, summary: {status: observation.status}}, observation.ms);
       } else if (request.kind === 'decide') {
         const candidate = request.item.candidate!, offline = !!request.offline;
-        if (candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve'))
+        if (candidate.unbound.some(value => value.binder === 'resolve-selection')) {
+          settleCheckSelection(view, candidate, artifact?.kind === 'check-selection' ? artifact.selection
+            : {status: 'unresolved', needs: [String(request.offline ?? 'check_selection_unavailable')], calls: 0}, observation.ms);
+          if (artifact?.kind === 'check-selection' && artifact.selection.needs.includes('check_selection_stale')
+            && !exhausted(view.budget) && !overRun(view.budget)) view.pending.unshift({kind: 'direct', purpose: 'read'});
+        } else if (candidate.unbound.some(value => value.required && value.binder === 'ordinary-resolve'))
           settleOrdinaryBind(view, step, candidate, !offline && artifact?.kind === 'bind-ordinary' ? artifact.bound
             : {disposition: 'unavailable', unresolved: offline ? [String(request.offline)] : [], calls: 0, ms: 0}, observation.ms, policyState.gate);
         else settleBind(view, step, candidate, binding && !offline ? bindBatch(policyState.view, candidate, binding.scope, binding.readSet)

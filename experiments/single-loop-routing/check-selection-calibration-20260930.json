@@ -1,0 +1,3869 @@
+{
+  "kind": "offline-decision-evaluation-not-play-acceptance",
+  "date": "2026-09-30",
+  "model": "jev-1.13.0",
+  "source_revision": "cf25d5f3cd6767773cf6c437a385ea6b7852f5df plus task working changes (selector family 9)",
+  "rule_graph_sha256": "e21c5f9c3a81d57a50cedd879bc218cbd75c1ed0a16d6b36456a8dcc4a133d93",
+  "cases": [
+    {
+      "id": "force-window",
+      "split": "calibration",
+      "declaration": "我双手抓住那扇被钉死的窗框，用力拉扯，试着把它从钉子上扯开，好给自己留出一条能马上出去的逃生口。",
+      "context": "The window is nailed shut. Opening an escape route requires overcoming those fastenings by physical strength.",
+      "expected": [
+        "STR"
+      ],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.95,
+          "necessity": 0.91,
+          "unsettled": 0.93,
+          "blocked": 0.11
+        },
+        {
+          "skill": "DEX",
+          "method": 0.08,
+          "necessity": 0.55,
+          "unsettled": 0.83,
+          "blocked": 0.21
+        },
+        {
+          "skill": "Listen",
+          "method": 0.02,
+          "necessity": 0.08,
+          "unsettled": 0.69,
+          "blocked": 0.6
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.03,
+          "necessity": 0.13,
+          "unsettled": 0.69,
+          "blocked": 0.51
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.07,
+          "necessity": 0.49,
+          "unsettled": 0.8,
+          "blocked": 0.54
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.07,
+          "necessity": 0.54,
+          "unsettled": 0.72,
+          "blocked": 0.47
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.11,
+          "unsettled": 0.62,
+          "blocked": 0.89
+        }
+      ]
+    },
+    {
+      "id": "quiet-eavesdrop",
+      "split": "calibration",
+      "declaration": "我把耳朵贴在门上，仔细分辨他们压低声音在说什么。",
+      "context": "The investigator can hear muffled voices behind a closed door, but cannot make out their words. The conversation contains information relevant to the investigation.",
+      "expected": [
+        "Listen"
+      ],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.03,
+          "necessity": 0.11,
+          "unsettled": 0.73,
+          "blocked": 0.36
+        },
+        {
+          "skill": "DEX",
+          "method": 0.07,
+          "necessity": 0.2,
+          "unsettled": 0.84,
+          "blocked": 0.24
+        },
+        {
+          "skill": "Listen",
+          "method": 0.97,
+          "necessity": 0.83,
+          "unsettled": 0.92,
+          "blocked": 0.11
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.03,
+          "necessity": 0.19,
+          "unsettled": 0.77,
+          "blocked": 0.47
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.02,
+          "necessity": 0.13,
+          "unsettled": 0.75,
+          "blocked": 0.67
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.02,
+          "necessity": 0.11,
+          "unsettled": 0.65,
+          "blocked": 0.56
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.12,
+          "unsettled": 0.61,
+          "blocked": 0.87
+        }
+      ]
+    },
+    {
+      "id": "urgent-search",
+      "split": "calibration",
+      "declaration": "我快速翻找杂乱抽屉里那份关键收据，趁看守回来前把它找出来。",
+      "context": "A needed receipt is somewhere among disordered papers. The guard will return shortly, so a slow exhaustive search is not available.",
+      "expected": [
+        "Spot Hidden"
+      ],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.05,
+          "necessity": 0.24,
+          "unsettled": 0.79,
+          "blocked": 0.34
+        },
+        {
+          "skill": "DEX",
+          "method": 0.48,
+          "necessity": 0.7,
+          "unsettled": 0.89,
+          "blocked": 0.17
+        },
+        {
+          "skill": "Listen",
+          "method": 0.07,
+          "necessity": 0.21,
+          "unsettled": 0.83,
+          "blocked": 0.26
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.86,
+          "necessity": 0.87,
+          "unsettled": 0.92,
+          "blocked": 0.12
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.03,
+          "necessity": 0.18,
+          "unsettled": 0.83,
+          "blocked": 0.65
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.03,
+          "necessity": 0.17,
+          "unsettled": 0.7,
+          "blocked": 0.62
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.14,
+          "unsettled": 0.57,
+          "blocked": 0.86
+        }
+      ]
+    },
+    {
+      "id": "pick-lock",
+      "split": "calibration",
+      "declaration": "我用随身的开锁工具尝试挑开这把锁。",
+      "context": "The door is locked, the investigator has suitable lock picks, and there is no available key. Entry matters to the investigation.",
+      "expected": [
+        "Locksmith"
+      ],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.04,
+          "necessity": 0.34,
+          "unsettled": 0.79,
+          "blocked": 0.37
+        },
+        {
+          "skill": "DEX",
+          "method": 0.4,
+          "necessity": 0.77,
+          "unsettled": 0.88,
+          "blocked": 0.17
+        },
+        {
+          "skill": "Listen",
+          "method": 0.02,
+          "necessity": 0.12,
+          "unsettled": 0.76,
+          "blocked": 0.51
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.03,
+          "necessity": 0.22,
+          "unsettled": 0.76,
+          "blocked": 0.44
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.97,
+          "necessity": 0.91,
+          "unsettled": 0.94,
+          "blocked": 0.1
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.13,
+          "necessity": 0.66,
+          "unsettled": 0.74,
+          "blocked": 0.4
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.16,
+          "unsettled": 0.55,
+          "blocked": 0.89
+        }
+      ]
+    },
+    {
+      "id": "willing-conversation",
+      "split": "calibration",
+      "declaration": "请把报酬、地址和前一户人家遇到的事情告诉我。",
+      "context": "Knott is willing to explain the commission. He speaks clearly to the investigator in a quiet office. There is no opposition to this request.",
+      "expected": [],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.03,
+          "necessity": 0.06,
+          "unsettled": 0.68,
+          "blocked": 0.44
+        },
+        {
+          "skill": "DEX",
+          "method": 0.05,
+          "necessity": 0.07,
+          "unsettled": 0.78,
+          "blocked": 0.3
+        },
+        {
+          "skill": "Listen",
+          "method": 0.11,
+          "necessity": 0.09,
+          "unsettled": 0.61,
+          "blocked": 0.31
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.04,
+          "necessity": 0.09,
+          "unsettled": 0.72,
+          "blocked": 0.43
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.03,
+          "necessity": 0.08,
+          "unsettled": 0.77,
+          "blocked": 0.64
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.03,
+          "necessity": 0.07,
+          "unsettled": 0.7,
+          "blocked": 0.59
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.11,
+          "necessity": 0.12,
+          "unsettled": 0.69,
+          "blocked": 0.47
+        }
+      ]
+    },
+    {
+      "id": "open-door",
+      "split": "calibration",
+      "declaration": "我推开那扇没有锁的门走进去。",
+      "context": "The door is unlocked and works normally. There is no obstacle or contest.",
+      "expected": [],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.16,
+          "necessity": 0.06,
+          "unsettled": 0.43,
+          "blocked": 0.18
+        },
+        {
+          "skill": "DEX",
+          "method": 0.1,
+          "necessity": 0.06,
+          "unsettled": 0.41,
+          "blocked": 0.17
+        },
+        {
+          "skill": "Listen",
+          "method": 0.04,
+          "necessity": 0.07,
+          "unsettled": 0.37,
+          "blocked": 0.39
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.04,
+          "necessity": 0.07,
+          "unsettled": 0.37,
+          "blocked": 0.36
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.05,
+          "necessity": 0.06,
+          "unsettled": 0.37,
+          "blocked": 0.54
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.04,
+          "necessity": 0.05,
+          "unsettled": 0.36,
+          "blocked": 0.54
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.06,
+          "unsettled": 0.4,
+          "blocked": 0.89
+        }
+      ]
+    },
+    {
+      "id": "thought-not-action",
+      "split": "calibration",
+      "declaration": "我只是在考虑要不要扯开窗框，还没决定，现在不动手。",
+      "context": "The window is nailed shut. The investigator has not begun pulling it.",
+      "expected": [],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.69,
+          "necessity": 0.25,
+          "unsettled": 0.89,
+          "blocked": 0.84
+        },
+        {
+          "skill": "DEX",
+          "method": 0.18,
+          "necessity": 0.19,
+          "unsettled": 0.86,
+          "blocked": 0.82
+        },
+        {
+          "skill": "Listen",
+          "method": 0.03,
+          "necessity": 0.09,
+          "unsettled": 0.77,
+          "blocked": 0.68
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.05,
+          "necessity": 0.15,
+          "unsettled": 0.83,
+          "blocked": 0.69
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.25,
+          "necessity": 0.24,
+          "unsettled": 0.86,
+          "blocked": 0.79
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.14,
+          "necessity": 0.19,
+          "unsettled": 0.81,
+          "blocked": 0.77
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.1,
+          "unsettled": 0.71,
+          "blocked": 0.89
+        }
+      ]
+    },
+    {
+      "id": "unmet-fire-condition",
+      "split": "calibration",
+      "declaration": "只有看见楼上起火，我才动手扯开窗框。",
+      "context": "The window is nailed shut. There is no observed fire, and no earlier action has established one.",
+      "expected": [],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.67,
+          "necessity": 0.29,
+          "unsettled": 0.77,
+          "blocked": 0.92
+        },
+        {
+          "skill": "DEX",
+          "method": 0.34,
+          "necessity": 0.27,
+          "unsettled": 0.77,
+          "blocked": 0.92
+        },
+        {
+          "skill": "Listen",
+          "method": 0.05,
+          "necessity": 0.19,
+          "unsettled": 0.75,
+          "blocked": 0.7
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.15,
+          "necessity": 0.36,
+          "unsettled": 0.78,
+          "blocked": 0.7
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.36,
+          "necessity": 0.4,
+          "unsettled": 0.8,
+          "blocked": 0.89
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.12,
+          "necessity": 0.27,
+          "unsettled": 0.74,
+          "blocked": 0.9
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.03,
+          "necessity": 0.14,
+          "unsettled": 0.69,
+          "blocked": 0.9
+        }
+      ]
+    },
+    {
+      "id": "force-paraphrase",
+      "split": "holdout",
+      "declaration": "我抓紧钉住的窗扇，蹬稳地面，尽全力把它拉开，给自己留条退路。",
+      "context": "The nailed window resists opening. The investigator is attempting to overcome the fastenings by force, not repair the mechanism.",
+      "expected": [
+        "STR"
+      ],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.93,
+          "necessity": 0.91,
+          "unsettled": 0.93,
+          "blocked": 0.11
+        },
+        {
+          "skill": "DEX",
+          "method": 0.13,
+          "necessity": 0.75,
+          "unsettled": 0.88,
+          "blocked": 0.17
+        },
+        {
+          "skill": "Listen",
+          "method": 0.03,
+          "necessity": 0.09,
+          "unsettled": 0.65,
+          "blocked": 0.54
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.03,
+          "necessity": 0.14,
+          "unsettled": 0.61,
+          "blocked": 0.55
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.1,
+          "necessity": 0.58,
+          "unsettled": 0.81,
+          "blocked": 0.52
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.06,
+          "necessity": 0.47,
+          "unsettled": 0.71,
+          "blocked": 0.53
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.1,
+          "unsettled": 0.59,
+          "blocked": 0.91
+        }
+      ]
+    },
+    {
+      "id": "refused-listening",
+      "split": "holdout",
+      "declaration": "先别听门后的声音了，我只在门外等同伴过来。",
+      "context": "Voices are muffled behind the door, but the investigator explicitly chooses to wait rather than listen.",
+      "expected": [],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.03,
+          "necessity": 0.07,
+          "unsettled": 0.68,
+          "blocked": 0.54
+        },
+        {
+          "skill": "DEX",
+          "method": 0.05,
+          "necessity": 0.08,
+          "unsettled": 0.73,
+          "blocked": 0.36
+        },
+        {
+          "skill": "Listen",
+          "method": 0.04,
+          "necessity": 0.14,
+          "unsettled": 0.48,
+          "blocked": 0.72
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.04,
+          "necessity": 0.11,
+          "unsettled": 0.68,
+          "blocked": 0.46
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.02,
+          "necessity": 0.08,
+          "unsettled": 0.71,
+          "blocked": 0.8
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.02,
+          "necessity": 0.07,
+          "unsettled": 0.58,
+          "blocked": 0.79
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.09,
+          "unsettled": 0.63,
+          "blocked": 0.86
+        }
+      ]
+    },
+    {
+      "id": "visible-note",
+      "split": "holdout",
+      "declaration": "我拿起桌面上明摆着的纸条，读上面的字。",
+      "context": "The note is in plain view and legible. The investigator knows the language. Nothing is concealed or obstructing the reading.",
+      "expected": [],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.08,
+          "necessity": 0.05,
+          "unsettled": 0.58,
+          "blocked": 0.25
+        },
+        {
+          "skill": "DEX",
+          "method": 0.11,
+          "necessity": 0.07,
+          "unsettled": 0.65,
+          "blocked": 0.18
+        },
+        {
+          "skill": "Listen",
+          "method": 0.03,
+          "necessity": 0.05,
+          "unsettled": 0.5,
+          "blocked": 0.58
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.05,
+          "necessity": 0.07,
+          "unsettled": 0.44,
+          "blocked": 0.29
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.02,
+          "necessity": 0.06,
+          "unsettled": 0.58,
+          "blocked": 0.67
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.02,
+          "necessity": 0.05,
+          "unsettled": 0.58,
+          "blocked": 0.61
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.07,
+          "unsettled": 0.54,
+          "blocked": 0.85
+        }
+      ]
+    },
+    {
+      "id": "lock-not-touched",
+      "split": "holdout",
+      "declaration": "我不碰门锁，先待在门外。",
+      "context": "The door is locked. The investigator has chosen not to manipulate it.",
+      "expected": [],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.05,
+          "necessity": 0.1,
+          "unsettled": 0.63,
+          "blocked": 0.48
+        },
+        {
+          "skill": "DEX",
+          "method": 0.07,
+          "necessity": 0.11,
+          "unsettled": 0.65,
+          "blocked": 0.49
+        },
+        {
+          "skill": "Listen",
+          "method": 0.07,
+          "necessity": 0.21,
+          "unsettled": 0.71,
+          "blocked": 0.21
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.05,
+          "necessity": 0.18,
+          "unsettled": 0.71,
+          "blocked": 0.28
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.04,
+          "necessity": 0.13,
+          "unsettled": 0.54,
+          "blocked": 0.87
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.03,
+          "necessity": 0.12,
+          "unsettled": 0.63,
+          "blocked": 0.68
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.03,
+          "necessity": 0.11,
+          "unsettled": 0.59,
+          "blocked": 0.81
+        }
+      ]
+    },
+    {
+      "id": "roll-not-condition",
+      "split": "holdout",
+      "declaration": "只有听出里面有人，我才扯开窗框。",
+      "context": "A Listen check succeeded, but the established result was wind in an empty room, not a person. The nailed window remains closed.",
+      "receipt": {
+        "kind": "roll",
+        "actor": "托马斯·海斯",
+        "skill": "Listen",
+        "passed": true,
+        "outcome": "regular",
+        "goal": "Listen for a person inside"
+      },
+      "expected": [],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.11,
+          "necessity": 0.15,
+          "unsettled": 0.67,
+          "blocked": 0.9
+        },
+        {
+          "skill": "DEX",
+          "method": 0.1,
+          "necessity": 0.14,
+          "unsettled": 0.72,
+          "blocked": 0.88
+        },
+        {
+          "skill": "Listen",
+          "method": 0.83,
+          "necessity": 0.21,
+          "unsettled": 0.08,
+          "blocked": 0.64
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.04,
+          "necessity": 0.2,
+          "unsettled": 0.81,
+          "blocked": 0.58
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.08,
+          "necessity": 0.2,
+          "unsettled": 0.71,
+          "blocked": 0.88
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.04,
+          "necessity": 0.11,
+          "unsettled": 0.71,
+          "blocked": 0.87
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.16,
+          "unsettled": 0.69,
+          "blocked": 0.86
+        }
+      ]
+    },
+    {
+      "id": "settled-failure",
+      "split": "holdout",
+      "declaration": "我双手拉那扇钉死的窗框，想打开逃生口。",
+      "context": "This exact pulling attempt has already received its failed STR result. No changed approach or pushed roll has been chosen.",
+      "receipt": {
+        "kind": "roll",
+        "actor": "托马斯·海斯",
+        "skill": "STR",
+        "passed": false,
+        "outcome": "failure",
+        "goal": "Pull open the nailed window for an escape route"
+      },
+      "expected": [],
+      "predictions": [
+        {
+          "skill": "STR",
+          "method": 0.94,
+          "necessity": 0.36,
+          "unsettled": 0.05,
+          "blocked": 0.62
+        },
+        {
+          "skill": "DEX",
+          "method": 0.07,
+          "necessity": 0.27,
+          "unsettled": 0.78,
+          "blocked": 0.44
+        },
+        {
+          "skill": "Listen",
+          "method": 0.03,
+          "necessity": 0.11,
+          "unsettled": 0.78,
+          "blocked": 0.44
+        },
+        {
+          "skill": "Spot Hidden",
+          "method": 0.04,
+          "necessity": 0.17,
+          "unsettled": 0.84,
+          "blocked": 0.47
+        },
+        {
+          "skill": "Locksmith",
+          "method": 0.08,
+          "necessity": 0.36,
+          "unsettled": 0.86,
+          "blocked": 0.48
+        },
+        {
+          "skill": "Mechanical Repair",
+          "method": 0.05,
+          "necessity": 0.25,
+          "unsettled": 0.82,
+          "blocked": 0.58
+        },
+        {
+          "skill": "Persuade",
+          "method": 0.02,
+          "necessity": 0.13,
+          "unsettled": 0.8,
+          "blocked": 0.85
+        }
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "key": "check_0",
+      "target": "Investigator: STR",
+      "type": "noul",
+      "instructions": "Does this actor use this listed skill in a concrete method they actually declare? Judge only the fit between method and skill, not whether a roll is needed. Use its supplied rule definition when available.",
+      "criteria": {
+        "true": "The declared method uses this skill.",
+        "false": "This is not the declared method."
+      }
+    },
+    {
+      "key": "check_0_uncertain",
+      "target": "Investigator: STR",
+      "type": "noul",
+      "instructions": "According to `context.rules` and this profile's supplied definition, does this attempt require a check rather than automatic resolution? Distinguish merely using a skill from a situation calling for a roll. Missing source details do not themselves require a roll or prove a discovery.",
+      "criteria": {
+        "true": "The applicable rules require a roll for this attempt.",
+        "false": "This attempt does not require a roll under the applicable rules."
+      }
+    },
+    {
+      "key": "check_0_unsettled",
+      "target": "Investigator: STR",
+      "type": "noul",
+      "instructions": "Is this specific attempt still without a rule settlement? A failed roll is a settled attempt too. A result for a different independent method does not settle this one.",
+      "criteria": {
+        "true": "This attempt is still unsettled.",
+        "false": "This attempt is already settled."
+      }
+    },
+    {
+      "key": "check_1",
+      "target": "Investigator: DEX",
+      "type": "noul",
+      "instructions": "Does this actor use this listed skill in a concrete method they actually declare? Judge only the fit between method and skill, not whether a roll is needed. Use its supplied rule definition when available.",
+      "criteria": {
+        "true": "The declared method uses this skill.",
+        "false": "This is not the declared method."
+      }
+    },
+    {
+      "key": "check_1_uncertain",
+      "target": "Investigator: DEX",
+      "type": "noul",
+      "instructions": "According to `context.rules` and this profile's supplied definition, does this attempt require a check rather than automatic resolution? Distinguish merely using a skill from a situation calling for a roll. Missing source details do not themselves require a roll or prove a discovery.",
+      "criteria": {
+        "true": "The applicable rules require a roll for this attempt.",
+        "false": "This attempt does not require a roll under the applicable rules."
+      }
+    },
+    {
+      "key": "check_1_unsettled",
+      "target": "Investigator: DEX",
+      "type": "noul",
+      "instructions": "Is this specific attempt still without a rule settlement? A failed roll is a settled attempt too. A result for a different independent method does not settle this one.",
+      "criteria": {
+        "true": "This attempt is still unsettled.",
+        "false": "This attempt is already settled."
+      }
+    },
+    {
+      "key": "check_2",
+      "target": "Investigator: Listen",
+      "type": "noul",
+      "instructions": "Does this actor use this listed skill in a concrete method they actually declare? Judge only the fit between method and skill, not whether a roll is needed. Use its supplied rule definition when available.",
+      "criteria": {
+        "true": "The declared method uses this skill.",
+        "false": "This is not the declared method."
+      }
+    },
+    {
+      "key": "check_2_uncertain",
+      "target": "Investigator: Listen",
+      "type": "noul",
+      "instructions": "According to `context.rules` and this profile's supplied definition, does this attempt require a check rather than automatic resolution? Distinguish merely using a skill from a situation calling for a roll. Missing source details do not themselves require a roll or prove a discovery.",
+      "criteria": {
+        "true": "The applicable rules require a roll for this attempt.",
+        "false": "This attempt does not require a roll under the applicable rules."
+      }
+    },
+    {
+      "key": "check_2_unsettled",
+      "target": "Investigator: Listen",
+      "type": "noul",
+      "instructions": "Is this specific attempt still without a rule settlement? A failed roll is a settled attempt too. A result for a different independent method does not settle this one.",
+      "criteria": {
+        "true": "This attempt is still unsettled.",
+        "false": "This attempt is already settled."
+      }
+    },
+    {
+      "key": "check_3",
+      "target": "Investigator: Spot Hidden",
+      "type": "noul",
+      "instructions": "Does this actor use this listed skill in a concrete method they actually declare? Judge only the fit between method and skill, not whether a roll is needed. Use its supplied rule definition when available.",
+      "criteria": {
+        "true": "The declared method uses this skill.",
+        "false": "This is not the declared method."
+      }
+    },
+    {
+      "key": "check_3_uncertain",
+      "target": "Investigator: Spot Hidden",
+      "type": "noul",
+      "instructions": "According to `context.rules` and this profile's supplied definition, does this attempt require a check rather than automatic resolution? Distinguish merely using a skill from a situation calling for a roll. Missing source details do not themselves require a roll or prove a discovery.",
+      "criteria": {
+        "true": "The applicable rules require a roll for this attempt.",
+        "false": "This attempt does not require a roll under the applicable rules."
+      }
+    },
+    {
+      "key": "check_3_unsettled",
+      "target": "Investigator: Spot Hidden",
+      "type": "noul",
+      "instructions": "Is this specific attempt still without a rule settlement? A failed roll is a settled attempt too. A result for a different independent method does not settle this one.",
+      "criteria": {
+        "true": "This attempt is still unsettled.",
+        "false": "This attempt is already settled."
+      }
+    },
+    {
+      "key": "check_4",
+      "target": "Investigator: Locksmith",
+      "type": "noul",
+      "instructions": "Does this actor use this listed skill in a concrete method they actually declare? Judge only the fit between method and skill, not whether a roll is needed. Use its supplied rule definition when available.",
+      "criteria": {
+        "true": "The declared method uses this skill.",
+        "false": "This is not the declared method."
+      }
+    },
+    {
+      "key": "check_4_uncertain",
+      "target": "Investigator: Locksmith",
+      "type": "noul",
+      "instructions": "According to `context.rules` and this profile's supplied definition, does this attempt require a check rather than automatic resolution? Distinguish merely using a skill from a situation calling for a roll. Missing source details do not themselves require a roll or prove a discovery.",
+      "criteria": {
+        "true": "The applicable rules require a roll for this attempt.",
+        "false": "This attempt does not require a roll under the applicable rules."
+      }
+    },
+    {
+      "key": "check_4_unsettled",
+      "target": "Investigator: Locksmith",
+      "type": "noul",
+      "instructions": "Is this specific attempt still without a rule settlement? A failed roll is a settled attempt too. A result for a different independent method does not settle this one.",
+      "criteria": {
+        "true": "This attempt is still unsettled.",
+        "false": "This attempt is already settled."
+      }
+    },
+    {
+      "key": "check_5",
+      "target": "Investigator: Mechanical Repair",
+      "type": "noul",
+      "instructions": "Does this actor use this listed skill in a concrete method they actually declare? Judge only the fit between method and skill, not whether a roll is needed. Use its supplied rule definition when available.",
+      "criteria": {
+        "true": "The declared method uses this skill.",
+        "false": "This is not the declared method."
+      }
+    },
+    {
+      "key": "check_5_uncertain",
+      "target": "Investigator: Mechanical Repair",
+      "type": "noul",
+      "instructions": "According to `context.rules` and this profile's supplied definition, does this attempt require a check rather than automatic resolution? Distinguish merely using a skill from a situation calling for a roll. Missing source details do not themselves require a roll or prove a discovery.",
+      "criteria": {
+        "true": "The applicable rules require a roll for this attempt.",
+        "false": "This attempt does not require a roll under the applicable rules."
+      }
+    },
+    {
+      "key": "check_5_unsettled",
+      "target": "Investigator: Mechanical Repair",
+      "type": "noul",
+      "instructions": "Is this specific attempt still without a rule settlement? A failed roll is a settled attempt too. A result for a different independent method does not settle this one.",
+      "criteria": {
+        "true": "This attempt is still unsettled.",
+        "false": "This attempt is already settled."
+      }
+    },
+    {
+      "key": "check_6",
+      "target": "Investigator: Persuade",
+      "type": "noul",
+      "instructions": "Does this actor use this listed skill in a concrete method they actually declare? Judge only the fit between method and skill, not whether a roll is needed. Use its supplied rule definition when available.",
+      "criteria": {
+        "true": "The declared method uses this skill.",
+        "false": "This is not the declared method."
+      }
+    },
+    {
+      "key": "check_6_uncertain",
+      "target": "Investigator: Persuade",
+      "type": "noul",
+      "instructions": "According to `context.rules` and this profile's supplied definition, does this attempt require a check rather than automatic resolution? Distinguish merely using a skill from a situation calling for a roll. Missing source details do not themselves require a roll or prove a discovery.",
+      "criteria": {
+        "true": "The applicable rules require a roll for this attempt.",
+        "false": "This attempt does not require a roll under the applicable rules."
+      }
+    },
+    {
+      "key": "check_6_unsettled",
+      "target": "Investigator: Persuade",
+      "type": "noul",
+      "instructions": "Is this specific attempt still without a rule settlement? A failed roll is a settled attempt too. A result for a different independent method does not settle this one.",
+      "criteria": {
+        "true": "This attempt is still unsettled.",
+        "false": "This attempt is already settled."
+      }
+    },
+    {
+      "key": "check_0_blocked",
+      "target": "Investigator: STR",
+      "type": "noul",
+      "instructions": "Does resolving this attempt now have an unmet prerequisite in the declaration or current location? Explicit earlier actions must have settled first; a conditional attempt waits for its condition to hold. Independent other checks are not prerequisites.",
+      "criteria": {
+        "true": "A prerequisite is still unmet; this attempt must wait.",
+        "false": "No unmet prerequisite prevents this attempt now."
+      }
+    },
+    {
+      "key": "check_1_blocked",
+      "target": "Investigator: DEX",
+      "type": "noul",
+      "instructions": "Does resolving this attempt now have an unmet prerequisite in the declaration or current location? Explicit earlier actions must have settled first; a conditional attempt waits for its condition to hold. Independent other checks are not prerequisites.",
+      "criteria": {
+        "true": "A prerequisite is still unmet; this attempt must wait.",
+        "false": "No unmet prerequisite prevents this attempt now."
+      }
+    },
+    {
+      "key": "check_2_blocked",
+      "target": "Investigator: Listen",
+      "type": "noul",
+      "instructions": "Does resolving this attempt now have an unmet prerequisite in the declaration or current location? Explicit earlier actions must have settled first; a conditional attempt waits for its condition to hold. Independent other checks are not prerequisites.",
+      "criteria": {
+        "true": "A prerequisite is still unmet; this attempt must wait.",
+        "false": "No unmet prerequisite prevents this attempt now."
+      }
+    },
+    {
+      "key": "check_3_blocked",
+      "target": "Investigator: Spot Hidden",
+      "type": "noul",
+      "instructions": "Does resolving this attempt now have an unmet prerequisite in the declaration or current location? Explicit earlier actions must have settled first; a conditional attempt waits for its condition to hold. Independent other checks are not prerequisites.",
+      "criteria": {
+        "true": "A prerequisite is still unmet; this attempt must wait.",
+        "false": "No unmet prerequisite prevents this attempt now."
+      }
+    },
+    {
+      "key": "check_4_blocked",
+      "target": "Investigator: Locksmith",
+      "type": "noul",
+      "instructions": "Does resolving this attempt now have an unmet prerequisite in the declaration or current location? Explicit earlier actions must have settled first; a conditional attempt waits for its condition to hold. Independent other checks are not prerequisites.",
+      "criteria": {
+        "true": "A prerequisite is still unmet; this attempt must wait.",
+        "false": "No unmet prerequisite prevents this attempt now."
+      }
+    },
+    {
+      "key": "check_5_blocked",
+      "target": "Investigator: Mechanical Repair",
+      "type": "noul",
+      "instructions": "Does resolving this attempt now have an unmet prerequisite in the declaration or current location? Explicit earlier actions must have settled first; a conditional attempt waits for its condition to hold. Independent other checks are not prerequisites.",
+      "criteria": {
+        "true": "A prerequisite is still unmet; this attempt must wait.",
+        "false": "No unmet prerequisite prevents this attempt now."
+      }
+    },
+    {
+      "key": "check_6_blocked",
+      "target": "Investigator: Persuade",
+      "type": "noul",
+      "instructions": "Does resolving this attempt now have an unmet prerequisite in the declaration or current location? Explicit earlier actions must have settled first; a conditional attempt waits for its condition to hold. Independent other checks are not prerequisites.",
+      "criteria": {
+        "true": "A prerequisite is still unmet; this attempt must wait.",
+        "false": "No unmet prerequisite prevents this attempt now."
+      }
+    }
+  ],
+  "cutoff_comparison": [
+    {
+      "cutoff": 0.65,
+      "split": "calibration",
+      "missed": [],
+      "extra": []
+    },
+    {
+      "cutoff": 0.65,
+      "split": "holdout",
+      "missed": [],
+      "extra": []
+    },
+    {
+      "cutoff": 0.7,
+      "split": "calibration",
+      "missed": [],
+      "extra": []
+    },
+    {
+      "cutoff": 0.7,
+      "split": "holdout",
+      "missed": [],
+      "extra": []
+    },
+    {
+      "cutoff": 0.75,
+      "split": "calibration",
+      "missed": [],
+      "extra": []
+    },
+    {
+      "cutoff": 0.75,
+      "split": "holdout",
+      "missed": [],
+      "extra": []
+    },
+    {
+      "cutoff": 0.8,
+      "split": "calibration",
+      "missed": [],
+      "extra": []
+    },
+    {
+      "cutoff": 0.8,
+      "split": "holdout",
+      "missed": [],
+      "extra": []
+    },
+    {
+      "cutoff": 0.85,
+      "split": "calibration",
+      "missed": [
+        "quiet-eavesdrop:Listen"
+      ],
+      "extra": []
+    },
+    {
+      "cutoff": 0.85,
+      "split": "holdout",
+      "missed": [],
+      "extra": []
+    }
+  ],
+  "captured_real_calibration": {
+    "campaign": "jev-checks-agent-scope-20260930",
+    "turn": 5,
+    "expected": [
+      "STR"
+    ],
+    "judgment": "The player chose physical force against a nailed frame to create an escape route.",
+    "scores": {
+      "method": 0.84,
+      "necessity": 0.78,
+      "unsettled": 0.91,
+      "blocked": 0.21
+    }
+  },
+  "selected_applicability_cutoff": 0.65,
+  "selection_reason": "The minimal-context calibration did not transfer reliably to the full live state. Full-context positives ranged down to 0.68; the largest observed false applicability was 0.39. A 0.65 candidate cutoff was fixed before six new prospective cases (three positive, three negative), all of which passed without an extra selected profile. This cutoff also gives symmetric ordinary yes/no bands around the existing 0.35 negative cutoff.",
+  "limitations": [
+    "Small manually labeled decision dataset, not a gameplay acceptance or a general accuracy estimate.",
+    "The six holdout cases include only one positive case; their passing result is weak evidence for broad recall.",
+    "Full-context robustness and prospective positive cases concern STR at one scene, not general calibration of every skill. No gameplay acceptance is inferred from these decision-only probes."
+  ],
+  "initial_selected_applicability_cutoff": 0.75,
+  "full_context_robustness": {
+    "source": {
+      "campaign": "jev-checks-final-v11-20260930",
+      "turn": 3
+    },
+    "rows": [
+      {
+        "id": "pull-frame",
+        "split": "calibration",
+        "declaration": "我双手抓住一楼那扇钉死的窗框，脚踩稳，用力往外拉，想把它从钉子上扯开，给自己留一个逃生口。",
+        "expected": [
+          "STR"
+        ],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.16
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.69
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.07
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.36
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.19
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.68
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.29
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.65
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.06
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.57
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.82
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.75
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.24
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.66
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.32
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.53
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.33
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.31
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.47
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.19
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.22
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.16,
+            "necessity": 0.69,
+            "blocked": 0.32
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.07,
+            "necessity": 0.36,
+            "blocked": 0.53
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.19,
+            "necessity": 0.68,
+            "blocked": 0.33
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.29,
+            "necessity": 0.65,
+            "blocked": 0.31
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.06,
+            "necessity": 0.57,
+            "blocked": 0.47
+          },
+          {
+            "skill": "STR",
+            "method": 0.82,
+            "necessity": 0.75,
+            "blocked": 0.19
+          },
+          {
+            "skill": "DEX",
+            "method": 0.24,
+            "necessity": 0.66,
+            "blocked": 0.22
+          }
+        ]
+      },
+      {
+        "id": "brace-pull",
+        "split": "calibration",
+        "declaration": "我蹬稳地面，抓牢钉死的窗扇，试着用全身的力气把它拉开。",
+        "expected": [
+          "STR"
+        ],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.09
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.61
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.08
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.39
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.17
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.63
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.18
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.56
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.52
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.86
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.7
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.19
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.64
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.49
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.53
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.44
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.37
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.48
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.18
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.2
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.09,
+            "necessity": 0.61,
+            "blocked": 0.49
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.08,
+            "necessity": 0.39,
+            "blocked": 0.53
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.17,
+            "necessity": 0.63,
+            "blocked": 0.44
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.18,
+            "necessity": 0.56,
+            "blocked": 0.37
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.05,
+            "necessity": 0.52,
+            "blocked": 0.48
+          },
+          {
+            "skill": "STR",
+            "method": 0.86,
+            "necessity": 0.7,
+            "blocked": 0.18
+          },
+          {
+            "skill": "DEX",
+            "method": 0.19,
+            "necessity": 0.64,
+            "blocked": 0.2
+          }
+        ]
+      },
+      {
+        "id": "no-action",
+        "split": "calibration",
+        "declaration": "我不碰窗户，先站在门厅等一会儿。",
+        "expected": [],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.02
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.09
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.16
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.02
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.1
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.04
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.07
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.83
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.69
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.44
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.53
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.67
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.56
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.45
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.03,
+            "necessity": 0.12,
+            "blocked": 0.83
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.02,
+            "necessity": 0.09,
+            "blocked": 0.69
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.05,
+            "necessity": 0.16,
+            "blocked": 0.44
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.03,
+            "necessity": 0.12,
+            "blocked": 0.53
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.02,
+            "necessity": 0.1,
+            "blocked": 0.67
+          },
+          {
+            "skill": "STR",
+            "method": 0.04,
+            "necessity": 0.12,
+            "blocked": 0.56
+          },
+          {
+            "skill": "DEX",
+            "method": 0.07,
+            "necessity": 0.12,
+            "blocked": 0.45
+          }
+        ]
+      },
+      {
+        "id": "undecided",
+        "split": "calibration",
+        "declaration": "我还没决定是拉开窗框还是离开，现在先不动手。",
+        "expected": [],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.23
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.1
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.1
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.26
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.09
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.26
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.14
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.08
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.19
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.08
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.16
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.83
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.78
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.62
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.56
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.72
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.69
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.71
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.05,
+            "necessity": 0.23,
+            "blocked": 0.83
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.03,
+            "necessity": 0.1,
+            "blocked": 0.78
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.1,
+            "necessity": 0.26,
+            "blocked": 0.62
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.09,
+            "necessity": 0.26,
+            "blocked": 0.56
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.03,
+            "necessity": 0.14,
+            "blocked": 0.72
+          },
+          {
+            "skill": "STR",
+            "method": 0.08,
+            "necessity": 0.19,
+            "blocked": 0.69
+          },
+          {
+            "skill": "DEX",
+            "method": 0.08,
+            "necessity": 0.16,
+            "blocked": 0.71
+          }
+        ]
+      },
+      {
+        "id": "ask-only",
+        "split": "calibration",
+        "declaration": "我只是想知道这窗是谁钉上的，没有动手拆它。",
+        "expected": [],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.04
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.16
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.1
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.08
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.27
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.32
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.38
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.17
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.06
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.19
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.1
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.22
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.69
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.69
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.48
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.29
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.58
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.41
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.37
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.04,
+            "necessity": 0.16,
+            "blocked": 0.69
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.03,
+            "necessity": 0.1,
+            "blocked": 0.69
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.08,
+            "necessity": 0.27,
+            "blocked": 0.48
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.32,
+            "necessity": 0.38,
+            "blocked": 0.29
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.03,
+            "necessity": 0.17,
+            "blocked": 0.58
+          },
+          {
+            "skill": "STR",
+            "method": 0.06,
+            "necessity": 0.19,
+            "blocked": 0.41
+          },
+          {
+            "skill": "DEX",
+            "method": 0.1,
+            "necessity": 0.22,
+            "blocked": 0.37
+          }
+        ]
+      },
+      {
+        "id": "future-fire",
+        "split": "calibration",
+        "declaration": "如果真的起火了，我再动手扯开窗框；现在没有起火，我先等着。",
+        "expected": [],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.04
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.15
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.1
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.07
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.21
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.24
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.22
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.04
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.13
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.29
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.17
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.14
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.13
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.89
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.8
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.64
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.77
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.86
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.85
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.81
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.04,
+            "necessity": 0.15,
+            "blocked": 0.89
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.03,
+            "necessity": 0.1,
+            "blocked": 0.8
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.07,
+            "necessity": 0.21,
+            "blocked": 0.64
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.24,
+            "necessity": 0.22,
+            "blocked": 0.77
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.04,
+            "necessity": 0.13,
+            "blocked": 0.86
+          },
+          {
+            "skill": "STR",
+            "method": 0.29,
+            "necessity": 0.17,
+            "blocked": 0.85
+          },
+          {
+            "skill": "DEX",
+            "method": 0.14,
+            "necessity": 0.13,
+            "blocked": 0.81
+          }
+        ]
+      },
+      {
+        "id": "force-open",
+        "split": "holdout",
+        "declaration": "我双手扣紧窗框，使劲往外扳，想硬把窗扇从固定的钉子上挣开。",
+        "expected": [
+          "STR"
+        ],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.08
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.63
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.09
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.45
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.32
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.7
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.24
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.57
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.06
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.49
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.81
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.68
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.23
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.61
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.46
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.45
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.38
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.32
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.5
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.18
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.21
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.08,
+            "necessity": 0.63,
+            "blocked": 0.46
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.09,
+            "necessity": 0.45,
+            "blocked": 0.45
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.32,
+            "necessity": 0.7,
+            "blocked": 0.38
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.24,
+            "necessity": 0.57,
+            "blocked": 0.32
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.06,
+            "necessity": 0.49,
+            "blocked": 0.5
+          },
+          {
+            "skill": "STR",
+            "method": 0.81,
+            "necessity": 0.68,
+            "blocked": 0.18
+          },
+          {
+            "skill": "DEX",
+            "method": 0.23,
+            "necessity": 0.61,
+            "blocked": 0.21
+          }
+        ]
+      },
+      {
+        "id": "open-exit",
+        "split": "holdout",
+        "declaration": "我打算打开一条逃生路，抓住封死的窗框，用身体后仰的力量把它往外拉。",
+        "expected": [
+          "STR"
+        ],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.39
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.81
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.09
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.4
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.13
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.67
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.17
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.6
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.55
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.84
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.77
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.3
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.72
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.29
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.53
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.42
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.37
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.56
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.25
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.27
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.39,
+            "necessity": 0.81,
+            "blocked": 0.29
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.09,
+            "necessity": 0.4,
+            "blocked": 0.53
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.13,
+            "necessity": 0.67,
+            "blocked": 0.42
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.17,
+            "necessity": 0.6,
+            "blocked": 0.37
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.05,
+            "necessity": 0.55,
+            "blocked": 0.56
+          },
+          {
+            "skill": "STR",
+            "method": 0.84,
+            "necessity": 0.77,
+            "blocked": 0.25
+          },
+          {
+            "skill": "DEX",
+            "method": 0.3,
+            "necessity": 0.72,
+            "blocked": 0.27
+          }
+        ]
+      },
+      {
+        "id": "look-only",
+        "split": "holdout",
+        "declaration": "我只看看窗户是怎么封住的，不拉窗框，也不拔钉子。",
+        "expected": [],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.04
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.02
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.08
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.1
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.19
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.27
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.19
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.06
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.16
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.15
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.69
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.68
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.43
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.27
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.57
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.39
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.28
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.04,
+            "necessity": 0.12,
+            "blocked": 0.69
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.02,
+            "necessity": 0.08,
+            "blocked": 0.68
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.1,
+            "necessity": 0.19,
+            "blocked": 0.43
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.27,
+            "necessity": 0.19,
+            "blocked": 0.27
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.03,
+            "necessity": 0.12,
+            "blocked": 0.57
+          },
+          {
+            "skill": "STR",
+            "method": 0.06,
+            "necessity": 0.12,
+            "blocked": 0.39
+          },
+          {
+            "skill": "DEX",
+            "method": 0.16,
+            "necessity": 0.15,
+            "blocked": 0.28
+          }
+        ]
+      },
+      {
+        "id": "wait-choice",
+        "split": "holdout",
+        "declaration": "先不拆窗户，我想等同伴来了再商量。",
+        "expected": [],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.22
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.07
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.23
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.13
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.24
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.21
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.07
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.18
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.07
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.16
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.73
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.74
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.49
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.52
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.68
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.59
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.58
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.05,
+            "necessity": 0.22,
+            "blocked": 0.73
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.03,
+            "necessity": 0.12,
+            "blocked": 0.74
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.07,
+            "necessity": 0.23,
+            "blocked": 0.49
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.13,
+            "necessity": 0.24,
+            "blocked": 0.52
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.05,
+            "necessity": 0.21,
+            "blocked": 0.68
+          },
+          {
+            "skill": "STR",
+            "method": 0.07,
+            "necessity": 0.18,
+            "blocked": 0.59
+          },
+          {
+            "skill": "DEX",
+            "method": 0.07,
+            "necessity": 0.16,
+            "blocked": 0.58
+          }
+        ]
+      }
+    ],
+    "comparison": [
+      {
+        "cutoff": 0.65,
+        "split": "calibration",
+        "missed": [],
+        "extra": []
+      },
+      {
+        "cutoff": 0.65,
+        "split": "holdout",
+        "missed": [],
+        "extra": []
+      },
+      {
+        "cutoff": 0.7,
+        "split": "calibration",
+        "missed": [],
+        "extra": []
+      },
+      {
+        "cutoff": 0.7,
+        "split": "holdout",
+        "missed": [
+          "force-open:STR"
+        ],
+        "extra": []
+      },
+      {
+        "cutoff": 0.75,
+        "split": "calibration",
+        "missed": [
+          "brace-pull:STR"
+        ],
+        "extra": []
+      },
+      {
+        "cutoff": 0.75,
+        "split": "holdout",
+        "missed": [
+          "force-open:STR"
+        ],
+        "extra": []
+      },
+      {
+        "cutoff": 0.8,
+        "split": "calibration",
+        "missed": [
+          "pull-frame:STR",
+          "brace-pull:STR"
+        ],
+        "extra": []
+      },
+      {
+        "cutoff": 0.8,
+        "split": "holdout",
+        "missed": [
+          "force-open:STR",
+          "open-exit:STR"
+        ],
+        "extra": []
+      },
+      {
+        "cutoff": 0.85,
+        "split": "calibration",
+        "missed": [
+          "pull-frame:STR",
+          "brace-pull:STR"
+        ],
+        "extra": []
+      },
+      {
+        "cutoff": 0.85,
+        "split": "holdout",
+        "missed": [
+          "force-open:STR",
+          "open-exit:STR"
+        ],
+        "extra": []
+      }
+    ],
+    "note": "Development data after inspecting both original splits; not treated as a final holdout."
+  },
+  "prospective_check": {
+    "frozen_cutoff": 0.65,
+    "source": {
+      "campaign": "jev-checks-final-v11-20260930",
+      "turn": 3
+    },
+    "rows": [
+      {
+        "id": "pull-loose",
+        "split": "prospective",
+        "declaration": "我抓住窗框两侧，稳住身体，尽力把钉住的窗框往外拉松。",
+        "expected": [
+          "STR"
+        ],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.19
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.67
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.33
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.32
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.7
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.42
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.69
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.48
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.8
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.72
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.4
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.65
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.39
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.56
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.35
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.28
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.52
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.19
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.2
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.19,
+            "necessity": 0.67,
+            "blocked": 0.39
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.05,
+            "necessity": 0.33,
+            "blocked": 0.56
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.32,
+            "necessity": 0.7,
+            "blocked": 0.35
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.42,
+            "necessity": 0.69,
+            "blocked": 0.28
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.05,
+            "necessity": 0.48,
+            "blocked": 0.52
+          },
+          {
+            "skill": "STR",
+            "method": 0.8,
+            "necessity": 0.72,
+            "blocked": 0.19
+          },
+          {
+            "skill": "DEX",
+            "method": 0.4,
+            "necessity": 0.65,
+            "blocked": 0.2
+          }
+        ]
+      },
+      {
+        "id": "wrench-frame",
+        "split": "prospective",
+        "declaration": "我两手扣牢横框，用身体的力气向外扳，想让窗框挣脱钉子。",
+        "expected": [
+          "STR"
+        ],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.07
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.65
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.11
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.51
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.24
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.69
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.26
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.63
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.06
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.57
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.87
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.74
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.17
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.65
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.42
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.44
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.35
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.28
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.44
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.18
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.19
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.07,
+            "necessity": 0.65,
+            "blocked": 0.42
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.11,
+            "necessity": 0.51,
+            "blocked": 0.44
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.24,
+            "necessity": 0.69,
+            "blocked": 0.35
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.26,
+            "necessity": 0.63,
+            "blocked": 0.28
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.06,
+            "necessity": 0.57,
+            "blocked": 0.44
+          },
+          {
+            "skill": "STR",
+            "method": 0.87,
+            "necessity": 0.74,
+            "blocked": 0.18
+          },
+          {
+            "skill": "DEX",
+            "method": 0.17,
+            "necessity": 0.65,
+            "blocked": 0.19
+          }
+        ]
+      },
+      {
+        "id": "make-exit",
+        "split": "prospective",
+        "declaration": "我要把这扇钉死的窗打开当出口，双手攥紧框边，用力向外扯。",
+        "expected": [
+          "STR"
+        ],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.16
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.72
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.07
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.41
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.18
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.69
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.26
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.68
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.62
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.85
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.76
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.27
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.68
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.43
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.51
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.44
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.35
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.48
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.22
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.24
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.16,
+            "necessity": 0.72,
+            "blocked": 0.43
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.07,
+            "necessity": 0.41,
+            "blocked": 0.51
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.18,
+            "necessity": 0.69,
+            "blocked": 0.44
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.26,
+            "necessity": 0.68,
+            "blocked": 0.35
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.05,
+            "necessity": 0.62,
+            "blocked": 0.48
+          },
+          {
+            "skill": "STR",
+            "method": 0.85,
+            "necessity": 0.76,
+            "blocked": 0.22
+          },
+          {
+            "skill": "DEX",
+            "method": 0.27,
+            "necessity": 0.68,
+            "blocked": 0.24
+          }
+        ]
+      },
+      {
+        "id": "rest-hands-off",
+        "split": "prospective",
+        "declaration": "我在门厅原地休息，手不碰窗框。",
+        "expected": [],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.11
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.02
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.08
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.04
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.14
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.13
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.02
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.1
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.11
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.09
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.11
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.82
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.8
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.51
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.6
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.67
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.56
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.5
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.03,
+            "necessity": 0.11,
+            "blocked": 0.82
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.02,
+            "necessity": 0.08,
+            "blocked": 0.8
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.04,
+            "necessity": 0.14,
+            "blocked": 0.51
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.03,
+            "necessity": 0.13,
+            "blocked": 0.6
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.02,
+            "necessity": 0.1,
+            "blocked": 0.67
+          },
+          {
+            "skill": "STR",
+            "method": 0.05,
+            "necessity": 0.11,
+            "blocked": 0.56
+          },
+          {
+            "skill": "DEX",
+            "method": 0.09,
+            "necessity": 0.11,
+            "blocked": 0.5
+          }
+        ]
+      },
+      {
+        "id": "tools-first",
+        "split": "prospective",
+        "declaration": "我想等找来合适工具再拆窗，现在先等着，不动它。",
+        "expected": [],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.04
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.16
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.09
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.1
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.18
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.23
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.17
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.07
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.14
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.06
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.14
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.08
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.82
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.75
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.64
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.74
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.77
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.69
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.65
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.04,
+            "necessity": 0.16,
+            "blocked": 0.82
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.03,
+            "necessity": 0.09,
+            "blocked": 0.75
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.1,
+            "necessity": 0.18,
+            "blocked": 0.64
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.23,
+            "necessity": 0.17,
+            "blocked": 0.74
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.07,
+            "necessity": 0.14,
+            "blocked": 0.77
+          },
+          {
+            "skill": "STR",
+            "method": 0.06,
+            "necessity": 0.14,
+            "blocked": 0.69
+          },
+          {
+            "skill": "DEX",
+            "method": 0.08,
+            "necessity": 0.12,
+            "blocked": 0.65
+          }
+        ]
+      },
+      {
+        "id": "danger-condition",
+        "split": "prospective",
+        "declaration": "只有门外出现危险，我才拉开窗框；现在还没发现危险。",
+        "expected": [],
+        "answers": {
+          "check_0": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.05
+          },
+          "check_0_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.16
+          },
+          "check_1": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_1_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_2": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_2_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.23
+          },
+          "check_3": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.06
+          },
+          "check_3_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.18
+          },
+          "check_4": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.03
+          },
+          "check_4_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_5": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.06
+          },
+          "check_5_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.14
+          },
+          "check_6": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.12
+          },
+          "check_6_uncertain": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.13
+          },
+          "check_0_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.88
+          },
+          "check_1_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.83
+          },
+          "check_2_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.59
+          },
+          "check_3_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.68
+          },
+          "check_4_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.75
+          },
+          "check_5_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.75
+          },
+          "check_6_blocked": {
+            "status": "answered",
+            "type": "noul",
+            "noul": 0.77
+          }
+        },
+        "predictions": [
+          {
+            "skill": "Climb",
+            "method": 0.05,
+            "necessity": 0.16,
+            "blocked": 0.88
+          },
+          {
+            "skill": "Fighting (Brawl)",
+            "method": 0.03,
+            "necessity": 0.12,
+            "blocked": 0.83
+          },
+          {
+            "skill": "Locksmith",
+            "method": 0.12,
+            "necessity": 0.23,
+            "blocked": 0.59
+          },
+          {
+            "skill": "Craft (Carpentry)",
+            "method": 0.06,
+            "necessity": 0.18,
+            "blocked": 0.68
+          },
+          {
+            "skill": "Demolitions",
+            "method": 0.03,
+            "necessity": 0.12,
+            "blocked": 0.75
+          },
+          {
+            "skill": "STR",
+            "method": 0.06,
+            "necessity": 0.14,
+            "blocked": 0.75
+          },
+          {
+            "skill": "DEX",
+            "method": 0.12,
+            "necessity": 0.13,
+            "blocked": 0.77
+          }
+        ]
+      }
+    ],
+    "comparison": [
+      {
+        "cutoff": 0.65,
+        "split": "prospective",
+        "missed": [],
+        "extra": []
+      }
+    ]
+  },
+  "narrowed_candidate_probe": {
+    "kind": "read-only-diagnostic-not-play-acceptance",
+    "source": "jev-checks-final-v11-20260930 turn 3 check-selection need",
+    "model": "jev-1.13.0",
+    "change": "Retain full declaration/context and STR predicates; remove other candidate profiles. Prior answers are not input.",
+    "before": {
+      "method": 0.83,
+      "necessity": 0.74,
+      "blocked": 0.19
+    },
+    "after": {
+      "method": 0.93,
+      "necessity": 0.82,
+      "blocked": 0.14
+    },
+    "limitations": [
+      "One observed attempt, no independence or general accuracy claim.",
+      "Does not justify a second round after strong negatives, provider failure or missing source.",
+      "The second result still does not clear a hypothetical 0.85 necessity gate."
+    ],
+    "artifact": ".tmp/jev-check-calibration/confirmation-probe.json"
+  }
+}

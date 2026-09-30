@@ -218,6 +218,7 @@ function decisionPort({ route: routeAnswer, compileMs = 0, slowPrescreen = false
 		}
 		if (batch.family === BIND_FAMILY) { log.push({ kind: "bind", at }); return answered(batch); }
 		if (batch.family === "ordinary-resolve") { log.push({ kind: "binder", at, deadline }); return supported(batch); }
+		if (batch.family.startsWith('check-selection-')) { log.push({kind: 'check-selection', at, deadline}); return unavailable(batch, 'fixture_no_additional_check'); }
 		log.push({ kind: "prescreen", family: batch.family, at, deadline });
 		if (!slowPrescreen) return supported(batch);
 		if (clock) {
@@ -353,7 +354,7 @@ test("a read_more on the same scene refreshes source evidence instead of replayi
 
 test("the ordinary binder asked after a spent allowance holds its own 15 s lease, not the allowance's remainder", async (t) => {
 	const { log, port } = decisionPort({ slowPrescreen: true,
-		route: (batch, n) => n === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : /core-check:ordinary-check/.test(question.target) ? "now" : undefined)
+		route: (batch, n) => n === 1 ? answered(batch, (question) => question.key === "exit" ? "continue" : batch.state.candidates[question.key.replace('need_', 'candidate_')]?.bound?.decision === 'core-check:ordinary-check' ? "now" : undefined)
 			: answered(batch, (question) => question.key === "exit" ? "finish" : undefined) });
 	const table = await hybridTable({ port, responses: [narrate("You search the office."), narrate("Nothing more.")] });
 	t.after(() => table.dispose());
@@ -362,7 +363,7 @@ test("the ordinary binder asked after a spent allowance holds its own 15 s lease
 	// The prescreen prepares its own check advice inside the allowance; the binder the clerk's check asks comes after the read.
 	const read = runRows(table.table, "read")[0];
 	const readEnd = table.events.find((event) => event.type === "step_end" && event.stepId === read.stepId).at;
-	const binder = log.find((entry) => entry.kind === "binder" && entry.at > readEnd);
+	const binder = log.find((entry) => entry.kind === 'check-selection' && entry.at > readEnd);
 	assert.ok(binder, `the ordinary binder was asked after the read (${log.map((entry) => entry.kind).join(",")})`);
 	assert.ok(binder.deadline - binder.at > 10_000, `its lease is its own (${binder.deadline - binder.at} ms left)`);
 });
@@ -392,7 +393,10 @@ test("at the extension seam the one jev_budget compose tells the Keeper why, the
 	const composeNote = clerkNotes(requests[1]).find((note) => note.reason === "jev_budget");
 	assert.ok(composeNote?.decision_budget_note, "the compose says the decision budget is spent");
 	assert.ok(composeNote.decision_budget.jev_ms >= composeNote.decision_budget.max_jev_ms);
-	assert.ok(!clerkNotes(requests[2]).some((note) => note.reason === "keeper_carries"), "the Keeper's own continuation carries no note");
+	const continuation = clerkNotes(requests[2]).filter((note) => note.reason === "keeper_carries");
+	// Optional reference offers and unresolved outcomes have their own projection owners; neither repeats this budget explanation.
+	assert.ok(continuation.every(note => !note.decision_budget_note && !note.decision_budget), "the spent-budget explanation is still sent only once");
+	assert.ok(continuation.filter(note => note.unresolved_checks?.length).every(note => note.check_outcome_boundary), "unresolved checks keep their outcome boundary");
 	const summary = table.telemetry("test-camp").find((row) => row.lane === "run" && row.event === "budget" && row.decision === "summary");
 	assert.equal(summary.decision_budget.spent, true);
 	assert.deepEqual(summary.prescreen, { reads: 0, jev_calls: 0, ms: 0 });

@@ -42,6 +42,7 @@ import { TaskLease, type TaskClock } from './task-context.ts';
 import { JEV_MODEL } from './question-packing.ts';
 import { preparationProviderBudget } from './preparation-budget.ts';
 import { prepareCheckPreflight } from './check-preflight.ts';
+import {checkAttemptIdentity, selectCheck, validateCheckOptions, withinCheckLease, type CheckSelection} from './resolve-selection.ts';
 import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
@@ -82,6 +83,8 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
  * system language.
  */
 export const CLERK_NOTE_HEAD = IMPROVISATION_GUIDANCE+' Use apply move with establish:{summary} and via for a new place, apply clue with establish:{summary} and how for new evidence, and apply npc walk_on for a newcomer. On compose steps, write the final response from supplied source and committed receipts. Do not repeat supplied lookups, restage recorded people, or add optional bookkeeping just to fill fields. Genuine unresolved requirements retain their ordinary operations. '
+  + 'Check selection belongs to Jev and the host. Never call resolve or choose a check, including after an unavailable decision, ambiguous binding, refused operation or spent budget. '
+  + 'Report unresolved_checks honestly in the play language, and do not narrate their unexecuted outcomes. '
   + 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). '
   + 'An apply whose landing is fixed by its own arguments is non-blocking: put it and the narrate that follows in the same response, '
   + 'writes first, narrate last; resolve, look, lookup and recall are blocking -- the prose needs a result you do not have yet -- so '
@@ -468,6 +471,8 @@ function defaultLine(candidate: Candidate): string | undefined {
 /** §158.4: the kernel extension's port for the previous delivery's post review still running (`coc:owed-review`). */
 interface OwedReviewPort {campaign: string; settle(elapsedMs: number): Promise<{in_flight: boolean; waited_ms: number; landed: boolean; turn?: number}>}
 interface RunState {
+  unresolvedNoticeKey?: string;
+  unresolvedAttack?: boolean;
   runId: string;
   /** §158.4: this run's first read already waited for the previous delivery's review (it waits once). */
   owedWaited?: boolean;
@@ -987,7 +992,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // narrate/ask/propose; after an accepted `propose` in the same response, every other call (the proposed step has not
     // run yet). The kernel extension's tool gate honours the refusal this announcement carries.
     const catalog = run.stepCatalog, narrowed = catalog?.narrowed;
-    const refuse = proposal.operation === PROPOSE_VERB ? undefined
+    const presumedHit = proposal.operation === 'apply' && run.unresolvedAttack === true
+      && array(object(proposal.params).effects).some(effect => object(effect).kind === 'damage');
+    const refuse = presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
+      + 'Nothing in this apply was executed. Narrate only established facts and retain the unresolved attack.'}
+      : proposal.operation === 'resolve' ? {code: 'check_selection_owned', text: 'Jev and the host own check selection. This model-origin resolve was not executed. '
+      + 'Narrate only committed receipts and report unresolved check needs; do not choose a replacement check.'}
+      : proposal.operation === PROPOSE_VERB ? undefined
       : batch.proposed ? {code: 'propose_pending', text: PROPOSE_PENDING_REFUSAL}
         : narrowed && !narrowed.includes(proposal.operation) ? {code: 'narrator_catalog', text: catalogRefusal(proposal.operation, run.offered)} : undefined;
     // §135.31: the kernel extension's tool row names the step a model call came from (announced before it runs).
@@ -1063,7 +1074,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    * hooks. `unavailable` when there is no gateway to run it through.
    */
   async function dispatchClerk(run: RunState, write: {tool: 'apply' | 'resolve'; args: Row; clerk: string; basis?: Json; bindings: Json},
-    invocation: {stepId: string; operationId: string; signal: AbortSignal}): Promise<{unavailable: true} | {unavailable?: false; packet: ObservationPacket; callId: string | null}> {
+    invocation: {stepId: string; operationId: string; signal: AbortSignal}): Promise<{unavailable: true} | {unavailable?: false; packet: ObservationPacket; callId: string | null; staleCheck: boolean}> {
     const session = run.session, dispatcher = gateway;
     if (!session || !dispatcher || !bridge?.campaign || !run.scope || run.turn === undefined) return {unavailable: true};
     const {tool, args} = write;
@@ -1075,12 +1086,24 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const operation: OperationProposal = {id: `clerk:${invocation.operationId}`, taskId: task.id, operation: tool, args: args as Record<string, Json>,
       capability: tool, scope: task.scope, readSet: task.readSet, basis: []};
     const campaign = bridge.campaign, kernel = bridge.call!;
+    let staleCheck = false;
     const context: HostOperationContext = {
       session: session as any, task: lease,
       journal: {load: async id => run.identities.get(id), save: async identity => { run.identities.set(identity.operationId, structuredClone(identity)); }},
       // The run's input is still the table's: same turn, still open. A new input ends the run through its signal.
       validateCurrent: async () => {
         const status = object(await kernel('table.status', {campaign}));
+        const snapshot = object(object(write.basis).selection_snapshot);
+        if (tool === 'resolve' && typeof snapshot.revision === 'string' && typeof snapshot.worldRevision === 'string') {
+          const current = object(await kernel('table.resolve.options', {campaign}));
+          if (current.revision !== snapshot.revision || current.world_revision !== snapshot.worldRevision) {
+            staleCheck = true;
+            record({lane: 'check-selection', event: 'execution_stale', run: run.runId, step: invocation.stepId,
+              expected: snapshot, actual: {revision: current.revision ?? null, worldRevision: current.world_revision ?? null},
+              context: current.context ?? null});
+            throw new ContractError('check_selection_stale');
+          }
+        }
         if (status.turn !== run.turn || !['open', 'acting'].includes(String(status.state))) throw new ContractError('run_input_stale');
       },
       recover: async identity => {
@@ -1096,7 +1119,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         bindings: write.bindings},
     };
     const packet = await dispatcher.dispatch(operation, context);
-    return {packet, callId: run.identities.get(operation.id)?.callId ?? null};
+    return {packet, callId: run.identities.get(operation.id)?.callId ?? null, staleCheck};
   }
 
   /**
@@ -1125,7 +1148,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const {packet, callId} = dispatched;
     const ok = packet.status === 'succeeded';
     const result = object(packet.result);
-    const refusal = ok ? undefined : object(result.coc_error).code ?? result.code ?? packet.status;
+    const refusal = ok ? undefined : dispatched.staleCheck ? 'check_selection_stale' : object(result.coc_error).code ?? result.code ?? packet.status;
     const {goal: _goal, method: _method, ...shown} = object(tool === 'resolve' ? args.action : {}) as Row;
     const obligation = obligationClerkLine(candidate, ok, result, packet.receipts), crossed = ok ? obligationCrossing(candidate, result, packet.receipts) : undefined;
     // §138.6: a `needs` the host answered inside this write (a tier pinned, a profile read) is said beside the defaults.
@@ -1336,6 +1359,53 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (request.purpose === 'locate') return {status: 'ok' as const, artifact: {kind: 'locate', calls: 0, ms: 0, summary: {folded_into: 'read'}} as StepArtifact};
     // §135.28: a clerk bind the policy settles without Jev (its budget is spent) asks nothing here.
     if (question.offline) return {status: 'unavailable' as const, artifact: {reason: `offline_${text(question.offline)}`}};
+    if (request.purpose === 'check-selection') {
+      const candidate = question.candidate as Candidate | undefined;
+      const missing = (reason: string, calls = 0): CheckSelection => ({status: 'unresolved', needs: [reason], calls});
+      let selection = missing('check_selection_unavailable');
+      if (jev && run.scope && run.readSet && run.turn !== undefined && bridge?.campaign && bridge.call) {
+        const lease = new TaskLease({owner: 'check-selection', goal: run.rawInput.trim() || 'select required checks', scope: run.scope, capabilities: ['decision'],
+          readSet: run.readSet, signal: request.signal, ...leaseClock,
+          // Like the existing ordinary binder, this decision owns its lease; prescreen time is separate.
+          budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 400_000,
+            remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
+        try {
+          const [options, capsule] = await withinCheckLease(lease, () => Promise.all([call('table.resolve.options'), call('table.capsule')]));
+          const context = object(options.context), binding = object(context._binding), catalog = object(options.selection);
+          const checks = catalog.owner === 'jev' && catalog.version === 1 ? validateCheckOptions(catalog.options) : undefined;
+          if (!candidate || typeof candidate.bound.decision !== 'string') selection = missing('check_request_unbound');
+          else if (!checks || binding.campaign !== bridge.campaign || binding.turn !== run.turn || binding.worldline !== run.scope.worldline
+            || binding.loop !== run.scope.loop || context.declared_action !== run.rawInput) selection = missing('check_catalog_binding_changed');
+          else if (catalog.session_owned === true) selection = missing('check_session_owner');
+          else {
+            const {_binding, ...visibleContext} = context;
+            selection = await selectCheck({options: checks, declaration: run.rawInput,
+              request: {decision: candidate.bound.decision as string, bound: candidate.bound},
+              context: {...visibleContext, rules: object(candidate.detail).rule_guidance ?? [], situation: catalog.situation ?? null,
+                scene_holds: {where: capsule.where ?? null, clues: object(capsule.known).clues_here ?? [], obligations: capsule.obligations ?? []}} as Json,
+              scope: run.scope, readSet: run.readSet, lease, decision: jev,
+              maxCalls: Number.isSafeInteger(question.remainingCalls) ? question.remainingCalls : 24,
+              record: row => record({lane: 'check-selection', run: run.runId, step: request.stepId, ...row})});
+            // A decision from a stale snapshot is never executable, even if its arguments still look plausible.
+            const fresh = await withinCheckLease(lease, () => call('table.resolve.options'));
+            if (options.revision !== fresh.revision || options.world_revision !== fresh.world_revision || digest(context) !== digest(fresh.context))
+              selection = missing('check_selection_stale', selection.calls);
+            else if (selection.status === 'selected' && selection.action) {
+              const scene = text(context.scene), identity = checkAttemptIdentity(selection.action, scene);
+              const repeated = run.clerkDid.some(entry => entry.operation === 'resolve' && entry.status === 'succeeded'
+                && text(object(object(entry.basis).selection_snapshot).scene) === scene
+                && checkAttemptIdentity(object(object(entry.result).action) as Record<string, Json>, scene) === identity);
+              selection = repeated ? missing('distinct_attempt_binding_required', selection.calls)
+                : {...selection, snapshot: {scene, revision: text(options.revision), worldRevision: text(options.world_revision)}};
+            }
+          }
+        } catch (error) { selection = missing(error instanceof Error ? error.message : 'check_selection_unavailable', selection.calls); }
+        finally { lease.close(); }
+      }
+      record({lane: 'check-selection', run: run.runId, step: request.stepId, status: selection.status,
+        option: selection.option?.label ?? null, needs: selection.needs, calls: selection.calls});
+      return {status: 'ok' as const, artifact: {kind: 'check-selection', selection} as StepArtifact};
+    }
     if (request.purpose === 'bind-ordinary') {
       const candidate = question.candidate as Candidate | undefined;
       if (!candidate || !run.scope || !run.readSet || run.turn === undefined || !bridge?.campaign || !bridge.call)
@@ -1533,6 +1603,26 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §135.11.2 (SL-50 stage 2): the run's first note opens with the head line (right after `kind`), once per run.
     const head = !run.headShown;
     const content: Row = {kind: 'single_loop_step', ...(head ? {head: CLERK_NOTE_HEAD} : {}), purpose: step.purpose, reason: step.reason};
+    run.unresolvedAttack = view.policyState?.view?.fightDeclared === true && view.policyState?.view?.fightLanded !== true;
+    const unresolvedChecks = [...(view.policyState?.view?.unresolvedChecks ?? [])];
+    if (step.reason.startsWith('jev_') && step.reason !== 'jev_budget'
+      && view.policyState?.view?.candidates?.some(candidate => candidate.checkOwner === 'jev'))
+      unresolvedChecks.push({candidate: 'check selection', needs: ['check_selection_unavailable']});
+    if (unresolvedChecks.length) {
+      content.unresolved_checks = unresolvedChecks;
+      content.check_outcome_boundary = 'These attempts are awaiting adjudication. Their results are not determined, even when the source or earlier scene description suggests an answer. '
+        + 'Do not complete them in prose or record their findings with apply. Negative findings, such as hearing nothing or finding no traces, are outcomes too. '
+        + 'Keep the investigator at the point of attempting them; narrate only independently established surroundings and other committed results. The host supplies the unresolved notice outside the fiction.';
+    }
+    if (step.reason === 'check_unresolved') content.unresolved_check = object(step.request).check_unresolved ?? {reason: step.reason};
+    const unresolved = [...unresolvedChecks, ...(content.unresolved_check ? [{candidate: 'check', needs: object(content.unresolved_check).unresolved ?? []}] : [])];
+    if (unresolved.length && run.turn !== undefined && bridge?.campaign) {
+      const key = digest(unresolved);
+      if (key !== run.unresolvedNoticeKey) {
+        run.unresolvedNoticeKey = key;
+        api?.events?.emit?.('coc:check-selection-unresolved', {campaign: bridge.campaign, turn: run.turn, run: run.runId, needs: unresolved});
+      }
+    }
     const base = Object.keys(content).length;
     run.lastInferAt = now() - run.startedAt;
     // §135.11.1 (SL-50): the model step the Keeper's next message answers, for the kernel extension's drop row.
@@ -1560,7 +1650,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       Object.assign(content, {decision_budget: {jev_calls: spent?.jevCalls ?? null, jev_ms: spent?.jevMs ?? null, max_jev_calls: spent?.maxJevCalls ?? null,
         max_jev_ms: spent?.maxJevMs ?? null},
       decision_budget_note: 'The host\'s decision budget for this turn is spent: no further step is routed from the player\'s words this turn '
-        + '(a step the kernel forces still runs). Your own tool calls carry the rest of the turn; then narrate.'});
+        + '(a step the kernel forces still runs). Checks remain unresolved; do not select or execute them. Report the limitation and narrate committed results.'});
     }
     // §135.11 addendum (SL-20): the compose after the clerk settled the declaration says why it is the compose.
     if (step.reason === 'settled') content.settled_note = 'The clerk settled the player\'s declared step this turn (see clerk_did). Narrate its result '
@@ -1641,7 +1731,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (shown) content.carried = shown;
     const messages: Row[] = [];
     // Nothing new to say: no message (§135.8) -- except the run's first note, whose head is something to say (§135.11.2).
-    if (head || Object.keys(content).length > base || fresh.length) {
+    if (head || unresolved.length || Object.keys(content).length > base || fresh.length) {
       messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
         details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()});
       run.headShown = true;
@@ -1750,7 +1840,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const withoutPlanTool = () => {
       try {
         const active: string[] = typeof pi.getActiveTools === 'function' ? pi.getActiveTools() : [];
-        if (active.includes('submit_plan_packet')) pi.setActiveTools(active.filter(name => name !== 'submit_plan_packet'));
+        if (active.includes('submit_plan_packet') || active.includes('resolve')) pi.setActiveTools(active.filter(name => name !== 'submit_plan_packet' && name !== 'resolve'));
       } catch { /* No tool surface yet. */ }
     };
     /**

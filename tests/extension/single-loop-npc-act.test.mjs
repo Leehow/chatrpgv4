@@ -1443,28 +1443,17 @@ const stepOf = (id) => Number(String(id).split(":s").at(-1));
 const modelSteps = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.type === "step_start" && row.kind === "infer").map((row) => stepOf(row.stepId));
 const releasedRows = (telemetry) => telemetry.filter((row) => row.lane === "run" && row.event === "npc_released");
 
-test("§143.28 at the table (table D2 turn 5): the punch left to the Keeper holds him; the Keeper's own resolve lands the blow -- before its next model step he acts once, acted on", async (t) => {
-	const npcAct = createFixtureNpcActPort({ "steven-knott": "他捂着脸撞开椅子，朝门口喊人。" });
-	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
-		responses: [keeperSays(["resolve", { action: HIT }], ["resolve", { action: DODGE }], ["resolve", { action: PART }]),
-			keeperSays(["narrate", { text: "诺特捂着脸退到墙边。" }])] });
-	await table.session.prompt(PUNCH);
-	const telemetry = table.telemetry(CAMPAIGN);
-	assert.deepEqual(landedClerkSteps(telemetry).filter((row) => !/defend/.test(row.candidate)), [], "no clerk step of the declaration took the punch");
-	assert.deepEqual(heldRows(telemetry).map((row) => [row.npc, row.trigger, row.reason]), [["steven-knott", "engaged", "fight_pending"]], "held before the Keeper's step, as §143.25 has it");
-	const blow = turnRecord(table, 2).receipts.find((receipt) => receipt.kind === "roll" && receipt.family === "combat" && receipt.combat_action === "attack" && receipt.npc === "steven-knott");
-	assert.ok(blow, "the Keeper's resolve made the attack against him");
-	const [released] = releasedRows(telemetry);
-	assert.deepEqual([released?.npc, released?.reason, released?.receipts.includes(blow.id)], [["steven-knott"], "struck", true], "the blow ended the hold");
-	const rows = npcActRows(table);
-	assert.deepEqual(rows.map((row) => [row.npc, row.trigger, row.status]), [["steven-knott", "acted_on", "bound"]], "one act, his, as the person the blow was done to");
-	assert.equal(npcAct.calls.length, 1, "one generation");
-	assert.equal(npcAct.calls[0].packet.state.in_session, false, "the Keeper ended the brawl: he acts outside a fight");
-	const [first, second] = modelSteps(telemetry);
-	assert.ok(stepOf(heldRows(telemetry)[0].step) < first, "held before the Keeper's first model step");
-	assert.ok(second !== undefined && first < stepOf(rows[0].step) && stepOf(rows[0].step) < second, `he acts after the blow and before the Keeper's next model step: ${first} < ${rows[0].step} < ${second}`);
-	assert.ok(turnRecord(table, 2).receipts.some((receipt) => receipt.intent?.generated === true && receipt.intent.npc === "steven-knott"), "his act is on the turn");
-	assert.ok(turnRecord(table, 2).receipts.some((receipt) => receipt.family === "stakes" && receipt.actor === "steven-knott"), "the stakes die was rolled for him");
+test('§159: unresolved model attack, defense and end calls create no blow or NPC reaction', async t => {
+  const npcAct = createFixtureNpcActPort({'steven-knott': 'He steps back.'});
+  const table = await talkTable(t, {prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
+    responses: [keeperSays(['resolve', {action: HIT}], ['resolve', {action: DODGE}], ['resolve', {action: PART}]),
+      keeperSays(['narrate', {text: 'The attack remains unresolved.'}])]});
+  await table.session.prompt(PUNCH);
+  const telemetry = table.telemetry(CAMPAIGN);
+  assert.ok(!turnRecord(table, 2).receipts.some(receipt => receipt.kind === 'roll' && receipt.family === 'combat'));
+  assert.deepEqual(releasedRows(telemetry), []);
+  assert.equal(npcAct.calls.length, 0);
+  assert.ok(heldRows(telemetry).some(row => row.reason === 'fight_pending'));
 });
 
 test("§143.28 at the table: the Keeper does something else to him and never settles the punch -- a roll made against him that no fight wrote -- he stays held, nothing acts", async (t) => {
@@ -1475,7 +1464,7 @@ test("§143.28 at the table: the Keeper does something else to him and never set
 	await table.session.prompt(PUNCH);
 	const telemetry = table.telemetry(CAMPAIGN);
 	const receipts = turnRecord(table, 2).receipts;
-	assert.ok(receipts.some((receipt) => receipt.kind === "roll" && receipt.npc === "steven-knott" && receipt.family === "social"), "the Keeper's roll against him landed");
+	assert.ok(!receipts.some((receipt) => receipt.kind === "roll" && receipt.npc === "steven-knott" && receipt.family === "social"), "the model cannot substitute a social roll for the unresolved attack");
 	assert.ok(!receipts.some((receipt) => receipt.family === "combat"), "no blow landed");
 	assert.deepEqual(heldRows(telemetry).map((row) => [row.npc, row.reason]), [["steven-knott", "fight_pending"]], "still only the hold");
 	assert.deepEqual(releasedRows(telemetry), []);
@@ -1483,34 +1472,30 @@ test("§143.28 at the table: the Keeper does something else to him and never set
 	assert.equal(npcAct.calls.length, 0, "nothing generated for him");
 });
 
-test("§143.28 at the table: the Keeper writes the punch as damage with no roll (its damage effect) -- the hit points he lost end the hold, and he acts once", async (t) => {
-	const npcAct = createFixtureNpcActPort({ "steven-knott": "他捂着脸往门口退。" });
-	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
-		responses: [keeperSays(["apply", { effects: [{ kind: "damage", subject: "Steven Knott", dice: "1D3", why: "the punch lands" }] }]),
-			keeperSays(["narrate", { text: "诺特捂着脸退到墙边。" }])] });
-	await table.session.prompt(PUNCH);
-	const telemetry = table.telemetry(CAMPAIGN);
-	const lost = turnRecord(table, 2).receipts.find((receipt) => receipt.kind === "delta" && receipt.resource === "hp" && receipt.subject === "steven-knott");
-	assert.ok(lost && lost.after < lost.before && !lost.family, "the Keeper's damage effect: hit points lost, no fight's family");
-	assert.deepEqual(releasedRows(telemetry).map((row) => row.receipts), [[lost.id]], "the hit points he lost ended the hold");
-	assert.deepEqual(npcActRows(table).map((row) => [row.npc, row.trigger, row.status]), [["steven-knott", "acted_on", "bound"]]);
-	assert.equal(npcAct.calls.length, 1);
+test('§159: model damage cannot bypass an unresolved attack check', async t => {
+  const npcAct = createFixtureNpcActPort({'steven-knott': 'He steps back.'});
+  const table = await talkTable(t, {prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
+    responses: [keeperSays(['apply', {effects: [{kind: 'damage', subject: 'Steven Knott', dice: '1D3', why: 'the punch lands'}]}]),
+      keeperSays(['narrate', {text: 'The attack remains unresolved.'}])]});
+  await table.session.prompt(PUNCH);
+  const telemetry = table.telemetry(CAMPAIGN);
+  assert.ok(!turnRecord(table, 2).receipts.some(receipt => receipt.kind === 'delta' && receipt.resource === 'hp'));
+  assert.ok(telemetry.some(row => row.reason === 'check_outcome_unresolved'));
+  assert.deepEqual(releasedRows(telemetry), []);
+  assert.deepEqual(npcActRows(table), []);
+  assert.equal(npcAct.calls.length, 0);
 });
 
-test("§143.28 at the table: the blow lands through the kernel's forced defence and the fight goes on -- his reaction is his own turn of it, once; the scan the blow owes does not run him again", async (t) => {
-	const npcAct = createFixtureNpcActPort({ "steven-knott": "他抓起桌上的烟灰缸砸过来。" });
-	const table = await talkTable(t, { prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
-		responses: [keeperSays(["resolve", { action: HIT }]), keeperSays(["narrate", { text: "两人扭打在一起。" }])] });
-	await table.session.prompt(PUNCH);
-	const telemetry = table.telemetry(CAMPAIGN);
-	assert.ok(landedClerkSteps(telemetry).some((row) => /defend/.test(row.candidate)), "the clerk took the pending defence the kernel forced");
-	assert.equal(releasedRows(telemetry).length, 1, "the blow the forced defence settled ended the hold");
-	const rows = npcActRows(table);
-	assert.deepEqual(rows.map((row) => [row.npc, row.trigger]), [["steven-knott", "turn"]], "one act: his own turn of the fight (§143.4), unchanged");
-	assert.equal(npcAct.calls.length, 1);
-	const scans = telemetry.filter((row) => row.lane === "run" && row.type === "operation_prepared" && String(row.label).startsWith("The people present who were acted on"));
-	assert.equal(scans.length, 2, "the scan that held him, and the one the blow owed -- which ran no one: he is in the fight and has acted");
-	assert.ok(stepOf(rows[0].step) < stepOf(scans[1].stepId) && stepOf(scans[1].stepId) < modelSteps(telemetry)[1], "his turn, then the owed scan, then the Keeper's next step");
+test('§159: an unselected model blow creates no forced defense or autonomous fight turn', async t => {
+  const npcAct = createFixtureNpcActPort({'steven-knott': 'He reaches for an ashtray.'});
+  const table = await talkTable(t, {prepareWorkspace: knottSpokeArmed, npcAct, jev: punchLeftToKeeper,
+    responses: [keeperSays(['resolve', {action: HIT}]), keeperSays(['narrate', {text: 'The attack remains unresolved.'}])]});
+  await table.session.prompt(PUNCH);
+  const telemetry = table.telemetry(CAMPAIGN);
+  assert.equal(landedClerkSteps(telemetry).some(row => /defend/.test(row.candidate)), false);
+  assert.deepEqual(releasedRows(telemetry), []);
+  assert.deepEqual(npcActRows(table), []);
+  assert.equal(npcAct.calls.length, 0);
 });
 
 test("§143.28 policy: a blow that struck the held person ends the hold and owes the scan before the Keeper's next turn-writing step, whoever wrote it; no blow, or no declared fight, owes nothing", () => {

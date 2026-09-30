@@ -41,13 +41,41 @@ const GATEKEEPER = JSON.stringify([{ name: "Gatekeeper", relationship: "stranger
 
 async function hybridTable({ responses, env = {}, decide = keeperThenFinish }) {
 	const decisions = [], events = [], requests = [];
-	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch, lease) => { decisions.push(batch); return decide(batch, decisions.length, lease); } } });
+	// §159: these delivery fixtures still begin with the same settled check, now selected by
+	// the host. The model's old resolve slot becomes a read; prose/steer request counts stay meaningful.
+	const check = responses.flatMap(response => response.content ?? []).find(block => block.type === "toolCall" && block.name === "resolve")?.arguments?.action;
+	let rawInput = "", rolled = false;
+	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch, lease) => {
+		decisions.push(batch);
+		if (batch.family.startsWith("check-selection-")) {
+			const answers = Object.fromEntries(batch.questions.map(question => [question.key, {status: "answered", type: "noul", noul: batch.family === "check-selection-need" && rolled ? 0 : 1}]));
+			return {batchId: batch.id, status: "complete", answers, coverage: {required: Object.keys(answers), answered: Object.keys(answers), unknown: []}, issues: []};
+		}
+		return decide(batch, decisions.filter(value => !value.family.startsWith("check-selection-")).length, lease);
+	} } });
+	const runDriver = {...engine.runDriver, prepare(input) {rawInput = input.rawInput; rolled = false; return engine.runDriver.prepare(input);}};
 	const table = await openTable({
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1", FAKE_KERNEL_WORKSPACE: "1", ...env },
-		runDriver: engine.runDriver,
+		runDriver,
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
-		responses: responses.map((response) => (context) => { requests.push(structuredClone(context.messages)); return response; }),
+		responses: responses.map((response) => (context) => { requests.push(structuredClone(context.messages)); return check ? {...response,
+			content: response.content.map(block => block.type === "toolCall" && block.name === "resolve"
+				? {...block, name: "look", arguments: {focus: "scene"}} : block)} : response; }),
 	});
+	if (check) for (const bridge of table.runtimeBridges()) {
+		if (typeof bridge?.call !== "function") continue;
+		const call = bridge.call.bind(bridge);
+		bridge.call = async (method, params = {}) => {
+			if (method !== "table.resolve.options") return call(method, params);
+			const status = await call("table.status", params), capsule = await call("table.capsule", params);
+			rolled = status.mechanics.some(entry => entry.kind === "roll");
+			return {version: 1, profiles: [], decisions: [], revision: "delivery-fixture", world_revision: `roll:${rolled}`,
+				context: {_binding: {campaign: bridge.campaign, worldline: "main", loop: 0, turn: status.turn}, scene: capsule.where.scene,
+					declared_action: rawInput, current_receipts: status.mechanics, pending_choice: null, session: null},
+				selection: {version: 1, owner: "jev", options: [{key: "fixture-check", family: "core-check", label: "The declared fixture check",
+					action: {decision: "core-check:ordinary-check", ...check}, parameters: [], needs: [], authorization: "declaration"}]}};
+		};
+	}
 	table.session.subscribe((event) => { if (isRunEvent(event)) events.push(event); });
 	return { table, events, requests, decisions, dispose: () => table.dispose() };
 }
