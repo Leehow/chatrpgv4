@@ -53,6 +53,12 @@ export function validateUsageProposal(input: any): Row {
 }
 const records = (world: Row, item: Row) => values(row(row(world.objects).usages)).filter(usage => usage.object_id === item.id);
 const fresh = (world: Row, item: Row, usage: Row) => equal(usage.physical_basis, usagePhysicalBasis(world,item));
+const active = (world: Row, item: Row, usage: Row) => row(usage.provenance).prefetched !== true
+    || row(row(row(world.objects).definitions)[item.definition]).category === 'weapon'
+    || row(row(world.objects).usage_activations)[usage.id] === true;
+export function executableUsages(world: Row, item: Row): Row[] {
+    return records(world,item).filter(usage => active(world,item,usage) && fresh(world,item,usage));
+}
 export function findAcceptedUsage(world: Row, name: string | Row, usageName: string): Row | null {
     const item = typeof name === 'string' ? usageObject(world,name) : name;
     if (!item) return null;
@@ -72,6 +78,8 @@ export function registerUsage(world: Row, objectName: string, raw: Row, physical
     }
     if (prior) {
         if (prior.digest !== digest) return fail('An accepted usage is immutable; keep the already accepted parameters');
+        if (row(prior.provenance).prefetched === true && provenance.prefetched !== true)
+            (world.objects.usage_activations ??= {})[prior.id] = true;
         return prior;
     }
     const id = `usage-${jsonDigest([item.id,normalize(string(value.name)),physicalBasis]).slice(0,24)}`;
@@ -99,7 +107,7 @@ export function usageWeaponRows(world: Row, ownerId: string | null = null): Row[
         if (ownerId !== null && item.owner.id !== ownerId) continue;
         const legacy = legacyWeapon(world,item);
         if (legacy) result.push(legacy);
-        for (const usage of records(world,item)) if (fresh(world,item,usage)) result.push(weaponRow(item,usage));
+        for (const usage of executableUsages(world,item)) result.push(weaponRow(item,usage));
     }
     return result;
 }
@@ -126,5 +134,5 @@ export function selectObjectWeapon(world: Row, name: string, usageName?: string 
 export function usageViews(world: Row, name: string | Row): Row[] {
     const item = typeof name === 'string' ? usageObject(world,name) : name;
     if (!item) return [];
-    return records(world,item).map(usage => ({name:usage.name,description:usage.description,mode:usage.mode,parameters:clone(usage.parameters),applicable:fresh(world,item,usage)}));
+    return records(world,item).filter(usage => active(world,item,usage)).map(usage => ({name:usage.name,description:usage.description,mode:usage.mode,parameters:clone(usage.parameters),applicable:fresh(world,item,usage)}));
 }

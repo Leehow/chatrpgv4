@@ -13,7 +13,7 @@ import { entries, values, array, row, truth, string, number, integer, numeric, n
 import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods/queue.js";
 import { publicDefinition, publicUsage } from "../mods/public-definition.js";
 import {AUDIT_OWED, CONTINUITY_AUDIT, CONTINUITY_AUDIT_V2} from '../mods/audit-result.js';
-import {USAGE_CAPABILITY, usageViews} from '../mods/usages.js';
+import {USAGE_CAPABILITY, executableUsages, usageViews} from '../mods/usages.js';
 import {WEAPON_PRESET_CAPABILITY} from '../mods/preset.js';
 import {publicOffer} from '../mods/object-offer.js';
 import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
@@ -802,6 +802,7 @@ export function publicItems(world: Row, ownerId: string, includeContainedDocumen
             state.charges = item.state.charges ?? null;
         // Contract §129: the card's item row opens into this same view, from the same function.
         const shown = publicDefinition(definition);
+        const usages = definition.category === 'item' ? executableUsages(world,item).map(publicUsage) : [];
         items.push({
             name: item.name,
             quantity: item.quantity,
@@ -811,6 +812,7 @@ export function publicItems(world: Row, ownerId: string, includeContainedDocumen
             state,
             traits: shown.traits,
             parameters: shown.parameters,
+            ...(usages.length ? {usages} : {}),
             ...(truth(item.document) ? {
                 document: {
                     presentation: item.document.presentation,
@@ -847,7 +849,10 @@ export function publicSheet(world: Row, view: Row): Row {
                 name: item.name,
                 quantity: item.quantity
             });
-    result.weapons = array(view.weapons).map(weapon => {
+    result.weapons = array(view.weapons).filter(weapon => {
+        const value = row(weapon), instance = row(row(row(world.objects).instances)[string(value.object_id)]);
+        return !truth(instance.id) || row(row(row(world.objects).definitions)[string(instance.definition)]).category !== 'item';
+    }).map(weapon => {
         const value = row(weapon), known = items.find(item => item.name === value.name);
         if (value.object_id && value.usage_id)
             return publicUsageWeapon(world, value, known);

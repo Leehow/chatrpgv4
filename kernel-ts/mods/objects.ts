@@ -21,7 +21,7 @@ export function defineObject(world: Row, draft: Row, provenance: Row): Row {
     if (prior?.placeholder === true) return completePlaceholder(world, prior, value, digest, provenance);
     if (prior) {
         if (prior.digest !== digest) throw new RpcError('invalid_params', 'An established definition cannot be regenerated with different parameters',
-            {fix: `${repr(value.name)} is already defined as ${string(prior.category)}: keep it as it is, or define the different thing under its own name. To make something already in hand strike, apply item with its name and a rules-table profile in weapon`,
+            {fix: `${repr(value.name)} is already defined as ${string(prior.category)}: keep it as it is, or define the different thing under its own name. To make something already in hand strike, apply usage with its object name, the chosen usage name and a description of the actual attack`,
              details: {name: prior.name, category: prior.category}});
         return prior;
     }
