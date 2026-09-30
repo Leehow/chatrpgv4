@@ -59,3 +59,11 @@ do not prepare those places' full dossiers. Never redraw missing geography.
 Private source pixels require explicit normalized redactions and independently
 supported safe_after_redactions:true. If safety or alignment is uncertain, retain
 that uncertainty instead of exposing an entire floor or page.
+
+A map you draft with map_regions, or whose regions you change, also carries
+properties.map_scope, judged from the printed picture by what the table does
+with it: "area" for a town, village, district, city, region or other outdoor
+map that players are handed or see as a whole; "interior" for a building, floor
+plan, cellar, cave, ship or other enclosed place the investigators explore and
+uncover room by room. A title or a region name is not the answer by itself. A
+published map that already has map_scope keeps it.

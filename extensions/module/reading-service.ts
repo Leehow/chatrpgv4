@@ -942,7 +942,7 @@ export class ReadingService implements ReadingBridge {
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
 		const task: Row = { purpose: job.purpose,
-            ...Object.fromEntries(['review_policy','source_unit','visual_scan','visual_asset','visual_hints','review_scope_pages','source_need','carried_needs'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
+            ...Object.fromEntries(['review_policy','source_unit','visual_scan','visual_asset','map_scope','visual_hints','review_scope_pages','source_need','carried_needs'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {guidance_key:job.guidance_key,public_progress_required:job.public_progress===true,
 				play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes, field_spans: job.field_spans ?? {},
@@ -1167,7 +1167,7 @@ export class ReadingService implements ReadingBridge {
                             if(job.source_unit)for(const page of job.pages??[])if(!reviewScope.includes(page))reviewScope.push(page);
 							// §151.3: the Jev claim check asks before the vision units run and merges its rows after they finish.
 							let claimCheck = undefined as ClaimSupportCheck | undefined;
-							const claimSupport = !job.visual_scan && !job.visual_asset && this.deps.claimSupport && (async (units: string[][]) => (claimCheck = await this.deps.claimSupport!({ cwd, round,
+							const claimSupport = !job.visual_scan && !job.visual_asset && !job.map_scope && this.deps.claimSupport && (async (units: string[][]) => (claimCheck = await this.deps.claimSupport!({ cwd, round,
 								module: job.module_id, job: job.job_id, ...(campaign !== undefined ? { campaign } : {}), source: { file_sha256: job.source.file_sha256 },
 								task, draft: candidate, units, signal,
 								sourceText: pages => this.runtime().sourceText({ pdf: job.source.path, pages, expected_file_sha256: job.source.file_sha256 }, signal),
@@ -1209,7 +1209,7 @@ export class ReadingService implements ReadingBridge {
 							...(["guidance", "opening", "detail", "answer"].includes(job.purpose) ? {imageHistory:4} : {}),
 							submission:["guidance","opening","detail","answer"].includes(job.purpose),
 							priority: () => job.foreground === false ? "background" : "foreground",
-							prompt: { phase: promptPhase, visual:job.visual_scan?'scan':job.visual_asset?'asset':undefined, guidance: job.purpose === "guidance", answer: job.purpose === "answer" }, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 },
+							prompt: { phase: promptPhase, visual:job.visual_scan?'scan':job.visual_asset?'asset':job.map_scope?'scope':undefined, guidance: job.purpose === "guidance", answer: job.purpose === "answer" }, source: { pdf: job.source.path, cache, file_sha256:job.source.file_sha256 },
 							eventLog,
 							brief: phase === "index-audit"
 								? `${readerInput({task})} This is the independent map-page completeness audit of the retained PDF index. Read draft.json${round > 1 || job.resume_from ? " and findings.json" : ""}. View every physical page in task.index_audit_pages with pdf, compare each page to draft.map_candidates, and immediately add every authored map whose depicted place can be identified. Every task.required_map_candidates row must remain. Preserve existing sections and candidates; repair missing section source_refs but do not cite any page unless you viewed that full page in this audit or it is in task.index_audit_pages. If another page is needed as a reference, view it first. Do not rewrite for style. Finish only after every assigned page has been checked, then stop.`

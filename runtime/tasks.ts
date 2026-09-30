@@ -53,7 +53,7 @@ async function instructions(context: RuntimeContext, request: ReaderRequest): Pr
   const { phase, guidance, answer, reference, visual } = request.prompt;
   if (!["index", "read", "verify"].includes(phase)) throw new Error("Unknown reader instruction phase");
   let text: string;
-  if (visual && phase === 'read') text = await readFile(join(context.contentRoot, 'setup', visual==='asset'?'visual-assets.md':'visual-discovery.md'), 'utf8');
+  if (visual && phase === 'read') text = await readFile(join(context.contentRoot, 'setup', visual==='asset'?'visual-assets.md':visual==='scope'?'visual-map-scope.md':'visual-discovery.md'), 'utf8');
   else if (reference) text = await readFile(join(context.contentRoot, "setup", "source-reference-guidance.md"), "utf8");
   else if (answer) text = await readFile(join(context.contentRoot, "setup", "source-answer.md"), "utf8");
   else if (guidance) text = await readFile(join(context.contentRoot, "setup", "visual-guidance.md"), "utf8");
