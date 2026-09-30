@@ -3606,11 +3606,21 @@ here; `retry: true` reads it, as §22.2 has it.
   instruction says: an earlier reading of this focus was refused at review; `task.review_retry.refused` lists each refused
   field with the reviewer's reason; re-read those pages and write only what they state. The retained draft is the
   starting point (`resume_from`, §22.2); being another job, the retry never skips its read phase.
+- *The same reading* (2026-09-30). The retry also carries every marker that bounds the refused job -- `source_unit` with
+  `review_scope_pages` and `reference_fragment`, `visual_scan`, `visual_asset`, `visual_identity`, `source_need`
+  (`JOB_MARKERS` in `kernel-ts/modules/reading.ts`, where a marker `request` gains is added) -- so it is read under the same
+  instructions, counted by the read-ahead's limits and published as the same kind of job; before this a refused
+  visual-asset reading was read again as an ordinary detail reading of the words "Visual assets on physical page N".
+  `task_preparation` is not carried: it is one pending operation's authority for one turn, and its owner binds the retry
+  by requesting the identity again. Tests: `tests/extension/review-retry-markers.test.mjs`.
 
 **A second refusal settles.** The retry's `failed` finish with `review_unsupported` writes, once per identity,
 `meta.reading.materials += {key, purpose: "detail", focus, question, status: "unusable", reason, job_id, node_ids: [],
 generation}` -- §107.1's settlement without `material` -- and queues nothing. `reason` is the refusal's message. A retry
-that fails for another reason is only failed (no settlement; `retry: true` reads it).
+that fails for another reason is only failed (no settlement; `retry: true` reads it). The settlement of a visual-asset
+reading also carries its `visual_asset: {page}` (2026-09-30), as its publication would: the read-ahead counts a page as
+prepared from its queue and from the material rows, and a campaign's fork starts with an empty queue, so without the page
+the fork asked the settled pages again on every pass and never reached the candidates after them.
 - *Not raised again.* `module.read.request` for the identity answers `{state: "unusable", reason}` (the path §107.1
   already had for any `detail` key); the reading service's waiter resolves with that reply instead of polling on. The
   material gate (`requireMaterial`) passes a settled focus, except where it can still land on the book's text: a move into
