@@ -200,6 +200,7 @@ const UsageEffect = Type.Object({
   description: Type.String({description:"Actual chosen use and established context; the creator derives parameters, never ask the player to supply numbers. In a batch with usage include only define/object/usage, wait for acceptance, then continue the original action with resolve"}),
 });
 const ObjectEffect = Type.Object({
+  owed: OwedRef,
   kind: StringEnum(["object"] as const),
   adopt: Type.Optional(Type.String({description:"Exact existing unmanaged equipment name to enrich in place for the investigator in to; no from, no new acquisition, preserve quantity and state"})),
   name: Type.String({description:"Unique natural name of this physical instance, in the campaign's play_language; keep it when ownership changes"}),
@@ -240,6 +241,7 @@ const AbilityEffect = Type.Object({
 
 /** A priced transaction (contract §5 `cash`, #19; §58 source and Spending Level settlement). */
 const CashEffect = Type.Object({
+	owed: OwedRef,
 	...IntentResult,
 	kind: StringEnum(["cash"] as const, { description: "settle money received or a purchase, either from cash or under the investigator's Spending Level" }),
 	subject: Type.Optional(Type.String({ description: "whose money; defaults to the current investigator" })),

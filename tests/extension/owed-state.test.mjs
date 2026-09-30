@@ -136,7 +136,7 @@ test('an owed-capable review lands owed state on the record, in owed.json and as
     assert.notEqual(move.effect.to, target.name, 'the kernel names the scene by its handle');
     assert.deepEqual(time.effect, {kind: 'time', band: 'single_room_search'}, 'time is rolled when it lands');
     assert.equal(npc.effect.to, 'away');
-    assert.equal(object.effect, null, 'an owed object is the Keeper\'s to register');
+    assert.equal(object.effect.adopt, 'notebook and stub pencil', 'starting gear has a deterministic adoption');
     assert.equal(object.quote, null);
     assert.equal(move.job, job.job);
 
@@ -239,4 +239,78 @@ test('an if fork at an earlier commit carries that turn\'s own owed rows with th
     await game.call('table.branch', {commit, name: 'side'});
     const carried = await ledger(game);
     assert.deepEqual(carried.open.map(row => row.name), rows.map(row => row.name), 'the fork turn told this line the same arrival');
+});
+
+test('FR-06: a checked payment becomes a forced cash debt, lands exactly once and rejects changed amounts', async t => {
+    const game = await table(t), text = 'You pay Knott a quarter in cash. He puts the coin away.';
+    await game.apply([{kind:'cash',delta:1,source:'found'}]);
+    const {turn} = await reviewed(game,text,(sources,sentence)=>[{kind:'cash',source:sentence('quarter'),
+        subject_source:sources.persons.find(p=>p.name===game.sheet.name).alias,
+        with_source:sources.persons.find(p=>/Knott/.test(p.name)).alias,delta:-0.25,currency:'USD'}]);
+    const owed=(await ledger(game)).open.find(row=>row.kind==='cash');assert.ok(owed);
+    const capsule=await game.call('table.capsule');assert.equal(capsule.owed.find(row=>row.name===owed.name).clerk,true);
+    await game.call('table.player_input',{text:'I read the register.'});
+    const apply=(effects,id)=>game.call('table.apply',{call_id:`t${turn+1}-c${id}`,effects});
+    const before=JSON.parse(await readFile(game.sheetPath,'utf8')).finance.cash.amount;
+    await assert.rejects(apply([{...owed.effect,delta:-25,owed:owed.name}],1),e=>e.details?.reason==='owed_mismatch');
+    await apply([{...owed.effect,owed:owed.name}],2);
+    assert.equal(JSON.parse(await readFile(game.sheetPath,'utf8')).finance.cash.amount,before-0.25);
+    await assert.rejects(apply([{...owed.effect,owed:owed.name}],3),e=>e.details?.reason==='owed_unknown');
+    assert.equal((await ledger(game)).closed.find(row=>row.name===owed.name).how,'landed');
+});
+
+test('FR-09: a missing starting item keeps its owner and becomes an adopt candidate; a definition alone does not satisfy it',async t=>{
+    const game=await table(t),missing=[];
+    await reviewed(game,'You check the equipment you brought.',(sources)=>{
+        const item=sources.objects.find(o=>o.name==='flashlight');assert.ok(item);missing.push(item.alias);return [];
+    },{missing});
+    const owed=(await ledger(game)).open.find(row=>row.kind==='object');
+    assert.equal(owed.effect.adopt,'flashlight');assert.equal(owed.effect.to,game.sheet.name);
+    const capsule=await game.call('table.capsule');const projected=capsule.owed.find(row=>row.name===owed.name);
+    assert.equal(projected.clerk,true);assert.equal(projected.prepare.kind,'define');
+    await game.call('table.player_input',{text:'I check my flashlight.'});
+    const definition={name:'flashlight',category:'item',description:'A flashlight.',basis:'Existing starting equipment.',
+        parameters:{charges:null,effects:[]},player_view:{description:'A flashlight.',fields:[]}};
+    const job=await game.call('mods.job',{role:'create',input:{name:'flashlight',category:'item',description:'A flashlight.'}});
+    await writeFile(join(job.cwd,'result.json'),JSON.stringify(definition));
+    const accepted=await game.call('mods.accept',{job:job.job});
+    await game.call('table.apply',{call_id:'t2-c1',effects:[{kind:'define',name:'flashlight',category:'item',_definition:accepted.definition,_provenance:accepted.provenance}]});
+    assert.ok((await game.call('table.capsule')).owed.some(row=>row.name===owed.name),'a definition alone is not ownership');
+    await game.call('table.apply',{call_id:'t2-c2',effects:[{...owed.effect,owed:owed.name}]});
+    const sheet=JSON.parse(await readFile(game.sheetPath,'utf8'));
+    assert.equal(sheet.equipment.filter(value=>value.name==='flashlight').length,1);
+    assert.ok(sheet.equipment.find(value=>value.name==='flashlight').object_id);
+    assert.equal((await ledger(game)).open.some(row=>row.name===owed.name),false);
+});
+
+test('FR-09: a told acquisition selects its owner and produces an object clerk step',async t=>{
+    const game=await table(t);
+    await reviewed(game,'You now hold the brass house key.',(sources,sentence)=>[{kind:'object',source:sentence('brass house key'),
+        name:'brass house key',category:'item',owner_source:sources.persons.find(p=>p.name===game.sheet.name).alias,quantity:1}]);
+    const owed=(await ledger(game)).open.find(row=>row.kind==='object');
+    assert.equal(owed.effect.name,'brass house key');assert.equal(owed.effect.to,game.sheet.name);assert.equal(owed.effect.adopt,undefined);
+    assert.equal((await game.call('table.capsule')).owed.find(row=>row.name===owed.name).clerk,true);
+    await game.call('table.player_input',{text:'I pocket the key.'});
+    const job=await game.call('mods.job',{role:'create',input:{name:'brass house key',category:'item',description:'A brass house key.'}});
+    await writeFile(join(job.cwd,'result.json'),JSON.stringify({name:'brass house key',category:'item',description:'A brass house key.',basis:'Given in the delivered turn.',
+        parameters:{charges:null,effects:[]},player_view:{description:'A brass house key.',fields:[]}}));
+    const accepted=await game.call('mods.accept',{job:job.job});
+    await game.call('table.apply',{call_id:'t2-c1',effects:[{kind:'define',name:'brass house key',category:'item',_definition:accepted.definition,_provenance:accepted.provenance},{...owed.effect,owed:owed.name}]});
+    assert.equal((await ledger(game)).open.length,0);
+    const instance=Object.values((await game.world()).objects.instances).find(value=>value.name==='brass house key');
+    assert.equal(instance.owner.id,game.sheet.id);
+});
+
+test('FR-06/09: repeat review preserves object identity and cannot reopen a landed cash occurrence',()=>{
+    const cash={name:'t1-owed-1',turn:1,kind:'cash',quote:'You pay a quarter.',effect:{kind:'cash',subject:'A',delta:-0.25,currency:'USD'}};
+    const item={name:'t1-owed-2',turn:1,kind:'object',object:{name:'key',owner:'A'},effect:{kind:'object',name:'key',to:'A'}};
+    const merged=api.mergeOwed({open:[item],closed:[{...cash,how:'landed'}]},[{...cash,name:'t1-owed-3'},{...item,name:'t2-owed-1',turn:2}],'now');
+    assert.deepEqual(merged.open,[item]);assert.equal(merged.closed.length,1);
+    const other=api.mergeOwed(merged,[{...cash,name:'t2-owed-2',turn:2}],'now');
+    assert.equal(other.open.filter(row=>row.kind==='cash').length,1,'a new delivered occurrence is a different payment');
+    const graph={};
+    const owned={...item,owner_id:'a'};
+    assert.equal(api.owedSatisfied(graph,{objects:{definitions:{d:{name:'key'}},instances:{}}},owned),false);
+    assert.equal(api.owedSatisfied(graph,{objects:{instances:{i:{name:'key',owner:{kind:'investigator',id:'b'}}}}},owned),false);
+    assert.equal(api.owedSatisfied(graph,{objects:{instances:{i:{name:'key',owner:{kind:'investigator',id:'a'}}}}},owned),true);
 });

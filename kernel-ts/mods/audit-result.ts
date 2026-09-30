@@ -153,7 +153,21 @@ export function continuityArtifactErrors(value: any, candidate: string, files: R
                 told(v, path, 'puts the person here or takes them away');
                 if (!words(v.person, 300)) add(`${path}/person`, 'Name the person');
                 if (!['here', 'away'].includes(v.presence)) add(`${path}/presence`, 'Expected here or away');
-            } else add(`${path}/kind`, 'Expected move, time or npc');
+            } else if (v.kind === 'object') {
+                if (!keys(v,['kind','quote','name','category','owner','quantity'],path)) continue;
+                told(v,path,'establishes the acquired object and its owner');
+                if (!words(v.name,300) || v.category !== 'item') add(path+'/name','Name an ordinary item');
+                if (!Number.isInteger(v.quantity) || v.quantity < 1 || v.quantity > 10000) add(path+'/quantity','Expected quantity 1..10000');
+                if (!array(row(files['current.json']).party).some(person => person.name === v.owner)) add(path+'/owner','Select an investigator owner');
+            } else if (v.kind === 'cash') {
+                if (!keys(v, ['kind', 'quote', 'subject', 'delta', 'currency', 'with'], path)) continue;
+                told(v, path, 'establishes money actually paid or received');
+                const delta = typeof v.delta === 'number' ? v.delta : v.delta && !Array.isArray(v.delta) && typeof v.delta.valueOf === 'function' ? v.delta.valueOf() : NaN;
+                if (typeof delta !== 'number' || !Number.isFinite(delta) || delta === 0) add(path+'/delta', 'Expected a finite nonzero signed amount');
+                if (!words(v.subject, 300) || !array(files['current.json'] && row(files['current.json']).party).some(person => person.name === v.subject)) add(path+'/subject', 'Select an investigator');
+                if (!words(v.currency, 50)) add(path+'/currency', 'Name the unit of the payment');
+                if (v.with !== null && !words(v.with, 300)) add(path+'/with', 'Name the counterparty or use null');
+            } else add(path+'/kind', 'Expected move, time, npc or cash');
         }
         if (owed.filter(v => object(v) && v.kind === 'move').length > 1) add('/owed', 'At most one owed move: a delivery tells one position');
     }

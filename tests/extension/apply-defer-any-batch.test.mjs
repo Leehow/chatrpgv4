@@ -233,3 +233,34 @@ test('a definition whose job is already accepted attaches in the call instead of
   assert.equal(Object.values(world.objects.definitions).filter(value => value.name === 'Chair frame').length, 1);
   assert.deepEqual(h.tasks, []);
 });
+
+test('FR-09: the real owed-object host path queues starting gear, keeps the row open, then adopts it on resume',async t=>{
+  const game=await table(t);
+  await game.call('table.narrate',{call_id:game.next(),text:'You check the flashlight you brought.'});
+  const effect={kind:'object',name:'flashlight',definition:'flashlight',to:game.sheet.name,adopt:'flashlight'};
+  const owed={name:'t1-owed-kit',turn:1,kind:'object',effect,quote:null,what:'flashlight',object:{name:'flashlight',category:'item',owner:game.sheet.name},owner_id:game.sheet.id,equipment_basis:true};
+  await writeFile(join(game.directory,'owed.json'),JSON.stringify({open:[{name:owed.name,turn:1,kind:'object',effect:null,quote:null,what:'Register the flashlight.',object:{name:'flashlight',category:'item'}}],closed:[]}));
+  await game.call('table.player_input',{text:'I check my gear.'});
+  let release;const gate=new Promise(resolve=>{release=resolve;});
+  const h=host(game,async(task)=>{
+    await gate;await writeFile(join(task.request.cwd,'result.json'),JSON.stringify({...DRAFT,name:'flashlight',description:'A flashlight.',player_view:{description:'A flashlight.',fields:['charges']}}));return ok;
+  });h.turn=2;t.after(()=>release());
+  const payload={campaign:'c1',effects:[{...effect,owed:owed.name}]};
+  await h.bridge.prepare('apply',payload);
+  assert.deepEqual(payload.effects.map(e=>e.kind),['define','object']);
+  assert.ok(payload.effects[0]._queued);
+  await game.call('table.apply',{call_id:'t2-c1',effects:payload.effects});
+  const readOwed=async()=>JSON.parse(await readFile(join(game.directory,'owed.json'),'utf8'));
+  assert.equal((await readOwed()).open.length,1,'queued adoption is not an instance');
+  assert.equal((await game.call('table.capsule')).owed.find(r=>r.name===owed.name).clerk,false,'do not duplicate queued work');
+  release();await h.bridge.after('apply',payload);
+  await game.call('table.narrate',{call_id:'t2-c2',text:'The flashlight rests in your hand.'});
+  await game.call('table.player_input',{text:'I carry on.'});h.turn=3;
+  await h.bridge.after('player_input',{campaign:'c1'});
+  await until(async()=>{
+    const sheet=JSON.parse(await readFile(game.sheetPath,'utf8'));
+    return sheet.equipment.some(value=>value.name==='flashlight'&&value.object_id);
+  },'owed equipment adopted');
+  assert.equal((await readOwed()).open.length,0);
+  assert.equal((await readOwed()).closed[0].how,'landed');
+});

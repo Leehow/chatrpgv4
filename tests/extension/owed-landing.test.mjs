@@ -151,3 +151,19 @@ test('on the real tool path: a forged owed name gets no review and lands nothing
     const world = JSON.parse(readFileSync(join(session.workspace, '.coc/campaigns', CAMPAIGN, 'world.json'), 'utf8'));
     assert.notEqual(world.active_scene, 'newspaper-morgue');
 });
+
+for (const refused of ['outage','review']) test(`FR-07: a mixed batch refused by ${refused} can resend only its owed move this turn`,async t=>{
+    const session=await openTable({realKernel:true,prepareWorkspace:toldNoMove,
+        ...(refused==='outage'?{env:{PI_COC_ADMISSION_MODEL:'nobody/home'}}:{laneResponses:{admission:[fauxAssistantMessage(JSON.stringify({verdict:'not_authorized',grounds:'The added clue is not chosen.',missing:'a search'})),fauxAssistantMessage(JSON.stringify({verdict:'not_authorized',grounds:'The added clue is not chosen.',missing:'a search'}))]}}),
+        responses:[
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{...ROW.effect,owed:ROW.name},{kind:'clue',clue:'nailed-windows',how:'Found the windows.'}]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('apply',{effects:[{...ROW.effect,owed:ROW.name}]})],{stopReason:'toolUse'}),
+            fauxAssistantMessage([fauxToolCall('narrate',{text:'You stand before the gate. The windows are dark.'})],{stopReason:'toolUse'})]});
+    t.after(()=>session.dispose());await session.session.prompt('I look at the gate.');
+    const errors=session.session.messages.filter(m=>m.role==='toolResult'&&m.toolName==='apply'&&m.details?.coc_error).map(m=>m.details.coc_error);
+    assert.ok(errors.length);assert.deepEqual(errors[0].details.owed_retry,[ROW.name]);
+    assert.match(errors[0].fix,/separate apply this turn/);
+    const world=JSON.parse(readFileSync(join(session.workspace,'.coc/campaigns',CAMPAIGN,'world.json'),'utf8'));
+    assert.equal(world.active_scene,ROW.effect.to);
+    assert.equal(session.telemetry().filter(row=>row.lane==='admission'&&row.path==='told'&&row.admitted).length,1);
+});

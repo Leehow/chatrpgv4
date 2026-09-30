@@ -23,6 +23,8 @@ const OWED_BRIEF = 'owed (context.owed_review) lists what this candidate tells t
   + 'Entries: {kind:"move",source:draft_alias,to_source:scene_alias|null,place:null|the new place name as the candidate calls it,summary:null|a short English description of that new place,via:one English sentence for the route the candidate told,travel:one of context.owed_review.travel_bands}; '
   + '{kind:"time",source:draft_alias,band:one of context.owed_review.time_bands} for time that passed beyond any journey (a journey belongs to its move); '
   + '{kind:"npc",source:draft_alias,person_source:person_alias,presence:"here"|"away"}. '
+  + '{kind:"cash",source:draft_alias,subject_source:person_alias,delta:signed finite nonzero amount,currency:the purse currency,with_source:person_alias|null} for money actually paid or received, never a balance or an unaccepted quote. Select the investigator whose purse changed. '
+  + '{kind:"object",source:draft_alias,name:the exact item name,category:"item",owner_source:person_alias,quantity:positive integer} for a told acquisition without an instance; select its investigator owner. Starting equipment belongs in missing and is adopted from the exact sheet row. '
   + 'At most one move. Do not list what context.owed_review.open already holds, what a receipt of this turn carries, or what the candidate only plans, imagines or reports. '
   + 'A locus_review new_locus with basis none needs an owed move to that locus. An owed entry makes the verdict revise like a missing object; put owed state in owed, not in findings.';
 
@@ -878,6 +880,18 @@ export default function modsExtension(pi: ExtensionAPI): void {
         await resume(payload.campaign, signal, providerBudget,false);
       if (method === "apply") {
         const effects: Record<string, any>[] = payload.effects ?? [];
+		// §158.7: an owed item uses the ordinary author/materializer, never a synthetic definition.
+		// Admission saw the original owed object only. Preparation comes from the fresh kernel row.
+		if (call && effects.some(effect => effect?.kind === 'object' && typeof effect.owed === 'string')) {
+			const capsule = await call('table.capsule', {campaign: payload.campaign});
+			const preparations: Record<string, any>[] = [];
+			for (const effect of effects) {
+				const owed = (capsule.owed ?? []).find((row: any) => row.name === effect.owed && row.kind === 'object');
+				if (!owed?.prepare || !owed.effect || !['kind','name','definition','to','adopt','quantity'].every(key => effect[key] === owed.effect[key])) continue;
+				if (![...effects, ...preparations].some(other => other.kind === 'define' && other.name === owed.prepare.name)) preparations.push({...owed.prepare});
+			}
+			effects.unshift(...preparations);
+		}
         if (effects.some((effect: Record<string, any>) => effect?.kind === "usage")) {
           const unsupported = effects.filter((effect: Record<string, any>) => !usageBatchKind(effect)).map(effect => String(effect?.kind ?? "unknown"));
           if (unsupported.length) throw new KernelError({code:"needs", message:"A usage preparation batch can only contain define, object and usage effects",

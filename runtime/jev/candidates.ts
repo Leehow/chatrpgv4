@@ -333,7 +333,7 @@ export function owedCandidates(capsule: Row, sessionLive: boolean): Candidate[] 
   if (sessionLive) return [];
   return array(capsule.owed).map(object).flatMap((row, index) => {
     const effect = object(row.effect), name = text(row.name);
-    if (row.clerk !== true || !name || !['move', 'time', 'npc'].includes(text(effect.kind))) return [];
+    if (row.clerk !== true || !name || !['move', 'time', 'npc', 'cash', 'object'].includes(text(effect.kind))) return [];
     return [{key: `apply:owed:${name}`, verb: 'apply' as const, family: 'owed', source: 'table.capsule',
       label: `Land what turn ${String(row.turn)} already told the player: ${text(row.what)}`,
       bound: {...effect, owed: name} as Record<string, Json>, unbound: [], clerk: 'told_bookkeeping' as const, forced: true,

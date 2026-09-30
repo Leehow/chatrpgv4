@@ -4,6 +4,7 @@
  * docs/kernel-rpc.md §8.
  */
 
+import { textToolCall } from "./text-tool-call.ts";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
@@ -4886,6 +4887,14 @@ export default function (pi: ExtensionAPI) {
 			};
 		} catch (error) {
 			if (spec.name === "resolve") noteCombatSceneRequired(state, error);
+			if (spec.name === "apply" && isKernelError(error)
+				&& ["admission_unavailable", "action_not_authorized", "review_timeout"].includes(String(error.details?.reason))) {
+				const names = [...new Set((Array.isArray(params.effects) ? params.effects : []).flatMap((effect: any) =>
+					typeof effect?.owed === "string" && (state.owed ?? []).some(row => row.name === effect.owed) ? [effect.owed] : []))];
+				if (names.length) error = new KernelError({code: error.code, message: error.message,
+					fix: `The refused effects did not land. Resend only the effects for open owed rows ${names.join(", ")} in a separate apply this turn; they use the told basis without player-choice review. Previously delivered fiction still stands. For the remaining effects only: ${error.fix ?? "leave them unsettled"}`,
+					details: {...error.details, owed_retry: names}});
+			}
 			// §145.3: a time skip the books do not hold spends the turn's one steer, as SL-93's floor does, so the next
 			// delivery this turn goes out (with the kernel's finding) instead of being refused again.
 			if (spec.name === "narrate" && isKernelError(error) && error.details?.reason === "time_unrecorded") state.steeredThisTurn = true;
@@ -6261,8 +6270,23 @@ export default function (pi: ExtensionAPI) {
 		if (!state || event.message.role !== "assistant") return;
 		// §135.11.1: a held drop whose calls did not all answer is written before this message is read.
 		await flushBeside();
-		const blocks = (event.message.content ?? []) as Array<Record<string, unknown>>;
-		const hasToolCalls = blocks.some((b) => b.type === "toolCall");
+		let blocks = (event.message.content ?? []) as Array<Record<string, unknown>>;
+		let hasToolCalls = blocks.some((b) => b.type === "toolCall");
+		let routedMessage: typeof event.message | undefined;
+		// §158.7: Pi executes the recovered call through all normal hooks and admission.
+		if (!hasToolCalls && !state.closedThisRun && state.renderedText === undefined
+			&& (state.state === "open" || state.state === "acting" || state.openingPending)
+			&& !["error", "aborted", "length"].includes(String((event.message as {stopReason?: string}).stopReason))) {
+			const body = blocks.filter(b => b.type === "text").map(b => String(b.text ?? "")).join("");
+			const recovered = textToolCall(body, offeredTools(COC_TOOLS, process.env));
+			if (recovered) {
+				const id = randomUUID();
+				await record({lane: "delivery", turn: state.turn, ok: true, reason: "text_tool_call_routed", tool: recovered.name, tool_call_id: id});
+				blocks = [...blocks.filter(b => b.type !== "text"), {type: "toolCall", id, ...recovered}];
+				hasToolCalls = true;
+				routedMessage = {...event.message, stopReason: "toolUse", content: blocks} as typeof event.message;
+			}
+		}
 		// Contract §34.17. One message, two `narrate` calls: the first closes the turn and every later
 		// one is blocked after close, so the player reads the Keeper's first half and nothing says the
 		// rest was refused (A-MAIN turn 39, 2026-09-16 -- a delivery that ends on a colon). This hook
@@ -6328,7 +6352,7 @@ export default function (pi: ExtensionAPI) {
 					calls: calls.map((block) => ({ id: String(block.id), tool: String(block.name) })) };
 				return { message: { ...event.message, content: withoutText } };
 			}
-			return;
+			return routedMessage ? {message: routedMessage} : undefined;
 		}
 		/**
 		 * Player-visible text comes only from narrate and ask: a draft the host did not adopt leaves with the message.

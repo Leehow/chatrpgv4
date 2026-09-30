@@ -18,7 +18,7 @@ import { history, recallMemory, transcript } from './recall.js';
 import {validateRecallRequest} from './pages.js';
 import {referencedJob, referencedSource, submitReferenced} from './referenced.js';
 import {createMemoryEvidenceOwner} from './evidence.js';
-import {closeSatisfied, mergeOwed, owedNames, projectOwed, readOwed, writeOwed} from '../owed/index.js';
+import {closeSatisfied, mergeOwed, owedNames, projectOwed, resolveOwedEquipment, readOwed, writeOwed} from '../owed/index.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
 /**
@@ -105,11 +105,11 @@ async function warnContinuity(context: KernelContext, campaign: CampaignWriter, 
         const owedCapable = row(request.continuity_review).owed === true;
         if (owedCapable) {
             const world = await campaign.readWorld(), at = nowIso();
-            let ledger = await readOwed(context, campaign.id);
+            let ledger = resolveOwedEquipment(await readOwed(context, campaign.id),await campaign.party());
             // A retry after the ledger was written but the record was not reuses this job's rows instead of minting twins.
             const already = ledger.open.filter(entry => entry.job === job);
             if (already.length) owed = already;
-            else ({ rows: owed, dropped: owedDropped } = await projectOwed(context, graph, world, record, accepted, string(job), owedNames(ledger)));
+            else ({ rows: owed, dropped: owedDropped } = await projectOwed(context, graph, world, record, accepted, string(job), owedNames(ledger), await campaign.party()));
             ledger = closeSatisfied(graph, world, mergeOwed(ledger, owed, at), at).ledger;
             await writeOwed(context, campaign.id, ledger);
             record.owed = owed;

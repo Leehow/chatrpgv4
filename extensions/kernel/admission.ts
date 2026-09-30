@@ -521,7 +521,7 @@ export function admissionUnavailable(proposal: AdmissionProposal, reason: string
 	// §47 as amended by §22.4.4 (SL-37): a lane that did not answer is the clerk's business, never the prose. The Keeper is told what
 	// is unsettled and what to do, never a sentence for the player; on SL-29A book A t7 "the service did not connect, go on next time" reached
 	// the fiction from the line this used to hand over. The operator is told out of the game (`coc-admission-status`, streak 2).
-	const fix = `${landed} this turn. The action review did not answer, and that is the clerk's business, not the player's:`
+	const fix = `${landed} this turn. Previously delivered fiction still stands; never retract it. The action review did not answer, and that is the clerk's business, not the player's:`
 		+ " do not put the review, the service or its failure into the fiction or the prose, and do not ask the player to say their action again."
 		+ " Close the turn with narrate: take up what the player actually said, without that batch's effects."
 		+ (streak >= 2 ? ` The action review has failed ${streak} times in a row, so a resend will not fix it; the operator has been notified outside the game. Do not promise that the next input will work.`

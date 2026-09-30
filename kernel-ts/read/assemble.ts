@@ -443,7 +443,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
                 : record.closed_how ? { closed: record.closed_how, receipts: array(record.receipts).length } : {})
         })),
         // §158.4: what the player was told and the ledger still lacks; the clerk lands it first, the Keeper never re-tells it.
-        owed: capsuleOwed(graph, world, campaign.jsonFiles.get("owed.json")),
+        owed: capsuleOwed(graph, world, campaign.jsonFiles.get("owed.json"), party),
         warnings: capsuleWarnings(campaign.records, warningRecord, number(turn.turn)),
         // Clues first: a row that is still findable in this room outranks a person the player heard
         // in it, and the section is trimmed from the end.

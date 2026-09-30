@@ -13,11 +13,14 @@
  * closed, usually while the next turn is open, and a `world.json` write there would stale that turn's world
  * revision (§158.3).
  */
+import { cashDecimal } from '../apply/cash.js';
+import { jsonDigest } from '../json.js';
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { personNode } from '../read/capsule.js';
 import { locateExcerpt } from '../read/excerpt.js';
+import { queuedDefinition } from '../mods/queue.js';
 import { findNamedObject } from '../read/mods.js';
 import { array, chars, clone, number, row, type Row } from '../read/values.js';
 import { nowIso } from '../write/store.js';
@@ -27,8 +30,8 @@ import { writeJsonAtomic } from '../fileio.js';
 import { stripMarkers } from '../write/text.js';
 
 export const OWED_FILE = 'owed.json';
-/** The kinds a report may name (§158.2); objects arrive through `missing`, not here. */
-export const OWED_KINDS: readonly string[] = Object.freeze(['move', 'time', 'npc']);
+/** The kinds a report may name (§158.2); objects may also arrive through `missing`. */
+export const OWED_KINDS: readonly string[] = Object.freeze(['move', 'time', 'npc', 'cash', 'object']);
 export const OWED_PRESENCE: readonly string[] = Object.freeze(['here', 'away']);
 /** A journey with no road between two parts of one place (§138.9's exit `adjacent`). */
 export const TRAVEL_ADJACENT = 'adjacent';
@@ -56,6 +59,19 @@ export async function writeOwed(context: KernelContext, campaign: string, ledger
     await writeJsonAtomic(ledgerPath(context, campaign), { open: ledger.open, closed: ledger.closed.slice(-CLOSED_KEPT) });
 }
 
+/** Upgrade an older unresolved equipment row from exact current ownership, without rewriting its identity. */
+export function resolveOwedEquipment(ledger: OwedLedger, party: readonly Row[]): OwedLedger {
+    return {...ledger,open:ledger.open.map(entry=>{
+        if (entry.kind !== 'object' || entry.effect || row(entry.object).category !== 'item') return entry;
+        const name=text(row(entry.object).name),matches=party.flatMap(owner=>array(owner.equipment)
+            .filter(value=>(typeof value === 'string'?value:row(value).name)===name&&!row(value).object_id).map(()=>owner));
+        if (matches.length !== 1) return entry;
+        const owner=matches[0];
+        return {...entry,object:{...row(entry.object),owner:owner.name},owner_id:owner.id,equipment_basis:true,
+            effect:{kind:'object',name,definition:name,to:owner.name,adopt:name}};
+    })};
+}
+
 /** The closed rows a report may choose from (§158.2): travel bands for a move, time bands for time beyond it. */
 export async function owedBands(kernel: KernelContext): Promise<{ travel: string[]; time: string[]; travelMinutes: Map<string, number> }> {
     const travel = await bandRows(kernel, ROUTE_TRAVEL_FIELD), time = await bandRows(kernel, 'time.band');
@@ -72,14 +88,6 @@ function sceneOf(graph: ModuleGraph, name: unknown): Row | null {
     try { return graph.scene(name.trim()); }
     catch { return null; }
 }
-function objectExists(world: Row, name: unknown): boolean {
-    const objects = row(world.objects);
-    for (const kind of ['instances', 'definitions']) {
-        try { if (findNamedObject(row(objects[kind]), name)) return true; }
-        catch { return true; }
-    }
-    return false;
-}
 /** A string, or '' for anything else: `values.string` renders absence as "None", which must never become a name. */
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 const normalized = (value: unknown) => text(value).normalize('NFKC').trim().toLowerCase();
@@ -93,6 +101,7 @@ function describe(graph: ModuleGraph, effect: Row): string {
     }
     if (effect.kind === 'time')
         return `time that passed beyond any journey: ${text(effect.band)}`;
+    if (effect.kind === 'cash') return `${text(effect.subject)}: cash ${String(effect.delta)} ${text(effect.currency)}`;
     const person = personNode(graph, {}, text(effect.name));
     const who = person ? graph.displayName(person) : text(effect.name);
     return chars(effect.to === 'away' ? `${who} is gone from the scene` : `${who} is present at ${text(effect.to)}`, 200);
@@ -102,7 +111,7 @@ function describe(graph: ModuleGraph, effect: Row): string {
  * The accepted report's owed entries and missing objects as rows (§158.3). `record` is the delivered turn the
  * review read; `world` is the campaign world now (it resolves table-established people and places).
  */
-export async function projectOwed(kernel: KernelContext, graph: ModuleGraph, world: Row, record: Row, accepted: Row, job: string, taken: Iterable<string> = []):
+export async function projectOwed(kernel: KernelContext, graph: ModuleGraph, world: Row, record: Row, accepted: Row, job: string, taken: Iterable<string> = [], party: Row[] = []):
     Promise<{ rows: Row[]; dropped: Row[] }> {
     const rendered = text(record.rendered_text || ''), turn = number(record.turn), at = nowIso();
     const rows: Row[] = [], dropped: Row[] = [], used = new Set(taken);
@@ -157,14 +166,37 @@ export async function projectOwed(kernel: KernelContext, graph: ModuleGraph, wor
             const effect = { kind: 'npc', name: graph.handle(person), to: entry.presence === 'away' ? 'away' : told ?? delivered };
             add(kind, effect, quote, describe(graph, effect));
         }
+        else if (kind === 'object') {
+            const owner = party.find(person => person.name === entry.owner || person.id === entry.owner);
+            if (!owner || entry.category !== 'item' || !text(entry.name).trim() || !Number.isInteger(entry.quantity) || Number(entry.quantity) < 1 || Number(entry.quantity) > 10000) { drop('unresolved_object'); continue; }
+            const name = text(entry.name).trim();
+            const equipment = array(owner.equipment).filter(value => (typeof value === 'string' ? value : row(value).name) === name && !row(value).object_id);
+            if (equipment.length > 1) { drop('ambiguous_equipment'); continue; }
+            const effect = {kind:'object',name,definition:name,to:owner.name,...(equipment.length === 1 ? {adopt:name} : {quantity:entry.quantity})};
+            add(kind,effect,quote,name,{object:{name,category:'item',owner:owner.name}, owner_id:owner.id});
+        }
+        else if (kind === 'cash') {
+            const subject = party.find(person => person.name === entry.subject || person.id === entry.subject);
+            if (!subject) { drop('unknown_subject'); continue; }
+            if (!cashDecimal(entry.delta) || cashDecimal(entry.delta)!.coefficient === 0n || !text(entry.currency).trim()) { drop('invalid_cash'); continue; }
+            const other = entry.with == null ? null : personNode(graph, world, text(entry.with));
+            if (entry.with != null && !other) { drop('unknown_person'); continue; }
+            const effect: Row = {kind:'cash',subject:subject.name,delta:entry.delta,currency:entry.currency,settlement:'cash',source:other ? 'quote' : 'found',
+                ...(other ? {with:graph.handle(other)} : {})};
+            add(kind,effect,quote,describe(graph,effect));
+        }
         else drop('unknown_kind');
     }
-    // §158.3: an unsettled object is one owed kind, landed by the Keeper (no clerk effect).
+    // §158.7: exact unmanaged equipment supplies the owner of a missing item.
     for (const missing of array(accepted.missing).map(row)) {
         const name = text(missing.name).trim();
         if (!name) continue;
-        add('object', null, null, chars(`${name} (${text(missing.category)}): ${text(missing.reason)}`, 200),
-            { object: { name, category: text(missing.category) } });
+        const matches = party.flatMap(owner => array(owner.equipment).filter(value => (typeof value === 'string' ? value : row(value).name) === name && !row(value).object_id).map(() => owner));
+        const owner = matches.length === 1 && missing.category === 'item' ? matches[0] : null;
+        // Sheet ownership is exact evidence, not a semantic inference from the reviewer's instruction.
+        const effect = owner ? {kind:'object',name,definition:name,to:owner.name,adopt:name} : null;
+        add('object',effect,null,chars(name,200),{object:{name,category:text(missing.category),...(owner?{owner:owner.name}: {})},
+            ...(owner?{owner_id:owner.id,equipment_basis:true}: {})});
     }
     return { rows, dropped };
 }
@@ -174,7 +206,7 @@ function sameSubject(a: Row, b: Row): boolean {
     if (a.kind !== b.kind) return false;
     if (a.kind === 'move') return true;
     if (a.kind === 'npc') return row(a.effect).name === row(b.effect).name;
-    if (a.kind === 'object') return normalized(row(a.object).name) === normalized(row(b.object).name);
+    if (a.kind === 'object') return normalized(row(a.object).name) === normalized(row(b.object).name) && normalized(row(a.object).owner) === normalized(row(b.object).owner);
     return false;
 }
 export function mergeOwed(ledger: OwedLedger, rows: Row[], at: string): OwedLedger {
@@ -182,7 +214,11 @@ export function mergeOwed(ledger: OwedLedger, rows: Row[], at: string): OwedLedg
     const closed = [...ledger.closed];
     for (const entry of rows) {
         if (open.some(existing => existing.name === entry.name)) continue;
+        // A checked occurrence is a debt once, even if its review is replayed after landing.
+        if (entry.kind === 'cash' && [...open, ...closed].some(existing => existing.kind === 'cash' && existing.turn === entry.turn
+            && existing.quote === entry.quote && jsonDigest(existing.effect) === jsonDigest(entry.effect))) continue;
         const replaced = open.filter(existing => sameSubject(existing, entry));
+        if (entry.kind === 'object' && replaced.some(existing => existing.effect || !entry.effect)) continue;
         open = open.filter(existing => !replaced.includes(existing));
         closed.push(...replaced.map(existing => ({ name: existing.name, turn: existing.turn, kind: existing.kind, how: 'superseded', by: entry.name, at })));
         open.push(entry);
@@ -207,7 +243,12 @@ export function owedSatisfied(graph: ModuleGraph, world: Row, entry: Row): boole
         const scene = sceneOf(graph, effect.to);
         return !!scene && presence[name] === graph.handle(scene);
     }
-    if (entry.kind === 'object') return objectExists(world, row(entry.object).name);
+    if (entry.kind === 'object') {
+        try {
+            const instance = findNamedObject(row(row(world.objects).instances), row(entry.object).name);
+            return !!instance && !!entry.owner_id && row(instance.owner).id === entry.owner_id && row(instance.owner).kind === 'investigator';
+        } catch { return false; }
+    }
     return false;
 }
 /** Open rows the ledger still lacks; the rest move to `closed` as `satisfied`. */
@@ -249,12 +290,21 @@ export async function carryOwed(context: KernelContext, campaign: string, rows: 
 
 /**
  * The capsule's `owed` section (§158.4): what the player was told and the ledger still lacks, newest told first
- * within each kind's order (move, npc, time, object). `clerk` says whether the host can land it; an object is the Keeper's.
+ * within each kind's order (move, npc, time, cash, object). `clerk` requires a resolvable effect.
  */
-export function capsuleOwed(graph: ModuleGraph, world: Row, stored: unknown): Row[] {
-    const order = ['move', 'npc', 'time', 'object'];
-    return owedLedger(stored).open.filter(entry => !owedSatisfied(graph, world, entry))
+export function capsuleOwed(graph: ModuleGraph, world: Row, stored: unknown, party: readonly Row[] = []): Row[] {
+    const order = ['move', 'npc', 'time', 'cash', 'object'];
+    return resolveOwedEquipment(owedLedger(stored),party).open.filter(entry => !owedSatisfied(graph, world, entry))
         .sort((a, b) => order.indexOf(text(a.kind)) - order.indexOf(text(b.kind)) || number(b.turn) - number(a.turn))
-        .map(entry => ({ name: entry.name, turn: entry.turn, kind: entry.kind, what: entry.what, quote: entry.quote ?? null,
-            ...(entry.effect ? { effect: entry.effect } : {}), clerk: entry.kind !== 'object' && !!entry.effect }));
+        .map(entry => {
+            let known = false, ambiguous = false;
+            if (entry.kind === 'object') {
+                try { known = !!findNamedObject(row(row(world.objects).definitions),row(entry.effect).definition); } catch { ambiguous = true; }
+            }
+            return { name: entry.name, turn: entry.turn, kind: entry.kind, what: entry.what, quote: entry.quote ?? null,
+            ...(entry.effect ? { effect: entry.effect } : {}),
+            ...(entry.kind === 'object' && entry.effect && !queuedDefinition(world,row(entry.effect).definition)
+                && !known && !ambiguous
+                ? {prepare:{kind:'define',name:row(entry.effect).definition,category:'item',description:entry.quote || text(row(entry.object).name)}} : {}),
+            clerk: !!entry.effect && !ambiguous && !(entry.kind === 'object' && queuedDefinition(world,row(entry.effect).definition)?.adopt) }; });
 }

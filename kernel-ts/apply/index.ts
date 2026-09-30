@@ -412,7 +412,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
             await commitInventorySheets(context,stagedSheets);
             await campaign.writeWorld(staged);
             // §158.5: the rows this batch landed close, and so do the rows the ledger now agrees with, whoever landed them.
-            await settleOwed(kernel, campaign.id, graph, staged, receipts, nowIso());
+            await settleOwed(kernel, campaign.id, graph, staged, receipts, nowIso(), await campaign.party());
             // §142.5: a person who spent their own turn of the fight on this batch's hold or intention passes it, once the
             // whole batch has landed -- a refused batch passes nothing. The writer already checked it is their turn.
             // §143.3 (spec D9): a weapon a person in the running fight drew is in their hands there too.

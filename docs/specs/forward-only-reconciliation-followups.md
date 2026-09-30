@@ -1,11 +1,11 @@
 # Forward-only reconciliation — open follow-ups
 
-Status: needs-triage (four defects found while accepting FR-01..FR-05; none fixed; each needs the owner's call before work starts)
+Status: implemented and regression-verified on codex/forward-only-followups; mainline integration follows
 Date: 2026-09-29
 Parent: [forward-only-reconciliation.md](forward-only-reconciliation.md), [forward-only-reconciliation-tickets.md](forward-only-reconciliation-tickets.md). Contract: §158.
 Branch where they were found: `claude/forward-only-reconciliation-20260929` (not merged into 0.9.6a).
 
-The four findings are below. Each one records what was seen, where it lives in the code, the options, and a recommendation. None of them is new scope yet: the owner decides which, if any, becomes a ticket.
+The four findings are below. Each one records what was seen, where it lives in the code, the options, and a recommendation. The owner authorized all four fixes and integration of FR-01..FR-05 on 2026-09-29, then requested an isolated worktree and direct mainline merge. Historical findings and options below are preserved as evidence.
 
 Evidence paths are relative to the worktree `~/leehow/code/chatrpgv4-wt-forward-only` and live under its git-ignored `.coc/playtests/`. The excerpts quoted here are the durable copy.
 
@@ -17,7 +17,7 @@ Evidence paths are relative to the worktree `~/leehow/code/chatrpgv4-wt-forward-
 
 ## FR-06: a refused payment is narrated as paid, and the ledger has no owed cash
 
-Status: needs-triage
+Status: implemented; see implementation record below
 
 **Seen.** This happened in both `service-outage` probe trials (turn-23 shape). The player said 「我把两毛五分钱的查阅费放在柜台上…」.
 
@@ -47,7 +47,7 @@ Status: needs-triage
 
 ## FR-07: an owed effect bundled with other effects loses its `told` basis
 
-Status: needs-triage
+Status: implemented; see implementation record below
 
 **Seen.** Live table, campaign turn 5 (driver `fr05-live-b/turn-3.json`, campaign `turns/0005.json`).
 
@@ -83,7 +83,7 @@ This corrects the FR-05 comment in the tickets file. Turn 5's missing catch-up w
 
 ## FR-08: a tool call written as text is delivered to the player as prose
 
-Status: needs-triage
+Status: implemented; see implementation record below
 
 **Seen.** Live table, campaign turn 5. The run budget was spent at the start (`PI_COC_TURN_BUDGET_MS=1`), and the batch above had just been refused.
 
@@ -116,7 +116,7 @@ Status: needs-triage
 
 ## FR-09: starting equipment without instances becomes standing owed object rows
 
-Status: needs-triage
+Status: implemented; see implementation record below
 
 **Seen.** Live table `owed.json` after turn 6:
 
@@ -145,3 +145,23 @@ This is the three-ends rule with a missing actor: the writer (the review) and th
 **Recommendation.** Option 1 first; it covers both starting kit and kit acquired in play. Option 2 is worth doing on its own merits (the engine is authoritative and the sheet is its mirror), but it does not replace option 1.
 
 **Owner decision.** Should objects join the clerk's forced owed steps? That touches object registration (queued registrations land at the next turn's start), which the other owed kinds do not.
+
+## Implementation record
+
+Contract: §158.7. The original playtest directories were not edited.
+
+- FR-06: cash review selectors bind the investigator, counterparty, currency and signed amount. Ordinary cash apply checks the row and closes on a receipt. Repeat reports of one delivered occurrence cannot debit again. Existing cash arithmetic and balance guards remain.
+- FR-07: unavailable, timed-out and rejected admission responses identify open owed rows that can be resent alone in the same turn. The host does not split the batch. The existing prohibition on inventing effects for an unsettled new action remains; earlier delivered fiction is explicitly preserved.
+- FR-08: complete JSON tool envelopes are schema-validated and converted at message_end into normal Pi tool calls, including normal ordering, admission and result hooks. Failed/truncated responses and invalid or mixed text are not routed. A mutation removing routing makes the real session regression fail.
+- FR-09: exact starting equipment resolves owner and adoption, including old effect-less owed rows. Told acquisitions select an investigator owner. The clerk requests normal definition preparation and object placement/adoption; queued adoption stays owed until an actual instance exists. A definition alone, or an instance held by someone else, is insufficient. Repeated object reports preserve the open row. Ambiguous ownership and non-item categories stay unresolved rather than guessing.
+
+Regression evidence:
+
+- `tests/extension/owed-state.test.mjs`: checked review through real TS kernel, cash mismatch and duplicate debit rejection, starting kit and acquired keys, definition versus ownership, repeat report identity.
+- `tests/extension/owed-landing.test.mjs`: real session mixed-batch refusal, both review outage and negative verdict, followed by successful same-turn owed-only retry.
+- `tests/extension/text-tool-call.test.mjs`: schema boundaries and real session delivery, including a refused action followed by a spent steer.
+- `tests/extension/apply-defer-any-batch.test.mjs`: actual Mod host and TS kernel, legacy starting-kit row, held definition author, queued adoption, next-turn resume and final ledger closure.
+
+External comparison: [AWS transactional outbox](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html) and [Azure compensating transactions](https://learn.microsoft.com/en-us/azure/architecture/patterns/compensating-transaction) support retained retry state and idempotent consumers. This product reconciles forward; it does not undo delivered fiction. [JSON-RPC request validation](https://www.jsonrpc.org/specification) and [Pydantic AI output validation](https://pydantic.dev/docs/ai/core-concepts/output/) support structural validation before dispatch; neither authorizes interpreting arbitrary prose as actions.
+
+Validation: 90 targeted regressions passed locally, plus the later acquired-key landing and candidate cases. TypeScript kernel typecheck passed. The LAN extension suite completed with 4,070/4,071 passing (337 seconds); its only failure is the pre-existing missing §157 documentation heading, supplied by the concurrent mainline documentation update and checked again after integration. The FR-08 routing-removal mutation failed as expected. These are deterministic source/session/kernel checks, not a new live Keeper table or packaged-App acceptance.

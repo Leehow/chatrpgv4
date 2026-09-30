@@ -226,3 +226,15 @@ test('a review that lands during the first read is read before any candidate is 
     const waited = rows.find(row => row.lane === 'run' && row.event === 'owed_wait');
     assert.deepEqual({waited_ms: waited.waited_ms, landed: waited.landed, turn: waited.turn}, {waited_ms: 40, landed: true, turn: 2});
 });
+
+test('FR-06/09: resolvable cash and object rows are bound forced clerk steps',()=>{
+    const rows=[{name:'owed-cash',turn:1,kind:'cash',clerk:true,effect:{kind:'cash',subject:'A',delta:-0.25,currency:'USD',source:'quote',with:'B',settlement:'cash'}},
+        {name:'owed-kit',turn:1,kind:'object',clerk:true,effect:{kind:'object',name:'flashlight',definition:'flashlight',to:'A',adopt:'flashlight'}}];
+    const candidates=owedCandidates({owed:rows},false);
+    assert.equal(candidates.length,2);
+    for(const [index,candidate] of candidates.entries()){
+        assert.equal(candidate.forced,true);assert.equal(candidate.clerk,'told_bookkeeping');
+        assert.deepEqual(candidate.bound,{...rows[index].effect,owed:rows[index].name});
+    }
+    assert.equal(owedCandidates({owed:[{...rows[1],clerk:false}]},false).length,0,'queued adoption has no duplicate candidate');
+});

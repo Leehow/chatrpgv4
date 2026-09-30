@@ -29624,3 +29624,43 @@ The kernel-authored forward fixes are §158.3's.
 - *Reader:* the capsule's `owed` section (`kernel-ts/read/assemble.ts`), the clerk's candidate builder, admission's `told` basis, and the kernel's `owed` effect check.
 - *Actor:* the clerk (`told_bookkeeping`) or the Keeper, whose ordinary `apply` lands the row and closes it.
 - *Counted:* `owed.json`'s `closed` list, the receipts' `owed`, the admission rows with `path: "told"`, and the run's `owed` / `owed_wait` rows.
+
+### 158.7 Follow-up reconciliation (FR-06--FR-09, 2026-09-30)
+
+Cash joins owed state. The reviewer names an exact delivered excerpt, signed finite nonzero
+`delta`, investigator `subject`, currency and optional counterparty `with`. Schema 2 selects
+`subject_source` and `with_source` from issued person aliases; no actor defaults are frozen
+at landing time. The kernel projects an ordinary cash effect, checks every financial field
+against the row before binding, and closes only on a receipt. Duplicate reviews of the same
+delivered occurrence do not debit twice; different occurrences remain distinct. Existing
+cash arithmetic, currency and available-balance guards still apply.
+
+A refused mixed batch stays atomic. Its refusal explicitly identifies the open owed rows
+that may be resent alone this turn under told admission. The remainder stays refused; no
+host split or broadened consent follows. Refusal prose must not retract an earlier delivery.
+
+A complete assistant text body containing exactly one JSON tool envelope (optionally one
+JSON fence) is structurally decoded against the currently offered tool schema. Only valid
+closed arguments become a normal toolCall, with a host-minted id. Pi's existing argument
+preparation, tool-call hooks, admission, dispatcher, result hooks and terminal delivery all
+still run. No call is recovered from a failed, aborted, truncated, already delivered or
+closed message, mixed prose, unknown tools, multiple keys or invalid arguments. Record the
+routing on the delivery lane. This is syntax, never semantic classification.
+
+Object owed rows preserve owner and source: exact unmanaged equipment rows identify starting
+kit; a reviewer may additionally select a delivered occurrence and its owner for an acquired
+item. Only resolvable item ownership becomes a forced clerk candidate. A definition alone
+never satisfies ownership. The ordinary materializer supplies missing definitions; the
+ordinary object/adopt path registers the instance, preserving existing quantity and state.
+A queued definition/adoption leaves the debt open until the instance actually exists at the
+recorded owner. Repeated reports preserve the same open row instead of renaming it. Ambiguous
+ownership, unsupported categories or unresolved definitions remain explicit owed state.
+
+Writer: the checked continuity review and exact sheet rows. Reader: the owed capsule and
+candidate builder. Actor: normal apply under told admission, including the existing materializer
+and registration queue. Tests exercise refused mixed-batch recovery, exact-once cash, object
+ownership/queue completion and real message_end tool routing with the steer already spent.
+
+Precedent: AWS transactional outbox guidance requires idempotent consumers; Azure compensating
+transactions require retained progress and idempotent retry. These support durable owed rows
+and receipt closure, but do not authorize undoing delivered fiction or splitting an atomic apply.

@@ -144,6 +144,7 @@ export function buildAuditReferences(request: Row, files: Row, scope: ScopeBindi
             named.add(name);
             fieldEntry(`person:${personOrdinal++}`,'person','persons',document,original,{name:path});
         };
+        for (const [i,value] of childEntries(pinnedFiles['current.json']?.party)) if (typeof value?.name === 'string') person('current.json',pinnedFiles['current.json'],['party',i,'name'],value.name);
         for (const [i,value] of childEntries(context.present)) if (typeof value?.name === 'string') person('context.json',context,['present',i,'name'],value.name);
         for (const [i,node] of childEntries(pinnedFiles['effective.json']?.graph?.nodes))
             if (node.node_kind === 'npc' && typeof node.name === 'string') person('effective.json',pinnedFiles['effective.json'],['graph','nodes',i,'name'],node.name);
@@ -251,7 +252,17 @@ export function materializeAuditReferences(submitted: any, catalog: AuditReferen
             if (!shape(v,['kind','source','person_source','presence'],p)) return v;
             return {kind:v.kind,quote:select(v.source,['draft'],`${p}/source`),person:select(v.person_source,['person'],`${p}/person_source`,'name'),presence:v.presence};
         }
-        add(`${p}/kind`,'Expected move, time or npc'); return v;
+        if (v.kind === 'object') {
+            if (!shape(v,['kind','source','name','category','owner_source','quantity'],p)) return v;
+            return {kind:v.kind,quote:select(v.source,['draft'],p+'/source'),name:v.name,category:v.category,
+                owner:select(v.owner_source,['person'],p+'/owner_source','name'),quantity:v.quantity};
+        }
+        if (v.kind === 'cash') {
+            if (!shape(v,['kind','source','subject_source','delta','currency','with_source'],p)) return v;
+            return {kind:v.kind,quote:select(v.source,['draft'],p+'/source'),subject:select(v.subject_source,['person'],p+'/subject_source','name'),
+                delta:v.delta,currency:v.currency,with:select(v.with_source,['person'],p+'/with_source','name',true)};
+        }
+        add(p+'/kind','Expected move, time, npc or cash'); return v;
     },8);
     output.findings = value.findings;
     const review = value.continuity_review, path='/continuity_review';
@@ -364,6 +375,9 @@ export function auditReferenceIssues(errors: readonly AuditIssue[]): AuditIssue[
             .replace(/^(\/owed\/\d+)\/quote$/, '$1/source')
             .replace(/^(\/owed\/\d+)\/to$/, '$1/to_source')
             .replace(/^(\/owed\/\d+)\/person$/, '$1/person_source')
+            .replace(/^(\/owed\/\d+)\/subject$/, '$1/subject_source')
+            .replace(/^(\/owed\/\d+)\/with$/, '$1/with_source')
+            .replace(/^(\/owed\/\d+)\/owner$/, '$1/owner_source')
             .replace(/(\/conflicts\/\d+)\/claim$/, '$1/claim_source')
             .replace(/(\/conflicts\/\d+)\/evidence(?:\/(\d+)(?:\/(?:file|quote))?)?$/, (_all,prefix,index) => `${prefix}/evidence_sources${index === undefined ? '' : `/${index}`}`)
             .replace(/(\/(?:intelligibility_review|player_address_review))\/quote$/, '$1/source')

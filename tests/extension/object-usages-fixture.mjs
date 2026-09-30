@@ -9,7 +9,7 @@ import {build} from 'esbuild';
 export const root=resolve(import.meta.dirname,'../..'), temporary=await mkdtemp(join(tmpdir(),'object-usages-rpc-'));
 after(()=>rm(temporary,{recursive:true,force:true}));
 await symlink(join(root,'node_modules'),join(temporary,'node_modules'),'dir');
-await build({stdin:{contents:"export * from './kernel-ts/testing/api.ts'; export {CONTINUITY_AUDIT} from './kernel-ts/mods/audit-result.ts';",resolveDir:root,sourcefile:'usage-rpc-api.ts'},outfile:join(temporary,'api.mjs'),bundle:true,packages:'external',format:'esm',platform:'node',target:'node22',logLevel:'silent'});
+await build({stdin:{contents:"export * from './kernel-ts/testing/api.ts'; export * from './kernel-ts/owed/index.ts'; export {CONTINUITY_AUDIT} from './kernel-ts/mods/audit-result.ts';",resolveDir:root,sourcefile:'usage-rpc-api.ts'},outfile:join(temporary,'api.mjs'),bundle:true,packages:'external',format:'esm',platform:'node',target:'node22',logLevel:'silent'});
 export const api=await import(pathToFileURL(join(temporary,'api.mjs')).href);
 const fixture=join(temporary,'package');
 await cp(join(root,'mods/enhanced-items'),fixture,{recursive:true});
