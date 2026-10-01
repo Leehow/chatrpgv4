@@ -30535,6 +30535,22 @@ NPCs through the real catalog/candidate path, assert packing and exact binding p
 retry the same live scene. Packing refusal remains typed unavailable when even the projection
 cannot fit; no LLM-owned resolve or arbitrary option truncation is authorized.
 
+### 159.16 An identical NPC archetype pin reuses its established profile (2026-10-01)
+
+Live turn 48 reaches the driver-skill preparation, then a mixed batch repeats archetype pins that
+already succeeded in turn 46. Three progressively shortened retries hit the same identical-pin
+refusal; the fourth contains only skill pins but the refusal budget is already exhausted. Atomic
+refusal preserved state, but a harmless identical declaration poisoned the remaining preparation.
+
+An existing table-pinned archetype requested with the exact same archetype name is an idempotent
+reuse: keep the complete established profile, original pin turn, numbers and RNG state. Companion
+effects in the same atomic batch still run normally. A different archetype remains refused, as does
+replacing a source-authored profile; neither conflict is a no-op. This changes no numbers already
+told or recorded and never resamples the actor. Regress duplicate pin plus a new skill through the
+real apply/catalog/chase path; source ownership and conflicting-pin guards remain required.
+Primary analogues: SQLite uniqueness UPSERT no-op and Stripe identical idempotent request reuse
+confirm repeat preservation; our NPC archetype identity is actor-scoped, not a reused request key.
+
 ## 160. A Keeper tool string argument that arrives as a JSON string literal is decoded at the host boundary (2026-09-30; extends §144, amends §135.21's `prepareArguments` and the order of §144.1)
 
 **Evidence.** The opening turn of the installed App's campaign `game-ef4f5f3b-6445-423b-bae1-f95f4601a698` (receipt `6d870987b`) was stored and delivered as a JSON-escaped literal: `turns/0000.json` `text`, `marked_text` and `rendered_text`, and `transcript.jsonl` turn 0, all begin `"一九二〇年秋…`, with literal backslashes. The model's call, in the App's Pi session file, is the second `apply` of one message: `effects: [{kind: "person", who: "Steven Knott", name: …}]` and `narrate` a 1,024-character string whose own text is a quoted, `\u`-escaped JSON string literal of 185 characters of prose. The model is `grok-build/grok-4.7-build-fast` (the message's own `provider`/`model`). The speech rows were cut from the same text, so `{{say:史…}}` named nobody at the table (`unresolved_speakers`) and the line's text carries the escapes too; the continuity review passed the turn (`verdict: pass`).
