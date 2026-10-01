@@ -411,6 +411,37 @@ test('ordinary bookkeeping cannot re-open an unresolved check in the same run an
   assert.equal(nextRun.heldCheckDecisions, undefined);
   assert.equal(nextRun.candidates.length, 1);
 });
+
+test('an unavailable chase participant catalog requests preparation before any semantic necessity question', async t => {
+  const unavailable = {key: 'missing-chase', family: 'chase', label: 'Prepare chase participants',
+    action: {decision: 'chase:start', intent: 'move'}, parameters: [],
+    needs: ['check_arguments_unavailable:chase:start'], authorization: 'declaration'};
+  const {input, seen} = setup(t, () => {throw new Error('no semantic question has a concrete participant');}, [unavailable]);
+  input.request = {decision: 'chase:start', bound: {}};
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'unresolved');
+  assert.deepEqual(result.needs, unavailable.needs);
+  assert.equal(result.calls, 0);
+  assert.equal(seen.length, 0);
+  assert.equal(result.preparation.decision, 'chase:start');
+});
+
+test('a preparation hold permits agent preparation and re-opens only on a newly executable catalog', () => {
+  const request = {...candidate, bound: {decision: 'chase:start'}};
+  const context = {scene: 'road', clock: {}, present: []};
+  const view = initialView({runId: 'prepare-run', rawInput: 'I flee the tailgating cars.', context, candidates: [request]});
+  settleCheckSelection(view, request, {status: 'unresolved', needs: ['check_arguments_unavailable:chase:start'], calls: 0,
+    preparation: {decision: 'chase:start', needs: ['check_arguments_unavailable:chase:start']}}, 0);
+  assert.equal(view.pending[0].purpose, 'adjudicate');
+  assert.equal(view.pending[0].reason, 'check_preparation');
+  const refreshed = {...request, key: 'new-revision', detail: {check_options: [{needs: ['check_arguments_unavailable:chase:start'], parameters: []}]}};
+  const read = {materials: [], summary: {}, calls: 0, ms: 0};
+  settleRead(view, 3, read, {context, candidates: [refreshed]}, 1);
+  assert.deepEqual(view.candidates, []);
+  const ready = {...refreshed, key: 'participants-ready', detail: {check_options: [{needs: [], parameters: [{name: 'intent', available: true}]}]}};
+  settleRead(view, 4, read, {context, candidates: [ready]}, 1);
+  assert.deepEqual(view.candidates.map(c => c.key), ['participants-ready']);
+});
 test('the existing agent schedules the check bind and its execution before compose', () => {
   const view = initialView({runId: 'run', rawInput: 'I listen.', context: {scene: 'hall', clock: {}, present: []}, candidates: [candidate], readFirst: false});
   view.pending = [{kind: 'infer', purpose: 'compose', reason: 'finish'}];

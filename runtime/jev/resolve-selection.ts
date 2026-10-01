@@ -50,6 +50,7 @@ export type CheckSelection = {
   action?: Record<string, Json>;
   needs: string[];
   calls: number;
+  preparation?: {decision: string; needs: string[]};
   snapshot?: {scene: string; revision: string; worldRevision: string};
 };
 
@@ -225,6 +226,11 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       && currentSceneReceipts.some(receipt => receipt.kind === 'roll' && receipt.actor === option.action.actor && receipt.skill === option.action.skill
         && (receipt.decision == null || receipt.decision === option.action.decision))));
     if (!eligible.length) return {status: 'no_roll', needs: [], calls};
+    if (eligible.every(option => option.needs.length || option.parameters.some(parameter => !parameter.options.length))) {
+      const needs = [...new Set(eligible.flatMap(option => [...option.needs,
+        ...option.parameters.filter(parameter => !parameter.options.length).map(parameter => `unbound:${parameter.name}`)]))];
+      return {...unresolved(needs, eligible[0]), preparation: {decision: input.request.decision, needs}};
+    }
     const socialActors = [...new Set(eligible.filter(option => option.action.decision === 'social:adjudicate-difficulty'
       && option.facts?.actor_role === 'investigator').map(option => String(option.action.actor)))];
     if (socialActors.length) {
