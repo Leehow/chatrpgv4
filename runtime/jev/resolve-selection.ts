@@ -198,7 +198,11 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
   const note = (what: string, why: 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'player_choice') => { forced.push(what); whys.add(why); };
   const conditions: unknown[] = isPlainRecord(input.context) && Array.isArray(input.context.conditions) ? input.context.conditions : [];
   const investigators = new Set((input.investigators ?? conditions.flatMap(row => isPlainRecord(row) ? [String(row.actor ?? '')] : [])).filter(Boolean));
-  const done = (result: CheckSelection): CheckSelection => forced.length ? {...result, forced: {uncertain: [...forced], why: [...whys].sort().join(',')}} : result;
+  const done = (result: CheckSelection): CheckSelection => {
+    const uncertain = [...forced, ...(result.forced?.uncertain ?? [])];
+    const reasons = new Set([...whys, ...(result.forced?.why ?? '').split(',').filter(Boolean)]);
+    return uncertain.length ? {...result, forced: {uncertain, why: [...reasons].sort().join(',')}} : result;
+  };
   const unresolved = (needs: string[], option?: CheckOption): CheckSelection => ({status: 'unresolved',
     needs: needs.map(need => input.options.find(option => option.key === need)?.label ?? need), calls, ...(option ? {option} : {})});
   const decide = async (purpose: string, state: Json, questions: DecisionBatch['questions']): Promise<DecisionResult> => {

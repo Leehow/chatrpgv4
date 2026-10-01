@@ -1,6 +1,8 @@
 /** Bounded mobility/vehicle bindings. The kernel supplies every name, profile and numeric fact. */
 import type {DecisionQuestion, DecisionResult, Json} from './contracts.ts';
 import type {CheckOption, CheckSelection, CheckSelectionGates} from './resolve-selection.ts';
+import {clears} from './decision-gate.ts';
+import {leansYes, scoreText} from './forced-resolution.ts';
 
 type Row = Record<string, any>;
 const record = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
@@ -17,11 +19,44 @@ const yes = (result: DecisionResult, key: string) => {
     && Number.isFinite(answer.noul) && answer.noul >= 0 && answer.noul <= 1 ? answer.noul : undefined;
 };
 
+type IssuedChoice = {value: string; p: number; forced: boolean; uncertain?: string; why?: 'below_confidence_gate' | 'nothing_executable'};
+function bestIssuedChoice(result: DecisionResult, key: string, issued: string[], gate: number): IssuedChoice | undefined {
+  const answer = result.answers[key];
+  if (result.status !== 'complete' || answer?.status !== 'answered' || answer.type !== 'choice' || !answer.probabilities) return undefined;
+  const selectedProbability = answer.probabilities[answer.choice];
+  if (answer.choice === 'unknown' && typeof selectedProbability === 'number' && Number.isFinite(selectedProbability) && selectedProbability > 0
+    && clears(result, key, answer.choice, answer.confidence, gate))
+    return {value: 'unknown', p: selectedProbability, forced: false};
+  if (issued.includes(answer.choice) && typeof selectedProbability === 'number' && Number.isFinite(selectedProbability) && selectedProbability > 0
+    && clears(result, key, answer.choice, answer.confidence, gate))
+    return {value: answer.choice, p: selectedProbability, forced: false};
+  const ranked = issued.map(value => ({value, p: answer.probabilities![value]}))
+    .filter((entry): entry is {value: string; p: number} => Number.isFinite(entry.p) && entry.p > 0)
+    .sort((a, b) => b.p - a.p || issued.indexOf(a.value) - issued.indexOf(b.value));
+  if (ranked.length) {
+    const best = ranked[0]!;
+    return {value: best.value, p: best.p, forced: true, why: 'below_confidence_gate',
+      uncertain: `${key}: ${answer.choice} ${scoreText(selectedProbability)}; best issued ${best.value} ${scoreText(best.p)}`};
+  }
+  if (typeof selectedProbability === 'number' && Number.isFinite(selectedProbability) && selectedProbability > 0)
+    return {value: 'unknown', p: selectedProbability, forced: true, why: 'nothing_executable',
+      uncertain: `${key}: unknown ${scoreText(selectedProbability)}; no concrete issued value scored above zero`};
+  return undefined;
+}
+
 export async function selectChaseRoster(option: CheckOption, declaration: string, context: Json,
   gates: CheckSelectionGates, decide: (purpose: string, state: Json, questions: DecisionQuestion[]) => Promise<DecisionResult>): Promise<Partial<CheckSelection>> {
   const actors = rows(option.facts?.chase_actors), profiles = rows(option.facts?.vehicle_profiles);
   const needs = (values: string[], preparation = false, drivers: string[] = [], profiles: string[] = []): Partial<CheckSelection> => ({status: 'unresolved', needs: values, option,
     ...(preparation ? {preparation: {decision: 'chase:start', needs: values, mobility: 'vehicle', drivers, profiles}} : {})});
+  const forcedUncertain: string[] = [], forcedWhys = new Set<string>();
+  const noteForced = (uncertain: string, why: string): void => {forcedUncertain.push(uncertain);forcedWhys.add(why);};
+  const finish = (result: Partial<CheckSelection>): Partial<CheckSelection> => forcedUncertain.length
+    ? {...result, forced: {uncertain: forcedUncertain, why: [...forcedWhys].sort().join(',')}} : result;
+  const noRoll = (need: string, uncertain: string, why: string): Partial<CheckSelection> => {
+    noteForced(uncertain, why);
+    return finish({status: 'unresolved', option, needs: [need]});
+  };
   if (!actors.length || !profiles.length) return needs(['chase_roster_catalog_unavailable'], true);
   const state = {declaration, public_narration: record(context).public_narration ?? null,
     actors: Object.fromEntries(actors.map((actor, index) => [`actor_${index}`,
@@ -64,9 +99,22 @@ export async function selectChaseRoster(option: CheckOption, declaration: string
     criteria: {...Object.fromEntries(profiles.map((profile, index) => [`profile_${index}`, {what: profile.label ?? profile.key}])), unknown: 'No supplied profile fits the established vehicle.'}})));
   const roster: Row[] = selected.map(entry => ({actor: entry.actor.name, role: entry.role}));
   const compatible: Array<{entry: typeof drivers[number]; profile: Row}> = [];
+  const profileOptions = profiles.map((_, index) => `profile_${index}`);
   for (const entry of drivers) {
-    const answer = pick(choices, `vehicle_${entry.index}`), profile = answer && profiles.find((_, index) => answer.value === `profile_${index}`);
-    if (!answer || !profile || answer.p <= 0) return needs(['chase_vehicle_profile_unbound']);
+    const key = `vehicle_${entry.index}`, answer = bestIssuedChoice(choices, key, profileOptions, gates.choice);
+    if (!answer) {
+      const row = choices.answers[key];
+      return noRoll('chase_vehicle_profile_unbound', `${entry.actor.name}: vehicle profile ${row?.status === 'answered' ? 'has no positive issued value' : 'unanswered'}`,
+        choices.status === 'complete' && row?.status === 'answered' ? 'nothing_executable' : 'jev_unanswered');
+    }
+    if (answer.value === 'unknown') {
+      if (answer.forced) noteForced(answer.uncertain ?? `${entry.actor.name}: no supported vehicle profile`, answer.why ?? 'nothing_executable');
+      return finish({status: 'unresolved', option, needs: ['chase_vehicle_profile_unbound']});
+    }
+    const profile = profiles.find((_, index) => answer.value === `profile_${index}`);
+    if (!profile) return noRoll('chase_vehicle_profile_unbound', `${entry.actor.name}: no compatible issued vehicle profile`, 'nothing_executable');
+    if (answer.forced) noteForced(`${entry.actor.name}: ${answer.uncertain ?? `vehicle profile ${answer.value} ${scoreText(answer.p)}`}`,
+      answer.why ?? 'below_confidence_gate');
     compatible.push({entry, profile});
   }
   // A permissible class is not necessarily the sole permissible class. Validate the selected candidate directly.
@@ -77,7 +125,11 @@ export async function selectChaseRoster(option: CheckOption, declaration: string
       criteria: {true: 'This class is a supported compatible ruling.', false: 'This class is unsupported or conflicts with the established vehicle.'}})));
   for (const value of compatible) {
     const p = yes(validity, `valid_${value.entry.index}`);
-    if (p === undefined || p < gates.adjudication) return needs(['chase_vehicle_profile_uncertain']);
+    if (p === undefined) return noRoll('chase_vehicle_profile_uncertain', `${value.entry.actor.name}: vehicle profile validity unanswered`, 'jev_unanswered');
+    if (p < gates.adjudication && p > gates.noNeed) {
+      noteForced(`${value.entry.actor.name}: vehicle profile compatibility ${scoreText(p)}`, 'below_confidence_gate');
+      if (!leansYes(p)) return finish({status: 'unresolved', option, needs: ['chase_vehicle_profile_uncertain']});
+    } else if (p <= gates.noNeed) return finish({status: 'unresolved', option, needs: ['chase_vehicle_profile_uncertain']});
     roster.find(entry => entry.actor === value.entry.actor.name)!.vehicle = value.profile.key;
   }
   const passengers = selected.filter(entry => entry.role === 'passenger');
@@ -92,5 +144,5 @@ export async function selectChaseRoster(option: CheckOption, declaration: string
       roster.find(entry => entry.actor === passenger.actor.name)!.riding_with = driver.actor.name;
     }
   }
-  return {status: 'selected', action: {...option.action, chase_roster: roster as Json}, option, needs: []};
+  return finish({status: 'selected', action: {...option.action, chase_roster: roster as Json}, option, needs: []});
 }

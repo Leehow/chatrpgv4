@@ -27,7 +27,7 @@ import {answerOf, clears} from './decision-gate.ts';
 import {npcScanCandidate} from './npc-act-step.ts';
 import type {CheckSelection} from './resolve-selection.ts';
 import {forcedScope, type InteractionScope} from './interaction-scope.ts';
-import {forcedResolution, type ForcedResolution} from './forced-resolution.ts';
+import {forcedResolution, scoreText, type ForcedResolution} from './forced-resolution.ts';
 import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, FIGHT_FAMILIES, fightAct, interpretCompile, interpretReask, ORDINARY_CHECK,
   reachable, REASK_FAMILY, reaskBatch, reaskOf, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput} from './route-compile.ts';
 
@@ -506,13 +506,21 @@ export function compileDue(view: RunView): boolean {
  * a fact; asked one by one, each need stands or falls on its own and the host orders them.
  */
 export function interpretRoute(view: RunView, offered: Candidate[], result: DecisionResult | undefined, gate: number):
-  {pending: PendingItem[]; choice?: string; confidence?: number; reason: string; selected?: string[]; exit?: string} {
+  {pending: PendingItem[]; choice?: string; confidence?: number; reason: string; selected?: string[]; exit?: string;
+    forced?: Array<{candidate: Candidate; outcome: 'inspect_check' | 'no_roll'; uncertain: string[]; why: string}>} {
   // §135.11 addendum (SL-20): once the clerk has settled the declaration, the exit leans to finish (the compose).
   const settled = (view.settled?.length ?? 0) > 0;
+  const forced: Array<{candidate: Candidate; outcome: 'inspect_check' | 'no_roll'; uncertain: string[]; why: string}> = [];
+  const withForced = <T extends {pending: PendingItem[]}>(outcome: T): T & {forced?: typeof forced} => forced.length ? {...outcome, forced} : outcome;
   const lean = (choice?: string, confidence?: number) => ({pending: [{kind: 'infer' as const, purpose: 'compose', reason: 'settled'}],
     ...(choice ? {choice, confidence} : {}), reason: 'settled', selected: [] as string[], exit: choice});
-  if (!result || result.status !== 'complete') return settled ? lean()
-    : {pending: [{kind: 'infer', purpose: 'adjudicate', reason: `jev_${result?.failure?.code ?? result?.status ?? 'unavailable'}`}], reason: 'jev_unavailable'};
+  if (!result || result.status !== 'complete') {
+    if (!settled) for (const candidate of offered) if (candidate.checkOwner === 'jev'
+      && candidate.unbound.some(value => value.binder === 'resolve-selection'))
+      forced.push({candidate, outcome: 'no_roll', uncertain: [`${candidate.label}: ${result?.failure?.code ?? result?.status ?? 'unanswered'}`], why: 'jev_unanswered'});
+    return withForced(settled ? lean()
+      : {pending: [{kind: 'infer', purpose: 'adjudicate', reason: `jev_${result?.failure?.code ?? result?.status ?? 'unavailable'}`}], reason: 'jev_unavailable'});
+  }
   const exit = answerOf(result, 'exit');
   const selected: Array<{candidate: Candidate; confidence?: number}> = [];
   for (const [index, candidate] of offered.entries()) {
@@ -521,9 +529,27 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
     // §143.16 (NAF-17): the same for an investigator's fight step whose own act no compile of the run cleared -- a demand,
     // a question or an aside in a fight is never the clerk's punch, whatever `need` answered.
     if (compileOnly(candidate) || actGated(candidate, view.declaredActs ?? [])) continue;
-    const key = `need_${index + 1}`, {choice, confidence} = answerOf(result, key);
+    const key = `need_${index + 1}`, {choice, confidence, probabilities} = answerOf(result, key);
     const selects = candidate.routeFact?.selects ?? 'now';
-    if (choice === selects && clears(result, key, selects, confidence, gate)) selected.push({candidate, confidence});
+    const checkOwned = candidate.checkOwner === 'jev' && candidate.unbound.some(value => value.binder === 'resolve-selection');
+    if (choice === selects && clears(result, key, selects, confidence, gate)) {
+      selected.push({candidate, confidence});
+      continue;
+    }
+    if (!checkOwned || ((choice === 'later' || choice === 'unknown') && clears(result, key, choice, confidence, gate))) continue;
+    const scored = (['now', 'later'] as const).map(value => ({value, p: probabilities?.[value]}))
+      .filter((entry): entry is {value: 'now' | 'later'; p: number} => Number.isFinite(entry.p) && (entry.p as number) > 0)
+      .sort((a, b) => b.p - a.p || (a.value === 'now' ? -1 : 1));
+    const uncertain = [`${candidate.label}: now ${scoreText(probabilities?.now)}, later ${scoreText(probabilities?.later)}, unknown ${scoreText(probabilities?.unknown)}`];
+    if (!scored.length) {
+      forced.push({candidate, outcome: 'no_roll', uncertain, why: choice === undefined ? 'jev_unanswered' : 'nothing_executable'});
+      continue;
+    }
+    const best = scored[0]!;
+    if (best.value === 'now') {
+      selected.push({candidate, confidence});
+      forced.push({candidate, outcome: 'inspect_check', uncertain, why: 'below_confidence_gate'});
+    } else forced.push({candidate, outcome: 'no_roll', uncertain, why: 'below_confidence_gate'});
   }
   selected.sort((a, b) => rank(a.candidate) - rank(b.candidate));
   const confidence = selected.length ? Math.min(...selected.map(entry => entry.confidence ?? 1)) : exit.confidence;
@@ -531,22 +557,22 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
   if (selected.length) {
     const pending: PendingItem[] = [];
     for (const {candidate} of selected) pending.push(...itemsFor(candidate));
-    return {pending, choice: keys.join(' + '), confidence, reason: `selected_${selected.length}`, selected: keys, exit: exit.choice};
+    return withForced({pending, choice: keys.join(' + '), confidence, reason: `selected_${selected.length}`, selected: keys, exit: exit.choice});
   }
   // After a settlement only `continue` or `ask_llm` that clears the gates on its own hands the run back to the Keeper (a
   // cleared `finish` is the compose below, as always); any other answer -- read_more, none_of_above, below the gates, none
   // at all -- is the compose.
   if (settled && !(['continue', 'ask_llm', 'finish'].includes(exit.choice ?? '') && clears(result, 'exit', exit.choice!, exit.confidence, gate)))
-    return lean(exit.choice, exit.confidence);
-  if (!exit.choice) return {pending: [{kind: 'infer', purpose: 'adjudicate', reason: 'jev_no_answer'}], reason: 'jev_no_answer', selected: [], exit: undefined};
+    return withForced(lean(exit.choice, exit.confidence));
+  if (!exit.choice) return withForced({pending: [{kind: 'infer', purpose: 'adjudicate', reason: 'jev_no_answer'}], reason: 'jev_no_answer', selected: [], exit: undefined});
   if (!clears(result, 'exit', exit.choice, exit.confidence, gate))
-    return {pending: [{kind: 'infer', purpose: 'adjudicate', reason: 'low_confidence'}], choice: exit.choice, confidence: exit.confidence, reason: 'low_confidence', selected: [], exit: exit.choice};
-  if (exit.choice === 'read_more') return {pending: [...(view.located ? [] : [{kind: 'decide' as const, purpose: 'locate'}]), {kind: 'direct', purpose: 'read',reason:'read_more'}],
-    choice: exit.choice, confidence: exit.confidence, reason: 'read_more', selected: [], exit: exit.choice};
-  if (exit.choice === 'finish') return {pending: [{kind: 'infer', purpose: 'compose', reason: 'finish'}], choice: exit.choice, confidence: exit.confidence, reason: 'finish', selected: [], exit: exit.choice};
+    return withForced({pending: [{kind: 'infer', purpose: 'adjudicate', reason: 'low_confidence'}], choice: exit.choice, confidence: exit.confidence, reason: 'low_confidence', selected: [], exit: exit.choice});
+  if (exit.choice === 'read_more') return withForced({pending: [...(view.located ? [] : [{kind: 'decide' as const, purpose: 'locate'}]), {kind: 'direct', purpose: 'read',reason:'read_more'}],
+    choice: exit.choice, confidence: exit.confidence, reason: 'read_more', selected: [], exit: exit.choice});
+  if (exit.choice === 'finish') return withForced({pending: [{kind: 'infer', purpose: 'compose', reason: 'finish'}], choice: exit.choice, confidence: exit.confidence, reason: 'finish', selected: [], exit: exit.choice});
   // ask_llm, or "continue" with nothing the host can name: judgment the candidates do not carry.
   const reason = exit.choice === 'ask_llm' ? 'ask_llm' : 'no_candidate';
-  return {pending: [{kind: 'infer', purpose: 'adjudicate', reason}], choice: exit.choice, confidence: exit.confidence, reason, selected: [], exit: exit.choice};
+  return withForced({pending: [{kind: 'infer', purpose: 'adjudicate', reason}], choice: exit.choice, confidence: exit.confidence, reason, selected: [], exit: exit.choice});
 }
 
 const ROUTE_POLICY = 'You route one step of a Keeper turn in a Call of Cthulhu table. The player input, the current situation, what has '
@@ -868,9 +894,11 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   view.budget.jevCalls++;view.budget.jevMs += ms;
   const routed = interpretRoute(view, offered, result, gate);
   view.pending.push(...routed.pending);
-  // §135.26: a candidate asked by its own fact and not selected (`not`, `unknown`, or below the gates) is the Keeper's for
-  // the rest of the run: it is not asked again on the next route. §135.30 addendum: so is a candidate only the compile
-  // selects, whatever its route answer (it stays offered to the Keeper). §143.16: so is a gated fight step of the investigator.
+  for (const entry of routed.forced ?? []) recordForced(view, forcedResolution({family: 'check-selection', subject: entry.candidate.label,
+    uncertain: entry.uncertain, chosen: {outcome: entry.outcome}, why: entry.why}, [view.context.scene, entry.candidate.key]));
+  // §135.26: a candidate asked by its own fact and not selected remains the Keeper's for the run, except a Jev-owned
+  // check family: §163 records its forced best-scored route or no-roll above. §135.30 addendum: so is a candidate only
+  // the compile selects, whatever its route answer (it stays offered to the Keeper). §143.16: so is a gated fight step.
   const gated = offered.filter(candidate => actGated(candidate, view.declaredActs ?? [])).map(candidate => candidate.key);
   if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate) || gated.includes(candidate.key)) && !(routed.selected ?? []).includes(candidate.key)) {
     if (!view.consumed.includes(candidate.key)) view.consumed.push(candidate.key);
@@ -1086,7 +1114,10 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
  * could execute on this snapshot, as opposed to Jev giving no answer. A closed protocol vocabulary, not a reading of text.
  */
 const HOST_SELECTION_CODES: ReadonlySet<string> = new Set(['check_selection_gate_invalid', 'check_catalog_unavailable', 'check_request_unbound',
-  'check_request_options_unavailable', 'check_catalog_binding_changed', 'check_session_owner', 'check_selection_stale', 'distinct_attempt_binding_required']);
+  'check_request_options_unavailable', 'check_catalog_binding_changed', 'check_session_owner', 'check_selection_stale', 'distinct_attempt_binding_required',
+  'chase_roster_catalog_unavailable', 'chase_mobility_uncertain', 'chase_mobility_evidence_required', 'chase_investigator_role_unbound',
+  'chase_investigator_driver_unbound', 'chase_actor_profile_unavailable', 'chase_participants_unbound', 'chase_driver_skill_unavailable',
+  'vehicle_chase_has_no_driver', 'chase_vehicle_profile_unbound', 'chase_vehicle_profile_uncertain', 'chase_passenger_driver_unbound']);
 /** §163: one forced resolution joins the run's record (once per key). */
 export function recordForced(view: Pick<RunView, 'forced'>, entry: ForcedResolution): void {
   if (!view.forced?.some(seen => seen.key === entry.key)) view.forced = [...(view.forced ?? []), entry];
@@ -1127,8 +1158,8 @@ export function settleCheckSelection(view: RunView, candidate: Candidate, result
   } else if (result.status === 'unresolved') {
     // §163: nothing was scored or executable. The decision is not asked again this run; the Keeper narrates it.
     holdCheckDecision(view, candidate);
-    recordForced(view, forcedResolution({family: 'check-selection', subject: label, uncertain: result.needs, chosen: {outcome: 'no_roll'},
-      why: result.needs.some(need => HOST_SELECTION_CODES.has(need)) ? 'nothing_executable' : 'jev_unanswered'},
+    recordForced(view, forcedResolution({family: 'check-selection', subject: label, uncertain: result.forced?.uncertain ?? result.needs, chosen: {outcome: 'no_roll'},
+      why: result.forced?.why ?? (result.needs.some(need => HOST_SELECTION_CODES.has(need)) ? 'nothing_executable' : 'jev_unanswered')},
     [view.context.scene, String(candidate.bound.decision ?? candidate.key)]));
   }
   if (result.forced && result.status !== 'unresolved') {

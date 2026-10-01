@@ -9,7 +9,7 @@ import type {Json} from './contracts.ts';
 
 /** Which decision was forced. Closed: each family names one owner of a §163 path. */
 export type ForcedFamily = 'interaction-scope' | 'check-selection' | 'check-binding' | 'check-execution' | 'check-preparation';
-export type ForcedOutcome = 'roll' | 'no_roll' | 'deferred' | 'world';
+export type ForcedOutcome = 'inspect_check' | 'roll' | 'no_roll' | 'deferred' | 'world';
 /** Why the decision was forced: a gate Jev answered below, no answer at all, or no executable option. */
 export type ForcedWhy = 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'check_refused' | 'preparation_incomplete' | 'player_choice';
 export interface ForcedResolution {
@@ -44,7 +44,8 @@ export function mergeForced(into: ForcedResolution[], entries: readonly ForcedRe
 /** The Keeper's marker for every forced resolution of this turn (the `decided_under_uncertainty` note). */
 export const DECIDED_UNDER_UNCERTAINTY_NOTE = 'The host decided these points under uncertainty: Jev could not settle them past its confidence gates, '
   + 'gave no answer, or nothing executable existed, so the host took Jev\'s best-scored option or, with nothing scored, no roll. '
-  + 'Treat each chosen result as settled for this turn. A chosen roll was executed by the host and its receipt is committed. '
+  + 'Treat each chosen result as settled for this turn. An inspect_check result routes that rule family through Jev\'s bounded check selector; it is not itself a roll. '
+  + 'A chosen roll was executed by the host and its receipt is committed. '
   + 'For no_roll, narrate the attempt and its outcome by your own judgement in the fiction, without a roll and without holding it in suspense. '
   + 'For a world scope, play the message as in-fiction action; if it also plainly asks something out of fiction, answer that part briefly in fiction-neutral words and keep playing. '
   + 'When why includes player_choice, the open value was the player\'s own choice about their investigator (which target, weapon, defence, approach or act) and was not made for them: '
