@@ -30571,7 +30571,8 @@ decides how the next line sounds. It is omitted when the person cannot act (`sta
 was ever written, so a card with none is byte-identical to before. `look` on the person shows the ledger as it is
 (`mood`, `mood_earlier`). The capsule `head` gains one line: `present[].now` is what that person feels right now and
 carries their next line more than any fact does; when it is missing or no longer true, write it with `apply npc mood`
-(one short line in the play language) in the same call that delivers their words. The projection reads the committed
+(one short line in the play language) before they speak, in the same turn; its own `apply` is fine and it need not ride with
+their words (amended 2026-10-01, see 161.10). The projection reads the committed
 ledger, so a mood written this turn shows from the next turn; within the turn the Keeper has just written it.
 
 **161.4 Visibility.** Keeper only. §16.2's `mechanics` has no `npc` row, so no card is drawn; the transcript, the
@@ -30626,3 +30627,8 @@ the fold and the card view.
   `tests/extension/long-campaign-context.test.mjs` moves its configured `PI_COC_REQUEST_BYTES` from 192 KiB to 200 KiB,
   as that test's own rule says (its ceiling stays above the measured floor while the stored branch still exceeds it).
 - §161.8's count is not product telemetry: it is read from a table's turn records (receipts beside `speech`).
+- *Wording, 2026-10-01 (owner ruling).* The head line, the `mood` field description and narration-craft's instruction first
+  said to write the mood "in the same call that delivers their words". §162 found that grok-4.7-build-fast double-serializes
+  prose written in `apply.narrate` beside structured effects (7/28 against 1/112 for a plain `narrate`), and the live table
+  of this section put 8 of 12 prose deliveries there. All three now say "before they speak, in the same turn", and that its
+  own `apply` is fine; narration-craft is 2.1.6.
