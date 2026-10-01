@@ -232,16 +232,16 @@ test('a person who cannot act carries no now: incapacitated (state.cannot_act) o
 	}
 });
 
-test('the kernel declares npc.mood.v1 and narration-craft 2.1.8, which requires it, loads and contributes', async t => {
+test('the kernel declares npc.mood.v1 and narration-craft 2.1.9, which requires it, loads and contributes', async t => {
 	const {client, open, file} = await opened(t);
 	const listed = await client.call('mods.list', {campaign});
 	assert.ok(listed.capabilities.includes('npc.mood.v1'), 'the kernel provides the capability');
-	const craft = listed.mods.find(mod => mod.id === 'narration-craft' && mod.version === '2.1.8');
+	const craft = listed.mods.find(mod => mod.id === 'narration-craft' && mod.version === '2.1.9');
 	assert.ok(craft, 'the package is in the catalog');
 	assert.ok(craft.requires.includes('npc.mood.v1'), 'and requires it');
 	assert.equal(JSON.stringify(open.mods_unreadable ?? []).includes('narration-craft'), false, `no build skew for it: ${JSON.stringify(open.mods_unreadable)}`);
 	const active = (await file('world.json')).mods.active['narration-craft'];
-	assert.deepEqual([active?.version, active?.enabled], ['2.1.8', true], 'a new campaign locks and enables it');
+	assert.deepEqual([active?.version, active?.enabled], ['2.1.9', true], 'a new campaign locks and enables it');
 	await begin(client);
 	const capsule = (await capsuleOf(client));
 	const brief = capsule.mods.instructions.find(row => row.mod === 'narration-craft');
