@@ -23238,6 +23238,13 @@ the read carries a first-blow row, the `target` family's rows are the people pre
 the same identities and words; otherwise `target` has no rows outside a session and is not asked, as before. Inside a
 running combat the rows stay the investigator's issued attack targets.
 
+**Combat and target wording.** The `act` instruction defines `combat` as an attack or combat manoeuvre directed at a person
+or creature; force against a vehicle, seat, object or control to alter its movement is not combat just because someone might
+be affected. The target feature asks which person the player explicitly chose to attack. A person mentioned only to locate
+an object or seat, or explicitly excluded, is not selected. Act and target are evaluated as separate features; a combat act
+answer never implies an attack target. The target remains player-owned under §163.8 and must clear the compile's existing
+confidence gate.
+
 **The predicate `first_blow`** (`COMPILE_PREDICATES`, `sole: true`): reads the `first_blow` candidate; decided when
 `act` cleared on another act, or on `combat` with `target` cleared; fires when `act` cleared on `combat` (the row's own
 `intent`, a resolve intent, since outside a session the `act` rows are the resolve intents) and `target` cleared on one

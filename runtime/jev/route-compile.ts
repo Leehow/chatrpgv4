@@ -54,11 +54,12 @@ const QUESTIONS: Readonly<Record<FeatureFamily, {target: string; instructions: s
     none: 'The declared action seeks none of the listed things.', unclear: 'The input does not tell what it is after.'},
   act: {target: 'what kind of action the investigator declares',
     instructions: 'Select the listed action the player declares for the investigator, by what the investigator does. Choose none when no listed action '
-      + 'fits. Choose unclear when the input does not tell.',
+      + 'fits. In this ruleset, combat means an attack or combat maneuver directed at a person or creature; force against an object or vehicle part to change its movement is not combat merely because someone could be affected. Choose unclear when the input does not tell.',
     none: 'No listed action fits the declaration.', unclear: 'The input does not tell what kind of action it is.'},
   target: {target: 'who the declared attack is aimed at',
     instructions: 'Select the listed fighter the player\'s declared attack is aimed at. Choose none when the declaration attacks none of them. '
-      + 'Choose unclear when the input does not tell.',
+      + 'Choose unclear when the input does not tell whom. A person mentioned only to locate an object, vehicle, seat or control is not a target; nor is a person the player explicitly excludes. '
+      + 'If the force is aimed at an object or vehicle part, choose none rather than the person associated with it.',
     none: 'The declaration attacks none of the listed fighters.', unclear: 'The input does not tell whom.'},
   item: {target: 'which carried item the declared action uses',
     instructions: 'Select the listed item the investigator carries that the player\'s declared action uses, shows or hands over. Choose none when it '
