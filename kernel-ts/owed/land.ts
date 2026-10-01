@@ -61,6 +61,9 @@ export async function owedRowFor(campaign: { readTurnRecord(turn: number): Promi
     const entry = ledger.open.find(value => value.name === name);
     if (!name || !entry)
         throw refusal('owed_unknown', `${repr(given.owed)} names no open owed row`, 'Leave owed out, or name a row of the capsule\'s owed section exactly as it is written.', { owed: given.owed ?? null, open });
+    if (!entry.effect)
+        throw refusal('owed_unresolved', 'This owed row has no issued settlement effect.',
+            'Do not guess an effect or attach this owed name to a different action. Resolve its ownership or definition through the existing preparation path; unrelated actions omit owed.', {owed:name});
     if (entry.kind !== given.kind || !lands(graph, world, entry, given))
         throw refusal('owed_mismatch', `this ${text(given.kind)} effect does not land owed row ${name} (${text(entry.what)})`,
             'Send the row\'s effect exactly as the capsule\'s owed section gives it, with owed; for a different action, leave owed out.', { owed: name, effect: entry.effect ?? null });
@@ -88,7 +91,7 @@ export async function settleOwed(kernel: KernelContext, campaign: string, graph:
             const entry = ledger.open.find(value => value.name === receipt.owed)!;
             return { name: entry.name, turn: entry.turn, kind: entry.kind, ...(entry.kind === 'cash' ? {effect:entry.effect,quote:entry.quote,job:entry.job} : {}), how: 'landed', receipt: receipt.id, at };
         }), ...superseded.map(entry => ({ name: entry.name, turn: entry.turn, kind: entry.kind, how: 'superseded', receipt: moved!.id, at }))] };
-    const satisfied = closeSatisfied(graph, world, next, at);
+    const satisfied = closeSatisfied(graph, world, next, at, party);
     next = satisfied.ledger;
     const closed = [...next.closed.slice(ledger.closed.length)];
     if (closed.length) await writeOwed(kernel, campaign, next);

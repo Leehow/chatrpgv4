@@ -84,8 +84,8 @@ export class ModJobs {
         } catch { return {enabled: true, paused: true, reason: 'Retained review accounting is unreadable', turn: turn.turn}; }
     }
     /** §158.2: what the reviewer is told is already owed, and the bands an owed move or time may name. */
-    async owedReview(campaign: string, graph: ModuleGraph, world: Row): Promise<Row> {
-        const ledger = closeSatisfied(graph, world, await readOwed(this.context, campaign), '').ledger, bands = await owedBands(this.context);
+    async owedReview(campaign: string, graph: ModuleGraph, world: Row, party: readonly Row[] = []): Promise<Row> {
+        const ledger = closeSatisfied(graph, world, await readOwed(this.context, campaign), '', party).ledger, bands = await owedBands(this.context);
         return {open: ledger.open.map(entry => ({name: entry.name, kind: entry.kind, what: entry.what, turn: entry.turn})),
             travel_bands: bands.travel, time_bands: bands.time};
     }
@@ -267,7 +267,7 @@ export class ModJobs {
         const sourceAudit = !continuity && role === 'audit' && candidates.some(mod => array(mod.requires).includes(SOURCE_AUDIT));
         const wait = row(row(params.input).preparation_wait), refused = row(row(params.input).rebinding_refused);
         const evidence = sourceAudit || continuity ? await auditSourceEvidence(this.context, campaign, module, world, turn, party, continuity, wait, refused,row(row(params.input).source_consultations),
-            continuityOwed ? await this.owedReview(campaign.id, graph, world) : null) : null;
+            continuityOwed ? await this.owedReview(campaign.id, graph, world, party) : null) : null;
         const request: Row = {role, input: params.input ?? null, capabilities: sorted(MOD_CAPABILITIES), play_language: await playLanguageOf(this.context, meta),
             mod_settings: Object.fromEntries(candidates.map(mod => [mod.id, (world as Row).mods.active[mod.id].settings])),
             scene: whereSection(graph, world, graph.scene(world.active_scene as string)), party, objects: objectContext(world), receipts: prefetch ? [] : field(turn, 'receipts', []),
@@ -437,7 +437,7 @@ export class ModJobs {
         const wait = row(row(request.input).preparation_wait), refused = row(row(request.input).rebinding_refused);
         const evidence = !(sourceAudit || continuity) ? null : afterDelivery ? await this.retainedEvidence(root, request, continuity, identity)
             : await auditSourceEvidence(this.context, campaign, module, world, turn, await campaign.party() as Row[], continuity, wait, refused,row(row(request.input).source_consultations),
-                row(request.continuity_review).owed === true ? await this.owedReview(campaign.id, module.graph, world) : null);
+                row(request.continuity_review).owed === true ? await this.owedReview(campaign.id, module.graph, world, await campaign.party()) : null);
         if (evidence && !afterDelivery) {
             if (evidence.binding !== identity.source_binding) throw new RpcError('needs', 'Source audit no longer matches the current campaign evidence',
                 {details: {reason: 'mod_audit_stale'}, fix: 'Retry the same narration to prepare a current source audit; do not reroll settled actions'});

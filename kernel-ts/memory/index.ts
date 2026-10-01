@@ -110,7 +110,7 @@ async function warnContinuity(context: KernelContext, campaign: CampaignWriter, 
             const already = ledger.open.filter(entry => entry.job === job);
             if (already.length) owed = already;
             else ({ rows: owed, dropped: owedDropped } = await projectOwed(context, graph, world, record, accepted, string(job), owedNames(ledger), await campaign.party()));
-            ledger = closeSatisfied(graph, world, mergeOwed(ledger, owed, at), at).ledger;
+            ledger = closeSatisfied(graph, world, mergeOwed(ledger, owed, at), at, await campaign.party()).ledger;
             await writeOwed(context, campaign.id, ledger);
             record.owed = owed;
         }

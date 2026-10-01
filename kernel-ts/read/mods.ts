@@ -631,9 +631,12 @@ export async function setupModContext(context: KernelContext, lock: Row): Promis
         ...(displaced.length ? { displaced_slots: displaced } : {})
     };
 }
+export function executableWeaponNames(sheet: Row): Set<string> {
+    return new Set(array(sheet.weapons).filter(w => truth(w.weapon_id) || truth(w.damage) || truth(w.damage_die)).map(w => normalize(w.name || w.display_name || '')));
+}
 export function unregisteredEquipment(party: Row[], claimed: ReadonlySet<string> = new Set()): Row[] {
     return party.flatMap(sheet => {
-        const executable = new Set(array(sheet.weapons).filter(w => truth(w.weapon_id) || truth(w.damage) || truth(w.damage_die)).map(w => normalize(w.name || w.display_name || '')));
+        const executable = executableWeaponNames(sheet);
         return array(sheet.equipment).flatMap(value => {
             const name = typeof value === 'string' ? value : row(value).name;
             return !truth(name) || row(value).object_id || executable.has(normalize(name)) || claimed.has(normalize(name))

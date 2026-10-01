@@ -30324,3 +30324,24 @@ action candidates or routes further consequence writes. Refused delivery still f
 turn retry path. Regressions use the real emitted kernel for terminal delivery and check the
 kernel contact declaration through the candidate and admission boundary. Live play remains the
 acceptance evidence; these fixtures do not count as story progress.
+
+### 159.9 Already executable starting weapons are not missing object state (2026-09-30)
+
+The blind road play exposed an older effect-less `missing` row, category `weapon`, for a firearm
+already owned as unmanaged equipment and executable on the investigator's printed weapon card.
+The normal unregistered-equipment projection excludes that weapon, but owed-state reconciliation
+did not share this identity rule. Repeated attempts to land its null effect poisoned atomic batches
+with `owed_mismatch`; later driving narration had no committed travel receipts.
+
+Use the existing executable-weapon identity predicate for both projections. An effect-less,
+quote-less missing-weapon row is satisfied only by one exact equipment owner whose executable
+printed weapon has that same normalized identity; an explicit owner must agree. Managed instances,
+ambiguous owners, acquired-object quotes, non-weapon rows and incomplete weapon cards do not qualify.
+The capsule and review packet suppress that already-satisfied debt, and the next ordinary settlement
+or accepted review closes the original row durably as satisfied. No duplicate instance, definition,
+weapon stats or receipt is invented. New missing reports do not mint the same false debt.
+
+An unsupported row with no issued effect refuses as `owed_unresolved`, telling the caller that no
+matching effect exists; it cannot be landed by guessing an `object` call. Ordinary object/cash
+ownership checks and atomic mixed-batch refusal remain unchanged. Verify this repair in the same
+real road journey before attributing the premature handoff solely to planning.
