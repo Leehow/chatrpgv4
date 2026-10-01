@@ -36,3 +36,11 @@ place when the edit arrives (about 15 s on grok-4.7 low). The Keeper's record an
 5. Tests per §165.8.
 
 ## Comments
+
+- 2026-10-01 (implementation, `claude/speech-edit-lane-20261001`): tickets 1-5 are in code and tests; the decisions the
+  contract left open are written in `docs/kernel-rpc.md` §165.9. The two that go beyond §165's text: the host gets its
+  input from a second read-only lane RPC, `speech.job` (the kernel owns the Mod catalog, as `voice.job` already hands
+  the voice lane its owner's words), and `contributes.speech_edit_lane` requires the capability `speech.edit.lane.v1`
+  (the §153.1 pairing, so an older build marks the package incompatible instead of refusing it). The live check on a
+  table is still owed: it needs a new zh campaign (a campaign locked to zh-optimize 1.0.1 keeps it until
+  `mods.configure` moves it) and a Jev key, since without one the lane drops every edit.
