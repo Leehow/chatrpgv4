@@ -76,12 +76,13 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         coverage: decisions.map(decision => ({decision: decision.name, owner: 'session', executable: false}))};
     if (owners.openingAttack) {
         const opening = owners.openingAttack;
-        add('combat:attack', `${opening.actor}: the declared first attack`, {actor: opening.actor, intent: 'combat'}, [
-            parameter('target', 'Who is the explicitly chosen target of this first attack?', array(opening.targets)),
-            parameter('weapon', 'Which available weapon or unarmed method did the player choose?', array(opening.weapons)),
-            ...modifiers(),
-        ]);
-        for (const target of array(opening.targets)) add('chase:start', `${opening.actor}: pursue or flee from ${target}`, {actor: opening.actor, target}, [
+        const preparation = row(opening.preparation);
+        for (const target of array(opening.targets)) for (const weapon of array(opening.weapons)) {
+            const needs = [...(array(preparation.targets).includes(target) ? [`npc_combat_profile_required:${target}`] : []),
+                ...(array(preparation.weapons).includes(weapon) ? [`object_attack_usage_required:${weapon}`] : [])];
+            add('combat:attack', `${opening.actor}: attack ${target} with ${weapon}`, {actor:opening.actor, target, weapon, intent:'combat'}, modifiers(), needs);
+        }
+        for (const target of array(opening.targets).filter(target => !array(preparation.targets).includes(target))) add('chase:start', `${opening.actor}: pursue or flee from ${target}`, {actor: opening.actor, target}, [
             parameter('intent', 'Is the investigator fleeing this person or moving after them?', ['flee', 'move']),
         ], [], 'declaration', {mobility: 'foot'});
         const chaseRules = await loadChaseRules(new RuleTables(campaign.context));

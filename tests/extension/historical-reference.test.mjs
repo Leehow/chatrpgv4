@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {HistoricalReference, readExaKey, historyCandidates, historyNeed, historyBindingMatches, HISTORY_NEED, EXA_ENV} from '../../runtime/historical-reference.ts';
+import {HistoricalReference, readExaKey, historyCandidates, historyNeed, historyBindingMatches, HISTORY_NEED, HISTORY_INTERRUPTION, EXA_ENV} from '../../runtime/historical-reference.ts';
 import {contextPolicy} from './fixtures/history-policy.mjs';
 
 const env = {[EXA_ENV]:'test-exa-credential', TYPESAFE_API_KEY:'test-jev-credential'};
@@ -130,8 +130,9 @@ test('a deadline aborts a slow request and repeat calls do not renew it',async t
 });
 test('candidate validation deduplicates sources, rejects non-web URLs and preserves exact text',()=>{
   assert.equal(historyCandidates({results:[...raw.results,...raw.results,{url:'javascript:bad',highlights:['x']}]}).length,1);
-  assert.equal(historyNeed({answers:{[HISTORY_NEED]:{status:'answered',type:'noul',noul:0.9}}}),true);
-  assert.equal(historyNeed({answers:{[HISTORY_NEED]:{status:'answered',type:'noul',noul:0.59}}}),true);
+  const safe={status:'answered',type:'noul',noul:0.01};
+  assert.equal(historyNeed({answers:{[HISTORY_NEED]:{status:'answered',type:'noul',noul:0.9},[HISTORY_INTERRUPTION]:safe}}),true);
+  assert.equal(historyNeed({answers:{[HISTORY_NEED]:{status:'answered',type:'noul',noul:0.59},[HISTORY_INTERRUPTION]:safe}}),true);
   assert.equal(historyNeed({answers:{[HISTORY_NEED]:{status:'answered',type:'noul',noul:0.23}}}),false);
   assert.equal(historyNeed({answers:{[HISTORY_NEED]:{status:'unknown'}}}),false);
 });

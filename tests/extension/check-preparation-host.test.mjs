@@ -22,12 +22,12 @@ async function fixture() {
     {runId: 'r', stepId: 'read', operationId: 'read', origin: 'policy', inputRevision: 'input', scopeId: 'root', signal});
   const needs = ['check_arguments_unavailable:chase:start'];
   const pending = {candidate: 'Chase start', needs, preparation: {decision: 'chase:start', needs}};
-  const project = async entries => (await plan.ports.projection.project({view: {policyState: {view: {
-    interactionScope: {mode: 'world', reason: 'fixture', calls: 0}, unresolvedChecks: entries}}}, stepId: 'prepare',
+  const project = async (entries, preparingAttacks=[]) => (await plan.ports.projection.project({view: {policyState: {view: {
+    interactionScope: {mode: 'world', reason: 'fixture', calls: 0}, unresolvedChecks: entries, preparingAttacks}}}, stepId: 'prepare',
     step: {kind: 'infer', purpose: entries.length ? 'adjudicate' : 'compose', reason: entries.length ? 'check_preparation' : 'settled'}}))
     .map(message => message.content).join('');
-  const execute = async (operation, isError = false) => plan.ports.operations.execute({origin: 'model', operation,
-    params: operation === 'lookup' ? {kind: 'source', source_mode: 'prepare', query: 'observed pursuers'} : {text: 'The attempt remains pending.'},
+  const execute = async (operation, isError = false, params) => plan.ports.operations.execute({origin: 'model', operation,
+    params: params ?? (operation === 'lookup' ? {kind: 'source', source_mode: 'prepare', query: 'observed pursuers'} : {text: 'The attempt remains pending.'}),
     assistantMessage: {}, toolCall: {id: operation}}, {runId: 'r', stepId: 'prepare', operationId: operation,
     origin: 'model', inputRevision: 'input', scopeId: 'root', signal,
     executeModelTool: async () => ({isError, details: {}, content: [{type: 'text', text: 'fixture result'}]})});
@@ -50,6 +50,14 @@ for (const resolved of [false, true]) test(`preparation preserves agent tools an
   assert.equal(f.notices.length, 0, 'a refused delivery is not terminal');
   await f.execute('narrate');
   assert.equal(f.notices.length, resolved ? 0 : 1);
+});
+
+test('a required attack preparation write holds its premature embedded narration',async()=>{
+  const f=await fixture();
+  const pending={candidate:'Pen attack',needs:['pen usage'],preparation:{decision:'combat:attack',needs:['pen usage']}};
+  await f.project([pending],[{key:'attack'}]);
+  await f.execute('apply',false,{effects:[{kind:'usage',object:'Pen',name:'Jab',description:'The declared jab'}],narrate:'The pen has not hit yet.'});
+  assert.equal(f.announced.at(-1).hold_embedded_narration,true);
 });
 
 test('implicit accepted delivery reports pending preparation; an unavailable close does not', async () => {

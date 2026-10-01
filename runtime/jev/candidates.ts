@@ -321,7 +321,8 @@ function firstBlowCandidate(row: Row, rawInput: string): Candidate | undefined {
   const unbound: Unbound[] = [];
   for (const [name, options] of [['target', targets], ['weapon', weapons]] as const) {
     const parameter = closedParameter(name, options);
-    if (parameter.bound !== undefined) bound[name] = parameter.bound; else unbound.push(parameter.unbound!);
+    if (parameter.bound !== undefined) bound[name] = parameter.bound; else unbound.push({...parameter.unbound!,
+      ...(name === 'weapon' ? {instruction:'Choose the physical object or unarmed method the player actually uses. Ordinary held items are valid names even while their attack usage needs preparation. Do not substitute unarmed or an already prepared weapon for the named item.'} : {})});
   }
   return {key: 'resolve:combat:first-blow', verb: 'resolve', family: 'combat', source: 'table.resolve.options',
     label: `${text(row.actor) || 'The investigator'}: combat:attack${typeof bound.target === 'string' ? ` at ${bound.target}` : ''}, opening a fight`,

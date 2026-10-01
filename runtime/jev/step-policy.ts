@@ -17,6 +17,7 @@
  *   and folds each observation back with the same transitions `runTurn` uses.
  */
 import {createHash} from 'node:crypto';
+import {preparedAttackReady} from './attack-preparation.ts';
 import type {ObservationView, OperationProposal, RunPolicy, RunView as DriverView, StepRequest as DriverStepRequest} from '@earendil-works/pi-agent-core';
 import type {DecisionBatch, DecisionResult, IntentBinding, ReadSet, ScopeBinding} from './contracts.ts';
 import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts';
@@ -238,6 +239,7 @@ export interface Budget {jevCalls: number; jevMs: number; steps: number; runMs: 
 /** A clerk step still pending when the run's time budget was spent: listed, never executed (§135.25). */
 export interface DeferredStep {key: string; label: string; family: string; clerk: string | null; stage: string}
 export interface RunView {
+  preparingAttacks?: Candidate[];
   interactionScope?: InteractionScope;
   requireInteractionScope?: boolean;
   referenceRouted?: boolean;
@@ -1140,6 +1142,18 @@ function holdCheckDecision(view: RunView, candidate: Candidate): void {
   if (key && !view.heldCheckDecisions?.includes(key)) view.heldCheckDecisions = [...(view.heldCheckDecisions ?? []), key];
 }
 function applyFresh(view: RunView, fresh: Fresh): void {
+  const readyAttacks = (view.preparingAttacks ?? []).flatMap(prepared => {
+    const candidate = fresh.candidates.find(item => item.clerk === 'first_blow' && preparedAttackReady(item, prepared));
+    return candidate ? [{...candidate, bound:{...candidate.bound, ...prepared.bound}, unbound:[], basis:prepared.basis}] : [];
+  });
+  if (readyAttacks.length) {
+    const keys = readyAttacks.map(candidate => candidate.key);
+    view.preparingAttacks = view.preparingAttacks?.filter(candidate => !keys.includes(candidate.key));
+    view.consumed = view.consumed.filter(key => !keys.includes(key));
+    view.unresolvedChecks = view.unresolvedChecks?.filter(entry => entry.preparation?.decision !== 'combat:attack');
+    view.pending = view.pending.filter(item => !item.call || !['narrate','ask'].includes(item.call.method));
+    view.pending.unshift(...readyAttacks.flatMap(candidate => itemsFor(candidate, 'attack_prepared')));
+  }
   const executable = (candidate: Candidate) => {
     const options = object(candidate.detail).check_options;
     const key = checkHoldKey(fresh.context.scene, candidate), required = key ? view.checkPreparationRequirements?.[key] : undefined;
@@ -1251,7 +1265,17 @@ function settleStruck(view: RunView, fresh: Fresh | undefined): void {
   view.landed = [...new Set([...(view.landed ?? []), ...struck])];
 }
 export function settleExecute(view: RunView, step: number, item: PendingItem, executed: {ok: boolean; summary: Json}, fresh: Fresh | undefined, ms: number): TelemetryRow {
-  const checkFailed = !item.call && !executed.ok && item.candidate?.verb === 'resolve' && item.candidate.checkOwner === 'jev';
+  const preparation = object(executed.summary).preparation;
+  const preparing = item.candidate?.clerk === 'first_blow' && object(executed.summary).refusal === 'check_preparation';
+  const checkFailed = !preparing && !item.call && !executed.ok && item.candidate?.verb === 'resolve' && item.candidate.checkOwner === 'jev';
+  if (preparing) {
+    const action = object(object(executed.summary).action) as Record<string, Json>;
+    view.preparingAttacks = [...(view.preparingAttacks ?? []).filter(candidate => candidate.key !== item.candidate!.key),
+      {...item.candidate!, bound:{...item.candidate!.bound, ...action}, unbound:[],
+        basis:{...object(item.candidate!.basis), preparation_bindings:object(executed.summary).bindings ?? []}}];
+    view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate:item.candidate!.label, needs:object(preparation).needs as string[],
+      preparation:preparation as {decision:string;needs:string[]}}];
+  }
   const refreshedCheck = checkFailed && !view.checkRefreshUsed && object(executed.summary).refusal === 'check_selection_stale'
     ? fresh?.candidates.find(candidate => candidate.checkOwner === 'jev' && candidate.bound.decision === item.candidate!.bound.decision
       && candidate.unbound.some(parameter => parameter.binder === 'resolve-selection')) : undefined;
