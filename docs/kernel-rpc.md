@@ -11486,7 +11486,7 @@ only genuine-table dialogue proves that the voice is natural.
 The owner supplied two threats that explained witnesses, payment paperwork and a police call while the speaker
 was being attacked. Their intended replacements use ordinary spoken wording and put the immediate consequence
 at the centre. The second replacement is still several sentences: this is a pragmatic relevance failure,
-not a sentence-length failure. Narration Craft 2.1.8 changes generation guidance, not settlement authority.
+not a sentence-length failure. Narration Craft 2.1.9 changes generation guidance, not settlement authority.
 
 - Before writing a line, the Keeper considers what this person is doing to this listener now, their present
   feeling, and what both already know. Wording, emphasis and detail serve that conversational purpose. Shared
@@ -11497,6 +11497,11 @@ not a sentence-length failure. Narration Craft 2.1.8 changes generation guidance
   familiar spoken expressions and idiomatic verbs in the play language. Shared arrangements stay implicit
   unless they are this speaker's actual leverage; a possible game consequence is not automatically dialogue.
   This selects the conversational move, not a sentence count: several sentences can serve the same threat.
+- People respond to the whole encounter, including physical actions and treatment. Immediate danger takes
+  priority over conducting business. The Keeper judges an insult or rhetorical question as treatment, not
+  automatically as an information request; genuine questions still get direct answers when the situation
+  permits. Full, brief, style axis, directive and floor must agree, replacing unconditional answer-first
+  guidance. The mask shapes register; it does not preserve yesterday's business as today's priority.
 - The full instruction teaches this decision with illustrative English speech; the per-turn brief carries
   its compact reminder. Examples supply neither campaign facts nor reusable threat scripts. The voice mask
   still determines flexible register, never a fixed length. No semantic classifier, word blacklist, new
@@ -11519,6 +11524,13 @@ next threat. The first 2.1.7 attempt (`spoken-purpose-after-20261001`, turn 2) w
 then appended the price, cancellation and keys. This fails the intended pragmatic improvement even though
 the line is shorter. Version 2.1.8 adds the single immediate consequence decision to both full and brief;
 2.1.7's installed bytes and already delivered turn remain evidence, not a candidate to rewrite.
+The 2.1.8 run (`spoken-purpose-final-20261001`) still recited money and keys after a blow accompanied by a
+rhetorical price taunt (turn 2), then naturally shouted for help after a purely violent threat (turn 3).
+The retained turn intents and `npc-act` telemetry contain no autonomous action generation: the main Keeper
+authored both replies. The capsule carried the new brief, so missing delivery of the guidance is ruled out.
+Its full and per-turn style still unconditionally said to answer what was said first; version 2.1.9 replaces
+that competing priority with the whole-encounter rule. This is a locally evidenced candidate cause; real
+dialogue must validate the correction rather than treating prompt wording as proof of naturalness.
 
 **Precedent.** Potts, [Presupposition and implicature](https://web.stanford.edu/~cgpotts/manuscripts/potts-blackwellsemantics.pdf),
 describes interpretation through shared context and contributions fitted to conversational purpose.

@@ -5,7 +5,7 @@
     "long and short in turn; a fragment is one beat, not the texture",
     "a full name once, then the pronoun or the short name",
     "what is seen, heard and said; a mood or cause only when established",
-    "people answer what was said in natural connected speech, length fitting the moment"
+    "people react to words and deeds in natural speech, length fitting the moment"
   ],
   "directives": {
     "act-then-reply": {
@@ -17,8 +17,8 @@
       "brief": "one focus per paragraph; errands in a clause, the moment gets room"
     },
     "speak-in-person": {
-      "full": "answer what was actually said first, in their register, wanting something; positions move only with the fiction",
-      "brief": "answer what was said first, in their register, wanting something"
+      "full": "react to words and deeds in their register, serving the exchange; positions move only with the fiction",
+      "brief": "react to words and deeds in their register, serving the exchange"
     },
     "show-the-change": {
       "full": "show what the result changed in room, body or face; an unestablished cause stays unstated",
@@ -116,7 +116,7 @@
   "floor": [
     "uptake: the player's act is told in the scene in the Keeper's own words, then the world answers",
     "answer: the settled result or the chosen exchange is perceptible; a quiet turn owes no event",
-    "voice: whoever the exchange touches answers in their own register inside a say token, or keeps silent",
+    "voice: whoever the exchange touches reacts in their own register inside a say token, or keeps silent",
     "handoff: stop at a completed goal or a real unselected decision with enough seen to judge; no menu or reflexive question"
   ]
 }

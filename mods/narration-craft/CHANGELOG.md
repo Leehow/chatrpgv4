@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.1.9
+- People react to the whole encounter, including physical actions and treatment. A rhetorical taunt is not automatically an information request; immediate danger takes priority over conducting business. Full, brief, style axis, directive and floor agree on this priority. A genuine question still gets a direct answer when the situation permits. Real 2.1.8 play exposed the conflicting unconditional answer-first guidance: the first blow, accompanied by a price taunt, still elicited money and keys; the next purely violent threat elicited a natural call for help. The NPC action lane did not run in those turns.
+
 ## 2.1.8
 - The first real 2.1.7 pressure reply still appended the price, cancellation and keys after its warning. A threat now lands one immediate consequence and ends; known arrangements stay implicit unless they are the speaker's actual leverage. Spoken idiom and ordinary verbs are explicit. Both the full instruction and later-turn brief carry this decision; 2.1.7 campaign locks and its retained delivery stay frozen.
 
