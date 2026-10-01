@@ -34,13 +34,21 @@ export async function selectChaseRoster(option: CheckOption, declaration: string
     criteria: {foot: 'Moving on foot in this chase.', driver: 'Operating a vehicle in this chase.', passenger: 'Riding in a vehicle another participant operates.',
       absent: 'Not participating in this chase.', unknown: 'The supplied facts do not establish this role.'}})));
   const selected: Array<{actor: Row; index: number; role: string}> = [];
+  const roleNeeds: Array<{actor: string; evidence: string}> = [];
   for (const [index, actor] of actors.entries()) {
     const answer = pick(roleResult, `role_${index}`);
-    if (!answer || !['foot', 'driver', 'passenger', 'absent'].includes(answer.value) || answer.p < gates.choice) return needs(['chase_mobility_uncertain']);
+    if (!answer || answer.p <= 0 || !['foot', 'driver', 'passenger', 'absent', 'unknown'].includes(answer.value)) return needs(['chase_mobility_uncertain']);
+    if (answer.value === 'unknown' || answer.p < gates.choice) {
+      if (actor.investigator) return needs(['chase_mobility_uncertain']);
+      roleNeeds.push({actor: actor.name, evidence: String(actor.presence_evidence ?? '')});
+      continue;
+    }
     if (answer.value === 'absent') {if (actor.investigator) return needs(['chase_investigator_role_unbound']); continue;}
     if (answer.value === 'passenger' && actor.investigator) return needs(['chase_investigator_driver_unbound']);
     selected.push({actor, index, role: answer.value});
   }
+  if (roleNeeds.length) return {...needs(['chase_mobility_evidence_required'], true),
+    preparation: {decision: 'chase:start', needs: ['chase_mobility_evidence_required'], mobility: 'vehicle', roles: roleNeeds}};
   const missingProfiles = selected.filter(entry => entry.actor.profile_available !== true).map(entry => entry.actor.name);
   if (missingProfiles.length) return needs(['chase_actor_profile_unavailable'], true, [], missingProfiles);
   if (selected.length < 2 || !selected.some(entry => entry.actor.investigator)) return needs(['chase_participants_unbound'], true);

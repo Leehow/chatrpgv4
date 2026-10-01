@@ -500,6 +500,22 @@ test('vehicle driver preparation cannot be released by a ready foot option or an
   settleRead(view, 3, read, {context, candidates: [source([{name: 'Pursuer', driving_available: true}, {name: 'Gunner', profile_available: true}])]}, 0);
   assert.equal(view.candidates.length, 1);
 });
+
+test('NPC movement evidence preparation requires a changed placement for every named actor', () => {
+  const request = {...candidate, bound: {decision: 'chase:start'}}, context = {scene: 'road', clock: {}, present: []};
+  const view = initialView({runId: 'role-prepare', rawInput: 'I drive away.', context, candidates: [request]});
+  settleCheckSelection(view, request, {status: 'unresolved', needs: ['chase_mobility_evidence_required'], calls: 0,
+    preparation: {decision: 'chase:start', needs: ['chase_mobility_evidence_required'], mobility: 'vehicle',
+      roles: [{actor: 'Rider', evidence: 'Rider is nearby.'}]}}, 0);
+  const read = {materials: [], summary: {}, calls: 0, ms: 0};
+  const fresh = evidence => ({...request, key: 'updated', detail: {check_options: [{needs: [], parameters: [],
+    facts: {mobility: 'vehicle', chase_actors: [{name: 'Rider', profile_available: true, driving_available: true,
+      description: 'A refreshed biography.', presence_evidence: evidence}]}}]}});
+  settleRead(view, 1, read, {context, candidates: [fresh(' Rider is nearby. ')]}, 0);
+  assert.deepEqual(view.candidates, []);
+  settleRead(view, 2, read, {context, candidates: [fresh('Rider controls the motorcycle while pursuing the car.')]}, 0);
+  assert.equal(view.candidates.length, 1);
+});
 test('the existing agent schedules the check bind and its execution before compose', () => {
   const view = initialView({runId: 'run', rawInput: 'I listen.', context: {scene: 'hall', clock: {}, present: []}, candidates: [candidate], readFirst: false});
   view.pending = [{kind: 'infer', purpose: 'compose', reason: 'finish'}];

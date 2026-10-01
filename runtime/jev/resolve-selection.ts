@@ -51,7 +51,8 @@ export type CheckSelection = {
   action?: Record<string, Json>;
   needs: string[];
   calls: number;
-  preparation?: {decision: string; needs: string[]; mobility?: 'vehicle'; drivers?: string[]; profiles?: string[]};
+  preparation?: {decision: string; needs: string[]; mobility?: 'vehicle'; drivers?: string[]; profiles?: string[];
+    roles?: Array<{actor: string; evidence: string}>};
   snapshot?: {scene: string; revision: string; worldRevision: string};
 };
 

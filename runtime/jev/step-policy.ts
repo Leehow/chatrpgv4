@@ -248,7 +248,8 @@ export interface RunView {
   checkRefreshUsed?: boolean;
   heldCheckDecisions?: string[];
   heldCheckPreparations?: string[];
-  checkPreparationRequirements?: Record<string, {mobility?: string; drivers?: string[]; profiles?: string[]}>;
+  checkPreparationRequirements?: Record<string, {mobility?: string; drivers?: string[]; profiles?: string[];
+    roles?: Array<{actor: string; evidence: string}>}>;
   runId: string;
   rawInput: string;
   stateVersion: number;
@@ -1058,7 +1059,7 @@ export function settleCheckSelection(view: RunView, candidate: Candidate, result
       const key = checkHoldKey(view.context.scene, candidate);
       if (key && !view.heldCheckPreparations?.includes(key)) view.heldCheckPreparations = [...(view.heldCheckPreparations ?? []), key];
       if (key) view.checkPreparationRequirements = {...view.checkPreparationRequirements,
-        [key]: {mobility: result.preparation.mobility, drivers: result.preparation.drivers, profiles: result.preparation.profiles}};
+        [key]: {mobility: result.preparation.mobility, drivers: result.preparation.drivers, profiles: result.preparation.profiles, roles: result.preparation.roles}};
       view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'check_preparation', candidate,
         extra: {preparation: result.preparation}});
     } else holdCheckDecision(view, candidate);
@@ -1166,6 +1167,11 @@ function applyFresh(view: RunView, fresh: Fresh): void {
       && (!required?.profiles?.length || required.profiles.every(name => {
         const actors = object(option.facts).chase_actors;
         return Array.isArray(actors) && actors.map(object).some(actor => actor.name === name && actor.profile_available === true);
+      }))
+      && (!required?.roles?.length || required.roles.every(needed => {
+        const actors = object(option.facts).chase_actors;
+        return Array.isArray(actors) && actors.map(object).some(actor => actor.name === needed.actor
+          && typeof actor.presence_evidence === 'string' && actor.presence_evidence.trim() && actor.presence_evidence.trim() !== needed.evidence.trim());
       }))
       && Array.isArray(option.parameters) && option.parameters.map(object).every(parameter => parameter.available === true));
   };

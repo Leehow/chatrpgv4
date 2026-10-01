@@ -30508,6 +30508,15 @@ identity, role/link validation and admission still decide whether a selected ros
 No new world field, role authoring gateway or free-form plan is introduced; this is an existing
 writer's missing consumer. Regression covers placement evidence after the original receipt turn.
 
+Gray NPC movement roles are evidence-preparation gaps, while a gray investigator role remains
+an unresolved player-method binding. NPC preparation names only the affected actors and retains
+their current placement-evidence strings. The agent may consult the current encounter/source and
+record a concrete NPC-owned position through existing apply npc to/why; it may not send a role,
+roster or resolve for the host. Jev then binds the role again. A hold releases only when fresh
+vehicle catalog evidence for every required actor actually differs from its held evidence; an
+unrelated write, biography refresh or ready skill cannot release it. Repeating the same statement
+does not supply new evidence. Missing/provider-invalid answers do not trigger this semantic repair.
+
 ## 160. A Keeper tool string argument that arrives as a JSON string literal is decoded at the host boundary (2026-09-30; extends §144, amends §135.21's `prepareArguments` and the order of §144.1)
 
 **Evidence.** The opening turn of the installed App's campaign `game-ef4f5f3b-6445-423b-bae1-f95f4601a698` (receipt `6d870987b`) was stored and delivered as a JSON-escaped literal: `turns/0000.json` `text`, `marked_text` and `rendered_text`, and `transcript.jsonl` turn 0, all begin `"一九二〇年秋…`, with literal backslashes. The model's call, in the App's Pi session file, is the second `apply` of one message: `effects: [{kind: "person", who: "Steven Knott", name: …}]` and `narrate` a 1,024-character string whose own text is a quoted, `\u`-escaped JSON string literal of 185 characters of prose. The model is `grok-build/grok-4.7-build-fast` (the message's own `provider`/`model`). The speech rows were cut from the same text, so `{{say:史…}}` named nobody at the table (`unresolved_speakers`) and the line's text carries the escapes too; the continuity review passed the turn (`verdict: pass`).
