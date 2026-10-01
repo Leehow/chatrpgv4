@@ -6,7 +6,7 @@
  *
  *   literal   narrate: "\"\\u4e00\\u4e5d…\\n\\n…\""          the whole JSON string literal (§160)
  *   envelope  narrate: "{\"text\": \"…\\n\\n…\"}"            the carried tool's arguments object around the literal,
- *             narrate: "text\":\"…\""   narrate: "\"…\"}"   or a head or tail of that object (§160.1)
+ *             narrate: "text\":\"…\""   narrate: "\"…\"}}"  or a head or the closers of that object (§160.1)
  *   body      text: "…\\n\\n…"                               the literal's body, without its quotes (§160.1)
  *
  * Everything here is the JSON grammar, anchored on names the tool's schema declares; nothing reads what the text says
@@ -46,13 +46,14 @@ export function decodedStringLiteral(value: string): string | undefined {
 
 /**
  * The text a value encodes when it is the literal with part of its arguments object still around it: a head naming one
- * of `keys` (`{"K":`, `"K":`, `K":`), a closing `}`, or both. A brace alone needs an escape the decoding consumed.
+ * of `keys` (`{"K":`, `"K":`, `K":`), the closing braces of the objects it sat in (`}`, `}}` for `arguments` inside a
+ * `{name, arguments}` envelope), or both. Braces alone need an escape the decoding consumed.
  */
 export function decodedEnvelope(value: string, keys: readonly string[]): string | undefined {
 	const text = value.trim();
 	const head = keys.length ? new RegExp(`^(?:\\{\\s*)?"?(?:${keys.map(escape).join("|")})"\\s*:\\s*`).exec(text) : null;
 	let rest = head ? text.slice(head[0].length) : text;
-	const tail = /\s*\}$/.exec(rest);
+	const tail = /\s*\}(?:\s*\})*$/.exec(rest);
 	if (tail) rest = rest.slice(0, tail.index);
 	if (!head && !tail) return undefined;
 	if (rest.length < 2 || !rest.startsWith('"') || !rest.endsWith('"')) return undefined;

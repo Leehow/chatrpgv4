@@ -1,5 +1,5 @@
 {
- "about": "Contract §160.1/§160.2 evidence, verbatim from the logs: Keeper tool arguments that carry a fragment of their own JSON serialization (shapes A', B, C, D; A is §160's own shape, a second-day instance), and an assistant text whose whole body is a sequence of fenced tool envelopes in the {name, arguments} shape (E). Survey 2026-10-01: 1,238 logs, 23,798 Keeper calls, 15,664 top-level string arguments; every argument carrying a backslash is one of these.",
+ "about": "Contract §160.1/§160.2 evidence, verbatim from the logs: Keeper tool arguments that carry a fragment of their own JSON serialization (shapes A', B, C, D; A is §160's own shape, a second-day instance), and an assistant text whose whole body is a sequence of fenced tool envelopes in the {name, arguments} shape (E). Survey 2026-10-01: 1,238 logs, 23,798 Keeper calls, 15,664 top-level string arguments; every argument carrying a backslash is one of these. Added 2026-10-01: two A' values whose literal is followed by two closing braces (the closers of `arguments` and of the {name, arguments} object around it), jev-always-live-20261001 turns 3 and 13.",
  "calls": [
   {
    "shape": "B",
@@ -127,6 +127,47 @@
      }
     ],
     "narrate": "\"\\u4f60\\u653e\\u4f4e\\u58f0\\u6c14\\uff0c\\u5ba2\\u5ba2\\u6c14\\u6c14\\u5730\\u95ee\\u95e8\\u540e\\u90a3\\u4eba\\uff1a\\u9694\\u58c1\\u90a3\\u680b\\u623f\\u5b50\\u7a7a\\u4e86\\u591a\\u4e45\\uff0c\\u665a\\u4e0a\\u6709\\u6ca1\\u6709\\u542c\\u89c1\\u8fc7\\u4ec0\\u4e48\\u52a8\\u9759\\u3002\\n\\n\\u94fe\\u5b50\\u8fd8\\u6302\\u7740\\uff0c\\u90a3\\u4eba\\u7684\\u624b\\u4ecd\\u6309\\u5728\\u95e8\\u677f\\u4e0a\\uff0c\\u5634\\u5df2\\u7ecf\\u5f20\\u5f00\\uff0c\\u8bdd\\u5374\\u8fd8\\u6ca1\\u51fa\\u53e3\\u3002\\n\\n\\u5c31\\u5728\\u8fd9\\u5f53\\u53e3\\uff0c\\u4f60\\u8eab\\u540e\\u90a3\\u680b\\u6ca1\\u706f\\u7684\\u623f\\u5b50\\u91cc\\uff0c\\u697c\\u4e0a\\u4f20\\u6765\\u4e00\\u58f0\\u95f7\\u54cd\\uff0c\\u968f\\u540e\\u662f\\u4e00\\u9635\\u62d6\\u62fd\\uff0c\\u50cf\\u6709\\u4e1c\\u897f\\u5728\\u697c\\u677f\\u4e0a\\u6162\\u6162\\u79fb\\u52a8\\u3002{{clue:upstairs-disturbance-t10}}\\n\\n\\u95e8\\u7f1d\\u91cc\\u7684\\u5149\\u6643\\u4e86\\u4e00\\u4e0b\\u3002\\u90a3\\u4eba\\u7684\\u624b\\u628a\\u95e8\\u677f\\u634f\\u5f97\\u66f4\\u7d27\\uff0c\\u773c\\u775b\\u76ef\\u7740\\u4f60\\u8eab\\u540e\\u90a3\\u680b\\u9ed1\\u623f\\u5b50\\uff0c\\u8bdd\\u4ecd\\u5361\\u5728\\u5634\\u8fb9\\u3002\""
+   }
+  },
+  {
+   "shape": "A'",
+   "source": "chatrpgv4-wt-jev-always-result/.coc/playtests/jev-always-live-20261001 (campaign jev-always-live-20261001, turns 3 and 13 in order; the literal and two closing braces)",
+   "model": "grok-build/grok-4.7-build-fast",
+   "tool": "apply",
+   "field": "narrate",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Arty Wilmot",
+      "name": "阿蒂·威尔莫特"
+     }
+    ],
+    "narrate": "\"\\u4f60\\u628a\\u94a5\\u5319\\u548c\\u5730\\u5740\\u6536\\u8fdb\\u5185\\u888b\\uff0c\\u51fa\\u4e86\\u8bfa\\u7279\\u7684\\u529e\\u516c\\u5ba4\\uff0c\\u7a7f\\u8fc7\\u8857\\u5df7\\u6362\\u4e0a\\u7535\\u8f66\\uff0c\\u5230\\u4e86\\u300a\\u6ce2\\u58eb\\u987f\\u73af\\u7403\\u62a5\\u300b\\u62a5\\u9986\\u3002{{move:newspaper-morgue}}\\n\\n\\u4e00\\u697c\\u5927\\u5385\\u91cc\\u6253\\u5b57\\u673a\\u54d4\\u54d2\\u54cd\\u7740\\uff0c\\u6cb9\\u58a8\\u5473\\u6df7\\u7740\\u70ed\\u6c14\\u3002\\u4f60\\u627e\\u4eba\\u95ee\\u526a\\u62a5\\u5ba4\\uff0c\\u67dc\\u53f0\\u540e\\u5934\\u7ad9\\u8d77\\u4e00\\u4e2a\\u809a\\u5b50\\u5f80\\u5916\\u633a\\u7740\\u3001\\u8896\\u7ba1\\u4e0a\\u6263\\u7740\\u58a8\\u6c34\\u62a4\\u8896\\u7684\\u4eba\\uff0c\\u58f0\\u97f3\\u53c8\\u5c16\\u53c8\\u6162\\u3002\\u4f60\\u8bf4\\u60f3\\u67e5\\u67e5\\u79d1\\u6bd4\\u7279\\u5b85\\u8fd9\\u4e9b\\u5e74\\u7684\\u65e7\\u62a5\\u9053\\u3002\\n\\n\\u963f\\u8482\\u00b7\\u5a01\\u5c14\\u83ab\\u7279\\u628a\\u773c\\u955c\\u5f80\\u9f3b\\u6881\\u4e0a\\u4e00\\u62a8\\u3002{{say:\\u963f\\u8482\\u00b7\\u5a01\\u5c14\\u83ab\\u7279}}\\u201c\\u79d1\\u6bd4\\u7279\\u5b85\\uff1f\\u526a\\u62a5\\u5ba4\\u4e0d\\u5bf9\\u5916\\u5f00\\u3002\\u62a5\\u9986\\u7684\\u6863\\u4e0d\\u662f\\u7ed9\\u8def\\u4eba\\u7ffb\\u7740\\u73a9\\u7684\\uff0c\\u4f60\\u53c8\\u6ca1\\u6709\\u7f16\\u8f91\\u90e8\\u7684\\u6761\\u5b50\\u3002\\u8981\\u67e5\\uff0c\\u5148\\u8bf4\\u6e05\\u695a\\u4f60\\u662f\\u8c01\\u3001\\u4e3a\\u4ec0\\u4e48\\u67e5\\uff0c\\u6211\\u518d\\u8003\\u8651\\u8981\\u4e0d\\u8981\\u653e\\u4f60\\u4e0b\\u53bb\\u3002\\u201d{{/say}}\\n\\n\\u4ed6\\u4e00\\u53ea\\u624b\\u6309\\u5728\\u901a\\u5f80\\u5730\\u4e0b\\u5ba4\\u7684\\u90a3\\u9053\\u95e8\\u4e0a\\uff0c\\u95e8\\u8fd8\\u5173\\u7740\\u3002\"}}"
+   }
+  },
+  {
+   "shape": "A'",
+   "source": "chatrpgv4-wt-jev-always-result/.coc/playtests/jev-always-live-20261001 (campaign jev-always-live-20261001, turns 3 and 13 in order; the literal and two closing braces)",
+   "model": "grok-build/grok-4.7-build-fast",
+   "tool": "apply",
+   "field": "narrate",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "老巡警",
+      "name": "老巡警"
+     },
+     {
+      "kind": "npc",
+      "name": "老巡警",
+      "to": "here",
+      "walk_on": true,
+      "why": "玩家在分局门口拦住一个刚下班的老巡警套近乎。"
+     }
+    ],
+    "narrate": "\"\\u4f60\\u51fa\\u4e86\\u5206\\u5c40\\u5927\\u95e8\\uff0c\\u77f3\\u9636\\u4e0a\\u98ce\\u6bd4\\u91cc\\u5934\\u786c\\u4e00\\u70b9\\u3002\\u4e00\\u4e2a\\u521a\\u4e0b\\u73ed\\u7684\\u8001\\u5de1\\u8b66\\u6b63\\u4ece\\u4fa7\\u95e8\\u51fa\\u6765\\uff0c\\u5916\\u5957\\u6302\\u5728\\u81c2\\u5f2f\\u4e0a\\uff0c\\u76ae\\u5e26\\u5df2\\u7ecf\\u89e3\\u4e0b\\u3002\\u4f60\\u4e0a\\u524d\\u62e6\\u4f4f\\u4ed6\\uff0c\\u9012\\u8fc7\\u53bb\\u4e00\\u6839\\u70df\\u3002\\n\\n\\u4ed6\\u505c\\u4e0b\\u811a\\uff0c\\u770b\\u4e86\\u4f60\\u4e00\\u773c\\uff0c\\u8fd8\\u662f\\u63a5\\u4e86\\u3002\\u706b\\u67f4\\u64e6\\u4eae\\uff0c\\u4ed6\\u5438\\u4e86\\u4e00\\u53e3\\uff0c\\u70df\\u4ece\\u9f3b\\u5b50\\u91cc\\u6162\\u6162\\u51fa\\u6765\\u3002\\n\\n{{say:\\u8001\\u5de1\\u8b66}}\\u79d1\\u6bd4\\u7279\\u5b85\\u554a\\u3002\\u90a3\\u6761\\u8857\\u4e0a\\u7684\\u4eba\\u90fd\\u7ed5\\u7740\\u8d70\\uff0c\\u8bf4\\u90a3\\u623f\\u5b50\\u4e0d\\u5409\\u5229\\u3002\\u9a6c\\u5361\\u91cc\\u5965\\u5bb6\\u4f4f\\u8fc7\\uff0c\\u5f53\\u5bb6\\u7684\\u51fa\\u4e8b\\u4ee5\\u540e\\u5c31\\u4e0d\\u5bf9\\u52b2\\u4e86\\uff0c\\u4e24\\u53e3\\u5b50\\u540e\\u6765\\u4e00\\u8d77\\u8fdb\\u4e86\\u7597\\u517b\\u9662\\u3002\\u6211\\u5728\\u8fd9\\u7247\\u8d70\\u4e86\\u4e0d\\u5c11\\u5e74\\uff0c\\u8fd1\\u4e9b\\u5e74\\u6ca1\\u6709\\u4eba\\u4e3a\\u90a3\\u5b85\\u5b50\\u62a5\\u8fc7\\u6848\\uff0c\\u4e5f\\u6ca1\\u6709\\u6b63\\u5728\\u529e\\u7684\\u6848\\u5b50\\u3002\\u518d\\u65e9\\u7684\\u5e02\\u91cc\\u65e7\\u5377\\u4e0d\\u5728\\u8fd9\\u4e2a\\u5206\\u5c40\\uff0c\\u5728\\u5e02\\u4e2d\\u5fc3\\u7684\\u4e2d\\u592e\\u8b66\\u5bdf\\u5c40\\uff0c\\u6ca1\\u6709\\u6cd5\\u9662\\u7684\\u4ee4\\u6216\\u8005\\u90a3\\u8fb9\\u8ba4\\u7684\\u624b\\u7eed\\uff0c\\u62bd\\u5c49\\u4e0d\\u4f1a\\u5f00\\u3002\\u8857\\u4e0a\\u7684\\u95f2\\u8bdd\\u6211\\u80fd\\u8bf4\\uff0c\\u6848\\u5377\\u6211\\u6ca1\\u770b\\u8fc7\\u3002{{/say}}\\n\\n\\u70df\\u7070\\u843d\\u5728\\u77f3\\u9636\\u4e0a\\u3002\\u4ed6\\u628a\\u5916\\u5957\\u6362\\u5230\\u53e6\\u4e00\\u53ea\\u624b\\u81c2\\u4e0a\\uff0c\\u6ca1\\u518d\\u5f80\\u524d\\u8d70\\u3002\"}}"
    }
   }
  ],

@@ -226,7 +226,7 @@ const SERIALIZED = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures",
 /** Each shape, completed by hand into the one JSON value it is a fragment of, and read once: the oracle. */
 const SPELLED = {
 	A: (value) => JSON.parse(value),
-	"A'": (value) => JSON.parse(value.trim().replace(/\}$/, "")),
+	"A'": (value) => JSON.parse(value.trim().replace(/\}+$/, "")),
 	B: (value) => JSON.parse(`"${value}"`),
 	C: (value) => JSON.parse(value).text,
 	D: (value) => JSON.parse(`{"${value}}`).text,
@@ -234,7 +234,9 @@ const SPELLED = {
 const SHAPE = { A: "literal", "A'": "envelope", B: "body", C: "envelope", D: "envelope" };
 
 test("§160.1: each recorded argument decodes to the prose its own shape spells, and the shape is named", () => {
-	assert.deepEqual(SERIALIZED.map((call) => call.shape), ["B", "B", "B", "A'", "C", "D", "A", "A"]);
+	assert.deepEqual(SERIALIZED.map((call) => call.shape), ["B", "B", "B", "A'", "C", "D", "A", "A", "A'", "A'"]);
+	assert.deepEqual(SERIALIZED.filter((call) => call.shape === "A'").map((call) => call.arguments.narrate.trim().match(/\}+$/)[0]), ["}", "}}", "}}"],
+		"one brace, and two: the closers of `arguments` and of the {name, arguments} object around it");
 	for (const call of SERIALIZED) {
 		const value = call.arguments[call.field];
 		const where = `${call.shape} ${call.source}`;
@@ -270,7 +272,10 @@ test("§160.1: the envelope's head names the field's own key or the parameter it
 
 test("§160.1: a closing brace alone needs an escape; a body needs an escape and no raw control character", () => {
 	assert.equal(decode("narrate", { text: '"门没开。"}' }).decodes.length, 0, "a quoted line and a brace, no escape");
+	assert.equal(decode("narrate", { text: '"门没开。"}}' }).decodes.length, 0, "a quoted line and two braces, no escape");
 	assert.deepEqual(decode("narrate", { text: '"门\\n没开。"}' }).args, { text: "门\n没开。" });
+	assert.deepEqual(decode("narrate", { text: '"门\\n没开。"} }\n}' }).args, { text: "门\n没开。" }, "a run of closers, spaced as JSON allows");
+	assert.deepEqual(decode("apply", { narrate: '{"narrate": "门没开。"}}' }).args, { narrate: "门没开。" }, "a head and two closers");
 	assert.deepEqual(decode("narrate", { text: "门开了。\\n\\n他进来。" }), { args: { text: "门开了。\n\n他进来。" }, decodes: [{ field: "text", layers: 1, shapes: ["body"] }] });
 	assert.deepEqual(decode("narrate", { text: "门开了。\\\\n" }).decodes, [{ field: "text", layers: 2, shapes: ["body", "body"] }], "a body serialized twice");
 	for (const text of ["门开了。\n\n他说\\n是个字母。", "他说\"走\\n吧\"。", "门开了。\\x41", "门开了。\t\\n"]) {
