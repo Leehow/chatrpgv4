@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.1.8
+- The first real 2.1.7 pressure reply still appended the price, cancellation and keys after its warning. A threat now lands one immediate consequence and ends; known arrangements stay implicit unless they are the speaker's actual leverage. Spoken idiom and ordinary verbs are explicit. Both the full instruction and later-turn brief carry this decision; 2.1.7 campaign locks and its retained delivery stay frozen.
+
 ## 2.1.7
 - Speech serves what the person is doing to this listener now, in the words their mouth would use. Shared context carries unnecessary explanation; urgent warnings put the immediate consequence first, while an explanation, appeal, evasion or deliberate official manner may take more words. The brief carries the same reminder after entry. Hidden knowledge no longer mandates longer speech. Contract §40.9; no new lane, prose gate, length cap or phrase bank.
 

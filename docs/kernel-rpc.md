@@ -11486,13 +11486,17 @@ only genuine-table dialogue proves that the voice is natural.
 The owner supplied two threats that explained witnesses, payment paperwork and a police call while the speaker
 was being attacked. Their intended replacements use ordinary spoken wording and put the immediate consequence
 at the centre. The second replacement is still several sentences: this is a pragmatic relevance failure,
-not a sentence-length failure. Narration Craft 2.1.7 changes generation guidance, not settlement authority.
+not a sentence-length failure. Narration Craft 2.1.8 changes generation guidance, not settlement authority.
 
 - Before writing a line, the Keeper considers what this person is doing to this listener now, their present
   feeling, and what both already know. Wording, emphasis and detail serve that conversational purpose. Shared
   context may carry reasons that need not be said aloud. Urgent danger favours the immediate warning or
   consequence; extended explanation, pleading, evasion and deliberate official airs remain available when
   this speaker and moment warrant them. Hidden knowledge never implies compulsory verbosity.
+- A threat lands one immediate consequence the person would actually reach for, then ends. The Keeper uses
+  familiar spoken expressions and idiomatic verbs in the play language. Shared arrangements stay implicit
+  unless they are this speaker's actual leverage; a possible game consequence is not automatically dialogue.
+  This selects the conversational move, not a sentence count: several sentences can serve the same threat.
 - The full instruction teaches this decision with illustrative English speech; the per-turn brief carries
   its compact reminder. Examples supply neither campaign facts nor reusable threat scripts. The voice mask
   still determines flexible register, never a fixed length. No semantic classifier, word blacklist, new
@@ -11508,6 +11512,13 @@ budget checks prove delivery of the guidance, not conversational quality. Genuin
 `tests/play/driver.py`, Grok Build 4.7 fast/low and this main session as the only player. Inspect actual ordinary
 answers and pressure replies for relevance, spoken idiom, character fit and retained facts, rather than
 grading by character count or requiring a particular replacement sentence.
+
+**Kernel decisions and retained live evidence.** The original baseline (`spoken-purpose-baseline-20261001`,
+Narration Craft 2.1.6) answered a blow with the day rate and then itemized cancellation, keys and money on the
+next threat. The first 2.1.7 attempt (`spoken-purpose-after-20261001`, turn 2) warned about help and police,
+then appended the price, cancellation and keys. This fails the intended pragmatic improvement even though
+the line is shorter. Version 2.1.8 adds the single immediate consequence decision to both full and brief;
+2.1.7's installed bytes and already delivered turn remain evidence, not a candidate to rewrite.
 
 **Precedent.** Potts, [Presupposition and implicature](https://web.stanford.edu/~cgpotts/manuscripts/potts-blackwellsemantics.pdf),
 describes interpretation through shared context and contributions fitted to conversational purpose.
