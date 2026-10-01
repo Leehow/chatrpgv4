@@ -6,6 +6,7 @@ import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts'
  */
 
 import { textToolCall } from "./text-tool-call.ts";
+import {narrationTransport} from './narration-transport.ts';
 import {HistoricalReference, historyEnabled, historyBindingMatches, type HistoryInput} from '../../runtime/historical-reference.ts';
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
@@ -1430,12 +1431,13 @@ export default function (pi: ExtensionAPI) {
 	 * (`refuse`, the sentence the Keeper reads, and `refuse_code`); the tool gate refuses it before anything runs.
 	 */
 	let historicalReference: HistoricalReference | undefined;
-	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; history?: Partial<HistoryInput> }>();
+	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; holdEmbeddedNarration?: boolean; history?: Partial<HistoryInput> }>();
 	pi.events.on("coc:model-step", (value) => {
 		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
 		if (typeof data.toolCallId !== "string" || typeof data.run !== "string" || typeof data.step !== "string") return;
 		if (modelSteps.size >= 256) modelSteps.clear();
 		modelSteps.set(data.toolCallId, { run: data.run, step: data.step,
+			...(data.hold_embedded_narration === true ? {holdEmbeddedNarration:true} : {}),
 			...(data.historical_reference && typeof data.historical_reference === 'object' ? {history: data.historical_reference as Partial<HistoryInput>} : {}),
 			...(typeof data.refuse === "string" && data.refuse ? { refuse: data.refuse, refuseCode: typeof data.refuse_code === "string" ? data.refuse_code : "narrator_catalog" } : {}) });
 	});
@@ -4436,7 +4438,7 @@ export default function (pi: ExtensionAPI) {
 		// host-only -- table.apply's own schema never carries it. Captured before it is stripped; delivered, after
 		// every effect below lands, through the same path an explicit narrate call takes (see the end of this
 		// function). §135.5 addendum 2.
-		const embeddedNarrateText = spec.name === "apply" && typeof payload.narrate === "string" ? payload.narrate : undefined;
+		const embeddedNarrateText = spec.name === "apply" && !fromStep?.holdEmbeddedNarration && typeof payload.narrate === "string" ? payload.narrate : undefined;
 		delete payload.narrate;
 		// §22.4.7.1 (SL-56): only the host asks the kernel to land a person on the book's text.
 		delete payload._land_on_text;
@@ -4459,6 +4461,12 @@ export default function (pi: ExtensionAPI) {
 		const onProgress = onUpdate ? (frame: KernelProgressFrame) => onUpdate(progressPartial(frame)) : undefined;
 		let timeReading: Record<string, unknown> | undefined;
 		const invokeOperation = async () => {
+			if ((spec.name === 'narrate' || spec.name === 'ask') && typeof payload.text === 'string') {
+				const transported = narrationTransport(payload.text);
+				if (transported.malformed) throw new KernelError({code:'invalid_params', message:'Narration is a serialized JSON field fragment, not raw prose',
+					details:{reason:'narration_transport_fragment'}, fix:'Resend raw play-language prose in text. Do not JSON-encode the string or include an outer quote/object delimiter. Keep committed receipts and do not reroll.'});
+				payload.text = transported.text;
+			}
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
 			// §135.31: the delivery carries the turn's look/lookup calls to its turn record (host-only; after the Mod hooks).
 			if (spec.name === 'narrate' || spec.name === 'ask') {
