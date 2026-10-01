@@ -45,7 +45,7 @@ export const LEAN_FIELD_DESCRIPTIONS: Readonly<Record<string, Readonly<Record<st
 		why: sentence("leave it out: nothing reads it back"),
 	},
 	npc: {
-		why: sentence("required with defense, action or disposition; keep it with stance, skill, conditions, dead, walk_on or intent_outcome abandoned (you and their own next act read it back); leave it out when the effect only moves them (to) or reports a done result"),
+		why: sentence("required with defense, action or disposition; keep it with stance, skill, conditions, dead, walk_on or intent_outcome abandoned (you and their own next act read it back); leave it out when the effect only moves them (to), reports a done result or writes a mood (the line is its own reason)"),
 	},
 	object: {
 		definition: "Accepted definition name when first placing the instance; leave it out when it is the same as name (the kernel reads name)",

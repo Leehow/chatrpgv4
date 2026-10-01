@@ -5,6 +5,8 @@
  */
 
 import { strict as assert } from "node:assert";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
@@ -551,4 +553,37 @@ test("conformance: a captured gateway cannot dispatch after table shutdown", asy
 	await table.dispose();
 	assert.equal(control.gateway, undefined);
 	assert.throws(() => captured.dispatch(value, context), /operation dispatcher is closed/);
+});
+
+test("real TS kernel: the closed schema accepts npc mood (§161.5) and still refuses an undeclared npc field", async (t) => {
+	const campaign = "dispatcher-npc-mood";
+	const { table, control } = await openDispatchTable(t, {
+		campaign,
+		realKernel: true,
+		responses: [
+			fauxAssistantMessage([fauxToolCall("narrate", { text: "The opening closes before the mood test." })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("discarded opening tail"),
+			dispatchCall(), dispatchCall(), ...closeTurn("Knott wipes his neck."),
+		],
+	});
+	await waitForIdle(table.session, { timeoutMs: 60_000 });
+	const owner = task(campaign, ["apply"]);
+	const mood = "Sweating in the heat and sick of strangers.";
+	control.scenarios.push(
+		{ proposal: proposal(owner, { id: "host-op-npc-mood", operation: "apply",
+			args: { effects: [{ kind: "npc", name: "Steven Knott", mood }] } }), context: hostContext(control, owner) },
+		{ proposal: proposal(owner, { id: "host-op-npc-feeling", operation: "apply",
+			args: { effects: [{ kind: "npc", name: "Steven Knott", feeling: mood }] } }), context: hostContext(control, owner) },
+	);
+	await play(table);
+
+	const [accepted, undeclared] = control.observations;
+	assert.equal(accepted.status, "succeeded", JSON.stringify(accepted));
+	assert.deepEqual(accepted.receipts, ["npc:steven-knott-t1-c1"]);
+	assert.equal(undeclared.status, "failed", JSON.stringify(undeclared));
+	assert.match(String(undeclared.result.message), /feeling/, "refused by the closed schema, naming the field");
+	assert.equal(control.hooks.filter((row) => row.type === "tool_call" && row.event.toolCallId === "host-op-npc-feeling").length, 0,
+		"an undeclared field never reaches the tool");
+	const record = JSON.parse(await readFile(join(table.workspace, ".coc/campaigns", campaign, "turns/0001.json"), "utf8"));
+	assert.deepEqual(record.receipts.find((receipt) => receipt.id === "npc:steven-knott-t1-c1")?.mood, { text: mood, previous: null });
 });

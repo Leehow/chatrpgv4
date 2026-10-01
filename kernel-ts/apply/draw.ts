@@ -35,7 +35,7 @@ import {effectId, type StagedEffect} from './bookkeeping.js';
 import type {ApplyContext} from './index.js';
 
 /** The npc fields a draw or a produced object cannot share its effect with. */
-const OTHERS = ['to', 'stance', 'dead', 'skill', 'archetype', 'conditions', 'defense', 'action', 'disposition', 'reunion', 'intends', 'outcome', 'spend_turn'];
+const OTHERS = ['to', 'stance', 'dead', 'skill', 'archetype', 'conditions', 'defense', 'action', 'disposition', 'reunion', 'intends', 'outcome', 'spend_turn', 'mood'];
 /** The longest name a produced object may carry (the definition registry's own bound). */
 const NAME_LIMIT = 120;
 const oneLine = (value: unknown, limit: number): value is string =>

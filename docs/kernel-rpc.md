@@ -30578,3 +30578,96 @@ Each decoded field is one row, `{lane: "tool_arguments", event: "json_string_dec
 The other exclusions of §158.7 stand: a failed, aborted, truncated, already delivered or closed message; prose outside the envelopes; unknown tools; invalid or coerced arguments. Nothing is read but JSON and the offered schemas.
 
 **Tests.** `tests/extension/encoded-string-argument.test.mjs`: each of the eight recorded arguments decodes to the prose its own shape spells, with its `shapes`. Each shape is reconstructed by hand in the test as the literal it is a fragment of: the A′ brace dropped, B wrapped in quotes, C and D completed to their object. Also: the envelope's head on the field's own name and on the carried parameter's name, with and without whitespace; a tail alone without an escape is left as written; the boundaries above; the survey's other strings (plain prose, ASCII-quoted speech, paths) come back as the same object. Through the real registration: every recorded call on both engines (the fake kernel receives the decoded prose, with the row); B's recorded `narrate.text` on the emitted kernel and the hybrid engine delivers with real line breaks and no backslash. `tests/extension/text-tool-call.test.mjs`: the `{name, arguments}` envelope bare and fenced; the recorded E text routes as `apply` and then `narrate`; a sequence with prose between the fences, one invalid envelope, or one unknown tool routes nothing. Through a real `message_end`, the recorded E text runs both calls and the turn record holds the narrate's prose, not a fence. Mutations (a copy of the file, never `git checkout --`) each turn tests red: each reading removed in turn; the head without its key; a tail alone taken without an escape; `shapes` not recorded; the `{name, arguments}` shape removed; a partial sequence routed; one fence only.
+
+## 161. What a person feels right now is a ledger row the Keeper writes and reads before they speak (2026-09-30; amends §17.3, §17.4, §17.5, §17.8; follows §142's shape)
+
+**Evidence.** The owner, 2026-09-30, after reading the 40-turn table `blood-road-jev-20260930` (grok-4.5, narration-craft
+2.1.4 with zh-optimize 1.0.1) and three replay experiments: NPC lines read like an information desk, "人类不是提词器，不会每一句
+都有用", with no word that carries feeling. Checked: nothing in the kernel, the extensions or the host holds what a person
+feels at this moment. `stance` (§17.3) is a four-word standing toward the party, null for most people (the bartender
+after fourteen turns at the table); `wants`/`fears`/`hides`/`personality` are fixed authored English; the card frames a
+person by function (`role`, `can_hand`). Three prompt-only arms on the same twelve replayed turns failed to move the
+speech: form rules (one reply one paragraph, several things in one run) lost 6:12 to the current text; a same-model
+rewrite pass returned 34 of 38 lines unchanged; telling the Keeper to decide a present feeling before each line won 13:9,
+the bare minimum, with no change in modal particles (0.6 against 0.7 per hundred characters). Owner ruling, 2026-09-30:
+build the state at the system level ("做系统层的 NPC 此刻情绪状态").
+
+**161.1 Writer.** `apply {kind: "npc", name, mood: "<line>", why?}`. The line says what this person feels right now,
+in the fiction, as the Keeper would put it -- written in the campaign's play language, because it is the person's inner
+state, not system text; nothing reads what it says or which language it is in. It stands alone in its npc effect, as
+§142's intention variant does: combined with any other npc field (`to`, `stance`, `dead`, `skill`, `archetype`,
+`conditions`, `defense`, `action`, `disposition`, `intends`, `intent_ref`, `outcome`, `reunion`) it refuses
+`invalid_params` with `details.conflicts` naming the others, so a batch that also moves or re-stances the person carries two
+effects. It changes no world value. It mints the ordinary `npc` receipt (`npc:<slug>-t<n>-c<k>`) carrying
+`mood: {text, previous}` (`previous` the line it replaces, or null) and `visibility: "keeper"`, and the event
+`npc-changed` with `data.mood`. Refusals, all `invalid_params`, `details.reason: "mood_text"`: an empty line after
+trimming, a line over 120 characters, a line with a line break, or one carrying a `{{` marker. The same line as the current
+one is accepted and minted again (a feeling held is still a feeling stated; nothing compares meanings). There is no
+clearing value: a new line replaces the old.
+
+**161.2 Fold.** `foldNpcTurn` folds a receipt's `mood` into the person's ledger entry at turn close:
+`mood: {text, since_turn, receipt, why?}`, the newest written last in the turn winning, and the replaced line moves to
+`mood_earlier: [{text, since_turn, until_turn}]` (the last two). Both rebuild from `turns/` (`rebuildNpcLedger`), roll
+back with the turn and follow worldlines, as every ledger field does (§17.3). A person never given one has neither key.
+
+**161.3 Projection.** The `present[]` entry (§17.4) carries `now: {feels: "<text>", since_turn: <n>}` when the ledger has
+a `mood`, placed after `state` and before the dossier: the card is cut from the bottom (`fitPresent`), and this is what
+decides how the next line sounds. It is omitted when the person cannot act (`state.cannot_act`), and absent when no mood
+was ever written, so a card with none is byte-identical to before. `look` on the person shows the ledger as it is
+(`mood`, `mood_earlier`). The capsule `head` gains one line: `present[].now` is what that person feels right now and
+carries their next line more than any fact does; when it is missing or no longer true, write it with `apply npc mood`
+(one short line in the play language) in the same call that delivers their words. The projection reads the committed
+ledger, so a mood written this turn shows from the next turn; within the turn the Keeper has just written it.
+
+**161.4 Visibility.** Keeper only. §16.2's `mechanics` has no `npc` row, so no card is drawn; the transcript, the
+speech rows and the player surface never carry it. Admission (§32.1) does not review `npc` effects; the post-delivery
+verifier's facts have no `npc` branch. Both unchanged.
+
+**161.5 Extension.** `NpcEffect` declares `mood` (string, `maxLength: 120`, described as above and as standalone) on
+every path that closes the schema (the canonical dispatcher, the text tool-call path, the lean apply); the apply tool's
+description names it. The kernel repeats the length and marker checks, so a path that skips the schema still refuses.
+
+**161.6 Capability.** The kernel provides `npc.mood.v1`. A package that tells the Keeper to write or read the mood
+requires it, so an older kernel refuses the package by name instead of offering a verb it does not have.
+
+**161.7 Craft (narration-craft 2.1.5, requires `npc.mood.v1`).** The base states the interface (161.3's head line); the
+prose package says what to do with it: before someone speaks, know what they feel right now -- the heat, the hour, what
+just happened, what this stranger just said or did to them, what is on their mind besides you -- keep it in
+`present[].now` with `apply npc mood` when it is missing or has changed, and let that feeling carry the line, not the
+information. People are not information desks: they grumble, joke, sigh, trail off, say things of no use to anyone, and
+give only what they feel like giving; the rest waits until they are asked.
+
+**161.8 Three ends (§31).** *Writer:* the Keeper's `apply npc mood`. *Reader:* `present[].now` in every capsule while
+the person is present, and `look`. *Actor:* the Keeper's next line of that person; the record is the turn's npc
+receipts beside its speech rows. Acceptance is counted on a fresh real table, not asserted by tests: of the turns where
+a person speaks (`speech[].who.npc`), how many had a mood on their card or written in that turn, and the owner reads the
+speech. If people speak with none, the gap is the invitation, not the Keeper.
+
+**161.9 Tests.** Through the real registration and the emitted kernel: a mood written with `apply` mints a keeper-only
+receipt and no mechanics card; the next turn's `present[]` entry has `now` before the dossier; `look` shows the ledger;
+a rebuilt ledger matches; a second mood moves the first to `mood_earlier`; each refusal with its reason; combined with
+`stance` refuses with `details.conflicts`; an unset person's card has no `now` key; a dead person's card has none either;
+every schema-closing path accepts the field; the capability is declared and a package requiring it loads. Mutations
+(a copy of the file, never `git checkout --`) that must turn tests red: the fold skipping `mood`; the projection after
+the dossier; `now` shown for a person who cannot act; the 120 limit removed from the kernel check.
+
+**161.10 Kernel decisions (implementation, 2026-10-01).** `kernel-ts/npc/mood.ts` holds the capability name, the
+120-character limit (counted in code points, as the schema's `maxLength` counts), the conflict list, the format check,
+the fold and the card view.
+- *Conflicts* are every other npc change and the host-only carriers: `to, stance, dead, skill, archetype, conditions,
+  defense, action, disposition, intends, intent_ref, intent_outcome, outcome, spend_turn, reunion, _draws, _produces`.
+  `walk_on`, `why` and `owed` may stand beside a mood. The refusal is `{field: "npc.mood", conflicts}`; the format
+  refusal is `{field: "npc.mood", reason: "mood_text"}`, with `length` and `max` when too long. A line break is any of
+  CR, LF, U+2028, U+2029. The stored text is the trimmed line.
+- *Within one turn* the last mood written wins; a line superseded inside the same turn never enters `mood_earlier`, which
+  only receives the line the ledger held before the turn. A receipt's `previous` is the committed ledger's line, so a
+  second mood in the same turn names the same `previous` as the first. The same line written on a later turn is minted
+  again and its predecessor, identical or not, moves to `mood_earlier`: nothing compares lines.
+- *Cannot act* (161.3) also covers a death the ledger records: `apply npc dead: true` writes the ledger without a body
+  `state`, and the card omits `now` for it, as `npcViews` reports `can_act`.
+- The tool's top-level description names no npc fields, so the mood is named in `NpcEffect`'s `kind` description and in
+  the `mood` field's own description; `prompts/keeper.md`'s present-field list gains `now`.
+- *Request floor.* The full instruction (+604 B) and the head line (+252 B) raise every request's incompressible floor;
+  `tests/extension/long-campaign-context.test.mjs` moves its configured `PI_COC_REQUEST_BYTES` from 192 KiB to 200 KiB,
+  as that test's own rule says (its ceiling stays above the measured floor while the stored branch still exceeds it).
+- §161.8's count is not product telemetry: it is read from a table's turn records (receipts beside `speech`).

@@ -310,9 +310,15 @@ const RulingEffect = Type.Object({
 	scope: Type.Optional(StringEnum(["campaign", "module", "scene"] as const, { description: "how far it reaches; defaults to campaign" })),
 });
 
+/**
+ * Contract §161.5: the longest line `apply npc mood` takes, in characters. The kernel repeats the check
+ * (`kernel-ts/npc/mood.ts` `MOOD_TEXT_LIMIT`), so a path that skips this schema still refuses.
+ */
+export const MOOD_MAX = 120;
+
 /** A person moved on or off the stage, or where you read them as standing (contract §17.3). */
 const NpcEffect = Type.Object({
-	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight; or report what they set out to do and how it went" }),
+	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight; report what they set out to do and how it went; or write what they feel right now (mood)" }),
 	name: Type.String({ description: "what you are calling this person: a name from the book, the word apply person gave them at this table, or -- for someone the book never had -- whatever you are already calling them, a description like \"the clerk at the archive window\" included, with walk_on. A person this table mints is named in play_language; apply person is what decides the word the player sees. Reuse the exact word you used before: two spellings make two people, and a refusal lists who is here and the ones this table already has" }),
 	walk_on: Type.Optional(Type.Boolean({ description: "true only on the effect that brings in someone the book never had -- a porter called up the stairs, a passer-by, a constable arriving -- establishing them at this table under name. Leave it out for anyone the book has, even one the player has not been introduced to yet: give that person a word with apply person first, then write to them by it. A word nobody here carries is refused without it, and the refusal hands back both calls ready to send" })),
 	reunion: Type.Optional(Type.Object({
@@ -364,6 +370,10 @@ const NpcEffect = Type.Object({
 	})),
 	outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, {
 		description: "where that intention stands after this turn: attempted (under way, the world has not answered yet), done (it happened), failed (stopped, or it came to nothing), abandoned (given up for something else). What a person announces gets a result by their next turn, and a settled intention (done, failed, abandoned) is not tried again: what they do next is a new intention. A roll or another effect that carries intent_ref reports the result itself; write this only for a result nothing else records",
+	})),
+	mood: Type.Optional(Type.String({
+		maxLength: MOOD_MAX,
+		description: `what this person feels right now, in the fiction, as you would put it: one short line in play_language, at most ${MOOD_MAX} characters, no line break (the heat, the hour, what just happened, what was just said or done to them, what is on their mind besides you). Their card's present[].now shows it from the next turn; write it when it is missing or no longer true, in the same call that delivers their words. A new line replaces the old. This variant stands alone in one npc effect: moving or re-standing them is a second effect of the same batch`,
 	})),
 	why: Type.Optional(Sentence("why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do")),
 	owed: OwedRef,
