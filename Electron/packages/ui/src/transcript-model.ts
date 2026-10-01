@@ -42,6 +42,9 @@ export type ChatMessage = {
   activities?: TranscriptActivity[]
   streaming?: boolean
   timestamp?: number
+  /** assistant only, live rows: when the last streamed text reached the screen. A persisted row's
+   *  `timestamp` is already its write time, so history never sets this. */
+  deliveredAt?: number
   images?: { data: string; mimeType: string }[]
   /** assistant only: terminal provider error (stopReason "error") rendered as an error bubble. */
   error?: string
@@ -747,11 +750,13 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     }
     if (event.delta) target.splice(first < 0 ? target.length : first, 0, {type:'text',id:`text:${segment}:${event.contentIndex}`,contentIndex:event.contentIndex,segment,content:event.delta,final:true})
     updated.content = target.filter(activity => activity.type === 'text').map(activity => activity.content).join('')
+    updated.deliveredAt = Date.now()
     changed = true
   } else if (event.type === 'text') {
     const nextContent = updated.content + event.delta
     if (nextContent !== updated.content) {
       updated.content = nextContent
+      updated.deliveredAt = Date.now()
       changed = true
     }
     const pendingIndex = (activities ?? []).findIndex(isPendingThinking)
