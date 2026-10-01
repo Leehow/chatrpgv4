@@ -25,6 +25,7 @@ import type { ModuleGraph } from "./module-graph.js";
 import {openIntents} from '../npc/intents.js';
 import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 import { capsuleOwed } from "../owed/index.js";
+import { historicalSetting } from './historical-setting.js';
 /**
  * §135.11.1 (SL-50 re-ruling, 2026-09-25): writes are silent. Prose beside a write or read call is dropped before anyone
  * sees it (long gates #3-#5: 46 drops, the Keeper announcing its bookkeeping), and the run then asks for the turn again.
@@ -38,7 +39,8 @@ export const SILENT_WRITES = "Writes are silent: write no prose beside apply, re
     "result you do not have yet -- so wait for their result before you narrate.";
 export const HEAD = "Everything at the start of this turn: the clock, the undiscovered clues here and their gates, the secrets " +
     "and agendas of those present, the way back and the exits, pressures and obligations, the rule-layer " +
-    "situations, the Director's suggested beat, related memory and the style contract. Do not look/lookup " +
+    "situations, the Director's suggested beat, related memory and the style contract. " +
+    "historical_setting holds the authored era, starting place and background on every turn, including after the opening briefing. Do not look/lookup " +
     "for what is already here; director is advice, not lines. Truncated place/rule previews are incomplete; " +
     "look focus=scene returns their full descriptions. where.material and each exit's material say how " +
     "far the book has been read: ready, reading, or missing. An exit's unlock_when.met is true, false, or null " +
@@ -417,6 +419,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const npcScope={worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)};
     const sections: Row = clone({
         where,
+        historical_setting: await historicalSetting(campaign, module),
         present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records, scope:npcScope }),
         voices: voicesSection(graph, world, scene),
         known: knownSection(graph, world, scene, party, campaign.records),

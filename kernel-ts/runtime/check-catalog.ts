@@ -14,6 +14,7 @@ import {statedCheck, statedEndingReward} from '../read/stated.js';
 import {jsonDigest} from '../json.js';
 import {RuleTables} from '../rules/tables.js';
 import {ENDING_KINDS} from '../development/plan.js';
+import {loadChaseRules} from '../chase/model.js';
 import {magicLearningSources} from '../magic/facts.js';
 import {npcPatient} from '../healing/patient.js';
 import {healingStatePath} from '../healing/session.js';
@@ -48,7 +49,9 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         profiles = [...profiles];
         const ledger = row(await campaign.optional('npc-ledger.json'));
         for (const person of people) {
-            const known = {...row(row(person.profile).characteristics), ...row(row(person.profile).skills), ...row(row(ledger[person.node.node_id]).skills)};
+            const pins = Object.fromEntries(array(campaign.turn.receipts).filter(receipt => receipt.kind === 'npc'
+                && receipt.npc === person.node.node_id && row(receipt.skill).name).map(receipt => [receipt.skill.name, receipt.skill.value]));
+            const known = {...row(row(person.profile).characteristics), ...row(row(person.profile).skills), ...row(row(ledger[person.node.node_id]).skills), ...pins};
             for (const [name, given] of Object.entries(known)) {
                 const skill = canonical.get(normalize(name));
                 if (!skill) continue;
@@ -83,7 +86,19 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
         }
         for (const target of array(opening.targets).filter(target => !array(preparation.targets).includes(target))) add('chase:start', `${opening.actor}: pursue or flee from ${target}`, {actor: opening.actor, target}, [
             parameter('intent', 'Is the investigator fleeing this person or moving after them?', ['flee', 'move']),
-        ]);
+        ], [], 'declaration', {mobility: 'foot'});
+        const chaseRules = await loadChaseRules(new RuleTables(campaign.context));
+        const ownProfile = profiles.filter(profile => profile.actor === opening.actor && normalize(profile.skill) === normalize('Drive Auto'));
+        add('chase:start', `${opening.actor}: a chase involving vehicles`, {actor: opening.actor},
+            [parameter('intent', 'Is the investigator fleeing the pursuers or pursuing the quarry?', ['flee', 'move'])], [], 'declaration', {
+                mobility: 'vehicle',
+                chase_actors: [{name: opening.actor, investigator: true, profile_available: true, driving_available: ownProfile.some(profile => profile.availability === 'bound')},
+                    ...people.filter(person => array(opening.targets).includes(person.name)).map(person => ({name: person.name, investigator: false,
+                        description: string(person.node.summary ?? person.node.description).slice(0, 600),
+                        profile_available: person.profile !== null,
+                        driving_available: profiles.some(profile => profile.actor === person.name && normalize(profile.skill) === normalize('Drive Auto') && profile.availability === 'bound')}))],
+                vehicle_profiles: Object.entries(row(row(chaseRules.vehicles).entries)).map(([key, value]) => ({key, ...row(value)})),
+            });
     }
     if (!session && campaign.party.length) {
         const actor = campaign.party[0].name;

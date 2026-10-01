@@ -19197,15 +19197,23 @@ SL-44 ticket's Comments.
 
 ### 124.12 Historical reference: direct search in the Keeper turn (#110, 2026-09-30)
 
+**Selected preparation (2026-09-30 approved repair).** A positive Jev historical-support decision selects one bounded preparation attempt before the next turn-writing Keeper step. The host projects its purpose, requests the historical lookup through that same Keeper's native tool channel, and retires the preparation after a tool result. It does not delegate a query author or add a research/summarization agent. The stable tool declarations remain unchanged; this step requests `lookup` and permits only the existing historical subtype for the preparation itself. Existing source scope, Mod, credential, quote-challenge, library-first and retrieval-budget gates remain authoritative. The host clears the native constraint after the read, closure, agent end or a new run; ordinary gameplay and later player inputs do not inherit it. Empty, unavailable, cancelled and refused results end the preparation without a gameplay obligation or a repeat loop. Unsupported native control falls back to one advisory attempt rather than blocking a turn. The need batch separates the value of background detail from immediate interruption; these are host preparation judgments, not additional investigator actions under the compile's action-only policy. Existing thresholds are retained. Query/objective distinguish authored fiction and the chosen historical/style analogue, and selected excerpts are integrated into the current scene or NPC reply while preserving canon.
+
+**Fictional canon and historical analogues (2026-09-30 owner amendment; implemented with controlled service evidence).** Authored and established world facts remain authoritative. A module may mix real history with fictional countries, cultures, institutions, calendars or local rules. Each lookup distinguishes the scenario's own setting from the requested historical reference basis and the aspects being borrowed; there is no mandatory whole-module real/fictional classification. The Keeper selects the basis within ordinary inference, preferring the authored analogue, using compatible player style preferences when none is declared, and marking an inferred one as provisional. Selecting a reference does not authorize changing the fiction. Existing query/objective and the host-bound scenario carry the distinction into the same Jev selection batch and retained acquisition context. Useful stylistic analogies are not rejected solely for having a different real-world name; historical authenticity does not authorize importing rulers, religions, laws, restrictions or political relationships contrary to the fiction. Compatible appearance, materials or practices may inform normal narration and NPC interaction. Price anchors retain original historical units and currency; fictional quotations use an adapted scale, without inventing a fixed exchange rate or searching a fictional object as if it had an exact historical retail price. Saved originals remain unchanged and reuse checks the current fiction and reference purpose. No new research, query-writing, classification or summary model pass, country lookup table or automatic canon correction is introduced. The existing 1.0.5 generic analogy guidance is not evidence that this distinction or ordinary-play enrichment has passed; Implementation and its genuine scene/NPC evidence follow spec section 7.1; a fictional-country live-module pass is not claimed.
+
+**Scenario setting (2026-09-30).** Every capsule carries a bounded `historical_setting` independent of the opening-only module briefing. Its `era`, `starting_place` and `background` copy authored values from the selected entrance/module and, when bound to this campaign and source, the approved public character-guidance artifact. If an older/setup-adjudicated campaign omits its guidance key, the reader may use exactly one accepted guide matching its opening scene identity and play language; ambiguity does not authorize an arbitrary guide. Missing fields remain null. A legacy graph may provide its module summary as keeper-only background; this is never a new public disclosure or a search instruction. The projection is at most 2048 UTF-8 bytes, reports truncation, and makes no model call. The authored era takes precedence over any investigator finance-period fallback; finance tables do not describe the setting. The main Keeper uses this setting and current scene when writing period/place-specific queries. The same host projection reaches Jev's need, saved-reference relevance, price-anchor and result-applicability decisions and participates in the exact-query cache binding. Region and social/economic systems remain source text interpreted by the existing agents, never keyword classifiers or a default US market. Publication dates still do not describe historical eras. Source import/guidance writes the evidence, the capsule and historical callers read it, and Keeper-authored queries plus selected excerpts are the consumer evidence.
+
 **Price anchors (2026-09-30 user amendment).** Ordinary item prices are Keeper estimates based on saved, source-backed price anchors for the setting. A new object is not a reason to buy another Exa search. The historical reader batches a closed query-category decision, an explicit quotation-challenge decision over host-owned player input, and saved-reference relevance before any auto/web search can spend credit. A routine price request returns applicable anchors regardless of the objects those anchors price; if none exist, it requests a broad price baseline instead of searching the specific item. A baseline search is permitted only when no usable anchor for that market is available. Even explicit web mode reuses suitable anchors for routine prices. Only a concrete player challenge permits a targeted item-price search, still under the ordinary grant, credential, cancellation and budget gates. Unknown policy spends no Exa credit. Applicability selection qualifies original excerpts as price anchors only when they contain useful monetary amounts with currency, unit and period; an additive library marker records that role without changing old packets. Estimates are not stored as historical sources, and references do not change purchase arithmetic, Spending Level or already committed quotations/transactions. No new research or summary agent is added.
 
 The optional `historical-reference` Mod defaults on for new campaigns; explicit disables and existing package locks remain authoritative. It requires `context.historical-reference.v1`. Its `host_settings: ["exa_api_key"]` declaration binds only the host-registered secret slot, never an arbitrary setting name. The right-hand Mod panel uses the existing app secret settings API for `ext.coc-keeper.exaApiKey`; ordinary Mod settings, campaign snapshots, model messages and exports never contain its value. Saving a credential neither searches nor changes the Mod switch. Missing credentials leave play available. Secret replacement and clearing use the host's idle restart boundary.
 
 `lookup {kind:"historical_reference",query:string,objective?:string}` is a host-only read. The main Keeper writes its own query in its ordinary inference; no researcher, query author, summarizer or translator process is created. Jev adds one optional need question to the existing compile/route decision; a granted need permits this one lookup subtype even during narrator-only composition, without widening other verbs. The host checks active Mod, credentials, current run/turn and the grant before execution. An unavailable reference never becomes an unresolved gameplay obligation.
 
-The host calls Exa Search with compact highlights and cached contents, then uses one bounded Jev batch to select useful supplied excerpts and qualify direct, analogous or uncertain applicability. Text is copied from the actual result, not generated. No Exa answer, summary, output schema or deep-research mode is used. Results return through this same tool invocation as `historical_reference`, with `ready|empty|unavailable`, reason, material bodies, source URLs, retrieval metadata and applicability. They are advisory external excerpts, never module truth, player knowledge, consent, price-table identifiers or settled effects. Existing prices and fiction are not retroactively changed; cash still follows §58.
+The host calls Exa Search with compact highlights and cached contents, then uses one bounded Jev batch to select useful supplied excerpts and qualify direct, analogous or uncertain applicability. A passage may answer only one component of the request; it need not document the fictional institution or cover every topic. Nearby-period examples from other institutions may be qualified analogies, without making their place-specific practices campaign facts. Publication and excavation dates are not the dates of the practice described. Text is copied from the actual result, not generated. No Exa answer, summary, output schema or deep-research mode is used. Results return through this same tool invocation as `historical_reference`, with `ready|empty|unavailable`, reason, material bodies, source URLs, retrieval metadata and applicability. They are advisory external excerpts, never module truth, player knowledge, consent, price-table identifiers or settled effects. Existing prices and fiction are not retroactively changed; cash still follows §58.
 
 Initial limits are five source candidates, three selected sources, 12 KiB delivered text and a shared four-second per-input search/filter allowance (further bounded by its parent), at most two distinct queries. Cancellation and stale binding suppress publication. Source excerpts may be cached, but applicability is judged against the current scene; repeated delivery uses content identity and must restore bodies after compaction. Telemetry separates obtained, selected, delivered and actual narrative use, and measures whole-player-turn latency rather than claiming the provider's search time as the product result. Implementation and acceptance follow the [historical reference specification](specs/historical-reference-mod.md).
+
+Applicability state also carries the latest host-owned `player_input`. During a named saved read, the query may only identify a reference; Jev uses player input and objective to understand which details are wanted. A title/address is not a replacement for that purpose, and model-authored lookup arguments cannot replace the host's player input.
 
 #### Session reference library (owner, 2026-09-30)
 
@@ -30410,6 +30418,59 @@ Preparation remains an unresolved outcome boundary. Its player notice waits unti
 if preparation is still pending; a successfully prepared and adjudicated attempt must not leave
 an obsolete notice. Native source tools still own PDF reading and graph preparation; none of this
 licenses the player context to read future private material or the agent to invent numeric rules.
+
+### 159.11 Vehicular chase binding (2026-10-01)
+
+The real encounter is a car flight. The existing chase starter created every participant from
+foot combat statistics. Independently, `executeChase` discarded the vehicle/driver/passenger
+fields even when its trusted participant payload supplied them. The lower `ChaseSession` already
+implements vehicle MOV, Drive Auto, structural Build, occupant armor and passenger relationships.
+
+The settlement gateway must forward these existing fields without deriving or inventing values.
+Vehicle speed checks must read Drive Auto and the published vehicle MOV; occupant HP stays the
+actor's. Foot starts keep their current behavior. A production start still requires host-issued,
+Jev-selected participant/mobility/profile bindings; model-origin resolve and free numeric plans
+remain forbidden. Do not treat the gateway regression alone as acceptance of the real chase.
+The bounded starter adapter and original blind encounter remain required work before completion.
+
+`resolve.action.chase_roster` is an optional bounded array of semantic participant names. Each
+entry is `{actor,role:foot|driver|passenger,vehicle?,riding_with?}`: drivers choose a published
+vehicle profile name; passengers name another roster member who is a driver. No numeric stats,
+actor ids, positions or roll results are model arguments. The host selects these closed values
+with Jev. The kernel matches current party/present NPC identity, reads pinned actor numbers,
+resolves vehicle MOV/Build/armor from its tables, and reads Drive Auto from the actual driver.
+Missing driver skill is an explicit need, never another actor's value or a guessed chance.
+Names, roles and driver links must be distinct/coherent; moving pursuer and quarry are required.
+Roster roles are reviewed as part of player agency. Existing starts without this field retain
+the established foot semantics; the new selector must choose the appropriate mobility explicitly.
+
+Role questions are independent closed Choices with the existing choice gate. A vehicle profile
+Choice nominates one published class; an independent Noul confirms that class with the existing
+compatible-adjudication gate. Several permissible classes do not need to compete for one high
+Choice probability. Passenger links select only an already selected driver. The kernel rejects
+duplicate resolved actors, unknown profiles and incoherent links before starting a session.
+Missing driver skill holds carry the vehicle mobility and required driver names: an unrelated
+ready foot option cannot release that hold. No threshold is lowered and unresolved bindings stay
+unresolved. Selector family version 20 separates these questions from earlier cached decisions.
+Regression coverage includes the actual issued catalog, selector dispatch, ordinary resolve and
+saved driver/passenger state. The same blind live encounter remains the acceptance boundary.
+
+### 159.12 Chase readiness consumes pinned actor profiles and skill ledgers (2026-10-01)
+
+Live turn 44 registered the observed participants, but five table-created people had no mechanical
+profile. A roster's foot participants and passengers need those profiles too, not only its drivers.
+The vehicle catalog must expose profile_available for each named participant. After bounded role
+binding, any selected participant without a profile returns a typed preparation requirement naming
+those actors; it never reaches a refused starter or becomes an invented stat block. Profile and
+driver-skill holds release only when the fresh vehicle roster advertises the same required names
+as available. Existing source preparation and apply npc own those writes.
+
+Separately, apply npc.skill writes npc-ledger.json and current receipts. The catalog already reads
+these, but the chase skill reader did not. Use the existing actorSkillValue reader before the
+pinned combat-profile fallback: a real registered driver's skill pin must reach Drive Auto speed
+rolls. Missing values remain needs, with no automatic chance or another actor's skill substituted.
+Regression must run the actual skill pin, catalog, selector and starter; editing fixture world
+numbers directly does not establish this writer-reader-actor seam. Selector family version 21.
 
 ## 160. A Keeper tool string argument that arrives as a JSON string literal is decoded at the host boundary (2026-09-30; extends §144, amends §135.21's `prepareArguments` and the order of §144.1)
 

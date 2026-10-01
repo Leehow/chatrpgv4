@@ -121,6 +121,16 @@ export const executeChase: SettlementExecutor = async (context, args) => {
         for (const participant of array(payload.participants))
             session.addParticipant(participant.actor_id, participant.side, int(participant.mov), int(participant.dex), {
                 con: participant.con ?? null,
+                driveAuto: participant.drive_auto ?? null,
+                isVehicle: participant.is_vehicle ?? false,
+                vehicleKey: participant.vehicle_key ?? null,
+                armor: participant.armor ?? 0,
+                role: participant.role ?? 'driver',
+                vehicleActorId: participant.vehicle_actor_id ?? null,
+                firearms: participant.firearms ?? null,
+                luck: participant.luck ?? null,
+                spotHidden: participant.spot_hidden ?? null,
+                navigate: participant.navigate ?? null,
                 hp: participant.hp ?? null,
                 fight: participant.fight ?? null,
                 dodge: participant.dodge ?? null,
