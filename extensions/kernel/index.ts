@@ -95,6 +95,7 @@ import {
 	admissionPending,
 	admissionRefusal,
 	admissionRequest,
+	registeredContactProposal,
 	admissionTimedOut,
 	admissionTimeoutMs,
 	admissionUnavailable,
@@ -2654,6 +2655,7 @@ export default function (pi: ExtensionAPI) {
 		const effectsOf = () => (Array.isArray(payload.effects) ? payload.effects as Array<Record<string, unknown>> : []);
 		let proposal = admissionRequest(tool, payload, scopeFor(effectsOf()));
 		if (!proposal) return;
+		proposal = registeredContactProposal(proposal, payload, evidence);
 		// §32.12.3: the whole batch again, after its typed-admitted lines landed and its remainder did not. Those lines are not
 		// applied twice: what is left is the remainder, which collects its own kept review (or reuses its verdict).
 		let alreadyLanded: string[] | undefined;

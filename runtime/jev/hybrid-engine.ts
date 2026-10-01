@@ -692,6 +692,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     return {...bandRows, gates: {time: bandMinConfidence(options.env as NodeJS.ProcessEnv, 'time'), damage: bandMinConfidence(options.env as NodeJS.ProcessEnv, 'damage')}};
   }
 
+  const rememberReceipts = (run: RunState, status: Row) => {
+    for (const receipt of array(status.receipts).map(object)) {
+      const id = text(receipt.id);
+      if (id && !run.turnReceipts.some(seen => text(seen.id) === id)) run.turnReceipts.push(receipt);
+    }
+  };
   /** The kernel reads a step needs and the candidates they issue. Read-only. */
   async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]; rows: () => FeatureRows;
     consequences: () => ConsequenceCandidate[]}> {
@@ -706,10 +712,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (!run.history.enabled) run.history.allowed = false;
     // SL-76 (D2.3, D4): every receipt this turn's reads have seen, deduped by id -- the consequence route's
     // "settled this run" state and the turn-close pairing both read this, never the model-origin call's own args.
-    for (const receipt of array(status.receipts).map(object)) {
-      const id = text(receipt.id);
-      if (id && !run.turnReceipts.some(seen => text(seen.id) === id)) run.turnReceipts.push(receipt);
-    }
+    rememberReceipts(run, status);
     run.fight = object(object(resolveOptions.context).session ?? object(capsule.where).session);
     // §135.31: what the projection carries is this read's: the scene, the session view `look focus=session` would return
     // (the resolve options' context holds the same two values), and who the investigators are.
@@ -1063,7 +1066,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (fell) { batch.fell = fell; batch.fellAt = proposal.toolCall?.id; }
     // §151.5: an accepted `propose` holds the rest of its response until the proposed step has run.
     if (queued && !toolResult.isError) batch.proposed = true;
-    const fresh = !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? (await freshOf(run, stepId))?.fresh : undefined;
+    // An accepted delivery is terminal. Collect its final receipts without issuing another action space.
+    if (delivery) rememberReceipts(run, await quiet('table.status'));
+    const fresh = !delivery && !toolResult.isError && WRITE_VERBS.has(proposal.operation) ? (await freshOf(run, stepId))?.fresh : undefined;
     // SL-78: the Keeper's own settled write (never merely proposed) is a point a listed D1 class can newly clear
     // from, the same as a clerk write. `off`/`shadow` return at once inside `routeConsequencesAfterWrite`.
     if (fresh) await routeConsequencesAfterWrite(run, fresh, signal, stepId).catch(() => undefined);

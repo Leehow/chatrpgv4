@@ -750,7 +750,7 @@ export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active
             checks.set(check.name, check);
     const contacts: Row[] = [],
         relationships: Row[] = [];
-    for (const [name] of checks)
+    for (const [name, check] of checks)
         for (const actor of party)
             for (const npc of people) {
                 const pair = jsonDigest([name, actor.id, npc.node_id]),
@@ -774,7 +774,8 @@ export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active
                         target: graph.displayName(npc),
                         handle: graph.handle(npc),
                         decision: name,
-                        when: "first meaningful contact, not merely appearing in this list"
+                        when: "first meaningful contact, not merely appearing in this list",
+                        rule: { trigger: check.trigger, scope: check.scope, reusable: check.reusable }
                     });
             }
     return { contacts, relationships };
