@@ -4,17 +4,68 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {EXA_ENV,HISTORY_NEED,HISTORY_CLOSED,historyFinalAnswerPayload} from '../../runtime/historical-reference.ts';
 import {JEV_MODEL} from '../../runtime/jev/question-packing.ts';
 
-async function table({enabled=true,needed=true,narrator=true,now}={}) {
+test('selected background preparation reaches the native tool channel once, then releases normal narration',async()=>{
+  const f=await table({narrator:false});
+  const tools=[{type:'function',name:'lookup'},{type:'function',name:'narrate'}],payload={input:[],tools};
+  const prepare=f.handlers.get('before_provider_request')({payload},{model:{api:'openai-responses'}});
+  assert.deepEqual(prepare?.tool_choice,{type:'function',name:'lookup'},'a selected read cannot silently become prose-only');
+  assert.equal(prepare.tools,tools,'the declared tools stay stable');
+  await f.call('historical_reference',{}, {kind:'historical_reference',status:'ready',materials:[{excerpts:['Period document practice.']}]});
+  await f.project('world');
+  assert.equal(f.handlers.get('before_provider_request')({payload},{model:{api:'openai-responses'}}),undefined,'the completed read releases ordinary gameplay and narration');
+});
+test('a selected preparation cannot execute a different read, and a refused attempt does not rearm it',async()=>{
+  const f=await table({narrator:false}),payload={input:[],tools:[{type:'function',name:'lookup'}]};
+  f.handlers.get('before_provider_request')({payload},{model:{api:'openai-responses'}});
+  const wrong=await f.call('module');
+  assert.equal(wrong.refuse_code,'historical_preparation','only the selected historical read is admitted in this preparation step');
+  await f.project('world');
+  assert.equal(f.handlers.get('before_provider_request')({payload},{model:{api:'openai-responses'}}),undefined);
+});
+test('immediate interruption suppresses preparation without changing the read-value threshold',async()=>{
+  const f=await table({narrator:false,urgent:true});
+  const payload={input:[],tools:[{type:'function',name:'lookup'}]};
+  assert.equal(f.handlers.get('before_provider_request')({payload},{model:{api:'openai-responses'}}),undefined);
+});
+test('disabled, declined, unavailable and unsupported preparation never leave a native tool constraint behind',async()=>{
+  const payload={input:[],tools:[{type:'function',name:'lookup'}]};
+  for(const options of [{enabled:false},{needed:false}]){
+    const f=await table(options);
+    assert.equal(f.handlers.get('before_provider_request')({payload},{model:{api:'openai-responses'}}),undefined);
+  }
+  const f=await table({narrator:false});
+  f.handlers.get('before_provider_request')({payload},{model:{api:'openai-responses'}});
+  await f.call('historical_reference',{}, {kind:'historical_reference',status:'unavailable',reason:'unconfigured',materials:[]});
+  await f.project('world');
+  assert.equal(f.handlers.get('before_provider_request')({payload},{model:{api:'openai-responses'}}),undefined);
+  const unsupported=await table({narrator:false});
+  assert.equal(unsupported.handlers.get('before_provider_request')({payload},{model:{api:'unsupported'}}),undefined);
+  await unsupported.project('world');
+  assert.equal(unsupported.handlers.get('before_provider_request')({payload},{model:{api:'openai-responses'}}),undefined,'an unsupported attempt is not rearmed');
+});
+
+test('need decision and model lookup grant share the current authored setting after refresh',async()=>{
+  const setting={era:'October 1937',starting_place:'Kuybyshev, USSR',background:'NKVD and sovkhoz state farms'};
+  const f=await table({setting});
+  assert.deepEqual(f.batches[0].state.historical_reference_setting.scenario,setting);
+  assert.equal(f.batches[0].state.historical_reference_setting.period,'October 1937');
+  await f.refresh();
+  const grant=await f.call('historical_reference');
+  assert.deepEqual(grant.historical_reference.context.scenario,setting);
+  assert.equal(grant.historical_reference.context.period,'October 1937');
+});
+
+async function table({enabled=true,needed=true,narrator=true,now,setting,urgent=false}={}) {
   const bus=new Map(),handlers=new Map(),announced=[],batches=[];
   let scene='archive';
   const pi={events:{on:(name,fn)=>bus.set(name,fn),emit:(name,value)=>{if(name==='coc:model-step')announced.push(value);bus.get(name)?.(value);}},
     on:(name,fn)=>handlers.set(name,fn),registerTool:()=>{},getActiveTools:()=>['look','lookup','recall','apply','resolve','narrate','ask'],setActiveTools:()=>{}};
   const engine=createHybridEngine({env:{[EXA_ENV]:'test-exa-key',TYPESAFE_API_KEY:'test-jev-key',COC_NARRATOR_ONLY:narrator?'on':'off'},
     ...(now?{now}:{}),
-    npcAct:null,decision:{decide:async batch=>{batches.push(batch);return {batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key===HISTORY_NEED&&needed?0.95:0.01}])),issues:[],coverage:{required:[],answered:[],unknown:[]}};}}});
+    npcAct:null,decision:{decide:async batch=>{batches.push(batch);return {batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='historical_reference_interrupts_action'?urgent?0.95:0.01:q.key===HISTORY_NEED&&needed?0.95:0.01}])),issues:[],coverage:{required:[],answered:[],unknown:[]}};}}});
   engine.extension(pi);
   pi.events.emit('coc:kernel-bridge',{campaign:'c',call:async method=>method==='table.capsule'
-    ?{where:{scene},mods:{active:enabled?[{id:'historical-reference',version:'1.0.0'}]:[]},present:[],known:{},
+    ?{where:{scene},historical_setting:setting,mods:{active:enabled?[{id:'historical-reference',version:'1.0.0'}]:[]},present:[],known:{},
       _context:{version:1,campaign:'c',worldline:'main',loop:0,turn:1,source_revision:'a'.repeat(64)}}
     :method==='table.status'?{turn:1,state:'open',receipts:[]}:method==='table.apply.options'?{candidates:[]}:{}});
   const plan=engine.runDriver.prepare({runId:'r',inputRevision:'input',rawInput:'I look around the archive',session:{}});
@@ -27,7 +78,7 @@ async function table({enabled=true,needed=true,narrator=true,now}={}) {
   async function call(kind, params={},details={}) {
     const id=`call-${++serial}`;
     await plan.ports.operations.execute({origin:'model',operation:'lookup',params:{kind,query:'archive details',...params},assistantMessage:{serial},toolCall:{id}},
-      {runId:'r',stepId:'compose',operationId:id,origin:'model',inputRevision:'input',scopeId:'root',signal,
+      {runId:'r',stepId:'tool-batch',operationId:id,origin:'model',inputRevision:'input',scopeId:'root',signal,
         executeModelTool:async()=>({isError:!!announced.at(-1)?.refuse,details,content:[{type:'text',text:announced.at(-1)?.refuse??'result'}]})});
     return announced.at(-1);
   }
@@ -99,7 +150,7 @@ test('native final-answer modes keep the stable tool definitions and transport f
 test('the existing whole-turn budget closes optional history even when local reads are fast',async()=>{
   let elapsed=0;const f=await table({now:()=>elapsed,narrator:false});
   await f.call('historical_reference',{reference_mode:'saved'},{kind:'historical_reference',status:'ready',materials:[{excerpts:['A saved period fact.']}]});
-  assert((await f.project()).includes('Historical reference is available'));
+  assert(!(await f.project()).includes(HISTORY_CLOSED),'the first successful read did not itself exhaust the resource');
   elapsed=45001;
   const note=await f.project();assert(note.includes(HISTORY_CLOSED));assert(note.includes('turn_budget_exhausted'));
   const attempted=await f.call('historical_reference',{reference_mode:'catalog'});

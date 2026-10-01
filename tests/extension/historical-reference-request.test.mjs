@@ -11,12 +11,15 @@ import {resolve,join} from 'node:path';
 const excerpt='The period reference describes bound newspaper volumes and a subject index kept for visiting researchers.';
 const call=(tool,args)=>fauxAssistantMessage([fauxToolCall(tool,args)],{stopReason:'toolUse'});
 test('selected Exa excerpts arrive unchanged in the next main Pi provider request',async t=>{
-  const original=globalThis.fetch;let searches=0,selections=0,received=false,readBack=false;
+  const original=globalThis.fetch, observed=[];let searches=0,selections=0,received=false,readBack=false;
   const lastLookup=context=>JSON.parse(context.messages.findLast(m=>m.role==='toolResult'&&m.toolName==='lookup').content.find(b=>b.type==='text').text);
   globalThis.fetch=async(url,init)=>{
     if(String(url)==='https://api.exa.ai/search'){searches++;return Response.json({results:[{title:'Historical library',url:'https://example.org/library',highlights:[excerpt]}]});}
     if(String(url)==='https://api.typesafe.ai/v1/systemone') {
-      const body=JSON.parse(init.body);if(!body.questions.query_kind)selections++;
+      const body=JSON.parse(init.body);if(body.questions.reference_1)selections++;
+      const state=typeof body.state==='string'?JSON.parse(body.state):body.state;
+      if(body.questions.query_kind||body.questions.reference_1||body.questions.saved_1)
+        observed.push({player_input:state.player_input,period:state.setting?.period});
       return Response.json({model:body.model,answers:Object.fromEntries(Object.keys(body.questions).map(key=>[key,
         key==='query_kind'?{type:'choice',choice:'context',confidence:1,probabilities:{context:1,price_anchor:0,item_price:0,unclear:0}}
           : key==='price_disputed'||key.startsWith('anchor_')?{type:'noul',noul:0.01}
@@ -27,9 +30,12 @@ test('selected Exa excerpts arrive unchanged in the next main Pi provider reques
   t.after(()=>{globalThis.fetch=original;});
   const table=await openTable({realKernel:true,env:{[EXA_ENV]:'test-exa-key',TYPESAFE_API_KEY:'test-jev-key'},
     extraExtensions:[pi=>pi.on('tool_call',event=>{if(event.toolName==='lookup')pi.events.emit('coc:model-step',{
-      toolCallId:event.toolCallId,run:'history-test',step:'compose',historical_reference:{allowed:!event.input.reference_mode,enabled:true,turn:0,
+      toolCallId:event.toolCallId,run:'history-test',step:'compose',historical_reference:{allowed:!event.input.reference_mode,enabled:true,turn:1,
         scope:{owner:'history-test',audience:'keeper',campaign:'test-camp',worldline:'main',loop:0},context:{period:'1920s'}}});})],
-    responses:[call('lookup',{kind:'historical_reference',query:'1920s newspaper reference library'}),async context=>{
+    responses:[call('look',{}),call('narrate',{text:'You are in the office. Knott waits by the desk with the commission still open.'})],
+  });t.after(()=>table.dispose());
+  await waitForIdle(table.session);
+  table.faux.setResponses([call('lookup',{kind:'historical_reference',query:'1920s newspaper reference library'}),async context=>{
       const body=JSON.stringify(context.messages);
       assert(body.includes(excerpt),'the actual next request contains the original excerpt');
       assert(body.includes('advisory_external_excerpt'));
@@ -41,10 +47,10 @@ test('selected Exa excerpts arrive unchanged in the next main Pi provider reques
     },async context=>{
       const saved=lastLookup(context);assert.equal(saved.origin,'library');assert.deepEqual(saved.materials[0].excerpts,[excerpt]);readBack=true;
       return call('narrate',{text:'The reference offers background on period libraries; you remain in the office with the commission still to discuss.'});
-    },fauxAssistantMessage('Done.')],
-  });t.after(()=>table.dispose());
+    },fauxAssistantMessage('Done.')]);
   await table.session.prompt('I wonder how newspaper libraries worked in this period.');
   await waitForIdle(table.session);
+  assert.deepEqual(observed,observed.map(()=>({player_input:'I wonder how newspaper libraries worked in this period.',period:'1920s'})),'fresh and named saved selection receive the latest host-owned question and authored era');
   assert.deepEqual(table.extensionErrors,[]);assert.equal(received,true,JSON.stringify(table.session.messages.filter(m=>m.role==='toolResult')));
   assert.equal(readBack,true,JSON.stringify({searches,selections,history:table.telemetry().filter(r=>r.lane==='historical-reference').map(({reason,selection_failure,ms})=>({reason,selection_failure,ms}))}));assert.equal(searches,1);assert.equal(selections,2);
   assert.equal(table.kernelRequests().some(r=>r.method==='table.lookup'&&r.params.kind==='historical_reference'),false,'the kernel never executes external search');

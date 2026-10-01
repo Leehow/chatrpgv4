@@ -7,7 +7,7 @@ import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts'
 
 import { textToolCall } from "./text-tool-call.ts";
 import {narrationTransport} from './narration-transport.ts';
-import {HistoricalReference, historyEnabled, historyBindingMatches, type HistoryInput} from '../../runtime/historical-reference.ts';
+import {HistoricalReference, historyEnabled, historyContext, historyBindingMatches, type HistoryInput} from '../../runtime/historical-reference.ts';
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
@@ -4552,7 +4552,7 @@ export default function (pi: ExtensionAPI) {
 					player_input: state.playerText ?? '',
 					reference_mode: params.reference_mode as HistoryInput['reference_mode'], name: typeof params.name === 'string' ? params.name : undefined,
 					reference_cursor: typeof params.reference_cursor === 'number' ? params.reference_cursor : undefined,
-					context: {where: (capsule as any).where ?? null, period: (capsule as any).campaign?.era ?? null},
+					context: historyContext(capsule),
 					signal: signal ?? new AbortController().signal, deadlineAt: providerBudget?.deadlineAt,
 					current: async()=>table === state && state.campaign === campaign && state.turn === turn
 						&& historyBindingMatches(await state.kernel.call('table.capsule', {campaign}), referenceScope, turn),
