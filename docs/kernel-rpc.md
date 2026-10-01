@@ -30473,7 +30473,7 @@ The Keeper still never chooses or rolls a check: model-origin resolve stays refu
 - `subject`: the check's label, the clerk candidate's label, `checks not judged this turn`, or the player's message for a scope.
 - `uncertain`: each gate decided without clearing, with its score (`necessity of <label>: needed now p=0.74, prerequisite unmet p=0.36`; `difficulty: Hard p=0.6`; `world action unanswered`), or the host-level reasons (`check_selection_unavailable`, `packing_limit` …), or the refusal code, or the missing arguments.
 - `chosen.outcome`: `roll` (with the check and its bound action), `no_roll`, `deferred` or `world`.
-- `why`: `below_confidence_gate`, `jev_unanswered`, `nothing_executable` (comma-joined when a selection used several), `check_refused`, `preparation_incomplete`, a clerk bind's cause, or the `jev_*` step reason.
+- `why`: `below_confidence_gate`, `jev_unanswered`, `nothing_executable` (comma-joined when a selection used several), `check_refused`, `preparation_incomplete`, a clerk bind's cause, or the `jev_*` step reason. A selection that arrives with no result is `nothing_executable` when its need is one of the host's own selection codes (stale snapshot, changed binding, session owner, already-made attempt, no issued option, invalid gates) and `jev_unanswered` otherwise.
 
 The selector's own `lane: "check-selection"` rows are unchanged; a forced result's `forced` rides on the selection artifact. The policy keeps the run's entries in `RunView.forced` (deduplicated by a key over family, subject, outcome and the decision).
 

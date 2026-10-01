@@ -606,3 +606,16 @@ test('§163: a forced deferral stays open for the attempt it waits on; the same 
   settleCheckSelection(view, {...request, key: 'attic-request'}, quiet, 1);
   assert.deepEqual(view.forced.map(entry => entry.chosen.outcome), ['deferred', 'no_roll', 'no_roll'], 'one record per scene');
 });
+
+test('§163: a host selection code is a no-roll because nothing could execute; a failed provider is a no-roll because Jev gave no answer', () => {
+  const request = {...candidate, bound: {decision: listen.action.decision}};
+  const why = needs => {
+    const view = initialView({runId: 'codes', rawInput: 'I listen.', context: {scene: 'hall', clock: {}, present: []}, candidates: [request]});
+    settleCheckSelection(view, request, {status: 'unresolved', needs, calls: 0}, 0);
+    return view.forced[0].why;
+  };
+  for (const code of ['check_selection_stale', 'distinct_attempt_binding_required', 'check_session_owner', 'check_catalog_binding_changed'])
+    assert.equal(why([code]), 'nothing_executable', code);
+  for (const failure of ['network_error', 'check_selection_unavailable', 'check_selection_budget', 'jev_budget'])
+    assert.equal(why([failure]), 'jev_unanswered', failure);
+});

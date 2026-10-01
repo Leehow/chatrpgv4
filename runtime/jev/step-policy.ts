@@ -1049,6 +1049,12 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
     reason, detail: disposition === 'ordinary' ? action ?? null : null};
 }
 
+/**
+ * §163: the host's own selection codes (minted by `selectCheck` and the engine's check-selection step) that mean no option
+ * could execute on this snapshot, as opposed to Jev giving no answer. A closed protocol vocabulary, not a reading of text.
+ */
+const HOST_SELECTION_CODES: ReadonlySet<string> = new Set(['check_selection_gate_invalid', 'check_catalog_unavailable', 'check_request_unbound',
+  'check_request_options_unavailable', 'check_catalog_binding_changed', 'check_session_owner', 'check_selection_stale', 'distinct_attempt_binding_required']);
 /** §163: one forced resolution joins the run's record (once per key). */
 export function recordForced(view: Pick<RunView, 'forced'>, entry: ForcedResolution): void {
   if (!view.forced?.some(seen => seen.key === entry.key)) view.forced = [...(view.forced ?? []), entry];
@@ -1088,7 +1094,8 @@ export function settleCheckSelection(view: RunView, candidate: Candidate, result
     // §163: nothing was scored or executable. The decision is not asked again this run; the Keeper narrates it.
     holdCheckDecision(view, candidate);
     recordForced(view, forcedResolution({family: 'check-selection', subject: label, uncertain: result.needs, chosen: {outcome: 'no_roll'},
-      why: 'jev_unanswered'}, [view.context.scene, String(candidate.bound.decision ?? candidate.key)]));
+      why: result.needs.some(need => HOST_SELECTION_CODES.has(need)) ? 'nothing_executable' : 'jev_unanswered'},
+    [view.context.scene, String(candidate.bound.decision ?? candidate.key)]));
   }
   if (result.forced && result.status !== 'unresolved') {
     const chosen = result.status === 'selected' && result.option
