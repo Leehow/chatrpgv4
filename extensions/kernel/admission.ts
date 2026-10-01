@@ -1211,6 +1211,18 @@ export interface ClerkEvidence {
 	clerk?: string;
 }
 
+/** Read only the dispatcher-owned kernel contact row; neither intent nor model prose defines this rule. */
+export function registeredContactProposal(proposal: AdmissionProposal, payload: Record<string, unknown>, evidence: ClerkEvidence): AdmissionProposal {
+	if (proposal.tool !== "resolve" || evidence.origin !== "policy" || evidence.clerk !== "mod_contact") return proposal;
+	const basis = record(evidence.basis), contact = record(basis?.row), rule = record(contact?.rule), action = record(payload.action);
+	if (basis?.read !== "table.capsule" || rule?.trigger !== "contact" || rule.scope !== "actor-target" || rule.reusable !== true
+		|| !action || !contact || !["decision", "actor", "target"].every(key => typeof contact[key] === "string" && contact[key] === action[key])) return proposal;
+	const registered = { decision: contact.decision, actor: contact.actor, target: contact.target, rule,
+		settles: "The NPC's initial reaction to meaningful contact. This is a reusable contact rule, not the investigator persuading, deceiving or bargaining. Invocation intent does not prescribe an influence method. Meaningful contact must follow from the current declaration or an earlier chosen contact with this NPC; mere presence does not establish it." };
+	return { ...proposal, key: canonical({ proposal: proposal.key, registered_contact_check: registered }),
+		lines: proposal.lines.map(line => `${line}; registered_contact_check=${JSON.stringify(registered)}`) };
+}
+
 /**
  * §143.15 (ticket 16): the clerk authorities (§135.3) whose writes carry out the investigator's own declaration -- the step
  * the compile or the route selected from the player's words: a declared move, clue or handout, the ordinary check, a stated

@@ -61,6 +61,9 @@ test("apply {effects, narrate}: settles the effect, delivers the narrate and clo
 		"the embedded narrate landed too, through the same tool");
 	assert.equal(keeperCalls(table), 1, `one model call closed the whole turn (${keeperCalls(table)} provider calls)`);
 	assert.deepEqual(deliveryRows(table).map((row) => row.ok), [true]);
+	assert.deepEqual(table.telemetry().filter(row => row.event === "read_failed"
+		&& ["table.apply.options", "table.resolve.options"].includes(row.method)), [],
+		"accepted delivery does not request preparation options on a closed turn");
 
 	const record = turnRecord(table.workspace, 2);
 	assert.equal(record.closed_by, "narrate");

@@ -30297,3 +30297,23 @@ prerequisite, parameter and admission gates. Unknown stays unresolved. Ordinary 
 or a desired NPC response alone is not an influence method. Source-mandated checks keep their owners.
 This method screen uses the existing applicability gate (.65), like ordinary method fit; it only
 retains candidates. Target-specific necessity (.85), bindings and mutation admission are unchanged.
+
+### 159.8 Contact-rule meaning and terminal delivery (2026-09-30)
+
+Live turn 31 exposed two independent seams. The action-admission lane read a reusable NPC contact
+check as a voluntary investigator persuasion attempt because its line carried only the invocation
+intent and the whole player declaration. `contactRows` now carries the contributed check's closed
+trigger, scope and reusable flag. Admission enriches only a policy-origin `mod_contact` proposal
+whose decision, actor and target exactly match that kernel-issued row and whose rule is a reusable
+actor-target contact check. Both reviewers see that it settles the NPC's initial reaction, not an
+investigator influence method. Actual meaningful contact must follow from the current declaration
+or earlier chosen contact; mere presence is insufficient. This adds evidence, not an admission
+exemption, and the reuse key includes it. Forged model fields and mismatched rows grant nothing.
+
+Separately, an accepted `apply` with embedded `narrate` closed the turn, then the host requested
+ordinary preparation options on the closed turn. Accepted delivery is terminal: the host reads
+only final status to retain the committed receipts for consequence pairing, never issues fresh
+action candidates or routes further consequence writes. Refused delivery still follows the open
+turn retry path. Regressions use the real emitted kernel for terminal delivery and check the
+kernel contact declaration through the candidate and admission boundary. Live play remains the
+acceptance evidence; these fixtures do not count as story progress.

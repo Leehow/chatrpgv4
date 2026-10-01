@@ -104,6 +104,8 @@ test("candidates come from the kernel's own reads: each carries its clerk author
 	assert.equal(contact?.clerk, "mod_contact");
 	assert.equal(contact?.bound.target, "Steven Knott");
 	assert.equal(contact?.basis.path, "mods.pending_contacts[0]");
+	assert.deepEqual(contact?.basis.row.rule, {trigger: "contact", scope: "actor-target", reusable: true},
+		"the emitted kernel's contact declaration travels through the candidate to admission");
 	// What Jev reads: no internal kernel tag, no host basis, no clerk label.
 	const { batch } = routeBatch({ ...initialView({ runId: "r", rawInput: "x", context, candidates, readFirst: false }) }, scope, []);
 	const shown = allText(batch.state) + allText(batch.questions);
