@@ -33,10 +33,16 @@ test('a player influence attempt reaches preliminary adjudication without requir
   assert.equal(result.action.motive, undefined, 'the trigger must not invent target willingness or motive');
 });
 
-test('the social preparation question preserves negative and unresolved verdicts and NPC executor consent', async t => {
-  for (const [p, status] of [[.1, 'no_roll'], [.5, 'unresolved']]) {
+test('§163: the social method gate keeps a confident negative; a gray method is Jev\'s best guess, recorded as forced; NPC executor consent stays', async t => {
+  for (const [p, status, forced] of [[.1, 'no_roll', false], [.5, 'no_roll', true], [.3, 'no_roll', false]]) {
     const {input} = setup(t, () => noul(p), [social]);
-    assert.equal((await selectCheck(input)).status, status);
+    const result = await selectCheck(input);
+    assert.equal(result.status, status, `p=${p}`);
+    assert.equal(!!result.forced, forced, `p=${p}`);
+    if (forced) {
+      assert.deepEqual(result.forced.uncertain, ['social influence method of Ada: p=0.5']);
+      assert.equal(result.forced.why, 'below_confidence_gate');
+    }
   }
   assert.equal(specializedTriggerQuestion({...social, facts: {...social.facts, actor_role: 'npc'}}), undefined);
 });
@@ -55,12 +61,36 @@ test('routine service requests do not become uncertain influence checks against 
   assert.equal(JSON.stringify(seen[0].state).includes('Other attendant'), false, 'target ambiguity cannot contaminate method recognition');
 });
 
-test('social method retrieval does not substitute its applicability gate for target necessity', async t => {
-  for (const [need, expected] of [[.5, 'unresolved'], [.9, 'selected']]) {
+test('social method retrieval does not substitute its applicability gate for target necessity; §163 a gray necessity is Jev\'s best guess', async t => {
+  for (const [need, expected, forced] of [[.5, 'no_roll', true], [.6, 'selected', true], [.9, 'selected', false]]) {
     const {input} = setup(t, (batch, question) => batch.family === 'check-selection-social-method' ? noul(.7)
       : question.type === 'noul' ? noul(need) : choice(question, 'value_0'), [social]);
-    assert.equal((await selectCheck(input)).status, expected);
+    const result = await selectCheck(input);
+    assert.equal(result.status, expected, `need=${need}`);
+    assert.equal(!!result.forced, forced, `need=${need}`);
+    if (forced) assert.ok(result.forced.uncertain.some(entry => entry.startsWith(`necessity of ${social.label}: needed now p=${need}`)), result.forced.uncertain.join('; '));
+    if (expected === 'selected') assert.equal(result.action.skill, 'Persuade');
   }
+});
+
+test('§163 turn 9 of mood-live-20261001: a social necessity of .75/.74 with its prerequisite at .34/.36 is rolled as Jev\'s best guess', async t => {
+  const social9 = {...social, label: '托马斯·海斯: influence 隔壁亮灯那家的人 with a social approach', action: {...social.action, actor: '托马斯·海斯', target: '隔壁亮灯那家的人'}};
+  const {input, seen} = setup(t, (batch, question) => batch.family === 'check-selection-social-method' ? noul(.82)
+    : question.type === 'choice' ? choice(question, 'value_0')
+    : question.key.endsWith('_blocked') ? noul(batch.family.endsWith('-refine') ? .36 : .34) : noul(batch.family.endsWith('-refine') ? .74 : .75), [social9]);
+  const port = input.decision;
+  input.decision = {async decide(batch) {
+    const result = await port.decide(batch);
+    for (const question of batch.questions) if (question.key.endsWith('_blocked')) result.answers[question.key] = noul(batch.family.endsWith('-refine') ? .36 : .34);
+    return result;
+  }};
+  input.declaration = '我去敲隔壁亮着灯那家的门，等有人开门，就说我是替房东来查这栋空房子的，想请教几句。';
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'selected');
+  assert.equal(result.action.decision, 'social:adjudicate-difficulty');
+  assert.equal(result.action.target, '隔壁亮灯那家的人');
+  assert.deepEqual(result.forced, {uncertain: [`necessity of ${social9.label}: needed now p=0.74, prerequisite unmet p=0.36`], why: 'below_confidence_gate'});
+  assert.equal(seen.filter(batch => batch.family.endsWith('-refine')).length, 1, 'the bounded refinement still runs first');
 });
 
 test('source-specific checks reach their binder before a general skill search', () => {
@@ -120,8 +150,8 @@ test('current-agent scope is reused without another family decision or an automa
   assert.deepEqual((await selectCheck(input)).needs, ['check_request_options_unavailable']);
 });
 
-test('unmet prerequisites defer a check, while ambiguity cannot authorize it', async t => {
-  for (const [blocked, expected] of [[0.01, 'selected'], [0.99, 'deferred'], [0.5, 'unresolved']]) {
+test('unmet prerequisites defer a check; §163 a gray prerequisite is Jev\'s best guess (a tie is not blocked)', async t => {
+  for (const [blocked, expected] of [[0.01, 'selected'], [0.99, 'deferred'], [0.5, 'selected'], [0.7, 'deferred']]) {
     const {input} = setup(t, () => noul(0.99), [listen]);
     const port = input.decision;
     input.decision = {async decide(batch) {
@@ -129,22 +159,29 @@ test('unmet prerequisites defer a check, while ambiguity cannot authorize it', a
       for (const question of batch.questions) if (question.key.endsWith('_blocked')) result.answers[question.key] = noul(blocked);
       return result;
     }};
-    assert.equal((await selectCheck(input)).status, expected);
+    const result = await selectCheck(input);
+    assert.equal(result.status, expected, `blocked=${blocked}`);
+    assert.equal(!!result.forced, blocked === 0.5 || blocked === 0.7, `blocked=${blocked}`);
   }
 });
 
-test('no-roll, ambiguous need and missing provider answers are distinct', async t => {
-  for (const [answer, expected] of [[0.01, 'no_roll'], [0.5, 'unresolved'], [undefined, 'unresolved']]) {
+test('§163: a confident no-roll, an ambiguous need and a missing provider answer all resolve, and stay distinct in the record', async t => {
+  for (const [answer, why] of [[0.01, undefined], [0.5, 'below_confidence_gate'], [undefined, 'jev_unanswered']]) {
     const {input} = setup(t, () => answer === undefined ? {status: 'unknown'} : noul(answer));
-    assert.equal((await selectCheck(input)).status, expected);
+    const result = await selectCheck(input);
+    assert.equal(result.status, 'no_roll', `answer=${answer}`);
+    assert.equal(result.forced?.why, why, `answer=${answer}`);
+    if (why) assert.equal(result.forced.uncertain.length, 2, 'both methods are named');
   }
 });
 
 test('ordinary necessity requires both method fit and a rule need', async t => {
   for (const key of ['check_0', 'check_0_uncertain']) {
-    for (const [p, expected] of [[0.1, 'no_roll'], [0.64, 'unresolved'], [0.65, 'selected'], [0.9, 'selected']]) {
+    for (const [p, expected, forced] of [[0.1, 'no_roll', false], [0.4, 'no_roll', true], [0.64, 'selected', true], [0.65, 'selected', false], [0.9, 'selected', false]]) {
       const {input} = setup(t, (batch, question) => noul(batch.family.startsWith('check-selection-need') && question.key === key ? p : 0.99), [listen]);
-      assert.equal((await selectCheck(input)).status, expected, `${key}=${p}`);
+      const result = await selectCheck(input);
+      assert.equal(result.status, expected, `${key}=${p}`);
+      assert.equal(!!result.forced, forced, `${key}=${p}`);
     }
   }
 });
@@ -183,8 +220,10 @@ test('an explicit gray method is refined before a ready later method can hide it
     const {input, seen} = setup(t, (batch, question) => noul(question.key === 'check_0_uncertain'
       ? batch.family.endsWith('-refine') ? refinedNeed : 0.59 : 0.95));
     const result = await selectCheck(input);
-    assert.equal(result.status, refinedNeed === 0.9 ? 'selected' : 'unresolved');
-    assert.equal(result.action?.skill, refinedNeed === 0.9 ? 'Listen' : undefined);
+    // §163: still gray after its one refinement, the explicit method is Jev's best guess and keeps its catalog precedence.
+    assert.equal(result.status, 'selected');
+    assert.equal(result.action?.skill, 'Listen');
+    assert.equal(!!result.forced, refinedNeed !== 0.9);
     assert.equal(seen.filter(batch => batch.family.endsWith('-refine')).length, 1);
   }
 });
@@ -218,7 +257,7 @@ test('refinement cannot resurrect rejected, unknown, source-missing or blocked c
   }
 });
 
-test('weak Choice uses one absolute Noul, never invents a replacement or votes until accepted', async t => {
+test('weak Choice uses one absolute Noul; §163 below it the best-scored issued value is forced, never an invented one', async t => {
   const option = {...listen, parameters: [{name: 'difficulty', question: 'Required success level?',
     options: [{label: 'Regular', value: 'regular'}, {label: 'Hard', value: 'hard'}]}]};
   for (const confirmation of [0.95, 0.5, 0.1, undefined]) {
@@ -226,8 +265,9 @@ test('weak Choice uses one absolute Noul, never invents a replacement or votes u
       ? confirmation === undefined ? {status: 'unknown'} : noul(confirmation)
       : question.type === 'choice' ? choice(question, 'value_1', 0.6) : noul(0.99), [option]);
     const result = await selectCheck(input);
-    assert.equal(result.status, confirmation === 0.95 ? 'selected' : 'unresolved');
-    assert.equal(result.action?.difficulty, confirmation === 0.95 ? 'hard' : undefined);
+    assert.equal(result.status, 'selected');
+    assert.equal(result.action?.difficulty, 'hard');
+    assert.deepEqual(result.forced, confirmation === 0.95 ? undefined : {uncertain: ['difficulty: Hard p=0.6'], why: 'below_confidence_gate'});
     const refinements = seen.filter(batch => batch.family.endsWith('-refine'));
     assert.equal(refinements.length, 1);
     assert.equal(refinements[0].questions[0].type, 'noul');
@@ -241,12 +281,15 @@ test('a need refinement spends the only extra round even if parameters remain am
     options: [{label: 'Regular', value: 'regular'}, {label: 'Hard', value: 'hard'}]}]};
   const {input, seen} = setup(t, (batch, question) => question.type === 'choice' ? choice(question, 'value_1', 0.6)
     : noul(batch.family === 'check-selection-need' ? 0.6 : 0.99), [option]);
-  assert.equal((await selectCheck(input)).status, 'unresolved');
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'selected');
+  assert.equal(result.action.difficulty, 'hard', 'the second gray gate takes the best-scored value without another round');
+  assert.deepEqual(result.forced.uncertain, ['difficulty: Hard p=0.6']);
   assert.equal(seen.filter(batch => batch.family.endsWith('-refine')).length, 1);
   assert.equal(seen.some(batch => batch.family === 'check-selection-bind-refine'), false);
 });
 
-test('ambiguous default conditions may be refined once; unavailable answers never default', async t => {
+test('ambiguous default conditions may be refined once; §163 an unanswered override takes the rules default, recorded as forced', async t => {
   const option = {...listen, parameters: [{name: 'bonus', question: 'Granted bonus dice?',
     options: [{label: 'Zero', value: 'none'}, {label: 'One', value: 'one'}],
     default: {value: 'none', question: 'Does an established advantage grant bonus dice?'}}]};
@@ -255,7 +298,8 @@ test('ambiguous default conditions may be refined once; unavailable answers neve
       ? confirmation === undefined ? {status: 'unknown'} : noul(confirmation)
       : noul(batch.family === 'check-selection-defaults' ? 0.5 : 0.99), [option]);
     const result = await selectCheck(input);
-    assert.equal(result.action?.bonus, confirmation === 0.1 ? 'none' : undefined);
+    assert.equal(result.action?.bonus, 'none');
+    assert.deepEqual(result.forced, confirmation === 0.1 ? undefined : {uncertain: ['bonus override: unanswered, rules default'], why: 'jev_unanswered'});
     assert.equal(seen.filter(batch => batch.family.endsWith('-refine')).length, 1);
   }
 });
@@ -270,27 +314,35 @@ test('a selected specialized check reports missing source instead of becoming or
   assert.equal(result.action, undefined);
 });
 
-test('closed parameters use only issued values and refuse uncertain bindings', async t => {
+test('closed parameters use only issued values; §163 an uncertain binding is the best-scored issued value, and an all-unknown answer is no roll', async t => {
   const option = {...listen, parameters: [{name: 'difficulty', question: 'Required success level?', options: [{label: 'Regular', value: 'regular'}, {label: 'Hard', value: 'hard'}]}]};
   for (const p of [0.99, 0.55]) {
     const {input} = setup(t, (batch, question) => question.type === 'noul' ? noul(batch.family === 'check-selection-bind-refine' ? 0.5 : 0.99) : choice(question, 'value_1', p), [option]);
     const result = await selectCheck(input);
-    assert.equal(result.status, p > 0.85 ? 'selected' : 'unresolved');
-    assert.equal(result.action?.difficulty, p > 0.85 ? 'hard' : undefined);
+    assert.equal(result.status, 'selected');
+    assert.equal(result.action?.difficulty, 'hard');
+    assert.equal(!!result.forced, p < 0.85);
   }
+  const {input} = setup(t, (_batch, question) => question.type === 'noul' ? noul(0.99) : choice(question, 'unknown', 1), [option]);
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'no_roll', 'no issued value carries any score: nothing is invented');
+  assert.deepEqual(result.needs, ['unbound:difficulty']);
+  assert.deepEqual(result.forced, {uncertain: ['Listen unbound:difficulty: unanswered'], why: 'jev_unanswered'});
+  assert.equal(result.action, undefined);
 });
 
-test('rule defaults require a confident absence of modifiers, never a failed provider', async t => {
+test('rule defaults apply on a confident absence of modifiers; §163 a gray or failed override answer is decided and recorded', async t => {
   const option = {...listen, parameters: [{name: 'bonus', question: 'Number of granted bonus dice?',
     options: [{label: 'Zero', value: 'none'}, {label: 'One', value: 'one'}],
     default: {value: 'none', question: 'Does an established advantage grant any bonus dice?'}}]};
-  for (const [override, expected] of [[0.1, 'none'], [0.95, 'one'], [0.5, undefined], [undefined, undefined]]) {
+  for (const [override, expected, forced] of [[0.1, 'none', false], [0.95, 'one', false], [0.5, 'none', true], [0.7, 'one', true], [undefined, 'none', true]]) {
     const {input, seen} = setup(t, (batch, question) => batch.family.startsWith('check-selection-defaults')
       ? override === undefined ? {status: 'unknown'} : noul(override)
       : question.type === 'noul' ? noul(0.99) : choice(question, 'value_0'), [option]);
     const result = await selectCheck(input);
-    assert.equal(result.status, expected ? 'selected' : 'unresolved');
-    assert.equal(result.action?.bonus, expected);
+    assert.equal(result.status, 'selected', `override=${override}`);
+    assert.equal(result.action?.bonus, expected, `override=${override}`);
+    assert.equal(!!result.forced, forced, `override=${override}`);
     if (override === 0.1) assert.equal(seen.some(batch => batch.family === 'check-selection-bind'), false);
     if (override === 0.95) assert.equal(Object.values(seen.find(batch => batch.family === 'check-selection-bind').questions[0].criteria).includes('Zero'), false);
   }
@@ -332,7 +384,7 @@ test('exhausted selection budget cannot start another provider request', async t
   assert.deepEqual(result.needs, ['check_selection_budget']);
 });
 
-test('a combined check binds an explicit set; an uncertain member is not guessed', async t => {
+test('a combined check binds an explicit set; §163 an uncertain member set is Jev\'s best-scored members up to the minimum', async t => {
   const option = {...listen, action: {actor: 'Ada', decision: 'core-check:combined-check'}, parameters: [{name: 'skills',
     question: 'Which skills does this combined attempt require?', multiple: {minimum: 2},
     options: ['Listen', 'Spot Hidden', 'Library Use'].map(value => ({label: value, value}))}]};
@@ -340,8 +392,9 @@ test('a combined check binds an explicit set; an uncertain member is not guessed
     const {input} = setup(t, (batch, question) => noul(batch.family.startsWith('check-selection-bind')
       ? question.key === 'parameter_0_2' ? 0.01 : uncertain && question.key === 'parameter_0_1' ? 0.5 : 0.99 : 0.99), [option]);
     const result = await selectCheck(input);
-    assert.equal(result.status, uncertain ? 'unresolved' : 'selected');
-    assert.deepEqual(result.action?.skills, uncertain ? undefined : ['Listen', 'Spot Hidden']);
+    assert.equal(result.status, 'selected');
+    assert.deepEqual(result.action?.skills, ['Listen', 'Spot Hidden']);
+    assert.deepEqual(result.forced, uncertain ? {uncertain: ['skills: Listen p=0.99, Spot Hidden p=0.5, Library Use p=0.01'], why: 'below_confidence_gate'} : undefined);
   }
 });
 
@@ -370,7 +423,7 @@ test('a hung provider is cancelled by the lease without a fallback', async t => 
 const candidate = {key: 'resolve:selection:state', verb: 'resolve', family: 'check_selection', source: 'table.resolve.options', label: 'Select checks',
   bound: {}, basis: {compile: {predicate: 'ordinary_check'}}, unbound: [{name: 'check', required: true, vocabulary: 'closed', binder: 'resolve-selection'}], clerk: 'declared_check', checkOwner: 'jev'};
 
-test('a stale check rebinds once from refreshed candidates; another stale or refusal stays unresolved', () => {
+test('a stale check rebinds once from refreshed candidates; §163 another stale or a refusal is a recorded no-roll, never a notice', () => {
   const selected = {...candidate, key: 'bound-old', bound: listen.action, unbound: []};
   const freshCandidate = {...candidate, key: 'fresh-request', bound: {decision: listen.action.decision}};
   const context = {scene: 'hall', clock: {}, present: []};
@@ -386,20 +439,26 @@ test('a stale check rebinds once from refreshed candidates; another stale or ref
   view.pending = [];
   settleExecute(view, 2, {kind: 'direct', purpose: 'execute', candidate: selected}, fail, fresh, 2);
   assert.equal(view.pending[0].reason, 'clerk_refused');
-  assert.deepEqual(view.unresolvedChecks.at(-1).needs, ['check_selection_stale']);
+  assert.equal(view.unresolvedChecks, undefined);
+  assert.deepEqual(view.forced.map(({family, uncertain, chosen, why}) => ({family, uncertain, chosen, why})),
+    [{family: 'check-execution', uncertain: ['check_selection_stale'], chosen: {outcome: 'no_roll'}, why: 'check_refused'}]);
   const refused = initialView({runId: 'refused-run', rawInput: 'I listen.', context, candidates: [selected]});
   settleExecute(refused, 1, {kind: 'direct', purpose: 'execute', candidate: selected}, {ok: false, summary: {refusal: 'action_not_admitted'}}, fresh, 2);
   assert.equal(refused.checkRefreshUsed, undefined);
   assert.equal(refused.pending[0].reason, 'clerk_refused');
-  assert.deepEqual(refused.unresolvedChecks.at(-1).needs, ['action_not_admitted']);
+  assert.deepEqual(refused.forced.map(entry => entry.uncertain), [['action_not_admitted']]);
 });
 
 test('ordinary bookkeeping cannot re-open an unresolved check in the same run and scene', () => {
   const request = {...candidate, bound: {decision: listen.action.decision}};
   const context = {scene: 'hall', clock: {}, present: []};
   const view = initialView({runId: 'held-run', rawInput: 'I listen.', context, candidates: [request]});
-  settleCheckSelection(view, request, {status: 'unresolved', needs: ['check_necessity_uncertain'], calls: 2}, 2);
+  settleCheckSelection(view, request, {status: 'unresolved', needs: ['check_selection_unavailable'], calls: 2}, 2);
   assert.deepEqual(view.candidates, [], 'the next route cannot retry the same question even without a fresh read');
+  assert.deepEqual(view.forced.map(({family, uncertain, chosen, why}) => ({family, uncertain, chosen, why})),
+    [{family: 'check-selection', uncertain: ['check_selection_unavailable'], chosen: {outcome: 'no_roll'}, why: 'jev_unanswered'}],
+    '§163: nothing scored is a recorded no-roll');
+  assert.equal(view.unresolvedChecks, undefined, 'no unresolved notice is owed');
   const refreshed = {...request, key: 'new-revision'};
   const treatment = {...request, key: 'treatment', bound: {decision: 'healing:first-aid-ordinary'}};
   const read = {materials: [], summary: {}, calls: 0, ms: 0};
@@ -484,8 +543,53 @@ test('a permissible SAN response does not require every other permissible respon
   assert.equal(result.status, 'selected');
   assert.equal(result.action.involuntary, 'freeze');
   assert.ok(seen.filter(batch => batch.family === 'check-selection-bind').every(batch => batch.questions.every(q => q.type === 'noul')));
-  const doubtful = setup(t, (batch) => noul(batch.family.startsWith('check-selection-bind') ? .5 : .99), [option]);
-  const unresolved = await selectCheck(doubtful.input);
-  assert.equal(unresolved.status, 'unresolved');
-  assert.deepEqual(unresolved.needs, ['unbound:involuntary']);
+  // §163: no response clears adjudication; Jev's best-scored compatible response is the ruling (a tie keeps issued order).
+  const doubtful = setup(t, (batch, q) => noul(batch.family.startsWith('check-selection-bind') ? q.target.endsWith('freeze') ? .41 : .5 : .99), [option]);
+  const forced = await selectCheck(doubtful.input);
+  assert.equal(forced.status, 'selected');
+  assert.equal(forced.action.involuntary, 'cry_out');
+  assert.deepEqual(forced.forced, {uncertain: ['involuntary: cry_out p=0.5'], why: 'below_confidence_gate'});
+  const silent = setup(t, (batch) => batch.family.startsWith('check-selection-bind') ? {status: 'unknown'} : noul(.99), [option]);
+  const none = await selectCheck(silent.input);
+  assert.equal(none.status, 'no_roll', 'no score at all is the no-roll path');
+  assert.deepEqual(none.needs, ['unbound:involuntary']);
+});
+
+test('§163: a forced selection executes as chosen and is recorded once; a forced no-roll holds its decision and is recorded', () => {
+  const request = {...candidate, bound: {decision: listen.action.decision}};
+  const context = {scene: 'hall', clock: {}, present: []};
+  const view = initialView({runId: 'forced-run', rawInput: 'I listen.', context, candidates: [request]});
+  const forced = {uncertain: ['necessity of Listen: method fit p=0.99, roll needed p=0.7, prerequisite unmet p=0.01'], why: 'below_confidence_gate'};
+  settleCheckSelection(view, request, {status: 'selected', option: listen, action: listen.action, needs: [], calls: 2, forced}, 2);
+  assert.equal(view.pending[0].purpose, 'execute');
+  assert.equal(view.pending[0].candidate.bound.skill, 'Listen');
+  assert.deepEqual(view.forced.map(({family, subject, uncertain, chosen, why}) => ({family, subject, uncertain, chosen, why})),
+    [{family: 'check-selection', subject: 'Listen', uncertain: forced.uncertain, chosen: {outcome: 'roll', check: 'Listen', action: listen.action}, why: 'below_confidence_gate'}]);
+  assert.equal(view.heldCheckDecisions, undefined, 'a chosen roll is not a hold');
+  settleCheckSelection(view, request, {status: 'selected', option: listen, action: listen.action, needs: [], calls: 0, forced}, 0);
+  assert.equal(view.forced.length, 1, 'the same forced decision is recorded once');
+  const quiet = initialView({runId: 'forced-no-roll', rawInput: 'I listen.', context, candidates: [request]});
+  settleCheckSelection(quiet, request, {status: 'no_roll', needs: [], calls: 2, forced: {uncertain: ['necessity of Listen: method fit p=0.4'], why: 'below_confidence_gate'}}, 2);
+  assert.ok(!quiet.pending.some(item => item.purpose === 'execute'), 'nothing is executed for a forced no-roll');
+  assert.equal(quiet.forced[0].chosen.outcome, 'no_roll');
+  assert.equal(quiet.heldCheckDecisions.length, 1, 'the run does not ask the same decision again');
+  assert.equal(quiet.unresolvedChecks, undefined);
+});
+
+test('§163: a jev-owned check parameter below the gate takes Jev\'s leading issued answer, uncleared for admission; no lead is the Keeper\'s no-roll', () => {
+  const blow = {...candidate, key: 'blow', clerk: 'first_blow', family: 'combat', label: 'Strike the ghoul', bound: {decision: 'combat:attack'},
+    unbound: [{name: 'target', required: true, vocabulary: 'closed', options: ['Ghoul', 'Rat']}]};
+  const answer = (choice, confidence) => ({status: 'complete', answers: {target: {status: 'answered', type: 'choice', choice, confidence,
+    probabilities: {Ghoul: choice === 'Ghoul' ? .6 : .1, Rat: .3, unknown: choice === 'unknown' ? .6 : .1}}}});
+  const bound = interpretBind(blow, {questions: []}, answer('Ghoul', 0.4), 0.85);
+  assert.equal(bound.pending[0].kind, 'direct');
+  assert.equal(bound.pending[0].extra.target, 'Ghoul');
+  assert.equal(bound.bindings.find(entry => entry.name === 'target').cleared, false, 'admission reviews it without the compile exemption');
+  assert.deepEqual({family: bound.forced.family, uncertain: bound.forced.uncertain, outcome: bound.forced.chosen.outcome},
+    {family: 'check-binding', uncertain: ['target: Ghoul confidence 0.4'], outcome: 'roll'});
+  const view = initialView({runId: 'bind-run', rawInput: 'I strike the ghoul.', context: {scene: 'crypt', clock: {}, present: []}, candidates: [blow]});
+  view.pending = [{kind: 'decide', purpose: 'bind', candidate: blow}];
+  const unknown = interpretBind(blow, {questions: []}, answer('unknown', 0.6), 0.85);
+  assert.equal(unknown.forced, undefined);
+  assert.equal(unknown.pending[0].reason, 'check_unresolved', 'the engine records this compose as a forced no-roll');
 });

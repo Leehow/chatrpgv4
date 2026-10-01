@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {interactionScopeBatch, interpretInteractionScope, permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
+import {forcedScope, interactionScopeBatch, interpretInteractionScope, permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {packDecisionBatch} from '../../runtime/jev/question-packing.ts';
 import {createStepPolicy, initialView, next, settleRead} from '../../runtime/jev/step-policy.ts';
@@ -14,13 +14,25 @@ const answer = (world, system) => bindDecisionAnswers(batch, {
   system_request: {type: 'noul', status: 'answered', noul: system},
 }, {inputTokens: 1, outputTokens: 1, costUsd: 0});
 
-test('scope separates authorization from subject matter and has no guessed permission', () => {
+test('scope separates authorization from subject matter; §163 an unsettled or unanswered scope plays as world, recorded as forced', () => {
   assert.equal(packDecisionBatch(batch).request.questions.world_action.type, 'noul');
   assert.equal(interpretInteractionScope(answer(0.04, 0.87)).mode, 'reference');
+  assert.equal(interpretInteractionScope(answer(0.04, 0.87)).forced, undefined);
   assert.equal(interpretInteractionScope(answer(0.95, 0.1)).mode, 'world');
+  assert.equal(interpretInteractionScope(answer(0.95, 0.1)).forced, undefined, 'a settled world scope is not forced');
   assert.equal(interpretInteractionScope(answer(0.95, 0.95)).mode, 'world', 'an explicitly mixed request can authorize a world act');
-  assert.equal(interpretInteractionScope(answer(0.6, 0.5)).mode, 'uncertain');
-  assert.equal(interpretInteractionScope(undefined).mode, 'uncertain');
+  const gray = interpretInteractionScope(answer(0.6, 0.5));
+  assert.deepEqual({mode: gray.mode, reason: gray.reason, forced: gray.forced},
+    {mode: 'world', reason: 'scope_unclear', forced: {uncertain: ['world action p=0.6', 'out-of-fiction request p=0.5'], why: 'below_confidence_gate'}});
+  const leaningReference = interpretInteractionScope(answer(0.2, 0.7));
+  assert.equal(leaningReference.mode, 'world', 'below the reference gate the message is still played');
+  const none = interpretInteractionScope(undefined);
+  assert.deepEqual({mode: none.mode, reason: none.reason, why: none.forced.why}, {mode: 'world', reason: 'scope_unavailable', why: 'jev_unanswered'});
+  const record = forcedScope(none, 'I knock on the door.');
+  assert.deepEqual({family: record.family, subject: record.subject, chosen: record.chosen, why: record.why, uncertain: record.uncertain},
+    {family: 'interaction-scope', subject: 'I knock on the door.', chosen: {outcome: 'world'}, why: 'jev_unanswered',
+      uncertain: ['world action unanswered', 'out-of-fiction request unanswered', 'scope_unavailable']});
+  assert.equal(forcedScope(interpretInteractionScope(answer(0.95, 0.1)), 'x'), undefined);
 });
 
 test('reference tool subtypes exclude graph preparation and world effects', () => {
@@ -59,6 +71,17 @@ test('reference reads cannot queue forced combat or NPC acts, and only their rea
   assert.equal(next(view).purpose, 'route');
   view.referenceRouted = true;
   assert.deepEqual(next(view), {kind: 'infer', purpose: 'compose', reason: 'reference_request'});
-  view.interactionScope = {mode: 'uncertain', calls: 0, reason: 'scope_unavailable'};
-  assert.equal(next(view).reason, 'interaction_scope_uncertain');
+  // §163: a forced world scope routes like any world turn (no reference compose).
+  view.interactionScope = interpretInteractionScope(undefined);
+  view.referenceRouted = false;
+  assert.notEqual(next(view).reason, 'reference_request');
+});
+
+test('§163: the policy folds a missing scope answer into a forced world scope and records it', () => {
+  const policy = createStepPolicy({context, requireInteractionScope: true});
+  const state = policy.initial({runId: 'r', rawInput: 'I knock on the lit door.', inputRevision: 'i'});
+  const driver = {policyState: state, observations: [], pendingProposals: [], pendingRequirements: [], steps: 0};
+  const folded = policy.reduce(state, {kind: 'decide', purpose: 'interaction-scope', status: 'unavailable', ms: 3, artifact: undefined}, driver);
+  assert.equal(folded.view.interactionScope.mode, 'world');
+  assert.deepEqual(folded.view.forced.map(({family, chosen, why}) => ({family, chosen, why})), [{family: 'interaction-scope', chosen: {outcome: 'world'}, why: 'jev_unanswered'}]);
 });

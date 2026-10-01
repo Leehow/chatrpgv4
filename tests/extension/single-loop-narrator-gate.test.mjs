@@ -58,26 +58,18 @@ test("§151.5 kernel gate: with the setting off the same compose's apply is not 
 	assert.ok(methods(table).includes("table.apply"), "the Keeper's apply reached the kernel as before");
 });
 
-test('§159: no Jev port never restores model resolve; the host displays an unresolved notice independently of prose', async t => {
+test('§159/§163: no Jev port never restores model resolve, and no host notice replaces the prose', async t => {
 	const engine = createHybridEngine({env: {}, decision: null});
-	let table;
-	table = await openTable({env: {PI_COC_LOOP_ENGINE: 'hybrid-v1', FAKE_KERNEL_WORKSPACE: '1'}, runDriver: engine.runDriver,
+	const table = await openTable({env: {PI_COC_LOOP_ENGINE: 'hybrid-v1', FAKE_KERNEL_WORKSPACE: '1'}, runDriver: engine.runDriver,
 		extraExtensions: [{name: 'coc-hybrid-engine', factory: engine.extension}], responses: [
-			() => {
-				const notice = {campaign: 'test-camp', turn: 1, run: 'unavailable-check', needs: [{candidate: 'Listen', needs: ['jev_unavailable']}]};
-				table.emit('coc:check-selection-unresolved', notice);
-				table.emit('coc:check-selection-unresolved', notice);
-				return fauxAssistantMessage([fauxToolCall('resolve', {action: {intent: 'investigate', goal: 'listen', method: 'listen', skill: 'Listen'}})], {stopReason: 'toolUse'});
-			},
+			fauxAssistantMessage([fauxToolCall('resolve', {action: {intent: 'investigate', goal: 'listen', method: 'listen', skill: 'Listen'}})], {stopReason: 'toolUse'}),
 			fauxAssistantMessage([NARRATE], {stopReason: 'toolUse'}),
 		]});
 	t.after(() => table.dispose());
 	assert.ok(!table.activeTools().includes('resolve'));
 	await table.session.prompt('I listen at the door.');
 	assert.ok(!methods(table).includes('table.resolve'));
-	await waitFor(() => customMessages(table.session, 'coc-delivery').some(message => message.details?.check_selection_unresolved), {label: 'unresolved check notice'});
-	const notices = customMessages(table.session, 'coc-delivery').filter(message => message.details?.check_selection_unresolved);
-	assert.equal(notices.length, 1, 'one host notice per run, even if the event repeats');
-	assert.equal(notices[0].display, true);
-	assert.ok(String(notices[0].content).length > 10);
+	assert.ok(methods(table).includes('table.narrate'), 'the Keeper\'s prose is the delivery');
+	assert.equal(customMessages(table.session, 'coc-delivery').filter(message => message.details?.check_selection_unresolved).length, 0, 'no unresolved-check notice exists');
+	assert.ok(!table.telemetry().some(row => row.reason === 'check_selection_unresolved_notice'));
 });

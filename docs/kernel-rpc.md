@@ -29913,7 +29913,10 @@ and receipt closure, but do not authorize undoing delivered fiction or splitting
 
 Owner decision: Jev takes the entire check-selection job, including ordinary skills, combat, chase,
 sanity and treatment. On explicit follow-up the owner chose unresolved-with-notice for unavailable or
-ambiguous Jev, never LLM fallback. This replaces the ordinary binder's handoff in §135.28/§135.30.3
+ambiguous Jev, never LLM fallback. *Amended by §163 (2026-10-01): the owner's later ruling replaces unresolved-with-notice: an
+uncertain or unavailable Jev decision yields Jev's best-scored result, or with nothing scored or executable
+a no-roll the Keeper narrates by judgement, recorded as a forced resolution. There is still no LLM fallback
+for check selection.* This replaces the ordinary binder's handoff in §135.28/§135.30.3
 and the check-selection part of budget, repeated-question and unavailable exits. It does not transfer
 arithmetic, authored truth, player choices or transaction ownership to Jev.
 
@@ -29949,7 +29952,7 @@ and current decision context so a background change can be distinguished from a 
 The multi-method live probe exposed a gray explicit Listen method being skipped in favor of a
 ready Spot Hidden check. Refinement therefore gives priority to an established method whose need
 or readiness is gray, even when another candidate is ready. If it remains gray, the operation is
-unresolved rather than silently discarding it. Ordinary profile retrieval does not independently
+unresolved rather than silently discarding it. *Amended by §163 (2026-10-01): still gray after the refinement, it is Jev's best guess, recorded as forced; it keeps its catalog precedence.* Ordinary profile retrieval does not independently
 decide that all methods were settled: the host removes actual actor/skill receipts first, then
 retrieval ranks the remaining profiles. Ordinary receipt context omits the broad `goal` string,
 which can quote several methods and is not proof that all of them have rolled.
@@ -29960,6 +29963,8 @@ player run, or a genuinely new scene, may issue a fresh request. The narrow stal
 refresh above is separate: it applies only to a proposal that was selected and then invalidated.
 The Keeper's projection repeats the unresolved outcome boundary before each infer step, including
 that negative findings are outcomes; it must not complete the held attempt while reporting a notice.
+*Amended by §163 (2026-10-01): the hold now only prevents asking the same decision again in the run and scene. A held decision is a forced
+no-roll the Keeper narrates by judgement; there is no notice and no "point of attempting" boundary.*
 
 ### 159.2 LLM and unresolved projection
 
@@ -29973,7 +29978,7 @@ silently start the old model-first engine on that failure path. Explicit legacy/
 experimental engines remain opt-in controls; setup retains its separate §151.6 selection rule.
 
 Unresolved check data is projected with the operation/family, reason and missing parameters; the
-LLM reports the limitation in play_language without claiming a roll or consequence occurred. The
+LLM reports the limitation in play_language without claiming a roll or consequence occurred. *Amended by §163 (2026-10-01): replaced by `decided_under_uncertainty`: the Keeper narrates the forced result (an executed roll's receipt, or the attempt by judgement without a roll) and never reports a limitation.* The
 host records this separately from a cleared no-roll decision. User-facing success cannot be inferred
 from zero model-origin resolve calls: expected checks must actually execute, or a justified need must
 be delivered. Existing evidence is preserved.
@@ -30088,7 +30093,7 @@ Version `5` gives rule-default parameters `default:{value,question}`. A separate
 whether an established condition overrides that default. A confident negative applies the exact
 host-owned default; a confident positive proceeds to the closed value Choice. Missing or ambiguous
 answers remain unresolved, including service failure. This distinguishes zero dice from unknown
-instead of treating absence of a modifier as missing mandatory information. Default values must
+instead of treating absence of a modifier as missing mandatory information. *Amended by §163 (2026-10-01): a gray override is read at the midpoint and an unanswered one applies the rules default, recorded as forced.* Default values must
 belong to the parameter's issued options and cannot be attached to set-valued arguments.
 
 Version `6` likewise separates declaration authorization into method choice, executor identity and
@@ -30129,7 +30134,7 @@ than one needed check, or unresolved potentially earlier needs, requires an orde
 check is dispatched; fresh receipts precede selecting the remainder. Necessity does not answer
 authorization. Declaration authorization uses a separate public-only request; consequence authority
 can read established state. Closed binding maps issued aliases back to exact host values. Provider
-failure, missing bindings, stale state and exhausted budgets produce unresolved notices.
+failure, missing bindings, stale state and exhausted budgets produce unresolved notices. *Amended by §163 (2026-10-01): they produce forced no-rolls, recorded; below-gate answers produce Jev's best-scored result.*
 
 The hybrid model surface omits `resolve`; its operation port and the driven extension's tool gate
 also refuse model-origin resolve. `propose` offers no resolve candidate. This applies independently
@@ -30164,7 +30169,7 @@ profile digests, world revisions and the dispatcher's pre-invoke checks invalida
 
 Unresolved notices use the existing generated UI-word surface and `coc-delivery` with
 `check_selection_unresolved:true`, always `triggerTurn:false`. They do not select a check, steer a
-model or count as story prose. The driver recognizes that notice and genuine `apply`-embedded
+model or count as story prose. *Amended by §163 (2026-10-01): the notice, its bus event and its UI word are removed.* The driver recognizes that notice and genuine `apply`-embedded
 narration separately, retaining full delivered text even when its tool-log excerpt is truncated.
 
 Ordinary profile screening is retrieval too: when more than twelve simple actor/skill options are
@@ -30190,7 +30195,7 @@ the same RunDriver, the model-operation gate and delivery checks. Meta-only and 
 allow reference reads and an answer/clarification, not fictional clock, check, movement or NPC acts.
 NPC presence in the paused scene imposes no dialogue obligation on a reference answer; the existing in-fiction speech policy remains.
 
-The host stamps reference/uncertain deliveries with `interaction_scope` in the committed turn and result, stripping any model-supplied `_interaction_scope`. These answers retain their transcript and close the input turn, but have no fact extraction, NPC ledger update or fictional last-exchange contribution. Memory backfill and coverage omit them. The scope bus binding includes campaign, turn and exact player input. Both explicit and implicit delivery bypass fictional time, standing defense, speech and Mod effects. Read-only lookup subtypes are allowed; graph/source preparation is not. Jev unavailable or an unclear scope remains non-world and asks for clarification.
+The host stamps reference/uncertain deliveries with `interaction_scope` in the committed turn and result, stripping any model-supplied `_interaction_scope`. These answers retain their transcript and close the input turn, but have no fact extraction, NPC ledger update or fictional last-exchange contribution. Memory backfill and coverage omit them. The scope bus binding includes campaign, turn and exact player input. Both explicit and implicit delivery bypass fictional time, standing defense, speech and Mod effects. Read-only lookup subtypes are allowed; graph/source preparation is not. Jev unavailable or an unclear scope remains non-world and asks for clarification. *Amended by §163 (2026-10-01): an unclear or unavailable scope plays as a world turn, recorded as forced; only a confident out-of-fiction request is reference. The uncertain mode is no longer produced.*
 
 Check candidates shown to route must carry their concrete actors, targets, source triggers and named
 gaps. Existing session ownership excludes only actions it actually supplies; the out-of-session chase
@@ -30269,7 +30274,7 @@ inventories these decisions even when they have no currently applicable option.
 Packing refusal while constructing route, compile, reask or bind is a typed unavailable policy step,
 with no provider call. The reducer preserves landed receipts and composes only established results.
 Checks remain unresolved, and the existing check-selection notice carries the packing reason outside
-the fiction. The prose model receives no authority to select a check or invent its outcome. The guard's
+the fiction. *Amended by §163 (2026-10-01): the unjudged checks are a forced no-roll the Keeper narrates by judgement; no notice.* The prose model receives no authority to select a check or invent its outcome. The guard's
 UTF-8-byte token upper bound and confidence gates remain unchanged.
 
 ### 159.7 Social preliminary adjudication and executor identity (2026-09-30)
@@ -30403,10 +30408,13 @@ remains forbidden. A separate scene/decision preparation hold survives unrelated
 only a fresh issued catalog with an executable option releases it and permits Jev to adjudicate
 again. Semantic uncertainty and failed admission retain their existing hold. No confidence gate
 changes. Parameter availability is host-owned metadata, not a model judgment.
+*Amended by §163 (2026-10-01): semantic uncertainty is decided by Jev's best score; a failed admission still stands, and the refused
+check is a recorded forced no-roll rather than a held notice.*
 
 Preparation remains an unresolved outcome boundary. Its player notice waits until accepted delivery
 if preparation is still pending; a successfully prepared and adjudicated attempt must not leave
-an obsolete notice. Native source tools still own PDF reading and graph preparation; none of this
+an obsolete notice. *Amended by §163 (2026-10-01): a preparation still pending at accepted delivery is a forced no-roll, recorded at the
+delivery; the preparation instruction tells the Keeper to narrate the attempt by judgement when it cannot complete.* Native source tools still own PDF reading and graph preparation; none of this
 licenses the player context to read future private material or the agent to invent numeric rules.
 
 ## 160. A Keeper tool string argument that arrives as a JSON string literal is decoded at the host boundary (2026-09-30; extends §144, amends §135.21's `prepareArguments` and the order of §144.1)
@@ -30430,3 +30438,81 @@ A survey of every retained Keeper tool call (1,269 App session files and playtes
 **Three ends (§31).** *Writer:* the model's tool call, through the provider. *Reader:* `decodeStringLiterals` in the Keeper tools' `prepareArguments` (`extensions/kernel/index.ts`), which hands the decoded arguments to §144.1, §135.21's check, Pi's schema check and the dispatcher; the embedded narrate, the kernel, the speech rows and every later reader see the decoded text. *Record:* one telemetry row per decoded field, `{lane: "tool_arguments", event: "json_string_decoded", tool, field, layers}`. Acceptance: on the next real tables the rows are counted, and no delivered `rendered_text` is a quoted literal.
 
 **Tests.** `tests/extension/encoded-string-argument.test.mjs`, with the two recorded calls verbatim in `tests/extension/fixtures/json-string-arguments-20260930.json`: each recorded value decodes once to its prose and nothing else in the call changes; a value serialized twice is decoded twice, ASCII-escaped or not, with whitespace around it; plain prose, prose with ASCII-quoted speech, a value that starts with a literal and goes on, prose with a backslash, CJK quotes and the empty string come back as the same object; the boundary above; every declared string parameter of every tool is read, an undeclared key, a non-string parameter (`workpad_patch`) and a nested string are not. Through the real registration: on both engines an explicit narrate whose `text` is the playtest's literal reaches the kernel as its prose, with its row; a literal followed by `</text>` is unwrapped by §144 first and then decoded (both rows, in that order); the App's own `apply` on an ordinary turn of the emitted kernel and the hybrid engine delivers on the first leg with no escape in `rendered_text`, `marked_text`, the speech rows or the transcript; and the App's literal as the opening's narrate is delivered as its prose on turn 0, where the floor does not run. Mutations (a copy of the file, never `git checkout --`), each turning tests red: `prepareArguments` handing on the undecoded arguments; the row not recorded; the decode run before §144's unwrapping; outer quotes alone taken as enough; one layer only; every key read, declared or not; the value not trimmed.
+
+## 163. A Jev decision that stays uncertain still yields a result: forced resolution, recorded, reconciled forward (2026-10-01; amends §159's owner decision, §159.1's unresolved hold, §159.2's unresolved projection, §159.4's notice paragraphs and version 5's unanswered defaults, §159.5's uncertain scope, §159.6's packing notice and §159.10's preparation notice; applies §158)
+
+### 163.1 The ruling and the evidence
+
+The owner's ruling (2026-10-01, verbatim): 「Jev 拿不准也要出个结果，不能没有结果，哪怕错了后期kp逻辑圆回来也行」. In English: when Jev is uncertain it must still produce a result, never no result; even a wrong result is acceptable, because the Keeper reconciles it later in the story. This replaces §159's earlier owner choice of "unresolved-with-notice for unavailable or ambiguous Jev". It agrees with §158: what was told stands, and the account follows the story forward.
+
+Evidence: live driver table `mood-live-20261001` (0.9.6a@92d6ee845 plus an NPC-mood slice; the-haunting; zh; Keeper `grok-build/grok-4.7-build-fast` low; Jev key present).
+
+- **Turn 9.** The player: 「我去敲隔壁亮着灯那家的门，等有人开门，就说我是替房东来查这栋空房子的，想请教几句。」 The first check selection returned `check_arguments_unavailable:social:adjudicate-difficulty` (§159.10 preparation); the Keeper prepared the neighbour (`apply npc walk_on`, admitted). The fresh catalog's social check was then judged at necessity .75/.74 (refined) with its prerequisite at .34/.36: below the .85 gate, so `lane: "check-selection"` ended `status: "unresolved"`, `needs: ["check_necessity_uncertain", "托马斯·海斯: influence 隔壁亮灯那家的人 with a social approach"]`. The Keeper was told to "keep the investigator at the point of attempting" and wrote a door that opens on a chain and a neighbour whose words have "not come out yet" (话还没出口); the host then sent the English notice "A check is still unresolved, so it has not been rolled. Results already settled are kept. Clarify what you want to do, or send another message to try again." on a zh table (`lane: "delivery"`, `reason: "check_selection_unresolved_notice"`). The driver's `final_text` for the turn is that notice: the story stopped where the roll should have been.
+- **Turn 10** repeated it after the player clarified 「我没想套话」: the social method answered .47, inside the gray band, so `social_influence_method_uncertain` held the turn again. **Turns 3 and 4** appended the same notice after prose (`needs: [{candidate: "check", needs: ["skill"]}]`).
+- **2026-09-30 replays.** The interaction-scope family failed with `network_error` (`attempt_failed` then `batch_failed service_error`); the turn's scope became `uncertain`, which §159.5 made non-world, and the Keeper delivered an out-of-fiction request to clarify instead of play. A run with no Jev key did the same.
+
+### 163.2 The rule
+
+The strict gates are unchanged and still decide whenever they clear (§159.4's `applicability` .65, `need` .85, `noNeed` .35, `choice` .85, `adjudication` .75; the interaction-scope gates .8/.35/.8), and §159.4's one bounded refinement still runs first. What changes is what happens when a gate does not clear:
+
+1. **Jev's best score decides a gray gate.** A Noul answered strictly between the confident negative and the gate is read at the midpoint: above .5 is yes, a tie is no. A Choice below its gate takes its highest-probability *issued* value (never `unknown`, never an unissued value, and only with a probability above zero). A `selection: compatible` parameter takes its highest-scored option. A set-valued parameter takes the members above .5, topped up to its minimum by the next-best scored members. The result is executed or not exactly as a confident one would be, and is recorded as forced (§163.3).
+2. **Nothing scored or executable is the no-roll path.** When the provider failed or did not answer, the question could not be packed, the decision budget is spent, the catalog or binding changed under the selection, the snapshot went stale twice, the session owns the choice, the attempt was already made, no Jev credential exists, or the needed check lacks source facts or arguments, the check is not rolled: the Keeper narrates the attempt and its outcome by judgement. The decision is not asked again in the same run and scene (the §159.1 hold now only prevents re-asking; it no longer stops the story). The first needed check that can execute is still selected when an earlier needed one cannot.
+3. **An unanswered modifier override takes the rules default.** §159.4 version 5's "missing or ambiguous answers remain unresolved, including service failure" is replaced: a gray override answer is read at the midpoint, and an unanswered one applies the host-owned rules default (`default.value`), as §135.28's "unknown goes to the rules default" already did for clerk binds. This keeps a judged-necessary check instead of discarding it for a modifier.
+4. **A jev-owned clerk check parameter** (first blow, session steps, obligation and Mod checks bound through §135.28's clerk bind) with no permitted default takes Jev's leading issued answer below the gate. Its bind record is `cleared: false`, so §32.12's compile exemption does not apply and canonical admission reviews it in full. With no leading answer the candidate goes to the existing `check_unresolved` compose, which is now a forced no-roll.
+5. **A refused check stays unexecuted.** A host-selected check that canonical admission or the kernel refuses (other than the one §159.1 stale rebind) is not rolled; the refusal stands and the Keeper's adjudication follows as before. It is recorded as forced (family `check-execution`) instead of becoming an unresolved notice. Admission itself (§32, `extensions/kernel/admission.ts`) is unchanged.
+6. **Preparation still comes first.** A check whose every option lacks arguments still hands the Keeper §159.10's preparation step, and a successful preparation still reopens Jev's adjudication. A preparation still pending when the turn is delivered is a forced no-roll, recorded at the accepted delivery; the Keeper's preparation instruction says to narrate the attempt by judgement when preparation cannot complete this turn.
+7. **An unsettled interaction scope is a world turn.** Only a confident out-of-fiction request (`world_action` ≤ .35 and `system_request` ≥ .8) is `reference`. Everything else that is not confidently world -- a gray pair, a pair leaning out of fiction below the reference gate, no answer, no credential, an exception -- plays as `world`, recorded as forced. The Keeper may answer a plainly out-of-fiction part of the message briefly in fiction-neutral words, then keep playing; it does not ask the player to confirm what they meant. The `uncertain` mode no longer exists as an output.
+
+The Keeper still never chooses or rolls a check: model-origin resolve stays refused on every path (§159.2), and "narrate by judgement" means prose and the Keeper's ordinary non-check operations, never a substitute roll. Damage still cannot stand in for an attack check the host did not settle (`check_outcome_unresolved`); its refusal now tells the Keeper to narrate the attempt without inflicting damage this turn, not to retain it in suspense.
+
+### 163.3 What is recorded, and what the Keeper sees
+
+**Telemetry.** One row per forced resolution, written once when the run first sees it (the policy's fold, recorded before the next step; or the engine's projection; or the accepted delivery for a pending preparation):
+`{lane: "forced-resolution", run, step, turn, family, subject, uncertain: [string], chosen: {outcome, check?, action?}, why}`.
+- `family`: `interaction-scope`, `check-selection`, `check-binding`, `check-execution`, `check-preparation` (closed).
+- `subject`: the check's label, the clerk candidate's label, `checks not judged this turn`, or the player's message for a scope.
+- `uncertain`: each gate decided without clearing, with its score (`necessity of <label>: needed now p=0.74, prerequisite unmet p=0.36`; `difficulty: Hard p=0.6`; `world action unanswered`), or the host-level reasons (`check_selection_unavailable`, `packing_limit` …), or the refusal code, or the missing arguments.
+- `chosen.outcome`: `roll` (with the check and its bound action), `no_roll`, `deferred` or `world`.
+- `why`: `below_confidence_gate`, `jev_unanswered`, `nothing_executable` (comma-joined when a selection used several), `check_refused`, `preparation_incomplete`, a clerk bind's cause, or the `jev_*` step reason.
+
+The selector's own `lane: "check-selection"` rows are unchanged; a forced result's `forced` rides on the selection artifact. The policy keeps the run's entries in `RunView.forced` (deduplicated by a key over family, subject, outcome and the decision).
+
+**The Keeper's marker.** The next `single_loop_step` note carries `decided_under_uncertainty: [{family, subject, uncertain, chosen, why}]` (each entry once per run) with `decided_under_uncertainty_note`: these were decided under uncertainty; treat the chosen result as settled; a chosen roll was executed by the host; for `no_roll` narrate the attempt and its outcome by judgement, without a roll and without suspense; for a world scope play the message, answering a plainly out-of-fiction part briefly in fiction-neutral words; do not mention the uncertainty or ask the player to clarify, confirm or repeat; if later facts disagree, reconcile forward and never retract (§158). The note head's old "Report unresolved_checks honestly" line, `unresolved_checks`, `unresolved_check` and `check_outcome_boundary` ("keep the investigator at the point of attempting them") are removed. The spent-budget note now says checks not yet judged take no roll this turn.
+
+**Removed.** The `coc:check-selection-unresolved` bus event, the kernel extension's `coc-delivery` notice with `check_selection_unresolved: true`, its UI word `check_selection_unresolved_notice` (English source and the zh-Hans seed), `UNCERTAIN_SCOPE_NOTE` and the `interaction_scope_uncertain` compose. Player-visible text on these paths is only the Keeper's prose in the play language. The kernel keeps reading `interaction_scope: "uncertain"` on turn records written before this section (evidence is never rewritten); the host no longer stamps it. The play driver still recognizes the old notice in retained evidence.
+
+### 163.4 The paths
+
+| Path | Where | Before | After |
+|---|---|---|---|
+| Social influence method gray or unanswered | `runtime/jev/resolve-selection.ts` `selectCheck`, social-method gate | `unresolved` `social_influence_method_uncertain`, held, notice | above .5 active, else inactive; unanswered inactive; recorded |
+| Profile retrieval failed / nothing ranked | same, profile beam | `unresolved` `check_profile_retrieval_unavailable` | that group takes no roll; other options still judged; recorded |
+| Necessity / readiness gray or unanswered after refinement | same, need pages and `leanCheck` | `unresolved` `check_necessity_uncertain`, held, notice | best guess: roll, defer or no roll; recorded (turn 9 becomes a social roll at .74/.36) |
+| Needed check lacks source facts or arguments (not the all-options preparation case) | same, after ordering | `unresolved` with its needs | first executable needed check selected; the others no roll; recorded `nothing_executable` |
+| Modifier override gray or unanswered; override with no other issued value | same, defaults | `unresolved` `unbound:<name>` / `check_default_override_unbound` | midpoint, unanswered or empty → rules default; recorded |
+| Closed parameter Choice / compatible / set below gate | same, bind | `unresolved` `unbound:<name>` | best-scored issued value; no score at all → no roll; recorded |
+| Selector exception, budget, cancel; engine-level unavailable, stale, binding changed, session owner, distinct attempt, no credential | `runtime/jev/hybrid-engine.ts` `decide('check-selection')` → `runtime/jev/step-policy.ts` `settleCheckSelection` | `unresolved`, held, notice | forced no roll, held, recorded |
+| Preparation pending at delivery | `hybrid-engine.ts` projection (`check_preparation`) and `recordUnpreparedChecks` at accepted delivery | notice at delivery; "preserve the attempt as unresolved" | instruction: narrate by judgement if it cannot complete; forced no roll recorded at delivery |
+| Host-selected check refused at execution | `step-policy.ts` `settleExecute` | `unresolvedChecks`, held, notice | held, recorded `check-execution`, Keeper adjudicates as before |
+| Packing refusal (route/compile/reask/bind) | `step-policy.ts` reduce → compose `jev_packing_limit`/`jev_schema_error`; engine projection | `unresolvedChecks` "check selection", notice | forced no roll for the unjudged check candidates, recorded |
+| Route answer unavailable (`jev_<code>`, `jev_unavailable`, `jev_no_answer`) and spent decision budget (`jev_budget`) | engine projection on `jev_*` compose/adjudicate | notice (or "Checks remain unresolved … report the limitation") | forced no roll for the unjudged check candidates, recorded; budget note rewritten |
+| Clerk bind of a jev-owned check below the gate | `step-policy.ts` `clerkBind` / `interpretBind` / `settleBind` | `keeperOwns` → compose `check_unresolved` → notice | leading issued answer bound, `cleared: false`, recorded `check-binding`; no lead → compose `check_unresolved` recorded as forced no roll |
+| Interaction scope gray, unanswered, no credential, exception | `runtime/jev/interaction-scope.ts` `interpretInteractionScope`, `forcedScope`; `step-policy.ts` reduce; `extensions/kernel/index.ts` scope bus | `uncertain`: non-world, clarify, world tools blocked, delivery stamped non-fictional | `world`, recorded, Keeper may answer a plain meta part in fiction-neutral words |
+| Player notice | `extensions/kernel/index.ts` `coc:check-selection-unresolved` handler; `content/ui/{en,zh-Hans}/extension.json` | English (or seeded) out-of-fiction notice, no story | removed |
+| Keeper refusal texts | `hybrid-engine.ts` `check_selection_owned`, `check_outcome_unresolved`; `index.ts` driven-engine resolve gate | "report unresolved check needs", "retain the unresolved attack" | narrate committed receipts and judge the unrolled attempt; no damage without the attack check |
+
+Not changed, with reasons: action admission (§32; an unavailable review is still no authorization, and a forced proposal is still reviewed); the route's below-gate exits (`low_confidence`, `ask_llm`, `repeated_question`), which already hand the turn to the Keeper's adjudication and produce prose; the §135.25 run-time budget's deferral; the reference scope; `needs_player` (a genuine pending player choice, not uncertainty); host notices that are not Jev decisions (provider outage, commit down, continuity review unavailable, adaptation waits).
+
+### 163.5 The three ends (§31)
+
+*Writer:* `selectCheck` (forced gates), `interpretInteractionScope` and the policy's scope fold, `clerkBind`, `settleCheckSelection` and `settleExecute` (into `RunView.forced`), and the engine's projection and accepted delivery (the `jev_*` and `check_unresolved` steps and pending preparations). *Reader:* the engine's `recordForced`, called from the policy wrapper before each step, from the projection and at delivery, which writes the row and queues the Keeper's marker. *Actor:* the Keeper narrates the chosen result in the play language on that turn; on later turns §158 governs: if later facts disagree, the story reconciles forward. Acceptance counts the rows per table and the turns whose delivered text is a host notice instead of prose (target zero for these paths).
+
+### 163.6 Known consequences for the owner
+
+- A table with no Jev credential, or a sustained Jev outage, now plays every check as a Keeper judgement with no roll, each recorded as forced. Before, every check held with a notice.
+- A forced roll can be the wrong check or the wrong value; that is the ruling's accepted cost. Canonical admission still reviews every proposal, and a refusal still stands.
+- The interaction scope's forced world reading means a message Jev leaned toward reading as out of fiction, but below the reference gate, is played; the Keeper answers its plain meta part in fiction-neutral words.
+
+### 163.7 Tests
+
+Recorded in §163.8 when the implementation lands.

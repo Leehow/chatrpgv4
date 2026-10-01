@@ -314,7 +314,8 @@ interface CampaignRow {
 interface RosterPerson { name: string; called?: string; address?: string; untold: boolean; label?: string }
 
 interface TableState {
-  interactionScope?: 'world' | 'reference' | 'uncertain';
+  /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
+  interactionScope?: 'world' | 'reference';
 	kernel: KernelClient;
 	campaign: string;
 	telemetryPath: string;
@@ -1381,25 +1382,14 @@ export default function (pi: ExtensionAPI) {
 		const engine = value && typeof value === "object" ? (value as { engine?: unknown }).engine : undefined;
 		drivenEngine = typeof engine === "string" && engine !== "legacy";
 	});
-	const checkNotices = new Set<string>();
 	pi.events.on('coc:interaction-scope', (value: any) => {
 		if (!table || value?.campaign !== table.campaign || value.turn !== table.turn
-			|| value.player_text !== table.playerText || !['world', 'reference', 'uncertain'].includes(value.mode)) return;
+			|| value.player_text !== table.playerText || !['world', 'reference'].includes(value.mode)) return;
 		table.interactionScope = value.mode;
 	});
-	pi.events.on('coc:check-selection-unresolved', async (value: any) => {
-		const state = table;
-		if (!state || value?.campaign !== state.campaign || value.turn !== state.turn || !Array.isArray(value.needs) || !value.needs.length) return;
-		const key = `${state.campaign}:${state.turn}:${value.run}`;
-		if (checkNotices.has(key)) return;
-		checkNotices.add(key);
-		let line = 'A check is still unresolved, so it has not been rolled. Results already settled are kept. Clarify what you want to do, or send another message to try again.';
-		try { line = (await surface.words()).line('check_selection_unresolved_notice'); } catch { /* The authored fallback still reports the unresolved check. */ }
-		if (table !== state || state.turn !== value.turn) return;
-		pi.sendMessage({customType: 'coc-delivery', content: line, display: true,
-			details: {coc_delivery: true, turn: value.turn, check_selection_unresolved: true}}, {triggerTurn: false});
-		void record({lane: 'delivery', turn: value.turn, reason: 'check_selection_unresolved_notice', needs: value.needs});
-	});
+	// §163 (owner ruling 2026-10-01): no host notice stands in for a check Jev could not settle. The engine resolves it (a
+	// best-scored roll or a no-roll the Keeper narrates) and records it as `lane: "forced-resolution"`; the old
+	// `coc:check-selection-unresolved` bus event and its English notice are gone.
 	pi.events.on("coc:reading-bridge", (value) => {
 		reading = value && typeof (value as any).ensure === "function" ? value as any : undefined;
 	});
@@ -6119,7 +6109,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (drivenEngine && name === "resolve" && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: "check_selection_owned" });
-			return { block: true, reason: "Jev and the host own check selection. No model-origin resolve was executed. Report unresolved check needs and narrate only committed receipts." };
+			return { block: true, reason: "Jev and the host own check selection. No model-origin resolve was executed. Narrate committed receipts, and narrate any attempt the host left without a roll by your own judgement." };
 		}
 		if (announced?.refuse && dispatcher.hostOrigin(event.toolCallId)?.origin !== "policy") {
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "blocked", reason: announced.refuseCode ?? "narrator_catalog",

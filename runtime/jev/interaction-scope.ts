@@ -2,14 +2,20 @@
 import {createHash} from 'node:crypto';
 import type {DecisionBatch, DecisionResult, Json, ScopeBinding} from './contracts.ts';
 import {JEV_MODEL} from './question-packing.ts';
+import {forcedResolution, scoreText, type ForcedResolution} from './forced-resolution.ts';
 
-export type InteractionMode = 'world' | 'reference' | 'uncertain';
+/**
+ * §163 (owner ruling 2026-10-01): there is no third, uncertain mode. A scope Jev cannot settle, or cannot answer, plays as
+ * a world turn, and `forced` records what was uncertain and why.
+ */
+export type InteractionMode = 'world' | 'reference';
 export interface InteractionScope {
   mode: InteractionMode;
   worldAction?: number;
   systemRequest?: number;
   reason: string;
   calls: number;
+  forced?: {uncertain: string[]; why: 'below_confidence_gate' | 'jev_unanswered'};
 }
 
 /** Tool subtypes are a closed protocol. Reference storage is allowed; world preparation is not. */
@@ -53,11 +59,19 @@ export function interpretInteractionScope(result: DecisionResult | undefined, ca
   if (worldAction !== undefined && worldAction >= 0.8) return {...scores, mode: 'world', reason: 'world_action_authorized'};
   if (worldAction !== undefined && worldAction <= 0.35 && systemRequest !== undefined && systemRequest >= 0.8)
     return {...scores, mode: 'reference', reason: 'out_of_fiction_request'};
-  return {...scores, mode: 'uncertain', reason: result?.status === 'complete' ? 'scope_unclear' : 'scope_unavailable'};
+  const answered = result?.status === 'complete' && worldAction !== undefined && systemRequest !== undefined;
+  return {...scores, mode: 'world', reason: answered ? 'scope_unclear' : 'scope_unavailable',
+    forced: {uncertain: [`world action ${scoreText(worldAction)}`, `out-of-fiction request ${scoreText(systemRequest)}`],
+      why: answered ? 'below_confidence_gate' : 'jev_unanswered'}};
+}
+
+/** §163: the forced resolution a scope Jev could not settle records; none for a settled scope. */
+export function forcedScope(scope: InteractionScope | undefined, message: string): ForcedResolution | undefined {
+  if (!scope?.forced) return undefined;
+  return forcedResolution({family: 'interaction-scope', subject: message, chosen: {outcome: 'world'}, why: scope.forced.why,
+    uncertain: [...scope.forced.uncertain, ...(scope.forced.why === 'jev_unanswered' ? [scope.reason] : [])]});
 }
 
 export const REFERENCE_SCOPE_NOTE = 'This message is an out-of-fiction request to the assistant. Answer it directly in the play language, using relevant reference reads when needed. '
   + 'Do not narrate an investigator action, spend fictional time, roll checks, move anyone, invent NPC dialogue, or record the answer as something a character learned. '
   + 'Use narrate only as the delivery channel for this reference answer; the host marks it outside the fiction.';
-export const UNCERTAIN_SCOPE_NOTE = 'Whether this message authorizes fictional action is unresolved. Ask a short clarification or answer its clear informational part. '
-  + 'No fictional time, check, movement or NPC action is authorized. Do not fill the gap with an invented action.';

@@ -1,5 +1,9 @@
-/** Check selection over host-issued actions. No generated arguments or LLM fallback (§159). */
+/**
+ * Check selection over host-issued actions. No generated arguments or LLM fallback (§159). §163: a gate Jev answers
+ * below is decided by Jev's own best score and recorded as forced; nothing scored or executable is a forced no-roll.
+ */
 import {createHash} from 'node:crypto';
+import {leansYes, scoreText} from './forced-resolution.ts';
 import {isPlainRecord, type DecisionBatch, type DecisionResult, type Json, type ReadSet, type ScopeBinding} from './contracts.ts';
 import {JEV_MODEL, packDecisionBatch} from './question-packing.ts';
 import type {DecisionPort} from './decision-port.ts';
@@ -52,6 +56,11 @@ export type CheckSelection = {
   calls: number;
   preparation?: {decision: string; needs: string[]};
   snapshot?: {scene: string; revision: string; worldRevision: string};
+  /**
+   * §163: the result was taken below a confidence gate from Jev's best score, or with an answer missing. `uncertain`
+   * names each such gate with its score; `why` lists the kinds (`below_confidence_gate`, `jev_unanswered`, `nothing_executable`).
+   */
+  forced?: {uncertain: string[]; why: string};
 };
 
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -161,6 +170,10 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
   let calls = 0;
   let refinementUsed = false;
   const gates = {...CHECK_SELECTION_GATES, ...input.gates}, gate = gates.need;
+  // §163: every gate decided by Jev's best score (or with no score) is named here; a result that used one is forced.
+  const forced: string[] = [], whys = new Set<string>();
+  const note = (what: string, why: 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable') => { forced.push(what); whys.add(why); };
+  const done = (result: CheckSelection): CheckSelection => forced.length ? {...result, forced: {uncertain: [...forced], why: [...whys].sort().join(',')}} : result;
   const unresolved = (needs: string[], option?: CheckOption): CheckSelection => ({status: 'unresolved',
     needs: needs.map(need => input.options.find(option => option.key === need)?.label ?? need), calls, ...(option ? {option} : {})});
   const decide = async (purpose: string, state: Json, questions: DecisionBatch['questions']): Promise<DecisionResult> => {
@@ -188,6 +201,16 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     const blocked = yes(result, optionAlias(index) + '_blocked');
     return blocked !== undefined && blocked <= gates.noNeed ? 'selected'
       : blocked !== undefined && blocked >= gate ? 'deferred' : 'unresolved';
+  };
+  /** §163: Jev's best guess for an option no gate cleared, from the same answers `classify` read. */
+  const leanCheck = (option: CheckOption, index: number, result: DecisionResult) => {
+    const ordinary = option.action.decision === 'core-check:ordinary-check' && option.action.rule === undefined;
+    const keys = ordinary ? [optionAlias(index), optionAlias(index) + '_uncertain'] : [optionAlias(index)];
+    const answers = keys.map(key => yes(result, key)), blocked = yes(result, optionAlias(index) + '_blocked');
+    const scores = [...answers.map((p, i) => `${i ? 'roll needed' : ordinary ? 'method fit' : 'needed now'} ${scoreText(p)}`), `prerequisite unmet ${scoreText(blocked)}`].join(', ');
+    const unanswered = answers.some(p => p === undefined) || blocked === undefined;
+    const status: 'selected' | 'deferred' | 'no_roll' = unanswered || answers.some(p => !leansYes(p!)) ? 'no_roll' : leansYes(blocked!) ? 'deferred' : 'selected';
+    return {status, scores, unanswered};
   };
   try {
     // A broad goal can quote multiple attempts. Ordinary settlement is the exact actor/skill receipt.
@@ -248,11 +271,16 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       for (const [index, actor] of socialActors.entries()) {
         const p = yes(result, `actor_${index}`);
         if (p !== undefined && p >= gates.applicability) active.add(actor);
-        else if (p === undefined || p > gates.noNeed) return unresolved(['social_influence_method_uncertain']);
+        else if (p === undefined) note(`social influence method of ${actor}: unanswered`, 'jev_unanswered');
+        else if (p > gates.noNeed) {
+          // §163: Jev's best score decides a gray method; a tie is no influence attempt.
+          note(`social influence method of ${actor}: ${scoreText(p)}`, 'below_confidence_gate');
+          if (leansYes(p)) active.add(actor);
+        }
       }
       eligible = eligible.filter(option => option.action.decision !== 'social:adjudicate-difficulty'
         || option.facts?.actor_role !== 'investigator' || active.has(String(option.action.actor)));
-      if (!eligible.length) return {status: 'no_roll', needs: [], calls};
+      if (!eligible.length) return done({status: 'no_roll', needs: [], calls});
     }
     // A Choice distribution is a retrieval beam, not a mutually exclusive decision about which
     // declared method exists. Re-check each retained method independently below.
@@ -274,20 +302,25 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         }]);
         if ((probability(result, 'profile', 'unknown') ?? 0) >= gates.choice) continue;
         const answer = result.answers.profile;
-        if (result.status !== 'complete' || answer?.status !== 'answered' || answer.type !== 'choice' || !answer.probabilities)
-          return unresolved(['check_profile_retrieval_unavailable']);
+        if (result.status !== 'complete' || answer?.status !== 'answered' || answer.type !== 'choice' || !answer.probabilities) {
+          // §163: nothing ranked this group, so none of its profiles is scored; they take no roll.
+          note(`profile retrieval over ${group.length} ordinary profiles: unanswered`, 'jev_unanswered');
+          continue;
+        }
         const ranked = group.map((option, index) => ({option, p: answer.probabilities?.[optionAlias(index)] ?? 0}))
           .filter(entry => Number.isFinite(entry.p) && entry.p > 0).sort((left, right) => right.p - left.p).slice(0, 8);
         if (!ranked.length) groupsUnresolved = true;
         for (const entry of ranked) retained.add(entry.option);
       }
-      if (!retained.size && groupsUnresolved) uncertain.push('ordinary_profile_unresolved');
+      if (!retained.size && groupsUnresolved) note('ordinary profile retrieval: no profile scored', 'jev_unanswered');
       const simpleSet = new Set(simple);
       eligible = eligible.filter(option => !simpleSet.has(option) || retained.has(option));
     }
     // Keep candidate state and request size bounded without truncating the retained inventory.
     const pages = Array.from({length: Math.ceil(eligible.length / 24)}, (_, index) => eligible.slice(index * 24, index * 24 + 24));
     const refinable: Array<{option: CheckOption; index: number; state: Json; questions: DecisionBatch['questions']; explicitMethod: boolean}> = [];
+    // §163: the answers each still-uncertain option was last judged on, for Jev's best guess if no gate clears.
+    const judged = new Map<string, {index: number; result: DecisionResult}>();
     await Promise.all(pages.map(async page => {
       const state = {declaration: input.declaration, context: input.context, policy: POLICY,
         checks: Object.fromEntries(page.map((option, index) => [optionAlias(index), {family: option.family, label: option.label, trigger: option.authorization, action: actionView(option.action), ...(option.definition ? {definition: option.definition} : {}), ...(option.facts ? {facts: option.facts} : {})}]))};
@@ -318,6 +351,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         else if (status === 'deferred') deferred++;
         else if (status === 'unresolved') {
           uncertain.push(option.key);
+          judged.set(option.key, {index, result});
           const candidateQuestions = questions.filter(question => question.key === optionAlias(index) || question.key.startsWith(optionAlias(index) + '_'));
           const blocked = yes(result, optionAlias(index) + '_blocked');
           if (!option.needs.length && option.parameters.every(parameter => parameter.options.length)
@@ -336,22 +370,34 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       if (result) {
         const status = classify(candidate.option, candidate.index, result);
         if (status !== 'unresolved') uncertain.splice(uncertain.indexOf(candidate.option.key), 1);
+        else judged.set(candidate.option.key, {index: candidate.index, result});
         if (status === 'selected') needed.push(candidate.option);
         else if (status === 'deferred') deferred++;
       }
     }
-    if (refinable.some(candidate => candidate.explicitMethod && uncertain.includes(candidate.option.key)))
-      return unresolved(['check_necessity_uncertain', ...uncertain]);
+    // §163: an option no gate cleared, after the one refinement, is decided by Jev's own best scores: every necessity
+    // answer above the midpoint and its prerequisite below it is a roll, a prerequisite above it waits, anything else
+    // (a lower score or a missing answer) is no roll. The gray explicit method keeps its precedence by catalog order.
+    for (const key of uncertain) {
+      const option = eligible.find(entry => entry.key === key), seen = judged.get(key);
+      if (!option || !seen) continue;
+      const lean = leanCheck(option, seen.index, seen.result);
+      note(`necessity of ${option.label}: ${lean.scores}`, lean.unanswered ? 'jev_unanswered' : 'below_confidence_gate');
+      if (lean.status === 'selected') needed.push(option);
+      else if (lean.status === 'deferred') deferred++;
+    }
     // Independent ready profiles do not compete for a probability mass of one. The agent receives
     // one bound operation, observes its actual result, and may request the remaining work afresh.
     needed.sort((left, right) => input.options.findIndex(option => option.key === left.key) - input.options.findIndex(option => option.key === right.key));
-    if (!needed.length) return uncertain.length ? unresolved(['check_necessity_uncertain', ...uncertain])
-      : {status: deferred ? 'deferred' : 'no_roll', needs: [], calls};
-    const selected = needed[0];
-    // Missing source facts are not options for Jev to invent. Report the exact selected family's needs.
-    if (selected.needs.length) return unresolved([...selected.needs], selected);
-    if (selected.parameters.some(parameter => !parameter.options.length))
-      return unresolved(selected.parameters.filter(parameter => !parameter.options.length).map(parameter => `unbound:${parameter.name}`), selected);
+    if (!needed.length) return done({status: deferred ? 'deferred' : 'no_roll', needs: [], calls});
+    // Missing source facts are not options for Jev to invent. §163: a needed check that cannot execute is a forced
+    // no-roll naming what it lacks; the first needed check that can execute is the one selected.
+    const executable = (option: CheckOption) => !option.needs.length && option.parameters.every(parameter => parameter.options.length);
+    const lacking = (option: CheckOption) => [...option.needs, ...option.parameters.filter(parameter => !parameter.options.length).map(parameter => `unbound:${parameter.name}`)];
+    const selected = needed.find(executable);
+    for (const option of needed.slice(0, selected ? needed.indexOf(selected) : needed.length))
+      note(`${option.label} cannot execute: ${lacking(option).join(', ')}`, 'nothing_executable');
+    if (!selected) return done({status: 'no_roll', option: needed[0], needs: lacking(needed[0]), calls});
     const action = structuredClone(selected.action);
     let parameters = selected.parameters;
     const defaults = parameters.filter(parameter => parameter.default);
@@ -366,19 +412,29 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       const pending = defaults.flatMap((parameter, index) => ambiguous(yes(result, parameterAlias(index))) ? [{parameter, index}] : []);
       const refined = await refine('defaults', {...state, parameters: Object.fromEntries(pending.map(({parameter, index}) => [parameterAlias(index), parameter as unknown as Json]))},
         questions.filter(question => pending.some(({index}) => parameterAlias(index) === question.key)));
-      const missing: string[] = [], defaulted = new Set<CheckParameter>();
+      const defaulted = new Set<CheckParameter>();
+      const takeDefault = (parameter: CheckParameter) => { action[parameter.name] = structuredClone(parameter.default!.value); defaulted.add(parameter); };
       for (const [index, parameter] of defaults.entries()) {
         const override = refined && pending.some(entry => entry.index === index) ? yes(refined, parameterAlias(index)) : yes(result, parameterAlias(index));
-        if (override !== undefined && override <= gates.noNeed) {
-          action[parameter.name] = structuredClone(parameter.default!.value);
-          defaulted.add(parameter);
-        } else if (override === undefined || override < gates.need) missing.push('unbound:' + parameter.name);
+        if (override !== undefined && override <= gates.noNeed) takeDefault(parameter);
+        else if (override === undefined) {
+          // §163: with no answer about an override, the host-owned rules default applies.
+          note(`${parameter.name} override: unanswered, rules default`, 'jev_unanswered');
+          takeDefault(parameter);
+        } else if (override < gates.need) {
+          note(`${parameter.name} override: ${scoreText(override)}`, 'below_confidence_gate');
+          if (!leansYes(override)) takeDefault(parameter);
+        }
       }
-      if (missing.length) return unresolved(missing, selected);
       parameters = parameters.filter(parameter => !defaulted.has(parameter)).map(parameter => parameter.default
         ? {...parameter, options: parameter.options.filter(option => digest(option.value) !== digest(parameter.default!.value))}
         : parameter);
-      if (parameters.some(parameter => !parameter.options.length)) return unresolved(['check_default_override_unbound'], selected);
+      // An override with no other issued value keeps the rules default (the only issued value).
+      for (const parameter of parameters.filter(parameter => parameter.default && !parameter.options.length)) {
+        note(`${parameter.name} override: no other issued value, rules default`, 'nothing_executable');
+        action[parameter.name] = structuredClone(parameter.default!.value);
+      }
+      parameters = parameters.filter(parameter => parameter.options.length);
     }
     if (parameters.length) {
       const state = {declaration: input.declaration, context: input.context,
@@ -422,10 +478,16 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       const missing: string[] = [];
       for (const [index, parameter] of parameters.entries()) {
         if (parameter.selection === 'compatible') {
-          const chosen = parameter.options.map((option, i) => {
+          const scored = parameter.options.map((option, i) => {
             const key = `${parameterAlias(index)}_${i}`;
-            return {option, p: (refined && confirmationQuestions.some(question => question.key === key) ? yes(refined, key) : yes(result, key)) ?? 0};
-          }).filter(value => value.p >= gates.adjudication).sort((a, b) => b.p - a.p)[0];
+            return {option, p: refined && confirmationQuestions.some(question => question.key === key) ? yes(refined, key) : yes(result, key)};
+          }).filter((value): value is {option: CheckParameter['options'][number]; p: number} => value.p !== undefined).sort((a, b) => b.p - a.p);
+          let chosen = scored.find(value => value.p >= gates.adjudication);
+          if (!chosen && scored.length) {
+            // §163: no option clears adjudication; Jev's best-scored compatible option is the ruling.
+            chosen = scored[0];
+            note(`${parameter.name}: ${chosen.option.label} ${scoreText(chosen.p)}`, 'below_confidence_gate');
+          }
           if (!chosen) missing.push(`unbound:${parameter.name}`);
           else action[parameter.name] = structuredClone(chosen.option.value);
           continue;
@@ -435,20 +497,43 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
             const key = `${parameterAlias(index)}_${optionIndex}`;
             return {option, p: refined && confirmationQuestions.some(question => question.key === key) ? yes(refined, key) : yes(result, key)};
           });
-          const chosen = members.filter(member => member.p !== undefined && member.p >= gates.need);
-          if (members.some(member => member.p === undefined || member.p > gates.noNeed && member.p < gates.need) || chosen.length < parameter.multiple.minimum)
-            missing.push(`unbound:${parameter.name}`);
-          else action[parameter.name] = chosen.map(member => structuredClone(member.option.value));
+          let chosen = members.filter(member => member.p !== undefined && member.p >= gates.need);
+          if (members.some(member => member.p === undefined || member.p > gates.noNeed && member.p < gates.need) || chosen.length < parameter.multiple.minimum) {
+            // §163: members above the midpoint, topped up to the minimum by Jev's next-best scores.
+            const scored = members.filter((member): member is {option: CheckParameter['options'][number]; p: number} => member.p !== undefined).sort((a, b) => b.p - a.p);
+            chosen = scored.filter(member => leansYes(member.p));
+            for (const member of scored) if (chosen.length < parameter.multiple.minimum && !chosen.includes(member)) chosen.push(member);
+            if (chosen.length < parameter.multiple.minimum) { missing.push(`unbound:${parameter.name}`); continue; }
+            note(`${parameter.name}: ${members.map(member => `${member.option.label} ${scoreText(member.p)}`).join(', ')}`,
+              members.some(member => member.p === undefined) ? 'jev_unanswered' : 'below_confidence_gate');
+            chosen = members.filter(member => chosen.includes(member));
+          }
+          action[parameter.name] = chosen.map(member => structuredClone(member.option.value));
           continue;
         }
-        const value = parameter.options.find((_, optionIndex) => (probability(result, parameterAlias(index), valueAlias(optionIndex)) ?? 0) >= gates.choice)
+        let value = parameter.options.find((_, optionIndex) => (probability(result, parameterAlias(index), valueAlias(optionIndex)) ?? 0) >= gates.choice)
           ?? (refined && (yes(refined, parameterAlias(index)) ?? 0) >= gate && nominations.has(index) ? parameter.options[nominations.get(index)!] : undefined);
+        if (!value) {
+          // §163: Jev's best-scored issued value (never `unknown`, never an unissued value).
+          const answer = result.answers[parameterAlias(index)];
+          const ranked = result.status === 'complete' && answer?.status === 'answered' && answer.type === 'choice' && answer.probabilities
+            ? parameter.options.map((option, optionIndex) => ({option, p: answer.probabilities![valueAlias(optionIndex)]}))
+              .filter((entry): entry is {option: CheckParameter['options'][number]; p: number} => Number.isFinite(entry.p) && entry.p > 0).sort((a, b) => b.p - a.p) : [];
+          if (ranked.length) {
+            value = ranked[0].option;
+            note(`${parameter.name}: ${value.label} ${scoreText(ranked[0].p)}`, 'below_confidence_gate');
+          }
+        }
         if (!value) missing.push(`unbound:${parameter.name}`);
         else action[parameter.name] = structuredClone(value.value);
       }
-      if (missing.length) return unresolved(missing, selected);
+      // §163: a parameter Jev gave no score for cannot be bound; the selected check is a forced no-roll.
+      if (missing.length) {
+        for (const need of missing) note(`${selected.label} ${need}: unanswered`, 'jev_unanswered');
+        return done({status: 'no_roll', option: selected, needs: missing, calls});
+      }
     }
-    return {status: 'selected', option: selected, action, needs: [], calls};
+    return done({status: 'selected', option: selected, action, needs: [], calls});
   } catch (error) {
     return unresolved([input.lease.signal.aborted ? 'check_selection_cancelled' : error instanceof Error ? error.message : 'check_selection_unavailable']);
   }

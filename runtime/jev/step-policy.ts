@@ -26,7 +26,8 @@ import {PRESELECT_ALLOWANCE_DEFAULT_MS} from '../../extensions/jev/agent/config.
 import {answerOf, clears} from './decision-gate.ts';
 import {npcScanCandidate} from './npc-act-step.ts';
 import type {CheckSelection} from './resolve-selection.ts';
-import type {InteractionScope} from './interaction-scope.ts';
+import {forcedScope, type InteractionScope} from './interaction-scope.ts';
+import {forcedResolution, type ForcedResolution} from './forced-resolution.ts';
 import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, FIGHT_FAMILIES, fightAct, interpretCompile, interpretReask, ORDINARY_CHECK,
   reachable, REASK_FAMILY, reaskBatch, reaskOf, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput} from './route-compile.ts';
 
@@ -243,8 +244,13 @@ export interface RunView {
   interactionScope?: InteractionScope;
   requireInteractionScope?: boolean;
   referenceRouted?: boolean;
-  /** §159: a check that remains unresolved is a notice, never a model-owned operation. */
+  /**
+   * §159.10: a check waiting for its missing arguments to be prepared (the only hold left: §163 resolves every other
+   * uncertain or unavailable check selection to a forced result, recorded in `forced`).
+   */
   unresolvedChecks?: Array<{candidate: string; needs: string[]; preparation?: {decision: string; needs: string[]}}>;
+  /** §163: the decisions this run forced -- Jev's best-scored option, or no roll -- each recorded once and shown to the Keeper. */
+  forced?: ForcedResolution[];
   checkRefreshUsed?: boolean;
   heldCheckDecisions?: string[];
   heldCheckPreparations?: string[];
@@ -416,10 +422,10 @@ function routeNext(view: RunView): StepRequest {
   const last = view.observations.at(-1), head = view.pending[0];
   // Guard 2: an LLM result is followed by direct execution or completion, never a Jev re-review.
   if (last?.kind === 'infer') return head?.kind === 'direct' ? {kind: 'direct', item: head} : {kind: 'finish', reason: `after_infer_${last.purpose}`};
-  if (view.interactionScope && view.interactionScope.mode !== 'world') {
+  if (view.interactionScope?.mode === 'reference') {
     if (head?.kind === 'direct' && head.purpose === 'read') return {kind: 'direct', item: head};
-    if (view.interactionScope.mode === 'reference' && !view.referenceRouted) return {kind: 'decide', purpose: 'route', digest: routeDigest(view)};
-    return {kind: 'infer', purpose: 'compose', reason: view.interactionScope.mode === 'reference' ? 'reference_request' : 'interaction_scope_uncertain'};
+    if (!view.referenceRouted) return {kind: 'decide', purpose: 'route', digest: routeDigest(view)};
+    return {kind: 'infer', purpose: 'compose', reason: 'reference_request'};
   }
   // The run's time budget (§135.25): past it the next model step is the compose, whatever the route said. The model's
   // own pending proposals were already run by the driver (a batch is never cut), a running step was never interrupted
@@ -627,7 +633,7 @@ export function bindBatch(view: RunView, candidate: Candidate, scope: ScopeBindi
  * (`keeperOwns`), never to an LLM bind. A candidate without clerk authority (the prototype's) keeps the LLM bind.
  */
 export function interpretBind(candidate: Candidate, batch: DecisionBatch, result: DecisionResult | undefined, gate: number):
-  {pending: PendingItem[]; extra?: Record<string, Json>; confidence?: number; reason: string; bindings?: BindRecord[]} {
+  {pending: PendingItem[]; extra?: Record<string, Json>; confidence?: number; reason: string; bindings?: BindRecord[]; forced?: ForcedResolution} {
   if (candidate.clerk) return clerkBind(candidate, result, gate);
   const llm = (reason: string): {pending: PendingItem[]; reason: string} =>
     ({pending: [{kind: 'infer', purpose: 'bind', candidate, reason}, {kind: 'direct', purpose: 'llm_proposal', candidate}], reason});
@@ -686,7 +692,7 @@ function ruleDefaultOf(rule: RuleDefault | undefined, parameter: Unbound, candid
  * (`binding: "rule-default"`, with the defaulted values), which every row of the call and the Keeper's note carry.
  */
 function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gate: number):
-  {pending: PendingItem[]; extra?: Record<string, Json>; confidence?: number; reason: string; bindings: BindRecord[]} {
+  {pending: PendingItem[]; extra?: Record<string, Json>; confidence?: number; reason: string; bindings: BindRecord[]; forced?: ForcedResolution} {
   const complete = result?.status === 'complete';
   const extra: Record<string, Json> = {}, bindings: BindRecord[] = [], later: Unbound[] = [], leads: Record<string, string> = {};
   let lowest = 1, cause = complete ? '' : 'jev_unavailable';
@@ -706,7 +712,7 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
     // The Jev answer that did not clear stays on record beside the default that replaced it.
     if (complete) bindings.push({name: parameter.name, path, value: null, confidence: confidence ?? null, distribution, ...table});
   }
-  const defaults: Record<string, Json> = {}, unresolved: string[] = [];
+  const defaults: Record<string, Json> = {}, unresolved: string[] = [], leaned: string[] = [];
   for (const parameter of later) {
     const lead = leads[parameter.name], evidence = answerOf(result, parameter.name);
     const clearedLead = parameter.ruleDefault?.rule === 'jev_lead' && lead !== undefined && lead !== 'unknown'
@@ -716,6 +722,15 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
         : clearedLead ? {...parameter.ruleDefault, fallback: undefined} as RuleDefault : undefined
       : parameter.ruleDefault;
     const taken = ruleDefaultOf(permittedDefault, parameter, candidate, extra, leads[parameter.name]);
+    // §163: a check's parameter with no permitted default takes Jev's leading issued answer below the gate, recorded as forced.
+    if (!taken && candidate.checkOwner === 'jev' && lead !== undefined && lead !== 'unknown' && parameter.options?.includes(lead)) {
+      extra[parameter.name] = lead;
+      leaned.push(`${parameter.name}: ${lead} confidence ${Math.round((evidence.confidence ?? 0) * 100) / 100}`);
+      const at = bindings.findIndex(entry => entry.name === parameter.name), entry: BindRecord = {name: parameter.name, path: 'jev', value: lead,
+        confidence: evidence.confidence ?? null, distribution: at >= 0 ? bindings[at].distribution : null, cleared: false};
+      if (at >= 0) bindings[at] = entry; else bindings.push(entry);
+      continue;
+    }
     if (!taken) { unresolved.push(parameter.name); continue; }
     const {value} = taken, {rule, read, composed} = taken.rule;
     extra[parameter.name] = value; defaults[parameter.name] = {value, rule, ...(read?.length ? {read: [...read]} : {})};
@@ -731,6 +746,8 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
     }
   }
   if (unresolved.length) return {pending: keeperOwns(candidate, cause || 'unknown_binding', unresolved, bindings), reason: 'clerk_unbound', bindings};
+  const forced = leaned.length ? forcedResolution({family: 'check-binding', subject: candidate.label, uncertain: leaned,
+    chosen: {outcome: 'roll', check: candidate.label, action: extra}, why: 'below_confidence_gate'}, candidate.key) : undefined;
   const bound: Candidate = Object.keys(defaults).length
     ? {...candidate, basis: {...(candidate.basis && typeof candidate.basis === 'object' && !Array.isArray(candidate.basis) ? candidate.basis : {}),
       binding: 'rule-default', rule_default: defaults} as Json}
@@ -740,10 +757,10 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
   if (variant) {
     const chosen: Candidate = {...bound, label: variant.label, bound: {...variant.bound}, unbound: variant.unbound,
       ...(variant.basis !== undefined ? {basis: variant.basis} : {}), variants: undefined};
-    return {pending: itemsFor(chosen), extra, confidence: lowest, reason: 'bound_variant', bindings};
+    return {pending: itemsFor(chosen), extra, confidence: lowest, reason: 'bound_variant', bindings, ...(forced ? {forced} : {})};
   }
   return {pending: [{kind: 'direct', purpose: 'execute', candidate: bound, extra, bindings}], extra, confidence: lowest,
-    reason: Object.keys(defaults).length ? 'bound_rule_default' : 'bound', bindings};
+    reason: Object.keys(defaults).length ? 'bound_rule_default' : 'bound', bindings, ...(forced ? {forced} : {})};
 }
 
 /**
@@ -1032,7 +1049,16 @@ export function settleOrdinaryBind(view: RunView, step: number, candidate: Candi
     reason, detail: disposition === 'ordinary' ? action ?? null : null};
 }
 
-/** §159: the check selector owns the next resolve, including its unresolved/no-roll exits. */
+/** §163: one forced resolution joins the run's record (once per key). */
+export function recordForced(view: Pick<RunView, 'forced'>, entry: ForcedResolution): void {
+  if (!view.forced?.some(seen => seen.key === entry.key)) view.forced = [...(view.forced ?? []), entry];
+}
+/**
+ * §159: the check selector owns the next resolve, including its no-roll exit. §163: a selection taken from Jev's best
+ * score is executed (or not) as chosen and recorded as forced; a selection with nothing scored or executable -- the
+ * provider failed, the catalog or binding changed, the budget was spent -- is a forced no-roll the Keeper narrates by
+ * judgement. Only a missing-argument preparation (§159.10) still holds, and only until the run's delivery.
+ */
 export function settleCheckSelection(view: RunView, candidate: Candidate, result: CheckSelection, ms: number): void {
   view.budget.jevCalls += result.calls;
   view.budget.jevMs += ms;
@@ -1052,15 +1078,25 @@ export function settleCheckSelection(view: RunView, candidate: Candidate, result
       label: result.option.label, bound: action, unbound: [], composed: ['goal', 'method'],
       basis: {...basis, ...(compile ? {check_request_compile: compile} : {}), selection: result.option.key, ...(result.snapshot ? {selection_snapshot: result.snapshot} : {})}};
     view.pending.unshift({kind: 'direct', purpose: 'execute', candidate: selected});
+  } else if (result.status === 'unresolved' && result.preparation) {
+    const key = checkHoldKey(view.context.scene, candidate);
+    if (key && !view.heldCheckPreparations?.includes(key)) view.heldCheckPreparations = [...(view.heldCheckPreparations ?? []), key];
+    view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'check_preparation', candidate,
+      extra: {preparation: result.preparation}});
+    view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate: label, needs: result.needs, preparation: result.preparation}];
   } else if (result.status === 'unresolved') {
-    if (result.preparation) {
-      const key = checkHoldKey(view.context.scene, candidate);
-      if (key && !view.heldCheckPreparations?.includes(key)) view.heldCheckPreparations = [...(view.heldCheckPreparations ?? []), key];
-      view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'check_preparation', candidate,
-        extra: {preparation: result.preparation}});
-    } else holdCheckDecision(view, candidate);
-    view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate: label, needs: result.needs,
-      ...(result.preparation ? {preparation: result.preparation} : {})}];
+    // §163: nothing was scored or executable. The decision is not asked again this run; the Keeper narrates it.
+    holdCheckDecision(view, candidate);
+    recordForced(view, forcedResolution({family: 'check-selection', subject: label, uncertain: result.needs, chosen: {outcome: 'no_roll'},
+      why: 'jev_unanswered'}, String(candidate.bound.decision ?? candidate.key)));
+  }
+  if (result.forced && result.status !== 'unresolved') {
+    const chosen = result.status === 'selected' && result.option
+      ? {outcome: 'roll' as const, check: result.option.label, ...(result.action ? {action: result.action} : {})}
+      : {outcome: result.status === 'deferred' ? 'deferred' as const : 'no_roll' as const};
+    recordForced(view, forcedResolution({family: 'check-selection', subject: label, uncertain: result.forced.uncertain, chosen, why: result.forced.why},
+      String(candidate.bound.decision ?? candidate.key)));
+    if (result.status !== 'selected') holdCheckDecision(view, candidate);
   }
   // There need not be a fresh read before the next route. Retire this evaluated snapshot now.
   view.candidates = view.candidates.filter(item => !view.consumed.includes(item.key)
@@ -1074,6 +1110,7 @@ export function settleBind(view: RunView, step: number, candidate: Candidate, ba
   if (!offline) { view.budget.jevCalls++;view.budget.jevMs += ms; }
   const bound = interpretBind(candidate, batch, result, gate);
   view.pending.unshift(...bound.pending);
+  if (bound.forced) recordForced(view, bound.forced);
   observe(view, {kind: 'decide', purpose: 'bind', status: result.status, choice: candidate.key, confidence: bound.confidence, reason: bound.reason,
     summary: (bound.extra ?? null) as Json});
   return {step, kind: 'decide', purpose: 'bind', choice: candidate.key, confidence: bound.confidence ?? null, ms, jev_calls: 1,
@@ -1301,9 +1338,11 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     // A clerk step that was refused is dropped for the run (its key is consumed above) and the turn goes to the Keeper
     // (§135.26): the clerk does not route around its own refusal.
     if (checkFailed && !refreshedCheck) {
+      // §163: the refused check is not executed (the refusal stands); the turn goes on without its roll, recorded.
       holdCheckDecision(view, item.candidate!);
-      view.unresolvedChecks = [...(view.unresolvedChecks ?? []),
-        {candidate: item.candidate!.label, needs: [String(object(executed.summary).refusal ?? 'check_execution_refused')]}];
+      recordForced(view, forcedResolution({family: 'check-execution', subject: item.candidate!.label,
+        uncertain: [String(object(executed.summary).refusal ?? 'check_execution_refused')], chosen: {outcome: 'no_roll'}, why: 'check_refused'},
+      item.candidate!.key));
     }
     if (!executed.ok && !refreshedCheck) view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'clerk_refused'});
   }
@@ -1617,8 +1656,7 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       const packingReason = object(observation.artifact).reason;
       if (observation.kind === 'decide' && ['offline_packing_limit', 'offline_schema_error'].includes(packingReason)) {
         const reason = packingReason === 'offline_packing_limit' ? 'packing_limit' : 'schema_error';
-        if ((!view.interactionScope || view.interactionScope.mode === 'world') && view.candidates.some(candidate => candidate.checkOwner === 'jev'))
-          view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate: 'check selection', needs: [reason]}];
+        // §163: the checks the refused question would have judged are no roll; the engine records them at the compose.
         view.pending = [{kind: 'infer', purpose: 'compose', reason: `jev_${reason}`}];
         observe(view, {kind: 'decide', purpose: request.kind === 'decide' ? request.purpose : 'route', status: 'unavailable', reason});
         stamp(view, policyState.startedAt);
@@ -1628,8 +1666,12 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
       const artifact = (observation.kind === 'operate' ? observation.outcomes?.[0]?.artifact : observation.artifact) as StepArtifact | undefined;
       let bound: Pick<StepPolicyState, 'scope' | 'readSet' | 'intent'> = {};
       if (request.kind === 'decide' && request.purpose === 'interaction-scope') {
-        const scope = artifact?.kind === 'interaction-scope' ? artifact.scope : {mode: 'uncertain' as const, reason: 'scope_unavailable', calls: 0};
+        // §163: no scope answer at all plays as a world turn too, recorded as forced.
+        const scope: InteractionScope = artifact?.kind === 'interaction-scope' ? artifact.scope : {mode: 'world', reason: 'scope_unavailable', calls: 0,
+          forced: {uncertain: ['world action unanswered', 'out-of-fiction request unanswered'], why: 'jev_unanswered'}};
         view.interactionScope = scope;
+        const forced = forcedScope(scope, view.rawInput);
+        if (forced) recordForced(view, forced);
         view.budget.jevCalls += scope.calls;
         view.budget.jevMs += observation.ms;
         observe(view, {kind: 'decide', purpose: 'interaction-scope', status: scope.mode, summary: {...scope}});

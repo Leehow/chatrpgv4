@@ -45,7 +45,8 @@ import { JEV_MODEL } from './question-packing.ts';
 import { preparationProviderBudget } from './preparation-budget.ts';
 import { prepareCheckPreflight } from './check-preflight.ts';
 import {checkAttemptIdentity, selectCheck, validateCheckOptions, withinCheckLease, type CheckSelection} from './resolve-selection.ts';
-import {interactionScopeBatch, interpretInteractionScope, permitsReferenceOperation, REFERENCE_SCOPE_NOTE, UNCERTAIN_SCOPE_NOTE, type InteractionScope} from './interaction-scope.ts';
+import {interactionScopeBatch, interpretInteractionScope, permitsReferenceOperation, REFERENCE_SCOPE_NOTE, type InteractionScope} from './interaction-scope.ts';
+import {DECIDED_UNDER_UNCERTAINTY_NOTE, forcedResolution, type ForcedResolution} from './forced-resolution.ts';
 import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
@@ -87,7 +88,7 @@ const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value
  */
 export const CLERK_NOTE_HEAD = IMPROVISATION_GUIDANCE+' Use apply move with establish:{summary} and via for a new place, apply clue with establish:{summary} and how for new evidence, and apply npc walk_on for a newcomer. On compose steps, write the final response from supplied source and committed receipts. Do not repeat supplied lookups, restage recorded people, or add optional bookkeeping just to fill fields. Genuine unresolved requirements retain their ordinary operations. '
   + 'Check selection belongs to Jev and the host. Never call resolve or choose a check, including after an unavailable decision, ambiguous binding, refused operation or spent budget. '
-  + 'Report unresolved_checks honestly in the play language, and do not narrate their unexecuted outcomes. '
+  + 'A check the host left without a roll (decided_under_uncertainty) is narrated by your own judgement; never stage it as pending or ask the player to repeat it. '
   + 'Writes are silent: write no prose beside apply, resolve or lookup calls (it is dropped and never shown). '
   + 'An apply whose landing is fixed by its own arguments is non-blocking: put it and the narrate that follows in the same response, '
   + 'writes first, narrate last; resolve, look, lookup and recall are blocking -- the prose needs a result you do not have yet -- so '
@@ -479,8 +480,11 @@ interface RunState {
   interactionScope?: InteractionScope;
   history?: {enabled: boolean; allowed: boolean; asked: boolean; scene: string; context: Json; closed?: boolean;
     closedReason?: 'budget_exhausted' | 'turn_budget_exhausted'};
-  unresolvedNoticeKey?: string;
   unresolvedAttack?: boolean;
+  /** §163: the run's forced resolutions in first-seen order, which are recorded (one telemetry row each), and which the Keeper was shown. */
+  forced: ForcedResolution[];
+  forcedRecorded: Set<string>;
+  forcedShown: Set<string>;
   runId: string;
   /** §158.4: this run's first read already waited for the previous delivery's review (it waits once). */
   owedWaited?: boolean;
@@ -569,7 +573,6 @@ interface RunState {
   turnReceipts: Row[];
   pendingCheckPreparations?: Array<{candidate: string; needs: string[]}>;
   pendingAttackPreparation?: boolean;
-  preparationNoticeSent?: boolean;
   /** SL-76: the latest read's D1 candidates and scene context, held for the turn-close route (never asked mid-read: see `routeConsequences`'s call site). */
   consequenceCandidates: ConsequenceCandidate[];
   consequenceContext?: TurnContext;
@@ -702,12 +705,22 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (id && !run.turnReceipts.some(seen => text(seen.id) === id)) run.turnReceipts.push(receipt);
     }
   };
-  const notifyCheckPreparations = (run: RunState) => {
-    if (!run.preparationNoticeSent && run.pendingCheckPreparations?.length && run.turn !== undefined && bridge?.campaign) {
-      run.preparationNoticeSent = true;
-      api?.events?.emit?.('coc:check-selection-unresolved', {campaign: bridge.campaign, turn: run.turn, run: run.runId, needs: run.pendingCheckPreparations});
+  /**
+   * §163: a forced resolution is one `lane: "forced-resolution"` row when the run first sees it (from the policy's view or
+   * the engine's own projection), and joins the run's list the Keeper's next note shows once.
+   */
+  const recordForced = (run: RunState, entries: readonly ForcedResolution[] | undefined, step?: string) => {
+    for (const entry of entries ?? []) {
+      if (run.forcedRecorded.has(entry.key)) continue;
+      run.forcedRecorded.add(entry.key);
+      run.forced.push(entry);
+      record({lane: 'forced-resolution', run: run.runId, ...(step ? {step} : {}), ...(run.turn !== undefined ? {turn: run.turn} : {}),
+        family: entry.family, subject: entry.subject, uncertain: entry.uncertain, chosen: entry.chosen, why: entry.why});
     }
   };
+  /** §163 (amends §159.10): a preparation still pending when the turn is delivered was narrated by judgement: a forced no-roll. */
+  const recordUnpreparedChecks = (run: RunState) => recordForced(run, (run.pendingCheckPreparations ?? []).map(entry =>
+    forcedResolution({family: 'check-preparation', subject: entry.candidate, uncertain: entry.needs, chosen: {outcome: 'no_roll'}, why: 'preparation_incomplete'})));
   /** The kernel reads a step needs and the candidates they issue. Read-only. */
   async function tableReads(run: RunState): Promise<{capsule: Row; status: Row; table: ReturnType<typeof readTable>; candidates: () => Candidate[]; rows: () => FeatureRows;
     consequences: () => ConsequenceCandidate[]}> {
@@ -1034,9 +1047,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       && !permitsReferenceOperation(proposal.operation, proposal.params);
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
       : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
-      + 'Nothing in this apply was executed. Narrate only established facts and retain the unresolved attack.'}
+      + 'Nothing in this apply was executed. Narrate the attempt by your own judgement without inflicting damage this turn.'}
       : proposal.operation === 'resolve' ? {code: 'check_selection_owned', text: 'Jev and the host own check selection. This model-origin resolve was not executed. '
-      + 'Narrate only committed receipts and report unresolved check needs; do not choose a replacement check.'}
+      + 'Narrate committed receipts, and narrate any attempt the host left without a roll by your own judgement; do not choose a replacement check.'}
       : proposal.operation === PROPOSE_VERB ? undefined
       : batch.proposed ? {code: 'propose_pending', text: PROPOSE_PENDING_REFUSAL}
         : narrowed && !narrowed.includes(proposal.operation)
@@ -1096,7 +1109,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // `apply`/`resolve` already routed itself through `routeConsequencesAfterWrite`), never asking Jev again for a
     // turn that is closing by a Keeper delivery instead of a `turn_close` proposal.
     if (delivery) {
-      notifyCheckPreparations(run);
+      recordUnpreparedChecks(run);
       closeConsequences(run);
     }
     return {status: toolResult.isError ? 'refused' as const : 'ok' as const, toolResult, ...(delivery ? {delivery} : {}),
@@ -1412,7 +1425,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     if (verdict.status === 'delivered') {
       const delivery = verdict.delivery === 'awaiting_player' ? 'awaiting_player' as const : 'accepted' as const;
-      notifyCheckPreparations(run);
+      recordUnpreparedChecks(run);
       closeConsequences(run);
       return done('ok', {status: 'delivered', delivery, implicit: verdict.implicit === true, call_id: verdict.call_id ?? null, turn: verdict.turn ?? null}, delivery);
     }
@@ -1711,38 +1724,38 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (run.interactionScope && bridge?.campaign && run.turn !== undefined) {
       api?.events?.emit?.('coc:interaction-scope', {campaign: bridge.campaign, turn: run.turn, run: run.runId,
         player_text: run.rawInput, mode: run.interactionScope.mode});
-      if (run.interactionScope.mode !== 'world') Object.assign(content, {interaction_scope: run.interactionScope.mode,
-        interaction_scope_note: run.interactionScope.mode === 'reference' ? REFERENCE_SCOPE_NOTE : UNCERTAIN_SCOPE_NOTE});
+      if (run.interactionScope.mode === 'reference') Object.assign(content, {interaction_scope: 'reference', interaction_scope_note: REFERENCE_SCOPE_NOTE});
     }
     run.unresolvedAttack = view.policyState?.view?.fightDeclared === true && view.policyState?.view?.fightLanded !== true;
-    const unresolvedChecks = [...(view.policyState?.view?.unresolvedChecks ?? [])];
-    if ((!run.interactionScope || run.interactionScope.mode === 'world') && step.reason.startsWith('jev_') && step.reason !== 'jev_budget'
-      && view.policyState?.view?.candidates?.some(candidate => candidate.checkOwner === 'jev'))
-      unresolvedChecks.push({candidate: 'check selection', needs: ['check_selection_unavailable']});
-    if (unresolvedChecks.length) {
-      content.unresolved_checks = unresolvedChecks;
-      content.check_outcome_boundary = 'These attempts are awaiting adjudication. Their results are not determined, even when the source or earlier scene description suggests an answer. '
-        + 'Do not complete them in prose or record their findings with apply. Negative findings, such as hearing nothing or finding no traces, are outcomes too. '
-        + 'Keep the investigator at the point of attempting them; narrate only independently established surroundings and other committed results. The host supplies the unresolved notice outside the fiction.';
+    const policyView = view.policyState?.view;
+    // §163: what the policy forced (scope, selection, binding, a refused check) and what this step forces: the checks a
+    // Jev-less step leaves unjudged (no answer, packing refusal, spent budget) and a check whose binding settled nothing.
+    recordForced(run, policyView?.forced, stepId);
+    if ((!run.interactionScope || run.interactionScope.mode === 'world') && step.reason.startsWith('jev_') && ['compose', 'adjudicate'].includes(step.purpose)) {
+      const unjudged = (policyView?.candidates ?? []).filter(candidate => candidate.checkOwner === 'jev' && !policyView!.consumed.includes(candidate.key));
+      if (unjudged.length) recordForced(run, [forcedResolution({family: 'check-selection', subject: 'checks not judged this turn',
+        uncertain: [`which of the ${unjudged.length} offered check families the declaration needs`], chosen: {outcome: 'no_roll'}, why: step.reason})], stepId);
     }
-    const preparations = unresolvedChecks.filter(entry => entry.preparation);
+    if (step.reason === 'check_unresolved') {
+      const left = object(object(step.request).check_unresolved), operation = object(object(step.request).operation);
+      recordForced(run, [forcedResolution({family: 'check-binding', subject: text(operation.label) || 'check',
+        uncertain: array(left.unresolved).map(value => String(value)), chosen: {outcome: 'no_roll'}, why: text(left.cause) || 'unknown_binding'},
+      text(object(step.request).candidate) || null)], stepId);
+    }
+    const unseen = run.forced.filter(entry => !run.forcedShown.has(entry.key));
+    for (const entry of unseen) run.forcedShown.add(entry.key);
+    if (unseen.length) Object.assign(content, {decided_under_uncertainty: unseen.map(({key: _key, ...entry}) => entry) as unknown as Json,
+      decided_under_uncertainty_note: DECIDED_UNDER_UNCERTAINTY_NOTE});
+    const preparations = (policyView?.unresolvedChecks ?? []).filter(entry => entry.preparation);
     run.pendingCheckPreparations = preparations.map(({candidate, needs}) => ({candidate, needs}));
     run.pendingAttackPreparation = !!view.policyState.view.preparingAttacks?.length;
     if (preparations.length) content.check_preparation = {
       needs: preparations.flatMap(entry => entry.preparation ? [entry.preparation] : []),
       instruction: 'These are missing host arguments, not uncertainty about what the player wants. Prepare the observed participants and their profiles through the existing scene/source preparation tools, then register their actual presence with apply npc when needed. '
-        + 'Source answer excerpts alone do not register participants. Use source_mode=prepare for missing playable entities. Do not invent numeric profiles, make model-origin resolve calls, or narrate an adjudicated result. '
-        + 'After an accepted preparation write, the host refreshes its catalog and Jev can examine a ready check again. If preparation cannot complete, preserve the attempt as unresolved.'
+        + 'Source answer excerpts alone do not register participants. Use source_mode=prepare for missing playable entities. Do not invent numeric profiles, make model-origin resolve calls, or narrate an adjudicated result while preparing. '
+        + 'After an accepted preparation write, the host refreshes its catalog and Jev can examine a ready check again. If preparation cannot complete this turn, narrate the attempt by your own judgement without a roll; '
+        + 'the host records it as decided under uncertainty, and later facts are reconciled forward.'
         + (run.pendingAttackPreparation ? ' This is the already chosen first attack. Prepare only its named target and physical method. Pin a missing NPC combat archetype through apply npc. For the chosen ordinary item, use apply usage with a natural use name and the actual declaration; the host joins a pending base definition in this turn. Do not copy it into a weapon or defer it because look says parameters are pending. Return the preparation results without closing the attack in suspense or asking the player to repeat it: the host resumes the retained attack when ready.' : '')};
-    if (step.reason === 'check_unresolved') content.unresolved_check = object(step.request).check_unresolved ?? {reason: step.reason};
-    const unresolved = [...unresolvedChecks.filter(entry => !entry.preparation), ...(content.unresolved_check ? [{candidate: 'check', needs: object(content.unresolved_check).unresolved ?? []}] : [])];
-    if (unresolved.length && run.turn !== undefined && bridge?.campaign) {
-      const key = digest(unresolved);
-      if (key !== run.unresolvedNoticeKey) {
-        run.unresolvedNoticeKey = key;
-        api?.events?.emit?.('coc:check-selection-unresolved', {campaign: bridge.campaign, turn: run.turn, run: run.runId, needs: unresolved});
-      }
-    }
     const base = Object.keys(content).length;
     run.lastInferAt = now() - run.startedAt;
     if (run.history?.enabled && !run.history.closed && step.purpose === 'compose' && now() - run.startedAt >= run.budgetMs) {
@@ -1778,7 +1791,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       Object.assign(content, {decision_budget: {jev_calls: spent?.jevCalls ?? null, jev_ms: spent?.jevMs ?? null, max_jev_calls: spent?.maxJevCalls ?? null,
         max_jev_ms: spent?.maxJevMs ?? null},
       decision_budget_note: 'The host\'s decision budget for this turn is spent: no further step is routed from the player\'s words this turn '
-        + '(a step the kernel forces still runs). Checks remain unresolved; do not select or execute them. Report the limitation and narrate committed results.'});
+        + '(a step the kernel forces still runs). Checks not yet judged take no roll this turn (decided_under_uncertainty): narrate the declared action and committed results by your own judgement.'});
     }
     // §135.11 addendum (SL-20): the compose after the clerk settled the declaration says why it is the compose.
     if (step.reason === 'settled') content.settled_note = 'The clerk settled the player\'s declared step this turn (see clerk_did). Narrate its result '
@@ -1861,7 +1874,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (shown) content.carried = shown;
     const messages: Row[] = [];
     // Nothing new to say: no message (§135.8) -- except the run's first note, whose head is something to say (§135.11.2).
-    if (head || unresolved.length || Object.keys(content).length > base || fresh.length) {
+    if (head || unseen.length || preparations.length || Object.keys(content).length > base || fresh.length) {
       messages.push({role: 'custom', customType: CLERK_TYPE, content: JSON.stringify(content), display: false,
         details: {coc_host: true, run: run.runId, step: stepId, ...(run.turn !== undefined ? {turn: run.turn} : {})}, timestamp: Date.now()});
       run.headShown = true;
@@ -1879,6 +1892,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     return {...policy, next(driver) {
       const request = policy.next(driver), budget = driver.policyState.view.budget;
       run.decision = {...budget};
+      // §163: what the last folded step forced is recorded before the next step runs, whether or not a model step follows.
+      recordForced(run, driver.policyState.view.forced, `${run.runId}:s${driver.steps}`);
       // §143.4: a person's own act the time budget left undone is recorded, never run past the budget.
       if (overRun(budget) && request.kind === 'infer') {
         const view = driver.policyState.view;
@@ -1950,7 +1965,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         consequenceRows: new Map(), consequenceExists: new Map(), consequenceExecuted: new Set(), consequenceMs: 0, turnReceipts: [], consequenceCandidates: [],
         present: [], npcSeen: new Set(), npcCount: {acted: 0},
         keeperCalls: {apply: 0, resolve: 0, look: 0, lookup: 0, recall: 0}, compileCalls: 0, consequenceExecutedReceiptIds: new Map(),
-        offered: [], proposedKeys: new Set(), proposeCalls: 0};
+        offered: [], proposedKeys: new Set(), proposeCalls: 0, forced: [], forcedRecorded: new Set(), forcedShown: new Set()};
       const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
         requireInteractionScope: true,
         interactionScope: options.interactionScope ?? (!context.rawInput.trim() ? {mode: 'world', reason: 'host_opening', calls: 0} : undefined),

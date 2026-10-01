@@ -396,7 +396,12 @@ test("at the extension seam the one jev_budget compose tells the Keeper why, the
 	const continuation = clerkNotes(requests[2]).filter((note) => note.reason === "keeper_carries");
 	// Optional reference offers and unresolved outcomes have their own projection owners; neither repeats this budget explanation.
 	assert.ok(continuation.every(note => !note.decision_budget_note && !note.decision_budget), "the spent-budget explanation is still sent only once");
-	assert.ok(continuation.filter(note => note.unresolved_checks?.length).every(note => note.check_outcome_boundary), "unresolved checks keep their outcome boundary");
+	// §163: the checks the spent budget left unjudged are one recorded forced no-roll, told once, never an unresolved boundary.
+	const forced = table.telemetry("test-camp").filter((row) => row.lane === "forced-resolution");
+	assert.ok(forced.some((row) => row.family === "check-selection" && row.why === "jev_budget" && row.chosen.outcome === "no_roll"), JSON.stringify(forced));
+	assert.ok(clerkNotes(requests[1]).some((note) => note.decided_under_uncertainty?.some((entry) => entry.why === "jev_budget")), "the budget compose carries the marker");
+	assert.ok([...continuation, ...clerkNotes(requests[1])].every((note) => note.unresolved_checks === undefined && note.check_outcome_boundary === undefined));
+	assert.equal(forced.filter((row) => row.why === "jev_budget").length, 1, "recorded once");
 	const summary = table.telemetry("test-camp").find((row) => row.lane === "run" && row.event === "budget" && row.decision === "summary");
 	assert.equal(summary.decision_budget.spent, true);
 	assert.deepEqual(summary.prescreen, { reads: 0, jev_calls: 0, ms: 0 });

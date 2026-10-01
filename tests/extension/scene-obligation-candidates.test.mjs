@@ -267,10 +267,14 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	const defaulted = interpretBind(check, batch, answer({ skill: "unknown", bonus: "none", penalty: "none", intent: "social" }), 0.6);
 	assert.deepEqual(defaulted.pending.map((item) => [item.kind, item.purpose, item.reason]), [["infer", "compose", "check_unresolved"]]);
 	assert.deepEqual(defaulted.pending[0].extra.unresolved, ['skill'], 'unknown does not choose the highest skill');
-	// Below the gate everywhere: the approach and the dice take their defaults, but the intent has none (the obligation
-	// states no intent), so the check is the Keeper's turn -- never an LLM bind.
+	// Below the gate everywhere: the dice take their defaults; §163 (owner ruling 2026-10-01) the approach and the intent,
+	// which have no permitted default here, take Jev's leading issued answers as its best guess -- recorded as forced and
+	// uncleared, so canonical admission reviews them in full. Never an LLM bind, never the highest skill.
 	const low = interpretBind(check, batch, answer({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" }, 0.4), 0.6);
-	assert.deepEqual(low.pending.map((item) => [item.kind, item.purpose, item.reason, item.extra?.unresolved]), [["infer", "compose", "check_unresolved", ["skill", "intent"]]]);
+	assert.deepEqual(low.pending.map((item) => [item.kind, item.purpose]), [["direct", "execute"]]);
+	assert.deepEqual([low.pending[0].extra.skill, low.pending[0].extra.intent], ["Persuade", "social"]);
+	assert.deepEqual(low.forced.uncertain, ["skill: Persuade confidence 0.4", "intent: social confidence 0.4"]);
+	assert.deepEqual(low.bindings.filter((entry) => entry.cleared === false).map((entry) => entry.name), ["skill", "intent"]);
 
 	// The clerk's call is the Keeper's resolve with the claim; the dice word becomes a modifier with its reason.
 	const { tool, args } = keeperCall(check, bound.pending[0].extra);
@@ -403,11 +407,11 @@ const metArty = (workspace) => kernelSteps(workspace, [
 	["table.apply", { call_id: "t1-c2", effects: [{ kind: "person", who: "Arty Wilmot", name: "城市版编辑" }] }],
 	["table.narrate", { call_id: "t1-c3", text: "城市版编辑挡在剪报室门口。" }],
 ]);
-function answered(batch, pick = () => undefined) {
+function answered(batch, pick = () => undefined, confidence = 0.9) {
 	const answers = {};
 	for (const question of batch.questions) {
 		const choice = pick(question) ?? (question.key === "exit" ? "continue" : Object.keys(question.criteria)[0] === "now" ? "later" : question.criteria.seeks ? "not" : "unknown");
-		answers[question.key] = { status: "answered", type: "choice", choice, confidence: 0.9, probabilities: { [choice]: 0.9 } };
+		answers[question.key] = { status: "answered", type: "choice", choice, confidence, probabilities: { [choice]: confidence } };
 	}
 	return { batchId: batch.id, status: "complete", answers, coverage: { required: Object.keys(answers), answered: Object.keys(answers), unknown: [] }, issues: [] };
 }
@@ -522,14 +526,14 @@ test("a clerk step that crossed an open obligation is one obligation_open line b
 });
 
 /** The run on a real Pi session over the emitted kernel, arriving at the morgue with Arty not yet met; Jev is a stub. */
-async function arrival({ fact, compile, responses, firstExit = "finish", bind = { skill: "Persuade", bonus: "none", penalty: "none", intent: "social" } }) {
+async function arrival({ fact, compile, responses, firstExit = "finish", bind = { skill: "Persuade", bonus: "none", penalty: "none", intent: "social" }, bindConfidence = 0.9 }) {
 	const decisions = [], requests = [], calls = [];
 	let routes = 0;
 	const probe = { name: "so04-call-probe", factory(pi) { pi.on("tool_call", (event) => { calls.push({ id: event.toolCallId, tool: event.toolName, input: structuredClone(event.input) }); }); } };
 	// The §135.30 compile: `compile: "demand"` clears the ask on the gate's demand; otherwise every family answers `unknown`
 	// (the default), so nothing clears and the obligation reaches the fact question.
 	const engine = createHybridEngine({ env: process.env, decision: { decide: async (batch) => { decisions.push(batch); return batch.family === BIND_FAMILY
-		? answered(batch, (question) => bind[question.key])
+		? answered(batch, (question) => bind[question.key], bindConfidence)
 		: batch.family === COMPILE_FAMILY ? answered(batch, (question) => compile === "demand" ? askDemand(question) : undefined)
 		: (routes++, answered(batch, (question) => question.key === "exit" ? (routes === 1 ? firstExit : "finish") : question.criteria.seeks ? fact : undefined)); } } });
 	const table = await openTable({
@@ -577,7 +581,7 @@ test("§135.30 addendum: seeks at arrival without the compile's ask -- the fact 
 	assert.ok(!(route.selected ?? []).includes(`resolve:obligation:${ACCESS}`), "and selects nothing");
 });
 
-test("§159: an unknown approach stays unresolved instead of choosing the investigator's highest skill", async (t) => {
+test("§159/§163: an unknown approach is a recorded no-roll the Keeper narrates, never the investigator's highest skill and never a notice", async (t) => {
 	const { table, calls, requests } = await arrival({ fact: "seeks", compile: "demand", bind: { skill: "unknown", bonus: "none", penalty: "none", intent: "social" },
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
@@ -588,9 +592,33 @@ test("§159: an unknown approach stays unresolved instead of choosing the invest
 	const telemetry = table.telemetry("test-camp");
 	const row = telemetry.find((entry) => entry.tool === "resolve" && entry.origin === "policy" && entry.ok);
 	assert.equal(row, undefined, 'no dice were rolled for an unknown approach');
-	assert.ok(table.session.messages.some(message => message.customType === 'coc-delivery' && message.details?.check_selection_unresolved));
+	assert.ok(!table.session.messages.some(message => message.customType === 'coc-delivery' && message.details?.check_selection_unresolved), 'no host notice');
+	const forced = telemetry.filter((entry) => entry.lane === "forced-resolution");
+	assert.equal(forced.length, 1, JSON.stringify(forced));
+	assert.deepEqual({family: forced[0].family, chosen: forced[0].chosen}, {family: "check-binding", chosen: {outcome: "no_roll"}});
+	assert.ok(forced[0].uncertain.includes("skill"), "the unbound approach is named");
+	assert.ok(table.session.messages.some((message) => message.customType === "coc-mechanics" || message.role === "toolResult" && message.toolName === "narrate"), "the Keeper's prose was delivered");
 	assert.equal(requests.length, 1, "one model request, the compose: none for the approach");
 	assert.ok(!telemetry.some((entry) => entry.event === "llm_bound"), "no LLM bind");
+});
+
+test("§163: an approach Jev leads with below the gate is bound as its best guess, uncleared for admission, recorded, and rolled", async (t) => {
+	const { table, calls } = await arrival({ fact: "seeks", compile: "demand", bindConfidence: 0.5,
+		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
+	const telemetry = table.telemetry("test-camp");
+	const forced = telemetry.filter((entry) => entry.lane === "forced-resolution");
+	assert.ok(forced.length >= 1, JSON.stringify(telemetry.filter((entry) => entry.lane === "route" && entry.purpose === "bind")));
+	const binding = forced.find((entry) => entry.family === "check-binding");
+	assert.equal(binding.chosen.outcome, "roll");
+	// The approach clears through its own `jev_lead` default; the intent has no permitted default and is Jev's best guess.
+	assert.deepEqual(binding.uncertain, ["intent: social confidence 0.5"]);
+	assert.deepEqual(binding.chosen.action, { skill: "Persuade", bonus: "none", penalty: "none", intent: "social" });
+	const roll = calls.find((value) => value.id.startsWith("clerk:") && value.input.action?.obligation === ACCESS);
+	assert.ok(roll, "the host proposed the obligation check with Jev's leading approach");
+	assert.equal(roll.input.action.skill, "Persuade");
+	assert.ok(!table.session.messages.some(message => message.customType === 'coc-delivery' && message.details?.check_selection_unresolved), "no host notice");
 });
 
 test("not at arrival: the obligation issues nothing and is not asked again this run", async (t) => {
