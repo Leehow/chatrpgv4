@@ -1,5 +1,6 @@
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
-import {historyConfigured, historyEnabled, historyNeedQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
+import {attackPreparationNeeds} from './attack-preparation.ts';
+import {historyConfigured, historyEnabled, historyContext, historyNeedQuestion, historyInterruptionQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, historyPreparationPayload, HISTORY_PREPARE, HISTORY_PREPARED, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
 /**
  * The product side of `PI_COC_LOOP_ENGINE=hybrid-v1`: the policy and the ports Pi's RunDriver (vendored
  * agent-core, ADR-0006) drives each player input with. Pi knows nothing of what is here. Contract §135.
@@ -476,6 +477,8 @@ function defaultLine(candidate: Candidate): string | undefined {
 interface OwedReviewPort {campaign: string; settle(elapsedMs: number): Promise<{in_flight: boolean; waited_ms: number; landed: boolean; turn?: number}>}
 interface RunState {
   interactionScope?: InteractionScope;
+  /** One selected preparation per player input, retained across scene refreshes. */
+  historyAttempted?: boolean;
   history?: {enabled: boolean; allowed: boolean; asked: boolean; scene: string; context: Json; closed?: boolean;
     closedReason?: 'budget_exhausted' | 'turn_budget_exhausted'};
   unresolvedNoticeKey?: string;
@@ -567,6 +570,7 @@ interface RunState {
   /** SL-76: every receipt this turn's reads have seen (`table.status.receipts`), deduped by id, for the turn-close pairing. */
   turnReceipts: Row[];
   pendingCheckPreparations?: Array<{candidate: string; needs: string[]}>;
+  pendingAttackPreparation?: boolean;
   preparationNoticeSent?: boolean;
   /** SL-76: the latest read's D1 candidates and scene context, held for the turn-close route (never asked mid-read: see `routeConsequences`'s call site). */
   consequenceCandidates: ConsequenceCandidate[];
@@ -644,6 +648,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   let consultations: SourceAnswersPort | undefined;
   let owedReview: OwedReviewPort | undefined;
   let historyFinalAnswer: {run: string; step: string; reason?: string} | undefined;
+  let historyPreparation: {run: string; step: string; state: RunState; started?: boolean} | undefined;
   // §151.1: the consequence-step mode's data default, read once (cached) and awaited by every run's first read.
   let stepsDataDefault: 'on' | 'shadow' = 'shadow';
   const stepsReady = jevStepsBudget().then(budget => { stepsDataDefault = budget.shadow ? 'shadow' : 'on'; });
@@ -715,7 +720,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const historyScene = text(object(capsule.where).scene);
     if (!run.history || run.history.scene !== historyScene) run.history = {enabled: false, allowed: false, asked: false,
       ...(run.history?.closed ? {closed: true, closedReason: run.history.closedReason} : {}),
-      scene: historyScene, context: {where: capsule.where ?? null, period: object(capsule.campaign).era ?? null} as Json};
+      scene: historyScene, context: historyContext(capsule)};
+    run.history.context = historyContext(capsule);
     run.history.enabled = historyEnabled(capsule);
     if (!run.history.enabled) run.history.allowed = false;
     // SL-76 (D2.3, D4): every receipt this turn's reads have seen, deduped by id -- the consequence route's
@@ -1028,9 +1034,20 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const catalog = run.stepCatalog, narrowed = catalog?.narrowed;
     const presumedHit = proposal.operation === 'apply' && run.unresolvedAttack === true
       && array(object(proposal.params).effects).some(effect => object(effect).kind === 'damage');
+    // Pi executes a response's tools in a new operate step, not the inference step that requested them.
+    const preparation = historyPreparation?.run === run.runId && historyPreparation.started === true;
+    const wrongPreparation = preparation && !(proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference'
+      && object(proposal.params).reference_mode !== 'catalog');
+    if (preparation) {
+      run.historyAttempted = true;
+      historyPreparation = undefined;
+      record({lane: 'historical-reference', event: 'preparation_attempt', run: run.runId, step: stepId, turn: run.turn,
+        operation: proposal.operation, accepted_kind: !wrongPreparation});
+    }
     const outsideScope = run.interactionScope?.mode !== undefined && run.interactionScope.mode !== 'world'
       && !permitsReferenceOperation(proposal.operation, proposal.params);
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
+      : wrongPreparation ? {code: 'historical_preparation', text: 'This selected preparation admits only lookup kind=historical_reference for an excerpt body, not a catalogue or another operation. Nothing in this call was executed. The attempt is retired; continue ordinary narration from available material without a preparation retry.'}
       : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
       + 'Nothing in this apply was executed. Narrate only established facts and retain the unresolved attack.'}
       : proposal.operation === 'resolve' ? {code: 'check_selection_owned', text: 'Jev and the host own check selection. This model-origin resolve was not executed. '
@@ -1043,6 +1060,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           ? {code: 'narrator_catalog', text: catalogRefusal(proposal.operation, run.offered)} : undefined;
     // §135.31: the kernel extension's tool row names the step a model call came from (announced before it runs).
     if (proposal.toolCall?.id) api?.events?.emit?.('coc:model-step', {toolCallId: proposal.toolCall.id, run: run.runId, step: stepId, operation: proposal.operation,
+      ...(run.pendingAttackPreparation && proposal.operation === 'apply' && array(object(proposal.params).effects).some(value => {
+        const effect = object(value);
+        return ['define','object','usage'].includes(effect.kind) || effect.kind === 'npc' && effect.archetype !== undefined;
+      }) ? {hold_embedded_narration:true} : {}),
       ...(run.history && run.scope ? {historical_reference: {...run.history, allowed: run.history.allowed && !run.history.closed,
         ...(run.history.closed ? {retrieval: {state: 'closed', reason: run.history.closedReason ?? 'budget_exhausted'}} : {}),
         scope: run.scope, turn: run.turn}} : {}),
@@ -1054,6 +1075,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §151.5: a `propose` is settled here, before the registered tool returns what was settled: queued or refused.
     const queued = proposal.operation === PROPOSE_VERB && proposal.toolCall?.id && proposeRegistered
       ? await proposeStep(run, proposal.toolCall.id, object(proposal.params).key, stepId) : undefined;
+    if (proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference') {
+      run.historyAttempted = true;
+      if (historyPreparation?.run === run.runId) historyPreparation = undefined;
+    }
     const toolResult = await execute();
     if (!toolResult.isError && proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference'
       && object(object(toolResult.details).retrieval).state === 'closed' && run.history && !run.history.closed) {
@@ -1196,9 +1221,21 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §143.3/§143.4: a person's own act is its own step: generated, bound, then written through this same gateway.
     if (isNpcAct(candidate)) return npcActStep(run, candidate, invocation);
     const {tool, args} = keeperCall(candidate, extra);
+    if (candidate.clerk === 'first_blow') {
+      const latest = await call('table.resolve.options'), first = object(object(latest.context).first_blow);
+      const needs = attackPreparationNeeds(first, object(args.action) as Record<string, Json>);
+      if (needs.length) {
+        const preparation = {decision:'combat:attack', needs};
+        record({lane:'check-preparation', run:run.runId, step:invocation.stepId, ...preparation});
+        const fresh = (await freshOf(run, invocation.stepId))?.fresh;
+        return {status:'refused' as const, artifact:{kind:'execute', executed:{ok:false, summary:{refusal:'check_preparation', preparation,
+          action:object(args.action), bindings:array(params.bindings)}}, ...(fresh ? {fresh} : {})}};
+      }
+    }
     // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
     // Computed before the dispatch (§32.12): admission reads it off the host origin to admit a compile selection.
-    const bindings = bindRecords(candidate, extra, array(params.bindings) as BindRecord[]);
+    const savedBindings = array(object(candidate.basis).preparation_bindings);
+    const bindings = bindRecords(candidate, extra, (savedBindings.length ? savedBindings : array(params.bindings)) as BindRecord[]);
     const dispatched = await dispatchClerk(run, {tool, args, clerk: candidate.clerk, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       bindings: admissionBindings(bindings, extra) as Json}, invocation);
     if (dispatched.unavailable) return unavailable;
@@ -1522,8 +1559,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (!batch || (request.purpose !== 'route' && request.purpose !== 'bind' && request.purpose !== 'compile' && request.purpose !== 'reask'))
       return {status: 'unavailable' as const, artifact: {reason: batch ? `no_${request.purpose}_decider` : 'no_scope_binding'}};
     const askHistory = run.history?.enabled && historyConfigured(options.env as NodeJS.ProcessEnv)
-      && !run.history.closed && !run.history.asked && ['compile', 'route'].includes(request.purpose);
-    if (askHistory) batch = {...batch, id: digest([batch.id, 'historical-reference']), questions: [...batch.questions, historyNeedQuestion()]};
+      && !run.historyAttempted && !run.history.closed && !run.history.asked && ['compile', 'route'].includes(request.purpose);
+    if (askHistory) batch = {...batch, id: digest([batch.id, 'historical-reference', run.history?.context]),
+      state: {...object(batch.state), historical_reference_setting: run.history?.context ?? null} as Json,
+      questions: [...batch.questions, historyNeedQuestion(), historyInterruptionQuestion()]};
     const began = stepNow();
     const lease = new TaskLease({owner: batch.family, goal: `run ${request.runId} ${request.purpose}`, scope: batch.scope, capabilities: ['decision'],
       readSet: batch.readSet, signal: request.signal, ...leaseClock,
@@ -1533,7 +1572,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       if (askHistory && run.history) {
         run.history.asked = true; run.history.allowed = historyNeed(result);
         record({lane: 'historical-reference', event: 'need', run: run.runId, turn: run.turn, allowed: run.history.allowed,
-          answer: result.answers.historical_reference_needed ?? null, status: result.status});
+          answer: result.answers.historical_reference_needed ?? null,
+          interruption: result.answers.historical_reference_interrupts_action ?? null, status: result.status});
       }
       const answers = result.status === 'complete' ? Object.fromEntries(Object.entries(result.answers ?? {}).map(([key, value]) => [key,
         value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;
@@ -1709,11 +1749,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     const preparations = unresolvedChecks.filter(entry => entry.preparation);
     run.pendingCheckPreparations = preparations.map(({candidate, needs}) => ({candidate, needs}));
+    run.pendingAttackPreparation = !!view.policyState.view.preparingAttacks?.length;
     if (preparations.length) content.check_preparation = {
       needs: preparations.flatMap(entry => entry.preparation ? [entry.preparation] : []),
       instruction: 'These are missing host arguments, not uncertainty about what the player wants. Prepare the observed participants and their profiles through the existing scene/source preparation tools, then register their actual presence with apply npc when needed. '
         + 'Source answer excerpts alone do not register participants. Use source_mode=prepare for missing playable entities. Do not invent numeric profiles, make model-origin resolve calls, or narrate an adjudicated result. '
-        + 'After an accepted preparation write, the host refreshes its catalog and Jev can examine a ready check again. If preparation cannot complete, preserve the attempt as unresolved.'};
+        + 'After an accepted preparation write, the host refreshes its catalog and Jev can examine a ready check again. If preparation cannot complete, preserve the attempt as unresolved.'
+        + (run.pendingAttackPreparation ? ' This is the already chosen first attack. Prepare only its named target and physical method. Pin a missing NPC combat archetype through apply npc. For the chosen ordinary item, use apply usage with a natural use name and the actual declaration; the host joins a pending base definition in this turn. Do not copy it into a weapon or defer it because look says parameters are pending. Return the preparation results without closing the attack in suspense or asking the player to repeat it: the host resumes the retained attack when ready.' : '')};
     if (step.reason === 'check_unresolved') content.unresolved_check = object(step.request).check_unresolved ?? {reason: step.reason};
     const unresolved = [...unresolvedChecks.filter(entry => !entry.preparation), ...(content.unresolved_check ? [{candidate: 'check', needs: object(content.unresolved_check).unresolved ?? []}] : [])];
     if (unresolved.length && run.turn !== undefined && bridge?.campaign) {
@@ -1725,7 +1767,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     const base = Object.keys(content).length;
     run.lastInferAt = now() - run.startedAt;
-    if (run.history?.enabled && !run.history.closed && step.purpose === 'compose' && now() - run.startedAt >= run.budgetMs) {
+    if (run.history?.enabled && !run.history.closed && ['compose','adjudicate'].includes(step.purpose) && now() - run.startedAt >= run.budgetMs) {
       run.history.closed = true;
       run.history.closedReason = 'turn_budget_exhausted';
       record({lane: 'historical-reference', event: 'closed_received', run: run.runId, step: stepId, turn: run.turn,
@@ -1733,6 +1775,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     historyFinalAnswer = run.history?.closed && run.interactionScope?.mode === 'reference' && step.purpose === 'compose'
       ? {run: run.runId, step: stepId, reason: run.history.closedReason} : undefined;
+    const prepareHistory = run.history?.enabled && run.history.allowed && !run.history.closed && !run.historyAttempted
+      && ['compose','adjudicate'].includes(step.purpose) && now() - run.startedAt < run.budgetMs;
+    historyPreparation = prepareHistory ? {run: run.runId, step: stepId, state: run} : undefined;
+    if (prepareHistory) content.historical_reference_preparation = {state: 'selected', instruction: HISTORY_PREPARE};
     // §135.11.1 (SL-50): the model step the Keeper's next message answers, for the kernel extension's drop row.
     api?.events?.emit?.('coc:model-infer', {run: run.runId, step: stepId});
     // §135.25: the compose the budget chose lists the clerk steps it left undone; the next run's first note says so once.
@@ -1774,14 +1820,17 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const policy = view.policyState?.view as {candidates?: unknown} | undefined;
       const issued = Array.isArray(policy?.candidates) ? policy!.candidates as Candidate[] : run.issued ?? [];
       run.offered = run.stepCatalog.propose ? offeredForPropose(issued, run.consequenceCandidates, new Set([...run.consequenceExecuted, ...run.proposedKeys])) : [];
-      if (run.stepCatalog.narrowed) Object.assign(content, {catalog: [...run.stepCatalog.narrowed], catalog_note: NARRATOR_NOTE});
+      if (run.stepCatalog.narrowed) Object.assign(content, prepareHistory
+        ? {catalog: ['lookup'], catalog_note: 'Selected host preparation: only lookup kind=historical_reference for an excerpt body. Ordinary narration resumes after this one attempt.'}
+        : {catalog: [...run.stepCatalog.narrowed], catalog_note: NARRATOR_NOTE});
       else if (run.stepCatalog.propose) content.propose_note = PROPOSE_NOTE;
       if (run.stepCatalog.propose) content.offered = offeredView(run.offered) as unknown as Json;
       record({lane: 'run', event: 'catalog', run: run.runId, step: stepId, purpose: step.purpose, reason: step.reason,
         catalog: run.stepCatalog.narrowed ? [...run.stepCatalog.narrowed] : null, propose: run.stepCatalog.propose, offered: run.offered.map(value => value.key),
         source: setting.source});
     }
-    if (run.history?.enabled) content.historical_reference = run.history.closed ? HISTORY_CLOSED : run.history.allowed ? HISTORY_OFFER : HISTORY_LOCAL_OFFER;
+    if (run.history?.enabled) content.historical_reference = run.history.closed ? HISTORY_CLOSED : run.historyAttempted ? HISTORY_PREPARED
+      : run.history.allowed ? HISTORY_OFFER : HISTORY_LOCAL_OFFER;
     if (run.history?.closed) content.historical_reference_status = {state: 'closed', reason: run.history.closedReason ?? 'budget_exhausted'};
     const fresh = run.clerkDid.slice(run.projected);
     run.projected = run.clerkDid.length;
@@ -1921,6 +1970,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     prepare: context => {
       currentRunId = context.runId;
       historyFinalAnswer = undefined;
+      historyPreparation = undefined;
       const allowance = readJevPreselectAllowanceMs(options.env as NodeJS.ProcessEnv), startedAt = now(), budgetMs = turnBudgetMs(options.env);
       const run: RunState = {runId: context.runId, rawInput: context.rawInput, inputRevision: context.inputRevision, session: context.session as unknown as Row,
         startedAt, prescreenAllowanceMs: allowance, providerBudget: preparationProviderBudget(), located: [], clerkDid: [], projected: 0,
@@ -1948,13 +1998,23 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.events.on('coc:source-answers', (data: SourceAnswersPort) => { consultations = data && typeof data.take === 'function' ? data : undefined; });
     pi.events.on('coc:owed-review', (data: OwedReviewPort) => { owedReview = data && typeof data.settle === 'function' ? data : undefined; });
     pi.on('before_provider_request', (event: {payload: unknown}, ctx: any) => {
+      if (historyPreparation?.run === currentRunId) {
+        const preparation = historyPreparation;
+        preparation.state.historyAttempted = true;
+        const payload = historyPreparationPayload(ctx?.model?.api, event.payload);
+        preparation.started = !!payload;
+        record({lane: 'historical-reference', event: 'preparation_request', run: preparation.run, step: preparation.step,
+          turn: preparation.state.turn, api: ctx?.model?.api ?? null, tool_required: !!payload});
+        if (!payload) historyPreparation = undefined;
+        return payload;
+      }
       if (!historyFinalAnswer || historyFinalAnswer.run !== currentRunId) return;
       const payload = historyFinalAnswerPayload(ctx?.model?.api, event.payload);
       record({lane: 'historical-reference', event: 'final_answer_request', ...historyFinalAnswer,
         api: ctx?.model?.api ?? null, tools_disabled: !!payload});
       return payload;
     });
-    pi.on('agent_end', () => {historyFinalAnswer = undefined;});
+    pi.on('agent_end', () => {historyFinalAnswer = undefined; historyPreparation = undefined;});
     // The run owns the prescreen on this engine (§135.6); the context hook injects what the run prepared.
     const announce = () => { pi.events.emit('coc:loop-engine', {engine: 'hybrid-v1', prescreen: 'run'}); };
     announce();

@@ -8,7 +8,7 @@ import { SkillResolver } from '../rules/skills.js';
 import { presentOpponents, type SettleContext } from '../resolve/context.js';
 import { investigatorCombatParticipant, npcCombatParticipant } from '../combat/profiles.js';
 import { archetypeIds } from '../apply/archetype.js';
-import { CHASE_OUTCOMES, DEFAULT_GAP, DEFAULT_LOCATION_COUNT, generateLocationChain, get, int, or, participantFromCombatSpec } from './model.js';
+import { CHASE_OUTCOMES, DEFAULT_GAP, DEFAULT_LOCATION_COUNT, generateLocationChain, get, int, or, participantFromCombatSpec, loadChaseRules, vehicleStats } from './model.js';
 export { presentOpponents } from '../resolve/context.js';
 /**
  * The intents a chase decision answers (§11.5): the rule graph gives every chase decision but the start `flee`, `move`
@@ -271,6 +271,52 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
 }> {
     const suffix = ref.split(':').at(-1)!;
     const action = context.action;
+    if (suffix === 'start' && Array.isArray(action.chase_roster)) {
+        const roster = action.chase_roster.map(row), known = presentOpponents(context), rules = await loadChaseRules(context.tables);
+        const participants: Row[] = [], names = new Map<string, string>(), drivers = new Map<string, Row>();
+        if (roster.length < 2 || roster.length > 16 || new Set(roster.map(entry => normalize(entry.actor))).size !== roster.length)
+            throw new RpcError('invalid_params', 'A chase roster requires distinct registered participants.');
+        const self = roster.find(entry => [context.actorId, context.actor.name].some(name => normalize(name) === normalize(entry.actor)));
+        if (!self || self.role === 'passenger') throw new RpcError('needs', 'The acting investigator must have a moving chase role.');
+        for (const entry of roster) {
+            if (!['foot', 'driver', 'passenger'].includes(entry.role)) throw new RpcError('invalid_params', 'Unknown chase mobility role.');
+            const acting = entry === self;
+            const opponent = acting ? null : known.find(([handle, node]) => [handle, context.graph.displayName(node)].some(name => normalize(name) === normalize(entry.actor)));
+            if (!acting && (!opponent || !opponent[2])) throw new RpcError('needs', 'A chase participant needs present identity and a pinned profile.',
+                {details: {reason: 'chase_participant_unprepared', field: 'chase_roster'}});
+            const id = acting ? context.actorId : opponent![0];
+            const spec = acting ? await investigatorCombatParticipant(context.tables, context.actor, null)
+                : await npcCombatParticipant(context.tables, id, opponent![2]!);
+            const side = entry.role === 'passenger' ? 'passenger' : (string(action.intent) === 'flee') === acting ? 'quarry' : 'pursuer';
+            const participant = participantFromCombatSpec(spec, side, 0);
+            names.set(normalize(entry.actor), id);
+            if (entry.role === 'driver') {
+                const vehicle = vehicleStats(rules, string(entry.vehicle));
+                Object.assign(participant, {role: 'driver', is_vehicle: true, vehicle_key: vehicle.vehicle,
+                    mov: vehicle.mov, build: vehicle.build, armor: vehicle.armor,
+                    drive_auto: await targetValue(context, id, 'Drive Auto')});
+                drivers.set(id, participant);
+            } else participant.role = entry.role === 'passenger' ? 'passenger' : 'driver';
+            participants.push(participant);
+        }
+        if (new Set(participants.map(participant => participant.actor_id)).size !== participants.length)
+            throw new RpcError('invalid_params', 'A chase roster cannot name one actor through multiple aliases.');
+        for (const entry of roster.filter(entry => entry.role === 'passenger')) {
+            const id = names.get(normalize(entry.actor))!, vehicle = names.get(normalize(entry.riding_with));
+            const driver = vehicle ? drivers.get(vehicle) : undefined;
+            if (!driver || vehicle === id) throw new RpcError('needs', 'A passenger must name a registered driver in this roster.',
+                {details: {reason: 'chase_passenger_driver_unprepared', field: 'chase_roster'}});
+            Object.assign(participants.find(participant => participant.actor_id === id)!,
+                {vehicle_actor_id: vehicle, mov: driver.mov, armor: driver.armor});
+        }
+        const pursuers = participants.filter(participant => participant.side === 'pursuer'), quarries = participants.filter(participant => participant.side === 'quarry');
+        if (!pursuers.length || !quarries.length) throw new RpcError('needs', 'A chase requires a moving pursuer and quarry.');
+        const locations = chaseLocationChain(context);
+        return {semantic: {pursuer_refs: pursuers.map(participant => participant.actor_id === context.actorId ? `investigator:${context.actorId}` : `npc:${participant.actor_id}`),
+            quarry_refs: quarries.map(participant => participant.actor_id === context.actorId ? `investigator:${context.actorId}` : `npc:${participant.actor_id}`),
+            location_refs: locationRefs(locations)}, extras: {_host_session_binding: {
+                chase_id: `chase:${context.activeScene}:${kebab(context.actorId)}-t${context.turnNumber}`, participants, locations}}};
+    }
     const view = context.sessions();
     const semantic: Row = {};
     const binding: Row = {

@@ -4,6 +4,7 @@ import {isPlainRecord, type DecisionBatch, type DecisionResult, type Json, type 
 import {JEV_MODEL, packDecisionBatch} from './question-packing.ts';
 import type {DecisionPort} from './decision-port.ts';
 import type {TaskLease} from './task-context.ts';
+import {selectChaseRoster} from './chase-roster-selection.ts';
 
 export interface CheckParameter {
   name: string;
@@ -50,7 +51,7 @@ export type CheckSelection = {
   action?: Record<string, Json>;
   needs: string[];
   calls: number;
-  preparation?: {decision: string; needs: string[]};
+  preparation?: {decision: string; needs: string[]; mobility?: 'vehicle'; drivers?: string[]};
   snapshot?: {scene: string; revision: string; worldRevision: string};
 };
 
@@ -70,6 +71,9 @@ export function specializedTriggerQuestion(option: CheckOption): string | undefi
   if (option.action.decision === 'chase:start')
     return 'Does the player choose an attempt by this investigator to pursue this escaping person or flee from this person? '
       + 'Judge the chosen pursuit or flight, not whether it succeeds or whether speeds have already been compared. The kernel performs that comparison. '
+      + (option.facts?.mobility === 'foot' ? 'This is the foot-only starter. It applies only when the investigator and relevant pursuers/quarry move on foot; a motor vehicle in the current pursuit requires the vehicle starter instead. '
+        : option.facts?.mobility === 'vehicle' ? 'This starter applies to a pursuit or flight involving a motor vehicle, including its driver and passengers. The player may refer to pursuing vehicles rather than knowing their operators\' names. '
+        : '')
       + 'Walking toward a stationary person, merely discussing a chase, or a hypothetical future pursuit does not qualify.';
   if (option.family === 'healing' && option.facts?.clinical_eligibility === 'eligible')
     return 'Does the player choose an attempt by this rescuer to treat this patient with the listed medical skill? '
@@ -167,7 +171,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     input.lease.assertActive();
     if (calls >= (input.maxCalls ?? 24)) throw new Error('check_selection_budget');
     const batch: DecisionBatch = {id: digest([purpose, state, questions, input.scope, input.readSet]), model: JEV_MODEL,
-      family: `check-selection-${purpose}`, familyVersion: '19', scope: input.scope, readSet: input.readSet, state, questions};
+      family: `check-selection-${purpose}`, familyVersion: '20', scope: input.scope, readSet: input.readSet, state, questions};
     packDecisionBatch(batch);
     calls++;
     const result = await withinCheckLease(input.lease, () => input.decision.decide(batch, input.lease));
@@ -447,6 +451,10 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         else action[parameter.name] = structuredClone(value.value);
       }
       if (missing.length) return unresolved(missing, selected);
+    }
+    if (selected.action.decision === 'chase:start' && selected.facts?.mobility === 'vehicle') {
+      const roster = await selectChaseRoster({...selected, action}, input.declaration, input.context, gates, decide);
+      return {...roster, status: roster.status ?? 'unresolved', needs: roster.needs ?? ['chase_roster_unavailable'], calls};
     }
     return {status: 'selected', option: selected, action, needs: [], calls};
   } catch (error) {

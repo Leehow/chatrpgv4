@@ -465,6 +465,12 @@ const MapEffect = Type.Object({
 });
 
 const ResolveAction = Type.Object({
+    chase_roster: Type.Optional(Type.Array(Type.Object({
+        actor: Type.String({description: 'Registered participant name, never an id.'}),
+        role: StringEnum(['foot', 'driver', 'passenger'] as const),
+        vehicle: Type.Optional(Type.String({description: 'Driver only: published vehicle profile name issued by the check catalog.'})),
+        riding_with: Type.Optional(Type.String({description: 'Passenger only: the name of a driver in this roster.'})),
+    }), {minItems: 2, maxItems: 16, description: 'Chase start mobility bindings. The host and Jev bind this roster; numbers and identifiers remain kernel-owned.'})),
 	coercion: Type.Optional(Type.String({ description: "on a roll of an investigator a person present pressed (Charm, Fast Talk, Intimidate or Persuade; pressures lists it): the player refused to do what was wanted, so the coercer puts one penalty die on this roll. Name the pressure's receipt; each is spent once" })),
 	surprise: Type.Optional(Type.Literal(true, { description: "with a person present as actor, intent combat and an investigator as target, when no fight is running: they strike the first blow, and the investigator did not see it coming (your ruling, usually after their Listen, Spot Hidden or Psychology). No dodge, no fighting back, one bonus die. Without it the investigator saw it coming and answers with a defence. The rounds then run in DEX order" })),
 	intent_ref: Type.Optional(Type.String({ description: "when this roll is the result of what an NPC set out to do: the ref of that intention (present[].history.intents, director.offer). A passed check makes it done and a failed one failed, unless intent_outcome says otherwise; a settled intention is refused before any die is thrown" })),

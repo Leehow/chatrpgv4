@@ -282,7 +282,9 @@ test("§135.30 addendum (live gate #4, turn 1): an exit the Keeper's clue unlock
 	assert.deepEqual([opening.kind, opening.purpose], ["decide", "compile"], "the ordinary check owes the compile at the first read");
 	const openingBatch = compileBatch(view, scope, [], []);
 	const opened_ = settleCompile(view, startStep(view, opening), openingBatch, answer({ act: [alias(openingBatch, "act", "move", view.rows), 0.9] }), 5, 0.6);
-	assert.deepEqual([opened_.detail.selected, opened_.detail.decided, opened_.detail.fell_through.some(key => key.startsWith("resolve:check:core-check:ordinary-check:"))], [[], [], true]);
+	// Unprofiled present people now remain preparable first-attack targets. The move act explicitly
+	// rules that candidate out; it neither prepares a combat profile nor settles an attack.
+	assert.deepEqual([opened_.detail.selected, opened_.detail.decided, opened_.detail.fell_through.some(key => key.startsWith("resolve:check:core-check:ordinary-check:"))], [[], ['resolve:combat:first-blow'], true]);
 	const route = next(view);
 	assert.deepEqual([route.kind, route.purpose], ["decide", "route"], "nothing a predicate selected: the route, as at the table");
 	const { batch, offered } = routeBatch(view, scope, []);

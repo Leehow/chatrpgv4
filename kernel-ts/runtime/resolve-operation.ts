@@ -10,7 +10,8 @@ import {taskWorldRevision} from '../read/context.js';
 import {RuleTables} from '../rules/tables.js';
 import {CHARACTERISTICS, SkillResolver} from '../rules/skills.js';
 import {RuleGraph} from '../rules/graph.js';
-import {array, row, string, number, type Row} from '../read/values.js';
+import {array, row, string, number, clone, values, type Row} from '../read/values.js';
+import {projectSheet} from '../mods/projection.js';
 import {npcsPresent} from '../read/capsule.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {incapacitatedBy} from '../healing/conditions.js';
@@ -30,11 +31,18 @@ function firstBlow(graph: ModuleGraph, world: Row, party: Row[], session: Row | 
     if (session && (session.kind === 'combat' || session.kind === 'chase') || party.length !== 1) return null;
     const scene = graph.scene(world.active_scene);
     if (!scene) return null;
-    const targets = npcsPresent(graph, world, scene).filter(node => {
+    const people = npcsPresent(graph, world, scene).filter(node => {
         const handle = graph.handle(node);
-        return npcProfileOf(graph, world, handle) !== null && !incapacitatedBy(row(row(world.npc_resources)[handle]).conditions).length;
-    }).map(node => graph.displayName(node));
-    return targets.length ? {decision: 'combat:attack', intent: 'combat', actor: string(party[0].name), targets, weapons: weaponOptions(party[0])} : null;
+        return !incapacitatedBy(row(row(world.npc_resources)[handle]).conditions).length;
+    });
+    const targets = people.map(node => graph.displayName(node)), sheet = clone(party[0]);
+    projectSheet(world, sheet);
+    const ready = weaponOptions(sheet), owned = values(row(row(world.objects).instances)).filter(item => item.owner.id === sheet.id).map(item => string(item.name));
+    const inventory = array(sheet.equipment).map(item => typeof item === 'string' ? item : string(row(item).name)).filter(Boolean);
+    const weapons = [...new Set([...ready, ...owned, ...inventory])];
+    return targets.length ? {decision: 'combat:attack', intent: 'combat', actor: string(sheet.name), targets, weapons,
+        preparation: {targets: people.filter(node => npcProfileOf(graph, world, graph.handle(node)) === null).map(node => graph.displayName(node)),
+            weapons: weapons.filter(name => !ready.includes(name))}} : null;
 }
 
 export function ordinaryResolveHandlers(context: KernelContext): HandlerGroup {

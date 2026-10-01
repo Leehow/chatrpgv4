@@ -442,6 +442,23 @@ test('a preparation hold permits agent preparation and re-opens only on a newly 
   settleRead(view, 4, read, {context, candidates: [ready]}, 1);
   assert.deepEqual(view.candidates.map(c => c.key), ['participants-ready']);
 });
+
+test('vehicle driver preparation cannot be released by a ready foot option or an unrelated driver', () => {
+  const request = {...candidate, bound: {decision: 'chase:start'}};
+  const context = {scene: 'road', clock: {}, present: []};
+  const view = initialView({runId: 'driver-prepare', rawInput: 'I drive away.', context, candidates: [request]});
+  settleCheckSelection(view, request, {status: 'unresolved', needs: ['chase_driver_skill_unavailable'], calls: 0,
+    preparation: {decision: 'chase:start', needs: ['chase_driver_skill_unavailable'], mobility: 'vehicle', drivers: ['Pursuer']}}, 0);
+  const read = {materials: [], summary: {}, calls: 0, ms: 0};
+  const source = actors => ({...request, key: 'updated', detail: {check_options: [
+    {needs: [], parameters: [], facts: {mobility: 'foot'}},
+    {needs: [], parameters: [], facts: {mobility: 'vehicle', chase_actors: actors}},
+  ]}});
+  settleRead(view, 1, read, {context, candidates: [source([{name: 'Jack', driving_available: true}, {name: 'Pursuer', driving_available: false}])]}, 0);
+  assert.deepEqual(view.candidates, []);
+  settleRead(view, 2, read, {context, candidates: [source([{name: 'Pursuer', driving_available: true}])]}, 0);
+  assert.equal(view.candidates.length, 1);
+});
 test('the existing agent schedules the check bind and its execution before compose', () => {
   const view = initialView({runId: 'run', rawInput: 'I listen.', context: {scene: 'hall', clock: {}, present: []}, candidates: [candidate], readFirst: false});
   view.pending = [{kind: 'infer', purpose: 'compose', reason: 'finish'}];

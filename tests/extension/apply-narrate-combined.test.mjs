@@ -43,6 +43,20 @@ const hybridTable = ({ responses, env }) => {
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }], responses });
 };
 
+test('serialized embedded narration is withheld while its committed effect survives the raw-text repair',async t=>{
+  const fragment=JSON.stringify('\\u0054he clipping is on the desk.\\nThe papers are dusty and the headline is now visible.')+'}';
+  const raw='The clipping lies open on the desk, its old headline visible beneath the dust. You have found the retained newspaper story.';
+  const table=await hybridTable({responses:[
+    fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'clue',clue:'globe-unpublished-story',why:'The player found the clipping.'}],narrate:fragment})],{stopReason:'toolUse'}),
+    fauxAssistantMessage([fauxToolCall('narrate',{text:raw})],{stopReason:'toolUse'})]});
+  t.after(()=>table.dispose());await table.session.prompt('I search the clippings for the old story.');await waitForIdle(table.session);
+  assert.equal(table.telemetry().filter(row=>row.tool==='apply'&&row.ok===true).length,1);
+  const record=turnRecord(table.workspace,2);
+  assert.equal(record.rendered_text,raw);
+  assert.equal(record.receipts.filter(receipt=>receipt.kind==='clue').length,1);
+  assert.ok(deliveryRows(table).some(row=>row.ok===false));
+});
+
 test("apply {effects, narrate}: settles the effect, delivers the narrate and closes the turn in one model step", async (t) => {
 	// SL-93 (§135.11.4.1): the embedded narrate now carries its own length floor too, so this fixture's
 	// prose clears it (45 code points once the marker is removed) -- unrelated to what this test is about.
