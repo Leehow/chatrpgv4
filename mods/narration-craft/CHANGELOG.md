@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.1.7
+- Speech serves what the person is doing to this listener now, in the words their mouth would use. Shared context carries unnecessary explanation; urgent warnings put the immediate consequence first, while an explanation, appeal, evasion or deliberate official manner may take more words. The brief carries the same reminder after entry. Hidden knowledge no longer mandates longer speech. Contract §40.9; no new lane, prose gate, length cap or phrase bank.
+
 ## 2.1.6
 - The mood is written before the person speaks, in the same turn, and its own `apply` is fine; it no longer has to ride in the call that delivers their words (contract §161.10 and §162, owner ruling 2026-10-01: prose written in `apply.narrate` beside effects is where grok-4.7-build-fast double-serializes it).
 
