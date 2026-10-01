@@ -36,7 +36,7 @@ function driver(policyState) {
   return {policyState, observations: [], pendingProposals: [], pendingRequirements: [], delivery: 'none'};
 }
 
-for (const purpose of ['route', 'bind', 'compile', 'reask']) test(`${purpose} packing refusal becomes a zero-call unresolved compose and preserves landed state`, () => {
+for (const purpose of ['route', 'bind', 'compile', 'reask']) test(`${purpose} packing refusal becomes a zero-call compose (§163: its checks a recorded no-roll) and preserves landed state`, () => {
   const candidate = {key: 'check', verb: 'resolve', family: 'core-check', label: 'Inspect the tire', bound: {decision: 'core-check:ordinary-check'},
     detail: {trigger: 'uncertain inspection', evidence: 'x'.repeat(40000)}, checkOwner: 'jev', unbound: [], clerk: 'declared_check'};
   const policy = createStepPolicy({context, candidates: [candidate], readFirst: false, compile: purpose === 'compile'});
@@ -62,7 +62,8 @@ for (const purpose of ['route', 'bind', 'compile', 'reask']) test(`${purpose} pa
   const reduced = policy.reduce(state, {kind: 'decide', status: 'unavailable', artifact: {reason: 'offline_packing_limit'}, ms: 0}, driver(state));
   assert.equal(reduced.view.budget.jevCalls, 0);
   assert.deepEqual(reduced.view.context.receipts, ['already-landed']);
-  assert.deepEqual(reduced.view.unresolvedChecks, [{candidate: 'check selection', needs: ['packing_limit']}]);
+  // §163: no unresolved hold or notice; the compose's projection records the unjudged checks as a forced no-roll.
+  assert.equal(reduced.view.unresolvedChecks, undefined);
   const next = policy.next(driver(reduced));
   assert.deepEqual([next.kind, next.purpose, next.reason], ['infer', 'compose', 'jev_packing_limit']);
 });
