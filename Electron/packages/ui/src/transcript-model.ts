@@ -269,13 +269,19 @@ export function withoutMechanicsMarkers(text: string): string {
  *
  * The match is exact text equality after stripping, never a guess: two messages that read the same
  * are the same delivery, and a delivery the card is not drawing is left alone.
+ *
+ * A card whose NPC lines were edited after delivery (contract §165.5.3) draws the edited lines, so
+ * its `marked_text` no longer reads like the Keeper's copy; the patch keeps the delivered text under
+ * `speech_original.marked_text`, and that folds the copy too, so the original prose never reappears
+ * above the edited card.
  */
 export function foldMarkedDeliveries(messages: readonly ChatMessage[]): ChatMessage[] {
   const drawn = new Set<string>()
   for (const message of messages) {
-    const marked = (message.presentation?.details as { marked_text?: unknown } | undefined)?.marked_text
-    if (message.presentation?.renderer === 'coc-mechanics' && typeof marked === 'string' && marked) {
-      drawn.add(withoutMechanicsMarkers(marked))
+    if (message.presentation?.renderer !== 'coc-mechanics') continue
+    const details = message.presentation.details as { marked_text?: unknown; speech_original?: { marked_text?: unknown } } | undefined
+    for (const marked of [details?.marked_text, details?.speech_original?.marked_text]) {
+      if (typeof marked === 'string' && marked) drawn.add(withoutMechanicsMarkers(marked))
     }
   }
   if (!drawn.size) return messages as ChatMessage[]

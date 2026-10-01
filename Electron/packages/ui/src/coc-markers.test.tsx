@@ -496,6 +496,20 @@ describe('the plain copy of a drawn delivery is folded away', () => {
     expect(foldMarkedDeliveries([card(marked), said(delivered + ' A new fact.')])).toHaveLength(2);
   })
 
+  it('still folds the copy once a speech edit patched the card, by the original it kept (§165.5.3)', () => {
+    const original = '诺特推来钥匙。{{say:Steven Knott}}「钥匙在这儿。」{{/say}}{{check:library-use}}他低头。'
+    const edited: ChatMessage = {
+      id: 'm1', role: 'assistant', content: '', timestamp: 1,
+      presentation: { renderer: 'coc-mechanics', details: { turn: 5, mechanics: [ROLL],
+        marked_text: original.replace('「钥匙在这儿。」', '「行，钥匙就在这儿。」'), speech_original: { marked_text: original } } },
+    } as ChatMessage
+    const copy = said(withoutMechanicsMarkers(original))
+    expect(foldMarkedDeliveries([edited, copy]).map(row => row.id)).toEqual(['m1'])
+    // The edited card's own text is not what the Keeper delivered: without the kept original, the copy would stand.
+    const { speech_original: _kept, ...bare } = edited.presentation!.details as Record<string, unknown>
+    expect(foldMarkedDeliveries([{ ...edited, presentation: { ...edited.presentation!, details: bare } } as ChatMessage, copy])).toHaveLength(2)
+  })
+
   it('changes nothing when no delivery was marked', () => {
     const messages = [said('一段叙事。')]
     expect(foldMarkedDeliveries(messages)).toEqual(messages)
