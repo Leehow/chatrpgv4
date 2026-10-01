@@ -16,7 +16,7 @@ import {build} from 'esbuild';
 import {KernelClient} from '../../extensions/kernel/client.ts';
 import {COC_TOOLS, MOOD_MAX} from '../../extensions/kernel/tools.ts';
 import {leanTools} from '../../extensions/kernel/lean-apply.ts';
-import {textToolCall} from '../../extensions/kernel/text-tool-call.ts';
+import {textToolCalls} from '../../extensions/kernel/text-tool-call.ts';
 import {markNpcAct} from '../../extensions/kernel/npc-act-marks.ts';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -273,10 +273,11 @@ test('apply npc declares mood: a string of at most 120 characters, described as 
 
 test('every path that closes the schema accepts mood and still refuses an undeclared field', () => {
 	for (const [label, tools] of [['ordinary', COC_TOOLS], ['lean', leanTools(COC_TOOLS)]]) {
-		const call = textToolCall(envelope({mood: SWEAT, why: 'the heat'}), tools);
-		assert.deepEqual(call, {name: 'apply', arguments: {effects: [{kind: 'npc', name: KNOTT, mood: SWEAT, why: 'the heat'}]}}, label);
-		assert.equal(textToolCall(envelope({feeling: SWEAT}), tools), undefined, `${label}: the path is closed`);
-		assert.equal(textToolCall(envelope({mood: 'x'.repeat(MOOD_MAX + 1)}), tools), undefined, `${label}: maxLength holds`);
+		// §160.2: the text path reads a whole body of envelopes and routes all of them or none.
+		const calls = textToolCalls(envelope({mood: SWEAT, why: 'the heat'}), tools);
+		assert.deepEqual(calls, [{name: 'apply', arguments: {effects: [{kind: 'npc', name: KNOTT, mood: SWEAT, why: 'the heat'}]}}], label);
+		assert.equal(textToolCalls(envelope({feeling: SWEAT}), tools), undefined, `${label}: the path is closed`);
+		assert.equal(textToolCalls(envelope({mood: 'x'.repeat(MOOD_MAX + 1)}), tools), undefined, `${label}: maxLength holds`);
 	}
 	// §143.3: a mood is no bare carrier of what an act brings out, so the host never stamps a draw onto it.
 	const params = {effects: [{kind: 'npc', name: KNOTT, mood: SWEAT}]};
