@@ -1062,9 +1062,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
       : wrongPreparation ? {code: 'historical_preparation', text: 'This selected preparation admits only lookup kind=historical_reference for an excerpt body, not a catalogue or another operation. Nothing in this call was executed. The attempt is retired; continue ordinary narration from available material without a preparation retry.'}
       : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
-      + 'Nothing in this apply was executed. Narrate the attempt by your own judgement without inflicting damage this turn.'}
+      + 'Nothing in this apply was executed. Do not describe the attack as hitting or missing, or claim injury, damage, a changed condition, incapacitation, forced movement or another consequence of that attack. '
+      + 'Keep the narration immediately before the unresolved consequence, or return a player-owned choice in character.'}
       : proposal.operation === 'resolve' ? {code: 'check_selection_owned', text: 'Jev and the host own check selection. This model-origin resolve was not executed. '
-      + 'Narrate committed receipts, and narrate any attempt the host left without a roll by your own judgement; do not choose a replacement check.'}
+      + 'Narrate committed receipts, and use judgement for a no-roll attempt only when no player-owned value remains open and the host has not refused its consequence. '
+      + 'A no-roll with why player_choice does not settle success or failure: do not imply a hit, miss, harm, condition change, incapacitation or other consequence of that check. Do not choose a replacement check.'}
       : proposal.operation === PROPOSE_VERB ? undefined
       : batch.proposed ? {code: 'propose_pending', text: PROPOSE_PENDING_REFUSAL}
         : narrowed && !narrowed.includes(proposal.operation)
