@@ -11,6 +11,7 @@ import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable} from './harness.mjs';
+import {initialView, routeBatch} from '../../runtime/jev/step-policy.ts';
 
 const root = resolve(import.meta.dirname, '../..');
 await mkdir(join(root, '.tmp'), {recursive: true});
@@ -21,6 +22,33 @@ export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';`, resolveDir: root, sourcefile: 'check-catalog-api.ts'},
   outfile: join(bundle, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(bundle, 'api.mjs')).href);
+
+test('six prepared NPCs do not send Cartesian parameter inventories to family routing', async t => {
+  const home = await mkdtemp(join(bundle, 'packing-'));
+  const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'route-packing', locks: api.nativeAdvisoryLocks()});
+  const kernel = api.createKernelRuntime(context); t.after(() => kernel.close());
+  const call = (method, params = {}) => kernel.handlers[method]({campaign: 'packing', ...params});
+  await call('campaign.create', {id: 'packing', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+  await call('table.open');
+  await call('table.player_input', {text: 'I drive away from the pursuers.'});
+  await call('table.apply', {call_id: 't1-c1', effects: [
+    {kind: 'npc', name: 'Steven Knott', archetype: 'capable_adult', why: 'Prepared fixture actor.'},
+    ...Array.from({length: 5}, (_, i) => ({kind: 'npc', name: `Fixture pursuer ${i + 1}`, walk_on: true, to: 'here', archetype: 'capable_adult', why: 'A prepared fixture participant.'})),
+  ]});
+  const capsule = await call('table.capsule'), resolveOptions = await call('table.resolve.options');
+  const candidates = buildCandidates({capsule, resolveOptions, applyOptions: await call('table.apply.options')}, 'I drive away from the pursuers.');
+  const view = initialView({runId: 'packing', rawInput: 'I drive away from the pursuers.', context: {scene: 'road', clock: {}, present: []}, candidates, readFirst: false});
+  const {batch} = routeBatch(view, {owner: 'route', campaign: 'packing', worldline: 'main', loop: 0, audience: 'keeper'}, []);
+  const candidate = candidates.find(row => row.bound.decision === 'social:adjudicate-difficulty');
+  assert.equal(candidate.detail.check_options.length, 42);
+  const projected = Object.values(batch.state.candidates).find(row => row.bound.decision === 'social:adjudicate-difficulty');
+  const expected = candidate.detail.check_options.map(option => [option.action.actor, option.action.target]).sort();
+  const actual = projected.detail.check_options.flatMap(option => option.participants.map(pair => [pair.actor, pair.target])).sort();
+  assert.deepEqual(actual, expected);
+  assert.ok(projected.detail.check_options.length < 42);
+  assert.equal(projected.detail.check_options.some(option => option.definition || option.parameters), false);
+  assert.equal(candidate.detail.check_options.length, 42, 'the full catalog remains available to the selected binder');
+});
 
 test('current kernel issues a complete rule inventory and executable ordinary/treatment choices without mutation', async t => {
   const home = await mkdtemp(join(bundle, 'home-'));

@@ -30517,6 +30517,24 @@ vehicle catalog evidence for every required actor actually differs from its held
 unrelated write, biography refresh or ready skill cannot release it. Repeating the same statement
 does not supply new evidence. Missing/provider-invalid answers do not trigger this semantic repair.
 
+### 159.15 Routing does not carry a Cartesian check-parameter inventory (2026-10-01)
+
+Live turn 47's route cannot pack after six NPCs have mechanical profiles. Read-only reproduction
+measures 70,531 state bytes and 94,673 request bytes; social, opposed and psychology each carry
+42 actor-target options. This is before check selection, so threshold changes cannot fix it.
+
+Route projection groups check templates by their identical structural action/trigger/needs/facts
+after removing actor and target from that signature. It retains every exact actor-target binding
+in the corresponding group's participants array; it never invents the Cartesian product of two
+name sets. Long labels, definitions, parameter menus and vehicle-binding inventories belong to
+the selected check binder, not family routing. Keep the remaining trigger facts, including SAN
+exposure and clinical eligibility. This is a route-only projection: canonical candidates/catalog
+stay complete, and selectCheck rereads the bound full kernel catalog before adjudication/execution.
+Route family version 3 separates it from earlier cached routing questions. Regress six prepared
+NPCs through the real catalog/candidate path, assert packing and exact binding preservation, then
+retry the same live scene. Packing refusal remains typed unavailable when even the projection
+cannot fit; no LLM-owned resolve or arbitrary option truncation is authorized.
+
 ## 160. A Keeper tool string argument that arrives as a JSON string literal is decoded at the host boundary (2026-09-30; extends §144, amends §135.21's `prepareArguments` and the order of §144.1)
 
 **Evidence.** The opening turn of the installed App's campaign `game-ef4f5f3b-6445-423b-bae1-f95f4601a698` (receipt `6d870987b`) was stored and delivered as a JSON-escaped literal: `turns/0000.json` `text`, `marked_text` and `rendered_text`, and `transcript.jsonl` turn 0, all begin `"一九二〇年秋…`, with literal backslashes. The model's call, in the App's Pi session file, is the second `apply` of one message: `effects: [{kind: "person", who: "Steven Knott", name: …}]` and `narrate` a 1,024-character string whose own text is a quoted, `\u`-escaped JSON string literal of 185 characters of prose. The model is `grok-build/grok-4.7-build-fast` (the message's own `provider`/`model`). The speech rows were cut from the same text, so `{{say:史…}}` named nobody at the table (`unresolved_speakers`) and the line's text carries the escapes too; the continuity review passed the turn (`verdict: pass`).
