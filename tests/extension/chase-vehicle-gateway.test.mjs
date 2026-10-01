@@ -48,7 +48,17 @@ test('ordinary resolve binds a registered driver roster and persists vehicle par
   const game = await table(t);
   await game.apply([{kind: 'npc', name: 'Steven Knott', to: 'here', archetype: 'capable_adult', why: 'Knott is driving the pursuing car in this encounter.'}]);
   await game.apply([{kind: 'npc', name: 'Pickup gunner', walk_on: true, to: 'here', archetype: 'capable_adult', why: 'A fixture passenger in the pursuing vehicle.'}]);
-  await game.apply([{kind: 'npc', name: 'Steven Knott', skill: {name: 'Drive Auto', value: 80}, why: 'A pinned fixture driving skill.'}]);
+  const beforePin = (await game.world()).npc_profiles['steven-knott'];
+  let repeatedDraws = 0;
+  const prototype = Object.getPrototypeOf(game.context.rng), randint = prototype.randint;
+  prototype.randint = function (...args) {repeatedDraws++; return randint.apply(this, args);};
+  try {
+    await game.apply([{kind: 'npc', name: 'Steven Knott', archetype: 'capable_adult', why: 'The same established body profile.'},
+      {kind: 'npc', name: 'Steven Knott', skill: {name: 'Drive Auto', value: 80}, why: 'A pinned fixture driving skill.'}]);
+  } finally {prototype.randint = randint;}
+  assert.equal(repeatedDraws, 0, 'an identical archetype cannot reroll the established actor');
+  assert.deepEqual((await game.world()).npc_profiles['steven-knott'], beforePin);
+  await assert.rejects(game.apply([{kind: 'npc', name: 'Steven Knott', archetype: 'dangerous_actor'}]), error => error.code === 'invalid_params');
   const sheet = JSON.parse(await readFile(game.sheetPath, 'utf8'));
   sheet.skills['Drive Auto'] = 80;
   await writeFile(game.sheetPath, JSON.stringify(sheet));
