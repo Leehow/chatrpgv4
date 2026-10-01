@@ -46,7 +46,7 @@ test('the settlement gateway starts a vehicle chase with Drive Auto and publishe
 
 test('ordinary resolve binds a registered driver roster and persists vehicle participants through the production starter', async t => {
   const game = await table(t);
-  await game.apply([{kind: 'npc', name: 'Steven Knott', archetype: 'capable_adult', why: 'Pinned fixture actor.'}]);
+  await game.apply([{kind: 'npc', name: 'Steven Knott', to: 'here', archetype: 'capable_adult', why: 'Knott is driving the pursuing car in this encounter.'}]);
   await game.apply([{kind: 'npc', name: 'Pickup gunner', walk_on: true, to: 'here', archetype: 'capable_adult', why: 'A fixture passenger in the pursuing vehicle.'}]);
   await game.apply([{kind: 'npc', name: 'Steven Knott', skill: {name: 'Drive Auto', value: 80}, why: 'A pinned fixture driving skill.'}]);
   const sheet = JSON.parse(await readFile(game.sheetPath, 'utf8'));
@@ -60,6 +60,8 @@ test('ordinary resolve binds a registered driver roster and persists vehicle par
   const catalog = await game.call('table.resolve.options');
   const options = validateCheckOptions(catalog.selection.options);
   const vehicle = options.find(option => option.facts?.mobility === 'vehicle');
+  assert.equal(vehicle.facts.chase_actors.find(actor => actor.name === 'Steven Knott').presence_evidence,
+    'Knott is driving the pursuing car in this encounter.', 'the earlier accepted placement still supplies current role evidence');
   assert.ok(options.some(option => option.facts?.mobility === 'foot'));
   assert.equal(vehicle.facts.chase_actors.find(actor => actor.name === 'Steven Knott').driving_available, true);
   assert.ok(vehicle.facts.vehicle_profiles.some(profile => profile.key === 'car_standard'));
@@ -75,7 +77,8 @@ test('ordinary resolve binds a registered driver roster and persists vehicle par
       const answers = Object.fromEntries(batch.questions.map(question => {
         if (question.type === 'noul') {
           const candidate = batch.state.checks?.[question.key.replace(/_(uncertain|unsettled|blocked)$/, '')];
-          const value = batch.family === 'check-selection-need' ? !question.key.endsWith('_blocked') && candidate?.facts?.mobility === 'vehicle' : true;
+          const value = batch.family === 'check-selection-chase-prerequisite' ? false
+            : batch.family === 'check-selection-need' ? !question.key.endsWith('_blocked') && candidate?.facts?.mobility === 'vehicle' : true;
           return [question.key, {status: 'answered', type: 'noul', noul: value ? .99 : .01}];
         }
         const actor = batch.state.actors?.[question.key.replace('role_', 'actor_')];

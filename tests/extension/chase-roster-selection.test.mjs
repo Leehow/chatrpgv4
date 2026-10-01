@@ -64,3 +64,15 @@ test('uncertain roles, unsupported profiles and unavailable provider answers can
     assert.equal(result.action, undefined);
   }
 });
+
+test('gray NPC roles request new position evidence while a gray investigator role cannot be authored by the agent', async () => {
+  const answer = {status: 'answered', type: 'choice', choice: 'driver', probabilities: {driver: .8}};
+  const npc = await run(option, {role_1: answer});
+  assert.deepEqual(npc.needs, ['chase_mobility_evidence_required']);
+  assert.deepEqual(npc.preparation.roles, [{actor: 'Pursuing driver', evidence: ''}]);
+  assert.equal(npc.action, undefined);
+  const player = await run(option, {role_0: answer});
+  assert.equal(player.preparation, undefined);
+  const provider = await run(option, {role_1: {status: 'unknown'}});
+  assert.equal(provider.preparation, undefined);
+});
