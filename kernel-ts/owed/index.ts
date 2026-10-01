@@ -21,8 +21,8 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { personNode } from '../read/capsule.js';
 import { locateExcerpt } from '../read/excerpt.js';
 import { queuedDefinition } from '../mods/queue.js';
-import { findNamedObject } from '../read/mods.js';
-import { array, chars, clone, number, row, type Row } from '../read/values.js';
+import { findNamedObject, executableWeaponNames } from '../read/mods.js';
+import { array, chars, clone, normalize, number, row, type Row } from '../read/values.js';
 import { nowIso } from '../write/store.js';
 import { bandRows } from '../rules/bands.js';
 import { ROUTE_TRAVEL_FIELD, ROUTE_TRAVEL_ROWS } from '../modules/route-travel.js';
@@ -91,6 +91,16 @@ function sceneOf(graph: ModuleGraph, name: unknown): Row | null {
 /** A string, or '' for anything else: `values.string` renders absence as "None", which must never become a name. */
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 const normalized = (value: unknown) => text(value).normalize('NFKC').trim().toLowerCase();
+
+/** Exact sheet ownership of an executable printed weapon, the same identity the materializer already excludes. */
+function ownedPrintedWeapon(entry: Row, party: readonly Row[]): boolean {
+    const missing = row(entry.object), name = normalize(missing.name);
+    if (entry.effect || entry.quote || missing.category !== 'weapon' || !name) return false;
+    const owners = party.filter(owner => executableWeaponNames(owner).has(name)
+        && array(owner.equipment).filter(value => !row(value).object_id
+            && normalize(typeof value === 'string' ? value : row(value).name) === name).length === 1);
+    return owners.length === 1 && (!missing.owner || [owners[0].name, owners[0].id].some(value => normalized(value) === normalized(missing.owner)));
+}
 
 /** One line of English that names what a row owes, for the capsule and the warning row. */
 function describe(graph: ModuleGraph, effect: Row): string {
@@ -189,6 +199,7 @@ export async function projectOwed(kernel: KernelContext, graph: ModuleGraph, wor
     }
     // §158.7: exact unmanaged equipment supplies the owner of a missing item.
     for (const missing of array(accepted.missing).map(row)) {
+        if (ownedPrintedWeapon({object:missing}, party)) continue;
         const name = text(missing.name).trim();
         if (!name) continue;
         const matches = party.flatMap(owner => array(owner.equipment).filter(value => (typeof value === 'string' ? value : row(value).name) === name && !row(value).object_id).map(() => owner));
@@ -231,7 +242,7 @@ export function mergeOwed(ledger: OwedLedger, rows: Row[], at: string): OwedLedg
 }
 
 /** The ledger already agrees with this row (§158.3): the row is closed, never shown. Time is never implied. */
-export function owedSatisfied(graph: ModuleGraph, world: Row, entry: Row): boolean {
+export function owedSatisfied(graph: ModuleGraph, world: Row, entry: Row, party: readonly Row[] = []): boolean {
     const effect = row(entry.effect);
     if (entry.kind === 'move') {
         const scene = sceneOf(graph, effect.to);
@@ -244,6 +255,7 @@ export function owedSatisfied(graph: ModuleGraph, world: Row, entry: Row): boole
         return !!scene && presence[name] === graph.handle(scene);
     }
     if (entry.kind === 'object') {
+        if (ownedPrintedWeapon(entry, party)) return true;
         try {
             const instance = findNamedObject(row(row(world.objects).instances), row(entry.object).name);
             return !!instance && !!entry.owner_id && row(instance.owner).id === entry.owner_id && row(instance.owner).kind === 'investigator';
@@ -252,8 +264,8 @@ export function owedSatisfied(graph: ModuleGraph, world: Row, entry: Row): boole
     return false;
 }
 /** Open rows the ledger still lacks; the rest move to `closed` as `satisfied`. */
-export function closeSatisfied(graph: ModuleGraph, world: Row, ledger: OwedLedger, at: string): { ledger: OwedLedger; closed: Row[] } {
-    const done = ledger.open.filter(entry => owedSatisfied(graph, world, entry));
+export function closeSatisfied(graph: ModuleGraph, world: Row, ledger: OwedLedger, at: string, party: readonly Row[] = []): { ledger: OwedLedger; closed: Row[] } {
+    const done = ledger.open.filter(entry => owedSatisfied(graph, world, entry, party));
     if (!done.length) return { ledger, closed: [] };
     const closed = done.map(entry => ({ name: entry.name, turn: entry.turn, kind: entry.kind, how: 'satisfied', at }));
     return { ledger: { open: ledger.open.filter(entry => !done.includes(entry)), closed: [...ledger.closed, ...closed] }, closed };
@@ -294,7 +306,7 @@ export async function carryOwed(context: KernelContext, campaign: string, rows: 
  */
 export function capsuleOwed(graph: ModuleGraph, world: Row, stored: unknown, party: readonly Row[] = []): Row[] {
     const order = ['move', 'npc', 'time', 'cash', 'object'];
-    return resolveOwedEquipment(owedLedger(stored),party).open.filter(entry => !owedSatisfied(graph, world, entry))
+    return resolveOwedEquipment(owedLedger(stored),party).open.filter(entry => !owedSatisfied(graph, world, entry, party))
         .sort((a, b) => order.indexOf(text(a.kind)) - order.indexOf(text(b.kind)) || number(b.turn) - number(a.turn))
         .map(entry => {
             let known = false, ambiguous = false;
