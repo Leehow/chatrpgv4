@@ -18,11 +18,15 @@ Modal particles, by tone: 吧 (suggesting, unsure, softening an order) · 呢 (a
 
 Rules:
 - Keep the facts, the speaker's stance and mood, and most of the wording; these are small edits, like the demonstrations.
-- Add a word only where a person would actually say it; not every sentence needs one. Use each connective at most once in this turn, and do not start several lines with the same one.
+- If a line already sounds like a person talking, return it unchanged. Several demonstrations do exactly that.
+- Add a modal particle only where the speaker's tone needs one; most sentences need none. Never sprinkle 嘛 or 呢 just to make a line sound casual.
+- Replace phrasings people do not say in conversation (written, translated or made-up collocations) with the everyday expression for the same meaning.
+- Let length follow the moment. Under threat, in a fight, in panic or when cornered, people speak short: a threat, a climb-down, a lie, a getaway. There, cut sentences that only restate or decorate. In idle talk people run on and even tell little stories; keep that length.
+- Broken speech from fear, grief or shock keeps its breaks; add only the small words that let each fragment be said aloud, never a connective that smooths it into a tidy account. Do not start a line with 然后 unless it continues a step the speaker just named.
+- Add a connective only where a person would actually say it. Use each connective at most once in this turn, and do not start several lines with the same one.
 - Never turn a statement or an instruction into a question unless the speaker is offering something.
 - Replace clever quips, parallel retorts and point-by-point acknowledgements of what the other person said with plain words or one rhetorical question.
-- Prefer spoken words to written ones.
-Add no fact and drop no fact; change no number, name, place, condition, refusal or stance. The demonstrations come from another story: never reuse their sentences or their facts. Keep the quotation marks each line uses.
+Add no fact and drop no fact: change no number, name, place, time, condition, threat, promise, refusal or stance; a sentence that only restates or decorates is not a fact. The demonstrations come from another story: never reuse their sentences or their facts. Keep the quotation marks each line uses.
 
 [Demonstrations: the owner's edits]
 Before: 执照我看见了，诺特的人情也听见了。剪报室不是谁递张牌子、说两句软话就能进的。卷宗不对外。你要查，去图书馆，去档案厅，别堵在我门口。
@@ -72,3 +76,36 @@ After: 动静？我睡得沉没听到啥。那房子现在空着，风大的时�
 
 Before: 马卡里奥一家后来搬哪儿，我不知道。当家的还在罗克斯伯里疗养院，你要当面问，就去那儿找他。别一出门就往空宅里闯。波士顿环球报的剪报室、中央图书馆、档案厅，都有旧纸可翻。先把能落在纸上的查明白，再进那房子，省得白跑一趟。
 After: 至于马卡里奥一家后来搬哪儿，我也不知道。当家现在的还在罗克斯伯里疗养院，这事你要当面问，就得去那儿找他。别一出门就往空宅里闯。另外，波士顿环球报的剪报室、中央图书馆、档案厅，都有旧纸可翻。先把能落在纸上的查明白，再进那房子，省得白跑一趟。
+
+Before: “这楼里三层住着人，楼下是皮鞋铺，街上随时有巡警过。你现在出门，我们当没这回事；你再动手，我这电话就摇下去。”
+After: “这楼里三层可住着人呢，楼下就是皮鞋铺，街上随时有巡警过。你现在出门，我们就当没这回事；不然，我这电话就摇下去了。”
+
+Before: 「再他妈踢，我现在就砸晕你。」
+After: 「再他妈踢，我就砸死你。」
+
+Before: “再过来一次，我就打给警察局。你在我办公室里打我，证人是我——你想清楚了。”
+After: “再过来一次，我就报警了！”
+
+Before: 「我要的是能写进报告、能让人签字的东西。下一处你定——别空耗一天。」
+After: 「我要的是能写进报告、能让人签字的东西。接下来做什么事你自己决定，别空耗一天了。」
+
+Before: 「史蒂夫。少废话。渴了拿冰的，加完就滚。」
+After: 「史蒂夫。少废话。渴了拿冰的，加完就滚。」
+
+Before: 「剪报室不对公众开放。你是谁，要查什么，说清楚。说不清楚，就请回。」
+After: 「剪报室不对公众开放。您是谁，要查什么，请说清楚。说不清楚，就请回吧。」
+
+Before: 「够了。我说过，动手这单就没了。钥匙、工钱，我收回。你给我滚出去。」
+After: 「够了。我说过，动手这单就没了。钥匙、工钱，我收回。你给我滚出去。」
+
+Before: “侦探。”他把这两个字念得像一行讣告，“我们这儿不替私人办事。”
+After: “侦探。”他把这两个字念得像一行讣告，“我们这儿可不替私人办事。”
+
+Before: “海斯先生，你来得准。我这个人不喜欢把话绕远。”
+After: “好，海斯先生，你来得正好。我这个人不喜欢啰嗦。”
+
+Before: 「搬走……那晚。行李没收齐。孩子们哭。维托里奥已经……不行了。」
+After: 「搬走那晚。行李还没收齐。孩子们在哭。那个时候维托里奥已经……不行了。」
+
+Before: 「他……他听不进去的。求你别再逼他了。那房子里有东西，真的有——可是他现在只能抱着书。」
+After: 「他……他听不进去的。求你别再逼他了。那房子里有东西，真的有——可是他现在只能抱着书。」
