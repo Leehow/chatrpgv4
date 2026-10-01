@@ -30365,3 +30365,39 @@ Preparation remains an unresolved outcome boundary. Its player notice waits unti
 if preparation is still pending; a successfully prepared and adjudicated attempt must not leave
 an obsolete notice. Native source tools still own PDF reading and graph preparation; none of this
 licenses the player context to read future private material or the agent to invent numeric rules.
+
+### 159.11 Vehicular chase binding (2026-10-01)
+
+The real encounter is a car flight. The existing chase starter created every participant from
+foot combat statistics. Independently, `executeChase` discarded the vehicle/driver/passenger
+fields even when its trusted participant payload supplied them. The lower `ChaseSession` already
+implements vehicle MOV, Drive Auto, structural Build, occupant armor and passenger relationships.
+
+The settlement gateway must forward these existing fields without deriving or inventing values.
+Vehicle speed checks must read Drive Auto and the published vehicle MOV; occupant HP stays the
+actor's. Foot starts keep their current behavior. A production start still requires host-issued,
+Jev-selected participant/mobility/profile bindings; model-origin resolve and free numeric plans
+remain forbidden. Do not treat the gateway regression alone as acceptance of the real chase.
+The bounded starter adapter and original blind encounter remain required work before completion.
+
+`resolve.action.chase_roster` is an optional bounded array of semantic participant names. Each
+entry is `{actor,role:foot|driver|passenger,vehicle?,riding_with?}`: drivers choose a published
+vehicle profile name; passengers name another roster member who is a driver. No numeric stats,
+actor ids, positions or roll results are model arguments. The host selects these closed values
+with Jev. The kernel matches current party/present NPC identity, reads pinned actor numbers,
+resolves vehicle MOV/Build/armor from its tables, and reads Drive Auto from the actual driver.
+Missing driver skill is an explicit need, never another actor's value or a guessed chance.
+Names, roles and driver links must be distinct/coherent; moving pursuer and quarry are required.
+Roster roles are reviewed as part of player agency. Existing starts without this field retain
+the established foot semantics; the new selector must choose the appropriate mobility explicitly.
+
+Role questions are independent closed Choices with the existing choice gate. A vehicle profile
+Choice nominates one published class; an independent Noul confirms that class with the existing
+compatible-adjudication gate. Several permissible classes do not need to compete for one high
+Choice probability. Passenger links select only an already selected driver. The kernel rejects
+duplicate resolved actors, unknown profiles and incoherent links before starting a session.
+Missing driver skill holds carry the vehicle mobility and required driver names: an unrelated
+ready foot option cannot release that hold. No threshold is lowered and unresolved bindings stay
+unresolved. Selector family version 20 separates these questions from earlier cached decisions.
+Regression coverage includes the actual issued catalog, selector dispatch, ordinary resolve and
+saved driver/passenger state. The same blind live encounter remains the acceptance boundary.

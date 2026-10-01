@@ -242,10 +242,11 @@ export interface RunView {
   requireInteractionScope?: boolean;
   referenceRouted?: boolean;
   /** §159: a check that remains unresolved is a notice, never a model-owned operation. */
-  unresolvedChecks?: Array<{candidate: string; needs: string[]; preparation?: {decision: string; needs: string[]}}>;
+  unresolvedChecks?: Array<{candidate: string; needs: string[]; preparation?: CheckSelection['preparation']}>;
   checkRefreshUsed?: boolean;
   heldCheckDecisions?: string[];
   heldCheckPreparations?: string[];
+  checkPreparationRequirements?: Record<string, {mobility?: string; drivers?: string[]}>;
   runId: string;
   rawInput: string;
   stateVersion: number;
@@ -1054,6 +1055,8 @@ export function settleCheckSelection(view: RunView, candidate: Candidate, result
     if (result.preparation) {
       const key = checkHoldKey(view.context.scene, candidate);
       if (key && !view.heldCheckPreparations?.includes(key)) view.heldCheckPreparations = [...(view.heldCheckPreparations ?? []), key];
+      if (key) view.checkPreparationRequirements = {...view.checkPreparationRequirements,
+        [key]: {mobility: result.preparation.mobility, drivers: result.preparation.drivers}};
       view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'check_preparation', candidate,
         extra: {preparation: result.preparation}});
     } else holdCheckDecision(view, candidate);
@@ -1139,7 +1142,13 @@ function holdCheckDecision(view: RunView, candidate: Candidate): void {
 function applyFresh(view: RunView, fresh: Fresh): void {
   const executable = (candidate: Candidate) => {
     const options = object(candidate.detail).check_options;
+    const key = checkHoldKey(fresh.context.scene, candidate), required = key ? view.checkPreparationRequirements?.[key] : undefined;
     return Array.isArray(options) && options.map(object).some(option => Array.isArray(option.needs) && option.needs.length === 0
+      && (!required?.mobility || object(option.facts).mobility === required.mobility)
+      && (!required?.drivers?.length || required.drivers.every(name => {
+        const actors = object(option.facts).chase_actors;
+        return Array.isArray(actors) && actors.map(object).some(actor => actor.name === name && actor.driving_available === true);
+      }))
       && Array.isArray(option.parameters) && option.parameters.map(object).every(parameter => parameter.available === true));
   };
   view.heldCheckPreparations = view.heldCheckPreparations?.filter(key => !fresh.candidates.some(candidate => checkHoldKey(fresh.context.scene, candidate) === key && executable(candidate)));

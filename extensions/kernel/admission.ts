@@ -321,6 +321,7 @@ const IDENTIFYING_FIELDS: readonly string[] = [
  * of those in `admission-effect-signature.test.mjs`, which walks the schema.
  */
 export const RESOLVE_REVIEWED_FIELDS: readonly string[] = [
+    "chase_roster",
 	"actor", "decision", "intent", "goal", "method", "skill", "skills", "target", "weapon", "spell", "object", "usage", "support", "rule",
 	"obligation", "intent_ref", "intent_outcome", "stakes", "push", "luck", "defense", "outcome",
 ];
