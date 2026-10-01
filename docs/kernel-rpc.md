@@ -30354,6 +30354,49 @@ flees "this person" cannot establish that absent binding. If every eligible opti
 source/argument needs or empty parameter domains, return a typed preparation need before asking
 Jev necessity. The route selected a capability to examine, not permission to roll or invent facts.
 
+#### 159.10.1 The declared first attack survives preparation (2026-10-01)
+
+Present NPCs without a combat profile remain named first-attack targets, with a
+profile preparation need. Held ordinary instances and existing inventory rows
+without an applicable attack usage remain named methods, with a usage preparation
+need. This read neither gives damage to ordinary possessions nor invents NPC
+numbers. Jev still chooses the target and physical method from the issued names;
+the canonical host checks their current readiness before invoking resolve.
+
+The host retains that chosen first attack across its preparation writes. The
+Keeper uses existing NPC profile and define/object/usage operations; apply usage
+joins a pending base definition through the existing materializer. A fresh read
+releases the retained attempt only when its chosen target and method are ready,
+then executes it through the same canonical dispatcher and admission in this
+player run. Unrelated bookkeeping cannot release it, and settled attacks cannot
+be replayed. Dependent narration composed before preparation is held for a new
+post-settlement model step. Unavailable preparation still reports the actual
+missing dependency; it never grants the Keeper permission to choose a check.
+
+Who writes: kernel read-only first-attack metadata and the existing preparation
+writes. Who reads: the candidate builder, host preflight and policy fresh read.
+Who acts: Jev selects the named attack; the host resumes it after preparation and
+the TS resolver mints its roll/outcome receipts.
+
+#### Narration transport boundary (2026-10-01)
+
+Explicit, embedded and implicitly adopted narration share one structural text
+boundary. A complete JSON-encoded string is decoded once only when it contains
+serialization escapes. Ordinary prose, quoted speech, fenced code and literal
+escape examples remain unchanged. The observed quoted JSON field fragment with a
+stray closing object delimiter is refused before delivery with a raw-text repair
+instruction. It is not guessed into prose, and prior committed effects remain.
+No language detector, word classifier or Unicode replacement table is introduced.
+
+External cross-check: [xAI function calling](https://docs.x.ai/developers/tools/function-calling)
+returns tool results into the continuing request loop, while the
+[MCP tool contract](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/server/tools.mdx)
+distinguishes server-produced structured results and input-required outcomes from
+model prose. These confirm a result/preparation boundary, not permission to assume
+execution. Here Jev/host owns the next check rather than delegating it back to the
+LLM. [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) supplies the string grammar;
+valid whole-string decoding does not justify guessing malformed field fragments.
+
 The existing Keeper agent receives an adjudication step to prepare source material, participant
 identity/presence and profiles through existing read/preparation/apply tools. Model-origin resolve
 remains forbidden. A separate scene/decision preparation hold survives unrelated bookkeeping;

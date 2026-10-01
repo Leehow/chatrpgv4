@@ -1,4 +1,5 @@
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
+import {attackPreparationNeeds} from './attack-preparation.ts';
 import {historyConfigured, historyEnabled, historyNeedQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
 /**
  * The product side of `PI_COC_LOOP_ENGINE=hybrid-v1`: the policy and the ports Pi's RunDriver (vendored
@@ -567,6 +568,7 @@ interface RunState {
   /** SL-76: every receipt this turn's reads have seen (`table.status.receipts`), deduped by id, for the turn-close pairing. */
   turnReceipts: Row[];
   pendingCheckPreparations?: Array<{candidate: string; needs: string[]}>;
+  pendingAttackPreparation?: boolean;
   preparationNoticeSent?: boolean;
   /** SL-76: the latest read's D1 candidates and scene context, held for the turn-close route (never asked mid-read: see `routeConsequences`'s call site). */
   consequenceCandidates: ConsequenceCandidate[];
@@ -1043,6 +1045,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           ? {code: 'narrator_catalog', text: catalogRefusal(proposal.operation, run.offered)} : undefined;
     // §135.31: the kernel extension's tool row names the step a model call came from (announced before it runs).
     if (proposal.toolCall?.id) api?.events?.emit?.('coc:model-step', {toolCallId: proposal.toolCall.id, run: run.runId, step: stepId, operation: proposal.operation,
+      ...(run.pendingAttackPreparation && proposal.operation === 'apply' && array(object(proposal.params).effects).some(value => {
+        const effect = object(value);
+        return ['define','object','usage'].includes(effect.kind) || effect.kind === 'npc' && effect.archetype !== undefined;
+      }) ? {hold_embedded_narration:true} : {}),
       ...(run.history && run.scope ? {historical_reference: {...run.history, allowed: run.history.allowed && !run.history.closed,
         ...(run.history.closed ? {retrieval: {state: 'closed', reason: run.history.closedReason ?? 'budget_exhausted'}} : {}),
         scope: run.scope, turn: run.turn}} : {}),
@@ -1196,9 +1202,21 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §143.3/§143.4: a person's own act is its own step: generated, bound, then written through this same gateway.
     if (isNpcAct(candidate)) return npcActStep(run, candidate, invocation);
     const {tool, args} = keeperCall(candidate, extra);
+    if (candidate.clerk === 'first_blow') {
+      const latest = await call('table.resolve.options'), first = object(object(latest.context).first_blow);
+      const needs = attackPreparationNeeds(first, object(args.action) as Record<string, Json>);
+      if (needs.length) {
+        const preparation = {decision:'combat:attack', needs};
+        record({lane:'check-preparation', run:run.runId, step:invocation.stepId, ...preparation});
+        const fresh = (await freshOf(run, invocation.stepId))?.fresh;
+        return {status:'refused' as const, artifact:{kind:'execute', executed:{ok:false, summary:{refusal:'check_preparation', preparation,
+          action:object(args.action), bindings:array(params.bindings)}}, ...(fresh ? {fresh} : {})}};
+      }
+    }
     // §135.28: how every parameter of this write got its value (jev, rule-default, stated, composed); none was a model call.
     // Computed before the dispatch (§32.12): admission reads it off the host origin to admit a compile selection.
-    const bindings = bindRecords(candidate, extra, array(params.bindings) as BindRecord[]);
+    const savedBindings = array(object(candidate.basis).preparation_bindings);
+    const bindings = bindRecords(candidate, extra, (savedBindings.length ? savedBindings : array(params.bindings)) as BindRecord[]);
     const dispatched = await dispatchClerk(run, {tool, args, clerk: candidate.clerk, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
       bindings: admissionBindings(bindings, extra) as Json}, invocation);
     if (dispatched.unavailable) return unavailable;
@@ -1709,11 +1727,13 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     const preparations = unresolvedChecks.filter(entry => entry.preparation);
     run.pendingCheckPreparations = preparations.map(({candidate, needs}) => ({candidate, needs}));
+    run.pendingAttackPreparation = !!view.policyState.view.preparingAttacks?.length;
     if (preparations.length) content.check_preparation = {
       needs: preparations.flatMap(entry => entry.preparation ? [entry.preparation] : []),
       instruction: 'These are missing host arguments, not uncertainty about what the player wants. Prepare the observed participants and their profiles through the existing scene/source preparation tools, then register their actual presence with apply npc when needed. '
         + 'Source answer excerpts alone do not register participants. Use source_mode=prepare for missing playable entities. Do not invent numeric profiles, make model-origin resolve calls, or narrate an adjudicated result. '
-        + 'After an accepted preparation write, the host refreshes its catalog and Jev can examine a ready check again. If preparation cannot complete, preserve the attempt as unresolved.'};
+        + 'After an accepted preparation write, the host refreshes its catalog and Jev can examine a ready check again. If preparation cannot complete, preserve the attempt as unresolved.'
+        + (run.pendingAttackPreparation ? ' This is the already chosen first attack. Prepare only its named target and physical method. Pin a missing NPC combat archetype through apply npc. For the chosen ordinary item, use apply usage with a natural use name and the actual declaration; the host joins a pending base definition in this turn. Do not copy it into a weapon or defer it because look says parameters are pending. Return the preparation results without closing the attack in suspense or asking the player to repeat it: the host resumes the retained attack when ready.' : '')};
     if (step.reason === 'check_unresolved') content.unresolved_check = object(step.request).check_unresolved ?? {reason: step.reason};
     const unresolved = [...unresolvedChecks.filter(entry => !entry.preparation), ...(content.unresolved_check ? [{candidate: 'check', needs: object(content.unresolved_check).unresolved ?? []}] : [])];
     if (unresolved.length && run.turn !== undefined && bridge?.campaign) {
