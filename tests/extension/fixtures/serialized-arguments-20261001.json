@@ -1,0 +1,183 @@
+{
+ "about": "Contract §160.1/§160.2 evidence, verbatim from the logs: Keeper tool arguments that carry a fragment of their own JSON serialization (shapes A', B, C, D; A is §160's own shape, a second-day instance), and an assistant text whose whole body is a sequence of fenced tool envelopes in the {name, arguments} shape (E). Survey 2026-10-01: 1,238 logs, 23,798 Keeper calls, 15,664 top-level string arguments; every argument carrying a backslash is one of these. Added 2026-10-01: two A' values whose literal is followed by two closing braces (the closers of `arguments` and of the {name, arguments} object around it), jev-always-live-20261001 turns 3 and 13.",
+ "calls": [
+  {
+   "shape": "B",
+   "source": "chatrpgv4-wt-npc-mood/.coc/playtests/mood-live-20261001 (campaign mood-live-20261001 turn 1)",
+   "model": "grok-build/grok-4.7-build-fast",
+   "tool": "narrate",
+   "field": "text",
+   "arguments": {
+    "text": "你在窗边那张桌前坐下，租约还摊在桌面上。你问他，那栋房子到底出过什么事，前面几户人家为什么都住不下去。\\n\\n史蒂文·诺特又看了一眼腕上的表，笔帽在桌沿上点了两下。\\n\\n{{say:史蒂文·诺特}}「海斯，我知道的就刚才那些。外头都说这房子不干净，夜里有动静，租客住不长，可是哪一年、哪一户、到底看见了什么，我没翻过旧报，也没人给我写过字据。近的只有马卡里奥家，上个月吓得连夜搬走，当家的这会儿还在罗克斯伯里疗养院，再往前的我真说不上来。」{{/say}}\\n\\n他用指节压住租约的一角。\\n\\n{{say:史蒂文·诺特}}「细账不在我这儿。你要是接，每天二十块，我把钥匙和地址给你，你自己去把名声洗干净。不接也行，你说一声，我另找人。」{{/say}}"
+   }
+  },
+  {
+   "shape": "B",
+   "source": "chatrpgv4-wt-pi-coc-v2/.coc/playtests/money-rules-play-20260930 (campaign money-rules-20260930 turn 2)",
+   "model": "grok-build/grok-4.7-build-fast",
+   "tool": "narrate",
+   "field": "text",
+   "arguments": {
+    "text": "你出了午餐馆，沿街没走几步，就进了街角那家杂货店。柜台外头堆着日用零碎，玻璃柜里并排放着两台照相机，一台方方正正的盒子机，一台能折起来塞进大衣口袋的柯达。{{scene}}\\n\\n柜台后的人抬眼看了你一眼，目光在深灰西装和眉尾那道疤上停住，脸上没一点笑意，手也没往柜子上放。{{check:appearance}}\\n\\n{{say:店员}}「看相机？普通的就是这台布朗尼盒子机，三块一毛五。要能揣在身上的，那台折叠柯达，四块两毛九。钱没搁到柜台上，别伸手碰。」{{/say}}"
+   }
+  },
+  {
+   "shape": "B",
+   "source": "chatrpgv4-wt-sl29a-b6/.coc/playtests/sl29ab6-xuese-6001-20260925T015027Z",
+   "model": "grok-build/grok-4.7-build-fast",
+   "tool": "narrate",
+   "field": "text",
+   "arguments": {
+    "text": "你拉开深色皮卡的车门，坐进驾驶座。本子摊在方向盘上，你把今天问过、却没人接话的那些事一行行写进去：土路口那块木头牌子写着阿巴托尔三英里，有汽油和食品；镇口的旧牌子写着欢迎来到阿巴托尔，人口850；主街上看着还开着门的是埃索加油站、马瑟综合商店和最后一站食宿酒吧。加油站前那几个人不答话，照片没人接，油钱也没人接，住处、警长、镇长都问了个空。水和吃的没买到，外地人和失踪的事也没问成。主街上你没看出有人在盯着自己。{{time}}\\n\\n笔帽拧上以后，你从杂物箱里抽出公路地图，在膝上摊开。干线和较大的城镇都印着名字，边上的小路口多数是空白。你开进来的这条土路，图上没有标出阿巴托尔。"
+   }
+  },
+  {
+   "shape": "A'",
+   "source": "chatrpgv4-wt-pi-coc-v2/.coc/playtests/ordinary-items-e2e-retry-20260930",
+   "model": "grok-build/grok-4.7-build-fast",
+   "tool": "apply",
+   "field": "narrate",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "stance": "hostile",
+      "why": "海斯仍用钢笔尖朝他手背扎，目的就是扎伤，他不再当成买卖。"
+     }
+    ],
+    "narrate": "\"\\u4f60\\u628a\\u501f\\u6765\\u7684\\u94a2\\u7b14\\u64e6\\u5f97\\u66f4\\u7d27\\uff0c\\u7b14\\u5c16\\u5bf9\\u51c6\\u8bfa\\u7279\\u6309\\u5728\\u684c\\u9762\\u4e0a\\u7684\\u624b\\u80cc\\uff0c\\u7ee7\\u7eed\\u5f80\\u4e0b\\u9001\\uff0c\\u5c31\\u662f\\u8981\\u624e\\u7834\\u90a3\\u5757\\u76ae\\u3002\\n\\n\\u8bfa\\u7279\\u7684\\u80a9\\u8180\\u4e00\\u6c89\\uff0c\\u6574\\u4e2a\\u4eba\\u5f80\\u6905\\u80cc\\u4e0a\\u4e00\\u9760\\uff0c\\u6905\\u5b50\\u817f\\u5728\\u5730\\u677f\\u4e0a\\u8e6d\\u51fa\\u4e00\\u58f0\\u3002\\u4ed6\\u4e0d\\u518d\\u95ee\\u4f60\\u8981\\u5e72\\u4ec0\\u4e48\\uff0c\\u53e6\\u4e00\\u53ea\\u624b\\u5df2\\u7ecf\\u62ac\\u8d77\\u6765\\uff0c\\u53bb\\u6293\\u4f60\\u63e1\\u7b14\\u7684\\u624b\\u8155\\uff0c\\u773c\\u775b\\u5374\\u6b7b\\u76ef\\u7740\\u90a3\\u70b9\\u94a2\\u5c16\\u3002\\n\\n{{say:\\u53f2\\u8482\\u6587\\u00b7\\u8bfa\\u7279}}\\u300c\\u4f60\\u75af\\u4e86\\uff1f\\u300d{{/say}}\"}"
+   }
+  },
+  {
+   "shape": "C",
+   "source": "chatrpgv4-wt-lean-apply/.coc/playtests/grp-c-z1 (campaign grp-c-z1 turn 3)",
+   "model": "grok-build/grok-4.5",
+   "tool": "apply",
+   "field": "narrate",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Arty Wilmot",
+      "name": "阿蒂·威尔莫特"
+     }
+    ],
+    "narrate": "{\"text\": \"你报上姓名，说是诺特先生雇来查科比特宅的，要在这儿翻马卡里奥和那栋房子的旧报道，纸片只看不带。{{roll:intimidate-t3-c1}}\\n\\n柜台后的人听完，钢笔帽在指间转了半圈，嘴角往下一扯。他抬眼打量你，像在量这番话值不值得他动一下登记簿。\\n\\n{{say:阿蒂·威尔莫特}}「诺特先生雇的你？口说无凭。让他自己来，或者拿张有他签名的条子，否则别想进剪报库。」{{/say}}\\n\\n登记簿仍摊在原处，他也不起身引路。地下室的灯黄着，排字机的震动从楼板传下来，剪报库的门还在他身后。{{time:t3-c2}}\"}"
+   }
+  },
+  {
+   "shape": "D",
+   "source": "chatrpgv4-wt-jev-rolls/.coc/playtests/jr4-off-z1 (campaign jr4-off-z1 turn 7)",
+   "model": "grok-build/grok-4.5",
+   "tool": "apply",
+   "field": "narrate",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "the Hall of Records clerk",
+      "name": "档案柜台的办事员"
+     },
+     {
+      "kind": "flag",
+      "name": "records-serious-crime-destination-known",
+      "value": "true",
+      "why": "礼貌追问后，办事员指明重罪案卷在上级法院与中央警局，不在本市民事档案厅"
+     }
+    ],
+    "narrate": "text\":\"你隔着柜台问他，这栋房子有没有更早的记录可查——民事与遗嘱之外，还有没有别的地方。\\n\\n他抬眼看了你一下，倒也没不耐烦，只把笔搁在登记簿上，像在对一个总算问对了管辖的人说话。{{check:appearance}}\\n\\n{{say:档案柜台的办事员}}「本市这儿只管民事和遗嘱。要是涉及重罪、伤害那种，得去上级法院，或者中央警局的案卷。那边才有。」{{/say}}\\n\\n他朝厅外偏了偏下巴，又低头理他的卷宗，像这事已经说完。纸尘仍浮在发白的灯下，民事那一排架子还敞着你刚翻过的空隙。{{time:t7-c2}}\""
+   }
+  },
+  {
+   "shape": "A",
+   "source": "chatrpgv4-wt-npc-mood/.coc/playtests/mood-live-20261001 (campaign mood-live-20261001 turn 3)",
+   "model": "grok-build/grok-4.7-build-fast",
+   "tool": "apply",
+   "field": "narrate",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "Steven Knott",
+      "intent_ref": "intent:steven-knott:31e3aec9a078",
+      "intent_outcome": "done"
+     },
+     {
+      "kind": "npc",
+      "name": "Arty Wilmot",
+      "mood": "有人上门要查旧闻，他正想把闲人挡在剪报室外头。"
+     }
+    ],
+    "narrate": "\"你把钥匙和那张写着地址的便条收进衣袋，出了事务所。上午的街还亮着，电车把你送到《波士顿环球报》报馆，油墨味混着热气，从排字房一直漫到前厅。\\n\\n你找管剪报室的人，说想查科比特宅这些年的旧报道。柜台那头坐着个戴袖套的男人，下巴抬得老高，笔在登记簿上停住。\\n\\n{{say:Arty Wilmot}}「剪报室啊？那不是给外头随便来的人翻的。你是哪一家的，律师、记者，还是自己来闲逛？科比特宅这种名字，我可不能听你嘴上说一句，就把架子给你打开。」{{/say}}\\n\\n他用笔杆点了点柜台，人没让开。后头地下室的门关着，门缝里只有纸页翻动的声音。\""
+   }
+  },
+  {
+   "shape": "A",
+   "source": "chatrpgv4-wt-npc-mood/.coc/playtests/mood-live-20261001 (campaign mood-live-20261001 turn 3)",
+   "model": "grok-build/grok-4.7-build-fast",
+   "tool": "apply",
+   "field": "narrate",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "npc",
+      "name": "隔壁亮灯那家的人",
+      "mood": "黑房子楼上突然响了一下，链子更不敢摘。"
+     }
+    ],
+    "narrate": "\"\\u4f60\\u653e\\u4f4e\\u58f0\\u6c14\\uff0c\\u5ba2\\u5ba2\\u6c14\\u6c14\\u5730\\u95ee\\u95e8\\u540e\\u90a3\\u4eba\\uff1a\\u9694\\u58c1\\u90a3\\u680b\\u623f\\u5b50\\u7a7a\\u4e86\\u591a\\u4e45\\uff0c\\u665a\\u4e0a\\u6709\\u6ca1\\u6709\\u542c\\u89c1\\u8fc7\\u4ec0\\u4e48\\u52a8\\u9759\\u3002\\n\\n\\u94fe\\u5b50\\u8fd8\\u6302\\u7740\\uff0c\\u90a3\\u4eba\\u7684\\u624b\\u4ecd\\u6309\\u5728\\u95e8\\u677f\\u4e0a\\uff0c\\u5634\\u5df2\\u7ecf\\u5f20\\u5f00\\uff0c\\u8bdd\\u5374\\u8fd8\\u6ca1\\u51fa\\u53e3\\u3002\\n\\n\\u5c31\\u5728\\u8fd9\\u5f53\\u53e3\\uff0c\\u4f60\\u8eab\\u540e\\u90a3\\u680b\\u6ca1\\u706f\\u7684\\u623f\\u5b50\\u91cc\\uff0c\\u697c\\u4e0a\\u4f20\\u6765\\u4e00\\u58f0\\u95f7\\u54cd\\uff0c\\u968f\\u540e\\u662f\\u4e00\\u9635\\u62d6\\u62fd\\uff0c\\u50cf\\u6709\\u4e1c\\u897f\\u5728\\u697c\\u677f\\u4e0a\\u6162\\u6162\\u79fb\\u52a8\\u3002{{clue:upstairs-disturbance-t10}}\\n\\n\\u95e8\\u7f1d\\u91cc\\u7684\\u5149\\u6643\\u4e86\\u4e00\\u4e0b\\u3002\\u90a3\\u4eba\\u7684\\u624b\\u628a\\u95e8\\u677f\\u634f\\u5f97\\u66f4\\u7d27\\uff0c\\u773c\\u775b\\u76ef\\u7740\\u4f60\\u8eab\\u540e\\u90a3\\u680b\\u9ed1\\u623f\\u5b50\\uff0c\\u8bdd\\u4ecd\\u5361\\u5728\\u5634\\u8fb9\\u3002\""
+   }
+  },
+  {
+   "shape": "A'",
+   "source": "chatrpgv4-wt-jev-always-result/.coc/playtests/jev-always-live-20261001 (campaign jev-always-live-20261001, turns 3 and 13 in order; the literal and two closing braces)",
+   "model": "grok-build/grok-4.7-build-fast",
+   "tool": "apply",
+   "field": "narrate",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "Arty Wilmot",
+      "name": "阿蒂·威尔莫特"
+     }
+    ],
+    "narrate": "\"\\u4f60\\u628a\\u94a5\\u5319\\u548c\\u5730\\u5740\\u6536\\u8fdb\\u5185\\u888b\\uff0c\\u51fa\\u4e86\\u8bfa\\u7279\\u7684\\u529e\\u516c\\u5ba4\\uff0c\\u7a7f\\u8fc7\\u8857\\u5df7\\u6362\\u4e0a\\u7535\\u8f66\\uff0c\\u5230\\u4e86\\u300a\\u6ce2\\u58eb\\u987f\\u73af\\u7403\\u62a5\\u300b\\u62a5\\u9986\\u3002{{move:newspaper-morgue}}\\n\\n\\u4e00\\u697c\\u5927\\u5385\\u91cc\\u6253\\u5b57\\u673a\\u54d4\\u54d2\\u54cd\\u7740\\uff0c\\u6cb9\\u58a8\\u5473\\u6df7\\u7740\\u70ed\\u6c14\\u3002\\u4f60\\u627e\\u4eba\\u95ee\\u526a\\u62a5\\u5ba4\\uff0c\\u67dc\\u53f0\\u540e\\u5934\\u7ad9\\u8d77\\u4e00\\u4e2a\\u809a\\u5b50\\u5f80\\u5916\\u633a\\u7740\\u3001\\u8896\\u7ba1\\u4e0a\\u6263\\u7740\\u58a8\\u6c34\\u62a4\\u8896\\u7684\\u4eba\\uff0c\\u58f0\\u97f3\\u53c8\\u5c16\\u53c8\\u6162\\u3002\\u4f60\\u8bf4\\u60f3\\u67e5\\u67e5\\u79d1\\u6bd4\\u7279\\u5b85\\u8fd9\\u4e9b\\u5e74\\u7684\\u65e7\\u62a5\\u9053\\u3002\\n\\n\\u963f\\u8482\\u00b7\\u5a01\\u5c14\\u83ab\\u7279\\u628a\\u773c\\u955c\\u5f80\\u9f3b\\u6881\\u4e0a\\u4e00\\u62a8\\u3002{{say:\\u963f\\u8482\\u00b7\\u5a01\\u5c14\\u83ab\\u7279}}\\u201c\\u79d1\\u6bd4\\u7279\\u5b85\\uff1f\\u526a\\u62a5\\u5ba4\\u4e0d\\u5bf9\\u5916\\u5f00\\u3002\\u62a5\\u9986\\u7684\\u6863\\u4e0d\\u662f\\u7ed9\\u8def\\u4eba\\u7ffb\\u7740\\u73a9\\u7684\\uff0c\\u4f60\\u53c8\\u6ca1\\u6709\\u7f16\\u8f91\\u90e8\\u7684\\u6761\\u5b50\\u3002\\u8981\\u67e5\\uff0c\\u5148\\u8bf4\\u6e05\\u695a\\u4f60\\u662f\\u8c01\\u3001\\u4e3a\\u4ec0\\u4e48\\u67e5\\uff0c\\u6211\\u518d\\u8003\\u8651\\u8981\\u4e0d\\u8981\\u653e\\u4f60\\u4e0b\\u53bb\\u3002\\u201d{{/say}}\\n\\n\\u4ed6\\u4e00\\u53ea\\u624b\\u6309\\u5728\\u901a\\u5f80\\u5730\\u4e0b\\u5ba4\\u7684\\u90a3\\u9053\\u95e8\\u4e0a\\uff0c\\u95e8\\u8fd8\\u5173\\u7740\\u3002\"}}"
+   }
+  },
+  {
+   "shape": "A'",
+   "source": "chatrpgv4-wt-jev-always-result/.coc/playtests/jev-always-live-20261001 (campaign jev-always-live-20261001, turns 3 and 13 in order; the literal and two closing braces)",
+   "model": "grok-build/grok-4.7-build-fast",
+   "tool": "apply",
+   "field": "narrate",
+   "arguments": {
+    "effects": [
+     {
+      "kind": "person",
+      "who": "老巡警",
+      "name": "老巡警"
+     },
+     {
+      "kind": "npc",
+      "name": "老巡警",
+      "to": "here",
+      "walk_on": true,
+      "why": "玩家在分局门口拦住一个刚下班的老巡警套近乎。"
+     }
+    ],
+    "narrate": "\"\\u4f60\\u51fa\\u4e86\\u5206\\u5c40\\u5927\\u95e8\\uff0c\\u77f3\\u9636\\u4e0a\\u98ce\\u6bd4\\u91cc\\u5934\\u786c\\u4e00\\u70b9\\u3002\\u4e00\\u4e2a\\u521a\\u4e0b\\u73ed\\u7684\\u8001\\u5de1\\u8b66\\u6b63\\u4ece\\u4fa7\\u95e8\\u51fa\\u6765\\uff0c\\u5916\\u5957\\u6302\\u5728\\u81c2\\u5f2f\\u4e0a\\uff0c\\u76ae\\u5e26\\u5df2\\u7ecf\\u89e3\\u4e0b\\u3002\\u4f60\\u4e0a\\u524d\\u62e6\\u4f4f\\u4ed6\\uff0c\\u9012\\u8fc7\\u53bb\\u4e00\\u6839\\u70df\\u3002\\n\\n\\u4ed6\\u505c\\u4e0b\\u811a\\uff0c\\u770b\\u4e86\\u4f60\\u4e00\\u773c\\uff0c\\u8fd8\\u662f\\u63a5\\u4e86\\u3002\\u706b\\u67f4\\u64e6\\u4eae\\uff0c\\u4ed6\\u5438\\u4e86\\u4e00\\u53e3\\uff0c\\u70df\\u4ece\\u9f3b\\u5b50\\u91cc\\u6162\\u6162\\u51fa\\u6765\\u3002\\n\\n{{say:\\u8001\\u5de1\\u8b66}}\\u79d1\\u6bd4\\u7279\\u5b85\\u554a\\u3002\\u90a3\\u6761\\u8857\\u4e0a\\u7684\\u4eba\\u90fd\\u7ed5\\u7740\\u8d70\\uff0c\\u8bf4\\u90a3\\u623f\\u5b50\\u4e0d\\u5409\\u5229\\u3002\\u9a6c\\u5361\\u91cc\\u5965\\u5bb6\\u4f4f\\u8fc7\\uff0c\\u5f53\\u5bb6\\u7684\\u51fa\\u4e8b\\u4ee5\\u540e\\u5c31\\u4e0d\\u5bf9\\u52b2\\u4e86\\uff0c\\u4e24\\u53e3\\u5b50\\u540e\\u6765\\u4e00\\u8d77\\u8fdb\\u4e86\\u7597\\u517b\\u9662\\u3002\\u6211\\u5728\\u8fd9\\u7247\\u8d70\\u4e86\\u4e0d\\u5c11\\u5e74\\uff0c\\u8fd1\\u4e9b\\u5e74\\u6ca1\\u6709\\u4eba\\u4e3a\\u90a3\\u5b85\\u5b50\\u62a5\\u8fc7\\u6848\\uff0c\\u4e5f\\u6ca1\\u6709\\u6b63\\u5728\\u529e\\u7684\\u6848\\u5b50\\u3002\\u518d\\u65e9\\u7684\\u5e02\\u91cc\\u65e7\\u5377\\u4e0d\\u5728\\u8fd9\\u4e2a\\u5206\\u5c40\\uff0c\\u5728\\u5e02\\u4e2d\\u5fc3\\u7684\\u4e2d\\u592e\\u8b66\\u5bdf\\u5c40\\uff0c\\u6ca1\\u6709\\u6cd5\\u9662\\u7684\\u4ee4\\u6216\\u8005\\u90a3\\u8fb9\\u8ba4\\u7684\\u624b\\u7eed\\uff0c\\u62bd\\u5c49\\u4e0d\\u4f1a\\u5f00\\u3002\\u8857\\u4e0a\\u7684\\u95f2\\u8bdd\\u6211\\u80fd\\u8bf4\\uff0c\\u6848\\u5377\\u6211\\u6ca1\\u770b\\u8fc7\\u3002{{/say}}\\n\\n\\u70df\\u7070\\u843d\\u5728\\u77f3\\u9636\\u4e0a\\u3002\\u4ed6\\u628a\\u5916\\u5957\\u6362\\u5230\\u53e6\\u4e00\\u53ea\\u624b\\u81c2\\u4e0a\\uff0c\\u6ca1\\u518d\\u5f80\\u524d\\u8d70\\u3002\"}}"
+   }
+  }
+ ],
+ "text_envelopes": [
+  {
+   "shape": "E",
+   "source": "chatrpgv4-wt-prose-first/.coc/playtests/grp-a-j2 (campaign grp-a-j2 turn 12, closed implicit; branch claude/prose-first-20260929, PI_COC_PROSE_FIRST=1)",
+   "model": "grok-build/grok-4.5",
+   "stop_reason": "stop",
+   "text": "```json\n{\"name\": \"apply\", \"arguments\": {\"effects\": [{\"kind\": \"clue\", \"clue\": \"catholic-wards\", \"how\": \"客厅与里间已见十字架、圣母像、念珠与烛台堆得过分\", \"label\": \"天主教护符遍布\"}, {\"kind\": \"clue\", \"clue\": \"nailed-windows\", \"how\": \"一楼窗框内侧钉死、侧门多道闩锁已在勘查中看见\", \"label\": \"钉死的窗与侧门闩锁\"}]}}\n```\n```json\n{\"name\": \"narrate\", \"arguments\": {\"text\": \"你把肩抵上后墙那扇门，手电夹在臂弯里，另一只手扶着门框，想顺着缝里看见的那段陡梯一步步往下。\\n\\n板子还钉在这头。锈钉咬进门扇和门框，缝里塞着的旧报纸和碎布一碰就沙沙响，门扇本身几乎动不了。你试着侧身、压低、把脚探向缝下那一级起头，靴尖只碰到木板下缘和钉头，够不到真正能承重的梯级。潮冷的霉气从窄缝里往上顶，手电光仍只能从板缝挤下去一截，再往下还是实黑。\\n\\n这扇门从厨房这边被封死了，眼下没有第二条能下楼的口子。要下去，得先对付这些钉子和木板。\\n\\n楼上依旧安静，厨房里只剩你自己压着的呼吸，和手电壳偶尔碰上门框的轻响。\"}}\n```"
+  }
+ ]
+}

@@ -21,6 +21,7 @@ import type {ApplyContext} from './index.js';
 import {CampaignSnapshot} from '../read/campaign.js';
 import {acceptReunion} from '../npc/reunion.js';
 import {INTENT_OUTCOMES} from '../npc/intents.js';
+import {MOOD_CONFLICTS,moodLine,moodText} from '../npc/mood.js';
 import {generatedOf,intentStamp,refuseRepeat,refuseSaidDone,refuseSettled,resolveIntent} from './intent.js';
 import {stageDraw, stageProduce} from './draw.js';
 import {fightTurn} from '../combat/execution.js';
@@ -209,6 +210,18 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // the model never sends it, and it never changes who the effect is about, only what the receipt says about it.
     const resolvedFrom=typeof effect._resolved_from==='string'&&effect._resolved_from.trim()?effect._resolved_from.trim():undefined;
     const handle=graph.handle(node),{to,stance,dead}=effect;
+    // Contract §161.1: what this person feels right now. Its own variant, like the intention: one line in the play
+    // language, an ordinary keeper-only receipt, no world value. `previous` is the line the committed ledger holds --
+    // the one this replaces when the turn closes (§161.2: within a turn the newest wins) -- or null.
+    if(effect.mood!=null){
+        const combined=MOOD_CONFLICTS.filter(key=>effect[key]!=null);
+        if(combined.length)throw new RpcError('invalid_params','npc.mood is its own effect',{fix:'write the mood in one npc effect and the other change in a second effect of the same batch',details:{field:'npc.mood',conflicts:combined}});
+        const text=moodText(effect.mood);
+        const ledger=row(await new CampaignSnapshot(context.kernel,context.campaign.id).optional('npc-ledger.json'));
+        const mood={text,previous:moodLine(row(ledger[string(node.node_id)]))};
+        const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),mood,...establishedOf(established,fromPassage,resolvedFrom),why,visibility:'keeper',at:nowIso()};
+        return {receipt,event:{type:'npc-changed',data:{npc:handle,mood,why}}};
+    }
     // Contract §142.2: what this person is trying to do, and how it went -- the Keeper's own account of a result no
     // other effect or roll carries (an announcement, a shout nobody answers, a plan dropped). Its own variant, like
     // `defense`: it changes no world value, only where the intention stands.
@@ -216,7 +229,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // is a result of (the porter comes up the stairs because Knott shouted), stamped by the batch (`apply/index.ts`).
     // With nothing else beside it, `{intent_ref, intent_outcome}` is this variant: it is how a Keeper writes "that one
     // failed" (live gate A2, 2026-09-26: refused eight times as an npc effect with no change, turn 8 lost to it).
-    const others=['to','stance','dead','skill','archetype','conditions','defense','action','disposition','reunion','_draws','_produces'];
+    const others=['to','stance','dead','skill','archetype','conditions','defense','action','disposition','reunion','mood','_draws','_produces'];
     const settling=effect.intends==null&&effect.outcome==null&&effect.intent_ref!=null&&effect.intent_outcome!=null&&others.every(key=>effect[key]==null);
     if(settling)effect={...effect,outcome:effect.intent_outcome};
     if(effect.intends!=null||effect.outcome!=null){
@@ -342,11 +355,15 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     if(archetype!=null){
         if(typeof archetype!=='string'||!archetype.trim())throw new RpcError('invalid_params','npc.archetype must name a rulebook NPC stat archetype',{fix:'one of details.options',details:{field:'npc.archetype',options:await archetypeIds(context.kernel)}});
         const existing=row(row(world.npc_profiles)[handle]);
-        if(truth(existing.archetype))throw new RpcError('invalid_params',`${graph.displayName(node)} already has a pinned ${string(existing.archetype)} profile from turn ${string(existing.pinned_turn)}`,{fix:'resolve against it; a pin is made once for the campaign',details:{field:'npc.archetype',actor:handle,archetype:existing.archetype,pinned_turn:existing.pinned_turn??null}});
-        if(isJsonObject(graph.mechanicsOf(node).profile))throw new RpcError('invalid_params',`the source prints ${graph.displayName(node)}'s numbers; an archetype cannot replace them`,{fix:'resolve against the printed profile; no pin is needed',details:{field:'npc.archetype',actor:handle,authority:'source_authored'}});
-        profile=await rollArchetypeProfile(context.kernel,archetype.trim(),why,number(context.turn.turn));
+        if(truth(existing.archetype)){
+            if(existing.archetype!==archetype.trim())throw new RpcError('invalid_params',`${graph.displayName(node)} already has a pinned ${string(existing.archetype)} profile from turn ${string(existing.pinned_turn)}`,{fix:'resolve against it; a pin is made once for the campaign',details:{field:'npc.archetype',actor:handle,archetype:existing.archetype,pinned_turn:existing.pinned_turn??null}});
+            profile=structuredClone(existing);
+        }else{
+            if(isJsonObject(graph.mechanicsOf(node).profile))throw new RpcError('invalid_params',`the source prints ${graph.displayName(node)}'s numbers; an archetype cannot replace them`,{fix:'resolve against the printed profile; no pin is needed',details:{field:'npc.archetype',actor:handle,authority:'source_authored'}});
+            profile=await rollArchetypeProfile(context.kernel,archetype.trim(),why,number(context.turn.turn));
+        }
     }
-    if(to==null&&stance==null&&dead==null&&pinned==null&&profile==null)throw new RpcError('invalid_params','an npc effect needs `to`, `stance`, `conditions`, `dead`, `skill`, `archetype`, an intention, or a combination',{fix:`move them with to: here/away/<scene>, set stance to one of ${repr(words)}, change an explicit condition, say dead: true, pin a skill they have, name an archetype for a person the book gave no numbers, or report an intention: intends (a new one) or intent_ref (one on the card) with outcome attempted, done, failed or abandoned`});
+    if(to==null&&stance==null&&dead==null&&pinned==null&&profile==null)throw new RpcError('invalid_params','an npc effect needs `to`, `stance`, `conditions`, `dead`, `skill`, `archetype`, an intention, a mood, or a combination',{fix:`move them with to: here/away/<scene>, set stance to one of ${repr(words)}, change an explicit condition, say dead: true, pin a skill they have, name an archetype for a person the book gave no numbers, report an intention: intends (a new one) or intent_ref (one on the card) with outcome attempted, done, failed or abandoned, or write what they feel right now with mood`});
     const presence=world.npc_presence??={};let moved:string|null=null;
     if(to!=null){
         if(typeof to!=='string'||!to.trim())throw new RpcError('invalid_params',"npc.to must be a scene name, 'here' or 'away'",{fix:'a scene name on the graph, or here / away',details:{field:'npc.to',options:['here','away']}});

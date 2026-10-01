@@ -1,5 +1,12 @@
 # Narration Craft
 
+## 2.1.6
+- The mood is written before the person speaks, in the same turn, and its own `apply` is fine; it no longer has to ride in the call that delivers their words (contract §161.10 and §162, owner ruling 2026-10-01: prose written in `apply.narrate` beside effects is where grok-4.7-build-fast double-serializes it).
+
+## 2.1.5
+- People speak from what they feel right now (contract §161, owner ruling 2026-09-30): before someone speaks the Keeper knows their present feeling, keeps it on their card's `now` with `apply npc mood`, and lets it carry the line rather than the information; people are not information desks. Requires `npc.mood.v1`.
+- The brief's people sentence carries the feeling instead of "natural connected speech … length fitting the moment, wanting something" (the full instruction keeps those), and the brief drops "The strange beside the plain, no verdict on the cause", which the style lines already carry every turn: both to stay inside the 5000-byte shared ceiling.
+
 ## 2.1.4 (experimental arm E, 2026-09-28; not for merging unless the owner picks it)
 - Voice cards stop prescribing rhythm. On every A/B table the lane wrote "短促 / 简短 / 短句 / 不绕弯" into nearly every mask, including people the book never calls brief (Ruth Blake: "speaks in asides while filing"; the clerk: "dry, procedural"), and wrote the sample exchanges as rows of clipped statements; the Keeper wore that as cadence. The lane now describes word choice, formality, attitude and address, never sentence length; a book's "clipped" is a manner said as one natural utterance. The Keeper wears a mask in word choice, address and attitude, not cadence.
 

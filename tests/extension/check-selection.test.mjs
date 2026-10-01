@@ -150,8 +150,8 @@ test('current-agent scope is reused without another family decision or an automa
   assert.deepEqual((await selectCheck(input)).needs, ['check_request_options_unavailable']);
 });
 
-test('unmet prerequisites defer a check; §163 a gray prerequisite is Jev\'s best guess (a tie is not blocked)', async t => {
-  for (const [blocked, expected] of [[0.01, 'selected'], [0.99, 'deferred'], [0.5, 'selected'], [0.7, 'deferred']]) {
+test('unmet prerequisites defer a check; §163 a gray prerequisite is Jev\'s best guess (a tie waits)', async t => {
+  for (const [blocked, expected] of [[0.01, 'selected'], [0.99, 'deferred'], [0.5, 'deferred'], [0.4, 'selected'], [0.7, 'deferred']]) {
     const {input} = setup(t, () => noul(0.99), [listen]);
     const port = input.decision;
     input.decision = {async decide(batch) {
@@ -161,7 +161,7 @@ test('unmet prerequisites defer a check; §163 a gray prerequisite is Jev\'s bes
     }};
     const result = await selectCheck(input);
     assert.equal(result.status, expected, `blocked=${blocked}`);
-    assert.equal(!!result.forced, blocked === 0.5 || blocked === 0.7, `blocked=${blocked}`);
+    assert.equal(!!result.forced, [0.4, 0.5, 0.7].includes(blocked), `blocked=${blocked}`);
   }
 });
 
@@ -485,6 +485,45 @@ test('an unavailable chase participant catalog requests preparation before any s
   assert.equal(result.preparation.decision, 'chase:start');
 });
 
+test('chase necessity refinement retains a scoped dependency verdict without re-asking it in numeric context', async t => {
+  const chase = {key: 'chase', family: 'chase', label: 'Ada escapes the pursuer', action: {actor: 'Ada', target: 'Pursuer', decision: 'chase:start', intent: 'flee'},
+    parameters: [], needs: [], authorization: 'declaration', facts: {mobility: 'foot'}};
+  const {input, seen} = setup(t, batch => noul(batch.family === 'check-selection-need' ? .84 : .88), [chase]);
+  input.declaration = 'I keep escaping. If they shoot later, I dodge.';
+  input.context = {public_narration: 'The pursuer is still behind Ada.', current_receipts: [], first_blow: {preparation: {targets: ['Pursuer']}},
+    situation: {people: [{name: 'Pursuer', profile_available: false}]}, rules: ['Unrelated numeric vehicle tables.']};
+  const base = input.decision;
+  input.decision = {async decide(batch) {
+    const result = await base.decide(batch);
+    for (const question of batch.questions) if (question.key.endsWith('_blocked'))
+      result.answers[question.key] = noul(batch.family === 'check-selection-chase-prerequisite' ? .08 : .39);
+    return result;
+  }};
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'selected');
+  assert.equal(result.calls, 3);
+  const dependency = seen.find(batch => batch.family === 'check-selection-chase-prerequisite');
+  assert.equal(JSON.stringify(dependency.state).includes('profile_available'), false);
+  assert.equal(JSON.stringify(dependency.state).includes('numeric'), false);
+  assert.equal(seen.find(batch => batch.family === 'check-selection-need-refine').questions.some(q => q.key.endsWith('_blocked')), false);
+});
+
+test('a genuinely conditional chase or an unavailable dependency answer cannot start (§163: a gray dependency waits, an unanswered one is a recorded no-roll)', async t => {
+  const chase = {key: 'chase', family: 'chase', label: 'Ada escapes the pursuer', action: {actor: 'Ada', decision: 'chase:start', intent: 'flee'},
+    parameters: [], needs: [], authorization: 'declaration', facts: {mobility: 'foot'}};
+  for (const [p, expected] of [[.99, 'deferred'], [.5, 'deferred'], [undefined, 'no_roll']]) {
+    const {input} = setup(t, () => noul(.99), [chase]), base = input.decision;
+    input.declaration = 'I fix the tire first. Only after it is repaired will I start escaping.';
+    input.decision = {async decide(batch) {
+      const result = await base.decide(batch);
+      for (const question of batch.questions) if (question.key.endsWith('_blocked'))
+        result.answers[question.key] = p === undefined ? {status: 'unknown'} : noul(p);
+      return result;
+    }};
+    assert.equal((await selectCheck(input)).status, expected);
+  }
+});
+
 test('a preparation hold permits agent preparation and re-opens only on a newly executable catalog', () => {
   const request = {...candidate, bound: {decision: 'chase:start'}};
   const context = {scene: 'road', clock: {}, present: []};
@@ -500,6 +539,41 @@ test('a preparation hold permits agent preparation and re-opens only on a newly 
   const ready = {...refreshed, key: 'participants-ready', detail: {check_options: [{needs: [], parameters: [{name: 'intent', available: true}]}]}};
   settleRead(view, 4, read, {context, candidates: [ready]}, 1);
   assert.deepEqual(view.candidates.map(c => c.key), ['participants-ready']);
+});
+
+test('vehicle driver preparation cannot be released by a ready foot option or an unrelated driver', () => {
+  const request = {...candidate, bound: {decision: 'chase:start'}};
+  const context = {scene: 'road', clock: {}, present: []};
+  const view = initialView({runId: 'driver-prepare', rawInput: 'I drive away.', context, candidates: [request]});
+  settleCheckSelection(view, request, {status: 'unresolved', needs: ['chase_driver_skill_unavailable'], calls: 0,
+    preparation: {decision: 'chase:start', needs: ['chase_driver_skill_unavailable'], mobility: 'vehicle', drivers: ['Pursuer'], profiles: ['Gunner']}}, 0);
+  const read = {materials: [], summary: {}, calls: 0, ms: 0};
+  const source = actors => ({...request, key: 'updated', detail: {check_options: [
+    {needs: [], parameters: [], facts: {mobility: 'foot'}},
+    {needs: [], parameters: [], facts: {mobility: 'vehicle', chase_actors: actors}},
+  ]}});
+  settleRead(view, 1, read, {context, candidates: [source([{name: 'Jack', driving_available: true}, {name: 'Pursuer', driving_available: false}])]}, 0);
+  assert.deepEqual(view.candidates, []);
+  settleRead(view, 2, read, {context, candidates: [source([{name: 'Pursuer', driving_available: true}])]}, 0);
+  assert.deepEqual(view.candidates, []);
+  settleRead(view, 3, read, {context, candidates: [source([{name: 'Pursuer', driving_available: true}, {name: 'Gunner', profile_available: true}])]}, 0);
+  assert.equal(view.candidates.length, 1);
+});
+
+test('NPC movement evidence preparation requires a changed placement for every named actor', () => {
+  const request = {...candidate, bound: {decision: 'chase:start'}}, context = {scene: 'road', clock: {}, present: []};
+  const view = initialView({runId: 'role-prepare', rawInput: 'I drive away.', context, candidates: [request]});
+  settleCheckSelection(view, request, {status: 'unresolved', needs: ['chase_mobility_evidence_required'], calls: 0,
+    preparation: {decision: 'chase:start', needs: ['chase_mobility_evidence_required'], mobility: 'vehicle',
+      roles: [{actor: 'Rider', evidence: 'Rider is nearby.'}]}}, 0);
+  const read = {materials: [], summary: {}, calls: 0, ms: 0};
+  const fresh = evidence => ({...request, key: 'updated', detail: {check_options: [{needs: [], parameters: [],
+    facts: {mobility: 'vehicle', chase_actors: [{name: 'Rider', profile_available: true, driving_available: true,
+      description: 'A refreshed biography.', presence_evidence: evidence}]}}]}});
+  settleRead(view, 1, read, {context, candidates: [fresh(' Rider is nearby. ')]}, 0);
+  assert.deepEqual(view.candidates, []);
+  settleRead(view, 2, read, {context, candidates: [fresh('Rider controls the motorcycle while pursuing the car.')]}, 0);
+  assert.equal(view.candidates.length, 1);
 });
 test('the existing agent schedules the check bind and its execution before compose', () => {
   const view = initialView({runId: 'run', rawInput: 'I listen.', context: {scene: 'hall', clock: {}, present: []}, candidates: [candidate], readFirst: false});

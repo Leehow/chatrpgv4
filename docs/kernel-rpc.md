@@ -19197,15 +19197,23 @@ SL-44 ticket's Comments.
 
 ### 124.12 Historical reference: direct search in the Keeper turn (#110, 2026-09-30)
 
+**Selected preparation (2026-09-30 approved repair).** A positive Jev historical-support decision selects one bounded preparation attempt before the next turn-writing Keeper step. The host projects its purpose, requests the historical lookup through that same Keeper's native tool channel, and retires the preparation after a tool result. It does not delegate a query author or add a research/summarization agent. The stable tool declarations remain unchanged; this step requests `lookup` and permits only the existing historical subtype for the preparation itself. Existing source scope, Mod, credential, quote-challenge, library-first and retrieval-budget gates remain authoritative. The host clears the native constraint after the read, closure, agent end or a new run; ordinary gameplay and later player inputs do not inherit it. Empty, unavailable, cancelled and refused results end the preparation without a gameplay obligation or a repeat loop. Unsupported native control falls back to one advisory attempt rather than blocking a turn. The need batch separates the value of background detail from immediate interruption; these are host preparation judgments, not additional investigator actions under the compile's action-only policy. Existing thresholds are retained. Query/objective distinguish authored fiction and the chosen historical/style analogue, and selected excerpts are integrated into the current scene or NPC reply while preserving canon.
+
+**Fictional canon and historical analogues (2026-09-30 owner amendment; implemented with controlled service evidence).** Authored and established world facts remain authoritative. A module may mix real history with fictional countries, cultures, institutions, calendars or local rules. Each lookup distinguishes the scenario's own setting from the requested historical reference basis and the aspects being borrowed; there is no mandatory whole-module real/fictional classification. The Keeper selects the basis within ordinary inference, preferring the authored analogue, using compatible player style preferences when none is declared, and marking an inferred one as provisional. Selecting a reference does not authorize changing the fiction. Existing query/objective and the host-bound scenario carry the distinction into the same Jev selection batch and retained acquisition context. Useful stylistic analogies are not rejected solely for having a different real-world name; historical authenticity does not authorize importing rulers, religions, laws, restrictions or political relationships contrary to the fiction. Compatible appearance, materials or practices may inform normal narration and NPC interaction. Price anchors retain original historical units and currency; fictional quotations use an adapted scale, without inventing a fixed exchange rate or searching a fictional object as if it had an exact historical retail price. Saved originals remain unchanged and reuse checks the current fiction and reference purpose. No new research, query-writing, classification or summary model pass, country lookup table or automatic canon correction is introduced. The existing 1.0.5 generic analogy guidance is not evidence that this distinction or ordinary-play enrichment has passed; Implementation and its genuine scene/NPC evidence follow spec section 7.1; a fictional-country live-module pass is not claimed.
+
+**Scenario setting (2026-09-30).** Every capsule carries a bounded `historical_setting` independent of the opening-only module briefing. Its `era`, `starting_place` and `background` copy authored values from the selected entrance/module and, when bound to this campaign and source, the approved public character-guidance artifact. If an older/setup-adjudicated campaign omits its guidance key, the reader may use exactly one accepted guide matching its opening scene identity and play language; ambiguity does not authorize an arbitrary guide. Missing fields remain null. A legacy graph may provide its module summary as keeper-only background; this is never a new public disclosure or a search instruction. The projection is at most 2048 UTF-8 bytes, reports truncation, and makes no model call. The authored era takes precedence over any investigator finance-period fallback; finance tables do not describe the setting. The main Keeper uses this setting and current scene when writing period/place-specific queries. The same host projection reaches Jev's need, saved-reference relevance, price-anchor and result-applicability decisions and participates in the exact-query cache binding. Region and social/economic systems remain source text interpreted by the existing agents, never keyword classifiers or a default US market. Publication dates still do not describe historical eras. Source import/guidance writes the evidence, the capsule and historical callers read it, and Keeper-authored queries plus selected excerpts are the consumer evidence.
+
 **Price anchors (2026-09-30 user amendment).** Ordinary item prices are Keeper estimates based on saved, source-backed price anchors for the setting. A new object is not a reason to buy another Exa search. The historical reader batches a closed query-category decision, an explicit quotation-challenge decision over host-owned player input, and saved-reference relevance before any auto/web search can spend credit. A routine price request returns applicable anchors regardless of the objects those anchors price; if none exist, it requests a broad price baseline instead of searching the specific item. A baseline search is permitted only when no usable anchor for that market is available. Even explicit web mode reuses suitable anchors for routine prices. Only a concrete player challenge permits a targeted item-price search, still under the ordinary grant, credential, cancellation and budget gates. Unknown policy spends no Exa credit. Applicability selection qualifies original excerpts as price anchors only when they contain useful monetary amounts with currency, unit and period; an additive library marker records that role without changing old packets. Estimates are not stored as historical sources, and references do not change purchase arithmetic, Spending Level or already committed quotations/transactions. No new research or summary agent is added.
 
 The optional `historical-reference` Mod defaults on for new campaigns; explicit disables and existing package locks remain authoritative. It requires `context.historical-reference.v1`. Its `host_settings: ["exa_api_key"]` declaration binds only the host-registered secret slot, never an arbitrary setting name. The right-hand Mod panel uses the existing app secret settings API for `ext.coc-keeper.exaApiKey`; ordinary Mod settings, campaign snapshots, model messages and exports never contain its value. Saving a credential neither searches nor changes the Mod switch. Missing credentials leave play available. Secret replacement and clearing use the host's idle restart boundary.
 
 `lookup {kind:"historical_reference",query:string,objective?:string}` is a host-only read. The main Keeper writes its own query in its ordinary inference; no researcher, query author, summarizer or translator process is created. Jev adds one optional need question to the existing compile/route decision; a granted need permits this one lookup subtype even during narrator-only composition, without widening other verbs. The host checks active Mod, credentials, current run/turn and the grant before execution. An unavailable reference never becomes an unresolved gameplay obligation.
 
-The host calls Exa Search with compact highlights and cached contents, then uses one bounded Jev batch to select useful supplied excerpts and qualify direct, analogous or uncertain applicability. Text is copied from the actual result, not generated. No Exa answer, summary, output schema or deep-research mode is used. Results return through this same tool invocation as `historical_reference`, with `ready|empty|unavailable`, reason, material bodies, source URLs, retrieval metadata and applicability. They are advisory external excerpts, never module truth, player knowledge, consent, price-table identifiers or settled effects. Existing prices and fiction are not retroactively changed; cash still follows §58.
+The host calls Exa Search with compact highlights and cached contents, then uses one bounded Jev batch to select useful supplied excerpts and qualify direct, analogous or uncertain applicability. A passage may answer only one component of the request; it need not document the fictional institution or cover every topic. Nearby-period examples from other institutions may be qualified analogies, without making their place-specific practices campaign facts. Publication and excavation dates are not the dates of the practice described. Text is copied from the actual result, not generated. No Exa answer, summary, output schema or deep-research mode is used. Results return through this same tool invocation as `historical_reference`, with `ready|empty|unavailable`, reason, material bodies, source URLs, retrieval metadata and applicability. They are advisory external excerpts, never module truth, player knowledge, consent, price-table identifiers or settled effects. Existing prices and fiction are not retroactively changed; cash still follows §58.
 
 Initial limits are five source candidates, three selected sources, 12 KiB delivered text and a shared four-second per-input search/filter allowance (further bounded by its parent), at most two distinct queries. Cancellation and stale binding suppress publication. Source excerpts may be cached, but applicability is judged against the current scene; repeated delivery uses content identity and must restore bodies after compaction. Telemetry separates obtained, selected, delivered and actual narrative use, and measures whole-player-turn latency rather than claiming the provider's search time as the product result. Implementation and acceptance follow the [historical reference specification](specs/historical-reference-mod.md).
+
+Applicability state also carries the latest host-owned `player_input`. During a named saved read, the query may only identify a reference; Jev uses player input and objective to understand which details are wanted. A title/address is not a replacement for that purpose, and model-authored lookup arguments cannot replace the host's player input.
 
 #### Session reference library (owner, 2026-09-30)
 
@@ -30402,6 +30410,8 @@ execution. Here Jev/host owns the next check rather than delegating it back to t
 LLM. [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) supplies the string grammar;
 valid whole-string decoding does not justify guessing malformed field fragments.
 
+*Amended by §160.1 (owner's ruling, 2026-10-01):* a tool argument in any of these shapes, A′ included, is decoded once at the argument boundary (`prepareArguments`) before it reaches this check. The refusal of A′ here stands only for text that never passed through `prepareArguments`.
+
 The existing Keeper agent receives an adjudication step to prepare source material, participant
 identity/presence and profiles through existing read/preparation/apply tools. Model-origin resolve
 remains forbidden. A separate scene/decision preparation hold survives unrelated bookkeeping;
@@ -30416,6 +30426,138 @@ if preparation is still pending; a successfully prepared and adjudicated attempt
 an obsolete notice. *Amended by §163 (2026-10-01): a preparation still pending at accepted delivery is a forced no-roll, recorded at the
 delivery; the preparation instruction tells the Keeper to narrate the attempt by judgement when it cannot complete.* Native source tools still own PDF reading and graph preparation; none of this
 licenses the player context to read future private material or the agent to invent numeric rules.
+
+### 159.11 Vehicular chase binding (2026-10-01)
+
+The real encounter is a car flight. The existing chase starter created every participant from
+foot combat statistics. Independently, `executeChase` discarded the vehicle/driver/passenger
+fields even when its trusted participant payload supplied them. The lower `ChaseSession` already
+implements vehicle MOV, Drive Auto, structural Build, occupant armor and passenger relationships.
+
+The settlement gateway must forward these existing fields without deriving or inventing values.
+Vehicle speed checks must read Drive Auto and the published vehicle MOV; occupant HP stays the
+actor's. Foot starts keep their current behavior. A production start still requires host-issued,
+Jev-selected participant/mobility/profile bindings; model-origin resolve and free numeric plans
+remain forbidden. Do not treat the gateway regression alone as acceptance of the real chase.
+The bounded starter adapter and original blind encounter remain required work before completion.
+
+`resolve.action.chase_roster` is an optional bounded array of semantic participant names. Each
+entry is `{actor,role:foot|driver|passenger,vehicle?,riding_with?}`: drivers choose a published
+vehicle profile name; passengers name another roster member who is a driver. No numeric stats,
+actor ids, positions or roll results are model arguments. The host selects these closed values
+with Jev. The kernel matches current party/present NPC identity, reads pinned actor numbers,
+resolves vehicle MOV/Build/armor from its tables, and reads Drive Auto from the actual driver.
+Missing driver skill is an explicit need, never another actor's value or a guessed chance.
+Names, roles and driver links must be distinct/coherent; moving pursuer and quarry are required.
+Roster roles are reviewed as part of player agency. Existing starts without this field retain
+the established foot semantics; the new selector must choose the appropriate mobility explicitly.
+
+Role questions are independent closed Choices with the existing choice gate. A vehicle profile
+Choice nominates one published class; an independent Noul confirms that class with the existing
+compatible-adjudication gate. Several permissible classes do not need to compete for one high
+Choice probability. Passenger links select only an already selected driver. The kernel rejects
+duplicate resolved actors, unknown profiles and incoherent links before starting a session.
+Missing driver skill holds carry the vehicle mobility and required driver names: an unrelated
+ready foot option cannot release that hold. No threshold is lowered and unresolved bindings stay
+unresolved. Selector family version 20 separates these questions from earlier cached decisions.
+Regression coverage includes the actual issued catalog, selector dispatch, ordinary resolve and
+saved driver/passenger state. The same blind live encounter remains the acceptance boundary.
+
+### 159.12 Chase readiness consumes pinned actor profiles and skill ledgers (2026-10-01)
+
+Live turn 44 registered the observed participants, but five table-created people had no mechanical
+profile. A roster's foot participants and passengers need those profiles too, not only its drivers.
+The vehicle catalog must expose profile_available for each named participant. After bounded role
+binding, any selected participant without a profile returns a typed preparation requirement naming
+those actors; it never reaches a refused starter or becomes an invented stat block. Profile and
+driver-skill holds release only when the fresh vehicle roster advertises the same required names
+as available. Existing source preparation and apply npc own those writes.
+
+Separately, apply npc.skill writes npc-ledger.json and current receipts. The catalog already reads
+these, but the chase skill reader did not. Use the existing actorSkillValue reader before the
+pinned combat-profile fallback: a real registered driver's skill pin must reach Drive Auto speed
+rolls. Missing values remain needs, with no automatic chance or another actor's skill substituted.
+Regression must run the actual skill pin, catalog, selector and starter; editing fixture world
+numbers directly does not establish this writer-reader-actor seam. Selector family version 21.
+
+### 159.13 Chase dependency is a separate bounded question (2026-10-01)
+
+Live turn 45 confirms the chosen escape (need refinement 0.88), but the combined prerequisite
+question stays ambiguous (0.39). That state mixes player ordering, future dodging precautions,
+participant readiness and vehicle tables. Exact-state diagnostic calls are not gameplay: rewriting
+the broad question alone stayed gray; a literal dependency question with public narration and
+current receipts gave 0.08 for the already ongoing escape. An explicitly conditional start stayed
+above the no-dependency gate, so it cannot be released by this change.
+
+For chase:start only, necessity keeps its own context. In parallel, a separate question asks whether
+starting that pursuit/escape itself waits for a player-chosen prior action or event. Its state is
+the declaration, public narration, current receipts and candidate identity/mobility. Numeric/profile
+readiness is handled by §159.12, not used as evidence of a player-stated dependency. A later
+conditional reaction cannot block an already chosen escape. The host composes both decisions;
+missing/ambiguous answers remain unresolved, real dependencies remain held. The single allowed
+refinement asks one unsettled dimension and retains the other answer in code, never in Jev state.
+No threshold is changed. Selector family 22; original blind encounter must be retried for acceptance.
+
+### 159.14 Current participant placement reaches chase role binding (2026-10-01)
+
+The end-to-end selector diagnostic gets through necessity and dependency, then two movement roles
+stay gray. The catalog supplied a static biography while dropping the accepted NPC placement's
+explanation. Supplying the existing placement evidence instead gave driver 0.94 and passenger 1.00
+in a non-mutating diagnostic. A second Noul on the old biography did not establish those roles.
+
+Writer: accepted apply npc to receipts, with their existing why and actor identity. Reader: the
+vehicle catalog projects presence_evidence from the latest placement for each presently registered
+NPC, only when that placement names the current scene. Read current receipts and the already
+line-filtered committed history; do not invent a role or revive a stale placement after departure.
+Actor: Jev's role question reads current presence evidence and public narration, using biography
+only when no placement evidence exists. It does not inspect unrelated numeric/profile readiness.
+Vehicle profile and passenger-link questions retain their separate binding context. Kernel roster
+identity, role/link validation and admission still decide whether a selected roster may execute.
+No new world field, role authoring gateway or free-form plan is introduced; this is an existing
+writer's missing consumer. Regression covers placement evidence after the original receipt turn.
+
+Gray NPC movement roles are evidence-preparation gaps, while a gray investigator role remains
+an unresolved player-method binding. NPC preparation names only the affected actors and retains
+their current placement-evidence strings. The agent may consult the current encounter/source and
+record a concrete NPC-owned position through existing apply npc to/why; it may not send a role,
+roster or resolve for the host. Jev then binds the role again. A hold releases only when fresh
+vehicle catalog evidence for every required actor actually differs from its held evidence; an
+unrelated write, biography refresh or ready skill cannot release it. Repeating the same statement
+does not supply new evidence. Missing/provider-invalid answers do not trigger this semantic repair.
+
+### 159.15 Routing does not carry a Cartesian check-parameter inventory (2026-10-01)
+
+Live turn 47's route cannot pack after six NPCs have mechanical profiles. Read-only reproduction
+measures 70,531 state bytes and 94,673 request bytes; social, opposed and psychology each carry
+42 actor-target options. This is before check selection, so threshold changes cannot fix it.
+
+Route projection groups check templates by their identical structural action/trigger/needs/facts
+after removing actor and target from that signature. It retains every exact actor-target binding
+in the corresponding group's participants array; it never invents the Cartesian product of two
+name sets. Long labels, definitions, parameter menus and vehicle-binding inventories belong to
+the selected check binder, not family routing. Keep the remaining trigger facts, including SAN
+exposure and clinical eligibility. This is a route-only projection: canonical candidates/catalog
+stay complete, and selectCheck rereads the bound full kernel catalog before adjudication/execution.
+Route family version 3 separates it from earlier cached routing questions. Regress six prepared
+NPCs through the real catalog/candidate path, assert packing and exact binding preservation, then
+retry the same live scene. Packing refusal remains typed unavailable when even the projection
+cannot fit; no LLM-owned resolve or arbitrary option truncation is authorized.
+
+### 159.16 An identical NPC archetype pin reuses its established profile (2026-10-01)
+
+Live turn 48 reaches the driver-skill preparation, then a mixed batch repeats archetype pins that
+already succeeded in turn 46. Three progressively shortened retries hit the same identical-pin
+refusal; the fourth contains only skill pins but the refusal budget is already exhausted. Atomic
+refusal preserved state, but a harmless identical declaration poisoned the remaining preparation.
+
+An existing table-pinned archetype requested with the exact same archetype name is an idempotent
+reuse: keep the complete established profile, original pin turn, numbers and RNG state. Companion
+effects in the same atomic batch still run normally. A different archetype remains refused, as does
+replacing a source-authored profile; neither conflict is a no-op. This changes no numbers already
+told or recorded and never resamples the actor. Regress duplicate pin plus a new skill through the
+real apply/catalog/chase path; source ownership and conflicting-pin guards remain required.
+Primary analogues: SQLite uniqueness UPSERT no-op and Stripe identical idempotent request reuse
+confirm repeat preservation; our NPC archetype identity is actor-scoped, not a reused request key.
 
 ## 160. A Keeper tool string argument that arrives as a JSON string literal is decoded at the host boundary (2026-09-30; extends §144, amends §135.21's `prepareArguments` and the order of §144.1)
 
@@ -30437,7 +30579,168 @@ A survey of every retained Keeper tool call (1,269 App session files and playtes
 
 **Three ends (§31).** *Writer:* the model's tool call, through the provider. *Reader:* `decodeStringLiterals` in the Keeper tools' `prepareArguments` (`extensions/kernel/index.ts`), which hands the decoded arguments to §144.1, §135.21's check, Pi's schema check and the dispatcher; the embedded narrate, the kernel, the speech rows and every later reader see the decoded text. *Record:* one telemetry row per decoded field, `{lane: "tool_arguments", event: "json_string_decoded", tool, field, layers}`. Acceptance: on the next real tables the rows are counted, and no delivered `rendered_text` is a quoted literal.
 
-**Tests.** `tests/extension/encoded-string-argument.test.mjs`, with the two recorded calls verbatim in `tests/extension/fixtures/json-string-arguments-20260930.json`: each recorded value decodes once to its prose and nothing else in the call changes; a value serialized twice is decoded twice, ASCII-escaped or not, with whitespace around it; plain prose, prose with ASCII-quoted speech, a value that starts with a literal and goes on, prose with a backslash, CJK quotes and the empty string come back as the same object; the boundary above; every declared string parameter of every tool is read, an undeclared key, a non-string parameter (`workpad_patch`) and a nested string are not. Through the real registration: on both engines an explicit narrate whose `text` is the playtest's literal reaches the kernel as its prose, with its row; a literal followed by `</text>` is unwrapped by §144 first and then decoded (both rows, in that order); the App's own `apply` on an ordinary turn of the emitted kernel and the hybrid engine delivers on the first leg with no escape in `rendered_text`, `marked_text`, the speech rows or the transcript; and the App's literal as the opening's narrate is delivered as its prose on turn 0, where the floor does not run. Mutations (a copy of the file, never `git checkout --`), each turning tests red: `prepareArguments` handing on the undecoded arguments; the row not recorded; the decode run before §144's unwrapping; outer quotes alone taken as enough; one layer only; every key read, declared or not; the value not trimmed.
+**Tests.** `tests/extension/encoded-string-argument.test.mjs`, with the two recorded calls verbatim in `tests/extension/fixtures/json-string-arguments-20260930.json`: each recorded value decodes once to its prose and nothing else in the call changes; a value serialized twice is decoded twice, ASCII-escaped or not, with whitespace around it; plain prose, prose with ASCII-quoted speech, a value that starts with a literal and goes on, prose with a backslash, CJK quotes and the empty string come back as the same object; the boundary above; every declared string parameter of every tool is read, an undeclared key, a non-string parameter (`workpad_patch`) and a nested string are not. Through the real registration: on both engines an explicit narrate whose `text` is the playtest's literal reaches the kernel as its prose, with its row; a literal followed by `</text>` is unwrapped by §144 first and then decoded (both rows are recorded; they are written concurrently, so the order is proven by the kernel receiving the prose, not by the rows); the App's own `apply` on an ordinary turn of the emitted kernel and the hybrid engine delivers on the first leg with no escape in `rendered_text`, `marked_text`, the speech rows or the transcript; and the App's literal as the opening's narrate is delivered as its prose on turn 0, where the floor does not run. Mutations (a copy of the file, never `git checkout --`), each turning tests red: `prepareArguments` handing on the undecoded arguments; the row not recorded; the decode run before §144's unwrapping; outer quotes alone taken as enough; one layer only; every key read, declared or not; the value not trimmed.
+
+### 160.1 A string argument that carries a fragment of its own serialization: the unquoted body, the envelope, and the envelope's tail (2026-10-01; extends §160)
+
+**Evidence.** A second survey on 2026-10-01 (1,238 logs, 23,798 Keeper calls of the seven verbs, 15,664 top-level string arguments) looked for every argument that carries a backslash at all. There are eight, each a fragment of the argument's own JSON serialization. No other argument carries a backslash, and none has both a real line break and an escaped one. Verbatim in `tests/extension/fixtures/serialized-arguments-20261001.json`:
+
+| shape | the value | field | model | where |
+| --- | --- | --- | --- | --- |
+| A, §160's own | `"…\n\n…"`: the whole literal, raw CJK, `\n` escapes | `apply.narrate` | grok-build/grok-4.7-build-fast | `mood-live-20261001` t3, plus a `\u`-escaped variant from the same run |
+| A′ | `"\u4f60…{{/say}}"}`: the literal and the envelope's closing brace; `"\u4f60…"}}`: the literal and two, the closers of `arguments` and of the `{name, arguments}` object around it | `apply.narrate` | grok-4.7-build-fast | `ordinary-items-e2e-retry-20260930`; `jev-always-live-20261001` t3 and t13 (two braces, added the same day after a live table found them) |
+| B | `你在窗边…\n\n史蒂文…`: the literal's body, without its quotes | `narrate.text` | grok-4.7-build-fast | `mood-live-20261001` t1, `money-rules-play-20260930` (campaign `money-rules-20260930` t2), `sl29ab6-xuese-6001-20260925T015027Z` |
+| C | `{"text": "你报上姓名…\n\n…"}`: the carried tool's whole arguments object | `apply.narrate` | grok-build/grok-4.5 | `grp-c-z1` t3 |
+| D | `text":"你隔着柜台…\n\n…"`: the same object without `{"` and `}` | `apply.narrate` | grok-4.5 | `jr4-off-z1` t7 |
+
+Every one that closed a turn reached the player as written: the escapes, the braces, `text":"`. In the delivered turn records (5,892), 6 `rendered_text` carry an escaped line break and no real one: the A/B/C/D turns above, plus §160's App turn. §160 took only A. A′ does not parse as one literal because of its brace, B has no quotes, and C and D are an object or part of one. B was first seen on 2026-09-25. The provider's deltas carry the escapes verbatim (`"text":"…\\n\\n…"`), so the extra serialization is the model's.
+
+**The rule.** `decodeSerializedStrings` (`extensions/kernel/encoded-string-argument.ts`, which replaces §160's `decodeStringLiterals` in `prepareArguments`, same place and order) reads each declared string parameter. It decodes the first of these that fits, and repeats while one still fits:
+
+1. **The literal** (§160, unchanged): the trimmed value is one complete JSON string literal, and decoding it consumed an escape.
+2. **The envelope.** The trimmed value is the literal with some of the arguments object that carried it still around it. That means a head of `{"K":`, or the tail of that head that still names the key (`"K":`, `K":`), with whitespace allowed as JSON allows it, and/or the closing braces of the objects it sat in (one `}`, or `}}` when `arguments` sat inside a `{name, arguments}` object). `K` is the field's own declared name or, for a field that carries another tool's argument (`EMBEDDED_ARGUMENTS`, §144.1), that tool's parameter name (`apply.narrate` → `narrate` or `text`). What is left between them must be one complete JSON string literal, and it is decoded. With a head, the literal needs no escape: the key and colon are the serialization's own syntax. Closing braces alone count only with an escape the decoding consumed, the same evidence §160 asks of a bare literal.
+3. **The body.** The value carries at least one backslash and parses as a JSON string once wrapped in quotes. It is decoded. JSON forbids a raw control character inside a string, so a value with a real line break never parses as a body, and neither does one with an unescaped `"`, so prose with ASCII-quoted speech is not read.
+
+Each decoded field is one row, `{lane: "tool_arguments", event: "json_string_decoded", tool, field, layers, shapes}`. `shapes` is the rule taken at each layer: `literal`, `envelope` or `body`.
+
+**Why this is structure, not a reading of the prose.** All three readings are the JSON grammar, anchored on names the tool's schema declares. No word, script or language is read. The survey bounds the risk: no argument outside the eight carries a backslash, and every one of the eight is decoded. The evidence for each reading is syntax that prose sent as an argument does not carry: an escape sequence the decoding consumed, a declared key followed by `":`, or the envelope's closing brace together with such an escape.
+
+**Known boundaries** (tested as such). Single-line prose that means a literal backslash before an escape letter (`C:\temp`) is read as a body and decoded; the evidence has none. An invalid escape (`C:\Users`, a `\d`) does not parse and is left as written. An envelope with more than one key (`{"text": …, "workpad_patch": …}`) is not one literal between head and tail, and is left as written. A body with an unescaped `"` is left as written. Nested strings are still not read. Turns delivered before this section keep their text (§158).
+
+**The transport boundary (owner's ruling, 2026-10-01).** The "Narration transport boundary" subsection after §159.10.1 (`extensions/kernel/narration-transport.ts`, checked where `runTool` sends `narrate`/`ask` text to the kernel) decodes a whole literal too, and refuses A′ as a fragment it will not guess into prose. It was written the same day, independently. The owner ruled that every argument shape is decoded once, at the argument boundary, A′ included. So a tool argument reaches that check already decoded, and the check stands only for text that never passed through `prepareArguments`. Its test of an embedded A′ (`apply-narrate-combined.test.mjs`) now asserts that the fragment is decoded and delivered on the first leg with its effect, and that the row reads `shapes: ["envelope", "body"]`.
+
+**Three ends (§31).** Unchanged from §160. *Writer:* the model's call. *Reader:* `decodeSerializedStrings` in `prepareArguments`. *Record:* the row above, now with `shapes`.
+
+### 160.2 An implicit close whose whole body is a sequence of fenced tool envelopes is routed as those calls, `{name, arguments}` included (2026-10-01; amends §158.7's text-envelope routing)
+
+**Evidence.** `grp-a-j2` turn 12 (branch `claude/prose-first-20260929`, `PI_COC_PROSE_FIRST=1`, grok-build/grok-4.5, stop reason `stop`) closed implicitly. Its whole text was two fenced JSON blocks: ```` ```json {"name": "apply", "arguments": {"effects": [two clues]}} ``` ```` and then ```` ```json {"name": "narrate", "arguments": {"text": "…"}} ``` ````. The player read both blocks, `\n` escapes and all, and neither call ran. §158.7's routing takes only a body that is exactly one envelope, in the `{"<tool>": arguments}` shape. On 0.9.6a the same text is not routed either: its one-fence pattern spans both fences, and the JSON does not parse.
+
+**The rule.** `textToolCalls` (`extensions/kernel/text-tool-call.ts`, which replaces `textToolCall`) reads the complete assistant text body. The body is either one bare JSON envelope, or one or more fenced blocks (```` ```json ```` or a bare ```` ``` ````), each holding one envelope, with nothing but whitespace outside them. An envelope is either the existing `{"<tool>": {arguments}}` (exactly one key) or `{"name": "<tool>", "arguments": {arguments}}` (exactly these two keys, `name` a string). Every envelope must name an offered tool, and its arguments must validate unchanged against that tool's closed schema, as §158.7 already requires. If any one fails, nothing is routed and the text goes the way it did before. If all pass, the calls replace the text in the message in their written order, each with a host-minted id, and Pi runs them through `prepareArguments` (so §160 and §160.1 apply), the tool-call hooks (§34.17's split delivery, §78's order), admission, the dispatcher and delivery, exactly as if the model had written them as calls. Each routed call is one `{lane: "delivery", reason: "text_tool_call_routed", tool, tool_call_id}` row.
+
+The other exclusions of §158.7 stand: a failed, aborted, truncated, already delivered or closed message; prose outside the envelopes; unknown tools; invalid or coerced arguments. Nothing is read but JSON and the offered schemas.
+
+**Tests.** `tests/extension/encoded-string-argument.test.mjs`: each of the eight recorded arguments decodes to the prose its own shape spells, with its `shapes`. Each shape is reconstructed by hand in the test as the literal it is a fragment of: the A′ brace dropped, B wrapped in quotes, C and D completed to their object. Also: the envelope's head on the field's own name and on the carried parameter's name, with and without whitespace; a tail alone without an escape is left as written; the boundaries above; the survey's other strings (plain prose, ASCII-quoted speech, paths) come back as the same object. Through the real registration: every recorded call on both engines (the fake kernel receives the decoded prose, with the row); B's recorded `narrate.text` on the emitted kernel and the hybrid engine delivers with real line breaks and no backslash. `tests/extension/text-tool-call.test.mjs`: the `{name, arguments}` envelope bare and fenced; the recorded E text routes as `apply` and then `narrate`; a sequence with prose between the fences, one invalid envelope, or one unknown tool routes nothing. Through a real `message_end`, the recorded E text runs both calls and the turn record holds the narrate's prose, not a fence. Mutations (a copy of the file, never `git checkout --`) each turn tests red: each reading removed in turn; the head without its key; a tail alone taken without an escape; `shapes` not recorded; the `{name, arguments}` shape removed; a partial sequence routed; one fence only.
+
+## 161. What a person feels right now is a ledger row the Keeper writes and reads before they speak (2026-09-30; amends §17.3, §17.4, §17.5, §17.8; follows §142's shape)
+
+**Evidence.** The owner, 2026-09-30, after reading the 40-turn table `blood-road-jev-20260930` (grok-4.5, narration-craft
+2.1.4 with zh-optimize 1.0.1) and three replay experiments: NPC lines read like an information desk, "人类不是提词器，不会每一句
+都有用", with no word that carries feeling. Checked: nothing in the kernel, the extensions or the host holds what a person
+feels at this moment. `stance` (§17.3) is a four-word standing toward the party, null for most people (the bartender
+after fourteen turns at the table); `wants`/`fears`/`hides`/`personality` are fixed authored English; the card frames a
+person by function (`role`, `can_hand`). Three prompt-only arms on the same twelve replayed turns failed to move the
+speech: form rules (one reply one paragraph, several things in one run) lost 6:12 to the current text; a same-model
+rewrite pass returned 34 of 38 lines unchanged; telling the Keeper to decide a present feeling before each line won 13:9,
+the bare minimum, with no change in modal particles (0.6 against 0.7 per hundred characters). Owner ruling, 2026-09-30:
+build the state at the system level ("做系统层的 NPC 此刻情绪状态").
+
+**161.1 Writer.** `apply {kind: "npc", name, mood: "<line>", why?}`. The line says what this person feels right now,
+in the fiction, as the Keeper would put it -- written in the campaign's play language, because it is the person's inner
+state, not system text; nothing reads what it says or which language it is in. It stands alone in its npc effect, as
+§142's intention variant does: combined with any other npc field (`to`, `stance`, `dead`, `skill`, `archetype`,
+`conditions`, `defense`, `action`, `disposition`, `intends`, `intent_ref`, `outcome`, `reunion`) it refuses
+`invalid_params` with `details.conflicts` naming the others, so a batch that also moves or re-stances the person carries two
+effects. It changes no world value. It mints the ordinary `npc` receipt (`npc:<slug>-t<n>-c<k>`) carrying
+`mood: {text, previous}` (`previous` the line it replaces, or null) and `visibility: "keeper"`, and the event
+`npc-changed` with `data.mood`. Refusals, all `invalid_params`, `details.reason: "mood_text"`: an empty line after
+trimming, a line over 120 characters, a line with a line break, or one carrying a `{{` marker. The same line as the current
+one is accepted and minted again (a feeling held is still a feeling stated; nothing compares meanings). There is no
+clearing value: a new line replaces the old.
+
+**161.2 Fold.** `foldNpcTurn` folds a receipt's `mood` into the person's ledger entry at turn close:
+`mood: {text, since_turn, receipt, why?}`, the newest written last in the turn winning, and the replaced line moves to
+`mood_earlier: [{text, since_turn, until_turn}]` (the last two). Both rebuild from `turns/` (`rebuildNpcLedger`), roll
+back with the turn and follow worldlines, as every ledger field does (§17.3). A person never given one has neither key.
+
+**161.3 Projection.** The `present[]` entry (§17.4) carries `now: {feels: "<text>", since_turn: <n>}` when the ledger has
+a `mood`, placed after `state` and before the dossier: the card is cut from the bottom (`fitPresent`), and this is what
+decides how the next line sounds. It is omitted when the person cannot act (`state.cannot_act`), and absent when no mood
+was ever written, so a card with none is byte-identical to before. `look` on the person shows the ledger as it is
+(`mood`, `mood_earlier`). The capsule `head` gains one line: `present[].now` is what that person feels right now and
+carries their next line more than any fact does; when it is missing or no longer true, write it with `apply npc mood`
+(one short line in the play language) before they speak, in the same turn; its own `apply` is fine and it need not ride with
+their words (amended 2026-10-01, see 161.10). The projection reads the committed
+ledger, so a mood written this turn shows from the next turn; within the turn the Keeper has just written it.
+
+**161.4 Visibility.** Keeper only. §16.2's `mechanics` has no `npc` row, so no card is drawn; the transcript, the
+speech rows and the player surface never carry it. Admission (§32.1) does not review `npc` effects; the post-delivery
+verifier's facts have no `npc` branch. Both unchanged.
+
+**161.5 Extension.** `NpcEffect` declares `mood` (string, `maxLength: 120`, described as above and as standalone) on
+every path that closes the schema (the canonical dispatcher, the text tool-call path, the lean apply); the apply tool's
+description names it. The kernel repeats the length and marker checks, so a path that skips the schema still refuses.
+
+**161.6 Capability.** The kernel provides `npc.mood.v1`. A package that tells the Keeper to write or read the mood
+requires it, so an older kernel refuses the package by name instead of offering a verb it does not have.
+
+**161.7 Craft (narration-craft 2.1.5, requires `npc.mood.v1`).** The base states the interface (161.3's head line); the
+prose package says what to do with it: before someone speaks, know what they feel right now -- the heat, the hour, what
+just happened, what this stranger just said or did to them, what is on their mind besides you -- keep it in
+`present[].now` with `apply npc mood` when it is missing or has changed, and let that feeling carry the line, not the
+information. People are not information desks: they grumble, joke, sigh, trail off, say things of no use to anyone, and
+give only what they feel like giving; the rest waits until they are asked.
+
+**161.8 Three ends (§31).** *Writer:* the Keeper's `apply npc mood`. *Reader:* `present[].now` in every capsule while
+the person is present, and `look`. *Actor:* the Keeper's next line of that person; the record is the turn's npc
+receipts beside its speech rows. Acceptance is counted on a fresh real table, not asserted by tests: of the turns where
+a person speaks (`speech[].who.npc`), how many had a mood on their card or written in that turn, and the owner reads the
+speech. If people speak with none, the gap is the invitation, not the Keeper.
+
+**161.9 Tests.** Through the real registration and the emitted kernel: a mood written with `apply` mints a keeper-only
+receipt and no mechanics card; the next turn's `present[]` entry has `now` before the dossier; `look` shows the ledger;
+a rebuilt ledger matches; a second mood moves the first to `mood_earlier`; each refusal with its reason; combined with
+`stance` refuses with `details.conflicts`; an unset person's card has no `now` key; a dead person's card has none either;
+every schema-closing path accepts the field; the capability is declared and a package requiring it loads. Mutations
+(a copy of the file, never `git checkout --`) that must turn tests red: the fold skipping `mood`; the projection after
+the dossier; `now` shown for a person who cannot act; the 120 limit removed from the kernel check.
+
+**161.10 Kernel decisions (implementation, 2026-10-01).** `kernel-ts/npc/mood.ts` holds the capability name, the
+120-character limit (counted in code points, as the schema's `maxLength` counts), the conflict list, the format check,
+the fold and the card view.
+- *Conflicts* are every other npc change and the host-only carriers: `to, stance, dead, skill, archetype, conditions,
+  defense, action, disposition, intends, intent_ref, intent_outcome, outcome, spend_turn, reunion, _draws, _produces`.
+  `walk_on`, `why` and `owed` may stand beside a mood. The refusal is `{field: "npc.mood", conflicts}`; the format
+  refusal is `{field: "npc.mood", reason: "mood_text"}`, with `length` and `max` when too long. A line break is any of
+  CR, LF, U+2028, U+2029. The stored text is the trimmed line.
+- *Within one turn* the last mood written wins; a line superseded inside the same turn never enters `mood_earlier`, which
+  only receives the line the ledger held before the turn. A receipt's `previous` is the committed ledger's line, so a
+  second mood in the same turn names the same `previous` as the first. The same line written on a later turn is minted
+  again and its predecessor, identical or not, moves to `mood_earlier`: nothing compares lines.
+- *Cannot act* (161.3) also covers a death the ledger records: `apply npc dead: true` writes the ledger without a body
+  `state`, and the card omits `now` for it, as `npcViews` reports `can_act`.
+- The tool's top-level description names no npc fields, so the mood is named in `NpcEffect`'s `kind` description and in
+  the `mood` field's own description; `prompts/keeper.md`'s present-field list gains `now`.
+- *Request floor.* The full instruction (+604 B) and the head line (+252 B) raise every request's incompressible floor;
+  `tests/extension/long-campaign-context.test.mjs` moves its configured `PI_COC_REQUEST_BYTES` from 192 KiB to 200 KiB,
+  as that test's own rule says (its ceiling stays above the measured floor while the stored branch still exceeds it).
+- §161.8's count is not product telemetry: it is read from a table's turn records (receipts beside `speech`).
+- *Wording, 2026-10-01 (owner ruling).* The head line, the `mood` field description and narration-craft's instruction first
+  said to write the mood "in the same call that delivers their words". §162 found that grok-4.7-build-fast double-serializes
+  prose written in `apply.narrate` beside structured effects (7/28 against 1/112 for a plain `narrate`), and the live table
+  of this section put 8 of 12 prose deliveries there. All three now say "before they speak, in the same turn", and that its
+  own `apply` is fine; narration-craft is 2.1.6.
+
+## 162. Why Keeper prose arrives serialized, and the prose fields say what form they take (2026-10-01; amends the descriptions of `narrate.text`, §135.5.2's `apply.narrate` and `ask.text`; companion to §160, whose host repair it does not change)
+
+**Evidence.** Probes and survey in `docs/active-plans/narrate-escape-root-20261001.md` (pre-registered before the first model call).
+
+- *Survey* (2026-10-01): every retained Keeper call, 23,823 of them (918 playtest event logs under the worktrees, 49 App Pi sessions), 6,374 carrying prose (`narrate.text`, `apply.narrate`). Twelve calls carry prose serialized one level too many (a whole JSON string literal of the text, ASCII-escaped or not, with or without its closing quote; the text with its escapes written out; `{"text": …}`; `text":"…`). Ten are grok-build/grok-4.7-build-fast, two grok-4.5. Per prose-bearing call: grok-4.7-build-fast 10/148, grok-4.5 2/1,031, xai grok-4.6 0/4,445, deepseek-v4.1-flash 0/533. No string nested inside an argument (787 `effects` structures of grok-4.7-build-fast) carries one.
+- *Where the prose sits decides the rate.* grok-4.7-build-fast: a `narrate` call alone in its message, 1/112; prose inside an `apply` (`apply.narrate`), 7/28; a `narrate` call right after an `apply` in the same message, 2/8. Before 2026-09-26, 107 of the model's 110 prose arguments were a `narrate` alone; since 2026-09-30 (it was not used 09-26..09-29), 33 of 38 sit inside or beside a write. What moved them is ours, on 2026-09-26: SL-88 (`17a1d2a5d`, put a non-blocking apply and the narrate it describes in one message, writes first) and SL-92 (`7bd288969`, `apply` gains `narrate`, and apply's description invites the closing prose there). The npc-mood branch's §161 line asks for a mood "in the same call that delivers their words", which is why the table `mood-live-20261001` (8 of its 12 prose arguments in `apply.narrate`) had three of ten turns escaped.
+- *The bytes are the model's.* Every case's provider `toolcall_delta` carries the escapes, and a request rebuilt from the `mood-live-20261001` log, posted by a plain HTTPS client with no Pi and no extension in the path, comes back escaped. No code of ours writes them (grok-build extension, Pi's stream accumulation, §144, §144.1, §158.7, the dispatcher all sit after the bytes).
+- *Not self-imitation.* Seven of the ten grok-4.7-build-fast cases are the first in their run; the rebuilt turn-10 request has no escaped text anywhere in it and escapes; the rebuilt turn-3 request, whose capsule `recent` carries turn 1's escaped text, did not escape in four replays.
+- *Probe* (54 calls, grok-4.7-build-fast, low; requests rebuilt from the `mood-live-20261001` log with this worktree's captured tool catalog; counts are prose arguments, not responses). Turn 10, as recorded: `apply.narrate` escaped 3/5; the field renamed `prose` with a direct description, 1/2 (still `\u`-escaped, without the quotes); the field removed, the prose then sent by `narrate` after the apply, 0/4; the field kept and one sentence added to its description, 0/7, each keeping its paragraphs as real line breaks (4–8 per value); this section as implemented (the sentence on all three fields, tools captured from the built extension), 0/6. Turn 1, as recorded 1/3 (`A'`), as implemented 0/5. Recorded 4/8 against 0/17 with the sentence (one-sided Fisher p = 0.006).
+
+**Cause.** grok-4.7-build-fast, writing long prose as a string argument in the same output as a structured write, sometimes serializes the string once more: its own JSON encoding of the text ends up as the value. That is the model. Our part is how often we ask it to do exactly that, and that the field never said what form the string takes: since 09-26 most prose is written inside or beside an `apply`, and `apply.narrate`'s description defines its content by pointing at another tool's argument ("same rules as the narrate tool's text"). The family is older than this model: in the same field grok-4.5 wrote the carried parameter's name (§144.1), `{"text": …}` and `text":"…`.
+
+**The rule.** Each Keeper string parameter that carries prose the player reads, `narrate.text`, `apply.narrate` and `ask.text`, ends its schema description with the same sentence, `PLAIN_PROSE` (`extensions/kernel/tools.ts`, appended by `withPlainProse` after a full stop): `Write the prose itself: not a quoted or JSON-encoded string, no \n or \u escapes` (the backslashes are characters of the description, so the model reads `\n`, not a line break). It is the sentence the probe measured, word for word. Nothing in the host reads a value because of it.
+
+**What this is not.** It lowers the rate; it cannot promise zero, so §160's repair (and its follow-ups) stays the boundary for what still arrives. It is not a reading of prose: no language, script or word is inspected. Delivered turns keep their text (§158). Not done here, with the reason: removing `apply.narrate` (0/4 on the probe) would reopen SL-92's ruling and does not cover the `narrate` beside an `apply` (2/8 in the survey); renaming the field alone did not stop it (1/2); `strict` schemas do not constrain what a string contains.
+
+**Known boundaries.** The probe is two rebuilt requests with replays (the run's issued-bodies packet and any mid-turn capsule update are transport-only and were not logged, so they are missing from the rebuild); the survey baseline it is judged against is 9/33 for prose inside or beside a write since 2026-09-30. The `narrate`-alone shape (the text with `\n` written out, 1/112) is too rare to measure by probe. Strings nested in `effects` (a document's text, a mood line) do not carry the sentence; the survey has none escaped.
+
+**Three ends (§31).** *Writer:* `PLAIN_PROSE` in the three parameter descriptions of `COC_TOOLS`. *Reader:* the model, through the registered tool schema of every Keeper request on both engines. *Record:* §160's `json_string_decoded` rows count what still arrives; acceptance is that count per prose argument on the next grok-4.7-build-fast tables, against 9/33 inside or beside a write.
+
+**Tests.** `tests/extension/plain-prose-field.test.mjs`, through the real registration on both engines: the registered `narrate`, `apply` and `ask` tools each end their prose parameter's description with `PLAIN_PROSE`; no other parameter of any Keeper tool carries it; the sentence holds a backslash followed by `n` and by `u` and no line break. Mutations (a copy of the file, never `git checkout --`), each turning a test red: the sentence dropped from any one of the three fields; the sentence written with a real line break.
 
 ## 163. A Jev decision that stays uncertain still yields a result: forced resolution, recorded, reconciled forward (2026-10-01; amends §159's owner decision, §159.1's unresolved hold, §159.2's unresolved projection, §159.4's notice paragraphs and version 5's unanswered defaults, §159.5's uncertain scope, §159.6's packing notice and §159.10's preparation notice; applies §158)
 
@@ -30455,7 +30758,7 @@ Evidence: live driver table `mood-live-20261001` (0.9.6a@92d6ee845 plus an NPC-m
 
 The strict gates are unchanged and still decide whenever they clear (§159.4's `applicability` .65, `need` .85, `noNeed` .35, `choice` .85, `adjudication` .75; the interaction-scope gates .8/.35/.8), and §159.4's one bounded refinement still runs first. What changes is what happens when a gate does not clear:
 
-1. **Jev's best score decides a gray gate** -- except a value that is the player's own choice (§163.8). A Noul answered strictly between the confident negative and the gate is read at the midpoint: above .5 is yes, a tie is no. A Choice below its gate takes its highest-probability *issued* value (never `unknown`, never an unissued value, and only with a probability above zero). A `selection: compatible` parameter takes its highest-scored option. A set-valued parameter takes the members above .5, topped up to its minimum by the next-best scored members. The result is executed or not exactly as a confident one would be, and is recorded as forced (§163.3). A forced no-roll is not asked again in the same run and scene; a forced deferral is not held, so the attempt it waits on can still be judged against fresh receipts, as a confident deferral can.
+1. **Jev's best score decides a gray gate** -- except a value that is the player's own choice (§163.8). A Noul answered strictly between the confident negative and the gate is read at the midpoint: above .5 is yes, a tie is no -- except an unmet-prerequisite question, where a tie waits (a deferral decides nothing for the player and stays open; merged with 0.9.6a's conditional-chase dependency, 2026-10-01). A Choice below its gate takes its highest-probability *issued* value (never `unknown`, never an unissued value, and only with a probability above zero). A `selection: compatible` parameter takes its highest-scored option. A set-valued parameter takes the members above .5, topped up to its minimum by the next-best scored members. The result is executed or not exactly as a confident one would be, and is recorded as forced (§163.3). A forced no-roll is not asked again in the same run and scene; a forced deferral is not held, so the attempt it waits on can still be judged against fresh receipts, as a confident deferral can.
 2. **Nothing scored or executable is the no-roll path.** When the provider failed or did not answer, the question could not be packed, the decision budget is spent, the catalog or binding changed under the selection, the snapshot went stale twice, the session owns the choice, the attempt was already made, no Jev credential exists, or the needed check lacks source facts or arguments, the check is not rolled: the Keeper narrates the attempt and its outcome by judgement. The decision is not asked again in the same run and scene (the §159.1 hold now only prevents re-asking; it no longer stops the story). The first needed check that can execute is still selected when an earlier needed one cannot.
 3. **An unanswered modifier override takes the rules default.** §159.4 version 5's "missing or ambiguous answers remain unresolved, including service failure" is replaced: a gray override answer is read at the midpoint, and an unanswered one applies the host-owned rules default (`default.value`), as §135.28's "unknown goes to the rules default" already did for clerk binds. This keeps a judged-necessary check instead of discarding it for a modifier.
 4. **A jev-owned clerk check parameter** (first blow, session steps, obligation and Mod checks bound through §135.28's clerk bind) with no permitted default takes Jev's leading issued answer below the gate -- unless the builder marked it the player's (§163.8). Its bind record is `cleared: false`, so §32.12's compile exemption does not apply and canonical admission reviews it in full. With no leading answer the candidate goes to the existing `check_unresolved` compose, which is now a forced no-roll.

@@ -12,7 +12,7 @@
 type Row = Record<string, unknown>;
 
 /** The npc fields that make an effect something other than the bare carrier of what the act brings out. */
-const NOT_BARE = ["intends", "outcome", "to", "stance", "dead", "skill", "archetype", "conditions", "defense", "action", "disposition", "reunion", "spend_turn"];
+const NOT_BARE = ["intends", "outcome", "to", "stance", "dead", "skill", "archetype", "conditions", "defense", "action", "disposition", "reunion", "spend_turn", "mood"];
 
 export function markNpcAct(tool: string, params: Row, origin: {clerk?: unknown; basis?: unknown} | undefined): void {
 	const npcAct = origin?.clerk === "npc_act";

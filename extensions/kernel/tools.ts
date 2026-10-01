@@ -88,6 +88,18 @@ const IntentResult = {
 	intent_ref: Type.Optional(Type.String({ description: "the intention this effect is a result of (see apply)" })),
 	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "where it stands after; default done" })),
 };
+/**
+ * Contract §162: the form of a string argument that carries prose the player reads. grok-4.7-build-fast, writing
+ * prose inside or beside a structured write, sometimes sends its own JSON encoding of the text as the value (9 of 33
+ * such arguments since 2026-09-30, against 1 of 112 for a narrate on its own); with this sentence on the field the
+ * probe's rebuilt request went from 3/5 to 0/7. The backslashes are characters of the description: the model reads
+ * `\n` and `\u`, not a line break. Every prose-carrying parameter ends with it, through `withPlainProse`.
+ */
+export const PLAIN_PROSE = "Write the prose itself: not a quoted or JSON-encoded string, no \\n or \\u escapes";
+/** Contract §162: a prose parameter's description, ending with `PLAIN_PROSE` as one more sentence. */
+export const withPlainProse = (description: string): string =>
+	`${description}${description.endsWith(".") ? " " : ". "}${PLAIN_PROSE}`;
+
 /** The one place the effects' `intent_ref` / `intent_outcome` are explained (§143.7). */
 export const INTENT_RESULT_EXPLAINED = "Any effect may carry intent_ref when it is the result of what someone set out to do: the ref of that intention (present[].history.intents[].ref, director.offer), which may be someone else's than the effect's subject (the porter comes up because someone shouted); intent_outcome is where that intention stands after the effect, default done (the effect is what happened).";
 
@@ -310,9 +322,15 @@ const RulingEffect = Type.Object({
 	scope: Type.Optional(StringEnum(["campaign", "module", "scene"] as const, { description: "how far it reaches; defaults to campaign" })),
 });
 
+/**
+ * Contract §161.5: the longest line `apply npc mood` takes, in characters. The kernel repeats the check
+ * (`kernel-ts/npc/mood.ts` `MOOD_TEXT_LIMIT`), so a path that skips this schema still refuses.
+ */
+export const MOOD_MAX = 120;
+
 /** A person moved on or off the stage, or where you read them as standing (contract §17.3). */
 const NpcEffect = Type.Object({
-	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight; or report what they set out to do and how it went" }),
+	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight; report what they set out to do and how it went; or write what they feel right now (mood)" }),
 	name: Type.String({ description: "what you are calling this person: a name from the book, the word apply person gave them at this table, or -- for someone the book never had -- whatever you are already calling them, a description like \"the clerk at the archive window\" included, with walk_on. A person this table mints is named in play_language; apply person is what decides the word the player sees. Reuse the exact word you used before: two spellings make two people, and a refusal lists who is here and the ones this table already has" }),
 	walk_on: Type.Optional(Type.Boolean({ description: "true only on the effect that brings in someone the book never had -- a porter called up the stairs, a passer-by, a constable arriving -- establishing them at this table under name. Leave it out for anyone the book has, even one the player has not been introduced to yet: give that person a word with apply person first, then write to them by it. A word nobody here carries is refused without it, and the refusal hands back both calls ready to send" })),
 	reunion: Type.Optional(Type.Object({
@@ -364,6 +382,10 @@ const NpcEffect = Type.Object({
 	})),
 	outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, {
 		description: "where that intention stands after this turn: attempted (under way, the world has not answered yet), done (it happened), failed (stopped, or it came to nothing), abandoned (given up for something else). What a person announces gets a result by their next turn, and a settled intention (done, failed, abandoned) is not tried again: what they do next is a new intention. A roll or another effect that carries intent_ref reports the result itself; write this only for a result nothing else records",
+	})),
+	mood: Type.Optional(Type.String({
+		maxLength: MOOD_MAX,
+		description: `what this person feels right now, in the fiction, as you would put it: one short line in play_language, at most ${MOOD_MAX} characters, no line break (the heat, the hour, what just happened, what was just said or done to them, what is on their mind besides you). Their card's present[].now shows it from the next turn; write it when it is missing or no longer true, before they speak in the same turn (its own apply is fine; it need not ride with their words). A new line replaces the old. This variant stands alone in one npc effect: moving or re-standing them is a second effect of the same batch`,
 	})),
 	why: Type.Optional(Sentence("why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do")),
 	owed: OwedRef,
@@ -455,6 +477,12 @@ const MapEffect = Type.Object({
 });
 
 const ResolveAction = Type.Object({
+    chase_roster: Type.Optional(Type.Array(Type.Object({
+        actor: Type.String({description: 'Registered participant name, never an id.'}),
+        role: StringEnum(['foot', 'driver', 'passenger'] as const),
+        vehicle: Type.Optional(Type.String({description: 'Driver only: published vehicle profile name issued by the check catalog.'})),
+        riding_with: Type.Optional(Type.String({description: 'Passenger only: the name of a driver in this roster.'})),
+    }), {minItems: 2, maxItems: 16, description: 'Chase start mobility bindings. The host and Jev bind this roster; numbers and identifiers remain kernel-owned.'})),
 	coercion: Type.Optional(Type.String({ description: "on a roll of an investigator a person present pressed (Charm, Fast Talk, Intimidate or Persuade; pressures lists it): the player refused to do what was wanted, so the coercer puts one penalty die on this roll. Name the pressure's receipt; each is spent once" })),
 	surprise: Type.Optional(Type.Literal(true, { description: "with a person present as actor, intent combat and an investigator as target, when no fight is running: they strike the first blow, and the investigator did not see it coming (your ruling, usually after their Listen, Spot Hidden or Psychology). No dodge, no fighting back, one bonus die. Without it the investigator saw it coming and answers with a defence. The rounds then run in DEX order" })),
 	intent_ref: Type.Optional(Type.String({ description: "when this roll is the result of what an NPC set out to do: the ref of that intention (present[].history.intents, director.offer). A passed check makes it done and a failed one failed, unless intent_outcome says otherwise; a settled intention is refused before any die is thrown" })),
@@ -761,7 +789,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
-			narrate: Type.Optional(Type.String({ description: "this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead" })),
+			narrate: Type.Optional(Type.String({ description: withPlainProse("this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead") })),
 		}),
 	},
 	{
@@ -775,8 +803,9 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			using_skill: UsingSkill,
 			text: Type.Optional(
 				Type.String({
-					description:
+					description: withPlainProse(
 						"Fiction and observable consequences only, in the campaign's play_language. No roll results, numbers from receipts, or mechanical questions.",
+					),
 				}),
 			),
 			kind: Type.Literal("mechanics"),
@@ -795,7 +824,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Deliver this turn's narration and close the turn",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
-			text: Type.String({ description: "this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened and every spoken line inside {{say:Name}}…{{/say}}" }),
+			text: Type.String({ description: withPlainProse("this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened and every spoken line inside {{say:Name}}…{{/say}}") }),
 			workpad_patch: WorkpadPatch,
 		}),
 	},

@@ -11,6 +11,7 @@ import { languageAdmits } from '../read/mod-language.js';
 import { array, entries, values, clone, row, string, number, integer, truth, sorted, type Row } from '../read/values.js';
 import { CampaignWriter, missingContribution, nowIso } from './store.js';
 import { foldIntent, receiptGenerated } from '../npc/intents.js';
+import { foldMood } from '../npc/mood.js';
 import { isStakesRoll } from '../npc/stakes-receipt.js';
 function topological(preferred: string[], active: Row[]): string[] {
     const todo = [...preferred], done: string[] = [];
@@ -296,6 +297,10 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                 };
             else if (receipt.dead === false)
                 item.dead = null;
+            // Contract §161.2: what this person feels right now; the newest written last in the turn wins, and the line
+            // it replaces moves to `mood_earlier`. A person never given one gains neither key.
+            if (receipt.mood != null)
+                foldMood(item, receipt.mood, turn, receipt.id, receipt.why);
         }
         else if (kind === 'delta' && receipt.resource === 'hp' && intLike(receipt.after) && number(receipt.after) <= 0) {
             const id = npcId(graph, receipt.subject);
