@@ -24,9 +24,14 @@ def prepared(kernel, draft):
 
 
 def prefetch_object(kernel, call_id="t1-c1"):
-    draft = {"name":"Wooden rod", "category":"item", "description":"A solid wooden rod.",
-             "basis":"Fixture physical facts", "parameters":{"effects":[]},
-             "player_view":{"description":"A wooden rod.", "fields":[]}}
+    # Contract §26, "Prepared usages (prefetch)", 2026-09-30 amendment (4589cf500): only a definition categorized `weapon`
+    # may have an attack usage prepared ahead of a chosen attack; an ordinary `item` waits for `apply usage`. These cases are about prefetch
+    # itself, so their object is a weapon; `test_prefetch_refuses_an_ordinary_item` holds the category gate.
+    draft = {"name":"Wooden rod", "category":"weapon", "description":"A solid wooden rod, heavy enough to swing.",
+             "basis":"Fixture physical facts; numbers are test data.",
+             "parameters":{"skill":"Fighting (Brawl)", "damage":"1D6", "uses_per_round":1, "impale":False,
+                           "adds_damage_bonus":True, "base_range_yards":None, "magazine":None, "malfunction":None},
+             "player_view":{"description":"A wooden rod.", "fields":["damage"]}}
     kernel.table("apply", call_id=call_id, effects=[prepared(kernel, draft),
         {"kind":"object", "name":"My rod", "definition":draft["name"], "to":"Thomas Hayes"}])
 
@@ -201,6 +206,26 @@ def test_prefetch_worldline_snapshot_keeps_records_but_jobs_cannot_cross(kernel)
     error = kernel.err("mods.prefetch.accept", {"campaign":CAMPAIGN, "job":job["job"]})
     assert "worldline" in error["message"]
     assert proposal_job(kernel)["job"] != job["job"]
+
+
+def test_prefetch_refuses_an_ordinary_item(kernel):
+    """Contract §26, "Prepared usages (prefetch)", 2026-09-30: the kernel's own gate. An attack usage is prepared ahead
+    of a chosen attack only for a definition categorized `weapon`; an ordinary item is refused at job creation with
+    `usage_requires_action` and nothing is written, while the weapon beside it is prepared as before."""
+    open_turn(kernel)
+    prefetch_object(kernel)
+    stick = {"name":"Oak walking stick", "category":"item", "description":"A plain oak walking stick.",
+             "basis":"Fixture physical facts", "parameters":{"effects":[]},
+             "player_view":{"description":"A walking stick.", "fields":[]}}
+    kernel.table("apply", call_id="t1-c2", effects=[prepared(kernel, stick),
+        {"kind":"object", "name":"My stick", "definition":stick["name"], "to":"Thomas Hayes"}])
+    narrate(kernel, "t1-c3", "The rod and the stick lean against the desk.")
+    folder = campaign_dir(kernel.workspace)
+    before = read_json(folder / "world.json")
+    error = kernel.err("mods.job", {"campaign":CAMPAIGN, "role":"usage", "input":{"object":"My stick", "propose":True}})
+    assert error["code"] == "needs" and error["details"]["reason"] == "usage_requires_action", error
+    assert read_json(folder / "world.json") == before, "a refused prefetch writes nothing"
+    assert proposal_job(kernel)["job"], "the weapon beside it is still prepared ahead of a chosen attack"
 
 
 def prefetch_targets(kernel):
