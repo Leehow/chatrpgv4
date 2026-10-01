@@ -30346,6 +30346,26 @@ matching effect exists; it cannot be landed by guessing an `object` call. Ordina
 ownership checks and atomic mixed-batch refusal remain unchanged. Verify this repair in the same
 real road journey before attributing the premature handoff solely to planning.
 
+### 159.10 Missing check arguments are preparation, not semantic uncertainty (2026-09-30)
+
+The real road ambush was narrated with no registered present pursuer. The chase catalog therefore
+contained only a non-executable placeholder without actor or target. Asking whether the player
+flees "this person" cannot establish that absent binding. If every eligible option has explicit
+source/argument needs or empty parameter domains, return a typed preparation need before asking
+Jev necessity. The route selected a capability to examine, not permission to roll or invent facts.
+
+The existing Keeper agent receives an adjudication step to prepare source material, participant
+identity/presence and profiles through existing read/preparation/apply tools. Model-origin resolve
+remains forbidden. A separate scene/decision preparation hold survives unrelated bookkeeping;
+only a fresh issued catalog with an executable option releases it and permits Jev to adjudicate
+again. Semantic uncertainty and failed admission retain their existing hold. No confidence gate
+changes. Parameter availability is host-owned metadata, not a model judgment.
+
+Preparation remains an unresolved outcome boundary. Its player notice waits until accepted delivery
+if preparation is still pending; a successfully prepared and adjudicated attempt must not leave
+an obsolete notice. Native source tools still own PDF reading and graph preparation; none of this
+licenses the player context to read future private material or the agent to invent numeric rules.
+
 ## 160. A Keeper tool string argument that arrives as a JSON string literal is decoded at the host boundary (2026-09-30; extends §144, amends §135.21's `prepareArguments` and the order of §144.1)
 
 **Evidence.** The opening turn of the installed App's campaign `game-ef4f5f3b-6445-423b-bae1-f95f4601a698` (receipt `6d870987b`) was stored and delivered as a JSON-escaped literal: `turns/0000.json` `text`, `marked_text` and `rendered_text`, and `transcript.jsonl` turn 0, all begin `"一九二〇年秋…`, with literal backslashes. The model's call, in the App's Pi session file, is the second `apply` of one message: `effects: [{kind: "person", who: "Steven Knott", name: …}]` and `narrate` a 1,024-character string whose own text is a quoted, `\u`-escaped JSON string literal of 185 characters of prose. The model is `grok-build/grok-4.7-build-fast` (the message's own `provider`/`model`). The speech rows were cut from the same text, so `{{say:史…}}` named nobody at the table (`unresolved_speakers`) and the line's text carries the escapes too; the continuity review passed the turn (`verdict: pass`).

@@ -494,7 +494,7 @@ export function buildCandidates(reads: StateReads, rawInput: string, consumed: R
             const {goal: _goal, method: _method, ...action} = object(option.action);
             return {label: option.label, trigger: option.authorization, action, needs: option.needs,
               ...(option.definition ? {definition: option.definition} : {}), ...(option.facts ? {facts: option.facts} : {}),
-              parameters: array(option.parameters).map(parameter => ({name: object(parameter).name,
+              parameters: array(option.parameters).map(parameter => ({name: object(parameter).name, available: array(object(parameter).options).length > 0,
                 ...(['actor', 'target'].includes(object(parameter).name)
                   ? {options: array(object(parameter).options).map(value => object(value).label)} : {})}))};
           })})},

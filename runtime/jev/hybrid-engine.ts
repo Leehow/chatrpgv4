@@ -566,6 +566,8 @@ interface RunState {
   consequenceMs: number;
   /** SL-76: every receipt this turn's reads have seen (`table.status.receipts`), deduped by id, for the turn-close pairing. */
   turnReceipts: Row[];
+  pendingCheckPreparations?: Array<{candidate: string; needs: string[]}>;
+  preparationNoticeSent?: boolean;
   /** SL-76: the latest read's D1 candidates and scene context, held for the turn-close route (never asked mid-read: see `routeConsequences`'s call site). */
   consequenceCandidates: ConsequenceCandidate[];
   consequenceContext?: TurnContext;
@@ -696,6 +698,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     for (const receipt of array(status.receipts).map(object)) {
       const id = text(receipt.id);
       if (id && !run.turnReceipts.some(seen => text(seen.id) === id)) run.turnReceipts.push(receipt);
+    }
+  };
+  const notifyCheckPreparations = (run: RunState) => {
+    if (!run.preparationNoticeSent && run.pendingCheckPreparations?.length && run.turn !== undefined && bridge?.campaign) {
+      run.preparationNoticeSent = true;
+      api?.events?.emit?.('coc:check-selection-unresolved', {campaign: bridge.campaign, turn: run.turn, run: run.runId, needs: run.pendingCheckPreparations});
     }
   };
   /** The kernel reads a step needs and the candidates they issue. Read-only. */
@@ -1081,7 +1089,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // over whatever `run.consequenceRows`/`consequenceExists` already hold from this run's own writes (each
     // `apply`/`resolve` already routed itself through `routeConsequencesAfterWrite`), never asking Jev again for a
     // turn that is closing by a Keeper delivery instead of a `turn_close` proposal.
-    if (delivery) closeConsequences(run);
+    if (delivery) {
+      notifyCheckPreparations(run);
+      closeConsequences(run);
+    }
     return {status: toolResult.isError ? 'refused' as const : 'ok' as const, toolResult, ...(delivery ? {delivery} : {}),
       artifact: {kind: 'execute', executed: {ok: !toolResult.isError, summary: {tool: proposal.operation, ...(queued ? {proposed: queued.key} : {})}},
         ...(fresh ? {fresh} : {}), ...(fell ? {fell} : {}), ...(narrowed ? {narrator: true} : {}), ...(queued && !toolResult.isError ? {proposed: queued} : {})}};
@@ -1383,6 +1394,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     if (verdict.status === 'delivered') {
       const delivery = verdict.delivery === 'awaiting_player' ? 'awaiting_player' as const : 'accepted' as const;
+      notifyCheckPreparations(run);
       closeConsequences(run);
       return done('ok', {status: 'delivered', delivery, implicit: verdict.implicit === true, call_id: verdict.call_id ?? null, turn: verdict.turn ?? null}, delivery);
     }
@@ -1695,8 +1707,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         + 'Do not complete them in prose or record their findings with apply. Negative findings, such as hearing nothing or finding no traces, are outcomes too. '
         + 'Keep the investigator at the point of attempting them; narrate only independently established surroundings and other committed results. The host supplies the unresolved notice outside the fiction.';
     }
+    const preparations = unresolvedChecks.filter(entry => entry.preparation);
+    run.pendingCheckPreparations = preparations.map(({candidate, needs}) => ({candidate, needs}));
+    if (preparations.length) content.check_preparation = {
+      needs: preparations.flatMap(entry => entry.preparation ? [entry.preparation] : []),
+      instruction: 'These are missing host arguments, not uncertainty about what the player wants. Prepare the observed participants and their profiles through the existing scene/source preparation tools, then register their actual presence with apply npc when needed. '
+        + 'Source answer excerpts alone do not register participants. Use source_mode=prepare for missing playable entities. Do not invent numeric profiles, make model-origin resolve calls, or narrate an adjudicated result. '
+        + 'After an accepted preparation write, the host refreshes its catalog and Jev can examine a ready check again. If preparation cannot complete, preserve the attempt as unresolved.'};
     if (step.reason === 'check_unresolved') content.unresolved_check = object(step.request).check_unresolved ?? {reason: step.reason};
-    const unresolved = [...unresolvedChecks, ...(content.unresolved_check ? [{candidate: 'check', needs: object(content.unresolved_check).unresolved ?? []}] : [])];
+    const unresolved = [...unresolvedChecks.filter(entry => !entry.preparation), ...(content.unresolved_check ? [{candidate: 'check', needs: object(content.unresolved_check).unresolved ?? []}] : [])];
     if (unresolved.length && run.turn !== undefined && bridge?.campaign) {
       const key = digest(unresolved);
       if (key !== run.unresolvedNoticeKey) {
