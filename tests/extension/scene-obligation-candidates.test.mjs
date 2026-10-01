@@ -267,14 +267,15 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	const defaulted = interpretBind(check, batch, answer({ skill: "unknown", bonus: "none", penalty: "none", intent: "social" }), 0.6);
 	assert.deepEqual(defaulted.pending.map((item) => [item.kind, item.purpose, item.reason]), [["infer", "compose", "check_unresolved"]]);
 	assert.deepEqual(defaulted.pending[0].extra.unresolved, ['skill'], 'unknown does not choose the highest skill');
-	// Below the gate everywhere: the dice take their defaults; §163 (owner ruling 2026-10-01) the approach and the intent,
-	// which have no permitted default here, take Jev's leading issued answers as its best guess -- recorded as forced and
-	// uncleared, so canonical admission reviews them in full. Never an LLM bind, never the highest skill.
+	// Below the gate everywhere: the dice take their defaults; the approach and the intent are the player's own choices about
+	// the investigator's check (§163.8, owner ruling 2026-10-01: 「玩家的选择不替他定」), so Jev's leading answers are not taken
+	// for them -- the check is the Keeper's recorded no-roll (never an LLM bind, never the highest skill).
+	assert.deepEqual(check.unbound.filter((value) => value.owner === "player").map((value) => value.name), ["skill", "intent"]);
 	const low = interpretBind(check, batch, answer({ skill: "Persuade", bonus: "none", penalty: "none", intent: "social" }, 0.4), 0.6);
-	assert.deepEqual(low.pending.map((item) => [item.kind, item.purpose]), [["direct", "execute"]]);
-	assert.deepEqual([low.pending[0].extra.skill, low.pending[0].extra.intent], ["Persuade", "social"]);
-	assert.deepEqual(low.forced.uncertain, ["skill: Persuade confidence 0.4", "intent: social confidence 0.4"]);
-	assert.deepEqual(low.bindings.filter((entry) => entry.cleared === false).map((entry) => entry.name), ["skill", "intent"]);
+	assert.deepEqual(low.pending.map((item) => [item.kind, item.purpose, item.reason, item.extra?.unresolved]), [["infer", "compose", "check_unresolved", ["skill", "intent"]]]);
+	assert.equal(low.pending[0].extra.cause, "player_choice");
+	assert.deepEqual(low.pending[0].extra.withheld, ["skill: Persuade confidence 0.4 (the player's choice)", "intent: social confidence 0.4 (the player's choice)"]);
+	assert.equal(low.forced, undefined, "nothing was bound for the player");
 
 	// The clerk's call is the Keeper's resolve with the claim; the dice word becomes a modifier with its reason.
 	const { tool, args } = keeperCall(check, bound.pending[0].extra);
@@ -602,7 +603,7 @@ test("§159/§163: an unknown approach is a recorded no-roll the Keeper narrates
 	assert.ok(!telemetry.some((entry) => entry.event === "llm_bound"), "no LLM bind");
 });
 
-test("§163: an approach Jev leads with below the gate is bound as its best guess, uncleared for admission, recorded, and rolled", async (t) => {
+test("§163.8: what the player's act is, read below the gate, is not chosen for them -- no roll, a recorded player_choice no-roll, prose", async (t) => {
 	const { table, calls } = await arrival({ fact: "seeks", compile: "demand", bindConfidence: 0.5,
 		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
@@ -611,13 +612,12 @@ test("§163: an approach Jev leads with below the gate is bound as its best gues
 	const forced = telemetry.filter((entry) => entry.lane === "forced-resolution");
 	assert.ok(forced.length >= 1, JSON.stringify(telemetry.filter((entry) => entry.lane === "route" && entry.purpose === "bind")));
 	const binding = forced.find((entry) => entry.family === "check-binding");
-	assert.equal(binding.chosen.outcome, "roll");
-	// The approach clears through its own `jev_lead` default; the intent has no permitted default and is Jev's best guess.
-	assert.deepEqual(binding.uncertain, ["intent: social confidence 0.5"]);
-	assert.deepEqual(binding.chosen.action, { skill: "Persuade", bonus: "none", penalty: "none", intent: "social" });
+	assert.deepEqual([binding.chosen.outcome, binding.why], ["no_roll", "player_choice"]);
+	// The approach clears through its own `jev_lead` default; the intent has no permitted default and is the player's own.
+	assert.deepEqual(binding.uncertain, ["intent: social confidence 0.5 (the player's choice)"]);
 	const roll = calls.find((value) => value.id.startsWith("clerk:") && value.input.action?.obligation === ACCESS);
-	assert.ok(roll, "the host proposed the obligation check with Jev's leading approach");
-	assert.equal(roll.input.action.skill, "Persuade");
+	assert.equal(roll, undefined, "no check was proposed on a guess about the player's act");
+	assert.ok(table.session.messages.some((message) => message.role === "toolResult" && message.toolName === "narrate"), "the Keeper's prose delivered the turn");
 	assert.ok(!table.session.messages.some(message => message.customType === 'coc-delivery' && message.details?.check_selection_unresolved), "no host notice");
 });
 

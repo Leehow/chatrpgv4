@@ -11,7 +11,7 @@ import type {Json} from './contracts.ts';
 export type ForcedFamily = 'interaction-scope' | 'check-selection' | 'check-binding' | 'check-execution' | 'check-preparation';
 export type ForcedOutcome = 'roll' | 'no_roll' | 'deferred' | 'world';
 /** Why the decision was forced: a gate Jev answered below, no answer at all, or no executable option. */
-export type ForcedWhy = 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'check_refused' | 'preparation_incomplete';
+export type ForcedWhy = 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'check_refused' | 'preparation_incomplete' | 'player_choice';
 export interface ForcedResolution {
   /** Stable identity inside one run: the row is recorded once and the Keeper is told once. */
   key: string;
@@ -47,5 +47,7 @@ export const DECIDED_UNDER_UNCERTAINTY_NOTE = 'The host decided these points und
   + 'Treat each chosen result as settled for this turn. A chosen roll was executed by the host and its receipt is committed. '
   + 'For no_roll, narrate the attempt and its outcome by your own judgement in the fiction, without a roll and without holding it in suspense. '
   + 'For a world scope, play the message as in-fiction action; if it also plainly asks something out of fiction, answer that part briefly in fiction-neutral words and keep playing. '
-  + 'Do not mention this uncertainty, and do not ask the player to clarify, confirm or repeat. '
+  + 'When why includes player_choice, the open value was the player\'s own choice about their investigator (which target, weapon, defence, approach or act) and was not made for them: '
+  + 'narrate without that roll, or let the fiction put the choice back to the player in character (a person\'s question, the situation pressing); never as an out-of-fiction request. '
+  + 'Otherwise do not mention this uncertainty, and do not ask the player to clarify, confirm or repeat. '
   + 'If later facts disagree, reconcile forward in the story; never retract what was told.';

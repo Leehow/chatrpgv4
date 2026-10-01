@@ -619,3 +619,74 @@ test('§163: a host selection code is a no-roll because nothing could execute; a
   for (const failure of ['network_error', 'check_selection_unavailable', 'check_selection_budget', 'jev_budget'])
     assert.equal(why([failure]), 'jev_unanswered', failure);
 });
+
+// ---- §163.8 (owner ruling 2026-10-01: 「玩家的选择不替他定」) -------------------------------------------------------------
+
+test('§163.8: two gray methods of the player\'s own investigator are the player\'s open choice -- no roll; the same for a non-party actor is a best guess', async t => {
+  for (const investigators of [['Ada'], []]) {
+    const {input} = setup(t, (batch, question) => noul(batch.family.startsWith('check-selection-need') && question.key.endsWith('_uncertain') ? 0.99
+      : batch.family.startsWith('check-selection-need') && !question.key.endsWith('_blocked') ? 0.6 : 0.99));
+    input.investigators = investigators;
+    const result = await selectCheck(input);
+    if (investigators.length) {
+      assert.equal(result.status, 'no_roll');
+      assert.equal(result.forced.why, 'player_choice');
+      assert.equal(result.forced.uncertain.filter(entry => /alternatives the player has not settled/.test(entry)).length, 2);
+    } else {
+      assert.equal(result.status, 'selected');
+      assert.equal(result.action.skill, 'Listen', 'catalog order');
+    }
+  }
+});
+
+test('§163.8: one gray method with its alternative ruled out is a best guess even for the player\'s investigator', async t => {
+  const {input} = setup(t, (batch, question) => noul(!batch.family.startsWith('check-selection-need') || question.key.endsWith('_blocked') ? 0.99
+    : question.target === 'Spot Hidden' ? 0.01 : 0.6));
+  input.investigators = ['Ada'];
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'selected');
+  assert.equal(result.action.skill, 'Listen');
+  assert.equal(result.forced.why, 'below_confidence_gate');
+});
+
+test('§163.8: the player\'s approach below its gate is withheld; an NPC executor\'s, a rules modifier and a Keeper ruling are still best guesses', async t => {
+  const gray = (batch, question) => question.type === 'choice' ? choice(question, 'value_0', 0.55) : noul(batch.family === 'check-selection-bind-refine' ? 0.4 : 0.99);
+  const twoSkills = {...social.parameters[0], options: [{label: 'Persuade', value: 'Persuade'}, {label: 'Charm', value: 'Charm'}]};
+  const player = setup(t, gray, [{...social, parameters: [twoSkills]}]);
+  const withheld = await selectCheck(player.input);
+  assert.deepEqual([withheld.status, withheld.forced.why, withheld.needs], ['no_roll', 'player_choice', ['player_choice:skill']]);
+  assert.deepEqual(withheld.forced.uncertain, ['skill: Persuade p=0.55 (the player\'s choice)']);
+  assert.equal(withheld.action, undefined);
+  const npcOption = {...social, facts: {...social.facts, actor_role: 'npc'}, parameters: [twoSkills]};
+  const npc = setup(t, gray, [npcOption]);
+  const guessed = await selectCheck(npc.input);
+  assert.deepEqual([guessed.status, guessed.action.skill, guessed.forced.why], ['selected', 'Persuade', 'below_confidence_gate']);
+  const modifier = {...listen, parameters: [{name: 'difficulty', question: 'Required success level?', options: [{label: 'Regular', value: 'regular'}, {label: 'Hard', value: 'hard'}],
+    default: {value: 'regular', question: 'Does anything override the regular default?'}}]};
+  const rules = setup(t, (batch, question) => batch.family.startsWith('check-selection-defaults') ? noul(0.99)
+    : question.type === 'choice' ? choice(question, 'value_0', 0.55) : noul(batch.family === 'check-selection-bind-refine' ? 0.4 : 0.99), [modifier]);
+  rules.input.investigators = ['Ada'];
+  const ruled = await selectCheck(rules.input);
+  assert.deepEqual([ruled.status, ruled.action.difficulty, ruled.forced?.why], ['selected', 'hard', 'below_confidence_gate'],
+    'a modifier with a rules default is the rules\' value, not the player\'s');
+  const recovery = {key: 'rest', family: 'healing', label: 'Weekly recovery', authorization: 'consequence', needs: [], action: {actor: 'Ada', decision: 'healing:weekly-major-wound-recovery'},
+    parameters: [{name: 'rest', question: 'Which convalescence conditions are established?', options: [{label: 'Complete rest', value: 'complete'}, {label: 'Incomplete rest', value: 'incomplete'}]}]};
+  const consequence = setup(t, (_batch, question) => question.type === 'choice' ? choice(question, 'value_1', 0.55) : noul(0.99), [recovery]);
+  consequence.input.investigators = ['Ada'];
+  const established = await selectCheck(consequence.input);
+  assert.deepEqual([established.status, established.action.rest], ['selected', 'incomplete'], 'a consequence\'s established facts are not the player\'s choice');
+});
+
+test('§163.8: a clerk parameter the builder marks as the player\'s is not bound from Jev\'s lead; another person\'s is', () => {
+  const answer = (choice, confidence) => ({status: 'complete', answers: {target: {status: 'answered', type: 'choice', choice, confidence,
+    probabilities: {Ghoul: .6, Rat: .3, unknown: .1}}}});
+  const blow = {...candidate, key: 'blow', clerk: 'first_blow', family: 'combat', label: 'Strike', bound: {decision: 'combat:attack'},
+    unbound: [{name: 'target', required: true, vocabulary: 'closed', options: ['Ghoul', 'Rat'], owner: 'player'}]};
+  const mine = interpretBind(blow, {questions: []}, answer('Ghoul', 0.4), 0.85);
+  assert.deepEqual(mine.pending.map(item => [item.kind, item.purpose, item.reason, item.extra.cause, item.extra.unresolved]),
+    [['infer', 'compose', 'check_unresolved', 'player_choice', ['target']]]);
+  assert.deepEqual(mine.pending[0].extra.withheld, ['target: Ghoul confidence 0.4 (the player\'s choice)']);
+  assert.equal(mine.forced, undefined);
+  const theirs = interpretBind({...blow, unbound: [{...blow.unbound[0], owner: undefined}]}, {questions: []}, answer('Ghoul', 0.4), 0.85);
+  assert.equal(theirs.pending[0].extra.target, 'Ghoul', 'an NPC\'s own choice is still Jev\'s best guess');
+});

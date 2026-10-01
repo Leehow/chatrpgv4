@@ -220,11 +220,12 @@ function check(reads: ObligationReads, row: Row, index: number, rawInput: string
   if (!approaches.length) return undefined;
   const skills = approaches.map(value => text(value.skill)), approach = next.selection === 'approach';
   const unbound: Unbound[] = [];
-  if (!actor) unbound.push({name: 'actor', required: true, vocabulary: 'closed', options: actors});
+  // §163.8: who acts, which approach and what the act is are the player's choices about their investigator's check.
+  if (!actor) unbound.push({name: 'actor', required: true, vocabulary: 'closed', options: actors, owner: 'player'});
   // Several approaches: the player's own words choose among the book's, never the clerk; with them the ordinary
   // binder's closed dice choice. One approach is bound. `maximum` is the kernel's to bind (§134.11).
   if (approach && skills.length > 1) {
-    unbound.push({name: 'skill', required: true, vocabulary: 'closed', options: skills, ruleDefault: approachDefault(reads, skills, actor, actors),
+    unbound.push({name: 'skill', required: true, vocabulary: 'closed', options: skills, ruleDefault: approachDefault(reads, skills, actor, actors), owner: 'player',
       descriptions: Object.fromEntries(approaches.map(value => [text(value.skill),
         `${text(value.skill)}${Number.isSafeInteger(value.minimum) ? ` (the book asks for ${value.minimum} or more)` : ''}`])),
       instruction: `Select the approach the player's declared words take${target ? ` toward ${target}` : ''}: the one skill among these the investigator `
@@ -234,7 +235,7 @@ function check(reads: ObligationReads, row: Row, index: number, rawInput: string
         ruleDefault: {rule: 'no_modifier', value: 'none'}});
   }
   // The obligation row declares no intent (§134.9 issues none), so the intent is Jev's alone: no rules default (§135.28).
-  unbound.push({name: 'intent', required: true, vocabulary: 'closed', options: CHECK_INTENTS, descriptions: descriptors('intent'), instruction: ORDINARY_CHOICES.intent.instructions});
+  unbound.push({name: 'intent', required: true, vocabulary: 'closed', options: CHECK_INTENTS, descriptions: descriptors('intent'), instruction: ORDINARY_CHOICES.intent.instructions, owner: 'player'});
   const {words, detail} = guarded(reads, row);
   const how = approach ? listed(skills, 'or') : `the higher of ${listed(skills, 'and')}`;
   return {key: `resolve:obligation:${text(row.handle)}`, verb: 'resolve', family: 'obligation_check', source: 'table.apply.options',

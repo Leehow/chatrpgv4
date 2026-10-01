@@ -44,6 +44,8 @@ export interface CheckSelectionInput {
   gates?: Partial<CheckSelectionGates>;
   maxCalls?: number;
   record?(row: Record<string, unknown>): void;
+  /** §163.8: the player-controlled investigators (the kernel's party). Absent: read from `context.conditions[].actor`. */
+  investigators?: readonly string[];
 }
 /** Screening negatives, mutation authority and closed Choice probability are separate gates. */
 export interface CheckSelectionGates {applicability: number; need: number; noNeed: number; choice: number; adjudication: number}
@@ -62,6 +64,19 @@ export type CheckSelection = {
    */
   forced?: {uncertain: string[]; why: string};
 };
+/**
+ * §163.8 (owner ruling 2026-10-01: do not make the player's choices for them): the player's own act is a `declaration` option whose actor is a
+ * player-controlled investigator (the catalog's own `facts.actor_role`, else the kernel's party). Its parameters without
+ * a rules default and without a Keeper ruling (`selection: compatible`) are the player's choices: which approach, which
+ * skills, what intent, which stakes or Luck. Read from the catalog's own fields, never from words.
+ */
+export function playerAct(option: CheckOption, investigators: ReadonlySet<string>): boolean {
+  return option.authorization === 'declaration' && (option.facts?.actor_role === 'investigator'
+    || option.facts?.actor_role !== 'npc' && investigators.has(String(option.action.actor ?? '')));
+}
+export function playerOwned(option: CheckOption, parameter: CheckParameter, investigators: ReadonlySet<string>): boolean {
+  return playerAct(option, investigators) && parameter.default === undefined && parameter.selection !== 'compatible';
+}
 
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** Rule eligibility is already host-owned; these questions ask only the remaining semantic trigger. */
@@ -172,7 +187,9 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
   const gates = {...CHECK_SELECTION_GATES, ...input.gates}, gate = gates.need;
   // §163: every gate decided by Jev's best score (or with no score) is named here; a result that used one is forced.
   const forced: string[] = [], whys = new Set<string>();
-  const note = (what: string, why: 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable') => { forced.push(what); whys.add(why); };
+  const note = (what: string, why: 'below_confidence_gate' | 'jev_unanswered' | 'nothing_executable' | 'player_choice') => { forced.push(what); whys.add(why); };
+  const investigators = new Set((input.investigators ?? (isPlainRecord(input.context) && Array.isArray(input.context.conditions)
+    ? input.context.conditions.filter(isPlainRecord).map(row => String(row.actor ?? '')) : [])).filter(Boolean));
   const done = (result: CheckSelection): CheckSelection => forced.length ? {...result, forced: {uncertain: [...forced], why: [...whys].sort().join(',')}} : result;
   const unresolved = (needs: string[], option?: CheckOption): CheckSelection => ({status: 'unresolved',
     needs: needs.map(need => input.options.find(option => option.key === need)?.label ?? need), calls, ...(option ? {option} : {})});
@@ -319,8 +336,9 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     // Keep candidate state and request size bounded without truncating the retained inventory.
     const pages = Array.from({length: Math.ceil(eligible.length / 24)}, (_, index) => eligible.slice(index * 24, index * 24 + 24));
     const refinable: Array<{option: CheckOption; index: number; state: Json; questions: DecisionBatch['questions']; explicitMethod: boolean}> = [];
-    // §163: the answers each still-uncertain option was last judged on, for Jev's best guess if no gate clears.
-    const judged = new Map<string, {index: number; result: DecisionResult}>();
+    // §163: the answers each still-uncertain option was last judged on, for Jev's best guess if no gate clears; and every
+    // option's own verdict, so a best guess never picks among alternatives the player has not settled (§163.8).
+    const judged = new Map<string, {index: number; result: DecisionResult}>(), statusOf = new Map<string, CheckSelection['status']>();
     await Promise.all(pages.map(async page => {
       const state = {declaration: input.declaration, context: input.context, policy: POLICY,
         checks: Object.fromEntries(page.map((option, index) => [optionAlias(index), {family: option.family, label: option.label, trigger: option.authorization, action: actionView(option.action), ...(option.definition ? {definition: option.definition} : {}), ...(option.facts ? {facts: option.facts} : {})}]))};
@@ -347,6 +365,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       const result = await decide('need', state, questions);
       for (const [index, option] of page.entries()) {
         const status = classify(option, index, result);
+        statusOf.set(option.key, status);
         if (status === 'selected') needed.push(option);
         else if (status === 'deferred') deferred++;
         else if (status === 'unresolved') {
@@ -369,6 +388,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       const result = await refine('need', candidate.state, candidate.questions);
       if (result) {
         const status = classify(candidate.option, candidate.index, result);
+        statusOf.set(candidate.option.key, status);
         if (status !== 'unresolved') uncertain.splice(uncertain.indexOf(candidate.option.key), 1);
         else judged.set(candidate.option.key, {index: candidate.index, result});
         if (status === 'selected') needed.push(candidate.option);
@@ -382,6 +402,15 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
       const option = eligible.find(entry => entry.key === key), seen = judged.get(key);
       if (!option || !seen) continue;
       const lean = leanCheck(option, seen.index, seen.result);
+      // §163.8: when the same act has alternatives for this investigator that Jev did not rule out (another target, weapon,
+      // patient or skill of the same decision), a best guess would be choosing for the player: it takes no roll.
+      const rivals = lean.status === 'selected' && playerAct(option, investigators) ? eligible.filter(other => other !== option
+        && other.action.decision === option.action.decision && String(other.action.actor ?? '') === String(option.action.actor ?? '')
+        && statusOf.get(other.key) !== 'no_roll') : [];
+      if (rivals.length) {
+        note(`${option.label}: one of ${rivals.length + 1} alternatives the player has not settled (${lean.scores})`, 'player_choice');
+        continue;
+      }
       note(`necessity of ${option.label}: ${lean.scores}`, lean.unanswered ? 'jev_unanswered' : 'below_confidence_gate');
       if (lean.status === 'selected') needed.push(option);
       else if (lean.status === 'deferred') deferred++;
@@ -475,7 +504,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
               condition: 'The nominated value is unsupported, ambiguous, or another value applies.'}}});
       }
       const refined = await refine('bind', state, confirmationQuestions);
-      const missing: string[] = [];
+      const missing: string[] = [], withheld: string[] = [];
       for (const [index, parameter] of parameters.entries()) {
         if (parameter.selection === 'compatible') {
           const scored = parameter.options.map((option, i) => {
@@ -504,6 +533,12 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
             chosen = scored.filter(member => leansYes(member.p));
             for (const member of scored) if (chosen.length < parameter.multiple.minimum && !chosen.includes(member)) chosen.push(member);
             if (chosen.length < parameter.multiple.minimum) { missing.push(`unbound:${parameter.name}`); continue; }
+            // §163.8: the player's own choice is not made for them.
+            if (playerOwned(selected, parameter, investigators)) {
+              withheld.push(parameter.name);
+              note(`${parameter.name}: ${members.map(member => `${member.option.label} ${scoreText(member.p)}`).join(', ')} (the player's choice)`, 'player_choice');
+              continue;
+            }
             note(`${parameter.name}: ${members.map(member => `${member.option.label} ${scoreText(member.p)}`).join(', ')}`,
               members.some(member => member.p === undefined) ? 'jev_unanswered' : 'below_confidence_gate');
             chosen = members.filter(member => chosen.includes(member));
@@ -519,6 +554,12 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
           const ranked = result.status === 'complete' && answer?.status === 'answered' && answer.type === 'choice' && answer.probabilities
             ? parameter.options.map((option, optionIndex) => ({option, p: answer.probabilities![valueAlias(optionIndex)]}))
               .filter((entry): entry is {option: CheckParameter['options'][number]; p: number} => Number.isFinite(entry.p) && entry.p > 0).sort((a, b) => b.p - a.p) : [];
+          if (ranked.length && playerOwned(selected, parameter, investigators)) {
+            // §163.8: the player's own choice is not made for them.
+            withheld.push(parameter.name);
+            note(`${parameter.name}: ${ranked[0].option.label} ${scoreText(ranked[0].p)} (the player's choice)`, 'player_choice');
+            continue;
+          }
           if (ranked.length) {
             value = ranked[0].option;
             note(`${parameter.name}: ${value.label} ${scoreText(ranked[0].p)}`, 'below_confidence_gate');
@@ -527,6 +568,8 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
         if (!value) missing.push(`unbound:${parameter.name}`);
         else action[parameter.name] = structuredClone(value.value);
       }
+      // §163.8: a withheld player choice leaves the check without a roll; the Keeper narrates or lets the fiction ask.
+      if (withheld.length) return done({status: 'no_roll', option: selected, needs: withheld.map(name => `player_choice:${name}`), calls});
       // §163: a parameter Jev gave no score for cannot be bound; the selected check is a forced no-roll.
       if (missing.length) {
         for (const need of missing) note(`${selected.label} ${need}: unanswered`, 'jev_unanswered');

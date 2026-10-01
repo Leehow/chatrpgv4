@@ -1493,6 +1493,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
               context: {...visibleContext, rules: object(candidate.detail).rule_guidance ?? [], situation: catalog.situation ?? null,
                 scene_holds: {where: capsule.where ?? null, clues: object(capsule.known).clues_here ?? [], obligations: capsule.obligations ?? []}} as Json,
               scope: run.scope, readSet: run.readSet, lease, decision: jev,
+              // §163.8: the kernel's party, whose declared acts' choices are the player's.
+              investigators: array(context.conditions).map(row => text(object(row).actor)).filter(Boolean),
               maxCalls: Number.isSafeInteger(question.remainingCalls) ? question.remainingCalls : 24,
               record: row => record({lane: 'check-selection', run: run.runId, step: request.stepId, ...row})});
             // A decision from a stale snapshot is never executable, even if its arguments still look plausible.
@@ -1739,7 +1741,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (step.reason === 'check_unresolved') {
       const left = object(object(step.request).check_unresolved), operation = object(object(step.request).operation);
       recordForced(run, [forcedResolution({family: 'check-binding', subject: text(operation.label) || 'check',
-        uncertain: array(left.unresolved).map(value => String(value)), chosen: {outcome: 'no_roll'}, why: text(left.cause) || 'unknown_binding'},
+        uncertain: array(left.withheld ?? left.unresolved).map(value => String(value)), chosen: {outcome: 'no_roll'}, why: text(left.cause) || 'unknown_binding'},
       text(object(step.request).candidate) || null)], stepId);
     }
     const unseen = run.forced.filter(entry => !run.forcedShown.has(entry.key));

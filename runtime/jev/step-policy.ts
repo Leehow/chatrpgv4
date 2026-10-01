@@ -70,7 +70,14 @@ export interface Unbound {name: string; required: boolean; vocabulary: 'closed' 
   /** §135.28: what the parameter is when Jev does not bind it. Absent: no default (a target, a weapon, an actor): the Keeper's. */
   ruleDefault?: RuleDefault;
   /** §138.10: the band table this parameter names a row of; bound `banded`, gated by the table. */
-  band?: BandParameter}
+  band?: BandParameter;
+  /**
+   * §163.8 (owner ruling 2026-10-01: do not make the player's choices for them): the side that owns the value. `player`: the player's own choice about
+   * their investigator's act (which target, which weapon, which defence, which approach), set by the builder from the side the
+   * kernel issued (the session's participant side, the pending defence's `for`, the investigator's first blow or stated check).
+   * Absent: a fact, a rule or another person's own choice. A player-owned value is never taken from Jev below its gate.
+   */
+  owner?: 'player'}
 /** How one parameter of a clerk step got its value (contract §135.28, §138): the five ways, none of them a model call. */
 export type BindingPath = 'jev' | 'rule-default' | 'stated' | 'composed' | 'banded';
 /**
@@ -712,7 +719,7 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
     // The Jev answer that did not clear stays on record beside the default that replaced it.
     if (complete) bindings.push({name: parameter.name, path, value: null, confidence: confidence ?? null, distribution, ...table});
   }
-  const defaults: Record<string, Json> = {}, unresolved: string[] = [], leaned: string[] = [];
+  const defaults: Record<string, Json> = {}, unresolved: string[] = [], leaned: string[] = [], withheld: string[] = [];
   for (const parameter of later) {
     const lead = leads[parameter.name], evidence = answerOf(result, parameter.name);
     const clearedLead = parameter.ruleDefault?.rule === 'jev_lead' && lead !== undefined && lead !== 'unknown'
@@ -724,6 +731,12 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
     const taken = ruleDefaultOf(permittedDefault, parameter, candidate, extra, leads[parameter.name]);
     // §163: a check's parameter with no permitted default takes Jev's leading issued answer below the gate, recorded as forced.
     if (!taken && candidate.checkOwner === 'jev' && lead !== undefined && lead !== 'unknown' && parameter.options?.includes(lead)) {
+      // §163.8: the player's own choice is never made for them; the candidate goes to the Keeper as a recorded no-roll.
+      if (parameter.owner === 'player') {
+        withheld.push(`${parameter.name}: ${lead} confidence ${Math.round((evidence.confidence ?? 0) * 100) / 100} (the player's choice)`);
+        unresolved.push(parameter.name);
+        continue;
+      }
       extra[parameter.name] = lead;
       leaned.push(`${parameter.name}: ${lead} confidence ${Math.round((evidence.confidence ?? 0) * 100) / 100}`);
       const at = bindings.findIndex(entry => entry.name === parameter.name), entry: BindRecord = {name: parameter.name, path: 'jev', value: lead,
@@ -745,7 +758,8 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
       if (at >= 0) bindings[at] = entry; else bindings.push(entry);
     }
   }
-  if (unresolved.length) return {pending: keeperOwns(candidate, cause || 'unknown_binding', unresolved, bindings), reason: 'clerk_unbound', bindings};
+  if (unresolved.length) return {pending: keeperOwns(candidate, withheld.length ? 'player_choice' : cause || 'unknown_binding', unresolved, bindings, withheld),
+    reason: 'clerk_unbound', bindings};
   const forced = leaned.length ? forcedResolution({family: 'check-binding', subject: candidate.label, uncertain: leaned,
     chosen: {outcome: 'roll', check: candidate.label, action: extra}, why: 'below_confidence_gate'}, candidate.key) : undefined;
   const bound: Candidate = Object.keys(defaults).length
@@ -769,9 +783,9 @@ function clerkBind(candidate: Candidate, result: DecisionResult | undefined, gat
  * told what the clerk chose and what it could not settle; nothing was executed for it, and its key is consumed when the
  * step starts, so it is not offered again this run.
  */
-export function keeperOwns(candidate: Candidate, cause: string, unresolved: string[], bindings: BindRecord[] = []): PendingItem[] {
+export function keeperOwns(candidate: Candidate, cause: string, unresolved: string[], bindings: BindRecord[] = [], withheld: string[] = []): PendingItem[] {
   if (candidate.verb === 'resolve' && candidate.checkOwner === 'jev') return [{kind: 'infer', purpose: 'compose', reason: 'check_unresolved', candidate,
-    extra: {cause, unresolved, ...(bindings.length ? {bindings: bindings as unknown as Json} : {})}}];
+    extra: {cause, unresolved, ...(withheld.length ? {withheld} : {}), ...(bindings.length ? {bindings: bindings as unknown as Json} : {})}}];
   return [{kind: 'infer', purpose: 'adjudicate', reason: 'clerk_unbound', candidate,
     extra: {cause, unresolved, ...(bindings.length ? {bindings: bindings as unknown as Json} : {})}}];
 }

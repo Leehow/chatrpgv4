@@ -513,3 +513,29 @@ test('a minimal source destination still asks whether its access conditions allo
  assert.match(candidate.detail.source_context,/locked until dawn/);
  assert.equal(buildCandidates({capsule:{},applyOptions:{candidates:[{...row,guarded_by:'gate'}]},resolveOptions:{}},'I go to the cemetery.').some(value=>value.family==='move'),false);
 });
+
+test("§163.8 (owner ruling 2026-10-01: 「玩家的选择不替他定」): the builders mark the player's own choices from the side the kernel issued, and nobody else's", () => {
+	const participants = [{ name: "tom", label: "Tom", side: "investigator" }, { name: "knott", label: "Knott", side: "npc" }, { name: "ruth", label: "Ruth", side: "npc" }];
+	const owners = (candidate) => candidate.unbound.map((value) => [value.name, value.owner ?? null]);
+	// The investigator's own turn: which target and which weapon are the player's.
+	const attack = buildCandidates({ capsule: {}, applyOptions: {}, resolveOptions: { context: { session: { kind: "combat", status: "active", round: 2, turn_of: "tom",
+		pending_defense: null, participants, actions: [{ decision: "combat:attack", actor: "tom", targets: ["knott", "ruth"], weapons: ["unarmed", "knife"] }] } } } }, "我动手")
+		.find((candidate) => candidate.bound.decision === "combat:attack");
+	assert.deepEqual(owners(attack), [["target", "player"], ["weapon", "player"]]);
+	// The defence the kernel hands to the player is the player's; an NPC's own defence is not.
+	const defence = (side) => buildCandidates({ capsule: {}, applyOptions: {}, answering: ["defense:knott-r2"], resolveOptions: { context: {
+		pending_choice: { name: "defense:knott-r2" }, session: { kind: "combat", status: "active", round: 2, turn_of: side === "player" ? "knott" : "tom", participants, actions: [],
+			pending_defense: side === "player" ? { for: "player", actor: "tom", attacker: "knott", options: ["dodge", "fight_back"] }
+				: { for: "npc", actor: "knott", attacker: "tom", options: ["dodge", "fight_back"] } } } } }, "我躲开").find((candidate) => candidate.forced);
+	assert.deepEqual(owners(defence("player")), [["defense", "player"]]);
+	assert.deepEqual(owners(defence("npc")), [["defense", null]]);
+	// The investigator's opening blow outside a fight: its target and weapon are the player's.
+	const blow = buildCandidates({ capsule: {}, applyOptions: {}, resolveOptions: { context: { first_blow: { decision: "combat:attack", intent: "combat", actor: "Tom",
+		targets: ["Knott", "Ruth"], weapons: ["unarmed", "knife"] } } } }, "我揍他").find((candidate) => candidate.clerk === "first_blow");
+	assert.deepEqual(owners(blow), [["target", "player"], ["weapon", "player"]]);
+	// Another person's turn of a chase is that person's own choice, never the player's.
+	const chase = buildCandidates({ capsule: {}, applyOptions: {}, resolveOptions: { context: { session: { kind: "chase", status: "active", round: 1, turn_of: "knott",
+		participants, actions: [{ decision: "chase:move", actor: "knott", targets: ["tom", "ruth"] }] } } } }, "我跑").flatMap((candidate) => [candidate, ...Object.values(candidate.variants ?? {})]);
+	assert.ok(chase.some((candidate) => (candidate.unbound ?? []).some((value) => value.name === "target")), "the NPC's chase step has a target to choose");
+	assert.ok(chase.every((candidate) => (candidate.unbound ?? []).every((value) => value.owner === undefined)), JSON.stringify(chase.map((candidate) => candidate.unbound)));
+});

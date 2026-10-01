@@ -182,6 +182,8 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
     if (actor && options.length && (pending.for === 'npc' || answered)) {
       const defense = stands ? {bound: text(standing.defense) as Json} as {bound?: Json; unbound?: Unbound} : closedParameter('defense', options);
       if (defense.unbound) defense.unbound.descriptions = Object.fromEntries(options.map(option => [option, DEFENSE_OPTIONS[option] ?? option]));
+      // §163.8: the kernel hands this defence to the player (`for: "player"`): it is the player's choice, never Jev's best guess.
+      if (defense.unbound && pending.for === 'player') defense.unbound.owner = 'player';
       out.push({key: `resolve:combat:defend:${actor}:${attacker}:r${round}`, verb: 'resolve', family: 'combat', source: 'table.resolve.options',
         label: `${label(actor)} defends against ${label(attacker)}'s attack`,
         bound: {intent: 'combat', decision: 'combat:defend', actor, ...words(actor, 'combat:defend'),
@@ -212,7 +214,8 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
       for (const [name, options] of [['target', strings(action.targets)], ['weapon', decision === 'combat:maneuver' ? strings(attackRow?.weapons) : strings(action.weapons)]] as const) {
         if (!options.length) continue;
         const parameter = closedParameter(name, options);
-        if (parameter.bound !== undefined) bound[name] = parameter.bound; else unbound.push(parameter.unbound!);
+        // §163.8: the investigator's own target and weapon are the player's choices (the session's participant side says whose turn it is).
+        if (parameter.bound !== undefined) bound[name] = parameter.bound; else unbound.push({...parameter.unbound!, ...(investigator(actor) ? {owner: 'player' as const} : {})});
       }
       if (decision === 'combat:attack' && !strings(action.targets).length) continue;
       // A manoeuvre still needs a supplied goal. Combat end uses the engine-issued outcome vocabulary.
@@ -239,7 +242,7 @@ function sessionCandidates(session: Row, rawInput: string, answering: readonly s
       const targets = strings(action.targets);
       if (targets.length) {
         const parameter = closedParameter('target', targets);
-        if (parameter.bound !== undefined) bound.target = parameter.bound; else unbound.push(parameter.unbound!);
+        if (parameter.bound !== undefined) bound.target = parameter.bound; else unbound.push({...parameter.unbound!, ...(investigator(actor) ? {owner: 'player' as const} : {})});
       }
       const suffix = text(action.action) || (text(action.method) ? `${decision}:${text(action.method)}` : '');
       own.push({...base, key: `resolve:${decision}:${actor}:${suffix || index}${turnKey}`, label: `${label(actor)}: ${suffix || decision}`, bound, unbound, ...composedWords(actor)});
@@ -321,7 +324,8 @@ function firstBlowCandidate(row: Row, rawInput: string): Candidate | undefined {
   const unbound: Unbound[] = [];
   for (const [name, options] of [['target', targets], ['weapon', weapons]] as const) {
     const parameter = closedParameter(name, options);
-    if (parameter.bound !== undefined) bound[name] = parameter.bound; else unbound.push({...parameter.unbound!,
+    // §163.8: the investigator's opening blow -- its target and its weapon are the player's choices.
+    if (parameter.bound !== undefined) bound[name] = parameter.bound; else unbound.push({...parameter.unbound!, owner: 'player',
       ...(name === 'weapon' ? {instruction:'Choose the physical object or unarmed method the player actually uses. Ordinary held items are valid names even while their attack usage needs preparation. Do not substitute unarmed or an already prepared weapon for the named item.'} : {})});
   }
   return {key: 'resolve:combat:first-blow', verb: 'resolve', family: 'combat', source: 'table.resolve.options',

@@ -242,3 +242,78 @@ test('§163, the turn-9 shape on the emitted kernel: a social influence judged n
   assert.ok(requests.flatMap(clerkNotes).some(note => note.decided_under_uncertainty?.some(entry => entry.chosen.outcome === 'roll')));
   assert.equal(table.session.messages.filter(message => message.customType === 'coc-delivery' && message.details?.check_selection_unresolved).length, 0);
 });
+
+// ---- §163.8 (owner ruling 2026-10-01: 「玩家的选择不替他定」): the player's own choices are never Jev's best guess ----------
+
+/**
+ * Jev at the Globe's newspaper morgue, where Arty Wilmot and Ruth Blake are both present: the route examines the social family,
+ * the investigator's influence method is clear (.82), and each target's necessity is `needs` (prerequisites .3). `skill`
+ * is the approach Choice: confident unless a probability is given.
+ */
+function globeJev({needs, skill}) {
+  return {async decide(batch) {
+    const answers = Object.fromEntries(batch.questions.map(question => {
+      if (question.type === 'noul') {
+        let p = 0.01;
+        if (batch.family === 'check-selection-social-method') p = 0.82;
+        if (batch.family.startsWith('check-selection-need')) {
+          const check = batch.state.checks[question.key.replace(/_blocked$/, '')];
+          p = question.key.endsWith('_blocked') ? 0.3 : needs[check?.action?.target] ?? 0.01;
+        }
+        return [question.key, {status: 'answered', type: 'noul', noul: p}];
+      }
+      let selected, p = 1;
+      if (batch.family === 'single-loop-route' && question.key.startsWith('need_')
+        && batch.state.candidates[question.key.replace('need_', 'candidate_')]?.bound?.decision === 'social:adjudicate-difficulty') selected = 'now';
+      if (batch.family.startsWith('check-selection-bind') && question.target === 'skill') { selected = 'value_0'; p = skill ?? 1; }
+      selected ??= question.key === 'exit' ? 'finish' : 'unknown' in question.criteria ? 'unknown' : 'later' in question.criteria ? 'later' : Object.keys(question.criteria)[0];
+      const keys = Object.keys(question.criteria);
+      return [question.key, {status: 'answered', type: 'choice', choice: selected, confidence: p,
+        probabilities: Object.fromEntries(keys.map(key => [key, key === selected ? p : (1 - p) / (keys.length - 1)]))}];
+    }));
+    return bindDecisionAnswers(batch, answers, {inputTokens: 1, outputTokens: 1, costUsd: 0});
+  }};
+}
+async function atTheGlobe(t, port, text) {
+  const requests = [];
+  const engine = createHybridEngine({env: {...process.env, PI_COC_JEV_PRESELECT: '0', COC_JEV_STEPS: 'off'}, decision: port, compile: false, npcAct: null});
+  const table = await openTable({realKernel: true, env: {PI_COC_LOOP_ENGINE: 'hybrid-v1'}, runDriver: engine.runDriver,
+    prepareWorkspace: workspace => rpc(workspace, [['table.open', {}], ['table.player_input', {text: '我去报馆'}],
+      ['table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue'}]}], ['table.narrate', {call_id: 't1-c2', text: '你到了报馆。'}]]),
+    extraExtensions: [{name: 'forced-resolution-engine', factory: engine.extension}],
+    responses: [context => { requests.push(context); return fauxAssistantMessage([fauxToolCall('narrate', {text: PROSE})], {stopReason: 'toolUse'}); }]});
+  t.after(() => table.dispose());
+  await table.session.prompt(text);
+  const telemetry = table.telemetry();
+  return {table, telemetry, notes: requests.flatMap(clerkNotes), forced: telemetry.filter(row => row.lane === 'forced-resolution'),
+    rolls: telemetry.filter(row => row.tool === 'resolve' && row.origin === 'policy' && row.ok)};
+}
+
+test('§163.8: two people the player might mean, both gray -- no target is chosen for the player; a recorded player_choice no-roll and prose', async t => {
+  const run = await atTheGlobe(t, globeJev({needs: {'Arty Wilmot': 0.74, 'Ruth Blake': 0.7}}), '我想办法说服这里的人让我进剪报室。');
+  delivered(run);
+  assert.equal(run.rolls.length, 0, 'neither target was adjudicated on a guess');
+  const row = run.forced.find(entry => entry.family === 'check-selection');
+  assert.deepEqual([row.chosen.outcome, row.why.split(',').includes('player_choice')], ['no_roll', true], JSON.stringify(run.forced));
+  assert.ok(row.uncertain.some(entry => /alternatives the player has not settled/.test(entry)), row.uncertain.join('; '));
+  const marked = run.notes.find(note => note.decided_under_uncertainty);
+  assert.match(marked.decided_under_uncertainty_note, /player_choice/);
+});
+
+test('§163.8 control: the other person confidently ruled out, the remaining target is not the player\'s open choice -- Jev\'s best guess is adjudicated', async t => {
+  const run = await atTheGlobe(t, globeJev({needs: {'Arty Wilmot': 0.74, 'Ruth Blake': 0.05}}), '我想办法说服阿蒂让我进剪报室。');
+  delivered(run);
+  assert.equal(run.rolls.length, 1);
+  const row = run.forced.find(entry => entry.family === 'check-selection');
+  assert.deepEqual([row.chosen.outcome, row.why], ['roll', 'below_confidence_gate']);
+  assert.equal(row.chosen.action.target, 'Arty Wilmot');
+});
+
+test('§163.8: the approach (which social skill) below its gate is the player\'s choice -- no roll, recorded, prose', async t => {
+  const run = await atTheGlobe(t, globeJev({needs: {'Arty Wilmot': 0.9, 'Ruth Blake': 0.05}, skill: 0.55}), '我想办法让阿蒂松口，放我进剪报室。');
+  delivered(run);
+  assert.equal(run.rolls.length, 0);
+  const row = run.forced.find(entry => entry.family === 'check-selection');
+  assert.deepEqual([row.chosen.outcome, row.why], ['no_roll', 'player_choice']);
+  assert.ok(row.uncertain.some(entry => /^skill: .* p=0\.55 \(the player's choice\)$/.test(entry)), row.uncertain.join('; '));
+});
