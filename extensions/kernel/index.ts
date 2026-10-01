@@ -29,6 +29,7 @@ import { argumentLimitRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRIT
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
 import { leanApplyEnabled, offeredTools } from "./lean-apply.ts";
 import { stripDialectPrefixes } from "./dialect-prefix.ts";
+import { decodeStringLiterals } from "./encoded-string-argument.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { markNpcAct } from "./npc-act-marks.ts";
@@ -5091,11 +5092,15 @@ export default function (pi: ExtensionAPI) {
 			// Contract §144.1: a field that carries another tool's argument (`apply.narrate`, the narrate tool's `text`)
 			// loses the serialization's own leading label (`text intermediate…`, `text`), after the unwrapping; a value
 			// that was only the label goes on empty, to the embedded narrate's floor and the kernel's refusal.
+			// Contract §160: a declared string argument that is itself a JSON string literal (`"\"\\u4e00…\""`, the value
+			// serialized twice) is decoded between the two, so the label rule and every reader after it see the text.
 			prepareArguments: (args: unknown) => {
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, args);
 				if (!unwrapped.ok) throw new Error(new KernelError(unwrapped.refusal).toToolText());
 				if (unwrapped.repairs.length) void record({ lane: "tool_arguments", event: "markup_unwrapped", tool: spec.name, repairs: unwrapped.repairs });
-				const stripped = stripDialectPrefixes(spec.name, unwrapped.args);
+				const decoded = decodeStringLiterals(spec.parameters, unwrapped.args);
+				for (const { field, layers } of decoded.decodes) void record({ lane: "tool_arguments", event: "json_string_decoded", tool: spec.name, field, layers });
+				const stripped = stripDialectPrefixes(spec.name, decoded.args);
 				for (const { field, prefix } of stripped.strips) void record({ lane: "arguments", event: "dialect_prefix_stripped", tool: spec.name, field, prefix });
 				const refusal = argumentLimitRefusal(spec.name, stripped.args);
 				if (refusal) throw new Error(new KernelError(refusal).toToolText());
