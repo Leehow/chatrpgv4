@@ -519,8 +519,8 @@ function scopedCheckJev({method = 0.99, uncertainty = 0.99, difficultyOverride =
   }};
 }
 
-test('the agent-selected check uses the scoped Jev binder; an unclear method never reaches LLM admission', async t => {
-  for (const method of [0.99, 0.5]) await t.test('method probability ' + method, async tt => {
+test('the agent-selected check uses the scoped Jev binder; an unclear method never reaches LLM admission, and §163 a forced one still takes canonical admission', async t => {
+  for (const method of [0.99, 0.6, 0.5]) await t.test('method probability ' + method, async tt => {
     const table = await hybrid(tt, {prepare: tookTheJob, compile: () => undefined,
       engine: {decision: scopedCheckJev({method})}, responses: narrateOnly('The desk stands in the quiet office.')});
     await table.session.prompt('I carefully search the desk for a hidden compartment.');
@@ -528,15 +528,20 @@ test('the agent-selected check uses the scoped Jev binder; an unclear method nev
     assert.ok(rows.some(row => row.lane === 'route' && row.purpose === 'route' && row.selected?.some(key => key.startsWith('resolve:check:core-check:ordinary-check:'))));
     assert.ok(!rows.some(row => row.lane === 'route' && row.purpose === 'compile' && row.fired?.some(item => item.predicate === 'ordinary_check')));
     const rolls = rows.filter(row => row.tool === 'resolve' && row.origin === 'policy' && row.ok);
-    assert.equal(rolls.length, method > 0.85 ? 1 : 0);
-    if (method > 0.85) {
+    // §163: below the .65 method gate Jev's best guess decides -- .6 is a forced roll, .5 (a tie) a forced no-roll.
+    assert.equal(rolls.length, method > 0.5 ? 1 : 0);
+    const forced = rows.filter(row => row.lane === 'forced-resolution');
+    assert.equal(forced.length, method > 0.85 ? 0 : 1, JSON.stringify(forced));
+    if (method > 0.5) {
       assert.ok(rolls[0].basis.selection_snapshot);
       const admission = admissionRows(table, 'test-camp').find(row => row.origin === 'policy' && row.verb === 'resolve');
       assert.notEqual(admission.path, 'compile', 'new check parameters receive canonical admission');
       assert.equal(admission.admitted, true);
+      if (method < 0.85) assert.equal(forced[0].chosen.outcome, 'roll');
     } else {
       assert.equal(admissionRows(table, 'test-camp').some(row => row.verb === 'resolve'), false);
-      assert.ok(rows.some(row => row.lane === 'check-selection' && row.status === 'unresolved'));
+      assert.ok(rows.some(row => row.lane === 'check-selection' && row.status === 'no_roll'));
+      assert.equal(forced[0].chosen.outcome, 'no_roll');
     }
   });
 });
@@ -565,22 +570,23 @@ test('a complete Jev-selected check can be refused by canonical admission withou
   assert.ok(admissionRows(table, 'test-camp').some(row => row.verb === 'resolve' && row.admitted === false));
 });
 
-test('a routed ordinary family does not force a roll when the check tool finds routine action or unresolved necessity', async t => {
+test('a routed ordinary family does not force a roll when the check tool finds routine action; §163 an uncertain need is Jev\'s best guess, recorded', async t => {
   for (const uncertainty of [0.01, 0.5]) await t.test('uncertainty ' + uncertainty, async tt => {
     const table = await hybrid(tt, {prepare: tookTheJob, compile: () => undefined,
       engine: {decision: scopedCheckJev({uncertainty})}, responses: narrateOnly('You remain by the desk.')});
     await table.session.prompt('I look across the desk.');
     const rows = table.telemetry('test-camp');
     assert.equal(rows.some(row => row.tool === 'resolve' && row.ok), false);
-    assert.ok(rows.some(row => row.lane === 'check-selection' && row.status === (uncertainty < 0.35 ? 'no_roll' : 'unresolved')));
+    assert.ok(rows.some(row => row.lane === 'check-selection' && row.status === 'no_roll'));
+    assert.equal(rows.filter(row => row.lane === 'forced-resolution' && row.chosen.outcome === 'no_roll').length, uncertainty < 0.35 ? 0 : 1);
   });
 });
 
-test('rule defaults require established absence of overrides; uncertain modifiers stay unresolved', async t => {
+test('rule defaults apply on an established absence of overrides; §163 an uncertain modifier is Jev\'s best guess, recorded', async t => {
   for (const [label, settings, expected] of [
     ['no override', {}, {difficulty: 'regular', penalty: 'none'}],
     ['established hard difficulty', {difficultyOverride: 0.99}, {difficulty: 'hard', penalty: 'none'}],
-    ['uncertain difficulty', {difficultyOverride: 0.5}, undefined],
+    ['uncertain difficulty', {difficultyOverride: 0.5}, {difficulty: 'regular', penalty: 'none'}],
     ['established penalty', {penaltyOverride: 0.99}, {difficulty: 'regular', penalty: 'one'}],
   ]) await t.test(label, async tt => {
     const table = await hybrid(tt, {prepare: tookTheJob, compile: () => undefined,
@@ -592,7 +598,9 @@ test('rule defaults require established absence of overrides; uncertain modifier
       const defaults = rows.find(row => row.lane === 'check-selection' && row.purpose === 'defaults');
       assert.ok(defaults, 'the defaults decision is recorded before canonical execution');
       if (expected.difficulty === 'hard' || expected.penalty === 'one') assert.ok(rows.some(row => row.lane === 'check-selection' && row.purpose === 'bind'));
-    } else assert.ok(rows.some(row => row.lane === 'check-selection' && row.status === 'unresolved' && row.needs.includes('unbound:difficulty')));
+    }
+    const forced = rows.filter(row => row.lane === 'forced-resolution');
+    assert.deepEqual(forced.map(row => row.uncertain), label === 'uncertain difficulty' ? [['difficulty override: p=0.5']] : []);
   });
 });
 
