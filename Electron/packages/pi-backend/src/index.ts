@@ -1693,6 +1693,9 @@ async function readHistoryFallback(
     lanes: await laneLabels(cocBinding),
     ...(cocHost ? {ui: await cocUiWords(cocHost.repo, cocHost.contentRoot, cocBinding?.home || cocHost.home, cocBinding?.play_language)} : {}),
   };
+  // §164: when the host took each player message, keyed by Pi's own stamp on it. Read before the
+  // line stream opens: an await between opening it and iterating it loses its lines and its close.
+  const sentTimes = await readSentTimes(path);
   const lines = createInterface({
     input: jsonlSnapshotStream(path, byteEnd),
     crlfDelay: Infinity,
@@ -1701,8 +1704,6 @@ async function readHistoryFallback(
   // names -- on the next page, or long after this one -- so every row of the file is read into one
   // ledger first and the page is drawn after, the same card a live redraw would have drawn.
   const cocCards = new CocCardLedger(cocBinding?.campaign);
-  // §164: when the host took each player message, keyed by Pi's own stamp on it.
-  const sentTimes = await readSentTimes(path);
   const wantedRows: any[] = [];
   for await (const line of lines) {
     let entry: any;
@@ -11261,7 +11262,7 @@ export class PiHostBackend implements HostBackend {
     const recordTurn = behavior === "prompt";
     if (recordTurn) this.turnTelemetry.beginDispatch(id, payload.turnTelemetry);
     // §164: the player's wait starts here, before lease, cold start and preparation.
-    const send = this.pendingSends.begin(id, payload.text, Date.now());
+    const send = this.pendingSends.note(id, payload.text, Date.now());
     let leaseAttempt: SessionLeaseAttempt | undefined;
     let leaseCommitted = false;
     try {

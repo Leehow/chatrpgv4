@@ -1,5 +1,5 @@
 import readline from "node:readline";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 
 const send = value => process.stdout.write(JSON.stringify(value) + "\n");
 /** Tests pass FAKE_PI_PROMPT_LOG to assert which prompt commands reached the child. */
@@ -198,7 +198,10 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
       // `__echo_user_late__` waits first, standing in for the host's preparation time.
       const echo = () => {
         const message = { role: "user", content: [{ type: "text", text: command.message }], timestamp: Date.now() };
-        const row = { type: "message", id: `user-${message.timestamp}`, parentId: null, timestamp: new Date(message.timestamp).toISOString(), message };
+        // Chained to the last row with an id, as Pi chains a transcript: history reads the leaf branch.
+        let parentId = null;
+        try { for (const line of readFileSync(sessionPath, "utf8").split("\n")) { try { const id = JSON.parse(line)?.id; if (typeof id === "string") parentId = id; } catch {} } } catch {}
+        const row = { type: "message", id: `user-${message.timestamp}`, parentId, timestamp: new Date(message.timestamp).toISOString(), message };
         if (sessionPath) { try { appendFileSync(sessionPath, JSON.stringify(row) + "\n"); } catch {} }
         send({ type: "agent_start" });
         send({ type: "message_start", message });

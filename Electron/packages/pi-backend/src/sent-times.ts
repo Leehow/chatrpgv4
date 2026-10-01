@@ -63,7 +63,7 @@ const normalize = (value: string): string => value.replace(/\s+/gu, " ").trim();
 export class PendingSends {
   private readonly pending = new Map<string, PendingSend[]>();
 
-  begin(sessionId: string, text: string, at: number): PendingSend | undefined {
+  note(sessionId: string, text: string, at: number): PendingSend | undefined {
     if (!normalize(text)) return undefined;
     const send = { text, at };
     const list = this.pending.get(sessionId) ?? [];

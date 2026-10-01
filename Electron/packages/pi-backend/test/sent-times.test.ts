@@ -45,8 +45,8 @@ async function fixture() {
 describe("PendingSends (contract §164)", () => {
   it("gives an echo the oldest send whose text it contains, once", () => {
     const sends = new PendingSends();
-    sends.begin("s", "推开门", 100);
-    sends.begin("s", "推开门", 200);
+    sends.note("s", "推开门", 100);
+    sends.note("s", "推开门", 200);
     expect(sends.take("s", "[document]\n\n推开门")).toBe(100);
     expect(sends.take("s", "推开门")).toBe(200);
     expect(sends.take("s", "推开门")).toBeUndefined();
@@ -54,7 +54,7 @@ describe("PendingSends (contract §164)", () => {
 
   it("matches nothing for a message the host never dispatched", () => {
     const sends = new PendingSends();
-    sends.begin("s", "推开门", 100);
+    sends.note("s", "推开门", 100);
     expect(sends.take("s", "[subagent-done] agentId=a1")).toBeUndefined();
     expect(sends.take("other", "推开门")).toBeUndefined();
     expect(sends.take("s", "推开门")).toBe(100);
@@ -62,8 +62,8 @@ describe("PendingSends (contract §164)", () => {
 
   it("forgets a dropped send and an empty one", () => {
     const sends = new PendingSends();
-    expect(sends.begin("s", "  ", 100)).toBeUndefined();
-    sends.drop("s", sends.begin("s", "推开门", 100));
+    expect(sends.note("s", "  ", 100)).toBeUndefined();
+    sends.drop("s", sends.note("s", "推开门", 100));
     expect(sends.take("s", "推开门")).toBeUndefined();
   });
 });
@@ -83,11 +83,17 @@ describe("the host's start on a player message (contract §164)", () => {
   it("streams it on the echo and reads it back from history, before Pi's own stamp", async () => {
     const { backend, sessionPath } = await fixture();
     const echoes: any[] = [];
-    const off = backend.subscribe(event => { if (event.channel === "stream" && event.event.type === "user_message") echoes.push(event.event); });
+    const statuses: string[] = [];
+    const off = backend.subscribe(event => {
+      if (event.channel !== "stream") return;
+      if (event.event.type === "user_message") echoes.push(event.event);
+      if (event.event.type === "status") statuses.push(event.event.status);
+    });
     const before = Date.now();
     await backend.handle("sendPrompt", ["s1", "__echo_user_late__ 推开门"]);
     await eventually(() => echoes.length > 0);
     await eventually(() => existsSync(sentTimesPath(sessionPath)));
+    await eventually(() => statuses.includes("settled"));
     off();
     const sentAt = echoes[0].sentAt;
     expect(sentAt).toBeGreaterThanOrEqual(before);
