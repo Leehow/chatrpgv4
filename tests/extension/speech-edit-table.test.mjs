@@ -17,6 +17,8 @@ const ROOT = resolve(import.meta.dirname, "../..");
 const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 const LINE = "「钥匙在这儿，地址写在租约上。」";
 const EDITED = "「行，钥匙在这儿，地址就写在租约上。」";
+/** A person the table has not named: their line arrives as a label row and is edited too (§165.3, amended 2026-10-01). */
+const STRANGER = "门口的男孩", STRANGER_LINE = "「先生，外面下雨了。」", STRANGER_EDITED = "「先生，外面下雨啦。」";
 
 /** Turn 1 delivered and closed through the emitted kernel; the player speaks next at turn 2. */
 function turnOneClosed(workspace) {
@@ -28,7 +30,7 @@ function turnOneClosed(workspace) {
 		if (!frame.ok) throw new Error(`fixture step ${frame.id} failed: ${JSON.stringify(frame.error)}`);
 }
 
-test("the Keeper's narrate with an NPC line reaches the lane from the bus, on the table's model, and patches its card", async t => {
+test("the Keeper's narrate with an NPC line and a stranger's line reaches the lane from the bus, on the table's model, and patches its card", async t => {
 	const original = globalThis.fetch, asked = [];
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== JEV_URL) return original(url, init);
@@ -44,9 +46,10 @@ test("the Keeper's narrate with an NPC line reaches the lane from the bus, on th
 		env: {EXT_JEV_APIKEY: "test-jev-key", PI_COC_TIME_READING: "0", PI_COC_PURPOSE_GATE: "0", PI_COC_SPEECH_EDIT_MODEL: undefined},
 		extraExtensions: [{name: "speech-edit", factory: speechEdit}],
 		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", {text: `诺特把钥匙推过来，没起身。{{say:Steven Knott}}${LINE}{{/say}}他又低头看账本。`})], {stopReason: "toolUse"}),
+			fauxAssistantMessage([fauxToolCall("narrate", {text: `诺特把钥匙推过来，没起身。{{say:Steven Knott}}${LINE}{{/say}}`
+				+ `门口有人探头。{{say:${STRANGER}}}${STRANGER_LINE}{{/say}}他又低头看账本。`})], {stopReason: "toolUse"}),
 			// The next completion on the table's model is the lane's: narrate closed the Keeper's run.
-			fauxAssistantMessage(JSON.stringify({lines: [EDITED]})),
+			fauxAssistantMessage(JSON.stringify({lines: [EDITED, STRANGER_EDITED]})),
 		],
 	});
 	t.after(() => table.dispose());
@@ -55,7 +58,8 @@ test("the Keeper's narrate with an NPC line reaches the lane from the bus, on th
 
 	const [committed] = table.committed().filter(payload => payload.turn === 2);
 	assert.ok(committed, "narrate committed turn 2 on the bus");
-	assert.deepEqual(committed.speech.map(row => [row.who.npc, row.text]), [["steven-knott", LINE]], "the payload carries the delivery's speech");
+	assert.deepEqual(committed.speech.map(row => [row.who.npc ?? row.who.label, row.text]), [["steven-knott", LINE], [STRANGER, STRANGER_LINE]],
+		"the payload carries the delivery's speech");
 	await waitFor(() => table.entries("coc-telemetry").some(row => row.lane === "speech-edit" && row.outcome), {label: "the speech-edit row"});
 	const row = table.entries("coc-telemetry").find(entry => entry.lane === "speech-edit" && entry.outcome);
 	assert.equal(row.outcome, "applied", JSON.stringify(row));
@@ -64,10 +68,11 @@ test("the Keeper's narrate with an NPC line reaches the lane from the bus, on th
 
 	const record = JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
 	assert.equal(record.speech[0].text, LINE, "the record keeps the Keeper's line");
-	assert.deepEqual(record.speech_edit.lines, [{index: 0, original: LINE, edited: EDITED}]);
+	assert.deepEqual(record.speech_edit.lines, [{index: 0, original: LINE, edited: EDITED}, {index: 1, original: STRANGER_LINE, edited: STRANGER_EDITED}]);
 	const [card] = table.entries("coc-mechanics").filter(entry => entry.turn === 2);
 	const [patch] = table.entries("coc-card-patch");
 	assert.deepEqual(patch.card, {turn: 2});
-	assert.equal(patch.patch.marked_text, card.marked_text.replace(LINE, EDITED), "the card the player already has, with the edited line");
+	assert.equal(patch.patch.marked_text, card.marked_text.replace(LINE, EDITED).replace(STRANGER_LINE, STRANGER_EDITED),
+		"the card the player already has, with the edited lines");
 	assert.deepEqual(patch.patch.speech_original, {marked_text: card.marked_text});
 });

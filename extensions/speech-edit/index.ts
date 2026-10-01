@@ -9,8 +9,8 @@
  * The base owns the mechanism and no wording. The instruction and the demonstrations come from the one enabled package
  * that contributes `speech_edit_lane` (§165.2); the kernel resolves it and hands it over with the turn in `speech.job`.
  * One zero-tool completion per turn (the owner's exception to the single-completion rule) writes one edited line per
- * NPC line; the host then checks the shape, keeps each line's quotation marks, and asks Jev of every changed line
- * whether a fact changed (§165.4). What survives lands twice: the kernel's `speech_edit` overlay on the turn record
+ * NPC line, named or known by a label (never the investigator's); the host then checks the shape, keeps each line's
+ * quotation marks, and asks Jev of every changed line whether a fact changed (§165.4). What survives lands twice: the kernel's `speech_edit` overlay on the turn record
  * (`speech.edit`, audit and history) and one §132 card patch for the player. The delivered record -- `text`,
  * `rendered_text`, `marked_text`, `speech`, the transcript row -- is never rewritten, so the Keeper and every kernel
  * reader keep the original lines.
@@ -46,7 +46,7 @@ const JEV_RETRY = { maxRetries: 1, backoffInitialMs: 200, backoffMaxMs: 1_000, r
 /** The answer shape is the host's, so a package's words never have to carry it. */
 const ANSWER_SHAPE = 'Answer with JSON only, no code fence: {"lines": ["<line 1>", "<line 2>", ...]} with exactly as many lines as given, in the same order.';
 
-/** One NPC row of `speech.job`: its index in `speech`, who said it, their mask when the dossier has one, the line as delivered. */
+/** One row of `speech.job`: its index in `speech`, who said it (a name, or the label), their mask when the dossier has one, the line as delivered. */
 interface LaneLine { index: number; speaker: string; voice_mask?: string; text: string }
 interface LanePacket {
 	turn?: number;
@@ -61,15 +61,20 @@ interface LanePacket {
 	lines?: LaneLine[];
 }
 
-/** §165.3: the trigger reads the bus payload alone -- a delivery with at least one NPC row in its `speech`. */
-export function hasNpcLine(payload: Record<string, unknown>): boolean {
+/**
+ * §165.3 as amended 2026-10-01: the trigger reads the bus payload alone -- a delivery with at least one `speech` row
+ * not spoken by the investigator: an NPC bound to a handle (`who.npc`) or one known only by a label (`who.label`).
+ * Which `who` key is present decides; a label's words are never read.
+ */
+export function hasOtherSpeaker(payload: Record<string, unknown>): boolean {
+	const filled = (value: unknown) => typeof value === "string" && value.trim().length > 0;
 	return Array.isArray(payload.speech) && payload.speech.some(row => {
-		const who = (row as { who?: { npc?: unknown } } | null)?.who;
-		return typeof who?.npc === "string" && who.npc.length > 0;
+		const who = (row as { who?: Record<string, unknown> } | null)?.who;
+		return !!who && who.investigator === undefined && (filled(who.npc) || filled(who.label));
 	});
 }
 
-/** §165.3: the v2 prompt -- the package's words, then the player's text, the turn's prose and every NPC line in order. */
+/** §165.3: the v2 prompt -- the package's words, then the player's text, the turn's prose and every line to edit in order. */
 export function lanePrompt(packet: LanePacket): { systemPrompt: string; input: string } {
 	const body = ["[Player this turn]", packet.player_text ?? "", "", "[Turn prose]", packet.rendered_text ?? "", "", "[Spoken lines to edit]"];
 	for (const [at, line] of (packet.lines ?? []).entries()) {
@@ -91,7 +96,7 @@ export default function speechEdit(pi: ExtensionAPI) {
 
 	const telemetry = createLaneTelemetry(pi, { lane: LANE, modelEnv: MODEL_ENV, cwd: () => scheduler.ctx?.cwd });
 	const scheduler = createLaneQueue(pi, {
-		accept: hasNpcLine,
+		accept: hasOtherSpeaker,
 		runJob,
 		onError: (job, error) => telemetry.record(job.campaign, {
 			...(job.turn !== undefined ? { turn: job.turn } : {}), ok: false, outcome: "dropped:lane_failed", reason: "lane_error", detail: errorText(error),
@@ -164,7 +169,7 @@ export default function speechEdit(pi: ExtensionAPI) {
 			return void await finish(lane.reason === "bad_output" ? "dropped:shape" : "dropped:lane_failed",
 				{ reason: lane.reason === "bad_output" ? "invalid" : lane.reason, detail: lane.detail.slice(0, 200) });
 
-		// Gate 1: one non-empty line per NPC row, no marker syntax; anything else drops the whole edit.
+		// Gate 1: one non-empty line per row sent, no marker syntax; anything else drops the whole edit.
 		const shaped = shapeLines(lane.value, lines.length);
 		if (!shaped.ok) return void await finish("dropped:shape", { reason: "invalid", detail: shaped.detail });
 

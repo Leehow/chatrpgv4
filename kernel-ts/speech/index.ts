@@ -4,7 +4,7 @@
  *
  * - `speech.job {campaign, turn}` hands the lane what it reads (§165.3, §165.9): the contributing package's words, the
  *   turn's player text and prose, its marked text and speech rows (the card was drawn from the same delivery), and one
- *   row per NPC line with the speaker's mask. It writes nothing.
+ *   row per line the lane edits, with the speaker's mask when they are bound to a person. It writes nothing.
  * - `speech.edit {campaign, turn, lines, model}` lands an edit (§165.5.1) as the `speech_edit` overlay on the turn
  *   record. The delivered fields -- `text`, `rendered_text`, `marked_text`, `speech` -- are never rewritten: memory
  *   anchors, quote locators, span derivation and delivery digests all compare against them. A record that no longer
@@ -33,7 +33,17 @@ function committedTurn(value: unknown): number {
 }
 /** The delivery the lane works from: a narrate record that carries its marked text. Anything else is not editable. */
 const editable = (record: Row | null): record is Row => !!record && record.closed_by === 'narrate' && typeof record.marked_text === 'string';
-const npcLine = (line: unknown): boolean => typeof row(row(line).who).npc === 'string' && !!string(row(row(line).who).npc);
+/**
+ * §165.3 as amended 2026-10-01: the lane edits every line not spoken by the investigator -- an NPC bound to a handle
+ * (`who.npc`), or one the table knows only by a label (`who.label`, an NPC not yet named). Which `who` key is present
+ * decides; a label's words are never read. Whether a labelled line is written rather than spoken is the lane model's
+ * call under the package's own rule.
+ */
+const filled = (value: unknown): boolean => typeof value === 'string' && value.trim().length > 0;
+const otherSpeaker = (line: unknown): boolean => {
+    const who = row(row(line).who);
+    return who.investigator === undefined && (filled(who.npc) || filled(who.label));
+};
 
 /** §165.5.1: the closed shape of `lines`; every refusal names the row. */
 function editedLines(value: unknown): Array<{ index: number; original: string; edited: string }> {
@@ -65,7 +75,7 @@ export function createSpeechHandlers(context: KernelContext, writer: ReturnType<
             if (!record || record.closed_by !== 'narrate')
                 return { turn, lane: null, reason: 'no_record' };
             const speech = array(record.speech);
-            const rows = speech.flatMap((line, index) => npcLine(line) ? [{ index, line: row(line) }] : []);
+            const rows = speech.flatMap((line, index) => otherSpeaker(line) ? [{ index, line: row(line) }] : []);
             if (!rows.length)
                 return { turn, lane: null, reason: 'no_npc_lines' };
             if (!editable(record))
@@ -86,8 +96,10 @@ export function createSpeechHandlers(context: KernelContext, writer: ReturnType<
                 marked_text: record.marked_text,
                 speech,
                 lines: rows.map(({ index, line }) => {
-                    const who = row(line.who), node = graph.actor(string(who.npc)), mask = node ? voiceMaskOf(graph, world, node) : undefined;
-                    return { index, speaker: string(who.name || who.npc), ...(mask ? { voice_mask: mask } : {}), text: string(line.text) };
+                    // A label row's speaker is the label, and nobody's dossier is theirs yet, so it carries no mask.
+                    const who = row(line.who), node = filled(who.npc) ? graph.actor(string(who.npc)) : null;
+                    const mask = node ? voiceMaskOf(graph, world, node) : undefined;
+                    return { index, speaker: filled(who.npc) ? string(who.name || who.npc) : string(who.label), ...(mask ? { voice_mask: mask } : {}), text: string(line.text) };
                 }),
             };
         },
@@ -102,10 +114,10 @@ export function createSpeechHandlers(context: KernelContext, writer: ReturnType<
             const speech = array(record.speech);
             if (lines.some(line => speech[line.index] === undefined || string(row(speech[line.index]).text) !== line.original))
                 return { ok: false, reason: 'stale' };
-            const notNpc = lines.find(line => !npcLine(speech[line.index]));
-            if (notNpc)
-                throw new RpcError('invalid_params', `speech row ${notNpc.index} is not an NPC line`, {
-                    fix: 'only NPC lines are edited; investigator and label rows are never sent', details: { index: notNpc.index } });
+            const investigator = lines.find(line => !otherSpeaker(speech[line.index]));
+            if (investigator)
+                throw new RpcError('invalid_params', `speech row ${investigator.index} is not a line the lane edits`, {
+                    fix: 'only NPC and labelled lines are edited; investigator rows are never sent', details: { index: investigator.index } });
             const model = params.model.trim(), prior = row(record.speech_edit);
             if (prior.model === model && JSON.stringify(prior.lines) === JSON.stringify(lines))
                 return { ok: true, turn, replayed: true };

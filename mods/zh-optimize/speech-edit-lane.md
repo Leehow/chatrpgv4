@@ -19,6 +19,7 @@ Modal particles, by tone: 吧 (suggesting, unsure, softening an order) · 呢 (a
 Rules:
 - Keep the facts, the speaker's stance and mood, and most of the wording; these are small edits, like the demonstrations.
 - If a line already sounds like a person talking, return it unchanged. Several demonstrations do exactly that.
+- A line that is written rather than spoken (a diary, a letter, a notice read out) comes back unchanged.
 - Add a modal particle only where the speaker's tone needs one; most sentences need none. Never sprinkle 嘛 or 呢 just to make a line sound casual.
 - Replace phrasings people do not say in conversation (written, translated or made-up collocations) with the everyday expression for the same meaning.
 - Let length follow the moment. Under threat, in a fight, in panic or when cornered, people speak short: a threat, a climb-down, a lie, a getaway. There, cut sentences that only restate or decorate. In idle talk people run on and even tell little stories; keep that length.

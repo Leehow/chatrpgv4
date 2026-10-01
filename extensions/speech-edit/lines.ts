@@ -14,13 +14,13 @@ const MARKER_SYNTAX = /\{\{|\}\}/;
 const QUOTATION_MARK = /^\p{Quotation_Mark}$/u;
 
 /**
- * Gate 1 (§165.4): the lane's answer is `{lines: [...]}` with exactly one non-empty line per NPC row, in order, and no
+ * Gate 1 (§165.4): the lane's answer is `{lines: [...]}` with exactly one non-empty line per row sent, in order, and no
  * marker syntax. Each line comes back trimmed. Anything else drops the whole edit.
  */
 export function shapeLines(parsed: unknown, count: number): {ok: true; lines: string[]} | {ok: false; detail: string} {
   const lines = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as {lines?: unknown}).lines : undefined;
   if (!Array.isArray(lines)) return {ok: false, detail: "the answer carries no lines list"};
-  if (lines.length !== count) return {ok: false, detail: `the answer carries ${lines.length} lines for ${count} NPC lines`};
+  if (lines.length !== count) return {ok: false, detail: `the answer carries ${lines.length} lines for ${count} lines sent`};
   const out: string[] = [];
   for (const [index, line] of lines.entries()) {
     if (typeof line !== "string" || !line.trim()) return {ok: false, detail: `line ${index + 1} is not a non-empty string`};

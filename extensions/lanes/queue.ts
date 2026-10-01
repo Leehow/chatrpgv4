@@ -20,7 +20,7 @@ interface QueueOptions {
 	backfillDefault?: number;
 	/**
 	 * Which committed turns this lane queues, read off the `coc:turn-committed` payload before any kernel call; absent,
-	 * every one. The speech edit lane takes only a delivery with an NPC line in its `speech` (§165.3).
+	 * every one. The speech edit lane takes only a delivery with a line not the investigator's in its `speech` (§165.3).
 	 */
 	accept?: (payload: Record<string, unknown>) => boolean;
 	runJob: (job: LaneJob) => Promise<void>;

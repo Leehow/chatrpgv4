@@ -17,9 +17,12 @@ const KNOTT = "Steven Knott";
 const INVESTIGATOR = "托马斯·海斯";
 const LINE_A = "「钥匙在这儿，地址写在租约上。」";
 const LINE_B = "「马卡里奥一家搬去哪儿，我不知道。」";
+/** A person the table has not named yet: the speech pass keeps them as a label (§40.1). */
+const STRANGER = "穿黑袍的女人";
+const LINE_L = "「快走吧。」";
 /** An investigator line, an NPC line, a label line and a second NPC line, with a mechanics-free prose run between. */
 const DELIVERY = `{{say:${INVESTIGATOR}}}「我接了。」{{/say}}诺特把钥匙推过来。{{say:${KNOTT}}}${LINE_A}{{/say}}`
-	+ `角落里有人咳了一声。{{say:穿黑袍的女人}}「快走吧。」{{/say}}诺特没抬头。{{say:${KNOTT}}}${LINE_B}{{/say}}`;
+	+ `角落里有人咳了一声。{{say:${STRANGER}}}${LINE_L}{{/say}}诺特没抬头。{{say:${KNOTT}}}${LINE_B}{{/say}}`;
 
 const temporary = await mkdtemp(join(tmpdir(), "speech-edit-kernel-"));
 after(() => rm(temporary, {recursive: true, force: true}));
@@ -62,7 +65,7 @@ async function variant(game, name, edit, files = {}) {
 const bytes = (record, keys) => JSON.stringify(keys.map(key => record[key]));
 const DELIVERED = ["text", "rendered_text", "marked_text", "speech"];
 
-test("speech.job hands the lane zh-optimize's words, the turn, and one row per NPC line indexed into speech", async t => {
+test("speech.job hands the lane zh-optimize's words, the turn, and one row per line not the investigator's, indexed into speech", async t => {
 	const game = await kernel(t, "speech-job");
 	const result = await delivered(game, "zh");
 	assert.deepEqual(result.speech.map(row => Object.keys(row.who).sort()), [["investigator", "name"], ["name", "npc"], ["label"], ["name", "npc"]],
@@ -81,17 +84,20 @@ test("speech.job hands the lane zh-optimize's words, the turn, and one row per N
 	assert.equal(job.instruction, (await readFile(join(SHIPPED, "speech-edit-lane.md"), "utf8")).trim(), "the package's file, whole");
 	assert.equal(job.player_text, "我接下这活。钥匙和地址给我。");
 	for (const key of ["rendered_text", "marked_text", "speech"]) assert.deepEqual(job[key], record[key], key);
+	// §165.3 as amended 2026-10-01: every line but the investigator's; a label row speaks under its label, with no mask.
 	assert.deepEqual(job.lines, [
 		{index: 1, speaker: KNOTT, voice_mask: "话少，急着把事交代完。", text: LINE_A},
+		{index: 2, speaker: STRANGER, text: LINE_L},
 		{index: 3, speaker: KNOTT, voice_mask: "话少，急着把事交代完。", text: LINE_B},
-	], "investigator and label rows are never sent");
+	], "the investigator's row is never sent");
 });
 
 test("speech.edit lands the overlay and leaves every delivered field and the transcript byte for byte", async t => {
 	const game = await kernel(t, "speech-edit-lands");
 	await delivered(game, "zh");
 	const before = await game.record("zh", 1), transcript = await readFile(join(game.dir("zh"), "transcript.jsonl"), "utf8");
-	const lines = [{index: 3, original: LINE_B, edited: "「至于马卡里奥一家搬去哪儿，我也不知道。」"}, {index: 1, original: LINE_A, edited: "「行，钥匙在这儿，地址就写在租约上。」"}];
+	const lines = [{index: 3, original: LINE_B, edited: "「至于马卡里奥一家搬去哪儿，我也不知道。」"}, {index: 1, original: LINE_A, edited: "「行，钥匙在这儿，地址就写在租约上。」"},
+		{index: 2, original: LINE_L, edited: "「快走啊。」"}];
 	assert.deepEqual(await game.call("speech.edit", {campaign: "zh", turn: 1, lines, model: "edit/e1"}), {ok: true, turn: 1});
 	const after = await game.record("zh", 1);
 	assert.equal(bytes(after, DELIVERED), bytes(before, DELIVERED), "text, rendered_text, marked_text and speech are untouched");
@@ -160,9 +166,11 @@ test("the lane runs only with exactly one enabled contributing package", async t
 	assert.equal(conflict.reason, "conflict");
 	assert.deepEqual(conflict.contributors.map(row => row.mod).sort(), ["zh-optimize", "zh-speech-second"]);
 	assert.equal(conflict.instruction, undefined, "a conflicted lane is handed no words");
-	// A delivery with no NPC line has nothing to edit.
+	// A delivery with no line but the investigator's, or none at all, has nothing to edit.
 	await delivered(game, "plain", {text: "诺特把钥匙推过来，没说话。"});
 	assert.deepEqual(await game.call("speech.job", {campaign: "plain", turn: 1}), {turn: 1, lane: null, reason: "no_npc_lines"});
+	await delivered(game, "own", {text: `{{say:${INVESTIGATOR}}}「我接了。」{{/say}}诺特把钥匙推过来。`});
+	assert.deepEqual(await game.call("speech.job", {campaign: "own", turn: 1}), {turn: 1, lane: null, reason: "no_npc_lines"});
 });
 
 test("a package that contributes the lane needs its capability and non-empty words", async t => {
@@ -181,11 +189,15 @@ test("a package that contributes the lane needs its capability and non-empty wor
 	assert.ok(listed.capabilities.includes("speech.edit.lane.v1"), "the kernel advertises the lane's capability");
 });
 
-test("speech.edit refuses a non-NPC row and marker syntax by shape", async t => {
+test("speech.edit refuses the investigator's row and marker syntax by shape", async t => {
 	const game = await kernel(t, "speech-edit-shape");
 	await delivered(game, "zh");
 	const edit = lines => game.call("speech.edit", {campaign: "zh", turn: 1, lines, model: "edit/e1"});
-	await assert.rejects(edit([{index: 0, original: "「我接了。」", edited: "「行，我接了。」"}]), error => error.code === "invalid_params" && error.details?.index === 0);
+	await assert.rejects(edit([{index: 0, original: "「我接了。」", edited: "「行，我接了。」"}]),
+		error => error.code === "invalid_params" && error.details?.index === 0 && /investigator rows are never sent/.test(error.fix));
+	// The same row beside a line the lane may edit refuses the whole call: nothing lands.
+	await assert.rejects(edit([{index: 2, original: LINE_L, edited: "「快走啊。」"}, {index: 0, original: "「我接了。」", edited: "「行，我接了。」"}]),
+		error => error.code === "invalid_params" && error.details?.index === 0);
 	await assert.rejects(edit([{index: 1, original: LINE_A, edited: "「钥匙{{say:x}}在这儿。」"}]), error => error.code === "invalid_params");
 	await assert.rejects(edit([{index: 1, original: LINE_A, edited: "   "}]), error => error.code === "invalid_params");
 	await assert.rejects(edit([]), error => error.code === "invalid_params");
