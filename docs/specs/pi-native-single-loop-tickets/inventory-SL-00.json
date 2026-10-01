@@ -2013,6 +2013,30 @@
       "role": "leaf",
       "trace": "historical-reference telemetry and request-supply tests",
       "note": "Enabled Mod, configured credentials and a Jev-issued need; bounded retrieval and selection return to the same main Keeper tool. No second agent."
+    },
+    {
+      "file": "extensions/speech-edit/index.ts",
+      "symbol": "runJob",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "speech-edit ext: NPC speech edit lane (§165)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a (added at §165)",
+      "note": "Gate: exactly one enabled package contributes speech_edit_lane (zh-optimize 1.1.0 on a zh table) and a Jev key. After a narrate delivery with an NPC line, off the player's path: one zero-tool completion (the owner's 2026-10-01 exception), timeout 60 s, effort low, model PI_COC_SPEECH_EDIT_MODEL then the fast-model setting then the table. Its lines pass the shape, quotation-mark and Jev fact gates before speech.edit and one card patch; a failure drops the edit and the player keeps the Keeper's lines. Never drives a model run."
+    },
+    {
+      "file": "extensions/speech-edit/index.ts",
+      "symbol": "askJev",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "speech-edit ext: facts gate, family speech-edit-facts v1 (§165.4)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a (added at §165)",
+      "note": "Gate: the speech edit lane ran and changed at least one line. One fanned-out request: a Noul per changed line over {original, edited}. Budget: its own lease, 15 s, token bound from the packed batch, one retry on a dropped connection. Gate: noul >= 0.5 keeps that line's original (code constant SPEECH_EDIT_FACT_GATE). Fallback: unavailable (no key, error, timeout, incomplete answer) drops the whole edit."
     }
   ]
 }

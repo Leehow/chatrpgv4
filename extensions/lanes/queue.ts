@@ -14,15 +14,22 @@ export interface LaneJob {
 }
 
 interface QueueOptions {
-	backfillEnv: string;
+	/** The variable naming this lane's backfill budget; a lane with none never backfills (the speech edit lane, §165). */
+	backfillEnv?: string;
 	/** Rounds of backfill per session when the env is unset; the journal and memory lanes keep 5, the voice lane 0 (§40.5). */
 	backfillDefault?: number;
+	/**
+	 * Which committed turns this lane queues, read off the `coc:turn-committed` payload before any kernel call; absent,
+	 * every one. The speech edit lane takes only a delivery with an NPC line in its `speech` (§165.3).
+	 */
+	accept?: (payload: Record<string, unknown>) => boolean;
 	runJob: (job: LaneJob) => Promise<void>;
 	onError: (job: LaneJob, error: unknown) => Promise<void>;
 }
 
 /** Read at session_start, never at module load. Zero disables backfill, not committed turns. */
-function backfillBudget(envName: string, fallback = 5): number {
+function backfillBudget(envName: string | undefined, fallback = 5): number {
+	if (!envName) return 0;
 	const raw = process.env[envName]?.trim();
 	const parsed = raw ? Number.parseInt(raw, 10) : NaN;
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
@@ -84,6 +91,7 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 	pi.events.on("coc:turn-committed", (data) => {
 		const payload = (data ?? {}) as { campaign?: string; turn?: number };
 		if (stopped || !payload.campaign || typeof payload.turn !== "number") return;
+		if (options.accept && !options.accept(payload as Record<string, unknown>)) return;
 		queue.push({ campaign: payload.campaign, turn: payload.turn });
 		wake();
 	});

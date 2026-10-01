@@ -20,6 +20,7 @@
       "./extensions/table",
       "./extensions/npc-journal",
       "./extensions/npc-voice",
+      "./extensions/speech-edit",
       "./extensions/thinking-schedule",
       "./extensions/deepseek",
       "./extensions/image-gen",
