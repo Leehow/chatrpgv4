@@ -30860,3 +30860,74 @@ Confident answers are unchanged: when Jev reads the player's declaration past th
 - **Who writes it.** The host, on Pi's `message_end` echo of a user message: the oldest pending dispatch of that session whose text the echo contains (the steer receipt's rule) is taken, and `{m: <Pi message.timestamp>, at: sentAt}` is appended to `<session>.jsonl.sent.jsonl`. A dispatch that fails is dropped from the pending list. A user message the host did not dispatch (`[subagent-done]`, host follow-ups) matches nothing and gets no `sentAt`.
 - **Who reads it.** The `user_message` stream event carries `sentAt`; history reads the side file once per page and sets `HistoryEntry.sentAt` on the user rows whose Pi `message.timestamp` it names. A branch copies the side file with the session; deleting a session removes it.
 - **Who acts on it.** The renderer: `turnElapsedMs` starts at `sentAt`, falling back to the row's `timestamp` for a message with none (sessions from before this section, unmatched echoes).
+
+## 165. NPC lines get a wording pass after delivery, and the player's card is patched in place (2026-10-01, owner rulings; `docs/specs/speech-edit-lane.md`; carves a wording-only exception out of §158.1 and §162)
+
+**Why.** The owner, reading the tables of 2026-09-28 to 10-01: NPC lines read like stitched written sentences, not like people talking; spoken Chinese strings sentences with connectives and discourse markers and carries tone with modal particles, and the lines had almost none. Four rounds of Keeper-side guidance and two model swaps did not move the Keeper's writing. What moved it was an editing pass anchored on the owner's own rewrites: the owner rewrote 16 real lines, and an offline lane given those 16 before/after pairs plus a connective and particle inventory by function ("v2") edited 38 lines of the blood-road table with 0 fact changes, particles 0.87 → 2.08 and discourse markers 0.81 → 2.2 per 100 characters. The owner judged v2 better than the first version, and judged a corpus-retrieval variant ("v3") not better than v2 at a higher cost. Evidence: `.coc/playtests/speech-replay-20260930/` (`preregistration-owner-anchor.md`, `preregistration-bank.md`, `preregistration-speed.md`, `edit-lane-v1-v2.md`, `edit-lane-v2-v3.md`).
+
+**The owner's rulings (2026-10-01, verbatim).**
+- 「v3 比 v2 没多大提升 … 如果v3成本更高不如就用v2」: the lane is v2.
+- On where it runs, asked after the speed test (every arm 15–17 s median, all of it the model's reasoning; grok-4.7 has no thinking level below `low`): 「留在 grok-4.7，先显示原句、改好后替换」. The player sees the Keeper's lines at once; the edited lines replace them in place when they arrive.
+- On the lane's shape: 「开例外，用单次调用」. It is a zero-tool completion although it runs after delivery (Agents.md, single-completion rule; the second precedent after §155.9).
+
+### 165.1 What changes and what does not
+
+The lane changes the **wording** of NPC spoken lines in what the player sees: it joins sentences with the connectives a speaker would use, adds the modal particles that carry the speaker's tone, and replaces quips and point-by-point acknowledgements with plain speech. It never changes a fact: no number, name, place, time, condition, refusal, promise or stance is added, dropped or altered. That is the whole of the exception to §158.1(1) ("delivered prose is not rewritten"): the fiction the player was told stays the fiction; only how a person in it said it reads more like speech. §158.1(2)–(4) are untouched.
+
+The delivered record is not touched. `text`, `rendered_text`, `marked_text`, `speech` and the transcript row stay byte-identical, because the memory anchors (`kernel-ts/memory/referenced.ts`, `evidence.ts`), quote locators (`owed/index.ts`, the verifier), `deriveCommittedSpeechSpans` and the delivery digests all compare against them. Every kernel reader keeps reading the original lines, the Keeper's own context included; the facts are the same, only the wording differs. The edit lives in two places only:
+- **the player's card**, by a §132 card patch (live and history read the same projection, so both paths show it);
+- **an overlay on the turn record**, `speech_edit`, for audit and for the history of what the player read.
+
+### 165.2 Who supplies the lane
+
+The base host owns the mechanism and no wording. The instruction and the demonstrations come from a Mod: `contributes.speech_edit_lane: "<file>.md"`. The lane runs only when an enabled Mod contributes it; there is no language detection and no per-language table (§153: a language-scoped Mod applies when the campaign's `play_language` is one of its `play_languages`). `zh-optimize` 1.1.0 contributes it for `zh`: the v2 instruction (English, as all lane instructions are) and the owner's 16 rewrite pairs as demonstrations (content data, in the language they were written in). If more than one enabled Mod contributes the lane, the lane does not run and the conflict is reported the way other single-owner contributions report theirs.
+
+### 165.3 When it runs and what it is given
+
+- **Trigger:** `coc:turn-committed` for a `narrate` delivery (including `apply.narrate`) whose `speech` has at least one row with `who.npc`. One lane run per turn, queued like the other post-delivery lanes.
+- **Input** (the v2 prompt, unchanged in substance): the Mod's instruction and demonstrations; the player's text of that turn; the turn's `rendered_text`; and, per NPC row in order, the speaker's name, the speaker's §40.7 `voice_mask` when the dossier has one, and the line exactly as delivered (`speech[i].text`, quotation marks included). Investigator and label rows are not sent and never edited.
+- **Model:** `resolveLaneModel(ctx, "PI_COC_SPEECH_EDIT_MODEL")` — environment, then the fast-model setting, then the table's model (the 2026-09-23 single-setting ruling; with the setting unset this is the table's model, grok-4.7 at the time of the ruling). Effort `low`.
+- **Shape:** a zero-tool `runLane` completion (owner's exception above), timeout 60 s. Output: JSON `{"lines": ["…", …]}`, exactly as many lines as NPC rows, same order.
+
+### 165.4 Gates
+
+The host checks the output before anything lands. A failed check drops the whole edit (the player keeps the Keeper's lines) unless it says "that line".
+1. **Shape.** Parses; the count equals the NPC rows; every line is a non-empty string; no marker syntax (`{{`, `}}`).
+2. **Quotation marks.** Each edited line opens and closes with the same quotation marks as its original, compared after §139's Quotation_Mark normalisation. A line that fails keeps its original (that line).
+3. **Facts, by Jev.** For every line whose text changed, one Noul over `{original, edited}`: "Does `edited` state any fact that `original` does not state, or leave out one that it states: a number, name, place, time, condition, refusal, promise or stance? Different wording, connectives, particles and sentence joins do not count." A noul ≥ 0.5 keeps that line's original (that line). The threshold is a constant in code, to be calibrated on shadow rows. If Jev is unavailable (no key, error, timeout), the whole edit is dropped: no gate, no edit.
+4. **Unchanged lines** pass without a Jev question.
+
+If no line changed after the gates, nothing lands; telemetry still records the run.
+
+### 165.5 Landing
+
+1. **Kernel:** a lane RPC `speech.edit {campaign, turn, lines: [{index, original, edited}], model}` in the §12.8 lane style (no `call_id`, reads no turn state, lands by `turn` even late). It checks that the record's `speech[index].text` equals each `original`; if any differs (the turn was rolled back, forked or replaced) it returns `{ok: false, reason: "stale"}` and writes nothing. Otherwise it writes `speech_edit: {lines: [{index, original, edited}], model, at}` onto the turn record, leaving every field named in §165.1 as it was, and returns `{ok: true}`. `index` is the row's index in `speech`, not its index among NPC rows.
+2. **Host:** on `ok`, one §132 patch of that turn's card (`card: {turn}`), `source: "speech-edit"`:
+   - `marked_text`: the card's `marked_text` with the body of each edited `{{say}}` span replaced by its edited line. Spans pair with `speech` rows by order (the i-th span is `speech[i]`), the markers and every byte outside the edited span bodies stay as they were.
+   - `speech`: the card's `speech` with each edited row's `text` replaced.
+   - `speech_original: {marked_text}`: the card's `marked_text` before this patch, written once (a second patch of the same turn keeps the first original).
+3. **Fold.** The UI folds the Keeper's plain assistant copy into the card when it equals the card's `marked_text` with markers removed (`foldMarkedDeliveries`). After a patch it also folds when the copy equals `speech_original.marked_text` with markers removed, so the original prose does not reappear above the edited card. This is the projection both paths share.
+
+### 165.6 Timing, cancellation and boundaries
+
+- The edit lands whenever it arrives, also after the player's next message: it changes wording only, and the card keeps its timestamp, so §164's wait is not moved and the patch redraw is not new prose.
+- It is dropped when the record no longer matches (165.5.1 `stale`) or when the card cannot be found.
+- **Known boundary: `ask` deliveries are not edited** (an ask record stores no `marked_text`). It has its own test.
+- Copy and illustration read the card's `marked_text`, so they take the edited lines with no further change.
+
+### 165.7 Telemetry
+
+One `coc-telemetry` row per run, `lane: "speech-edit"`, with `turn`, `model`, `wall_ms`, the number of NPC lines, the number changed, per changed line the Jev noul and verdict, and `outcome`: `applied`, `nothing_changed` or `dropped:<shape|quotes|jev_unavailable|stale|no_card|lane_failed|conflict>`.
+
+### 165.8 Tests
+
+Each of these has a test that fails when its rule is removed:
+- splicing replaces only the edited span bodies, with investigator and label rows interleaved, markers and receipts intact, and the span count unchanged;
+- a count mismatch or marker syntax drops the edit; a quotation-mark failure keeps that line's original;
+- a Jev noul ≥ 0.5 keeps that line's original; Jev unavailable drops the edit;
+- after landing, `text`, `rendered_text`, `marked_text`, `speech` and the transcript row are byte-identical to before, and `speech_edit` holds the lines;
+- a record whose `speech` changed gets `stale` and no write;
+- the fold hides the plain copy after a patch, on the live path and on the history path;
+- the lane does not run without an enabled contributing Mod, nor when two Mods contribute it;
+- an `ask` delivery is not edited (the boundary);
+- the system-language scanners stay green (no CJK in code; the demonstrations live in the Mod's content file).
