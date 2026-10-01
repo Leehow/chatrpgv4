@@ -1,6 +1,6 @@
 # 历史参考 Mod：主守秘人直接检索，Jev 筛选，Exa 密钥在右侧设置
 
-Status: **Mod 1.0.7 source includes selected preparation and has genuine in-fiction scene/NPC evidence for the Herald and Cold Harvest PDFs. Earlier reference-question runs remain invalid-for-acceptance for natural enrichment; their failures are retained. Fictional-canon/style selection has controlled service evidence, not a fictional-country live-module pass. The canonical App was rechecked on 2026-10-01 and contains 1.0.4. The user has now authorized merge, commit and canonical App replacement; delivery checks are in progress.**
+Status: **Mod 1.0.7 source includes selected preparation and has genuine in-fiction scene/NPC evidence for the Herald and Cold Harvest PDFs. Earlier reference-question runs remain invalid-for-acceptance for natural enrichment; their failures are retained. Fictional-canon/style selection has controlled service evidence, not a fictional-country live-module pass. The approved repair is committed and merged into 0.9.6a. The sole canonical App now ships 1.0.7, is signed with PipiUI Dev, and has native CUA version/switch/credential persistence acceptance.**
 
 Tracker: [GitHub #110](https://github.com/Leehow/chatrpgv4/issues/110), labelled `ready-for-agent`.
 
@@ -220,6 +220,15 @@ Exa highlights 记作提供方返回的网页摘录。宿主保存本次摘录�
 规格阶段新增本文并发布对应 `ready-for-agent` Issue，随后获准实施。共享内核契约和运行代码按所有权串行修改。若实测表明无需某个筛选条件、缓存层级或额外限制，应缩减实现；不要为了规格条目而增加不改善体验的流程。
 
 ### Implementation progress (2026-09-30)
+
+#### Committed and installed delivery (2026-10-01)
+
+- User authorized replacement, merge and commit. Implementation commit `064e5c78e` and task-branch merge `49f44b679` preserve concurrent narration, attack and chase changes; the other owner's dirty active-plan file was never staged. Nothing was pushed.
+- Full LAN extension suite at `49f44b679`: **4251/4251 passed**, exit 0, 535 s. Raw log was copied before another remote build. This supersedes the earlier two-failure candidate snapshot, whose evidence and original assertions remain retained.
+- The peer vehicle-roster merge advanced main while the first package was assembling. That attempt was cancelled before installation, leaving the old App intact and no staging residue. Latest `6bfd479ff` was built on LAN, then 74 historical/request/check/chase seam checks and the kernel typecheck passed. This is additional focused validation, not a second full-suite claim. The final package reused that unchanged checked LAN build; its temporary npm dispatcher was removed.
+- Canonical `/Applications/PipiCOC.app` was replaced at `2026-10-01T06:29:58.065Z`, package receipt `6bfd479ff`. `PipiUI Dev` signing and deep/strict verification passed; designated leaf stayed `108232c5a713c15a869fc4c267e18d2e35cd276c`. TeamIdentifier is unset for this persistent local development certificate. Compiled kernel, kernel/Jev extensions, hybrid runtime and all historical Mod files match the validated source/build hashes. LaunchServices and Spotlight resolve the sole canonical App; the build-home link points back to it and staging is empty.
+- Native CUA on the installed App selected and applied Historical Reference 1.0.7 in the task's GUI test campaign, visibly disabled then re-enabled it, and kept the new-campaign default on. Exa remained `Saved` in a secure input. After normal quit/relaunch, version lock 1.0.7, enabled state, default and saved credential persisted. No credential value was read and no story prompt was sent during this settings check. Existing campaigns retain their version locks until the user selects a newer version; they are not silently upgraded.
+- Original worktree `.coc`, `.tmp` and `.pi` evidence was moved intact under `selected-preparation-repair-20261001/original-worktree-evidence/` before ordinary lifecycle closeout. The task-owned worktree/branch are closed; final audit is `audit_ok`, pending 0. Current delivery evidence is `delivery-acceptance.json`; the earlier real Keeper report/runs and controlled fictional-style probe remain separate evidence layers. The cancelled heartbeat was not reactivated.
 
 #### Selected preparation repair — approved, in progress (2026-09-30)
 

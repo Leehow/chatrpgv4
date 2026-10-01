@@ -5,8 +5,8 @@ import {CHECK_SELECTION_GATES} from '../../runtime/jev/resolve-selection.ts';
 
 const option = {key: 'vehicles', family: 'chase', label: 'Vehicle pursuit', action: {actor: 'Jack', decision: 'chase:start', intent: 'flee'},
   parameters: [], needs: [], authorization: 'declaration', facts: {mobility: 'vehicle',
-    chase_actors: [{name: 'Jack', investigator: true, driving_available: true},
-      {name: 'Pursuing driver', driving_available: true}, {name: 'Bed gunner', driving_available: false}],
+    chase_actors: [{name: 'Jack', investigator: true, profile_available: true, driving_available: true},
+      {name: 'Pursuing driver', profile_available: true, driving_available: true}, {name: 'Bed gunner', profile_available: true, driving_available: false}],
     vehicle_profiles: [{key: 'car_standard', label: 'Standard car', mov: 14}, {key: 'pickup_truck', label: 'Pickup truck', mov: 14}]}};
 const port = (override = {}) => async (_purpose, _state, questions) => {
   const answers = Object.fromEntries(questions.map(q => {
@@ -25,6 +25,15 @@ test('driver and passenger bindings use only issued names and vehicle profiles, 
   assert.deepEqual(result.action.chase_roster, [{actor: 'Jack', role: 'driver', vehicle: 'car_standard'},
     {actor: 'Pursuing driver', role: 'driver', vehicle: 'pickup_truck'}, {actor: 'Bed gunner', role: 'passenger', riding_with: 'Pursuing driver'}]);
   assert.deepEqual(Object.keys(result.action.chase_roster[0]), ['actor', 'role', 'vehicle']);
+});
+
+test('a selected passenger without a stat profile requests preparation before any starter', async () => {
+  const missing = {...option, facts: {...option.facts,
+    chase_actors: option.facts.chase_actors.map(actor => ({...actor, profile_available: actor.name !== 'Bed gunner'}))}};
+  const result = await run(missing);
+  assert.equal(result.status, 'unresolved');
+  assert.equal(result.action, undefined);
+  assert.deepEqual(result.preparation.profiles, ['Bed gunner']);
 });
 
 test('a compatible vehicle class is confirmed independently when several profile choices share probability', async () => {

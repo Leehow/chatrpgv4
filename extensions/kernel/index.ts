@@ -5,7 +5,7 @@ import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts'
  * docs/kernel-rpc.md §8.
  */
 
-import { textToolCall } from "./text-tool-call.ts";
+import { textToolCalls } from "./text-tool-call.ts";
 import {narrationTransport} from './narration-transport.ts';
 import {HistoricalReference, historyEnabled, historyContext, historyBindingMatches, type HistoryInput} from '../../runtime/historical-reference.ts';
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -29,7 +29,7 @@ import { argumentLimitRefusal, COC_TOOLS, COC_TOOL_NAMES, type CocToolSpec, WRIT
 import { unwrapArgumentMarkup } from "./tool-argument-markup.ts";
 import { leanApplyEnabled, offeredTools } from "./lean-apply.ts";
 import { stripDialectPrefixes } from "./dialect-prefix.ts";
-import { decodeStringLiterals } from "./encoded-string-argument.ts";
+import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { markNpcAct } from "./npc-act-marks.ts";
@@ -5092,14 +5092,16 @@ export default function (pi: ExtensionAPI) {
 			// Contract §144.1: a field that carries another tool's argument (`apply.narrate`, the narrate tool's `text`)
 			// loses the serialization's own leading label (`text intermediate…`, `text`), after the unwrapping; a value
 			// that was only the label goes on empty, to the embedded narrate's floor and the kernel's refusal.
-			// Contract §160: a declared string argument that is itself a JSON string literal (`"\"\\u4e00…\""`, the value
-			// serialized twice) is decoded between the two, so the label rule and every reader after it see the text.
+			// Contract §160/§160.1: a declared string argument that carries its own serialization -- the whole JSON string
+			// literal (`"\"\\u4e00…\""`), the carried tool's arguments object around it or a head or tail of that object, or
+			// the literal's body without its quotes -- is decoded between the two, so the label rule and every reader after it
+			// see the text.
 			prepareArguments: (args: unknown) => {
 				const unwrapped = unwrapArgumentMarkup(spec.name, spec.parameters, args);
 				if (!unwrapped.ok) throw new Error(new KernelError(unwrapped.refusal).toToolText());
 				if (unwrapped.repairs.length) void record({ lane: "tool_arguments", event: "markup_unwrapped", tool: spec.name, repairs: unwrapped.repairs });
-				const decoded = decodeStringLiterals(spec.parameters, unwrapped.args);
-				for (const { field, layers } of decoded.decodes) void record({ lane: "tool_arguments", event: "json_string_decoded", tool: spec.name, field, layers });
+				const decoded = decodeSerializedStrings(spec.name, spec.parameters, unwrapped.args);
+				for (const { field, layers, shapes } of decoded.decodes) void record({ lane: "tool_arguments", event: "json_string_decoded", tool: spec.name, field, layers, shapes });
 				const stripped = stripDialectPrefixes(spec.name, decoded.args);
 				for (const { field, prefix } of stripped.strips) void record({ lane: "arguments", event: "dialect_prefix_stripped", tool: spec.name, field, prefix });
 				const refusal = argumentLimitRefusal(spec.name, stripped.args);
@@ -6349,16 +6351,18 @@ export default function (pi: ExtensionAPI) {
 		let blocks = (event.message.content ?? []) as Array<Record<string, unknown>>;
 		let hasToolCalls = blocks.some((b) => b.type === "toolCall");
 		let routedMessage: typeof event.message | undefined;
-		// §158.7: Pi executes the recovered call through all normal hooks and admission.
+		// §158.7: Pi executes the recovered call through all normal hooks and admission. §160.2: a body of several fenced
+		// envelopes is the calls in their written order, and `{name, arguments}` is an envelope too.
 		if (!hasToolCalls && !state.closedThisRun && state.renderedText === undefined
 			&& (state.state === "open" || state.state === "acting" || state.openingPending)
 			&& !["error", "aborted", "length"].includes(String((event.message as {stopReason?: string}).stopReason))) {
 			const body = blocks.filter(b => b.type === "text").map(b => String(b.text ?? "")).join("");
-			const recovered = textToolCall(body, offeredTools(COC_TOOLS, process.env));
+			const recovered = textToolCalls(body, offeredTools(COC_TOOLS, process.env));
 			if (recovered) {
-				const id = randomUUID();
-				await record({lane: "delivery", turn: state.turn, ok: true, reason: "text_tool_call_routed", tool: recovered.name, tool_call_id: id});
-				blocks = [...blocks.filter(b => b.type !== "text"), {type: "toolCall", id, ...recovered}];
+				const routed = recovered.map((call) => ({type: "toolCall", id: randomUUID(), ...call}));
+				for (const call of routed)
+					await record({lane: "delivery", turn: state.turn, ok: true, reason: "text_tool_call_routed", tool: call.name, tool_call_id: call.id});
+				blocks = [...blocks.filter(b => b.type !== "text"), ...routed];
 				hasToolCalls = true;
 				routedMessage = {...event.message, stopReason: "toolUse", content: blocks} as typeof event.message;
 			}
