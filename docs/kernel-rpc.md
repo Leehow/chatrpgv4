@@ -30453,6 +30453,23 @@ unresolved. Selector family version 20 separates these questions from earlier ca
 Regression coverage includes the actual issued catalog, selector dispatch, ordinary resolve and
 saved driver/passenger state. The same blind live encounter remains the acceptance boundary.
 
+### 159.12 Chase readiness consumes pinned actor profiles and skill ledgers (2026-10-01)
+
+Live turn 44 registered the observed participants, but five table-created people had no mechanical
+profile. A roster's foot participants and passengers need those profiles too, not only its drivers.
+The vehicle catalog must expose profile_available for each named participant. After bounded role
+binding, any selected participant without a profile returns a typed preparation requirement naming
+those actors; it never reaches a refused starter or becomes an invented stat block. Profile and
+driver-skill holds release only when the fresh vehicle roster advertises the same required names
+as available. Existing source preparation and apply npc own those writes.
+
+Separately, apply npc.skill writes npc-ledger.json and current receipts. The catalog already reads
+these, but the chase skill reader did not. Use the existing actorSkillValue reader before the
+pinned combat-profile fallback: a real registered driver's skill pin must reach Drive Auto speed
+rolls. Missing values remain needs, with no automatic chance or another actor's skill substituted.
+Regression must run the actual skill pin, catalog, selector and starter; editing fixture world
+numbers directly does not establish this writer-reader-actor seam. Selector family version 21.
+
 ## 160. A Keeper tool string argument that arrives as a JSON string literal is decoded at the host boundary (2026-09-30; extends §144, amends §135.21's `prepareArguments` and the order of §144.1)
 
 **Evidence.** The opening turn of the installed App's campaign `game-ef4f5f3b-6445-423b-bae1-f95f4601a698` (receipt `6d870987b`) was stored and delivered as a JSON-escaped literal: `turns/0000.json` `text`, `marked_text` and `rendered_text`, and `transcript.jsonl` turn 0, all begin `"一九二〇年秋…`, with literal backslashes. The model's call, in the App's Pi session file, is the second `apply` of one message: `effects: [{kind: "person", who: "Steven Knott", name: …}]` and `narrate` a 1,024-character string whose own text is a quoted, `\u`-escaped JSON string literal of 185 characters of prose. The model is `grok-build/grok-4.7-build-fast` (the message's own `provider`/`model`). The speech rows were cut from the same text, so `{{say:史…}}` named nobody at the table (`unresolved_speakers`) and the line's text carries the escapes too; the continuity review passed the turn (`verdict: pass`).

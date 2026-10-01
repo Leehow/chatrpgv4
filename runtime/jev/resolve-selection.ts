@@ -51,7 +51,7 @@ export type CheckSelection = {
   action?: Record<string, Json>;
   needs: string[];
   calls: number;
-  preparation?: {decision: string; needs: string[]; mobility?: 'vehicle'; drivers?: string[]};
+  preparation?: {decision: string; needs: string[]; mobility?: 'vehicle'; drivers?: string[]; profiles?: string[]};
   snapshot?: {scene: string; revision: string; worldRevision: string};
 };
 
@@ -171,7 +171,7 @@ export async function selectCheck(input: CheckSelectionInput): Promise<CheckSele
     input.lease.assertActive();
     if (calls >= (input.maxCalls ?? 24)) throw new Error('check_selection_budget');
     const batch: DecisionBatch = {id: digest([purpose, state, questions, input.scope, input.readSet]), model: JEV_MODEL,
-      family: `check-selection-${purpose}`, familyVersion: '20', scope: input.scope, readSet: input.readSet, state, questions};
+      family: `check-selection-${purpose}`, familyVersion: '21', scope: input.scope, readSet: input.readSet, state, questions};
     packDecisionBatch(batch);
     calls++;
     const result = await withinCheckLease(input.lease, () => input.decision.decide(batch, input.lease));

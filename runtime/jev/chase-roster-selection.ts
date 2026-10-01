@@ -20,8 +20,8 @@ const yes = (result: DecisionResult, key: string) => {
 export async function selectChaseRoster(option: CheckOption, declaration: string, context: Json,
   gates: CheckSelectionGates, decide: (purpose: string, state: Json, questions: DecisionQuestion[]) => Promise<DecisionResult>): Promise<Partial<CheckSelection>> {
   const actors = rows(option.facts?.chase_actors), profiles = rows(option.facts?.vehicle_profiles);
-  const needs = (values: string[], preparation = false, drivers: string[] = []): Partial<CheckSelection> => ({status: 'unresolved', needs: values, option,
-    ...(preparation ? {preparation: {decision: 'chase:start', needs: values, mobility: 'vehicle', drivers}} : {})});
+  const needs = (values: string[], preparation = false, drivers: string[] = [], profiles: string[] = []): Partial<CheckSelection> => ({status: 'unresolved', needs: values, option,
+    ...(preparation ? {preparation: {decision: 'chase:start', needs: values, mobility: 'vehicle', drivers, profiles}} : {})});
   if (!actors.length || !profiles.length) return needs(['chase_roster_catalog_unavailable'], true);
   const state = {declaration, context, actors: Object.fromEntries(actors.map((actor, index) => [`actor_${index}`,
     {name: actor.name, description: actor.description ?? '', investigator: actor.investigator}])),
@@ -37,12 +37,15 @@ export async function selectChaseRoster(option: CheckOption, declaration: string
     const answer = pick(roleResult, `role_${index}`);
     if (!answer || !['foot', 'driver', 'passenger', 'absent'].includes(answer.value) || answer.p < gates.choice) return needs(['chase_mobility_uncertain']);
     if (answer.value === 'absent') {if (actor.investigator) return needs(['chase_investigator_role_unbound']); continue;}
-    if (answer.value === 'driver' && actor.driving_available !== true) return needs(['chase_driver_skill_unavailable'], true, [actor.name]);
     if (answer.value === 'passenger' && actor.investigator) return needs(['chase_investigator_driver_unbound']);
     selected.push({actor, index, role: answer.value});
   }
+  const missingProfiles = selected.filter(entry => entry.actor.profile_available !== true).map(entry => entry.actor.name);
+  if (missingProfiles.length) return needs(['chase_actor_profile_unavailable'], true, [], missingProfiles);
   if (selected.length < 2 || !selected.some(entry => entry.actor.investigator)) return needs(['chase_participants_unbound'], true);
   const drivers = selected.filter(entry => entry.role === 'driver');
+  const missingDrivers = drivers.filter(entry => entry.actor.driving_available !== true).map(entry => entry.actor.name);
+  if (missingDrivers.length) return needs(['chase_driver_skill_unavailable'], true, missingDrivers);
   if (!drivers.length) return needs(['vehicle_chase_has_no_driver']);
   const profileState = {...record(state), selected_roles: selected.map(entry => ({actor: entry.actor.name, role: entry.role})),
     vehicle_profiles: Object.fromEntries(profiles.map((profile, index) => [`profile_${index}`, profile]))} as Json;

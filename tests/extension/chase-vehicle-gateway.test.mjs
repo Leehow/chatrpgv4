@@ -48,12 +48,15 @@ test('ordinary resolve binds a registered driver roster and persists vehicle par
   const game = await table(t);
   await game.apply([{kind: 'npc', name: 'Steven Knott', archetype: 'capable_adult', why: 'Pinned fixture actor.'}]);
   await game.apply([{kind: 'npc', name: 'Pickup gunner', walk_on: true, to: 'here', archetype: 'capable_adult', why: 'A fixture passenger in the pursuing vehicle.'}]);
-  const world = await game.world(), handle = Object.keys(world.npc_profiles)[0];
-  world.npc_profiles[handle].skills['Drive Auto'] = 80;
-  await writeFile(join(game.directory, 'world.json'), JSON.stringify(world));
+  await game.apply([{kind: 'npc', name: 'Steven Knott', skill: {name: 'Drive Auto', value: 80}, why: 'A pinned fixture driving skill.'}]);
   const sheet = JSON.parse(await readFile(game.sheetPath, 'utf8'));
   sheet.skills['Drive Auto'] = 80;
   await writeFile(game.sheetPath, JSON.stringify(sheet));
+  const immediate = await game.call('table.resolve.options');
+  assert.equal(immediate.selection.options.find(option => option.facts?.mobility === 'vehicle').facts.chase_actors
+    .find(actor => actor.name === 'Steven Knott').driving_available, true, 'a current-turn skill receipt is available immediately');
+  await game.call('table.narrate', {call_id: game.next(), text: 'The drivers and passenger are ready beside their cars.'});
+  await game.call('table.player_input', {text: 'I drive away from the pursuing car.'});
   const catalog = await game.call('table.resolve.options');
   const options = validateCheckOptions(catalog.selection.options);
   const vehicle = options.find(option => option.facts?.mobility === 'vehicle');
@@ -88,7 +91,7 @@ test('ordinary resolve binds a registered driver roster and persists vehicle par
   assert.equal(selected.status, 'selected', JSON.stringify(selected.needs));
   assert.equal(selected.action.intent, 'flee');
   assert.ok(families.includes('check-selection-chase-vehicle-validity'));
-  const result = await game.call('table.resolve', {call_id: game.next(), action: selected.action});
+  const result = await game.call('table.resolve', {call_id: 't2-c1', action: selected.action});
   assert.equal(result.decision, 'chase:start');
   const saved = JSON.parse(await readFile(join(game.directory, 'save/chase.json'), 'utf8'));
   for (const participant of saved.participants.filter(participant => participant.role !== 'passenger')) {

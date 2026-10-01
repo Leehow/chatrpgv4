@@ -250,6 +250,8 @@ async function targetValue(context: SettleContext, id: string, skill: string): P
                 throw error;
         }
     }
+    const pinned = await context.actorSkillValue(id, skill);
+    if (integer(pinned)) return int(pinned);
     const profile = presentOpponents(context).find(([handle]) => handle === id)?.[2] || {};
     for (const table of ['skills', 'characteristics']) {
         const value = row(profile[table])[skill];
