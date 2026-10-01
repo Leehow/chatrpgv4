@@ -9,6 +9,7 @@ import { toldTurn } from "../journal/naming.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
 import { intentsView } from '../npc/intents.js';
+import { moodNow } from '../npc/mood.js';
 import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspective.js';
 import {reunionView} from '../npc/reunion.js';
 import {cardAction,cardTactic} from '../combat/standing.js';
@@ -470,6 +471,9 @@ function npcState(graph: ModuleGraph, world: Row, node: Row): Row | null {
 }
 export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep", journal: Row = {}, records: Row[] = [], scope:Row = {}): Row {
     const state = npcState(graph, world, node), untold = untoldBlock(graph, world, journal, node, records);
+    // Contract §161.3: what this person feels right now, from the committed ledger -- not for one who cannot act (the
+    // body's `state`, or a death the ledger records), and absent when no mood was ever written.
+    const ledgerRow = row(ledger[node.node_id]), now = state || truth(ledgerRow.dead) ? null : moodNow(ledgerRow);
     const entry: Row = {
         name: graph.displayName(node),
         ...(graph.sourceNeeds(node,true).length?{runtime_inputs:graph.sourceNeeds(node,true)}:{}),
@@ -484,6 +488,9 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         // Before the dossier, not after it: what his body is doing decides whether any of the rest
         // of it can happen this turn, and present[] is budgeted from the top.
         ...(state ? {state} : {}),
+        // After `state`, before the dossier (§161.3): present[] is cut from the bottom, and this is what decides how
+        // the next line sounds.
+        ...(now ? {now} : {}),
         ...dossier(graph, world, node, seat),
         ...(personalityView(graph, world, node) ? {personality: personalityView(graph, world, node)} : {})
     },

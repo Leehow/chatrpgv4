@@ -1,6 +1,6 @@
 {
   "id": "narration-craft",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "game_api": "pipicoc.game.v1",
   "state_version": 2,
   "migrations": [
@@ -33,7 +33,8 @@
     "npc.voice.consolidation.v1",
     "graph.vocabulary.v1",
     "graph.vocabulary.table.v1",
-    "context.npc.v1"
+    "context.npc.v1",
+    "npc.mood.v1"
   ],
   "package_files": [
     "agent.md",
