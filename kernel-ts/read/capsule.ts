@@ -14,6 +14,7 @@ import {npcRelationships,npcRecentSpeech,npcCommitments} from '../npc/perspectiv
 import {reunionView} from '../npc/reunion.js';
 import {cardAction,cardTactic} from '../combat/standing.js';
 import {mechRow} from './mech-line.js';
+import { MASK_KEY } from '../voice/fields.js';
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
@@ -387,6 +388,13 @@ export function voicesSection(graph: ModuleGraph, world: Row, scene: Row): Row[]
             entry[label] = Array.isArray(value) && value.length === 1 ? value[0] : value;
         return [entry];
     });
+}
+/** Contract §165.3: the person's §40.7 mask as the one line it is, with the dossier's own precedence -- the book's word
+ *  first, then what an enabled package established at the table -- or nothing when neither carries one. */
+export function voiceMaskOf(graph: ModuleGraph, world: Row, node: Row): string | undefined {
+    const value = graph.npcProfile(node)[MASK_KEY] ?? row(tableWords(world, node)[MASK_KEY]).value;
+    const line = Array.isArray(value) ? value[0] : value;
+    return typeof line === "string" && line.trim() ? line.trim() : undefined;
 }
 /** Contract 28.7: what a package established at the table, under a word it contributes. The book is
  *  read first and is never overwritten; this fills only where the source is silent. It is read out of

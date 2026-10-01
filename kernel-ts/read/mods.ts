@@ -20,6 +20,7 @@ import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
 import {VOICE_CONSOLIDATION_CAPABILITY, EXPRESSION_MOD, LEGACY_VOICE_MOD, newModDefault} from '../mods/voice-consolidation.js';
 import { STYLE_CAPABILITY, validateStyleDeclaration, validateStyleContribution, providesStyle, secondProvider } from "./style.js";
 import { LANGUAGE_ADDENDUM_CAPABILITY, validateLanguageDeclaration } from "./mod-language.js";
+import { SPEECH_EDIT_LANE_CAPABILITY, validateSpeechEditLaneDeclaration } from "../speech/lane.js";
 import {HISTORY_CAPABILITY, validHostSettings} from '../mods/host-settings.js';
 import {MOOD_CAPABILITY} from '../npc/mood.js';
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
@@ -38,6 +39,8 @@ for (const retired of ["context.craft-reference.v1", "context.craft-reference.v2
 MOD_CAPABILITIES.add(STYLE_CAPABILITY);
 /** Contract §153.3: a package adds a Markdown file to the voice lane's instruction, after the lane owner's own words. */
 MOD_CAPABILITIES.add(LANGUAGE_ADDENDUM_CAPABILITY);
+/** Contract §165.2: a package contributes the NPC speech edit lane's instruction and demonstrations. */
+MOD_CAPABILITIES.add(SPEECH_EDIT_LANE_CAPABILITY);
 MOD_CAPABILITIES.add(HISTORY_CAPABILITY);
 /** Contract §161.6: the kernel writes and projects what a person feels right now (`apply npc mood`, `present[].now`). */
 MOD_CAPABILITIES.add(MOOD_CAPABILITY);
@@ -264,7 +267,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
     // package incompatible -- exactly what an unknown capability in `requires` already does five
@@ -283,13 +286,13 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
             invalid("Dependency ids must be semantic slugs");
         version(ver);
     }
-    for (const field of ["instructions", "brief", "setup_instructions", "materializer", "auditor", "voice_lane", "voice_lane_addendum"]) {
+    for (const field of ["instructions", "brief", "setup_instructions", "materializer", "auditor", "voice_lane", "voice_lane_addendum", "speech_edit_lane"]) {
         const path = manifest.contributes[field];
         if (path != null && (typeof path !== "string" || !files.has(path) || !path.endsWith(".md")))
             invalid(`contributes.${field} must name a package Markdown file`);
     }
     if (scoped) {
-        for (const field of ["instructions", "brief", "setup_instructions", "setup_slots", "materializer", "auditor", "voice_lane", "voice_lane_addendum"]) {
+        for (const field of ["instructions", "brief", "setup_instructions", "setup_slots", "materializer", "auditor", "voice_lane", "voice_lane_addendum", "speech_edit_lane"]) {
             const name = manifest.contributes[field];
             if (typeof name === "string" && !declared.includes(name))
                 invalid(`package_files must include contributes.${field}`);
@@ -302,6 +305,8 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("contributes.voice_lane is the voice lane's instruction and needs npc.voice.generation.v2");
     // Contract §153: play_languages, the voice-lane addendum and a language-scoped package's own per-turn ceiling.
     validateLanguageDeclaration(manifest, files);
+    // Contract §165.2: the speech edit lane's capability and text.
+    validateSpeechEditLaneDeclaration(manifest, files);
     validateSetupSlots(manifest, files);
     // Contract §137.2: the pairing and the path here; the file's lines are checked where the catalog loads.
     validateStyleDeclaration(manifest, files);
