@@ -426,6 +426,45 @@ test('an unavailable chase participant catalog requests preparation before any s
   assert.equal(result.preparation.decision, 'chase:start');
 });
 
+test('chase necessity refinement retains a scoped dependency verdict without re-asking it in numeric context', async t => {
+  const chase = {key: 'chase', family: 'chase', label: 'Ada escapes the pursuer', action: {actor: 'Ada', target: 'Pursuer', decision: 'chase:start', intent: 'flee'},
+    parameters: [], needs: [], authorization: 'declaration', facts: {mobility: 'foot'}};
+  const {input, seen} = setup(t, batch => noul(batch.family === 'check-selection-need' ? .84 : .88), [chase]);
+  input.declaration = 'I keep escaping. If they shoot later, I dodge.';
+  input.context = {public_narration: 'The pursuer is still behind Ada.', current_receipts: [], first_blow: {preparation: {targets: ['Pursuer']}},
+    situation: {people: [{name: 'Pursuer', profile_available: false}]}, rules: ['Unrelated numeric vehicle tables.']};
+  const base = input.decision;
+  input.decision = {async decide(batch) {
+    const result = await base.decide(batch);
+    for (const question of batch.questions) if (question.key.endsWith('_blocked'))
+      result.answers[question.key] = noul(batch.family === 'check-selection-chase-prerequisite' ? .08 : .39);
+    return result;
+  }};
+  const result = await selectCheck(input);
+  assert.equal(result.status, 'selected');
+  assert.equal(result.calls, 3);
+  const dependency = seen.find(batch => batch.family === 'check-selection-chase-prerequisite');
+  assert.equal(JSON.stringify(dependency.state).includes('profile_available'), false);
+  assert.equal(JSON.stringify(dependency.state).includes('numeric'), false);
+  assert.equal(seen.find(batch => batch.family === 'check-selection-need-refine').questions.some(q => q.key.endsWith('_blocked')), false);
+});
+
+test('a genuinely conditional chase or an unavailable dependency answer cannot start', async t => {
+  const chase = {key: 'chase', family: 'chase', label: 'Ada escapes the pursuer', action: {actor: 'Ada', decision: 'chase:start', intent: 'flee'},
+    parameters: [], needs: [], authorization: 'declaration', facts: {mobility: 'foot'}};
+  for (const [p, expected] of [[.99, 'deferred'], [.5, 'unresolved'], [undefined, 'unresolved']]) {
+    const {input} = setup(t, () => noul(.99), [chase]), base = input.decision;
+    input.declaration = 'I fix the tire first. Only after it is repaired will I start escaping.';
+    input.decision = {async decide(batch) {
+      const result = await base.decide(batch);
+      for (const question of batch.questions) if (question.key.endsWith('_blocked'))
+        result.answers[question.key] = p === undefined ? {status: 'unknown'} : noul(p);
+      return result;
+    }};
+    assert.equal((await selectCheck(input)).status, expected);
+  }
+});
+
 test('a preparation hold permits agent preparation and re-opens only on a newly executable catalog', () => {
   const request = {...candidate, bound: {decision: 'chase:start'}};
   const context = {scene: 'road', clock: {}, present: []};

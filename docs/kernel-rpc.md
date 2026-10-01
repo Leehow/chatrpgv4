@@ -30470,6 +30470,42 @@ rolls. Missing values remain needs, with no automatic chance or another actor's 
 Regression must run the actual skill pin, catalog, selector and starter; editing fixture world
 numbers directly does not establish this writer-reader-actor seam. Selector family version 21.
 
+### 159.13 Chase dependency is a separate bounded question (2026-10-01)
+
+Live turn 45 confirms the chosen escape (need refinement 0.88), but the combined prerequisite
+question stays ambiguous (0.39). That state mixes player ordering, future dodging precautions,
+participant readiness and vehicle tables. Exact-state diagnostic calls are not gameplay: rewriting
+the broad question alone stayed gray; a literal dependency question with public narration and
+current receipts gave 0.08 for the already ongoing escape. An explicitly conditional start stayed
+above the no-dependency gate, so it cannot be released by this change.
+
+For chase:start only, necessity keeps its own context. In parallel, a separate question asks whether
+starting that pursuit/escape itself waits for a player-chosen prior action or event. Its state is
+the declaration, public narration, current receipts and candidate identity/mobility. Numeric/profile
+readiness is handled by §159.12, not used as evidence of a player-stated dependency. A later
+conditional reaction cannot block an already chosen escape. The host composes both decisions;
+missing/ambiguous answers remain unresolved, real dependencies remain held. The single allowed
+refinement asks one unsettled dimension and retains the other answer in code, never in Jev state.
+No threshold is changed. Selector family 22; original blind encounter must be retried for acceptance.
+
+### 159.14 Current participant placement reaches chase role binding (2026-10-01)
+
+The end-to-end selector diagnostic gets through necessity and dependency, then two movement roles
+stay gray. The catalog supplied a static biography while dropping the accepted NPC placement's
+explanation. Supplying the existing placement evidence instead gave driver 0.94 and passenger 1.00
+in a non-mutating diagnostic. A second Noul on the old biography did not establish those roles.
+
+Writer: accepted apply npc to receipts, with their existing why and actor identity. Reader: the
+vehicle catalog projects presence_evidence from the latest placement for each presently registered
+NPC, only when that placement names the current scene. Read current receipts and the already
+line-filtered committed history; do not invent a role or revive a stale placement after departure.
+Actor: Jev's role question reads current presence evidence and public narration, using biography
+only when no placement evidence exists. It does not inspect unrelated numeric/profile readiness.
+Vehicle profile and passenger-link questions retain their separate binding context. Kernel roster
+identity, role/link validation and admission still decide whether a selected roster may execute.
+No new world field, role authoring gateway or free-form plan is introduced; this is an existing
+writer's missing consumer. Regression covers placement evidence after the original receipt turn.
+
 ## 160. A Keeper tool string argument that arrives as a JSON string literal is decoded at the host boundary (2026-09-30; extends §144, amends §135.21's `prepareArguments` and the order of §144.1)
 
 **Evidence.** The opening turn of the installed App's campaign `game-ef4f5f3b-6445-423b-bae1-f95f4601a698` (receipt `6d870987b`) was stored and delivered as a JSON-escaped literal: `turns/0000.json` `text`, `marked_text` and `rendered_text`, and `transcript.jsonl` turn 0, all begin `"一九二〇年秋…`, with literal backslashes. The model's call, in the App's Pi session file, is the second `apply` of one message: `effects: [{kind: "person", who: "Steven Knott", name: …}]` and `narrate` a 1,024-character string whose own text is a quoted, `\u`-escaped JSON string literal of 185 characters of prose. The model is `grok-build/grok-4.7-build-fast` (the message's own `provider`/`model`). The speech rows were cut from the same text, so `{{say:史…}}` named nobody at the table (`unresolved_speakers`) and the line's text carries the escapes too; the continuity review passed the turn (`verdict: pass`).

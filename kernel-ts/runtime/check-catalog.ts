@@ -88,6 +88,11 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             parameter('intent', 'Is the investigator fleeing this person or moving after them?', ['flee', 'move']),
         ], [], 'declaration', {mobility: 'foot'});
         const chaseRules = await loadChaseRules(new RuleTables(campaign.context));
+        const placements = [...owners.history.flatMap(record => array(record.receipts)), ...array(campaign.turn.receipts)].reverse();
+        const presenceEvidence = (person: typeof people[number]): string | null => {
+            const receipt = placements.find(receipt => receipt.kind === 'npc' && receipt.npc === person.node.node_id && receipt.to != null);
+            return receipt?.to === campaign.world.active_scene ? string(receipt.why).slice(0, 1500) || null : null;
+        };
         const ownProfile = profiles.filter(profile => profile.actor === opening.actor && normalize(profile.skill) === normalize('Drive Auto'));
         add('chase:start', `${opening.actor}: a chase involving vehicles`, {actor: opening.actor},
             [parameter('intent', 'Is the investigator fleeing the pursuers or pursuing the quarry?', ['flee', 'move'])], [], 'declaration', {
@@ -95,6 +100,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
                 chase_actors: [{name: opening.actor, investigator: true, profile_available: true, driving_available: ownProfile.some(profile => profile.availability === 'bound')},
                     ...people.filter(person => array(opening.targets).includes(person.name)).map(person => ({name: person.name, investigator: false,
                         description: string(person.node.summary ?? person.node.description).slice(0, 600),
+                        presence_evidence: presenceEvidence(person),
                         profile_available: person.profile !== null,
                         driving_available: profiles.some(profile => profile.actor === person.name && normalize(profile.skill) === normalize('Drive Auto') && profile.availability === 'bound')}))],
                 vehicle_profiles: Object.entries(row(row(chaseRules.vehicles).entries)).map(([key, value]) => ({key, ...row(value)})),
