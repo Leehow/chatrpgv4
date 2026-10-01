@@ -39,12 +39,13 @@ import {lookupKeeperSupport} from '../table/keeper-support-lookup.ts';
 import { workspaceSettingsOf } from '../table/workspace/projection.ts';
 import { bindWorkpadPatch, publishWorkpadPatch, takeWorkpadPatch, type WorkpadBinding } from '../table/workspace/workpad.ts';
 import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { disableStepThinking, isFirstStepOfTurn } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { deliveryProse, isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import type { ForcedChoiceCueReview, ForcedPlayerChoice } from "../../runtime/jev/forced-resolution.ts";
 import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
 import { bandShadowGate, readBandRows, shadowRow, shadowTargets, skippedRow, unaskedRow } from "./band-shadow.ts";
 import { SHADOW_FIELDS, type ShadowKind } from "../../runtime/jev/band-shadow-domain.ts";
@@ -313,9 +314,19 @@ interface CampaignRow {
  */
 interface RosterPerson { name: string; called?: string; address?: string; untold: boolean; label?: string }
 
+interface ForcedPlayerChoiceCue {
+	turn: number;
+	run: string;
+	choices: ForcedPlayerChoice[];
+	review(draft: string, signal?: AbortSignal): Promise<ForcedChoiceCueReview>;
+}
+
 interface TableState {
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
+	/** §163.9: the current turn's withheld player choices and Jev's bounded review port. */
+	forcedPlayerChoiceCue?: ForcedPlayerChoiceCue;
+	forcedPlayerChoiceCueChecked?: { turn: number; draftHash: string };
 	kernel: KernelClient;
 	campaign: string;
 	telemetryPath: string;
@@ -1386,6 +1397,24 @@ export default function (pi: ExtensionAPI) {
 		if (!table || value?.campaign !== table.campaign || value.turn !== table.turn
 			|| value.player_text !== table.playerText || !['world', 'reference'].includes(value.mode)) return;
 		table.interactionScope = value.mode;
+	});
+	pi.events.on('coc:forced-player-choice-cue', (value: unknown) => {
+		const state = table, data = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+		if (!state || !data || data.campaign !== state.campaign || data.turn !== state.turn || typeof data.run !== 'string'
+			|| typeof data.review !== 'function' || !Array.isArray(data.choices)) return;
+		const incoming = data.choices.filter((choice): choice is ForcedPlayerChoice => !!choice && typeof choice === 'object'
+			&& typeof (choice as ForcedPlayerChoice).family === 'string' && typeof (choice as ForcedPlayerChoice).subject === 'string'
+			&& Array.isArray((choice as ForcedPlayerChoice).uncertain)
+			&& (choice as ForcedPlayerChoice).uncertain.every(item => typeof item === 'string'))
+			.map(({family, subject, uncertain}) => ({family, subject, uncertain: [...uncertain]}));
+		if (!incoming.length) return;
+		const previous = state.forcedPlayerChoiceCue?.turn === state.turn ? state.forcedPlayerChoiceCue.choices : [];
+		const choices = [...previous];
+		for (const choice of incoming) if (!choices.some(seen => JSON.stringify(seen) === JSON.stringify(choice))) choices.push(choice);
+		const changed = choices.length !== previous.length;
+		state.forcedPlayerChoiceCue = {turn: state.turn, run: data.run, choices,
+			review: data.review as ForcedPlayerChoiceCue['review']};
+		if (changed) state.forcedPlayerChoiceCueChecked = undefined;
 	});
 	// §163 (owner ruling 2026-10-01): no host notice stands in for a check Jev could not settle. The engine resolves it (a
 	// best-scored roll or a no-roll the Keeper narrates) and records it as `lane: "forced-resolution"`; the old
@@ -2458,6 +2487,27 @@ export default function (pi: ExtensionAPI) {
 		while (state.delivered.length > 4) state.delivered.shift();
 	}
 
+	/** §163.9: review a player's withheld choice at the final prose boundary, before its operation can land. */
+	async function reviewForcedPlayerChoiceCue(state: TableState, draft: string, signal: AbortSignal | undefined,
+		path: 'explicit' | 'embedded' | 'implicit'): Promise<void> {
+		const pending = state.forcedPlayerChoiceCue;
+		if (!pending || pending.turn !== state.turn || !pending.choices.length) return;
+		const prose = deliveryProse(draft), draftHash = createHash('sha256').update(prose).digest('hex');
+		if (state.forcedPlayerChoiceCueChecked?.turn === pending.turn && state.forcedPlayerChoiceCueChecked.draftHash === draftHash) return;
+		let review: ForcedChoiceCueReview;
+		try { review = await pending.review(prose, signal); }
+		catch (error) { review = {status: 'unavailable', reason: error instanceof Error ? error.message.slice(0, 120) : 'review_failed'}; }
+		await record({lane: 'forced-player-choice-cue-host', event: 'delivery-preflight', turn: pending.turn, run: pending.run, path,
+			status: review.status, choice_count: pending.choices.length, draft_sha256: draftHash,
+			...(review.status === 'unavailable' ? {reason: review.reason} : {cue_scores: review.cueScores, outcome_scores: review.outcomeScores})});
+		if (review.status === 'reject') throw new KernelError({code: 'needs',
+			message: 'This narration was not delivered because the unmade player choice was not clearly returned in character, or it implied an outcome that depends on the unrolled check.',
+			fix: 'Revise the draft to narrate only settled events and end with a present person or immediate situation returning the unmade choice to the player in character. Then retry this narration or this still-needed apply with the revised draft. This refused tool call executed none of its effects; do not repeat effects accepted in earlier calls or reroll.',
+			details: {reason: 'forced_player_choice_cue_review', path, cue_scores: review.cueScores, outcome_scores: review.outcomeScores,
+				choice_count: pending.choices.length, operation_executed: false}});
+		state.forcedPlayerChoiceCueChecked = {turn: pending.turn, draftHash};
+	}
+
 	/**
 	 * §143.18: the engine's compile row, as it passes the kernel bridge's `record`, is the run's typed reading of the player's
 	 * words; its `act` record is kept by run for this turn's admission (`compileActRefusal`). Any other row is ignored, and a
@@ -3114,6 +3164,10 @@ export default function (pi: ExtensionAPI) {
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
 		const run = state.skillRun;
+		if (tool === 'ask' || tool === 'narrate') {
+			state.forcedPlayerChoiceCue = undefined;
+			state.forcedPlayerChoiceCueChecked = undefined;
+		}
 		if (run) {
 			if (tool === "ask" || tool === "narrate") run.delivered = true;
 			const session = result.session as SessionSummary | undefined;
@@ -4457,6 +4511,15 @@ export default function (pi: ExtensionAPI) {
 				if (transported.malformed) throw new KernelError({code:'invalid_params', message:'Narration is a serialized JSON field fragment, not raw prose',
 					details:{reason:'narration_transport_fragment'}, fix:'Resend raw play-language prose in text. Do not JSON-encode the string or include an outer quote/object delimiter. Keep committed receipts and do not reroll.'});
 				payload.text = transported.text;
+				await reviewForcedPlayerChoiceCue(state, payload.text, signal, narratePath);
+			}
+			if (spec.name === 'apply' && embeddedNarrateText !== undefined
+				&& state.forcedPlayerChoiceCue?.turn === state.turn) {
+				const transported = narrationTransport(embeddedNarrateText);
+				if (transported.malformed) throw new KernelError({code: 'invalid_params', message: 'Narration is a serialized JSON field fragment, not raw prose',
+					details: {reason: 'narration_transport_fragment', operation_executed: false},
+					fix: 'Resend raw play-language prose in narrate. Do not JSON-encode the string or include an outer quote/object delimiter. Keep this apply\'s effects in the next tool call if they are still needed; nothing from this refused call executed.'});
+				await reviewForcedPlayerChoiceCue(state, transported.text, signal, 'embedded');
 			}
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
 			// §135.31: the delivery carries the turn's look/lookup calls to its turn record (host-only; after the Mod hooks).
@@ -5673,9 +5736,12 @@ export default function (pi: ExtensionAPI) {
 			payload.source_consultations=sourceConsultationsForAudit(state);
 			try {
 				if (mods) await mods.prepare("narrate", payload, state.lanes.signal);
+				await reviewForcedPlayerChoiceCue(state, String(payload.text ?? ''), state.lanes.signal, 'implicit');
 				const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
 				if (mods?.after) await mods.after("narrate", payload, state.lanes.signal);
 				state.floorDraft = undefined;
+				state.forcedPlayerChoiceCue = undefined;
+				state.forcedPlayerChoiceCueChecked = undefined;
 				state.renderedText = asString(result.rendered_text) ?? text;
 				state.state = (typeof result.state === "string" ? result.state : "awaiting_player") as TurnState;
 				state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
@@ -6595,6 +6661,7 @@ export default function (pi: ExtensionAPI) {
 					const prepared = referenceAnswer ? undefined : await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
 					// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
 					notePrepared(state, prepared);
+					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit');
 					await guardTaskDelivery(event.message, 'committing');
 					// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
 					const reads = readsOfTurn(state);

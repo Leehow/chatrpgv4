@@ -46,7 +46,8 @@ import { preparationProviderBudget } from './preparation-budget.ts';
 import { prepareCheckPreflight } from './check-preflight.ts';
 import {checkAttemptIdentity, selectCheck, validateCheckOptions, withinCheckLease, type CheckSelection} from './resolve-selection.ts';
 import {interactionScopeBatch, interpretInteractionScope, permitsReferenceOperation, REFERENCE_SCOPE_NOTE, type InteractionScope} from './interaction-scope.ts';
-import {DECIDED_UNDER_UNCERTAINTY_NOTE, forcedResolution, type ForcedResolution} from './forced-resolution.ts';
+import {DECIDED_UNDER_UNCERTAINTY_NOTE, FORCED_CHOICE_CUE_FAMILY, forcedChoiceCueBatch, forcedChoiceCueReview, forcedResolution,
+  type ForcedChoiceCueReview, type ForcedPlayerChoice, type ForcedResolution} from './forced-resolution.ts';
 import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
@@ -1770,6 +1771,34 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     const unseen = run.forced.filter(entry => !run.forcedShown.has(entry.key));
     for (const entry of unseen) run.forcedShown.add(entry.key);
+    const playerChoices = unseen.filter(entry => entry.chosen.outcome === 'no_roll' && entry.why.includes('player_choice')
+      && entry.family && entry.subject).map(({family, subject, uncertain}) => ({family, subject, uncertain}));
+    if (playerChoices.length && bridge?.campaign && run.turn !== undefined) {
+      const choices: ForcedPlayerChoice[] = playerChoices;
+      api?.events?.emit?.('coc:forced-player-choice-cue', {campaign: bridge.campaign, turn: run.turn, run: run.runId, choices,
+        review: async (draft: string, signal?: AbortSignal): Promise<ForcedChoiceCueReview> => {
+          const began = stepNow();
+          let review: ForcedChoiceCueReview;
+          if (options.decision !== undefined || !jev) {
+            review = {status: 'unavailable', reason: options.decision !== undefined ? 'injected_decision_disabled' : 'jev_unavailable'};
+          } else {
+            const batch = forcedChoiceCueBatch({campaign: bridge!.campaign!, turn: run.turn!, draft, choices});
+            const lease = new TaskLease({owner: FORCED_CHOICE_CUE_FAMILY, goal: 'Review the return of an unmade player choice',
+              scope: batch.scope, capabilities: ['decision'], readSet: batch.readSet, ...(signal ? {signal} : {}), ...leaseClock,
+              budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 30_000, remainingOutputTokens: 3000,
+                remainingCostUsd: 1, remainingActions: 1}});
+            try {
+              review = forcedChoiceCueReview(await jev.decide(batch, lease), choices.length);
+            } catch (error) {
+              review = {status: 'unavailable', reason: error instanceof Error ? error.message.slice(0, 120) : 'review_failed'};
+            } finally { lease.close(); }
+          }
+          record({lane: FORCED_CHOICE_CUE_FAMILY, event: 'review', run: run.runId, turn: run.turn, status: review.status,
+            elapsed_ms: stepNow() - began, ...(review.status === 'unavailable' ? {reason: review.reason}
+              : {cue_scores: review.cueScores, outcome_scores: review.outcomeScores})});
+          return review;
+        }});
+    }
     if (unseen.length) Object.assign(content, {decided_under_uncertainty: unseen.map(({key: _key, ...entry}) => entry) as unknown as Json,
       decided_under_uncertainty_note: DECIDED_UNDER_UNCERTAINTY_NOTE});
     const preparations = (policyView?.unresolvedChecks ?? []).filter(entry => entry.preparation);
