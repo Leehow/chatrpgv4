@@ -1088,15 +1088,16 @@ export function settleCheckSelection(view: RunView, candidate: Candidate, result
     // §163: nothing was scored or executable. The decision is not asked again this run; the Keeper narrates it.
     holdCheckDecision(view, candidate);
     recordForced(view, forcedResolution({family: 'check-selection', subject: label, uncertain: result.needs, chosen: {outcome: 'no_roll'},
-      why: 'jev_unanswered'}, String(candidate.bound.decision ?? candidate.key)));
+      why: 'jev_unanswered'}, [view.context.scene, String(candidate.bound.decision ?? candidate.key)]));
   }
   if (result.forced && result.status !== 'unresolved') {
     const chosen = result.status === 'selected' && result.option
       ? {outcome: 'roll' as const, check: result.option.label, ...(result.action ? {action: result.action} : {})}
       : {outcome: result.status === 'deferred' ? 'deferred' as const : 'no_roll' as const};
     recordForced(view, forcedResolution({family: 'check-selection', subject: label, uncertain: result.forced.uncertain, chosen, why: result.forced.why},
-      String(candidate.bound.decision ?? candidate.key)));
-    if (result.status !== 'selected') holdCheckDecision(view, candidate);
+      [view.context.scene, String(candidate.bound.decision ?? candidate.key)]));
+    // A forced no-roll is not asked again in this run and scene; a deferred attempt stays open for fresh receipts, as a confident one does.
+    if (result.status === 'no_roll') holdCheckDecision(view, candidate);
   }
   // There need not be a fresh read before the next route. Retire this evaluated snapshot now.
   view.candidates = view.candidates.filter(item => !view.consumed.includes(item.key)

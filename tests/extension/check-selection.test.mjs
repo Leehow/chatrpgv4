@@ -593,3 +593,16 @@ test('§163: a jev-owned check parameter below the gate takes Jev\'s leading iss
   assert.equal(unknown.forced, undefined);
   assert.equal(unknown.pending[0].reason, 'check_unresolved', 'the engine records this compose as a forced no-roll');
 });
+
+test('§163: a forced deferral stays open for the attempt it waits on; the same decision in another scene is recorded again', () => {
+  const request = {...candidate, bound: {decision: listen.action.decision}};
+  const view = initialView({runId: 'deferred-run', rawInput: 'I listen after the door opens.', context: {scene: 'hall', clock: {}, present: []}, candidates: [request]});
+  settleCheckSelection(view, request, {status: 'deferred', needs: [], calls: 2, forced: {uncertain: ['prerequisite unmet p=0.7'], why: 'below_confidence_gate'}}, 2);
+  assert.equal(view.heldCheckDecisions, undefined, 'a deferred attempt is not held');
+  assert.equal(view.forced[0].chosen.outcome, 'deferred');
+  const quiet = {status: 'no_roll', needs: [], calls: 1, forced: {uncertain: ['necessity of Listen: roll needed p=0.4'], why: 'below_confidence_gate'}};
+  settleCheckSelection(view, request, quiet, 1);
+  view.context = {...view.context, scene: 'attic'};
+  settleCheckSelection(view, {...request, key: 'attic-request'}, quiet, 1);
+  assert.deepEqual(view.forced.map(entry => entry.chosen.outcome), ['deferred', 'no_roll', 'no_roll'], 'one record per scene');
+});
