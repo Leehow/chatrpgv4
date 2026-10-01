@@ -10,8 +10,8 @@ function proseLandedAt(message: ChatMessage): number | undefined {
 }
 
 /**
- * How long the player waited for the reply that ends at `endIndex`: from their message to the
- * moment the turn's last prose was on screen.
+ * How long the player waited for the reply that ends at `endIndex`: from when the host began on
+ * their message (`sentAt`, contract §164) to the moment the turn's last prose was on screen.
  *
  * A delivery card lands its prose when it is appended, a persisted text when its entry is written,
  * and a text still streaming at its last delta (`deliveredAt`). Rows that carry no prose -- steps,
@@ -24,8 +24,10 @@ export function turnElapsedMs(messages: readonly ChatMessage[], endIndex: number
     const message = messages[index]
     if (!message) return undefined
     if (message.role === 'user') {
-      if (!isNavigationEligibleUserPrompt(message) || !message.timestamp || landed === undefined) return undefined
-      return landed >= message.timestamp ? landed - message.timestamp : undefined
+      // §164: the host's start on this message; Pi's stamp only for one the host never recorded.
+      const sent = message.sentAt ?? message.timestamp
+      if (!isNavigationEligibleUserPrompt(message) || !sent || landed === undefined) return undefined
+      return landed >= sent ? landed - sent : undefined
     }
     const at = proseLandedAt(message)
     if (at !== undefined) landed = Math.max(landed ?? at, at)

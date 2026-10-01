@@ -192,6 +192,23 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
       send({ type: "agent_event", event: { kind: "end", agentId: "agent-1", runId: "run-1", ok: false, aborted: true, at: new Date().toISOString() } });
       return;
     }
+    if (command.message.startsWith("__echo_user__") || command.message.startsWith("__echo_user_late__")) {
+      // Real Pi's shape for an accepted prompt (contract §164): the user row is written with Pi's
+      // own millisecond stamp on the message, then echoed on message_end with the same message.
+      // `__echo_user_late__` waits first, standing in for the host's preparation time.
+      const echo = () => {
+        const message = { role: "user", content: [{ type: "text", text: command.message }], timestamp: Date.now() };
+        const row = { type: "message", id: `user-${message.timestamp}`, parentId: null, timestamp: new Date(message.timestamp).toISOString(), message };
+        if (sessionPath) { try { appendFileSync(sessionPath, JSON.stringify(row) + "\n"); } catch {} }
+        send({ type: "agent_start" });
+        send({ type: "message_start", message });
+        send({ type: "message_end", message });
+        send({ type: "agent_settled" });
+      };
+      if (command.message.startsWith("__echo_user_late__")) setTimeout(echo, 300);
+      else echo();
+      return;
+    }
     if (command.message === "__user_followup__") {
       send({
         type: "message_end",

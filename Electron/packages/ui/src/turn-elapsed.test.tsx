@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MessageView } from './Transcript'
-import { applyStreamEvent, historyMessages, type ChatMessage } from './transcript-model'
+import { appendLiveUserMessage, applyStreamEvent, historyMessages, type ChatMessage } from './transcript-model'
 import { formatTurnElapsed, turnElapsedMs } from './turn-elapsed'
 
 afterEach(cleanup)
@@ -58,6 +58,23 @@ describe('turnElapsedMs', () => {
       { id: 'c', role: 'assistant', content: '', timestamp: 18_500, presentation: { renderer: 'coc-mechanics', details: { mechanics: [], marked_text: '门开了。' } } },
     ])
     expect(turnElapsedMs(messages, messages.length - 1)).toBe(17_500)
+  })
+
+  it('starts at the host taking the message, not where Pi stamped it (§164)', () => {
+    const messages = historyMessages([
+      { id: 'u', role: 'user', content: '我推开门', timestamp: 3_400, sentAt: 1_000 },
+      { id: 'c', role: 'assistant', content: '', timestamp: 18_500, presentation: { renderer: 'coc-mechanics', details: { mechanics: [], marked_text: '门开了。' } } },
+    ])
+    expect(messages[0].sentAt).toBe(1_000)
+    expect(turnElapsedMs(messages, 1)).toBe(17_500)
+  })
+
+  it('takes the host start onto the bubble the player just sent, so live and reload agree (§164)', () => {
+    const sent: ChatMessage[] = [{ id: 'local', role: 'user', content: '我推开门', timestamp: 900 }]
+    const echoed = appendLiveUserMessage(sent, { id: 'u', content: '我推开门', sentAt: 1_000 }, { id: 'local', content: '我推开门' })
+    expect(echoed).toHaveLength(1)
+    expect(echoed[0].sentAt).toBe(1_000)
+    expect(turnElapsedMs([...echoed, card(18_500)], 1)).toBe(17_500)
   })
 })
 
