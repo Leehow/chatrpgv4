@@ -19,6 +19,7 @@ import {fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt} from "@earen
 import {createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager} from "./pi.mjs";
 import {waitFor} from "./wait.mjs";
 import {keepQuotationMarks, shapeLines, spliceSpeech} from "../../extensions/speech-edit/lines.ts";
+import {SPEECH_EDIT_FACT_QUESTION} from "../../runtime/jev/speech-edit-facts-domain.ts";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 const JEV_URL = "https://api.typesafe.ai/v1/systemone";
@@ -163,6 +164,9 @@ test("an edit lands as the overlay and one card patch: only the edited span bodi
 	assert.equal(jev.length, 1);
 	assert.equal(jev[0].model, "jev-1.13.0");
 	assert.deepEqual(Object.values(jev[0].questions).map(question => question.type), ["noul", "noul"]);
+	// The contract's question (§165.4 gate 3, amended 2026-10-01), asked of each line on its own.
+	assert.deepEqual(Object.values(jev[0].questions).map(question => [question.instructions.instruction.includes(SPEECH_EDIT_FACT_QUESTION), question.instructions.target]),
+		[[true, "lines[0]"], [true, "lines[1]"]]);
 	assert.deepEqual(jev[0].state.lines, [{original: LINE_A, edited: EDIT_A}, {original: LINE_B, edited: EDIT_B}]);
 
 	// §165.5.1: the kernel keeps the delivery and holds the edit beside it.
