@@ -1,5 +1,5 @@
 import readline from "node:readline";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 
 const send = value => process.stdout.write(JSON.stringify(value) + "\n");
 /** Tests pass FAKE_PI_PROMPT_LOG to assert which prompt commands reached the child. */
@@ -190,6 +190,26 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
       // The runtime extension aborts every worker; simulate its terminal events.
       durableAgent = false;
       send({ type: "agent_event", event: { kind: "end", agentId: "agent-1", runId: "run-1", ok: false, aborted: true, at: new Date().toISOString() } });
+      return;
+    }
+    if (command.message.startsWith("__echo_user__") || command.message.startsWith("__echo_user_late__")) {
+      // Real Pi's shape for an accepted prompt (contract §164): the user row is written with Pi's
+      // own millisecond stamp on the message, then echoed on message_end with the same message.
+      // `__echo_user_late__` waits first, standing in for the host's preparation time.
+      const echo = () => {
+        const message = { role: "user", content: [{ type: "text", text: command.message }], timestamp: Date.now() };
+        // Chained to the last row with an id, as Pi chains a transcript: history reads the leaf branch.
+        let parentId = null;
+        try { for (const line of readFileSync(sessionPath, "utf8").split("\n")) { try { const id = JSON.parse(line)?.id; if (typeof id === "string") parentId = id; } catch {} } } catch {}
+        const row = { type: "message", id: `user-${message.timestamp}`, parentId, timestamp: new Date(message.timestamp).toISOString(), message };
+        if (sessionPath) { try { appendFileSync(sessionPath, JSON.stringify(row) + "\n"); } catch {} }
+        send({ type: "agent_start" });
+        send({ type: "message_start", message });
+        send({ type: "message_end", message });
+        send({ type: "agent_settled" });
+      };
+      if (command.message.startsWith("__echo_user_late__")) setTimeout(echo, 300);
+      else echo();
       return;
     }
     if (command.message === "__user_followup__") {

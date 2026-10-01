@@ -6,5 +6,7 @@
   "actions": "Message actions",
   "illustrate": "Generate illustration",
   "illustrating": "Generating illustration…",
-  "illustrate_failed": "Illustration failed"
+  "illustrate_failed": "Illustration failed",
+  "elapsed_s": "Took {s}s",
+  "elapsed_ms": "Took {m}m {s}s"
 }

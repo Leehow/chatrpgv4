@@ -105,6 +105,8 @@ export type HistoryEntry = {
   role: "user" | "assistant" | "tool" | "compaction";
   content: string;
   timestamp: number;
+  /** user only: the host clock when it began working on this message (contract §164). */
+  sentAt?: number;
   /** assistant only: reasoning text, rendered inside the folded turn card. */
   thinking?: string;
   /** assistant only: tool calls with their raw args JSON. */
@@ -884,7 +886,8 @@ export type UserMcpServer = {
 };
 
 export type StreamEvent =
-  | { type: "user_message"; sessionId: string; content: string; id?: string }
+  /** `sentAt`: the host clock when it began working on this message (contract §164); absent for one it never dispatched. */
+  | { type: "user_message"; sessionId: string; content: string; id?: string; sentAt?: number }
   | { type: "presentation"; sessionId:string; entry:HistoryEntry }
   | { type: "text"; sessionId: string; contentIndex: number; delta: string; segment?: number; replace?: boolean }
   | { type: "thinking"; sessionId: string; contentIndex: number; delta: string; segment?: number }

@@ -42,6 +42,11 @@ export type ChatMessage = {
   activities?: TranscriptActivity[]
   streaming?: boolean
   timestamp?: number
+  /** assistant only, live rows: when the last streamed text reached the screen. A persisted row's
+   *  `timestamp` is already its write time, so history never sets this. */
+  deliveredAt?: number
+  /** user only: the host clock when it began working on this message (contract §164). */
+  sentAt?: number
   images?: { data: string; mimeType: string }[]
   /** assistant only: terminal provider error (stopReason "error") rendered as an error bubble. */
   error?: string
@@ -366,7 +371,7 @@ export function historyMessages(entries: HistoryEntry[]): ChatMessage[] {
       if (entry.fileSources?.length) previous.fileSources = entry.fileSources
       continue
     }
-    messages.push({ id: entry.id, role: entry.role, content: entry.role === 'user' ? stripAttachmentPathsForDisplay(entry.content) : entry.content, timestamp: entry.timestamp, ...(entry.role === 'assistant' && entry.help ? { help: entry.help } : {}), ...(entry.role === 'assistant' && entry.errorMessage ? { error: entry.errorMessage } : {}), ...(entry.role === 'assistant' && entry.citations?.length ? { citations: entry.citations } : {}), ...(entry.role === 'assistant' && entry.fileSources?.length ? { fileSources: entry.fileSources } : {}), ...(entry.role === 'user' && entry.images?.length ? { images: entry.images } : {}) })
+    messages.push({ id: entry.id, role: entry.role, content: entry.role === 'user' ? stripAttachmentPathsForDisplay(entry.content) : entry.content, timestamp: entry.timestamp, ...(entry.role === 'assistant' && entry.help ? { help: entry.help } : {}), ...(entry.role === 'assistant' && entry.errorMessage ? { error: entry.errorMessage } : {}), ...(entry.role === 'assistant' && entry.citations?.length ? { citations: entry.citations } : {}), ...(entry.role === 'assistant' && entry.fileSources?.length ? { fileSources: entry.fileSources } : {}), ...(entry.role === 'user' && entry.images?.length ? { images: entry.images } : {}), ...(entry.role === 'user' && entry.sentAt !== undefined ? { sentAt: entry.sentAt } : {}) })
   }
   return messages
 }
@@ -512,7 +517,7 @@ export function applySecretRedact(messages: ChatMessage[], patches: readonly Sec
   return changed ? next : messages
 }
 
-export function appendLiveUserMessage(messages: ChatMessage[], incoming: { content: string; id?: string; images?: ChatMessage['images'] }, match?: { id: string; content: string }): ChatMessage[] {
+export function appendLiveUserMessage(messages: ChatMessage[], incoming: { content: string; id?: string; images?: ChatMessage['images']; sentAt?: number }, match?: { id: string; content: string }): ChatMessage[] {
   const raw = incoming.content
   if (!raw) return messages
   const content = displaySecretPlaceholders(stripAttachmentPathsForDisplay(raw))
@@ -523,7 +528,7 @@ export function appendLiveUserMessage(messages: ChatMessage[], incoming: { conte
     const index = messages.findIndex(item => item.id === match.id)
     if (index >= 0) {
       const next = [...messages]
-      const merged = { ...next[index], id: incoming.id ?? next[index].id, content, images: next[index].images?.length ? next[index].images : incoming.images }
+      const merged = { ...next[index], id: incoming.id ?? next[index].id, content, images: next[index].images?.length ? next[index].images : incoming.images, ...(incoming.sentAt !== undefined ? { sentAt: incoming.sentAt } : {}) }
       next[index] = merged
       return next
     }
@@ -537,11 +542,12 @@ export function appendLiveUserMessage(messages: ChatMessage[], incoming: { conte
       id: incoming.id ?? last.id,
       content,
       images: last.images?.length ? last.images : incoming.images,
+      ...(incoming.sentAt !== undefined ? { sentAt: incoming.sentAt } : {}),
     }
     next[next.length - 1] = merged
     return next
   }
-  return [...messages, { id: incoming.id ?? `user-${Date.now()}`, role: 'user', content, timestamp: Date.now(), ...(incoming.images?.length ? { images: incoming.images } : {}) }]
+  return [...messages, { id: incoming.id ?? `user-${Date.now()}`, role: 'user', content, timestamp: Date.now(), ...(incoming.sentAt !== undefined ? { sentAt: incoming.sentAt } : {}), ...(incoming.images?.length ? { images: incoming.images } : {}) }]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -747,11 +753,13 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     }
     if (event.delta) target.splice(first < 0 ? target.length : first, 0, {type:'text',id:`text:${segment}:${event.contentIndex}`,contentIndex:event.contentIndex,segment,content:event.delta,final:true})
     updated.content = target.filter(activity => activity.type === 'text').map(activity => activity.content).join('')
+    updated.deliveredAt = Date.now()
     changed = true
   } else if (event.type === 'text') {
     const nextContent = updated.content + event.delta
     if (nextContent !== updated.content) {
       updated.content = nextContent
+      updated.deliveredAt = Date.now()
       changed = true
     }
     const pendingIndex = (activities ?? []).findIndex(isPendingThinking)

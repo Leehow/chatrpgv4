@@ -104,6 +104,7 @@ import {
 } from "./extension-seed.js";
 import { attachCatalogDiagnostics, buildAgentCatalog } from "./agent-catalog.js";
 import { readSubagentDebugInfo, removeSubagentDebugInfo } from "./subagent-debug-info.js";
+import { copySentTimes, PendingSends, readSentTimes, recordSentTime, removeSentTimes } from "./sent-times.js";
 import { nativeSearchRuntimeCatalog } from "./generic-search-filter.js";
 import { enrichCapabilitiesForOfficialHostedSearch } from "./hosted-search-capabilities.js";
 import { extractHistoryCitations, extractHistoryCodeInterpreter, extractHistoryFileSources, isHostedAssistantEvent, projectHostedAssistantEvent } from "./hosted-search-stream.js";
@@ -1692,6 +1693,9 @@ async function readHistoryFallback(
     lanes: await laneLabels(cocBinding),
     ...(cocHost ? {ui: await cocUiWords(cocHost.repo, cocHost.contentRoot, cocBinding?.home || cocHost.home, cocBinding?.play_language)} : {}),
   };
+  // §164: when the host took each player message, keyed by Pi's own stamp on it. Read before the
+  // line stream opens: an await between opening it and iterating it loses its lines and its close.
+  const sentTimes = await readSentTimes(path);
   const lines = createInterface({
     input: jsonlSnapshotStream(path, byteEnd),
     crlfDelay: Infinity,
@@ -1715,6 +1719,8 @@ async function readHistoryFallback(
     const secrets = vaultDir && sessionId ? revealRedactionSecrets(vaultDir, sessionId) : [];
     const mapped = visibleHistoryEntry(entry, secrets, cocBinding?.play_language, cocPresentations, cocWords, cocDraft, cocCards.patchesFor(entry?.id),cocBinding);
     if (!mapped) continue;
+    const sentAt = mapped.role === "user" && entry?.type === "message" ? sentTimes.get(entry.message?.timestamp) : undefined;
+    if (sentAt !== undefined) mapped.sentAt = sentAt;
     mappedById.set(mapped.id, mapped);
   }
   return pageIds.flatMap(id => {
@@ -2539,6 +2545,8 @@ export class PiHostBackend implements HostBackend {
    * pi's ack only proves the text entered its in-memory steering queue, which
    * an aborted/compacted turn can drop; settle recycles them to the FIFO head. */
   private unconfirmedSteers = new Map<string, QueuedDispatchPayload[]>();
+  /** Contract §164: dispatches begun and not yet echoed by Pi, for the start of the player's wait. */
+  private readonly pendingSends = new PendingSends();
   private turnWatchdogTimer?: NodeJS.Timeout;
   private cocWatchdogRecoveryTimers = new Map<string, NodeJS.Timeout>();
   /** Earliest unread presentation byte for one watchdog recovery chain. */
@@ -3261,6 +3269,7 @@ export class PiHostBackend implements HostBackend {
     this.manualTitleOverrides.delete(id);
     if (sessionPath) this.historyCache.delete(sessionPath);
     this.turnTelemetry.clearSession(id);
+    this.pendingSends.clear(id);
   }
 
   /** Graceful connection teardown for hosts that allocate one backend per client. */
@@ -4559,6 +4568,7 @@ export class PiHostBackend implements HostBackend {
             agentDir: this.agentDir,
           });
           await removeSubagentDebugInfo(s.path);
+          await removeSentTimes(s.path);
           // The workspace binding sidecar is session-owned: it must not outlive the session.
           await clearSessionWorkspaceFile(dirname(s.path), s.header.id);
           this.historyCache.delete(s.path);
@@ -6837,11 +6847,16 @@ export class PiHostBackend implements HostBackend {
           // Pi echoes an injected steer back as a user message_end — that is
           // the delivery receipt the steer ack alone never gives us.
           if (message.role === "user") this.confirmUnconfirmedSteer(id, content);
+          // §164: this echo is the message the host began on at `sentAt`; Pi's stamp is its key.
+          const sentAt = message.role === "user" ? this.pendingSends.take(id, content) : undefined;
+          if (sentAt !== undefined && typeof message.timestamp === "number")
+            void recordSentTime(live.path, message.timestamp, sentAt).catch(() => undefined);
           this.stream({
             type: "user_message",
             sessionId: id,
             id: typeof message.id === "string" ? message.id : typeof e.id === "string" ? e.id : undefined,
             content: redactText(content, secrets),
+            ...(sentAt !== undefined ? { sentAt } : {}),
           });
         }
       }
@@ -9541,6 +9556,8 @@ export class PiHostBackend implements HostBackend {
     for(const row of tail as any[]) {row.id=crypto.randomUUID();row.parentId=parentId;row.timestamp=stamp;parentId=row.id;}
     await fs.writeFile(childMeta.path,[header,...prefix,...tail].map(r=>JSON.stringify(r)).join('\n')+'\n');
     await fs.writeFile(childMeta.path+'.coc.json',JSON.stringify(binding)+'\n');
+    // §164: the prefix keeps Pi's stamps on its user messages, so it keeps their waits too.
+    await copySentTimes(source.session.path,childMeta.path);
     const fresh=await readSessionMeta(childMeta.path),stat=await fs.stat(childMeta.path);
     this.rememberSessionMeta(fresh,stat.size,stat.mtimeMs);
     const session=this.toSession(fresh);
@@ -11244,6 +11261,8 @@ export class PiHostBackend implements HostBackend {
     const generation = runtimeToken;
     const recordTurn = behavior === "prompt";
     if (recordTurn) this.turnTelemetry.beginDispatch(id, payload.turnTelemetry);
+    // §164: the player's wait starts here, before lease, cold start and preparation.
+    const send = this.pendingSends.note(id, payload.text, Date.now());
     let leaseAttempt: SessionLeaseAttempt | undefined;
     let leaseCommitted = false;
     try {
@@ -11310,6 +11329,7 @@ export class PiHostBackend implements HostBackend {
       leaseCommitted = true;
     } catch (error) {
       if (!leaseCommitted) await this.rollbackSessionLeaseAttempt(leaseAttempt);
+      this.pendingSends.drop(id, send);
       // A revoked dispatch must not terminalize telemetry belonging to a new
       // lifecycle that reused this session id.
       if (recordTurn && this.sessionRuntimeTokenIsCurrent(id, runtimeToken)) this.turnTelemetry.failDispatch(id);
