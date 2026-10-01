@@ -11481,6 +11481,41 @@ current player utterance, evidenced by real delivered dialogue, not merely a
 lineup attribution score. Deterministic tests prove wiring, migration and refusal;
 only genuine-table dialogue proves that the voice is natural.
 
+### 40.9 Speech serves the present exchange (2026-10-01)
+
+The owner supplied two threats that explained witnesses, payment paperwork and a police call while the speaker
+was being attacked. Their intended replacements use ordinary spoken wording and put the immediate consequence
+at the centre. The second replacement is still several sentences: this is a pragmatic relevance failure,
+not a sentence-length failure. Narration Craft 2.1.7 changes generation guidance, not settlement authority.
+
+- Before writing a line, the Keeper considers what this person is doing to this listener now, their present
+  feeling, and what both already know. Wording, emphasis and detail serve that conversational purpose. Shared
+  context may carry reasons that need not be said aloud. Urgent danger favours the immediate warning or
+  consequence; extended explanation, pleading, evasion and deliberate official airs remain available when
+  this speaker and moment warrant them. Hidden knowledge never implies compulsory verbosity.
+- The full instruction teaches this decision with illustrative English speech; the per-turn brief carries
+  its compact reminder. Examples supply neither campaign facts nor reusable threat scripts. The voice mask
+  still determines flexible register, never a fixed length. No semantic classifier, word blacklist, new
+  model lane, foreground review, speech length cap or language-specific branch is added. The existing
+  continuity audit retains its intelligibility and factual scope; it is not made a literary-style gate.
+- Existing campaign package locks remain frozen. Adoption uses the ordinary explicit safe-boundary
+  `mods.configure` upgrade; no save, old card or delivered line is rewritten.
+
+**Three ends and validation.** Writer: the Keeper generating each line. Reader: the active package's full
+instruction on entry and brief on later requests, already covered by the real-provider capture test.
+Actor: the same Keeper delivers the line through ordinary `narrate`/`ask`. Existing request-capture and package
+budget checks prove delivery of the guidance, not conversational quality. Genuine-table acceptance uses
+`tests/play/driver.py`, Grok Build 4.7 fast/low and this main session as the only player. Inspect actual ordinary
+answers and pressure replies for relevance, spoken idiom, character fit and retained facts, rather than
+grading by character count or requiring a particular replacement sentence.
+
+**Precedent.** Potts, [Presupposition and implicature](https://web.stanford.edu/~cgpotts/manuscripts/potts-blackwellsemantics.pdf),
+describes interpretation through shared context and contributions fitted to conversational purpose.
+Mateas and Stern, [Structuring Content in the Façade Interactive Drama Architecture](https://ojs.aaai.org/index.php/AIIDE/article/view/18722),
+organize dialogue as responsive character behaviour in the current interaction. These support the proposed
+focus on context and conversational action, not a universal brevity rule. Façade uses authored behaviours;
+this product keeps open-language judgement with the Keeper and does not import its behaviour library.
+
 ## 41. A refused player input is never the player's sentence (2026-09-16)
 
 Retained live evidence, campaign `game-3dd94f0a-4b26-41bc-96fa-f89a60abb143`, turn 36, 2026-09-16T00:14:
