@@ -48,9 +48,9 @@ export const DECIDED_UNDER_UNCERTAINTY_NOTE = 'The host decided these points und
   + 'A chosen roll was executed by the host and its receipt is committed. '
   + 'For no_roll, narrate the attempt and its outcome by your own judgement only where the host has not refused that consequence and no player-owned value remains open. '
   + 'A no_roll with why including player_choice settles only that no check is made; it does not settle success or failure. Do not choose the withheld value, imply a hit or miss, or narrate harm, injury, a condition change, incapacitation, forced movement, or another consequence that depends on that check. '
-  + 'Keep the fiction immediately before the unresolved consequence, or let an NPC or the situation return the choice to the player in character. A host refusal that says an outcome cannot land constrains narration too. '
+  + 'When why includes player_choice, narrate only settled events before the consequence, then end with a present NPC or immediate situation returning that choice to the player in character. Do not leave the declared action hanging mid-motion or ask out of fiction. A host refusal that says an outcome cannot land constrains narration too. '
   + 'For a world scope, play the message as in-fiction action; if it also plainly asks something out of fiction, answer that part briefly in fiction-neutral words and keep playing. '
   + 'When why includes player_choice, the open value was the player\'s own choice about their investigator (which target, weapon, defence, approach or act) and was not made for them: '
-  + 'narrate without that roll, or let the fiction put the choice back to the player in character (a person\'s question, the situation pressing); never as an out-of-fiction request. '
+  + 'narrate without that roll and let a present person or immediate situation put the choice back to the player in character (a person\'s question, the situation pressing); never as an out-of-fiction request. '
   + 'Otherwise do not mention this uncertainty, and do not ask the player to clarify, confirm or repeat. '
   + 'If later facts disagree, reconcile forward in the story; never retract what was told.';
