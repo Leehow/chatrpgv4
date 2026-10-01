@@ -6605,6 +6605,13 @@ it does not move the item into the weapons section. Explicit weapons retain thei
 weapon presentation. The internal combat catalog may still hold usage-backed rows
 for either category; the public sheet is a separate projection.
 
+*Note, 2026-09-30 (the kernel tests):* `tests/kernel/test_mods.py`'s prefetch cases are about prefetch itself
+(idempotent acceptance, record reuse, invalidation, negative results, turn binding, generator disable, worldline
+snapshots, targets), so their fixture object is now a `weapon` definition; with the ordinary `item` it had, all ten
+stopped at this gate. The gate has its own case, `test_prefetch_refuses_an_ordinary_item`: an ordinary item's
+`mods.job` usage proposal is refused `needs` with `details.reason: "usage_requires_action"` and writes nothing,
+while the weapon beside it is still prepared (with the job-creation check removed, only that case fails).
+
 **Who writes, who reads, who acts.** After a committed turn the host may request
 optional usage proposals for physical instances in the active scene or held by
 investigators/NPCs. The same tool-enabled creator writes at most one plausible
