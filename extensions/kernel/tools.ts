@@ -88,6 +88,18 @@ const IntentResult = {
 	intent_ref: Type.Optional(Type.String({ description: "the intention this effect is a result of (see apply)" })),
 	intent_outcome: Type.Optional(StringEnum(["attempted", "done", "failed", "abandoned"] as const, { description: "where it stands after; default done" })),
 };
+/**
+ * Contract §162: the form of a string argument that carries prose the player reads. grok-4.7-build-fast, writing
+ * prose inside or beside a structured write, sometimes sends its own JSON encoding of the text as the value (9 of 33
+ * such arguments since 2026-09-30, against 1 of 112 for a narrate on its own); with this sentence on the field the
+ * probe's rebuilt request went from 3/5 to 0/7. The backslashes are characters of the description: the model reads
+ * `\n` and `\u`, not a line break. Every prose-carrying parameter ends with it, through `withPlainProse`.
+ */
+export const PLAIN_PROSE = "Write the prose itself: not a quoted or JSON-encoded string, no \\n or \\u escapes";
+/** Contract §162: a prose parameter's description, ending with `PLAIN_PROSE` as one more sentence. */
+export const withPlainProse = (description: string): string =>
+	`${description}${description.endsWith(".") ? " " : ". "}${PLAIN_PROSE}`;
+
 /** The one place the effects' `intent_ref` / `intent_outcome` are explained (§143.7). */
 export const INTENT_RESULT_EXPLAINED = "Any effect may carry intent_ref when it is the result of what someone set out to do: the ref of that intention (present[].history.intents[].ref, director.offer), which may be someone else's than the effect's subject (the porter comes up because someone shouted); intent_outcome is where that intention stands after the effect, default done (the effect is what happened).";
 
@@ -761,7 +773,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
-			narrate: Type.Optional(Type.String({ description: "this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead" })),
+			narrate: Type.Optional(Type.String({ description: withPlainProse("this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead") })),
 		}),
 	},
 	{
@@ -775,8 +787,9 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 			using_skill: UsingSkill,
 			text: Type.Optional(
 				Type.String({
-					description:
+					description: withPlainProse(
 						"Fiction and observable consequences only, in the campaign's play_language. No roll results, numbers from receipts, or mechanical questions.",
+					),
 				}),
 			),
 			kind: Type.Literal("mechanics"),
@@ -795,7 +808,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Deliver this turn's narration and close the turn",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
-			text: Type.String({ description: "this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened and every spoken line inside {{say:Name}}…{{/say}}" }),
+			text: Type.String({ description: withPlainProse("this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened and every spoken line inside {{say:Name}}…{{/say}}") }),
 			workpad_patch: WorkpadPatch,
 		}),
 	},
