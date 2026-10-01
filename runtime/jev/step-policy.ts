@@ -242,9 +242,10 @@ export interface RunView {
   requireInteractionScope?: boolean;
   referenceRouted?: boolean;
   /** §159: a check that remains unresolved is a notice, never a model-owned operation. */
-  unresolvedChecks?: Array<{candidate: string; needs: string[]}>;
+  unresolvedChecks?: Array<{candidate: string; needs: string[]; preparation?: {decision: string; needs: string[]}}>;
   checkRefreshUsed?: boolean;
   heldCheckDecisions?: string[];
+  heldCheckPreparations?: string[];
   runId: string;
   rawInput: string;
   stateVersion: number;
@@ -1050,8 +1051,14 @@ export function settleCheckSelection(view: RunView, candidate: Candidate, result
       basis: {...basis, ...(compile ? {check_request_compile: compile} : {}), selection: result.option.key, ...(result.snapshot ? {selection_snapshot: result.snapshot} : {})}};
     view.pending.unshift({kind: 'direct', purpose: 'execute', candidate: selected});
   } else if (result.status === 'unresolved') {
-    holdCheckDecision(view, candidate);
-    view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate: label, needs: result.needs}];
+    if (result.preparation) {
+      const key = checkHoldKey(view.context.scene, candidate);
+      if (key && !view.heldCheckPreparations?.includes(key)) view.heldCheckPreparations = [...(view.heldCheckPreparations ?? []), key];
+      view.pending.unshift({kind: 'infer', purpose: 'adjudicate', reason: 'check_preparation', candidate,
+        extra: {preparation: result.preparation}});
+    } else holdCheckDecision(view, candidate);
+    view.unresolvedChecks = [...(view.unresolvedChecks ?? []), {candidate: label, needs: result.needs,
+      ...(result.preparation ? {preparation: result.preparation} : {})}];
   }
   // There need not be a fresh read before the next route. Retire this evaluated snapshot now.
   view.candidates = view.candidates.filter(item => !view.consumed.includes(item.key)
@@ -1130,8 +1137,15 @@ function holdCheckDecision(view: RunView, candidate: Candidate): void {
   if (key && !view.heldCheckDecisions?.includes(key)) view.heldCheckDecisions = [...(view.heldCheckDecisions ?? []), key];
 }
 function applyFresh(view: RunView, fresh: Fresh): void {
+  const executable = (candidate: Candidate) => {
+    const options = object(candidate.detail).check_options;
+    return Array.isArray(options) && options.map(object).some(option => Array.isArray(option.needs) && option.needs.length === 0
+      && Array.isArray(option.parameters) && option.parameters.map(object).every(parameter => parameter.available === true));
+  };
+  view.heldCheckPreparations = view.heldCheckPreparations?.filter(key => !fresh.candidates.some(candidate => checkHoldKey(fresh.context.scene, candidate) === key && executable(candidate)));
   view.context = fresh.context;view.candidates = fresh.candidates.filter(candidate => (!view.interactionScope || view.interactionScope.mode === 'world') && !view.consumed.includes(candidate.key)
-    && (!checkHoldKey(fresh.context.scene, candidate) || !view.heldCheckDecisions?.includes(checkHoldKey(fresh.context.scene, candidate)!)));view.stateVersion++;
+    && (!checkHoldKey(fresh.context.scene, candidate) || !view.heldCheckDecisions?.includes(checkHoldKey(fresh.context.scene, candidate)!)
+      && !view.heldCheckPreparations?.includes(checkHoldKey(fresh.context.scene, candidate)!)));view.stateVersion++;
   if (fresh.rows) view.rows = fresh.rows;
   // A forced step the state no longer forces (the Keeper's own batch settled it first) is not owed any more.
   const live = new Set(view.candidates.map(candidate => candidate.key));

@@ -30345,3 +30345,23 @@ An unsupported row with no issued effect refuses as `owed_unresolved`, telling t
 matching effect exists; it cannot be landed by guessing an `object` call. Ordinary object/cash
 ownership checks and atomic mixed-batch refusal remain unchanged. Verify this repair in the same
 real road journey before attributing the premature handoff solely to planning.
+
+### 159.10 Missing check arguments are preparation, not semantic uncertainty (2026-09-30)
+
+The real road ambush was narrated with no registered present pursuer. The chase catalog therefore
+contained only a non-executable placeholder without actor or target. Asking whether the player
+flees "this person" cannot establish that absent binding. If every eligible option has explicit
+source/argument needs or empty parameter domains, return a typed preparation need before asking
+Jev necessity. The route selected a capability to examine, not permission to roll or invent facts.
+
+The existing Keeper agent receives an adjudication step to prepare source material, participant
+identity/presence and profiles through existing read/preparation/apply tools. Model-origin resolve
+remains forbidden. A separate scene/decision preparation hold survives unrelated bookkeeping;
+only a fresh issued catalog with an executable option releases it and permits Jev to adjudicate
+again. Semantic uncertainty and failed admission retain their existing hold. No confidence gate
+changes. Parameter availability is host-owned metadata, not a model judgment.
+
+Preparation remains an unresolved outcome boundary. Its player notice waits until accepted delivery
+if preparation is still pending; a successfully prepared and adjudicated attempt must not leave
+an obsolete notice. Native source tools still own PDF reading and graph preparation; none of this
+licenses the player context to read future private material or the agent to invent numeric rules.
