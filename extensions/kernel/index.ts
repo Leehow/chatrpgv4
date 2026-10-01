@@ -2500,11 +2500,13 @@ export default function (pi: ExtensionAPI) {
 		await record({lane: 'forced-player-choice-cue-host', event: 'delivery-preflight', turn: pending.turn, run: pending.run, path,
 			status: review.status, choice_count: pending.choices.length, draft_sha256: draftHash,
 			...(review.status === 'unavailable' ? {reason: review.reason} : {cue_scores: review.cueScores, outcome_scores: review.outcomeScores})});
-		if (review.status === 'reject') throw new KernelError({code: 'needs',
+		if (review.status === 'reject') throw new KernelError({code: 'needs', next: 'narrate',
 			message: 'This narration was not delivered because the unmade player choice was not clearly returned in character, or it implied an outcome that depends on the unrolled check.',
-			fix: 'Revise the draft to narrate only settled events and end with a present person or immediate situation returning the unmade choice to the player in character. Then retry this narration or this still-needed apply with the revised draft. This refused tool call executed none of its effects; do not repeat effects accepted in earlier calls or reroll.',
+			fix: path === 'embedded'
+				? 'The apply effects already landed and stand as settled receipts. Do not repeat them. Use narrate to revise only the prose: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character.'
+				: 'Use narrate with a revised draft: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character. Keep accepted receipts and do not reroll.',
 			details: {reason: 'forced_player_choice_cue_review', path, cue_scores: review.cueScores, outcome_scores: review.outcomeScores,
-				choice_count: pending.choices.length, operation_executed: false}});
+				choice_count: pending.choices.length, delivery_executed: false}});
 		state.forcedPlayerChoiceCueChecked = {turn: pending.turn, draftHash};
 	}
 
@@ -4512,14 +4514,6 @@ export default function (pi: ExtensionAPI) {
 					details:{reason:'narration_transport_fragment'}, fix:'Resend raw play-language prose in text. Do not JSON-encode the string or include an outer quote/object delimiter. Keep committed receipts and do not reroll.'});
 				payload.text = transported.text;
 				await reviewForcedPlayerChoiceCue(state, payload.text, signal, narratePath);
-			}
-			if (spec.name === 'apply' && embeddedNarrateText !== undefined
-				&& state.forcedPlayerChoiceCue?.turn === state.turn) {
-				const transported = narrationTransport(embeddedNarrateText);
-				if (transported.malformed) throw new KernelError({code: 'invalid_params', message: 'Narration is a serialized JSON field fragment, not raw prose',
-					details: {reason: 'narration_transport_fragment', operation_executed: false},
-					fix: 'Resend raw play-language prose in narrate. Do not JSON-encode the string or include an outer quote/object delimiter. Keep this apply\'s effects in the next tool call if they are still needed; nothing from this refused call executed.'});
-				await reviewForcedPlayerChoiceCue(state, transported.text, signal, 'embedded');
 			}
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
 			// §135.31: the delivery carries the turn's look/lookup calls to its turn record (host-only; after the Mod hooks).

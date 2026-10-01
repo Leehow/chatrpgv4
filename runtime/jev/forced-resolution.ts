@@ -30,7 +30,7 @@ export function forcedResolution(entry: Omit<ForcedResolution, 'key'>, salt: Jso
 }
 
 export const FORCED_CHOICE_CUE_FAMILY = 'forced-player-choice-cue';
-export const FORCED_CHOICE_CUE_MIN = 0.75;
+export const FORCED_CHOICE_CUE_MIN = 0.60;
 export const FORCED_CHOICE_OUTCOME_MAX = 0.25;
 export type ForcedPlayerChoice = Pick<ForcedResolution, 'family' | 'subject' | 'uncertain'>;
 export type ForcedChoiceCueReview = {status: 'pass' | 'reject'; cueScores: number[]; outcomeScores: number[]}
