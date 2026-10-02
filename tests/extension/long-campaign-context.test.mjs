@@ -59,7 +59,10 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
     // 2026-10-01 (§161): 192 KiB -> 200 KiB. narration-craft 2.1.5's full instruction (+604 B in the brief message) and
     // the capsule head's present[].now line (+252 B) put the largest request, measured raw here, at 197,208 B against
     // 196,608, while the policy's own measure (telemetry request_bytes) peaked at 191,429; the stored branch is ~790 KB.
-    const ceiling = 200 * 1024, turns = 6;
+    // 2026-10-02 (§168): 200 KiB -> 208 KiB. narration-craft 2.1.10-2.1.11's first-arrival and first-meeting paragraphs
+    // put the largest raw request at 204,633 B on the Mac and 204,830 B on the Linux box (its longer workspace path rides
+    // in the messages) against 204,800; the stored branch is ~797 KB, so the ceiling is still far below it.
+    const ceiling = 208 * 1024, turns = 6;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-ceiling', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: turns}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
