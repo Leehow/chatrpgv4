@@ -75,3 +75,10 @@ test('the opening keeps the clock and the scene as the table opened them', () =>
   for (const text of [openingInstruction({prologue, playLanguage: 'zh-Hans'}), openingInstruction({playLanguage: 'en', modContext: {}})])
     assert.ok(text.includes('the clock and the scene stay as the table opened them: the hour goes into the prose'), text);
 });
+
+test('every form of the opening says the investigator is addressed as you', () => {
+  // Blood Road (2026-10-02): "from the investigator's card" alone, and the opening began in the third person by name.
+  for (const text of [openingInstruction({prologue, playLanguage: 'zh-Hans'}), openingInstruction({prologue: {...prologue, guide: 'Steven Knott'}, playLanguage: 'en'}),
+    openingInstruction({playLanguage: 'en'})])
+    assert.ok(text.includes('addressing the investigator as you'), text.slice(0, 200));
+});

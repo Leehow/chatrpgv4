@@ -36,13 +36,15 @@ export function openingInstruction(facts: OpeningFacts): string {
 	const lead = facts.prologue !== undefined && facts.prologue !== null
 		? "The setup context records the prior meeting, and the investigator now exists: " + known +
 			"The committed prologue below was shown to the player word for word: do not repeat its sentences; continue from where it stops. " +
-			(guide ? "Say where the investigator stands now -- who this person is to them and what brought the investigator here -- from the investigator's card and the prologue; "
-				: "Say where the investigator stands now and what brought them here, from the investigator's card and the prologue; ") +
+			// Blood Road (2026-10-02): told only to say this "from the investigator's card", the opening began "Rosa sat alone at the wheel" in
+			// the third person by the card's name, and turned to "you" two paragraphs later.
+			(guide ? "Say where the investigator stands now -- who this person is to them and what brought the investigator here -- from the investigator's card and the prologue, addressing the investigator as you; "
+				: "Say where the investigator stands now and what brought them here, from the investigator's card and the prologue, addressing the investigator as you; ") +
 			"never state that either of them lacks something. Then the place and the people present as they are now in front of the investigator, as the active prose package's opening and first-sight rules say, " +
 			react +
 			"No keys or money were granted. If pending_action exists, preserve that player request instead of asking for the same decision again; " +
 			"carry it forward through normal rules and state receipts, never claim unrecorded resources. Committed prologue: " + JSON.stringify(facts.prologue)
-		: "There is no prior meeting. Begin the scene, orientation first: when and where this is, who the investigator is here in public terms, and why they are here; " +
+		: "There is no prior meeting. Begin the scene, orientation first, addressing the investigator as you: when and where this is, who the investigator is here in public terms, and why they are here; " +
 			"then the place and the people present, as the active prose package's opening and first-sight rules say.";
 	// Blood Road's prologue, prepared from the book before anyone made a character, welcomes and is stared at in the plural;
 	// with one investigator at the table the owner then explained knowing her name by "someone in the car called you", in
