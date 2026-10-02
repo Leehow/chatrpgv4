@@ -160,7 +160,11 @@ test('a turn the policy cannot prepare is bounded, not answered with the whole s
 test('a turn with more tool traffic than the ceiling allows keeps the newest evidence and drops the oldest', async t => {
     // Well above the incompressible floor (the book briefing, the bounded history and this turn's
     // own input) so the squeeze can only land on the tool traffic the turn keeps accumulating.
-    const ceiling = 192 * 1024;
+    // 2026-10-02 (§168.2, §115, narration-craft 2.1.12, enhanced-items 1.3.1): 192 KiB -> 200 KiB. About 700 B of
+    // prompt (the opening's party and clock lines, the untold epithet line, the two packages' new sentences) put the
+    // worst squeezed request at 196,720 and 196,815 B on the Linux box against 196,608: the floor itself, so nothing
+    // was left to drop. The squeeze still has to bind at 200 KiB (`squeezed.length` below).
+    const ceiling = 200 * 1024;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-squeeze', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: 3}, (_, turn) => busyTurn(long(turn + 1), 14)).flat()]});
