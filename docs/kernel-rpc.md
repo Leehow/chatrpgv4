@@ -21733,7 +21733,10 @@ compared against that count on all three paths:
     writes stand, only the embedded narrate is refused, and the refusal says what landed.
 - **Once the steer is spent**, `state.steeredThisTurn` guards every one of the three checks above the same way it
   already guards the implicit floor and the speech steer: a second leg below the count still delivers, because the
-  alternative is a stranded turn.
+  alternative is a stranded turn. One protocol-only exception: an implicit draft whose trimmed prose exactly equals a
+  registered COC tool name is not narration. If a steer remains, it spends that steer; if the steer is already spent,
+  the host drops it and uses the existing unfinished-turn notice/release path rather than committing the tool label.
+  This compares membership in the closed tool-name set only; it reads no natural-language intent or content.
 
 Telemetry: `{lane: "floor", reason: "below_floor", path: "explicit" | "embedded" | "implicit", chars}` (plus
 `min_chars`, and, for the implicit path, the existing `steered`/`round_trips`). The refused explicit/embedded call
