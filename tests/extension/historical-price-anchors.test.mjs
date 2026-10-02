@@ -21,6 +21,7 @@ async function fixture(t) {
         : q.key === 'price_disputed' ? {status: 'answered', type: 'noul', noul: control.challenge ? 0.99 : 0.01}
         : q.key.startsWith('anchor_') ? {status: 'answered', type: 'noul', noul: control.compatible ? 0.95 : 0.01}
         : q.key.startsWith('price_anchor_') ? {status: 'answered', type: 'noul', noul: control.qualified ? 0.99 : 0.01}
+        : q.key.startsWith('period_') ? {status: 'answered', type: 'noul', noul: 0.99}
         : q.type === 'noul' ? {status: 'answered', type: 'noul', noul: 0.01}
         : {status: 'answered', type: 'choice', choice: 'analogous'}]))};
   };

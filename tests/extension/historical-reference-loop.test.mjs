@@ -55,16 +55,44 @@ test('nothing is searched when the need is declined, the action is urgent, the M
     if(options.setting)assert.deepEqual(prefetchRows(f,'skipped').map(row=>row.reason),['no_setting']);
   }
 });
-test('a search still running is waited for within the turn budget; past it only a result already back is handed over',async()=>{
+test('a search still running is waited for, however long the turn has run (owner, 2026-10-02: never stopped by time)',async()=>{
   const slow=await table({setting:SETTING,port:()=>new Promise(resolve=>setTimeout(()=>resolve(READY),30))});
   assert.deepEqual(slow.clerk.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]]);
   let elapsed=0;
-  const spent=await table({setting:SETTING,now:()=>elapsed,port:()=>{elapsed=46000;return new Promise(resolve=>setTimeout(()=>resolve(READY),1500));}});
-  assert.equal(spent.clerk?.historical_reference_materials,undefined,'a spent turn does not wait for the search');
-  assert.deepEqual(prefetchRows(spent,'delivered').map(row=>row.status),['not_back']);
-  elapsed=0;
-  const back=await table({setting:SETTING,now:()=>elapsed,port:()=>{elapsed=46000;return READY;}});
-  assert.deepEqual(back.clerk.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]],'a result already back costs no time');
+  const late=await table({setting:SETTING,now:()=>elapsed,port:()=>{elapsed=120000;return new Promise(resolve=>setTimeout(()=>resolve(READY),30));}});
+  assert.deepEqual(late.clerk.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]],'two minutes into the turn the search is still waited for');
+  assert.deepEqual(prefetchRows(late,'delivered').map(row=>row.status),['ready']);
+});
+
+// Owner 2026-10-02: the fast model writes the scene's query in English (runtime/jev/history-query.ts), once per scene.
+const writer=(answers)=>{const calls=[];return {calls,async write(facts){calls.push(facts);const next=answers.shift();return next;}};};
+test('the fast model\'s English query is what the scene searches, written once per scene from the authored facts',async()=>{
+  const lane=writer([{ok:true,query:'1937 Soviet provincial archive reading room',objective:'How such a reading room looked and worked in 1937.',ms:4},
+    {ok:true,query:'1937 Soviet provincial town main street',objective:'Street life of a 1937 Soviet provincial town.',ms:4}]);
+  const f=await table({setting:SETTING,port:()=>READY,historyQuery:lane});
+  assert.deepEqual(lane.calls,[{era:'October 1937',place:'Archive Hall',summary:'Reading room with card catalogues',background:'NKVD and sovkhoz state farms'}]);
+  assert.deepEqual(f.searches.map(request=>request.query),['1937 Soviet provincial archive reading room']);
+  assert.equal(f.searches[0].objective,'How such a reading room looked and worked in 1937.');
+  assert.deepEqual(prefetchRows(f,'started').map(row=>[row.query_source,row.query]),[['fast_model','1937 Soviet provincial archive reading room']]);
+  assert.equal(f.clerk.historical_reference_materials.query,'1937 Soviet provincial archive reading room');
+  const again=await f.turn('r2');
+  assert.equal(lane.calls.length,1,'a scene already looked up asks the lane nothing');
+  assert.equal(again.historical_reference_materials.query,'1937 Soviet provincial archive reading room');
+  await f.turn('r3','street');
+  assert.equal(lane.calls.length,2);
+  assert.equal(f.searches.at(-1).query,'1937 Soviet provincial town main street');
+});
+test('a lane that writes no query searches nothing this turn, keeps nothing, and the scene is tried again next turn',async()=>{
+  const lane=writer([{ok:false,reason:'timeout',detail:'no answer within 6000 ms',ms:6000},
+    {ok:true,query:'1930s Soviet provincial archive memoir',objective:'How such an archive was then.',ms:4}]);
+  const f=await table({setting:SETTING,port:()=>READY,historyQuery:lane});
+  assert.equal(f.searches.length,0,'no authored-wording fallback is searched');
+  assert.deepEqual(prefetchRows(f,'skipped').map(row=>[row.reason,row.query_failure]),[['no_query','timeout']]);
+  assert.equal(f.clerk.historical_reference_materials,undefined);
+  assert.deepEqual(prefetchRows(f,'delivered').map(row=>row.status),['no_query']);
+  const again=await f.turn('r2');
+  assert.deepEqual(f.searches.map(request=>request.query),['1930s Soviet provincial archive memoir'],'the scene is tried again with a written query');
+  assert.deepEqual(again.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]]);
 });
 
 test('need decision and model lookup grant share the current authored setting after refresh',async()=>{
@@ -78,14 +106,14 @@ test('need decision and model lookup grant share the current authored setting af
   assert.equal(grant.historical_reference.context.period,'October 1937');
 });
 
-async function table({enabled=true,needed=true,narrator=true,now,setting,urgent=false,port}={}) {
+async function table({enabled=true,needed=true,narrator=true,now,setting,urgent=false,port,historyQuery=null}={}) {
   const bus=new Map(),handlers=new Map(),announced=[],batches=[],rows=[],searches=[];
   const places={archive:{display_name:'Archive Hall',summary:'Reading room with card catalogues'},street:{display_name:'Main Street'}};
   let scene='archive';
   const pi={events:{on:(name,fn)=>bus.set(name,fn),emit:(name,value)=>{if(name==='coc:model-step')announced.push(value);bus.get(name)?.(value);}},
     on:(name,fn)=>handlers.set(name,fn),registerTool:()=>{},getActiveTools:()=>['look','lookup','recall','apply','resolve','narrate','ask'],setActiveTools:()=>{}};
   const engine=createHybridEngine({env:{[EXA_ENV]:'test-exa-key',TYPESAFE_API_KEY:'test-jev-key',COC_NARRATOR_ONLY:narrator?'on':'off'},
-    ...(now?{now}:{}),record:row=>rows.push(row),
+    ...(now?{now}:{}),record:row=>rows.push(row),historyQuery,
     npcAct:null,decision:{decide:async batch=>{batches.push(batch);return {batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='historical_reference_interrupts_action'?urgent?0.95:0.01:q.key===HISTORY_NEED&&needed?0.95:0.01}])),issues:[],coverage:{required:[],answered:[],unknown:[]}};}}});
   engine.extension(pi);
   pi.events.emit('coc:kernel-bridge',{campaign:'c',call:async method=>method==='table.capsule'
@@ -179,15 +207,15 @@ test('native final-answer modes keep the stable tool definitions and transport f
   }
   assert.equal(historyFinalAnswerPayload('unsupported',{}),undefined);
 });
-test('the existing whole-turn budget closes optional history even when local reads are fast',async()=>{
+// Owner, 2026-10-02: the turn gets under 60 s by optimisation, never by being stopped -- the turn's time no longer closes
+// optional history; only the retrieval's own allowance does (the terminal-result test above).
+test('the turn\'s time never closes optional history, however long the turn has run',async()=>{
   let elapsed=0;const f=await table({now:()=>elapsed,narrator:false});
   await f.call('historical_reference',{reference_mode:'saved'},{kind:'historical_reference',status:'ready',materials:[{excerpts:['A saved period fact.']}]});
-  assert(!(await f.project()).includes(HISTORY_CLOSED),'the first successful read did not itself exhaust the resource');
-  elapsed=45001;
-  const note=await f.project();assert(note.includes(HISTORY_CLOSED));assert(note.includes('turn_budget_exhausted'));
+  elapsed=120000;
+  const note=await f.project();assert(!note.includes(HISTORY_CLOSED));assert(!note.includes('turn_budget_exhausted'));
   const attempted=await f.call('historical_reference',{reference_mode:'catalog'});
   assert.equal(attempted.refuse,undefined);
-  assert.deepEqual(attempted.historical_reference.retrieval,{state:'closed',reason:'turn_budget_exhausted'});
-  const final=f.handlers.get('before_provider_request')({payload:{input:[],tools:[]}},{model:{api:'openai-responses'}});
-  assert.equal(final.tool_choice,'none');
+  assert.equal(attempted.historical_reference.retrieval,undefined);
+  assert.equal(f.handlers.get('before_provider_request')({payload:{input:[],tools:[]}},{model:{api:'openai-responses'}}),undefined,'no tool-less final answer forced by time');
 });

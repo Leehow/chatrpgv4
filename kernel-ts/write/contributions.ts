@@ -233,6 +233,7 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
             }
         }
         else if (kind === 'clue' || kind === 'item' || kind === 'cash') {
+            if(kind==='cash'&&receipt.settlement==='quote')continue;
             const id = npcId(graph, kind === 'cash' ? receipt.with : receipt.from);
             if (!id)
                 continue;
@@ -250,11 +251,11 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                     receipt: receipt.id ?? null
                 });
             if (kind === 'cash') {
-                const quick = receipt.settlement === 'spending_level';
+                const quick = receipt.purchase_amount !== undefined;
                 item.exchanged.push({
                     cash: quick ? receipt.purchase_amount ?? null : intLike(receipt.delta) ? Math.abs(number(receipt.delta)) : receipt.delta ?? null,
                     direction: quick || intLike(receipt.delta) && number(receipt.delta) < 0 ? 'paid' : 'received',
-                    ...(quick ? { settlement: 'spending_level' } : {}),
+                    ...(quick ? { settlement: receipt.settlement } : {}),
                     currency: receipt.currency ?? null,
                     turn,
                     receipt: receipt.id ?? null

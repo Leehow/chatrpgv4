@@ -106,3 +106,43 @@ test('a failed selector does not throw away an already obtained source snapshot'
   const recovered=await f.create().search({...f.input,binding:'retry-locally',reference_mode:'saved',allowed:false});
   assert.equal(recovered.status,'ready');assert.equal(f.network(),1);
 });
+
+// Owner, 2026-10-02: a new scene searches the web. On the installed App's Blood Road table five present-day travel pages,
+// saved on turn 1, were judged loosely relevant and stood in for a bar, a gas station and a general store; the host's
+// scene queries never reached Exa. The host's lookup reuses only a reference saved for this very query.
+test('the host scene lookup searches the web unless this very query was saved; the Keeper\'s own lookup still reuses loosely',async t=>{
+  const f=await fixture(t);await f.create().search(f.input);
+  assert.equal(f.network(),1);
+  const scene={...f.input,binding:'scene-2',turn:2,query:'1920s Boston second-hand bookshop',libraryMatch:'exact',requested_by:'host'};
+  const fresh=await f.create().search(scene);
+  assert.equal(fresh.origin,'web');assert.equal(f.network(),2,'a loosely relevant saved page does not stand in for a new scene');
+  const again=await f.create().search({...scene,binding:'scene-3',turn:3});
+  assert.equal(again.origin,'library');assert.equal(f.network(),2,'the same scene query reuses what it fetched');
+  const keeper=await f.create().search({...f.input,binding:'keeper-4',turn:4,query:'How were old stories filed at this paper?'});
+  assert.equal(keeper.origin,'library');assert.equal(f.network(),2);
+});
+// Owner, 2026-10-02: an excerpt must show how things were at that time. Applicability alone kept present-day listings.
+test('an excerpt Jev does not judge to show that period is dropped whatever its applicability',async t=>{
+  const f=await fixture(t),rows=[];
+  const period=score=>async batch=>contextPolicy(batch)??({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,
+    q.key.startsWith('period_')?{status:'answered',type:'noul',noul:score}
+      :q.type==='noul'?{status:'answered',type:'noul',noul:0.9}:{status:'answered',type:'choice',choice:'direct'}]))});
+  const modern=await f.create({decide:period(0.12),record:row=>rows.push(row)}).search(f.input);
+  assert.equal(modern.status,'empty');assert.equal(modern.reason,'no_applicable_excerpts');assert.deepEqual(modern.materials,[]);
+  assert.deepEqual(rows.at(-1).periods,{'https://example.org/library':0.12},'the period score is recorded for calibration');
+  const then=await f.create({decide:period(0.81)}).search({...f.input,binding:'input-2',turn:2});
+  assert.deepEqual(then.materials.map(row=>row.excerpts),[[excerpt]]);
+});
+// Calibrated on live Jev (2026-10-02): present-day pages scored 0.04-0.24, first-hand memoirs of the period 0.31-0.49.
+test('kept excerpts go highest period score first, and the threshold sits between present-day pages and memoirs',async t=>{
+  const f=await fixture(t);
+  const two=async()=>Response.json({results:[{title:'A later blog',url:'https://example.org/blog',highlights:['A blog post about the old store.']},
+    {title:'A 1975 feature',url:'https://example.org/feature',highlights:['In 1975 the store sold feed, nails and cold drinks.']}]});
+  const scored=(blog)=>async batch=>contextPolicy(batch)??({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,
+    q.key==='period_1'?{status:'answered',type:'noul',noul:blog}:q.key==='period_2'?{status:'answered',type:'noul',noul:0.8}
+      :q.type==='noul'?{status:'answered',type:'noul',noul:0.9}:{status:'answered',type:'choice',choice:'analogous'}]))});
+  const memoir=await f.create({fetcher:two,decide:scored(0.31)}).search(f.input);
+  assert.deepEqual(memoir.materials.map(row=>row.title),['A 1975 feature','A later blog'],'the clearer period source first, the memoir-level one kept');
+  const present=await f.create({fetcher:two,decide:scored(0.24)}).search({...f.input,binding:'input-2',turn:2});
+  assert.deepEqual(present.materials.map(row=>row.title),['A 1975 feature'],'a present-day page is dropped');
+});

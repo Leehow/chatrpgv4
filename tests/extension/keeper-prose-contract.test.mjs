@@ -18,7 +18,12 @@ test('compressed context supplies facts but never the player-facing sentence pat
   // unconstrained beyond not pasting the sentence back and not going against it; npc-voice's natural-reply section returns.
   assert.ok(craft.includes('The player\'s words this turn are what the investigator does'));
   assert.ok(craft.includes('Their sentence is never pasted back in'));
-  assert.ok(craft.includes('Answer the actual question first, with natural connected speech'));
+  // Contract section 40.9: the whole encounter and immediate danger supersede unconditional answer-first.
+  assert.ok(craft.includes('respond to the whole encounter, what was done as well as said'));
+  assert.ok(craft.includes('Immediate danger takes priority over conducting business'));
+  assert.ok(craft.includes('rather than automatically answering it as a request for information'));
+  assert.ok(craft.includes('Answer a genuine question directly when the situation permits, with natural connected speech'));
+  assert.equal(craft.includes('Answer the actual question first, with natural connected speech'), false);
   assert.ok(craft.includes('Same thought, two mouths'));
   assert.equal(craft.includes('do not begin with what the investigator did'), false);
   assert.ok(craft.includes('The facts do not change; their patience does.'));

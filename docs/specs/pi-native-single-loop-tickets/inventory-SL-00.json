@@ -1678,6 +1678,18 @@
       ]
     },
     {
+      "file": "runtime/jev/history-query.ts",
+      "symbol": "createHistoryQueryLane.write",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "Historical Reference: the scene's English query (contract 124.12, owner 2026-10-02)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a (added 2026-10-02)",
+      "note": "Gate: the historical-reference Mod on, Exa and Jev keys, Jev granted the need, and the scene has no kept result. One zero-tool completion on the fast model (PI_COC_HISTORY_QUERY_MODEL, then the fast-model setting, then the table), 6 s, beside the run's other steps; any failure searches the fixed-shape query."
+    },
+    {
       "file": "runtime/jev/npc-act.ts",
       "symbol": "createNpcActLane.generate",
       "kind": "lane",

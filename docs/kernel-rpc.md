@@ -13047,13 +13047,9 @@ There is deliberately no source meaning "a figure the player said". A number a p
 about their own purse is a balance, and §58.4 puts the balance in front of the keeper so it
 does not have to guess which one it is hearing.
 
-`settlement` is optional and defaults to `cash`. `spending_level` is the rulebook's quick
-settlement for an occasional negative `price` or `quote` no greater than the investigator's
-printed Spending Level: `delta` still names the purchase price, but the receipt carries
-`settlement: "spending_level"`, `purchase_amount`, `spending_level`, `delta: 0`, and equal
-`before` / `after` cash. Positive amounts, `found`, missing Spending Level, and amounts above
-the limit are refused. This is not a hidden allowance invented by the Keeper: the value already
-comes from `cash-assets.json` through the investigator's Credit Rating.
+Purchase settlement follows section 58.9. The kernel chooses whether cash changes from the
+expense category, the printed Spending Level and that day's ledger. The optional legacy
+`settlement` field cannot turn a covered purchase into a debit or bypass the daily limit.
 
 ### 58.3 `currency` is declared, not echoed
 
@@ -13103,14 +13099,13 @@ price list can be asked for by name.
   the mechanics card, so a purchase can be read back against what it was based on.
 - **Acts on it.** The keeper, which must answer "from what?" before it may answer "how much",
   has `lookup kind=catalog` to answer it with, and uses the projected Spending Level for quick
-  settlement while escalating clear repeated stacking to a real debit.
+  settlement; the kernel's classified daily ledger settles repeated spending.
 
 ### 58.7 What this section does not decide
 
 It does not compare a charge against the printed price and refuse the difference, and it does
-not detect a currency in prose. Ordinary `settlement: "cash"` still checks affordability exactly
-as before; `settlement: "spending_level"` is the one numeric rule added here and is bounded by the
-printed level. A shape check on the receipt — a `delta` that happens to equal `before` — is a
+not detect a currency in prose. Classified purchase arithmetic and daily coverage follow section
+58.9; actual transfers still check affordability. A shape check on the receipt — a `delta` that happens to equal `before` — is a
 symptom, not this defect: the same mistake at ninety per cent of the balance is silent, and the
 fix for "the number came from nowhere" is a source, not an alarm on one of its shapes.
 
@@ -13129,6 +13124,102 @@ a repair payment from a separate tip. This is a deterministic presentation step 
 on the receipt, with no new model call or wait on the narration path. A later card replacement
 can add or correct a purpose through the existing card-update path while preserving the delivery's
 prose and typewriter progress. Historical records and balances are preserved.
+
+### 58.9 Unified purchases and exact quotations (owner request, 2026-10-02)
+
+The Keeper decides the open semantic question, using `category: living|purchase|transfer` on a
+cash effect. `living` means ordinary accommodation, food or incidental travel within this
+investigator's established living standard; admission judges this claim in context. It leaves
+cash unchanged and does not consume the additional Spending Level. `purchase` is additional
+spending (including an incidental gratuity when appropriate). `transfer` is actual cash moving
+for a non-purchase reason, such as theft, income or a gift. The kernel does not classify prose,
+item names or occupations with lists or regular expressions.
+
+A negative `price`/`quote` requires a category. A legacy explicit `spending_level` supplies
+`purchase` when the category is missing. A `found` amount defaults to `transfer`; the Keeper can
+explicitly classify a negative incidental expense as `purchase`. Positive amounts and already
+delivered owed-cash reconciliation remain actual cash transfers. Missing classification refuses
+before state changes, rather than silently defaulting to a debit. The legacy `cash` selector
+does not override living-standard or Spending Level coverage.
+
+For `purchase`, `finance.daily_spending` stores the current game day, cumulative amount and cash
+already debited for that day's purchases. The day uses the existing pinned opening clock and
+local-midnight calculation. At or below Spending Level no cash is debited. Above it, the full
+daily purchase total is payable: the current debit is total minus cash already debited, so a
+6 + 4 + 1 sequence at a limit of 10 debits 0, 0, then 11, and a subsequent 2 debits 2. This is
+never just the excess over 10. The rule is evaluated in staged sheet order, atomically with the
+whole apply batch, and call replay cannot charge or count a purchase twice. A new day starts a
+new total. Existing unclassified historical receipts and balances are preserved; the ledger
+starts with classified settlements under this contract, without guessing historical categories.
+
+`mode: quote` registers a priced offer without paying it. `quote` is its human-readable name;
+`items` is a bounded list of `{name, quantity, unit_price}`. A quoted NPC price requires `with`;
+a cited printed price may omit the counterparty. The Keeper supplies prices and
+quantities; the kernel calculates each amount and their total with exact decimal arithmetic.
+An optional `delta` must equal the negative computed total or the batch is refused. The quote
+receipt and the apply result expose the computed `purchase_amount` and item amounts before
+the Keeper writes the offer. Structured quotation cards carry the authoritative figures;
+the Keeper uses those figures instead of doing a second sum in dialogue.
+
+Later `mode: settle` (the default) with `quote: <name>` reuses that saved amount, category,
+currency, counterparty and purpose. A mismatched supplied amount or term is refused. A quote
+can be settled once; a repeated RPC call replays its receipt, while a new payment requires a
+new offer. Direct purchases can also carry `items`; omitting delta lets the kernel calculate
+it. Names are semantic references; receipt identifiers remain host-owned.
+
+A one-off counterparty can use its player-visible name/role in `with` without NPC registration.
+Known graph NPCs retain canonical handles and their existing exchange ledger; ambiguous known
+names still refuse. An unregistered label stays on the cash receipt and quotation, and does not
+create an NPC profile. `mode: quote` supplies source quote when omitted (or price with a cited
+price_id); direct cash transfers still require their explicit source. Currency codes remain
+unchanged, never translated or converted.
+
+Receipts and their mechanics retain `category`, `purchase_amount`, `items`, `spending_day`,
+`daily_total`, `daily_debited`, `spending_level` and the chosen `settlement` (`quote`,
+`living_standard`, `spending_level` or `cash`) where applicable. `delta` always means actual cash
+movement. The card displays the quoted/current purchase amount, its purpose, and the daily total
+against the limit, separately from any balance change. The Keeper's capsule reads the daily
+ledger and open quotes. Admission still guards the chosen purchase and any actual commitment;
+recording an offer alone is no acceptance. Quotes and covered purchases are not promised object
+transfers, and cannot land owed-cash rows.
+
+The host obtains a read-only `table.apply.options {cash_effects: <ordered batch>}` preview using
+the same `stageCash` calculation against cloned state. It returns the actual debit alongside
+the purchase price, including same-batch cumulative spending. Admission reads that computed
+debit for the player's cash budget. A host-owned debit ceiling binds the subsequent write; a
+larger debit refuses for fresh preview/admission before any state changes. Unresolved movement
+or time before a purchase must land separately so its game day is established first. This adds
+no model call and never counts or pays an expense during preview.
+
+Writer: `stageCash` stages the quote and per-investigator ledger; reader: apply's quotation
+result, the capsule and the cash mechanics projection; actor: the Keeper quotes the exact result
+and settles the chosen purchase, and the player reads the resulting cash card. No post-delivery
+review, rewrite or model call is added. The existing one-pass narration contract remains.
+
+Precedent: the rulebook pp. 46/95 separates ordinary living expenses from additional daily
+spending. [CoC7 Foundry](https://github.com/Miskatonic-Investigative-Society/CoC7-FoundryVTT/blob/develop/.github/CHANGELOG.md)
+separates Spending Level, cash and a daily spending counter; its human-operated sheet does not
+solve automatic classification. [Stripe quotations](https://docs.stripe.com/api/quotes/create)
+use quantities and decimal unit amounts; this confirms the shared quote/settlement arithmetic
+shape, without importing real-payment policy or infrastructure into this game.
+
+Verification: eight real-TS RPC regressions cover category omission, ordinary living coverage,
+daily full-total debit, replay/restart/midnight, exact quotation reuse, budget preview/ceiling,
+atomic refusals, printed quotations and unregistered counterparty labels. The cash controller's
+11 Python-driven RPC checks and 13 focused UI/typewriter checks pass. The LAN extension suite
+passes 4272 of 4273 checks; its remaining Narration Craft source-text assertion also fails on
+the untouched base and is outside this repair.
+
+Live acceptance uses Flapcode `gpt-6-luna`/low as Keeper (owner override), the main session as
+the only player, and the existing driver. App fast-model settings are mirrored only in the test
+home after a table-following admission lane returned HTTP 400; its healthy fast lane is
+`opencode-go/deepseek-v4.1-flash`. The real table settled a 0.25 living-standard lunch without
+debit or daily accumulation; quoted two waters at 0.05 each plus cigarettes at 0.15 as 0.25;
+settled that purchase without debiting cash; then settled a 12 tool purchase by debiting the
+full daily 12.25, leaving cash 37.75 from 50. Receipts preserve the individual price, cumulative
+total and actual movement separately. Evidence is preserved under the task's
+`purchase-settlement-20261002` playtest archive. Earlier provider failures remain evidence,
+and are not passing live runs. This verifies the source runtime, not a newly packaged App.
 
 ## 59. A card says which of three things is true about opening it (2026-09-16, amends §16.2)
 
@@ -19277,11 +19368,22 @@ SL-44 ticket's Comments.
 
 - *Query.* `sceneQuery` (`runtime/historical-reference.ts`) builds it from the capsule's `historical_setting` and `where`, in one fixed shape. `query` is the era plus the scene's display name. `objective` (Exa: the task the search serves) is one fixed English sentence carrying the scene's display name and summary and the scenario's era and background, at most 512 UTF-16 units. No model writes it and nothing is classified. Without an era or a scene display name there is no query, and nothing is searched (`prefetch` row `skipped`, reason `no_setting`).
 - *Path.* With the table, the kernel extension publishes the bus port `coc:historical-reference` (`search`). It runs the lookup's own search (`historicalSearch`), under the same gates: active Mod, a grant bound to this campaign line and turn, credentials, and the per-input allowance. The host lookup and the Keeper's own lookups share that allowance through the binding `<run>:<turn>`. The search row says `requested_by: "host" | "keeper"`.
-- *Delivery.* The first `compose` or `adjudicate` step after the grant carries the result as `historical_reference_materials` (`origin`, `query`, `status`, `reason`, `authority`, `usage`, and `materials` with their applicability), with the instruction `HISTORY_SUPPLIED`. A search still running is waited for, bounded by its own four-second allowance, unless the run's history is closed or its time budget spent. A result already back is handed over either way.
+- *Delivery.* The first `compose` or `adjudicate` step after the grant carries the result as `historical_reference_materials` (`origin`, `query`, `status`, `reason`, `authority`, `usage`, and `materials` with their applicability), with the instruction `HISTORY_SUPPLIED`. Since 2026-10-02 (owner, after a table where three good period sources reached the Keeper and none appeared in the prose) that instruction asks for one or two concrete details from the excerpts in that reply, unannounced; narration-craft 2.1.10 and historical-reference 1.0.9 say the same. A search still running is waited for, bounded by its own four-second allowance, unless the run's history is closed or its time budget spent. A result already back is handed over either way.
 - *Reuse per scene.* The engine keeps each scene's returned result (`ready` or `empty`) by campaign, worldline, loop and scene. A later granted need at the same scene hands that result over again (`origin: "host_scene_reused"`), with no search and no Jev call. Earlier turns' notes and tool results are not in the Keeper's request (context policy `closedNoise`), so this is how a scene's background stays in front of the Keeper. An `unavailable` result is not kept, so the scene is tried again on a later turn. An App restart empties the store; the scene's query is the same string, so the reference library then answers it without a web search.
 - *Unchanged.* The need and interruption questions and their thresholds. The Keeper's own `lookup kind=historical_reference`: allowed under a granted need, and saved reads without one. It is now for a specific detail the scene's excerpts lack, such as a price baseline. Closure and the price-anchor policy. Reference-scope (out-of-fiction) runs search nothing on the host's initiative and leave lookup to the Keeper.
 
 This deliberately replaces the 2026-09-30 repair's "no automatic per-scene web search". A search still needs the Jev need decision for the current input, and a scene is searched at most once until a search fails or the App restarts. Telemetry: `lane: "historical-reference", event: "prefetch"`, `phase: started | reused | skipped | delivered`. A `delivered` row carries `waited_ms`, `status` (`not_back` when the search was not waited for), `materials` and `reused`. Mod 1.0.8 tells the Keeper the same.
+
+**English query, web for a new scene, and only what shows that time (owner, 2026-10-02, after the first App table of the host scene lookup).** On the installed App's Blood Road table the scene lookups of five turns never reached Exa. The library held five pages from the one web search the Keeper had written on turn 1, in Chinese: two present-day Chinese travel-guide pages about Route 66 towns (phone numbers, opening hours, 2016 motel rates), a Chinese travel blog, a translated novel and one 1970s Texas Monthly article. Jev judged them loosely relevant, so they stood in for a bar, a gas station and a general store, and only one idea in nine turns of prose could be traced to them (the old highway bypassed, so the town emptied). The owner's rulings: 「为什么会用中文搜索，应该用英文吧」, 「1 可以搜」, 「2 肯定是当时的样子」, and the fast model writes the query, once per scene. This amends *Host scene lookup* above and the no-query-writing-pass sentences of this section for this one lane.
+
+- *The English query.* Before a new scene's search, one zero-tool completion on the fast model (`runtime/jev/history-query.ts`, lane `history-query`: `PI_COC_HISTORY_QUERY_MODEL`, then the fast-model setting, then the table; 6 s) reads the authored `sceneFacts` (era, scene name and summary, background) and answers `{query, objective}` in English. The query names the real period, region and kind of place; the objective asks for sources that show how it was then. Any failure (`no_session`, `timeout`, `model_unavailable`, `model_error`, `bad_output`, `cancelled`, `lane_error`) searches nothing that turn and keeps nothing, so the scene is tried again on its next turn (`prefetch` row `skipped`, reason `no_query`). Until the third App table a failure searched the fixed-shape authored wording; there it searched Chinese, matched a Chinese query saved on the first table, and brought back the same present-day travel pages. The fixed shape is searched only where no lane is configured. An over-long answer is cut at a code point to the bounds (query 300, objective 512), not refused; a refused answer's row names its fields and their lengths (third App table: the first answer to the fuller instruction was refused whole, and the scene searched its authored Chinese wording). The `prefetch` row `started` says `query_source: fast_model | fixed_shape` and `query_failure`; the scene's kept result keeps the query it was searched with, so a reuse asks the lane nothing.
+- *Web for a new scene.* The host's request carries `libraryMatch: "exact"`: a reference saved for this very query is reused, and no loosely relevant one is. The Keeper's own lookups keep `auto`'s library-first reuse. The search row says `library_match`. Each scene's host lookup has its own retrieval allowance (binding `<run>:<turn>:<scene>`); the Keeper's lookups keep the input's `<run>:<turn>`. On the third App table a move inside the turn ran the lookup at the scene left and then at the destination, and the first had spent the input's four seconds: the destination's came back `budget_exhausted` and closed history for the turn.
+- *Only what shows that time.* Every selection batch (`selectionBatch`, family version 3) asks, beside each candidate's applicability, the Noul `period_N` (`PERIOD_QUESTION`): does the excerpt show how things actually were at the time and place asked about. Writing from that time counts, and so does a later first-hand account, memoir or oral history of it. Present-day guides, listings, current services, museum notes and catalogue pages with no description do not count. Below `PERIOD_MIN` the candidate is dropped whatever its applicability, for host and Keeper lookups alike. The kept ones are taken highest score first. The search row records each candidate's score as `periods`.
+
+*Second App table (2026-10-02, owner: 「改查询指令，搜当时的文字资料」).* The first English query ("1975 West Texas small-town general store wooden porch interior") found photo-archive catalogue pages with almost no text, scored 0.18–0.38, and the Keeper got nothing. The lane's instruction now aims the query at written accounts of that time and place: first-hand accounts, memoirs, oral histories, newspaper or magazine features, travel writing. The decade, the real region and the kind of place are named with words for such writing (e.g. "1970s rural West Texas country store first-hand account"), and photographs, postcards and catalogues are ruled out. `PERIOD_MIN` is 0.3, calibrated on live Jev with the question above (19 Exa results for three 1970s West Texas scenes):
+  - every present-day page, travel guide, listing and catalogue page scored 0.04–0.24;
+  - first-hand memoirs of mid-century Texas stores and filling stations scored 0.31–0.49, and none reached the first value of 0.5;
+  - one present-day travel blog retelling a 1950 station's history scored 0.32 and gets through.
 
 **Fictional canon and historical analogues (2026-09-30 owner amendment; implemented with controlled service evidence).** Authored and established world facts remain authoritative. A module may mix real history with fictional countries, cultures, institutions, calendars or local rules. Each lookup distinguishes the scenario's own setting from the requested historical reference basis and the aspects being borrowed; there is no mandatory whole-module real/fictional classification. The Keeper selects the basis within ordinary inference, preferring the authored analogue, using compatible player style preferences when none is declared, and marking an inferred one as provisional. Selecting a reference does not authorize changing the fiction. Existing query/objective and the host-bound scenario carry the distinction into the same Jev selection batch and retained acquisition context. Useful stylistic analogies are not rejected solely for having a different real-world name; historical authenticity does not authorize importing rulers, religions, laws, restrictions or political relationships contrary to the fiction. Compatible appearance, materials or practices may inform normal narration and NPC interaction. Price anchors retain original historical units and currency; fictional quotations use an adapted scale, without inventing a fixed exchange rate or searching a fictional object as if it had an exact historical retail price. Saved originals remain unchanged and reuse checks the current fiction and reference purpose. No new research, query-writing, classification or summary model pass, country lookup table or automatic canon correction is introduced. The existing 1.0.5 generic analogy guidance is not evidence that this distinction or ordinary-play enrichment has passed; Implementation and its genuine scene/NPC evidence follow spec section 7.1; a fictional-country live-module pass is not claimed.
 
@@ -22439,6 +22541,20 @@ and a Keeper that makes two batches before it narrates, the run has exactly one 
 note. The step after the Keeper's next batch is `adjudicate` with reason `keeper_carries`. The summary row names the spent
 budget.
 
+#### 135.25 amendment -- the budget is a target, never a limit (owner, 2026-10-02; amends this section and §124.12's closures)
+
+**The ruling.** The owner: 「之前我记得有个特别蠢的规则要限制60秒，这个跟我的意思有出入，我是希望能用优化的方法让它最终速度到60秒内生成完毕，而不是60秒就让他停」. The 60-second goal is reached by making the turn faster. Nothing stops or shortens a turn because time ran on. Asked how, the owner chose: a call that is answering is never cut, a call that has not answered is re-sent once, and 45 s is recorded, not enforced.
+
+**What changed.** The hybrid engine gives the step policy no run budget (`maxRunMs: Infinity`). The policy's budget branches stay, pure and tested, but this engine never reaches them. Past 45 s:
+- the next model step is no longer turned into a forced compose (`run_budget`);
+- no clerk step is deferred (`deferred_by_budget`, `deferred_last_turn`);
+- no person's act is skipped (`npc_act skipped_budget`);
+- the Keeper gets no `budget_note`.
+
+The run's history is no longer closed for time (`turn_budget_exhausted`): only the retrieval's own four-second allowance closes it. The scene lookup is bounded by that allowance and its lane's 6 s, never by the turn. `PI_COC_TURN_BUDGET_MS` (default 45 000) is the target the summary row measures: `lane: "run", event: "budget", decision: "summary"` keeps `budget_ms`, `elapsed_ms`, `elapsed_at_compose` and `over_budget`. It still derives the Keeper call cap's default (§135.29, as amended).
+
+**Evidence that it was a stop, not a speed-up.** On the installed App's Blood Road table (2026-10-02), turns 7 and 9 ran past 45 s and were closed by the budget. On the Haunting, history retrieval closed for `turn_budget_exhausted` after the Keeper had written its query, so the search never ran.
+
 ### 135.26 Scene obligations become the clerk's candidates (2026-09-23, SO-04 of `docs/specs/scene-obligations-as-candidates.md`; amends §135.2, §135.3, §135.5, §135.8, §135.9, §135.20)
 
 The builder reads a scene's obligations from one place, `table.apply.options.obligations` (§134.10): the same rows the
@@ -23089,6 +23205,17 @@ ordinary cap on step 2 when it is on; a real-socket integration test (the `keepe
 mjs` harness) proves the vendored seam itself accepts and freshly resolves a function value, including one
 that changes its answer between attempts, and that the `keeper_call_cap` telemetry row it writes carries
 `step`.
+
+#### 135.29 amendment -- only an unanswered call is capped, and its re-send is not (owner, 2026-10-02, vendored patch 0005; amends the two addenda above)
+
+**The ruling** is §135.25's amendment: speed comes from optimisation, never from stopping a call. On the installed App's Haunting (2026-10-02, turn 5) the Keeper was writing its prose when the 60 s cap cut it, phase `streaming`. The re-send was cut again, and the step ended with nothing delivered.
+
+**The mechanism (`watchCallCap`, `vendor/pi/patches/0005-keeper-call-cap-first-answer.patch`).**
+- The cap covers only the wait for the attempt's first event. Every adapter pushes that event once the provider's response has answered (`start` after the response headers, or after the websocket opens). From then on the timer is gone. A call that is answering runs as long as it produces events, and a stall after the first event is the idle watchdog's (0003), not the cap's. `CallCapPhase` is `first_byte` only.
+- An overrun is worded to be retried (`timed out`), and the session's own retry re-sends the step once. That re-send runs without a cap. No overrun ends a step any more, so the "second time" wording is gone.
+- `keeperCallCapMs` is still resolved before every attempt, and the `keeper_call_cap` row is unchanged.
+
+The default value is unchanged: `max(PI_COC_KEEPER_CALL_CAP_FLOOR_MS, PI_COC_TURN_BUDGET_MS / 2)`, 22 500 ms, or the thinking allowance (60 s) when the Keeper thinks. It now means "no answer at all within this long", the case the 09-25 evidence was about: calls with no first byte for minutes.
 
 ### 135.30 Routing asks what the player does: one compile per run reads the declaration into typed features, and predicates select the clerk's candidates (2026-09-24, SL-13; amends §135.1, §135.6, §135.7, §135.26)
 
@@ -30763,6 +30890,12 @@ Each decoded field is one row, `{lane: "tool_arguments", event: "json_string_dec
 The other exclusions of §158.7 stand: a failed, aborted, truncated, already delivered or closed message; prose outside the envelopes; unknown tools; invalid or coerced arguments. Nothing is read but JSON and the offered schemas.
 
 **Tests.** `tests/extension/encoded-string-argument.test.mjs`: each of the eight recorded arguments decodes to the prose its own shape spells, with its `shapes`. Each shape is reconstructed by hand in the test as the literal it is a fragment of: the A′ brace dropped, B wrapped in quotes, C and D completed to their object. Also: the envelope's head on the field's own name and on the carried parameter's name, with and without whitespace; a tail alone without an escape is left as written; the boundaries above; the survey's other strings (plain prose, ASCII-quoted speech, paths) come back as the same object. Through the real registration: every recorded call on both engines (the fake kernel receives the decoded prose, with the row); B's recorded `narrate.text` on the emitted kernel and the hybrid engine delivers with real line breaks and no backslash. `tests/extension/text-tool-call.test.mjs`: the `{name, arguments}` envelope bare and fenced; the recorded E text routes as `apply` and then `narrate`; a sequence with prose between the fences, one invalid envelope, or one unknown tool routes nothing. Through a real `message_end`, the recorded E text runs both calls and the turn record holds the narrate's prose, not a fence. Mutations (a copy of the file, never `git checkout --`) each turn tests red: each reading removed in turn; the head without its key; a tail alone taken without an escape; `shapes` not recorded; the `{name, arguments}` shape removed; a partial sequence routed; one fence only.
+
+### 160.3 A tool call written as text, `to=functions.<name>`, is restored as that call at `message_end`, in every mode (2026-10-02; extends §160.2)
+
+**Evidence.** On the installed App (2026-10-02, flapcode/gpt-6-luna, character setup), the model had just called `setup` natively. It then wrote its next three calls into the text channel, between its thinking blocks, as ` to=functions.setup  code:\n{"step":"note",...}`, and ended with `stop`. Nothing ran. The three raw lines were shown to the player as the wizard's reply, and the model told the player the card had not been made. §160.2 routes fenced envelopes only, and only in a play turn's implicit close.
+
+**Rule.** The kernel extension registers the first `message_end` handler (`extensions/kernel/textual-tool-calls.ts`). A text block is checked when it holds `to=functions.<name>`, `<name>` is a tool active in this session (`getActiveTools`), and the header is followed by exactly one JSON object that parses, after at most a channel word and a colon on its own line. Such a call is restored as a `toolCall` block where it stood, with an id `textcall_<24 hex>`. The prose around it stays; a text block left empty is dropped; `stop` becomes `toolUse`. Pi replaces the finalized message in place before the loop reads its tool calls, so a restored call runs like a native one and the player never reads the raw line. Anything else is left as it was: an unknown tool, unbalanced or unparsable JSON, a non-object, or words between header and object. It is structural parsing of the chat format's recipient line, never a reading of the prose. Telemetry: `lane: "model-output", event: "textual_tool_calls", restored, provider, model, stop_reason`.
 
 ## 161. What a person feels right now is a ledger row the Keeper writes and reads before they speak (2026-09-30; amends §17.3, §17.4, §17.5, §17.8; follows §142's shape)
 

@@ -131,6 +131,7 @@ import {
 } from "./admission.ts";
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 import { watchOwedReview } from "./owed-review.ts";
+import { restoreTextualToolCalls } from "./textual-tool-calls.ts";
 
 /**
  * One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown.
@@ -1331,6 +1332,18 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 }
 
 export default function (pi: ExtensionAPI) {
+	// A tool call the model wrote as text runs as the call it is (extensions/kernel/textual-tool-calls.ts). Registered
+	// first, so every later `message_end` handler -- this extension's own included -- reads the restored message.
+	pi.on("message_end", (event) => {
+		let active: string[] = [];
+		try { active = typeof pi.getActiveTools === "function" ? pi.getActiveTools() : []; } catch { active = []; }
+		const restored = restoreTextualToolCalls(event.message as any, name => active.includes(name));
+		if (!restored) return undefined;
+		const message = event.message as any;
+		void record({ lane: "model-output", event: "textual_tool_calls", restored: restored.restored,
+			provider: message?.provider ?? null, model: message?.model ?? null, stop_reason: message?.stopReason ?? null });
+		return { message: restored.message };
+	});
 	let runtime: HostRuntime | undefined;
 	let foregroundProviderBudget: (() => TaskProviderBudget | undefined) | undefined;
 	pi.events.on('coc:task-provider-budget', value => { foregroundProviderBudget = typeof value === 'function' ? value as typeof foregroundProviderBudget : undefined; });
@@ -1464,25 +1477,27 @@ export default function (pi: ExtensionAPI) {
 	/**
 	 * §124.12: one historical search under the lookup's gates -- active Mod, the grant's run/turn/binding, credentials and
 	 * the per-input allowance. The Keeper's own lookup carries the grant its model step announced; the host's scene
-	 * prefetch (2026-10-02) carries the grant the engine's need decision gave. The two share the turn's allowance through
-	 * the binding `<run>:<turn>`.
+	 * prefetch (2026-10-02) carries the grant the engine's need decision gave. The Keeper's lookups share the input's
+	 * allowance through the binding `<run>:<turn>`; each scene's host lookup has its own, `<run>:<turn>:<scene>` -- on the
+	 * App's third table the lookup at the scene a move left spent the input's four seconds and the destination's lookup
+	 * came back `budget_exhausted`, closing history for the turn.
 	 */
-	async function historicalSearch(state: TableState, request: {run?: string; grant?: Partial<HistoryInput> & {scope?: any; turn?: number};
+	async function historicalSearch(state: TableState, request: {run?: string; scene?: string; grant?: Partial<HistoryInput> & {scope?: any; turn?: number};
 		requested_by: 'keeper' | 'host'; query: string; objective?: string; reference_mode?: HistoryInput['reference_mode']; name?: string;
-		reference_cursor?: number; signal?: AbortSignal; deadlineAt?: number}): Promise<HistoryResult> {
+		reference_cursor?: number; signal?: AbortSignal; deadlineAt?: number; libraryMatch?: HistoryInput['libraryMatch']}): Promise<HistoryResult> {
 		const grant = request.grant;
 		const campaign = state.campaign, turn = state.turn;
 		const capsule = await state.kernel.call('table.capsule', {campaign});
 		const referenceScope = {owner:'historical-reference', campaign, audience:'keeper' as const,
 			worldline: (capsule as any)._context?.worldline, loop: (capsule as any)._context?.loop};
 		historicalReference ??= new HistoricalReference({home: cocHome(sessionCtx!.cwd), record:event=>{void record(event);}});
-		return historicalReference.search({binding: `${request.run ?? campaign}:${turn}`, turn,
+		return historicalReference.search({binding: `${request.run ?? campaign}:${turn}${request.scene ? `:${request.scene}` : ''}`, turn,
 			scope: referenceScope, enabled: historyEnabled(capsule),
 			allowed: grant?.allowed === true && grant.turn === turn && historyBindingMatches(capsule, grant.scope, turn),
 			retrieval: grant?.turn === turn && historyBindingMatches(capsule, grant.scope, turn) ? grant.retrieval : undefined,
 			query: request.query, objective: request.objective, player_input: state.playerText ?? '',
 			reference_mode: request.reference_mode, name: request.name, reference_cursor: request.reference_cursor,
-			context: historyContext(capsule), requested_by: request.requested_by,
+			context: historyContext(capsule), requested_by: request.requested_by, ...(request.libraryMatch ? { libraryMatch: request.libraryMatch } : {}),
 			signal: request.signal ?? new AbortController().signal, deadlineAt: request.deadlineAt,
 			current: async()=>table === state && state.campaign === campaign && state.turn === turn
 				&& historyBindingMatches(await state.kernel.call('table.capsule', {campaign}), referenceScope, turn),
@@ -2654,8 +2669,21 @@ export default function (pi: ExtensionAPI) {
 	 * already-landed resend (§32.4) both do.
 	 */
 	async function admissionScopeBuilder(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>):
-		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[] }> {
+		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[]; cash?: Record<string, unknown> }> {
 		const destinations: AdmissionDestination[] = [];
+		let cashContext: Record<string, unknown> | undefined;
+		if (tool === 'apply' && Array.isArray(payload.effects) && payload.effects.some((effect: any) =>
+			effect?.kind === 'cash' && effect.mode !== 'quote' && (effect.quote !== undefined || effect.category !== undefined || effect.items !== undefined))) {
+			const capsule = await state.kernel.call<{known?: {investigator?: Record<string, unknown>; cash_quotes?: unknown[]}}>('table.capsule', {campaign: state.campaign, _context_read: true});
+			const previewEffects=payload.effects.map((effect: any)=>{const {_cash_debit_limit:_old,...rest}=effect;return rest;});
+			const preview = await state.kernel.call<{cash_previews?: Array<Record<string, unknown>>}>('table.apply.options',{campaign:state.campaign,cash_effects:previewEffects});
+			for(const row of preview.cash_previews??[]){
+				const index=row.index;
+				if(typeof index==='number'&&typeof row.delta==='number'&&row.delta<=0&&payload.effects[index]?.kind==='cash')
+					payload.effects[index]._cash_debit_limit=-row.delta;
+			}
+			cashContext = {investigator: capsule.known?.investigator, quotes: capsule.known?.cash_quotes ?? [], previews:preview.cash_previews ?? []};
+		}
 		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
 			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
 			try {
@@ -2675,8 +2703,13 @@ export default function (pi: ExtensionAPI) {
 			const own = destinations.filter((value) => targets.has(value.requested));
 			// §143.18: the investigator by name or by the sheet's handle, as the kernel reads `action.actor`. Until 2026-09-26 only
 			// the name was here, so a Keeper's `actor: "thomas-hayes"` read as an NPC and its punch was never reviewed (C4 turn 8).
+			const ownCash=cashContext?{...cashContext,previews:(Array.isArray(cashContext.previews)?cashContext.previews:[]).flatMap((value: any)=>{
+				const original=Array.isArray(payload.effects)?payload.effects[value.index]:undefined,index=effects.indexOf(original);
+				return index>=0?[{...value,index}]:[];
+			})}:undefined;
 			return { party: state.party.flatMap((member) => [member.name, ...(member.id ? [member.id] : [])]), scene: state.scene,
-				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}) };
+				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}),
+				...(ownCash && effects.some(effect => effect.kind === 'cash') ? {cash:ownCash} : {}) };
 		};
 	}
 
@@ -5545,13 +5578,15 @@ export default function (pi: ExtensionAPI) {
 			// the ledger owes, and a review that lands during the read is read before any candidate is built. Nothing waits.
 			pi.events.emit('coc:owed-review', Object.freeze({ campaign, watch: () =>
 				watchOwedReview(table?.campaign === campaign ? table.reviewInFlight : undefined) }));
-			// §124.12 (2026-10-02): the engine's scene prefetch runs the lookup's own search, after Jev granted the need.
-			pi.events.emit('coc:historical-reference', Object.freeze({ campaign, search: (request: { run: string; turn: number; scope: unknown;
+			// §124.12 (2026-10-02): the engine's scene prefetch runs the lookup's own search, after Jev granted the need. A new
+			// scene searches the web: only a reference saved for this very query is reused, never a loosely relevant one.
+			pi.events.emit('coc:historical-reference', Object.freeze({ campaign, search: (request: { run: string; scene?: string; turn: number; scope: unknown;
 				query: string; objective?: string; signal?: AbortSignal; deadlineAt?: number }) => {
 				const state = table;
 				if (!state || state.campaign !== campaign) return Promise.resolve(undefined);
-				return historicalSearch(state, { run: request.run, grant: { allowed: true, turn: request.turn, scope: request.scope as any },
-					requested_by: 'host', query: request.query, objective: request.objective, signal: request.signal, deadlineAt: request.deadlineAt });
+				return historicalSearch(state, { run: request.run, scene: request.scene || undefined, grant: { allowed: true, turn: request.turn, scope: request.scope as any },
+					requested_by: 'host', query: request.query, objective: request.objective, signal: request.signal, deadlineAt: request.deadlineAt,
+					libraryMatch: 'exact' });
 			} }));
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.

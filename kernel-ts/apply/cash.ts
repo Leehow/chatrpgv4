@@ -30,6 +30,10 @@ export function addCash(left: Decimal, right: Decimal): Decimal {
     });
 }
 
+export function multiplyCash(left: Decimal, right: Decimal): Decimal {
+    return normalize({coefficient:left.coefficient*right.coefficient,exponent:left.exponent+right.exponent});
+}
+
 /** Exact ordering without converting a stored decimal back through binary floating point. */
 export function compareCash(left: Decimal, right: Decimal): number {
     const exponent = Math.min(left.exponent, right.exponent);

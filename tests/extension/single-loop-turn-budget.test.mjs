@@ -162,7 +162,9 @@ const clerkNotes = (context) => context.messages.flatMap((message) => {
 	return start < 0 ? [] : [JSON.parse(text.slice(start, text.lastIndexOf("}") + 1))];
 });
 
-test("at the extension seam a move routed after the budget is deferred: not executed, listed to the Keeper now and on the next turn, and every budget decision is a run row", async (t) => {
+// Owner, 2026-10-02: the turn gets under 60 s by optimisation, never by being stopped. The engine gives the policy no run
+// budget: the 45 s is a target the summary row measures (`over_budget`), and a step routed past it still runs.
+test("at the extension seam a move routed after 45 s is still executed: the budget is a target the summary measures, never a limit", async (t) => {
 	const campaign = "test-camp";
 	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [
 		["table.open", {}], ["table.player_input", { text: "我听着" }],
@@ -174,7 +176,7 @@ test("at the extension seam a move routed after the budget is deferred: not exec
 	const engine = createHybridEngine({ env: process.env, now: () => clock.t, decision: { decide: async (batch) => {
 		if (batch.family !== ROUTE_FAMILY) return route(batch);
 		routes++;
-		// The first run's route answers after 50 s (past the 45 s default) and selects the move; the next run finishes.
+		// The first run's route answers after 50 s (past the 45 s target) and selects the move; the next run finishes.
 		if (routes === 1) { clock.t += 50_000; return route(batch, ["Boston Globe offices"]); }
 		return route(batch, [], "finish");
 	} } });
@@ -184,40 +186,29 @@ test("at the extension seam a move routed after the budget is deferred: not exec
 		realKernel: true, prepareWorkspace, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver,
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }, probe],
 		responses: [
-			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("narrate", { text: "你还站在门口。" })], { stopReason: "toolUse" }); },
+			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("narrate", { text: "你走进报馆。" })], { stopReason: "toolUse" }); },
 			(context) => { requests.push(context); return fauxAssistantMessage([fauxToolCall("narrate", { text: "你想了想。" })], { stopReason: "toolUse" }); },
 		],
 	});
 	t.after(() => table.dispose());
 	await table.session.prompt("我去《环球报》报馆。");
 
-	assert.ok(!calls.some((call) => call.id.startsWith("clerk:")), "the clerk wrote nothing after the budget ran out");
-	const [first] = requests;
-	const note = clerkNotes(first).at(-1);
-	assert.equal(note.purpose, "compose");
-	assert.equal(note.reason, "run_budget");
-	assert.deepEqual(note.deferred_by_budget.map((value) => value.key), ["apply:move:newspaper-morgue"]);
-	assert.match(note.budget_note, /close the turn now/);
-	assert.match(note.deferred_note, /nothing was executed/);
-	assert.equal(note.budget.budget_ms, 45_000);
+	assert.ok(calls.some((call) => call.id.startsWith("clerk:") && JSON.stringify(call.input).includes("newspaper-morgue")),
+		`the clerk executed the move past 45 s: ${JSON.stringify(calls)}`);
+	const note = clerkNotes(requests[0]).at(-1);
+	assert.notEqual(note.reason, "run_budget");
+	assert.equal(note.budget_note, undefined, "the Keeper is never told to close the turn because time ran on");
+	assert.equal(note.deferred_by_budget, undefined);
 	const rows = table.telemetry(campaign).filter((row) => row.lane === "run" && row.event === "budget");
-	const decided = rows.find((row) => row.decision === "compose");
-	assert.equal(decided.budget_ms, 45_000);
-	assert.ok(decided.elapsed_ms >= 50_000);
-	assert.deepEqual(decided.deferred_by_budget.map((value) => value.key), ["apply:move:newspaper-morgue"]);
+	assert.ok(!rows.some((row) => row.decision === "compose"), "no step was turned into a forced compose");
 	const summary = rows.find((row) => row.decision === "summary");
 	assert.equal(summary.budget_ms, 45_000);
-	assert.equal(summary.over_budget, true);
-	assert.ok(summary.elapsed_at_compose >= 50_000, "the compose started after the budget");
-	assert.deepEqual(summary.deferred_by_budget.map((value) => value.key), ["apply:move:newspaper-morgue"]);
+	assert.equal(summary.over_budget, true, "the summary still says the turn ran past its target");
+	assert.ok(summary.elapsed_at_compose >= 50_000);
+	assert.deepEqual(summary.deferred_by_budget, []);
 
-	// The next turn's first note to the Keeper says the move was never executed, once.
+	// Nothing was deferred, so the next turn's note carries nothing over.
 	await table.session.prompt("嗯，我再想想。");
-	const carried = clerkNotes(requests[1]).find((value) => value.deferred_last_turn);
-	assert.deepEqual(carried?.deferred_last_turn.map((value) => value.key), ["apply:move:newspaper-morgue"]);
-	assert.ok(table.telemetry(campaign).some((row) => row.lane === "run" && row.event === "budget_carried"));
-	const second = table.telemetry(campaign).filter((row) => row.lane === "run" && row.event === "budget" && row.decision === "summary").at(-1);
-	assert.equal(second.over_budget, false);
-	assert.deepEqual(second.deferred_by_budget, []);
-	assert.ok(Number.isFinite(second.elapsed_at_compose));
+	assert.ok(!clerkNotes(requests[1]).some((value) => value.deferred_last_turn));
+	assert.ok(!table.telemetry(campaign).some((row) => row.lane === "run" && row.event === "budget_carried"));
 });

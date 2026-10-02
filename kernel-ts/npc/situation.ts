@@ -129,6 +129,9 @@ function kindClause(receipt: Row, me: Person, world: Row): string | null {
     if (kind === 'cash') {
         if (!me.is(receipt.with)) return null;
         const who = string(receipt.subject_label || receipt.subject), currency = string(receipt.currency);
+        if(receipt.settlement==='quote')return `${me.label} quoted ${string(receipt.purchase_amount)} ${currency} to ${who}; no payment or object transfer${because(receipt)}`;
+        if(receipt.settlement==='living_standard')return `${who} settled ${string(receipt.purchase_amount)} ${currency} within living standard, with ${me.label}${because(receipt)}`;
+        if(receipt.purchase_amount!==undefined&&receipt.settlement==='cash')return `${who} bought for ${string(receipt.purchase_amount)} ${currency} from ${me.label}; cash changed ${string(receipt.delta)} for cumulative daily spending${because(receipt)}`;
         if (receipt.settlement === 'spending_level')
             return `${who} spent ${string(receipt.purchase_amount)} ${currency} at spending level, with ${me.label}${because(receipt)}`;
         const delta = string(receipt.delta), signed = number(receipt.delta) > 0 ? `+${delta}` : delta;

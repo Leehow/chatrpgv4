@@ -9,8 +9,10 @@ import {contextPolicy} from './fixtures/history-policy.mjs';
 const env = {[EXA_ENV]:'test-exa-credential', TYPESAFE_API_KEY:'test-jev-credential'};
 const raw = {results:[{title:'Archive visitor guide', url:'https://example.org/archive', publishedDate:'2025-01-01',
   highlights:['In 1920 visitors used an index of names before requesting a volume.']}]};
+// Owner 2026-10-02: every candidate also answers whether it shows that period; these fixtures say it does.
+const periodOk = q => q.key.startsWith('period_') ? {status:'answered', type:'noul', noul:0.99} : undefined;
 const decision = async batch => contextPolicy(batch) ?? ({status:'complete', answers:Object.fromEntries(batch.questions.map(q=>[q.key,
-  {status:'answered', type:'choice', choice:'direct'}]))});
+  periodOk(q) ?? {status:'answered', type:'choice', choice:'direct'}]))});
 async function fixture(t, overrides={}) {
   const home=await mkdtemp(join(tmpdir(),'coc-history-')); t.after(()=>rm(home,{recursive:true,force:true}));
   const requests=[], records=[];
@@ -103,11 +105,11 @@ test('a host-owned parent closure returns advisory unavailability before any his
 test('source-less results and unselected excerpts stay empty',async t=>{
   const f=await fixture(t,{fetcher:async()=>Response.json({results:[{url:'https://example.org',title:'Title only'}]})});
   assert.equal((await f.service.search(f.input)).status,'empty');
-  const g=await fixture(t,{decide:async batch=>contextPolicy(batch)??({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'choice',choice:'reject'}]))})});
+  const g=await fixture(t,{decide:async batch=>contextPolicy(batch)??({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,periodOk(q)??{status:'answered',type:'choice',choice:'reject'}]))})});
   assert.equal((await g.service.search(g.input)).reason,'no_applicable_excerpts');
 });
 test('analogous material retains its limited applicability',async t=>{
-  const f=await fixture(t,{decide:async batch=>contextPolicy(batch)??({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'choice',choice:'analogous'}]))})});
+  const f=await fixture(t,{decide:async batch=>contextPolicy(batch)??({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,periodOk(q)??{status:'answered',type:'choice',choice:'analogous'}]))})});
   assert.equal((await f.service.search(f.input)).materials[0].applicability,'analogous');
 });
 test('401 and 429 return bounded failures without echoing provider payloads',async t=>{
