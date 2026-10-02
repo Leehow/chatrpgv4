@@ -31,9 +31,10 @@ Current target: `@earendil-works/pi-coding-agent` 1.0.0. The root `dependencies`
 ### Pi 1.0 upgrade boundary (2026-10-02)
 
 The source authority is upstream `v1.0.0` (`a13d35a742c6ef8462812a28fbe1d8c8b7431c32`)
-plus the same four reviewed patch responsibilities in `vendor/pi/PATCHES.md`.
+plus the original four reviewed patch responsibilities and the mainline's
+first-answer cap refinement (0005) in `vendor/pi/PATCHES.md`.
 The RunDriver still owns one run and does not enter Pi's automatic continuation
-loop. Semantic stream-idle detection and the Keeper call cap stay composed around
+loop. Semantic stream-idle detection and the Keeper first-answer cap stay composed around
 the provider request. Parsed pre-normalization provider events are an observation
 surface, not evidence of normalized progress or permission to extend either cap.
 

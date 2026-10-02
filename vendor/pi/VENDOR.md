@@ -16,7 +16,7 @@ packages the product loads. The ordered series is listed in PATCHES.md.
 ## Snapshot and build boundary
 
 The two packages' src directories, manifests, README, CHANGELOG and build configs
-are copied verbatim before replaying the four patches. The upstream root LICENSE
+are copied verbatim before replaying the reviewed patches. The upstream root LICENSE
 and tsconfig.base.json are included. The coding-agent docs directory is included
 and copied into the built package because builtin tool descriptions reference it.
 Tests, examples, benchmarks, scripts and shrinkwrap are not vendored. The
@@ -42,7 +42,9 @@ The build uses the published define semantics for class fields.
 
 The 1.0 agent-core intentionally removes its experimental harness; it is not a
 production dependency and this upgrade does not add pi-durable. Rebased patches
-retain upstream's native tool errors and tool-update callback shape.
+retain upstream's native tool errors and tool-update callback shape. The original
+four patches are followed by mainline's first-answer cap refinement (0005), also
+rebased onto 1.0; an answering stream is never cut for total duration.
 
 ## Build output and upgrades
 

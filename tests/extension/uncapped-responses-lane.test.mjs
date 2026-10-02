@@ -1,7 +1,7 @@
 /** Real Pi Responses transport against a rejecting HTTP fixture, not a playtest. */
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
@@ -40,6 +40,8 @@ test('native model capability reaches zero-tool completion: funded request succe
  const model=runtime.getModel('transport-fixture','uncapped');
  assert.equal(model.compat.supportsMaxOutputTokens,false);
  assert.ok(FLAPCODE_MODELS.every(model=>model.compat.supportsMaxOutputTokens===false));
+ const manifest=JSON.parse(readFileSync(new URL('../../extensions/flapcode/pipiui-extension.json',import.meta.url)));
+ assert.ok(manifest.auth.provider.models.every(model=>model.compat.supportsMaxOutputTokens===false));
  const lease=output=>new TaskLease({owner:'uncapped-lane-test',goal:'Verify the real completion transport',scope:{owner:'test',audience:'system'},readSet:[],capabilities:[],budget:{deadlineAt:Date.now()+10000,remainingInputTokens:20000,remainingOutputTokens:output,remainingCostUsd:1,remainingActions:2}});
  const invoke=owner=>runLane({ctx:{model,modelRegistry:runtime,sessionManager:{getSessionId:()=>undefined}},providerBudget:createTaskProviderBudget(owner),timeoutMs:5000,
   envName:'UNUSED_TRANSPORT_FIXTURE_MODEL',lane:'transport-test',systemPrompt:'Return one short JSON verdict.',input:'Return {"okay":true}.',shape:value=>value});

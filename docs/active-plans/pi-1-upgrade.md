@@ -199,3 +199,16 @@ history queries, the repaired Narration Craft assertion and a fifth Pi patch
 into this branch and replay/review the fifth patch on 1.0 before landing. The
 prior suite totals describe the initial base, not the combined final tree.
 The dirty blood-road plan and untracked Chinese-expression spec remain foreign.
+
+- Mainline merge into the upgrade branch completed cleanly at d5a85c208. The
+  fifth patch is regenerated against the rebased 1.0 four-patch tree; its
+  first-answer-only/uncapped-resend semantics are preserved. Combined-tree
+  patch/source identity, cap integration, textual tool recovery and corrected
+  prose assertions: 32/32 passed; kernel typecheck passed. Full combined ext
+  run is still in progress and must finish before landing.
+- Native app heartbeat pi-1-0 (current chat, every five minutes) is active for
+  the final primary-runtime switch once the blood-road owner stops. It must
+  stay quiet while that state is unchanged and pause on completion.
+- Pending closeout: preserve ignored .coc evidence outside the owned checkout;
+  classify/close the worktree with the canonical lifecycle CLI after source
+  integration. The task-local remote alias is /tmp/pi-1-upgrade-20261002.
