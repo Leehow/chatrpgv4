@@ -33,10 +33,8 @@ for (const refusal of ['not_authorized', 'uncertain']) {
         call('apply', {effects}),
         call('apply', {effects: effects.map(effect => ({...effect, why: 'The player said fill it up and can afford it'}))}),
         call('narrate', {text: quote}),
-        fauxAssistantMessage('after'),
         call('apply', {effects}),
         call('narrate', {text: 'The attendant fills the tank and takes the payment you offered.'}),
-        fauxAssistantMessage('after'),
       ],
       laneResponses: {admission: Array.from({length: 6}, () => lane(refusal))},
     });
@@ -76,7 +74,6 @@ test('a chosen purchase within Spending Level settles in one turn without a pric
     responses: [
       call('apply', {effects}),
       call('narrate', {text: 'Lunch is brief; you finish and continue into town.'}),
-      fauxAssistantMessage('after'),
     ],
     laneResponses: {admission: [
       answer({verdict: 'entailed', grounds: 'The player chose lunch; Spending Level settles it without a cash debit'}),
@@ -104,7 +101,6 @@ test('Spending Level removes price confirmation, not the need to choose the purc
     responses: [
       call('apply', {effects}),
       call('narrate', {text: 'The menu remains open in front of you; nothing has been ordered.'}),
-      fauxAssistantMessage('after'),
     ],
     laneResponses: {admission: [
       answer({verdict: 'not_authorized', grounds: 'The player only looked at the menu', missing: 'whether to order lunch'}),
@@ -122,7 +118,6 @@ test('an accepted quote is not permission for a different debit in the same turn
       call('apply', {effects: [cash(-5)]}),
       call('apply', {effects: [cash(-7)]}),
       call('narrate', {text: 'The attendant takes the agreed payment. He asks before adding anything else.'}),
-      fauxAssistantMessage('after'),
     ],
     laneResponses: {admission: [
       answer({verdict: 'authorized', grounds: 'The player explicitly offered five dollars'}),

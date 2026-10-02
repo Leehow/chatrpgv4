@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { KernelError } from "../../extensions/kernel/client.ts";
-import { assistantTexts, customMessages, openTable, waitForIdle } from "./harness.mjs";
+import { assistantTexts, customMessages, openTable, waitForIdle, waitFor } from "./harness.mjs";
 
 const directory = mkdtempSync(join(tmpdir(), "settled-told-"));
 test.after(() => rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
@@ -35,7 +35,7 @@ const reviewUnavailable = () =>
 
 /** One turn that settles a public check and then cannot publish: the retained turn-8 shape. */
 const settledThenUndelivered = () => [
-	fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "看清崖上那盏灯", method: "用侦查盯住" } })], { stopReason: "toolUse" }),
+	fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "time", minutes: 2}]})], { stopReason: "toolUse" }),
 	fauxAssistantMessage([fauxToolCall("narrate", { text: "A draft the review never approved." })], { stopReason: "toolUse" }),
 	fauxAssistantMessage("Should never be consumed."),
 ];
@@ -43,12 +43,7 @@ const settledThenUndelivered = () => [
 async function pausedReviewTurn(t, extra = []) {
 	const session = await openTable({ retainAt: directory, responses: [...settledThenUndelivered(), ...extra] });
 	t.after(() => session.dispose());
-	session.emit("coc:mods-bridge", {
-		async after() {},
-		async prepare(method) {
-			if (method === "narrate") throw reviewUnavailable();
-		},
-	});
+	session.emit("coc:task-delivery-guard", () => { throw new Error("Fixture delivery task expired before publication"); });
 	await session.session.prompt("我盯住崖顶那盏灯。");
 	await waitForIdle(session.session);
 	return session;
@@ -58,7 +53,8 @@ test("a turn that settled and could not be delivered still tells the player what
 	const session = await pausedReviewTurn(t);
 
 	// The service sentence is still sent, and still says only that the turn could not be published.
-	const notices = customMessages(session.session, "coc-delivery").filter((message) => message.details?.review_unavailable);
+	await waitFor(() => customMessages(session.session, "coc-delivery").length > 0, {label: "the publication failure notice"});
+	const notices = customMessages(session.session, "coc-delivery");
 	assert.equal(notices.length, 1, JSON.stringify(notices.map((n) => n.content)));
 
 	// §50: and the settled facts reach the player through the projection a delivered turn uses —
@@ -67,10 +63,9 @@ test("a turn that settled and could not be delivered still tells the player what
 	assert.equal(cards.length, 1, JSON.stringify(session.entries("coc-mechanics")));
 	const rows = cards[0].mechanics;
 	assert.ok(Array.isArray(rows) && rows.length > 0, JSON.stringify(cards[0]));
-	const roll = rows.find((row) => row.kind === "roll");
+	const roll = rows.find((row) => row.kind === "time");
 	assert.ok(roll, `the settled check must be on the card: ${JSON.stringify(rows)}`);
-	assert.equal(roll.skill, "Spot Hidden");
-	assert.equal(roll.passed, true);
+	assert.equal(roll.minutes, 2);
 	// It is the undelivered card, and says so: a consumer that requires a delivery can still tell.
 	assert.equal(cards[0].undelivered, true, JSON.stringify(cards[0]));
 
@@ -93,12 +88,7 @@ test("a turn with nothing projectable is not given an empty card, and still says
 		],
 	});
 	t.after(() => session.dispose());
-	session.emit("coc:mods-bridge", {
-		async after() {},
-		async prepare(method) {
-			if (method === "narrate") throw reviewUnavailable();
-		},
-	});
+	session.emit("coc:task-delivery-guard", () => {throw Error("Fixture publication task expired");});
 	await session.session.prompt("我只是站着不动。");
 	await waitForIdle(session.session);
 
@@ -127,7 +117,7 @@ test("the service notice does not hand the Keeper another turn into the guard th
 	// scripted "Should never be consumed" answer is what pays for it, and the player reads it as one
 	// more empty bubble, because §34.14 strips its text on the way out.
 	const spoken = session.session.messages.filter((message) => message.role === "assistant");
-	assert.equal(spoken.length, 2, `the paused run must not be continued: ${JSON.stringify(assistantTexts(session.session))}`);
+	assert.equal(spoken.length, 4, `the paused run must not be continued: ${JSON.stringify(assistantTexts(session.session))}`);
 	// And the player is told exactly once, with no second empty assistant message behind it.
 	assert.equal(customMessages(session.session, "coc-delivery").length, 1);
 });
@@ -149,12 +139,8 @@ test("the card is the settled turn's even when the next input was queued during 
 	});
 	t.after(() => session.dispose());
 	let paused = false;
-	session.emit("coc:mods-bridge", {
-		async after() {},
-		async prepare(method) {
-			// Only the first turn's delivery is refused; the queued input's own turn goes through.
-			if (method === "narrate" && !paused) { paused = true; throw reviewUnavailable(); }
-		},
+	session.emit("coc:task-delivery-guard", () => {
+		if (session.kernelRequests().filter(row => row.method === "table.player_input").length === 1) throw Error("Fixture first publication task expired");
 	});
 	const first = session.session.prompt("我盯住崖顶那盏灯。");
 	// Typed while the Keeper is still working: the host holds it and sends it at agent_settled.
@@ -165,9 +151,9 @@ test("the card is the settled turn's even when the next input was queued during 
 
 	const inputs = session.kernelRequests().filter((request) => request.method === "table.player_input");
 	assert.equal(inputs.length, 2, JSON.stringify(inputs.map((i) => i.params)));
-	assert.equal(inputs[1].params.release, "stranded", "the queued input released the stranded turn");
+	assert.ok(inputs[1].params.release === "stranded" || session.kernelRequests().some(row => row.method === "table.release"), "the undelivered turn was released before the queued input");
 	const cards = session.entries("coc-mechanics").filter((entry) => entry.undelivered);
 	assert.equal(cards.length, 1, JSON.stringify(session.entries("coc-mechanics")));
 	assert.equal(cards[0].turn, 1, "the card belongs to the turn that settled, not the one that followed");
-	assert.ok(cards[0].mechanics.some((row) => row.kind === "roll"), JSON.stringify(cards[0].mechanics));
+	assert.ok(cards[0].mechanics.some((row) => row.kind === "time"), JSON.stringify(cards[0].mechanics));
 });

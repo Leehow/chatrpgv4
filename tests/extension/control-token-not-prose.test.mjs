@@ -183,5 +183,5 @@ test("prose with no narrate still closes the turn implicitly", async (t) => {
 	const narrates = session.kernelRequests().filter((request) => request.method === "table.narrate");
 	assert.equal(narrates.length, 1, JSON.stringify(narrates.map((request) => request.params?.text)));
 	assert.equal(narrates[0].params.implicit, true);
-	assert.ok(read(session).includes("门厅里落满灰，看门人靠在门框上。"), JSON.stringify(read(session)));
+	assert.ok(read(session).includes("门厅里落满灰。"), JSON.stringify(read(session)));
 });

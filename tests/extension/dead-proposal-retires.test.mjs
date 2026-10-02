@@ -128,7 +128,6 @@ const PREPARE_TURN = [
 	fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "roxbury-sanatorium",
 		purpose: "new_destination", request: REQUEST, anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
 	fauxAssistantMessage([fauxToolCall("narrate", { text: "你把出院单折好，先没动身。" })], { stopReason: "toolUse" }),
-	fauxAssistantMessage("你把出院单折好，先没动身。"),
 ];
 
 test("a proposal that failed is told once with its cause and holds nothing back", async (t) => {
@@ -186,11 +185,8 @@ test("a dead proposal is not re-armed at the next turn boundary", async (t) => {
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the walk" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the walk" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "铁门在你身后合上。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("铁门在你身后合上。"),
-			// A third turn, with the dead proposal never mentioned again by anyone.
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5, why: "reading the register" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "登记簿上有一行被划掉了。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("登记簿上有一行被划掉了。"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -217,7 +213,6 @@ test("cold recovery hands back live work and never a corpse", async (t) => {
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 5, why: "drawing the bolt" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "插销拔开了。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("插销拔开了。"),
 		],
 	});
 	t.after(() => table.dispose());

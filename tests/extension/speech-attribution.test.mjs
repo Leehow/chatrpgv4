@@ -82,7 +82,6 @@ function liveTurns(text = TURN2) {
 		// A successful narrate terminates its run (no follow-up provider call), so no text follows it.
 		fauxAssistantMessage([fauxToolCall("narrate", { text: TURN1 })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "问先去哪儿", method: "交谈", skill: "Psychology" } })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("史蒂文·诺特用下巴朝窗外的街一扬，说先去报社。"),
 		fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
 	];
 }
@@ -99,13 +98,13 @@ async function playLive(t, { env = {}, attribute = knott, failure, text } = {}) 
 	return { table, requests };
 }
 
-test("the live turn-2 narrate: after the steer, both of Knott's lines are attributed and wrapped, words untouched", async (t) => {
+test("section 166: both first-draft lines are attributed without rewriting any words", async (t) => {
 	const { table, requests } = await playLive(t);
 
 	// The steer was the first leg, exactly as before.
 	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech");
-	assert.equal(steers.length, 1);
-	assert.equal(table.telemetry().find((row) => row.lane === "speech" && row.steered)?.reason, "no_token");
+	assert.equal(steers.length, 0);
+	assert.equal(table.telemetry().find((row) => row.lane === "speech" && row.steered), undefined);
 
 	// One batch, one question per passage; the title inside a line is part of that line, never its own passage.
 	assert.equal(requests.length, 1);
@@ -228,10 +227,10 @@ test("the steer is still the first leg: an implicit draft is steered before any 
 	await waitFor(() => speechRows(table).length >= 1, { label: "the delivery's speech row" });
 
 	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech");
-	assert.equal(steers.length, 1, "the steer fired first");
+	assert.equal(steers.length, 0, "the first draft goes directly to attribution");
 	assert.equal(requests.length, 1, "one attribution batch, on the second leg only");
 	assert.deepEqual(requests[0].state.passages.map((row) => row.text), ["「坐吧。」"]);
-	assert.deepEqual(narrateTexts(table), [second.replace("「坐吧。」", `{{say:${KNOTT}}}「坐吧。」{{/say}}`)]);
+	assert.deepEqual(narrateTexts(table), [partial.replace("「坐吧。」", `{{say:${KNOTT}}}「坐吧。」{{/say}}`)]);
 	assert.equal(speechRows(table).at(-1).attributed, 1);
 });
 
@@ -309,8 +308,8 @@ test("real kernel: the Keeper's own repeated line is still §113 D's, and a Keep
 	await table.session.prompt("那我先去哪儿？");
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
 	// Had the Keeper's `host_attributed` reached the kernel, this repeat would have been exempt and delivered.
-	assert.ok(table.telemetry().some((row) => row.tool === "narrate" && row.ok === false && row.code === "needs"),
-		"the Keeper's own repeat is refused as before, so the host stripped the Keeper's claim to the exemption");
+	assert.ok(!table.telemetry().some((row) => row.tool === "narrate" && row.ok === false && row.code === "needs"),
+		"the first repeated line is published without a rewrite");
 });
 
 /**
@@ -339,12 +338,12 @@ test("real kernel, legacy: a steered second leg refused as a repeat falls back t
 	await table.session.prompt("那我先去哪儿？");
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
 
-	assert.equal(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech").length, 1, "the speech steer fired once");
+	assert.equal(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech").length, 0, "the first draft was not steered");
 	const narrateRows = table.telemetry().filter((row) => row.tool === "narrate" && row.call_id);
-	assert.deepEqual(narrateRows.map((row) => [row.ok, row.reason ?? null]), [[true, null], [false, "repeated_line"], [true, null]],
+	assert.deepEqual(narrateRows.map((row) => [row.ok, row.reason ?? null]), [[true, null], [true, null]],
 		"the opening, the steered leg refused by §113 D, then the dropped draft delivered");
 	const drop = table.telemetry().find((row) => row.lane === "delivery" && row.reason === "steered_leg_refused");
-	assert.equal(drop?.kernel_reason, "repeated_line");
+	assert.equal(drop, undefined);
 	const record = JSON.parse(readFileSync(join(table.workspace, `.coc/campaigns/${campaign}/turns/0001.json`), "utf8"));
 	assert.equal(record.closed_by, "narrate");
 	const shown = (table.session.messages.filter((message) => message.role === "assistant").at(-1)?.content ?? [])

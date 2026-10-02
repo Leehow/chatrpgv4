@@ -28,10 +28,10 @@ const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
 
 /** One Keeper turn on the real path: a tool call, a delivery, then a discarded tail. */
 const keeperTurn = text => [fauxAssistantMessage([fauxToolCall('look', {})], {stopReason: 'toolUse'}),
-    fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), fauxAssistantMessage('Discarded post-delivery tail.')];
+    fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), ];
 /** A turn that keeps working before it delivers, so its own tool traffic is what grows. */
 const busyTurn = (text, steps) => [...Array.from({length: steps}, () => fauxAssistantMessage([fauxToolCall('look', {})], {stopReason: 'toolUse'})),
-    fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), fauxAssistantMessage('Discarded post-delivery tail.')];
+    fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), ];
 /** Whether the Keeper's narrate of `text` has a tool result in the session. */
 function narrated(session, text) {
     const call = session.messages.flatMap(message => message.role === 'assistant' && Array.isArray(message.content) ? message.content : [])

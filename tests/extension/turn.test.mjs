@@ -22,7 +22,6 @@ test('a map reveal becomes one flattened conversation image and hides its source
 	const table=await openTable({env:{FAKE_KERNEL_MAP:'1'},responses:[
 		fauxAssistantMessage([fauxToolCall('apply',{effects:[{kind:'map',name:'house-map',regions:['entry'],region_labels:{entry:'门厅'},level_labels:{'Ground Floor':'一层'},label:'宅邸地图',why:'看见了门厅'}]})],{stopReason:'toolUse'}),
 		fauxAssistantMessage([fauxToolCall('narrate',{text:'你记下了眼前的格局。'})],{stopReason:'toolUse'}),
-		fauxAssistantMessage('你记下了眼前的格局。'),
 	]});
 	t.after(()=>table.dispose());
 	const moduleDir=join(table.workspace,'.coc/modules/the-haunting');mkdirSync(moduleDir,{recursive:true});
@@ -41,7 +40,6 @@ test("source preparation preserves an empty question while explicit rechecks ret
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower", question: "What is on the upper floor?" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "The tower stands ahead." })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("The tower stands ahead."),
 	] });
 	t.after(() => table.dispose());
 	const requests = [];
@@ -56,7 +54,6 @@ test("a source timeout yields the turn instead of allowing another source query"
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Lena", question: "Her testimony" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Tower", question: "Her testimony" })], { stopReason: "toolUse" }),
 				fauxAssistantMessage([fauxToolCall("narrate", {text:"The source is still being read."})], { stopReason: "toolUse" }),
-		fauxAssistantMessage("The source is still being read. Continue waiting?"),
 	] });
 	t.after(() => table.dispose());
 	let reads = 0;
@@ -81,7 +78,6 @@ test("a pending adaptation blocks the move to its destination, and an unrelated 
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the player's own errand" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "athens-study" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "书房还在准备中；这期间你没有移动，也没有花钱。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("书房还在准备中；这期间你没有移动，也没有花钱。"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -94,7 +90,7 @@ test("a pending adaptation blocks the move to its destination, and an unrelated 
 		"the unrelated write landed; the move to the destination being built did not");
 	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1);
 	assert.equal(table.entries("coc-adaptation-status").at(-1)?.status, "pending");
-	assert.deepEqual(reviewed.find(value => value.method === "narrate")?.payload.preparation_wait, {kind: "adaptation", name: "athens-study"});
+	assert.equal(reviewed.filter(value => value.method === "narrate").length, 0, "no prose review during preparation");
 	assert.ok(deliveryTexts(table).includes("书房还在准备中；这期间你没有移动，也没有花钱。"));
 });
 
@@ -162,11 +158,9 @@ test("a later status control can release a retained adaptation wait without reop
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "prepare", name: "athens-study", purpose: "new_destination", request: "A persistent base", anchors: ["scene: commission-briefing"]})], {stopReason: "toolUse"}),
 			fauxAssistantMessage([fauxToolCall("narrate", {text: "准备仍在后台进行。"})], {stopReason: "toolUse"}),
-			fauxAssistantMessage("准备仍在后台进行。"),
 			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "status", name: "athens-study"})], {stopReason: "toolUse"}),
 			fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "time", minutes: 1, why: "The chosen next step takes one minute."}]})], {stopReason: "toolUse"}),
 			fauxAssistantMessage([fauxToolCall("narrate", {text: "准备完成后，你继续处理自己的安排。"})], {stopReason: "toolUse"}),
-			fauxAssistantMessage("准备完成后，你继续处理自己的安排。"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -188,9 +182,7 @@ test("a real preparation wait survives a later player input until status clears 
 		responses: [
 			fauxAssistantMessage([fauxToolCall("lookup", {kind: "adaptation", action: "prepare", name: "athens-study", purpose: "new_destination", request: "A persistent base", anchors: ["scene: commission-briefing"]})], {stopReason: "toolUse"}),
 			fauxAssistantMessage([fauxToolCall("narrate", {text: "准备仍在后台进行。"})], {stopReason: "toolUse"}),
-			fauxAssistantMessage("准备仍在后台进行。"),
 			fauxAssistantMessage([fauxToolCall("narrate", {text: "同一份准备仍在后台进行；现在没有移动或花费。"})], {stopReason: "toolUse"}),
-			fauxAssistantMessage("同一份准备仍在后台进行；现在没有移动或花费。"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -198,12 +190,8 @@ test("a real preparation wait survives a later player input until status clears 
 	table.emit("coc:mods-bridge", {async after() {}, async prepare(method, payload) {reviewed.push({method, payload});}});
 	await table.session.prompt("先准备据点，没准备好就停下。");
 	await table.session.prompt("我继续等同一份准备。");
-	const narrations = reviewed.filter(value => value.method === "narrate");
-	assert.equal(narrations.length, 2);
-	assert.deepEqual(narrations.map(value => value.payload.preparation_wait), [
-		{kind: "adaptation", name: "athens-study"},
-		{kind: "adaptation", name: "athens-study"},
-	]);
+	assert.equal(reviewed.filter(value => value.method === "narrate").length, 0, "no prose review after a new input");
+	assert.equal(table.kernelRequests().filter(value => value.method === "table.narrate").length, 2);
 });
 
 // §60 narrowed what the scan may hand back: live work, never a corpse. A proposal that is *ready*
@@ -218,7 +206,6 @@ test("cold recovery holds one retained adaptation by semantic name without holdi
 		env: {FAKE_KERNEL_RETAINED_ADAPTATION_STATUS: "ready"},
 		responses: [
 			fauxAssistantMessage([fauxToolCall("narrate", {text: "I continue without checking."})], {stopReason: "toolUse"}),
-			fauxAssistantMessage("I continue without checking."),
 		],
 	});
 	t.after(() => table.dispose());
@@ -368,7 +355,6 @@ test("a settled thinking-only run returns a service notice and releases the turn
 		thought(),
 		thought(),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "The next turn reaches the player." })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("The next turn reaches the player."),
 	] });
 	t.after(() => table.dispose());
 
@@ -403,7 +389,6 @@ test("material_pending retries the exact failed read once, then replays the orig
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "You reach the farm." })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("You reach the farm."),
 		],
 	});
 	t.after(() => table.dispose());
@@ -434,7 +419,6 @@ test("a failed material retry stops after the single automatic continuation", as
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "The farm source is still unavailable." })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("The farm source is still unavailable."),
 		],
 	});
 	t.after(() => table.dispose());
@@ -488,7 +472,6 @@ test("一个玩家回合：七个工具、胶囊、call_id、rendered_text 交�
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "门框上有一道深深的抓痕。" })], {
 				stopReason: "toolUse",
 			}),
-			fauxAssistantMessage("守秘人在 narrate 之后又写的正文，应该被换掉"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -608,7 +591,6 @@ test("every Keeper call leaves its own duration, so a slow turn can be attribute
 	const table = await openTable({
 		responses: [
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "门厅里落满灰。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("守秘人在 narrate 之后又写的正文，应该被换掉"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -630,7 +612,7 @@ test("ordinary questions use free prose and never create story action controls",
  const table=await openTable({responses:[
   fauxAssistantMessage([fauxToolCall("ask",{kind:"story",prompt:"Choose?",options:["A","B"]})],{stopReason:"toolUse"}),
   fauxAssistantMessage([fauxToolCall("narrate",{text:"门厅很安静，你准备怎么做？"})],{stopReason:"toolUse"}),
-  fauxAssistantMessage("")
+
  ]});t.after(()=>table.dispose());
  await table.session.prompt("我看看门厅。");
  assert.equal(table.kernelRequests().filter(x=>x.method==="table.ask").length,0);
@@ -719,7 +701,6 @@ test("物品与现金：item、cash 原样进内核，收据只进机制投影�
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "看门人把左轮推过桌面。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("narrate 之后不该再有的正文"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -767,9 +748,7 @@ test("物品与现金：item、cash 原样进内核，收据只进机制投影�
 test("player input during an automatic opening is opened exactly once after delivery", async t => {
     const table = await openTable({ env: { FAKE_KERNEL_OPENING: "1" }, responses: [
         fauxAssistantMessage([fauxToolCall("narrate", { text: "The door stands open." })], { stopReason: "toolUse" }),
-        fauxAssistantMessage("The door stands open."),
         fauxAssistantMessage([fauxToolCall("narrate", { text: "You enter the house." })], { stopReason: "toolUse" }),
-        fauxAssistantMessage("You enter the house."),
     ] });
     t.after(() => table.dispose());
     await table.session.prompt("I enter the house.", { streamingBehavior: "followUp" });
@@ -785,33 +764,7 @@ test("player input during an automatic opening is opened exactly once after deli
  * tool at all, is steered once toward the capsule; the second leg is honoured however it comes, and
  * the implicit close carries `implicit: true` so the kernel records how the turn closed.
  */
-test("守秘人整回合没碰工具就写散文：宿主先催一次 floor，第二段照常隐式交付", async (t) => {
-	const thin = "诺特靠回椅背，等着你下一步。";
-	const full = "诺特把钥匙推到桌沿，指了指窗外。「西区，科比特宅。天黑前回来。」他已经在看表。";
-	const table = await openTable({ responses: [fauxAssistantMessage(thin), fauxAssistantMessage(full)] });
-	t.after(() => table.dispose());
 
-	await table.session.prompt("然后呢");
-	await waitForIdle(table.session);
-
-	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "floor");
-	assert.equal(steers.length, 1, "one floor steer, no more");
-	assert.match(steers[0].content, /ordinary narrate/);
-	assert.match(steers[0].content, /quiet exchange/);
-	assert.doesNotMatch(steers[0].content, /what changes in the world, apply|nothing landed|owes.*receipt/);
-	assert.match(steers[0].content, /selected goal/);
-
-	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
-	assert.deepEqual(narrates.map((entry) => entry.params.text), [full], "the thin draft never reached the kernel; the second leg did");
-	assert.equal(narrates[0].params.implicit, true, "the host says it closed the turn for the Keeper");
-	const delivered = assistantTexts(table.session).filter((text) => text.length > 0);
-	assert.ok(!delivered.includes(thin), "the dropped draft is not in the transcript");
-	assert.equal(delivered.at(-1), full);
-
-	const floorRows = table.telemetry().filter((row) => row.lane === "floor");
-	assert.equal(floorRows.length, 1);
-	assert.equal(floorRows[0].steered, true);
-});
 
 /**
  * §40 host steer (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line.
@@ -819,32 +772,7 @@ test("守秘人整回合没碰工具就写散文：宿主先催一次 floor，�
  * second leg is honoured however it comes. Nothing reads the prose: the host looks for the machine
  * token and counts the capsule's present[].
  */
-test("有人在场、草稿里没有 say 记号：宿主催一次 speech，第二段照常隐式交付", async (t) => {
-	const bare = "看门人把钥匙推过来。钥匙在这儿。他没有起身。";
-	const wrapped = "看门人把钥匙推过来。{{say:看门人}}「钥匙在这儿。」{{/say}}他没有起身。";
-	const table = await openTable({
-		responses: [
-			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "看钥匙", method: "侦查", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage(bare),
-			fauxAssistantMessage(wrapped),
-		],
-	});
-	t.after(() => table.dispose());
 
-	await table.session.prompt("我看钥匙");
-	await waitForIdle(table.session);
-
-	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech");
-	assert.equal(steers.length, 1, "one speech steer, no more");
-	assert.match(steers[0].content, /\{\{say:Name\}\}/);
-	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
-	assert.deepEqual(narrates.map((entry) => entry.params.text), [wrapped], "the bare draft never reached the kernel; the wrapped leg did");
-	assert.equal(narrates[0].params.implicit, true);
-	assert.ok(!assistantTexts(table.session).includes(bare), "the dropped draft is not in the transcript");
-	const rows = table.telemetry().filter((row) => row.lane === "speech" && row.steered);
-	assert.equal(rows.length, 1);
-	assert.equal(rows[0].present, 1);
-});
 
 /**
  * §128.2 (real table `game-21ac44b7` turn 1, 2026-09-22): the Keeper wrapped the investigator's line
@@ -852,35 +780,7 @@ test("有人在场、草稿里没有 say 记号：宿主催一次 speech，第�
  * §40 steer never looked, and the player read Knott as narration. The marks are learned from the
  * draft's own wrapped line; nothing decides who spoke.
  */
-test("草稿包了一句、同样引号的另一句漏在记号外：宿主催一次 speech，点出漏掉的那句", async (t) => {
-	const partial = "你开口。{{say:沈默}}「接。那房子出过什么事？」{{/say}}\n\n诺特的手指停住。「马卡里奥一家，连夜搬走。」他把钥匙推过来。";
-	const wrapped = "你开口。{{say:沈默}}「接。那房子出过什么事？」{{/say}}\n\n诺特的手指停住。{{say:看门人}}「马卡里奥一家，连夜搬走。」{{/say}}他把钥匙推过来。";
-	const table = await openTable({
-		responses: [
-			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "问房子", method: "交谈", skill: "Psychology" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage(partial),
-			fauxAssistantMessage(wrapped),
-		],
-	});
-	t.after(() => table.dispose());
 
-	await table.session.prompt("我接下这活，问房子出过什么事");
-	await waitForIdle(table.session);
-
-	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech");
-	assert.equal(steers.length, 1, "one speech steer, no more");
-	assert.match(steers[0].content, /outside every say token/);
-	assert.ok(steers[0].content.includes("「马卡里奥一家，连夜搬走。」"), "the passage left outside is named back to the Keeper");
-	assert.ok(!steers[0].content.includes("「接。那房子"), "the wrapped line is not reported");
-	assert.match(steers[0].content, /not a line: leave it as it is/, "a quoted word is left to the Keeper's judgement");
-	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
-	assert.deepEqual(narrates.map((entry) => entry.params.text), [wrapped], "the partial draft never reached the kernel");
-	assert.ok(!assistantTexts(table.session).includes(partial), "the dropped draft is not in the transcript");
-	const rows = table.telemetry().filter((row) => row.lane === "speech" && row.steered);
-	assert.equal(rows.length, 1);
-	assert.equal(rows[0].reason, "unwrapped_quote");
-	assert.equal(rows[0].unwrapped, 1);
-});
 
 test("say 段里不带引号、记号外也没有同样的引号：不催", async (t) => {
 	// Turn 2 of the same table: the Keeper wrapped Knott and dropped the marks. Nothing to learn,
@@ -902,53 +802,9 @@ test("say 段里不带引号、记号外也没有同样的引号：不催", asyn
 	assert.deepEqual(narrates.map((entry) => entry.params.text), [prose]);
 });
 
-test("上一回合交付过带「」的台词：这一回合记号外的「」也会被点出", async (t) => {
-	// The pair is learned from what the table already delivered (`speech[].text`), so a draft whose own
-	// span carries no marks is still read against them.
-	const first = "{{say:看门人}}「钥匙在这儿。」{{/say}}";
-	const second = "他摘下帽子。{{say:看门人}}先去报社。{{/say}}「别急着进门。」他补了一句。";
-	const fixed = "他摘下帽子。{{say:看门人}}先去报社。{{/say}}{{say:看门人}}「别急着进门。」{{/say}}他补了一句。";
-	const table = await openTable({
-		env: { FAKE_KERNEL_SPEECH: JSON.stringify([{ who: { npc: "gatekeeper", name: "看门人" }, text: "「钥匙在这儿。」" }]) },
-		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: first })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "investigate", goal: "问去处", method: "交谈", skill: "Psychology" } })], { stopReason: "toolUse" }),
-			fauxAssistantMessage(second),
-			fauxAssistantMessage(fixed),
-		],
-	});
-	t.after(() => table.dispose());
 
-	await table.session.prompt("钥匙呢");
-	await waitForIdle(table.session);
-	await table.session.prompt("先去哪儿查？");
-	await waitForIdle(table.session);
 
-	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech");
-	assert.equal(steers.length, 1);
-	assert.ok(steers[0].content.includes("「别急着进门。」"));
-	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
-	assert.deepEqual(narrates.map((entry) => entry.params.text), [first, fixed]);
-});
 
-test("开场草稿包了一句、漏了一句：开场也催这一次", async (t) => {
-	// The opening has no capsule, so present[] is unknown to the host and the no-token steer stays
-	// exempt; a draft that wraps a line shows by itself that someone speaks.
-	const partial = "诺特抬起头。{{say:看门人}}「你来了。」{{/say}}他看了看表。「坐吧。」";
-	const wrapped = "诺特抬起头。{{say:看门人}}「你来了。」{{/say}}他看了看表。{{say:看门人}}「坐吧。」{{/say}}";
-	const table = await openTable({
-		env: { FAKE_KERNEL_OPENING: "1" },
-		responses: [fauxAssistantMessage(partial), fauxAssistantMessage(wrapped)],
-	});
-	t.after(() => table.dispose());
-	await waitForIdle(table.session);
-
-	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech");
-	assert.equal(steers.length, 1, "the opening is steered once");
-	assert.ok(steers[0].content.includes("「坐吧。」"));
-	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
-	assert.deepEqual(narrates.map((entry) => entry.params.text), [wrapped]);
-});
 
 test("碰过工具再写散文不催：一次工具调用就够，被拒的也算", async (t) => {
 	const prose = "门框上有一道深深的抓痕。你退后一步。";
@@ -970,20 +826,7 @@ test("碰过工具再写散文不催：一次工具调用就够，被拒的也�
 	assert.deepEqual(table.telemetry().filter((row) => row.lane === "floor"), []);
 });
 
-test("第二段还是散文：催过一次就接受，不再催", async (t) => {
-	const table = await openTable({ responses: [fauxAssistantMessage("他等着你。"), fauxAssistantMessage("他还是等着你。")] });
-	t.after(() => table.dispose());
 
-	await table.session.prompt("然后呢");
-	await waitForIdle(table.session);
-
-	assert.equal(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "floor").length, 1);
-	const narrates = table.kernelRequests().filter((entry) => entry.method === "table.narrate");
-	assert.deepEqual(narrates.map((entry) => entry.params.text), ["他还是等着你。"]);
-	const closed = table.telemetry().filter((row) => row.event === "turn-closed");
-	assert.equal(closed.length, 1);
-	assert.equal(closed[0].implicit, true);
-});
 
 
 /**
@@ -1025,7 +868,6 @@ test("host map assembly does not collapse receipt-less maps, but dedupes identic
 	const table = await openTable({ env: { FAKE_KERNEL_LOOK_MAPS: JSON.stringify(maps) }, responses: [
 		fauxAssistantMessage([fauxToolCall("look", { focus: "map" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "The maps remain distinct." })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("The maps remain distinct."),
 	] });
 	t.after(() => table.dispose());
 	await table.session.prompt("Show me the maps");
@@ -1062,3 +904,5 @@ test("宿主替守秘人收尾的回合，机制投影只发一条", async (t) =
 	assert.equal(projected.length, 1, `one delivery owes one projection, not ${projected.length}`);
 	assert.ok(projected[0].mechanics.length >= 1, "and that projection carries the turn's rows");
 });
+
+// Section 166 replaces the retired floor/speech rewrite cases; direct first-draft coverage is in single-pass-narration.test.mjs.

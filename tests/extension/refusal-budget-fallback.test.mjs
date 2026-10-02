@@ -59,20 +59,7 @@ test("§135.11.3: the refusal budget's runaway abort delivers the fallback narra
  * where no such earlier recovery runs before the abort (the gate #10 t4 replay is that path's own test). What
  * this test guards here is composition: the new check must not double-deliver over an already-closed run.
  */
-test("§135.11.3: a run already delivered by the floor steer's own recovery is not double-delivered by this section", async (t) => {
-	const draft = "看门人抬起头，另一个人往后退了一步。";
-	const table = await openTable({ responses: [fauxAssistantMessage(draft), barrage] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我拔枪就打，什么都不管了");
-	await waitForIdle(table.session);
 
-	const steer = table.telemetry().filter((row) => row.lane === "delivery" && row.reason === "floor_steer");
-	assert.equal(steer.length, 1, `the first leg's prose was dropped for the floor steer, holding the draft: ${JSON.stringify(table.telemetry())}`);
-
-	const calls = narrateCalls(table);
-	assert.equal(calls.length, 1, `exactly one narrate reached the kernel -- no second, this-section delivery on top of the existing recovery's: ${JSON.stringify(table.kernelRequests())}`);
-	assert.equal(calls[0].params.text, draft, "the dropped draft was delivered verbatim, not a generic notice, and not replaced by this section's own");
-});
 
 /**
  * §143.11: the fallback narrate is dispatched on the kernel refusal's `details.reason`. A refusal the kernel lets through
@@ -110,3 +97,5 @@ test("§135.11.3 + §143.11: a fallback narrate refused repeated_line is not sen
 		[[false, "refusal_budget_fallback_refused", "repeated_line"]], JSON.stringify(fallbackRows(table)));
 	assert.equal(narrateCalls(table).length, 1, "one fallback narrate, not re-sent");
 });
+
+// Section 166 retires prose-repair retries. Single-pass delivery and real task guards have current coverage in single-pass-narration.test.mjs and jev-s0-delivery-guard.test.mjs.

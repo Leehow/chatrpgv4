@@ -187,11 +187,9 @@ test('real Pi tool execution binds and hides continuation snapshots end to end',
     const original = 'The witness remembers an earlier promise.';
     const table = await openTable({realKernel: true, campaign: 'bounded-recall-host', retainAt: directory, responses: [
         fauxAssistantMessage([fauxToolCall('narrate', {text: original})], {stopReason: 'toolUse'}),
-        fauxAssistantMessage('Discarded opening tail.'),
         fauxAssistantMessage([fauxToolCall('recall', {what: 'transcript', read: {turn: 0, role: 'keeper', limit: 5}})], {stopReason: 'toolUse'}),
         fauxAssistantMessage([fauxToolCall('recall', {what: 'transcript', read: {turn: 0, role: 'keeper', offset: 5, limit: 5}})], {stopReason: 'toolUse'}),
         fauxAssistantMessage([fauxToolCall('narrate', {text: 'The witness repeats the earlier words.'})], {stopReason: 'toolUse'}),
-        fauxAssistantMessage('Discarded final tail.'),
     ]});
     t.after(() => table.dispose()); await waitForIdle(table.session, {timeoutMs: 60000});
     await table.session.prompt('What exactly did the witness say?');

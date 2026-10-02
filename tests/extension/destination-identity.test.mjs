@@ -104,7 +104,6 @@ function turn(playerFacing) {
 	return [
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "newspaper-morgue", travel_minutes: 20 }] })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: playerFacing })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("守秘人自写的收尾，应被内核的交付替换。"),
 	];
 }
 
@@ -116,7 +115,6 @@ test("the reviewer is handed the place the module authored, not the handle's slu
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙放下，说前一家租户出了事。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("开场之后的多余正文。"),
 			...turn("你走进报社的大厅。"),
 			...turn("威尔莫特抬起头。"),
 		],
@@ -166,10 +164,8 @@ test("a scene answers to the names the module gives its place, so a Keeper can l
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙放下。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("开场之后的多余正文。"),
 			fauxAssistantMessage([fauxToolCall("lookup", { kind: "module", query: alias, expected_kind: "scene" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "报社在城的另一头。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("多余正文。"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -214,11 +210,8 @@ test("a move to a name the module already owns lands on the registered scene, wi
 		responses: [
 			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙放下。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("多余正文。"),
-			// The name the player used, handed straight to `move.to`: no lookup, no adaptation.
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: identity.aliases[0], via: "走过去" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "你走进报社。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("多余正文。"),
 		],
 	});
 	t.after(() => table.dispose());

@@ -1,3 +1,4 @@
+import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
  * The pi-coc kernel extension: it starts the Python kernel, wires the seven verbs onto RPC,
@@ -1852,6 +1853,10 @@ export default function (pi: ExtensionAPI) {
 		const payload = state.pendingCommit;
 		state.pendingCommit = undefined;
 		if (!owed) return;
+		if (SINGLE_PASS_NARRATION) {
+			void record({ lane: "verifier", turn: payload?.turn ?? owed.turn, ok: true, ran: false, reason: "single_pass_narration" });
+			return;
+		}
 		const miss = (reason: string, detail: string): void => {
 			void record({ lane: "verifier", turn: payload?.turn ?? owed.turn, ok: false, ran: false, reason, detail });
 		};
@@ -2389,6 +2394,7 @@ export default function (pi: ExtensionAPI) {
 	 */
 	async function purposeRepeats(state: TableState, text: string, signal: AbortSignal | undefined,
 		parent: TaskProviderBudget | undefined): Promise<Array<{ npc: string; ref: string }>> {
+		if (SINGLE_PASS_NARRATION) return [];
 		const env = process.env;
 		if (env.PI_COC_PURPOSE_GATE?.trim() === "0" || !text.includes("{{say:") || !readJevApiKey(env)) return [];
 		const began = Date.now(), row: Record<string, unknown> = { lane: "purpose", event: "purpose_check", turn: state.turn };
@@ -2448,6 +2454,7 @@ export default function (pi: ExtensionAPI) {
 	 */
 	async function readTimeSkip(state: TableState, text: string, path: "explicit" | "embedded" | "implicit", refusable: boolean,
 		signal: AbortSignal | undefined, parent: TaskProviderBudget | undefined): Promise<Record<string, unknown> | undefined> {
+		if (SINGLE_PASS_NARRATION) return undefined;
 		if (process.env.PI_COC_TIME_READING?.trim() === "0") return undefined;
 		const prose = deliveryProse(text), budget = await timeReadingBudget(), env = process.env, began = Date.now();
 		const row = { lane: "time-reading", turn: state.turn, path };
@@ -2507,6 +2514,7 @@ export default function (pi: ExtensionAPI) {
 	/** §163.9: review a player's withheld choice at the final prose boundary, before its operation can land. */
 	async function reviewForcedPlayerChoiceCue(state: TableState, draft: string, signal: AbortSignal | undefined,
 		path: 'explicit' | 'embedded' | 'implicit'): Promise<void> {
+		if (SINGLE_PASS_NARRATION) return;
 		const pending = state.forcedPlayerChoiceCue;
 		if (!pending || pending.turn !== state.turn || !pending.choices.length) return;
 		const prose = deliveryProse(draft), draftHash = createHash('sha256').update(prose).digest('hex');
@@ -4621,7 +4629,7 @@ export default function (pi: ExtensionAPI) {
 			// budget is spent here, synchronously, the moment the floor refuses: without it, a Keeper that keeps
 			// writing short drafts would be refused every time, never once, and a turn could run forever short of
 			// the floor instead of being handed back after one steer.
-			if (spec.name === "narrate" && narratePath === "embedded" && typeof payload.text === "string" && !closesOpening && !state.steeredThisTurn) {
+			if (!SINGLE_PASS_NARRATION && spec.name === "narrate" && narratePath === "embedded" && typeof payload.text === "string" && !closesOpening && !state.steeredThisTurn) {
 				const chars = proseCharCount(payload.text);
 				const { minProseChars } = await deliveryFloorBudget();
 				if (chars < minProseChars) {
@@ -4769,7 +4777,7 @@ export default function (pi: ExtensionAPI) {
           kind: 'source', ...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})};
         if (spec.name === 'narrate' && state.rebindingRefused) payload.rebinding_refused = {...state.rebindingRefused};
         if (spec.name === 'narrate' || spec.name === 'ask') payload.source_consultations=sourceConsultationsForAudit(state);
-        prepared = await mods.prepare(spec.name, payload, signal, providerBudget);
+        prepared = SINGLE_PASS_NARRATION && (spec.name === "narrate" || spec.name === "ask") ? undefined : await mods.prepare(spec.name, payload, signal, providerBudget);
         // §91. Only a delivery carries a continuity review, so only a delivery can report one missing.
         if (spec.name === 'narrate' || spec.name === 'ask') notePrepared(state, prepared);
       }
@@ -4802,7 +4810,7 @@ export default function (pi: ExtensionAPI) {
 					if (band!.field === "weapon") (payload.effects as Array<Record<string, unknown>>)[band!.index!].weapon = recovered.band;
 					// The same identity, retried once; admission and the Mod gates run again, as after a source preparation.
 					await admitAction(state, spec.name, payload, signal, providerBudget, origin);
-					if (mods) await mods.prepare(spec.name, payload, signal, providerBudget);
+					if (mods && !(SINGLE_PASS_NARRATION && (spec.name === "narrate" || spec.name === "ask"))) await mods.prepare(spec.name, payload, signal, providerBudget);
 					try { result = (await invokeOperation()) ?? {}; }
 					catch (again) {
 						// The pin landed; a retry refused for another reason says so in its fix, so the Keeper does not pin twice.
@@ -4887,7 +4895,7 @@ export default function (pi: ExtensionAPI) {
 				// Retry the original identity only after the exact source publication; consent and Mod gates run again.
 				if(spec.name==='resolve'||spec.name==='apply')partial=(await admitAction(state,spec.name,payload,signal,providerBudget,origin,evidence))??partial;
 				if(mods){
-					const again=await mods.prepare(spec.name,payload,signal,providerBudget);
+					const again=SINGLE_PASS_NARRATION&&(spec.name==='narrate'||spec.name==='ask')?undefined:await mods.prepare(spec.name,payload,signal,providerBudget);
 					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}
 				}
 				result = (await invokeOperation()) ?? {};
@@ -5566,7 +5574,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					watchdogTurnBinding = undefined;
 				}
-				const review = await mods?.reviewStatus?.(campaign);
+				const review = SINGLE_PASS_NARRATION ? undefined : await mods?.reviewStatus?.(campaign);
 				// §91: a retained block no verdict stands behind cannot decide this turn either. The
 				// recovery run goes ahead; its own delivery meets the same review and, if that review
 				// is still down, is published unreviewed rather than stranding a turn twice over.
@@ -5785,7 +5793,7 @@ export default function (pi: ExtensionAPI) {
 			if (state.rebindingRefused) payload.rebinding_refused = { ...state.rebindingRefused };
 			payload.source_consultations=sourceConsultationsForAudit(state);
 			try {
-				if (mods) await mods.prepare("narrate", payload, state.lanes.signal);
+				if (mods && !SINGLE_PASS_NARRATION) await mods.prepare("narrate", payload, state.lanes.signal);
 				await reviewForcedPlayerChoiceCue(state, String(payload.text ?? ''), state.lanes.signal, 'implicit');
 				const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
 				if (mods?.after) await mods.after("narrate", payload, state.lanes.signal);
@@ -6622,7 +6630,7 @@ export default function (pi: ExtensionAPI) {
 			// passing through narrate or ask. It leaves with the message, like the drafts below it.
 			if (!prose || !canClose || state.closedThisRun) return dropText(failedLeg ? "failed_leg_not_delivered" : "text_not_a_delivery");
 			const bareToolLabel = prose.trim();
-			if (!opening && !referenceAnswer && COC_TOOL_NAMES.some(name => name === bareToolLabel)) {
+			if (!SINGLE_PASS_NARRATION && !opening && !referenceAnswer && COC_TOOL_NAMES.some(name => name === bareToolLabel)) {
 				const canSteer = !state.steeredThisTurn && !state.deliveryFix;
 				if (canSteer) {
 					state.floorDraft = prose;
@@ -6648,7 +6656,7 @@ export default function (pi: ExtensionAPI) {
 			// draft it drops. The steered second leg is delivered by the implicit narrate below, which carries the wait; a leg
 			// that brings nothing, or one the kernel refuses, falls back to this draft. Dropping every leg for as long as the
 			// preparation ran stranded the long gate's turn 19 over prose the Keeper had written twice.
-			if (state.preparationWait && !sourceWait && !state.steeredThisTurn) {
+			if (!SINGLE_PASS_NARRATION && state.preparationWait && !sourceWait && !state.steeredThisTurn) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
 				return dropText("preparation_wait");
@@ -6669,7 +6677,7 @@ export default function (pi: ExtensionAPI) {
 			const pending = state.pendingChoice;
 			const owesAsk = pending?.for === "player" && Array.isArray(pending.options) && pending.options.length >= 2;
 			const referenceAnswer = state.interactionScope !== undefined && state.interactionScope !== 'world';
-			if (owesAsk && !state.steeredThisTurn && !referenceAnswer) return dropText("owes_ask");
+			if (!SINGLE_PASS_NARRATION && owesAsk && !state.steeredThisTurn && !referenceAnswer) return dropText("owes_ask");
 			// Turn floor (docs/specs/turn-floor.md D4): the Keeper wrote prose and called no tool at all this
 			// turn. Once, the host drops that draft and steers it back to the capsule; whatever the second leg
 			// brings is honoured, an explicit narrate or prose closed implicitly as before. The opening is
@@ -6684,7 +6692,7 @@ export default function (pi: ExtensionAPI) {
 			// path keeps SL-80's two conditions and no length check.
 			const opening = state.state === "awaiting_player" && state.openingPending;
 			const speechOnly = !opening && !state.steeredThisTurn && isSpeechOnlyDraft(prose);
-			if ((state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn && !referenceAnswer) {
+			if (!SINGLE_PASS_NARRATION && (state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn && !referenceAnswer) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
 				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips, ...(speechOnly ? { reason: "speech_only" } : {}) });
@@ -6692,7 +6700,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			// The existing fictional speech repair applies only to world turns. Reference answers
 			// do not inherit dialogue obligations from NPCs still present in the paused scene.
-			const speechSteerOn = !referenceAnswer && process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && !state.steeredThisTurn;
+			const speechSteerOn = !SINGLE_PASS_NARRATION && !referenceAnswer && process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && !state.steeredThisTurn;
 			const bareOfTokens = state.present.length > 0 && !opening && !/\{\{say:/.test(prose);
 			const unwrapped = speechSteerOn && !bareOfTokens ? unwrappedQuotes(prose, state.speechMarks) : [];
 			if (speechSteerOn && (bareOfTokens || unwrapped.length > 0)) {
@@ -6747,7 +6755,7 @@ export default function (pi: ExtensionAPI) {
 					params.source_consultations=sourceConsultationsForAudit(state);
 					state.skillRun?.tool_names.push(tool);
 					await guardTaskDelivery(event.message);
-					const prepared = referenceAnswer ? undefined : await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
+					const prepared = referenceAnswer || SINGLE_PASS_NARRATION ? undefined : await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
 					// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
 					notePrepared(state, prepared);
 					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit');

@@ -27,12 +27,7 @@ const look = () => fauxAssistantMessage([fauxToolCall("look", { focus: "scene" }
 
 /** The review refuses this table's every delivery, which is §38.3's predicate arriving by its commonest road. */
 function refuseEveryDelivery(table) {
-	table.emit("coc:mods-bridge", {
-		async after() {},
-		async prepare(method) {
-			if (method === "narrate" || method === "ask") throw reviewUnavailable("Fixture review is paused");
-		},
-	});
+	table.emit("coc:task-delivery-guard", () => { throw new Error("Fixture delivery task expired before publication"); });
 }
 
 const turnFile = (table, campaign) => join(table.workspace, ".coc/campaigns", campaign, "turn.json");

@@ -31050,3 +31050,26 @@ Where §165.1–165.8 left a choice to the code, this is what was chosen and why
 **Three ends (§31).** *Writer:* the lane's round, through the three gates, into `speech.edit` and `patchCard`. *Reader:* `CocCardLedger` and `mechanicsEntry` (the card, live and on every re-read) and `foldMarkedDeliveries` (`speech_original`); the record's `speech_edit` is read by nobody at the table, by design: every kernel reader keeps the delivered lines. *Actor:* the player, who reads the edited lines where the Keeper's stood.
 
 **Tests.** `tests/extension/speech-edit-kernel.test.mjs` (the real kernel: `speech.job`'s packet, mask and indices; the overlay with every delivered field and the transcript byte-identical, and the replay; `stale` with no write; the ask boundary; none, conflict and no NPC lines; the capability and text refusals; `speech.edit`'s shape refusals), `tests/extension/speech-edit-lane.test.mjs` (the mounted extension against the real kernel, a faux model and a controlled Jev endpoint: the prompt, the request, the overlay, the patch and its splice with a receipt marker and interleaved investigator and label rows, the row; the shape, quotes, Jev-gate, Jev-unavailable, stale, none/conflict, trigger and ask cases; a stranger's label line sent under its label with no mask and landed alone; the splice and gate functions), `tests/extension/speech-edit-table.test.mjs` (a real-kernel table: the Keeper's narrate, a named NPC's line and a stranger's, reaches the lane over the bus, on the table's model, and patches the card), `Electron/packages/pi-backend/test/coc-speech-edit.test.ts` (the fold on the live and the history road), `Electron/packages/ui/src/coc-markers.test.tsx` (the fold by the kept original).
+
+
+## 166. Narration is delivered in one pass (owner ruling, 2026-10-01)
+
+The owner approved one finished draft delivered directly: accept narration mistakes for now, without automatic review or rewriting. This supersedes the delivery-time and post-delivery prose review/repair portions of sections 12.5, 34, 38, 40, 91, 113 D, 130, 135.11, 142.7, 143.10, 143.24, 145.2, 163.9 and 165. Historical contracts and evidence remain retained; they do not authorize automatic prose revision in the current product.
+
+### 166.1 The first completed draft is the delivery
+
+Explicit narrate, ask text, apply's embedded narrate and the implicit prose close share this policy. A draft is not refused or regenerated for length, missing speech tokens, speech-only form, repetition, markup, a prose-implied time gap, a missing NPC intention result, a preparation wait, or a withheld-choice cue. Existing deterministic token rendering still runs; semantic speech attribution may attach speaker metadata without changing words. The policy is fixed in the product, not an operator flag or a test-only exemption.
+
+No automatic continuity reviewer, post-delivery verifier, forced-choice output review, speech-purpose review or NPC speech editing lane is started for a delivery. Legacy continuity pre/post settings cannot re-enable those calls. Existing records, reviews, overlays and explicit inspection interfaces are preserved. Deterministic delivery findings may be retained as evidence; they do not demand a rewrite.
+
+### 166.2 Prepare the facts, then write once
+
+The Keeper still receives the player's declaration, settled receipts and open player-owned values before composing. Section 163.8 still withholds a player-owned choice from actual check execution; section 32 still guards actual state changes. The Keeper is instructed to narrate settled events and return an open choice naturally, but the host does not ask another model to judge that finished draft. Narration mistakes are accepted without authorizing any additional roll, resource spend, move or item transfer.
+
+Rule arithmetic, action admission, transaction/call replay, current-turn ownership, structured choice validation, transport decoding, delivery commit and error/cancellation handling remain authoritative. A failed provider stream is not a completed draft. A completed nonempty draft closes through the existing narrate/ask transaction; a turn with no draft keeps the existing bounded close/notice behavior. Provider recovery is outside this change.
+
+### 166.3 Three ends and acceptance
+
+Writer: the Keeper writes one candidate from the current declaration and receipts. Reader: the kernel's existing delivery transaction and the host's existing transcript/card projection. Actor: the player reads that first candidate and chooses the next action. No prose reviewer is between writer and player.
+
+Regression acceptance must cover all four delivery paths, a withheld player choice, no-tool/speech-only/unwrapped prose, a repeated line and markup, and no automatic foreground or background prose review/edit calls. It must also show that unauthorized state operations and duplicate transaction replay remain guarded. Genuine live acceptance uses the existing driver and the main session as the only player; deterministic fixtures are not live-play evidence.

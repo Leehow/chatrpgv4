@@ -133,7 +133,6 @@ const PENDING_TURN = [
 	fauxAssistantMessage([fauxToolCall("lookup", { kind: "adaptation", action: "prepare", name: "north-end-pawnshop",
 		purpose: "new_destination", request: REQUEST, anchors: ["scene: commission-briefing"] })], { stopReason: "toolUse" }),
 	fauxAssistantMessage([fauxToolCall("narrate", { text: "铺子的事还在核对，这会儿你没有动身。" })], { stopReason: "toolUse" }),
-	fauxAssistantMessage("铺子的事还在核对，这会儿你没有动身。"),
 ];
 
 test("a job that goes stale after the wait was captured is never reported as running, and the repeated action lands the same turn", async (t) => {

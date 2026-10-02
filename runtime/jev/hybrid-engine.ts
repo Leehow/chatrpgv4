@@ -1,3 +1,4 @@
+import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 import {attackPreparationNeeds} from './attack-preparation.ts';
 import {historyConfigured, historyEnabled, historyContext, historyNeedQuestion, historyInterruptionQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, historyPreparationPayload, HISTORY_PREPARE, HISTORY_PREPARED, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
@@ -1773,7 +1774,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     for (const entry of unseen) run.forcedShown.add(entry.key);
     const playerChoices = unseen.filter(entry => entry.chosen.outcome === 'no_roll' && entry.why.includes('player_choice')
       && entry.family && entry.subject).map(({family, subject, uncertain}) => ({family, subject, uncertain}));
-    if (playerChoices.length && bridge?.campaign && run.turn !== undefined) {
+    if (!SINGLE_PASS_NARRATION && playerChoices.length && bridge?.campaign && run.turn !== undefined) {
       const choices: ForcedPlayerChoice[] = playerChoices;
       api?.events?.emit?.('coc:forced-player-choice-cue', {campaign: bridge.campaign, turn: run.turn, run: run.runId, choices,
         review: async (draft: string, signal?: AbortSignal): Promise<ForcedChoiceCueReview> => {

@@ -60,19 +60,9 @@ test("the Keeper's narrate with an NPC line and a stranger's line reaches the la
 	assert.ok(committed, "narrate committed turn 2 on the bus");
 	assert.deepEqual(committed.speech.map(row => [row.who.npc ?? row.who.label, row.text]), [["steven-knott", LINE], [STRANGER, STRANGER_LINE]],
 		"the payload carries the delivery's speech");
-	await waitFor(() => table.entries("coc-telemetry").some(row => row.lane === "speech-edit" && row.outcome), {label: "the speech-edit row"});
-	const row = table.entries("coc-telemetry").find(entry => entry.lane === "speech-edit" && entry.outcome);
-	assert.equal(row.outcome, "applied", JSON.stringify(row));
-	assert.equal(row.model, `${table.faux.getModel().provider}/${table.faux.getModel().id}`, "the table's own model, with no lane model named");
-	assert.equal(asked.length, 1);
-
+	assert.equal(asked.length, 0);
+	assert.equal(table.entries("coc-card-patch").length, 0);
 	const record = JSON.parse(readFileSync(join(table.workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
-	assert.equal(record.speech[0].text, LINE, "the record keeps the Keeper's line");
-	assert.deepEqual(record.speech_edit.lines, [{index: 0, original: LINE, edited: EDITED}, {index: 1, original: STRANGER_LINE, edited: STRANGER_EDITED}]);
-	const [card] = table.entries("coc-mechanics").filter(entry => entry.turn === 2);
-	const [patch] = table.entries("coc-card-patch");
-	assert.deepEqual(patch.card, {turn: 2});
-	assert.equal(patch.patch.marked_text, card.marked_text.replace(LINE, EDITED).replace(STRANGER_LINE, STRANGER_EDITED),
-		"the card the player already has, with the edited lines");
-	assert.deepEqual(patch.patch.speech_original, {marked_text: card.marked_text});
+	assert.equal(record.speech[0].text, LINE);
+	assert.equal(record.speech_edit, undefined);
 });

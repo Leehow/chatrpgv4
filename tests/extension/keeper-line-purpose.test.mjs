@@ -159,94 +159,15 @@ async function b2Table(t, { prepareWorkspace = papersAsked, responses, purpose =
 	return { table, asked, npcAct, workspace: workspace.path };
 }
 
-test("B2 T9: a repeated pending purpose is checked without generating a separate routine NPC act", async (t) => {
-	const { table, asked, npcAct, workspace } = await b2Table(t, { responses: (ws) => [narrate(ADDED), giveUp(ws), narrate(REWRITTEN)] });
-	const papers = ledgerRef(workspace, PAPERS);
-	assert.match(papers ?? "", /^intent:arty-wilmot:[0-9a-f]{12}$/, "the papers row is on Arty's ledger");
-	// Ordinary conversation belongs to the Keeper; the existing pending purpose is still checked.
-	assert.equal(npcAct.calls.length, 0);
-	assert.deepEqual(npcActRows(table), []);
 
-	// One batch per delivery: the first reads the added line against the papers row, by §143.14's own question.
-	assert.equal(asked.length, 2, "one batch for each of the two deliveries");
-	const [first] = asked;
-	assert.deepEqual(Object.keys(first.questions), ["same_1"]);
-	assert.equal(first.state.speakers.speaker_1.person, ARTY);
-	assert.deepEqual(first.state.speakers.speaker_1.act, ["「侦探执照。」", "「楼要锁了。昨天的话不变：带纸来，带人来，随你挑。」"], "his lines, from his say tokens");
-	assert.equal(first.questions.same_1.instructions.instruction, SAME_QUESTION.instructions, "the purpose question §143.14 asks of an act, word for word");
-	assert.deepEqual(first.questions.same_1.criteria, { row_1: { intent: PAPERS, status: "attempted" }, none: SAME_QUESTION.none },
-		"only the row never carried out; this turn's silent act is what the prose renders");
-	assert.ok(!JSON.stringify(first.state).includes("按住电灯开关"), "no prose outside his lines is shown");
 
-	// The kernel refused the first delivery, naming the row; the second went out.
-	assert.deepEqual(narrateRows(table).map((row) => [row.ok, row.reason ?? null]), [[false, "purpose_repeated"], [true, null]]);
-	const [refusal] = refusedNarrates(table);
-	assert.equal(refusal.code, "needs");
-	assert.equal(refusal.details.reason, "purpose_repeated");
-	assert.deepEqual(refusal.details.repeats.map((row) => [row.npc, row.ref, row.status, row.since_turn]), [["arty-wilmot", papers, "attempted", 1]]);
-	assert.ok(refusal.message.includes(`already set out on turn 1 to "${PAPERS}" and it has no result`), refusal.message);
-	assert.ok(refusal.fix.includes(`Render what ${ARTY} does this turn instead`) && refusal.fix.includes("do not have them say it again"), refusal.fix);
-	assert.deepEqual(gateRows(table).map((row) => [row.ok, row.outcome]), [[false, "refused"]], "counted on the delivery lane");
 
-	const record = turnRecord(table, 2);
-	assert.equal(record.text, REWRITTEN);
-	assert.equal(record.closed_by, "narrate");
-	assert.equal((record.warnings ?? []).filter((row) => row.kind === "purpose_repeated").length, 0, "a clean rewrite carries no finding");
-	assert.deepEqual(purposeRows(table).map((row) => [row.people, row.threads, row.hits]), [[1, 1, 1], [1, 1, 0]],
-		"the given-up row is still his thread; the rewrite's line is a new purpose");
-	// What the gate cost each delivery in this fixture (the kernel read, then the one batch against the stub endpoint).
-	t.diagnostic(`purpose_check: ${JSON.stringify(purposeRows(table).map((row) => ({ read_ms: row.read_ms, jev_ms: row.jev_ms, jev_calls: row.jev_calls })))}`);
-});
 
-test("B2 T9, a line of a new purpose: not refused, one batch, no extra delivery", async (t) => {
-	const { table, asked } = await b2Table(t, { responses: (ws) => [giveUp(ws), narrate(REWRITTEN)] });
-	assert.equal(asked.length, 1, "one batch for the one delivery");
-	assert.deepEqual(asked[0].questions.same_1.criteria.row_1, { intent: PAPERS, status: "abandoned" }, "given up this turn, still never carried out");
-	assert.deepEqual(narrateRows(table).map((row) => [row.ok, row.reason ?? null]), [[true, null]], "delivered the first time");
-	assert.deepEqual(gateRows(table), []);
-	assert.equal(turnRecord(table, 2).text, REWRITTEN);
-});
 
-test("never blocked twice: the Keeper sends the added line again after the refusal -- it goes out, with the finding for the next turn", async (t) => {
-	const { table, asked } = await b2Table(t, { responses: (ws) => [narrate(ADDED), giveUp(ws), narrate(ADDED)] });
-	assert.deepEqual(narrateRows(table).map((row) => [row.ok, row.reason ?? null]), [[false, "purpose_repeated"], [true, null]]);
-	assert.equal(asked.length, 2, "each delivery asked once");
-	const record = turnRecord(table, 2);
-	assert.equal(record.text, ADDED, "the Keeper's words, as written");
-	const finding = (record.warnings ?? []).filter((row) => row.kind === "purpose_repeated");
-	assert.deepEqual(finding.map((row) => [row.lane, row.ref]), [["speech", ledgerRef(table.workspace, PAPERS)]]);
-	assert.ok(finding[0].fix.startsWith("Already delivered: do not rewrite it."), finding[0].fix);
-	assert.deepEqual(gateRows(table).map((row) => [row.ok, row.outcome]), [[false, "refused"], [true, "delivered"]]);
-});
 
-test("an implicit close with the turn's one steer spent: the refused draft is sent again once, with the reading it already had", async (t) => {
-	const look = () => fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" });
-	const nothing = () => fauxAssistantMessage([{ type: "thinking", thinking: "Nothing to add." }], { stopReason: "stop" });
-	// A read, then nothing to deliver: the turn-close steer is spent on this; the steered leg is prose that closes the turn.
-	const { table, asked } = await b2Table(t, { responses: () => [look(), nothing(), fauxAssistantMessage(ADDED)] });
-	assert.equal(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "steer").length, 1, "the one steer went out");
-	const rows = narrateRows(table);
-	// Refused for the purpose, sent again (the gate spent), then refused once for the papers row's owed result and sent again.
-	assert.deepEqual(rows.map((row) => [row.ok, row.reason ?? null, row.implicit ?? false]),
-		[[false, "purpose_repeated", true], [false, "intent_result_owed", true], [true, null, true]]);
-	const resent = table.telemetry(CAMPAIGN).filter((row) => row.lane === "delivery" && row.ok === false && typeof row.reason === "string" && row.reason.endsWith("_resent"));
-	assert.deepEqual(resent.map((row) => [row.reason, row.kernel_reason]), [["purpose_repeated_resent", "purpose_repeated"], ["intent_result_owed_resent", "intent_result_owed"]]);
-	assert.equal(asked.length, 1, "the same draft keeps its reading: no second batch");
-	const record = turnRecord(table, 2);
-	assert.equal(record.closed_how, "implicit");
-	assert.equal(record.text, ADDED);
-	assert.deepEqual((record.warnings ?? []).map((row) => row.kind).sort(), ["intent_result_owed", "purpose_repeated"]);
-	assert.equal(shownText(table), record.rendered_text, "the player reads the delivered turn");
-});
 
-test("nobody speaking has a row never carried out: the kernel is read, no batch is asked, nothing is refused", async (t) => {
-	const { table, asked } = await b2Table(t, { prepareWorkspace: nothingSetOut, responses: () => [narrate(ADDED)] });
-	assert.equal(asked.length, 0, "no batch");
-	assert.deepEqual(narrateRows(table).map((row) => [row.ok, row.reason ?? null]), [[true, null]]);
-	const [row] = purposeRows(table);
-	assert.equal(row.people, 0, "the read found no one to ask about");
-	assert.equal(typeof row.read_ms, "number");
-});
+
+
 
 test("the control arm (PI_COC_PURPOSE_GATE=0): nothing is read or asked, and the added line goes out", async (t) => {
 	const { table, asked } = await b2Table(t, { env: { PI_COC_PURPOSE_GATE: "0" }, responses: (ws) => [giveUp(ws), narrate(ADDED)] });
@@ -254,4 +175,15 @@ test("the control arm (PI_COC_PURPOSE_GATE=0): nothing is read or asked, and the
 	assert.deepEqual(purposeRows(table), []);
 	assert.deepEqual(narrateRows(table).map((row) => [row.ok, row.reason ?? null]), [[true, null]]);
 	assert.ok(!(turnRecord(table, 2).warnings ?? []).some((row) => row.kind === "purpose_repeated"));
+});
+
+for (const [name, draft] of [["repeated purpose", ADDED], ["new purpose", REWRITTEN]])
+ test(`section 166: the first ${name} draft is delivered without a purpose review`, async (t) => {
+	const {table, asked, npcAct, workspace} = await b2Table(t, {responses: () => [narrate(draft)]});
+	assert.equal(asked.length, 0);
+	assert.equal(npcAct.calls.length, 0, "ordinary conversation does not create an extra NPC act");
+	assert.equal(gateRows(table).length, 0);
+	const record = JSON.parse(readFileSync(join(workspace, ".coc/campaigns/test-camp/turns/0002.json"), "utf8"));
+	assert.equal(record.closed_by, "narrate");
+	assert.equal(record.text, draft);
 });
