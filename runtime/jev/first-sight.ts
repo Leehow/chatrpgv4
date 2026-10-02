@@ -31,18 +31,21 @@ export const FIRST_SIGHT_TIMEOUT_MS = 120000;
 export const FIRST_SIGHT_MISSING_MAX = 24, FIRST_SIGHT_EXCERPT_CHARS = 800;
 
 /**
- * Each detail gets its own verdict. The first instruction asked for "the details a newcomer could see and the prose did
+ * Each detail gets its own verdicts. The first instruction asked for "the details a newcomer could see and the prose did
  * not show" in one breath; with reasoning off the fast model did one half or the other -- on the Blood Road opening it
  * returned every visible detail as missing though the prose showed nearly all of them, and offline the same input gave
- * the invisible ones (a son, a church) instead. Asked to copy every visible detail and mark each shown or not, the same
- * model kept the two apart on that opening and on a control that showed one man of three (2026-10-02, 4 s, reasoning off).
+ * the invisible ones (a son, a church) instead. A shown verdict per detail fixed the first half; the visible filter
+ * still let a son, a church and a dead wife through as unshown. Copying every detail and marking each visible and shown
+ * kept both apart on that opening and on a control that showed one man of three, two runs each (2026-10-02, reasoning
+ * off, 4-8 s).
  */
 export const FIRST_SIGHT_INSTRUCTION = [
   'You check one reply of a tabletop horror game against what its book describes of a place or person the player was seeing for the first time.',
   'The input JSON holds prose, the reply the player just read, and items, each with id, kind (place or person) and described: the book\'s own words for it, in whatever language the book is written in.',
-  'Step 1, for each item: copy out of described every detail a newcomer arriving there could see or hear on arrival -- how the place looks, sounds and smells; a person\'s looks, build, apparent age, dress and visible manner. Skip everything that cannot be seen or heard on arrival: history, where someone lives, family, beliefs, habits elsewhere, secrets, motives, names nobody has said, rules and numbers. Copy each detail exactly as described writes it: one unbroken excerpt, character for character, a short phrase.',
-  'Step 2, for each detail: shown is true when the prose shows that detail to the reader, in any words or language; false when the prose does not show it.',
-  'Answer with one JSON object and nothing else: {"items": [{"id": "<item id>", "details": [{"excerpt": "<excerpt>", "shown": true|false}]}]}, one entry for every item.',
+  'Step 1, for each item: copy described out as its details, in order, each one unbroken excerpt exactly as described writes it, character for character -- a short phrase or clause. Copy every detail, whatever it is about.',
+  'Step 2, for each detail: visible is true only when a newcomer arriving there could see or hear it on arrival -- how the place looks, sounds and smells; a person\'s looks, build, apparent age, dress and the manner they show. visible is false for everything else: history, where someone lives, work or life elsewhere, family, beliefs and religion, habits, opinions, secrets, motives, what someone knows, names nobody has said, rules and numbers.',
+  'Step 3, for each detail: shown is true when the prose shows that detail to the reader, in any words or language; false when it does not.',
+  'Answer with one JSON object and nothing else: {"items": [{"id": "<item id>", "details": [{"excerpt": "<excerpt>", "visible": true|false, "shown": true|false}]}]}, one entry for every item.',
 ].join('\n');
 
 export type FirstSightFailure = 'no_session' | 'cancelled' | 'timeout' | 'model_unavailable' | 'model_error' | 'bad_output' | 'lane_error';
@@ -54,9 +57,9 @@ export type FirstSightResult = {ok: true; items: FirstSightAnswer[]; unanchored:
 export interface FirstSightPort {check(input: {turn: number; prose: string; items: FirstSightItem[]}, signal: AbortSignal): Promise<FirstSightResult>}
 
 /**
- * The closed shape: `items` a list of `{id, details: [{excerpt, shown}]}`, read as each item's `missing` -- the excerpts
- * marked not shown. Its wording is the model's. An item with no visible detail at all has nothing to show and nothing
- * missing.
+ * The closed shape: `items` a list of `{id, details: [{excerpt, visible, shown}]}`, read as each item's `missing` -- the
+ * excerpts marked visible and not shown. Its wording is the model's. An item with no visible detail at all has nothing to
+ * show and nothing missing.
  */
 export function checkFirstSightAnswer(parsed: unknown): Array<{id: string; missing: string[]}> | undefined {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
@@ -70,9 +73,9 @@ export function checkFirstSightAnswer(parsed: unknown): Array<{id: string; missi
     const missing: string[] = [];
     for (const detail of details) {
       if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return undefined;
-      const {excerpt, shown} = detail as Record<string, unknown>;
-      if (typeof excerpt !== 'string' || typeof shown !== 'boolean') return undefined;
-      if (!shown && excerpt.trim()) missing.push(excerpt);
+      const {excerpt, visible, shown} = detail as Record<string, unknown>;
+      if (typeof excerpt !== 'string' || typeof visible !== 'boolean' || typeof shown !== 'boolean') return undefined;
+      if (visible && !shown && excerpt.trim()) missing.push(excerpt);
     }
     answers.push({id: id.trim(), missing});
   }

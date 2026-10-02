@@ -15,11 +15,15 @@ const ITEMS = [{id: 'book-4-esso-station', kind: 'place', described: STATION}, {
 
 test('the answer gives every visible detail its own verdict; the ones not shown are what is missing; anything else is no answer', () => {
   assert.deepEqual(checkFirstSightAnswer({items: [
-    {id: ' a ', details: [{excerpt: 'x', shown: false}, {excerpt: 'y', shown: true}, {excerpt: ' ', shown: false}]},
-    {id: 'b', details: [{excerpt: 'z', shown: true}]}, {id: 'c', details: []}]}),
+    {id: ' a ', details: [{excerpt: 'x', visible: true, shown: false}, {excerpt: 'y', visible: true, shown: true}, {excerpt: ' ', visible: true, shown: false}]},
+    {id: 'b', details: [{excerpt: 'z', visible: true, shown: true}]}, {id: 'c', details: []}]}),
     [{id: 'a', missing: ['x']}, {id: 'b', missing: []}, {id: 'c', missing: []}]);
+  // Blood Road, fifth table: a son, a church and a dead wife came back as unshown; what cannot be seen on arrival is never owed.
+  assert.deepEqual(checkFirstSightAnswer({items: [{id: 'lars', details: [{excerpt: '高瘦', visible: true, shown: true},
+    {excerpt: '有个儿子叫兰德尔', visible: false, shown: false}, {excerpt: '穿白色系扣衬衫', visible: true, shown: false}]}]}),
+    [{id: 'lars', missing: ['穿白色系扣衬衫']}]);
   for (const bad of [null, [], 'text', {}, {items: {}}, {items: [{id: 'a'}]}, {items: [{id: '', details: []}]}, {items: [{id: 'a', missing: []}]},
-    {items: [{id: 'a', details: [{excerpt: 'x'}]}]}, {items: [{id: 'a', details: [{excerpt: 3, shown: true}]}]}, {items: [{id: 'a', details: ['x']}]}, {items: ['a']}])
+    {items: [{id: 'a', details: [{excerpt: 'x'}]}]}, {items: [{id: 'a', details: [{excerpt: 'x', shown: false}]}]}, {items: [{id: 'a', details: [{excerpt: 3, shown: true}]}]}, {items: [{id: 'a', details: ['x']}]}, {items: ['a']}])
     assert.equal(checkFirstSightAnswer(bad), undefined, JSON.stringify(bad));
 });
 
@@ -59,9 +63,9 @@ function fixture(t, reply) {
 test('one zero-tool round on the fast model: the delivered prose and the items go in, anchored answers come out, one row is written', async t => {
   const home = await mkdtemp(join(tmpdir(), 'first-sight-lane-'));
   t.after(() => rm(home, {recursive: true, force: true}));
-  const answer = {items: [{id: 'book-4-esso-station', details: [{excerpt: '两台旧加油机仍可用', shown: false}, {excerpt: '标志陈旧仍可辨埃索', shown: true}]},
-    {id: 'book-4-lars-williams', details: [{excerpt: '高瘦', shown: true}]},
-    {id: 'book-4-nate-patterson', details: [{excerpt: '一顶牛仔帽', shown: false}]}]};
+  const answer = {items: [{id: 'book-4-esso-station', details: [{excerpt: '两台旧加油机仍可用', visible: true, shown: false}, {excerpt: '标志陈旧仍可辨埃索', visible: true, shown: true}]},
+    {id: 'book-4-lars-williams', details: [{excerpt: '高瘦', visible: true, shown: true}]},
+    {id: 'book-4-nate-patterson', details: [{excerpt: '一顶牛仔帽', visible: true, shown: false}]}]};
   const f = fixture(t, () => ({stopReason: 'stop', content: [{type: 'text', text: JSON.stringify(answer)}]}));
   f.ctx.cwd = home;
   const lane = createFirstSightLane(f.pi, {ctx: () => f.ctx, campaign: () => 'c1'});
@@ -77,7 +81,7 @@ test('one zero-tool round on the fast model: the delivered prose and the items g
   assert.equal(context.tools, undefined, 'a zero-tool completion');
   assert.deepEqual(JSON.parse(context.messages[0].content[0].text), {prose, items: ITEMS});
   assert.match(context.systemPrompt, /exactly as described writes it/);
-  assert.match(context.systemPrompt, /"shown": true\|false/, 'every detail gets its own verdict');
+  assert.match(context.systemPrompt, /"visible": true\|false, "shown": true\|false/, 'every detail gets its own two verdicts');
   for (const key of ['temperature', 'top_p']) assert.equal(Object.hasOwn(options, key), false, `${key} is never sent`);
   const all = (await readFile(join(cocHome(home), '.coc/campaigns/c1/telemetry.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   const start = all.find(row => row.lane === 'lane-call' && row.subsession === 'first-sight' && row.phase === 'start');

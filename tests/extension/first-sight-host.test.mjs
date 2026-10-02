@@ -53,9 +53,9 @@ test("the opening's first sight is checked after delivery, in the background, an
 		"the delivered prose and what the opening's capsule carried");
 	assert.equal(calls(table, "table.first_sight").length, 0, "the delivery did not wait for the check");
 
-	lane.release({ items: [{ id: "fs-esso-station", details: [{ excerpt: "两台旧加油机仍可用", shown: false }, { excerpt: "香烟贩卖机手写\"故障\"", shown: false }] }, { id: "fs-lars", details: [] },
+	lane.release({ items: [{ id: "fs-esso-station", details: [{ excerpt: "两台旧加油机仍可用", visible: true, shown: false }, { excerpt: "香烟贩卖机手写\"故障\"", visible: true, shown: false }] }, { id: "fs-lars", details: [] },
 		// Every excerpt unanchored: the person is neither shown nor given an open row.
-		{ id: "fs-nate", details: [{ excerpt: "戴一顶牛仔帽", shown: false }] }] });
+		{ id: "fs-nate", details: [{ excerpt: "戴一顶牛仔帽", visible: true, shown: false }] }] });
 	const [recorded] = await waitFor(() => calls(table, "table.first_sight").length && calls(table, "table.first_sight"), { label: "table.first_sight" });
 	assert.deepEqual(recorded.params, { campaign: "test-camp", turn: 0, items: [
 		{ id: "fs-esso-station", kind: "place", missing: ["两台旧加油机仍可用", "香烟贩卖机手写“故障”"] },
@@ -88,7 +88,7 @@ test("while a check is in flight the Keeper is not handed its items; once it lan
 	assert.deepEqual(omitted.omitted, ["place:fs-esso-station", "person:fs-lars", "person:fs-nate"]);
 	assert.equal(table.lanes.firstSight.requests().length, 1, "turn 1 carried no first sight, so its delivery is not checked");
 
-	lane.release({ items: [{ id: "fs-esso-station", details: [] }, { id: "fs-lars", details: [{ excerpt: "穿白色系扣衬衫", shown: false }] }, { id: "fs-nate", details: [] }] });
+	lane.release({ items: [{ id: "fs-esso-station", details: [] }, { id: "fs-lars", details: [{ excerpt: "穿白色系扣衬衫", visible: true, shown: false }] }, { id: "fs-nate", details: [] }] });
 	await waitFor(() => calls(table, "table.first_sight").length === 1, { label: "the check landed" });
 
 	// The next read carries what the check found still unshown, and its delivery is checked against that.
