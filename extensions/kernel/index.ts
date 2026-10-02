@@ -132,6 +132,7 @@ import {
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 import { watchOwedReview } from "./owed-review.ts";
 import { openingInstruction } from "./opening-instruction.ts";
+import { leaveOutRefused, leaveOutUnknownOwed, owedLeftOutNote, type OwedLeftOut } from "./owed-left-out.ts";
 import { restoreTextualToolCalls } from "./textual-tool-calls.ts";
 
 /**
@@ -2773,6 +2774,11 @@ export default function (pi: ExtensionAPI) {
 	 */
 	async function prefetchAdmission(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>): Promise<void> {
 		if (!state.playerText) return;
+		// §168.4: the real call leaves out an owed name the capsule never offered before it is admitted; so does its head start.
+		if (tool === "apply" && Array.isArray(payload.effects)) {
+			const effects = (payload.effects as unknown[]).map((effect) => effect && typeof effect === "object" ? { ...effect as Record<string, unknown> } : effect);
+			if (leaveOutUnknownOwed(effects, state.owed).length) payload = { ...payload, effects };
+		}
 		// §158.5: an owed write is admitted on what was told; there is no review to start early.
 		if (toldAdmission(tool, payload, undefined, state.owed ?? [])?.ok) return;
 		if (tool === "apply" && combatSceneMove(state, payload)) return;
@@ -4585,6 +4591,11 @@ export default function (pi: ExtensionAPI) {
 		// §143.3: the table's own act of a person -- the clerk's `npc_act` calls -- is marked by the host alone (`_generated`,
 		// `_draws`); every other call has the marks removed.
 		markNpcAct(spec.name, params, host);
+		// §168.4: an owed name the capsule never offered is left out before admission, so the batch is reviewed as the
+		// ordinary write it is and the rest of it -- the embedded narration included -- is not lost to the kernel's refusal.
+		const owedLeftOut: OwedLeftOut[] = spec.name === "apply" && !host ? leaveOutUnknownOwed(params.effects, table?.owed) : [];
+		for (const entry of owedLeftOut) void record({ lane: "owed", event: "owed_left_out", stage: "before_admission", turn: table?.turn ?? null,
+			owed: entry.owed ?? null, reason: entry.reason, kind: entry.kind ?? null });
 		takeSkillAnnotation(state?.skillRun, params);
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");
@@ -4884,6 +4895,23 @@ export default function (pi: ExtensionAPI) {
 					result.band_recovery = recovered.summary;
 					result.note = recovered.note;
 				}
+				// §168.4: the kernel refused an owed field that does not hold. Only that effect's field is left out, admission and the
+				// Mod gates run again, and the same batch is sent once more -- once per effect at most, as the band retry above.
+				else if (spec.name === "apply" && !host && isKernelError(failure) && failure.details?.field === "owed" && Array.isArray(payload.effects)) {
+					let refused: unknown = failure;
+					for (let attempt = 0; ; attempt++) {
+						const left = isKernelError(refused) && attempt < (payload.effects as unknown[]).length ? leaveOutRefused(refused.details, payload.effects) : [];
+						if (!left.length) throw refused;
+						for (const entry of left) {
+							owedLeftOut.push(entry);
+							void record({ lane: "owed", event: "owed_left_out", stage: "kernel_refused", turn: state.turn, owed: entry.owed ?? null, reason: entry.reason, kind: entry.kind ?? null });
+						}
+						partial = (await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence)) ?? partial;
+						if (mods && !referenceScope) await mods.prepare(spec.name, payload, signal, providerBudget);
+						try { result = (await invokeOperation()) ?? {}; break; }
+						catch (again) { refused = again; }
+					}
+				}
 				// §11.5.6 (SL-62): a person named in a write or check that the graph and carried text both miss is
 				// resolved against the scene's known people before this unknown_entity stands.
 				else if (isKernelError(failure) && failure.code === "unknown_entity" && (spec.name === "resolve" || spec.name === "apply")) {
@@ -4966,6 +4994,8 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 			if (spec.name === "recall") result = state.recallPages.accept(result);
+			if (owedLeftOut.length) { result.owed_left_out = owedLeftOut.map(({ owed, reason, kind }) => ({ owed: owed ?? null, reason, kind: kind ?? null }));
+				result.note = [result.note, owedLeftOutNote(owedLeftOut)].filter(Boolean).join(" "); }
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
 			if (mods?.after && !referenceScope) await mods.after(spec.name, payload, signal, providerBudget);
 			if (spec.name === "lookup" && params.kind === "module" && params.question) {

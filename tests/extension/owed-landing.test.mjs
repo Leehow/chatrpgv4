@@ -139,15 +139,21 @@ test('on the real tool path: the Keeper\'s own owed write is admitted on told, a
     assert.deepEqual(turn.receipts.filter(receipt => receipt.kind === 'move').map(receipt => [receipt.to, receipt.owed]), [['corbitt-house-ground', ROW.name]]);
 });
 
-test('on the real tool path: a forged owed name gets no review and lands nothing', async t => {
+// §168.4 (2026-10-02): the kernel still refuses a forged name, and the host then leaves it out, so the write is
+// reviewed as the ordinary write it is: a forged name never buys the told basis, and an unchosen move lands nothing.
+test('on the real tool path: a forged owed name gets no told basis -- left out, the write is reviewed as ordinary and lands nothing', async t => {
     const session = await openTable({realKernel: true, prepareWorkspace: toldNoMove, responses: [
         fauxAssistantMessage([fauxToolCall('apply', {effects: [{kind: 'move', to: 'newspaper-morgue', via: 'Anywhere.', owed: ROW.name}]})], {stopReason: 'toolUse'}),
-        fauxAssistantMessage([fauxToolCall('narrate', {text: '你在门前停了一会儿。'})], {stopReason: 'toolUse'})]});
+        fauxAssistantMessage([fauxToolCall('narrate', {text: '你在门前停了一会儿。'})], {stopReason: 'toolUse'})],
+        laneResponses: {admission: [fauxAssistantMessage(JSON.stringify({verdict: 'not_authorized', grounds: 'The player opened the gate; nobody chose the newspaper morgue.', missing: 'a trip to the morgue'}))]}});
     t.after(() => session.dispose());
     await session.session.prompt('我推开大门。');
+    const left = session.telemetry().filter(entry => entry.lane === 'owed' && entry.event === 'owed_left_out');
+    assert.deepEqual(left.map(entry => [entry.stage, entry.reason, entry.owed]), [['kernel_refused', 'owed_mismatch', ROW.name]], 'the kernel is still the final check on what was told');
+    const reviewed = session.telemetry().filter(entry => entry.lane === 'admission' && entry.verb === 'apply' && entry.path !== 'told');
+    assert.ok(reviewed.some(entry => entry.admitted === false), 'reviewed as an ordinary write, and refused');
     const call = session.telemetry().find(entry => entry.tool === 'apply');
     assert.equal(call?.ok, false);
-    assert.equal(call?.reason, 'owed_mismatch', 'the kernel is the final check on what was told');
     const world = JSON.parse(readFileSync(join(session.workspace, '.coc/campaigns', CAMPAIGN, 'world.json'), 'utf8'));
     assert.notEqual(world.active_scene, 'newspaper-morgue');
 });
