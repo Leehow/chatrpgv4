@@ -26,8 +26,8 @@ export const HISTORY_QUERY_INSTRUCTION = [
   'You write one web search for historical background to a scene of a tabletop horror game.',
   'The input JSON holds what the scenario\'s authors wrote, in whatever language they wrote it: era, scene (the place\'s name and what it is), background.',
   'Answer with one JSON object and nothing else: {"query": "...", "objective": "..."}, both in English.',
-  'query: at most 300 characters. Name the real historical period, the real region and the kind of place, e.g. "1975 West Texas small-town general store". Leave out the scenario\'s invented names of people and businesses; a real town, region or institution may stay.',
-  'objective: at most 480 characters. Say which details of that time and place the scene needs: appearance, goods, how people worked and talked there. Ask for sources that show how it was at that time, not present-day travel guides, listings, opening hours or museum notes. Do not ask for prices.',
+  'query: at most 300 characters. Aim it at written accounts of that time and place, which describe what a place was like: first-hand accounts, memoirs, oral histories, newspaper or magazine features, travel writing. Name the decade, the real region and the kind of place, and put words for such writing in it, e.g. "1970s rural West Texas country store first-hand account". Do not aim it at photographs, postcards or archive catalogues: they hold almost no description. Leave out the scenario\'s invented names of people and businesses; a real town, region or institution may stay.',
+  'objective: at most 480 characters. Say which details of that time and place the scene needs (appearance, goods, the regulars, how people worked and talked there) and ask for writing that shows how it was then: period newspapers and magazines, memoirs, oral histories, travel writing. Rule out present-day travel guides, listings, opening hours, museum notes and photo catalogues. Do not ask for prices.',
   'When the setting is fictional, name the real period and culture it borrows from instead.',
 ].join('\n');
 

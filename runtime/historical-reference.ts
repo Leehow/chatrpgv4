@@ -182,10 +182,16 @@ export function historyCandidates(raw: any): HistoryMaterial[] {
  * Owner, 2026-10-02 (it must be how things were at that time): an excerpt is kept only when it shows how things were at the time and place the
  * lookup asks about. The installed App's Blood Road table kept present-day travel listings (opening hours, 2016 motel
  * rates) as "analogous" background for a 1975 bar, gas station and general store. One Noul per candidate, beside the
- * applicability choice; below `PERIOD_MIN` the candidate is dropped whatever its applicability.
+ * applicability choice; below `PERIOD_MIN` the candidate is dropped whatever its applicability, and the kept ones are
+ * taken highest score first.
+ *
+ * Calibrated on live Jev, 2026-10-02 (19 Exa results for three 1970s West Texas scenes): every present-day page, travel
+ * guide, listing and catalogue page scored 0.04-0.24; first-hand memoirs of mid-century Texas stores and filling stations
+ * scored 0.31-0.49 -- Jev never put one at 0.5, so the first value (0.5) dropped all of them. One present-day travel blog
+ * retelling a 1950 station's history scored 0.32 and gets through.
  */
-export const PERIOD_MIN = 0.5;
-export const PERIOD_QUESTION = 'Does this excerpt show how things actually were at the time and place this lookup asks about (the period, region and kind of place in query/objective and setting; for a fictional setting, the real period it borrows from): their appearance, goods, prices, work or speech at that time? Present-day travel guides, listings, opening hours, current prices and services, museum or restoration notes and history told from today\'s vantage do not count, even when they mention the old days. A source from a nearby decade counts only where it shows what still held at that time.';
+export const PERIOD_MIN = 0.3;
+export const PERIOD_QUESTION = 'Does this excerpt show how things actually were at the time and place this lookup asks about (the period, region and kind of place in query/objective and setting; for a fictional setting, the real period it borrows from): their appearance, goods, prices, work or speech at that time? Writing from that time counts, and so does a later first-hand account, memoir or oral history describing that time. Descriptions of how a place is today, travel guides, listings, opening hours, current prices and services, museum or restoration notes, and catalogue pages with no description do not count, even when they mention the old days. A source about a nearby decade counts only where it shows what still held at that time.';
 export function selectionBatch(input: HistoryInput, candidates: HistoryMaterial[], pricing?: HistoryResult['pricing']): DecisionBatch {
   const state = {query: input.query, objective: input.objective ?? null, player_input: input.player_input ?? '', setting: input.context,
     candidates: candidates.map((value, index) => ({alias: `reference_${index + 1}`, ...value})),
@@ -345,6 +351,7 @@ export class HistoricalReference {
       decisions = {}; periods = {};
       let bytes = 0;
       result.materials = [];
+      const kept: Array<{material: HistoryMaterial; alias: string; applicability: string; qualified: boolean; period: number}> = [];
       for (const [index, material] of rows.entries()) {
         const alias = `reference_${index + 1}`, answer = decision.answers[alias], period = decision.answers[`period_${index + 1}`];
         decisions[materialIdentity(material)] = answer?.status === 'answered' && answer.type === 'choice' ? answer.choice : 'unknown';
@@ -355,9 +362,13 @@ export class HistoricalReference {
         const anchor = decision.answers[`price_anchor_${index + 1}`];
         const qualified = anchor?.status === 'answered' && anchor.type === 'noul' && anchor.noul > 0.5;
         if (result.pricing?.strategy === 'estimate_from_anchors' && !qualified) continue;
+        kept.push({material, alias, applicability: answer.choice, qualified, period: periodScore});
+      }
+      // The excerpts that most clearly show that time go first, and fill the bounded selection before the rest.
+      for (const {material, alias, applicability, qualified} of kept.sort((a, b) => b.period - a.period)) {
         const size = Buffer.byteLength(JSON.stringify(material));
         if (bytes + size > HISTORY_LIMITS.bytes || result.materials.length >= HISTORY_LIMITS.selected) continue;
-        bytes += size; result.materials.push({...material, alias, applicability: answer.choice, ...(result.pricing ? {price_anchor: qualified} : {})});
+        bytes += size; result.materials.push({...material, alias, applicability, ...(result.pricing ? {price_anchor: qualified} : {})});
       }
       return true;
     };
