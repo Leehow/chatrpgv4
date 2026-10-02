@@ -264,15 +264,18 @@ const QuotationDrafts = Type.Optional(Type.Array(Type.Object({
     why: Type.Optional(Sentence("brief player-visible quotation purpose in play_language")),
 }),{maxItems:8,description:"Offers only. Write closing prose first, then these priced lines in the same call. Background registration computes totals and updates the card after delivery. No payment or item transfer"}));
 
-// Both delivery schemas carry the same bounded drafts; describe their fields once in narrate.
-const EmbeddedQuotationDrafts = {
+// Both delivery schemas carry the same bounded drafts; describe their fields once in narrate. Spreading the optional
+// schema keeps its shape but not its optional mark, and `Type.Object` then lists the property as required: every
+// apply without quotes -- the clerk's move, the Keeper's ordinary write -- failed validation ("quotes: must have
+// required properties quotes"), 35 loop tests on 2026-10-02. Type.Optional restores the mark.
+const EmbeddedQuotationDrafts = Type.Optional({
     ...QuotationDrafts,
     description: "Background offers only; the same fields as narrate.quotes",
     items: {...QuotationDrafts.items, properties: Object.fromEntries(Object.entries(QuotationDrafts.items.properties).map(([name,schema])=>{
         const {description:_description,...fields}=schema;
         return [name,fields];
     }))},
-};
+} as typeof QuotationDrafts);
 
 const CashEffect = Type.Object({
 	owed: OwedRef,
