@@ -757,6 +757,10 @@ export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: 
         const called = calledBlock(world, string(sheet.id), string(sheet.name || sheet.id));
         if (called)
             section.investigator.called = called;
+        // A book speaks to a group, and so does everything prepared from it. With one investigator at the table the
+        // installed App's Keeper still had locals say "you people" to a man driving alone (Blood Road, 2026-10-02).
+        if (party.length === 1)
+            section.investigator.alone = "Nobody travels with this investigator: people speak to and of them as one person, whatever the book says of a group.";
         if (typeof row(sheet.origin).library_id === "string" && row(sheet.origin).library_id && typeof sheet.era === "string" && sheet.era && typeof book === "string" && book && sheet.era !== book)
             section.investigator.era_note = `This sheet was built for the ${sheet.era} era and the module is set in ${book}; its characteristics, skills and money are unchanged. Reconcile the difference in the fiction, not in the numbers.`;
     }
