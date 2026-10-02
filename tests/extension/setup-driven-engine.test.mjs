@@ -10,6 +10,7 @@
 import { strict as assert } from "node:assert";
 import { stream as responsesStream } from "@earendil-works/pi-ai/api/openai-responses";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
@@ -700,4 +701,18 @@ test("§151.6: the shipped interest-fit gate is 0.5 (interest_row_ratio 1), and 
 	assert.match(spot.instructions, /"侦查" \(Spot Hidden\)/, "like with like: the label the catalog issues for the play language, beside the rules name");
 	assert.match(spot.instructions, /in any words/);
 	assert.match(spot.instructions, /kept at its starting value/);
+});
+
+test("§151.6: a first card's fields are read from every message of this setup; once a card exists, from the latest alone", () => {
+	// Dust to Dust (2026-10-02): the name came in one message and the trade in the next; reading only the latest, the
+	// guide asked for the trade, then for the name again, then the trade.
+	const earlier = ["我叫伊芙琳·格雷，《阿卡姆宣告报》的记者。", "她最擅长从细节里发现异常。"];
+	const first = fieldsBatch({ read: read({ input: { key: "k", text: "记者。", earlier } }), scope, readSet: [] });
+	assert.equal(first.state.player_input, [...earlier, "记者。"].join("\n\n"));
+	const card = { revision: 1, summary: { card: { name: "伊芙琳·格雷", occupation: "Journalist" } }, profile: { occupation_skills: [], interest_skills: [] } };
+	const later = fieldsBatch({ read: read({ card, input: { key: "k", text: "把她改成医生。", earlier } }), scope, readSet: [] });
+	assert.equal(later.state.player_input, "把她改成医生。", "a revision reads only what the player just said");
+	assert.equal(fieldsBatch({ read: read({ input: { key: "k", text: "记者。" } }), scope, readSet: [] }).state.player_input, "记者。");
+	const source = readFileSync(join(import.meta.dirname, "..", "..", "extensions", "onboarding", "index.ts"), "utf8");
+	assert.ok(source.includes("...(!card && earlierInputs.length ? {earlier: earlierInputs.slice(-6)} : {})"), "the setup read hands the earlier messages only before the card");
 });

@@ -201,6 +201,8 @@ export default function (pi: ExtensionAPI) {
   let inputKey = "";
   let inputOrdinal=0;
   let inputCatalog:SetupInputCatalog|undefined;
+  /** The player's earlier setup messages, before this input (§151.6: a first card is read from all of them). */
+  let earlierInputs:string[]=[];
   let setupBlock: SetupBlock | undefined;
   /** §14.19: the openings the host last answered `needs_choice` with; the preparation step stays open until one is recorded. */
   let openingQuestion: unknown[] | undefined;
@@ -633,6 +635,7 @@ export default function (pi: ExtensionAPI) {
       .map(entry=>Number(entry.data?.ordinal)).filter(value=>Number.isSafeInteger(value)&&value>=0))+1;
     pi.appendEntry('coc-setup-input-epoch',{ordinal:inputOrdinal});
     const fields=setupUserTextFields(branch,{occurrence:`current:${inputKey}`,text:prompt});
+    earlierInputs=fields.slice(0,-1).map(field=>field.text).filter(text=>text.trim());
     inputCatalog=buildSetupInputCatalog({epoch:inputKey,generation:inputOrdinal,branch:`${branch.at(-1)?.id??'root'}:${branch.length}`,fields,
       unavailable:unavailable||(draftRevision!==undefined&&!branch.some(entry=>entry.type==='message'&&entry.message?.role==='user'))});
   }
@@ -1182,7 +1185,9 @@ export default function (pi: ExtensionAPI) {
 			library,
 			catalog,
 			eras: Array.isArray(context.rulebook_eras) ? (context.rulebook_eras as unknown[]).filter((era): era is string => typeof era === 'string') : [],
-			input: inputCatalog && inputKey ? {key: inputKey, text: lastPlayerInput} : null,
+			// Before the first card a field the player stated in an earlier message still counts: on Dust to Dust (2026-10-02)
+			// the name came in one message and the trade in the next, and the guide asked for each again in turn.
+			input: inputCatalog && inputKey ? {key: inputKey, text: lastPlayerInput, ...(!card && earlierInputs.length ? {earlier: earlierInputs.slice(-6)} : {})} : null,
 			play_language: playLanguage() ?? null,
 		};
 	}
@@ -1424,7 +1429,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, sessionCtx) => {
 		ctx = sessionCtx;
-        inputCatalog=undefined;inputKey="";lastPlayerInput="";inputOrdinal=0;
+        inputCatalog=undefined;inputKey="";lastPlayerInput="";inputOrdinal=0;earlierInputs=[];
 		steps = undefined;
 		completed.clear();
 		opCache.clear();
