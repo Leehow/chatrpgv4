@@ -30,13 +30,19 @@ export const FIRST_SIGHT_TIMEOUT_MS = 120000;
 /** The kernel's bounds (`table.first_sight`): excerpts per item and characters per excerpt. */
 export const FIRST_SIGHT_MISSING_MAX = 24, FIRST_SIGHT_EXCERPT_CHARS = 800;
 
+/**
+ * Each detail gets its own verdict. The first instruction asked for "the details a newcomer could see and the prose did
+ * not show" in one breath; with reasoning off the fast model did one half or the other -- on the Blood Road opening it
+ * returned every visible detail as missing though the prose showed nearly all of them, and offline the same input gave
+ * the invisible ones (a son, a church) instead. Asked to copy every visible detail and mark each shown or not, the same
+ * model kept the two apart on that opening and on a control that showed one man of three (2026-10-02, 4 s, reasoning off).
+ */
 export const FIRST_SIGHT_INSTRUCTION = [
   'You check one reply of a tabletop horror game against what its book describes of a place or person the player was seeing for the first time.',
   'The input JSON holds prose, the reply the player just read, and items, each with id, kind (place or person) and described: the book\'s own words for it, in whatever language the book is written in.',
-  'For each item, list the details of described that a newcomer arriving there could see or hear on arrival -- how the place looks, sounds and smells; a person\'s looks, build, apparent age, dress and manner -- and that the prose did not show.',
-  'A detail the prose showed in other words or in another language counts as shown. Leave out what cannot be seen or heard on arrival: history, names nobody has said, secrets, motives, relationships, what someone knows or does elsewhere, rules and numbers.',
-  'Copy each detail exactly as described writes it: one unbroken excerpt, character for character, a phrase or clause rather than the whole text.',
-  'Answer with one JSON object and nothing else: {"items": [{"id": "<item id>", "missing": ["<excerpt>", ...]}]}, one entry for every item; missing is [] when the prose showed everything of it a newcomer could see or hear.',
+  'Step 1, for each item: copy out of described every detail a newcomer arriving there could see or hear on arrival -- how the place looks, sounds and smells; a person\'s looks, build, apparent age, dress and visible manner. Skip everything that cannot be seen or heard on arrival: history, where someone lives, family, beliefs, habits elsewhere, secrets, motives, names nobody has said, rules and numbers. Copy each detail exactly as described writes it: one unbroken excerpt, character for character, a short phrase.',
+  'Step 2, for each detail: shown is true when the prose shows that detail to the reader, in any words or language; false when the prose does not show it.',
+  'Answer with one JSON object and nothing else: {"items": [{"id": "<item id>", "details": [{"excerpt": "<excerpt>", "shown": true|false}]}]}, one entry for every item.',
 ].join('\n');
 
 export type FirstSightFailure = 'no_session' | 'cancelled' | 'timeout' | 'model_unavailable' | 'model_error' | 'bad_output' | 'lane_error';
@@ -47,7 +53,11 @@ export type FirstSightResult = {ok: true; items: FirstSightAnswer[]; unanchored:
   | {ok: false; reason: FirstSightFailure; detail: string; ms: number; model?: string};
 export interface FirstSightPort {check(input: {turn: number; prose: string; items: FirstSightItem[]}, signal: AbortSignal): Promise<FirstSightResult>}
 
-/** The closed shape: `items` a list of `{id, missing: string[]}`. Its wording is the model's. */
+/**
+ * The closed shape: `items` a list of `{id, details: [{excerpt, shown}]}`, read as each item's `missing` -- the excerpts
+ * marked not shown. Its wording is the model's. An item with no visible detail at all has nothing to show and nothing
+ * missing.
+ */
 export function checkFirstSightAnswer(parsed: unknown): Array<{id: string; missing: string[]}> | undefined {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
   const items = (parsed as Record<string, unknown>).items;
@@ -55,9 +65,16 @@ export function checkFirstSightAnswer(parsed: unknown): Array<{id: string; missi
   const answers: Array<{id: string; missing: string[]}> = [];
   for (const item of items) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return undefined;
-    const {id, missing} = item as Record<string, unknown>;
-    if (typeof id !== 'string' || !id.trim() || !Array.isArray(missing) || missing.some(value => typeof value !== 'string')) return undefined;
-    answers.push({id: id.trim(), missing: (missing as string[]).filter(value => value.trim())});
+    const {id, details} = item as Record<string, unknown>;
+    if (typeof id !== 'string' || !id.trim() || !Array.isArray(details)) return undefined;
+    const missing: string[] = [];
+    for (const detail of details) {
+      if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return undefined;
+      const {excerpt, shown} = detail as Record<string, unknown>;
+      if (typeof excerpt !== 'string' || typeof shown !== 'boolean') return undefined;
+      if (!shown && excerpt.trim()) missing.push(excerpt);
+    }
+    answers.push({id: id.trim(), missing});
   }
   return answers;
 }

@@ -53,9 +53,9 @@ test("the opening's first sight is checked after delivery, in the background, an
 		"the delivered prose and what the opening's capsule carried");
 	assert.equal(calls(table, "table.first_sight").length, 0, "the delivery did not wait for the check");
 
-	lane.release({ items: [{ id: "fs-esso-station", missing: ["两台旧加油机仍可用", "香烟贩卖机手写\"故障\""] }, { id: "fs-lars", missing: [] },
+	lane.release({ items: [{ id: "fs-esso-station", details: [{ excerpt: "两台旧加油机仍可用", shown: false }, { excerpt: "香烟贩卖机手写\"故障\"", shown: false }] }, { id: "fs-lars", details: [] },
 		// Every excerpt unanchored: the person is neither shown nor given an open row.
-		{ id: "fs-nate", missing: ["戴一顶牛仔帽"] }] });
+		{ id: "fs-nate", details: [{ excerpt: "戴一顶牛仔帽", shown: false }] }] });
 	const [recorded] = await waitFor(() => calls(table, "table.first_sight").length && calls(table, "table.first_sight"), { label: "table.first_sight" });
 	assert.deepEqual(recorded.params, { campaign: "test-camp", turn: 0, items: [
 		{ id: "fs-esso-station", kind: "place", missing: ["两台旧加油机仍可用", "香烟贩卖机手写“故障”"] },
@@ -88,11 +88,11 @@ test("while a check is in flight the Keeper is not handed its items; once it lan
 	assert.deepEqual(omitted.omitted, ["place:fs-esso-station", "person:fs-lars", "person:fs-nate"]);
 	assert.equal(table.lanes.firstSight.requests().length, 1, "turn 1 carried no first sight, so its delivery is not checked");
 
-	lane.release({ items: [{ id: "fs-esso-station", missing: [] }, { id: "fs-lars", missing: ["穿白色系扣衬衫"] }, { id: "fs-nate", missing: [] }] });
+	lane.release({ items: [{ id: "fs-esso-station", details: [] }, { id: "fs-lars", details: [{ excerpt: "穿白色系扣衬衫", shown: false }] }, { id: "fs-nate", details: [] }] });
 	await waitFor(() => calls(table, "table.first_sight").length === 1, { label: "the check landed" });
 
 	// The next read carries what the check found still unshown, and its delivery is checked against that.
-	table.lanes.firstSight.setResponses([async () => fauxAssistantMessage(JSON.stringify({ items: [{ id: "fs-lars", missing: [] }] }))]);
+	table.lanes.firstSight.setResponses([async () => fauxAssistantMessage(JSON.stringify({ items: [{ id: "fs-lars", details: [] }] }))]);
 	await table.session.prompt("我走过去跟那个高个子打招呼。");
 	await waitForIdle(table.session);
 	assert.equal(seen.length, 2);

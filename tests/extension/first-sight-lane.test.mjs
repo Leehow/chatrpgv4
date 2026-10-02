@@ -13,10 +13,13 @@ const LARS = '中年、高瘦、被晒得黝黑，一头灰白头发表明他至
 const ITEMS = [{id: 'book-4-esso-station', kind: 'place', described: STATION}, {id: 'book-4-lars-williams', kind: 'person', described: LARS},
   {id: 'book-4-nate-patterson', kind: 'person', described: '中等身高，发际线后退，啤酒肚，一口烂牙。'}];
 
-test('the answer is a list of {id, missing: strings}; anything else is no answer', () => {
-  assert.deepEqual(checkFirstSightAnswer({items: [{id: ' a ', missing: ['x', ' ']}, {id: 'b', missing: []}]}),
-    [{id: 'a', missing: ['x']}, {id: 'b', missing: []}]);
-  for (const bad of [null, [], 'text', {}, {items: {}}, {items: [{id: 'a'}]}, {items: [{id: '', missing: []}]}, {items: [{id: 'a', missing: [3]}]}, {items: ['a']}])
+test('the answer gives every visible detail its own verdict; the ones not shown are what is missing; anything else is no answer', () => {
+  assert.deepEqual(checkFirstSightAnswer({items: [
+    {id: ' a ', details: [{excerpt: 'x', shown: false}, {excerpt: 'y', shown: true}, {excerpt: ' ', shown: false}]},
+    {id: 'b', details: [{excerpt: 'z', shown: true}]}, {id: 'c', details: []}]}),
+    [{id: 'a', missing: ['x']}, {id: 'b', missing: []}, {id: 'c', missing: []}]);
+  for (const bad of [null, [], 'text', {}, {items: {}}, {items: [{id: 'a'}]}, {items: [{id: '', details: []}]}, {items: [{id: 'a', missing: []}]},
+    {items: [{id: 'a', details: [{excerpt: 'x'}]}]}, {items: [{id: 'a', details: [{excerpt: 3, shown: true}]}]}, {items: [{id: 'a', details: ['x']}]}, {items: ['a']}])
     assert.equal(checkFirstSightAnswer(bad), undefined, JSON.stringify(bad));
 });
 
@@ -56,8 +59,9 @@ function fixture(t, reply) {
 test('one zero-tool round on the fast model: the delivered prose and the items go in, anchored answers come out, one row is written', async t => {
   const home = await mkdtemp(join(tmpdir(), 'first-sight-lane-'));
   t.after(() => rm(home, {recursive: true, force: true}));
-  const answer = {items: [{id: 'book-4-esso-station', missing: ['两台旧加油机仍可用']}, {id: 'book-4-lars-williams', missing: []},
-    {id: 'book-4-nate-patterson', missing: ['一顶牛仔帽']}]};
+  const answer = {items: [{id: 'book-4-esso-station', details: [{excerpt: '两台旧加油机仍可用', shown: false}, {excerpt: '标志陈旧仍可辨埃索', shown: true}]},
+    {id: 'book-4-lars-williams', details: [{excerpt: '高瘦', shown: true}]},
+    {id: 'book-4-nate-patterson', details: [{excerpt: '一顶牛仔帽', shown: false}]}]};
   const f = fixture(t, () => ({stopReason: 'stop', content: [{type: 'text', text: JSON.stringify(answer)}]}));
   f.ctx.cwd = home;
   const lane = createFirstSightLane(f.pi, {ctx: () => f.ctx, campaign: () => 'c1'});
@@ -73,6 +77,7 @@ test('one zero-tool round on the fast model: the delivered prose and the items g
   assert.equal(context.tools, undefined, 'a zero-tool completion');
   assert.deepEqual(JSON.parse(context.messages[0].content[0].text), {prose, items: ITEMS});
   assert.match(context.systemPrompt, /exactly as described writes it/);
+  assert.match(context.systemPrompt, /"shown": true\|false/, 'every detail gets its own verdict');
   for (const key of ['temperature', 'top_p']) assert.equal(Object.hasOwn(options, key), false, `${key} is never sent`);
   const all = (await readFile(join(cocHome(home), '.coc/campaigns/c1/telemetry.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   const start = all.find(row => row.lane === 'lane-call' && row.subsession === 'first-sight' && row.phase === 'start');
