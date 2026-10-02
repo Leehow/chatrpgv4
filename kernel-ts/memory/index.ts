@@ -19,7 +19,8 @@ import {validateRecallRequest} from './pages.js';
 import {referencedJob, referencedSource, submitReferenced} from './referenced.js';
 import {createMemoryEvidenceOwner} from './evidence.js';
 import {closeSatisfied, mergeOwed, owedNames, projectOwed, resolveOwedEquipment, readOwed, writeOwed} from '../owed/index.js';
-import {applyFirstSight, checkFirstSightItems, readFirstSight, turnFirstSight, writeFirstSight} from '../first-sight/index.js';
+import {applyFirstSight, checkFirstSightItems, FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight, readFirstSight, turnFirstSight, writeFirstSight} from '../first-sight/index.js';
+import {HEAD_FIRST_SIGHT} from '../read/assemble.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
 /**
@@ -236,6 +237,17 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
         },
         'table.warn': async (params) => warn(context, await load(params), params),
         'table.first_sight': async (params) => firstSight(context, await load(params), params),
+        // Contract §168.5: the first sight owed where the party stands now, for a run that moved after its capsule was read.
+        'table.first_sight.view': async (params): Promise<Row> => {
+            const { campaign, snapshot, module } = await load(params);
+            let scene: Row;
+            try { scene = module.graph.scene(string(snapshot.world.active_scene)); }
+            catch { return { first_sight: null }; }
+            const section = firstSightSection(module.graph, snapshot.world, scene, await readFirstSight(context, campaign.id));
+            if (!section) return { first_sight: null };
+            fitFirstSight(section, FIRST_SIGHT_BUDGET);
+            return { first_sight: section, head: HEAD_FIRST_SIGHT.trim() };
+        },
         'memory.job': async (params) => {
             const { campaign, snapshot, module } = await load(params);
             if (params.mode != null && params.mode !== 'referenced') throw new RpcError('invalid_params', 'Unknown memory job protocol');

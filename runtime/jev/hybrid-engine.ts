@@ -69,6 +69,7 @@ import { readBandRows } from '../../extensions/kernel/band-shadow.ts';
 import { bandMinConfidence } from '../../extensions/kernel/band-recovery.ts';
 import { obligationClerkLine, obligationCrossing } from './obligation-candidates.ts';
 import { issuedSection, readCandidateBodies, type CandidateBodies } from './candidate-bodies.ts';
+import { firstSightStep, type FirstSightViewPort } from './first-sight-step.ts';
 import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, carriedSection, fitView, namedPeople, readCarriedViews, scenePassages, type PassageSource } from './carried-views.ts';
 import {
   CLERK_AUTHORITY, createStepPolicy, DEFAULT_CONFIDENCE_GATE, DEFAULT_TURN_BUDGET_MS, exhausted, interpretRoute, missedUnlocks, npcScanDue, overRun, PROPOSED_REASON, ROUTE_FAMILY,
@@ -566,6 +567,8 @@ interface RunState {
   /** §135.31: what the Keeper was already shown this run: scenes, people (names and card ids), the last session view's digest;
    *  §135.31.1: the scenes whose source passages were carried. */
   shown: {scenes: Set<string>; people: Set<string>; session?: string; passages: Set<string>; pending: Set<string>};
+  /** §168.5: the scenes the run moved into whose first sight it has asked for (once each). */
+  sightScenes?: Set<string>;
   /** §135.20.1 (SL-102): whether this run's first model step already asked the port to wait out this scene's consultations. */
   settleAsked?: true;
   /** §135.31.1 (SL-27): every material this run's prescreens prepared or reused, with the scene of the read. */
@@ -669,6 +672,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
   let owedReview: OwedReviewPort | undefined;
+  /** §168.5: the kernel extension's first-sight view: what of a section the Keeper is handed, noted for the delivery's check. */
+  let firstSightPort: FirstSightViewPort | undefined;
   let historyFinalAnswer: {run: string; step: string; reason?: string} | undefined;
   let historyPort: HistoryPort | undefined;
   /**
@@ -2023,6 +2028,9 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const plan = view.policyState?.view?.plan;
     if ((step.reason === 'batch_fallen' || budget.batch_fallen === true) && plan) Object.assign(content, {batch: plan.steps,
       batch_note: 'Your last batch stopped where a step failed; the steps after it were not executed. Decide what that failure means.'});
+    // §168.5: a scene the run moved into after its capsule was read owes its first sight to this step (once per scene).
+    const sight = await firstSightStep(run, {campaign: bridge?.campaign, port: firstSightPort, call: method => call(method), record, stepId});
+    if (sight) content.first_sight = sight;
     const shown = await carriedFor(run, view, request, stepId);
     if (shown) content.carried = shown;
     const messages: Row[] = [];
@@ -2149,6 +2157,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.events.on('coc:operation-dispatcher', (data: OperationGateway) => { gateway = data && typeof data.dispatch === 'function' ? data : undefined; });
     pi.events.on('coc:turn-close', (data: TurnClosePort) => { closer = data && typeof data.verdict === 'function' ? data : undefined; });
     pi.events.on('coc:source-answers', (data: SourceAnswersPort) => { consultations = data && typeof data.take === 'function' ? data : undefined; });
+    pi.events.on('coc:first-sight', (data: unknown) => { const port = object(data);
+      firstSightPort = typeof port.campaign === 'string' && typeof port.view === 'function' ? port as unknown as typeof firstSightPort : undefined; });
     pi.events.on('coc:owed-review', (data: OwedReviewPort) => { owedReview = data && typeof data.watch === 'function' ? data : undefined; });
     pi.events.on('coc:historical-reference', (data: HistoryPort) => { historyPort = data && typeof data.search === 'function' ? data : undefined; });
     pi.on('before_provider_request', (event: {payload: unknown}, ctx: any) => {

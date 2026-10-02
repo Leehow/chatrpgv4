@@ -31469,6 +31469,12 @@ Like `table.warn`, it takes no call id and lands after the turn it read has clos
   - They return at the next read after the check lands, if it found them unshown.
   - A turn whose capsule left them out has nothing of theirs to check.
 - **Amends §13.9.** Leaving out an in-flight item is the one change the host makes to a kernel section. A capsule with nothing in flight is handed over as the kernel's own object.
+- **A run that moves after its capsule was read** (`runtime/jev/first-sight-step.ts`). The capsule a run begins with carries the first sight of the scene it began in. When the run then moves -- the clerk's move of a declared action is the common case -- the next model step's note carries `first_sight` for the scene it moved into, once per scene per run:
+  - read from the kernel with `table.first_sight.view {campaign}` -> `{first_sight: section|null, head}`, the same section the capsule would carry there;
+  - handed through the host view, so in-flight items are left out and the rest are noted for this turn's check.
+
+  Evidence: on the sixth Blood Road table (turn 1), the clerk moved the party from the prologue to the Esso station. The station reached the Keeper only as a scene view, the prose gave none of the book's station, and no check ran.
+  Telemetry: `lane: "run", event: "first_sight", scene, place, people`.
 - **§166 stands.** Nothing is checked before delivery, and no prose is refused or rewritten. The check only records what the next capsule owes.
 
 **Interpretation not settled by the spec.** A campaign already in play when this lands has no `first-sight.json`. Its current place and people are therefore owed once, as if new, until a check shows them. The ledger is not back-filled from earlier turns.
