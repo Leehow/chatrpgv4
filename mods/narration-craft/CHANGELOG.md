@@ -1,5 +1,14 @@
 # Narration Craft
 
+## 2.1.9
+- People react to the whole encounter, including physical actions and treatment. A rhetorical taunt is not automatically an information request; immediate danger takes priority over conducting business. Full, brief, style axis, directive and floor agree on this priority. A genuine question still gets a direct answer when the situation permits. Real 2.1.8 play exposed the conflicting unconditional answer-first guidance: the first blow, accompanied by a price taunt, still elicited money and keys; the next purely violent threat elicited a natural call for help. The NPC action lane did not run in those turns.
+
+## 2.1.8
+- The first real 2.1.7 pressure reply still appended the price, cancellation and keys after its warning. A threat now lands one immediate consequence and ends; known arrangements stay implicit unless they are the speaker's actual leverage. Spoken idiom and ordinary verbs are explicit. Both the full instruction and later-turn brief carry this decision; 2.1.7 campaign locks and its retained delivery stay frozen.
+
+## 2.1.7
+- Speech serves what the person is doing to this listener now, in the words their mouth would use. Shared context carries unnecessary explanation; urgent warnings put the immediate consequence first, while an explanation, appeal, evasion or deliberate official manner may take more words. The brief carries the same reminder after entry. Hidden knowledge no longer mandates longer speech. Contract §40.9; no new lane, prose gate, length cap or phrase bank.
+
 ## 2.1.6
 - The mood is written before the person speaks, in the same turn, and its own `apply` is fine; it no longer has to ride in the call that delivers their words (contract §161.10 and §162, owner ruling 2026-10-01: prose written in `apply.narrate` beside effects is where grok-4.7-build-fast double-serializes it).
 

@@ -46,7 +46,8 @@ import { preparationProviderBudget } from './preparation-budget.ts';
 import { prepareCheckPreflight } from './check-preflight.ts';
 import {checkAttemptIdentity, selectCheck, validateCheckOptions, withinCheckLease, type CheckSelection} from './resolve-selection.ts';
 import {interactionScopeBatch, interpretInteractionScope, permitsReferenceOperation, REFERENCE_SCOPE_NOTE, type InteractionScope} from './interaction-scope.ts';
-import {DECIDED_UNDER_UNCERTAINTY_NOTE, forcedResolution, type ForcedResolution} from './forced-resolution.ts';
+import {DECIDED_UNDER_UNCERTAINTY_NOTE, FORCED_CHOICE_CUE_FAMILY, forcedChoiceCueBatch, forcedChoiceCueReview, forcedResolution,
+  type ForcedChoiceCueReview, type ForcedPlayerChoice, type ForcedResolution} from './forced-resolution.ts';
 import { bindingOf, CLERK_TYPE, customMessage, PRESCREEN_TYPE, type ContextBinding } from '../../extensions/table/context-policy.ts';
 import { prepareKeeperSupport, prescreenEnabled } from '../../extensions/table/prescreen.ts';
 import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev/agent/config.js';
@@ -1062,9 +1063,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const refuse = outsideScope ? {code: 'interaction_scope', text: 'This request does not authorize fictional progression. Only reference reads and an out-of-fiction answer are permitted. No world operation was executed.'}
       : wrongPreparation ? {code: 'historical_preparation', text: 'This selected preparation admits only lookup kind=historical_reference for an excerpt body, not a catalogue or another operation. Nothing in this call was executed. The attempt is retired; continue ordinary narration from available material without a preparation retry.'}
       : presumedHit ? {code: 'check_outcome_unresolved', text: 'The declared attack has not been settled by the host. Damage cannot stand in for its missing check. '
-      + 'Nothing in this apply was executed. Narrate the attempt by your own judgement without inflicting damage this turn.'}
+      + 'Nothing in this apply was executed. Do not describe the attack as hitting or missing, or claim injury, damage, a changed condition, incapacitation, forced movement or another consequence of that attack. '
+      + 'Narrate only settled events before the unresolved consequence. If a player-owned choice remains open, end with a present person or immediate situation returning that choice in character; do not leave the declared action hanging.'}
       : proposal.operation === 'resolve' ? {code: 'check_selection_owned', text: 'Jev and the host own check selection. This model-origin resolve was not executed. '
-      + 'Narrate committed receipts, and narrate any attempt the host left without a roll by your own judgement; do not choose a replacement check.'}
+      + 'Narrate committed receipts, and use judgement for a no-roll attempt only when no player-owned value remains open and the host has not refused its consequence. '
+      + 'A no-roll with why player_choice does not settle success or failure: do not imply a hit, miss, harm, condition change, incapacitation or other consequence of that check. Narrate settled events only, then return the withheld choice through a present person or immediate situation in character; do not leave the action hanging or choose a replacement check.'}
       : proposal.operation === PROPOSE_VERB ? undefined
       : batch.proposed ? {code: 'propose_pending', text: PROPOSE_PENDING_REFUSAL}
         : narrowed && !narrowed.includes(proposal.operation)
@@ -1768,6 +1771,34 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     }
     const unseen = run.forced.filter(entry => !run.forcedShown.has(entry.key));
     for (const entry of unseen) run.forcedShown.add(entry.key);
+    const playerChoices = unseen.filter(entry => entry.chosen.outcome === 'no_roll' && entry.why.includes('player_choice')
+      && entry.family && entry.subject).map(({family, subject, uncertain}) => ({family, subject, uncertain}));
+    if (playerChoices.length && bridge?.campaign && run.turn !== undefined) {
+      const choices: ForcedPlayerChoice[] = playerChoices;
+      api?.events?.emit?.('coc:forced-player-choice-cue', {campaign: bridge.campaign, turn: run.turn, run: run.runId, choices,
+        review: async (draft: string, signal?: AbortSignal): Promise<ForcedChoiceCueReview> => {
+          const began = stepNow();
+          let review: ForcedChoiceCueReview;
+          if (options.decision !== undefined || !jev) {
+            review = {status: 'unavailable', reason: options.decision !== undefined ? 'injected_decision_disabled' : 'jev_unavailable'};
+          } else {
+            const batch = forcedChoiceCueBatch({campaign: bridge!.campaign!, turn: run.turn!, draft, choices});
+            const lease = new TaskLease({owner: FORCED_CHOICE_CUE_FAMILY, goal: 'Review the return of an unmade player choice',
+              scope: batch.scope, capabilities: ['decision'], readSet: batch.readSet, ...(signal ? {signal} : {}), ...leaseClock,
+              budget: {deadlineAt: stepNow() + 15_000, remainingInputTokens: 30_000, remainingOutputTokens: 3000,
+                remainingCostUsd: 1, remainingActions: 1}});
+            try {
+              review = forcedChoiceCueReview(await jev.decide(batch, lease), choices.length);
+            } catch (error) {
+              review = {status: 'unavailable', reason: error instanceof Error ? error.message.slice(0, 120) : 'review_failed'};
+            } finally { lease.close(); }
+          }
+          record({lane: FORCED_CHOICE_CUE_FAMILY, event: 'review', run: run.runId, turn: run.turn, status: review.status,
+            elapsed_ms: stepNow() - began, ...(review.status === 'unavailable' ? {reason: review.reason}
+              : {cue_scores: review.cueScores, outcome_scores: review.outcomeScores})});
+          return review;
+        }});
+    }
     if (unseen.length) Object.assign(content, {decided_under_uncertainty: unseen.map(({key: _key, ...entry}) => entry) as unknown as Json,
       decided_under_uncertainty_note: DECIDED_UNDER_UNCERTAINTY_NOTE});
     const preparations = (policyView?.unresolvedChecks ?? []).filter(entry => entry.preparation);

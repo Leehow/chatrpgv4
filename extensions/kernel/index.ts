@@ -39,12 +39,13 @@ import {lookupKeeperSupport} from '../table/keeper-support-lookup.ts';
 import { workspaceSettingsOf } from '../table/workspace/projection.ts';
 import { bindWorkpadPatch, publishWorkpadPatch, takeWorkpadPatch, type WorkpadBinding } from '../table/workspace/workpad.ts';
 import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { disableStepThinking, isFirstStepOfTurn } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { deliveryProse, isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import { FORCED_CHOICE_CUE_MIN, FORCED_CHOICE_OUTCOME_MAX, type ForcedChoiceCueReview, type ForcedPlayerChoice } from "../../runtime/jev/forced-resolution.ts";
 import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
 import { bandShadowGate, readBandRows, shadowRow, shadowTargets, skippedRow, unaskedRow } from "./band-shadow.ts";
 import { SHADOW_FIELDS, type ShadowKind } from "../../runtime/jev/band-shadow-domain.ts";
@@ -313,9 +314,21 @@ interface CampaignRow {
  */
 interface RosterPerson { name: string; called?: string; address?: string; untold: boolean; label?: string }
 
+interface ForcedPlayerChoiceCue {
+	turn: number;
+	run: string;
+	choices: ForcedPlayerChoice[];
+	review(draft: string, signal?: AbortSignal): Promise<ForcedChoiceCueReview>;
+}
+
 interface TableState {
   /** §163: a scope Jev could not settle plays as `world`; only a settled out-of-fiction request is `reference`. */
   interactionScope?: 'world' | 'reference';
+	/** §163.9: the current turn's withheld player choices and Jev's bounded review port. */
+	forcedPlayerChoiceCue?: ForcedPlayerChoiceCue;
+	forcedPlayerChoiceCueChecked?: { turn: number; draftHash: string };
+	forcedPlayerChoiceCueRejects?: { turn: number; count: number };
+	forcedPlayerChoiceCueRejected?: { turn: number; draftHash: string; cueScores: number[]; outcomeScores: number[] };
 	kernel: KernelClient;
 	campaign: string;
 	telemetryPath: string;
@@ -1387,6 +1400,27 @@ export default function (pi: ExtensionAPI) {
 			|| value.player_text !== table.playerText || !['world', 'reference'].includes(value.mode)) return;
 		table.interactionScope = value.mode;
 	});
+	pi.events.on('coc:forced-player-choice-cue', (value: unknown) => {
+		const state = table, data = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
+		if (!state || !data || data.campaign !== state.campaign || data.turn !== state.turn || typeof data.run !== 'string'
+			|| typeof data.review !== 'function' || !Array.isArray(data.choices)) return;
+		const incoming = data.choices.filter((choice): choice is ForcedPlayerChoice => !!choice && typeof choice === 'object'
+			&& typeof (choice as ForcedPlayerChoice).family === 'string' && typeof (choice as ForcedPlayerChoice).subject === 'string'
+			&& Array.isArray((choice as ForcedPlayerChoice).uncertain)
+			&& (choice as ForcedPlayerChoice).uncertain.every(item => typeof item === 'string'))
+			.map(({family, subject, uncertain}) => ({family, subject, uncertain: [...uncertain]}));
+		if (!incoming.length) return;
+		const previous = state.forcedPlayerChoiceCue?.turn === state.turn ? state.forcedPlayerChoiceCue.choices : [];
+		const choices = [...previous];
+		for (const choice of incoming) if (!choices.some(seen => JSON.stringify(seen) === JSON.stringify(choice))) choices.push(choice);
+		const changed = choices.length !== previous.length;
+		state.forcedPlayerChoiceCue = {turn: state.turn, run: data.run, choices,
+			review: data.review as ForcedPlayerChoiceCue['review']};
+		if (changed) {
+			state.forcedPlayerChoiceCueChecked = undefined;
+			state.forcedPlayerChoiceCueRejected = undefined;
+		}
+	});
 	// §163 (owner ruling 2026-10-01): no host notice stands in for a check Jev could not settle. The engine resolves it (a
 	// best-scored roll or a no-roll the Keeper narrates) and records it as `lane: "forced-resolution"`; the old
 	// `coc:check-selection-unresolved` bus event and its English notice are gone.
@@ -1691,6 +1725,10 @@ export default function (pi: ExtensionAPI) {
 		table.readingRefused.clear();
 		table.personResolved.clear();
 		table.deliveryFix = undefined;
+		table.forcedPlayerChoiceCue = undefined;
+		table.forcedPlayerChoiceCueChecked = undefined;
+		table.forcedPlayerChoiceCueRejects = undefined;
+		table.forcedPlayerChoiceCueRejected = undefined;
 		table.attachments = [];
 		table.mapAttachments = [];
 		// Action admission (contract §32.3): who plays, where they stand, what the setup already told
@@ -2458,6 +2496,57 @@ export default function (pi: ExtensionAPI) {
 		while (state.delivered.length > 4) state.delivered.shift();
 	}
 
+	/** §163.9: review a player's withheld choice at the final prose boundary, before its operation can land. */
+	async function reviewForcedPlayerChoiceCue(state: TableState, draft: string, signal: AbortSignal | undefined,
+		path: 'explicit' | 'embedded' | 'implicit'): Promise<void> {
+		const pending = state.forcedPlayerChoiceCue;
+		if (!pending || pending.turn !== state.turn || !pending.choices.length) return;
+		const prose = deliveryProse(draft), draftHash = createHash('sha256').update(prose).digest('hex');
+		if (state.forcedPlayerChoiceCueChecked?.turn === pending.turn && state.forcedPlayerChoiceCueChecked.draftHash === draftHash) return;
+		let review: ForcedChoiceCueReview;
+		const cached = state.forcedPlayerChoiceCueRejected;
+		const cachedDraft = cached?.turn === pending.turn && cached.draftHash === draftHash;
+		if (cached && cachedDraft) {
+			review = {status: 'reject', cueScores: cached.cueScores, outcomeScores: cached.outcomeScores};
+		} else {
+			try { review = await pending.review(prose, signal); }
+			catch (error) { review = {status: 'unavailable', reason: error instanceof Error ? error.message.slice(0, 120) : 'review_failed'}; }
+		}
+		let rejectCount = 0, repairSteer = false, stopRun = false;
+		if (review.status === 'reject') {
+			rejectCount = (state.forcedPlayerChoiceCueRejects?.turn === pending.turn ? state.forcedPlayerChoiceCueRejects.count : 0) + 1;
+			state.forcedPlayerChoiceCueRejects = {turn: pending.turn, count: rejectCount};
+			state.forcedPlayerChoiceCueRejected = {turn: pending.turn, draftHash, cueScores: review.cueScores, outcomeScores: review.outcomeScores};
+			stopRun = rejectCount >= 2;
+			repairSteer = stopRun && !state.steeredThisTurn;
+			if (repairSteer) state.deliveryFix = {kind: 'forced-player-choice-cue', text:
+				'The last drafts still imply a success, failure, or dependent consequence for a player-owned check that was not rolled. Treat only settled receipts as facts; do not state that the attempt succeeded, failed, or changed the world. Have a present person or the immediate situation return the unmade choice to the player in character. Use one narrate, then stop. Do not repeat accepted apply effects or ask out of fiction.'};
+		} else if (review.status === 'pass') state.forcedPlayerChoiceCueChecked = {turn: pending.turn, draftHash};
+		await record({lane: 'forced-player-choice-cue-host', event: 'delivery-preflight', turn: pending.turn, run: pending.run, path,
+			status: review.status, choice_count: pending.choices.length, draft_sha256: draftHash,
+			...(review.status === 'unavailable' ? {reason: review.reason} : {cue_scores: review.cueScores, outcome_scores: review.outcomeScores}),
+			...(review.status === 'reject' ? {reject_count: rejectCount, repair_steer: repairSteer, stop_run: stopRun, cached: cachedDraft} : {})});
+		if (review.status === 'reject') {
+			const outcomeRejected = review.outcomeScores.some(score => score > FORCED_CHOICE_OUTCOME_MAX);
+			const cueRejected = review.cueScores.some(score => score < FORCED_CHOICE_CUE_MIN);
+			const issue = [outcomeRejected ? 'the draft implies an outcome that depends on the unrolled check' : '',
+				cueRejected ? 'the ending does not clearly return the unmade choice in character' : ''].filter(Boolean).join(' and ');
+			throw new KernelError({code: 'needs', next: stopRun ? 'stop' : 'narrate',
+				message: `This narration was not delivered because Jev found that ${issue || "the player's choice remains unmade"}.`,
+				fix: stopRun
+					? repairSteer
+						? 'Stop making narration attempts in this response. The host will give one targeted correction steer; keep already accepted effects as settled.'
+						: 'Stop making narration attempts. The one correction steer was already used; do not choose the withheld outcome or repeat any accepted effects.'
+					: path === 'embedded'
+						? 'The apply effects already landed and stand as settled receipts. Do not repeat them. Use narrate to revise only the prose: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character.'
+						: 'Use narrate with a revised draft: state settled events, do not decide the withheld outcome, and end with a present person or immediate situation returning the choice in character. Keep accepted receipts and do not reroll.',
+				details: {reason: 'forced_player_choice_cue_review', path, cue_scores: review.cueScores, outcome_scores: review.outcomeScores,
+				choice_count: pending.choices.length, delivery_executed: false, reject_count: rejectCount, repair_steer: repairSteer,
+				...(stopRun ? {forced_choice_cue_stop: true} : {})}});
+		}
+		state.forcedPlayerChoiceCueChecked = {turn: pending.turn, draftHash};
+	}
+
 	/**
 	 * §143.18: the engine's compile row, as it passes the kernel bridge's `record`, is the run's typed reading of the player's
 	 * words; its `act` record is kept by run for this turn's admission (`compileActRefusal`). Any other row is ignored, and a
@@ -3114,6 +3203,12 @@ export default function (pi: ExtensionAPI) {
 
 	function applyToolSuccess(state: TableState, tool: string, toolCallId: string, result: Record<string, unknown>): void {
 		const run = state.skillRun;
+		if (tool === 'ask' || tool === 'narrate') {
+			state.forcedPlayerChoiceCue = undefined;
+			state.forcedPlayerChoiceCueChecked = undefined;
+			state.forcedPlayerChoiceCueRejects = undefined;
+			state.forcedPlayerChoiceCueRejected = undefined;
+		}
 		if (run) {
 			if (tool === "ask" || tool === "narrate") run.delivered = true;
 			const session = result.session as SessionSummary | undefined;
@@ -4457,6 +4552,7 @@ export default function (pi: ExtensionAPI) {
 				if (transported.malformed) throw new KernelError({code:'invalid_params', message:'Narration is a serialized JSON field fragment, not raw prose',
 					details:{reason:'narration_transport_fragment'}, fix:'Resend raw play-language prose in text. Do not JSON-encode the string or include an outer quote/object delimiter. Keep committed receipts and do not reroll.'});
 				payload.text = transported.text;
+				await reviewForcedPlayerChoiceCue(state, payload.text, signal, narratePath);
 			}
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
 			// §135.31: the delivery carries the turn's look/lookup calls to its turn record (host-only; after the Mod hooks).
@@ -4920,7 +5016,8 @@ export default function (pi: ExtensionAPI) {
 						code: String(embeddedError.code ?? "error"), call_id: payload.call_id ?? null });
 					const refused = { ...result, narrate_in_apply: false,
 						coc_error: { ...embeddedError, message: `This apply's effects landed and stand. Its embedded narrate was not delivered: ${String(embeddedError.message ?? "")}` } };
-					return { content: [{ type: "text", text: JSON.stringify(refused) }], details: refused };
+					return { content: [{ type: "text", text: JSON.stringify(refused) }], details: refused,
+						...(embedded.terminate ? {terminate: true} : {}) };
 				}
 				// The embedded delivery landed: one model call both settled the writes and closed the turn.
 				// `state.deliveryToolCallId` names the call the player's transcript actually shows -- this apply's
@@ -5027,6 +5124,7 @@ export default function (pi: ExtensionAPI) {
 			// definition agent that died from a batch the Keeper simply got wrong.
 			const reason = asString((error as { details?: { reason?: unknown } })?.details?.reason);
 			if (reason === 'continuity_review_unavailable') pauseReview(state, error);
+			const stopForChoiceRepair = isKernelError(error) && error.details?.forced_choice_cue_stop === true;
 			await record({
 				tool: spec.name,
 				call_id: payload.call_id ?? null,
@@ -5047,7 +5145,7 @@ export default function (pi: ExtensionAPI) {
 				...(admissionVerdict ? { admission: admissionVerdict } : {}) });
 			return {
 				content: [{ type: "text", text: errorText(error) + (besideNote ? `\nprose_dropped: ${JSON.stringify(besideNote)}` : "") }],
-				...(state.reviewUnavailable || state.commitUnavailable ? {terminate: true} : {}),
+				...(state.reviewUnavailable || state.commitUnavailable || stopForChoiceRepair ? {terminate: true} : {}),
 				details: {
 					...(besideNote ? { prose_dropped: besideNote } : {}),
 					coc_error: {
@@ -5673,9 +5771,14 @@ export default function (pi: ExtensionAPI) {
 			payload.source_consultations=sourceConsultationsForAudit(state);
 			try {
 				if (mods) await mods.prepare("narrate", payload, state.lanes.signal);
+				await reviewForcedPlayerChoiceCue(state, String(payload.text ?? ''), state.lanes.signal, 'implicit');
 				const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
 				if (mods?.after) await mods.after("narrate", payload, state.lanes.signal);
 				state.floorDraft = undefined;
+				state.forcedPlayerChoiceCue = undefined;
+				state.forcedPlayerChoiceCueChecked = undefined;
+				state.forcedPlayerChoiceCueRejects = undefined;
+				state.forcedPlayerChoiceCueRejected = undefined;
 				state.renderedText = asString(result.rendered_text) ?? text;
 				state.state = (typeof result.state === "string" ? result.state : "awaiting_player") as TurnState;
 				state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
@@ -5797,6 +5900,10 @@ export default function (pi: ExtensionAPI) {
 			}
 			state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
 			state.state = result.state ?? "open";
+			state.forcedPlayerChoiceCue = undefined;
+			state.forcedPlayerChoiceCueChecked = undefined;
+			state.forcedPlayerChoiceCueRejects = undefined;
+			state.forcedPlayerChoiceCueRejected = undefined;
 			state.callOrdinal = 0;
 			state.strandedTurn = undefined;
 			state.rebindingRefused = undefined;
@@ -6595,6 +6702,7 @@ export default function (pi: ExtensionAPI) {
 					const prepared = referenceAnswer ? undefined : await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
 					// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
 					notePrepared(state, prepared);
+					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit');
 					await guardTaskDelivery(event.message, 'committing');
 					// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
 					const reads = readsOfTurn(state);
@@ -6660,9 +6768,10 @@ export default function (pi: ExtensionAPI) {
 					// speech steer's dropped draft (never shown), so a steered leg that brings nothing, or one the kernel refuses,
 					// falls back to it and the spent gate lets it go. A `repeated_line` draft is not held: it would be refused again.
 					if (resendAs && !state.steeredThisTurn) state.floorDraft = draft;
-					state.deliveryFix = {kind: "audit-repair", text: `This draft was not delivered. ${isKernelError(error) ? error.message : "Delivery preparation failed"}. ` +
-						`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`,
-						...(reason ? { kernel_reason: reason } : {})};
+					if (!(reason === 'forced_player_choice_cue_review' && state.deliveryFix?.kind === 'forced-player-choice-cue'))
+						state.deliveryFix = {kind: "audit-repair", text: `This draft was not delivered. ${isKernelError(error) ? error.message : "Delivery preparation failed"}. ` +
+							`${isKernelError(error) ? error.fix ?? "" : ""} ${isKernelError(error) ? JSON.stringify(error.details ?? {}).slice(0, 8000) : detail ?? ""} Keep settled actions; repair with narrate, without rerolling or inventing a reconciliation.`,
+							...(reason ? { kernel_reason: reason } : {})};
 					return dropText("implicit_narrate_refused", refusal);
 				}
 			}

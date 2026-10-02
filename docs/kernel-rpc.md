@@ -11481,6 +11481,64 @@ current player utterance, evidenced by real delivered dialogue, not merely a
 lineup attribution score. Deterministic tests prove wiring, migration and refusal;
 only genuine-table dialogue proves that the voice is natural.
 
+### 40.9 Speech serves the present exchange (2026-10-01)
+
+The owner supplied two threats that explained witnesses, payment paperwork and a police call while the speaker
+was being attacked. Their intended replacements use ordinary spoken wording and put the immediate consequence
+at the centre. The second replacement is still several sentences: this is a pragmatic relevance failure,
+not a sentence-length failure. Narration Craft 2.1.9 changes generation guidance, not settlement authority.
+
+- Before writing a line, the Keeper considers what this person is doing to this listener now, their present
+  feeling, and what both already know. Wording, emphasis and detail serve that conversational purpose. Shared
+  context may carry reasons that need not be said aloud. Urgent danger favours the immediate warning or
+  consequence; extended explanation, pleading, evasion and deliberate official airs remain available when
+  this speaker and moment warrant them. Hidden knowledge never implies compulsory verbosity.
+- A threat lands one immediate consequence the person would actually reach for, then ends. The Keeper uses
+  familiar spoken expressions and idiomatic verbs in the play language. Shared arrangements stay implicit
+  unless they are this speaker's actual leverage; a possible game consequence is not automatically dialogue.
+  This selects the conversational move, not a sentence count: several sentences can serve the same threat.
+- People respond to the whole encounter, including physical actions and treatment. Immediate danger takes
+  priority over conducting business. The Keeper judges an insult or rhetorical question as treatment, not
+  automatically as an information request; genuine questions still get direct answers when the situation
+  permits. Full, brief, style axis, directive and floor must agree, replacing unconditional answer-first
+  guidance. The mask shapes register; it does not preserve yesterday's business as today's priority.
+- The full instruction teaches this decision with illustrative English speech; the per-turn brief carries
+  its compact reminder. Examples supply neither campaign facts nor reusable threat scripts. The voice mask
+  still determines flexible register, never a fixed length. No semantic classifier, word blacklist, new
+  model lane, foreground review, speech length cap or language-specific branch is added. The existing
+  continuity audit retains its intelligibility and factual scope; it is not made a literary-style gate.
+- Existing campaign package locks remain frozen. Adoption uses the ordinary explicit safe-boundary
+  `mods.configure` upgrade; no save, old card or delivered line is rewritten.
+
+**Three ends and validation.** Writer: the Keeper generating each line. Reader: the active package's full
+instruction on entry and brief on later requests, already covered by the real-provider capture test.
+Actor: the same Keeper delivers the line through ordinary `narrate`/`ask`. Existing request-capture and package
+budget checks prove delivery of the guidance, not conversational quality. Genuine-table acceptance uses
+`tests/play/driver.py`, Grok Build 4.7 fast/low and this main session as the only player. Inspect actual ordinary
+answers and pressure replies for relevance, spoken idiom, character fit and retained facts, rather than
+grading by character count or requiring a particular replacement sentence.
+
+**Kernel decisions and retained live evidence.** The original baseline (`spoken-purpose-baseline-20261001`,
+Narration Craft 2.1.6) answered a blow with the day rate and then itemized cancellation, keys and money on the
+next threat. The first 2.1.7 attempt (`spoken-purpose-after-20261001`, turn 2) warned about help and police,
+then appended the price, cancellation and keys. This fails the intended pragmatic improvement even though
+the line is shorter. Version 2.1.8 adds the single immediate consequence decision to both full and brief;
+2.1.7's installed bytes and already delivered turn remain evidence, not a candidate to rewrite.
+The 2.1.8 run (`spoken-purpose-final-20261001`) still recited money and keys after a blow accompanied by a
+rhetorical price taunt (turn 2), then naturally shouted for help after a purely violent threat (turn 3).
+The retained turn intents and `npc-act` telemetry contain no autonomous action generation: the main Keeper
+authored both replies. The capsule carried the new brief, so missing delivery of the guidance is ruled out.
+Its full and per-turn style still unconditionally said to answer what was said first; version 2.1.9 replaces
+that competing priority with the whole-encounter rule. This is a locally evidenced candidate cause; real
+dialogue must validate the correction rather than treating prompt wording as proof of naturalness.
+
+**Precedent.** Potts, [Presupposition and implicature](https://web.stanford.edu/~cgpotts/manuscripts/potts-blackwellsemantics.pdf),
+describes interpretation through shared context and contributions fitted to conversational purpose.
+Mateas and Stern, [Structuring Content in the Façade Interactive Drama Architecture](https://ojs.aaai.org/index.php/AIIDE/article/view/18722),
+organize dialogue as responsive character behaviour in the current interaction. These support the proposed
+focus on context and conversational action, not a universal brevity rule. Façade uses authored behaviours;
+this product keeps open-language judgement with the Keeper and does not import its behaviour library.
+
 ## 41. A refused player input is never the player's sentence (2026-09-16)
 
 Retained live evidence, campaign `game-3dd94f0a-4b26-41bc-96fa-f89a60abb143`, turn 36, 2026-09-16T00:14:
@@ -23180,6 +23238,13 @@ the read carries a first-blow row, the `target` family's rows are the people pre
 the same identities and words; otherwise `target` has no rows outside a session and is not asked, as before. Inside a
 running combat the rows stay the investigator's issued attack targets.
 
+**Combat and target wording.** The `act` instruction defines `combat` as an attack or combat manoeuvre directed at a person
+or creature; force against a vehicle, seat, object or control to alter its movement is not combat just because someone might
+be affected. The target feature asks which person the player explicitly chose to attack. A person mentioned only to locate
+an object or seat, or explicitly excluded, is not selected. Act and target are evaluated as separate features; a combat act
+answer never implies an attack target. The target remains player-owned under §163.8 and must clear the compile's existing
+confidence gate.
+
 **The predicate `first_blow`** (`COMPILE_PREDICATES`, `sole: true`): reads the `first_blow` candidate; decided when
 `act` cleared on another act, or on `combat` with `target` cleared; fires when `act` cleared on `combat` (the row's own
 `intent`, a resolve intent, since outside a session the `act` rows are the resolve intents) and `target` cleared on one
@@ -30759,14 +30824,14 @@ Evidence: live driver table `mood-live-20261001` (0.9.6a@92d6ee845 plus an NPC-m
 The strict gates are unchanged and still decide whenever they clear (§159.4's `applicability` .65, `need` .85, `noNeed` .35, `choice` .85, `adjudication` .75; the interaction-scope gates .8/.35/.8), and §159.4's one bounded refinement still runs first. What changes is what happens when a gate does not clear:
 
 1. **Jev's best score decides a gray gate** -- except a value that is the player's own choice (§163.8). A Noul answered strictly between the confident negative and the gate is read at the midpoint: above .5 is yes, a tie is no -- except an unmet-prerequisite question, where a tie waits (a deferral decides nothing for the player and stays open; merged with 0.9.6a's conditional-chase dependency, 2026-10-01). A Choice below its gate takes its highest-probability *issued* value (never `unknown`, never an unissued value, and only with a probability above zero). A `selection: compatible` parameter takes its highest-scored option. A set-valued parameter takes the members above .5, topped up to its minimum by the next-best scored members. The result is executed or not exactly as a confident one would be, and is recorded as forced (§163.3). A forced no-roll is not asked again in the same run and scene; a forced deferral is not held, so the attempt it waits on can still be judged against fresh receipts, as a confident deferral can.
-2. **Nothing scored or executable is the no-roll path.** When the provider failed or did not answer, the question could not be packed, the decision budget is spent, the catalog or binding changed under the selection, the snapshot went stale twice, the session owns the choice, the attempt was already made, no Jev credential exists, or the needed check lacks source facts or arguments, the check is not rolled: the Keeper narrates the attempt and its outcome by judgement. The decision is not asked again in the same run and scene (the §159.1 hold now only prevents re-asking; it no longer stops the story). The first needed check that can execute is still selected when an earlier needed one cannot.
+2. **Nothing scored or executable is the no-roll path.** When the provider failed or did not answer, the question could not be packed, the decision budget is spent, the catalog or binding changed under the selection, the snapshot went stale twice, the session owns the choice, the attempt was already made, no Jev credential exists, or the needed check lacks source facts or arguments, the check is not rolled: the Keeper narrates by judgement only where the host has not refused the consequence and no player-owned value remains open. A no-roll with `why: "player_choice"` means no check was made; it is neither success nor failure, and the Keeper cannot imply the check's consequential result. The decision is not asked again in the same run and scene (the §159.1 hold now only prevents re-asking; it no longer stops the story). The first needed check that can execute is still selected when an earlier needed one cannot.
 3. **An unanswered modifier override takes the rules default.** §159.4 version 5's "missing or ambiguous answers remain unresolved, including service failure" is replaced: a gray override answer is read at the midpoint, and an unanswered one applies the host-owned rules default (`default.value`), as §135.28's "unknown goes to the rules default" already did for clerk binds. This keeps a judged-necessary check instead of discarding it for a modifier.
 4. **A jev-owned clerk check parameter** (first blow, session steps, obligation and Mod checks bound through §135.28's clerk bind) with no permitted default takes Jev's leading issued answer below the gate -- unless the builder marked it the player's (§163.8). Its bind record is `cleared: false`, so §32.12's compile exemption does not apply and canonical admission reviews it in full. With no leading answer the candidate goes to the existing `check_unresolved` compose, which is now a forced no-roll.
 5. **A refused check stays unexecuted.** A host-selected check that canonical admission or the kernel refuses (other than the one §159.1 stale rebind) is not rolled; the refusal stands and the Keeper's adjudication follows as before. It is recorded as forced (family `check-execution`) instead of becoming an unresolved notice. Admission itself (§32, `extensions/kernel/admission.ts`) is unchanged. *Accepted by the owner (2026-10-01): an admission-refused host check is recorded as a no-roll instead of held; this is the amendment §159.10's "failed admission retain their existing hold" carries.*
 6. **Preparation still comes first.** A check whose every option lacks arguments still hands the Keeper §159.10's preparation step, and a successful preparation still reopens Jev's adjudication. A preparation still pending when the turn is delivered is a forced no-roll, recorded at the accepted delivery; the Keeper's preparation instruction says to narrate the attempt by judgement when preparation cannot complete this turn.
 7. **An unsettled interaction scope is a world turn.** Only a confident out-of-fiction request (`world_action` ≤ .35 and `system_request` ≥ .8) is `reference`. Everything else that is not confidently world -- a gray pair, a pair leaning out of fiction below the reference gate, no answer, no credential, an exception -- plays as `world`, recorded as forced. The Keeper may answer a plainly out-of-fiction part of the message briefly in fiction-neutral words, then keep playing; it does not ask the player to confirm what they meant. The `uncertain` mode no longer exists as an output.
 
-The Keeper still never chooses or rolls a check: model-origin resolve stays refused on every path (§159.2), and "narrate by judgement" means prose and the Keeper's ordinary non-check operations, never a substitute roll. Damage still cannot stand in for an attack check the host did not settle (`check_outcome_unresolved`); its refusal now tells the Keeper to narrate the attempt without inflicting damage this turn, not to retain it in suspense.
+The Keeper still never chooses or rolls a check: model-origin resolve stays refused on every path (§159.2), and "narrate by judgement" means prose and the Keeper's ordinary non-check operations, never a substitute roll. Damage still cannot stand in for an attack check the host did not settle (`check_outcome_unresolved`); its refusal tells the Keeper not to describe a hit, miss or consequence of that attack, and to keep the narration before the unresolved consequence.
 
 ### 163.3 What is recorded, and what the Keeper sees
 
@@ -30780,7 +30845,7 @@ The Keeper still never chooses or rolls a check: model-origin resolve stays refu
 
 The selector's own `lane: "check-selection"` rows are unchanged; a forced result's `forced` rides on the selection artifact. The policy keeps the run's entries in `RunView.forced` (deduplicated by a key over family, subject, outcome and the decision).
 
-**The Keeper's marker.** The next `single_loop_step` note carries `decided_under_uncertainty: [{family, subject, uncertain, chosen, why}]` (each entry once per run) with `decided_under_uncertainty_note`: these were decided under uncertainty; treat the chosen result as settled; `inspect_check` sends the rule family through Jev's bounded selector and does not itself roll; a chosen roll was executed by the host; for `no_roll` narrate the attempt and its outcome by judgement, without a roll and without suspense; for a world scope play the message, answering a plainly out-of-fiction part briefly in fiction-neutral words; do not mention the uncertainty or ask the player to clarify, confirm or repeat; if later facts disagree, reconcile forward and never retract (§158). The note head's old "Report unresolved_checks honestly" line, `unresolved_checks`, `unresolved_check` and `check_outcome_boundary` ("keep the investigator at the point of attempting them") are removed. The spent-budget note now says checks not yet judged take no roll this turn. `prompts/keeper.md` rule 1 no longer tells the Keeper to keep the attempt pending while the host displays a notice: a decided-under-uncertainty result is settled for the turn, a no-roll is narrated by judgement, and later disagreement is reconciled forward.
+**The Keeper's marker.** The next `single_loop_step` note carries `decided_under_uncertainty: [{family, subject, uncertain, chosen, why}]` (each entry once per run) with `decided_under_uncertainty_note`: these were decided under uncertainty; treat the chosen result as settled; `inspect_check` sends the rule family through Jev's bounded selector and does not itself roll; a chosen roll was executed by the host; for `no_roll`, use judgement only where the host has not refused the consequence and no player-owned value remains open. When `why` includes `player_choice`, no check was made and no success, failure or dependent consequence was settled; narrate only events before that consequence, then end with a present person or immediate situation returning the choice in character. Do not leave the action hanging or ask out of fiction. For a world scope play the message, answering a plainly out-of-fiction part briefly in fiction-neutral words; do not mention the uncertainty or ask the player to clarify, confirm or repeat; if later facts disagree, reconcile forward and never retract (§158). The note head's old "Report unresolved_checks honestly" line, `unresolved_checks`, `unresolved_check` and `check_outcome_boundary` ("keep the investigator at the point of attempting them") are removed. The spent-budget note now says checks not yet judged take no roll this turn. `prompts/keeper.md` rule 1 follows this no-roll boundary and does not tell the Keeper to keep the whole turn pending while the host displays a notice.
 
 **Removed.** The `coc:check-selection-unresolved` bus event, the kernel extension's `coc-delivery` notice with `check_selection_unresolved: true`, its UI word `check_selection_unresolved_notice` (English source and the zh-Hans seed), `UNCERTAIN_SCOPE_NOTE` and the `interaction_scope_uncertain` compose. Player-visible text on these paths is only the Keeper's prose in the play language. The kernel keeps reading `interaction_scope: "uncertain"` on turn records written before this section (evidence is never rewritten); the host no longer stamps it. The play driver still recognizes the old notice in retained evidence.
 
@@ -30831,7 +30896,7 @@ Not changed, with reasons: action admission (§32; an unavailable review is stil
 
 ### 163.8 The player's own choices are never forced (owner ruling, 2026-10-01)
 
-The owner, 2026-10-01, verbatim: 「玩家的选择不替他定」 -- do not make the player's choices for them. A forced best guess (§163.2) must never pick something that is the player's to choose: the investigator's defence (fight back or dodge), the investigator's target, and any other value that is the player's decision about their own investigator's act. The turn still gets a result: the value is withheld, the check takes no roll, the forced resolution is recorded with `why: "player_choice"`, and the Keeper narrates by judgement or lets the fiction put the choice back to the player in character.
+The owner, 2026-10-01, verbatim: 「玩家的选择不替他定」 -- do not make the player's choices for them. A forced best guess (§163.2) must never pick something that is the player's to choose: the investigator's defence (fight back or dodge), the investigator's target, and any other value that is the player's decision about their own investigator's act. The turn still gets a result: the value is withheld, the check takes no roll, the forced resolution is recorded with `why: "player_choice"`, and the Keeper narrates only events before the unresolved consequence, then ends with a present person or immediate situation returning the choice to the player in character. This no-roll records only that the host made no check; it is not a success or failure result. The Keeper must not imply that the check hit or missed, caused harm or injury, changed a condition, incapacitated someone, forced movement or otherwise produced a consequence that depends on the unrolled check, and must not leave the attempt hanging mid-action or ask out of fiction.
 
 **How the host knows, structurally.** No word, label or keyword is read; ownership comes from the side the kernel issued and the catalog's own fields.
 
@@ -30850,6 +30915,12 @@ Confident answers are unchanged: when Jev reads the player's declaration past th
 **After merging 0.9.6a at `d827b6c61`** (branch `99e415bc8`, LAN box leehow-pc): test:ext 4322 tests, 4322 pass; loop 301/301; pytest `2 failed, 2073 passed, 2 skipped`, the same two `tests/kernel/test_jev_resolve.py` first-blow snapshot failures as the base. The merge kept 0.9.6a's bound family routing (shared check templates, the chase dependency question, the vehicle roster, preparation requirements) beside §163; a tie on an unmet-prerequisite question waits, so a conditional chase does not start on a coin flip. The vehicle roster's own unsettled answers (`chase_mobility_uncertain`, `chase_vehicle_profile_uncertain`, `chase_passenger_driver_unbound` …) still return `unresolved` and reach the player as §163.2 rule 2's recorded no-roll, not as best guesses.
 
 **Live check** `jev-player-choice-live-20261001` (this branch at `99e415bc8`; the-haunting; zh; Keeper `grok-build/grok-4.7-build-fast` low; Jev key): 8 player turns, 8 delivered with the Keeper's prose, 0 host notices, 5 forced resolutions, 1 of them `player_choice`. Turn 6, 「这篇没发的稿子太要紧了，我想办法让他们通融一下……」 (no method named): Ruth Blake's influence was judged necessary at .76, but the approach read Fast Talk at .4, so the approach was withheld -- a `player_choice` no-roll, and Ruth kept the rule while offering a desk to copy at. Turn 4, 「我用花言巧语说服他……」 (method named): Fast Talk bound past the gate and rolled (an extreme success). Turn 7, a named earnest appeal: Persuade bound past the gate; only the difficulty override (.46) was a best guess (the rules default), and the roll ran. The others: turn 3 a `check-binding` no-roll (the gatekeeper's approach answered `unknown`, so there was no guess to withhold), turns 5 and 8 necessity leaning no (.43, .44).
+
+### 163.9 Delivery review for a withheld player choice
+
+A forced `no_roll` whose `why` includes `player_choice` remains open in the fiction until the player chooses. Before the host delivers `narrate` or `ask`—including the narration embedded in `apply`, which uses the same `narrate` path after `apply` lands—it asks Jev-1.13.0 two Noul questions per withheld choice against the exact player-facing draft: whether its closing beat returns that choice through a present person or immediate situation in character, and whether it states or implies an outcome that depends on the unrolled check. The host accepts the draft only when every cue score is at least `.60` and every dependent-outcome score is at most `.25`. Otherwise it refuses only the narration with `next: narrate`; any `apply` effects already accepted remain committed, and the Keeper revises the prose without repeating those effects.
+
+This is an output check only. It cannot choose or roll a check, make the choice, or authorize a world change. An unavailable, incomplete, or unconfigured Jev review is recorded and fails open so a service outage does not strand the table; the existing Keeper instruction still applies. Repeated rejections are bounded: the same draft reuses its review, two rejected delivery attempts spend the turn's one existing close steer with a targeted repair, and a rejection after that stops the run so the host can report an unfinished turn instead of generating indefinitely. A successful delivery clears the pending review, which is scoped to that turn. **Three ends:** the hybrid projection writes the pending choices, the kernel extension reviews the exact draft before delivery, and the Keeper revises a refused draft to narrate settled events and return the player's choice in character.
 
 ## 164. Each reply shows how long the player waited for it; the host keeps when it took each message (2026-10-01, owner request)
 
