@@ -13,6 +13,8 @@ import type {createWriteRuntime} from '../write/index.js';
 const FIELDS = ['quote','category','items','subject','with','source','price_id','currency','why'] as const;
 export const quotationScope = (meta:Row):Row => ({line:activeName(meta), loop:number(activeLine(meta).loop)});
 const sameScope = (a:Row,b:Row):boolean => a.line===b.line && a.loop===b.loop;
+export const quotationRecords=(records:Row[],meta:Row):Row[]=>records.filter(record=>record.commit && array(record.quote_drafts).length && sameScope(row(record.quote_scope),quotationScope(meta)));
+
 
 /** No price/source work on the delivery path. Even a bad draft cannot withhold finished prose. */
 export function quotationDrafts(value:unknown, turn:number, meta:Row, party:Row[]):Row[] {
@@ -36,7 +38,7 @@ export function pendingQuotation(draft:Row):Row {
 export function quotationHandlers(context:KernelContext, writer:ReturnType<typeof createWriteRuntime>):HandlerGroup {
     return {'table.quotes.flush':async (params):Promise<Row>=>{
         const campaign=await writer.campaign(params),meta=await campaign.readCampaign(),scope=quotationScope(meta);
-        const records=(await campaign.records()).filter(record=>record.commit && array(record.quote_drafts).length && sameScope(row(record.quote_scope),scope));
+        const records=quotationRecords(await campaign.records(),meta);
         if(params.turn===undefined)return {turns:records.map(record=>number(record.turn)).sort((a,b)=>a-b),
             keys:Object.fromEntries(records.map(record=>[number(record.turn),array(record.quote_drafts)[0].key]))};
         if(!Number.isSafeInteger(params.turn)||number(params.turn)<0)throw new RpcError('invalid_params','Quotation turn must be a committed turn number');

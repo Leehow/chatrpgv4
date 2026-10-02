@@ -13151,7 +13151,9 @@ an old delayed draft is superseded. A different active worldline/loop cannot rec
 Without `turn`, the method lists committed quotation turns and their host-owned draft
 keys in the current scope. Completion caching uses these scoped keys, never turn number
 alone: a loop or worldline can reuse a turn number. The
-host schedules these on startup to recover interrupted work and missing card patches.
+host schedules these on startup only when `table.open` reports `quote_turns`, projected
+from the records it already loaded. A campaign without quotation drafts starts no quote
+RPC or queue scan. This recovers interrupted work and missing card patches.
 It patches `quotes: {<quote_key>: <public cash row>}` on the original turn via section
 132. The backend merges each row onto its matching pending cash row, preserving other
 mechanics, prose, speech and playback identity. Failed/superseded drafts lose the waiting

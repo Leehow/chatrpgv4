@@ -238,6 +238,7 @@ function takeSkillAnnotation(run: SkillRun | undefined, input: Record<string, un
 }
 
 interface OpenResult {
+    quote_turns?: number[];
 	campaign?: { id?: string; title?: string; play_language?: string };
 	turn?: { number?: number; state?: TurnState };
 	investigators?: Array<Record<string, unknown>>;
@@ -5571,7 +5572,7 @@ export default function (pi: ExtensionAPI) {
 				record: (row: Record<string, unknown>) => { noteCompileAct(row); void record(row); },
 			});
 			pi.events.emit("coc:table-open", { campaign, open });
-            quotationQueue(table).schedule();
+            if(open.quote_turns?.length)quotationQueue(table).schedule();
 			const operationGate = bridgeGate;
 			pi.events.emit('coc:operation-dispatcher', Object.freeze({
 				bindIncumbentScope: (...args: Parameters<typeof dispatcher.bindIncumbentScope>) => {

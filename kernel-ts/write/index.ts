@@ -45,7 +45,7 @@ import {eventOf} from '../worldline/index.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import { owedIntents } from '../npc/owed.js';
 import { namedRepeats, speakerThreads } from '../npc/threads.js';
-import {quotationDrafts,quotationScope,pendingQuotation} from '../runtime/quotes.js';
+import {quotationDrafts,quotationScope,pendingQuotation,quotationRecords} from '../runtime/quotes.js';
 export { createTurnTransaction } from './store.js';
 export { CampaignWriter } from './store.js';
 export { writeEpisode } from './contributions.js';
@@ -738,8 +738,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // fails. A package this build cannot read is disabled, not fatal -- and the host says so
         // once, out of fiction, to whoever can rebuild the kernel.
         const modGaps = kernelGaps(await readModCatalog(context));
+        const quoteTurns=quotationRecords(snapshot.records,snapshot.meta).map(record=>number(record.turn));
         return {
             campaign: snapshot.meta,
+            ...(quoteTurns.length?{quote_turns:quoteTurns}:{}),
             turn: {
                 number: turn.turn,
                 state: turn.state

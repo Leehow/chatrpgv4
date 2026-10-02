@@ -261,7 +261,7 @@ const QuotationDrafts = Type.Optional(Type.Array(Type.Object({
     source: Type.Optional(StringEnum(["quote","price"] as const)),
     price_id: Type.Optional(Type.String()),
     currency: Type.Optional(Type.String({description:"omit to use the investigator's cash currency; never translate the code"})),
-    why: Type.Optional(Type.String({description:"brief player-visible purpose in play_language"})),
+    why: Type.Optional(Sentence("brief player-visible quotation purpose in play_language")),
 }),{maxItems:8,description:"Offers only, never payments. Write the complete closing prose first, then these priced lines in the same call. Prose delivers immediately; the background kernel computes and registers exact totals and updates that card. Do not call apply cash mode quote first or sum the bill in dialogue. No purchase or item transfer is authorized"}));
 
 const CashEffect = Type.Object({

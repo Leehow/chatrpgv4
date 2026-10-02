@@ -151,6 +151,7 @@ test('delivery precedes quote arithmetic; persisted drafts recover and settle ex
   assert.equal((await game.world()).cash_quotes,undefined,'no quote registered before prose delivery');
   assert.equal((await game.record(1)).quote_drafts.length,1);
   await game.restart();
+  assert.deepEqual((await game.call('open')).quote_turns,[1]);
   assert.deepEqual((await game.call('quotes.flush')).turns,[1]);
   await game.call('player_input',{text:'I accept this bill.'});
   const landed=await game.call('quotes.flush',{turn:1});
