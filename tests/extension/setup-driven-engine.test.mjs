@@ -272,6 +272,35 @@ test("§151.6: a stated catalog occupation on the card binds without a model cal
 	assert.equal(kernel(table, "setup.confirm").length, 0);
 });
 
+test("a compose reply's commentary-phase preambles are the guide's working: kept as evidence, off the reply; a reply of commentary alone stands", async (t) => {
+	// Installed App, 2026-10-02: in a step with no tool, gpt-6-luna wrote four English preambles ("**Recording the
+	// strengths ...**") marked phase "commentary" ahead of its Chinese reply, and the player read all five.
+	const phase = (text, value) => ({ type: "text", text, textSignature: JSON.stringify({ v: 1, id: `msg_${value}_${text.length}`, phase: value }) });
+	const reply = fauxAssistantMessage("卡好了。");
+	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS), responses: [bindCall, reply] });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);
+	await waitForIdle(run.table.session);
+	const before = run.table.entries("coc-setup-output-rejected").length;
+	run.respond([{ ...fauxAssistantMessage("x"), content: [phase("**Recording the strengths.**", "commentary"), phase("**Noting the trade.**", "commentary"),
+		phase("好，艾伦现在是警探。", "final_answer")] }]);
+	run.decide(cardFieldsJev({ occupation: "o2", occupation_stated: 0.95 }));
+	await run.table.session.prompt("其实他是个警探。");
+	await waitForIdle(run.table.session);
+	const last = run.table.session.messages.findLast((message) => message.role === "assistant");
+	assert.deepEqual(last.content.filter((block) => block.type === "text").map((block) => block.text), ["好，艾伦现在是警探。"]);
+	const evidence = run.table.entries("coc-setup-output-rejected").slice(before);
+	assert.equal(evidence.length, 1);
+	assert.equal(evidence[0].reason, "setup_commentary_text");
+	assert.deepEqual(evidence[0].message.content.map((block) => block.text), ["**Recording the strengths.**", "**Noting the trade.**", "好，艾伦现在是警探。"]);
+	// Commentary alone is left as it is: the player is never handed an empty reply.
+	run.respond([{ ...fauxAssistantMessage("x"), content: [phase("只有一句。", "commentary")] }]);
+	run.decide(cardFieldsJev({ occupation: "o1", occupation_stated: 0.95 }));
+	await run.table.session.prompt("还是改成医生吧。");
+	await waitForIdle(run.table.session);
+	assert.deepEqual(run.table.session.messages.findLast((message) => message.role === "assistant").content.map((block) => block.text), ["只有一句。"]);
+});
+
 test("§151.6: an open field on the card goes through the narrowed tool, which refuses a closed key with the open keys and the bound values; the refusal goes to the full tool", async (t) => {
 	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS), responses: [bindCall, fauxAssistantMessage("卡好了。")] });
 	t.after(() => run.table.dispose());

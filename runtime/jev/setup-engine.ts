@@ -57,6 +57,12 @@ export interface SetupEngineOptions {
 export const SETUP_CARD_TOOL = 'setup_card';
 /** A setup-step note the projection adds to the transcript, never shown to the player. */
 export const SETUP_STEP_TYPE = 'coc-setup-step';
+/** The phase a provider wrote into a text block's signature (`commentary` or `final_answer`), if it wrote one. */
+function textPhase(block: Row): string | undefined {
+  if (typeof block.textSignature !== 'string') return undefined;
+  try { const parsed = JSON.parse(block.textSignature); return typeof parsed?.phase === 'string' ? parsed.phase : undefined; }
+  catch { return undefined; }
+}
 /** A mandatory write uses the transport's tool channel; catalog selection alone is optional. */
 export function requireSetupCardTool(payload: unknown): Row | undefined {
   const body = object(payload), tools = body.tools;
@@ -510,6 +516,22 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
     });
     pi.on('message_end', (event: {message: Row}) => {
       const message = event.message;
+      // A model that writes a preamble before the calls it means to make marks it as such: the Responses API's
+      // `phase: "commentary"`, carried in the text block's signature. In a step with no tool to call, gpt-6-luna wrote four
+      // English preambles ("Recording the strengths ...") ahead of its Chinese reply, and the player read all five on the
+      // installed App (2026-10-02). They are the guide's working, kept as evidence and taken off the reply -- the same as
+      // the bind step's working text below -- and only beside a reply that is not commentary, so the player is never left
+      // with nothing.
+      if (current && message.role === 'assistant' && !['error', 'aborted', 'length'].includes(message.stopReason)) {
+        const content: Row[] = Array.isArray(message.content) ? message.content : [];
+        const working = content.filter(block => block.type === 'text' && textPhase(block) === 'commentary');
+        const reply = content.some(block => block.type === 'text' && textPhase(block) !== 'commentary' && String(block.text ?? '').trim());
+        if (working.length && reply && !content.some(block => block.type === 'toolCall')) {
+          pi.appendEntry('coc-setup-output-rejected', {run: current.runId, step: projectedStep,
+            reason: 'setup_commentary_text', message: structuredClone(message)});
+          return {message: {...message, content: content.filter(block => !working.includes(block))}};
+        }
+      }
       if (!current || stepCatalog?.length !== 1 || stepCatalog[0] !== SETUP_CARD_TOOL || message.role !== 'assistant'
         || ['error', 'aborted', 'length'].includes(message.stopReason)) return;
       const calls = (message.content ?? []).filter((block: Row) => block.type === 'toolCall');
