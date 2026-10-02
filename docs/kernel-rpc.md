@@ -13114,6 +13114,22 @@ printed level. A shape check on the receipt — a `delta` that happens to equal 
 symptom, not this defect: the same mistake at ninety per cent of the balance is silent, and the
 fix for "the number came from nowhere" is a source, not an alarm on one of its shapes.
 
+### 58.8 A cash card names the payment purpose (owner request, 2026-10-02)
+
+`cash` mechanics may carry `purpose`, the receipt's nonempty `why` verbatim. The Keeper writes
+this brief, player-visible description in the campaign's `play_language`, naming what was paid
+for or where received money came from, with no private motives or internal reasoning. The card
+draws it beneath the investigator's name beside that receipt's existing balance change. A missing
+purpose leaves the ordinary cash row visible; the UI never guesses one from adjacent story text
+or another receipt.
+
+Writer: the Keeper's existing `apply cash.why`, retained by `stageCash`. Reader: `mechanicsOf`
+projects it as `purpose`; the shared cash-row renderer displays it. Actor: the player can distinguish
+a repair payment from a separate tip. This is a deterministic presentation step using text already
+on the receipt, with no new model call or wait on the narration path. A later card replacement
+can add or correct a purpose through the existing card-update path while preserving the delivery's
+prose and typewriter progress. Historical records and balances are preserved.
+
 ## 59. A card says which of three things is true about opening it (2026-09-16, amends §16.2)
 
 One boolean, `mechanics.available`, was answering two questions at once, and a third case had no

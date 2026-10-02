@@ -206,6 +206,8 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
         // against its source instead of being taken on trust.
         for (const key of ["subject_label", "currency", "with", "with_label", "source", "settlement", "price_id", "price_name", "source_display"])
             labeled(out, key, receipt[key]);
+        // Contract section 58.8: the existing payment description is player-visible card content.
+        labeled(out, "purpose", receipt.why);
         for (const key of ["source_amount", "purchase_amount", "spending_level"])
             if (receipt[key] != null)
                 out[key] = receipt[key];
