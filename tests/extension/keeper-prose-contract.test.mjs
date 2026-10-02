@@ -18,7 +18,13 @@ test('compressed context supplies facts but never the player-facing sentence pat
   // unconstrained beyond not pasting the sentence back and not going against it; npc-voice's natural-reply section returns.
   assert.ok(craft.includes('The player\'s words this turn are what the investigator does'));
   assert.ok(craft.includes('Their sentence is never pasted back in'));
-  assert.ok(craft.includes('Answer the actual question first, with natural connected speech'));
+  // Contract §40.9 (narration-craft 2.1.9) keeps the natural reply but drops its unconditional priority: a genuine
+  // question gets a direct answer in natural connected speech when the situation permits.
+  const peopleAt = craft.indexOf('\n## The people here\n');
+  assert.ok(peopleAt >= 0, 'the full instruction keeps its people section');
+  const people = craft.slice(peopleAt, craft.indexOf('\n## ', peopleAt + 1));
+  assert.match(people, /\bwhole encounter\b/, 'the full instruction teaches the whole-encounter rule');
+  assert.match(people, /\bquestion\b[^.]*\bwhen the situation permits\b[^.]*\bnatural connected speech\b/);
   assert.ok(craft.includes('Same thought, two mouths'));
   assert.equal(craft.includes('do not begin with what the investigator did'), false);
   assert.ok(craft.includes('The facts do not change; their patience does.'));
@@ -27,6 +33,17 @@ test('compressed context supplies facts but never the player-facing sentence pat
   const brief = await readFile(new URL('../../mods/narration-craft/brief.md', import.meta.url), 'utf8');
   assert.ok(craft.includes('The investigator is always "you"'));
   assert.ok(brief.includes('The investigator is always “you”'));
+  // §40.9: full, brief, style axis, directive and floor agree that people react to the whole encounter, and none keeps
+  // the unconditional answer-first priority under which a struck NPC still recited money and keys (2.1.8 run, turn 2).
+  // Each surface is found where it lives, so one that is renamed or dropped fails here instead of passing vacuously.
+  const style = JSON.parse(await readFile(new URL('../../mods/narration-craft/style.json', import.meta.url), 'utf8'));
+  const speak = style.directives['speak-in-person'] ?? {};
+  const surfaces = {full: people, brief, axes: style.axes.join('\n'), 'directive full': speak.full, 'directive brief': speak.brief,
+    floor: style.floor.find(line => line.startsWith('voice:'))};
+  for (const [surface, text = ''] of Object.entries(surfaces)) {
+    assert.match(text, /\breacts?\b/i, `§40.9: the ${surface} has people react to the whole encounter`);
+    assert.doesNotMatch(text, /\banswers?\b[^.;\n]*\b(?:first|what was (?:actually )?said)\b/i, `§40.9: the ${surface} still ranks answering what was said first`);
+  }
   assert.equal(craft.includes('as a writer writes'), false);
   assert.ok(prompt.includes('Address every player-controlled investigator in the second person'));
   assert.ok(prompt.includes('Words the player directly spoke are already their part of the conversation'));
