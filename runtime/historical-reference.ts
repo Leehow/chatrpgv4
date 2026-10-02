@@ -56,19 +56,29 @@ export function historyNeed(result: DecisionResult): boolean {
     && interruption?.status === 'answered' && interruption.type === 'noul' && interruption.noul < 0.5;
 }
 export const HISTORY_OFFER = 'Historical reference is available: lookup kind=historical_reference with query and optional objective first reuses this campaign\'s saved references, then searches if needed. reference_mode=catalog lists saved names; read with name retrieves one; saved searches only the library; web requests fresh results. For prices, establish a reusable period/region baseline once, then invent item quotations from saved price anchors. Only a concrete player price challenge permits an item-specific web check. Existing references survive restart and compaction. No researcher or report is needed.';
-export const HISTORY_PREPARE = 'Jev selected one background preparation for this player input. Before writing the scene or NPC reply, call lookup kind=historical_reference with a concise query and objective for the missing detail. Use auto to reuse stored originals first, or saved/read when the relevant reference is known; obtain excerpts, not just a catalogue. The query names a real historical reference basis, while objective explains the fictional setting, borrowed aspects and differences that must be preserved. Choosing an analogue never changes the scenario. This is host preparation, not an extra investigator action or a new gameplay prerequisite. After this one attempt, continue ordinary narration even if the reference is empty or unavailable. For ordinary prices use retained anchors; a new item does not justify another paid search.';
-export const HISTORY_PREPARED = 'The selected background preparation has had its one attempt. Continue the scene or NPC reply using only compatible excerpts actually returned and the authored setting. An empty, unavailable or refused reference creates no obligation to retry, catalogue or invent a sourced fact. Preserve fictional names, institutions and rules when borrowing historical style.';
-/** One selected main-Keeper read; declarations and the transcript remain stable. */
-export function historyPreparationPayload(api: string | undefined, payload: unknown): Record<string, any> | undefined {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
-  const body = payload as Record<string, any>;
-  if (['openai-responses','azure-openai-responses','openai-codex-responses'].includes(api ?? '')
-    && Array.isArray(body.tools) && body.tools.some((tool: any) => tool.type === 'function' && tool.name === 'lookup'))
-    return {...body, tool_choice: {type: 'function', name: 'lookup'}, parallel_tool_calls: false};
-  if (api === 'openai-completions' && Array.isArray(body.tools)
-    && body.tools.some((tool: any) => tool.type === 'function' && tool.function?.name === 'lookup'))
-    return {...body, tool_choice: {type: 'function', function: {name: 'lookup'}}, parallel_tool_calls: false};
+/**
+ * §124.12 (owner, 2026-10-02): the host's scene query. The forced lookup round it replaces spent 4-21 s of a Keeper call
+ * on every turn Jev granted (16 of 18 on the installed App's two tables) to write one sentence, and the search itself
+ * took 1-2 s. The query is put together from authored fields in one fixed shape -- no model writes it, nothing is
+ * classified: the era and the scene's display name are the query; what the scene is and the scenario's background are
+ * the objective, which Exa reads as the task the search serves. Missing era or scene name: no query.
+ */
+export function sceneQuery(context: any): {query: string; objective: string} | undefined {
+  const era = clip(context?.period ?? context?.scenario?.era, 120), place = clip(context?.where?.display_name, 120);
+  if (!era || !place) return undefined;
+  const summary = clip(context?.where?.summary, 160), background = clip(context?.scenario?.background, 200);
+  return {query: clip(`${era} ${place}`, 300), objective: clip('Period appearance, materials, everyday practice and speech at a place like this, '
+    + `for a scene of a fictional story. Scene: ${place}${summary ? ` (${summary})` : ''}. Setting: ${era}${background ? `; ${background}` : ''}. `
+    + 'Borrow compatible period detail; the story\'s own names and facts stay authoritative.', 512)};
 }
+/** Trimmed, and cut at a code point so the result's length stays within `limit` UTF-16 units. */
+function clip(value: unknown, limit: number): string {
+  let out = '';
+  for (const char of text(value).trim()) { if (out.length + char.length > limit) break; out += char; }
+  return out;
+}
+export const HISTORY_SUPPLIED = 'The host looked up historical reference for this scene before this step, from the scenario\'s authored era and the scene; historical_reference_materials holds what came back (absent or empty when nothing usable did). Use compatible details from it in what the investigator sees, handles and hears and in NPC speech, as its usage says. An empty or missing result creates no obligation to search again. Do not look up this scene\'s background yourself; lookup kind=historical_reference is for a specific detail these excerpts lack, such as a price baseline a purchase needs.';
+export const HISTORY_READ = 'Historical reference for this player input has been read. Continue the scene or NPC reply using only compatible excerpts actually returned and the authored setting. An empty, unavailable or refused reference creates no obligation to retry, catalogue or invent a sourced fact. Preserve fictional names, institutions and rules when borrowing historical style.';
 export const HISTORY_CLOSED = 'Historical retrieval is closed for this input because the available retrieval time or the turn\'s overall time budget is spent. Do not call historical_reference again, including catalog, read, saved, auto or web. Answer the player\'s actual question from the excerpts already returned and existing material, not merely with an acknowledgement that retrieval ended. Acknowledge missing evidence and keep ordinary prices as estimates. The saved library remains intact and a new player input gets a fresh allowance.';
 /** A spent reference-only compose writes its answer without another tool loop; tool definitions stay stable. */
 export function historyFinalAnswerPayload(api: string | undefined, payload: unknown): Record<string, any> | undefined {
@@ -103,6 +113,8 @@ export interface HistoryInput {
   retrieval?: HistoryResult['retrieval'];
   reference_mode?: 'auto' | 'saved' | 'catalog' | 'read' | 'web'; name?: string; reference_cursor?: number;
   current: () => boolean | Promise<boolean>; deadlineAt?: number;
+  /** Who asked: the Keeper's own lookup, or the host's scene prefetch (§124.12, 2026-10-02). Telemetry only. */
+  requested_by?: 'keeper' | 'host';
 }
 export interface HistoryResult {
   kind: 'historical_reference'; status: 'ready' | 'empty' | 'unavailable'; reason: string;
@@ -452,7 +464,7 @@ export class HistoricalReference {
       clearTimeout(timer); lease.close();
       if (publishable) await this.#library.save(input, candidates, result.materials, {origin: result.origin, decisions})
         .catch(() => {result.reason += '_library_save_failed';});
-      this.#record({lane: 'historical-reference', turn: input.turn, query: input.query, reference_mode: mode,
+      this.#record({lane: 'historical-reference', turn: input.turn, query: input.query, reference_mode: mode, requested_by: input.requested_by ?? 'keeper',
         status: result.status, reason: result.reason, selection_failure: selectionFailure, origin: result.origin ?? null, library: result.library ?? null,
         cached: result.cached, candidates: candidates.length, selected: result.materials.length, bytes: Buffer.byteLength(JSON.stringify(result.materials)),
         query_kind: queryKind, price_disputed: priceDisputed, pricing: result.pricing ?? null,

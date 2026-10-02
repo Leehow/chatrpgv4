@@ -7,7 +7,7 @@ import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts'
 
 import { textToolCalls } from "./text-tool-call.ts";
 import {narrationTransport} from './narration-transport.ts';
-import {HistoricalReference, historyEnabled, historyContext, historyBindingMatches, type HistoryInput} from '../../runtime/historical-reference.ts';
+import {HistoricalReference, historyEnabled, historyContext, historyBindingMatches, type HistoryInput, type HistoryResult} from '../../runtime/historical-reference.ts';
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
@@ -1458,6 +1458,33 @@ export default function (pi: ExtensionAPI) {
 	 * (`refuse`, the sentence the Keeper reads, and `refuse_code`); the tool gate refuses it before anything runs.
 	 */
 	let historicalReference: HistoricalReference | undefined;
+	/**
+	 * §124.12: one historical search under the lookup's gates -- active Mod, the grant's run/turn/binding, credentials and
+	 * the per-input allowance. The Keeper's own lookup carries the grant its model step announced; the host's scene
+	 * prefetch (2026-10-02) carries the grant the engine's need decision gave. The two share the turn's allowance through
+	 * the binding `<run>:<turn>`.
+	 */
+	async function historicalSearch(state: TableState, request: {run?: string; grant?: Partial<HistoryInput> & {scope?: any; turn?: number};
+		requested_by: 'keeper' | 'host'; query: string; objective?: string; reference_mode?: HistoryInput['reference_mode']; name?: string;
+		reference_cursor?: number; signal?: AbortSignal; deadlineAt?: number}): Promise<HistoryResult> {
+		const grant = request.grant;
+		const campaign = state.campaign, turn = state.turn;
+		const capsule = await state.kernel.call('table.capsule', {campaign});
+		const referenceScope = {owner:'historical-reference', campaign, audience:'keeper' as const,
+			worldline: (capsule as any)._context?.worldline, loop: (capsule as any)._context?.loop};
+		historicalReference ??= new HistoricalReference({home: cocHome(sessionCtx!.cwd), record:event=>{void record(event);}});
+		return historicalReference.search({binding: `${request.run ?? campaign}:${turn}`, turn,
+			scope: referenceScope, enabled: historyEnabled(capsule),
+			allowed: grant?.allowed === true && grant.turn === turn && historyBindingMatches(capsule, grant.scope, turn),
+			retrieval: grant?.turn === turn && historyBindingMatches(capsule, grant.scope, turn) ? grant.retrieval : undefined,
+			query: request.query, objective: request.objective, player_input: state.playerText ?? '',
+			reference_mode: request.reference_mode, name: request.name, reference_cursor: request.reference_cursor,
+			context: historyContext(capsule), requested_by: request.requested_by,
+			signal: request.signal ?? new AbortController().signal, deadlineAt: request.deadlineAt,
+			current: async()=>table === state && state.campaign === campaign && state.turn === turn
+				&& historyBindingMatches(await state.kernel.call('table.capsule', {campaign}), referenceScope, turn),
+		});
+	}
 	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; holdEmbeddedNarration?: boolean; history?: Partial<HistoryInput> }>();
 	pi.events.on("coc:model-step", (value) => {
 		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -4639,25 +4666,11 @@ export default function (pi: ExtensionAPI) {
 			let supportAnswer: Record<string, unknown> | undefined;
 			let historicalAnswer: Record<string, unknown> | undefined;
 			if (spec.name === 'lookup' && params.kind === 'historical_reference') {
-				const grant = fromStep?.history;
-				const campaign = state.campaign, turn = state.turn;
-				const capsule = await state.kernel.call('table.capsule', {campaign});
-				const referenceScope = {owner:'historical-reference', campaign, audience:'keeper' as const,
-					worldline: (capsule as any)._context?.worldline, loop: (capsule as any)._context?.loop};
-				historicalReference ??= new HistoricalReference({home: cocHome(sessionCtx.cwd), record:event=>{void record(event);}});
-				historicalAnswer = {...await historicalReference.search({binding: `${fromStep?.run ?? campaign}:${turn}`, turn,
-					scope: referenceScope, enabled: historyEnabled(capsule),
-					allowed: grant?.allowed === true && grant.turn === turn && historyBindingMatches(capsule, grant.scope, turn),
-					retrieval: grant?.turn === turn && historyBindingMatches(capsule, grant.scope, turn) ? grant.retrieval : undefined,
+				historicalAnswer = {...await historicalSearch(state, {run: fromStep?.run, grant: fromStep?.history, requested_by: 'keeper',
 					query: String(params.query ?? ''), objective: typeof params.objective === 'string' ? params.objective : undefined,
-					player_input: state.playerText ?? '',
 					reference_mode: params.reference_mode as HistoryInput['reference_mode'], name: typeof params.name === 'string' ? params.name : undefined,
 					reference_cursor: typeof params.reference_cursor === 'number' ? params.reference_cursor : undefined,
-					context: historyContext(capsule),
-					signal: signal ?? new AbortController().signal, deadlineAt: providerBudget?.deadlineAt,
-					current: async()=>table === state && state.campaign === campaign && state.turn === turn
-						&& historyBindingMatches(await state.kernel.call('table.capsule', {campaign}), referenceScope, turn),
-				})};
+					signal, deadlineAt: providerBudget?.deadlineAt})};
 			}
 			if(spec.name==='lookup'&&params.kind==='support'){
 				if(Object.keys(params).some(key=>!['kind','query'].includes(key)))throw new KernelError({code:'invalid_params',message:'Support lookup accepts only kind and query'});
@@ -5305,6 +5318,7 @@ export default function (pi: ExtensionAPI) {
 		pi.events.emit('coc:turn-close', undefined);
 		pi.events.emit('coc:source-answers', undefined);
 		pi.events.emit('coc:owed-review', undefined);
+		pi.events.emit('coc:historical-reference', undefined);
 		const current = table;
 		table = undefined;
 		if (current) {
@@ -5504,6 +5518,14 @@ export default function (pi: ExtensionAPI) {
 			// the ledger owes, and a review that lands during the read is read before any candidate is built. Nothing waits.
 			pi.events.emit('coc:owed-review', Object.freeze({ campaign, watch: () =>
 				watchOwedReview(table?.campaign === campaign ? table.reviewInFlight : undefined) }));
+			// §124.12 (2026-10-02): the engine's scene prefetch runs the lookup's own search, after Jev granted the need.
+			pi.events.emit('coc:historical-reference', Object.freeze({ campaign, search: (request: { run: string; turn: number; scope: unknown;
+				query: string; objective?: string; signal?: AbortSignal; deadlineAt?: number }) => {
+				const state = table;
+				if (!state || state.campaign !== campaign) return Promise.resolve(undefined);
+				return historicalSearch(state, { run: request.run, grant: { allowed: true, turn: request.turn, scope: request.scope as any },
+					requested_by: 'host', query: request.query, objective: request.objective, signal: request.signal, deadlineAt: request.deadlineAt });
+			} }));
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.
 			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: (at?: { scene?: string; run?: string }) => {
