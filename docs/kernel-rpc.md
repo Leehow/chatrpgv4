@@ -20246,13 +20246,17 @@ which never throws and returns whether it wrote:
   (`turn`, `mechanics`, `labels`, `marked_text`, `speech`, `play_language`, `ui`). An object merges key
   by key, `null` deletes the key, an array (`mechanics` included) is replaced whole, and a scalar
   replaces. An empty or non-object patch is not a patch.
-- Two keys of `details` are **addressing**, because rows live in an array a merge patch can only
+- Three keys of `details` are **addressing**, because rows live in an array a merge patch can only
   replace whole, and a lane that finished later cannot know the whole array:
   - `definitions: {<definition name>: {…}}` — merged onto every `item` row whose `definition_name` is
     that name (a row §129.1 drew `pending`);
   - `objects: {<object name>: {…}}` — merged onto every `item` row whose `name` is that name.
 
-  Each is merged with the same merge-patch rule, after all patches are applied, and neither key reaches
+  - `quotes: {<quote_key>: {…}}` (section 58.10) — merged onto the exact `cash` row
+    carrying that host-owned scoped key. A delayed quote never replaces another cash row,
+    the prose, or the mechanics array.
+
+  Each is merged with the same merge-patch rule, after all patches are applied, and none of these keys reaches
   the renderer. The Keeper filter and §16.5's concealment run again over the rows a patch left.
 - `source` names the lane (`object-details`, `usage-prefetch`); `at` is when it was written. Neither
   changes what is drawn.

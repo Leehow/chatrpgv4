@@ -253,16 +253,26 @@ const AbilityEffect = Type.Object({
 
 /** A priced transaction (contract §5 `cash`, #19; §58 source and Spending Level settlement). */
 const QuotationDrafts = Type.Optional(Type.Array(Type.Object({
-    quote: Type.String({maxLength:200,description:"human-readable offer name, reused if the player later accepts"}),
+    quote: Type.String({maxLength:200,description:"offer name reused on acceptance"}),
     category: StringEnum(["living","purchase"] as const),
     items: Type.Array(Type.Object({name:Type.String(),quantity:Type.Number({exclusiveMinimum:0}),unit_price:Type.Number({minimum:0})}),{minItems:1,maxItems:24}),
-    subject: Type.Optional(Type.String({description:"omit at a one-investigator table; otherwise use the exact investigator name or id from the capsule, never a translated display alias"})),
-    with: Type.Optional(Type.String({description:"the person or visible role offering these prices; required unless source price"})),
+    subject: Type.Optional(Type.String({description:"omit for one investigator; otherwise use their exact capsule name/id"})),
+    with: Type.Optional(Type.String({description:"seller name/role; required unless source price"})),
     source: Type.Optional(StringEnum(["quote","price"] as const)),
     price_id: Type.Optional(Type.String()),
-    currency: Type.Optional(Type.String({description:"omit to use the investigator's cash currency; never translate the code"})),
+    currency: Type.Optional(Type.String({description:"omit for the held cash currency; never translate its code"})),
     why: Type.Optional(Sentence("brief player-visible quotation purpose in play_language")),
-}),{maxItems:8,description:"Offers only, never payments. Write the complete closing prose first, then these priced lines in the same call. Prose delivers immediately; the background kernel computes and registers exact totals and updates that card. Do not call apply cash mode quote first or sum the bill in dialogue. No purchase or item transfer is authorized"}));
+}),{maxItems:8,description:"Offers only. Write closing prose first, then these priced lines in the same call. Background registration computes totals and updates the card after delivery. No payment or item transfer"}));
+
+// Both delivery schemas carry the same bounded drafts; describe their fields once in narrate.
+const EmbeddedQuotationDrafts = {
+    ...QuotationDrafts,
+    description: "Background offers only; the same fields as narrate.quotes",
+    items: {...QuotationDrafts.items, properties: Object.fromEntries(Object.entries(QuotationDrafts.items.properties).map(([name,schema])=>{
+        const {description:_description,...fields}=schema;
+        return [name,fields];
+    }))},
+};
 
 const CashEffect = Type.Object({
 	owed: OwedRef,
@@ -806,7 +816,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 			narrate: Type.Optional(Type.String({ description: withPlainProse("this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead") })),
-			quotes: QuotationDrafts,
+			quotes: EmbeddedQuotationDrafts,
 		}),
 	},
 	{
