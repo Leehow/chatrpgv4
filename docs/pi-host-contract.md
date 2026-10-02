@@ -439,3 +439,5 @@ External check: [xAI streaming guidance](https://docs.x.ai/developers/model-capa
 ## 2026-10-01: Flapcode provider copy
 
 `extensions/flapcode` copies the PipiUI provider into the existing manifest-discovered provider path. Its agent and host share the same Responses registration, relay session header, request sanitizer, model catalog and quota capture. The launcher and tool-enabled lane children discover it through `auth.provider`; the App discovers its settings and host entry through the same manifest. Credentials remain in each writable profile, outside source and packaged resources. The local Flapcode selection replaces Grok for the operator who requested the switch; existing campaign evidence is preserved.
+
+The Flapcode catalog adds `gpt-6.1-sol` with the official 1,050,000-token context window, 128,000-token output limit and full low/medium/high/xhigh/max effort map. Off is unsupported; minimal aliases low. Source and manifest catalogs stay identical. Relay availability was confirmed by a completed request on 2026-10-01. Metadata source: https://developers.openai.com/api/docs/models/gpt-6.1-sol. Existing model selections are preserved.

@@ -66,6 +66,21 @@ const FLAPCODE_COMPAT = {
     supportsStrictMode: true,
 };
 export const FLAPCODE_MODELS = [
+    // https://developers.openai.com/api/docs/models/gpt-6.1-sol
+    // Relay availability confirmed with a completed low-effort request on 2026-10-01.
+    {
+        id: "gpt-6.1-sol",
+        name: "GPT-6.1 Sol (Flapcode)",
+        api: "openai-responses",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        // GPT-6.1 Sol requires reasoning; minimal remains the host's low alias.
+        thinkingLevelMap: { ...GPT_THINKING_MAP, off: null },
+        compat: { ...FLAPCODE_COMPAT },
+    },
     {
         id: "gpt-5.6-sol",
         name: "GPT-5.6 Sol (Flapcode)",
