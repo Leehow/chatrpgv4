@@ -22,6 +22,7 @@ Status: needs-triage
 | 同上 | 8 | `apply` 被挡 `blocked / preparation_wait`；`narrate` 被拒 `mod_narrative_repair`；再 `apply` 又被挡；无交付 |
 | `…jev-gui-20260922/2026-09-23T13-37-36-927Z_d33d44c1…` | 2 | KP `resolve`（说服）后直接 `stop`，一个字没写 |
 | `…jev-gui-20260928/2026-10-02T02-03-41-072Z_1d528729…`（战役 `game-3a9734c5-e19d-4f70-8391-928f1afd7742`） | 4 | 见下节 |
+| 同上 | 5 | Keeper 调用两次被 60 s 单次上限截断（见「紧接着的第二次」） |
 
 三类路径：
 1. **交付闸门拒稿、修改机会用完**（5 次）：Mod 审计 `mod_narrative_repair`、准备等待 `preparation_wait`、2026-10-01 新加的玩家选择闸门 `forced_player_choice_cue_review`。
@@ -40,6 +41,17 @@ Status: needs-triage
 4. `takeTurnCloseSteer` 发现本回合已经修过一次，返回 `{ none: "steer_spent" }`（`extensions/kernel/index.ts` 约 1577 行），回合以无交付收场，`stranded`，宿主显示 `turn_unfinished_notice`（约 3765 行）。两版正文都被丢掉。
 
 这道闸门是 2026-10-01 另一会话加的：`3dfabf67c`（14:53）、`be770fe63`（18:48 guard delivery for forced player choices）、`745fa25cc`（19:15 keep forced choice narration recoverable）、`673fee420`、`9bf389a75`（allow one bounded choice narration repair）。
+
+## 紧接着的第二次（2026-10-02，同一战役回合 5）
+
+玩家这次明说了技能：「我用说服：跟他讲，那房子出过人命似的传闻，要是我查清了是谣言，房东第一个找报社登更正……我只要翻科比特宅那几页，你派个人盯着我都行。」
+
+1. 社交判定（forced-resolution，subject「Adjudicate one possible social goal from described conduct, approach, higher-of defense, motive, and one-level support」）在这一回合里三次记为 `why: below_confidence_gate`，尽管玩家已经点名「说服」。
+2. KP 第一步 `lookup`（20.8 s，正常）；同一步里正文被拒 `text_beside_tool_calls`，随后 `failed_leg_not_delivered`。
+3. 第二步 KP 调用流式输出了 60 s，被 Keeper 单次调用上限截断：`Keeper call timed out: exceeded its per-call cap of 60000 ms (phase: streaming)`；宿主重试一次，又是 60 s 截断：`exceeded its per-call cap of 60000 ms a second time (phase: streaming); this step ends now`。
+4. `provider_outage_notice` → `settled_without_delivery`，回合 `stranded`。
+
+对照：同一桌回合 3、4 的 Keeper 调用都在 9–20 s（`provider-call` 行的 `ms`）。回合 5 这一步两次都写满 60 s 仍未结束，像是卡在长思考里；截断后草稿全部丢弃。需要一并看：①明说技能为何仍判把握不足；②60 s 上限截断后能否保留已流出的正文或转为可交付草稿，而不是整回合作废。
 
 ## 相关代码
 
