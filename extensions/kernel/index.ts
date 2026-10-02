@@ -129,7 +129,7 @@ import {
 	REFUSING_VERDICTS,
 } from "./admission.ts";
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
-import { owedWaitMs, settleOwedReview } from "./owed-review.ts";
+import { watchOwedReview } from "./owed-review.ts";
 
 /**
  * One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown.
@@ -3389,7 +3389,7 @@ export default function (pi: ExtensionAPI) {
 			const closedAt = Date.now();
 			let settled!: () => void;
 			const flight = { turn, done: new Promise<void>(resolve => { settled = resolve; }) };
-			// §158.4: the next run may wait a bounded while for this review, which may name what the ledger owes.
+			// §158.4: the next run's first read watches this review, which may name what the ledger owes.
 			state.reviewInFlight = flight;
 			const timer = setTimeout(() => {
 				void (async () => {
@@ -5500,10 +5500,10 @@ export default function (pi: ExtensionAPI) {
 				campaign,
 				verdict: () => operationGate.open ? turnCloseVerdict() : { status: 'none', reason: 'no_table' },
 			}));
-			// §158.4: the next run's first read waits, within `PI_COC_OWED_WAIT_MS` of the run's start, for the previous
-			// delivery's post review still running: it may name what the ledger owes, and the run starts from the told position.
-			pi.events.emit('coc:owed-review', Object.freeze({ campaign, settle: (elapsedMs: number) =>
-				settleOwedReview(table?.campaign === campaign ? table.reviewInFlight : undefined, owedWaitMs(), elapsedMs) }));
+			// §158.4: the next run's first read watches the previous delivery's post review still running: it may name what
+			// the ledger owes, and a review that lands during the read is read before any candidate is built. Nothing waits.
+			pi.events.emit('coc:owed-review', Object.freeze({ campaign, watch: () =>
+				watchOwedReview(table?.campaign === campaign ? table.reviewInFlight : undefined) }));
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.
 			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: (at?: { scene?: string; run?: string }) => {

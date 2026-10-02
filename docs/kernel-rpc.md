@@ -29888,9 +29888,11 @@ This is state, not the advice §13.7 keeps out of the capsule. The spec decides 
 - A row that cannot land (refused by the kernel) stays open. The clerk's `bind` row records the step with its `status`, the Keeper's clerk note carries it as a step the clerk tried, and move candidates stay withheld. The Keeper sees the row and the refusal, never a ledger position to side with.
 - Any other move that lands after the told turn -- the Keeper's own, or one the player later chooses -- closes an open owed move as `superseded` (`settleOwed`, `kernel-ts/owed/land.ts`): the story has moved on, and landing the old arrival later would carry the party back to a position it has left.
 
-**The wait for a review in flight.** A post review of the previous delivery that is still running when the next run starts may be about to name what is owed. The host keeps, per campaign, the promise of the last delivery's post review (`afterDeliveryReview`). The run's first read waits for it for at most `PI_COC_OWED_WAIT_MS` (default 15 000, counted from the run's start), concurrently with the read itself. Measured on this table, the read took 8–12 s, and turn 26's review landed 13 s after turn 27 opened.
+**The review in flight is watched, never waited for.** A post review of the previous delivery that is still running when the next run starts may be about to name what is owed. The host keeps, per campaign, the promise of the last delivery's post review (`afterDeliveryReview`) and publishes a port that watches it (`coc:owed-review`, `watch()`, `extensions/kernel/owed-review.ts`). The run's first read starts the watch before it reads the table. A review that lands while the read runs (prescreen included) is read before any candidate is built. Nothing waits past the read. A review still running when the read ends is read at the run's next read or the next run, and what it names lands then (§158.5).
 
-The wait is paid only when a review is in flight. A review that lands later is read at the run's next read or the next run. Telemetry: `event: "owed_wait", waited_ms, landed: boolean`.
+Telemetry, when a review was in flight at the first read: `lane: "run", event: "owed_review", landed: boolean, turn`.
+
+*Amended 2026-10-02 (owner: 「先修复核空等」).* The first version waited up to `PI_COC_OWED_WAIT_MS` (default 15 000, counted from the run's start), measured on Dust to Dust where turn 26's review landed 13 s after turn 27 opened. On the installed App's Blood Road table (gpt-6-luna) the post reviews took 58–159 s. Every first read finished its prescreen in 3.4–4.4 s and then sat until 14.3 s. None of the four waits landed. That is about 10 s of every turn spent on nothing. The variable and the `owed_wait` row are gone.
 
 `deferred_last_turn` (§135.25) is unchanged. It is the clerk's own note, kept in session memory. Owed state does not depend on it.
 
@@ -29940,7 +29942,7 @@ The kernel-authored forward fixes are §158.3's.
 - *Writer:* the private reviewer through `submit_audit` (the `owed` field), bound by `mods.accept`, projected by `table.warn` into `owed.json` and the record.
 - *Reader:* the capsule's `owed` section (`kernel-ts/read/assemble.ts`), the clerk's candidate builder, admission's `told` basis, and the kernel's `owed` effect check.
 - *Actor:* the clerk (`told_bookkeeping`) or the Keeper, whose ordinary `apply` lands the row and closes it.
-- *Counted:* `owed.json`'s `closed` list, the receipts' `owed`, the admission rows with `path: "told"`, and the run's `owed` / `owed_wait` rows.
+- *Counted:* `owed.json`'s `closed` list, the receipts' `owed`, the admission rows with `path: "told"`, and the run's `owed` / `owed_review` rows.
 
 ### 158.7 Follow-up reconciliation (FR-06--FR-09, 2026-09-30)
 
