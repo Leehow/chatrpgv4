@@ -264,7 +264,7 @@ const CashEffect = Type.Object({
 	price_id: Type.Optional(Type.String({ description: "required with source price: the price_id of the printed record you are charging, exactly as lookup kind=catalog returned it. An invented one is refused" })),
 	currency: Type.Optional(Type.String({ description: "the unit this amount is counted in, when the fiction named one. It must be the unit the balance is held in — the kernel does not convert between units. If a price was quoted in another currency, settle the exchange in the fiction and record what actually left the purse" })),
 	with: Type.Optional(Type.String({ description: "the person on the other side of it: an NPC name. Name them whenever money is paid to or taken from someone — that is what puts it on their account, and you are told it again the next time they are in the room" })),
-	why: Type.Optional(Sentence("where the money went, or where it came from")),
+	why: Type.Optional(Sentence("brief player-visible payment purpose in the campaign's play_language: what was paid for, or where received money came from. This is shown on its cash card; omit private motives and internal reasoning")),
 });
 
 /** The Keeper's pacing instrument (contract §30.9): the book writes the clock, only this moves it. */

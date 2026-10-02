@@ -112,6 +112,7 @@ const CSS = `
 .coc-mech-row[data-family] .coc-mech-ico{color:var(--fam, var(--muted));
   background:color-mix(in oklab, var(--fam, var(--muted)) 13%, transparent)}
 .coc-mech-body{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--text)}
+.coc-mech-cash-purpose{display:block;color:var(--muted);font-size:11.5px;line-height:1.5}
 .coc-mech-who{color:var(--muted)}
 .coc-mech-skill{font-weight:550}
 .coc-mech-res{font-size:11px;font-weight:650;letter-spacing:.04em;color:var(--muted)}
@@ -1254,10 +1255,12 @@ export function createComponent(React) {
       case "cash": {
         const before = num(row.before);
         const after = num(row.after);
+        const purpose = text(row.purpose).trim();
         // Cash is the decimal resource: a purchase of 0.02 is the case that exposed `after - before`.
         const delta = exactDelta(before, after);
         return h(Row, { key, kindKey: "cash", kindLabel, family },
-          h("span", { className: "coc-mech-body" }, text(row.subject_label || row.subject)),
+          h("span", { className: "coc-mech-body" }, text(row.subject_label || row.subject),
+            purpose ? h("span", { className: "coc-mech-cash-purpose" }, term(purpose)) : null),
           h("span", { className: "coc-mech-figure" },
             h("span", { className: "coc-mech-from" }, text(row.before)),
             ` ${t("arrow")} `,
