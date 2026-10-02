@@ -19666,6 +19666,33 @@ that fails to land is dropped; the empty item remains.
 
 Tests: `tests/extension/item-fast.test.mjs`, `tests/extension/apply-defer-any-batch.test.mjs`.
 
+### 129.6 Reopening a waiting card resumes its detail work (2026-10-02)
+
+Opening an unarchived, writable play session with a projected pending item card starts its ordinary
+session runtime in detail-recovery mode, without a player prompt, a new turn, an opening or a retained
+story continuation. History loading returns immediately. The backend retains the loaded card ids for
+the existing live patch reader; results completed during startup are reconciled from the durable
+history and later results redraw those same cards. A read-only or archived session starts no worker.
+
+The Mod host recovers once at session start. Host-only `mods.queued {details_only: true}` reads queued
+registrations including the last delivered turn, returns accepted definitions and unfinished requests,
+and never applies, discards or publishes world state. Accepted work is announced through the existing
+`coc-card-patch`/`coc-object-details` path; unfinished work uses the existing tool-enabled creator,
+original job identity and deterministic acceptance gate. World registration still lands only at the
+ordinary next-turn safe boundary. No handover, cash receipt or narration is replayed.
+
+Recovery shares the outstanding-work owner with foreground preparation. A preceding batch cannot
+clear a successor's ownership; late completion after shutdown cannot patch the replacement session.
+Retries allocate new numbered attempt files, preserving interrupted logs and partial artifacts. A
+failed recovery retains its queue and evidence and can retry on a later session start or player turn.
+
+Evidence: campaign `game-abbdde48-5e44-44c8-867f-347624b36e88`, turn 4: gasoline was accepted and
+announced; the map stopped during a write and the spare tire never started. App restart loaded history
+with two pending rows but no session process, so neither generation nor a card update could occur.
+The recovery approach was cross-checked against BullMQ's stalled-worker requeue and Temporal's
+durable task replay; this project reuses its existing job ledger and writer lease, with no new service.
+Sources: https://docs.bullmq.io/guide/workers/stalled-jobs and https://docs.temporal.io/tasks.
+
 ## 130. The player reads first; the continuity review reads after (2026-09-22, amends §12.8, §36.14 and §91)
 
 The continuity review of §36.14 has been a gate before publication: `narrate` and `ask` waited inside

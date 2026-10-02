@@ -5550,6 +5550,9 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 
+			// Opening a waiting item card starts its background owner, without replaying an opening
+			// or continuing an interrupted story. Real player input still uses the ordinary turn guard.
+			if (process.env.PI_COC_DETAILS_RECOVERY === '1') return;
 			const pending = open.pending_turn;
 			if (pending) {
 				if (watchdogRecovery) {
