@@ -30,7 +30,7 @@ function turnOneClosed(workspace) {
 		if (!frame.ok) throw new Error(`fixture step ${frame.id} failed: ${JSON.stringify(frame.error)}`);
 }
 
-test("the Keeper's narrate with an NPC line and a stranger's line reaches the lane from the bus, on the table's model, and patches its card", async t => {
+test("section 166: committed NPC and stranger speech stays in its first version without an edit", async t => {
 	const original = globalThis.fetch, asked = [];
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== JEV_URL) return original(url, init);

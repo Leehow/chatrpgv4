@@ -27,11 +27,10 @@ Contract section 166 and a fixed shared policy in `kernel-ts/runtime/narration-p
 
 ## Remaining
 
-1. Run the LAN loop/build checks and the merged historical owed-watch regression. Heavy suites/builds use the LAN box, one heavy suite at a time. No new live model calls are required without a relevant delivery change.
-2. Integrate into the latest clean `0.9.6a`, verify the source/compiled runtime, then lifecycle terminal/audit/closeout. Preserve all genuine evidence in the primary checkout. No push or App install is authorized.
+1. Integrate into the latest clean `0.9.6a`, fetch the compiled runtime, then lifecycle terminal/audit/closeout. Preserve all genuine evidence in the primary checkout. No push or App install is authorized.
 
 Implementation commit: `f1e08f93c`. Old automatic-review expectations were retired or replaced by first-draft assertions. Unused post-terminal faux responses were removed so they cannot become the next turn's first draft; independent mechanics assertions remain. Historical inspection/helper and source-authoring tests remain.
 
 Full ext snapshot before the final fixture corrections: 4251 tests, 4244 passed, 7 failed, exit 1. Six failures were stale fixture/timing assertions and now pass focused checks; one `keeper-prose-contract.test.mjs` phrase assertion is confirmed absent in the base commit `15a4a48be` as well. The unrelated prose-package mismatch remains reported rather than changing its content to make the suite green. Log: `/tmp/single-pass-full-ext-v2.log`. The older interrupted snapshot (`/tmp/single-pass-full-ext.log`) is superseded and is not green evidence.
 
-After merging main into the owned checkout: `check:kernel`, `git diff --check`, and 50 focused first-draft, canonical-dispatcher, lifecycle, folding, control-token and post-delivery checks passed. The Flapcode driver is stopped; genuine campaign evidence remains in the primary checkout. Packaging and installed-App acceptance are separate and were not performed.
+After merging main into the owned checkout: `check:kernel`, `git diff --check`, 50 focused first-draft/canonical-dispatcher/lifecycle/folding/control-token/post-delivery checks, 58 admission/owed-watch/task-guard checks and 9 system-language/disabled-edit checks passed. The LAN runtime build and 296 loop checks passed at `b941fa6ba` (exit 0, 204 s). No production code changed after those checks. The Flapcode driver is stopped; genuine campaign evidence remains in the primary checkout. Packaging and installed-App acceptance are separate and were not performed.
