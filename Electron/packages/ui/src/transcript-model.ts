@@ -58,6 +58,8 @@ export type ChatMessage = {
   serverSideToolUsage?: Record<string, number>
   /** assistant only: the session's opening narration, delivered whole — the renderer reveals it progressively. */
   opening?: boolean
+  /** UI-only live playback identity, retained by redraws; history never supplies one. */
+  typewriter?: object
   /** assistant only: a host-delivered opening's help fold, drawn behind a "?" after the text. */
   help?: OpeningHelp
 }
@@ -443,7 +445,9 @@ export function reconcileHistorySnapshot(
   previousFingerprint?: string,
   liveMessages?: readonly ChatMessage[],
 ): { status: 'accepted' | 'unchanged' | 'stale-request' | 'retained-longer-live'; messages: ChatMessage[]; fingerprint: string } {
-  const messages = historyMessages(entries)
+  const livePlayback = new Map(liveMessages?.filter(message => message.typewriter).map(message => [message.id, message.typewriter]))
+  const messages = historyMessages(entries).map(message => livePlayback.has(message.id)
+    ? { ...message, typewriter: livePlayback.get(message.id) } : message)
   const fingerprint = transcriptFingerprint(messages)
   if (requestLiveRevision !== currentLiveRevision) return { status: 'stale-request', messages, fingerprint }
   if (fingerprint === previousFingerprint) return { status: 'unchanged', messages, fingerprint }
@@ -675,7 +679,12 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     // §53: the projection already named the speaker, and `historyMessages` reads that same name off
     // the same entry when the file is read back. Deciding it a second time here is how the live
     // reading and the re-reading came to disagree about whose words a delivery was.
-    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{})};
+    const details = event.entry.presentation?.details as { marked_text?: string; rendered_text?: string } | undefined
+    const liveProse = (event.entry.role ?? 'assistant') === 'assistant' && (event.entry.presentation
+      ? event.entry.presentation.renderer === 'coc-mechanics' && Boolean(details?.marked_text || details?.rendered_text)
+      : Boolean(event.entry.content))
+    const typewriter = at >= 0 ? previous[at].typewriter : liveProse ? {} : undefined
+    const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{}),...(typewriter?{typewriter}:{})};
     return at<0?[...previous,message]:previous.map((item,i)=>i===at?message:item);
   }
   if (event.type === 'secret_redact') return applySecretRedact(previous, event.messages)
@@ -757,6 +766,7 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     return activities!
   }
   const updated: ChatMessage = { ...current }
+  if (event.type === 'text' && event.delta) updated.typewriter ??= {}
   if (event.type === 'text' && event.replace) {
     const segment = event.segment ?? 0
     const target = ownActivities()
@@ -1093,7 +1103,8 @@ export function finishStreamingMessage(messages: ChatMessage[]): ChatMessage[] {
     if (message.role !== 'assistant' || !message.streaming) return message
     changed = true
     const activities = message.activities ? stripPendingThinking(message.activities) : message.activities
-    return { ...message, streaming: false, ...(activities ? { activities } : {}) }
+    return { ...message, streaming: false, ...(activities ? { activities } : {}),
+      ...(!message.error && message.content.trim() ? { typewriter: message.typewriter ?? {} } : {}) }
   })
   return changed ? next : messages
 }

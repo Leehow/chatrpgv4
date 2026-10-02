@@ -14,6 +14,7 @@ import type { OpeningHelp as OpeningHelpFold } from '@pipi/host-api'
 import './opening-help.css'
 import { TruncatedText } from './TruncatedText'
 import { TranscriptMarkdown } from './TranscriptMarkdown'
+import { useNarrationTypewriter } from './useNarrationTypewriter'
 import { HostedCodeInterpreterCard } from './HostedCodeInterpreterCard'
 import type { ChatMessage, TranscriptActivity, TranscriptTool } from './transcript-model'
 import { displaySecretPlaceholders } from './secret-display'
@@ -25,7 +26,7 @@ const NO_UNSETTLED_TEXT: ReadonlySet<string> = new Set()
 
 export type { TranscriptActivity, TranscriptTool } from './transcript-model'
 export { TranscriptMarkdown } from './TranscriptMarkdown'
-export type AssistantTranscriptMessage = Pick<ChatMessage, 'content' | 'thinking' | 'tools' | 'activities' | 'streaming' | 'error' | 'citations' | 'fileSources' | 'opening' | 'help'>
+export type AssistantTranscriptMessage = Pick<ChatMessage, 'content' | 'thinking' | 'tools' | 'activities' | 'streaming' | 'error' | 'citations' | 'fileSources' | 'opening' | 'help' | 'typewriter'>
 
 const FILE_SOURCE_FALLBACK = '已上传文件'
 
@@ -159,6 +160,11 @@ const OpeningTranscriptContent = memo(function OpeningTranscriptContent({ id, co
   </div>
 })
 
+const NarrationText = memo(function NarrationText({ content, identity, channel, streaming, documentBasePath, onOpenDocument }: { content: string; identity?: object; channel: string; streaming?: boolean; documentBasePath?: string; onOpenDocument?: (path: string) => void }) {
+  const reveal = useNarrationTypewriter(identity, content, channel)
+  return <><TranscriptMarkdown content={reveal.text} streaming={streaming || reveal.active} />{!streaming && !reveal.active && <DocumentReferenceCards content={content} basePath={documentBasePath} onOpenDocument={onOpenDocument} />}</>
+})
+
 export const AssistantTranscriptContent = memo(function AssistantTranscriptContent({ message, expandSteps, documentBasePath, onOpenDocument, onOpenSubagents, illustration }: { message: AssistantTranscriptMessage; expandSteps?: boolean; documentBasePath?: string; onOpenDocument?: (path: string) => void; onOpenSubagents?: (agentId?: string) => void; illustration?: ReactNode }) {
   const [errorDismissed, setErrorDismissed] = useState(false)
   const [errorSeen, setErrorSeen] = useState(message.error)
@@ -221,7 +227,7 @@ export const AssistantTranscriptContent = memo(function AssistantTranscriptConte
         return <div key={`working:${segment.id}`} data-transcript-segment="working"><ActivityCard label={working} summary={working} meta={`${formatCompactTokens(estimateTokens(segment.content.length))} tokens`} running defaultExpanded={false}><TranscriptMarkdown content={displaySecretPlaceholders(segment.content)} streaming /></ActivityCard></div>
       }
       if (segment.type === 'text') {
-        return <div key={`text:${segment.id}`} data-transcript-segment="text">{index === firstTextIndex ? illustration : null}<TranscriptMarkdown content={displaySecretPlaceholders(segment.content)} streaming={message.streaming && index === segments.length - 1} />{!message.streaming && <DocumentReferenceCards content={displaySecretPlaceholders(segment.content)} basePath={documentBasePath} onOpenDocument={onOpenDocument} />}</div>
+        return <div key={`text:${segment.id}`} data-transcript-segment="text">{index === firstTextIndex ? illustration : null}<NarrationText content={displaySecretPlaceholders(segment.content)} identity={assistantKeepsSecrets ? message.typewriter : undefined} channel={segment.id} streaming={message.streaming && index === segments.length - 1} documentBasePath={documentBasePath} onOpenDocument={onOpenDocument} /></div>
       }
       const groupTools = segment.activities.flatMap(activity => activity.type === 'tool' ? [activity.tool] : [])
       const hasThinking = segment.activities.some(activity => activity.type === 'thinking')
