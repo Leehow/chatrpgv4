@@ -1,3 +1,4 @@
+import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 import {attackPreparationNeeds} from './attack-preparation.ts';
 import {historyConfigured, historyEnabled, historyContext, historyNeedQuestion, historyInterruptionQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, sceneQuery, HISTORY_SUPPLIED, HISTORY_READ, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
@@ -532,6 +533,8 @@ interface RunState {
   deferred: DeferredStep[];
   /** §135.11: the turn-close steer the next model step carries (the kernel extension's own `coc-host` message). */
   steer?: Row;
+  /** §163.9: close at the next policy boundary so a queued forced-choice repair precedes another Keeper proposal. */
+  forceTurnClose?: boolean;
   /**
    * §135.6 (SL-22 addendum): the run's previous read, by scene, with the prescreen outcome it ran or reused (absent when it
    * ran none): reuse requires the same scene, source evidence and player need; read_more refreshes it. The packet excludes issued bodies.
@@ -1841,9 +1844,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     for (const entry of unseen) run.forcedShown.add(entry.key);
     const playerChoices = unseen.filter(entry => entry.chosen.outcome === 'no_roll' && entry.why.includes('player_choice')
       && entry.family && entry.subject).map(({family, subject, uncertain}) => ({family, subject, uncertain}));
-    if (playerChoices.length && bridge?.campaign && run.turn !== undefined) {
+    if (!SINGLE_PASS_NARRATION && playerChoices.length && bridge?.campaign && run.turn !== undefined) {
       const choices: ForcedPlayerChoice[] = playerChoices;
       api?.events?.emit?.('coc:forced-player-choice-cue', {campaign: bridge.campaign, turn: run.turn, run: run.runId, choices,
+        requestTurnClose: () => {
+          if (run.forceTurnClose) return;
+          run.forceTurnClose = true;
+          record({lane: 'run', event: 'turn_close_requested', run: run.runId, turn: run.turn, reason: 'forced_choice_repair'});
+        },
         review: async (draft: string, signal?: AbortSignal): Promise<ForcedChoiceCueReview> => {
           const began = stepNow();
           let review: ForcedChoiceCueReview;
@@ -2021,7 +2029,17 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    */
   function budgetRows(run: RunState, policy: ReturnType<typeof createStepPolicy>): ReturnType<typeof createStepPolicy> {
     return {...policy, next(driver) {
-      const request = policy.next(driver), budget = driver.policyState.view.budget;
+      const forceTurnClose = run.forceTurnClose === true && driver.pendingProposals.length === 0
+        && driver.delivery !== 'accepted' && driver.delivery !== 'awaiting_player';
+      if (forceTurnClose) {
+        run.forceTurnClose = undefined;
+        record({lane: 'run', event: 'turn_close_forced', run: run.runId, turn: run.turn, step: `${run.runId}:s${driver.steps + 1}`,
+          reason: 'forced_choice_repair'});
+      }
+      const request: DriverStepRequest = forceTurnClose
+        ? {kind: 'operate', reason: 'turn_close', proposals: [{origin: 'policy', operation: 'turn_close', readOnly: false, label: 'close the turn'}]}
+        : policy.next(driver);
+      const budget = driver.policyState.view.budget;
       run.decision = {...budget};
       // §163: what the last folded step forced is recorded before the next step runs, whether or not a model step follows.
       recordForced(run, driver.policyState.view.forced, `${run.runId}:s${driver.steps}`);

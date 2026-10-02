@@ -139,43 +139,30 @@ for (const tool of ["narrate", "ask"]) {
 	});
 }
 
-test("conformance: explicit delivery is rechecked after a semantic review crosses its deadline", async (t) => {
-	let deadlineAt;
-	const { table, control } = await guardedTable(t, {
-		responses: explicit("narrate"),
-		guard() {
-			deadlineAt ??= Date.now() + 10;
-			if (Date.now() >= deadlineAt) throw new Error("S0 attempt expired during review");
-		},
-		review: async () => delay(25),
+test("section 166: explicit delivery retains task guards without buying a semantic review", async (t) => {
+	let expired = false;
+	const {table, control} = await guardedTable(t, {responses: explicit("narrate"),
+		guard() {if (expired) throw Error("expired during an obsolete review");},
+		review: async () => {expired = true;}
 	});
 	await play(table);
-
-	assert.equal(control.reviewCalls.length, 1);
-	assert.equal(control.guardCalls.length, 2, "one check precedes review and one precedes kernel invocation");
-	assert.equal(deliveryRequests(table).length, 0);
-	assert.equal(table.committed().length, 0);
-	assert.match(assertTaskGuardError(table, "narrate").content[0].text, /expired during review/);
+	assert.equal(control.reviewCalls.length, 0);
+	assert.equal(control.guardCalls.length, 2);
+	assert.equal(deliveryRequests(table).length, 1);
+	assert.equal(table.committed().length, 1);
 });
 
-test("conformance: implicit delivery is rechecked after a semantic review crosses its deadline", async (t) => {
-	let deadlineAt;
-	const { table, control } = await guardedTable(t, {
-		responses: implicit(),
-		guard(message) {
-			assert.equal(message?.role, "assistant", "implicit checks carry the actual writer message");
-			deadlineAt ??= Date.now() + 10;
-			if (Date.now() >= deadlineAt) throw new Error("S0 implicit attempt expired during review");
-		},
-		review: async () => delay(25),
+test("section 166: implicit delivery retains task guards without buying a semantic review", async (t) => {
+	let expired = false;
+	const {table, control} = await guardedTable(t, {responses: implicit(),
+		guard() {if (expired) throw Error("expired during an obsolete review");},
+		review: async () => {expired = true;}
 	});
 	await play(table);
-
-	assert.equal(control.reviewCalls.length, 1);
+	assert.equal(control.reviewCalls.length, 0);
 	assert.equal(control.guardCalls.length, 2);
-	assert.equal(deliveryRequests(table).length, 0);
-	assert.equal(table.committed().length, 0);
-	assert.equal(table.telemetry().some((row) => row.tool === "narrate" && row.ok === false && row.implicit === true), true);
+	assert.equal(deliveryRequests(table).length, 1);
+	assert.equal(table.committed().length, 1);
 });
 
 test("conformance: a material retry rechecks the task guard immediately before its second kernel invocation", async (t) => {
@@ -199,7 +186,7 @@ test("conformance: a material retry rechecks the task guard immediately before i
 	});
 	await play(table);
 
-	assert.equal(control.reviewCalls.length, 2, "material retry reruns the ordinary Mod review before its guarded kernel invoke");
+	assert.equal(control.reviewCalls.length, 0, "a material retry preserves the task guard without a prose review");
 	assert.equal(control.readingCalls.length, 1);
 	assert.equal(control.guardCalls.length, 3, "before review, before first invoke, before retry");
 	assert.equal(deliveryRequests(table).filter((row) => row.method === "table.narrate").length, 1,

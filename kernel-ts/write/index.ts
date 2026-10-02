@@ -1,3 +1,4 @@
+import { SINGLE_PASS_NARRATION } from '../runtime/narration-policy.ts';
 /** Static campaign and turn handlers. Other domains contribute through named seams. */
 import { mkdir, readFile, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -157,6 +158,7 @@ async function refuseRepeatedLine(snapshot: CampaignSnapshot, campaign: Campaign
     const lines = array(speech);
     if (!lines.length) return [];
     const records = snapshot.records.length ? snapshot.records : await campaign.records();
+    if (SINGLE_PASS_NARRATION) return repeatedLines(lines, records, 12);
     const repeat = repeatedLine(lines, records, 12, index => !host.has(index));
     if (!repeat) return host.size ? repeatedLines(lines, records, 12, index => host.has(index)) : [];
     throw new RpcError('needs', `${string(repeat.name)} already said this at this table (turn ${string(repeat.earlier_turn)}): ${string(repeat.line)}`, {
@@ -1096,7 +1098,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const purposeRepeats = !reference && Array.isArray(params.purpose_repeats) && params.purpose_repeats.length
             ? namedRepeats(params.purpose_repeats, speakerThreads(module.graph, snapshot, row(await snapshot.optional('npc-ledger.json')),
                 await stanceTable(context), array(delivery.speech), hostAttributed(params, delivery.speech))) : [];
-        if (purposeRepeats.length && !truth(turn.purpose_gate)) {
+        if (!SINGLE_PASS_NARRATION && purposeRepeats.length && !truth(turn.purpose_gate)) {
             await campaign.writeTurn({ ...turn, purpose_gate: { call_id: started.callId } });
             await campaign.telemetry({ lane: 'delivery', turn: number(turn.turn), ok: false, reason: 'purpose_repeated', outcome: 'refused',
                 call_id: started.callId, implicit: truth(params.implicit), people: purposeRepeats.length }).catch(() => undefined);
@@ -1109,7 +1111,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // it went. Refused once per set of owed intentions; the same set a second time is delivered, with a finding.
         const owed = reference ? [] : owedIntents(module.graph, snapshot.world, row(await snapshot.optional('npc-ledger.json')), turn);
         const owedKey = owed.map(item => string(item.ref)).sort().join(' ');
-        if (owed.length && string(row(turn.intent_gate).refs) !== owedKey) {
+        if (!SINGLE_PASS_NARRATION && owed.length && string(row(turn.intent_gate).refs) !== owedKey) {
             await campaign.writeTurn({ ...turn, intent_gate: { refs: owedKey } });
             throw new RpcError('needs', `${owed.map(item => `${string(item.who)} set out on turn ${string(item.since_turn)} to ${string(item.intent)}`).join('; ')} -- and it has no result yet`, {
                 fix: 'What a person set out to do gets a result by their next turn: report it before delivering -- a roll or an effect with intent_ref, or apply npc with intent_ref and outcome done, failed or abandoned (abandoned when they drop it for something else). Then deliver again; the prose stands.',
@@ -1120,7 +1122,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // tokens already stripped), refused once per turn; a later delivery this turn that still carries it is delivered,
         // with a finding. Checked after §142.7, so a turn pays at most one refusal of each kind.
         const markup = reference ? null : markupInProse(typeof rendered === 'string' ? rendered : '');
-        if (markup && !truth(turn.markup_gate)) {
+        if (!SINGLE_PASS_NARRATION && markup && !truth(turn.markup_gate)) {
             await campaign.writeTurn({ ...turn, markup_gate: { call_id: started.callId } });
             await campaign.telemetry({ lane: 'delivery', turn: number(turn.turn), ok: false, reason: 'markup_in_prose', outcome: 'refused',
                 call_id: started.callId, implicit: truth(params.implicit), tags: markup.tags.length, lines: markup.lines.length }).catch(() => undefined);
@@ -1147,7 +1149,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // Contract §145.3: the host read a time skip in this delivery; the kernel holds it against its own clock. Refused
         // once a turn when the host can hand the refusal back; otherwise delivered, with a finding §145.4 keeps raising.
         const gap = reference ? null : timeGap(reading, receipts, clockSection(module.graph, snapshot.world));
-        if (gap && reading!.refusable && !truth(turn.time_gate)) {
+        if (!SINGLE_PASS_NARRATION && gap && reading!.refusable && !truth(turn.time_gate)) {
             await campaign.writeTurn({ ...turn, time_gate: { call_id: started.callId } });
             await campaign.telemetry({ ...timeRow(gap, turn, started.callId, params), ok: false, outcome: 'refused' }).catch(() => undefined);
             throw timeRefusal(gap);

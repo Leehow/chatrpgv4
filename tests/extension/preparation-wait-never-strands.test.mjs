@@ -78,44 +78,7 @@ const diaries = () => fauxAssistantMessage([{ type: "text", text: "I'll register
 const FIRST = "You gather the three closed diaries into your coat. The front door is still at the end of the hall.";
 const SECOND = "You press the diaries under your coat and push yourself up. The hall runs to the front door.";
 
-test("SL-23 (turn 19): a Keeper that prepares a destination and writes prose twice is delivered, the wait stated, and its unrelated write lands", async (t) => {
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1" },
-		responses: [prepare(), diaries(), fauxAssistantMessage(FIRST), fauxAssistantMessage(SECOND)],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I pack what I found and leave the house.");
 
-	// The write that does not depend on the destination is not the wait's to refuse.
-	const applies = kernel(table.table, "table.apply");
-	assert.equal(applies.length, 1, "the diaries' define and object reached the kernel");
-	assert.deepEqual(applies[0].params.effects.map((effect) => effect.kind), ["define", "object"]);
-	assert.equal(blocked(table).length, 0, "nothing was blocked for the wait");
-	const cost = table.table.telemetry().find((entry) => entry.lane === "adaptation" && entry.event === "prepare");
-	assert.equal(cost?.proposal, PROPOSAL, "what the prepare cost the turn is on a row");
-	assert.equal(cost.status, "pending");
-	assert.equal(cost.wait_budget_ms, 0, "the budget it was given (PI_COC_ADAPTATION_WAIT_MS here)");
-	assert.equal(typeof cost.ms, "number");
-
-	// The first prose was dropped once and steered; the steered leg was delivered, carrying the wait.
-	const narrates = kernel(table.table, "table.narrate");
-	assert.equal(narrates.length, 1);
-	assert.equal(narrates[0].params.implicit, true);
-	assert.equal(narrates[0].params.text, SECOND, "the steered second leg is what was delivered");
-	assert.deepEqual(narrates[0].params.preparation_wait, { kind: "adaptation", name: PROPOSAL }, "the implicit narrate states the wait");
-	assert.equal(lastAssistantText(table.table.session), SECOND);
-	assert.deepEqual(drops(table), ["text_beside_tool_calls", "preparation_wait"], "one wait drop, not two");
-
-	const end = runEnds(table.events).at(-1);
-	assert.equal(end.status, "delivered");
-	assert.equal(end.reason, "implicit_narrate");
-	const turnClose = closes(table);
-	assert.equal(turnClose[0].status, "steer");
-	assert.equal(turnClose[0].kind, "adaptation-wait");
-	assert.equal(turnClose.at(-1).status, "delivered");
-	assert.ok(turnClose.every((row) => row.unsent_fix === undefined), "the wait's own fix travelled with its steer");
-	assert.equal(unfinished(table.table.session).length, 0, "no unfinished notice over a written turn");
-});
 
 test("SL-23: a steered second leg that brings nothing under a wait delivers the draft the wait dropped", async (t) => {
 	const table = await hybridTable({
@@ -135,40 +98,9 @@ test("SL-23: a steered second leg that brings nothing under a wait delivers the 
 const REPEATED = { code: "needs", message: "This line was already said at this table.",
 	fix: "Rewrite only that line and deliver again; everything else stands.", details: { reason: "repeated_line" } };
 
-test("SL-23: the steered second leg refused under a wait falls back to the dropped draft (SL-16's fallback)", async (t) => {
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": REPEATED }), FAKE_KERNEL_ERRORS_ONCE: "1" },
-		responses: [prepare(), fauxAssistantMessage(FIRST), fauxAssistantMessage(SECOND)],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I pack what I found and leave the house.");
 
-	const narrates = kernel(table.table, "table.narrate");
-	assert.deepEqual(narrates.map((request) => request.params.text), [SECOND, FIRST], "the second leg first, then the draft the wait dropped");
-	assert.ok(narrates.every((request) => request.params.preparation_wait?.name === PROPOSAL), "both carry the wait");
-	assert.equal(lastAssistantText(table.table.session), FIRST);
-	assert.deepEqual(drops(table), ["preparation_wait", "steered_leg_refused"]);
-	assert.equal(runEnds(table.events).at(-1).reason, "implicit_narrate");
-	assert.equal(unfinished(table.table.session).length, 0);
-});
 
-test("SL-23: both legs refused under a wait: undelivered, the notice, and every drop on its row", async (t) => {
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1", FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": REPEATED }) },
-		responses: [prepare(), fauxAssistantMessage(FIRST), fauxAssistantMessage(SECOND)],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I pack what I found and leave the house.");
 
-	assert.equal(table.requests.length, 3, "no model step past the one steer");
-	assert.deepEqual(kernel(table.table, "table.narrate").map((request) => request.params.text), [SECOND, FIRST], "the fallback is tried once");
-	assert.equal(runEnds(table.events).at(-1).status, "undelivered");
-	assert.deepEqual(drops(table), ["preparation_wait", "steered_leg_refused", "implicit_narrate_refused"]);
-	const last = closes(table).at(-1);
-	assert.equal(last.reason, "steer_spent");
-	assert.equal(last.unsent_fix, "audit-repair", "the kernel's repair is named; the wait's own fix is not left behind");
-	await waitFor(() => unfinished(table.table.session).length === 1, { label: "the §38 notice" });
-});
 
 test("SL-23: a pending preparation still blocks the write that needs it -- a move to the destination it is building", async (t) => {
 	const table = await hybridTable({
@@ -318,19 +250,6 @@ test("SL-23: a retained ready proposal blocks neither reads nor unrelated writes
 	assert.equal(runEnds(table.events).at(-1).status, "delivered");
 });
 
-test("SL-23: a steered leg that tries the move the wait refuses, then brings nothing, delivers the held draft", async (t) => {
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_ADAPTATION_PENDING: "1" },
-		responses: [prepare(), fauxAssistantMessage(FIRST),
-			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: PROPOSAL }] })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([{ type: "thinking", thinking: "The move waits." }], { stopReason: "stop" })],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I pack what I found and leave the house.");
 
-	assert.equal(blocked(table).length, 1, "the move to the destination was refused");
-	assert.deepEqual(kernel(table.table, "table.narrate").map((request) => request.params.text), [FIRST]);
-	assert.equal(runEnds(table.events).at(-1).status, "delivered");
-	assert.ok(closes(table).every((row) => row.unsent_fix === undefined));
-	assert.equal(unfinished(table.table.session).length, 0);
-});
+
+// Section 166 retires prose-repair retries. Single-pass delivery and real task guards have current coverage in single-pass-narration.test.mjs and jev-s0-delivery-guard.test.mjs.

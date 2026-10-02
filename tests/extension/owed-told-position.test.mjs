@@ -107,7 +107,7 @@ function controlledReview() {
         deferred: {mode: 'post', job: 'a'.repeat(64), jobMs: 7, async run(options) { started(options); return gate; }}};
 }
 
-test('the host publishes the review in flight: the port watches it and is empty once it recorded', async t => {
+test('single-pass delivery leaves the review watch empty and records no automatic review', async t => {
     let port;
     const table = await openTable({responses: [
         fauxAssistantMessage([fauxToolCall('narrate', {text: 'You pull up at the gate.'})], {stopReason: 'toolUse'}),
@@ -117,16 +117,10 @@ test('the host publishes the review in flight: the port watches it and is empty 
     const review = controlledReview();
     table.emit('coc:mods-bridge', {async after() {}, async prepare(method) { if (method === 'narrate') return {mode: 'post', deferred: review.deferred}; }});
     await table.session.prompt('I drive out to the house.');
-    await review.began;
-    assert.equal(typeof port?.watch, 'function', 'the kernel extension publishes the port with the table');
+    assert.equal(typeof port?.watch, 'function');
     const watch = port.watch();
-    assert.deepEqual({in_flight: watch.in_flight, landed: watch.landed()}, {in_flight: true, landed: false});
-    review.release({mode: 'post', job: 'a'.repeat(64), verdict: 'revise'});
-    for (let tries = 0; !watch.landed() && tries < 200; tries++) await new Promise(resolve => setTimeout(resolve, 5));
-    assert.equal(watch.landed(), true);
-    assert.ok(table.kernelRequests().some(request => request.method === 'table.warn' && request.params.lane === 'continuity-review'),
-        'it lands once the verdict was recorded');
-    assert.equal(port.watch().in_flight, false, 'nothing in flight afterwards');
+    assert.deepEqual({in_flight: watch.in_flight, landed: watch.landed()}, {in_flight: false, landed: false});
+    assert.equal(table.kernelRequests().filter(request => request.method === 'table.warn' && request.params.lane === 'continuity-review').length, 0);
 });
 
 // ---- on the emitted kernel over the haunting ---------------------------------------------------------------------

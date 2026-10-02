@@ -166,8 +166,8 @@ test("/coc lanes：两条车道的模型，加最近的车道遥测（失败的�
 	await table.session.prompt("/coc lanes");
 	const view = lastNotice(table).message;
 	assert.match(view, /^lanes {3}verifier verifier\/v1 {3}memory memory\/m1$/m, "两条车道各报自己的模型");
-	assert.match(view, /^ {2}FAIL {2}verifier {2}t1/m, "失败的校验车道看得见");
-	assert.match(view, /reason model_error/, "带原因码");
+	assert.match(view, /^ {2}ok {3}verifier {2}t1/m, "the disabled verifier is accounted");
+	assert.match(view, /reason single_pass_narration/, "the policy reason is visible");
 	assert.match(view, /^ {2}FAIL {2}memory {4}t1/m, "记忆车道那一行也在");
 });
 

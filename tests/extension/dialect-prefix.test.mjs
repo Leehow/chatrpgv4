@@ -159,11 +159,11 @@ for (const label of ["text", "text thriftily-placeholder"]) {
 		await waitForIdle(table.session);
 
 		assert.deepEqual(prefixRows(table), [{ event: "dialect_prefix_stripped", tool: "apply", field: "narrate", prefix: label }]);
-		assert.deepEqual(floorRows(table), [{ reason: "below_floor", path: "embedded", chars: 0 }], "refused as before, with nothing left to count");
+		assert.deepEqual(floorRows(table), [], "an empty transport argument is not a prose quality review");
 		assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 1, "the effect landed");
 		const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
 		assert.equal(applyResult.isError, true);
-		assert.equal(JSON.parse(applyResult.content.map((block) => block.text ?? "").join("")).coc_error?.details?.reason, "below_floor");
+		assert.equal(JSON.parse(applyResult.content.map((block) => block.text ?? "").join("")).coc_error?.code, "invalid_params");
 		const record = turnRecord(table.workspace, 2);
 		assert.equal(record.closed_by, "narrate");
 		assert.equal(/text|thriftily/.test(record.rendered_text), false, record.rendered_text);
@@ -171,29 +171,7 @@ for (const label of ["text", "text thriftily-placeholder"]) {
 	});
 }
 
-test("§144.1: once the turn's steer is spent, a label-only value reaches the kernel empty and is refused there, not delivered", async (t) => {
-	const table = await realHybridTable({ responses: [
-		// A short draft that is not a label spends the one floor steer.
-		fauxAssistantMessage([fauxToolCall("apply", { effects: EFFECTS, narrate: "门开了。" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }], narrate: "text" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", { text: LONG })], { stopReason: "toolUse" }),
-	] });
-	t.after(() => table.dispose());
-	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
-	await waitForIdle(table.session);
 
-	assert.deepEqual(floorRows(table).map((row) => row.chars), [4], "the steer went to the first, non-label draft");
-	assert.deepEqual(prefixRows(table).map((row) => row.prefix), ["text"]);
-	const refusals = table.session.messages.filter((message) => message.role === "toolResult" && message.toolName === "apply")
-		.map((message) => JSON.parse(message.content.map((block) => block.text ?? "").join("")).coc_error);
-	assert.equal(refusals.length, 2);
-	assert.equal(refusals[1]?.code, "invalid_params");
-	assert.match(refusals[1]?.message ?? "", /params\.text must be a non-empty string/);
-	const record = turnRecord(table.workspace, 2);
-	assert.equal(record.closed_by, "narrate");
-	assert.equal(record.rendered_text.includes("text"), false);
-	assert.ok(record.rendered_text.includes("找到了那篇被压下的旧闻"));
-});
 
 test("§144.1: an English narration that begins with the word 'Text' is delivered as written, with no row", async (t) => {
 	const english = "Text scrawled on the clipping's margin reads: ASK THE LANDLORD ABOUT 1880. You find the buried story at last.";

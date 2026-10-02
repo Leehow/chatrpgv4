@@ -44,7 +44,6 @@ test("a standing state that takes the action away is said beside every delivery 
 		responses: [
 			// Opening.
 			narrate("门在你身后合上。"),
-			fauxAssistantMessage("开场之后多写的一句。"),
 			// The turn the claws land: the damage settles, so the card's own condition row says it.
 			claw(5), claw(5), claw(2),
 			narrate("爪子落下，你眼前一黑。"),
@@ -93,7 +92,6 @@ test("a table with nothing standing is never told that something is", async (t) 
 		campaign: "standing-quiet-seam",
 		responses: [
 			narrate("门在你身后合上。"),
-			fauxAssistantMessage("开场之后多写的一句。"),
 			narrate("走廊尽头有扇关着的门。"),
 			fauxAssistantMessage("这一回合之后多写的一句。"),
 		],

@@ -114,80 +114,8 @@ function assertOwedFinding(table, record) {
 	assert.deepEqual(finding.map((row) => [row.lane, row.ref]), [["intents", ref]], "delivered with the owed result as a finding");
 }
 
-for (const engine of ENGINES) {
-	test(`${engine}: with the turn's one steer spent, an implicit draft refused intent_result_owed is sent again once and delivered with its finding`, async (t) => {
-		const played = await playTurn(t, engine, owing, [
-			// A read, then nothing to deliver: the turn-close steer ("this turn is not closed yet") is spent on this.
-			look(), nothing(),
-			// The steered leg reports no result for the shout; its repair could never reach the Keeper now.
-			fauxAssistantMessage(STEERED),
-		]);
-		const { table } = played;
-		assert.equal(hostSteers(table, "steer").length, 1, "the one steer went out");
-		const rows = narrateRows(table);
-		assert.deepEqual(rows.map((row) => [row.ok, row.reason ?? null, row.implicit ?? false]),
-			[[false, "intent_result_owed", true], [true, null, true]], "refused, then the same draft delivered");
-		const resent = drops(table).filter((row) => row.reason === "intent_result_owed_resent");
-		assert.equal(resent.length, 1, "sent again exactly once");
-		assert.equal(resent[0].kernel_reason, "intent_result_owed");
-		assert.equal(resent[0].call_id, rows[0].call_id, "the row names the refused call");
-		assert.notEqual(rows[1].call_id, rows[0].call_id, "the re-send is a call of its own");
-		assert.deepEqual(drops(table).map((row) => row.reason), ["intent_result_owed_resent"], "nothing dropped");
-		const record = assertDelivered(played, engine, 2, rows[1].call_id);
-		assert.equal(record.text, STEERED, "the steered leg's own words, as the Keeper wrote them");
-		assertOwedFinding(table, record);
-		if (engine === "hybrid") assert.deepEqual(closes(table).map((row) => [row.status, row.kind ?? null]), [["steer", "steer"], ["delivered", null]]);
-	});
 
-	test(`${engine}: a draft refused intent_result_owed before the steer is held, so a repair leg that brings nothing delivers it with its finding`, async (t) => {
-		const played = await playTurn(t, engine, owing, [look(), fauxAssistantMessage(FIRST), nothing()]);
-		const { table } = played;
-		assert.equal(hostSteers(table, "audit-repair").length, 1, "the kernel's repair went out as the one steer");
-		const rows = narrateRows(table);
-		assert.deepEqual(rows.map((row) => [row.ok, row.reason ?? null]), [[false, "intent_result_owed"], [true, null]],
-			"refused, then the held draft delivered");
-		assert.deepEqual(drops(table).map((row) => [row.reason, row.kernel_reason]), [["implicit_narrate_refused", "intent_result_owed"]]);
-		const record = assertDelivered(played, engine, 2, rows[1].call_id);
-		assert.equal(record.text, FIRST, "the Keeper's first draft");
-		assertOwedFinding(table, record);
-		if (engine === "hybrid") assert.deepEqual(closes(table).map((row) => [row.status, row.kind ?? null]), [["steer", "audit-repair"], ["delivered", null]]);
-	});
 
-	test(`${engine}: a repair leg refused repeated_line after the steer falls back to the held draft the kernel refused intent_result_owed`, async (t) => {
-		const played = await playTurn(t, engine, owing, [look(), fauxAssistantMessage(FIRST), fauxAssistantMessage(REPEAT)]);
-		const { table } = played;
-		assert.equal(hostSteers(table, "audit-repair").length, 1);
-		const rows = narrateRows(table);
-		assert.deepEqual(rows.map((row) => [row.ok, row.reason ?? null]), [[false, "intent_result_owed"], [false, "repeated_line"], [true, null]],
-			"the first draft refused, the repair leg refused as a verbatim repeat, then the first draft delivered");
-		assert.deepEqual(drops(table).map((row) => [row.reason, row.kernel_reason, row.fallback ?? null]),
-			[["implicit_narrate_refused", "intent_result_owed", null], ["steered_leg_refused", "repeated_line", "dropped_draft"]],
-			"a verbatim repeat is never sent again; the dropped first draft is");
-		const record = assertDelivered(played, engine, 2, rows[2].call_id);
-		assert.equal(record.text, FIRST);
-		assertOwedFinding(table, record);
-	});
 
-	test(`${engine}: a steered leg refused repeated_line falls back to the draft the speech steer dropped`, async (t) => {
-		const played = await playTurn(t, engine, opened, [look(), fauxAssistantMessage(BARE), fauxAssistantMessage(REPEAT)]);
-		const { table } = played;
-		assert.equal(hostSteers(table, "speech").length, 1, "the speech steer was the turn's one steer");
-		const rows = narrateRows(table);
-		assert.deepEqual(rows.map((row) => [row.ok, row.reason ?? null]), [[false, "repeated_line"], [true, null]]);
-		assert.deepEqual(drops(table).map((row) => [row.reason, row.kernel_reason ?? null]), [["speech_steer", null], ["steered_leg_refused", "repeated_line"]]);
-		const record = assertDelivered(played, engine, 1, rows[1].call_id);
-		assert.equal(record.text, BARE, "the dropped first draft, as written");
-	});
-}
 
-test("hybrid: a draft refused repeated_line twice cannot be delivered, and the turn close names the unsent repair with the kernel's reason", async (t) => {
-	const { table, events } = await playTurn(t, "hybrid", opened, [look(), fauxAssistantMessage(REPEAT), fauxAssistantMessage(REPEAT)]);
-	assert.deepEqual(narrateRows(table).map((row) => [row.ok, row.reason ?? null]), [[false, "repeated_line"], [false, "repeated_line"]],
-		"a verbatim repeat is refused every time and never re-sent");
-	assert.deepEqual(drops(table).map((row) => [row.reason, row.kernel_reason]),
-		[["implicit_narrate_refused", "repeated_line"], ["implicit_narrate_refused", "repeated_line"]], "each dropped draft has its row");
-	const last = closes(table).at(-1);
-	assert.deepEqual([last.status, last.reason, last.unsent_fix, last.kernel_reason], ["none", "steer_spent", "audit-repair", "repeated_line"]);
-	assert.equal(events.filter((event) => event.type === "run_end").at(-1)?.status, "undelivered");
-	await waitFor(() => unfinished(table).length === 1, { label: "the §38 notice" });
-});
+// Section 166 retires prose-repair retries. Single-pass delivery and real task guards have current coverage in single-pass-narration.test.mjs and jev-s0-delivery-guard.test.mjs.

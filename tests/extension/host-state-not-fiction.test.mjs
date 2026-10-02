@@ -135,7 +135,6 @@ test("neither wait instruction asks the Keeper to put the wait in front of the p
 			// (SL-23: the only kind of write it blocks).
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "roxbury-sanitarium" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "你在门口把外套抻平，把名片捏在手里。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("你在门口把外套抻平，把名片捏在手里。"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -156,7 +155,6 @@ test("a tool the preparation wait blocks leaves a telemetry row, like every othe
 			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "roxbury-sanitarium" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "你在门口把外套抻平。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("你在门口把外套抻平。"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -212,12 +210,8 @@ test("a finished preparation is never described as still running", async (t) => 
 		responses: [
 			fauxAssistantMessage([PREPARE], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "你在门口把外套抻平。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("你在门口把外套抻平。"),
-			// The second turn: the wait is now retained as `ready`, and every verb but an adaptation
-			// control reads the terminal instruction back.
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "roxbury-sanitarium" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "你跨过门槛。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("你跨过门槛。"),
 		],
 	});
 	t.after(() => table.dispose());

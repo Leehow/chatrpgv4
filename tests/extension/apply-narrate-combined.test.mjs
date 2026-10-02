@@ -120,46 +120,7 @@ test("a refused effect leaves nothing delivered; the run returns to the Keeper (
 	assert.ok(record.rendered_text.includes("什么都没找到"));
 });
 
-test("a narration-audit refusal of the embedded text is reported like an explicit narrate's own refusal; the landed effect stands", async (t) => {
-	// The stub bridge pauses the review (§38) on the first narrate it sees, embedded or explicit alike, which is
-	// exactly what an explicit narrate's own audit refusal already does today -- this call is not special-cased.
-	// The refused apply still falls the batch (§135.5): the run asks the Keeper once more (`batch_fallen`), and
-	// that leg's own prose is what the paused review then holds too -- the same shape a refused explicit
-	// narrate's second leg already has, unrelated to this ticket's own change.
-	// SL-93: the embedded narrate's text must clear the new length floor first, or this test would exercise that
-	// refusal instead of the audit-pause one it is actually about; the second leg's plain text is short too, but
-	// by the time it runs `state.reviewUnavailable` is already set, so it drops for `review_unavailable` before
-	// the floor is ever consulted -- unaffected either way.
-	const table = await hybridTable({ responses: [
-		fauxAssistantMessage([fauxToolCall("apply", {
-			effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }],
-			narrate: "你翻了十分钟剪报，指尖都沾了灰，纸页边缘也磨得发毛，可惜还没能把这一段理出个头绪来。",
-		})], { stopReason: "toolUse" }),
-		fauxAssistantMessage("你还是没找到那份档案。"),
-	] });
-	t.after(() => table.dispose());
-	table.emit("coc:mods-bridge", { async after() {}, async prepare(method) {
-		if (method === "narrate") throw reviewUnavailable("Fixture budget exhausted");
-	} });
-	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
-	await waitForIdle(table.session);
 
-	// The effect landed and stands: it is not retried, and its receipt is on the books.
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 1, "the apply's own effect landed");
-	assert.equal(deliveryRows(table).length, 1);
-	assert.equal(deliveryRows(table)[0].ok, false, "the embedded narrate itself was refused");
-
-	// The refused apply's own tool result: isError, the effects still named, no fiction delivered from it.
-	const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
-	assert.equal(applyResult.isError, true, "the refusal reaches the Keeper as today's narrate refusal would");
-	const details = JSON.parse(applyResult.content.map((block) => block.text ?? "").join(""));
-	assert.equal(details.narrate_in_apply, false);
-	assert.equal(details.coc_error?.details?.reason, "continuity_review_unavailable");
-	assert.ok(Array.isArray(details.effects) || Array.isArray(details.receipts), "the landed effect is still named in the result");
-	// Nothing reached the player from this run: the paused review holds the batch-fallen leg's own prose too.
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true).length, 0);
-	assert.equal(keeperCalls(table), 2, "the refused apply falls the batch (§135.5); the run's own recovery is unrelated to this ticket");
-});
 
 test("an apply with no narrate field behaves exactly as before: no embedded dispatch, no narrate_in_apply row", async (t) => {
 	// SL-93: the second message's explicit narrate now needs to clear the length floor too, unrelated to what
@@ -180,3 +141,5 @@ test("an apply with no narrate field behaves exactly as before: no embedded disp
 	const details = JSON.parse(applyResult.content.map((block) => block.text ?? "").join(""));
 	assert.equal(Object.hasOwn(details, "narrate_in_apply"), false);
 });
+
+// Section 166 retires prose-repair retries. Single-pass delivery and real task guards have current coverage in single-pass-narration.test.mjs and jev-s0-delivery-guard.test.mjs.

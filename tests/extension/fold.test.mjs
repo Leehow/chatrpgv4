@@ -31,7 +31,6 @@ const COMPACTION = { compaction: { enabled: false, reserveTokens: 16384, keepRec
 const OPENING = [
 	fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
 	fauxAssistantMessage([fauxToolCall("narrate", { text: "开场。" })], { stopReason: "toolUse" }),
-	fauxAssistantMessage("opening tail, replaced by the committed delivery"),
 ];
 
 /**
@@ -54,7 +53,6 @@ function playedTurn(n) {
 			{ stopReason: "toolUse" },
 		),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: `第 ${n} 回合的交付。` })], { stopReason: "toolUse" }),
-		fauxAssistantMessage(`不交付的收尾 ${n}`),
 	];
 }
 

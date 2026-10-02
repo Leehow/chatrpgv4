@@ -1,3 +1,4 @@
+import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import type {TaskProviderBudget} from "../../runtime/jev/provider-budget.ts";
 /** A host adapter for portable Mod Agent tasks; it adds no Keeper tools. */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -78,8 +79,9 @@ export type Unreviewed = {cause: string; service: boolean};
  * Contract §130: when the continuity review reads a delivery. `post` (the default) publishes first and
  * reviews the published words; `pre` is the §36.14/§91 gate, kept whole. Read at every delivery.
  */
-export type ReviewMode = 'pre' | 'post';
+export type ReviewMode = 'off' | 'pre' | 'post';
 export function continuityGateMode(): ReviewMode {
+  if (SINGLE_PASS_NARRATION) return 'off';
   return process.env.PI_COC_CONTINUITY_GATE?.trim().toLowerCase() === 'pre' ? 'pre' : 'post';
 }
 /** What a review came to, for the delivered turn's record (§130.4). */
@@ -899,6 +901,8 @@ export default function modsExtension(pi: ExtensionAPI): void {
 
   const bridge: ModBridge = {
     async reviewStatus(campaign) {
+      // Historical review pauses cannot prevent a single-pass delivery after a restart.
+      if (SINGLE_PASS_NARRATION) return {paused: false};
       if (!call) throw reviewUnavailable('The review status bridge is unavailable');
       return call('mods.review.status', {campaign});
     },
@@ -965,6 +969,8 @@ export default function modsExtension(pi: ExtensionAPI): void {
         }
       }
       if ((method === "narrate" || method === "ask") && payload.text) {
+        // Section 166: no audit job, evidence pin or deferred model review for delivered prose.
+        if (SINGLE_PASS_NARRATION) return;
         if (continuityGateMode() === 'post') return deferReview(payload.campaign, {text: payload.text});
         let result: any, jobId: string | undefined;
         try {

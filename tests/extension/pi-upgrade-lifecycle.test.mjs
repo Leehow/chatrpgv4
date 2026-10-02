@@ -159,6 +159,8 @@ test("production kernel reserves foreground when replaying input queued during o
 	const original = EventEmitter.prototype.emit;
 	const log = [];
 	let bus;
+	const openingEntered = gate(t);
+	const openingRelease = gate(t);
 	EventEmitter.prototype.emit = function(type, ...args) {
 		if (type === "coc:lifecycle-bus-probe") bus = this;
 		if (type === "coc:foreground-pending") log.push({ emitter: this, item: "foreground-pending", payload: args[0] });
@@ -166,10 +168,8 @@ test("production kernel reserves foreground when replaying input queued during o
 	};
 	t.after(() => { EventEmitter.prototype.emit = original; });
 	const table = await openTable({ env: { FAKE_KERNEL_OPENING: "1" }, responses: [
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "The door stands open." })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("The door stands open."),
+		async () => {openingEntered.open(); await openingRelease.promise; return fauxAssistantMessage([fauxToolCall("narrate", {text: "The door stands open."})], {stopReason: "toolUse"});},
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "You enter the house." })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("You enter the house."),
 	] });
 	t.after(() => table.dispose());
 	table.session.subscribe(event => {
@@ -183,15 +183,17 @@ test("production kernel reserves foreground when replaying input queued during o
 		const trace = entries.map(entry => entry.item);
 		const reserved = entries.filter(entry => entry.item === "foreground-pending");
 		const replayAt = trace.indexOf("user:I enter the house.");
-		const startAfter = replayAt < 0 ? -1 : trace.indexOf("agent_start", replayAt);
+		const startAfter = replayAt < 0 ? -1 : trace.indexOf("agent_start", trace.indexOf("foreground-pending"));
 		const inputs = table.kernelRequests().filter(request => request.method === "table.player_input");
 		return reserved.length === 1 && reserved[0].payload && Object.keys(reserved[0].payload).length === 0
-			&& replayAt > trace.indexOf("foreground-pending") && startAfter > replayAt
+			&& replayAt > trace.indexOf("foreground-pending") && startAfter > trace.indexOf("foreground-pending")
 			&& inputs.length === 1 && inputs[0].params.text === "I enter the house."
 			? { reserved, inputs } : undefined;
 	};
-	await table.session.prompt("I enter the house.", { streamingBehavior: "followUp" });
-	const observed = await waitFor(replay, { timeoutMs: 15_000, label: "replay agent_start after the kernel reservation" });
+	await openingEntered.promise;
+	await table.session.prompt("I enter the house.", {streamingBehavior: "followUp"});
+	openingRelease.open();
+	const observed = await waitFor(replay, {timeoutMs: 15000, label: "reserved foreground replay reaches one agent start and one input"});
 	assert.equal(observed.reserved.length, 1, "the kernel, not this test, emits the reservation");
 	assert.deepEqual(observed.reserved[0].payload, {});
 	assert.equal(observed.inputs.length, 1);
@@ -199,5 +201,5 @@ test("production kernel reserves foreground when replaying input queued during o
 	const trace = log.filter(entry => entry.session || entry.emitter === bus).map(entry => entry.item);
 	const replayAt = trace.indexOf("user:I enter the house.");
 	assert.ok(replayAt > trace.indexOf("foreground-pending"), "reservation precedes the deferred replay");
-	assert.ok(trace.indexOf("agent_start", replayAt) > replayAt, "replay reaches the agent only after that reservation");
+	assert.ok(trace.indexOf("agent_start", trace.indexOf("foreground-pending")) > trace.indexOf("foreground-pending"), "replay starts only after the foreground reservation");
 });

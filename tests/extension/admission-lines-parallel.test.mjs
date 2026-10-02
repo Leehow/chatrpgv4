@@ -51,7 +51,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const userText = (context) => (context?.messages ?? []).flatMap((message) => (message.role === "user" ? message.content : [])).map((block) => block.text ?? "").join("");
 const proposedLines = (text) => admissionProposes(text).split("\n").filter((line) => line.startsWith("- "));
 const call = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
-const close = [call("narrate", { text: "你把查到的事说给诺特听。" }), fauxAssistantMessage("after")];
+const close = [call("narrate", { text: "你把查到的事说给诺特听。" }), ];
 const toolResults = (session, tool) => session.messages.filter((message) => message.role === "toolResult" && message.toolName === tool)
 	.map((message) => ({ isError: message.isError, details: message.details,
 		text: (message.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join("") }));
@@ -448,8 +448,7 @@ test("§32.12.3.1 with §32.12.3.1.1: verdict reuse keys by line beside its batc
 
 test("§32.12.3.1: a new player input clears the lines' kept verdicts with the rest (§32.4)", async (t) => {
 	const table = await openTable({
-		responses: [call("apply", { effects: [TIME, DIARIES] }), call("narrate", { text: "诺特点了点头。" }), fauxAssistantMessage("after"),
-			call("apply", { effects: [TIME, DIARIES] }), ...close],
+		responses: [call("apply", { effects: [TIME, DIARIES] }), call("narrate", { text: "诺特点了点头。" }), call("apply", { effects: [TIME, DIARIES] }), ...close],
 		laneResponses: { admission: laneByLine([[/apply (time|clue)/, { verdict: "entailed", grounds: "reporting back" }]]) } });
 	t.after(() => table.dispose());
 	await table.session.prompt(WORDS);
