@@ -136,6 +136,7 @@ import { watchOwedReview } from "./owed-review.ts";
 import { openingInstruction } from "./opening-instruction.ts";
 import { leaveOutRefused, leaveOutUnknownOwed, owedLeftOutNote, type OwedLeftOut } from "./owed-left-out.ts";
 import { splitNpcMood } from "./npc-mood-split.ts";
+import { fillObjectDefinitions } from "./object-definition-fill.ts";
 import { restoreTextualToolCalls } from "./textual-tool-calls.ts";
 import { createFirstSightTracker, type FirstSightTracker } from "./first-sight.ts";
 import { createFirstSightLane } from "../../runtime/jev/first-sight.ts";
@@ -4666,6 +4667,9 @@ export default function (pi: ExtensionAPI) {
 		// §161.1: a mood sharing its npc effect with another change is sent as the two effects the kernel's fix asks for.
 		const moodSplit = spec.name === "apply" && !host ? splitNpcMood(params.effects) : 0;
 		if (moodSplit) void record({ lane: "npc", event: "mood_split", turn: table?.turn ?? null, count: moodSplit });
+		// An object that adopts what its own batch defines, with `definition` left out: the host names the definition.
+		const definitionsFilled = spec.name === "apply" && !host ? fillObjectDefinitions(params.effects) : 0;
+		if (definitionsFilled) void record({ lane: "objects", event: "definition_filled", turn: table?.turn ?? null, count: definitionsFilled });
 		// §168.4: an owed name the capsule never offered is left out before admission, so the batch is reviewed as the
 		// ordinary write it is and the rest of it -- the embedded narration included -- is not lost to the kernel's refusal.
 		const owedLeftOut: OwedLeftOut[] = spec.name === "apply" && !host ? leaveOutUnknownOwed(params.effects, table?.owed) : [];
