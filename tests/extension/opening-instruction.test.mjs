@@ -39,7 +39,9 @@ test('a prologue with no guide asked in the host\'s voice: nobody in the scene k
   const text = openingInstruction({prologue, playLanguage: 'zh-Hans'});
   assert.equal(text.includes('already knows who the visitor is'), false);
   assert.ok(text.includes("the people here do not know the investigator's name or business until the investigator tells them"));
-  assert.ok(text.includes('let the people present react to the stranger they see'));
+  assert.ok(text.includes('let anyone present react to the stranger they see'));
+  // Dust to Dust: alone in her lodging, the narrator asked "where will you start?" over two options.
+  assert.ok(text.includes('with nobody present, end on what the investigator perceives, never on a question from the narrator'));
   assert.equal(text.includes('who this person is to them'), false);
 });
 

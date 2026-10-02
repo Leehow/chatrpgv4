@@ -30,7 +30,9 @@ export function openingInstruction(facts: OpeningFacts): string {
 		: "the prologue's question was the host's, not anyone's in the scene: the people here do not know the investigator's name or business until the investigator tells them, and the player is not asked again either. ";
 	const react = guide
 		? "and let the guide react in their own words to who the visitor turned out to be and put one concrete question or offer to the player. "
-		: "and let the people present react to the stranger they see and put one concrete question or offer to the player. ";
+		// Dust to Dust (2026-10-02): the investigator opens alone in her lodging, and "put one concrete question or offer to
+		// the player" had the narrator ask it -- two options and "where will you start?", the menu the prose package forbids.
+		: "and let anyone present react to the stranger they see, in their own words; with nobody present, end on what the investigator perceives, never on a question from the narrator. ";
 	const lead = facts.prologue !== undefined && facts.prologue !== null
 		? "The setup context records the prior meeting, and the investigator now exists: " + known +
 			"The committed prologue below was shown to the player word for word: do not repeat its sentences; continue from where it stops. " +
