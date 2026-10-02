@@ -626,6 +626,15 @@ export class ModuleGraph {
         }
         return [...exits.values()];
     }
+    /**
+     * Contract §168.3: the entrance relation (`play-precedes`, `may-lead-to`, `alternative-to`, `hands-off-to` -- the
+     * template's `entrance_relation_kinds`, the book's playing order) that leads from `from` to `to`, or null when the
+     * two are joined only by `route-to` (travel between places) or not at all.
+     */
+    entranceRelation(from: Row, to: Row): string | null {
+        const rel = (this.out.get(from.node_id) ?? []).find(rel => rel.to_node_id === to.node_id && rel.relation_kind !== "route-to" && EXIT_KINDS.includes(rel.relation_kind));
+        return rel ? string(rel.relation_kind) : null;
+    }
     sceneEndings(scene: Row): Row[] {
         const seen = new Set<string>(),
             result: Row[] = [];
