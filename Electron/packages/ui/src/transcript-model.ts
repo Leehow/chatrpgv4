@@ -252,10 +252,17 @@ function displayHistoryEntry(entry: HistoryEntry): HistoryEntry {
  * say name is matched by shape alone — any script, the play language is open (§23).
  */
 const MECHANICS_MARKER = /\{\{[a-z0-9][a-z0-9:_-]*\}\}|\{\{say:[^{}\n]{1,60}\}\}|\{\{\/say\}\}/g
+/**
+ * Whatever else is still in braces: the card drops it too (`pipicoc/mechanics.js` LOOSE_TOKEN, §40.4),
+ * so no brace reaches the player. A Keeper marker that names a handout by its book title
+ * (`{{handout:Handout 3: The House Is Built (1835)}}`) is outside the ASCII grammar above; left in,
+ * the card's text stopped matching the plain copy and the turn printed twice (2026-10-02).
+ */
+const LOOSE_MARKER = /\{\{[^{}\n]*\}\}/g
 
 /** A delivery with its markers taken out, the way the kernel strips them for `rendered_text`. */
 export function withoutMechanicsMarkers(text: string): string {
-  return text.replace(MECHANICS_MARKER, '').replace(/[ \t]{2,}/g, ' ')
+  return text.replace(MECHANICS_MARKER, '').replace(LOOSE_MARKER, '').replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
