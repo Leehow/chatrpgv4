@@ -16,6 +16,24 @@ const patch=(id:string,data:Record<string,unknown>,campaign='c-patch')=>({type:'
   timestamp:'2026-09-23T10:00:05.000Z',data:{campaign,source:'test-lane',at:'2026-09-23T10:00:05.000Z',...data}});
 const details=(entry:any)=>entry.presentation.details as any;
 
+it('a quote patch enriches only its pending cash row, on live and replay, keeping prose and other mechanics',()=>{
+  const row=card('quote-card',1,[{kind:'cash',quote_key:'q1',quote_status:'pending',settlement:'quote'},
+    {kind:'cash',quote_key:'q2',quote_status:'pending',settlement:'quote'}, {kind:'item',name:'Lantern'}]);
+  Object.assign(row.data,{marked_text:'The clerk waits.',speech:[{text:'Here is the bill.'}]});
+  const word=patch('quote-patch',{card:{turn:1},patch:{quotes:{q1:{quote_status:'ready',purchase_amount:2.75,items:[{name:'Water',quantity:2,unit_price:0.5,amount:1}]}}}});
+  const live=new CocCardLedger('c-patch');live.note(row);
+  expect(live.note(word)).toEqual(['quote-card']);
+  const replay=new CocCardLedger('c-patch');replay.note(word);replay.note(row);
+  const drawn=details(mechanicsEntry(row,'en',undefined,{},undefined,live.patchesFor('quote-card')));
+  expect(drawn).toEqual(details(mechanicsEntry(row,'en',undefined,{},undefined,replay.patchesFor('quote-card'))));
+  expect(drawn.mechanics[0]).toMatchObject({quote_status:'ready',purchase_amount:2.75});
+  expect(drawn.mechanics[1].quote_status).toBe('pending');
+  expect(drawn.mechanics[2].name).toBe('Lantern');
+  expect(drawn.marked_text).toBe('The clerk waits.');
+  expect(drawn.speech).toEqual([{text:'Here is the bill.'}]);
+  expect(drawn.quotes).toBeUndefined();
+});
+
 it('merge patch follows RFC 7396: objects merge, null deletes, arrays and scalars replace',()=>{
   expect(mergePatch({a:1,b:{c:2,d:3},e:[1,2]},{b:{c:null,x:4},e:[3],f:'new'})).toEqual({a:1,b:{d:3,x:4},e:[3],f:'new'});
   expect(mergePatch({a:1},'whole')).toBe('whole');

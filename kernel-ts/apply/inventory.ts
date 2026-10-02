@@ -172,7 +172,7 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
         const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after:before,delta:0,
             category,settlement:'quote',quote:name,purchase_amount:amount,items:priced.items,currency,with:otherId,with_label:otherLabel,...sourced,why,at:nowIso()};
         const quotes=array(context.world.cash_quotes).filter(value=>value.subject!==id||normalize(string(value.name))!==normalize(name));
-        quotes.push({name,subject:id,category,purchase_amount:amount,items:priced.items,currency,with:withName,...sourced,why,settled:null});
+        quotes.push({name,subject:id,category,purchase_amount:amount,items:priced.items,currency,with:withName,...sourced,why,settled:null,origin_turn:number(context.turn.turn)});
         context.world.cash_quotes=quotes;
         return {receipt,event:null};
     }

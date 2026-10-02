@@ -210,11 +210,13 @@ function patchedDetails(details:Record<string,any>, patches:readonly CocCardPatc
   if(!patches.length)return details;
   let merged:any=details;
   for(const patch of patches)merged=mergePatch(merged,patch.patch);
-  const {definitions,objects,...rest}=merged as Record<string,any>;
+  const {definitions,objects,quotes,...rest}=merged as Record<string,any>;
   const byDefinition=isDetailsRecord(definitions)?definitions:{}, byName=isDetailsRecord(objects)?objects:{};
   const rows=Array.isArray(rest.mechanics)?rest.mechanics:[];
   rest.mechanics=rows.filter((row:any)=>isDetailsRecord(row)&&row.visibility!=='keeper').map((row:any)=>{
     let next=row;
+    if(row.kind==='cash' && typeof row.quote_key==='string' && isDetailsRecord(quotes) && isDetailsRecord(quotes[row.quote_key]))
+      next=mergePatch(next,quotes[row.quote_key]);
     if(row.kind==='item') {
       const pending=typeof row.definition_name==='string'&&Object.hasOwn(byDefinition,row.definition_name)?byDefinition[row.definition_name]:undefined;
       if(isDetailsRecord(pending))next=mergePatch(next,pending);

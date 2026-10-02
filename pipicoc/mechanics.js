@@ -1254,6 +1254,10 @@ export function createComponent(React) {
         return withUses(h(Row, { key, kindKey: "item", kindLabel, family }, ...head));
       }
       case "cash": {
+        if (row.quote_status && row.quote_status !== "ready")
+          return h(Row, { key, kindKey: "cash", kindLabel, family },
+            h("span", { className: "coc-mech-body" }, term(text(row.purpose || row.quote))),
+            row.quote_status === "pending" ? h(Waiting, { label: t("preparing") }) : null);
         const before = num(row.before);
         const after = num(row.after);
         const purpose = text(row.purpose).trim();
