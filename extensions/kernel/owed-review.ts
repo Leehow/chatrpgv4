@@ -5,7 +5,7 @@
  * had opened, so turn 27's clerk built its moves from the ledger's position and walked the party to the wrong
  * cemetery. A review that lands while the first read runs is read before any candidate is built.
  *
- * Nothing waits for it past the read (amended 2026-10-02, owner: 「先修复核空等」). The first version waited up to 15 s
+ * Nothing waits for it past the read (amended 2026-10-02 at the owner's request). The first version waited up to 15 s
  * from the run's start; on the installed App's Blood Road table the post reviews took 58-159 s, every first read had
  * finished its prescreen in 3.4-4.4 s, and each of the four turns then sat until 14.3 s for a review that never landed.
  */
