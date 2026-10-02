@@ -1,6 +1,6 @@
 # Single-pass narration
 
-Status: implementation and focused live verification complete; legacy test migration and integration pending.
+Status: implementation, fixture migration and focused live verification complete; final mainline integration checks in progress.
 
 ## Approved objective
 
@@ -11,7 +11,7 @@ Deliver the Keeper's first completed draft directly. No automatic prose review, 
 - Integration branch: `codex/single-pass-narration-20261001`, created from `15a4a48be` through the required lifecycle CLI.
 - Checkout: `/Users/haoli/.codex/worktrees/single-pass-narration/chatrpgv4-wt-pi-coc-v2`.
 - LAN script alias: `/Users/haoli/.codex/worktrees/single-pass-narration/source-single-pass-narration`. Its unique basename avoids another Codex run overwriting the remote scratch checkout.
-- Main `0.9.6a` has another owner's dirty kernel/index, canonical dispatcher and contract edits. Do not stage or absorb them. An active wait checks for clean shared paths. A user-input question about messaging that owner is pending; do not message without an answer.
+- Main `0.9.6a` is clean at `5903a311f`. The other owner's work was committed before integration. Its changes are merged into the owned checkout; the two conflicts preserve the new context-aware dispatcher and nonblocking historical-review watch while keeping automatic prose review disabled. No inter-chat message was sent.
 
 ## Implemented
 
@@ -27,16 +27,11 @@ Contract section 166 and a fixed shared policy in `kernel-ts/runtime/narration-p
 
 ## Remaining
 
-1. Finish migrating legacy review/repair tests. Full ext snapshot before several latest test updates: 4330 tests, 4189 pass, 140 fail, interrupted after no progress at an orphaned test. The remote log was copied to `/tmp/single-pass-full-ext.log`; do not call this run green.
-2. Some failures are unused post-terminal faux responses occupying the next turn. Remove those stale fixture responses, preserving independent mechanics assertions. Some pure prompt assertions already fail on the base; confirm rather than changing unrelated prose guidance.
-3. Retire automatic-review integration assertions replaced by section 166; keep explicit historical inspection/helper and source-authoring tests. Add or retain current-policy coverage rather than forcing a test-only legacy mode.
-4. Run appropriate focused regression and required checks on the exact final tree. Heavy suites/builds use the LAN box, one heavy suite at a time. No new live model calls are necessary without a new relevant change.
-5. Review/stage only assigned files, commit, integrate after the other owner settles shared paths, verify merged tree, then lifecycle terminal/audit/closeout. Preserve all live evidence outside the disposable checkout. No push or App install has been authorized.
+1. Run the LAN loop/build checks and the merged historical owed-watch regression. Heavy suites/builds use the LAN box, one heavy suite at a time. No new live model calls are required without a relevant delivery change.
+2. Integrate into the latest clean `0.9.6a`, verify the source/compiled runtime, then lifecycle terminal/audit/closeout. Preserve all genuine evidence in the primary checkout. No push or App install is authorized.
 
-Latest checkpoint: current focused checks confirm source mechanics and forward-only owed handling still work. The shared main checkout remains dirty in the contract, kernel/index, canonical dispatcher and hybrid engine; no integration has been attempted. The Flapcode driver is stopped and all genuine evidence remains in the primary checkout. The full test snapshot must be rerun or narrowed after the final fixture migration; the old interrupted snapshot is not current verification.
+Implementation commit: `f1e08f93c`. Old automatic-review expectations were retired or replaced by first-draft assertions. Unused post-terminal faux responses were removed so they cannot become the next turn's first draft; independent mechanics assertions remain. Historical inspection/helper and source-authoring tests remain.
 
-The current LAN full-ext run is session 88552 on remote source-single-pass-narration. Do not confuse the older shared basename run with this isolated snapshot. Current main owner has not cleared dirty overlap; no local branch commit yet.
+Full ext snapshot before the final fixture corrections: 4251 tests, 4244 passed, 7 failed, exit 1. Six failures were stale fixture/timing assertions and now pass focused checks; one `keeper-prose-contract.test.mjs` phrase assertion is confirmed absent in the base commit `15a4a48be` as well. The unrelated prose-package mismatch remains reported rather than changing its content to make the suite green. Log: `/tmp/single-pass-full-ext-v2.log`. The older interrupted snapshot (`/tmp/single-pass-full-ext.log`) is superseded and is not green evidence.
 
-Updated full-ext run: 4251 tests, 4244 pass, 7 fail; six fixture/timing assertions are being corrected, and one static prose-package phrase assertion is confirmed absent in the base commit as well. The next run should be focused on the remaining files, not another unrelated full sweep.
-
-Final focused remaining regression check: folding/control-token tests pass after removing stale queued tails; lifecycle test now holds opening explicitly and checks SDK agent-start ordering relative to the foreground reservation rather than a later user-message persistence event. Base prose-package phrase mismatch is retained as an unrelated existing failure.
+After merging main into the owned checkout: `check:kernel`, `git diff --check`, and 50 focused first-draft, canonical-dispatcher, lifecycle, folding, control-token and post-delivery checks passed. The Flapcode driver is stopped; genuine campaign evidence remains in the primary checkout. Packaging and installed-App acceptance are separate and were not performed.

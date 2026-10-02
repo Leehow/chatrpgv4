@@ -3813,6 +3813,7 @@ export class PiHostBackend implements HostBackend {
     if (!session) throw new Error(`unknown session ${sessionId}`);
     const started = Date.now();
     const history = await readHistory(session.path, 0, Number.MAX_SAFE_INTEGER, this.vaultDir, sessionId);
+    this.startCocDetailsRecovery(sessionId, session.path, history);
     this.reconcileOrphanedNow(sessionId);
     const agents = [...this.agents.values()]
       .filter(agent => agent.sessionId === sessionId)
@@ -3832,6 +3833,51 @@ export class PiHostBackend implements HostBackend {
       ms: Date.now() - started,
     });
     return { history, agents, agentLogs };
+  }
+
+  private readonly cocDetailsRecoveries = new Map<string, Promise<void>>();
+  /** A loaded waiting card owns recovery; no player sentence or story turn is manufactured. */
+  private startCocDetailsRecovery(sessionId: string, path: string, history: HistoryEntry[]): void {
+    if (this.closed || this.sidebarArchivedCache.has(sessionId) || this.cocDetailsRecoveries.has(sessionId)) return;
+    const cards = history.filter(entry => entry.presentation?.renderer === 'coc-mechanics'
+      && isRecord(entry.presentation.details) && Array.isArray(entry.presentation.details.mechanics)
+      && entry.presentation.details.mechanics.some((row: any) => row.kind === 'item' && row.definition === 'pending'));
+    if (!cards.length || !this.cocHostPaths()) return;
+    const existing = this.live.get(sessionId);
+    if (!this.canRewriteSessionFile(sessionId) && !(existing && this.liveProcessUsable(existing))) return;
+    const work = (async () => {
+      const binding = await readCocBinding(path);
+      if (!binding || binding.mode === 'setup' || this.closed || this.sidebarArchivedCache.has(sessionId)) return;
+      if (!(await this.leaseFor(await this.locate(sessionId)).query()).writable) return;
+      const live = await this.ensure(sessionId, undefined, true);
+      if (this.live.get(sessionId) !== live || !this.liveProcessUsable(live)) return;
+      // Seed the same live patch reader with the cards the history page already drew. Startup may
+      // have completed a job before ensure returned; the following durable re-read catches it.
+      for (const card of cards) {
+        this.noteCardRow(live, {type: 'custom', customType: 'coc-mechanics', id: card.id,
+          timestamp: new Date(card.timestamp).toISOString(), data: card.presentation!.details});
+        (live.cocCardDrawn ??= new Map()).set(card.id, JSON.stringify(card.presentation));
+      }
+      const latest = await this.readHistoryCached(path, 0, Number.MAX_SAFE_INTEGER, sessionId);
+      if (this.live.get(sessionId) !== live || !this.liveProcessUsable(live)) return;
+      const ids = new Set(cards.map(card => card.id));
+      for (const card of latest) {
+        if (!ids.has(card.id) || card.presentation?.renderer !== 'coc-mechanics') continue;
+        const raw = {type: 'custom', customType: 'coc-mechanics', id: card.id,
+          timestamp: new Date(card.timestamp).toISOString(), data: card.presentation.details};
+        this.noteCardRow(live, raw);
+        const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId), undefined,
+          live.cocCards?.patchesFor(card.id), binding);
+        if (!entry) continue;
+        const drawn = JSON.stringify(entry.presentation);
+        if (live.cocCardDrawn?.get(card.id) === drawn) continue;
+        live.cocCardDrawn!.set(card.id, drawn);
+        this.stream({type: 'presentation', sessionId, entry});
+      }
+    })().catch(error => {
+      if (!this.closed) console.warn(`[pipicoc] Item detail recovery failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+    }).finally(() => { if (this.cocDetailsRecoveries.get(sessionId) === work) this.cocDetailsRecoveries.delete(sessionId); });
+    this.cocDetailsRecoveries.set(sessionId, work);
   }
   private async scanIndex(): Promise<SessionMeta[]> {
     this.indexGenerations += 1;
@@ -4607,6 +4653,7 @@ export class PiHostBackend implements HostBackend {
             limit,
             session.header.id,
           );
+          this.startCocDetailsRecovery(session.header.id, session.path, entries);
           freezeProbeHistoryIpcEnd({ session: session.header.id, ms: Date.now() - started, rows: entries.length });
           return entries;
         } catch (error) {
@@ -5708,7 +5755,7 @@ export class PiHostBackend implements HostBackend {
       return {};
     }
   }
-  private async ensure(id: string, expectedGeneration?: unknown): Promise<Live> {
+  private async ensure(id: string, expectedGeneration?: unknown, cocDetailsRecovery = false): Promise<Live> {
     const generation = expectedGeneration !== undefined
       ? expectedGeneration
       : this.sessionRuntimeToken(id) ?? this.beginSessionRuntime(id);
@@ -5724,7 +5771,7 @@ export class PiHostBackend implements HostBackend {
       await (live.exit ?? Promise.resolve());
       this.assertSessionGeneration(id, generation);
       if (this.live.get(id) === live) this.live.delete(id);
-      return this.ensure(id, generation);
+      return this.ensure(id, generation, cocDetailsRecovery);
     }
     this.stopEscalation.cancel(id);
     this.cutInStopEscalation.cancel(id);
@@ -5739,13 +5786,13 @@ export class PiHostBackend implements HostBackend {
         throw new Error("会话已归档：请先在侧栏取消归档，再继续该会话");
       }
     }
-    const attempt = this.spawnLive(id, generation).finally(() => {
+    const attempt = this.spawnLive(id, generation, cocDetailsRecovery).finally(() => {
       this.ensureInFlight.delete(id);
     });
     this.ensureInFlight.set(id, attempt);
     return attempt;
   }
-  private async spawnLive(id: string, generation = this.sessionRuntimeToken(id)): Promise<Live> {
+  private async spawnLive(id: string, generation = this.sessionRuntimeToken(id), cocDetailsRecovery = false): Promise<Live> {
     this.assertSessionGeneration(id, generation);
     const found = await this.locate(id);
     if (found.header.cocWorldline) await this.activateCocConversation(found);
@@ -5955,6 +6002,7 @@ export class PiHostBackend implements HostBackend {
               // still passed through -- by `mergedSpawnEnvironment`'s parent layer, as an operator
               // override rather than as a setting wearing one's clothes.
               ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, PI_COC_MODE:cocBinding.mode || "play",
+                ...(cocDetailsRecovery ? {PI_COC_DETAILS_RECOVERY: '1'} : {}),
                 ...(cocBinding.mode === "setup" ? {PI_COC_SETUP_AUTOSTART:"1"} : {}),
                 ...(cocWatchdogRecovery ? {[COC_WATCHDOG_RECOVERY_ENV]:"1"} : {})} : {}),
             }),

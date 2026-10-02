@@ -477,7 +477,7 @@ function defaultLine(candidate: Candidate): string | undefined {
 
 /** Per-run state the ports share; the policy's own state stays in the driver. */
 /** §158.4: the kernel extension's port for the previous delivery's post review still running (`coc:owed-review`). */
-interface OwedReviewPort {campaign: string; settle(elapsedMs: number): Promise<{in_flight: boolean; waited_ms: number; landed: boolean; turn?: number}>}
+interface OwedReviewPort {campaign: string; watch(): {in_flight: boolean; turn?: number; landed(): boolean}}
 interface RunState {
   interactionScope?: InteractionScope;
   /** One selected preparation per player input, retained across scene refreshes. */
@@ -491,7 +491,7 @@ interface RunState {
   forcedShown: Set<string>;
   runId: string;
   /** §158.4: this run's first read already waited for the previous delivery's review (it waits once). */
-  owedWaited?: boolean;
+  owedWatched?: boolean;
   /** §135.11.2: the note's head (`CLERK_NOTE_HEAD`) was sent in this run's first note. */
   headShown?: boolean;
   rawInput: string;
@@ -526,6 +526,8 @@ interface RunState {
   deferred: DeferredStep[];
   /** §135.11: the turn-close steer the next model step carries (the kernel extension's own `coc-host` message). */
   steer?: Row;
+  /** §163.9: close at the next policy boundary so a queued forced-choice repair precedes another Keeper proposal. */
+  forceTurnClose?: boolean;
   /**
    * §135.6 (SL-22 addendum): the run's previous read, by scene, with the prescreen outcome it ran or reused (absent when it
    * ran none): reuse requires the same scene, source evidence and player need; read_more refreshes it. The packet excludes issued bodies.
@@ -911,13 +913,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       read: {
         async read(_proposal, invocation) {
           const began = stepNow();
+          // §158.4: the run's first read watches the previous delivery's review still running, which may name what the
+          // ledger owes; one that lands while the read runs is read before any candidate is built. Nothing waits past the read.
+          const owedPort = !run.owedWatched && owedReview && bridge?.campaign === owedReview.campaign ? owedReview : undefined;
+          run.owedWatched = true;
+          let owedWatch: ReturnType<OwedReviewPort['watch']> | undefined;
+          try { owedWatch = owedPort?.watch(); } catch { owedWatch = undefined; }
           let current=await tableReads(run);
           let {capsule, table, candidates, rows, consequences}=current;
-          // §158.4: the run's first read waits beside its prescreen for the previous delivery's review still running, which
-          // may name what the ledger owes; a review that lands in time is read before any candidate is built.
-          const owedPort = !run.owedWaited && owedReview && bridge?.campaign === owedReview.campaign ? owedReview : undefined;
-          run.owedWaited = true;
-          const owedWait = owedPort?.settle(Math.max(0, now() - run.startedAt)).catch(() => undefined);
           let bindingArtifact: Extract<StepArtifact, {kind: 'read'}>['binding'];
           if (table.scope && table.readSet && table.binding) {
             run.turn ??= table.turn; run.scope ??= table.scope; run.readSet ??= table.readSet;
@@ -977,10 +980,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
             try { content = object(JSON.parse(String(outcome.message.content ?? ''))); } catch { content = {}; }
             for (const material of array(content.materials).map(object)) run.passages.push({scene, material});
           }
-          const waited = owedWait ? await owedWait : undefined;
-          if (waited?.in_flight) {
-            record({lane: 'run', event: 'owed_wait', run: run.runId, stepId: invocation.stepId, waited_ms: waited.waited_ms, landed: waited.landed, turn: waited.turn ?? null});
-            if (waited.landed) { current = await tableReads(run); ({capsule, table, candidates, rows, consequences} = current); }
+          if (owedWatch?.in_flight) {
+            const landed = owedWatch.landed();
+            record({lane: 'run', event: 'owed_review', run: run.runId, stepId: invocation.stepId, landed, turn: owedWatch.turn ?? null});
+            if (landed) { current = await tableReads(run); ({capsule, table, candidates, rows, consequences} = current); }
           }
           // Candidates are built after the locate, so a located clue or handout is among them.
           const fresh = {context: table.context, candidates: candidates(), rows: rows()};
@@ -1777,6 +1780,11 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (!SINGLE_PASS_NARRATION && playerChoices.length && bridge?.campaign && run.turn !== undefined) {
       const choices: ForcedPlayerChoice[] = playerChoices;
       api?.events?.emit?.('coc:forced-player-choice-cue', {campaign: bridge.campaign, turn: run.turn, run: run.runId, choices,
+        requestTurnClose: () => {
+          if (run.forceTurnClose) return;
+          run.forceTurnClose = true;
+          record({lane: 'run', event: 'turn_close_requested', run: run.runId, turn: run.turn, reason: 'forced_choice_repair'});
+        },
         review: async (draft: string, signal?: AbortSignal): Promise<ForcedChoiceCueReview> => {
           const began = stepNow();
           let review: ForcedChoiceCueReview;
@@ -1954,7 +1962,17 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
    */
   function budgetRows(run: RunState, policy: ReturnType<typeof createStepPolicy>): ReturnType<typeof createStepPolicy> {
     return {...policy, next(driver) {
-      const request = policy.next(driver), budget = driver.policyState.view.budget;
+      const forceTurnClose = run.forceTurnClose === true && driver.pendingProposals.length === 0
+        && driver.delivery !== 'accepted' && driver.delivery !== 'awaiting_player';
+      if (forceTurnClose) {
+        run.forceTurnClose = undefined;
+        record({lane: 'run', event: 'turn_close_forced', run: run.runId, turn: run.turn, step: `${run.runId}:s${driver.steps + 1}`,
+          reason: 'forced_choice_repair'});
+      }
+      const request: DriverStepRequest = forceTurnClose
+        ? {kind: 'operate', reason: 'turn_close', proposals: [{origin: 'policy', operation: 'turn_close', readOnly: false, label: 'close the turn'}]}
+        : policy.next(driver);
+      const budget = driver.policyState.view.budget;
       run.decision = {...budget};
       // §163: what the last folded step forced is recorded before the next step runs, whether or not a model step follows.
       recordForced(run, driver.policyState.view.forced, `${run.runId}:s${driver.steps}`);
@@ -2046,7 +2064,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     pi.events.on('coc:operation-dispatcher', (data: OperationGateway) => { gateway = data && typeof data.dispatch === 'function' ? data : undefined; });
     pi.events.on('coc:turn-close', (data: TurnClosePort) => { closer = data && typeof data.verdict === 'function' ? data : undefined; });
     pi.events.on('coc:source-answers', (data: SourceAnswersPort) => { consultations = data && typeof data.take === 'function' ? data : undefined; });
-    pi.events.on('coc:owed-review', (data: OwedReviewPort) => { owedReview = data && typeof data.settle === 'function' ? data : undefined; });
+    pi.events.on('coc:owed-review', (data: OwedReviewPort) => { owedReview = data && typeof data.watch === 'function' ? data : undefined; });
     pi.on('before_provider_request', (event: {payload: unknown}, ctx: any) => {
       if (historyPreparation?.run === currentRunId) {
         const preparation = historyPreparation;

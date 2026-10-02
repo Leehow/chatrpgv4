@@ -19666,6 +19666,33 @@ that fails to land is dropped; the empty item remains.
 
 Tests: `tests/extension/item-fast.test.mjs`, `tests/extension/apply-defer-any-batch.test.mjs`.
 
+### 129.6 Reopening a waiting card resumes its detail work (2026-10-02)
+
+Opening an unarchived, writable play session with a projected pending item card starts its ordinary
+session runtime in detail-recovery mode, without a player prompt, a new turn, an opening or a retained
+story continuation. History loading returns immediately. The backend retains the loaded card ids for
+the existing live patch reader; results completed during startup are reconciled from the durable
+history and later results redraw those same cards. A read-only or archived session starts no worker.
+
+The Mod host recovers once at session start. Host-only `mods.queued {details_only: true}` reads queued
+registrations including the last delivered turn, returns accepted definitions and unfinished requests,
+and never applies, discards or publishes world state. Accepted work is announced through the existing
+`coc-card-patch`/`coc-object-details` path; unfinished work uses the existing tool-enabled creator,
+original job identity and deterministic acceptance gate. World registration still lands only at the
+ordinary next-turn safe boundary. No handover, cash receipt or narration is replayed.
+
+Recovery shares the outstanding-work owner with foreground preparation. A preceding batch cannot
+clear a successor's ownership; late completion after shutdown cannot patch the replacement session.
+Retries allocate new numbered attempt files, preserving interrupted logs and partial artifacts. A
+failed recovery retains its queue and evidence and can retry on a later session start or player turn.
+
+Evidence: campaign `game-abbdde48-5e44-44c8-867f-347624b36e88`, turn 4: gasoline was accepted and
+announced; the map stopped during a write and the spare tire never started. App restart loaded history
+with two pending rows but no session process, so neither generation nor a card update could occur.
+The recovery approach was cross-checked against BullMQ's stalled-worker requeue and Temporal's
+durable task replay; this project reuses its existing job ledger and writer lease, with no new service.
+Sources: https://docs.bullmq.io/guide/workers/stalled-jobs and https://docs.temporal.io/tasks.
+
 ## 130. The player reads first; the continuity review reads after (2026-09-22, amends §12.8, §36.14 and §91)
 
 The continuity review of §36.14 has been a gate before publication: `narrate` and `ask` waited inside
@@ -21733,10 +21760,7 @@ compared against that count on all three paths:
     writes stand, only the embedded narrate is refused, and the refusal says what landed.
 - **Once the steer is spent**, `state.steeredThisTurn` guards every one of the three checks above the same way it
   already guards the implicit floor and the speech steer: a second leg below the count still delivers, because the
-  alternative is a stranded turn. One protocol-only exception: an implicit draft whose trimmed prose exactly equals a
-  registered COC tool name is not narration. If a steer remains, it spends that steer; if the steer is already spent,
-  the host drops it and uses the existing unfinished-turn notice/release path rather than committing the tool label.
-  This compares membership in the closed tool-name set only; it reads no natural-language intent or content.
+  alternative is a stranded turn.
 
 Telemetry: `{lane: "floor", reason: "below_floor", path: "explicit" | "embedded" | "implicit", chars}` (plus
 `min_chars`, and, for the implicit path, the existing `steered`/`round_trips`). The refused explicit/embedded call
@@ -29891,9 +29915,11 @@ This is state, not the advice §13.7 keeps out of the capsule. The spec decides 
 - A row that cannot land (refused by the kernel) stays open. The clerk's `bind` row records the step with its `status`, the Keeper's clerk note carries it as a step the clerk tried, and move candidates stay withheld. The Keeper sees the row and the refusal, never a ledger position to side with.
 - Any other move that lands after the told turn -- the Keeper's own, or one the player later chooses -- closes an open owed move as `superseded` (`settleOwed`, `kernel-ts/owed/land.ts`): the story has moved on, and landing the old arrival later would carry the party back to a position it has left.
 
-**The wait for a review in flight.** A post review of the previous delivery that is still running when the next run starts may be about to name what is owed. The host keeps, per campaign, the promise of the last delivery's post review (`afterDeliveryReview`). The run's first read waits for it for at most `PI_COC_OWED_WAIT_MS` (default 15 000, counted from the run's start), concurrently with the read itself. Measured on this table, the read took 8–12 s, and turn 26's review landed 13 s after turn 27 opened.
+**The review in flight is watched, never waited for.** A post review of the previous delivery that is still running when the next run starts may be about to name what is owed. The host keeps, per campaign, the promise of the last delivery's post review (`afterDeliveryReview`) and publishes a port that watches it (`coc:owed-review`, `watch()`, `extensions/kernel/owed-review.ts`). The run's first read starts the watch before it reads the table. A review that lands while the read runs (prescreen included) is read before any candidate is built. Nothing waits past the read. A review still running when the read ends is read at the run's next read or the next run, and what it names lands then (§158.5).
 
-The wait is paid only when a review is in flight. A review that lands later is read at the run's next read or the next run. Telemetry: `event: "owed_wait", waited_ms, landed: boolean`.
+Telemetry, when a review was in flight at the first read: `lane: "run", event: "owed_review", landed: boolean, turn`.
+
+*Amended 2026-10-02 (owner: 「先修复核空等」).* The first version waited up to `PI_COC_OWED_WAIT_MS` (default 15 000, counted from the run's start), measured on Dust to Dust where turn 26's review landed 13 s after turn 27 opened. On the installed App's Blood Road table (gpt-6-luna) the post reviews took 58–159 s. Every first read finished its prescreen in 3.4–4.4 s and then sat until 14.3 s. None of the four waits landed. That is about 10 s of every turn spent on nothing. The variable and the `owed_wait` row are gone.
 
 `deferred_last_turn` (§135.25) is unchanged. It is the clerk's own note, kept in session memory. Owed state does not depend on it.
 
@@ -29943,7 +29969,7 @@ The kernel-authored forward fixes are §158.3's.
 - *Writer:* the private reviewer through `submit_audit` (the `owed` field), bound by `mods.accept`, projected by `table.warn` into `owed.json` and the record.
 - *Reader:* the capsule's `owed` section (`kernel-ts/read/assemble.ts`), the clerk's candidate builder, admission's `told` basis, and the kernel's `owed` effect check.
 - *Actor:* the clerk (`told_bookkeeping`) or the Keeper, whose ordinary `apply` lands the row and closes it.
-- *Counted:* `owed.json`'s `closed` list, the receipts' `owed`, the admission rows with `path: "told"`, and the run's `owed` / `owed_wait` rows.
+- *Counted:* `owed.json`'s `closed` list, the receipts' `owed`, the admission rows with `path: "told"`, and the run's `owed` / `owed_review` rows.
 
 ### 158.7 Follow-up reconciliation (FR-06--FR-09, 2026-09-30)
 
@@ -30923,7 +30949,7 @@ Confident answers are unchanged: when Jev reads the player's declaration past th
 
 A forced `no_roll` whose `why` includes `player_choice` remains open in the fiction until the player chooses. Before the host delivers `narrate` or `ask`—including the narration embedded in `apply`, which uses the same `narrate` path after `apply` lands—it asks Jev-1.13.0 two Noul questions per withheld choice against the exact player-facing draft: whether its closing beat returns that choice through a present person or immediate situation in character, and whether it states or implies an outcome that depends on the unrolled check. The host accepts the draft only when every cue score is at least `.60` and every dependent-outcome score is at most `.25`. Otherwise it refuses only the narration with `next: narrate`; any `apply` effects already accepted remain committed, and the Keeper revises the prose without repeating those effects.
 
-This is an output check only. It cannot choose or roll a check, make the choice, or authorize a world change. An unavailable, incomplete, or unconfigured Jev review is recorded and fails open so a service outage does not strand the table; the existing Keeper instruction still applies. Repeated rejections are bounded: the same draft reuses its review, the first rejected delivery spends the turn's one existing close steer with a targeted repair, and only one narration repair is allowed after that. A further rejection stops the run so the host can report an unfinished turn instead of generating indefinitely. A successful delivery clears the pending review, which is scoped to that turn. **Three ends:** the hybrid projection writes the pending choices, the kernel extension reviews the exact draft before delivery, and the Keeper revises a refused draft to narrate settled events and return the player's choice in character.
+This is an output check only. It cannot choose or roll a check, make the choice, or authorize a world change. An unavailable, incomplete, or unconfigured Jev review is recorded and fails open so a service outage does not strand the table; the existing Keeper instruction still applies. Repeated rejections are bounded: the same draft reuses its review. If the turn's one close steer is still free, the first rejected delivery spends it on a targeted repair. In a hybrid run, after the current model-proposal batch drains, the policy forces the existing `turn_close` operation before asking for another Keeper proposal; that steer admits exactly one subsequent narration repair. If another host lane already spent the steer, the Jev rejection cannot buy another repair. After a rejection with no steer remaining, or after the single repair is rejected, the host aborts further Keeper operations and uses the existing unfinished-turn notice and release path; no dependent outcome or effect is inferred. A successful delivery clears the pending review, which is scoped to that turn. **Three ends:** the hybrid projection writes the pending choices, the kernel extension reviews the exact draft before delivery, and the host enforces the one-steer repair budget before reporting an unfinished turn when it is exhausted.
 
 ## 164. Each reply shows how long the player waited for it; the host keeps when it took each message (2026-10-01, owner request)
 

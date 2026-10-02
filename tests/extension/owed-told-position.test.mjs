@@ -22,7 +22,7 @@ import {compileRows} from '../../runtime/jev/compile-rows.ts';
 import {COMPILE_FAMILY} from '../../runtime/jev/route-compile.ts';
 import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 import {consumedByEffects} from '../../runtime/jev/step-policy.ts';
-import {owedWaitMs, settleOwedReview} from '../../extensions/kernel/owed-review.ts';
+import {watchOwedReview} from '../../extensions/kernel/owed-review.ts';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CAMPAIGN = 'test-camp';
@@ -81,24 +81,22 @@ test('a Keeper apply that lands an owed row takes that row\'s clerk step, and ow
     assert.equal(declared([{kind: 'time'}]), false, 'this turn\'s own time does');
 });
 
-// ---- the wait for a review in flight -----------------------------------------------------------------------------
+// ---- the review in flight: watched, never waited for (§158.4, amended 2026-10-02) ---------------------------------
 
-test('the wait resolves when the review settles, and never past what is left of its bound', async () => {
-    assert.equal(owedWaitMs({}), 15000);
-    assert.equal(owedWaitMs({PI_COC_OWED_WAIT_MS: '0'}), 0);
-    assert.equal(owedWaitMs({PI_COC_OWED_WAIT_MS: 'soon'}), 15000);
-    assert.deepEqual(await settleOwedReview(undefined, 15000, 0), {in_flight: false, waited_ms: 0, landed: false});
+test('the watch says whether the review landed since it began, and nothing about it is a promise to wait on', async () => {
+    const none = watchOwedReview(undefined);
+    assert.equal(none.in_flight, false);
+    assert.equal(none.landed(), false);
     let settle;
-    const flight = {turn: 26, done: new Promise(resolve => { settle = resolve; })};
-    const waiting = settleOwedReview(flight, 15000, 2000);
-    setTimeout(() => settle(), 30);
-    const landed = await waiting;
-    assert.equal(landed.landed, true);
-    assert.equal(landed.turn, 26);
-    const late = await settleOwedReview({turn: 26, done: new Promise(() => {})}, 15000, 14950);
-    assert.equal(late.landed, false, 'the review did not land within what was left');
-    assert.ok(late.waited_ms < 1000);
-    assert.deepEqual(await settleOwedReview({turn: 26, done: new Promise(() => {})}, 15000, 20000), {in_flight: true, waited_ms: 0, landed: false, turn: 26});
+    const watch = watchOwedReview({turn: 26, done: new Promise(resolve => { settle = resolve; })});
+    assert.ok(!(watch instanceof Promise) && typeof watch.then !== 'function', 'the run cannot await it');
+    assert.deepEqual({in_flight: watch.in_flight, turn: watch.turn, landed: watch.landed()}, {in_flight: true, turn: 26, landed: false});
+    settle();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(watch.landed(), true);
+    const failed = watchOwedReview({turn: 27, done: Promise.reject(new Error('lane crashed'))});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(failed.landed(), true, 'a review that crashed has settled too; there is nothing more to watch for');
 });
 
 function controlledReview() {
@@ -109,7 +107,7 @@ function controlledReview() {
         deferred: {mode: 'post', job: 'a'.repeat(64), jobMs: 7, async run(options) { started(options); return gate; }}};
 }
 
-test('the host publishes the review in flight: the port waits for it and is empty once it recorded', async t => {
+test('single-pass delivery leaves the review watch empty and records no automatic review', async t => {
     let port;
     const table = await openTable({responses: [
         fauxAssistantMessage([fauxToolCall('narrate', {text: 'You pull up at the gate.'})], {stopReason: 'toolUse'}),
@@ -119,8 +117,9 @@ test('the host publishes the review in flight: the port waits for it and is empt
     const review = controlledReview();
     table.emit('coc:mods-bridge', {async after() {}, async prepare(method) { if (method === 'narrate') return {mode: 'post', deferred: review.deferred}; }});
     await table.session.prompt('I drive out to the house.');
-    assert.equal(typeof port?.settle, 'function');
-    assert.deepEqual(await port.settle(0), {in_flight: false, waited_ms: 0, landed: false});
+    assert.equal(typeof port?.watch, 'function');
+    const watch = port.watch();
+    assert.deepEqual({in_flight: watch.in_flight, landed: watch.landed()}, {in_flight: false, landed: false});
     assert.equal(table.kernelRequests().filter(request => request.method === 'table.warn' && request.params.lane === 'continuity-review').length, 0);
 });
 
@@ -209,15 +208,28 @@ test('without the owed row the same stub walks the party to the look-alike: the 
 });
 
 test('a review that lands during the first read is read before any candidate is built', async t => {
-    let waits = 0;
+    let watches = 0;
     const {record, rows} = await turnThree(t, toldNoMove(false), {afterOpen: table => table.emit('coc:owed-review', {campaign: CAMPAIGN,
-        // The review of turn 2 records the owed arrival while the run's first read is still going.
-        settle: async () => { waits++; seedOwed(table.workspace); return {in_flight: true, waited_ms: 40, landed: true, turn: 2}; }})});
-    assert.equal(waits, 1, 'the run waits once, on its first read');
+        // The review of turn 2 records the owed arrival after the read took the ledger and before the read ended.
+        watch: () => { watches++; return {in_flight: true, turn: 2, landed: () => { seedOwed(table.workspace); return true; }}; }})});
+    assert.equal(watches, 1, 'the run watches once, from its first read');
     assert.deepEqual({to: record.receipts[0].to, owed: record.receipts[0].owed}, {to: 'corbitt-house-ground', owed: 't2-owed-1'});
     assert.deepEqual(moves(record).map(receipt => receipt.to), ['corbitt-house-ground']);
-    const waited = rows.find(row => row.lane === 'run' && row.event === 'owed_wait');
-    assert.deepEqual({waited_ms: waited.waited_ms, landed: waited.landed, turn: waited.turn}, {waited_ms: 40, landed: true, turn: 2});
+    const seen = rows.find(row => row.lane === 'run' && row.event === 'owed_review');
+    assert.deepEqual({landed: seen.landed, turn: seen.turn}, {landed: true, turn: 2});
+});
+
+test('a review still running when the first read ends does not hold the run, and is not read in its place', async t => {
+    // The installed App's Blood Road table, 2026-10-02: post reviews took 58-159 s, so every run used to sit until its
+    // 15 s bound for one that never landed. The run goes on from the ledger it has; the review lands for a later read.
+    let looked = 0;
+    const {record, rows} = await turnThree(t, toldNoMove(false), {afterOpen: table => table.emit('coc:owed-review', {campaign: CAMPAIGN,
+        watch: () => ({in_flight: true, turn: 2, landed: () => { looked++; return false; }})})});
+    assert.equal(looked, 1, 'the run looks once, when its first read ends');
+    const seen = rows.filter(row => row.lane === 'run' && row.event === 'owed_review');
+    assert.deepEqual(seen.map(row => [row.landed, row.turn]), [[false, 2]]);
+    assert.ok(record.receipts.length, 'the turn ran');
+    assert.ok(!record.receipts.some(receipt => receipt.owed), 'nothing owed was read in place of the review');
 });
 
 test('FR-06/09: resolvable cash and object rows are bound forced clerk steps',()=>{

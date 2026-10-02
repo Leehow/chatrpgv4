@@ -45,7 +45,7 @@ export interface HostOperationContext {
 interface Stages {
   prepare(event: ToolCallEvent, context: ExtensionContext): Promise<ToolCallEventResult | undefined>;
   execute(spec: CocToolSpec, toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal,
-    update?: AgentToolUpdateCallback<Record<string, unknown>>): Promise<KernelToolResult>;
+    update?: AgentToolUpdateCallback<Record<string, unknown>>, context?: ExtensionContext): Promise<KernelToolResult>;
   finalize(event: ToolResultEvent): Promise<Awaited<ReturnType<AgentSession['extensionRunner']['emitToolResult']>>>;
   preparedCallId(toolCallId: string): string | undefined;
 }

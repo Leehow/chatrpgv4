@@ -8,7 +8,7 @@
  * history page merges every such entry in the file into the card it names. A word that reached only
  * one road would leave the other card spinning for good, so both are driven here.
  */
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import {cp,mkdtemp,mkdir,writeFile,appendFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
@@ -129,4 +129,84 @@ it('a redraw for words that land later keeps the details that already opened the
     expect(drawn[2].entry.presentation.details.labels[summary]).toBe('诺特指向环球报。');
     expect(drawn[2].entry.presentation.details.mechanics[1]).toMatchObject({definition:'ready',object:OBJECT});
   } finally {await backend.close();}
+},40000);
+
+it('loading an old pending card starts detail-only recovery and redraws that same card',async()=>{
+  const {backend,session,path}=await backendWithSession('coc-details-reopen-');
+  const host=backend as any, drawn:any[]=[];
+  const live={session:{id:session.id},runtimeToken:7,path};
+  const ensure=vi.spyOn(host,'ensure').mockImplementation(async(_id,_generation,detailsOnly)=>{
+    expect(detailsOnly).toBe(true);
+    host.live.set(session.id,live);
+    return live;
+  });
+  vi.spyOn(host,'liveProcessUsable').mockReturnValue(true);
+  backend.subscribe((frame:any)=>{if(frame.channel==='stream'&&frame.event?.type==='presentation')drawn.push(frame.event);});
+  try {
+    await appendFile(path,JSON.stringify({...card(),parentId:null})+'\n');
+    const history=await backend.handle('getSessionHistory',[session.id,0,50]) as any[];
+    expect(history.find(entry=>entry.id==='card-t0').presentation.details.mechanics[1].definition).toBe('pending');
+    await Promise.all([...host.cocDetailsRecoveries.values()]);
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(drawn).toHaveLength(0);
+    host.rpcEvent(live,{type:'entry_appended',entry:details([{name:'旧皮腔相机',definition:'ready',object:OBJECT}])});
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].entry.id).toBe('card-t0');
+    expect(drawn[0].entry.presentation.details.mechanics[1]).toMatchObject({definition:'ready',object:OBJECT});
+  } finally {host.live.delete(session.id);await backend.close();}
+},40000);
+
+it('details completed during cold startup reach the preloaded historical card',async()=>{
+  const {backend,session,path}=await backendWithSession('coc-details-startup-');
+  const host=backend as any, drawn:any[]=[];
+  const live={session:{id:session.id},runtimeToken:7,path};
+  vi.spyOn(host,'ensure').mockImplementation(async()=>{
+    await appendFile(path,JSON.stringify({...details([{name:'旧皮腔相机',definition:'ready',object:OBJECT}]),parentId:'card-t0'})+'\n');
+    host.live.set(session.id,live);
+    return live;
+  });
+  vi.spyOn(host,'liveProcessUsable').mockReturnValue(true);
+  backend.subscribe((frame:any)=>{if(frame.channel==='stream'&&frame.event?.type==='presentation')drawn.push(frame.event);});
+  try {
+    await appendFile(path,JSON.stringify({...card(),parentId:null})+'\n');
+    await backend.handle('preloadSession' as never,[session.id]);
+    await Promise.all([...host.cocDetailsRecoveries.values()]);
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].entry.id).toBe('card-t0');
+    expect(drawn[0].entry.presentation.details.mechanics[1]).toMatchObject({definition:'ready',object:OBJECT});
+  } finally {host.live.delete(session.id);await backend.close();}
+},40000);
+
+it('archived and read-only history do not start item recovery',async()=>{
+  const {backend,session,path}=await backendWithSession('coc-details-read-only-');
+  const host=backend as any, ensure=vi.spyOn(host,'ensure');
+  try {
+    await appendFile(path,JSON.stringify({...card(),parentId:null})+'\n');
+    host.sidebarArchivedCache.add(session.id);
+    await backend.handle('getSessionHistory',[session.id,0,50]);
+    host.sidebarArchivedCache.delete(session.id);
+    vi.spyOn(host,'leaseFor').mockReturnValue({query:async()=>({writable:false})});
+    await backend.handle('preloadSession' as never,[session.id]);
+    await Promise.all([...host.cocDetailsRecoveries.values()]);
+    expect(ensure).not.toHaveBeenCalled();
+  } finally {await backend.close();}
+},40000);
+
+it('a loaded historical card joins its existing busy owner for later detail patches',async()=>{
+  const {backend,session,path}=await backendWithSession('coc-details-busy-');
+  const host=backend as any, drawn:any[]=[], live={session:{id:session.id},runtimeToken:7,path};
+  host.live.set(session.id,live);
+  vi.spyOn(host,'ensure').mockResolvedValue(live);
+  vi.spyOn(host,'canRewriteSessionFile').mockReturnValue(false);
+  vi.spyOn(host,'liveProcessUsable').mockReturnValue(true);
+  backend.subscribe((frame:any)=>{if(frame.channel==='stream'&&frame.event?.type==='presentation')drawn.push(frame.event);});
+  try {
+    await appendFile(path,JSON.stringify({...card(),parentId:null})+'\n');
+    await backend.handle('getSessionHistory',[session.id,0,50]);
+    await Promise.all([...host.cocDetailsRecoveries.values()]);
+    host.rpcEvent(live,{type:'entry_appended',entry:details([{name:'旧皮腔相机',definition:'ready',object:OBJECT}])});
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].entry.id).toBe('card-t0');
+    expect(drawn[0].entry.timestamp).toBe(Date.parse(card().timestamp));
+  } finally {host.live.delete(session.id);await backend.close();}
 },40000);

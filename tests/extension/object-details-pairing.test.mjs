@@ -18,6 +18,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {readFile, writeFile} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {join} from 'node:path';
 import modsExtension from '../../extensions/mods/index.ts';
 import {publicDefinition} from '../../kernel-ts/mods/public-definition.ts';
@@ -50,7 +51,7 @@ function host(game, {runTask} = {}) {
       },
       async check() { return {ok: true}; },
     }});
-  return {bridge, entries, hooks};
+  return {bridge, entries, hooks, events: pi.events};
 }
 
 test('a belonging registered past the delivery is drawn pending, and the host word the backend reads opens it', async t => {
@@ -101,6 +102,54 @@ test('a belonging registered past the delivery is drawn pending, and the host wo
     'the replayed adoption is projected again as a second row');
   assert.equal(h.entries.filter(entry => entry.customType === 'coc-object-details').length, 1,
     'a definition already announced is not announced again');
+});
+
+test('reopening the last delivered turn recovers details without input, writes or lost attempts', async t => {
+  const game = await table(t);
+  const equipment = (await game.call('mods.context')).unregistered_equipment[0].name;
+  let directory;
+  const interrupted = host(game, {runTask: async task => {
+    directory = task.request.cwd;
+    await writeFile(join(directory, 'agent-1.jsonl'), 'retained interrupted events\n');
+    return {ok: false, code: 1, timedOut: false, ms: 1, stderr: 'interrupted', command: []};
+  }});
+  const payload = {campaign: 'c1', effects: [{kind: 'define', name: DRAFT.name, category: 'item', description: DRAFT.description},
+    {kind: 'object', name: 'Your field camera', to: game.sheet.name, adopt: equipment, definition: DRAFT.name}]};
+  await interrupted.bridge.prepare('apply', payload);
+  await game.apply(payload.effects);
+  assert.equal((await game.call('mods.queued')).unfinished.length, 0, 'ordinary reconciliation defers the current turn');
+  assert.equal((await game.call('mods.queued', {details_only: true})).unfinished.length, 1);
+  await game.call('table.narrate', {call_id: game.next(), text: 'You set the camera beside the lease.'});
+  await until(() => directory && existsSync(join(directory, 'run-1.json')), 'the interrupted attempt was recorded');
+  await interrupted.hooks.get('session_shutdown')();
+  const before = await game.call('table.status');
+  const waiting = await game.call('mods.queued', {details_only: true});
+  assert.equal(waiting.unfinished.length, 1, 'detail recovery includes that delivered turn');
+  let release, starts = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  const restarted = host(game, {runTask: async task => {
+    starts++;
+    assert.equal(task.request.eventLog, join(directory, 'agent-2.jsonl'));
+    await gate;
+    await writeFile(join(task.request.cwd, 'result.json'), JSON.stringify(DRAFT));
+    return {ok: true, code: 0, timedOut: false, ms: 1, stderr: '', command: []};
+  }});
+  // A real session receives the table-open binding before the Mod session_start hook.
+  // The cold startup must not manufacture a player_input.
+  restarted.events.emit('coc:table-open', {campaign: 'c1', open: {campaign: {play_language: 'en'}}});
+  await restarted.hooks.get('session_start')({}, {});
+  await until(() => starts === 1, 'cold recovery started');
+  await restarted.bridge.prepare('resolve', {campaign: 'c1'});
+  assert.equal(starts, 1, 'foreground preparation joins the recovery owner');
+  release();
+  await until(() => restarted.entries.some(entry => entry.customType === 'coc-object-details'), 'the historical card can open');
+  assert.deepEqual(await game.call('table.status'), before, 'detail recovery changes no turn or world receipt');
+  assert.equal(await readFile(join(directory, 'agent-1.jsonl'), 'utf8'), 'retained interrupted events\n');
+  assert.equal(JSON.parse(await readFile(join(directory, 'run-1.json'), 'utf8')).ok, false);
+  assert.equal(JSON.parse(await readFile(join(directory, 'run-2.json'), 'utf8')).ok, true);
+  const accepted = await game.call('mods.queued', {details_only: true});
+  assert.equal(accepted.effects.filter(effect => effect.kind === 'define').length, 1);
+  assert.equal(accepted.unfinished.length, 0);
 });
 
 /** Turn 1 queues a belonging whose child never finishes; turn 2 is open when this returns. */
