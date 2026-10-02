@@ -19,12 +19,23 @@ export interface OpeningFacts {
 }
 
 export function openingInstruction(facts: OpeningFacts): string {
+	const guide = typeof (facts.prologue as { guide?: unknown } | null | undefined)?.guide === "string" ? ((facts.prologue as { guide: string }).guide).trim() : "";
+	// A prologue with no guide asked its question in the host's voice, not anyone's in the scene: on Blood Road (guide
+	// empty) "the guide already knows who the visitor is" had the station owner greet three different investigators by
+	// name before anyone had told him it.
+	const known = guide
+		? `the guide (${guide}) already knows who the visitor is, so do not ask it again. `
+		: "the prologue's question was the host's, not anyone's in the scene: the people here do not know the investigator's name or business until the investigator tells them, and the player is not asked again either. ";
+	const react = guide
+		? "and let the guide react in their own words to who the visitor turned out to be and put one concrete question or offer to the player. "
+		: "and let the people present react to the stranger they see and put one concrete question or offer to the player. ";
 	const lead = facts.prologue !== undefined && facts.prologue !== null
-		? "The setup context records the prior meeting, and the investigator now exists: the guide already knows who the visitor is, so do not ask it again. " +
+		? "The setup context records the prior meeting, and the investigator now exists: " + known +
 			"The committed prologue below was shown to the player word for word: do not repeat its sentences; continue from where it stops. " +
-			"Say where the investigator stands now -- who this person is to them and what brought the investigator here -- from the investigator's card and the prologue; " +
+			(guide ? "Say where the investigator stands now -- who this person is to them and what brought the investigator here -- from the investigator's card and the prologue; "
+				: "Say where the investigator stands now and what brought them here, from the investigator's card and the prologue; ") +
 			"never state that either of them lacks something. Then the place and the people present as they are now in front of the investigator, as the active prose package's opening and first-sight rules say, " +
-			"and let the guide react in their own words to who the visitor turned out to be and put one concrete question or offer to the player. " +
+			react +
 			"No keys or money were granted. If pending_action exists, preserve that player request instead of asking for the same decision again; " +
 			"carry it forward through normal rules and state receipts, never claim unrecorded resources. Committed prologue: " + JSON.stringify(facts.prologue)
 		: "There is no prior meeting. Begin the scene, orientation first: when and where this is, who the investigator is here in public terms, and why they are here; " +

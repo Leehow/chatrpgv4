@@ -25,13 +25,22 @@ test('neither form of the opening rations description, sentences or names', () =
 });
 
 test('after a setup meeting the visitor is not asked for again and the card is not contradicted', () => {
-  const text = openingInstruction({prologue, playLanguage: 'zh-Hans'});
-  assert.ok(text.includes('do not ask it again'));
+  const text = openingInstruction({prologue: {...prologue, guide: 'Steven Knott'}, playLanguage: 'zh-Hans'});
+  assert.ok(text.includes('the guide (Steven Knott) already knows who the visitor is, so do not ask it again'));
   assert.ok(text.includes('do not repeat its sentences'));
   // Turn 0 told the player 「这趟路上没有人交给你一项必须完成的差事」 while the card bound her to deliver to El Paso.
   assert.ok(text.includes("never state that either of them lacks something"));
   assert.ok(text.endsWith('the only opening writes are ask and narrate.'));
-  assert.ok(text.includes(JSON.stringify(prologue)));
+  assert.ok(text.includes(JSON.stringify({...prologue, guide: 'Steven Knott'})));
+});
+
+test('a prologue with no guide asked in the host\'s voice: nobody in the scene knows the investigator\'s name until told', () => {
+  // Blood Road (guide ""): the station owner greeted three investigators by name -- 「伍兹先生，是吧？」 -- before anyone told him it.
+  const text = openingInstruction({prologue, playLanguage: 'zh-Hans'});
+  assert.equal(text.includes('already knows who the visitor is'), false);
+  assert.ok(text.includes("the people here do not know the investigator's name or business until the investigator tells them"));
+  assert.ok(text.includes('let the people present react to the stranger they see'));
+  assert.equal(text.includes('who this person is to them'), false);
 });
 
 test('the Mod context rides along only when given', () => {
