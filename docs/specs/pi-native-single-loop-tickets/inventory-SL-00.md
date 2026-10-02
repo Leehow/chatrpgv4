@@ -431,3 +431,8 @@ Two app-play-gated leaves in `extensions/speech-edit/index.ts`. `runJob` `runLan
 ### Flapcode provider (2026-10-02)
 
 Two app-play infra sites in `extensions/flapcode/agent/`, added with the provider (`33409e0ef`, copied from PipiUI); since 2026-10-02 the Keeper's model is `flapcode/gpt-6-luna`. `accounts.js` `fetchFlapcodeAccount` reads the subscription's plan and expiry from the account API once per agent start. `discovery.js` `discoverFlapcodeBaseUrl` reads the account's relay base URL at provider registration. Neither calls a model; both are bounded by a 10 s timeout and never throw. Completions go through Pi's stream path, not this code.
+
+### Historical reference: the scene's English query (§124.12, 2026-10-02)
+
+One app-play-gated leaf, `runtime/jev/history-query.ts` `createHistoryQueryLane.write` `runLane`. When Jev grants the historical need at a scene with no kept result, the engine's scene lookup first asks the fast model (`PI_COC_HISTORY_QUERY_MODEL`, then the fast-model setting, then the table) for one English query and objective, in one zero-tool completion bounded to 6 s, beside the run's other steps. Any failure searches the fixed-shape query built from authored fields. The search itself is the existing `HistoricalReference.constructor` fetch, reached through the kernel port `coc:historical-reference`.
+

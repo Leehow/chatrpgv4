@@ -240,6 +240,15 @@ The owner chose the host-built query with per-scene reuse after the installed Ap
 
 Mod 1.0.8 carries the new instruction.
 
+#### English query, web for a new scene, period gate (owner, 2026-10-02)
+
+The first App table of the host scene lookup (Blood Road, turns 5–9) never reached the web. Five loosely relevant library pages, all from one Chinese search on turn 1, stood in for every scene, and the prose borrowed one idea from them in nine turns. Owner rulings:
+- The fast model writes each new scene's query in English, once per scene.
+- A new scene searches the web; only an exact query match reuses the library.
+- An excerpt must show how things were at that time.
+
+Contract §124.12 has the mechanics.
+
 #### Selected preparation repair — approved, superseded 2026-10-02 (2026-09-30)
 
 - The user approved repair after four genuine in-fiction turns made no historical reads. The medieval 0.54 decision was projected but remained an optional permission, and the Keeper bypassed it. Soviet decisions 0.50/0.49 were declined by the unchanged greater-than-0.5 gate. The existing single need question mixes material value with interruption and shares an action-only compile policy. The negative scores' individual causes are not established by the retained telemetry.
