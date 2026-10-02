@@ -319,6 +319,7 @@ interface ForcedPlayerChoiceCue {
 	run: string;
 	choices: ForcedPlayerChoice[];
 	review(draft: string, signal?: AbortSignal): Promise<ForcedChoiceCueReview>;
+	requestTurnClose?: () => void;
 }
 
 interface TableState {
@@ -1417,7 +1418,8 @@ export default function (pi: ExtensionAPI) {
 		for (const choice of incoming) if (!choices.some(seen => JSON.stringify(seen) === JSON.stringify(choice))) choices.push(choice);
 		const changed = choices.length !== previous.length;
 		state.forcedPlayerChoiceCue = {turn: state.turn, run: data.run, choices,
-			review: data.review as ForcedPlayerChoiceCue['review']};
+			review: data.review as ForcedPlayerChoiceCue['review'],
+			...(typeof data.requestTurnClose === 'function' ? {requestTurnClose: data.requestTurnClose as () => void} : {})};
 		if (changed) {
 			state.forcedPlayerChoiceCueChecked = undefined;
 			state.forcedPlayerChoiceCueRejected = undefined;
@@ -2506,7 +2508,7 @@ export default function (pi: ExtensionAPI) {
 
 	/** §163.9: review a player's withheld choice at the final prose boundary, before its operation can land. */
 	async function reviewForcedPlayerChoiceCue(state: TableState, draft: string, signal: AbortSignal | undefined,
-		path: 'explicit' | 'embedded' | 'implicit'): Promise<void> {
+		path: 'explicit' | 'embedded' | 'implicit', ctx?: ExtensionContext): Promise<void> {
 		const pending = state.forcedPlayerChoiceCue;
 		if (!pending || pending.turn !== state.turn || !pending.choices.length) return;
 		const prose = deliveryProse(draft), draftHash = createHash('sha256').update(prose).digest('hex');
@@ -2527,14 +2529,27 @@ export default function (pi: ExtensionAPI) {
 			state.forcedPlayerChoiceCueRejected = {turn: pending.turn, draftHash, cueScores: review.cueScores, outcomeScores: review.outcomeScores};
 			stopRun = rejectCount >= 1;
 			repairSteer = stopRun && !state.steeredThisTurn;
-			if (repairSteer) state.deliveryFix = {kind: 'forced-player-choice-cue', text:
-				'The last drafts still imply a success, failure, or dependent consequence for a player-owned check that was not rolled. Treat only settled receipts as facts; do not state that the attempt succeeded, failed, or changed the world. Have a present person or the immediate situation return the unmade choice to the player in character. Use one narrate, then stop. Do not repeat accepted apply effects or ask out of fiction.'};
+			if (repairSteer) {
+				state.deliveryFix = {kind: 'forced-player-choice-cue', text:
+					'The last drafts still imply a success, failure, or dependent consequence for a player-owned check that was not rolled. Treat only settled receipts as facts; do not state that the attempt succeeded, failed, or changed the world. Have a present person or the immediate situation return the unmade choice to the player in character. Use one narrate, then stop. Do not repeat accepted apply effects or ask out of fiction.'};
+				if (ctx) {
+					try { pending.requestTurnClose?.(); } catch { /* the current runner's close remains the fallback */ }
+				}
+			}
 		} else if (review.status === 'pass') state.forcedPlayerChoiceCueChecked = {turn: pending.turn, draftHash};
 		await record({lane: 'forced-player-choice-cue-host', event: 'delivery-preflight', turn: pending.turn, run: pending.run, path,
 			status: review.status, choice_count: pending.choices.length, draft_sha256: draftHash,
 			...(review.status === 'unavailable' ? {reason: review.reason} : {cue_scores: review.cueScores, outcome_scores: review.outcomeScores}),
 			...(review.status === 'reject' ? {reject_count: rejectCount, repair_steer: repairSteer, stop_run: stopRun, cached: cachedDraft} : {})});
 		if (review.status === 'reject') {
+			if (stopRun && !repairSteer && ctx) {
+				// Pi's terminate hint ends this tool batch; the hybrid supervisor may start another model step.
+				// With no repair steer left, stop the active run so agent_settled reports the unfinished turn.
+				state.runCut = true;
+				await record({lane: 'forced-player-choice-cue-host', event: 'run_abort', turn: pending.turn, run: pending.run,
+					reason: state.forcedPlayerChoiceCueRepairSteered === state.turn ? 'repair_rejected' : 'close_steer_spent'});
+				try { ctx.abort(); } catch { /* the operation guard below still prevents another narration */ }
+			}
 			const outcomeRejected = review.outcomeScores.some(score => score > FORCED_CHOICE_OUTCOME_MAX);
 			const cueRejected = review.cueScores.some(score => score < FORCED_CHOICE_CUE_MIN);
 			const issue = [outcomeRejected ? 'the draft implies an outcome that depends on the unrolled check' : '',
@@ -4448,6 +4463,7 @@ export default function (pi: ExtensionAPI) {
 		// the ordinary tool dispatcher (a model-issued call is always "explicit"); the apply.narrate recursion below
 		// is the one caller that passes "embedded".
 		narratePath: "explicit" | "embedded" = "explicit",
+		ctx?: ExtensionContext,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
 		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
 		delete params._standing_defense;
@@ -4562,7 +4578,7 @@ export default function (pi: ExtensionAPI) {
 				if (transported.malformed) throw new KernelError({code:'invalid_params', message:'Narration is a serialized JSON field fragment, not raw prose',
 					details:{reason:'narration_transport_fragment'}, fix:'Resend raw play-language prose in text. Do not JSON-encode the string or include an outer quote/object delimiter. Keep committed receipts and do not reroll.'});
 				payload.text = transported.text;
-				await reviewForcedPlayerChoiceCue(state, payload.text, signal, narratePath);
+				await reviewForcedPlayerChoiceCue(state, payload.text, signal, narratePath, ctx);
 			}
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
 			// §135.31: the delivery carries the turn's look/lookup calls to its turn record (host-only; after the Mod hooks).
@@ -5019,7 +5035,7 @@ export default function (pi: ExtensionAPI) {
 			// then `table.narrate`, it always has; only their one model tool call is new.
 			if (spec.name === "apply" && embeddedNarrateText !== undefined && !partial?.notLanded) {
 				const narrateSpec = COC_TOOLS.find((tool) => tool.name === "narrate")!;
-				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText }, signal, onUpdate, "embedded");
+				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText }, signal, onUpdate, "embedded", ctx);
 				const embeddedError = (embedded.details as { coc_error?: Record<string, unknown> } | undefined)?.coc_error;
 				if (embeddedError) {
 					// Nothing is delivered: the effects above already landed and stand (a receipt cannot be
@@ -5177,7 +5193,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	const dispatcher = createCanonicalOperationDispatcher({
-		prepare: prepareOperation, execute: runTool, finalize: finalizeOperation,
+		prepare: prepareOperation,
+		execute: (spec, toolCallId, params, signal, onUpdate, ctx) => runTool(spec, toolCallId, params, signal, onUpdate, "explicit", ctx),
+		finalize: finalizeOperation,
 		preparedCallId: id => table?.mintedCallIds.get(id),
 	});
 	// The setup process's tool surface is only onboarding's `setup`: not one of the seven verbs is registered (contract §14.4).
@@ -5213,7 +5231,8 @@ export default function (pi: ExtensionAPI) {
 			},
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
-			execute: async (toolCallId, params, signal, onUpdate) => dispatcher.execute(spec, toolCallId, params as Record<string, unknown>, signal, onUpdate),
+			execute: async (toolCallId, params, signal, onUpdate, ctx) => dispatcher.execute(spec, toolCallId,
+				params as Record<string, unknown>, signal, onUpdate, ctx),
 		});
 	}
 
@@ -6126,11 +6145,24 @@ export default function (pi: ExtensionAPI) {
 		if (!state) {
 			return { block: true, reason: startupError ?? "the kernel is not up, so this table has not opened" };
 		}
+		const cueRepairQueued = state.deliveryFix?.kind === 'forced-player-choice-cue'
+			&& state.forcedPlayerChoiceCueRepairSteered !== state.turn;
+		if (state.forcedPlayerChoiceCueRejects?.turn === state.turn && state.forcedPlayerChoiceCueRejects.count >= 1
+			&& state.steeredThisTurn && state.forcedPlayerChoiceCueRepairSteered !== state.turn && !cueRepairQueued) {
+			await record({tool: name, started_at: new Date().toISOString(), ok: false, code: 'blocked',
+				reason: 'forced_choice_cue_steer_spent', turn: state.turn});
+			state.runCut = true;
+			try { ctx.abort(); } catch { /* agent_settled still reports the unfinished turn */ }
+			return {block: true, terminate: true,
+				reason: 'The turn correction steer is spent and Jev rejected the narration. Stop this Keeper run; the host will report the unfinished turn.'};
+		}
 		if (state.forcedPlayerChoiceCueRepairSteered === state.turn) {
 			if (name !== 'narrate' || state.forcedPlayerChoiceCueRepairAttempted === state.turn) {
 				state.forcedPlayerChoiceCueRepairAttempted = state.turn;
 				await record({tool: name, started_at: new Date().toISOString(), ok: false, code: 'blocked',
 					reason: 'forced_choice_cue_repair_spent', turn: state.turn});
+				state.runCut = true;
+				try { ctx.abort(); } catch { /* agent_settled still reports the unfinished turn */ }
 				return {block: true, terminate: true,
 					reason: 'The one forced-choice narration repair allows one narrate only. Stop this response; do not issue another operation.'};
 			}
@@ -6741,7 +6773,7 @@ export default function (pi: ExtensionAPI) {
 					const prepared = referenceAnswer ? undefined : await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
 					// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
 					notePrepared(state, prepared);
-					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit');
+					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit', ctx);
 					await guardTaskDelivery(event.message, 'committing');
 					// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
 					const reads = readsOfTurn(state);
