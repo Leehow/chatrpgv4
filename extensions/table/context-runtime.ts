@@ -71,6 +71,15 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     };
     const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;};
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
+    // Contract §168.5: a capsule this hook reads itself is handed over through the kernel extension's first-sight view, as
+    // the player-input capsule already was: an item whose check is still running is left out, and what is carried is noted.
+    let firstSight:{campaign:string;view:(capsule:Row)=>Row}|undefined;
+    pi.events.on('coc:first-sight',value=>{const port=object(value);
+        firstSight=typeof port.campaign==='string'&&typeof port.view==='function'?port as unknown as typeof firstSight:undefined;});
+    const firstSightView=(owner:string,view:Row):Row=>{
+        if(firstSight?.campaign!==owner)return view;
+        try{return object(firstSight.view(view));}catch{return view;}
+    };
     let optionalWork = new AbortController();
     // Invalidating a snapshot must not disable its event subscriptions while rehydration waits.
     let observedWorkspaceMode: WorkspaceMode = 'off';
@@ -185,7 +194,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 if (!binding || !current) {
                     const result = await rpc('table.capsule', {rehydrate: true});
                     if (ticket !== generation || signal.aborted) return undefined;
-                    const {_context, ...view} = result;
+                    const {_context, ...read} = result, view = firstSightView(owner, read);
                     binding = bindingOf(_context); current = view;
                     if (!binding) return fail('context_binding_unavailable');
                     rawBinding = _context; capsule = view; rehydrated = true;
@@ -196,7 +205,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     if (!rehydrated) {
                         const result = await rpc('table.capsule', {rehydrate: true});
                         if (ticket !== generation || signal.aborted) return undefined;
-                        const {_context, ...view} = result;
+                        const {_context, ...read} = result, view = firstSightView(owner, read);
                         const actual = bindingOf(_context);
                         if (!actual || actual.campaign !== binding.campaign || actual.worldline !== binding.worldline
                             || actual.loop !== binding.loop || actual.turn !== binding.turn) return fail('rehydration_binding_changed');

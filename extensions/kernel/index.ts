@@ -132,6 +132,8 @@ import {
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 import { watchOwedReview } from "./owed-review.ts";
 import { restoreTextualToolCalls } from "./textual-tool-calls.ts";
+import { createFirstSightTracker, type FirstSightTracker } from "./first-sight.ts";
+import { createFirstSightLane } from "../../runtime/jev/first-sight.ts";
 
 /**
  * One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown.
@@ -416,6 +418,10 @@ interface TableState {
 	owed?: Array<Record<string, unknown>>;
 	/** §158.4: the previous delivery's post review while it runs; it settles once `table.warn` recorded (or failed). */
 	reviewInFlight?: { turn: number; done: Promise<void> };
+	/** §168.5: the first-sight items each turn's capsule handed the Keeper, and the checks of deliveries still running. */
+	firstSight: FirstSightTracker;
+	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
+	firstSightOmitted: Set<string>;
 	/** Contract §37.6: the independent source review refused the placement this turn's reentry needs.
 	 * Host-owned, from the kernel's own adaptation result — never prose — and cleared when a later
 	 * proposal is pending, ready or accepted, or when the next turn opens. */
@@ -1571,6 +1577,8 @@ export default function (pi: ExtensionAPI) {
 	const setupMode = cocMode() === "setup";
 	// Contract §154 (prototype): lean `apply` arguments. Read once, like the tool schema itself; off is today's tools and payloads.
 	const leanApply = leanApplyEnabled(process.env);
+	// Contract §168.5: the check of a delivery against the book's descriptions, on the fast model, after the delivery.
+	const firstSightLane = createFirstSightLane(pi, { ctx: () => sessionCtx, campaign: () => table?.campaign });
 
 	// ---- Telemetry --------------------------------------------------------
 
@@ -3492,6 +3500,45 @@ export default function (pi: ExtensionAPI) {
 		else if (prepared.reviewed?.job) void warn({ mode: "pre", job: prepared.reviewed.job });
 	}
 
+	/**
+	 * Contract §168.5: what the Keeper is handed of a capsule for `turn` -- without the first-sight items whose check is
+	 * still running, the very object the kernel returned when none is -- and what it still carries is noted for the
+	 * delivery's own check. An item left out is said once per turn on the telemetry line.
+	 */
+	function firstSightView<T>(state: TableState, capsule: T, turn: number): T {
+		const { capsule: view, omitted } = state.firstSight.view(capsule, turn);
+		for (const said of state.firstSightOmitted) if (Number(said.split("|")[0]) < turn) state.firstSightOmitted.delete(said);
+		const fresh = omitted.filter((item) => !state.firstSightOmitted.has(`${turn}|${item}`));
+		if (fresh.length) {
+			for (const item of fresh) state.firstSightOmitted.add(`${turn}|${item}`);
+			void record({ lane: "first-sight", event: "in_flight", turn, omitted: fresh });
+		}
+		return view;
+	}
+
+	/**
+	 * Contract §168.5: after a delivery whose capsule carried `first_sight`, check the delivered prose against what it
+	 * owed, in the background. Nothing here is awaited by the delivery, and the prose is never refused or rewritten for
+	 * it (§166). The result lands through `table.first_sight`; a lane failure records nothing, so the items stay owed.
+	 */
+	function afterDeliveryFirstSight(state: TableState, turn: number, prose: string | undefined): void {
+		const items = state.firstSight.take(turn);
+		if (!items.length || !prose) return;
+		const kernel = state.kernel, campaign = state.campaign, signal = state.lanes.signal;
+		state.firstSight.start(turn, items, async () => {
+			if (signal.aborted) return;
+			const result = await firstSightLane.check({ turn, prose, items }, signal);
+			if (!result.ok || !result.items.length || signal.aborted) return;
+			try {
+				await kernel.call("table.first_sight", { campaign, turn,
+					items: result.items.map((item) => ({ id: item.id, kind: item.kind, missing: item.missing })) });
+			} catch (error) {
+				await record({ lane: "first-sight", event: "recorded", ok: false, turn, reason: "kernel_refused",
+					code: isKernelError(error) ? error.code : "internal", detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+			}
+		});
+	}
+
 	function pauseReview(state: TableState, error: unknown): void {
 		const cause = isKernelError(error) ? String(error.details?.cause ?? error.message) : String(error);
 		// Contract §38.9: the streak counts *service* outages, never the guard doing its job. A review
@@ -5074,6 +5121,7 @@ export default function (pi: ExtensionAPI) {
 					...(state.session?.kind ? { session_kind: state.session.kind } : {}),
 				});
 				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
+				afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 			}
 			// The delivery truly landed: the kernel returned and the bookkeeping above ran. Only now is
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
@@ -5378,6 +5426,7 @@ export default function (pi: ExtensionAPI) {
 		pi.events.emit('coc:turn-close', undefined);
 		pi.events.emit('coc:source-answers', undefined);
 		pi.events.emit('coc:owed-review', undefined);
+		pi.events.emit('coc:first-sight', undefined);
 		pi.events.emit('coc:historical-reference', undefined);
 		const current = table;
 		table = undefined;
@@ -5501,6 +5550,8 @@ export default function (pi: ExtensionAPI) {
 				mapWords: {},
 				mapWordsAsked: new Set(),
 				lanes: new AbortController(),
+				firstSight: createFirstSightTracker(),
+				firstSightOmitted: new Set(),
 				party: [],
 				present: [],
 				roster: [],
@@ -5578,6 +5629,13 @@ export default function (pi: ExtensionAPI) {
 			// the ledger owes, and a review that lands during the read is read before any candidate is built. Nothing waits.
 			pi.events.emit('coc:owed-review', Object.freeze({ campaign, watch: () =>
 				watchOwedReview(table?.campaign === campaign ? table.reviewInFlight : undefined) }));
+			// §168.5: every capsule the Keeper is handed goes through this view: an item whose check is still running is left
+			// out, and what the capsule carries is noted for its delivery's check. The context hook reads its capsules here.
+			pi.events.emit('coc:first-sight', Object.freeze({ campaign, view: <T>(capsule: T): T => {
+				const state = table;
+				const turn = (capsule as { turn?: { number?: unknown } } | undefined)?.turn?.number;
+				return state && state.campaign === campaign && typeof turn === "number" ? firstSightView(state, capsule, turn) : capsule;
+			} }));
 			// §124.12 (2026-10-02): the engine's scene prefetch runs the lookup's own search, after Jev granted the need. A new
 			// scene searches the web: only a reference saved for this very query is reused, never a loosely relevant one.
 			pi.events.emit('coc:historical-reference', Object.freeze({ campaign, search: (request: { run: string; scene?: string; turn: number; scope: unknown;
@@ -6077,7 +6135,8 @@ export default function (pi: ExtensionAPI) {
 				ok: true,
 			});
 			// §13.11: append host guidance to a fresh view; the raw kernel capsule is never changed.
-			let capsule = result.capsule ?? {};
+			// §168.5: the one exception, first-sight items whose check is still running, is the view's own.
+			let capsule = firstSightView(state, result.capsule ?? {}, state.turn);
 			// The package's own mode rides the capsule the table already holds (contract §19.2); the
 			// workpad gate reads it from here so a patch is bound only when the layer is enabled.
 			const workspaceSettings = workspaceSettingsOf(capsule);
@@ -6856,6 +6915,7 @@ export default function (pi: ExtensionAPI) {
 					await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
 					await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 					afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
+					afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 					rendered = asString(result.rendered_text);
 					break;
 				} catch (error) {
