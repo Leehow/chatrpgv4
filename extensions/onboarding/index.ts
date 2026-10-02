@@ -1447,7 +1447,10 @@ export default function (pi: ExtensionAPI) {
       completing=true;
       try {
         const snapshot=asRecord(await bridge.call('setup.steps',{campaign:context.campaign}));
-        if(!asRecord(snapshot.state).waiting_for_opening)return {waiting:false};
+        // Two ways here: an opening the card waited for is now ready, or the card's button already completed setup
+        // on the cold kernel. The second used to need a guide turn to notice it; that turn spoke to nobody.
+        const done=Array.isArray(snapshot.completed)&&snapshot.completed.includes('complete');
+        if(!asRecord(snapshot.state).waiting_for_opening&&!done)return {waiting:false};
         await bridge.call('setup.complete',{campaign:context.campaign});
         completed.add('complete');await finish();
         pi.appendEntry('coc-setup-exit',{command:handoff});

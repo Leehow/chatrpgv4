@@ -2324,8 +2324,25 @@ function AppContent({ host: injectedHost }: { host?: PipiHostAPI }) {
       if ((ack.error as any)?.code === 'needs') return {ok: false, error: ack.error} as Record<string, any>
       throw new Error(ack.error?.message || "draft-confirm failed")
     }
-    await send('Confirmed from the card. Open the table.')
+    // The button completed setup; the setup process is asked to hand off directly, as the preparation panel does.
+    // The sentence below used to be the only way: a guide turn the player watched for 10-25 s, written in whatever
+    // language the guide reached for, to say the table was opening.
+    if (!await handOffSetup(selectedSession)) await send('Confirmed from the card. Open the table.')
     return ack.data as Record<string, any>
+  }
+  const handOffSetup = async (sessionId: string | undefined) => {
+    const invoke = (method: string, params: Record<string, unknown>) =>
+      host.invokeExtension!("coc-keeper", method, params, {sessionId}).catch(() => ({ok: false} as {ok: boolean, data?: any}))
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const started = await invoke('onboarding', {action: 'start'})
+      if (!started.ok) return false
+      if ((started.data as any)?.mode === 'play') return true
+      const handed = await invoke('setup-handoff', {})
+      if (handed.ok && (handed.data as any)?.completed) { await invoke('onboarding', {action: 'start'}); return true }
+      if (!handed.ok || (handed.data as any)?.waiting === false) return false
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+    return false
   }
   const requestUpdate = (prompt: string) => {
     closeModelManager()
