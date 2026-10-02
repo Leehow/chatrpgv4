@@ -69,7 +69,7 @@ Telemetry: `lane: "owed", event: "owed_left_out", stage: "before_admission" | "k
 - Same reasons as `owed.json` (§158.3): written after a turn closes, part of no world revision, committed with the next turn, carried by forks.
 - A place or person is **owed** while the party is there or they are present and they are not in `shown`.
 
-**Producer: the capsule section `first_sight`** (`kernel-ts/read/assemble.ts`). Its own budget is 4096; nothing else's budget cuts it. It is placed before `present`.
+**Producer: the capsule section `first_sight`** (`kernel-ts/read/assemble.ts`). Its own budget is 8192 (raised from 4096 at integration: the Blood Road station and three biographies run about 3.6 KB of Chinese before JSON); nothing else's budget cuts it. It is placed before `present`.
 - `place`: `{id, name, described}` when the active scene is not shown. `described` is the scene's `properties.description` (else `summary`).
 - `people`: `[{id, name, described}]` for each person present whose node is `player-safe` and not shown. `described` is the person's `biography` (else `summary`).
 - When an `open` row exists for an item, `described` is replaced by `missing`: only what the last check found unshown.

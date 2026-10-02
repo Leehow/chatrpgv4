@@ -26,8 +26,9 @@ import { array, chars, clone, length, number, repr, row, type Row } from '../rea
 import { writeJsonAtomic } from '../fileio.js';
 
 export const FIRST_SIGHT_FILE = 'first-sight.json';
-/** The section's own budget (§168.5): nothing else's budget cuts it. */
-export const FIRST_SIGHT_BUDGET = 4096;
+/** The section's own budget (§168.5): nothing else's budget cuts it. A book's descriptions of a place and three
+ *  people in Chinese run past 4096 bytes before JSON, and a description cut short is what the owner ruled out. */
+export const FIRST_SIGHT_BUDGET = 8192;
 export const FIRST_SIGHT_KINDS: readonly string[] = Object.freeze(['place', 'person']);
 /** At most this many items in one `table.first_sight` call, and excerpts per item. */
 export const FIRST_SIGHT_ITEMS_MAX = 32, FIRST_SIGHT_MISSING_MAX = 24;

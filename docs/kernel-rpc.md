@@ -31277,6 +31277,65 @@ Verification: 173 focused UI tests and 9 pack/language checks passed; the Vite U
 
 ## 168. First sight: the book's descriptions reach a new player (2026-10-02, docs/specs/first-sight.md)
 
+### 168.1 The ruling and the evidence
+
+The owner's rulings, 2026-10-02:
+- 「模组里有些的东西一定一定要展示出来！！禁止简略！」
+- 「行了，可以停了，你测试的时候自己不看看的么，有描述吗？」
+- 「1 和 3 直接改，2 和首见面义务按你推荐的做」
+
+The installed App `153469067` played Blood Road (`book-4`, campaign `game-717a9e4b`) as a first-time player, with flapcode gpt-6-luna as Keeper.
+- **Turn 0:** the opening showed one of the three men under the awning, none of the station, and denied the errand the card records.
+- **Turn 1:** 「我……打量一下这个加油站和棚子底下的人」 got 「你从事什么职业？」 and nothing else.
+- **Turn 2:** a price, with a name the player was never told.
+- **Turn 3:** the Keeper wrote the station and all three men in full inside `apply.narrate`; the batch was refused and the prose lost.
+
+The four causes and their decisions are in `docs/specs/first-sight.md`. Sections 168.2–168.5 are the four fixes.
+
+### 168.2 The host's opening message carries the opening's contract, not its craft (amends §14.18 and `docs/specs/opening-guidance.md` §2)
+
+`openingInstruction` (`extensions/kernel/opening-instruction.ts`) writes the "Opening the table" host message. It carries:
+- no player input this turn;
+- after a setup meeting, the investigator is not asked for again, and the committed prologue's sentences are not repeated;
+- why the investigator is here comes from the card and the prologue, never stating that either lacks something;
+- the play language;
+- `pending_action` preserved;
+- no keys or money granted;
+- close with narrate;
+- the Mod context, when given.
+
+Without a meeting, orientation still comes first. Everything about how to open — the place and the people, how much of them, how many names — is the active prose package's ("Opening the table" and the first-sight paragraphs of narration-craft).
+
+The 2026-09-16 caps are gone: "one sentence of room at most, one gesture per line of speech, and the whole opening shorter than the prologue … at most two new proper names". They overrode the prose package's opposite rule; on Blood Road the opening showed one man and no station. `tests/extension/opening-instruction.test.mjs` refuses any rationing wording in either form and any second inline copy of the message.
+
+### 168.3 An entrance carries its people into the scene it leads to (amends §17's move and the seat rule of `initialWorld`)
+
+A campaign seats each person once, in the first scene to claim them, start scene first. A book that seats people in its entrance and again in the scene the entrance leads on to therefore kept them in the entrance. Blood Road's prologue (`is_entrance`) `hands-off-to` the Esso station, and both seat Lars, Nate and Steve. A move to the station read `Present: nobody` beside a description of three men under the awning.
+
+`stageMove` (`kernel-ts/apply/move.ts`) now carries company out of the entrance:
+- **When:** the move is out of an entrance, along an entrance relation. An entrance is the start scene (`is_start`), a scene with `properties.is_entrance`, or the first scene this table opened in. The entrance relations are the template's `entrance_relation_kinds` (`play-precedes`, `may-lead-to`, `alternative-to`, `hands-off-to`; `ModuleGraph.entranceRelation`).
+- **Who:** everyone the ledger has in the entrance whom the destination also seats (`sceneNpcIds`).
+- **How:** their `npc_presence` becomes the destination in the same write, and the receipt and the `scene-moved` event carry `with: [handles]`.
+- **What carries nobody:** a `route-to` move (travel between places), an established destination, and any move that does not start in an entrance.
+
+Graph relations and the ledger decide; nothing reads prose. `tests/extension/entrance-company.test.mjs` covers carry, route-to and past-the-entrance, each killed by a mutation.
+
+### 168.4 An `owed` annotation that does not hold is left out; the write stands (amends §158.5)
+
+On Blood Road turn 3, the Keeper copied the capsule's §51.4 `unrecorded` line into `owed` on its `apply npc`. `owed_unknown` refused the whole batch, embedded narration included. Every `owed` refusal's own fix begins "Leave owed out". For the Keeper's own `apply` (`extensions/kernel/owed-left-out.ts`, `runTool`):
+
+- **Before admission:** an `owed` that names no row of the owed rows the host last read from the capsule is removed, and the batch goes through ordinary review instead of `told`. With no capsule read yet, nothing is removed and the kernel decides. The admission prefetch removes the same names.
+- **After the kernel refuses** with `details.field: "owed"` (`owed_unknown`, `owed_mismatch`, `owed_not_told`, `owed_kind`, `owed_unresolved`):
+  - only the refused effect's field is removed;
+  - admission and the Mod gates run again;
+  - the call is sent once more, at most once per effect.
+
+  Other effects' valid `owed` stay, so an owed time row is never landed twice.
+- **The result:** carries `owed_left_out: [{owed, reason, kind}]` and a note telling the Keeper the name was left out, and that `unrecorded` lines are not owed rows.
+- **Telemetry:** `lane: "owed", event: "owed_left_out", stage: "before_admission" | "kernel_refused", owed, reason, kind, turn`.
+
+A forged name never buys the told basis: once the name is left out, the write is reviewed as ordinary, and the kernel remains the final check. A clerk (policy-origin) owed landing is unchanged (§158.4: a row that cannot land stays open). `tests/extension/owed-left-out.test.mjs` covers both stages on the real tool path; `owed-landing.test.mjs`'s forged-name case now asserts an ordinary review that refuses and lands nothing.
+
 ### 168.5 First sight is an obligation with its material
 
 **Evidence** (spec §1, item 4). On the installed App's Blood Road table (`game-717a9e4b`), turns 0–2 described neither the Esso station nor the three men under its awning, though the book describes all four and the station's description was in the capsule. Prose rules alone did not make the Keeper write it. This section makes a first sight an obligation the kernel tracks, carries its material to the Keeper, and checks after each delivery whether the material reached the player.
@@ -31307,7 +31366,7 @@ An item is **owed** while the party stands in the place, or the person is presen
 - **A name is not a description.** Words that only repeat the node's own name, display name, handle or node id describe nothing, so such an item is not carried. The Haunting's scenes are summarised as "scene basement rites"; mystery-house's people as their names.
 - **An open row replaces the description.** An item with an open row carries `missing` (its excerpts) instead of `described`.
 - **Placement.** The section sits before `present`. It is left out when nothing is owed, so a capsule with nothing owed is byte-for-byte what it was.
-- **Budget.** Its own budget is `FIRST_SIGHT_BUDGET`, 4096, fitted on its own (`fitFirstSight`); no other section's budget cuts it.
+- **Budget.** Its own budget is `FIRST_SIGHT_BUDGET`, 8192, fitted on its own (`fitFirstSight`); no other section's budget cuts it. 4096 would cut Blood Road's station and three biographies (about 3.6 KB of Chinese, three bytes a character, before JSON), and a description cut short is what the owner ruled out.
   - Over budget, the largest item gives up a fifth of its description (or its last excerpt) at a time, down to 40 characters.
   - If it is still over, the last items keep only `id` and `name`.
   - Each cut item says `truncated: true`, and the section joins the capsule's `truncated`. Nobody is dropped.

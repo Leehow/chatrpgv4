@@ -86,7 +86,7 @@ export function stageMove(context: ApplyContext, effect: Row): {
  * A campaign seats each person once, in the first scene to claim them, the start scene first (`initialWorld`), so the
  * opening is never played to an empty room. A book that seats them in its entrance and again in the scene the entrance
  * leads on to then kept them in the entrance for good. Blood Road's prologue (`is_entrance`) `hands-off-to` the Esso
- * station, and both seat Lars, Nate and Steve. The player's 「开到油泵旁边」 moved the party to the station, the turn
+ * station, and both seat Lars, Nate and Steve. The player's pull-up at the pumps moved the party to the station, the turn
  * record read `Present: nobody` beside a description of three men under the awning, and the Keeper asked the player
  * for their occupation.
  *
