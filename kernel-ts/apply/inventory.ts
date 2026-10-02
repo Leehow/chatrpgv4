@@ -1,7 +1,7 @@
 /** Staged legacy equipment and era-specific cash; managed instances keep their owner. */
 import {RpcError} from '../errors.js';
 import {isJsonObject,PythonFloat,jsonDigest} from '../json.js';
-import {moduleDeclaration} from '../read/module-graph.js';
+import {moduleDeclaration,isAmbiguity} from '../read/module-graph.js';
 import {findNamedObject} from '../read/mods.js';
 import {EntityIndex} from '../read/memory.js';
 import {actor} from '../read/handlers.js';
@@ -131,6 +131,7 @@ async function cashSource(context:CashContext,effect:Row,heldCurrency:string,sub
 export async function stageCash(context:CashContext,effect:Row,staged:Map<string,Row>):Promise<StagedEffect>{
     const mode=effect.mode??'settle';
     if(mode!=='quote'&&mode!=='settle')throw new RpcError('invalid_params','cash mode must be quote or settle');
+    if(mode==='quote'&&effect.source===undefined)effect={...effect,source:effect.price_id!==undefined?'price':'quote'};
     const requested=effect.settlement;
     if(requested!==undefined&&requested!=='cash'&&requested!=='spending_level')throw new RpcError('invalid_params','settlement must be cash or spending_level');
     const sheet=await stagedSheet(context,staged,effect.subject),id=string(sheet.id),subject=string(sheet.name||sheet.id);
@@ -144,7 +145,14 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     const delta=effect.delta,decimalDelta=cashDecimal(delta);
     if(!decimalDelta||decimalDelta.coefficient===0n)throw new RpcError('invalid_params',"delta must be a finite non-zero amount, or items/quote must provide the amount");
     const why=typeof effect.why==='string'?effect.why:null;
-    const other=typeof effect.with==='string'&&effect.with.trim()?context.graph.npc(effect.with):null;
+    const otherName=typeof effect.with==='string'?effect.with.trim():'';
+    let other:Row|null=null;
+    if(otherName){
+        try{other=context.graph.npc(otherName);}
+        catch(error){if(!(error instanceof RpcError)||error.code!=='unknown_entity'||isAmbiguity(error))throw error;}
+    }
+    const otherId=other?context.graph.handle(other):otherName||null;
+    const otherLabel=other?personLabel(context.world,context.graph.handle(other),context.graph.displayName(other)):otherName||null;
     let finance=sheet.finance;
     if(!isJsonObject(finance)||!isJsonObject(finance.cash)){
         const era=string(sheet.era||moduleDeclaration(context.graph.moduleNode).era||''),tables=new RuleTables(context.kernel);
@@ -158,11 +166,11 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     const category=expenseCategory(effect,decimalDelta.coefficient<0n);
     const purchase={coefficient:-decimalDelta.coefficient,exponent:decimalDelta.exponent};
     if(mode==='quote'){
-        if(!priced||!other||typeof effect.quote!=='string'||!effect.quote.trim()||category==='transfer'||effect.owed)
-            throw new RpcError('invalid_params','A quote needs items, a quote name, an NPC and a living or purchase category');
-        const name=effect.quote.trim(),amount=storedCash(priced.total),withName=string(effect.with);
+        if(!priced||typeof effect.quote!=='string'||!effect.quote.trim()||category==='transfer'||effect.owed)
+            throw new RpcError('invalid_params','A quote needs items, a quote name, a price source and a living or purchase category');
+        const name=effect.quote.trim(),amount=storedCash(priced.total),withName=otherName||null;
         const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after:before,delta:0,
-            category,settlement:'quote',quote:name,purchase_amount:amount,items:priced.items,currency,with:context.graph.handle(other),with_label:personLabel(context.world,context.graph.handle(other),context.graph.displayName(other)),...sourced,why,at:nowIso()};
+            category,settlement:'quote',quote:name,purchase_amount:amount,items:priced.items,currency,with:otherId,with_label:otherLabel,...sourced,why,at:nowIso()};
         const quotes=array(context.world.cash_quotes).filter(value=>value.subject!==id||normalize(string(value.name))!==normalize(name));
         quotes.push({name,subject:id,category,purchase_amount:amount,items:priced.items,currency,with:withName,...sourced,why,settled:null});
         context.world.cash_quotes=quotes;
@@ -178,14 +186,14 @@ export async function stageCash(context:CashContext,effect:Row,staged:Map<string
     if(requested==='spending_level'&&(category!=='purchase'||decimalDelta.coefficient>=0n))throw new RpcError('invalid_params','spending_level is only a purchase settlement');
     if(requested==='spending_level'&&effectiveDelta.coefficient<0n)throw new RpcError('needs','The daily purchase total is above Spending Level',{fix:'Disclose the full cash debit and wait for the player to accept it or use an existing applicable delegation, then omit settlement.',details:{spending_level:covered.fields.spending_level,daily_total:covered.fields.daily_total,cash_debit:storedCash({coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent})}});
     const decimalAfter=addCash(decimalBefore,effectiveDelta);
-    if(decimalAfter.coefficient<0n)throw new RpcError('invalid_params',`${subject} has ${string(before)} ${currency}; cannot lose ${cashText({coefficient:-decimalDelta.coefficient,exponent:decimalDelta.exponent})}`,{fix:'a smaller delta, or narrate the debt without a cash receipt',details:{before,delta,currency}});
+    if(decimalAfter.coefficient<0n)throw new RpcError('invalid_params',`${subject} has ${string(before)} ${currency}; cannot lose ${cashText({coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent})}`,{fix:'a smaller purchase, or narrate the debt without a cash receipt',details:{before,delta,currency,...(category!=='transfer'?{purchase_amount:covered.fields.purchase_amount,cash_debit:storedCash({coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent})}:{})}});
     const after=cashStorage(decimalAfter);
     if(after===null)throw new RpcError('invalid_params','cash result cannot be represented without rounding',{fix:'use an amount that can be stored exactly, or keep this amount as a whole-number cash receipt',details:{before,delta,currency}});
     const actualDelta=cashStorage(effectiveDelta);if(actualDelta===null)throw new RpcError('internal','cash delta could not be represented');
     if(covered.ledger)finance.daily_spending=covered.ledger;
     cash.amount=after;sheet.finance=finance;sheet.cash=`${string(after)} ${currency}`;
     const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after,delta:actualDelta,
-        ...covered.fields,...(priced?{items:priced.items}:{}),...(bound.quote?{quote:bound.quote.name}:{}),with:other?context.graph.handle(other):null,with_label:other?personLabel(context.world,context.graph.handle(other),context.graph.displayName(other)):null,currency,...sourced,why,at:nowIso()};
+        ...covered.fields,...(priced?{items:priced.items}:{}),...(bound.quote?{quote:bound.quote.name}:{}),with:otherId,with_label:otherLabel,currency,...sourced,why,at:nowIso()};
     if(bound.quote)bound.quote.settled=receipt.id;
     return category!=='transfer'&&effectiveDelta.coefficient===0n
         ?{receipt,event:{type:'purchase-settled',data:{subject:id,amount:covered.fields.purchase_amount,settlement:covered.fields.settlement,...(covered.fields.spending_level!==undefined?{spending_level:covered.fields.spending_level}:{}),currency,why,...(other?{with:context.graph.handle(other)}:{})}}}

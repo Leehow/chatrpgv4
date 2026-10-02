@@ -104,7 +104,7 @@ test('arithmetic mismatches and an unaffordable daily catch-up reject the entire
   assert.deepEqual(await game.sheet(),initial);
   await game.call('apply',{call_id:'t1-c1',effects:[{kind:'cash',delta:-(initial.finance.cash.amount-2),source:'found'},spend(9)]});
   const before=await game.sheet();
-  await assert.rejects(game.call('apply',{call_id:'t1-c2',effects:[spend(2)]}),e=>e.code==='invalid_params');
+  await assert.rejects(game.call('apply',{call_id:'t1-c2',effects:[spend(2)]}),e=>e.code==='invalid_params'&&e.details.cash_debit===11);
   assert.deepEqual(await game.sheet(),before);
 });
 
@@ -113,4 +113,24 @@ test('cash transfers stay cash and the legacy cash selector cannot debit a cover
   await game.call('apply',{call_id:'t1-c1',effects:[spend(3,'purchase',{settlement:'cash'}),{kind:'cash',delta:-2,source:'found'},{kind:'cash',delta:0.1,source:'found'}]});
   assert.equal((await game.sheet()).finance.cash.amount,before-1.9);
   assert.deepEqual((await game.receipts()).map(r=>r.delta),[0,-2,0.1]);
+});
+
+test('a printed-price quote needs no invented NPC identity',async t=>{
+  const game=await table(t);
+  const book=JSON.parse(await readFile(join(CONTENT,'rulesets/coc7/rules-json/equipment.json'),'utf8'));
+  const lunch=book.records.find(r=>r.price_id==='eq.1920s.meals.meals_out.lunch');
+  await game.call('apply',{call_id:'t1-c1',effects:[{kind:'cash',mode:'quote',quote:'Lunch',category:'living',source:'price',price_id:lunch.price_id,items:[{name:'Lunch',quantity:1,unit_price:lunch.price.amount}]}]});
+  await game.call('apply',{call_id:'t1-c2',effects:[{kind:'cash',quote:'Lunch'}]});
+  assert.equal((await game.receipts()).at(-1).settlement,'living_standard');
+  assert.equal((await game.receipts()).at(-1).with,null);
+});
+
+test('an ordinary counter clerk can quote and settle without registering an NPC',async t=>{
+  const game=await table(t),before=(await game.sheet()).finance.cash.amount;
+  await game.call('apply',{call_id:'t1-c1',effects:[{kind:'cash',mode:'quote',quote:'Counter lunch',category:'living',with:'The counter clerk',items:[{name:'Burger',quantity:1,unit_price:0.2},{name:'Coffee',quantity:1,unit_price:0.05}]}]});
+  await game.call('apply',{call_id:'t1-c2',effects:[{kind:'cash',quote:'Counter lunch'}]});
+  const paid=(await game.receipts()).at(-1);
+  assert.equal(paid.purchase_amount,0.25);assert.equal(paid.with_label,'The counter clerk');
+  assert.equal((await game.sheet()).finance.cash.amount,before);
+  await game.call('narrate',{call_id:'t1-c3',text:'The meal is served.'});
 });

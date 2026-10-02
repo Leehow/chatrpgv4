@@ -13153,7 +13153,8 @@ new total. Existing unclassified historical receipts and balances are preserved;
 starts with classified settlements under this contract, without guessing historical categories.
 
 `mode: quote` registers a priced offer without paying it. `quote` is its human-readable name;
-`items` is a bounded list of `{name, quantity, unit_price}`. The Keeper supplies prices and
+`items` is a bounded list of `{name, quantity, unit_price}`. A quoted NPC price requires `with`;
+a cited printed price may omit the counterparty. The Keeper supplies prices and
 quantities; the kernel calculates each amount and their total with exact decimal arithmetic.
 An optional `delta` must equal the negative computed total or the batch is refused. The quote
 receipt and the apply result expose the computed `purchase_amount` and item amounts before
@@ -13165,6 +13166,13 @@ currency, counterparty and purpose. A mismatched supplied amount or term is refu
 can be settled once; a repeated RPC call replays its receipt, while a new payment requires a
 new offer. Direct purchases can also carry `items`; omitting delta lets the kernel calculate
 it. Names are semantic references; receipt identifiers remain host-owned.
+
+A one-off counterparty can use its player-visible name/role in `with` without NPC registration.
+Known graph NPCs retain canonical handles and their existing exchange ledger; ambiguous known
+names still refuse. An unregistered label stays on the cash receipt and quotation, and does not
+create an NPC profile. `mode: quote` supplies source quote when omitted (or price with a cited
+price_id); direct cash transfers still require their explicit source. Currency codes remain
+unchanged, never translated or converted.
 
 Receipts and their mechanics retain `category`, `purchase_amount`, `items`, `spending_day`,
 `daily_total`, `daily_debited`, `spending_level` and the chosen `settlement` (`quote`,
@@ -13194,6 +13202,24 @@ separates Spending Level, cash and a daily spending counter; its human-operated 
 solve automatic classification. [Stripe quotations](https://docs.stripe.com/api/quotes/create)
 use quantities and decimal unit amounts; this confirms the shared quote/settlement arithmetic
 shape, without importing real-payment policy or infrastructure into this game.
+
+Verification: eight real-TS RPC regressions cover category omission, ordinary living coverage,
+daily full-total debit, replay/restart/midnight, exact quotation reuse, budget preview/ceiling,
+atomic refusals, printed quotations and unregistered counterparty labels. The cash controller's
+11 Python-driven RPC checks and 13 focused UI/typewriter checks pass. The LAN extension suite
+passes 4272 of 4273 checks; its remaining Narration Craft source-text assertion also fails on
+the untouched base and is outside this repair.
+
+Live acceptance uses Flapcode `gpt-6-luna`/low as Keeper (owner override), the main session as
+the only player, and the existing driver. App fast-model settings are mirrored only in the test
+home after a table-following admission lane returned HTTP 400; its healthy fast lane is
+`opencode-go/deepseek-v4.1-flash`. The real table settled a 0.25 living-standard lunch without
+debit or daily accumulation; quoted two waters at 0.05 each plus cigarettes at 0.15 as 0.25;
+settled that purchase without debiting cash; then settled a 12 tool purchase by debiting the
+full daily 12.25, leaving cash 37.75 from 50. Receipts preserve the individual price, cumulative
+total and actual movement separately. Evidence is preserved under the task's
+`purchase-settlement-20261002` playtest archive. Earlier provider failures remain evidence,
+and are not passing live runs. This verifies the source runtime, not a newly packaged App.
 
 ## 59. A card says which of three things is true about opening it (2026-09-16, amends §16.2)
 

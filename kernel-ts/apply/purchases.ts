@@ -49,7 +49,7 @@ export function expenseCategory(effect:Row,negative:boolean):string {
 export function expenditure(context:Pick<ApplyContext,'world'|'graph'>,finance:Row,category:string,amount:Decimal):{delta:Decimal;fields:Row;ledger?:Row} {
     if(category==='living'){
         if(typeof finance.living_standard!=='string'||!finance.living_standard.trim())throw new RpcError('needs','Living-standard coverage needs an established living standard',{fix:'Use purchase for additional expenditure until a living standard has been established.'});
-        return {delta:ZERO,fields:{category,settlement:'living_standard',purchase_amount:storedCash(amount)}};
+        return {delta:ZERO,fields:{category,settlement:'living_standard',purchase_amount:storedCash(amount),living_standard:finance.living_standard}};
     }
     const level=cashDecimal(row(finance.spending_level).amount);
     if(!level||level.coefficient<0n)throw new RpcError('needs','Purchase coverage needs a usable Spending Level',{fix:'Establish the investigator finance period before settling purchases.'});

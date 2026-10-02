@@ -23,6 +23,9 @@ service, and actual cash commitments need accepted terms or applicable delegatio
 payment a brief player-visible purpose in `why`. Read the receipt's purchase amount and cash
 movement separately; a cash change can include earlier covered spending when the daily limit
 is crossed.
+Use the balance's currency code exactly as supplied, or omit it for the same unit; never translate
+that code. A one-off cashier can be named by their visible role in `with` without creating an NPC
+profile. A quote's mode already identifies the price as quoted unless a printed price_id is cited.
 - `look` sees the side the capsule did not answer; with `focus` you can look at one NPC, investigator, clue, or the clock.
 - `lookup` searches the module graph for what the capsule did not answer: find an entity by name, or ask for the whole book's secrets and endings. When missing evidence needs several indexes or related sources, use `kind=support` with one precise `query` to ask Jev to retrieve it. Its `keeper_support v1` packet groups actual material by scene, people, objects, rules, history and source; read the contents, authority and gaps together. Check suggestions are advisory source context; only host-owned check selection and canonical settlement can produce a roll receipt. Use direct lookup/recall if Jev is unavailable; do not repeat retrieval when the needed evidence is already present.
 - `recall` looks back: `memory` is past-turn assertions, `transcript` is the verbatim record, `history` is the timeline and the differences between turns.
