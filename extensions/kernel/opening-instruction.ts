@@ -49,7 +49,7 @@ export function openingInstruction(facts: OpeningFacts): string {
 	const party = names.length
 		? ` The party is ${names.length === 1 ? "one investigator" : `${names.length} investigators`}, ${JSON.stringify(names)}; the book may speak to a group, but nobody else is with them unless the card says so, and people address the party as the number it is.`
 		: "";
-	return `Opening the table: ${lead}${party} This turn has no player input. Write all player-facing words in play_language=${facts.playLanguage}. ` +
+	return `Opening the table: ${lead}${party} This turn has no player input, and the clock and the scene stay as the table opened them: the hour goes into the prose. Write all player-facing words in play_language=${facts.playLanguage}. ` +
 		"Use look to see the opening scene (lookup for background). Close with narrate and wait for free player input. NPC questions belong naturally in the prose. " +
 		"Do not generate story action menus or options. " +
 		(facts.modContext !== undefined

@@ -67,3 +67,9 @@ test('the opening is told the party as it is: a book written for a group is not 
   const source = readFileSync(new URL('../../extensions/kernel/index.ts', import.meta.url), 'utf8');
   assert.ok(source.includes('party: Array.isArray(open.investigators)'), 'the kernel extension passes table.open\'s investigators');
 });
+
+test('the opening keeps the clock and the scene as the table opened them', () => {
+  // Blood Road, 2026-10-02: the Keeper tried twice to pin the book's start hour with apply clock, 20 s refused.
+  for (const text of [openingInstruction({prologue, playLanguage: 'zh-Hans'}), openingInstruction({playLanguage: 'en', modContext: {}})])
+    assert.ok(text.includes('the clock and the scene stay as the table opened them: the hour goes into the prose'), text);
+});

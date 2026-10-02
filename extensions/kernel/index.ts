@@ -6598,7 +6598,9 @@ export default function (pi: ExtensionAPI) {
 			const bridgePending = openingModShape && !mods;
 			const reason = bridgePending
 				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
-				: `the turn state is ${state.state}, so nothing may change state: wait for the player to speak, or use only look, lookup and recall`;
+				// Only the opening reaches this line (§86). The generic "use only look, lookup and recall" had the installed App's
+				// Keeper (Blood Road, 2026-10-02) try to pin the book's start hour twice, 20 s of round trips before the prose.
+				: `the turn state is ${state.state} and this is the table's opening: until the player first speaks only narrate and ask (and the opening's Mod definitions) are accepted; the clock, the scene and everything else stay as the table opened them, so put the hour or whatever you meant to set into the prose and close with narrate`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.
