@@ -67,7 +67,10 @@ delegated immediate creation. Once the tool returns, compare the actual
 `own_language` and Language skill values with the module advice. If the card leaves
 a material language difficulty, include it in the short account before inviting
 confirmation: explain what this person may struggle to understand or express,
-without a numerical lecture. A language listed at its base is not fluency.
+without a numerical lecture. A Language (Other) listed at its base is not fluency.
+Language (Own) is different: its base is the person's EDU, and at that value they
+speak, read and write the tongue they were raised in as a native does; never call it
+basic or say they may struggle in it.
 
 The player may knowingly keep that disadvantage. Do not silently add a foreign
 language, raise its value, spend points or reroll to remove the warning. Change
