@@ -130,7 +130,9 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
         // §115 asked this line to say `apply person` gives an epithet; compressed to "apply person, then called.name", the
         // Keeper of the installed App's Blood Road table (2026-10-02, turn 5) applied the book's names and wrote them; told
         // "never this name", the next table's Keeper applied the station owner's nickname instead, the short name the book gives him.
-        use: "Name untold: by look only; apply person an epithet of what is seen, no name or nickname of theirs; called.name and say token use it till said.",
+        // §115: every untold row of a crowded room carries this line, so it stays near its first length (the nine-person
+        // bench keeps four full dossiers only while it does).
+        use: "Name untold: by look; apply person an epithet, no name/nickname; called.name and say token use it.",
     };
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
