@@ -4,6 +4,7 @@ import { importFromGlobalGrok, parseImportConfirm } from "./oauth/import.js";
 import { createAuthProvider, GROK_BUILD_PROVIDER_ID } from "./provider.js";
 import { registerInputFilesHooks } from "./input-files-hooks.js";
 import { registerStructuredOutputHooks } from "./structured-output-hooks.js";
+import { registerCacheRoutingHooks } from "./cache-routing.js";
 import { createBroker } from "./oauth/broker.js";
 import { authJsonPath } from "./oauth/home.js";
 import { ImagesClient, resolveImageReference, } from "./images/client.js";
@@ -72,6 +73,7 @@ export default async function (pi) {
     if (typeof pi.on === "function") {
         registerInputFilesHooks(pi);
         registerStructuredOutputHooks(pi);
+        registerCacheRoutingHooks(pi);
     }
     // Explicit one-shot import from the official grok CLI's ~/.grok/auth.json
     // (US-09): requires --confirm, reads the source exactly once, validates
