@@ -267,3 +267,20 @@ test('the kernel\'s historical port spends no search on a grant bound to another
   assert.equal(result.reason,'not_selected');
   assert.equal(exa.length,0);
 });
+// The App's third table (2026-10-02): a move inside the turn ran the scene lookup twice -- the scene left and the
+// destination -- and the first spent the input's allowance, so the destination's came back budget_exhausted. Each
+// scene's host lookup has its own allowance: three scenes in one turn all reach Exa (one shared binding allows two).
+test('each scene\'s host lookup has its own retrieval allowance within one turn',async t=>{
+  const exa=[];t.after(historyServices(exa));
+  let port,binding;
+  const table=await openTable({realKernel:true,env:historyEnv,responses:[],
+    prepareWorkspace:workspace=>{binding=kernelSteps(workspace,[['table.open',{}],['table.capsule',{}]]).at(-1)._context;},
+    extraExtensions:[{name:'history-port-probe',factory:pi=>pi.events.on('coc:historical-reference',value=>{port=value;})}]});
+  t.after(()=>table.dispose());
+  const scope={owner:'probe',campaign:binding.campaign,worldline:binding.worldline,loop:binding.loop,audience:'keeper'};
+  const results=[];
+  for(const scene of ['bar','station','store'])
+    results.push(await port.search({run:'one-run',scene,turn:binding.turn,scope,query:`1970s West Texas ${scene} first-hand account`,objective:'How it was then.'}));
+  assert.deepEqual(results.map(result=>result.reason),['selected','selected','selected'],JSON.stringify(results.map(result=>result.reason)));
+  assert.equal(exa.length,3);
+});

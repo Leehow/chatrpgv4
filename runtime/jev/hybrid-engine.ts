@@ -483,7 +483,7 @@ function defaultLine(candidate: Candidate): string | undefined {
 
 /** Per-run state the ports share; the policy's own state stays in the driver. */
 /** §124.12 (2026-10-02): the kernel extension's port that runs the lookup's own historical search for the host (`coc:historical-reference`). */
-interface HistoryPort {campaign: string; search(request: {run: string; turn: number; scope: unknown; query: string; objective?: string;
+interface HistoryPort {campaign: string; search(request: {run: string; scene?: string; turn: number; scope: unknown; query: string; objective?: string;
   signal?: AbortSignal; deadlineAt?: number}): Promise<Row | undefined>}
 /** A scene's prefetch: the search in flight (`done`), what it returned once it did (`result`), or a scene's earlier result reused. */
 interface HistoryPrefetch {key: string; query: string; objective: string; reused: boolean; result?: Row; done: Promise<Row | undefined>}
@@ -1678,7 +1678,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         ...(written && !written.ok ? {query_failure: written.reason} : {}), writer_ms: written?.ms ?? null});
       if (signal.aborted) return undefined;
       // Bounded by the lookup's own four-second allowance, never by the turn's time (owner, 2026-10-02).
-      const result = await port.search({run: run.runId, turn, scope, query: prefetch.query, objective: prefetch.objective, signal});
+      // Each scene's lookup has its own retrieval allowance (`scene`), so a move inside the turn cannot starve the destination's.
+      const result = await port.search({run: run.runId, scene: history.scene, turn, scope, query: prefetch.query, objective: prefetch.objective, signal});
       prefetch.result = result;
       if (result && ['ready', 'empty'].includes(text(result.status))) {
         preparedScenes.delete(key);
