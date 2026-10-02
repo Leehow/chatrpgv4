@@ -427,3 +427,7 @@ Setup prologue display now uses triggerTurn:false in session_start, execute and 
 ### NPC speech edit lane (§165, 2026-10-01)
 
 Two app-play-gated leaves in `extensions/speech-edit/index.ts`. `runJob` `runLane`: after a narrate delivery with an NPC line, when exactly one enabled package contributes `speech_edit_lane` and a Jev key is configured, one zero-tool completion (the owner's exception, 2026-10-01) edits the wording of every NPC line; timeout 60 s, effort low, model `PI_COC_SPEECH_EDIT_MODEL`, then the fast-model setting, then the table. `askJev` `createDecisionAdapter`: family `speech-edit-facts` v1, one fanned-out request with a Noul per changed line; at or above 0.5 the line keeps its original, and an unavailable batch drops the whole edit. Both run off the player's path (the lane queue, never awaited by a turn); the result lands as the kernel's `speech_edit` overlay and one §132 card patch. Neither starts or extends a model run.
+
+### Flapcode provider (2026-10-02)
+
+Two app-play infra sites in `extensions/flapcode/agent/`, added with the provider (`33409e0ef`, copied from PipiUI); since 2026-10-02 the Keeper's model is `flapcode/gpt-6-luna`. `accounts.js` `fetchFlapcodeAccount` reads the subscription's plan and expiry from the account API once per agent start. `discovery.js` `discoverFlapcodeBaseUrl` reads the account's relay base URL at provider registration. Neither calls a model; both are bounded by a 10 s timeout and never throw. Completions go through Pi's stream path, not this code.

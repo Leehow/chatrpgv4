@@ -302,6 +302,30 @@
       ]
     },
     {
+      "file": "extensions/flapcode/agent/accounts.js",
+      "symbol": "fetchFlapcodeAccount",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "flapcode provider (Keeper model provider since 2026-10-02)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a (added 2026-10-02)",
+      "note": "Subscription plan and expiry from the Flapcode account API, once per agent start, persisted beside the rate-limit snapshot; best-effort, never a completion."
+    },
+    {
+      "file": "extensions/flapcode/agent/discovery.js",
+      "symbol": "discoverFlapcodeBaseUrl",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "flapcode provider (Keeper model provider since 2026-10-02)",
+      "path": "app-play",
+      "role": "infra",
+      "trace": "n/a (added 2026-10-02)",
+      "note": "The account's relay base URL from the Flapcode CLI config endpoint at provider registration; on failure the provider keeps its default gateway. Never a completion."
+    },
+    {
       "file": "extensions/grok-build-oauth/agent/catalog.js",
       "symbol": "loadGrokBuildCatalog",
       "kind": "network",
@@ -2000,7 +2024,7 @@
       "path": "app-play-gated",
       "role": "leaf",
       "trace": "historical-reference telemetry and request-supply tests",
-      "note": "Enabled Mod, configured credentials and a Jev-issued need; bounded retrieval and selection return to the same main Keeper tool. No second agent."
+      "note": "Enabled Mod, configured credentials and a Jev-issued need; bounded retrieval and selection return to the same main Keeper tool, or, for the host scene lookup (2026-10-02), to the engine through the kernel port coc:historical-reference. No second agent."
     },
     {
       "file": "runtime/historical-reference.ts",
@@ -2012,7 +2036,7 @@
       "path": "app-play-gated",
       "role": "leaf",
       "trace": "historical-reference telemetry and request-supply tests",
-      "note": "Enabled Mod, configured credentials and a Jev-issued need; bounded retrieval and selection return to the same main Keeper tool. No second agent."
+      "note": "Enabled Mod, configured credentials and a Jev-issued need; bounded retrieval and selection return to the same main Keeper tool, or, for the host scene lookup (2026-10-02), to the engine through the kernel port coc:historical-reference. No second agent."
     },
     {
       "file": "extensions/speech-edit/index.ts",
