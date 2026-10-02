@@ -248,3 +248,10 @@ Node 24, verify actual Pi 1.0 provenance/identity and pause itself. Do not
 package/install an App or change model defaults. The temporary worktree may
 close once this source commit and evidence are preserved; the runtime gate is
 then continued from this main-checkout plan rather than a removed checkout.
+
+- Lifecycle closeout completed: owned worktree and branch closed, final audit
+  pending_count=0. Temporary upstream clone and test alias removed. Runtime
+  monitor pi-1-0 now continues only from the main checkout and preserved archive.
+- Source integration record is 23f4c727d43b202f84a947ef1c6ce44963854a2a.
+  Remaining work is solely safe replacement/verification of the main source
+  runtime after the active foreign driver exits. No App delivery is authorized.
