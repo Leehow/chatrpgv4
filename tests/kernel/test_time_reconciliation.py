@@ -3,6 +3,12 @@
 The kernel reads no prose: the host sends `time_reading` only when Jev read a cut (§145.2). Table npc-acts-b2, turn 8,
 is the case: the prose left at closing time and came back "the next morning"; the clock read 1920-10-12 10:00 with no
 time landed. The Haunting opens at that same reading.
+
+§166 (owner ruling 2026-10-01) supersedes §145.3's refusal: a prose-implied time gap no longer refuses the delivery.
+The first draft goes out, and the gap is the finding §145.3 already kept for a delivery that went out anyway -- one
+`time_unrecorded` row on the turn record (with `suggest` when the kernel can name the `until`) and a `lane: "delivery"`
+telemetry row with `outcome: "delivered"`. There is no `time_gate` and no same-turn answer: the Keeper acts on the
+finding on a later turn (§145.4's `unrecorded`). The detection these tests guard is read from those two records.
 """
 
 from conftest import campaign_dir, open_turn, read_json, read_jsonl
@@ -19,10 +25,6 @@ def deliver(client, call_id, **params):
     return client.table("narrate", call_id=call_id, text=TEXT, **params)
 
 
-def refuse(client, call_id, **params):
-    return client.table_err("narrate", call_id=call_id, text=TEXT, **params)
-
-
 def record(client, turn=1):
     return read_json(campaign_dir(client.workspace) / "turns" / f"{turn:04d}.json")
 
@@ -35,24 +37,27 @@ def time_warnings(rec):
     return [row for row in rec.get("warnings") or [] if row.get("kind") == "time_unrecorded"]
 
 
-def test_a_skip_with_no_time_is_refused_once_with_the_call_that_closes_it(kernel):
+def delivered_gap(client, call_id, turn=1, **params):
+    """§166: the delivery goes out on its first attempt; returns the gap's finding on the record and its telemetry row."""
+    assert deliver(client, call_id, **params)["turn"] == turn
+    [warning] = time_warnings(record(client, turn))
+    [row] = [row for row in time_rows(client) if row["call_id"] == call_id]
+    assert (row["ok"], row["outcome"], row["lane"], row["turn"]) == (True, "delivered", "delivery", turn), row
+    return warning, row
+
+
+def test_a_skip_with_no_time_is_delivered_with_the_finding_that_names_the_call(kernel):
+    """§166: no refusal and no `time_gate`; what the refusal carried is on the finding and its telemetry row."""
     open_turn(kernel)
-    error = refuse(kernel, "t1-c1", time_reading=reading())
-    assert error["code"] == "needs"
-    details = error["details"]
-    assert details["reason"] == "time_unrecorded" and details["cut"] == "next_day" and details["ends_at"] == "morning"
-    assert details["landed_minutes"] == 0 and details["floor"] == 240
-    assert details["clock"] == {"at": "1920-10-12T10:00", "day_part": "morning"}
-    assert details["suggest"] == {"until": {"days": 1, "time": "08:00"}}
-    assert "apply time" in error["fix"] and "until" in error["message"]
-    assert read_json(campaign_dir(kernel.workspace) / "turn.json")["time_gate"] == {"call_id": "t1-c1"}
-    assert [(row["ok"], row["outcome"]) for row in time_rows(kernel)] == [(False, "refused")]
-    # The gate is spent: the same skip again goes out, with the finding on the record.
-    deliver(kernel, "t1-c2", time_reading=reading())
-    warnings = time_warnings(record(kernel))
-    assert len(warnings) == 1 and warnings[0]["lane"] == "delivery" and warnings[0]["cut"] == "next_day"
-    assert warnings[0]["suggest"] == {"until": {"days": 1, "time": "08:00"}} and "apply time" in warnings[0]["fix"]
-    assert [(row["ok"], row["outcome"]) for row in time_rows(kernel)] == [(False, "refused"), (True, "delivered")]
+    warning, row = delivered_gap(kernel, "t1-c1", time_reading=reading())
+    assert warning["lane"] == "delivery" and warning["quote"] is None
+    assert warning["cut"] == "next_day" and warning["ends_at"] == "morning"
+    assert warning["suggest"] == {"until": {"days": 1, "time": "08:00"}}
+    assert "apply time" in warning["fix"] and "until" in warning["fix"]
+    assert "1920-10-12T10:00 (morning)" in warning["why"]
+    assert (row["cut"], row["ends_at"], row["landed"], row["floor"], row["day_part"]) == ("next_day", "morning", 0, 240, "morning")
+    assert "time_gate" not in read_json(campaign_dir(kernel.workspace) / "turn.json")
+    assert [(row["ok"], row["outcome"]) for row in time_rows(kernel)] == [(True, "delivered")]
 
 
 def test_not_refusable_goes_out_with_the_finding(kernel):
@@ -66,30 +71,32 @@ def test_too_little_time_is_a_gap(kernel):
     """Turn 8's own number: fifteen minutes for a night."""
     open_turn(kernel)
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 15}])
-    error = refuse(kernel, "t1-c2", time_reading=reading())
-    assert error["details"]["landed_minutes"] == 15
+    warning, row = delivered_gap(kernel, "t1-c2", time_reading=reading())
+    assert row["landed"] == 15 and row["floor"] == 240 and "15 minutes landed" in warning["why"]
 
 
 def test_the_suggestion_counts_from_the_day_the_turn_began(kernel):
     """Turn 5's shape: 1050 minutes put the clock at 03:30 the next day; the prose is in the next morning. The
-    small hours are two parts from the morning, so it is a gap, and the suggestion is tomorrow as the turn began."""
+    small hours are two parts from the morning, so it is a gap, and the suggestion is tomorrow as the turn began
+    (counted from the staged clock it would have been days 0).
+
+    §166: the delivery closes the turn, so the suggestion can no longer be landed on the turn it was counted for;
+    `until` binding from the turn's own day after such a batch is test_time_until.py's
+    test_days_count_from_the_day_the_turn_began."""
     open_turn(kernel)
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 1050}])
-    error = refuse(kernel, "t1-c2", time_reading=reading())
-    assert error["details"]["clock"]["day_part"] == "small_hours"
-    assert error["details"]["suggest"] == {"until": {"days": 1, "time": "08:00"}}
-    kernel.table("apply", call_id="t1-c3", effects=[{"kind": "time", "until": error["details"]["suggest"]["until"]}])
-    deliver(kernel, "t1-c4", time_reading=reading())
-    assert time_warnings(record(kernel)) == []
-    assert kernel.table("capsule")["where"]["clock"]["at"] == "1920-10-13T08:00"
+    warning, row = delivered_gap(kernel, "t1-c2", time_reading=reading())
+    assert row["day_part"] == "small_hours" and row["landed"] == 1050
+    assert warning["suggest"] == {"until": {"days": 1, "time": "08:00"}}
 
 
 def test_enough_minutes_to_the_wrong_part_of_the_day_is_a_gap(kernel):
     """Six hours from 10:00 is 16:00, the afternoon; the prose is in the next morning: two parts away."""
     open_turn(kernel)
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 360}])
-    error = refuse(kernel, "t1-c2", time_reading=reading())
-    assert error["details"]["landed_minutes"] == 360 and error["details"]["clock"]["day_part"] == "afternoon"
+    warning, row = delivered_gap(kernel, "t1-c2", time_reading=reading())
+    assert row["landed"] == 360 and row["floor"] == 240 and row["day_part"] == "afternoon"
+    assert warning["ends_at"] == "morning"
 
 
 def test_a_neighbouring_day_part_is_not_a_gap(kernel):
@@ -101,11 +108,16 @@ def test_a_neighbouring_day_part_is_not_a_gap(kernel):
 
 
 def test_the_suggested_until_closes_the_gap(kernel):
+    """§166: the finding is acted on a turn later. Turn 1 landed no time, so turn 2 begins on the same day and the
+    suggestion, landed as `until`, puts the clock where the prose is: the same reading on turn 2 is no gap."""
     open_turn(kernel)
-    suggest = refuse(kernel, "t1-c1", time_reading=reading())["details"]["suggest"]["until"]
-    kernel.table("apply", call_id="t1-c2", effects=[{"kind": "time", "until": suggest}])
-    deliver(kernel, "t1-c3", time_reading=reading())
-    assert time_warnings(record(kernel)) == []
+    warning, _ = delivered_gap(kernel, "t1-c1", time_reading=reading())
+    suggest = warning["suggest"]["until"]
+    kernel.table("player_input", text="我等到天亮再来。")
+    kernel.table("apply", call_id="t2-c1", effects=[{"kind": "time", "until": suggest}])
+    deliver(kernel, "t2-c2", time_reading=reading())
+    assert time_warnings(record(kernel, 2)) == []
+    assert [row["turn"] for row in time_rows(kernel)] == [1]
     assert kernel.table("capsule")["where"]["clock"]["at"] == "1920-10-13T08:00"
 
 
@@ -125,8 +137,8 @@ def test_travel_minutes_count_as_the_clock_moving(kernel):
 
 def test_later_today_suggests_today_when_the_part_is_still_ahead(kernel):
     open_turn(kernel)
-    error = refuse(kernel, "t1-c1", time_reading=reading(cut="later_today", floor=60, ends_at="evening"))
-    assert error["details"]["suggest"] == {"until": {"days": 0, "time": "18:00"}}
+    warning, _ = delivered_gap(kernel, "t1-c1", time_reading=reading(cut="later_today", floor=60, ends_at="evening"))
+    assert warning["suggest"] == {"until": {"days": 0, "time": "18:00"}}
 
 
 def test_no_suggestion_behind_the_clock(kernel):
@@ -134,15 +146,16 @@ def test_no_suggestion_behind_the_clock(kernel):
     so nothing is suggested; counted from the staged clock it would have offered tomorrow's midday."""
     open_turn(kernel)
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "time", "minutes": 600}])
-    error = refuse(kernel, "t1-c2", time_reading=reading(cut="later_today", floor=60, ends_at="midday"))
-    assert error["details"]["clock"]["day_part"] == "evening"
-    assert "suggest" not in error["details"]
+    warning, row = delivered_gap(kernel, "t1-c2", time_reading=reading(cut="later_today", floor=60, ends_at="midday"))
+    assert row["day_part"] == "evening" and row["landed"] == 600
+    assert "suggest" not in warning
 
 
 def test_days_suggest_nothing(kernel):
     open_turn(kernel)
-    error = refuse(kernel, "t1-c1", time_reading=reading(cut="days", floor=1440, ends_at="morning"))
-    assert "suggest" not in error["details"]
+    warning, row = delivered_gap(kernel, "t1-c1", time_reading=reading(cut="days", floor=1440, ends_at="morning"))
+    assert warning["cut"] == "days" and row["floor"] == 1440
+    assert "suggest" not in warning
 
 
 def test_the_gap_stays_in_unrecorded_until_time_lands(kernel):
