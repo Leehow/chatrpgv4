@@ -16,6 +16,8 @@ import { currentLine, head, lineCommit, run, checkout, createBranch, deleteBranc
 import { checkpointFromRecord, writeCheckpoint, readableTurn } from "../write/continuation.js";
 import type { createWriteRuntime } from "../write/index.js";
 import { carryOwed, owedOfTurn } from "../owed/index.js";
+import { carryFirstSight, firstSightOfTurn } from "../first-sight/index.js";
+import { nowIso } from "../write/store.js";
 
 type WriteRuntime = ReturnType<typeof createWriteRuntime>;
 
@@ -131,10 +133,13 @@ export function createBranchHandlers(context: KernelContext, writer: WriteRuntim
       const base = seal || await head(wl);
       // §158.3: the fork turn's own owed rows were written after its commit; read them before leaving the source line.
       const told = await owedOfTurn(campaign, forkTurn);
+      // §168.5: so were the fork turn's own first-sight results.
+      const seen = await firstSightOfTurn(campaign, forkTurn);
       await createBranch(wl, name, short);
       created = true;
       await checkout(wl, name);
       await carryOwed(context, campaign.id, told);
+      await carryFirstSight(context, campaign.id, forkTurn, seen, nowIso());
       if (isJsonObject(lines[source])) {
         lines[source].status = "dormant";
         lines[source].last_turn = turn ? Math.max(0, number(turn.turn) - 1) : null;

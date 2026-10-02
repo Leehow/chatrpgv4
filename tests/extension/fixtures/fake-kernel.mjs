@@ -37,6 +37,9 @@
  *                          （契约 §21.5，票 #31）。`investigator.save` 每次调用回一个
  *                          新铸的 library_id，不真的把桌上的卡写进这份名册。
  *   FAKE_KERNEL_PRESENT    JSON array: replaces the capsule's `present` rows (contract §13.1)
+ *   FAKE_KERNEL_FIRST_SIGHT JSON object: the capsule's `first_sight` section (contract §168.5), before `present`;
+ *                          `table.first_sight` lands on it as the kernel does: an empty `missing` takes the item out,
+ *                          any other replaces its `described`. With nothing left the section is gone.
  *   FAKE_KERNEL_ROSTER     JSON array: `table.look {focus:"scene"}`'s `roster` field (contract §11.5.8,
  *                          SL-67) -- the campaign's established table/`from_passage` persons, unconditioned
  *                          by scene or presence; not given is an empty roster, same as a campaign that has
@@ -73,6 +76,7 @@ const FAKE_CLOCK_MINUTES = 555;
 /** The turn whose one §145.3 refusal was spent. */
 let timeGateTurn = -1;
 const ERRORS = process.env.FAKE_KERNEL_ERRORS ? JSON.parse(process.env.FAKE_KERNEL_ERRORS) : {};
+let firstSight = process.env.FAKE_KERNEL_FIRST_SIGHT ? JSON.parse(process.env.FAKE_KERNEL_FIRST_SIGHT) : null;
 const CAMPAIGNS = process.env.FAKE_KERNEL_CAMPAIGNS
 	? JSON.parse(process.env.FAKE_KERNEL_CAMPAIGNS)
 	: [{ id: "test-camp", title: "闹鬼的房子", module_id: "the-haunting", status: "active", turn: 0 }];
@@ -302,6 +306,7 @@ function capsule(playerText, params = {}) {
 			clock: { minutes: 555, elapsed: "9 小时 15 分钟", at: "1925-06-01T09:15", day_part: "上午" },
 			session: null,
 		},
+		...(firstSight && (firstSight.place || firstSight.people?.length) ? { first_sight: structuredClone(firstSight) } : {}),
 		present: process.env.FAKE_KERNEL_PRESENT ? JSON.parse(process.env.FAKE_KERNEL_PRESENT) : [
 			{
 				name: "看门人",
@@ -1217,6 +1222,25 @@ function handle(method, params) {
 		// 两条车道的 RPC（契约 §12.8）：不带 call_id、不看回合状态，晚到也收。
 		case "table.warn":
 			return { ok: true, result: { recorded: (params.findings ?? []).length, dropped: 0 } };
+		case "table.first_sight": {
+			const land = (entry, item) => {
+				if (!item.missing.length) return null;
+				const { described: _described, ...rest } = entry;
+				return { ...rest, missing: item.missing };
+			};
+			for (const item of params.items ?? []) {
+				if (!firstSight) break;
+				if (item.kind === "place" && firstSight.place?.id === item.id) {
+					const next = land(firstSight.place, item);
+					if (next) firstSight.place = next; else delete firstSight.place;
+				}
+				if (item.kind === "person" && Array.isArray(firstSight.people))
+					firstSight.people = firstSight.people.flatMap((person) => person.id !== item.id ? [person] : land(person, item) ? [land(person, item)] : []);
+			}
+			const items = params.items ?? [];
+			return { ok: true, result: { turn: params.turn, shown: items.filter((item) => !item.missing.length).map(({ kind, id }) => ({ kind, id })),
+				open: items.filter((item) => item.missing.length), dropped: [] } };
+		}
 		case "memory.job": {
 			// 缺省派发（不给 turn）：取还没抽过、也不在 backlog 里的那个回合（契约 §12.3）。
 			// 取走就出队，队空了回 job_id: null——补抽据此收手（#20）。

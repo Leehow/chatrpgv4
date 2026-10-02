@@ -25,6 +25,7 @@ import type { ModuleGraph } from "./module-graph.js";
 import {openIntents} from '../npc/intents.js';
 import {allReceipts, coercionPressures} from '../resolve/coercion.js';
 import { capsuleOwed } from "../owed/index.js";
+import { FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight } from "../first-sight/index.js";
 import { historicalSetting } from './historical-setting.js';
 /**
  * §135.11.1 (SL-50 re-ruling, 2026-09-25): writes are silent. Prose beside a write or read call is dropped before anyone
@@ -91,6 +92,16 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
 export const HEAD_MODULE = " This turn also carries a module section (the table briefing, this once): what the book is about, its era, " +
     "the factions, places and people (absent ones included, keeper-only), the ending and conclusion names and " +
     "the structure type; do not lookup the book before opening.";
+/**
+ * Contract §168.5: said only on a capsule that carries `first_sight`, as `HEAD_MODULE` is said only with its section.
+ * The interface is the kernel's; how to write a first sight is the prose package's.
+ */
+export const HEAD_FIRST_SIGHT = " first_sight is the player's first sight of these: the place, when it is new to them, and each person " +
+    "here they have not yet seen. Write what the book describes of the place, and of each person their looks, dress " +
+    "and manner, in this reply, in the play language, along the eye's path, before the turn's business. A person is " +
+    "seen before named. Nothing here is a fact to recite: only what can be seen or heard on arrival. An item that " +
+    "carries missing instead of described was written before without these details, and they are still owed; an " +
+    "item marked truncated was cut to fit, and look returns the rest.";
 export const BUDGETS: Readonly<Record<string, number>> = Object.freeze({
     where: 4096,
     present: 3072,
@@ -352,6 +363,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         { world, turn, party, meta, context } = campaign,
         scene = graph.scene(world.active_scene),
         present = npcsPresent(graph, world, scene);
+    // §168.5: what the book describes of the place and the people here that the player has not yet been shown.
+    const firstSight = firstSightSection(graph, world, scene, campaign.jsonFiles.get("first-sight.json"));
     const dg = await DirectorGraph.load(context),
         craft = await TextGraph.load(context),
         ontology = await Ontology.load(context),
@@ -424,6 +437,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     const sections: Row = clone({
         where,
         historical_setting: await historicalSetting(campaign, module),
+        // §168.5: before present, so the material for a first sight is read before the dossiers.
+        ...(firstSight ? { first_sight: firstSight } : {}),
         present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records, scope:npcScope }),
         voices: voicesSection(graph, world, scene),
         known: knownSection(graph, world, scene, party, campaign.records),
@@ -460,6 +475,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         untold: untoldReceipts(campaign.records, number(turn.turn))
     });
     const truncated: string[] = [];
+    // §168.5: its own budget, fitted on its own; no other section's budget cuts it.
+    if (sections.first_sight && fitFirstSight(sections.first_sight, FIRST_SIGHT_BUDGET))
+        truncated.push("first_sight");
     if (fitBudget(sections.known.flags, 512, "last"))
         truncated.push("known.flags");
     for (const [name, budget] of Object.entries(BUDGETS)) {
@@ -484,6 +502,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     if (fitBudget(sections.worldlines, 1536, "last"))
         truncated.push("worldlines");
     let head = HEAD;
+    if (sections.first_sight)
+        head += HEAD_FIRST_SIGHT;
     // The book's own navigation (spec thin-book-play B): what the book holds and what is still unread, so a
     // thin graph is never mistaken for the book saying no. Names and pages only; the reading is asked for by name.
     if (truth(module.meta.reading_version)) {
