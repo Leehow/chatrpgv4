@@ -26,6 +26,9 @@ async function table(t){
   return {
     call:(method,params={})=>client.call(`table.${method}`,{campaign:'c1',...params}),
     sheet:async()=>JSON.parse(await readFile(sheetPath,'utf8')),
+    world:async()=>JSON.parse(await readFile(join(home,'.coc/campaigns/c1/world.json'),'utf8')),
+    record:async turn=>JSON.parse(await readFile(join(home,`.coc/campaigns/c1/turns/${String(turn).padStart(4,'0')}.json`),'utf8')),
+    metaPath:join(home,'.coc/campaigns/c1/campaign.json'),
     receipts:async()=>(await client.call('table.status',{campaign:'c1'})).receipts.filter(r=>r.kind==='cash'&&r.call_id!=='t1-c0'),
     restart:async()=>{await client.close();client=connect();},
   };
@@ -133,4 +136,67 @@ test('an ordinary counter clerk can quote and settle without registering an NPC'
   assert.equal(paid.purchase_amount,0.25);assert.equal(paid.with_label,'The counter clerk');
   assert.equal((await game.sheet()).finance.cash.amount,before);
   await game.call('narrate',{call_id:'t1-c3',text:'The meal is served.'});
+});
+
+const draft={quote:'Water and cigarettes',category:'purchase',with:'Counter clerk',why:'Water and cigarettes',items:[
+  {name:'Water',quantity:2,unit_price:0.5},{name:'Cigarettes',quantity:1,unit_price:1.75},
+]};
+test('delivery precedes quote arithmetic; persisted drafts recover and settle exact terms once',async t=>{
+  const game=await table(t),before=await game.sheet(),text='The clerk puts the bill beside the goods and waits.';
+  const delivery=await game.call('narrate',{call_id:'t1-c1',text,quotes:[draft]});
+  assert.equal(delivery.rendered_text,text);
+  const pending=delivery.mechanics.find(row=>row.quote_status==='pending');
+  assert.ok(pending.quote_key);
+  assert.equal(pending.purchase_amount,undefined);
+  assert.equal((await game.world()).cash_quotes,undefined,'no quote registered before prose delivery');
+  assert.equal((await game.record(1)).quote_drafts.length,1);
+  await game.restart();
+  assert.deepEqual((await game.call('quotes.flush')).turns,[1]);
+  await game.call('player_input',{text:'I accept this bill.'});
+  const landed=await game.call('quotes.flush',{turn:1});
+  assert.equal(landed.quotes[pending.quote_key].purchase_amount,2.75);
+  assert.equal(landed.quotes[pending.quote_key].quote_status,'ready');
+  assert.deepEqual(await game.sheet(),before,'registration never changes cash, spending or equipment');
+  const current=await game.call('status');
+  assert.equal(current.turn,2);
+  assert.ok(!current.receipts.some(row=>row.call_id===pending.quote_key),'background work cannot join the next player turn');
+  await game.call('apply',{call_id:'t2-c1',effects:[{kind:'cash',quote:draft.quote}]});
+  const paid=await game.sheet();assert.equal(paid.finance.cash.amount,before.finance.cash.amount);
+  assert.equal(paid.finance.daily_spending.total,2.75);
+  await game.restart();
+  const replay=await game.call('quotes.flush',{turn:1});
+  assert.deepEqual(replay,landed);
+  await assert.rejects(game.call('apply',{call_id:'t2-c2',effects:[{kind:'cash',quote:draft.quote}]}),e=>e.code==='needs');
+  assert.deepEqual(await game.sheet(),paid,'a replay cannot reopen and pay an offer twice');
+});
+test('a bad background draft leaves the delivered prose and balances intact',async t=>{
+  const game=await table(t),before=await game.sheet(),text='The clerk searches for the price list.';
+  const result=await game.call('narrate',{call_id:'t1-c1',text,quotes:[{...draft,with:undefined}]});
+  assert.equal(result.rendered_text,text);
+  const landed=await game.call('quotes.flush',{turn:1});
+  assert.equal(Object.values(landed.quotes)[0].quote_status,'failed');
+  assert.equal(Object.values(landed.quotes)[0].purchase_amount,undefined);
+  assert.deepEqual(await game.sheet(),before);
+  assert.equal((await game.record(1)).rendered_text,text);
+});
+test('an older delayed quote cannot overwrite a newer committed offer with the same name',async t=>{
+  const game=await table(t);
+  await game.call('narrate',{call_id:'t1-c1',text:'The clerk writes an offer.',quotes:[draft]});
+  await game.call('player_input',{text:'Is that still the current price?'});
+  await game.call('narrate',{call_id:'t2-c1',text:'The clerk offers a new price.',quotes:[{...draft,items:[{name:'Water',quantity:2,unit_price:1}]}]});
+  const old=await game.call('quotes.flush',{turn:1});
+  assert.equal(Object.values(old.quotes)[0].quote_status,'superseded');
+  await game.call('quotes.flush',{turn:2});
+  assert.equal((await game.world()).cash_quotes[0].purchase_amount,2);
+  await game.call('quotes.flush',{turn:1});
+  assert.equal((await game.world()).cash_quotes[0].purchase_amount,2);
+});
+test('background quotes from another worldline are stale and write no state',async t=>{
+  const game=await table(t);
+  await game.call('narrate',{call_id:'t1-c1',text:'The clerk writes an offer.',quotes:[draft]});
+  const before=await game.world(),meta=JSON.parse(await readFile(game.metaPath,'utf8'));
+  await writeFile(game.metaPath,JSON.stringify({...meta,active_worldline:'fixture-other-line'}));
+  assert.equal((await game.call('quotes.flush',{turn:1})).stale,true);
+  assert.deepEqual((await game.call('quotes.flush')).turns,[]);
+  assert.deepEqual(await game.world(),before);
 });

@@ -45,6 +45,7 @@ import {eventOf} from '../worldline/index.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
 import { owedIntents } from '../npc/owed.js';
 import { namedRepeats, speakerThreads } from '../npc/threads.js';
+import {quotationDrafts,quotationScope,pendingQuotation} from '../runtime/quotes.js';
 export { createTurnTransaction } from './store.js';
 export { CampaignWriter } from './store.js';
 export { writeEpisode } from './contributions.js';
@@ -1161,6 +1162,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await stanceTable(context);
         report?.('validate');
         const projected = mechanics(receipts, placed, await snapshot.handoutTexts(receipts), snapshot.world), n = number(turn.turn), receipt = `turn:${n}`, world = tableSnapshot(snapshot, module.graph);
+        const quoteDrafts=reference?[]:quotationDrafts(params.quotes,n,snapshot.meta,snapshot.party);
+        projected.push(...quoteDrafts.map(pendingQuotation));
+        if(quoteDrafts.length && !delivery.marked_text)delivery.marked_text=text;
         // The public record the verifier reads beside the Keeper-only list (contract §32.6): the two deliveries before this one.
         const earlier = (await Promise.all([number(turn.turn) - 1, number(turn.turn) - 2].filter(t => t >= 0).map(t => campaign.readTurnRecord(t))))
             .flatMap(r => r && r.interaction_scope !== 'reference' && r.interaction_scope !== 'uncertain' ? [r] : []);
@@ -1198,6 +1202,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         rememberCall(turn, started.callId, params, result);
         const record: Row = {
             ...deliveryRecord(turn, text, receipts, result, world),
+            ...(quoteDrafts.length?{quote_drafts:quoteDrafts,quote_scope:quotationScope(snapshot.meta)}:{}),
             ...(delivery.marked_text ? { marked_text: delivery.marked_text } : {}),
             closed_by: 'narrate',
             closed_how: truth(params.implicit) ? 'implicit' : 'explicit',

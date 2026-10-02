@@ -20,6 +20,14 @@ function draw(mechanics:unknown[], labels={}) {
   for(const toggle of drawn.container.querySelectorAll<HTMLButtonElement>('.coc-mech-list button[aria-controls]'))fireEvent.click(toggle)
   return drawn.container
 }
+it('pending and failed quotes draw no guessed total or balance change',()=>{
+  for(const quote_status of ['pending','failed','superseded']){
+    const container=draw([{kind:'cash',quote_key:'q1',quote:'Water',purpose:'Water',settlement:'quote',quote_status}]);
+    expect(container.textContent).toContain('Water');
+    expect(container.querySelector('.coc-mech-figure')).toBeNull();
+    expect(container.querySelector('.coc-mech-delta')).toBeNull();
+  }
+});
 it('draws explicit source to target and each HP value, using the presenter skill word',()=>{
   const container=draw([roll,{...row,kind:'dice',receipt:'d1',word:'hp_damage',label:'HP Damage',faces:[3],total:3},
     {kind:'change',receipt:'hp1',family:'combat',call:'t1-c1',resource:'hp',public_combat:true,subject_label:'Alice',source_label:'Masked visitor',source_receipt:'d1',before:12,after:9}],{Fighting:'Combat rapproché'})

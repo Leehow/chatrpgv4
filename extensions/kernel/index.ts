@@ -1,3 +1,5 @@
+import {createQuotationQueue} from "./quotes.ts";
+import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
@@ -2157,6 +2159,20 @@ export default function (pi: ExtensionAPI) {
 	 * driver lands it in the evidence and a future front end renders dice cards and change bars from
 	 * it. It is never injected into the prose: the TUI shows only what the Keeper wrote.
 	 */
+    const quotationQueues=new WeakMap<TableState,ReturnType<typeof createQuotationQueue>>();
+    function quotationQueue(state:TableState) {
+        let queue=quotationQueues.get(state);
+        if(!queue){
+            queue=createQuotationQueue({
+                call:(method,params)=>state.kernel.call(method,{...params,campaign:state.campaign}),
+                patch:(turn,quotes)=>patchCard(pi,{campaign:state.campaign,card:{turn},patch:{quotes},source:"quote-registration"}),
+                record:row=>{void record(row);},active:()=>table===state && !state.lanes.signal.aborted,
+            });
+            quotationQueues.set(state,queue);
+        }
+        return queue;
+    }
+
 	function noteMechanics(state: TableState, turn: number, mechanics: Array<Record<string, unknown>>,
 		markedText?: string, labels?: unknown, speech?: unknown[], extra?: Record<string, unknown>): void {
 		// §40.2: a delivery may mark say spans and no mechanics at all, and that turn still owes the
@@ -2674,6 +2690,8 @@ export default function (pi: ExtensionAPI) {
 		let cashContext: Record<string, unknown> | undefined;
 		if (tool === 'apply' && Array.isArray(payload.effects) && payload.effects.some((effect: any) =>
 			effect?.kind === 'cash' && effect.mode !== 'quote' && (effect.quote !== undefined || effect.category !== undefined || effect.items !== undefined))) {
+            if(payload.effects.some((effect:any)=>effect?.kind==='cash' && effect.mode!=='quote' && typeof effect.quote==='string'))
+                await quotationQueue(state).finish();
 			const capsule = await state.kernel.call<{known?: {investigator?: Record<string, unknown>; cash_quotes?: unknown[]}}>('table.capsule', {campaign: state.campaign, _context_read: true});
 			const previewEffects=payload.effects.map((effect: any)=>{const {_cash_debit_limit:_old,...rest}=effect;return rest;});
 			const preview = await state.kernel.call<{cash_previews?: Array<Record<string, unknown>>}>('table.apply.options',{campaign:state.campaign,cash_effects:previewEffects});
@@ -3387,6 +3405,7 @@ export default function (pi: ExtensionAPI) {
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics,
 					asString(result.marked_text), result.labels, Array.isArray(result.speech) ? result.speech : undefined);
 				noteCommit(state, result, mechanics);
+                if(mechanics.some(row=>row.quote_status==="pending"))quotationQueue(state).schedule(state.deliveredTurn);
 				noteStanding(state, result, typeof result.turn === "number" ? result.turn : state.turn);
 				notePreparationWait(state, typeof result.turn === "number" ? result.turn : state.turn);
 				break;
@@ -4619,6 +4638,8 @@ export default function (pi: ExtensionAPI) {
 		// every effect below lands, through the same path an explicit narrate call takes (see the end of this
 		// function). §135.5 addendum 2.
 		const embeddedNarrateText = spec.name === "apply" && !fromStep?.holdEmbeddedNarration && typeof payload.narrate === "string" ? payload.narrate : undefined;
+        const embeddedQuotes=spec.name==="apply"?payload.quotes:undefined;
+        if(spec.name!=="narrate")delete payload.quotes;
 		delete payload.narrate;
 		// §22.4.7.1 (SL-56): only the host asks the kernel to land a person on the book's text.
 		delete payload._land_on_text;
@@ -5089,7 +5110,7 @@ export default function (pi: ExtensionAPI) {
 			// then `table.narrate`, it always has; only their one model tool call is new.
 			if (spec.name === "apply" && embeddedNarrateText !== undefined && !partial?.notLanded) {
 				const narrateSpec = COC_TOOLS.find((tool) => tool.name === "narrate")!;
-				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText }, signal, onUpdate, "embedded", ctx);
+				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText, ...(embeddedQuotes!==undefined?{quotes:embeddedQuotes}:{}) }, signal, onUpdate, "embedded", ctx);
 				const embeddedError = (embedded.details as { coc_error?: Record<string, unknown> } | undefined)?.coc_error;
 				if (embeddedError) {
 					// Nothing is delivered: the effects above already landed and stand (a receipt cannot be
@@ -5550,6 +5571,7 @@ export default function (pi: ExtensionAPI) {
 				record: (row: Record<string, unknown>) => { noteCompileAct(row); void record(row); },
 			});
 			pi.events.emit("coc:table-open", { campaign, open });
+            quotationQueue(table).schedule();
 			const operationGate = bridgeGate;
 			pi.events.emit('coc:operation-dispatcher', Object.freeze({
 				bindIncumbentScope: (...args: Parameters<typeof dispatcher.bindIncumbentScope>) => {
@@ -5712,6 +5734,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+        if(table)quotationQueues.get(table)?.close();
 		await shutdownKernel();
 		sessionCtx = undefined;
 		watchdogRecoveryFile = undefined;

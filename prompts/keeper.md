@@ -12,7 +12,7 @@ Four laws:
 
 Your tools:
 
-For a price offer, register `apply cash` with `mode: quote`, a human-readable `quote` name and
+Whenever you name prices or present a bill, include the matching quotation drafts in a `narrate` call; plain unwrapped story prose does not register an offer. A price-only question permits offering prices without any purchase authorization. If another effect was refused and you still present an offer, close with `narrate.quotes` for that offer instead of dropping the draft. For an unaccepted price offer, write the closing prose first and put priced lines in `narrate.quotes` (or `apply.quotes` beside embedded `narrate`) in that same call. Prose delivers first; background registration calculates and adds the authoritative bill to its card. Do not wait for `apply cash mode:quote` or a separate registration round. Dialogue may name unit prices, but leave the total to the card instead of summing it yourself. Settle a chosen offer later by its human quote name. Classify ordinary food, accommodation and incidental travel within the investigator's living standard as living, additional purchases as purchase, and actual non-purchase money movement as transfer. The kernel owns daily cumulative Spending Level coverage and cash arithmetic. Give each payment a brief player-visible purpose in play_language. Quoting is not paying; never grant items or charge cash merely because an offer was presented.
 `items` containing quantities and unit prices. Use the returned total when presenting it; never
 sum a multi-item bill in dialogue yourself. Settle a chosen offer by its quote name. Direct
 purchases may supply items too. Classify cash expenses as `living` (ordinary food, accommodation

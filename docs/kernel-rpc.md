@@ -13125,6 +13125,54 @@ on the receipt, with no new model call or wait on the narration path. A later ca
 can add or correct a purpose through the existing card-update path while preserving the delivery's
 prose and typewriter progress. Historical records and balances are preserved.
 
+### 58.10 Quotations complete after prose delivery (owner request, 2026-10-02)
+
+For an offer that has not been accepted, the Keeper supplies `narrate.quotes` (or
+`apply.quotes` beside embedded `narrate`), at most eight drafts. Each draft has a human
+`quote` name, `category: living|purchase`, priced `items`, and optional `subject`, `with`,
+`source: quote|price`, `price_id`, `currency`, and player-visible `why`. The closing prose
+is written in the same call, before the quotes argument. It can name individual prices;
+leave the bill total to the quotation card. No foreground quote registration or second
+Keeper round is needed. The existing synchronous `apply cash mode:quote` remains available
+when another operation genuinely needs the computed offer before delivery.
+
+The delivery persists drafts, the default investigator, and the active worldline/loop in
+its committed turn record. It projects pending cash rows with host-owned `quote_key`s,
+without an invented total or balance movement. Quote errors never refuse or rewrite
+finished prose. After the card is appended, a detached host queue calls the host-only
+`table.quotes.flush {campaign, turn}`. This uses the same `stageCash` quote arithmetic
+and source validation as synchronous offers, always forcing quote mode and allowing only
+draft fields. It writes open offers and completed/failed job projections together in one
+atomic `world.json` write. It never writes a sheet, daily expenditure, player action,
+item transfer, or the current turn. Repeat processing replays the saved job, including
+after settlement, rather than reopening an offer. A later offer with the same name wins;
+an old delayed draft is superseded. A different active worldline/loop cannot receive it.
+
+Without `turn`, the method lists committed quotation turns and their host-owned draft
+keys in the current scope. Completion caching uses these scoped keys, never turn number
+alone: a loop or worldline can reuse a turn number. The
+host schedules these on startup to recover interrupted work and missing card patches.
+It patches `quotes: {<quote_key>: <public cash row>}` on the original turn via section
+132. The backend merges each row onto its matching pending cash row, preserving other
+mechanics, prose, speech and playback identity. Failed/superseded drafts lose the waiting
+indicator and expose no financial amount; operator telemetry preserves the cause.
+The queue is never awaited by narration. A subsequent settlement referring to a quote
+may finish outstanding deterministic registrations before its existing cash preview and
+admission; unrelated generation does not wait. Quoting grants no purchase authorization. Admission judges actual proposed effects only;
+quotation drafts beside a move or conversation cannot turn it into an unproposed purchase.
+
+Writer: the Keeper supplies structured drafts, delivery commits them, and the background
+kernel operation registers computed offers. Reader: the original card receives an addressed
+patch, and the next capsule reads the saved offers. Actor: the player reads the exact
+bill and chooses whether to buy; actual settlement retains section 58.9's guards.
+No model extraction, prose review, rewrite or extra model lane is added.
+
+Precedent: Microsoft's [asynchronous request/reply pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/asynchronous-request-reply)
+supports durable work, immediate acknowledgement, and replay-safe completion. Its polling
+transport is unnecessary here because section 132 already pushes card updates. React's
+[state identity guidance](https://react.dev/learn/preserving-and-resetting-state) supports
+preserving the same card and playback state during these updates.
+
 ### 58.9 Unified purchases and exact quotations (owner request, 2026-10-02)
 
 The Keeper decides the open semantic question, using `category: living|purchase|transfer` on a
@@ -13156,7 +13204,7 @@ starts with classified settlements under this contract, without guessing histori
 `items` is a bounded list of `{name, quantity, unit_price}`. A quoted NPC price requires `with`;
 a cited printed price may omit the counterparty. The Keeper supplies prices and
 quantities; the kernel calculates each amount and their total with exact decimal arithmetic.
-An optional `delta` must equal the negative computed total or the batch is refused. The quote
+An optional `delta` must equal the negative computed total or the batch is refused. For the synchronous mode, the quote
 receipt and the apply result expose the computed `purchase_amount` and item amounts before
 the Keeper writes the offer. Structured quotation cards carry the authoritative figures;
 the Keeper uses those figures instead of doing a second sum in dialogue.
