@@ -127,7 +127,9 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
     const label = string(personRecord(world, graph.handle(node)).name || entry.label || "").trim();
     return {
         ...(label ? { label } : {}),
-        use: "Private until introduced: appearance only; apply person, then called.name and say token.",
+        // §115 asked this line to say `apply person` gives an epithet; compressed to "apply person, then called.name", the
+        // Keeper of the installed App's Blood Road table (2026-10-02, turn 5) applied the book's names and wrote them.
+        use: "Name untold: by look only; apply person an epithet, never this name; called.name and say token use it till it is said.",
     };
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
