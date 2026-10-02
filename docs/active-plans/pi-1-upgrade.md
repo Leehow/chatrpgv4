@@ -224,3 +224,27 @@ margin. The policy already measures convertToLlm without private details, so
 no production ceiling or history policy is changed. The test now observes the
 public boundary while retaining raw bytes separately; original numeric ceiling,
 tool pairing, growing-branch and exact recall remain.
+
+## Source integration and remaining runtime gate
+
+Source is integrated into 0.9.6a at bdd1e353bea818652158cf567b2df6c3b58723f4.
+All committed mainline work, including the fifth cap patch, is preserved. The
+long-context file passes 5/5 after correcting its public-projection measurement;
+no production byte ceiling or history policy changed. Earlier full combined
+run had 4286 passes and only that measurement failure. Source/Pi gates passed
+9/9, cap/current-mainline gates 32/32, budget/reader gates 51/51, Electron
+send/auth/telemetry 119/119, and the original driver suite 187 passed/1 skipped.
+The extra combined cash/controller attempt could not start because another
+box owner refreshed the shared dependency graph; it is not recorded as a pass.
+
+Evidence was moved intact to the primary checkout .coc/upgrades/
+pi-1-upgrade-20261002 (campaigns, modules, playtests and needed Pi sessions).
+ARCHIVE.json records the original workspace; no evidence was deleted.
+
+The active primary blood-road driver still uses the old build and dependencies.
+Do not replace them while it runs. Heartbeat pi-1-0 will quietly wait, then
+update the locked root/Electron graphs and exact latest mainline build under
+Node 24, verify actual Pi 1.0 provenance/identity and pause itself. Do not
+package/install an App or change model defaults. The temporary worktree may
+close once this source commit and evidence are preserved; the runtime gate is
+then continued from this main-checkout plan rather than a removed checkout.
