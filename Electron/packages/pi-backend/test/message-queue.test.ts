@@ -24,6 +24,37 @@ function recordingHost() {
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("SessionMessageQueue", () => {
+  it("drains past a handled command without waiting for an agent settle", async () => {
+    const host = recordingHost();
+    const queue = new SessionMessageQueue({ dispatch: host.dispatch });
+    queue.enqueue("s1", { text: "/handled" });
+    queue.enqueue("s1", { text: "next input" });
+    host.pending[0].resolve({ disposition: "handled" });
+    await flush();
+    expect(host.calls.map(call => call.payload.text)).toEqual(["/handled", "next input"]);
+    host.pending[1].resolve({ disposition: "started" });
+    await flush();
+    expect(queue.listQueue("s1")).toEqual([]);
+    expect(queue.isTurnActive("s1")).toBe(true);
+  });
+
+  it("does not clear an independently started turn on a handled command receipt", async () => {
+    const host = recordingHost();
+    const queue = new SessionMessageQueue({ dispatch: host.dispatch });
+    queue.enqueue("s1", { text: "/handled" });
+    queue.enqueue("s1", { text: "wait for the real turn" });
+    const epoch = queue.markBusy("s1");
+    host.pending[0].resolve({ disposition: "handled" });
+    await flush();
+    expect(queue.isTurnActive("s1")).toBe(true);
+    expect(host.calls).toHaveLength(1);
+    const idle = queue.notifyIdle("s1", epoch);
+    await flush();
+    expect(host.calls).toHaveLength(2);
+    host.pending[1].resolve({ disposition: "started" });
+    await idle;
+  });
+
   it("disposes one session idempotently without resurrecting it from a late dispatch", async () => {
     const host = recordingHost();
     const queue = new SessionMessageQueue({ dispatch: host.dispatch });

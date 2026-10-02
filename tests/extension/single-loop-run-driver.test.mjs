@@ -165,7 +165,7 @@ test("SL-01 gate: a policy-origin read and a Jev decision run before one real mo
 	assert.equal(startup.loop_engine, "hybrid-v1");
 	assert.equal(startup.loop_protocol_version, `${RUN_LOOP_PROTOCOL}/events-${RUN_EVENT_SCHEMA_VERSION}`, "the product names the protocol the vendored driver speaks");
 	assert.equal(LOOP_PROTOCOLS["hybrid-v1"], startup.loop_protocol_version);
-	assert.equal(startup.pi.base_commit, "16787ad5b2dc748047f314ca1bfe7708f30f54f3");
+	assert.equal(startup.pi.base_commit, "a13d35a742c6ef8462812a28fbe1d8c8b7431c32");
 	assert.match(startup.pi.patch_series_digest, /^[a-f0-9]{64}$/);
 });
 

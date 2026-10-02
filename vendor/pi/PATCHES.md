@@ -1,4 +1,4 @@
-# Patch series over upstream v0.87.0
+# Patch series over upstream v1.0.0
 
 Every upstream file this tree changes or adds, in the order of the series under `patches/`. One line each: what
 the change is for and why a port (an option, a hook, an injected dependency) could not do it. Files not listed

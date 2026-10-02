@@ -44,7 +44,8 @@
           },
           "compat": {
             "supportsLongCacheRetention": false,
-            "supportsStrictMode": true
+            "supportsStrictMode": true,
+            "supportsMaxOutputTokens": false
           }
         },
         {
@@ -74,7 +75,8 @@
           },
           "compat": {
             "supportsLongCacheRetention": false,
-            "supportsStrictMode": true
+            "supportsStrictMode": true,
+            "supportsMaxOutputTokens": false
           }
         },
         {
@@ -104,7 +106,8 @@
           },
           "compat": {
             "supportsLongCacheRetention": false,
-            "supportsStrictMode": true
+            "supportsStrictMode": true,
+            "supportsMaxOutputTokens": false
           }
         },
         {
@@ -134,7 +137,8 @@
           },
           "compat": {
             "supportsLongCacheRetention": false,
-            "supportsStrictMode": true
+            "supportsStrictMode": true,
+            "supportsMaxOutputTokens": false
           }
         },
         {
@@ -165,7 +169,8 @@
           },
           "compat": {
             "supportsLongCacheRetention": false,
-            "supportsStrictMode": true
+            "supportsStrictMode": true,
+            "supportsMaxOutputTokens": false
           }
         },
         {
@@ -195,7 +200,8 @@
           },
           "compat": {
             "supportsLongCacheRetention": false,
-            "supportsStrictMode": true
+            "supportsStrictMode": true,
+            "supportsMaxOutputTokens": false
           }
         },
         {
@@ -225,7 +231,8 @@
           },
           "compat": {
             "supportsLongCacheRetention": false,
-            "supportsStrictMode": true
+            "supportsStrictMode": true,
+            "supportsMaxOutputTokens": false
           }
         },
         {
@@ -255,7 +262,8 @@
           },
           "compat": {
             "supportsLongCacheRetention": false,
-            "supportsStrictMode": true
+            "supportsStrictMode": true,
+            "supportsMaxOutputTokens": false
           }
         }
       ]

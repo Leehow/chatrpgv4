@@ -5369,7 +5369,7 @@ export default function (pi: ExtensionAPI) {
 		});
 	}
 
-	// AgentToolResult has no isError field, so the error flag can only be raised in tool_result.
+	// Native isError is returned by the dispatcher; finalization still owns refusal accounting.
 	pi.on('tool_result', event => dispatcher.finalize(event));
 	async function finalizeOperation(event: ToolResultEvent) {
 		if (!COC_TOOL_NAMES.includes(event.toolName as never)) return;

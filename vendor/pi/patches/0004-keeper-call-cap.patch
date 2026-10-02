@@ -1,12 +1,5 @@
-A Keeper provider call is capped past its own per-call total-duration ceiling, beside the idle-progress
-watchdog of 0003 (contract §135.29's SL-69 addendum). Amended by SL-82 (§135.29 addendum 2):
-`keeperCallCapMs` also accepts a zero-argument function, resolved fresh immediately before every attempt,
-so a per-turn host can size one call's cap differently from the rest without the vendored session ever
-being taught what a turn is.
-Base: 0003 applied. Apply with: git apply -p1 from the repository root.
-
 diff --git a/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts b/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
-index 64291ea2f..b1d94fec7 100644
+index 7498e5ec0..7e17da839 100644
 --- a/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
 +++ b/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
 @@ -64,6 +64,10 @@ export interface CreateAgentSessionFromServicesOptions {
@@ -20,7 +13,7 @@ index 64291ea2f..b1d94fec7 100644
  }
  
  /**
-@@ -220,5 +224,7 @@ export async function createAgentSessionFromServices(
+@@ -232,5 +236,7 @@ export async function createAgentSessionFromServices(
  		customTools: options.customTools,
  		sessionStartEvent: options.sessionStartEvent,
  		runDriver: options.runDriver,
@@ -29,13 +22,13 @@ index 64291ea2f..b1d94fec7 100644
  	});
  }
 diff --git a/vendor/pi/packages/coding-agent/src/core/sdk.ts b/vendor/pi/packages/coding-agent/src/core/sdk.ts
-index 6c00754..0c72cd8 100644
+index 352abe623..ea4c95b3c 100644
 --- a/vendor/pi/packages/coding-agent/src/core/sdk.ts
 +++ b/vendor/pi/packages/coding-agent/src/core/sdk.ts
 @@ -17,7 +17,7 @@ import type { ResourceLoader } from "./resource-loader.ts";
  import { DefaultResourceLoader } from "./resource-loader.ts";
  import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
- import { SettingsManager } from "./settings-manager.ts";
+ import { DEFAULT_TOOL_NAMES, SettingsManager } from "./settings-manager.ts";
 -import { watchStreamProgress } from "./stream-progress.ts";
 +import { watchCallCap, watchStreamProgress } from "./stream-progress.ts";
  import { time } from "./timings.ts";
@@ -59,7 +52,7 @@ index 6c00754..0c72cd8 100644
  }
  
  /** Result from createAgentSession */
-@@ -366,6 +377,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+@@ -387,6 +398,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
  		});
  	};
  
@@ -79,7 +72,7 @@ index 6c00754..0c72cd8 100644
  	const agent = new Agent({
  		initialState: {
  			systemPrompt: "",
-@@ -387,11 +411,32 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+@@ -408,11 +432,32 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
  			}
  			// The same idle allowance, measured on the events the agent consumes rather than on bytes: a
  			// stream that answers and then produces no event ends as a retryable error (stream-progress.ts).
@@ -214,10 +207,10 @@ index 363b2e198..c8ae2433a 100644
 +	return out;
 +}
 diff --git a/vendor/pi/packages/coding-agent/src/main.ts b/vendor/pi/packages/coding-agent/src/main.ts
-index 5664f35..1e0d523 100644
+index f8c0cd699..bc6e0b8eb 100644
 --- a/vendor/pi/packages/coding-agent/src/main.ts
 +++ b/vendor/pi/packages/coding-agent/src/main.ts
-@@ -564,6 +564,12 @@ export interface MainOptions {
+@@ -571,6 +571,12 @@ export interface MainOptions {
  	extensionFactories?: InlineExtension[];
  	/** Drive the session's runs through the RunDriver (forwarded to the session factory). */
  	runDriver?: SessionRunDriver;
@@ -230,7 +223,7 @@ index 5664f35..1e0d523 100644
  }
  
  export async function main(args: string[], options?: MainOptions) {
-@@ -833,6 +839,8 @@ export async function main(args: string[], options?: MainOptions) {
+@@ -850,6 +856,8 @@ export async function main(args: string[], options?: MainOptions) {
  			noTools: sessionOptions.noTools,
  			customTools: sessionOptions.customTools,
  			runDriver: options?.runDriver,

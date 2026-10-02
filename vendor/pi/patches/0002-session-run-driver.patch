@@ -1,11 +1,8 @@
-SL-01 stage C: the coding-agent session layer on the RunDriver, and the follow-up drain of a driven run.
-Base: 0001 applied (d0477d6b9). Apply with: git apply -p1 from the repository root.
-
 diff --git a/vendor/pi/packages/agent/src/agent.ts b/vendor/pi/packages/agent/src/agent.ts
-index 63bd8f457..2961bae11 100644
+index 1e014c532..f77cbf047 100644
 --- a/vendor/pi/packages/agent/src/agent.ts
 +++ b/vendor/pi/packages/agent/src/agent.ts
-@@ -508,6 +508,7 @@ export class Agent {
+@@ -511,6 +511,7 @@ export class Agent {
  		let context: AgentContext = this.createContextSnapshot();
  		let config: AgentLoopConfig = this.createLoopConfig();
  		let lastCompletedTurn: PrepareNextTurnContext | undefined;
@@ -13,7 +10,7 @@ index 63bd8f457..2961bae11 100644
  		const applyUpdate = (update: AgentLoopTurnUpdate | undefined) => {
  			if (!update) return;
  			context = update.context ?? context;
-@@ -548,7 +549,11 @@ export class Agent {
+@@ -551,7 +552,11 @@ export class Agent {
  				}
  				await emit({ type: "turn_start" });
  				const steering = (await config.getSteeringMessages?.()) || [];
@@ -27,7 +24,7 @@ index 63bd8f457..2961bae11 100644
  					await onAttempt(attempt);
  					applyUpdate(
 diff --git a/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts b/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
-index 531f51d61..64291ea2f 100644
+index 9673ba6a8..7498e5ec0 100644
 --- a/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
 +++ b/vendor/pi/packages/coding-agent/src/core/agent-session-services.ts
 @@ -62,6 +62,8 @@ export interface CreateAgentSessionFromServicesOptions {
@@ -39,7 +36,7 @@ index 531f51d61..64291ea2f 100644
  }
  
  /**
-@@ -217,5 +219,6 @@ export async function createAgentSessionFromServices(
+@@ -229,5 +231,6 @@ export async function createAgentSessionFromServices(
  		noTools: options.noTools,
  		customTools: options.customTools,
  		sessionStartEvent: options.sessionStartEvent,
@@ -47,25 +44,28 @@ index 531f51d61..64291ea2f 100644
  	});
  }
 diff --git a/vendor/pi/packages/coding-agent/src/core/agent-session.ts b/vendor/pi/packages/coding-agent/src/core/agent-session.ts
-index 338d0e0d0..19e6b4bff 100644
+index 63aa588da..2011ac9ad 100644
 --- a/vendor/pi/packages/coding-agent/src/core/agent-session.ts
 +++ b/vendor/pi/packages/coding-agent/src/core/agent-session.ts
-@@ -22,10 +22,13 @@ import type {
- 	AgentMessage,
- 	AgentState,
- 	AgentTool,
-+	DrivenRunResult,
- 	PrepareNextTurnContext,
-+	RunDriverPorts,
-+	RunPolicy,
- 	ThinkingLevel,
+@@ -25,13 +25,16 @@ import {
+ 	type AgentState,
+ 	type AgentTool,
+ 	type AgentToolCallOutcome,
++	type DrivenRunResult,
++	type RunDriverPorts,
++	type RunPolicy,
+ 	type BeforeToolCallContext,
+ 	type BeforeToolCallResult,
+ 	type PrepareNextTurnContext,
+ 	runToolCall,
+ 	type ThinkingLevel,
  } from "@earendil-works/pi-agent-core";
 -import { contentText, getCurrentSystemMessage, retryDelayMs } from "@earendil-works/pi-ai";
 +import { contentText, getCurrentSystemMessage, retryDelayMs, uuidv7 } from "@earendil-works/pi-ai";
  import type {
  	AssistantMessage,
  	AuthResult,
-@@ -217,6 +220,30 @@ function withoutDeletedHeaders(headers: ProviderHeaders | undefined): Record<str
+@@ -243,6 +246,30 @@ function withoutDeletedHeaders(headers: ProviderHeaders | undefined): Record<str
  		: undefined;
  }
  
@@ -96,7 +96,7 @@ index 338d0e0d0..19e6b4bff 100644
  export interface AgentSessionConfig {
  	agent: Agent;
  	sessionManager: SessionManager;
-@@ -249,6 +276,8 @@ export interface AgentSessionConfig {
+@@ -280,6 +307,8 @@ export interface AgentSessionConfig {
  	extensionRunnerRef?: { current?: ExtensionRunner };
  	/** Session start event metadata emitted when extensions bind to this runtime. */
  	sessionStartEvent?: SessionStartEvent;
@@ -105,7 +105,7 @@ index 338d0e0d0..19e6b4bff 100644
  }
  
  export interface ExtensionBindings {
-@@ -428,6 +457,7 @@ export class AgentSession {
+@@ -479,6 +508,7 @@ export class AgentSession {
  		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
  		this._baseToolsOverride = config.baseToolsOverride;
  		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
@@ -113,7 +113,7 @@ index 338d0e0d0..19e6b4bff 100644
  
  		// Always subscribe to agent events for internal handling
  		// (session persistence, extensions, auto-compaction, retry logic)
-@@ -1465,7 +1495,75 @@ export class AgentSession {
+@@ -1772,7 +1802,75 @@ export class AgentSession {
  	// Prompting
  	// =========================================================================
  
@@ -187,10 +187,10 @@ index 338d0e0d0..19e6b4bff 100644
  	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
 +		if (this._runDriver) return this._runDrivenPrompt(this._runDriver, messages);
  		this._agentRunAbortRequested = false;
- 		this._isAgentRunActive = true;
- 		try {
+ 		// Compaction before the prompt may have scheduled a retry; the new prompt replaces it.
+ 		this._failedResponse = undefined;
 diff --git a/vendor/pi/packages/coding-agent/src/core/sdk.ts b/vendor/pi/packages/coding-agent/src/core/sdk.ts
-index 2ab852514..d60925e2a 100644
+index 035304a2c..27c278f31 100644
 --- a/vendor/pi/packages/coding-agent/src/core/sdk.ts
 +++ b/vendor/pi/packages/coding-agent/src/core/sdk.ts
 @@ -4,7 +4,7 @@ import type { ModelsSimpleStreamOptions } from "@earendil-works/pi-ai";
@@ -211,7 +211,7 @@ index 2ab852514..d60925e2a 100644
  }
  
  /** Result from createAgentSession */
-@@ -427,6 +429,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+@@ -450,6 +452,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
  		excludedToolNames,
  		extensionRunnerRef,
  		sessionStartEvent: options.sessionStartEvent,
@@ -220,7 +220,7 @@ index 2ab852514..d60925e2a 100644
  
  	const extensionsResult = resourceLoader.getExtensions();
 diff --git a/vendor/pi/packages/coding-agent/src/index.ts b/vendor/pi/packages/coding-agent/src/index.ts
-index 8746a894b..ab1c9a202 100644
+index 9e2d993e7..99a3bbb5b 100644
 --- a/vendor/pi/packages/coding-agent/src/index.ts
 +++ b/vendor/pi/packages/coding-agent/src/index.ts
 @@ -21,6 +21,9 @@ export {
@@ -234,7 +234,7 @@ index 8746a894b..ab1c9a202 100644
  } from "./core/agent-session.ts";
  export { readStoredCredential } from "./core/auth-storage.ts";
 diff --git a/vendor/pi/packages/coding-agent/src/main.ts b/vendor/pi/packages/coding-agent/src/main.ts
-index 195a1127e..5664f351b 100644
+index d9c6ce33c..f8c0cd699 100644
 --- a/vendor/pi/packages/coding-agent/src/main.ts
 +++ b/vendor/pi/packages/coding-agent/src/main.ts
 @@ -34,6 +34,7 @@ import { createProjectTrustContext } from "./cli/project-trust.ts";
@@ -245,7 +245,7 @@ index 195a1127e..5664f351b 100644
  import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
  import {
  	type AgentSessionRuntimeDiagnostic,
-@@ -561,6 +562,8 @@ async function promptForMissingSessionCwd(
+@@ -568,6 +569,8 @@ async function promptForMissingSessionCwd(
  
  export interface MainOptions {
  	extensionFactories?: InlineExtension[];
@@ -254,7 +254,7 @@ index 195a1127e..5664f351b 100644
  }
  
  export async function main(args: string[], options?: MainOptions) {
-@@ -829,6 +832,7 @@ export async function main(args: string[], options?: MainOptions) {
+@@ -846,6 +849,7 @@ export async function main(args: string[], options?: MainOptions) {
  			excludeTools: sessionOptions.excludeTools,
  			noTools: sessionOptions.noTools,
  			customTools: sessionOptions.customTools,
