@@ -14,6 +14,7 @@ import { parseSubagentNotice } from './subagent-notice'
 import { parseInternalUserSignal } from './subagent-signal'
 import { TruncatedText } from './TruncatedText'
 import { formatTurnElapsed, turnElapsedMs } from './turn-elapsed'
+import { useNarrationTypewriter } from './useNarrationTypewriter'
 import { foldMarkedDeliveries, liveDraftMessageId, withoutMechanicsMarkers, type ChatMessage } from './transcript-model'
 import { nextTranscriptFirstItemIndex, TRANSCRIPT_FIRST_ITEM_BASE, TRANSCRIPT_PIN_MAX_ATTEMPTS, transcriptDataIndex, transcriptMessageIdentity } from './transcript-scroll'
 
@@ -397,14 +398,16 @@ function draftWord(details: unknown, key: string): string {
 function PresentationEntry({message,illustration,draftSuperseded,onInvokeExtension,onChoose,onDraftOverride,onDraftConfirm,onDraftSpread,onDraftReroll,onDraftCatalog,onOpenPanel}:{message:ChatMessage;illustration?:ReactNode;draftSuperseded?:boolean}&RendererInvokeProps&PresentationActionProps) {
   useToolRenderers()
   const data=message.presentation!
+  const render=getToolRenderer(data.renderer)?.render
+  const prose = data.details as { marked_text?: string; rendered_text?: string } | undefined
+  const typewriter = useNarrationTypewriter(render ? message.typewriter : undefined, withoutMechanicsMarkers(prose?.marked_text || prose?.rendered_text || ''))
   // §98: one card per campaign, updated in place. A row the revision has moved past is a line
   // saying which draft it was -- kept rather than dropped, so the player sees the card moved.
   if(data.renderer==='coc-character-draft'&&draftSuperseded)return <article className="message assistant-message"><p className="coc-draft-superseded">{draftWord(data.details,'Earlier draft')} · {String((data.details as {revision?:unknown})?.revision??'')}</p></article>
   if(data.renderer==='coc-character-draft')return <article className="message assistant-message"><CocCharacterDraft data={data.details as any} onPresentation={onChoose?async()=>await onChoose(data,'presentation') as any:undefined} onRendered={onChoose?async()=>{await onChoose(data,'previewed')}:undefined} onOverride={onDraftOverride?async(request)=>await onDraftOverride(data,request):undefined} onConfirm={onDraftConfirm?async()=>await onDraftConfirm(data):undefined} onSpread={onDraftSpread?async()=>await onDraftSpread(data):undefined} onReroll={onDraftReroll?async()=>await onDraftReroll(data):undefined} onCatalog={onDraftCatalog?async()=>await onDraftCatalog(data):undefined}/></article>
-  const render=getToolRenderer(data.renderer)?.render
   return <article className="message assistant-message" data-presentation={data.renderer}>
     {illustration}
-    {render ? render({tool:{id:message.id,name:data.renderer,input:'',startedAt:0,finished:true},content:'',details:data.details,onSelectOption:onChoose?async(option)=>{await onChoose(data,option)}:undefined,onInvokeExtension,onOpenPanel,elapsed:()=>''}) : <p role="status">{presentationWord(data.details,'transcript','loading')}</p>}
+    {render ? render({tool:{id:message.id,name:data.renderer,input:'',startedAt:0,finished:true},content:'',details:data.details,...(message.typewriter?{typewriter}:{}),onSelectOption:onChoose?async(option)=>{await onChoose(data,option)}:undefined,onInvokeExtension,onOpenPanel,elapsed:()=>''}) : <p role="status">{presentationWord(data.details,'transcript','loading')}</p>}
   </article>
 }
 
