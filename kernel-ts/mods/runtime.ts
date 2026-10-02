@@ -10,7 +10,7 @@ import { isJsonObject, orderedObject, PythonFloat } from '../json.js';
 import { MOD_CAPABILITIES, buildVocabulary, packageFiles, packageDigest, manifestFrom, runtimePackageFiles, readModCatalog, activeMods, modProviders, effectiveMods,
   compatibleManifest, type ModCatalog, type UnavailablePackage } from '../read/mods.js';
 import { providesStyle, secondProvider, validateStyleContribution } from '../read/style.js';
-import { declaresLanguages, languageAdmits } from '../read/mod-language.js';
+import { declaresLanguages, languageAdmits, languageBriefBudget } from '../read/mod-language.js';
 import { array, row, values, entries, string, truth, clone, equal, sorted, type Row } from '../read/values.js';
 import { readZipPackage } from './zip.js';
 import {hostSettingsView} from './host-settings.js';
@@ -286,7 +286,7 @@ export class ModRuntime {
       ...Object.fromEntries(['id', 'version', 'name', 'description', 'author', 'compatible', 'requires', 'dependencies', 'conflicts'].map(key => [key, mod[key]])),
       settings: mod.compatible ? mod.settings : {}, default_enabled: newModDefault(mod, defaults, latest),
       // Contract §153.2: `default_enabled` is the catalog default; a scoped package applies it only where it names the campaign's tag.
-      ...(declaresLanguages(mod) ? {play_languages: [...mod.play_languages]} : {}),
+      ...(declaresLanguages(mod) ? {play_languages: [...mod.play_languages], brief_budget_bytes: languageBriefBudget(mod)} : {}),
       active: row(locks.active)[mod.id] ?? null, pending: row(locks.pending)[mod.id] ?? null,
       settings_schema: mod.compatible ? mod.settings_schema ?? {} : {},
       host_settings: mod.compatible ? hostSettingsView(mod.host_settings) : [],

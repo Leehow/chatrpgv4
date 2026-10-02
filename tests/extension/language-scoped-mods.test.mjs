@@ -252,3 +252,31 @@ test("the shipped zh-optimize package: on for a zh-Hans table, off for en, its b
 	const english = await game.call("voice.job", {campaign: "en", backfill: true});
 	assert.equal(english.instruction, owner);
 });
+
+test("a declared scoped budget admits 1200 UTF-8 bytes and rejects overflow without lifting the default", async t => {
+	const game = await kernel(t, "language-budget");
+	const capability = "mods.language-brief-budget.v1";
+	const declared = manifest => ({...manifest, id: "declared-budget", brief_budget_bytes: 1200, requires: [...manifest.requires, capability]});
+	await game.call("mods.install", {path: await variant(game, "declared", declared, {"brief.md": "é".repeat(600)})});
+	const listing = await game.call("mods.list");
+	assert.ok(listing.capabilities.includes(capability));
+	assert.equal(listing.mods.find(mod => mod.id === "declared-budget").brief_budget_bytes, 1200);
+	await assert.rejects(game.call("mods.install", {path: await variant(game, "declared-over", declared, {"brief.md": "é".repeat(601)})}),
+		error => error.details?.reason === "language_brief_over_budget" && error.details.limit === 1200 && error.details.bytes === 1202);
+	await assert.rejects(game.call("mods.install", {path: await variant(game, "unchanged-default", manifest => ({...manifest, id: "unchanged-default"}), {"brief.md": "x".repeat(401)})}),
+		error => error.details?.reason === "language_brief_over_budget" && error.details.limit === 400);
+});
+
+test("a custom byte budget needs a scoped package, a bounded integer and the declared capability", async t => {
+	const game = await kernel(t, "language-budget-shape");
+	const capability = "mods.language-brief-budget.v1";
+	for (const [name, budget] of [["zero", 0], ["negative", -1], ["too-large", 1201], ["fraction", 400.5], ["text", "1200"], ["null", null]])
+		await assert.rejects(game.call("mods.install", {path: await variant(game, name, manifest => ({...manifest, brief_budget_bytes: budget, requires: [...manifest.requires, capability]}))}),
+			error => error.details?.reason === "language_brief_budget_shape");
+	await assert.rejects(game.call("mods.install", {path: await variant(game, "budget-no-cap", manifest => ({...manifest, brief_budget_bytes: 1200}))}),
+		error => error.details?.reason === "language_brief_budget_capability");
+	await assert.rejects(game.call("mods.install", {path: await variant(game, "budget-no-scope", manifest => {
+		const {play_languages, ...rest} = manifest;
+		return {...rest, brief_budget_bytes: 1200, requires: [...manifest.requires, capability]};
+	})}), error => error.details?.reason === "language_brief_budget_shape");
+});

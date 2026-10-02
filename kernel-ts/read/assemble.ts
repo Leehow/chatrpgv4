@@ -542,7 +542,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         capsule.truncated = truncated;
     const activeLine = string(meta.active_worldline || 'main');
     capsule.mods = await modContext(context, graph, world, party, campaign.records, full,
-        {memory, story, worldline: activeLine, loop: number(row(row(meta.worldlines)[activeLine]).loop)});
+        {memory, story, worldline: activeLine, loop: number(row(row(meta.worldlines)[activeLine]).loop),play_language:language});
     // The Director's offer (docs/specs/turn-floor.md D2) is drawn after the thread and pacing sections exist,
     // from material the capsule already carries, and the director section is refitted to its budget with it.
     row(capsule.director).offer = directorOffer(string(row(capsule.director).beat), {

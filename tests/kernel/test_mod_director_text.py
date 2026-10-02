@@ -106,9 +106,9 @@ def test_instructions_are_full_on_the_first_turn_and_brief_after(kernel):
     assert later["story-thread"]["instruction"].startswith("# Story Thread (reminder)")
     assert len(later["enhanced-items"]["instruction"]) < len(first["enhanced-items"]["instruction"]) / 3
     # Contract §40.6 raised §30.7 from 4000; §153.4 measures a package that declares play_languages against its own 400.
-    scoped = {row["id"] for row in kernel.ok("mods.list", {})["mods"] if "play_languages" in row}
+    scoped = {row["id"]: row.get("brief_budget_bytes", 400) for row in kernel.ok("mods.list", {})["mods"] if "play_languages" in row}
     assert sum(len(row["instruction"].encode()) for mod, row in later.items() if mod not in scoped) < 5000
-    assert all(len(row["instruction"].encode()) <= 400 for mod, row in later.items() if mod in scoped)
+    assert all(len(row["instruction"].encode()) <= scoped[mod] for mod, row in later.items() if mod in scoped)
     host = {row["mod"]: row for row in kernel.ok("mods.context", {"campaign": CAMPAIGN})["instructions"]}
     assert all(row["form"] == "full" for row in host.values()), "the host-facing context is always the full text"
 
