@@ -54,3 +54,16 @@ test('the kernel extension opens the table through this one function', () => {
   assert.ok(source.includes('openingInstruction({'));
   assert.equal(source.includes('Opening the table:'), false, 'a second inline copy of the opening message');
 });
+
+test('the opening is told the party as it is: a book written for a group is not a car full of people', () => {
+  // Blood Road: the prologue said 「欢迎你们」「盯着你们」 and the owner explained the name by 「车里有人叫过你」 to a woman driving alone.
+  const one = openingInstruction({prologue, party: ['玛丽·艾伦'], playLanguage: 'zh-Hans'});
+  assert.ok(one.includes('The party is one investigator, ["玛丽·艾伦"]'));
+  assert.ok(one.includes('nobody else is with them unless the card says so'));
+  assert.ok(one.includes('address the party as the number it is'));
+  const two = openingInstruction({party: ['Helen', 'Tom'], playLanguage: 'en'});
+  assert.ok(two.includes('The party is 2 investigators, ["Helen","Tom"]'));
+  assert.equal(openingInstruction({prologue, playLanguage: 'zh-Hans'}).includes('The party is'), false, 'no names, no claim');
+  const source = readFileSync(new URL('../../extensions/kernel/index.ts', import.meta.url), 'utf8');
+  assert.ok(source.includes('party: Array.isArray(open.investigators)'), 'the kernel extension passes table.open\'s investigators');
+});

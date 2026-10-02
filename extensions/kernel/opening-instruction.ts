@@ -14,6 +14,8 @@
  *  language, and the active Mod context when the opening may settle Mod first-contact checks. */
 export interface OpeningFacts {
 	prologue?: unknown;
+	/** The investigators' names, from `table.open`. */
+	party?: string[];
 	playLanguage: string;
 	modContext?: unknown;
 }
@@ -40,7 +42,14 @@ export function openingInstruction(facts: OpeningFacts): string {
 			"carry it forward through normal rules and state receipts, never claim unrecorded resources. Committed prologue: " + JSON.stringify(facts.prologue)
 		: "There is no prior meeting. Begin the scene, orientation first: when and where this is, who the investigator is here in public terms, and why they are here; " +
 			"then the place and the people present, as the active prose package's opening and first-sight rules say.";
-	return `Opening the table: ${lead} This turn has no player input. Write all player-facing words in play_language=${facts.playLanguage}. ` +
+	// Blood Road's prologue, prepared from the book before anyone made a character, welcomes and is stared at in the plural;
+	// with one investigator at the table the owner then explained knowing her name by "someone in the car called you", in
+	// a car she drove alone.
+	const names = (facts.party ?? []).filter(name => typeof name === "string" && name.trim());
+	const party = names.length
+		? ` The party is ${names.length === 1 ? "one investigator" : `${names.length} investigators`}, ${JSON.stringify(names)}; the book may speak to a group, but nobody else is with them unless the card says so, and people address the party as the number it is.`
+		: "";
+	return `Opening the table: ${lead}${party} This turn has no player input. Write all player-facing words in play_language=${facts.playLanguage}. ` +
 		"Use look to see the opening scene (lookup for background). Close with narrate and wait for free player input. NPC questions belong naturally in the prose. " +
 		"Do not generate story action menus or options. " +
 		(facts.modContext !== undefined

@@ -5799,6 +5799,7 @@ export default function (pi: ExtensionAPI) {
 				if (watchdogRecovery) await clearWatchdogRecovery();
 				if (open.opening_needed) sendHost(
 					openingInstruction({ prologue: open.setup_prologue || undefined, playLanguage: table.playLanguage,
+						party: Array.isArray(open.investigators) ? open.investigators.map((row: { name?: unknown }) => asString(row?.name)).filter((name: string | undefined): name is string => Boolean(name)) : undefined,
 						modContext: open.mod_context && mods ? open.mod_context : undefined }),
 					"opening",
 				);
