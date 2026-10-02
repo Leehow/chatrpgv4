@@ -420,22 +420,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			// SL-82: resolved fresh on every attempt (a function may answer differently call to call, e.g.
 			// the product's own "is this the turn's first Keeper call" cap); a plain number is unaffected.
 			const keeperCallCapMs = typeof keeperCallCapSetting === "function" ? await keeperCallCapSetting() : keeperCallCapSetting;
-			if (!(keeperCallCapMs > 0)) return underIdleWatchdog(requestOptions.signal);
 			const stepSignal = options?.signal;
+			// 0005 (owner, 2026-10-02): the re-send after an overrun runs without a cap, so no step ends because a
+			// provider was slow to answer; until 0005 a second overrun ended the step with nothing delivered.
+			const overran = (stepSignal ? keeperCallCapOverruns.get(stepSignal) : undefined) ?? 0;
+			if (!(keeperCallCapMs > 0) || overran >= 1) return underIdleWatchdog(requestOptions.signal);
 			return watchCallCap(underIdleWatchdog, requestOptions.signal, keeperCallCapMs,
 				{ api: model.api, provider: model.provider, id: model.id }, (phase) => {
-					const attempt = (stepSignal ? keeperCallCapOverruns.get(stepSignal) : undefined) ?? 0;
-					const next = attempt + 1;
-					if (stepSignal) keeperCallCapOverruns.set(stepSignal, next);
+					if (stepSignal) keeperCallCapOverruns.set(stepSignal, overran + 1);
 					onKeeperCallCap?.(phase, keeperCallCapMs);
-					// First overrun: worded to match pi-ai's own retry patterns ("timed? out"), so the
-					// session's existing auto-retry resends this step once, under the same context, exactly
-					// as an idle-progress timeout already does. Second overrun of the *same* step: worded to
-					// match none of them, so the session's own retry check declines and the step ends through
-					// its existing no-delivered-evidence fallback -- never a second automatic resend.
-					return next <= 1
-						? `Keeper call timed out: exceeded its per-call cap of ${keeperCallCapMs} ms (phase: ${phase})`
-						: `Keeper call exceeded its per-call cap of ${keeperCallCapMs} ms a second time (phase: ${phase}); this step ends now.`;
+					// Worded to match pi-ai's own retry patterns ("timed? out"), so the session's existing
+					// auto-retry resends this step once, under the same context, exactly as an idle-progress
+					// timeout already does.
+					return `Keeper call timed out: no answer within its per-call cap of ${keeperCallCapMs} ms (phase: ${phase})`;
 				});
 		},
 		onPayload: transformProviderPayload,

@@ -13,10 +13,10 @@
  *   differently call to call), and that the `keeper_call_cap` telemetry row carries `step`.
  */
 import { strict as assert } from "node:assert";
-import { createServer } from "node:net";
+import { silentThenLateProvider } from "./fixtures/late-provider.mjs";
 import { test } from "node:test";
 import { configureHttpDispatcher } from "../../build/node_modules/@earendil-works/pi-coding-agent/dist/core/http-dispatcher.js";
-import { openTable, waitFor, customMessages } from "./harness.mjs";
+import { openTable } from "./harness.mjs";
 import { createHybridEngine, keeperCallCapMs as computeKeeperCallCapMs } from "./hybrid-engine-fixture.mjs";
 import { firstStepThinkingBudget } from "../../runtime/jev/host-budgets.ts";
 
@@ -112,36 +112,20 @@ const RETRY = { enabled: true, maxRetries: 3, baseDelayMs: 20 };
 
 configureHttpDispatcher(IDLE_MS);
 
-/** A provider that accepts the connection and then says nothing at all -- never even the response headers. */
-function silentProvider(t) {
-	const sockets = new Set();
-	let requests = 0;
-	const server = createServer((socket) => {
-		sockets.add(socket);
-		socket.on("error", () => {});
-		socket.on("close", () => sockets.delete(socket));
-		socket.on("data", (data) => { if (String(data).includes("\r\n\r\n")) requests++; });
-	});
-	t.after(() => new Promise((done) => { for (const socket of sockets) socket.destroy(); server.close(done); }));
-	return new Promise((ready) => server.listen(0, "127.0.0.1", () => ready({ port: server.address().port, requests: () => requests })));
-}
 
-const outageNotices = (session) => customMessages(session, "coc-delivery").filter((message) => message.details?.provider_outage && message.details?.terminal);
-
-test("vendored seam (patch 0004): keeperCallCapMs as a function is resolved fresh before every attempt, and the keeper_call_cap row carries step", async (t) => {
-	const provider = await silentProvider(t);
+// Patch 0005 (owner, 2026-10-02): only a call that has not answered is capped, and the step's re-send runs uncapped. The
+// function is still resolved fresh before every attempt -- the re-send's value is simply not a cap any more.
+test("vendored seam (patch 0004, 0005): keeperCallCapMs as a function is resolved fresh before every attempt, only the unanswered first attempt is capped, and the keeper_call_cap row carries step", async (t) => {
+	const LATE_MS = 5_000 + 400;
+	const provider = await silentThenLateProvider(t, { lateMs: LATE_MS, prose: "The clerk sets three folders on the counter." });
 	const capRows = [];
 	const hybrid = createHybridEngine({ env: process.env, record: (row) => capRows.push(row) });
-	// A function whose answer changes call to call -- if the vendored seam cached the first resolution
-	// instead of re-resolving per attempt, both provider requests below would be cut at the same cap
-	// (5000 ms); resolved fresh, the first is cut at 5000 ms and the retry at 8000 ms. SL-87: the caps' size is not the
-	// subject (their difference is): each cap starts before its request is built and sent, and on a loaded box a 1.2 s cap
-	// cut the first attempt before its request reached the provider (one request seen, not two). The hang bound is a minute
-	// past both caps.
+	// SL-87: the caps' size is not the subject; each cap starts before its request is built and sent, and on a loaded box a
+	// 1.2 s cap cut the first attempt before its request reached the provider. The hang bound is a minute past both.
 	let calls = 0;
 	const caps = [5_000, 8_000];
 	const keeperCallCapMs = () => caps[calls++] ?? caps.at(-1);
-	const BOUND_MS = caps[0] + caps[1] + 60_000;
+	const BOUND_MS = caps[0] + LATE_MS + 60_000;
 
 	const table = await openTable({
 		env: { PI_COC_LOOP_ENGINE: "hybrid-v1", FAKE_KERNEL_WORKSPACE: "1", FAKE_KERNEL_PRESENT: "[]" },
@@ -153,25 +137,18 @@ test("vendored seam (patch 0004): keeperCallCapMs as a function is resolved fres
 	});
 	t.after(() => table.dispose());
 	const runtime = table.session.modelRuntime;
-	runtime.registerProvider("stallbox", { baseUrl: `http://127.0.0.1:${provider.port}/v1`, api: "openai-responses", apiKey: "unused",
+	runtime.registerProvider("stallbox", { baseUrl: `http://127.0.0.1:${provider.port}/v1`, api: "openai-completions", apiKey: "unused",
 		models: [{ id: "stall-1", name: "stall", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 4096 }] });
 	await table.session.setModel(runtime.getModel("stallbox", "stall-1"));
-	const events = [];
-	table.session.subscribe((event) => events.push(event));
 
 	const prompt = table.session.prompt("I ask him to pull the old clippings on the Corbitt house.").then(() => "ended");
 	const outcome = await Promise.race([prompt, new Promise((resolve) => setTimeout(() => resolve("hung"), BOUND_MS))]);
 	if (outcome === "hung") { await table.session.abort(); await prompt.catch(() => {}); }
-	assert.equal(outcome, "ended", `the run was still waiting after ${BOUND_MS} ms; a stale cached cap did not end it`);
+	assert.equal(outcome, "ended", `the run was still waiting after ${BOUND_MS} ms`);
 
-	assert.equal(provider.requests(), 2, "exactly two provider requests: the capped original and its one resend");
-	assert.equal(calls, 2, "keeperCallCapMs was invoked once per attempt, not once and cached");
-
+	assert.equal(provider.requests(), 2, "the capped original and its one re-send");
+	assert.ok(calls >= 2, "keeperCallCapMs was invoked once per attempt, not once and cached");
 	const capEvents = capRows.filter((row) => row.event === "keeper_call_cap");
-	assert.equal(capEvents.length, 2, "one keeper_call_cap row per overrun");
-	assert.equal(capEvents[0].cap_ms, caps[0], "the first attempt used the freshly resolved first value");
-	assert.equal(capEvents[1].cap_ms, caps[1], "the retry used the freshly resolved second value, not the cached first one");
+	assert.deepEqual(capEvents.map((row) => row.cap_ms), [caps[0]], "the first attempt used the freshly resolved first value; the late re-send was not capped at 8000 ms");
 	for (const row of capEvents) assert.equal(typeof row.step, "number", "the row carries step");
-
-	await waitFor(() => outageNotices(table.session).length === 1, { label: "the §38.7 terminal provider notice", timeoutMs: 60_000 });
 });

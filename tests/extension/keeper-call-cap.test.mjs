@@ -135,22 +135,26 @@ test("a stall before the first byte is cut at the cap, phase 'first_byte', with 
 	assert.equal(sawAbort, true, "the underlying fake provider call is aborted when the cap fires");
 });
 
-test("a stall mid-stream is cut at the cap, phase 'streaming', copying the last partial message that did arrive", async (t) => {
+// Owner, 2026-10-02 (patch 0005): speed comes from optimisation, never from stopping a call. Until 0005 a call that
+// had answered was cut mid-stream at the cap -- on the installed App a Keeper writing its prose was cut at 60 s twice
+// and the turn delivered nothing. A stall after the first event is the idle watchdog's (0003), not the cap's.
+test("a call that has answered is never cut for its length: a stream running past the cap completes and onCap is never asked", async (t) => {
 	mockTime(t);
-	let sawAbort = false;
+	let sawAbort = false, asked = 0;
 	const start = (signal) => {
 		signal?.addEventListener("abort", () => { sawAbort = true; });
-		return fakeProvider([{ delayMs: 5, event: { type: "start", partial: partialMessage("Partial so far") } }], { hang: true })(signal);
+		return fakeProvider([
+			{ delayMs: 5, event: { type: "start", partial: partialMessage("") } },
+			{ delayMs: CAP_MS * 3, event: { type: "done", reason: "stop", message: partialMessage("Long prose, still arriving.") } },
+		])(signal);
 	};
-	const onCap = (phase) => { assert.equal(phase, "streaming"); return `Keeper call timed out: exceeded its per-call cap of ${CAP_MS} ms (phase: ${phase})`; };
+	const onCap = () => { asked++; return "Keeper call timed out"; };
 	const drained = drain(watchCallCap(start, undefined, CAP_MS, MODEL, onCap));
-	await elapse(t, CAP_MS);
+	await elapse(t, CAP_MS * 3 + 10);
 	const events = await drained;
-	assert.deepEqual(events.map((event) => event.type), ["start", "error"]);
-	assert.equal(events[1].error.stopReason, "error");
-	assert.match(events[1].error.errorMessage, /timed? out|timeout/i);
-	assert.deepEqual(events[1].error.content, [{ type: "text", text: "Partial so far" }], "the last partial message's content is carried, not discarded");
-	assert.equal(sawAbort, true);
+	assert.deepEqual(events.map((event) => event.type), ["start", "done"]);
+	assert.equal(asked, 0, "the cap is gone once the provider answered");
+	assert.equal(sawAbort, false);
 });
 
 test("capMs <= 0 disables the cap entirely: the stream passes straight through, even past what would have been the cap", async () => {
@@ -190,23 +194,17 @@ test("a caller's own outer abort ends the attempt as 'aborted', never asks the c
  * caller that returns a retryable-worded message on the first call and a non-retryable-worded one on the
  * second gets exactly that back, attempt for attempt, independent of phase.
  */
-test("onCap's returned wording is used verbatim, attempt for attempt: this is the seam the retryable/non-retryable split is built on", async (t) => {
+test("onCap's returned wording is used verbatim: the caller, never this function, decides whether an overrun is retried", async (t) => {
 	mockTime(t);
-	let attempt = 0;
-	const messageFor = (n) => (n <= 1
-		? `Keeper call timed out: exceeded its per-call cap of ${CAP_MS} ms (phase: streaming)`
-		: `Keeper call exceeded its per-call cap of ${CAP_MS} ms a second time (phase: streaming); this step ends now.`);
-	const runOnce = async () => {
-		attempt++;
-		const start = fakeProvider([{ delayMs: 5, event: { type: "start", partial: partialMessage("x") } }], { hang: true });
-		const drained = drain(watchCallCap(start, undefined, CAP_MS, MODEL, () => messageFor(attempt)));
+	const runOnce = async (wording) => {
+		const start = fakeProvider([], { hang: true });
+		const drained = drain(watchCallCap(start, undefined, CAP_MS, MODEL, (phase) => { assert.equal(phase, "first_byte"); return wording; }));
 		await elapse(t, CAP_MS);
 		const events = await drained;
 		return events.at(-1).error.errorMessage;
 	};
-	const first = await runOnce();
-	assert.match(first, /timed? out|timeout/i, "attempt 1: worded to retry");
-	const second = await runOnce();
-	assert.ok(!/timed? out|timeout|terminated/i.test(second), "attempt 2: worded so nothing retries it");
-	assert.match(second, /second time/, "and the wording says why: this step's cap has now overrun twice");
+	const retryable = "Keeper call timed out: no answer within its per-call cap of 200 ms (phase: first_byte)";
+	assert.equal(await runOnce(retryable), retryable);
+	const custom = "a caller's own wording, matching no retry pattern";
+	assert.equal(await runOnce(custom), custom);
 });

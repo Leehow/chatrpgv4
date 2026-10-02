@@ -22429,6 +22429,20 @@ and a Keeper that makes two batches before it narrates, the run has exactly one 
 note. The step after the Keeper's next batch is `adjudicate` with reason `keeper_carries`. The summary row names the spent
 budget.
 
+#### 135.25 amendment -- the budget is a target, never a limit (owner, 2026-10-02; amends this section and §124.12's closures)
+
+**The ruling.** The owner: 「之前我记得有个特别蠢的规则要限制60秒，这个跟我的意思有出入，我是希望能用优化的方法让它最终速度到60秒内生成完毕，而不是60秒就让他停」. The 60-second goal is reached by making the turn faster. Nothing stops or shortens a turn because time ran on. Asked how, the owner chose: a call that is answering is never cut, a call that has not answered is re-sent once, and 45 s is recorded, not enforced.
+
+**What changed.** The hybrid engine gives the step policy no run budget (`maxRunMs: Infinity`). The policy's budget branches stay, pure and tested, but this engine never reaches them. Past 45 s:
+- the next model step is no longer turned into a forced compose (`run_budget`);
+- no clerk step is deferred (`deferred_by_budget`, `deferred_last_turn`);
+- no person's act is skipped (`npc_act skipped_budget`);
+- the Keeper gets no `budget_note`.
+
+The run's history is no longer closed for time (`turn_budget_exhausted`): only the retrieval's own four-second allowance closes it. The scene lookup is bounded by that allowance and its lane's 6 s, never by the turn. `PI_COC_TURN_BUDGET_MS` (default 45 000) is the target the summary row measures: `lane: "run", event: "budget", decision: "summary"` keeps `budget_ms`, `elapsed_ms`, `elapsed_at_compose` and `over_budget`. It still derives the Keeper call cap's default (§135.29, as amended).
+
+**Evidence that it was a stop, not a speed-up.** On the installed App's Blood Road table (2026-10-02), turns 7 and 9 ran past 45 s and were closed by the budget. On the Haunting, history retrieval closed for `turn_budget_exhausted` after the Keeper had written its query, so the search never ran.
+
 ### 135.26 Scene obligations become the clerk's candidates (2026-09-23, SO-04 of `docs/specs/scene-obligations-as-candidates.md`; amends §135.2, §135.3, §135.5, §135.8, §135.9, §135.20)
 
 The builder reads a scene's obligations from one place, `table.apply.options.obligations` (§134.10): the same rows the
@@ -23079,6 +23093,17 @@ ordinary cap on step 2 when it is on; a real-socket integration test (the `keepe
 mjs` harness) proves the vendored seam itself accepts and freshly resolves a function value, including one
 that changes its answer between attempts, and that the `keeper_call_cap` telemetry row it writes carries
 `step`.
+
+#### 135.29 amendment -- only an unanswered call is capped, and its re-send is not (owner, 2026-10-02, vendored patch 0005; amends the two addenda above)
+
+**The ruling** is §135.25's amendment: speed comes from optimisation, never from stopping a call. On the installed App's Haunting (2026-10-02, turn 5) the Keeper was writing its prose when the 60 s cap cut it, phase `streaming`. The re-send was cut again, and the step ended with nothing delivered.
+
+**The mechanism (`watchCallCap`, `vendor/pi/patches/0005-keeper-call-cap-first-answer.patch`).**
+- The cap covers only the wait for the attempt's first event. Every adapter pushes that event once the provider's response has answered (`start` after the response headers, or after the websocket opens). From then on the timer is gone. A call that is answering runs as long as it produces events, and a stall after the first event is the idle watchdog's (0003), not the cap's. `CallCapPhase` is `first_byte` only.
+- An overrun is worded to be retried (`timed out`), and the session's own retry re-sends the step once. That re-send runs without a cap. No overrun ends a step any more, so the "second time" wording is gone.
+- `keeperCallCapMs` is still resolved before every attempt, and the `keeper_call_cap` row is unchanged.
+
+The default value is unchanged: `max(PI_COC_KEEPER_CALL_CAP_FLOOR_MS, PI_COC_TURN_BUDGET_MS / 2)`, 22 500 ms, or the thinking allowance (60 s) when the Keeper thinks. It now means "no answer at all within this long", the case the 09-25 evidence was about: calls with no first byte for minutes.
 
 ### 135.30 Routing asks what the player does: one compile per run reads the declaration into typed features, and predicates select the clerk's candidates (2026-09-24, SL-13; amends §135.1, §135.6, §135.7, §135.26)
 

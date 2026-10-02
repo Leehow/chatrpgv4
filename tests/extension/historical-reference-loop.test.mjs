@@ -55,16 +55,13 @@ test('nothing is searched when the need is declined, the action is urgent, the M
     if(options.setting)assert.deepEqual(prefetchRows(f,'skipped').map(row=>row.reason),['no_setting']);
   }
 });
-test('a search still running is waited for within the turn budget; past it only a result already back is handed over',async()=>{
+test('a search still running is waited for, however long the turn has run (owner, 2026-10-02: never stopped by time)',async()=>{
   const slow=await table({setting:SETTING,port:()=>new Promise(resolve=>setTimeout(()=>resolve(READY),30))});
   assert.deepEqual(slow.clerk.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]]);
   let elapsed=0;
-  const spent=await table({setting:SETTING,now:()=>elapsed,port:()=>{elapsed=46000;return new Promise(resolve=>setTimeout(()=>resolve(READY),1500));}});
-  assert.equal(spent.clerk?.historical_reference_materials,undefined,'a spent turn does not wait for the search');
-  assert.deepEqual(prefetchRows(spent,'delivered').map(row=>row.status),['not_back']);
-  elapsed=0;
-  const back=await table({setting:SETTING,now:()=>elapsed,port:()=>{elapsed=46000;return READY;}});
-  assert.deepEqual(back.clerk.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]],'a result already back costs no time');
+  const late=await table({setting:SETTING,now:()=>elapsed,port:()=>{elapsed=120000;return new Promise(resolve=>setTimeout(()=>resolve(READY),30));}});
+  assert.deepEqual(late.clerk.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]],'two minutes into the turn the search is still waited for');
+  assert.deepEqual(prefetchRows(late,'delivered').map(row=>row.status),['ready']);
 });
 
 // Owner 2026-10-02: the fast model writes the scene's query in English (runtime/jev/history-query.ts), once per scene.
@@ -205,15 +202,15 @@ test('native final-answer modes keep the stable tool definitions and transport f
   }
   assert.equal(historyFinalAnswerPayload('unsupported',{}),undefined);
 });
-test('the existing whole-turn budget closes optional history even when local reads are fast',async()=>{
+// Owner, 2026-10-02: the turn gets under 60 s by optimisation, never by being stopped -- the turn's time no longer closes
+// optional history; only the retrieval's own allowance does (the terminal-result test above).
+test('the turn\'s time never closes optional history, however long the turn has run',async()=>{
   let elapsed=0;const f=await table({now:()=>elapsed,narrator:false});
   await f.call('historical_reference',{reference_mode:'saved'},{kind:'historical_reference',status:'ready',materials:[{excerpts:['A saved period fact.']}]});
-  assert(!(await f.project()).includes(HISTORY_CLOSED),'the first successful read did not itself exhaust the resource');
-  elapsed=45001;
-  const note=await f.project();assert(note.includes(HISTORY_CLOSED));assert(note.includes('turn_budget_exhausted'));
+  elapsed=120000;
+  const note=await f.project();assert(!note.includes(HISTORY_CLOSED));assert(!note.includes('turn_budget_exhausted'));
   const attempted=await f.call('historical_reference',{reference_mode:'catalog'});
   assert.equal(attempted.refuse,undefined);
-  assert.deepEqual(attempted.historical_reference.retrieval,{state:'closed',reason:'turn_budget_exhausted'});
-  const final=f.handlers.get('before_provider_request')({payload:{input:[],tools:[]}},{model:{api:'openai-responses'}});
-  assert.equal(final.tool_choice,'none');
+  assert.equal(attempted.historical_reference.retrieval,undefined);
+  assert.equal(f.handlers.get('before_provider_request')({payload:{input:[],tools:[]}},{model:{api:'openai-responses'}}),undefined,'no tool-less final answer forced by time');
 });

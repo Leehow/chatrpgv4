@@ -1061,13 +1061,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const reason = `batch_step_fell: ${batch.fell}`;
       return {status: 'refused' as const, reason, artifact: {kind: 'execute', executed: {ok: false, summary: {tool: proposal.operation, skipped: true, after: batch.fellAt ?? null}}, skipped: true}};
     }
-    if (proposal.operation === 'lookup' && object(proposal.params).kind === 'historical_reference'
-      && run.history?.enabled && !run.history.closed && now() - run.startedAt >= run.budgetMs) {
-      run.history.closed = true;
-      run.history.closedReason = 'turn_budget_exhausted';
-      record({lane: 'historical-reference', event: 'closed_received', run: run.runId, step: stepId, turn: run.turn,
-        reason: run.history.closedReason});
-    }
     // §151.5: what this step's catalog does not admit is refused before it runs -- on a narrowed compose, a verb outside
     // narrate/ask/propose; after an accepted `propose` in the same response, every other call (the proposed step has not
     // run yet). The kernel extension's tool gate honours the refusal this announcement carries.
@@ -1684,9 +1677,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       record({...row, phase: 'started', query: prefetch.query, objective: prefetch.objective, query_source: written?.ok ? 'fast_model' : 'fixed_shape',
         ...(written && !written.ok ? {query_failure: written.reason} : {}), writer_ms: written?.ms ?? null});
       if (signal.aborted) return undefined;
-      const left = Math.max(0, run.budgetMs - (now() - run.startedAt));
-      const result = await port.search({run: run.runId, turn, scope, query: prefetch.query, objective: prefetch.objective, signal,
-        deadlineAt: Date.now() + left});
+      // Bounded by the lookup's own four-second allowance, never by the turn's time (owner, 2026-10-02).
+      const result = await port.search({run: run.runId, turn, scope, query: prefetch.query, objective: prefetch.objective, signal});
       prefetch.result = result;
       if (result && ['ready', 'empty'].includes(text(result.status))) {
         preparedScenes.delete(key);
@@ -1700,15 +1692,15 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }
 
   /**
-   * §124.12 (2026-10-02): the scene's host lookup for the Keeper's note. A search still running is waited for -- its own
-   * four-second allowance bounds it -- unless the run's history is closed or its time budget spent; a result already back
-   * goes either way, since it costs no time. One `prefetch` row with `phase: "delivered"`; a retrieval the search closed
+   * §124.12 (2026-10-02): the scene's host lookup for the Keeper's note. A search still running is waited for -- the lane's
+   * 6 s and the search's own four-second allowance bound it -- unless the run's history is closed; a result already back
+   * goes either way. One `prefetch` row with `phase: "delivered"`; a retrieval the search closed
    * closes the run's history, as the Keeper's own lookup does.
    */
   async function suppliedHistory(run: RunState, history: NonNullable<RunState['history']>, prefetch: HistoryPrefetch, stepId: string): Promise<Json | undefined> {
     history.supplied = true;
     const began = now();
-    const result = prefetch.result ?? (!history.closed && now() - run.startedAt < run.budgetMs ? await prefetch.done : undefined);
+    const result = prefetch.result ?? (!history.closed ? await prefetch.done : undefined);
     const materials = array(result?.materials).map(object);
     record({lane: 'historical-reference', event: 'prefetch', phase: 'delivered', run: run.runId, step: stepId, turn: run.turn ?? null,
       scene: history.scene, reused: prefetch.reused, waited_ms: now() - began, status: result ? text(result.status) || null : 'not_back',
@@ -1907,12 +1899,6 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         + (run.pendingAttackPreparation ? ' This is the already chosen first attack. Prepare only its named target and physical method. Pin a missing NPC combat archetype through apply npc. For the chosen ordinary item, use apply usage with a natural use name and the actual declaration; the host joins a pending base definition in this turn. Do not copy it into a weapon or defer it because look says parameters are pending. Return the preparation results without closing the attack in suspense or asking the player to repeat it: the host resumes the retained attack when ready.' : '')};
     const base = Object.keys(content).length;
     run.lastInferAt = now() - run.startedAt;
-    if (run.history?.enabled && !run.history.closed && ['compose','adjudicate'].includes(step.purpose) && now() - run.startedAt >= run.budgetMs) {
-      run.history.closed = true;
-      run.history.closedReason = 'turn_budget_exhausted';
-      record({lane: 'historical-reference', event: 'closed_received', run: run.runId, step: stepId, turn: run.turn,
-        reason: run.history.closedReason});
-    }
     historyFinalAnswer = run.history?.closed && run.interactionScope?.mode === 'reference' && step.purpose === 'compose'
       ? {run: run.runId, step: stepId, reason: run.history.closedReason} : undefined;
     // §124.12 (2026-10-02): the scene's host lookup goes to the Keeper with the first step that writes, once per scene.
@@ -2134,7 +2120,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         present: [], npcSeen: new Set(), npcCount: {acted: 0},
         keeperCalls: {apply: 0, resolve: 0, look: 0, lookup: 0, recall: 0}, compileCalls: 0, consequenceExecutedReceiptIds: new Map(),
         offered: [], proposedKeys: new Set(), proposeCalls: 0, forced: [], forcedRecorded: new Set(), forcedShown: new Set()};
-      const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: budgetMs}, clock: now, startedAt,
+      // §135.25 (owner, 2026-10-02: the turn gets under 60 s by optimisation, never by being stopped): the turn budget is a
+      // target the summary row measures against (`over_budget`), not a limit -- the policy is given none, so it never
+      // turns the next step into a forced compose, defers a clerk step or skips a person's act because time ran on.
+      const policy = createStepPolicy({context: emptyTurnContext(), budget: {maxJevMs: allowance, maxRunMs: Number.POSITIVE_INFINITY}, clock: now, startedAt,
         requireInteractionScope: true,
         interactionScope: options.interactionScope ?? (!context.rawInput.trim() ? {mode: 'world', reason: 'host_opening', calls: 0} : undefined),
         ...(options.compile === false ? {compile: false} : {})});
