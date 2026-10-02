@@ -31274,3 +31274,145 @@ Implementation precedent: React's [state identity guidance](https://react.dev/le
 Implementation decision: the shared UI hook stores per-message playback in a weak map; same-id history refreshes retain the live identity, while cold history receives none. The controlled loader forwards only the cursor budget. The mechanics component memoizes its parsed tree and reveals text runs at Unicode grapheme boundaries, keeping speaker spans and receipt positions. Plain Keeper prose uses Streamdown's existing streaming view until playback completes. A renderer that is still loading spends no reveal budget.
 
 Verification: 173 focused UI tests and 9 pack/language checks passed; the Vite UI bundle built successfully. The UI TypeScript check has 56 distinct pre-existing errors on both base and modified source, with no new errors. The older full controlled-loader test file also cannot import the base tree's missing `git-capability` fixture; the new test instead covers the actual controlled-loader-to-mechanics path. Playwright captured progressive Chinese prose, an unseen tail replacement after 600 ms, speaker colour, and the completed delivery with no remaining cursor. Evidence is retained under `.coc/playtests/coc-typewriter-ui-20261002`. This is frontend verification; no packaged App or live Keeper acceptance was performed.
+
+## 168. First sight: the book's descriptions reach a new player (2026-10-02, docs/specs/first-sight.md)
+
+### 168.5 First sight is an obligation with its material
+
+**Evidence** (spec §1, item 4). On the installed App's Blood Road table (`game-717a9e4b`), turns 0–2 described neither the Esso station nor the three men under its awning, though the book describes all four and the station's description was in the capsule. Prose rules alone did not make the Keeper write it. This section makes a first sight an obligation the kernel tracks, carries its material to the Keeper, and checks after each delivery whether the material reached the player.
+
+**State: `first-sight.json`** (`kernel-ts/first-sight/index.ts`), in the campaign directory:
+
+```
+{"shown": {"places": [<scene handle>], "people": [<person handle>]},
+ "open":  [{"kind": "place"|"person", "id": <handle>, "missing": [<excerpt of the book>], "turn": <checked turn>, "at": <iso>}]}
+```
+
+- It follows `owed.json` (§158.3). It is written after the turn it reads has closed and is part of no world revision. It is committed with the next commit (`git add -A`) and read with the capsule's full snapshot (`CampaignSnapshot.preload("all")`).
+- **Forks carry it.** A fork at an earlier commit (`table.branch`, or `apply fork` with `from_turn`) checks out that commit's ledger. The fork turn's own check landed after that commit, so its results are read from that turn's record (`record.first_sight`) before the source line is left, and are landed after the checkout (`firstSightOfTurn` / `carryFirstSight`, as `owedOfTurn` / `carryOwed`).
+- A loop rewind or a confluence leaves the ledger alone. The player has still seen what they saw.
+- At most 64 open rows are kept; the oldest give way.
+
+An item is **owed** while the party stands in the place, or the person is present, and it is not in `shown`.
+
+**Producer: the capsule section `first_sight`** (`firstSightSection`, `kernel-ts/read/assemble.ts`):
+
+- `place: {id, name, described}` when the active scene is not in `shown.places`:
+  - `id` is the scene handle; `name` is the table's label for it (`sceneLabel`);
+  - `described` is the scene's `properties.description`, else its summary.
+- `people: [{id, name, described}]`, one for each actor `npcsPresent` gives that is an `npc` node with `visibility: "player-safe"` and is not in `shown.people`:
+  - `name` is `displayName`;
+  - `described` is `properties.biography`, else the summary.
+  - Creatures and people the table established (keeper-only) are not carried.
+- **A name is not a description.** Words that only repeat the node's own name, display name, handle or node id describe nothing, so such an item is not carried. The Haunting's scenes are summarised as "scene basement rites"; mystery-house's people as their names.
+- **An open row replaces the description.** An item with an open row carries `missing` (its excerpts) instead of `described`.
+- **Placement.** The section sits before `present`. It is left out when nothing is owed, so a capsule with nothing owed is byte-for-byte what it was.
+- **Budget.** Its own budget is `FIRST_SIGHT_BUDGET`, 4096, fitted on its own (`fitFirstSight`); no other section's budget cuts it.
+  - Over budget, the largest item gives up a fifth of its description (or its last excerpt) at a time, down to 40 characters.
+  - If it is still over, the last items keep only `id` and `name`.
+  - Each cut item says `truncated: true`, and the section joins the capsule's `truncated`. Nobody is dropped.
+- **HEAD.** `HEAD_FIRST_SIGHT` is appended to `head` only when the section is there. In English it says:
+  - this is the player's first sight of these;
+  - write what the book describes of the place, and of each person their looks, dress and manner, in this reply, in the play language, along the eye's path, before the turn's business;
+  - a person is seen before named;
+  - nothing here is a fact to recite: only what can be seen or heard on arrival;
+  - `missing` means the details were left out of an earlier reply and are still owed;
+  - `truncated` means `look` returns the rest.
+
+The opening (turn 0, no player input) reads `table.capsule` and gets the section like any other turn.
+
+**RPC: `table.first_sight {campaign, turn, items: [{id, kind, missing}]}`** (`kernel-ts/memory/index.ts`, registered beside `table.warn`).
+
+Like `table.warn`, it takes no call id and lands after the turn it read has closed.
+
+- **Turn.** `turn` must have a delivery record (`closed_by` `narrate` or `ask`).
+- **Items.** 1 to 32 of them.
+  - `kind` is `place` or `person`.
+  - `id` names a graph scene (place) or a graph `npc` (person), and is resolved to its handle.
+  - `missing` is a list of at most 24 nonblank strings of at most 800 characters.
+  - Anything else is refused `invalid_params`, and nothing is recorded.
+- **Excerpts.** Each excerpt is located in that item's own book words with `locateExcerpt` (§139), and the book's own span is kept.
+  - An excerpt found nowhere is dropped: `dropped: {index, kind, id, reason: "excerpt_not_in_book", excerpts}`.
+  - **If every excerpt of an item is dropped, the item is not recorded at all** (`reason: "missing_not_in_book"`; integrator's ruling, 2026-10-02). It is neither shown nor given an open row, and stays owed exactly as before.
+  - A second answer for the same item in one call is dropped (`duplicate_item`).
+- **Landing.**
+  - An item whose `missing` is empty joins `shown` for good, and its open row closes. Only an explicitly empty list does this.
+  - Any other item's open row is created or replaced. Two exceptions: a newer check (a higher `turn`) already wrote one, or the item is already shown.
+- **Record.** The delivered record gets `first_sight: [{kind, id, missing, at}]`, the latest answer per item, for a fork.
+- **Result.** `{turn, shown: [{kind, id}], open: [{kind, id, missing}], dropped}`.
+- **Telemetry.** `{lane: "first-sight", event: "recorded", turn, shown, open, dropped?}`.
+
+**The check lane `first-sight`** (`runtime/jev/first-sight.ts`). It is a single completion under Agents.md's criteria: a short closed JSON answer, after delivery, which the player does not wait for.
+
+- **Model.** One zero-tool `runLane` on the fast model: `PI_COC_FIRST_SIGHT_MODEL`, then the fast-model setting, then the table.
+  - It is capped at 20 s.
+  - It is `afterDelivery: true`, so §37.11.1's thinking floor applies.
+  - It never sends `temperature` or `top_p`.
+- **Input.** `{prose: <the delivered rendered_text>, items: [{id, kind, described}]}`. For an item with an open row, `described` is its `missing` excerpts joined by newlines.
+- **Instruction.** For each item, list the details of `described` that a newcomer could see or hear on arrival that the prose did not show:
+  - how the place looks, sounds and smells; a person's looks, build, apparent age, dress and manner;
+  - a detail shown in other words or another language counts as shown;
+  - leave out history, unsaid names, secrets, motives, relationships, knowledge, rules and numbers;
+  - copy each detail exactly as `described` writes it.
+- **Output.** `{items: [{id, missing: [string]}]}`. `checkFirstSightAnswer` checks the shape only; the judgement is the model's.
+- **Host anchoring** (`anchorFirstSight`) applies the kernel's rules:
+  - an excerpt is kept only if it is located in that item's `described` (§139);
+  - an item whose listed excerpts all fail is not sent, and is counted as `unanchored`;
+  - an item the answer leaves out is not sent;
+  - unknown ids, and a second answer for an item, are ignored.
+- **Failure.** `write` never throws. A failure is one of `no_session`, `cancelled`, `timeout`, `model_unavailable`, `model_error`, `bad_output`, `lane_error`, and nothing is recorded, so every item stays owed in full.
+- **Telemetry.**
+  - Success: `{lane: "first-sight", ok: true, turn, ms, model, items, shown, missing, unanchored?}`. `items` counts the items checked; `shown` and `missing` count the answered items with an empty and a nonempty `missing`; `unanchored` counts the items whose excerpts all failed.
+  - Failure: `{ok: false, turn, ms, model, items, reason, detail}`.
+  - Also `runLane`'s `lane-call` rows (`subsession: "first-sight"`), and the outage notice after three consecutive failures (`createLaneTelemetry`).
+- **Inventory.** The call site is inventoried in SL-00 as an app-play-gated leaf.
+
+**Host wiring** (`extensions/kernel/first-sight.ts`, `extensions/kernel/index.ts`, `extensions/table/context-runtime.ts`):
+
+- **One view for every capsule the Keeper is handed.**
+  - It covers `table.player_input`'s capsule, before `coc:capsule` and the `coc-capsule` message.
+  - It covers each `table.capsule` the context hook reads itself, through the port `coc:first-sight` (`{campaign, view}`). The opening's capsule is one of these.
+  - The view leaves out the items whose check is in flight.
+  - It notes what the capsule still carries under that capsule's `turn.number`, the latest text of each item kept.
+- **After every delivery**, `afterDeliveryFirstSight` runs: explicit `narrate` and `ask`, `apply`'s embedded narrate (which delivers through the same call), and the implicit close.
+  - It takes the turn's carried items.
+  - If there are any, and the delivery has `rendered_text`, it starts the check on a zero-delay timer, under the table's lane signal. The delivery never awaits it.
+  - When the lane answers with items, it calls `table.first_sight`.
+  - A kernel refusal is a host row: `{lane: "first-sight", event: "recorded", ok: false, reason: "kernel_refused", code, detail}`.
+- **Watched, not waited for** (as §158.4).
+  - A check lands whenever it finishes, and every capsule read after that reads its result.
+  - While a check runs, its items are left out of every capsule the Keeper is handed, so the next turn does not describe them a second time. This is logged once per turn and item: `{lane: "first-sight", event: "in_flight", turn, omitted: ["place:<id>", "person:<id>"]}`.
+  - They return at the next read after the check lands, if it found them unshown.
+  - A turn whose capsule left them out has nothing of theirs to check.
+- **Amends §13.9.** Leaving out an in-flight item is the one change the host makes to a kernel section. A capsule with nothing in flight is handed over as the kernel's own object.
+- **§166 stands.** Nothing is checked before delivery, and no prose is refused or rewritten. The check only records what the next capsule owes.
+
+**Interpretation not settled by the spec.** A campaign already in play when this lands has no `first-sight.json`. Its current place and people are therefore owed once, as if new, until a check shows them. The ledger is not back-filled from earlier turns.
+
+**Three ends (§31).**
+- *Writer:* the `first-sight` lane's answer, anchored by the host, through `table.first_sight` into `first-sight.json` and the delivered record.
+- *Reader:* the capsule's `first_sight` section (`firstSightSection`), reaching the Keeper through the host's view.
+- *Actor:* the Keeper, whose next reply describes the place and people. That delivery's check closes them (shown) or narrows them (`missing`).
+- *Counted:* `first-sight.json` (`shown`, `open`), the records' `first_sight`, the lane rows (`items`, `shown`, `missing`, `unanchored`), the kernel's `recorded` rows, and the host's `in_flight` rows.
+
+**Tests.**
+- `tests/extension/first-sight-kernel.test.mjs` runs the real TS kernel in process on a fixture starter: the voice-bench teahouse with a book description and two `player-safe` people, one with a biography and one with a summary, beside a `player-safe` person described by name alone. It covers:
+  - the opening section and its seat before `present`;
+  - shown, open and all-unanchored landings;
+  - the next capsule's `missing`;
+  - the section and its head sentence leaving once nothing is owed;
+  - every refusal;
+  - §139 retyped quotation marks;
+  - an older check never replacing a newer row;
+  - the budget fit;
+  - both fork carries.
+- `tests/extension/first-sight-lane.test.mjs` covers the shape, the anchoring (including all-unanchored), one zero-tool round with its row, and the failures.
+- `tests/extension/first-sight-host.test.mjs` runs the product path: the fake kernel's `FAKE_KERNEL_FIRST_SIGHT`, and the harness's own lane provider `firstsight/f1`. It covers:
+  - the opening checked in the background, with the turn over while the check is held;
+  - in-flight items left out of the Keeper's next request and the persisted capsule;
+  - the open item returning once the check lands, and its delivery checked against `missing`;
+  - a failed lane recording nothing.
+- Mutations, each of which turned a test red:
+  - kernel: the section left out of the capsule; visibility ignored; a name-only summary counted; an all-unanchored item recorded as shown; an exact substring in place of `locateExcerpt`; an older check replacing a newer row; `table.branch` not carrying; `apply fork` not carrying; open rows ignored by the section; no budget fit; the head sentence always appended; another item's excerpt kept;
+  - lane: an all-unanchored item sent as shown; an exact substring in place of `locateExcerpt`; `unanchored` not counted; the shape accepting non-strings; no after-delivery floor; a second answer overriding the first;
+  - host: no check after `narrate`; in-flight items not left out; the context hook bypassing the view; the player-input capsule not viewed; a failed lane still recording; the delivery awaiting the check.
