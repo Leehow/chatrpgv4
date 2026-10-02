@@ -1,6 +1,7 @@
 // Contract §168.5 (docs/specs/first-sight.md 2.4): the fast model names what a delivery left out of a first sight.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -108,4 +109,28 @@ test('a failed round records nothing to the kernel and says why, and the lane ne
   assert.equal((await lane.check({turn: 1, prose: 'x', items: ITEMS}, aborted.signal)).reason, 'cancelled');
   // A hang watchdog, not a limit on a working check: 20 s cut a fast model still writing on the Blood Road opening.
   assert.ok(FIRST_SIGHT_TIMEOUT_MS >= 120000, 'nothing working is cut short');
+});
+
+test('the delivery before this one rides as earlier, and a detail either shows counts as shown', async t => {
+  // A fresh Blood Road table (2026-10-02): the opening showed the station owner from the road before he was an item, and
+  // the next check, reading its own turn alone, owed his height, tan and overalls again.
+  const home = await mkdtemp(join(tmpdir(), 'first-sight-earlier-'));
+  t.after(() => rm(home, {recursive: true, force: true}));
+  const f = fixture(t, () => ({stopReason: 'stop', content: [{type: 'text', text: JSON.stringify({items: []})}]}));
+  f.ctx.cwd = home;
+  const lane = createFirstSightLane(f.pi, {ctx: () => f.ctx, campaign: () => 'c1'});
+  await lane.check({turn: 1, prose: '他把油枪插进油箱。', earlier: '棚下站着一个高瘦的男人，皮肤晒得发黑。', items: ITEMS}, new AbortController().signal);
+  assert.deepEqual(JSON.parse(f.requests[0].context.messages[0].content[0].text),
+    {prose: '他把油枪插进油箱。', earlier: '棚下站着一个高瘦的男人，皮肤晒得发黑。', items: ITEMS});
+  assert.match(f.requests[0].context.systemPrompt, /shown is true when prose or earlier shows that detail/);
+  await lane.check({turn: 2, prose: 'x', items: ITEMS}, new AbortController().signal);
+  assert.deepEqual(Object.keys(JSON.parse(f.requests[1].context.messages[0].content[0].text)), ['prose', 'items'], 'no earlier, no key');
+});
+
+test('the kernel extension hands the check the previous delivery', () => {
+  const source = readFileSync(new URL('../../extensions/kernel/index.ts', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('function afterDeliveryFirstSight'), source.indexOf('function pauseReview'));
+  assert.ok(body.indexOf('const earlier = state.lastDeliveredProse') < body.indexOf('state.lastDeliveredProse = prose'), 'read before it is replaced');
+  assert.ok(body.indexOf('state.lastDeliveredProse = prose') < body.indexOf('if (!items.length'), 'every delivery is remembered, owed or not');
+  assert.match(body, /firstSightLane\.check\(\{ turn, prose, \.\.\.\(earlier \? \{ earlier \} : \{\}\), items \}/);
 });

@@ -427,6 +427,8 @@ interface TableState {
 	firstSight: FirstSightTracker;
 	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
 	firstSightOmitted: Set<string>;
+	/** The last delivered prose, the first-sight check's `earlier` (§168.5). */
+	lastDeliveredProse?: string;
 	/** Contract §37.6: the independent source review refused the placement this turn's reentry needs.
 	 * Host-owned, from the kernel's own adaptation result — never prose — and cleared when a later
 	 * proposal is pending, ready or accepted, or when the next turn opens. */
@@ -3549,12 +3551,14 @@ export default function (pi: ExtensionAPI) {
 	 * it (§166). The result lands through `table.first_sight`; a lane failure records nothing, so the items stay owed.
 	 */
 	function afterDeliveryFirstSight(state: TableState, turn: number, prose: string | undefined): void {
+		const earlier = state.lastDeliveredProse;
+		if (prose) state.lastDeliveredProse = prose;
 		const items = state.firstSight.take(turn);
 		if (!items.length || !prose) return;
 		const kernel = state.kernel, campaign = state.campaign, signal = state.lanes.signal;
 		state.firstSight.start(turn, items, async () => {
 			if (signal.aborted) return;
-			const result = await firstSightLane.check({ turn, prose, items }, signal);
+			const result = await firstSightLane.check({ turn, prose, ...(earlier ? { earlier } : {}), items }, signal);
 			if (!result.ok || !result.items.length || signal.aborted) return;
 			try {
 				await kernel.call("table.first_sight", { campaign, turn,

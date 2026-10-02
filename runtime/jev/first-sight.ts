@@ -41,10 +41,10 @@ export const FIRST_SIGHT_MISSING_MAX = 24, FIRST_SIGHT_EXCERPT_CHARS = 800;
  */
 export const FIRST_SIGHT_INSTRUCTION = [
   'You check one reply of a tabletop horror game against what its book describes of a place or person the player was seeing for the first time.',
-  'The input JSON holds prose, the reply the player just read, and items, each with id, kind (place or person) and described: the book\'s own words for it, in whatever language the book is written in.',
+  'The input JSON holds prose, the reply the player just read; earlier, when present, the reply just before it; and items, each with id, kind (place or person) and described: the book\'s own words for it, in whatever language the book is written in.',
   'Step 1, for each item: copy described out as its details, in order, each one unbroken excerpt exactly as described writes it, character for character -- a short phrase or clause. Copy every detail, whatever it is about.',
   'Step 2, for each detail: visible is true only when a newcomer arriving there could see or hear it on arrival -- how the place looks, sounds and smells; a person\'s looks, build, apparent age, dress and the manner they show. visible is false for everything else: history, where someone lives, work or life elsewhere, family, beliefs and religion, habits, opinions, secrets, motives, what someone knows, names nobody has said, rules and numbers.',
-  'Step 3, for each detail: shown is true when the prose shows that detail to the reader, in any words or language; false when it does not.',
+  'Step 3, for each detail: shown is true when prose or earlier shows that detail to the reader, in any words or language; false when neither does.',
   'Answer with one JSON object and nothing else: {"items": [{"id": "<item id>", "details": [{"excerpt": "<excerpt>", "visible": true|false, "shown": true|false}]}]}, one entry for every item.',
 ].join('\n');
 
@@ -54,7 +54,13 @@ export interface FirstSightItem {id: string; kind: 'place' | 'person'; described
 export interface FirstSightAnswer {id: string; kind: 'place' | 'person'; missing: string[]}
 export type FirstSightResult = {ok: true; items: FirstSightAnswer[]; unanchored: string[]; ms: number; model?: string}
   | {ok: false; reason: FirstSightFailure; detail: string; ms: number; model?: string};
-export interface FirstSightPort {check(input: {turn: number; prose: string; items: FirstSightItem[]}, signal: AbortSignal): Promise<FirstSightResult>}
+/**
+ * `earlier` is the delivery before this one. A person first seen from a distance is described before they become an
+ * item: on a fresh Blood Road table (2026-10-02) the opening showed the station owner from the road -- tall, lean,
+ * sunburnt, in dusty overalls -- while he still stood in the next scene, and the check of the turn that arrived there,
+ * reading that turn's prose alone, owed all of it again.
+ */
+export interface FirstSightPort {check(input: {turn: number; prose: string; earlier?: string; items: FirstSightItem[]}, signal: AbortSignal): Promise<FirstSightResult>}
 
 /**
  * The closed shape: `items` a list of `{id, details: [{excerpt, visible, shown}]}`, read as each item's `missing` -- the
@@ -145,7 +151,8 @@ export function createFirstSightLane(pi: ExtensionAPI, options: {ctx: () => Exte
           // prose left out is a comparison, not a deliberation.
           ctx, envName: FIRST_SIGHT_MODEL_ENV, lane: FIRST_SIGHT_LANE, record, signal, timeoutMs: FIRST_SIGHT_TIMEOUT_MS, thinking: 'off',
           systemPrompt: FIRST_SIGHT_INSTRUCTION,
-          input: JSON.stringify({prose: input.prose, items: input.items.map(item => ({id: item.id, kind: item.kind, described: item.described}))}),
+          input: JSON.stringify({prose: input.prose, ...(input.earlier ? {earlier: input.earlier} : {}),
+            items: input.items.map(item => ({id: item.id, kind: item.kind, described: item.described}))}),
           shape: parsed => { const checked = checkFirstSightAnswer(parsed); if (!checked) refused = describeAnswer(parsed); return checked; },
         });
         if (lane.ok) {

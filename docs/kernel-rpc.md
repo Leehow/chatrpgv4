@@ -31485,7 +31485,7 @@ Like `table.warn`, it takes no call id and lands after the turn it read has clos
   - Reasoning is off, named by the lane so §37.11.1's after-delivery floor does not raise it: on the Blood Road opening the floor's `low` reasoned for 53 s until the output ran out (`stop_reason: length`) and no JSON was written.
   - It is `afterDelivery: true`, so §37.11.1's thinking floor applies.
   - It never sends `temperature` or `top_p`.
-- **Input.** `{prose: <the delivered rendered_text>, items: [{id, kind, described}]}`. For an item with an open row, `described` is its `missing` excerpts joined by newlines.
+- **Input.** `{prose: <the delivered rendered_text>, earlier?: <the delivery before it>, items: [{id, kind, described}]}`. For an item with an open row, `described` is its `missing` excerpts joined by newlines. A detail `prose` or `earlier` shows counts as shown (2026-10-02): a person first seen from a distance is described before they become an item, and on a fresh Blood Road table the opening showed the station owner from the road while he stood in the next scene; the check of the turn that arrived there, reading that turn alone, owed his height, tan and overalls again. The host keeps the last delivered prose in memory (`lastDeliveredProse`), so a restarted process has no `earlier` for its first check.
 - **Instruction.** For each item, list the details of `described` that a newcomer could see or hear on arrival that the prose did not show:
   - how the place looks, sounds and smells; a person's looks, build, apparent age, dress and manner;
   - a detail shown in other words or another language counts as shown;
@@ -31513,6 +31513,7 @@ Like `table.warn`, it takes no call id and lands after the turn it read has clos
   - The view leaves out the items whose check is in flight.
   - It notes what the capsule still carries under that capsule's `turn.number`, the latest text of each item kept.
 - **After every delivery**, `afterDeliveryFirstSight` runs: explicit `narrate` and `ask`, `apply`'s embedded narrate (which delivers through the same call), and the implicit close.
+  - It remembers this delivery's prose as the next check's `earlier`, owed items or not, after reading the one before it.
   - It takes the turn's carried items.
   - If there are any, and the delivery has `rendered_text`, it starts the check on a zero-delay timer, under the table's lane signal. The delivery never awaits it.
   - When the lane answers with items, it calls `table.first_sight`.
