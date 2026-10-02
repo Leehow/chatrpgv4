@@ -227,6 +227,8 @@ export interface AdmissionScope {
 	scene?: { handle?: string; label?: string };
 	/** Exact read-only graph projections for proposed move targets. */
 	destinations?: AdmissionDestination[];
+	/** Current kernel-owned purchase ledger and saved terms for this call's cash effects. */
+	cash?: Record<string, unknown>;
 	/**
 	 * The closed options of the `ask` the player is answering this turn (dodge, fight_back, push,
 	 * spend_luck, ...). A `resolve` that settles one of them carries the player's own answer, in
@@ -309,7 +311,7 @@ const IDENTIFYING_FIELDS: readonly string[] = [
 	"to", "establish", "label", "travel_minutes", "via", "clue", "minutes", "band", "until", "stated", "beyond_travel", "delta",
 	"name", "regions", "region_labels", "level_labels", "subject", "from", "with", "quantity", "dice", "scope", "object",
 	"description", "category", "adopt", "condition", "weapon", "definition", "document", "part", "offer", "handover", "check",
-	"settlement", "source", "price_id", "currency", "intent_ref", "intent_outcome", "owed",
+	"settlement", "source", "price_id", "currency", "mode", "quote", "items", "intent_ref", "intent_outcome", "owed",
 ];
 
 /**
@@ -376,6 +378,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		const reviewed = (effect: Record<string, unknown>): boolean => {
 			const kind = text(effect?.kind);
 			if (!kind || !TRIGGER_KINDS.has(kind)) return false;
+			if (kind === "cash" && effect.mode === "quote") return false;
 			if (kind === "move" && here.includes(norm(effect.to)) && !text(effect.label)) return false;
 			if (kind === "object") {
 				// Adoption enriches an owned row; same-owner edits record state rather than transfer it.
@@ -391,7 +394,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 				.filter(([k, v]) => k !== "kind" && !k.startsWith("_") && v !== undefined && v !== null && v !== "")
 				.map(([k, v]) => `${k}=${typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v)}`);
 			const registered = kind === 'move' ? destination(effect) : undefined;
-			return `apply ${kind}: ${fields.join("; ")}${registered ? `; registered_destination=${JSON.stringify({handle: registered.handle, label: registered.label, summary: registered.summary,
+			return `apply ${kind}: ${fields.join("; ")}${kind === 'cash' && scope.cash ? `; registered_cash_context=${JSON.stringify(scope.cash)}` : ''}${registered ? `; registered_destination=${JSON.stringify({handle: registered.handle, label: registered.label, summary: registered.summary,
 					...(registered.canonical_name ? {canonical_name: registered.canonical_name} : {}), ...(registered.aliases?.length ? {also_called: registered.aliases} : {}),
 					...(registered.access ? {access: registered.access} : {})})}` : ''}`;
 		};
@@ -399,7 +402,7 @@ export function admissionRequest(tool: string, payload: Record<string, unknown>,
 		// Each line's own signature, taken before the sort below reorders `signatures` in place.
 		const lineSignatures = shown.map((index) => signatures[index]!);
 		const ordered = effects.some(effect => effect.kind === 'object' || effect.kind === 'usage');
-		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [] });
+		const key = canonical({ tool, effects: ordered ? signatures : signatures.sort(), destinations: scope.destinations ?? [], ...(scope.cash ? {cash:scope.cash} : {}) });
 		// The key stays the whole batch's (§32.4); the lines are only the reviewed effects (§32.12.3).
 		return { tool: "apply", key, lines: shown.map((index) => describe(effects[index]!)), kinds: shown.map((index) => text(effects[index]!.kind) ?? "?"), effects: shown,
 			signatures: lineSignatures };
@@ -442,7 +445,8 @@ export function admissionSystemPrompt(): string {
 		"For that consent judgment, judge only from the player's exact current words, what the player was already told (the earlier deliveries), and any still-valid earlier instruction the player gave and did not withdraw. The Keeper's own goal, method, why, how and stakes text describes the proposal; it is not evidence of the player's consent. A Keeper suggestion in earlier narration is not acceptance. Interest in a subject is not a trip to a place. Risk in an action the player chose does not license a different method, destination or target.",
 		"When an immediately preceding declaration is labeled unfinished, its turn ended without a Keeper delivery and the action was not thereby withdrawn. Read it together with the current words: a bare request to continue may resume it; current words may instead narrow, replace or withdraw it. The unfinished declaration is context, not automatic authorization. Judge that relationship semantically.",
 		"Explicit limits on money, quantity, duration and scope are binding. Compare proposed debits and commitments with the chosen limit; do not round a budget upward, add a deposit, buy extra nights, or use an earlier offer to override the latest choice. A request for one night with a budget of 2.50 does not authorize a debit of 3.00 described as a deposit or two nights. A goal such as lodging authorizes only its chosen scope. If a proposed value exceeds a stated limit, answer not_authorized and identify both values in grounds; the Keeper's why cannot make the excess entailed.",
-		"A proposed cash effect with settlement=spending_level is the rulebook's quick settlement: the kernel verifies that this occasional purchase is no greater than the investigator's printed Spending Level, records its price, and leaves cash unchanged. It is not a resource debit and does not need an earlier price disclosure or a second confirmation. Still judge whether the player chose the service, item or activity itself; a Spending Level cannot authorize the Keeper to invent a purchase. Repeated stacking is for the Keeper to consolidate into a real cash debit, not a reason to refuse one valid quick settlement.",
+		"For a cash proposal, registered_cash_context.previews carries the kernel-computed actual delta beside purchase_amount. Use that actual debit for cash-budget consent; do not add the ledger yourself or substitute the item's price. A price of 1 can debit 11 when earlier covered spending reaches the daily limit. A zero actual delta is covered bookkeeping for the chosen expense, not a new cash commitment.",
+		"Cash mode=quote only records the Keeper's priced offer: it spends no money and transfers no object, so it is Keeper bookkeeping, not player acceptance. For a payment, category=living claims ordinary food, accommodation or incidental travel within the investigator's established living standard; judge this contextual claim, never accept an unrelated luxury or transfer as living expenses. Category=purchase is additional daily spending: the kernel enforces the current day's cumulative limit and charges its full total when exceeded, accounting for cash already charged. Coverage never authorizes an unchosen item or service. A covered chosen expense does not need an earlier price disclosure or a second confirmation. Still judge whether the player chose the service, item or activity itself. Actual cash commitments still need disclosed accepted terms or applicable delegation. A player's explicit request to pay the price the NPC names is a delegation, while asking the price alone is not. Do not invent or recompute a saved quote's amount.",
 		"For any other voluntary payment, surrender of possessions or resource commitment, find the relevant terms in what the player was already told and their subsequent acceptance, or an explicit still-valid delegation covering those terms. A request for a service is not acceptance of an undisclosed price. 'Fill it up' before any quote does not authorize a five-dollar debit; accepting an earlier five-dollar quote does. A source price, affordability, customary payment, the Keeper's rationale or an NPC demanding money is not consent. Quoting the price in the same delivery as the debit, or proceeding after a quote without new player acceptance, is too late. Routine time and effort inherent in an already-chosen action stay entailed; this requirement concerns a new voluntary bargain or commitment, not every minute or movement. Even if the Keeper already landed a related service this turn, that cannot retroactively authorize payment. Without disclosure and acceptance or applicable delegation, answer not_authorized; if the evidence is incomplete, answer uncertain. Name the missing terms and choice. An unchanged accepted bargain needs no second confirmation. This rule does not require consent to hidden dangers, involuntary rule consequences or genuine NPC initiative; an NPC asking to be paid does not make the investigator's payment NPC initiative.",
 		"An object pickup or transfer is a real proposed action, even beside definition or usage preparation. A usage describes the chosen way an object will be used; preparing it must not invent an attack the player only contemplated. Choosing to take a chair and swing it entails the necessary pickup and parameter preparation, not a different target or method. A different object's or usage's permission is not reusable. Pure owned-equipment adoption and same-owner state recording are bookkeeping; an NPC's own initiative remains not_player_action. Preparing parameters does not settle the attack or grant an extra action.",
 		"For a voluntary move, the following destination-choice and commitment restrictions apply; they do not require consent to an involuntary displacement or its hidden destination or elapsed time. registered_destination is authoritative evidence of what the target scene physically is. Read it by its names, not by its handle: handle is a file name, often the slug of one room, while canonical_name is the module's own name for the place and also_called lists the other names it is known by. A player who names the place by any of those names, in any language, has named this destination. A label may present that same place in the player's language; it cannot substitute a different city, building or destination. If the player chooses Athens but the registered target is a Boston hotel, answer not_authorized even when label says Athens. A genuinely new chosen destination can be registered atomically by move.establish with a summary and via. This addition does not require source publication or adaptation review. Judge whether the player chose that destination and the proposed action; missing graph coverage is not missing player authorization.",

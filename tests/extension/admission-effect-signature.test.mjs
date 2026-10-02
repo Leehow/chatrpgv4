@@ -25,6 +25,16 @@ const resolveCall = (action) => fauxAssistantMessage([fauxToolCall("resolve", { 
 const kernelCalls = (table, method) => table.kernelRequests().filter((entry) => entry.method === method);
 const admissionRows = (table) => table.telemetry().filter((row) => row.lane === "admission");
 
+test("a saved quote's exact terms and current ledger reach admission and invalidate a stale verdict", () => {
+    const payload={effects:[{kind:'cash',quote:'Water and cigarettes'}]};
+    const scope={party:['Alice'],cash:{investigator:{living:{spending_level:10,daily_spending:{day:0,total:8,debited:0}}},quotes:[{quote:'Water and cigarettes',purchase_amount:2.75}]}};
+    const proposal=admissionRequest('apply',payload,scope);
+    assert.match(proposal.lines[0],/registered_cash_context=/);
+    assert.match(proposal.lines[0],/"purchase_amount":2.75/);
+    assert.notEqual(proposal.key,admissionRequest('apply',payload,{...scope,cash:{...scope.cash,quotes:[{quote:'Water and cigarettes',purchase_amount:3.75}]}}).key);
+    assert.equal(admissionRequest('apply',{effects:[{kind:'cash',mode:'quote',quote:'Water and cigarettes',items:[{name:'Water',quantity:2,unit_price:0.5}]}]},{party:['Alice']}),null,'an offer alone cannot pay money');
+});
+
 test("two batches in one turn that differ only in band are both reviewed: the verdict on a word is not reused for a night", async (t) => {
 	const table = await openTable({
 		responses: [

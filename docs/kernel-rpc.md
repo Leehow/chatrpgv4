@@ -13047,13 +13047,9 @@ There is deliberately no source meaning "a figure the player said". A number a p
 about their own purse is a balance, and §58.4 puts the balance in front of the keeper so it
 does not have to guess which one it is hearing.
 
-`settlement` is optional and defaults to `cash`. `spending_level` is the rulebook's quick
-settlement for an occasional negative `price` or `quote` no greater than the investigator's
-printed Spending Level: `delta` still names the purchase price, but the receipt carries
-`settlement: "spending_level"`, `purchase_amount`, `spending_level`, `delta: 0`, and equal
-`before` / `after` cash. Positive amounts, `found`, missing Spending Level, and amounts above
-the limit are refused. This is not a hidden allowance invented by the Keeper: the value already
-comes from `cash-assets.json` through the investigator's Credit Rating.
+Purchase settlement follows section 58.9. The kernel chooses whether cash changes from the
+expense category, the printed Spending Level and that day's ledger. The optional legacy
+`settlement` field cannot turn a covered purchase into a debit or bypass the daily limit.
 
 ### 58.3 `currency` is declared, not echoed
 
@@ -13103,14 +13099,13 @@ price list can be asked for by name.
   the mechanics card, so a purchase can be read back against what it was based on.
 - **Acts on it.** The keeper, which must answer "from what?" before it may answer "how much",
   has `lookup kind=catalog` to answer it with, and uses the projected Spending Level for quick
-  settlement while escalating clear repeated stacking to a real debit.
+  settlement; the kernel's classified daily ledger settles repeated spending.
 
 ### 58.7 What this section does not decide
 
 It does not compare a charge against the printed price and refuse the difference, and it does
-not detect a currency in prose. Ordinary `settlement: "cash"` still checks affordability exactly
-as before; `settlement: "spending_level"` is the one numeric rule added here and is bounded by the
-printed level. A shape check on the receipt — a `delta` that happens to equal `before` — is a
+not detect a currency in prose. Classified purchase arithmetic and daily coverage follow section
+58.9; actual transfers still check affordability. A shape check on the receipt — a `delta` that happens to equal `before` — is a
 symptom, not this defect: the same mistake at ninety per cent of the balance is silent, and the
 fix for "the number came from nowhere" is a source, not an alarm on one of its shapes.
 
@@ -13129,6 +13124,76 @@ a repair payment from a separate tip. This is a deterministic presentation step 
 on the receipt, with no new model call or wait on the narration path. A later card replacement
 can add or correct a purpose through the existing card-update path while preserving the delivery's
 prose and typewriter progress. Historical records and balances are preserved.
+
+### 58.9 Unified purchases and exact quotations (owner request, 2026-10-02)
+
+The Keeper decides the open semantic question, using `category: living|purchase|transfer` on a
+cash effect. `living` means ordinary accommodation, food or incidental travel within this
+investigator's established living standard; admission judges this claim in context. It leaves
+cash unchanged and does not consume the additional Spending Level. `purchase` is additional
+spending (including an incidental gratuity when appropriate). `transfer` is actual cash moving
+for a non-purchase reason, such as theft, income or a gift. The kernel does not classify prose,
+item names or occupations with lists or regular expressions.
+
+A negative `price`/`quote` requires a category. A legacy explicit `spending_level` supplies
+`purchase` when the category is missing. A `found` amount defaults to `transfer`; the Keeper can
+explicitly classify a negative incidental expense as `purchase`. Positive amounts and already
+delivered owed-cash reconciliation remain actual cash transfers. Missing classification refuses
+before state changes, rather than silently defaulting to a debit. The legacy `cash` selector
+does not override living-standard or Spending Level coverage.
+
+For `purchase`, `finance.daily_spending` stores the current game day, cumulative amount and cash
+already debited for that day's purchases. The day uses the existing pinned opening clock and
+local-midnight calculation. At or below Spending Level no cash is debited. Above it, the full
+daily purchase total is payable: the current debit is total minus cash already debited, so a
+6 + 4 + 1 sequence at a limit of 10 debits 0, 0, then 11, and a subsequent 2 debits 2. This is
+never just the excess over 10. The rule is evaluated in staged sheet order, atomically with the
+whole apply batch, and call replay cannot charge or count a purchase twice. A new day starts a
+new total. Existing unclassified historical receipts and balances are preserved; the ledger
+starts with classified settlements under this contract, without guessing historical categories.
+
+`mode: quote` registers a priced offer without paying it. `quote` is its human-readable name;
+`items` is a bounded list of `{name, quantity, unit_price}`. The Keeper supplies prices and
+quantities; the kernel calculates each amount and their total with exact decimal arithmetic.
+An optional `delta` must equal the negative computed total or the batch is refused. The quote
+receipt and the apply result expose the computed `purchase_amount` and item amounts before
+the Keeper writes the offer. Structured quotation cards carry the authoritative figures;
+the Keeper uses those figures instead of doing a second sum in dialogue.
+
+Later `mode: settle` (the default) with `quote: <name>` reuses that saved amount, category,
+currency, counterparty and purpose. A mismatched supplied amount or term is refused. A quote
+can be settled once; a repeated RPC call replays its receipt, while a new payment requires a
+new offer. Direct purchases can also carry `items`; omitting delta lets the kernel calculate
+it. Names are semantic references; receipt identifiers remain host-owned.
+
+Receipts and their mechanics retain `category`, `purchase_amount`, `items`, `spending_day`,
+`daily_total`, `daily_debited`, `spending_level` and the chosen `settlement` (`quote`,
+`living_standard`, `spending_level` or `cash`) where applicable. `delta` always means actual cash
+movement. The card displays the quoted/current purchase amount, its purpose, and the daily total
+against the limit, separately from any balance change. The Keeper's capsule reads the daily
+ledger and open quotes. Admission still guards the chosen purchase and any actual commitment;
+recording an offer alone is no acceptance. Quotes and covered purchases are not promised object
+transfers, and cannot land owed-cash rows.
+
+The host obtains a read-only `table.apply.options {cash_effects: <ordered batch>}` preview using
+the same `stageCash` calculation against cloned state. It returns the actual debit alongside
+the purchase price, including same-batch cumulative spending. Admission reads that computed
+debit for the player's cash budget. A host-owned debit ceiling binds the subsequent write; a
+larger debit refuses for fresh preview/admission before any state changes. Unresolved movement
+or time before a purchase must land separately so its game day is established first. This adds
+no model call and never counts or pays an expense during preview.
+
+Writer: `stageCash` stages the quote and per-investigator ledger; reader: apply's quotation
+result, the capsule and the cash mechanics projection; actor: the Keeper quotes the exact result
+and settles the chosen purchase, and the player reads the resulting cash card. No post-delivery
+review, rewrite or model call is added. The existing one-pass narration contract remains.
+
+Precedent: the rulebook pp. 46/95 separates ordinary living expenses from additional daily
+spending. [CoC7 Foundry](https://github.com/Miskatonic-Investigative-Society/CoC7-FoundryVTT/blob/develop/.github/CHANGELOG.md)
+separates Spending Level, cash and a daily spending counter; its human-operated sheet does not
+solve automatic classification. [Stripe quotations](https://docs.stripe.com/api/quotes/create)
+use quantities and decimal unit amounts; this confirms the shared quote/settlement arithmetic
+shape, without importing real-payment policy or infrastructure into this game.
 
 ## 59. A card says which of three things is true about opening it (2026-09-16, amends §16.2)
 

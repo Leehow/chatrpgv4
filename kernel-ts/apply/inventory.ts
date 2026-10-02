@@ -13,7 +13,9 @@ import {Catalog} from '../rules/catalog.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {addCash,cashDecimal,cashStorage,cashText,compareCash} from './cash.js';
+import {bindCashQuote,expenseCategory,expenditure,purchaseItems,storedCash} from './purchases.js';
 import type {ApplyContext} from './index.js';
+export type CashContext=Pick<ApplyContext,'kernel'|'world'|'graph'|'turn'|'callId'|'ordinal'|'mint'> & {campaign:{party():Promise<readonly Row[]>}};
 type Int=number|bigint;
 const int=(value:any):Int=>typeof value==='bigint'?value:Math.trunc(number(value));
 const add=(a:Int,b:Int):Int=>{const sum=BigInt(a)+BigInt(b);return sum<=BigInt(Number.MAX_SAFE_INTEGER)&&sum>=BigInt(Number.MIN_SAFE_INTEGER)?Number(sum):sum;};
@@ -21,7 +23,7 @@ const negate=(value:Int):Int=>typeof value==='bigint'?-value:-value;
 const itemMatches=(entry:any,key:string)=>isJsonObject(entry)?['name','label','weapon'].some(field=>normalize(string(entry[field]||''))===key):normalize(string(entry))===key;
 const weaponMatches=(entry:any,key:string)=>isJsonObject(entry)&&['weapon_id','name','label'].some(field=>normalize(string(entry[field]||''))===key);
 const held=(sheet:Row,key:string):Int=>{const found=array(sheet.equipment).filter(entry=>itemMatches(entry,key));return found.length?found.reduce((sum:Int,entry)=>add(sum,isJsonObject(entry)?int(entry.quantity||1):1),0):array(sheet.weapons).filter(entry=>weaponMatches(entry,key)).length;};
-export async function stagedSheet(context:ApplyContext,staged:Map<string,Row>,name:any):Promise<Row>{
+export async function stagedSheet(context:Pick<CashContext,'campaign'>,staged:Map<string,Row>,name:any):Promise<Row>{
     const sheet=actor(await context.campaign.party() as Row[],name),id=string(sheet.id);if(!staged.has(id))staged.set(id,clone(sheet));return staged.get(id)!;
 }
 async function weaponProfile(context:ApplyContext,sheet:Row,query:any,catalog:Map<string,Row>):Promise<Row>{
@@ -101,7 +103,7 @@ const money=(value:any):any=>value instanceof PythonFloat&&Number.isInteger(numb
  */
 export const CASH_SOURCES=['price','quote','found'] as const;
 const SOURCE_FIX='cite where the amount came from: source "price" with a price_id from lookup kind=catalog kinds=["item"], source "quote" with the person who named it in `with`, or source "found" when no price is involved (found, stolen, wages, a gift, a debt settled). A number the player said about their own purse is a balance, not a price.';
-async function cashSource(context:ApplyContext,effect:Row,heldCurrency:string,subject:string):Promise<Row>{
+async function cashSource(context:CashContext,effect:Row,heldCurrency:string,subject:string):Promise<Row>{
     const source=effect.source;
     if(typeof source!=='string'||!(CASH_SOURCES as readonly string[]).includes(source))
         throw new RpcError('invalid_params',`a cash amount needs a source; ${repr(source??null)} is not one of ${CASH_SOURCES.join(', ')}`,{fix:SOURCE_FIX,details:{source:source??null,supported:[...CASH_SOURCES]}});
@@ -126,11 +128,22 @@ async function cashSource(context:ApplyContext,effect:Row,heldCurrency:string,su
     const price=row(row(found.params).price);
     return {source,price_id:wanted,price_name:found.name??null,price_era:array(found.era)[0]??null,source_amount:price.amount??null,source_currency:price.currency??null,source_display:price.source_display??null,source_provenance:row(found.params).provenance??null};
 }
-export async function stageCash(context:ApplyContext,effect:Row,staged:Map<string,Row>):Promise<StagedEffect>{
-    const delta=effect.delta,decimalDelta=cashDecimal(delta);if(!decimalDelta||decimalDelta.coefficient===0n)throw new RpcError('invalid_params',"delta must be a finite non-zero number in the era's currency unit");
-    const settlement=effect.settlement??'cash';
-    if(settlement!=='cash'&&settlement!=='spending_level')throw new RpcError('invalid_params',`settlement must be "cash" or "spending_level", not ${repr(settlement)}`);
-    const sheet=await stagedSheet(context,staged,effect.subject),id=string(sheet.id),subject=string(sheet.name||sheet.id),why=typeof effect.why==='string'?effect.why:null;
+export async function stageCash(context:CashContext,effect:Row,staged:Map<string,Row>):Promise<StagedEffect>{
+    const mode=effect.mode??'settle';
+    if(mode!=='quote'&&mode!=='settle')throw new RpcError('invalid_params','cash mode must be quote or settle');
+    const requested=effect.settlement;
+    if(requested!==undefined&&requested!=='cash'&&requested!=='spending_level')throw new RpcError('invalid_params','settlement must be cash or spending_level');
+    const sheet=await stagedSheet(context,staged,effect.subject),id=string(sheet.id),subject=string(sheet.name||sheet.id);
+    const bound=bindCashQuote(context,effect,id);effect=bound.effect;
+    const priced=effect.items!==undefined?purchaseItems(effect.items):null;
+    if(priced){
+        const wanted={coefficient:-priced.total.coefficient,exponent:priced.total.exponent},given=cashDecimal(effect.delta);
+        if(effect.delta!==undefined&&(!given||compareCash(given,wanted)!==0))throw new RpcError('invalid_params','delta differs from the exact priced-line total',{fix:'Omit delta and use the kernel-computed total, or correct the quoted line items.',details:{purchase_amount:storedCash(priced.total),delta:effect.delta}});
+        effect={...effect,delta:storedCash(wanted)};
+    }
+    const delta=effect.delta,decimalDelta=cashDecimal(delta);
+    if(!decimalDelta||decimalDelta.coefficient===0n)throw new RpcError('invalid_params',"delta must be a finite non-zero amount, or items/quote must provide the amount");
+    const why=typeof effect.why==='string'?effect.why:null;
     const other=typeof effect.with==='string'&&effect.with.trim()?context.graph.npc(effect.with):null;
     let finance=sheet.finance;
     if(!isJsonObject(finance)||!isJsonObject(finance.cash)){
@@ -142,26 +155,40 @@ export async function stageCash(context:ApplyContext,effect:Row,staged:Map<strin
     const cash=finance.cash,before=money(cash.amount||0),currency=string(cash.currency||'USD'),decimalBefore=cashDecimal(before);
     if(!decimalBefore)throw new RpcError('invalid_params',`${subject} has an invalid cash balance`,{fix:'repair the investigator cash balance before applying a cash receipt',details:{before,currency}});
     const sourced=await cashSource(context,effect,currency,subject);
-    let effectiveDelta=decimalDelta,purchaseAmount:any=null,spendingLevel:any=null;
-    if(settlement==='spending_level'){
-        if(decimalDelta.coefficient>=0n)throw new RpcError('invalid_params','spending_level settlement is only for a purchase, so delta must be negative',{fix:'use settlement "cash" for money received'});
-        if(sourced.source==='found')throw new RpcError('invalid_params','spending_level settlement needs a price or quote, not source "found"',{fix:'use source "price" or "quote" for a purchase, or settlement "cash" when no price is involved'});
-        const level=row(finance.spending_level),decimalLevel=cashDecimal(level.amount);
-        if(!decimalLevel||decimalLevel.coefficient<0n)throw new RpcError('needs',`${subject} has no usable Spending Level for this finance period`,{fix:'settle the amount from cash after the player accepts the price, or repair the investigator finance block',details:{settlement,spending_level:level.amount??null,currency}});
-        const purchase={coefficient:-decimalDelta.coefficient,exponent:decimalDelta.exponent};
-        if(compareCash(purchase,decimalLevel)>0)throw new RpcError('needs',`${cashText(purchase)} ${currency} is above ${subject}'s Spending Level of ${cashText(decimalLevel)} ${currency}`,{fix:'disclose the price and wait for the player to accept it, then use settlement "cash"',details:{settlement,purchase:cashStorage(purchase),spending_level:cashStorage(decimalLevel),currency}});
-        purchaseAmount=cashStorage(purchase);spendingLevel=cashStorage(decimalLevel);effectiveDelta={coefficient:0n,exponent:0};
+    const category=expenseCategory(effect,decimalDelta.coefficient<0n);
+    const purchase={coefficient:-decimalDelta.coefficient,exponent:decimalDelta.exponent};
+    if(mode==='quote'){
+        if(!priced||!other||typeof effect.quote!=='string'||!effect.quote.trim()||category==='transfer'||effect.owed)
+            throw new RpcError('invalid_params','A quote needs items, a quote name, an NPC and a living or purchase category');
+        const name=effect.quote.trim(),amount=storedCash(priced.total),withName=string(effect.with);
+        const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after:before,delta:0,
+            category,settlement:'quote',quote:name,purchase_amount:amount,items:priced.items,currency,with:context.graph.handle(other),with_label:personLabel(context.world,context.graph.handle(other),context.graph.displayName(other)),...sourced,why,at:nowIso()};
+        const quotes=array(context.world.cash_quotes).filter(value=>value.subject!==id||normalize(string(value.name))!==normalize(name));
+        quotes.push({name,subject:id,category,purchase_amount:amount,items:priced.items,currency,with:withName,...sourced,why,settled:null});
+        context.world.cash_quotes=quotes;
+        return {receipt,event:null};
     }
+    const covered=category==='transfer'?{delta:decimalDelta,fields:{},ledger:undefined}:expenditure(context,finance,category,purchase);
+    const effectiveDelta=covered.delta;
+    if(effect._cash_debit_limit!==undefined){
+        const limit=cashDecimal(effect._cash_debit_limit),debit={coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent};
+        if(!limit||limit.coefficient<0n)throw new RpcError('invalid_params','The admitted cash debit limit is invalid');
+        if(effectiveDelta.coefficient<0n&&compareCash(debit,limit)>0)throw new RpcError('needs','The current cash debit exceeds its admitted preview',{fix:'Refresh the cash preview and obtain admission for the current full debit before retrying.',details:{cash_debit:storedCash(debit),admitted_limit:effect._cash_debit_limit}});
+    }
+    if(requested==='spending_level'&&(category!=='purchase'||decimalDelta.coefficient>=0n))throw new RpcError('invalid_params','spending_level is only a purchase settlement');
+    if(requested==='spending_level'&&effectiveDelta.coefficient<0n)throw new RpcError('needs','The daily purchase total is above Spending Level',{fix:'Disclose the full cash debit and wait for the player to accept it or use an existing applicable delegation, then omit settlement.',details:{spending_level:covered.fields.spending_level,daily_total:covered.fields.daily_total,cash_debit:storedCash({coefficient:-effectiveDelta.coefficient,exponent:effectiveDelta.exponent})}});
     const decimalAfter=addCash(decimalBefore,effectiveDelta);
     if(decimalAfter.coefficient<0n)throw new RpcError('invalid_params',`${subject} has ${string(before)} ${currency}; cannot lose ${cashText({coefficient:-decimalDelta.coefficient,exponent:decimalDelta.exponent})}`,{fix:'a smaller delta, or narrate the debt without a cash receipt',details:{before,delta,currency}});
     const after=cashStorage(decimalAfter);
     if(after===null)throw new RpcError('invalid_params','cash result cannot be represented without rounding',{fix:'use an amount that can be stored exactly, or keep this amount as a whole-number cash receipt',details:{before,delta,currency}});
     const actualDelta=cashStorage(effectiveDelta);if(actualDelta===null)throw new RpcError('internal','cash delta could not be represented');
+    if(covered.ledger)finance.daily_spending=covered.ledger;
     cash.amount=after;sheet.finance=finance;sheet.cash=`${string(after)} ${currency}`;
     const receipt={id:context.mint(`cash:t${context.turn.turn}-c${context.ordinal}`),kind:'cash',call_id:context.callId,resource:'cash',subject:id,subject_label:personLabel(context.world,id,subject),before,after,delta:actualDelta,
-        ...(settlement==='spending_level'?{settlement,purchase_amount:purchaseAmount,spending_level:spendingLevel}:{}),with:other?context.graph.handle(other):null,with_label:other?personLabel(context.world,context.graph.handle(other),context.graph.displayName(other)):null,currency,...sourced,why,at:nowIso()};
-    return settlement==='spending_level'
-        ?{receipt,event:{type:'purchase-settled',data:{subject:id,amount:purchaseAmount,spending_level:spendingLevel,currency,why,...(other?{with:context.graph.handle(other)}:{})}}}
+        ...covered.fields,...(priced?{items:priced.items}:{}),...(bound.quote?{quote:bound.quote.name}:{}),with:other?context.graph.handle(other):null,with_label:other?personLabel(context.world,context.graph.handle(other),context.graph.displayName(other)):null,currency,...sourced,why,at:nowIso()};
+    if(bound.quote)bound.quote.settled=receipt.id;
+    return category!=='transfer'&&effectiveDelta.coefficient===0n
+        ?{receipt,event:{type:'purchase-settled',data:{subject:id,amount:covered.fields.purchase_amount,settlement:covered.fields.settlement,...(covered.fields.spending_level!==undefined?{spending_level:covered.fields.spending_level}:{}),currency,why,...(other?{with:context.graph.handle(other)}:{})}}}
         :{receipt,event:{type:'resource-changed',data:{resource:'cash',subject:id,before,after,delta:actualDelta,why,...(other?{with:context.graph.handle(other)}:{})}}};
 }
 export async function commitInventorySheets(context:ApplyContext,staged:Map<string,Row>):Promise<void>{

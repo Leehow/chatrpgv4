@@ -713,11 +713,11 @@ export function pricesPaid(records: Row[], limit = 8): Row[] {
     for (const record of [...records].sort((a, b) => number(b.turn) - number(a.turn)))
         for (const receipt of array(record.receipts)) {
             if (!isJsonObject(receipt) || receipt.kind !== "cash" || paid.length >= limit) continue;
-            const delta = number(receipt.delta ?? 0), quick = receipt.settlement === "spending_level";
-            if (!(delta < 0) && !(quick && number(receipt.purchase_amount) > 0)) continue;
+            const delta = number(receipt.delta ?? 0), purchase = receipt.settlement !== 'quote' && number(receipt.purchase_amount) > 0;
+            if(receipt.settlement === 'quote'||!(delta < 0) && !purchase)continue;
             paid.push({
                 turn: record.turn ?? null,
-                amount: quick ? receipt.purchase_amount : -delta,
+                amount: purchase ? receipt.purchase_amount : -delta,
                 currency: receipt.currency ?? null,
                 ...(receipt.source != null ? { source: receipt.source } : {}),
                 ...(receipt.settlement != null ? { settlement: receipt.settlement } : {}),
@@ -743,6 +743,10 @@ export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: 
         const sheet = party[0],
             book = moduleDeclaration(graph.moduleNode).era;
         section.investigator = investigatorSummary(sheet);
+        if(section.investigator.living){
+            const day=Math.floor((clockStart(graph,row(world.clock)).minutes+number(row(world.clock).minutes))/1440),saved=row(row(sheet.finance).daily_spending);
+            section.investigator.living.daily_spending=saved.day===day?{...saved}:{day,total:0,debited:0};
+        }
         // The form of address the player established for their own investigator (§79). This is the
         // half the memory lane could never hold: a new NPC who has never been corrected reads it
         // here on the turn they first open their mouth, and a correction twenty-five turns old is
@@ -756,6 +760,8 @@ export function knownSection(graph: ModuleGraph, world: Row, scene: Row, party: 
     const paid = pricesPaid(records);
     if (paid.length)
         section.prices_paid = paid;
+    const quotes=array(world.cash_quotes).filter(value=>!value.settled).slice(-8);
+    if(quotes.length)section.cash_quotes=quotes.map(value=>({quote:value.name,subject:value.subject,with:value.with,purchase_amount:value.purchase_amount,items:value.items,currency:value.currency,category:value.category,purpose:value.why}));
     return section;
 }
 function lists(value: any): any[][] {

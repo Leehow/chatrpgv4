@@ -2,7 +2,9 @@
 import type {KernelContext} from '../context.js';
 import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
-import {jsonDigest} from '../json.js';
+import {jsonDigest,isJsonObject} from '../json.js';
+import {stageCash,type CashContext} from '../apply/inventory.js';
+import {clone,number} from '../read/values.js';
 import {CampaignSnapshot, loadCampaignModule} from '../read/campaign.js';
 import {whereSection, cluesHere, npcsPresent} from '../read/capsule.js';
 import {SessionView} from '../read/session-view.js';
@@ -15,13 +17,30 @@ import {activeMods} from '../read/mods.js';
 import {destinationView, grantingCues, guardedWay, unlockGuard} from '../read/destination-rows.js';
 
 export function ordinaryApplyHandlers(context: KernelContext): HandlerGroup {
-    return {...fulfillmentHandlers(context), 'table.apply.options': async params => {
-        if (Object.keys(params).some(key=>key!=='campaign')) throw new RpcError('invalid_params','Ordinary apply options accept only the bound campaign');
+    return {...fulfillmentHandlers(context), 'table.apply.options': async (params): Promise<Row> => {
+        if (Object.keys(params).some(key=>key!=='campaign'&&key!=='cash_effects')) throw new RpcError('invalid_params','Ordinary apply options accept the bound campaign and optional cash_effects preview');
         const campaign=await CampaignSnapshot.open(context,params.campaign);
         if (campaign.meta.status!=='active' || !['open','acting'].includes(campaign.turn.state))
             throw new RpcError('campaign_not_ready','Ordinary apply options require the current open player turn');
         await campaign.preload('view');
         const module=await loadCampaignModule(context,string(campaign.meta.module_id),campaign.world,campaign.id), graph=module.graph;
+        if(params.cash_effects!==undefined){
+            if(!Array.isArray(params.cash_effects))throw new RpcError('invalid_params','cash_effects must be an ordered apply batch');
+            const world=clone(campaign.world),sheets=new Map<string,Row>(),previews:Row[]=[];
+            const cashContext:CashContext={kernel:context,world,graph,turn:campaign.turn,campaign:{party:async()=>campaign.party},callId:'preview',ordinal:0,mint:base=>base};
+            for(const [index,effect] of params.cash_effects.entries()){
+                if(!isJsonObject(effect))throw new RpcError('invalid_params','Each preview effect must be an object');
+                if(effect.kind==='cash'){
+                    const {receipt}=await stageCash(cashContext,effect,sheets);
+                    previews.push({index,...Object.fromEntries(['subject_label','quote','category','settlement','purchase_amount','spending_level','daily_total','delta','before','after','currency'].filter(key=>Object.hasOwn(receipt,key)).map(key=>[key,receipt[key]]))});
+                }else if(['time','move'].includes(string(effect.kind))&&params.cash_effects.slice(index+1).some(value=>isJsonObject(value)&&value.kind==='cash')){
+                    if(effect.kind==='time'&&typeof effect.minutes==='number'&&Number.isInteger(effect.minutes)&&effect.minutes>=0&&!effect.band&&!effect.until&&!effect.stated){
+                        world.clock={...row(world.clock),minutes:number(row(world.clock).minutes)+effect.minutes};
+                    }else throw new RpcError('needs','Settle a clock-changing action before previewing its subsequent purchases',{fix:'Apply the move or unresolved time effect first, then settle the purchase against the resulting game day.'});
+                }
+            }
+            return {version:1,cash_previews:previews,world_revision:taskWorldRevision(campaign.world,campaign.party,campaign.turn.receipts,campaign.turn.pending_choice)};
+        }
         const scene=graph.scene(campaign.world.active_scene), where=whereSection(graph,campaign.world,scene,module.material), candidates: Row[]=[];
         // Contract §134.10: a candidate an unsettled stated obligation guards keeps its row and names the guard.
         const guards=openGuards(graph,campaign.world,scene);
