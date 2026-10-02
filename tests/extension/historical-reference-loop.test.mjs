@@ -82,12 +82,17 @@ test('the fast model\'s English query is what the scene searches, written once p
   assert.equal(lane.calls.length,2);
   assert.equal(f.searches.at(-1).query,'1937 Soviet provincial town main street');
 });
-test('a lane that fails searches the fixed-shape query and says why',async()=>{
-  const lane=writer([{ok:false,reason:'timeout',detail:'no answer within 6000 ms',ms:6000}]);
+test('a lane that writes no query searches nothing this turn, keeps nothing, and the scene is tried again next turn',async()=>{
+  const lane=writer([{ok:false,reason:'timeout',detail:'no answer within 6000 ms',ms:6000},
+    {ok:true,query:'1930s Soviet provincial archive memoir',objective:'How such an archive was then.',ms:4}]);
   const f=await table({setting:SETTING,port:()=>READY,historyQuery:lane});
-  assert.deepEqual(f.searches.map(request=>request.query),['October 1937 Archive Hall']);
-  assert.deepEqual(prefetchRows(f,'started').map(row=>[row.query_source,row.query_failure]),[['fixed_shape','timeout']]);
-  assert.deepEqual(f.clerk.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]]);
+  assert.equal(f.searches.length,0,'no authored-wording fallback is searched');
+  assert.deepEqual(prefetchRows(f,'skipped').map(row=>[row.reason,row.query_failure]),[['no_query','timeout']]);
+  assert.equal(f.clerk.historical_reference_materials,undefined);
+  assert.deepEqual(prefetchRows(f,'delivered').map(row=>row.status),['no_query']);
+  const again=await f.turn('r2');
+  assert.deepEqual(f.searches.map(request=>request.query),['1930s Soviet provincial archive memoir'],'the scene is tried again with a written query');
+  assert.deepEqual(again.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]]);
 });
 
 test('need decision and model lookup grant share the current authored setting after refresh',async()=>{
