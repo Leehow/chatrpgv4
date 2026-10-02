@@ -68,3 +68,18 @@ it('never infers a damage target from another row and has no damage for a miss',
   expect(container.querySelectorAll('[data-kind="dice"], [data-kind="change"]')).toHaveLength(0)
   expect(container.querySelector('[data-kind="roll"]')?.textContent).toContain('Masked visitor → Alice')
 })
+it('shows the exact quoted total, purchase purpose and cumulative limit separately from cash movement',()=>{
+  const container=draw([
+    {kind:'cash',receipt:'quote1',settlement:'quote',purpose:'Water and cigarettes',purchase_amount:2.75,before:50,after:50,currency:'USD',
+      items:[{name:'Water',quantity:2,unit_price:0.5,amount:1},{name:'Cigarettes',quantity:1,unit_price:1.75,amount:1.75}]},
+    {kind:'cash',receipt:'pay1',settlement:'cash',purpose:'Another purchase',purchase_amount:1,before:50,after:39,currency:'USD',daily_total:11,spending_level:10},
+  ])
+  const rows=container.querySelectorAll('[data-kind="cash"]')
+  expect(rows[0].querySelector('.coc-mech-figure')?.textContent).toBe('2.75USD')
+  expect(rows[0].querySelector('.coc-mech-delta')).toBeNull()
+  expect(rows[0].textContent).toContain('Water ×2 · 0.5 = 1 USD')
+  expect(rows[1].querySelector('.coc-mech-figure')?.textContent).toBe('50 → 39USD')
+  expect(rows[1].querySelector('.coc-mech-purchase')?.textContent).toBe('1 USD')
+  expect(rows[1].querySelector('.coc-mech-spending')?.textContent).toContain('11 / 10 USD')
+  expect(rows[1].querySelector('.coc-mech-cash-purpose')?.textContent).toBe('Another purchase')
+})

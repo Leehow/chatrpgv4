@@ -2669,8 +2669,21 @@ export default function (pi: ExtensionAPI) {
 	 * already-landed resend (§32.4) both do.
 	 */
 	async function admissionScopeBuilder(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>):
-		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[] }> {
+		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[]; cash?: Record<string, unknown> }> {
 		const destinations: AdmissionDestination[] = [];
+		let cashContext: Record<string, unknown> | undefined;
+		if (tool === 'apply' && Array.isArray(payload.effects) && payload.effects.some((effect: any) =>
+			effect?.kind === 'cash' && effect.mode !== 'quote' && (effect.quote !== undefined || effect.category !== undefined || effect.items !== undefined))) {
+			const capsule = await state.kernel.call<{known?: {investigator?: Record<string, unknown>; cash_quotes?: unknown[]}}>('table.capsule', {campaign: state.campaign, _context_read: true});
+			const previewEffects=payload.effects.map((effect: any)=>{const {_cash_debit_limit:_old,...rest}=effect;return rest;});
+			const preview = await state.kernel.call<{cash_previews?: Array<Record<string, unknown>>}>('table.apply.options',{campaign:state.campaign,cash_effects:previewEffects});
+			for(const row of preview.cash_previews??[]){
+				const index=row.index;
+				if(typeof index==='number'&&typeof row.delta==='number'&&row.delta<=0&&payload.effects[index]?.kind==='cash')
+					payload.effects[index]._cash_debit_limit=-row.delta;
+			}
+			cashContext = {investigator: capsule.known?.investigator, quotes: capsule.known?.cash_quotes ?? [], previews:preview.cash_previews ?? []};
+		}
 		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
 			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
 			try {
@@ -2690,8 +2703,13 @@ export default function (pi: ExtensionAPI) {
 			const own = destinations.filter((value) => targets.has(value.requested));
 			// §143.18: the investigator by name or by the sheet's handle, as the kernel reads `action.actor`. Until 2026-09-26 only
 			// the name was here, so a Keeper's `actor: "thomas-hayes"` read as an NPC and its punch was never reviewed (C4 turn 8).
+			const ownCash=cashContext?{...cashContext,previews:(Array.isArray(cashContext.previews)?cashContext.previews:[]).flatMap((value: any)=>{
+				const original=Array.isArray(payload.effects)?payload.effects[value.index]:undefined,index=effects.indexOf(original);
+				return index>=0?[{...value,index}]:[];
+			})}:undefined;
 			return { party: state.party.flatMap((member) => [member.name, ...(member.id ? [member.id] : [])]), scene: state.scene,
-				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}) };
+				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}),
+				...(ownCash && effects.some(effect => effect.kind === 'cash') ? {cash:ownCash} : {}) };
 		};
 	}
 

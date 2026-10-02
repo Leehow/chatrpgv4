@@ -113,6 +113,7 @@ const CSS = `
   background:color-mix(in oklab, var(--fam, var(--muted)) 13%, transparent)}
 .coc-mech-body{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--text)}
 .coc-mech-cash-purpose{display:block;color:var(--muted);font-size:11.5px;line-height:1.5}
+.coc-mech-cash-detail{display:block;color:var(--subtle);font-size:11px;line-height:1.5}
 .coc-mech-who{color:var(--muted)}
 .coc-mech-skill{font-weight:550}
 .coc-mech-res{font-size:11px;font-weight:650;letter-spacing:.04em;color:var(--muted)}
@@ -1256,15 +1257,26 @@ export function createComponent(React) {
         const before = num(row.before);
         const after = num(row.after);
         const purpose = text(row.purpose).trim();
+        const quoted = row.settlement === "quote";
+        const purchase = num(row.purchase_amount);
+        const items = Array.isArray(row.items) ? row.items.filter(isRecord) : [];
         // Cash is the decimal resource: a purchase of 0.02 is the case that exposed `after - before`.
         const delta = exactDelta(before, after);
         return h(Row, { key, kindKey: "cash", kindLabel, family },
           h("span", { className: "coc-mech-body" }, text(row.subject_label || row.subject),
-            purpose ? h("span", { className: "coc-mech-cash-purpose" }, term(purpose)) : null),
+            purpose ? h("span", { className: "coc-mech-cash-purpose" }, term(purpose)) : null,
+            items.map((item, i) => h("span", { key: `price:${i}`, className: "coc-mech-cash-detail" },
+              term(text(item.name)), ` ×${text(item.quantity)} · ${text(item.unit_price)} = ${text(item.amount)} `, term(text(row.currency)))),
+            purchase !== undefined && !quoted ? h("span", { className: "coc-mech-cash-detail coc-mech-purchase" }, text(row.purchase_amount), " ", term(text(row.currency))) : null,
+            row.daily_total !== undefined ? h("span", { className: "coc-mech-cash-detail coc-mech-spending" },
+              sheet("spending"), ` ${text(row.daily_total)} / ${text(row.spending_level)} `, term(text(row.currency))) : null,
+            row.settlement === "living_standard" ? h("span", { className: "coc-mech-cash-detail" }, sheet("livingStandard")) : null),
           h("span", { className: "coc-mech-figure" },
-            h("span", { className: "coc-mech-from" }, text(row.before)),
-            ` ${t("arrow")} `,
-            h(N, null, text(row.after)),
+            ...(quoted ? [h(N, null, text(row.purchase_amount))] : [
+              h("span", { className: "coc-mech-from" }, text(row.before)),
+              ` ${t("arrow")} `,
+              h(N, null, text(row.after)),
+            ]),
             h("span", { className: "coc-mech-faces" }, term(text(row.currency)))),
           h(Delta, { value: delta }));
       }
