@@ -96,5 +96,6 @@ test('a failed round records nothing to the kernel and says why, and the lane ne
   assert.equal((await none.check({turn: 1, prose: 'x', items: ITEMS}, new AbortController().signal)).reason, 'no_session');
   const aborted = new AbortController(); aborted.abort();
   assert.equal((await lane.check({turn: 1, prose: 'x', items: ITEMS}, aborted.signal)).reason, 'cancelled');
-  assert.equal(FIRST_SIGHT_TIMEOUT_MS, 20000, 'the spec\'s cap');
+  // A hang watchdog, not a limit on a working check: 20 s cut a fast model still writing on the Blood Road opening.
+  assert.ok(FIRST_SIGHT_TIMEOUT_MS >= 120000, 'nothing working is cut short');
 });
