@@ -2532,7 +2532,7 @@ export default function (pi: ExtensionAPI) {
 			const issue = [outcomeRejected ? 'the draft implies an outcome that depends on the unrolled check' : '',
 				cueRejected ? 'the ending does not clearly return the unmade choice in character' : ''].filter(Boolean).join(' and ');
 			throw new KernelError({code: 'needs', next: stopRun ? 'stop' : 'narrate',
-				message: `This narration was not delivered because Jev found that ${issue || 'the player's choice remains unmade'}.`,
+				message: `This narration was not delivered because Jev found that ${issue || "the player's choice remains unmade"}.`,
 				fix: stopRun
 					? repairSteer
 						? 'Stop making narration attempts in this response. The host will give one targeted correction steer; keep already accepted effects as settled.'
