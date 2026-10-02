@@ -348,6 +348,9 @@ export class ModJobs {
         let optionalReady=0,changed=false;
         // §129.4: `now` is for an action that needs an object's parameters in this very turn (a usage batch);
         // it takes the registrations behind the placeholders of the named instances, whatever turn queued them.
+        const detailsOnly = params.details_only === true;
+        if (detailsOnly && (truth(params.now) || truth(params.discard)))
+            throw new RpcError('invalid_params', 'Detail recovery cannot execute or discard registrations');
         const now = truth(params.now), wanted = new Set<string>();
         if (now) for (const name of array(params.objects)) {
             const item = typeof name === 'string' ? objectInstance(world, name) : null;
@@ -366,11 +369,11 @@ export class ModJobs {
         for (const entry of queuedRegistrations(world)) {
             // Deferral means not this turn. Completing inside the turn that queued it would put the wait
             // back where it was, one tool call later, which is exactly what the marker exists to avoid.
-            if (now ? !wanted.has(normalize(string(entry.name))) : equal(entry.turn, turn.turn)) continue;
+            if (!detailsOnly && (now ? !wanted.has(normalize(string(entry.name))) : equal(entry.turn, turn.turn))) continue;
             const define = clone(row(entry.define));
             if(entry.optional_identity===true){const identity=row(entry.identity),sheet=party.find(value=>string(value.id)===identity.owner),
                 item=sheet?array(sheet.equipment).find(value=>isJsonObject(value)&&value.pending_definition===identity.token):undefined;
-                if(!isJsonObject(item)||jsonDigest(item)!==identity.row_digest){changed=discardRegistrationByJob(world,string(entry.job))||changed;continue;}}
+                if(!isJsonObject(item)||jsonDigest(item)!==identity.row_digest){if(!detailsOnly)changed=discardRegistrationByJob(world,string(entry.job))||changed;continue;}}
             const accepted = join(this.runtime.root, 'jobs', string(entry.job), 'accepted.json');
             // A session that died between the marker and its parameters must not leave the row hidden from
             // the audit for good, so an unfinished entry is reported as work rather than silently skipped.

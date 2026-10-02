@@ -15,6 +15,17 @@ function resultText(message) {
 		.join("");
 }
 
+for (const state of ['OPENING', 'PENDING']) {
+  test(`item detail recovery starts no story work on a retained ${state.toLowerCase()} table`, async t => {
+    const table = await openTable({env: {[`FAKE_KERNEL_${state}`]: '1', PI_COC_DETAILS_RECOVERY: '1'}, responses: []});
+    t.after(() => table.dispose());
+    await waitForIdle(table.session);
+    assert.ok(table.kernelRequests().some(entry => entry.method === 'table.open'));
+    assert.equal(customMessages(table.session, 'coc-host').length, 0);
+    assert.equal(table.kernelRequests().some(entry => ['table.apply', 'table.resolve', 'table.narrate', 'table.player_input'].includes(entry.method)), false);
+  });
+}
+
 test("没有 PI_COC_CAMPAIGN 时用 ctx.ui 列出战役让人选", async (t) => {
 	const table = await openTable({
 		campaign: null,

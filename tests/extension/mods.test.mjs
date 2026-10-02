@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import modsExtension from '../../extensions/mods/index.ts';
 import {registerModsPanel} from '../../pipicoc/mods.ts';
 import {readerCommand} from '../../extensions/module/reader.ts';
+import {waitFor} from './wait.mjs';
 // These cases pin the pre-delivery gate (§36.14, §26.1, §91), which §130 keeps whole as the `pre` mode.
 process.env.PI_COC_CONTINUITY_GATE = 'pre';
 
@@ -370,6 +371,7 @@ test('a definition child gets no shell, and its brief sends it nowhere outside i
     },
   });
   await bridge.prepare('apply', {campaign:'c1', effects:[{kind:'define', name:'A', category:'item'}]});
+  await waitFor(() => requests.length === 1, {label: 'the deferred definition child started'});
   assert.equal(requests.length, 1);
   // Handed a shell, children spent most of their calls reading the packaged app and the build output.
   assert.equal(requests[0].tools, 'read,write,edit');
