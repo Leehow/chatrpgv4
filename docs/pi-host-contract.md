@@ -44,6 +44,11 @@ exception prevents the nested budget hook from restoring the rejected field:
 uncapped calls reserve the full model ceiling and an insufficient existing owner
 refuses before dispatch. Per-lane owner ceilings remain unchanged.
 
+Context-ceiling validation measures the restored public model projection, including
+the canonical system/tool checkpoint and new assistant metadata. Private tool
+`details` are recording evidence, not model input. Raw transcript size remains
+separately measured; it must not replace the public request metric.
+
 The upgrade adopts upstream provider reliability fixes and early session persistence.
 RPC input responses carry Pi's disposition; the host respects handled commands and
 queued input rather than inferring a started turn from transport success. Legacy

@@ -17,6 +17,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {fauxAssistantMessage, fauxToolCall, getCurrentTools} from '@earendil-works/pi-ai';
 import {openTable, waitFor, waitForIdle} from './harness.mjs';
+import {convertToLlm} from './pi.mjs';
 
 const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/playtests/long-campaign-context');
 await mkdir(evidence, {recursive: true});
@@ -46,7 +47,13 @@ const outbound = table => {
     const runner = table.session._extensionRunner, transform = runner.emitContext.bind(runner), requests = [];
     runner.emitContext = async messages => {
         const result = await transform(messages);
-        requests.push({messages: result, bytes: api.sizeOf(result), branchBytes: api.sizeOf(branchMessages(table))});
+        // Observe the restored provider-facing projection. Tool details are host-only
+        // state and never become model input; raw transcript bytes remain evidence.
+        const modelMessages = convertToLlm(result).map(message => {
+            const {details, ...visible} = message;
+            return visible;
+        });
+        requests.push({messages: result, bytes: api.sizeOf(modelMessages), rawBytes: api.sizeOf(result), branchBytes: api.sizeOf(branchMessages(table))});
         return result;
     };
     return requests;

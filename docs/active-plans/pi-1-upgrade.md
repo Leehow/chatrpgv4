@@ -212,3 +212,15 @@ The dirty blood-road plan and untracked Chinese-expression spec remain foreign.
 - Pending closeout: preserve ignored .coc evidence outside the owned checkout;
   classify/close the worktree with the canonical lifecycle CLI after source
   integration. The task-local remote alias is /tmp/pi-1-upgrade-20261002.
+
+## Final context-test measurement correction
+
+Combined full run: 4286 passed, 1 failed (4287 tests), exit 1, 708s.
+The long-context assertion compared raw host transcript bytes with the public
+request ceiling. Direct observation found raw 204875 but public 199200 against
+204800; the gap consists of private tool details and custom-message envelopes.
+Pi 1.0 thinkingLevel metadata moved that raw measurement over its incidental
+margin. The policy already measures convertToLlm without private details, so
+no production ceiling or history policy is changed. The test now observes the
+public boundary while retaining raw bytes separately; original numeric ceiling,
+tool pairing, growing-branch and exact recall remain.
