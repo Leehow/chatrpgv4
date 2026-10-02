@@ -119,7 +119,11 @@ export function createFirstSightLane(pi: ExtensionAPI, options: {ctx: () => Exte
         if (!ctx) return await finish({ok: false, reason: 'no_session', detail: 'no session context to run the lane in', ms: 0});
         let refused: string | undefined;
         const lane = await runLane<Array<{id: string; missing: string[]}>>({
-          ctx, envName: FIRST_SIGHT_MODEL_ENV, lane: FIRST_SIGHT_LANE, record, signal, timeoutMs: FIRST_SIGHT_TIMEOUT_MS, afterDelivery: true,
+          // Reasoning off, named here so the after-delivery floor does not raise it (§37.11.1 leaves a caller's level as
+          // chosen): on the installed App's Blood Road opening (2026-10-02) the floor's `low` let the fast model reason for
+          // 53 s until its output ran out (`stop_reason: length`) with no JSON written. Quoting the book's own spans the
+          // prose left out is a comparison, not a deliberation.
+          ctx, envName: FIRST_SIGHT_MODEL_ENV, lane: FIRST_SIGHT_LANE, record, signal, timeoutMs: FIRST_SIGHT_TIMEOUT_MS, thinking: 'off',
           systemPrompt: FIRST_SIGHT_INSTRUCTION,
           input: JSON.stringify({prose: input.prose, items: input.items.map(item => ({id: item.id, kind: item.kind, described: item.described}))}),
           shape: parsed => { const checked = checkFirstSightAnswer(parsed); if (!checked) refused = describeAnswer(parsed); return checked; },

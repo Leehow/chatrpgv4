@@ -76,7 +76,8 @@ test('one zero-tool round on the fast model: the delivered prose and the items g
   for (const key of ['temperature', 'top_p']) assert.equal(Object.hasOwn(options, key), false, `${key} is never sent`);
   const all = (await readFile(join(cocHome(home), '.coc/campaigns/c1/telemetry.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   const start = all.find(row => row.lane === 'lane-call' && row.subsession === 'first-sight' && row.phase === 'start');
-  assert.equal(start.thinking_source, 'after-delivery-floor', 'an after-delivery lane with a strict artifact (§37.11.1)');
+  // Reasoning off by the lane's own choice: the after-delivery floor's `low` ran the fast model out of output with no JSON.
+  assert.deepEqual([start.lane_thinking, start.thinking_source], ['off', 'caller']);
   const rows = all.filter(row => row.lane === 'first-sight');
   assert.equal(rows.length, 1);
   assert.deepEqual({...rows[0], ms: 0}, {lane: 'first-sight', ok: true, turn: 3, ms: 0, model: 'fast/small', items: 3, shown: 1, missing: 1, unanchored: 1});

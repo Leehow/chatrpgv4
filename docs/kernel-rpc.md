@@ -31428,6 +31428,7 @@ Like `table.warn`, it takes no call id and lands after the turn it read has clos
 
 - **Model.** One zero-tool `runLane` on the fast model: `PI_COC_FIRST_SIGHT_MODEL`, then the fast-model setting, then the table.
   - A 120 s watchdog stops only a check that hangs; nothing waits for it, so a slow check costs the player nothing. The first cap, 20 s, cut off a fast model still writing on the installed App's Blood Road opening (headers at 2.1 s), which the owner's standing ruling forbids ("只防卡死，不掐慢").
+  - Reasoning is off, named by the lane so §37.11.1's after-delivery floor does not raise it: on the Blood Road opening the floor's `low` reasoned for 53 s until the output ran out (`stop_reason: length`) and no JSON was written.
   - It is `afterDelivery: true`, so §37.11.1's thinking floor applies.
   - It never sends `temperature` or `top_p`.
 - **Input.** `{prose: <the delivered rendered_text>, items: [{id, kind, described}]}`. For an item with an open row, `described` is its `missing` excerpts joined by newlines.
