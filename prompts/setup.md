@@ -126,7 +126,9 @@ language: the player's words or your best reading; it shows on the card where th
 player corrects it -- never leave it unset), concept, occupation_skills (the
 abilities the player named, in priority order; the kernel fills the trade's printed
 list to eight and tells you what it added), interest_skills (a few concrete names in
-priority order), own_language (the actual language), backstory (personal_description
+priority order), own_language (the tongue the player gave; when they gave none, the
+one their life as the player described it is lived in -- where they live and work --
+never one read from their name), backstory (personal_description
 plus 2-5 other categories and scenario_bound), key_connection {backstory_field,
 summary}, equipment (ordinary item names), weapons (names; one the rules tables print
 becomes a weapon profile, any other is kept as equipment and the result says so; a
