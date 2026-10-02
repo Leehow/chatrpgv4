@@ -215,6 +215,14 @@ export function applyFirstSight(ledger: FirstSightLedger, turn: number, results:
             continue;
         }
         if (shown[shelf(result.kind)].includes(result.id) || open.some(entry => same(entry) && number(entry.turn) > turn)) continue;
+        // Owed once: an item with an open row from an earlier turn was carried as owed this turn, and this check closes it
+        // whatever it still finds. On the installed App's Blood Road table (2026-10-02) a veteran's row shrank by a detail or
+        // two a turn -- 8, 4, 3, 2, 1 -- and each turn the Keeper wrote him out again from his hair to his tattoos.
+        if (open.some(entry => same(entry) && number(entry.turn) < turn)) {
+            if (!shown[shelf(result.kind)].includes(result.id)) shown[shelf(result.kind)].push(result.id);
+            open = open.filter(entry => !same(entry));
+            continue;
+        }
         open = [...open.filter(entry => !same(entry)), { kind: result.kind, id: result.id, missing: [...result.missing], turn, at }];
     }
     return { shown, open: open.slice(-OPEN_KEPT) };

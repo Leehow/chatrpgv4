@@ -158,6 +158,17 @@ test('an older check never replaces a newer open row, and shown is for good', ()
   assert.deepEqual(ledger.open, [], 'a shown person is not owed again');
 });
 
+test('an item is owed once: the check of the turn that carried its open row closes it, whatever it still finds', () => {
+  // Blood Road (2026-10-02): a veteran's row shrank 8, 4, 3, 2, 1 details a turn, and each turn the Keeper wrote him out again.
+  const at = '2026-10-02T00:00:00Z';
+  let ledger = api.applyFirstSight(api.firstSightLedger({}), 1, [{kind: 'person', id: 'steve', missing: ['灰发', '海军纹身', '还算精神']}], at);
+  assert.deepEqual(ledger.open.map(row => [row.id, row.turn]), [['steve', 1]]);
+  ledger = api.applyFirstSight(ledger, 1, [{kind: 'person', id: 'steve', missing: ['还算精神']}], at);
+  assert.deepEqual(ledger.open.map(row => row.missing), [['还算精神']], 'a second check of the same turn still replaces the row');
+  ledger = api.applyFirstSight(ledger, 2, [{kind: 'person', id: 'steve', missing: ['还算精神']}], at);
+  assert.deepEqual([ledger.shown.people, ledger.open], [['steve'], []], 'owed on turn 2, closed by turn 2\'s check');
+});
+
 test('the section fits its own budget without losing anyone', () => {
   const long = '旧'.repeat(900);
   const section = {place: {id: 'p', name: 'P', described: long}, people: Array.from({length: 6}, (_, index) => ({id: `n${index}`, name: `N${index}`, described: long}))};

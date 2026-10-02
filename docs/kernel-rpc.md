@@ -31478,6 +31478,7 @@ Like `table.warn`, it takes no call id and lands after the turn it read has clos
 - **Landing.**
   - An item whose `missing` is empty joins `shown` for good, and its open row closes. Only an explicitly empty list does this.
   - Any other item's open row is created or replaced. Two exceptions: a newer check (a higher `turn`) already wrote one, or the item is already shown.
+  - Owed once (2026-10-02): an item that already had an open row from an earlier turn was carried as owed on this turn, and this check closes it -- moved to `shown` -- whatever it still finds. On the installed App's Blood Road table a veteran's row shrank 8, 4, 3, 2, 1 details a turn, and the Keeper wrote him out again from his hair to his tattoos on each of those turns.
 - **Record.** The delivered record gets `first_sight: [{kind, id, missing, at}]`, the latest answer per item, for a fork.
 - **Result.** `{turn, shown: [{kind, id}], open: [{kind, id, missing}], dropped}`.
 - **Telemetry.** `{lane: "first-sight", event: "recorded", turn, shown, open, dropped?}`.
