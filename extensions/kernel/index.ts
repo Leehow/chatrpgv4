@@ -131,6 +131,7 @@ import {
 } from "./admission.ts";
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
 import { watchOwedReview } from "./owed-review.ts";
+import { restoreTextualToolCalls } from "./textual-tool-calls.ts";
 
 /**
  * One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown.
@@ -1331,6 +1332,18 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 }
 
 export default function (pi: ExtensionAPI) {
+	// A tool call the model wrote as text runs as the call it is (extensions/kernel/textual-tool-calls.ts). Registered
+	// first, so every later `message_end` handler -- this extension's own included -- reads the restored message.
+	pi.on("message_end", (event) => {
+		let active: string[] = [];
+		try { active = typeof pi.getActiveTools === "function" ? pi.getActiveTools() : []; } catch { active = []; }
+		const restored = restoreTextualToolCalls(event.message as any, name => active.includes(name));
+		if (!restored) return undefined;
+		const message = event.message as any;
+		void record({ lane: "model-output", event: "textual_tool_calls", restored: restored.restored,
+			provider: message?.provider ?? null, model: message?.model ?? null, stop_reason: message?.stopReason ?? null });
+		return { message: restored.message };
+	});
 	let runtime: HostRuntime | undefined;
 	let foregroundProviderBudget: (() => TaskProviderBudget | undefined) | undefined;
 	pi.events.on('coc:task-provider-budget', value => { foregroundProviderBudget = typeof value === 'function' ? value as typeof foregroundProviderBudget : undefined; });
