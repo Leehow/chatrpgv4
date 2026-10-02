@@ -1,15 +1,8 @@
-A Keeper provider call is capped only on the wait for its provider's first answer (owner, 2026-10-02: speed
-comes from optimisation, never from stopping a call; contract §135.29, SL-69 addendum, 2026-10-02 amendment).
-Once the attempt's first event has arrived the cap is gone, and the step's re-send after an overrun runs
-without a cap, so no step ends because a provider was slow. Until this patch the cap also cut a call that was
-streaming, and a second overrun ended the step with nothing delivered.
-Base: 0004 applied. Apply with: git apply -p1 from the repository root.
-
 diff --git a/vendor/pi/packages/coding-agent/src/core/sdk.ts b/vendor/pi/packages/coding-agent/src/core/sdk.ts
-index 0c72cd84d..d45eab440 100644
+index ea4c95b3c..45dca35b8 100644
 --- a/vendor/pi/packages/coding-agent/src/core/sdk.ts
 +++ b/vendor/pi/packages/coding-agent/src/core/sdk.ts
-@@ -420,22 +420,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+@@ -441,22 +441,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
  			// SL-82: resolved fresh on every attempt (a function may answer differently call to call, e.g.
  			// the product's own "is this the turn's first Keeper call" cap); a plain number is unaffected.
  			const keeperCallCapMs = typeof keeperCallCapSetting === "function" ? await keeperCallCapSetting() : keeperCallCapSetting;

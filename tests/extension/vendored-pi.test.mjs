@@ -1,10 +1,10 @@
 /**
- * ADR-0006: Pi is consumed from `vendor/pi` (upstream v0.87.0 plus a reviewed patch series) and
+ * ADR-0006: Pi is consumed from `vendor/pi` (upstream v1.0.0 plus a reviewed patch series) and
  * exactly one copy of pi-agent-core / pi-coding-agent loads.
  *
- * 1. Admission: every TypeScript source the published 0.87.0 packages were built from (the
+ * 1. Admission: every TypeScript source the published 1.0.0 packages were built from (the
  *    `sourcesContent` of the installed `dist/*.js.map`) equals the vendored file byte for byte, unless
- *    the patch series names that file. A snapshot that fails this is not 0.87.0.
+ *    the patch series names that file. A snapshot that fails this is not 1.0.0.
  * 2. The build reproduces the published JavaScript: every emitted module whose source the series does
  *    not touch is byte-identical to the published one, so the legacy engine is the same code.
  * 3. The patch series, `PATCHES.md` and the digest the build stamps into the package agree.
@@ -14,7 +14,8 @@
  */
 import { strict as assert } from "node:assert";
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
@@ -64,7 +65,7 @@ function publishedModules(pkg) {
 
 const withoutMapComment = (text) => text.replace(/\n\/\/# sourceMappingURL=[^\n]*\n?$/, "");
 
-test("admission: the vendored tree is upstream v0.87.0 wherever the patch series does not say otherwise", () => {
+test("admission: the vendored tree is upstream v1.0.0 wherever the patch series does not say otherwise", () => {
 	const patched = patchedFiles();
 	let compared = 0;
 	for (const [pkg, dir] of PACKAGES) {
@@ -75,11 +76,11 @@ test("admission: the vendored tree is upstream v0.87.0 wherever the patch series
 				assert.notEqual(vendored, module.content, `${path} is listed as patched but equals upstream: drop it from PATCHES.md`);
 				continue;
 			}
-			assert.equal(vendored, module.content, `${path} differs from the published 0.87.0 source and is not in PATCHES.md`);
+			assert.equal(vendored, module.content, `${path} differs from the published 1.0.0 source and is not in PATCHES.md`);
 			compared++;
 		}
 	}
-	assert.ok(compared > 300, `compared ${compared} published sources`);
+	assert.equal(compared, 241, `compared ${compared} unpatched published sources`);
 	const license = readFileSync(join(VENDOR, "LICENSE"), "utf8");
 	assert.match(license, /^MIT License/);
 	const vendor = readFileSync(join(VENDOR, "VENDOR.md"), "utf8");
@@ -97,6 +98,24 @@ test("the patch series, PATCHES.md and the digest in the built package agree", (
 	}
 });
 
+test("the ordered patches replay on the published 1.0 sources and reproduce every patched file", (t) => {
+	const scratch = mkdtempSync(join(tmpdir(), "pi-patch-replay-"));
+	t.after(() => rmSync(scratch, { recursive: true, force: true }));
+	for (const [pkg, dir] of PACKAGES) {
+		for (const module of publishedModules(pkg)) {
+			const path = join(scratch, "vendor/pi/packages", dir, module.source);
+			mkdirSync(dirname(path), { recursive: true });
+			writeFileSync(path, module.content);
+		}
+	}
+	for (const name of readdirSync(join(VENDOR, "patches")).filter(name => name.endsWith(".patch")).sort()) {
+		execFileSync("git", ["apply", join(VENDOR, "patches", name)], { cwd: scratch, encoding: "utf8" });
+	}
+	for (const path of patchedFiles().keys()) {
+		assert.equal(readFileSync(join(scratch, "vendor/pi", path), "utf8"), readFileSync(join(VENDOR, path), "utf8"), `${path} matches the replayed series`);
+	}
+});
+
 test("the build emits the published JavaScript for every module the series does not touch", () => {
 	const patched = patchedFiles();
 	let identical = 0;
@@ -110,7 +129,7 @@ test("the build emits the published JavaScript for every module the series does 
 			identical++;
 		}
 	}
-	assert.ok(identical > 300, `${identical} emitted modules identical to 0.87.0`);
+	assert.equal(identical, 241, `${identical} emitted modules identical to 1.0.0`);
 });
 
 test("every Pi entry the product starts or imports is the vendored build", () => {

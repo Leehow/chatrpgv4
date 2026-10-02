@@ -125,6 +125,7 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     return;
   }
   if (command.type === "prompt") {
+    if (command.message === "__handled__") return ok({ disposition: "handled" });
     if (compacting) {
       return response(command.type, command.id, false, undefined, "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.");
     }
@@ -554,6 +555,7 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     return;
   }
   if (command.type === "steer") {
+    if (command.message === "__handled__") return ok({ disposition: "handled" });
     if (command.message === "__steer_fail__") return response(command.type, command.id, false, undefined, "steer rejected");
     if (typeof command.message === "string" && command.message.startsWith("__steer_echo__")) {
       // Real pi drains the steering queue into the run loop and persists the

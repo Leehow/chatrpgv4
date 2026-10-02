@@ -4,8 +4,8 @@
  * Live probing (2026-09, real key): the relay rejects unknown Responses
  * parameters with 400 "Unsupported parameter: …". pi's openai-responses
  * streamer always sends two the relay does not know:
- * - `max_output_tokens` (streamSimple defaults maxTokens from the model, no
- *   compat gate exists to suppress it);
+ * - `max_output_tokens` (the native supportsMaxOutputTokens declaration
+ *   disables it; sanitation also protects raw or stale callers);
  * - `prompt_cache_retention` (whenever cache retention resolves to "long";
  *   also pinned off per-model via compat.supportsLongCacheRetention).
  * `prompt_cache_options` is stripped defensively — same family, same risk.

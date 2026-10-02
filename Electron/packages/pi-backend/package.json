@@ -17,13 +17,19 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.87.0",
+    "@earendil-works/pi-coding-agent": "1.0.0",
     "@pipi/account-usage-core": "file:../account-usage-core",
     "@pipi/host-api": "file:../host-api",
     "pi-mcp-extension": "1.5.0",
     "pi-web-access": "0.23.0",
     "yauzl": "^3.4.0",
-    "yazl": "^3.3.1"
+    "yazl": "^3.3.1",
+    "@earendil-works/chord": "1.0.0",
+    "@earendil-works/pi-agent-core": "1.0.0",
+    "@earendil-works/pi-ai": "1.0.0",
+    "@earendil-works/pi-codemode": "1.0.0",
+    "@earendil-works/pi-mcp": "1.0.0",
+    "@earendil-works/pi-tui": "1.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

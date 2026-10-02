@@ -9,7 +9,7 @@ import { argumentLimitRefusal, COC_TOOLS, type CocToolSpec } from './tools.ts';
 import {runOwnedSourcePreparation} from '../../runtime/jev/source-preparation.ts';
 import {createTaskProviderBudget, type TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 
-export interface KernelToolResult { content: Array<{ type: 'text'; text: string }>; details: Record<string, unknown>; terminate?: boolean }
+export interface KernelToolResult { content: Array<{ type: 'text'; text: string }>; details: Record<string, unknown>; terminate?: boolean; isError?: boolean }
 export interface OperationIdentity {
   operationId: string;
   taskId: string;
@@ -113,9 +113,10 @@ export function createCanonicalOperationDispatcher(stages?: Stages) {
       if (!stages) throw new ContractError('gameplay_owner_unavailable');
       return stages.prepare(...args);
     },
-    execute(...args: Parameters<Stages['execute']>) {
+    async execute(...args: Parameters<Stages['execute']>) {
       if (!stages) throw new ContractError('gameplay_owner_unavailable');
-      return stages.execute(...args);
+      const result = await stages.execute(...args);
+      return result.details.coc_error ? { ...result, isError: true } : result;
     },
     finalize(...args: Parameters<Stages['finalize']>) {
       if (!stages) throw new ContractError('gameplay_owner_unavailable');

@@ -26,7 +26,42 @@ PDF 视觉阅读已按 [visual-pdf-reader.md](specs/visual-pdf-reader.md) 与 [�
 > (`run_start` … `run_end`) beside the unchanged message events. The campaign's `lane: "startup"` telemetry row names
 > the engine, loop protocol, Pi base and patch-series digest.
 
-Current target: `@earendil-works/pi-coding-agent` 0.87.0. The root `dependencies` and lockfile pin the production runtime; `peerDependencies: "*"` declare the extension-facing Pi packages. The production manifest, Electron backend dependency/lockfile, and managed-runtime version must agree. The 2026-09-22 source upgrade passed the checks recorded in section 7. The installed App remains on its previously packaged version until a separately requested package/install.
+Current target: `@earendil-works/pi-coding-agent` 1.0.0. The root `dependencies` and lockfile pin the production runtime; `peerDependencies: "*"` declare the extension-facing Pi packages. The production manifest, Electron backend dependency/lockfile, and managed-runtime version must agree. The installed App remains on its previously packaged version until a separately requested package/install.
+
+### Pi 1.0 upgrade boundary (2026-10-02)
+
+The source authority is upstream `v1.0.0` (`a13d35a742c6ef8462812a28fbe1d8c8b7431c32`)
+plus the original four reviewed patch responsibilities and the mainline's
+first-answer cap refinement (0005) in `vendor/pi/PATCHES.md`.
+The RunDriver still owns one run and does not enter Pi's automatic continuation
+loop. Semantic stream-idle detection and the Keeper first-answer cap stay composed around
+the provider request. Parsed pre-normalization provider events are an observation
+surface, not evidence of normalized progress or permission to extend either cap.
+
+Flapcode declares the native supportsMaxOutputTokens capability as false in both
+its shared factory catalog and manifest. Contract section 140's approved transport
+exception prevents the nested budget hook from restoring the rejected field:
+uncapped calls reserve the full model ceiling and an insufficient existing owner
+refuses before dispatch. Per-lane owner ceilings remain unchanged.
+
+Context-ceiling validation measures the restored public model projection, including
+the canonical system/tool checkpoint and new assistant metadata. Private tool
+`details` are recording evidence, not model input. Raw transcript size remains
+separately measured; it must not replace the public request metric.
+
+The upgrade adopts upstream provider reliability fixes and early session persistence.
+RPC input responses carry Pi's disposition; the host respects handled commands and
+queued input rather than inferring a started turn from transport success. Legacy
+responses without disposition retain their previous handling. Tool results may
+return native `isError`; COC refusal accounting and telemetry still pass through
+the existing finalization path. Provider event callbacks preserve stream ordering
+and must remain read-only and inexpensive.
+
+Do not activate codemode/MCP, replace the fixed-version, budgeted Jev adapter,
+enable virtual routing, or change model/auth/profile defaults as part of this
+upgrade. The experimental harness removed from agent-core is not a production
+dependency; this upgrade does not introduce pi-durable. Source/build identity,
+host-contract section 7 and real setup/play/reader checks remain mandatory.
 
 ## 1. 启动契约
 
@@ -394,6 +429,7 @@ must be explicitly cancelled by task 3.
 | --- | --- | --- |
 | 0.85.1 | 2026-09-05 | 首版契约；三项旧补丁全部不再需要 |
 | 0.87.0 | 2026-09-22 | Source upgrade: 2,305 extension tests and 141 driver tests passed; runtime build and kernel typecheck passed. Seven targeted Electron runtime/delivery tests passed. Full Electron suite still reports eight pre-existing packaging-staging path failures; its baseline was not edited. Real Grok Build 4.7 fast/low setup and play smoke plus a tool-enabled text-reader subprocess passed. This is not a new PDF acceptance or installed-App upgrade. |
+| 1.0.0 | 2026-10-02 | Source integrated with all five mainline patches rebased. 241 unchanged sources/JS modules match npm; Pi gates 9/9, combined cap/mainline gates 32/32, budget/reader gates 51/51, Electron send/auth/telemetry 119/119 and driver 187 passed/1 skipped. Combined full ext: 4286 passed, one private-transcript measurement failure; public-projection correction then passed its 5-test file without changing the ceiling. Real Luna/low setup, two delivered play turns, funded zero-tool and private-budget read/write/bash smoke passed; undersized owners refuse before dispatch. Primary runtime switch awaits its active old-version driver via heartbeat pi-1-0. This is not an installed-App upgrade. |
 
 Upgrade evidence: `.pi/upgrade/pi087-ext-verified.log`, `pi087-play-tests.log`, `pi087-build-final.log`, and `pi087-electron-selected.log`; retained live runs are `.coc/playtests/pi087-setup-smoke`, `pi087-play-smoke`, and `pi087-reader-smoke`. Source-suite execution removes inherited `PIPIUI_HOST_PROTOCOL` / `PIPIUI_SPAWN_CONTRACT` flags so the surrounding coding host cannot falsely turn fixture profiles into managed sessions. No credentials or explicit operator settings were replaced.
 

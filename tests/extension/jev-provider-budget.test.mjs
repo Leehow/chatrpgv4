@@ -4,7 +4,7 @@ import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
-import {boundProviderRequest,createTaskProviderBudget,providerSpend,independentProviderBudget} from '../../runtime/jev/provider-budget.ts';
+import {boundProviderRequest,createTaskProviderBudget,providerSpend,independentProviderBudget,withOutputRoom} from '../../runtime/jev/provider-budget.ts';
 import {runReader} from '../../extensions/module/reader.ts';
 import {composeRuntimeContext} from '../../runtime/host.ts';
 import {runLane} from '../../extensions/lanes/subsession.ts';
@@ -22,6 +22,35 @@ test('closed API output caps and worst price tiers bind the actual request',()=>
  assert.throws(()=>boundProviderRequest({...model,api:'unknown'},{}),/provider_output_bound_unsupported/);
  assert.throws(()=>boundProviderRequest({...model,cost:undefined},{}),/provider_bound_unavailable/);
  const image=boundProviderRequest(model,{input:[{type:'input_image',image_url:'data:image/png;base64,small'}]});assert.equal(image.bound.inputTokens,model.contextWindow);
+});
+
+test('an uncapped Responses transport reserves its model ceiling and never reintroduces the rejected parameter',()=>{
+ const uncapped={...model,maxTokens:128000,compat:{supportsMaxOutputTokens:false}};
+ const original={model:model.id,input:'hello',max_output_tokens:32};
+ const prepared=boundProviderRequest(uncapped,original,64);
+ assert.equal(Object.hasOwn(prepared.payload,'max_output_tokens'),false);
+ assert.equal(original.max_output_tokens,32);
+ assert.equal(prepared.bound.outputTokens,128000);
+ assert.equal(prepared.bound.model.compat.supportsMaxOutputTokens,false);
+ assert.throws(()=>providerSpend({...prepared.bound,outputTokens:64}),/provider_bound_unavailable/);
+ assert.equal(Object.hasOwn(withOutputRoom(uncapped,original,64),'max_output_tokens'),false);
+ const clean={model:model.id,input:'hello'};
+ assert.equal(withOutputRoom(uncapped,clean,64),clean);
+});
+
+test('an unfunded uncapped model is refused before provider dispatch; a funded one refunds actual usage',async()=>{
+ const uncapped={...model,maxTokens:128000,compat:{supportsMaxOutputTokens:false}};
+ const prepared=boundProviderRequest(uncapped,{model:model.id,input:'hello'});
+ const small=lease();
+ await assert.rejects(createTaskProviderBudget(small).reserve(prepared.bound),/task_budget_exhausted/);
+ assert.equal(small.context.budget.remainingActions,10);
+ small.close();
+ const funded=lease({remainingOutputTokens:128000}),before=funded.context.budget;
+ const charge=await createTaskProviderBudget(funded).reserve(prepared.bound);
+ assert.equal(funded.context.budget.remainingOutputTokens,0);
+ charge.settle(usage);
+ assert.equal(funded.context.budget.remainingOutputTokens,before.remainingOutputTokens-usage.output);
+ funded.close();
 });
 
 test('the Google payload keeps its own abort signal through the clone',()=>{
@@ -109,19 +138,20 @@ test('timed out completion that ignores abort retains an unknown charge without 
  await assert.rejects(budget.reserve(bound().bound),/task_budget_exhausted/);root.close();
 });
 
-async function fixture(t,mode){
+async function fixture(t,mode,{uncapped=false}={}){
  const home=await mkdtemp(join(tmpdir(),'jev-provider-'));t.after(()=>rm(home,{recursive:true,force:true}));
  const cli=join(home,'pi-fixture.mjs'),marker=join(home,'dispatched');
+ const fixtureModel={...model,...(uncapped?{compat:{supportsMaxOutputTokens:false}}:{})};
  await writeFile(cli,`import {writeFileSync} from 'node:fs';\nimport readerContext from ${JSON.stringify(join(ROOT,'extensions/module/reader-context.ts'))};
  import {ExtensionRunner,createExtensionRuntime} from ${JSON.stringify(join(ROOT,'build/node_modules/@earendil-works/pi-coding-agent/dist/index.js'))};
  const handlers=new Map();readerContext({on:(name,fn)=>{const list=handlers.get(name)??[];list.push(fn);handlers.set(name,list);}}, {env:process.env});
- const ctx={model:${JSON.stringify(model)},abort(){}};
+ const ctx={model:${JSON.stringify(fixtureModel)},abort(){}};
  const runner=new ExtensionRunner([{path:"budget-conformance",handlers}],createExtensionRuntime(),process.cwd(),{},{});
  runner.bindCore({}, {getModel:()=>ctx.model,abort:()=>ctx.abort()});
  let calls=0;for(let n=0;n<${mode==='two'?2:1};n++){
   let payload={model:ctx.model.id,input:'hello'};
   payload=await runner.emitBeforeProviderRequest(payload);
-  if(payload.max_output_tokens!==100)throw Error('output is not capped');
+  if(${uncapped} ? Object.hasOwn(payload,'max_output_tokens') : payload.max_output_tokens!==100)throw Error('output capability was not respected');
   writeFileSync(${JSON.stringify(marker)},String(++calls));
   if(${JSON.stringify(mode)}==='crash')process.exit(1);
   const message={role:'assistant',stopReason:'stop',usage:${JSON.stringify(usage)}};
@@ -139,6 +169,15 @@ test('real child IPC gates two calls before dispatch and aggregates actual usage
  assert.equal(outcome.ok,true,JSON.stringify(outcome));assert.equal(await readFile(f.marker,'utf8'),'2');
  assert.deepEqual(outcome.usage,{inputTokens:30,outputTokens:10,costUsd:0.00008,actions:2,unknownCalls:0});assert.equal(root.context.budget.remainingActions,8);
  const settings=JSON.parse(await readFile(join(f.home,'.pi/settings.json'),'utf8'));assert.equal(settings.retry.provider.maxRetries,0);
+});
+
+test('child IPC carries an uncapped model ceiling and refuses an owner that cannot fund it',async t=>{
+ for(const enough of [true,false]){
+  const f=await fixture(t,'one',{uncapped:true}),root=lease({remainingOutputTokens:enough?100:50});t.after(()=>root.close());
+  const result=await runReader({cwd:f.home,brief:'Uncapped child transport conformance',model:'test/bounded',providerBudget:createTaskProviderBudget(root),timeoutMs:5000},f.context);
+  if(enough){assert.equal(result.ok,true,JSON.stringify(result));assert.equal(await readFile(f.marker,'utf8'),'1');assert.equal(root.context.budget.remainingOutputTokens,95);}
+  else {assert.equal(result.ok,false);await assert.rejects(readFile(f.marker,'utf8'),{code:'ENOENT'});assert.equal(root.context.budget.remainingActions,10);}
+ }
 });
 
 test('a source priority wait happens before provider dispatch and before spending its reservation',async t=>{

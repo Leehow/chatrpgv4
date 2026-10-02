@@ -11354,10 +11354,11 @@ export class PiHostBackend implements HostBackend {
         this.turnTelemetry.preparationComplete(id, Buffer.byteLength(JSON.stringify(body), "utf8"));
         this.turnTelemetry.dispatchStarted(id);
       }
+      let response: { disposition?: unknown } | undefined;
       try {
         this.structuredOutputs?.assertReadyToSend(id);
         this.assertSessionGeneration(id, generation);
-        await this.command(id, body, false, runtimeToken);
+        response = await this.command(id, body, false, runtimeToken);
         this.assertSessionGeneration(id, generation);
       } catch (error) {
         if (body.type !== "prompt" || !isAlreadyProcessingError(error)) {
@@ -11368,13 +11369,21 @@ export class PiHostBackend implements HostBackend {
         // running). Pi is the authority: re-send with the behavior it asked for
         // instead of surfacing the raw RPC error to the composer.
         this.assertSessionGeneration(id, generation);
-        await this.command(id, { ...body, streamingBehavior: "followUp" }, false, runtimeToken);
+        response = await this.command(id, { ...body, streamingBehavior: "followUp" }, false, runtimeToken);
         this.assertSessionGeneration(id, generation);
       }
       this.assertSessionGeneration(id, generation);
       if (recordTurn) this.turnTelemetry.dispatchAccepted(id);
-      if (behavior === "steer" && payload.text.trim()) this.noteUnconfirmedSteer(id, payload);
+      if (response?.disposition === "handled") {
+        this.pendingSends.drop(id, send);
+        if (live.pendingDrainPrompt === payload.text) live.pendingDrainPrompt = undefined;
+        if (recordTurn && !this.queue.isTurnActive(id)) {
+          this.turnTelemetry.terminal(id, "settled");
+          this.turnTelemetry.flushTerminal(id);
+        }
+      } else if (behavior === "steer" && payload.text.trim()) this.noteUnconfirmedSteer(id, payload);
       leaseCommitted = true;
+      return response;
     } catch (error) {
       if (!leaseCommitted) await this.rollbackSessionLeaseAttempt(leaseAttempt);
       this.pendingSends.drop(id, send);

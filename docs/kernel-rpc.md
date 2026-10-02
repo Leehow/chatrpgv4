@@ -25986,6 +25986,29 @@ For a Noul the two gates collapse into one number: `yes ≥ row_min` and `yes �
 
 ## 140. A child agent with no lease still sends its own output bound (2026-09-26; amends §20 addendum 2's per-call bound)
 
+### Native transport output-limit capability (2026-10-02)
+
+For Responses transports, the provider's native model declaration
+`compat.supportsMaxOutputTokens: false` means the wire does not accept
+`max_output_tokens`. Flapcode declares this capability in its shared catalog;
+Pi preserves it through model composition and both host budget helpers read it.
+An unleased output-room hook omits that field. A leased request also omits it,
+but reserves the model's full declared `maxTokens`, including reasoning output,
+rather than claiming that the usual 8192-token wire limit exists. The bounded
+IPC model metadata carries this one capability, and the host rejects a smaller
+reservation for such a model. Actual usage refunds the conservative reservation;
+unknown usage consumes it. Existing owner ceilings, deadlines, and authority are
+unchanged: an owner that cannot fund the model ceiling refuses before dispatch.
+No fallback creates a larger lease. This applies equally to zero-tool completion
+and tool-enabled children, so a later budget hook cannot undo provider sanitation.
+
+The capability is transport syntax, not a provider-name heuristic. Upstream Pi
+1.0 exposes this native flag and its Responses adapter omits the field when it is
+false. External Codex reports likewise show gateways rejecting the field
+([31181](https://github.com/openai/codex/issues/31181)) and proxy defaults differing
+when it is omitted ([36180](https://github.com/openai/codex/issues/36180)); their
+omission behavior does not supply this product's nested-lease accounting guarantee.
+
 **Evidence.** A character-creation table on the PDF module 血色公路 (line-2 @ d08fa2ebb, Keeper and lanes on opencode-go/deepseek-v4.1-flash, thinking low) could not start: the module's setup guidance had to be regenerated (its key binds the setup prompts, which changed since the guidance was accepted on 2026-09-16), and in both attempts the reviewer's second response reported `output 8192, reasoning 8192, stopReason length` and ended with no `review.json`. The guidance job is started by onboarding without a lease, so its children sent no output bound and the provider's unstated default (8,192 on opencode-go) decided it; `low` is the lowest level this model has. The reader runner counts a child that exits cleanly as `ok`, so the job then read a missing file (a bare ENOENT) and the guide told the player to come back later. In the App's module work logs (10,747 child messages, the grok period) no child ever stopped at `length`: the limit bites with a model that reasons at length.
 
 **The rule.**
