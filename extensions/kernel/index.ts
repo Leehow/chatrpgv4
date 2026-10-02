@@ -329,6 +329,8 @@ interface TableState {
 	forcedPlayerChoiceCueChecked?: { turn: number; draftHash: string };
 	forcedPlayerChoiceCueRejects?: { turn: number; count: number };
 	forcedPlayerChoiceCueRejected?: { turn: number; draftHash: string; cueScores: number[]; outcomeScores: number[] };
+	forcedPlayerChoiceCueRepairSteered?: number;
+	forcedPlayerChoiceCueRepairAttempted?: number;
 	kernel: KernelClient;
 	campaign: string;
 	telemetryPath: string;
@@ -1592,6 +1594,10 @@ export default function (pi: ExtensionAPI) {
 		state.deliveryFix = undefined;
 		if (deliveryFix) {
 			state.steeredThisTurn = true;
+			if (deliveryFix.kind === 'forced-player-choice-cue') {
+				state.forcedPlayerChoiceCueRepairSteered = state.turn;
+				state.forcedPlayerChoiceCueRepairAttempted = undefined;
+			}
 			return { kind: deliveryFix.kind, text: deliveryFix.text };
 		}
 		if (state.state !== "open" && state.state !== "acting") return { none: "turn_not_open" };
@@ -1729,6 +1735,8 @@ export default function (pi: ExtensionAPI) {
 		table.forcedPlayerChoiceCueChecked = undefined;
 		table.forcedPlayerChoiceCueRejects = undefined;
 		table.forcedPlayerChoiceCueRejected = undefined;
+		table.forcedPlayerChoiceCueRepairSteered = undefined;
+		table.forcedPlayerChoiceCueRepairAttempted = undefined;
 		table.attachments = [];
 		table.mapAttachments = [];
 		// Action admission (contract §32.3): who plays, where they stand, what the setup already told
@@ -2517,7 +2525,7 @@ export default function (pi: ExtensionAPI) {
 			rejectCount = (state.forcedPlayerChoiceCueRejects?.turn === pending.turn ? state.forcedPlayerChoiceCueRejects.count : 0) + 1;
 			state.forcedPlayerChoiceCueRejects = {turn: pending.turn, count: rejectCount};
 			state.forcedPlayerChoiceCueRejected = {turn: pending.turn, draftHash, cueScores: review.cueScores, outcomeScores: review.outcomeScores};
-			stopRun = rejectCount >= 2;
+			stopRun = rejectCount >= 1;
 			repairSteer = stopRun && !state.steeredThisTurn;
 			if (repairSteer) state.deliveryFix = {kind: 'forced-player-choice-cue', text:
 				'The last drafts still imply a success, failure, or dependent consequence for a player-owned check that was not rolled. Treat only settled receipts as facts; do not state that the attempt succeeded, failed, or changed the world. Have a present person or the immediate situation return the unmade choice to the player in character. Use one narrate, then stop. Do not repeat accepted apply effects or ask out of fiction.'};
@@ -3208,6 +3216,8 @@ export default function (pi: ExtensionAPI) {
 			state.forcedPlayerChoiceCueChecked = undefined;
 			state.forcedPlayerChoiceCueRejects = undefined;
 			state.forcedPlayerChoiceCueRejected = undefined;
+			state.forcedPlayerChoiceCueRepairSteered = undefined;
+			state.forcedPlayerChoiceCueRepairAttempted = undefined;
 		}
 		if (run) {
 			if (tool === "ask" || tool === "narrate") run.delivered = true;
@@ -4565,8 +4575,13 @@ export default function (pi: ExtensionAPI) {
 			await dispatcher.beforeKernelInvoke(toolCallId, spec.method, payload);
 			return state.kernel.call<Record<string, unknown>>(spec.method, payload, onProgress);
 		};
-		try {
-			// Cold/legacy pending attacks wait for an actual open turn, never a UI read or a closed ask.
+			try {
+			if (state.forcedPlayerChoiceCueRejects?.turn === state.turn && state.forcedPlayerChoiceCueRejects.count >= 1
+				&& state.deliveryFix?.kind === 'forced-player-choice-cue' && state.forcedPlayerChoiceCueRepairSteered !== state.turn)
+				throw new KernelError({code: 'needs', next: 'stop', message: 'A targeted narration repair is queued at turn close.',
+					fix: 'Stop this response and issue no more operations; the host will give the one corrective steer.',
+					details: {reason: 'forced_choice_cue_repair_queued', forced_choice_cue_stop: true}});
+				// Cold/legacy pending attacks wait for an actual open turn, never a UI read or a closed ask.
 			const recoveredDefense = state.interactionScope !== undefined && state.interactionScope !== 'world' ? undefined : await recoverStandingDefense(state, signal);
 			if (recoveredDefense) {
 				// Defense owns these receipts. An intercepted proposal has not executed and must not
@@ -5779,6 +5794,8 @@ export default function (pi: ExtensionAPI) {
 				state.forcedPlayerChoiceCueChecked = undefined;
 				state.forcedPlayerChoiceCueRejects = undefined;
 				state.forcedPlayerChoiceCueRejected = undefined;
+				state.forcedPlayerChoiceCueRepairSteered = undefined;
+				state.forcedPlayerChoiceCueRepairAttempted = undefined;
 				state.renderedText = asString(result.rendered_text) ?? text;
 				state.state = (typeof result.state === "string" ? result.state : "awaiting_player") as TurnState;
 				state.turn = typeof result.turn === "number" ? result.turn : state.turn + 1;
@@ -5904,6 +5921,8 @@ export default function (pi: ExtensionAPI) {
 			state.forcedPlayerChoiceCueChecked = undefined;
 			state.forcedPlayerChoiceCueRejects = undefined;
 			state.forcedPlayerChoiceCueRejected = undefined;
+			state.forcedPlayerChoiceCueRepairSteered = undefined;
+			state.forcedPlayerChoiceCueRepairAttempted = undefined;
 			state.callOrdinal = 0;
 			state.strandedTurn = undefined;
 			state.rebindingRefused = undefined;
@@ -6103,6 +6122,23 @@ export default function (pi: ExtensionAPI) {
 		const state = table;
 		if (!state) {
 			return { block: true, reason: startupError ?? "the kernel is not up, so this table has not opened" };
+		}
+		if (state.forcedPlayerChoiceCueRepairSteered === state.turn) {
+			if (name !== 'narrate' || state.forcedPlayerChoiceCueRepairAttempted === state.turn) {
+				state.forcedPlayerChoiceCueRepairAttempted = state.turn;
+				await record({tool: name, started_at: new Date().toISOString(), ok: false, code: 'blocked',
+					reason: 'forced_choice_cue_repair_spent', turn: state.turn});
+				return {block: true, terminate: true,
+					reason: 'The one forced-choice narration repair allows one narrate only. Stop this response; do not issue another operation.'};
+			}
+			state.forcedPlayerChoiceCueRepairAttempted = state.turn;
+		}
+		if (state.forcedPlayerChoiceCueRejects?.turn === state.turn && state.forcedPlayerChoiceCueRejects.count >= 1
+			&& state.deliveryFix?.kind === 'forced-player-choice-cue' && state.forcedPlayerChoiceCueRepairSteered !== state.turn) {
+			await record({tool: name, started_at: new Date().toISOString(), ok: false, code: 'blocked',
+				reason: 'forced_choice_cue_repair_queued', turn: state.turn});
+			return {block: true, terminate: true,
+				reason: 'The forced-choice repair is queued for turn_close. Stop this response so the host can give it.'};
 		}
 		const hostRound = dispatcher.attemptRound(event.toolCallId);
 		if (hostRound !== undefined) state.callRounds.set(event.toolCallId, hostRound);
