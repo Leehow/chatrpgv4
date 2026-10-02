@@ -1464,10 +1464,12 @@ export default function (pi: ExtensionAPI) {
 	/**
 	 * §124.12: one historical search under the lookup's gates -- active Mod, the grant's run/turn/binding, credentials and
 	 * the per-input allowance. The Keeper's own lookup carries the grant its model step announced; the host's scene
-	 * prefetch (2026-10-02) carries the grant the engine's need decision gave. The two share the turn's allowance through
-	 * the binding `<run>:<turn>`.
+	 * prefetch (2026-10-02) carries the grant the engine's need decision gave. The Keeper's lookups share the input's
+	 * allowance through the binding `<run>:<turn>`; each scene's host lookup has its own, `<run>:<turn>:<scene>` -- on the
+	 * App's third table the lookup at the scene a move left spent the input's four seconds and the destination's lookup
+	 * came back `budget_exhausted`, closing history for the turn.
 	 */
-	async function historicalSearch(state: TableState, request: {run?: string; grant?: Partial<HistoryInput> & {scope?: any; turn?: number};
+	async function historicalSearch(state: TableState, request: {run?: string; scene?: string; grant?: Partial<HistoryInput> & {scope?: any; turn?: number};
 		requested_by: 'keeper' | 'host'; query: string; objective?: string; reference_mode?: HistoryInput['reference_mode']; name?: string;
 		reference_cursor?: number; signal?: AbortSignal; deadlineAt?: number; libraryMatch?: HistoryInput['libraryMatch']}): Promise<HistoryResult> {
 		const grant = request.grant;
@@ -1476,7 +1478,7 @@ export default function (pi: ExtensionAPI) {
 		const referenceScope = {owner:'historical-reference', campaign, audience:'keeper' as const,
 			worldline: (capsule as any)._context?.worldline, loop: (capsule as any)._context?.loop};
 		historicalReference ??= new HistoricalReference({home: cocHome(sessionCtx!.cwd), record:event=>{void record(event);}});
-		return historicalReference.search({binding: `${request.run ?? campaign}:${turn}`, turn,
+		return historicalReference.search({binding: `${request.run ?? campaign}:${turn}${request.scene ? `:${request.scene}` : ''}`, turn,
 			scope: referenceScope, enabled: historyEnabled(capsule),
 			allowed: grant?.allowed === true && grant.turn === turn && historyBindingMatches(capsule, grant.scope, turn),
 			retrieval: grant?.turn === turn && historyBindingMatches(capsule, grant.scope, turn) ? grant.retrieval : undefined,
@@ -5565,11 +5567,11 @@ export default function (pi: ExtensionAPI) {
 				watchOwedReview(table?.campaign === campaign ? table.reviewInFlight : undefined) }));
 			// §124.12 (2026-10-02): the engine's scene prefetch runs the lookup's own search, after Jev granted the need. A new
 			// scene searches the web: only a reference saved for this very query is reused, never a loosely relevant one.
-			pi.events.emit('coc:historical-reference', Object.freeze({ campaign, search: (request: { run: string; turn: number; scope: unknown;
+			pi.events.emit('coc:historical-reference', Object.freeze({ campaign, search: (request: { run: string; scene?: string; turn: number; scope: unknown;
 				query: string; objective?: string; signal?: AbortSignal; deadlineAt?: number }) => {
 				const state = table;
 				if (!state || state.campaign !== campaign) return Promise.resolve(undefined);
-				return historicalSearch(state, { run: request.run, grant: { allowed: true, turn: request.turn, scope: request.scope as any },
+				return historicalSearch(state, { run: request.run, scene: request.scene || undefined, grant: { allowed: true, turn: request.turn, scope: request.scope as any },
 					requested_by: 'host', query: request.query, objective: request.objective, signal: request.signal, deadlineAt: request.deadlineAt,
 					libraryMatch: 'exact' });
 			} }));

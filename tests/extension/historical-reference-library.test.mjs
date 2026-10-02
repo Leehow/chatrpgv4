@@ -133,3 +133,16 @@ test('an excerpt Jev does not judge to show that period is dropped whatever its 
   const then=await f.create({decide:period(0.81)}).search({...f.input,binding:'input-2',turn:2});
   assert.deepEqual(then.materials.map(row=>row.excerpts),[[excerpt]]);
 });
+// Calibrated on live Jev (2026-10-02): present-day pages scored 0.04-0.24, first-hand memoirs of the period 0.31-0.49.
+test('kept excerpts go highest period score first, and the threshold sits between present-day pages and memoirs',async t=>{
+  const f=await fixture(t);
+  const two=async()=>Response.json({results:[{title:'A later blog',url:'https://example.org/blog',highlights:['A blog post about the old store.']},
+    {title:'A 1975 feature',url:'https://example.org/feature',highlights:['In 1975 the store sold feed, nails and cold drinks.']}]});
+  const scored=(blog)=>async batch=>contextPolicy(batch)??({status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,
+    q.key==='period_1'?{status:'answered',type:'noul',noul:blog}:q.key==='period_2'?{status:'answered',type:'noul',noul:0.8}
+      :q.type==='noul'?{status:'answered',type:'noul',noul:0.9}:{status:'answered',type:'choice',choice:'analogous'}]))});
+  const memoir=await f.create({fetcher:two,decide:scored(0.31)}).search(f.input);
+  assert.deepEqual(memoir.materials.map(row=>row.title),['A 1975 feature','A later blog'],'the clearer period source first, the memoir-level one kept');
+  const present=await f.create({fetcher:two,decide:scored(0.24)}).search({...f.input,binding:'input-2',turn:2});
+  assert.deepEqual(present.materials.map(row=>row.title),['A 1975 feature'],'a present-day page is dropped');
+});

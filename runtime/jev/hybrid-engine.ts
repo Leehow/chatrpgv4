@@ -483,10 +483,12 @@ function defaultLine(candidate: Candidate): string | undefined {
 
 /** Per-run state the ports share; the policy's own state stays in the driver. */
 /** §124.12 (2026-10-02): the kernel extension's port that runs the lookup's own historical search for the host (`coc:historical-reference`). */
-interface HistoryPort {campaign: string; search(request: {run: string; turn: number; scope: unknown; query: string; objective?: string;
+interface HistoryPort {campaign: string; search(request: {run: string; scene?: string; turn: number; scope: unknown; query: string; objective?: string;
   signal?: AbortSignal; deadlineAt?: number}): Promise<Row | undefined>}
 /** A scene's prefetch: the search in flight (`done`), what it returned once it did (`result`), or a scene's earlier result reused. */
-interface HistoryPrefetch {key: string; query: string; objective: string; reused: boolean; result?: Row; done: Promise<Row | undefined>}
+interface HistoryPrefetch {key: string; query: string; objective: string; reused: boolean; result?: Row; done: Promise<Row | undefined>;
+  /** The lane wrote no query, so nothing was searched (2026-10-02: an English query or none). */
+  unwritten?: boolean}
 /** §158.4: the kernel extension's port for the previous delivery's post review still running (`coc:owed-review`). */
 interface OwedReviewPort {campaign: string; watch(): {in_flight: boolean; turn?: number; landed(): boolean}}
 interface RunState {
@@ -1670,15 +1672,24 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const writer = options.historyQuery === null ? undefined : options.historyQuery ?? historyQueryLane;
     const prefetch: HistoryPrefetch = {key, ...fixed, reused: false, done: Promise.resolve(undefined)};
     prefetch.done = (async () => {
-      // Owner, 2026-10-02: the fast model writes the scene's query in English; any failure searches the fixed shape.
+      // Owner, 2026-10-02: the fast model writes the scene's query in English. When it writes none, nothing is searched this
+      // turn and nothing is kept, so the scene is tried again on its next turn: the authored-wording fallback searched
+      // Chinese on the App's third table and matched a Chinese query saved on its first, bringing back the same
+      // present-day travel pages. The fixed shape is searched only where no lane is configured (`historyQuery: null`).
       const written = writer ? await writer.write(facts, signal).catch(error => ({ok: false as const, reason: 'lane_error' as const,
         detail: error instanceof Error ? error.message : String(error), ms: 0})) : undefined;
+      if (written && !written.ok) {
+        prefetch.unwritten = true;
+        record({...row, phase: 'skipped', reason: 'no_query', query_failure: written.reason, writer_ms: written.ms});
+        return undefined;
+      }
       if (written?.ok) { prefetch.query = written.query; prefetch.objective = written.objective; }
       record({...row, phase: 'started', query: prefetch.query, objective: prefetch.objective, query_source: written?.ok ? 'fast_model' : 'fixed_shape',
-        ...(written && !written.ok ? {query_failure: written.reason} : {}), writer_ms: written?.ms ?? null});
+        writer_ms: written?.ms ?? null});
       if (signal.aborted) return undefined;
       // Bounded by the lookup's own four-second allowance, never by the turn's time (owner, 2026-10-02).
-      const result = await port.search({run: run.runId, turn, scope, query: prefetch.query, objective: prefetch.objective, signal});
+      // Each scene's lookup has its own retrieval allowance (`scene`), so a move inside the turn cannot starve the destination's.
+      const result = await port.search({run: run.runId, scene: history.scene, turn, scope, query: prefetch.query, objective: prefetch.objective, signal});
       prefetch.result = result;
       if (result && ['ready', 'empty'].includes(text(result.status))) {
         preparedScenes.delete(key);
@@ -1703,7 +1714,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const result = prefetch.result ?? (!history.closed ? await prefetch.done : undefined);
     const materials = array(result?.materials).map(object);
     record({lane: 'historical-reference', event: 'prefetch', phase: 'delivered', run: run.runId, step: stepId, turn: run.turn ?? null,
-      scene: history.scene, reused: prefetch.reused, waited_ms: now() - began, status: result ? text(result.status) || null : 'not_back',
+      scene: history.scene, reused: prefetch.reused, waited_ms: now() - began, status: result ? text(result.status) || null : prefetch.unwritten ? 'no_query' : 'not_back',
       reason: result ? text(result.reason) || null : null, materials: materials.length});
     const retrieval = object(result?.retrieval);
     if (retrieval.state === 'closed' && !history.closed) {
