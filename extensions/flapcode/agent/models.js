@@ -55,8 +55,8 @@ const GPT_THINKING_MAP = {
 /**
  * The relay 400s on `prompt_cache_retention` (live-probed); pinning
  * supportsLongCacheRetention off keeps pi from ever emitting it. The wire is
- * additionally sanitized in client.ts for `max_output_tokens`, which pi sends
- * unconditionally.
+ * additionally sanitized in client.ts. The native supportsMaxOutputTokens
+ * declaration covers direct completion and budgeted children too.
  */
 // Allow pi to send its default `strict:false` on function tools. Omitting
 // strict lets Responses normalize arbitrary extension schemas into strict
@@ -64,6 +64,7 @@ const GPT_THINKING_MAP = {
 const FLAPCODE_COMPAT = {
     supportsLongCacheRetention: false,
     supportsStrictMode: true,
+    supportsMaxOutputTokens: false,
 };
 export const FLAPCODE_MODELS = [
     // https://developers.openai.com/api/docs/models/gpt-6.1-sol

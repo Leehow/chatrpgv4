@@ -1,11 +1,8 @@
-SL-01 stage B: the RunDriver in agent-core (docs/specs/pi-native-single-loop-tickets/01-run-driver.md).
-Base: vendor/pi at 3f1dd60cd (upstream v0.87.0 16787ad5). Apply with: git apply -p1 from the repository root.
-
 diff --git a/vendor/pi/packages/agent/src/agent-loop.ts b/vendor/pi/packages/agent/src/agent-loop.ts
-index e4fd515df..34e99b04f 100644
+index b772985ca..c46207b35 100644
 --- a/vendor/pi/packages/agent/src/agent-loop.ts
 +++ b/vendor/pi/packages/agent/src/agent-loop.ts
-@@ -329,7 +329,7 @@ async function runLoop(
+@@ -330,7 +330,7 @@ async function runLoop(
   * the executable set, so replay always yields exactly `context.tools`. Otherwise a new
   * system message is inserted before the first non-system pending message.
   */
@@ -14,7 +11,7 @@ index e4fd515df..34e99b04f 100644
  	let systemIndex = -1;
  	for (let i = pendingMessages.length - 1; i >= 0; i--) {
  		if (pendingMessages[i].role === "system") {
-@@ -377,7 +377,7 @@ function withToolChanges(message: SystemMessage, { toolsAdded, toolsRemoved }: T
+@@ -378,7 +378,7 @@ function withToolChanges(message: SystemMessage, { toolsAdded, toolsRemoved }: T
   * Stream an assistant response from the LLM.
   * This is where AgentMessage[] gets transformed to Message[] for the LLM.
   */
@@ -23,7 +20,7 @@ index e4fd515df..34e99b04f 100644
  	context: AgentContext,
  	config: AgentLoopConfig,
  	signal: AbortSignal | undefined,
-@@ -656,25 +656,25 @@ async function executeToolCallsParallel(
+@@ -659,25 +659,25 @@ async function executeToolCallsParallel(
  	};
  }
  
@@ -48,12 +45,12 @@ index e4fd515df..34e99b04f 100644
  	isError: boolean;
  };
  
--type FinalizedToolCallOutcome = {
-+export type FinalizedToolCallOutcome = {
- 	toolCall: AgentToolCall;
- 	result: AgentToolResult<any>;
- 	isError: boolean;
-@@ -700,7 +700,7 @@ function prepareToolCallArguments(tool: AgentTool<any>, toolCall: AgentToolCall)
+-type FinalizedToolCallOutcome = AgentToolCallOutcome;
++export type FinalizedToolCallOutcome = AgentToolCallOutcome;
+ 
+ /** The `beforeToolCall` and `afterToolCall` hooks of {@link AgentLoopConfig}. */
+ export type ToolCallHooks = Pick<AgentLoopConfig, "beforeToolCall" | "afterToolCall">;
+@@ -704,7 +704,7 @@ function prepareToolCallArguments(tool: AgentTool<any>, toolCall: AgentToolCall)
  	};
  }
  
@@ -62,16 +59,16 @@ index e4fd515df..34e99b04f 100644
  	currentContext: AgentContext,
  	assistantMessage: AssistantMessage,
  	toolCall: AgentToolCall,
-@@ -770,7 +770,7 @@ async function prepareToolCall(
- 	}
+@@ -817,7 +817,7 @@ export async function runToolCall(toolCall: AgentToolCall, options: RunToolCallO
+ 	return finalizeExecutedToolCall(context, assistantMessage, preparation, executed, options, signal);
  }
  
 -async function executePreparedToolCall(
 +export async function executePreparedToolCall(
  	prepared: PreparedToolCall,
  	signal: AbortSignal | undefined,
- 	emit: AgentEventSink,
-@@ -813,7 +813,7 @@ async function executePreparedToolCall(
+ 	onUpdate: ToolUpdateSink,
+@@ -850,7 +850,7 @@ async function executePreparedToolCall(
  	}
  }
  
@@ -80,7 +77,7 @@ index e4fd515df..34e99b04f 100644
  	currentContext: AgentContext,
  	assistantMessage: AssistantMessage,
  	prepared: PreparedToolCall,
-@@ -860,14 +860,14 @@ async function finalizeExecutedToolCall(
+@@ -902,14 +902,14 @@ async function finalizeExecutedToolCall(
  	};
  }
  
@@ -97,7 +94,7 @@ index e4fd515df..34e99b04f 100644
  	await emit({
  		type: "tool_execution_end",
  		toolCallId: finalized.toolCall.id,
-@@ -877,7 +877,7 @@ async function emitToolExecutionEnd(finalized: FinalizedToolCallOutcome, emit: A
+@@ -919,7 +919,7 @@ async function emitToolExecutionEnd(finalized: FinalizedToolCallOutcome, emit: A
  	});
  }
  
@@ -106,7 +103,7 @@ index e4fd515df..34e99b04f 100644
  	return {
  		role: "toolResult",
  		toolCallId: finalized.toolCall.id,
-@@ -892,7 +892,7 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
+@@ -934,7 +934,7 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
  	};
  }
  
@@ -116,7 +113,7 @@ index e4fd515df..34e99b04f 100644
  	await emit({ type: "message_end", message: toolResultMessage });
  }
 diff --git a/vendor/pi/packages/agent/src/agent.ts b/vendor/pi/packages/agent/src/agent.ts
-index 92af2c791..63bd8f457 100644
+index ee8e6e591..1e014c532 100644
 --- a/vendor/pi/packages/agent/src/agent.ts
 +++ b/vendor/pi/packages/agent/src/agent.ts
 @@ -10,8 +10,32 @@ import {
@@ -153,7 +150,7 @@ index 92af2c791..63bd8f457 100644
  import { getDefaultStreamFn } from "./stream-fn.ts";
  import type {
  	AfterToolCallContext,
-@@ -172,6 +196,23 @@ class PendingMessageQueue {
+@@ -173,6 +197,23 @@ class PendingMessageQueue {
  	}
  }
  
@@ -177,7 +174,7 @@ index 92af2c791..63bd8f457 100644
  type ActiveRun = {
  	promise: Promise<void>;
  	resolve: () => void;
-@@ -407,6 +448,174 @@ export class Agent {
+@@ -410,6 +451,174 @@ export class Agent {
  		await this.runContinuation();
  	}
  
@@ -309,7 +306,7 @@ index 92af2c791..63bd8f457 100644
 +				const preparation = await prepareToolCall(context, assistantMessage, toolCall, config, stepSignal);
 +				if (preparation.kind === "immediate")
 +					return answer(proposal, { toolCall, result: preparation.result, isError: preparation.isError });
-+				const executed = await executePreparedToolCall(preparation, stepSignal, emit);
++				const executed = await executePreparedToolCall(preparation, stepSignal, (partialResult) => emit({ type: "tool_execution_update", toolCallId: toolCall.id, toolName: toolCall.name, args: toolCall.arguments, partialResult }));
 +				return answer(proposal, await finalizeExecutedToolCall(context, assistantMessage, preparation, executed, config, stepSignal));
 +			},
 +			refuseModelTool: async (proposal, reason) => {
@@ -353,15 +350,14 @@ index 92af2c791..63bd8f457 100644
  		input: string | AgentMessage | AgentMessage[],
  		images?: ImageContent[],
 diff --git a/vendor/pi/packages/agent/src/index.ts b/vendor/pi/packages/agent/src/index.ts
-index 4dcf3e307..7008e6122 100644
+index ca00bc777..0fa9cc6d7 100644
 --- a/vendor/pi/packages/agent/src/index.ts
 +++ b/vendor/pi/packages/agent/src/index.ts
-@@ -147,6 +147,7 @@ export { applyShellOutputUpdate } from "./harness/utils/output-capture.ts";
- export * from "./harness/utils/shell-output.ts";
- export * from "./harness/utils/truncate.ts";
+@@ -1,5 +1,6 @@
+ export * from "./agent.ts";
+ export * from "./agent-loop.ts";
  export * from "./proxy.ts";
 +export * from "./run-driver.ts";
- export * from "./search/index.ts";
  export { setDefaultStreamFn } from "./stream-fn.ts";
  export * from "./types.ts";
 diff --git a/vendor/pi/packages/agent/src/run-driver.ts b/vendor/pi/packages/agent/src/run-driver.ts
@@ -996,7 +992,7 @@ index 000000000..8bcf3ad66
 +	}
 +}
 diff --git a/vendor/pi/packages/agent/src/types.ts b/vendor/pi/packages/agent/src/types.ts
-index 8da843f56..244842b1d 100644
+index 6e17c3c8c..fdb9e59b3 100644
 --- a/vendor/pi/packages/agent/src/types.ts
 +++ b/vendor/pi/packages/agent/src/types.ts
 @@ -15,6 +15,7 @@ import type {
@@ -1007,7 +1003,7 @@ index 8da843f56..244842b1d 100644
  
  /**
   * Stream function used by the agent loop. `Models.streamSimple` satisfies
-@@ -497,4 +498,6 @@ export type AgentEvent =
+@@ -526,4 +527,6 @@ export type AgentEvent =
  	// Tool execution lifecycle
  	| { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
  	| { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }

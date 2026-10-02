@@ -63,6 +63,32 @@ async function fixture() {
 }
 
 describe("PiHostBackend message queue integration", () => {
+  it("keeps the composer available after Pi handles a prompt without starting a turn", async () => {
+    const setup = await fixture();
+    const backend = setup.create();
+    try {
+      expect(await backend.handle("sendPrompt", ["s1", "__handled__"])).toMatchObject({ outcome: "direct" });
+      await eventually(() => !(backend as any).queue.isBusy("s1"));
+      expect((backend as any).live.get("s1").pendingDrainPrompt).toBeUndefined();
+      expect(await backend.handle("sendPrompt", ["s1", "next input"])).toMatchObject({ outcome: "direct" });
+    } finally { await backend.close(); }
+  });
+
+  it("does not recycle a steer that Pi handled as a command", async () => {
+    const setup = await fixture();
+    const backend = setup.create();
+    try {
+      await backend.handle("sendPrompt", ["s1", "__hold__"]);
+      const item = await backend.handle("enqueueMessage", ["s1", "__handled__"]) as any;
+      await backend.handle("steerQueuedMessage", ["s1", item.message.id]);
+      expect((backend as any).unconfirmedSteers.has("s1")).toBe(false);
+      expect((backend as any).queue.isTurnActive("s1")).toBe(true);
+      await backend.handle("stop", ["s1"]);
+      await eventually(() => !(backend as any).queue.isBusy("s1"));
+      expect(await backend.handle("listQueue", ["s1"])).toEqual([]);
+    } finally { await backend.close(); }
+  });
+
   it("queues busy sends, emits snapshots, preserves attachments, and drains FIFO only after settle", async () => {
     const setup = await fixture();
     const backend = setup.create();

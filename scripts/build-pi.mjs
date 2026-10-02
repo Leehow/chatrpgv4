@@ -2,7 +2,7 @@
  * Build the vendored Pi (ADR-0006) into the one copy the product loads.
  *
  * `vendor/pi/` holds the TypeScript source of `@earendil-works/pi-agent-core` and
- * `@earendil-works/pi-coding-agent` at upstream `v0.87.0` plus the reviewed patch series
+ * `@earendil-works/pi-coding-agent` at upstream `v1.0.0` plus the reviewed patch series
  * (`vendor/pi/PATCHES.md`, `vendor/pi/patches/`). This compiles both packages with the upstream
  * compiler options into `build/node_modules/@earendil-works/<name>/`, which is where every emitted
  * entry under `build/` resolves a bare `@earendil-works/pi-*` import first, and where the launcher,
@@ -20,7 +20,7 @@
  * the last build (the digest is kept in `build/node_modules/.pi-build.json`). `--force` rebuilds.
  */
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -28,11 +28,11 @@ import ts from 'typescript';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const VENDOR = join(root, 'vendor/pi');
 export const PI_OUTPUT = join(root, 'build/node_modules');
-export const PI_BASE = Object.freeze({ repository: 'https://github.com/earendil-works/pi', tag: 'v0.87.0', commit: '16787ad5b2dc748047f314ca1bfe7708f30f54f3', version: '0.87.0' });
+export const PI_BASE = Object.freeze({ repository: 'https://github.com/earendil-works/pi', tag: 'v1.0.0', commit: 'a13d35a742c6ef8462812a28fbe1d8c8b7431c32', version: '1.0.0' });
 
 const PACKAGES = [
   { dir: 'agent', name: '@earendil-works/pi-agent-core', files: ['README.md', 'CHANGELOG.md'], executables: [] },
-  { dir: 'coding-agent', name: '@earendil-works/pi-coding-agent', files: ['README.md', 'CHANGELOG.md'], executables: ['dist/cli.js', 'dist/rpc-entry.js'],
+  { dir: 'coding-agent', name: '@earendil-works/pi-coding-agent', files: ['README.md', 'CHANGELOG.md'], directories: ['docs'], executables: ['dist/cli.js', 'dist/rpc-entry.js'],
     // Upstream `copy-assets`: files the running package reads next to its emitted modules.
     assets: [
       ['src/modes/interactive/theme', 'dist/modes/interactive/theme', name => name.endsWith('.json')],
@@ -133,6 +133,7 @@ function emitPackage(pkg, outDir) {
   manifest.piCoc = { vendored: true, base: PI_BASE, patchSeriesDigest: patchSeriesDigest() };
   writeFileSync(join(target, 'package.json'), JSON.stringify(manifest, null, '\t') + '\n');
   for (const name of pkg.files) copyFileSync(join(VENDOR, 'packages', pkg.dir, name), join(target, name));
+  for (const name of pkg.directories ?? []) cpSync(join(VENDOR, 'packages', pkg.dir, name), join(target, name), { recursive: true });
   for (const [from, to, keep] of pkg.assets ?? []) {
     mkdirSync(join(target, to), { recursive: true });
     for (const entry of readdirSync(join(VENDOR, 'packages', pkg.dir, from), { withFileTypes: true }))

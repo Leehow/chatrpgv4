@@ -786,8 +786,10 @@ export class SessionMessageQueue {
     const index = session.items.findIndex((candidate) => candidate.id === item.id);
     if (index >= 0) session.items[index] = sending;
     this.changed(sessionId, session);
+    let handled = false;
     try {
-      await this.dispatch(sessionId, { text: sending.text, attachments: sending.attachments, turnTelemetry: sending.turnTelemetry }, behavior, session.lifecycleToken);
+      const response = await this.dispatch(sessionId, { text: sending.text, attachments: sending.attachments, turnTelemetry: sending.turnTelemetry }, behavior, session.lifecycleToken);
+      handled = response !== null && typeof response === "object" && "disposition" in response && response.disposition === "handled";
       if (!this.isCurrentSession(sessionId, session) || session.deliveryEpoch !== deliveryEpoch) return false;
       session.acceptedMessages = [
         ...session.acceptedMessages.filter(accepted => accepted.id !== sending.id),
@@ -801,8 +803,10 @@ export class SessionMessageQueue {
       // the host is holding it; a second mint here would strand the host on a stale
       // epoch, its settle's notifyIdle would be rejected, and the session would stay
       // turnActive forever: no FIFO drain and no idle-time compaction ever again.
-      if (!session.turnActive) session.turnEpoch += 1;
-      session.turnActive = true;
+      if (!handled) {
+        if (!session.turnActive) session.turnEpoch += 1;
+        session.turnActive = true;
+      }
       session.suppressDrainEpoch = undefined;
       this.changed(sessionId, session);
       return true;
@@ -818,7 +822,12 @@ export class SessionMessageQueue {
       this.changed(sessionId, session);
       return false;
     } finally {
-      if (this.isCurrentSession(sessionId, session) && session.deliveryEpoch === deliveryEpoch) session.dispatching = false;
+      if (this.isCurrentSession(sessionId, session) && session.deliveryEpoch === deliveryEpoch) {
+        session.dispatching = false;
+        // A handled command has no agent_settled event. Keep FIFO moving unless
+        // an independently observed turn or compaction still owns the session.
+        if (handled && !session.turnActive && !session.compactionActive) void this.drain(sessionId, session.lifecycleToken);
+      }
     }
   }
 }

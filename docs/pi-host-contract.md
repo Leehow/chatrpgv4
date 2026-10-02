@@ -26,7 +26,36 @@ PDF 视觉阅读已按 [visual-pdf-reader.md](specs/visual-pdf-reader.md) 与 [�
 > (`run_start` … `run_end`) beside the unchanged message events. The campaign's `lane: "startup"` telemetry row names
 > the engine, loop protocol, Pi base and patch-series digest.
 
-Current target: `@earendil-works/pi-coding-agent` 0.87.0. The root `dependencies` and lockfile pin the production runtime; `peerDependencies: "*"` declare the extension-facing Pi packages. The production manifest, Electron backend dependency/lockfile, and managed-runtime version must agree. The 2026-09-22 source upgrade passed the checks recorded in section 7. The installed App remains on its previously packaged version until a separately requested package/install.
+Current target: `@earendil-works/pi-coding-agent` 1.0.0. The root `dependencies` and lockfile pin the production runtime; `peerDependencies: "*"` declare the extension-facing Pi packages. The production manifest, Electron backend dependency/lockfile, and managed-runtime version must agree. The installed App remains on its previously packaged version until a separately requested package/install.
+
+### Pi 1.0 upgrade boundary (2026-10-02)
+
+The source authority is upstream `v1.0.0` (`a13d35a742c6ef8462812a28fbe1d8c8b7431c32`)
+plus the same four reviewed patch responsibilities in `vendor/pi/PATCHES.md`.
+The RunDriver still owns one run and does not enter Pi's automatic continuation
+loop. Semantic stream-idle detection and the Keeper call cap stay composed around
+the provider request. Parsed pre-normalization provider events are an observation
+surface, not evidence of normalized progress or permission to extend either cap.
+
+Flapcode declares the native supportsMaxOutputTokens capability as false in both
+its shared factory catalog and manifest. Contract section 140's approved transport
+exception prevents the nested budget hook from restoring the rejected field:
+uncapped calls reserve the full model ceiling and an insufficient existing owner
+refuses before dispatch. Per-lane owner ceilings remain unchanged.
+
+The upgrade adopts upstream provider reliability fixes and early session persistence.
+RPC input responses carry Pi's disposition; the host respects handled commands and
+queued input rather than inferring a started turn from transport success. Legacy
+responses without disposition retain their previous handling. Tool results may
+return native `isError`; COC refusal accounting and telemetry still pass through
+the existing finalization path. Provider event callbacks preserve stream ordering
+and must remain read-only and inexpensive.
+
+Do not activate codemode/MCP, replace the fixed-version, budgeted Jev adapter,
+enable virtual routing, or change model/auth/profile defaults as part of this
+upgrade. The experimental harness removed from agent-core is not a production
+dependency; this upgrade does not introduce pi-durable. Source/build identity,
+host-contract section 7 and real setup/play/reader checks remain mandatory.
 
 ## 1. 启动契约
 
