@@ -9,7 +9,7 @@
  * person the first effect brings in exists before their feeling is written. Nothing is read or judged; an npc effect
  * whose mood stands alone, or that has no mood, is left as it is.
  */
-import { MOOD_CONFLICTS } from "../../kernel-ts/npc/mood.ts";
+import { MOOD_CONFLICTS } from "../../kernel-ts/npc/mood-conflicts.ts";
 
 type Effect = Record<string, unknown>;
 

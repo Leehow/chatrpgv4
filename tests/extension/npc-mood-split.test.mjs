@@ -50,3 +50,10 @@ test('the kernel extension splits the Keeper\'s own apply before admission, neve
   assert.ok(source.includes('const moodSplit = spec.name === "apply" && !host ? splitNpcMood(params.effects) : 0;'));
   assert.ok(source.indexOf('splitNpcMood(params.effects)') < source.indexOf('leaveOutUnknownOwed(params.effects'), 'before the owed pass and admission');
 });
+
+test('the extension module loads unbundled, as the harness loads the kernel extension', async () => {
+  // Every harness test that loads extensions/kernel/index.ts failed to load when this module imported kernel-ts/npc/mood.ts,
+  // whose `.js` siblings do not resolve without the bundler.
+  const direct = await import('../../extensions/kernel/npc-mood-split.ts');
+  assert.equal(typeof direct.splitNpcMood, 'function');
+});
