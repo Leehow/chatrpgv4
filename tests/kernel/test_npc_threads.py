@@ -3,9 +3,13 @@
 The lines the Keeper gives a person in a delivery are held to the same "not the same thing twice" as the table's own
 act (§143.5, §143.14). The kernel's part: `npc.threads {campaign, text}` lists who speaks in a delivery by the Keeper's
 own say tokens -- someone the table acted for this turn, or who is in the conversation (§143.20) -- with their rows
-never carried out (under way since an earlier turn, or given up); and `table.narrate` refuses once per turn when the
-host's `purpose_repeats` names one of those rows for that speaker, and delivers a later attempt with a finding.
-Whether a line is the same purpose is Jev's question on the host side; here the host's reading is given directly.
+never carried out (under way since an earlier turn, or given up); and `table.narrate` records a `purpose_repeated`
+finding when the host's `purpose_repeats` names one of those rows for that speaker. Whether a line is the same purpose
+is Jev's question on the host side; here the host's reading is given directly.
+
+§166 (owner ruling 2026-10-01) supersedes §143.24's refusal: the first draft is delivered, never refused for a repeated
+purpose, so there is no `purpose_gate`; the detection is the finding on the turn record and the `lane: "delivery"`
+telemetry row with `outcome: "delivered"`.
 
 Knott is the person (the starter prints no numbers for him: the table pins an archetype first, §34.10).
 """
@@ -87,30 +91,23 @@ def test_the_keepers_line_against_a_row_under_way_since_an_earlier_turn_is_liste
     assert error["code"] == "invalid_params" and error["details"]["field"] == "text"
 
 
-def test_first_delivery_naming_the_row_is_refused_once_and_a_later_one_goes_out_with_a_finding(knott):
+def test_a_delivery_naming_the_row_goes_out_first_time_with_a_finding(knott):
+    """§166: the delivery the host's reading names is not refused; it goes out with the finding. The refusal, the
+    `purpose_gate` and the delivery after it are gone; what the refusal named is on the finding."""
     papers, _ = papers_then_silence(knott)
     named = [{"npc": HANDLE, "ref": papers}]
-    refused = knott.table_err("narrate", call_id="t2-c2", text=AGAIN, purpose_repeats=named)
-    assert refused["code"] == "needs", refused
-    assert refused["details"]["reason"] == "purpose_repeated"
-    [repeat] = refused["details"]["repeats"]
-    assert (repeat["npc"], repeat["ref"], repeat["status"], repeat["since_turn"]) == (HANDLE, papers, "attempted", 1), repeat
-    assert repeat["lines"] == ["「昨天的话不变：带介绍信来，带人来，随你挑。」"]
-    assert refused["message"].startswith(f'{KNOTT} already set out on turn 1 to "{PAPERS}" and it has no result'), refused["message"]
-    assert "do not have them say it again" in refused["fix"], refused["fix"]
-    assert turn_json(knott)["purpose_gate"] == {"call_id": "t2-c2"}
-    # Checked before §142.7: the row under way is owed a result too, but the prose's lines were refused first.
-    assert refused["details"]["reason"] != "intent_result_owed"
-    # The Keeper gives the row up and sends the same lines again: the gate is spent, so it goes out, with a finding.
-    knott.table("apply", call_id="t2-c3", effects=[{"kind": "npc", "name": KNOTT, "intent_ref": papers, "intent_outcome": "abandoned", "why": "he drops it"}])
-    delivered = knott.table("narrate", call_id="t2-c4", text=AGAIN, purpose_repeats=named)
+    delivered = knott.table("narrate", call_id="t2-c2", text=AGAIN, purpose_repeats=named)
     assert delivered["turn"] == 2
-    finding = [row for row in record(knott, 2).get("warnings", []) if row["kind"] == "purpose_repeated"]
+    warnings = record(knott, 2).get("warnings", [])
+    finding = [row for row in warnings if row["kind"] == "purpose_repeated"]
     assert [(row["lane"], row["ref"]) for row in finding] == [("speech", papers)], finding
-    assert "gave it up on turn 2" in finding[0]["why"], "the row the Keeper just gave up is still a thread"
-    assert [(row["ok"], row["outcome"], row["call_id"]) for row in delivery_rows(knott)] == [(False, "refused", "t2-c2"), (True, "delivered", "t2-c4")]
-    # A new turn starts without the gate.
-    knott.table("player_input", text="我把执照收回来。")
+    assert finding[0]["quote"] == "「昨天的话不变：带介绍信来，带人来，随你挑。」"
+    assert finding[0]["why"].startswith(f'{KNOTT} already set out on turn 1 to "{PAPERS}" and it has no result'), finding[0]["why"]
+    assert "do not have them say" in finding[0]["fix"], finding[0]["fix"]
+    # The row under way is owed a result too (§142.7): with no refusals the two checks no longer race, and each
+    # leaves its own finding on the same row.
+    assert [row["ref"] for row in warnings if row["kind"] == "intent_result_owed"] == [papers]
+    assert [(row["ok"], row["outcome"], row["call_id"]) for row in delivery_rows(knott)] == [(True, "delivered", "t2-c2")]
     assert "purpose_gate" not in turn_json(knott)
 
 
@@ -127,10 +124,12 @@ def test_a_row_given_up_turns_ago_is_a_thread_and_a_row_settled_by_the_dice_is_n
     [person] = threads(knott, AGAIN)["people"]
     assert [(row["ref"], row["status"]) for row in person["threads"]] == [(papers, "abandoned")], \
         "given up two turns ago is still never carried out; the Listen the dice settled is not a thread"
-    # The same reading passed to narrate refuses: the host names a row that is this speaker's thread.
-    refused = knott.table_err("narrate", call_id="t3-c2", text=AGAIN, purpose_repeats=[{"npc": HANDLE, "ref": papers}])
-    assert refused["details"]["reason"] == "purpose_repeated" and refused["details"]["repeats"][0]["status"] == "abandoned"
-    assert "gave it up on turn 1" in refused["message"]
+    # The same reading passed to narrate names a row that is this speaker's thread: delivered (§166), with the finding
+    # worded by the row's status.
+    assert knott.table("narrate", call_id="t3-c2", text=AGAIN, purpose_repeats=[{"npc": HANDLE, "ref": papers}])["turn"] == 3
+    [finding] = [row for row in record(knott, 3).get("warnings", []) if row["kind"] == "purpose_repeated"]
+    assert finding["ref"] == papers and "gave it up on turn 1" in finding["why"], finding
+    assert [(row["ok"], row["outcome"], row["call_id"]) for row in delivery_rows(knott)] == [(True, "delivered", "t3-c2")]
 
 
 def test_a_row_set_out_this_turn_by_the_keeper_is_what_the_prose_renders_and_not_a_thread(knott):
