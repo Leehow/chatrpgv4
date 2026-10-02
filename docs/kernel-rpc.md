@@ -30977,6 +30977,8 @@ trimming, a line over 120 characters, a line with a line break, or one carrying 
 one is accepted and minted again (a feeling held is still a feeling stated; nothing compares meanings). There is no
 clearing value: a new line replaces the old.
 
+**161.1.1 The host splits a shared mood (2026-10-02).** The kernel still refuses a mood that shares its npc effect with another change. The kernel extension sends the Keeper's own `apply` with each such effect split before admission (`splitNpcMood`, `extensions/kernel/npc-mood-split.ts`): the effect without its mood, then `{kind: "npc", name, mood}`, so a person the first brings in exists before their feeling is written. Telemetry `{lane: "npc", event: "mood_split", count}`. On the installed App's Dust to Dust table the Keeper had spent a model round trip on that refusal on two turns running, each time resending exactly this split.
+
 **161.2 Fold.** `foldNpcTurn` folds a receipt's `mood` into the person's ledger entry at turn close:
 `mood: {text, since_turn, receipt, why?}`, the newest written last in the turn winning, and the replaced line moves to
 `mood_earlier: [{text, since_turn, until_turn}]` (the last two). Both rebuild from `turns/` (`rebuildNpcLedger`), roll
