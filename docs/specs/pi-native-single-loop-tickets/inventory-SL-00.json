@@ -1690,6 +1690,18 @@
       "note": "Gate: the historical-reference Mod on, Exa and Jev keys, Jev granted the need, and the scene has no kept result. One zero-tool completion on the fast model (PI_COC_HISTORY_QUERY_MODEL, then the fast-model setting, then the table), 6 s, beside the run's other steps; any failure searches the fixed-shape query."
     },
     {
+      "file": "runtime/jev/first-sight.ts",
+      "symbol": "createFirstSightLane.check",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "First sight: the check of a delivery against the book's descriptions (contract 168.5, owner 2026-10-02)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "n/a (added 2026-10-02)",
+      "note": "Gate: the delivered turn's capsule carried a first_sight section. One zero-tool completion on the fast model (PI_COC_FIRST_SIGHT_MODEL, then the fast-model setting, then the table), 20 s, started in the background after the delivery commits and never awaited by it; its anchored answer lands through table.first_sight, and any failure records nothing."
+    },
+    {
       "file": "runtime/jev/npc-act.ts",
       "symbol": "createNpcActLane.generate",
       "kind": "lane",
