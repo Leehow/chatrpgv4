@@ -111,7 +111,7 @@ test('worldline reset expires old deliveries and turn notes even when old turn n
     assert.deepEqual(result.messages.slice(-4), messages.slice(-4));
 });
 
-test('the setup process's own messages never ride a play request: the guide's orders are not the Keeper's', () => {
+test('the setup process\'s own messages never ride a play request: the guide\'s orders are not the Keeper\'s', () => {
     // A fresh Blood Road table (2026-10-02, turn 9): the setup step note -- "missing: occupation ... ask for what missing
     // lists, and nothing else" -- was retained as unclassified material in every play request, and the Keeper answered
     // the player by asking for an occupation.
