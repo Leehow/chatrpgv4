@@ -76,7 +76,7 @@ Telemetry: `lane: "owed", event: "owed_left_out", stage: "before_admission" | "k
 - A HEAD sentence: this is the player's first sight of these. Write what the book describes of the place, and of each person their looks, dress and manner, in this reply, in the play language, along the eye's path, before the turn's business. A person is seen before named. Nothing here is a fact to recite: only what can be seen or heard on arrival.
 
 **Check: the `first-sight` lane** (host, `runtime/jev/first-sight.ts`). It runs after each delivery whose capsule carried `first_sight`, in the background, and never delays a delivery.
-- One zero-tool `runLane` on the fast model (`PI_COC_FIRST_SIGHT_MODEL` > fast-model setting > table), 20 s cap.
+- One zero-tool `runLane` on the fast model (`PI_COC_FIRST_SIGHT_MODEL` > fast-model setting > table); a 120 s watchdog for a hang, never a cap on a working check (20 s cut one off on the first table).
 - Input: `{prose: <delivered rendered_text>, items: [{id, kind, described}]}`.
 - Output: `{items: [{id, missing: [<exact excerpt of that item's described>]}]}`. `missing` lists only details a newcomer could see or hear on arrival that the prose did not show.
 - Each excerpt must be found in that item's `described` (§139 quotation-mark normalisation); unanchored excerpts are dropped.

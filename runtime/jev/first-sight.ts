@@ -24,7 +24,7 @@ export const FIRST_SIGHT_MODEL_ENV = 'PI_COC_FIRST_SIGHT_MODEL';
  * stay owed. The check runs after the delivery and nothing waits for it, so a slow answer costs the player nothing.
  * The first cap was 20 s; on the installed App's Blood Road opening (2026-10-02) the fast model answered headers in
  * 2.1 s and was still writing the four items' excerpts when 20 s cut it off, and the owner's standing ruling is that
- * nothing working is cut short at a clock ("只防卡死，不掐慢").
+ * nothing working is cut short at a clock (guard against hangs only).
  */
 export const FIRST_SIGHT_TIMEOUT_MS = 120000;
 /** The kernel's bounds (`table.first_sight`): excerpts per item and characters per excerpt. */

@@ -31427,7 +31427,7 @@ Like `table.warn`, it takes no call id and lands after the turn it read has clos
 **The check lane `first-sight`** (`runtime/jev/first-sight.ts`). It is a single completion under Agents.md's criteria: a short closed JSON answer, after delivery, which the player does not wait for.
 
 - **Model.** One zero-tool `runLane` on the fast model: `PI_COC_FIRST_SIGHT_MODEL`, then the fast-model setting, then the table.
-  - It is capped at 20 s.
+  - A 120 s watchdog stops only a check that hangs; nothing waits for it, so a slow check costs the player nothing. The first cap, 20 s, cut off a fast model still writing on the installed App's Blood Road opening (headers at 2.1 s), which the owner's standing ruling forbids ("只防卡死，不掐慢").
   - It is `afterDelivery: true`, so §37.11.1's thinking floor applies.
   - It never sends `temperature` or `top_p`.
 - **Input.** `{prose: <the delivered rendered_text>, items: [{id, kind, described}]}`. For an item with an open row, `described` is its `missing` excerpts joined by newlines.
