@@ -207,7 +207,8 @@ function closedNoise(message: Row): boolean {
     // The setup process shares the session file and is over once play runs. Its step notes are orders to the setup guide
     // ("ask for what missing lists, and nothing else"): retained as unclassified material they rode every play request,
     // and on a fresh Blood Road table (2026-10-02, turn 9) the Keeper answered the player by asking for an occupation.
-    if (typeof message.customType === 'string' && message.customType.startsWith('coc-setup-')) return true;
+    // The setup prologue (`coc-setup-opening`) is what the player was shown, not an order, and still rides as before.
+    if (message.customType === 'coc-setup-step') return true;
     const details = object(message.details);
     if (message.customType === 'coc-delivery' && details.coc_delivery === true && Number.isSafeInteger(details.turn)) return true;
     return message.customType === 'coc-host' && (details.kind === 'compacted'

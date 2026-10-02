@@ -111,7 +111,7 @@ test('worldline reset expires old deliveries and turn notes even when old turn n
     assert.deepEqual(result.messages.slice(-4), messages.slice(-4));
 });
 
-test('the setup process\'s own messages never ride a play request: the guide\'s orders are not the Keeper\'s', () => {
+test('the setup guide\'s step orders never ride a play request: they are not the Keeper\'s', () => {
     // A fresh Blood Road table (2026-10-02, turn 9): the setup step note -- "missing: occupation ... ask for what missing
     // lists, and nothing else" -- was retained as unclassified material in every play request, and the Keeper answered
     // the player by asking for an occupation.
@@ -121,9 +121,7 @@ test('the setup process\'s own messages never ride a play request: the guide\'s 
     const messages = [prologue, {role: 'user', content: [{type: 'text', text: 'Daniel, a car salesman.'}]}, step, ...group(1), ...group(2)];
     const result = api.projectedMessages({messages, binding: binding(2), history: api.historyView(binding(2), [])});
     assert.ok(!JSON.stringify(result.messages).includes('missing lists'), 'the setup step note is gone');
-    assert.ok(!JSON.stringify(result.messages).includes('Who are you?'), 'and so is the setup prologue message');
-    assert.equal(result.unknownBytes, 0);
-    assert.notEqual(result.degraded, 'unclassified_messages_retained');
+    assert.ok(JSON.stringify(result.messages).includes('Who are you?'), 'the prologue the player was shown still rides, unclassified as before');
 });
 
 test('unknown context is retained in the request and carried verbatim into the fold, never a permanent veto', () => {
