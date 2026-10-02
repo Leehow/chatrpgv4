@@ -1469,7 +1469,7 @@ export default function (pi: ExtensionAPI) {
 	 */
 	async function historicalSearch(state: TableState, request: {run?: string; grant?: Partial<HistoryInput> & {scope?: any; turn?: number};
 		requested_by: 'keeper' | 'host'; query: string; objective?: string; reference_mode?: HistoryInput['reference_mode']; name?: string;
-		reference_cursor?: number; signal?: AbortSignal; deadlineAt?: number}): Promise<HistoryResult> {
+		reference_cursor?: number; signal?: AbortSignal; deadlineAt?: number; libraryMatch?: HistoryInput['libraryMatch']}): Promise<HistoryResult> {
 		const grant = request.grant;
 		const campaign = state.campaign, turn = state.turn;
 		const capsule = await state.kernel.call('table.capsule', {campaign});
@@ -1482,7 +1482,7 @@ export default function (pi: ExtensionAPI) {
 			retrieval: grant?.turn === turn && historyBindingMatches(capsule, grant.scope, turn) ? grant.retrieval : undefined,
 			query: request.query, objective: request.objective, player_input: state.playerText ?? '',
 			reference_mode: request.reference_mode, name: request.name, reference_cursor: request.reference_cursor,
-			context: historyContext(capsule), requested_by: request.requested_by,
+			context: historyContext(capsule), requested_by: request.requested_by, ...(request.libraryMatch ? { libraryMatch: request.libraryMatch } : {}),
 			signal: request.signal ?? new AbortController().signal, deadlineAt: request.deadlineAt,
 			current: async()=>table === state && state.campaign === campaign && state.turn === turn
 				&& historyBindingMatches(await state.kernel.call('table.capsule', {campaign}), referenceScope, turn),
@@ -5545,13 +5545,15 @@ export default function (pi: ExtensionAPI) {
 			// the ledger owes, and a review that lands during the read is read before any candidate is built. Nothing waits.
 			pi.events.emit('coc:owed-review', Object.freeze({ campaign, watch: () =>
 				watchOwedReview(table?.campaign === campaign ? table.reviewInFlight : undefined) }));
-			// §124.12 (2026-10-02): the engine's scene prefetch runs the lookup's own search, after Jev granted the need.
+			// §124.12 (2026-10-02): the engine's scene prefetch runs the lookup's own search, after Jev granted the need. A new
+			// scene searches the web: only a reference saved for this very query is reused, never a loosely relevant one.
 			pi.events.emit('coc:historical-reference', Object.freeze({ campaign, search: (request: { run: string; turn: number; scope: unknown;
 				query: string; objective?: string; signal?: AbortSignal; deadlineAt?: number }) => {
 				const state = table;
 				if (!state || state.campaign !== campaign) return Promise.resolve(undefined);
 				return historicalSearch(state, { run: request.run, grant: { allowed: true, turn: request.turn, scope: request.scope as any },
-					requested_by: 'host', query: request.query, objective: request.objective, signal: request.signal, deadlineAt: request.deadlineAt });
+					requested_by: 'host', query: request.query, objective: request.objective, signal: request.signal, deadlineAt: request.deadlineAt,
+					libraryMatch: 'exact' });
 			} }));
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.

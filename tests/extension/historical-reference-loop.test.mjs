@@ -67,6 +67,32 @@ test('a search still running is waited for within the turn budget; past it only 
   assert.deepEqual(back.clerk.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]],'a result already back costs no time');
 });
 
+// Owner 2026-10-02: the fast model writes the scene's query in English (runtime/jev/history-query.ts), once per scene.
+const writer=(answers)=>{const calls=[];return {calls,async write(facts){calls.push(facts);const next=answers.shift();return next;}};};
+test('the fast model\'s English query is what the scene searches, written once per scene from the authored facts',async()=>{
+  const lane=writer([{ok:true,query:'1937 Soviet provincial archive reading room',objective:'How such a reading room looked and worked in 1937.',ms:4},
+    {ok:true,query:'1937 Soviet provincial town main street',objective:'Street life of a 1937 Soviet provincial town.',ms:4}]);
+  const f=await table({setting:SETTING,port:()=>READY,historyQuery:lane});
+  assert.deepEqual(lane.calls,[{era:'October 1937',place:'Archive Hall',summary:'Reading room with card catalogues',background:'NKVD and sovkhoz state farms'}]);
+  assert.deepEqual(f.searches.map(request=>request.query),['1937 Soviet provincial archive reading room']);
+  assert.equal(f.searches[0].objective,'How such a reading room looked and worked in 1937.');
+  assert.deepEqual(prefetchRows(f,'started').map(row=>[row.query_source,row.query]),[['fast_model','1937 Soviet provincial archive reading room']]);
+  assert.equal(f.clerk.historical_reference_materials.query,'1937 Soviet provincial archive reading room');
+  const again=await f.turn('r2');
+  assert.equal(lane.calls.length,1,'a scene already looked up asks the lane nothing');
+  assert.equal(again.historical_reference_materials.query,'1937 Soviet provincial archive reading room');
+  await f.turn('r3','street');
+  assert.equal(lane.calls.length,2);
+  assert.equal(f.searches.at(-1).query,'1937 Soviet provincial town main street');
+});
+test('a lane that fails searches the fixed-shape query and says why',async()=>{
+  const lane=writer([{ok:false,reason:'timeout',detail:'no answer within 6000 ms',ms:6000}]);
+  const f=await table({setting:SETTING,port:()=>READY,historyQuery:lane});
+  assert.deepEqual(f.searches.map(request=>request.query),['October 1937 Archive Hall']);
+  assert.deepEqual(prefetchRows(f,'started').map(row=>[row.query_source,row.query_failure]),[['fixed_shape','timeout']]);
+  assert.deepEqual(f.clerk.historical_reference_materials.materials.map(row=>row.excerpts),[[EXCERPT]]);
+});
+
 test('need decision and model lookup grant share the current authored setting after refresh',async()=>{
   const setting={era:'October 1937',starting_place:'Kuybyshev, USSR',background:'NKVD and sovkhoz state farms'};
   const f=await table({setting});
@@ -78,14 +104,14 @@ test('need decision and model lookup grant share the current authored setting af
   assert.equal(grant.historical_reference.context.period,'October 1937');
 });
 
-async function table({enabled=true,needed=true,narrator=true,now,setting,urgent=false,port}={}) {
+async function table({enabled=true,needed=true,narrator=true,now,setting,urgent=false,port,historyQuery=null}={}) {
   const bus=new Map(),handlers=new Map(),announced=[],batches=[],rows=[],searches=[];
   const places={archive:{display_name:'Archive Hall',summary:'Reading room with card catalogues'},street:{display_name:'Main Street'}};
   let scene='archive';
   const pi={events:{on:(name,fn)=>bus.set(name,fn),emit:(name,value)=>{if(name==='coc:model-step')announced.push(value);bus.get(name)?.(value);}},
     on:(name,fn)=>handlers.set(name,fn),registerTool:()=>{},getActiveTools:()=>['look','lookup','recall','apply','resolve','narrate','ask'],setActiveTools:()=>{}};
   const engine=createHybridEngine({env:{[EXA_ENV]:'test-exa-key',TYPESAFE_API_KEY:'test-jev-key',COC_NARRATOR_ONLY:narrator?'on':'off'},
-    ...(now?{now}:{}),record:row=>rows.push(row),
+    ...(now?{now}:{}),record:row=>rows.push(row),historyQuery,
     npcAct:null,decision:{decide:async batch=>{batches.push(batch);return {batchId:batch.id,status:'complete',answers:Object.fromEntries(batch.questions.map(q=>[q.key,{status:'answered',type:'noul',noul:q.key==='historical_reference_interrupts_action'?urgent?0.95:0.01:q.key===HISTORY_NEED&&needed?0.95:0.01}])),issues:[],coverage:{required:[],answered:[],unknown:[]}};}}});
   engine.extension(pi);
   pi.events.emit('coc:kernel-bridge',{campaign:'c',call:async method=>method==='table.capsule'

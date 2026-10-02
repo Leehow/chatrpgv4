@@ -1,7 +1,7 @@
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import type {PrescreenSourceRuntime} from './prescreen-source-provider.ts';
 import {attackPreparationNeeds} from './attack-preparation.ts';
-import {historyConfigured, historyEnabled, historyContext, historyNeedQuestion, historyInterruptionQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, sceneQuery, HISTORY_SUPPLIED, HISTORY_READ, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
+import {historyConfigured, historyEnabled, historyContext, historyNeedQuestion, historyInterruptionQuestion, historyNeed, isSavedHistoryRead, historyFinalAnswerPayload, sceneQuery, sceneFacts, HISTORY_SUPPLIED, HISTORY_READ, HISTORY_OFFER, HISTORY_LOCAL_OFFER, HISTORY_CLOSED} from '../historical-reference.ts';
 /**
  * The product side of `PI_COC_LOOP_ENGINE=hybrid-v1`: the policy and the ports Pi's RunDriver (vendored
  * agent-core, ADR-0006) drives each player input with. Pi knows nothing of what is here. Contract §135.
@@ -62,6 +62,7 @@ import { catalogRefusal, NARRATOR_NOTE, narratorOnlySetting, offeredForPropose, 
   proposedCandidate, proposeQueuedText, proposeRefusal, stepCatalog, type NarratorOnlySetting, type StepCatalog } from './narrator-catalog.ts';
 import { firstStepCallCapMs, firstStepThinkingEnabled } from '../../extensions/kernel/first-step-thinking.ts';
 import { createNpcActLane, type NpcActPort } from './npc-act.ts';
+import { createHistoryQueryLane, type HistoryQueryPort } from './history-query.ts';
 import { isNpcAct, runNpcAct, runNpcScan, struckReceipts, type NpcActDeps, type NpcActOutcome } from './npc-act-step.ts';
 import { SHADOW_FIELDS, type DamageBandRow, type TimeBandRow } from './band-shadow-domain.ts';
 import { readBandRows } from '../../extensions/kernel/band-shadow.ts';
@@ -208,6 +209,11 @@ export interface HybridEngineOptions {
    * model registry); tests pass `createFixtureNpcActPort`; `null` generates nothing (every act is `model_unavailable`).
    */
   npcAct?: NpcActPort | null;
+  /**
+   * §124.12 (2026-10-02): the English query for a scene's historical lookup. Defaults to the product lane
+   * (`createHistoryQueryLane`, the fast model); tests pass a fixture; `null` writes none and the fixed-shape query is searched.
+   */
+  historyQuery?: HistoryQueryPort | null;
 }
 
 /** `PI_COC_TURN_BUDGET_MS` (contract §135.25), read per run: a positive number of milliseconds, else the default. */
@@ -656,7 +662,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   keeperCallCapMs: number | (() => Promise<number>); onKeeperCallCap: (phase: 'first_byte' | 'streaming', capMs: number) => void} {
   let bridge: KernelBridge | undefined, gateway: OperationGateway | undefined, closer: TurnClosePort | undefined, api: any;
   /** §143.3: the product's npc-act lane, made when the extension loads, on the session context the latest event gave. */
-  let npcActLane: NpcActPort | undefined, sessionCtx: any;
+  let npcActLane: NpcActPort | undefined, historyQueryLane: HistoryQueryPort | undefined, sessionCtx: any;
   const NO_ACT: NpcActPort = {generate: async () => ({unavailable: 'model_unavailable', detail: 'no npc-act generation on this engine'})};
   const npcActPort = (): NpcActPort => options.npcAct === null ? NO_ACT : options.npcAct ?? npcActLane ?? NO_ACT;
   let consultations: SourceAnswersPort | undefined;
@@ -1646,9 +1652,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   }
 
   /**
-   * §124.12 (2026-10-02): Jev granted the need, so the host looks the scene up now, beside the run's later steps, with
-   * the query `sceneQuery` puts together from authored fields -- or takes the result this scene already had. One
-   * `prefetch` row: `started`, `reused` or `skipped` (no era or scene name, no port, a reference-scope run).
+   * §124.12 (2026-10-02): Jev granted the need, so the host looks the scene up now, beside the run's later steps -- or
+   * takes the result this scene already had. The query is the fast model's English one (`history-query` lane), else
+   * the fixed shape `sceneQuery` builds from authored fields. `prefetch` rows: `started` (with `query_source`) and
+   * `returned`, or `reused`, or `skipped` (no era or scene name, no port, a reference-scope run).
    */
   function startHistoryPrefetch(run: RunState): void {
     const history = run.history;
@@ -1662,24 +1669,34 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       record({...row, phase: 'reused', query: saved.query, status: saved.result.status ?? null, materials: array(saved.result.materials).length});
       return;
     }
-    const scene = sceneQuery(history.context);
+    const fixed = sceneQuery(history.context), facts = sceneFacts(history.context);
     const port = historyPort && (!historyPort.campaign || historyPort.campaign === bridge?.campaign) ? historyPort : undefined;
-    if (!scene || !port) { record({...row, phase: 'skipped', reason: !scene ? 'no_setting' : 'no_port'}); return; }
+    if (!fixed || !facts || !port) { record({...row, phase: 'skipped', reason: !fixed ? 'no_setting' : 'no_port'}); return; }
     prefetchAbort ??= new AbortController();
-    const left = Math.max(0, run.budgetMs - (now() - run.startedAt));
-    const prefetch: HistoryPrefetch = {key, ...scene, reused: false, done: Promise.resolve(undefined)};
-    prefetch.done = port.search({run: run.runId, turn: run.turn, scope: run.scope, ...scene, signal: prefetchAbort.signal, deadlineAt: Date.now() + left})
-      .then(result => {
-        prefetch.result = result;
-        if (result && ['ready', 'empty'].includes(text(result.status))) {
-          preparedScenes.delete(key);
-          preparedScenes.set(key, {...scene, result});
-          if (preparedScenes.size > 64) preparedScenes.delete(preparedScenes.keys().next().value!);
-        }
-        return result;
-      }, () => undefined);
+    const signal = prefetchAbort.signal, began = now(), turn = run.turn, scope = run.scope;
+    const writer = options.historyQuery === null ? undefined : options.historyQuery ?? historyQueryLane;
+    const prefetch: HistoryPrefetch = {key, ...fixed, reused: false, done: Promise.resolve(undefined)};
+    prefetch.done = (async () => {
+      // Owner, 2026-10-02: the fast model writes the scene's query in English; any failure searches the fixed shape.
+      const written = writer ? await writer.write(facts, signal).catch(error => ({ok: false as const, reason: 'lane_error' as const,
+        detail: error instanceof Error ? error.message : String(error), ms: 0})) : undefined;
+      if (written?.ok) { prefetch.query = written.query; prefetch.objective = written.objective; }
+      record({...row, phase: 'started', query: prefetch.query, objective: prefetch.objective, query_source: written?.ok ? 'fast_model' : 'fixed_shape',
+        ...(written && !written.ok ? {query_failure: written.reason} : {}), writer_ms: written?.ms ?? null});
+      if (signal.aborted) return undefined;
+      const left = Math.max(0, run.budgetMs - (now() - run.startedAt));
+      const result = await port.search({run: run.runId, turn, scope, query: prefetch.query, objective: prefetch.objective, signal,
+        deadlineAt: Date.now() + left});
+      prefetch.result = result;
+      if (result && ['ready', 'empty'].includes(text(result.status))) {
+        preparedScenes.delete(key);
+        preparedScenes.set(key, {query: prefetch.query, objective: prefetch.objective, result});
+        if (preparedScenes.size > 64) preparedScenes.delete(preparedScenes.keys().next().value!);
+      }
+      record({...row, phase: 'returned', status: result ? text(result.status) || null : null, ms: now() - began});
+      return result;
+    })().catch(() => undefined);
     history.prefetch = prefetch;
-    record({...row, phase: 'started', query: scene.query, objective: scene.objective});
   }
 
   /**
@@ -2180,6 +2197,8 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     // §143.3: the npc-act lane runs on the session's own model registry; the context is the latest one an event gave.
     if (options.npcAct === undefined && typeof pi.on === 'function')
       npcActLane = createNpcActLane(pi, {ctx: () => sessionCtx, campaign: () => bridge?.campaign});
+    if (options.historyQuery === undefined && typeof pi.on === 'function')
+      historyQueryLane = createHistoryQueryLane(pi, {ctx: () => sessionCtx, campaign: () => bridge?.campaign});
     pi.on('session_start', async (_event: unknown, ctx: unknown) => { sessionCtx = ctx ?? sessionCtx; announce(); withoutPlanTool(); await withPropose(); });
     // §135.29 addendum 2 (SL-82): `step`'s own reset/increment, exactly matching the kernel extension's
     // `table.roundTrips` contract (extensions/kernel/first-step-thinking.ts's isFirstStepOfTurn) so the two

@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable,waitForIdle} from './harness.mjs';
-import {EXA_ENV,sceneQuery,historyContext} from '../../runtime/historical-reference.ts';
+import {EXA_ENV,sceneFacts,historyContext} from '../../runtime/historical-reference.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {spawnSync} from 'node:child_process';
@@ -23,6 +23,7 @@ test('selected Exa excerpts arrive unchanged in the next main Pi provider reques
       return Response.json({model:body.model,answers:Object.fromEntries(Object.keys(body.questions).map(key=>[key,
         key==='query_kind'?{type:'choice',choice:'context',confidence:1,probabilities:{context:1,price_anchor:0,item_price:0,unclear:0}}
           : key==='price_disputed'||key.startsWith('anchor_')?{type:'noul',noul:0.01}
+          : key.startsWith('period_')?{type:'noul',noul:0.99}
           : {type:'choice',choice:'direct',confidence:1,probabilities:{direct:1,analogous:0,uncertain:0,reject:0}}])),usage:{input_tokens:100,output_tokens:10}});
     }
     return original(url,init);
@@ -126,7 +127,7 @@ test('real Pi loop hands a spent historical lane to final prose and allows the n
       const body=JSON.parse(init.body),questions=Object.entries(body.questions);
       return Response.json({model:body.model,answers:Object.fromEntries(questions.map(([key,q])=>[key,
         key==='query_kind'?{type:'choice',choice:'context',confidence:1,probabilities:{context:1,price_anchor:0,item_price:0,unclear:0}}
-          : q.type==='noul'?{type:'noul',noul:key.startsWith('saved_')?.99:.01}
+          : q.type==='noul'?{type:'noul',noul:key.startsWith('saved_')||key.startsWith('period_')?.99:.01}
           : {type:'choice',choice:'direct',confidence:1,probabilities:{direct:1,analogous:0,uncertain:0,reject:0}}])),usage:{input_tokens:100,output_tokens:10}});
     }
     return original(url,init);
@@ -200,7 +201,7 @@ function historyServices(exa){
       const body=JSON.parse(init.body);
       return Response.json({model:body.model,answers:Object.fromEntries(Object.entries(body.questions).map(([key,q])=>[key,
         key==='query_kind'?{type:'choice',choice:'context',confidence:1,probabilities:{context:1,price_anchor:0,item_price:0,unclear:0}}
-          : q.type==='noul'?{type:'noul',noul:.01}
+          : q.type==='noul'?{type:'noul',noul:key.startsWith('period_')?.99:.01}
           : {type:'choice',choice:'direct',confidence:1,probabilities:{direct:1,analogous:0,uncertain:0,reject:0}}])),usage:{input_tokens:100,output_tokens:10}});
     }
     return original(url,init);
@@ -217,15 +218,18 @@ function kernelSteps(workspace,calls){
   for(const frame of frames)assert.equal(frame.ok,true,JSON.stringify(frame));
   return frames.map(frame=>frame.result);
 }
-test('on the hybrid engine a granted need searches once with the host scene query, and the Keeper\'s first request carries the excerpt',async t=>{
+test('on the hybrid engine a granted need searches once with the fast model\'s English query, and the Keeper\'s first request carries the excerpt',async t=>{
   const exa=[];t.after(historyServices(exa));
   let capsule,seen=false;
+  // The fast model's lane (runtime/jev/history-query.ts) as a fixture: it reads the authored facts and answers in English.
+  const asked=[],written={query:'1920s Boston lawyer\'s office',objective:'Appearance and daily work of a 1920s Boston law office, as it was then.'};
+  const historyQuery={async write(facts){asked.push(facts);return {ok:true,...written,ms:5,model:'fixture/fast'};}};
   const decision={async decide(batch){return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>{
     if(q.type==='noul')return[q.key,{status:'answered',type:'noul',noul:q.key==='historical_reference_needed'?.99:.01}];
     const choice='finish' in q.criteria?'finish':'later' in q.criteria?'later':'none' in q.criteria?'none':Object.keys(q.criteria)[0];
     return[q.key,{status:'answered',type:'choice',choice,confidence:1,probabilities:{[choice]:1}}];
   })),{inputTokens:1,outputTokens:1,costUsd:0});}};
-  const engine=createHybridEngine({env:historyEnv,decision,npcAct:null,interactionScope:{mode:'world',reason:'test_world_scope',calls:0}});
+  const engine=createHybridEngine({env:historyEnv,decision,npcAct:null,historyQuery,interactionScope:{mode:'world',reason:'test_world_scope',calls:0}});
   const text='You look around the office. Ledgers and carbon copies are stacked on the desk, and Knott waits with the commission still open.';
   const table=await openTable({realKernel:true,env:historyEnv,runDriver:engine.runDriver,extraExtensions:[{name:'history-loop',factory:engine.extension}],
     prepareWorkspace:workspace=>{
@@ -237,11 +241,14 @@ test('on the hybrid engine a granted need searches once with the host scene quer
     }]});
   t.after(()=>table.dispose());
   await table.session.prompt('I look around the office.');await waitForIdle(table.session);
-  const expected=sceneQuery(historyContext(capsule));
-  assert(expected,'the starter authors an era and its scene a name');
+  const facts=sceneFacts(historyContext(capsule));
+  assert(facts,'the starter authors an era and its scene a name');
   const rows=table.telemetry().filter(r=>r.lane==='historical-reference');
   assert.equal(seen,true,JSON.stringify({exa,rows,errors:table.extensionErrors}));
-  assert.deepEqual(exa.map(body=>[body.query,body.objective]),[[expected.query,expected.objective]]);
+  assert.deepEqual(asked,[facts],'the lane reads the authored era, scene and background');
+  assert.deepEqual(exa.map(body=>[body.query,body.objective]),[[written.query,written.objective]],'Exa gets the English query, not the authored wording');
+  assert(rows.some(r=>r.event==='prefetch'&&r.phase==='started'&&r.query_source==='fast_model'),JSON.stringify(rows));
+  assert(rows.some(r=>r.requested_by==='host'&&r.library_match==='exact'),JSON.stringify(rows));
   assert(rows.some(r=>r.requested_by==='host'&&r.status==='ready'),JSON.stringify(rows));
   assert(rows.some(r=>r.event==='prefetch'&&r.phase==='delivered'&&r.materials===1),JSON.stringify(rows));
   assert(!rows.some(r=>r.event==='preparation_request'||r.requested_by==='keeper'),'no Keeper lookup round');
