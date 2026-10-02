@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {fauxAssistantMessage,fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable,waitForIdle} from './harness.mjs';
-import {EXA_ENV} from '../../runtime/historical-reference.ts';
+import {EXA_ENV,sceneQuery,historyContext} from '../../runtime/historical-reference.ts';
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {bindDecisionAnswers} from '../../runtime/jev/contracts.ts';
 import {spawnSync} from 'node:child_process';
@@ -187,4 +187,76 @@ test('a closed optional lookup does not cancel the delivery following it in the 
   const delivery=table.session.messages.find(m=>m.role==='toolResult'&&m.toolName==='narrate');
   assert(delivery);assert.equal(delivery.isError,false);assert.equal(delivery.details.rendered_text,text);
   assert.deepEqual(table.extensionErrors,[]);
+});
+
+// §124.12 (owner, 2026-10-02): the host's scene lookup replaces the forced Keeper round. On the real path -- hybrid engine,
+// real kernel, the kernel's own HistoricalReference -- a granted need searches Exa once with the query sceneQuery builds
+// from the capsule, and the Keeper's first request already carries the excerpt; the Keeper only narrates.
+function historyServices(exa){
+  const original=globalThis.fetch;
+  globalThis.fetch=async(url,init)=>{
+    if(String(url)==='https://api.exa.ai/search'){exa.push(JSON.parse(init.body));return Response.json({results:[{title:'Historical office',url:'https://example.org/office',highlights:[excerpt]}]});}
+    if(String(url)==='https://api.typesafe.ai/v1/systemone'){
+      const body=JSON.parse(init.body);
+      return Response.json({model:body.model,answers:Object.fromEntries(Object.entries(body.questions).map(([key,q])=>[key,
+        key==='query_kind'?{type:'choice',choice:'context',confidence:1,probabilities:{context:1,price_anchor:0,item_price:0,unclear:0}}
+          : q.type==='noul'?{type:'noul',noul:.01}
+          : {type:'choice',choice:'direct',confidence:1,probabilities:{direct:1,analogous:0,uncertain:0,reject:0}}])),usage:{input_tokens:100,output_tokens:10}});
+    }
+    return original(url,init);
+  };
+  return ()=>{globalThis.fetch=original;};
+}
+const historyEnv={[EXA_ENV]:'test-exa',TYPESAFE_API_KEY:'test-jev',PI_COC_JEV_PRESELECT:'0'};
+function kernelSteps(workspace,calls){
+  const root=resolve(import.meta.dirname,'../..');
+  const r=spawnSync(process.execPath,[join(root,'build/kernel/rpc.mjs'),'--workspace',workspace,'--content',join(root,'content')],
+    {cwd:root,encoding:'utf8',input:calls.map(([method,params],id)=>JSON.stringify({id:String(id),method,params:{campaign:'test-camp',...params}})).join('\n')+'\n'});
+  assert.equal(r.status,0,r.stderr);
+  const frames=r.stdout.trim().split('\n').map(line=>JSON.parse(line)).filter(frame=>!frame.progress);
+  for(const frame of frames)assert.equal(frame.ok,true,JSON.stringify(frame));
+  return frames.map(frame=>frame.result);
+}
+test('on the hybrid engine a granted need searches once with the host scene query, and the Keeper\'s first request carries the excerpt',async t=>{
+  const exa=[];t.after(historyServices(exa));
+  let capsule,seen=false;
+  const decision={async decide(batch){return bindDecisionAnswers(batch,Object.fromEntries(batch.questions.map(q=>{
+    if(q.type==='noul')return[q.key,{status:'answered',type:'noul',noul:q.key==='historical_reference_needed'?.99:.01}];
+    const choice='finish' in q.criteria?'finish':'later' in q.criteria?'later':'none' in q.criteria?'none':Object.keys(q.criteria)[0];
+    return[q.key,{status:'answered',type:'choice',choice,confidence:1,probabilities:{[choice]:1}}];
+  })),{inputTokens:1,outputTokens:1,costUsd:0});}};
+  const engine=createHybridEngine({env:historyEnv,decision,npcAct:null,interactionScope:{mode:'world',reason:'test_world_scope',calls:0}});
+  const text='You look around the office. Ledgers and carbon copies are stacked on the desk, and Knott waits with the commission still open.';
+  const table=await openTable({realKernel:true,env:historyEnv,runDriver:engine.runDriver,extraExtensions:[{name:'history-loop',factory:engine.extension}],
+    prepareWorkspace:workspace=>{
+      capsule=kernelSteps(workspace,[['table.open',{}],['table.player_input',{text:'I wait in the office.'}],
+        ['table.narrate',{call_id:'t1-c1',text:'You remain beside the desk while Knott waits.'}],['table.capsule',{}]]).at(-1);
+    },responses:[context=>{
+      assert(JSON.stringify(context.messages).includes(excerpt),'the first Keeper request already holds the host lookup\'s excerpt');
+      seen=true;return call('narrate',{text});
+    }]});
+  t.after(()=>table.dispose());
+  await table.session.prompt('I look around the office.');await waitForIdle(table.session);
+  const expected=sceneQuery(historyContext(capsule));
+  assert(expected,'the starter authors an era and its scene a name');
+  const rows=table.telemetry().filter(r=>r.lane==='historical-reference');
+  assert.equal(seen,true,JSON.stringify({exa,rows,errors:table.extensionErrors}));
+  assert.deepEqual(exa.map(body=>[body.query,body.objective]),[[expected.query,expected.objective]]);
+  assert(rows.some(r=>r.requested_by==='host'&&r.status==='ready'),JSON.stringify(rows));
+  assert(rows.some(r=>r.event==='prefetch'&&r.phase==='delivered'&&r.materials===1),JSON.stringify(rows));
+  assert(!rows.some(r=>r.event==='preparation_request'||r.requested_by==='keeper'),'no Keeper lookup round');
+  assert.equal(table.session.lastDrivenRun.status,'delivered');
+  assert.deepEqual(table.extensionErrors,[]);
+});
+test('the kernel\'s historical port spends no search on a grant bound to another campaign line',async t=>{
+  const exa=[];t.after(historyServices(exa));
+  let port;
+  const table=await openTable({realKernel:true,env:historyEnv,responses:[],
+    extraExtensions:[{name:'history-port-probe',factory:pi=>pi.events.on('coc:historical-reference',value=>{port=value;})}]});
+  t.after(()=>table.dispose());
+  assert.equal(typeof port?.search,'function','the kernel extension publishes the port with the table');
+  const result=await port.search({run:'probe',turn:1,scope:{owner:'probe',campaign:'another-camp',worldline:'main',loop:0,audience:'keeper'},
+    query:'1920s office',objective:'Period detail for an office.'});
+  assert.equal(result.reason,'not_selected');
+  assert.equal(exa.length,0);
 });
