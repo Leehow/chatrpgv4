@@ -6621,18 +6621,6 @@ export default function (pi: ExtensionAPI) {
 			// Keeper had said it -- the one path by which raw model output reached the player without
 			// passing through narrate or ask. It leaves with the message, like the drafts below it.
 			if (!prose || !canClose || state.closedThisRun) return dropText(failedLeg ? "failed_leg_not_delivered" : "text_not_a_delivery");
-			const bareToolLabel = prose.trim();
-			if (!opening && !referenceAnswer && COC_TOOL_NAMES.some(name => name === bareToolLabel)) {
-				const canSteer = !state.steeredThisTurn && !state.deliveryFix;
-				if (canSteer) {
-					state.floorDraft = prose;
-					state.deliveryFix = {kind: 'floor', text: FLOOR_STEER};
-					state.steeredThisTurn = true;
-				}
-				else if (state.steeredThisTurn && state.floorDraft === prose) state.floorDraft = undefined;
-				await record({lane: 'floor', turn: state.turn, steered: canSteer, reason: 'tool_name_as_prose', tool: bareToolLabel});
-				return dropText('tool_name_as_prose', {tool: bareToolLabel});
-			}
 			try {
 				const defense = state.interactionScope !== undefined && state.interactionScope !== 'world' ? undefined : await recoverStandingDefense(state);
 				if (defense) {
