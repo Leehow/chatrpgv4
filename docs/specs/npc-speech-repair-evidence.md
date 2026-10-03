@@ -3,7 +3,7 @@
 ## User outcome and current status
 Implementation and source regression evidence are complete in the owned package; literary-quality evidence remains limited. The approved public seams are `voice.job`, `voice.submit`, capsule/provider request serialization, and genuine driver dialogue. The host owns context, scheduling, cancellation, and publication; the TypeScript kernel owns structural validation, generation identity, state, and public RPC behavior. No runtime rewrite, migration, new Keeper verb, provider bypass, deployment, App packaging, or release is claimed.
 
-The current source is `1f4a86cd7`, selector family 8, craft 2.1.16, Chinese 1.3.7. Actual live worlds were locked to craft 2.1.13 / Chinese 1.3.7. Craft 2.1.16 restores original contextual examples, the explicit rhetorical guard, and the same conditional NPC-reaction policy; it preserves the incoming-main description as version metadata; this is not fresh live acceptance of the final exact package. Scoped live lanes used `flapcode/gpt-6-luna`; Jev 1.13.0 supplied reference decisions. No Astra or Grok was used.
+The current source is `a5d85e105`, selector family 8, craft 2.1.16, Chinese 1.3.7. Actual live worlds were locked to craft 2.1.13 / Chinese 1.3.7. Craft 2.1.16 restores original contextual examples, the explicit rhetorical guard, and the same conditional NPC-reaction policy; it preserves the incoming-main description as version metadata; this is not fresh live acceptance of the final exact package. Scoped live lanes used `flapcode/gpt-6-luna`; Jev 1.13.0 supplied reference decisions. No Astra or Grok was used.
 
 ## Behavior changes and public seams
 Family 8 selects one bounded participation batch, independent activation, and register-conflict Nouls. It may select none or at most one habit and one interaction per relevant person. State retains bounded source-example context and the example's actual reply; register-conflict judges demonstrated wording, not a compulsory marker. Budgets remain at most 8 people, 24 cards, and 14,000 context bytes. Cards advise only and assign no facts, traits, actions, state, authority, or voice mutation. Existing cancellation, cache/source bindings, flexible variable/formal/long/quiet/refusal modes, and the single-draft law remain.
@@ -19,7 +19,7 @@ Kernel typecheck passed. Later focused evidence is 20 and 56 passed for guard/mo
 
 `FINAL_FULL_RESULT`: {"source":"faeb1ae5ba7672c7a6d98dc409bf3603d13e3a37","total":4379,"passed":4379,"failed":0,"seconds":774,"log":"/Users/haoli/Documents/TRPG/小说/对白研究-20261001/speech-repair-20261003/full-faeb-4379-0.log"}
 
-`SOURCE_INTEGRATION_RESULT`: PENDING_SOURCE_INTEGRATION
+`SOURCE_INTEGRATION_RESULT`: {"commit":"a5d85e10532986700e5e57eac4f4ba2f8cd70a4e","owned":"10cbcc03927c571502db3d6093d1046a724da42a","changed_files":29,"byte_equivalence":true,"protected_files_unchanged":true,"status":"source_integrated","kernel_typecheck":"passed","integrated_focused":{"total":31,"passed":31,"failed":0,"log":"/Users/haoli/Documents/TRPG/\u5c0f\u8bf4/\u5bf9\u767d\u7814\u7a76-20261001/speech-repair-20261003/integrated-focused.log"},"full_suite_source":"faeb1ae5ba7672c7a6d98dc409bf3603d13e3a37","full_suite_matches_integrated_source":false,"fresh_live_exact_integrated_source":false,"live_quality_accepted":false,"provider_request_evidence":"functional_only","app_packaged":false}
 
 The active plan links to this report instead of duplicating gate status.
 
