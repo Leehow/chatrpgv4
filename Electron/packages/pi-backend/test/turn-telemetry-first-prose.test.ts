@@ -70,6 +70,7 @@ describe("the stream-event classifier (§135.11.5)", () => {
     for (const flag of [
       "provider_outage", "commit_unavailable", "delivery_cut_short", "refused_effect", "preparation_wait",
       "resend_held", "turn_unfinished", "standing_conditions", "input_refused", "empty_input", "review_unavailable",
+      "host_notice",
     ]) {
       const notice = { ...fallback, details: { ...fallback.details, [flag]: true } };
       expect(isServiceNoticeRow(notice), flag).toBe(true);

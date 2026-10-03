@@ -20,6 +20,7 @@ import { test } from "node:test";
 import { applyProviderModelCorrections, mergeProviderModelCorrections, PRODUCT_NOTE_KEY } from "../../runtime/host.ts";
 import { parseModelsJson } from "../../runtime/json-comments.ts";
 import { piLaunch } from "../../runtime/launch.ts";
+import { HOST_NOTICES_ENV } from "../../runtime/host-notices.ts";
 import { PI_ENTRIES } from "../../runtime/deployment.mjs";
 
 const REPO = resolve(import.meta.dirname, "../..");
@@ -438,15 +439,27 @@ function launchRoot(t) {
 	return { root, modelsPath: join(root, ".pi", "coc-agent", "models.json") };
 }
 
-/** What piLaunch writes to stderr while it prepares the agent home (it returns the launch; nothing is spawned). */
-async function launchNotices(t, root) {
-	const env = { ...process.env };
+/**
+ * What piLaunch writes to stderr while it prepares the agent home, and the notices it hands the Pi child (§135.27.1.3).
+ * It returns the launch; nothing is spawned.
+ */
+async function launchNotices(t, root, inherited = {}) {
+	const env = { ...process.env, ...inherited };
 	for (const key of ["PI_COC_LOOP_ENGINE", "PI_COC_LAYOUT", "PI_CODING_AGENT_DIR", "PI_COC_HOME", "PI_COC_CONTENT_ROOT", "PI_COC_CAMPAIGN"]) delete env[key];
 	const written = [];
 	const stderr = t.mock.method(process.stderr, "write", chunk => { written.push(String(chunk)); return true; });
-	try { await piLaunch(["--campaign", "models-json"], { resourceRoot: root, env }); }
+	let launch;
+	try { launch = await piLaunch(["--campaign", "models-json"], { resourceRoot: root, env }); }
 	finally { stderr.mock.restore(); }
-	return written;
+	const handed = launch.env[HOST_NOTICES_ENV];
+	return Object.assign(written, { handed: handed === undefined ? undefined : JSON.parse(handed) });
+}
+
+/** The provider/model pairs the shipped corrections name, in their own order. */
+function correctedPairs() {
+	const { providers } = JSON.parse(readFileSync(REAL_CORRECTIONS, "utf8"));
+	return Object.entries(providers).flatMap(([provider, entry]) => Object.keys(entry.modelOverrides ?? {})
+		.filter(model => !model.startsWith("$")).map(model => `${provider}/${model}`));
 }
 
 function parseError(text) {
@@ -465,6 +478,8 @@ test("piLaunch names a models.json Pi cannot parse, with the error Pi records, a
 		assert.ok(notices[0].includes(`(${detail})`), "and carries the parse error");
 		assert.match(notices[0], /§135\.27\.1\.2/);
 		assert.equal(readFileSync(modelsPath, "utf8"), text);
+		// §135.27.1.3: the same notice is handed to the Pi child, for the transcript.
+		assert.deepEqual(notices.handed, [{ notice: "models_json_unparsable", path: modelsPath, error: detail }]);
 		if (!REAL_PI) return;
 		// The error Pi records for this file and shows only in its TUI is the one the notice carries.
 		const { ModelRuntime } = await import(VENDORED_PI_INDEX);
@@ -489,5 +504,15 @@ test("piLaunch says nothing about a file Pi parses; an operator's // comments ke
 		assert.equal(notices.length, expected.length, notices.join(""));
 		expected.forEach((pattern, index) => assert.match(notices[index], pattern));
 		assert.ok(notices.every(notice => !notice.includes("§135.27.1.2")), "no unparsable notice for a file Pi reads");
+		assert.deepEqual(notices.handed, expected.length
+			? [{ notice: "models_json_operator_comments", path: modelsPath, missing: correctedPairs() }] : undefined);
 	});
+});
+
+test("piLaunch never passes on a notice it did not decide itself", async t => {
+	const { root, modelsPath } = launchRoot(t);
+	writeFileSync(modelsPath, JSON.stringify({ providers: { "my-proxy": MY_PROXY } }));
+	const stale = [{ notice: "models_json_unparsable", path: "/elsewhere/models.json", error: "stale" }];
+	const notices = await launchNotices(t, root, { [HOST_NOTICES_ENV]: JSON.stringify(stale) });
+	assert.equal(notices.handed, undefined, "an inherited value is dropped, not forwarded");
 });

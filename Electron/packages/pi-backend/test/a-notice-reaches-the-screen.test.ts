@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createPiHostBackend, HOST_DELIVERED_CUSTOM_TYPES } from "../src/index.js";
+import { isServiceNoticeRow } from "../src/first-prose.js";
+import { hostNoticeMessage } from "../../../../extensions/kernel/host-notices.ts";
 
 /**
  * Contract §55: a notice the host places reaches the screen when it is placed.
@@ -120,6 +122,27 @@ describe("a notice the host places reaches the screen when it is placed", () => 
 
     off();
     await backend.close();
+  });
+
+  it("projects the launcher's notice the kernel extension places at session start, as a service notice (§135.27.1.3)", async () => {
+    const { backend, sessionPath, presentations, off } = await fixture();
+    try {
+      await backend.handle("sendPrompt", ["s1", "hello"]);
+      // The message exactly as the extension builds it -- imported, not re-typed, so the two cannot drift apart.
+      const message = hostNoticeMessage({ notice: "models_json_unparsable", path: "/agent/models.json",
+        error: "Unexpected token '/', \"/* my relay\"... is not valid JSON" }, undefined, 0);
+      await deliverLikePi(backend, sessionPath, { id: "host-notice-1", ...message });
+      await eventually(() => presentations.some(entry => entry.id === "host-notice-1"));
+      const projected = presentations.filter(entry => entry.id === "host-notice-1");
+      expect(projected).toHaveLength(1);
+      expect(projected[0].role).toBe("assistant");
+      expect(projected[0].content).toBe(message.content);
+      // Told from the turn's prose by its subject flag (first-prose.ts), never by its words.
+      expect(isServiceNoticeRow({ type: "custom_message", customType: message.customType, details: message.details })).toBe(true);
+    } finally {
+      off();
+      await backend.close();
+    }
   });
 
   it("covers every channel the host is registered to deliver through, not just the one that broke", async () => {

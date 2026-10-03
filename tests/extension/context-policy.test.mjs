@@ -7,6 +7,7 @@ import {build} from 'esbuild';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {convertToLlm} from './pi.mjs';
 import {openTable, waitForIdle} from './harness.mjs';
+import {hostNoticeMessage} from '../../extensions/kernel/host-notices.ts';
 
 const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/playtests/bounded-context-contracts');
 await mkdir(evidence, {recursive: true});
@@ -109,6 +110,22 @@ test('worldline reset expires old deliveries and turn notes even when old turn n
     assert.ok(!JSON.stringify(result.messages).includes('Old wrong-line'));
     assert.equal(result.unknownBytes, 0);
     assert.deepEqual(result.messages.slice(-4), messages.slice(-4));
+});
+
+test('a launcher notice placed before the turn is closed noise on a healthy request, and never the fold\'s (§135.27.1.3)', () => {
+    // As the kernel extension places it at session start: after turn 1 was committed, before the player's next input.
+    const placed = hostNoticeMessage({notice: 'models_json_unparsable', path: '/agent/models.json', error: 'host-notice-marker'}, undefined, 1);
+    const notice = {role: 'custom', customType: placed.customType, content: placed.content, details: placed.details};
+    const messages = [...group(1), notice, ...group(2)];
+    const history = api.historyView(binding(2), []);
+    const result = api.projectedMessages({messages, binding: binding(2), history});
+    assert.ok(!JSON.stringify(result.messages).includes('host-notice-marker'), 'the notice is not in the request');
+    assert.ok(JSON.stringify(result.messages).includes('Player 2'), 'the search reaches the request');
+    assert.equal(result.unknownBytes, 0, 'it is classified, not retained as unknown material');
+    const plan = api.foldPlan(entries(messages), binding(2), history);
+    assert.ok(plan, 'it does not veto the cut');
+    assert.equal(plan.details.coc_fold.unclassified ?? 0, 0);
+    assert.ok(!plan.summary.includes('host-notice-marker'), 'nor is its text carried into the fold');
 });
 
 test('the setup guide\'s step orders never ride a play request: they are not the Keeper\'s', () => {

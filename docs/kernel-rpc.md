@@ -23124,6 +23124,103 @@ Mutations (one at a time, the three files run against each; restored by copy):
   naming test fails on both shapes.
 - Print the notice for every `left_untouched`: the `// comment` case of the no-notice test fails.
 
+##### 135.27.1.3 Amendment (2026-10-03): the launcher's notices reach the App as §55 service notices
+
+**The gap.** The §135.27.1.1 and §135.27.1.2 notices are stderr lines from `piLaunch`. In the App nobody reads them:
+`pipicoc/rpc` runs `bin/pi-coc` with `stdio: 'inherit'`, and pi-backend keeps that process's stderr only in a 16 KB
+tail it shows when Pi exits (`PiExitedError`). A healthy session never shows it. The owner asked for the notices in the
+App (2026-10-03: "把提示接进 App").
+
+**Both ends (§31).**
+
+- **Who writes it.** `piLaunch`, from the merge's outcome, before Pi starts. It cannot reach Pi's UI: no Pi session
+  exists yet.
+- **Who reads it.** The kernel extension, at `session_start`, inside the Pi process `piLaunch` starts.
+- **Who acts on it.** The operator, who reads it in the App's transcript and fixes `models.json`.
+
+**The channel.** No new one. A host-placed line in front of the person at the table is a §55 service notice: a
+`coc-delivery` custom message, sent with `pi.sendMessage`, that the App already projects live and on every re-read
+(§55, §83), and that pi-backend tells from prose by its `details` carrying a subject flag (`first-prose.ts`). A toast
+(`ctx.ui.notify`) was not chosen: the App shows it for five seconds and keeps no record, and a session starts while the
+person is still looking for the table.
+
+1. **Hand-off.** `piLaunch` turns the outcome into notices (`runtime/host-notices.ts`): `{notice:
+   "models_json_unparsable", path, error}` and `{notice: "models_json_operator_comments", path, missing}`, where
+   `missing` holds `provider/model` strings. It still prints each one's stderr line, which is now also the English
+   fallback below. It hands the list to the Pi child as `PI_COC_HOST_NOTICES` (JSON) in the launch environment. With no
+   notice the variable is absent, and a value inherited from the parent environment is not passed on.
+2. **Taken once.** The kernel extension reads the variable at the first `session_start` and deletes it from
+   `process.env`, as it already does with `PI_COC_WATCHDOG_RECOVERY`. A reload or a replaced session in the same
+   process does not repeat the notices, and lane children do not inherit them. An entry that is not one of the two
+   shapes is dropped. A new process is a new launch, a watchdog replacement included: while the file is still wrong,
+   each launch places its notice again; once it is fixed, nothing is placed.
+3. **Placed.** One `coc-delivery` per notice: `display: true`, `details: {coc_delivery: true, turn, host_notice:
+   <notice>}`, with no `triggerTurn`.
+   - In play, it goes after the table opens and before any recovery or opening run is sent, with `turn` the table's.
+     So it sits before the next turn's boundary, where the context policy already drops a `coc-delivery` with an
+     integer turn as closed noise (§19.2, `closedNoise`), the fold hook included.
+   - In setup, it goes once the kernel bridge is up, with `turn: 0`.
+   - A details-recovery process (`PI_COC_DETAILS_RECOVERY`) places nothing; it is not the session's own process.
+4. **Words.** The text is `content/ui/en/extension.json` `models_json_unparsable_notice` (`{path}`, `{error}`) or
+   `models_json_comments_notice` (`{path}`, `{models}`), read through the extension's words surface in the table's play
+   language. If the content root cannot be read, the English stderr line is placed instead.
+   - **How the zh-Hans seed got its two keys (§23: projected, never hand-written).** The presentation lane's own worker
+     (`build/pipicoc/onboarding-worker.mjs presentation`, `ui: true`) ran in a scratch home. Two attempts on the lane
+     setting (`opencode-go/deepseek-v4.1-flash`, thinking off) and one on `flapcode/gpt-6-luna` low (owner,
+     2026-10-03, for this one run) failed. With the seed incomplete, the lane re-projects every caption of every
+     surface (about 500). deepseek was cut off at its seventeenth call: a standalone lane gets 16
+     (`independentProviderBudget`, `remainingActions: 16`). luna was cut off at an attempt's 120 s
+     (`runPresentationAttempt`, `timeoutMs: 120000`) while still writing. Both limits are the lane's, not this change's.
+     The same lane, prompt, checker and model then ran on a content root that held only the extension surface's
+     `*_notice` captions (21, these two among them, the rest giving the register). Only the two new keys were taken,
+     in the authored key order: the seed's diff is two added lines.
+   - **The English avoids an uppercase acronym.** The first wording said "plain JSON". The lane's protected syntax
+     makes any uppercase run a `notation` token, and the model wrote the token back wrapped in braces, giving
+     `{JSON}`, which `fill` would have shown as an unfilled placeholder. It now reads "Beyond plain data, the file
+     accepts only // comments and trailing commas". Its only protected tokens are its placeholders.
+5. **Never the model's.** The kernel extension registers a `context` handler, in setup and in play alike, that removes
+   every `coc-delivery` whose `details.host_notice` is set. In play the table's projection already drops it as closed
+   noise, so this handler matters where that projection does not run: in setup mode, where no table policy is
+   installed, and on a degraded request with no capsule, which keeps a bounded tail. A notice to the operator is
+   never an instruction to the Keeper or the setup guide.
+
+*Tests.*
+
+- `tests/extension/provider-model-corrections.test.mjs`: `piLaunch`'s returned environment carries the structured
+  notice for a `/* */` file and for an operator's `//` comments; it carries none for a file Pi parses; and it does not
+  pass on an inherited value.
+- `tests/extension/host-notices.test.mjs`, on a real Pi session with the real extensions (`harness.mjs`):
+  - a play table places both notices, with their flag and an integer turn, before the player's first input, with the
+    variable consumed;
+  - the Keeper's request on the next turn does not contain the notice. That request is a degraded one: the fake kernel
+    gives no binding (`context_binding_unavailable`, the bounded tail), so this case pins the handler.
+  - a setup session places it with `turn: 0`, and the setup guide's request does not contain it;
+  - an absent, unreadable or malformed value places nothing.
+  - Each "does not contain" is searched for by a marker that has no quotes, beside a positive control: the player's
+    own words must be found in the same serialized request. The first version searched for an error message that held
+    quotes, which serialization escapes, so it could never have matched; the mutation that drops the handler passed it.
+- `tests/extension/context-policy.test.mjs`: on a healthy binding, the notice as `hostNoticeMessage` builds it, placed
+  after turn 1 and before turn 2, is not in the request, is not counted as unknown material, does not veto the fold,
+  and its text is not carried into the fold summary.
+- `Electron/packages/pi-backend/test/a-notice-reaches-the-screen.test.ts`: the message the extension builds
+  (`hostNoticeMessage`, imported, not re-typed), delivered the way Pi delivers it, becomes one `presentation` on the
+  Keeper's side, and `isServiceNoticeRow` counts it as a service notice, not prose. `turn-telemetry-first-prose.test.ts`
+  lists `host_notice` with the other notice flags.
+
+Mutations (one at a time; restored by copy):
+
+- `piLaunch` hands off nothing: the hand-off assertions fail, on both unparsable shapes and on the `//` case.
+- An inherited value is passed on: the inherited-value test fails.
+- Play mode places nothing: the play test fails, and so do the unreadable and malformed cases, because the variable
+  stays set.
+  Not consuming the variable fails the same tests.
+- Setup mode places nothing: the setup test fails.
+- The `context` handler removes nothing: both the play request (degraded) and the setup request fail.
+- The subject flag is dropped: both placement tests fail, and the pi-backend projection test fails (not a service
+  notice).
+- A malformed entry is accepted: the malformed-value case fails.
+- The turn is not an integer: the context-policy test fails (the notice is retained as unknown material).
+
 ### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
 
 SL-12 takes §135.28 (§135.11–§135.27 are taken, §135.27 by the thinking schedule on the same base; §-numbers are stable ids). It applies to `PI_COC_LOOP_ENGINE=hybrid-v1`

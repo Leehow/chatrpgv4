@@ -17,13 +17,15 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
+import { takeHostNotices } from "../../runtime/host-notices.ts";
+import { hostNoticeMessage, isHostNoticeMessage } from "./host-notices.ts";
 import { adaptationModel, adaptationService, adaptationWaitMs } from './adaptation.ts';
 import { fastLaneChoice } from '../lanes/subsession.ts';
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { automaticDefense, isDefenseChoice, readDefensePreference } from '../../runtime/combat-defense.ts';
 import { agentHomeOf, openingHelp } from "../ui/hints.ts";
-import { extensionContentRoot, extensionSurface } from "../ui/words.ts";
+import { extensionContentRoot, extensionSurface, type ExtensionWords } from "../ui/words.ts";
 import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError } from "./client.ts";
 import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
@@ -5575,6 +5577,8 @@ export default function (pi: ExtensionAPI) {
 					call: bridgeCall(kernel),
 					runtime,
 				});
+				// §135.27.1.3: no turn has been played in setup.
+				await placeHostNotices(0);
 				return;
 			}
 			const campaign = await pickCampaign(kernel, ctx);
@@ -5769,6 +5773,8 @@ export default function (pi: ExtensionAPI) {
 			// Opening a waiting item card starts its background owner, without replaying an opening
 			// or continuing an interrupted story. Real player input still uses the ordinary turn guard.
 			if (process.env.PI_COC_DETAILS_RECOVERY === '1') return;
+			// §135.27.1.3: before any recovery or opening run is sent, so the notices sit ahead of that turn's boundary.
+			await placeHostNotices(table.turn);
 			const pending = open.pending_turn;
 			if (pending) {
 				if (watchdogRecovery) {
@@ -5842,6 +5848,29 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(line, "error");
 			}
 		}
+	});
+
+	/**
+	 * Contract §135.27.1.3: the launcher's notices, taken once per process and placed as §55 service notices. Nothing
+	 * here may cost the session: a surface that cannot be read leaves the English line, a session that is gone takes none.
+	 */
+	async function placeHostNotices(turn: number): Promise<void> {
+		const notices = takeHostNotices();
+		if (!notices.length) return;
+		let words: ExtensionWords | undefined;
+		try { words = await surface.words(); }
+		catch { /* the English line stands */ }
+		for (const notice of notices) {
+			try { pi.sendMessage(hostNoticeMessage(notice, words, turn)); }
+			catch { return; /* the session is gone */ }
+		}
+	}
+
+	// §135.27.1.3: a host notice is for the person at the table. Setup has no table context policy, and a degraded play
+	// request keeps a bounded tail, so the notices are removed here, in every mode, from every request.
+	pi.on("context", (event) => {
+		const kept = event.messages.filter((message) => !isHostNoticeMessage(message));
+		return kept.length === event.messages.length ? undefined : { messages: kept };
 	});
 
 	pi.on("session_shutdown", async () => {
