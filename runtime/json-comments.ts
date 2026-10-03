@@ -1,8 +1,9 @@
 /**
- * Strip `//` and `/* *\/` comments outside strings from JSON text, the way Pi's own `models.json` loader
- * does: the agent home's `models.json` may carry an operator's comments or the product's corrections
- * note (§135.27.1). Both readers of that file, the launch-time merge in `runtime/host.ts` and the lane
- * child catalog in `runtime/tasks.ts`, must parse it the same way.
+ * Strip `//` and `/* *\/` comments outside strings from JSON text: the agent home's `models.json` may
+ * carry an operator's comments, and before §135.27.1.1 the product's own `//` corrections header. Both
+ * readers of that file, the launch-time merge in `runtime/host.ts` and the lane child catalog in
+ * `runtime/tasks.ts`, must parse it the same way. Not Pi's grammar (§135.27.1.1): Pi strips `//` and
+ * trailing commas only, so this accepts `/* *\/`, which Pi rejects, and rejects trailing commas, which Pi accepts.
  */
 export function stripJsonComments(text: string): string {
   let out = "";
