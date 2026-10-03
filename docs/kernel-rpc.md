@@ -31997,3 +31997,95 @@ Tests:
 - `Electron/packages/ui/src/coc-live-prose.test.tsx`: growing playback resumes, the delivery lands at the draft's index past a later row with the same playback, an unknown draft id is ignored, and a call's end closes its own card above the draft while a later message's call opens a row after it.
 
 Each of six mutations turns these tests red: no `replacesDraft`, `via` forced to `mechanics`, every resend live, no growing resume, no in-place replacement, and no place match for a call's card.
+
+## 172. Images on the player's Codex subscription, and a quality setting (owner request, 2026-10-03; amends the image-gen dispatch wording of §22.7 and §35.4; docs/specs/codex-image-generation.md)
+
+The image-gen extension spends the player's ChatGPT subscription through Pi's built-in `openai-codex` login. PipiCOC adds no login, credential store or provider registration of its own: `openai-codex` is a reserved official provider id (pi-backend rejects an extension that claims it), and Pi owns OAuth, refresh and the auth.json lock.
+
+### 172.1 Dispatch order
+
+The shared dispatch behind `image_gen`, `image_edit`, the portrait mount (§22.7) and illustrations (§35.4) resolves one route per call:
+
+1. **Explicit choice**: the tool's `model` parameter, else the configured model.
+2. **Codex**, when usable (§172.2).
+3. **grok-build**, when usable.
+4. Otherwise the existing `image_model_unconfigured` error.
+
+A failure on the route taken surfaces as it is. Nothing falls through to another lane in either direction, including on quota exhaustion. Where §22.7 and §35.4 say "grok-build the default", read "Codex, then grok-build, the default".
+
+### 172.2 Codex usability
+
+Codex is usable when all of these hold:
+- the call has an extension context whose model registry returns a non-empty token for `openai-codex`;
+- the token's `https://api.openai.com/auth` claim carries `chatgpt_account_id`;
+- the same claim's `chatgpt_plan_type` is not `free`.
+
+The JWT payload is decoded without signature verification and is used only for routing. The extension never reads or writes auth.json and never refreshes a token itself.
+
+### 172.3 Routing
+
+- The vendor router takes `(provider, modelId)`.
+- Provider `openai-codex` routes to the `codex` adapter. Every other provider keeps the closed model-id map, in which `gpt-image` still means the OpenAI Images API.
+- The Codex configured-model ref is `openai-codex/gpt-image-2`. A bare `gpt-image-2` keeps the registry lookup and does not reach Codex.
+
+### 172.4 Codex adapter wire shape
+
+- Base `https://chatgpt.com/backend-api`, HTTPS only.
+- Generate: `POST {base}/codex/images/generations`. Edit: `POST {base}/codex/images/edits`.
+- Headers:
+  - `Authorization: Bearer <token>`
+  - `ChatGPT-Account-ID: <chatgpt_account_id>`
+  - `originator: pi`
+  - `User-Agent: pi (<platform> <release>; <arch>)`
+  - `x-codex-image-turn-id: <fresh UUID per call>`
+  - `Content-Type: application/json`
+- Body: `{ prompt, model: "gpt-image-2", background: "auto", quality, size }`.
+- Edits add `images: [{ image_url: <data URL> }]`, between 1 and 5 entries, in JSON (never multipart).
+- Never sent: `n`, `response_format`.
+- `size`:
+  - `1024x1536` for the portrait ratio set;
+  - `1536x1024` for the landscape ratio set;
+  - `auto` only when the aspect ratio is `auto` or absent;
+  - `1024x1024` otherwise.
+  - These are the same closed ratio sets as the OpenAI adapter.
+- The result is `data[0].b64_json`, mime sniffed from the bytes. A missing `data` is an error.
+- The token appears in no log line, tool result or error text.
+
+### 172.5 Quality
+
+- `quality ∈ {low, medium, high}`. The dispatch operation carries an optional `quality`. The effective value is the operation's own, else the configured one, else `medium`.
+- The portrait mount always passes `low`. Illustrations, `image_gen` and `image_edit` pass none, so they follow the player's setting. The tools expose no quality parameter.
+- **Honoured by:** the Codex adapter, and the OpenAI Images adapter for `gpt-image*` models (generations and multipart edits).
+- **Not honoured by:** DALL·E models, which never receive `quality`. The xAI, Ark, Gemini and DashScope adapters and grok-build accept it and ignore it.
+
+### 172.6 Settings file and host invoke
+
+- `<agentHome>/image-model.json` is `{ "model"?: string, "quality"?: "low"|"medium"|"high" }`.
+- Every writer preserves the field it does not set. `clear` removes only `model`, and the file is deleted only when neither field remains. An absent or invalid `quality` reads as `medium`.
+- The app-level `image-gen` / `model` invoke answers `{ current, grokDefault, quality, codexSignedIn, autoRoute }`:
+  - `codexSignedIn` is true when auth.json holds an `openai-codex` entry with an access token;
+  - `autoRoute ∈ {"codex", "grok-build", "none"}` applies §172.1 steps 2–4. The host decodes the stored access token's claims only for the plan check and never logs them.
+- New op `{ op: "quality", quality }` sets the quality. A value outside the enum is refused with `capability_denied`.
+- The settings section adds:
+  - a "Codex (gpt-image-2)" row (ref `openai-codex/gpt-image-2`) whenever `codexSignedIn`;
+  - an Automatic-row subtitle naming `autoRoute`;
+  - a three-way quality control with the caption that the portrait is always low.
+
+### 172.7 Errors
+
+The error codes are stable and the messages are English.
+
+| Code | When |
+|---|---|
+| `codex_not_signed_in` | Codex is chosen explicitly and the registry has no token |
+| `codex_plan_excluded` | Codex is chosen explicitly and the plan is `free` |
+| `codex_account_missing` | the token has no `chatgpt_account_id` |
+| `image_quota_exhausted` | HTTP 429 whose body has `error.type: "usage_limit_reached"` |
+
+- `image_quota_exhausted` carries `resets_at` when present and reports the `x-codex-active-limit` header verbatim. Limit ids are never matched against a list; the probe saw `imagegen_premium`.
+- Any other non-2xx keeps the existing `image request failed HTTP <status>: <text>` shape.
+- The portrait mount maps all four codes to `portrait_unavailable`, never to `portrait_no_model`.
+
+### 172.8 Inner decisions
+
+The adapter's base URL, model id and originator are single constants. A live probe on 2026-10-03 (owner's account, `experiments/codex-image-probe/probe.mjs`) returned HTTP 200 in 21 s with `originator: pi`. `quality: "auto"` produced `low` at `1370x1148`. The accepted explicit sizes and qualities are confirmed by the owner-run probe before acceptance, and any refused value is recorded here.

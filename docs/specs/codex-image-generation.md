@@ -1,6 +1,6 @@
 # Generate images on the player's Codex (ChatGPT) subscription
 
-Status: ready-for-agent
+Status: ready-for-agent — contract §172; implementation on `claude/codex-image-20261003`
 Date: 2026-10-03
 Baseline inspected: 0.9.6a at 8bafe5141.
 Related contract: §22.7 (investigator portrait mount, image-gen dispatch reuse), §35.4 (illustration image call, protagonist reference), §23 (settings words are English-authored and projected). The contract change lands as a new § when this is implemented; this spec links back to it then.
@@ -12,6 +12,8 @@ Related contract: §22.7 (investigator portrait mount, image-gen dispatch reuse)
 Rulings after the research and live probe:
 
 > Codex 优先，证件照画质一直是 low，插件可以选择画质选项默认 medium，其他地方的生成按照玩家自己选择的来
+
+> OpenAI gpt-image 也接上画质，开始实现吧
 
 ## Problem Statement
 
@@ -44,7 +46,7 @@ The image-gen extension gains a **Codex route** that spends the player's ChatGPT
 
 - **Automatic mode (no model chosen).** If the player is signed in to OpenAI Codex on a paid plan, images go to Codex first. Otherwise they go to grok-build if it is signed in. Otherwise the existing "no image model configured" refusal applies.
 - **Explicit choice still wins.** The settings picker gains a "Codex (gpt-image-2)" row whenever Codex is signed in. Choosing it, or any other model, pins that route.
-- **Quality setting.** The Image Generation settings section gains a quality option (low / medium / high), defaulting to **medium**. It applies to every Codex generation except one: the investigator portrait (证件照) is always generated at **low**, whatever the setting says.
+- **Quality setting.** The Image Generation settings section gains a quality option (low / medium / high), defaulting to **medium**. It applies to every generation on the Codex route and on the OpenAI `gpt-image` route except one: the investigator portrait (证件照) is always generated at **low**, whatever the setting says.
 - **No silent fallback.** A failure on the route actually taken surfaces as it is. That includes quota exhaustion, which reports when the quota resets.
 
 ## User Stories
@@ -136,7 +138,8 @@ The existing rule stays: a failure on the route taken surfaces as it is, with no
 - The dispatch operation gains an optional `quality`. Precedence: the operation's own `quality`, then the configured quality, then `medium`.
 - The portrait mount always passes `quality: "low"`. Illustrations and the two tools pass nothing, so they follow the player's setting.
 - The tools do **not** gain a `quality` parameter; the Keeper does not choose quality.
-- On non-Codex adapters `quality` is accepted and ignored in this spec (see Out of Scope).
+- The OpenAI Images adapter sends the same `quality` for `gpt-image` models, on both generations and multipart edits. DALL·E models never receive it, because their vocabulary differs.
+- The remaining adapters (xAI, Ark, Gemini, DashScope) and grok-build accept `quality` and ignore it.
 
 **Settings persistence.**
 - Quality lives next to the model in the agent home's `image-model.json` as `{ "model"?: string, "quality"?: "low"|"medium"|"high" }`.
@@ -157,7 +160,7 @@ The existing rule stays: a failure on the route taken surfaces as it is, with no
 - The image model picker shows the Automatic row, with a subtitle naming the current `autoRoute`.
 - It shows a synthesized "Codex (gpt-image-2)" row with ref `openai-codex/gpt-image-2` whenever `codexSignedIn` is true. Pi's Codex catalog has no image model, so the row cannot come from the visibility catalog.
 - Then come the existing catalog rows.
-- A quality control (three options, default medium) has a caption saying the portrait is always low. New words are English-authored, like the section's existing words.
+- A quality control (three options, default medium) has a caption saying the portrait is always low and that the setting applies to Codex and OpenAI GPT Image. New words are English-authored, like the section's existing words.
 
 **Errors (stable codes, English messages, token redacted).**
 
@@ -197,6 +200,7 @@ A good test drives the public seam and asserts what leaves the process: the URL,
   - Free plan skips Codex automatically but errors when chosen explicitly;
   - no fall-through after a Codex failure, including a 429.
 - **Quality precedence:** operation, then configured, then medium.
+- **OpenAI adapter quality:** `gpt-image` generations and edits carry `quality`, and `dall-e` requests never do.
 - **429 mapping:** `image_quota_exhausted` with `resets_at`, plus a limit id other than `image_gen`, such as the observed `imagegen_premium`.
 - **Config:** preserving the model when quality is set, and clearing the model while keeping quality.
 - **Commands:** `/image-gen:model openai-codex/gpt-image-2` and `/image-gen:status`.
@@ -223,7 +227,7 @@ Heavy suites run on the LAN test box (`test:ext`; the pi-backend vitest file), p
 
 - Using Codex **chat** models as the Keeper. Pi's built-in `openai-codex` provider already does this; there is nothing to build.
 - A PipiCOC-owned Codex OAuth flow or credential store. Pi owns it, and `openai-codex` is a reserved provider id.
-- Applying the quality setting to non-Codex vendors (the OpenAI Images, Gemini, Ark, DashScope and xAI adapters, and grok-build). Same-vocabulary support for the OpenAI `gpt-image` adapter is a natural follow-up, but it is not part of this ruling.
+- Applying the quality setting to vendors other than Codex and OpenAI `gpt-image` (Gemini, Ark, DashScope, xAI, grok-build, DALL·E). Their quality vocabularies differ.
 - Automatic fallback to another lane on Codex quota exhaustion or failure. This is deliberately excluded by the existing no-silent-fall-through rule.
 - A Codex quota meter for images. The existing account-usage monitor already reads `wham/usage` for Codex; surfacing the `imagegen` limit there is a separate change.
 - Showing the usage headers (`x-codex-*`) in the UI beyond the quota-exhausted error.
