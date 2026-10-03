@@ -18265,11 +18265,11 @@ The Keeper's own epithets that turn (白衬衫老板, 啤酒肚卡车司机, 海
 
 ### 103.8 The Keeper does not hold an untold person's name (owner ruling 2026-10-03; amends §103.5 and §103.7)
 
-**Evidence.** Table 20 of the installed App (Blood Road, `game-48858a0b`, §172) leaked on its first turn. The owner's words: 「除了烂牙司机其他名字还是全漏出来了」.
+**Evidence.** Table 20 of the installed App (Blood Road, `game-48858a0b`, §173) leaked on its first turn. The owner's words: 「除了烂牙司机其他名字还是全漏出来了」.
 
 - The Keeper's first step looked at the trucker. His biography mentions his neighbour 史蒂夫·布朗 and says he pretends to help 拉斯 with the cars. 拉斯 is an alias the graph records for the owner (`aliases: ["拉斯", "拉索"]`), and the request's rename (§103.5) replaced only each person's display name.
 - §103.5 also kept each untold person's book name in the Keeper's copy as `untold.name`, "for the moment someone says it".
-- The next step ran without thinking (§172.1). It wrote "史蒂夫·布朗" and "拉斯·威廉姆斯" as epithets, the sidebar showed them, the prose said 「年近七十的史蒂夫」, and the next turn 「拉斯看了眼油泵」. Only the trucker got a real epithet, 烂牙司机.
+- The next step ran without thinking (§173.1). It wrote "史蒂夫·布朗" and "拉斯·威廉姆斯" as epithets, the sidebar showed them, the prose said 「年近七十的史蒂夫」, and the next turn 「拉斯看了眼油泵」. Only the trucker got a real epithet, 烂牙司机.
 
 The owner had asked for this order in the first place: the name stays in the data, and the Keeper gets it once it has been said (「真实姓名在剧情里被人说出来就同步，直接在生成前告诉kp」).
 
@@ -22979,7 +22979,7 @@ ticket, not a retirement). So it is mounted:
 
 **What changes at a table.** On the default Keeper model (`grok-build/grok-4.7-build-fast`) nothing: the follow-up
 `off` is clamped to `low`, the level the table already runs at (§135.24). On a model whose catalog exposes a lower
-level, the requests after the first non-delivery tool batch of an input (since §172.1, the first that writes) run at that level and the table's own level
+level, the requests after the first non-delivery tool batch of an input (since §173.1, the first that writes) run at that level and the table's own level
 returns for the next input, exactly as §3.7 states. The turn's first request, the lanes and the §32 review keep their
 own levels.
 
@@ -31380,7 +31380,7 @@ was ever written, so a card with none is byte-identical to before. `look` on the
 (`mood`, `mood_earlier`). The capsule `head` gains one line: `present[].now` is what that person feels right now and
 carries their next line more than any fact does; when it is missing or no longer true, write it with `apply npc mood`
 (one short line in the play language) before they speak, in the same turn; its own `apply` is fine and it need not ride with
-their words (amended 2026-10-01, see 161.10; amended again 2026-10-03: the same response as the narrate, apply first, §172). The projection reads the committed
+their words (amended 2026-10-01, see 161.10; amended again 2026-10-03: the same response as the narrate, apply first, §173). The projection reads the committed
 ledger, so a mood written this turn shows from the next turn; within the turn the Keeper has just written it.
 
 **161.4 Visibility.** Keeper only. §16.2's `mechanics` has no `npc` row, so no card is drawn; the transcript, the
@@ -32056,7 +32056,105 @@ Tests:
 
 Each of six mutations turns these tests red: no `replacesDraft`, `via` forced to `mechanics`, every resend live, no growing resume, no in-place replacement, and no place match for a call's card.
 
-## 172. What needs no result rides with the narrate (owner ruling, 2026-10-03; amends §161.3, §161.7, §161.10's wording note and §103.7)
+## 172. Images on the player's Codex subscription (owner request, 2026-10-03; amends the image-gen dispatch wording of §22.7 and §35.4; docs/specs/codex-image-generation.md)
+
+The image-gen extension spends the player's ChatGPT subscription through Pi's built-in `openai-codex` login. PipiCOC adds no login, credential store or provider registration of its own: `openai-codex` is a reserved official provider id (pi-backend rejects an extension that claims it), and Pi owns OAuth, refresh and the auth.json lock.
+
+### 172.1 Dispatch order
+
+The shared dispatch behind `image_gen`, `image_edit`, the portrait mount (§22.7) and illustrations (§35.4) resolves one route per call:
+
+1. **Explicit choice**: the tool's `model` parameter, else the configured model.
+2. **Codex**, when usable (§172.2).
+3. **grok-build**, when usable.
+4. Otherwise the existing `image_model_unconfigured` error.
+
+A failure on the route taken surfaces as it is. Nothing falls through to another lane in either direction, including on quota exhaustion. Where §22.7 and §35.4 say "grok-build the default", read "Codex, then grok-build, the default".
+
+### 172.2 Codex usability
+
+Codex is usable when all of these hold:
+- the call has an extension context whose model registry returns a non-empty token for `openai-codex`;
+- the token's `https://api.openai.com/auth` claim carries `chatgpt_account_id`;
+- the same claim's `chatgpt_plan_type` is not `free`.
+
+The JWT payload is decoded without signature verification and is used only for routing. The extension never reads or writes auth.json and never refreshes a token itself.
+
+### 172.3 Routing
+
+- The vendor router takes `(provider, modelId)`.
+- Provider `openai-codex` routes to the `codex` adapter. Every other provider keeps the closed model-id map, in which `gpt-image` still means the OpenAI Images API.
+- The Codex configured-model ref is `openai-codex/gpt-image-2`. A bare `gpt-image-2` keeps the registry lookup and does not reach Codex.
+
+### 172.4 Codex adapter wire shape
+
+- Base `https://chatgpt.com/backend-api`, HTTPS only.
+- Generate: `POST {base}/codex/images/generations`. Edit: `POST {base}/codex/images/edits`.
+- Headers:
+  - `Authorization: Bearer <token>`
+  - `ChatGPT-Account-ID: <chatgpt_account_id>`
+  - `originator: pi`
+  - `User-Agent: pi (<platform> <release>; <arch>)`
+  - `x-codex-image-turn-id: <fresh UUID per call>`
+  - `Content-Type: application/json`
+- Body: `{ prompt, model: "gpt-image-2", background: "auto", quality: "auto", size: "auto" }`, the same fixed values Codex CLI sends.
+- Edits add `images: [{ image_url: <data URL> }]`, between 1 and 5 entries, in JSON (never multipart).
+- Never sent: `n`, `response_format`.
+- **The aspect ratio travels in the prompt.** When the aspect ratio is neither `auto` nor absent, the adapter prefixes the prompt with one fixed English sentence built from the ratio and the OpenAI adapter's closed portrait / landscape ratio sets:
+  - portrait set: `Vertical portrait-orientation image, <ratio> aspect ratio, taller than wide. `
+  - landscape set: `Horizontal landscape-orientation image, <ratio> aspect ratio, wider than tall. `
+  - anything else: `Square image, 1:1 aspect ratio. `
+  - `<ratio>` is the caller's ratio string verbatim (e.g. `3:4`).
+- The result is `data[0].b64_json`, mime sniffed from the bytes. A missing `data` is an error.
+- The token appears in no log line, tool result or error text.
+
+### 172.5 No quality setting
+
+There is no quality option (owner ruling, 2026-10-03: "如果不能设置画质那就不需要这个画质选项了……现在先尽可能简洁，就跟 grok build 那样"). The Codex endpoint ignores `quality` (§172.8). No adapter, caller or setting gains a quality field, and the OpenAI Images adapter is unchanged.
+
+### 172.6 Settings and host invoke
+
+- `<agentHome>/image-model.json` keeps its shape `{ "model": string }`. `clear` deletes it as before.
+- The app-level `image-gen` / `model` invoke answers `{ current, grokDefault, codexSignedIn, autoRoute }`:
+  - `codexSignedIn` is true when auth.json holds an `openai-codex` entry with an access token;
+  - `autoRoute ∈ {"codex", "grok-build", "none"}` applies §172.1 steps 2–4. The host decodes the stored access token's claims only for the plan check and never logs them.
+- The settings section adds:
+  - a "Codex (gpt-image-2)" row (ref `openai-codex/gpt-image-2`) whenever `codexSignedIn`;
+  - an Automatic-row subtitle naming `autoRoute`.
+
+### 172.7 Errors
+
+The error codes are stable and the messages are English.
+
+| Code | When |
+|---|---|
+| `codex_not_signed_in` | Codex is chosen explicitly and the registry has no token |
+| `codex_plan_excluded` | Codex is chosen explicitly and the plan is `free` |
+| `codex_account_missing` | the token has no `chatgpt_account_id` |
+| `image_quota_exhausted` | HTTP 429 whose body has `error.type: "usage_limit_reached"` |
+
+- `image_quota_exhausted` carries `resets_at` when present and reports the `x-codex-active-limit` header verbatim. Limit ids are never matched against a list; the probe saw `imagegen_premium`.
+- Any other non-2xx keeps the existing `image request failed HTTP <status>: <text>` shape.
+- The portrait mount maps all four codes to `portrait_unavailable`, never to `portrait_no_model`.
+
+### 172.8 Inner decisions
+
+The adapter's base URL, model id and originator are single constants.
+
+Owner-run probes on 2026-10-03 (owner's ChatGPT Pro account, `experiments/codex-image-probe/probe.mjs`, `originator: pi`) all returned HTTP 200 in 19–21 s:
+
+| `quality` sent | `size` sent | prompt | returned |
+|---|---|---|---|
+| auto | auto | plain | low, 1370x1148 |
+| low | 1024x1536 | plain | low, 1379x1141 |
+| high | 1024x1536 | plain | low, 1370x1148 |
+| low | 1024x1536 | prefixed "Vertical portrait-orientation image, 3:4 aspect ratio, taller than wide." | low, **1086x1448** (exactly 3:4) |
+
+**The Codex endpoint ignores both `quality` and `size`.** The server answers `low` at a size of its own choosing, and Codex CLI itself always sends `auto`. The orientation is steered only by the prompt, hence the prompt prefix in §172.4. A quality setting was specified and then withdrawn for this reason (§172.5).
+
+## 173. What needs no result rides with the narrate (owner ruling, 2026-10-03; amends §161.3, §161.7, §161.10's wording note and §103.7)
+
+*Numbering.* Written as §172 on `claude/first-sight-20261002`, and narration-craft 2.1.17's CHANGELOG cites it under that number; §172 had meanwhile landed on 0.9.6a as the Codex image route, so this section is §173 from the merge on (§ numbers are stable once landed).
 
 **Why.** The owner asked why a turn takes so long, and then for the recommendation: 「按你推荐的做」. The installed App ran with `flapcode/gpt-6-luna` as Keeper, and each model step there costs 7–12 s before its first token (§171). Of 51 delivered turns across 34 sessions (2026-10-02 noon to 2026-10-03), 28 opened with a step that held only writes whose landing their own arguments fix, and the prose followed in a second step:
 
@@ -32087,22 +32185,21 @@ The feeling a person has is an author's choice that the input does not determine
 
 Tests: `tests/extension/npc-mood.test.mjs` and `tests/extension/jev-pacing-mod-alignment.test.mjs` move their narration-craft pin to 2.1.17. The wording itself has no test, because a test that pinned it would only pin a string.
 
-### 172.1 A step before the turn's first write keeps its thinking (owner ruling 2026-10-03, with §103.8)
+### 173.1 A step before the turn's first write keeps its thinking (owner ruling 2026-10-03, with §103.8)
 
 Two mechanisms lower thinking after a turn's first Keeper call, and both did it after a batch of reads alike:
 
 - `extensions/thinking-schedule` (§135.27), mounted at every table: the installed App's. After the first tool batch of an input that does not deliver, it asks Pi for the lowest level, which runs the rest of the input.
 - `COC_FIRST_STEP_THINKING=1` (§38.7.1): an env-gated experiment that rewrites each provider request after the first. No launch sets it; the App does not.
 
-Once §172 put what needs no result into the narrate's response, the step that wrote the epithets, the moods and the prose was often the second: on table 20 a look came first, and the step after it, its request at `none`, wrote the book's names (§103.8).
+Once §173 put what needs no result into the narrate's response, the step that wrote the epithets, the moods and the prose was often the second: on table 20 a look came first, and the step after it, its request at `none`, wrote the book's names (§103.8).
 
 The rule is now this, in both. A call keeps thinking until a Keeper call of this turn has written. Any call but `look`, `lookup` or `recall` counts as writing; the one set is `STEP_READS` in `extensions/kernel/first-step-thinking.ts`.
 
 - `thinking-schedule` skips a batch whose calls are all reads. A batch with one write among reads is a writing batch.
 - The env-gated path counts on `tool_call`. The host's own operations raise the same event; they are recognized by `dispatcher.hostOrigin` and do not count (the clerk's move before the first call is not the Keeper's writing). The counter resets on player input, with `roundTrips`. The provider-request row's `first_step_thinking` is `true` for every call before the first write.
 
-This costs a few seconds of thinking on a step that follows only reads, which is still one model step fewer than before §172. Tests:
+This costs a few seconds of thinking on a step that follows only reads, which is still one model step fewer than before §173. Tests:
 
 - `tests/extension/thinking-schedule.test.mjs`: reads keep the table's level, a read beside a write lowers it, and the earlier cases now lower on a write.
 - `tests/extension/first-step-thinking.test.mjs`: the step after a look keeps thinking, the step after a write is rewritten off, the reset still holds, and the unsupported-format case now follows a write.
-
