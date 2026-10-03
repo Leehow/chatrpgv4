@@ -94,8 +94,8 @@ export interface PortraitImage {
 }
 
 /**
- * Test seam for the image-gen dispatch (an explicit model choice wins, grok-build the
- * default; the image_gen tool's own credential resolution). Production imports the extension statically so the bundler inlines it into the
+ * Test seam for the image-gen dispatch (an explicit model choice wins, then Codex, then
+ * grok-build, contract §172.1; the image_gen tool's own credential resolution). Production imports the extension statically so the bundler inlines it into the
  * compiled agent -- a lazy relative import would resolve against the compiled tree and miss.
  */
 export interface SheetPanelDeps {
@@ -272,7 +272,8 @@ export function registerSheetPanel(pi: ExtensionAPI, deps: SheetPanelDeps = {}):
 			image = await generatePortrait(context, { prompt: `${PORTRAIT_STYLE}${era}. ${description}`, aspectRatio: "3:4" });
 		} catch (error) {
 			// The image-gen dispatch stamps "not configured" with a stable code; the panel answers
-			// that one with the settings hint, everything else with the generic failure caption.
+			// that one with the settings hint, everything else with the generic failure caption --
+			// the Codex refusals and quota exhaustion included, since a route was chosen (§172.7).
 			const code = (error as { code?: unknown })?.code === "image_model_unconfigured"
 				? "portrait_no_model" : "portrait_unavailable";
 			return answer({

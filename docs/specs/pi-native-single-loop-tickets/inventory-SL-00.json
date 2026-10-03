@@ -671,6 +671,21 @@
       ]
     },
     {
+      "file": "extensions/image-gen/agent/vendors.js",
+      "symbol": "codexAdapter",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "image-gen",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Codex image transport on the player's ChatGPT subscription (contract §172.4): one synchronous JSON request to chatgpt.com/backend-api.",
+      "lines_at_70f8937c6": [
+        445
+      ]
+    },
+    {
       "file": "extensions/kernel/adaptation-submit.ts",
       "symbol": "adaptationSubmit.on(agent_end)",
       "kind": "trigger-turn",

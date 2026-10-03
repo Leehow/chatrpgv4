@@ -231,6 +231,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | `extensions/image-gen/agent/vendors.js` | `geminiAdapter` | 252 | `fetch` | image-gen | app-ui | not observed | Per-vendor image model transport (one request, or create+poll for DashScope async). |
 | `extensions/image-gen/agent/vendors.js` | `dashScopeSyncAdapter` | 288 | `fetch` | image-gen | app-ui | not observed | Per-vendor image model transport (one request, or create+poll for DashScope async). |
 | `extensions/image-gen/agent/vendors.js` | `dashScopeAsyncAdapter` | 321 | `fetch` | image-gen | app-ui | not observed | Per-vendor image model transport (one request, or create+poll for DashScope async). |
+| `extensions/image-gen/agent/vendors.js` | `codexAdapter` | 445 | `fetch` | image-gen | app-ui | not observed | Codex image transport on the player's ChatGPT subscription (contract §172.4): one synchronous JSON request to chatgpt.com/backend-api. |
 | `extensions/mods/document-presentation.ts` | `documentPresentationStatus` | 40 | `presentDocument` | mods ext: document presentation | app-ui | not observed | Opens a paper's reading (presenter child, tool-enabled) on demand; not part of a turn. |
 | `pipicoc/illustration.ts` | `defaultImageGenerator` | 81 | `generateImage` | pipicoc illustration | app-ui | not observed | Image model call. |
 | `pipicoc/illustration.ts` | `writePrompt` | 176 | `runtime.runTask` | pipicoc illustration | app-ui | not observed | Two-round prompt-writer child for an illustration. |

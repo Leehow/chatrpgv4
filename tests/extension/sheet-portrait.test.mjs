@@ -109,3 +109,18 @@ test('an unconfigured image model answers its own code, so the panel can point a
   assert.equal(answer.identity_art, undefined);
   assert.deepEqual(await readdir(join(home, '.coc', 'campaigns', 'c1')), []);
 });
+
+test('the Codex refusals and quota exhaustion answer portrait_unavailable, never portrait_no_model (§172.7)', async () => {
+  for (const code of ['codex_not_signed_in', 'codex_plan_excluded', 'codex_account_missing', 'image_quota_exhausted']) {
+    const {home, sheet} = await table({generate: async () => {
+      const error = new Error(`refused: ${code}`);
+      error.code = code;
+      throw error;
+    }});
+    const answer = await sheet({portrait: 'generate'});
+    assert.equal(answer.status, 'error');
+    assert.equal(answer.code, 'portrait_unavailable', code);
+    assert.equal(answer.reason, `refused: ${code}`);
+    assert.deepEqual(await readdir(join(home, '.coc', 'campaigns', 'c1')), []);
+  }
+});
