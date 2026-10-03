@@ -11430,6 +11430,13 @@ opening's asynchronous-card gap.
   person's register. Neither the mask nor its examples overrules facts, source
   truth, the listener's identity or what that person can know. The capsule head,
   full instruction, brief, writer and reviewer all follow this rule.
+  *§40.9 rewrote this rule for Narration Craft (2.1.9, description 2.1.13):* its full
+  instruction, brief, style axis, `speak-in-person` directive, `voice` floor line and
+  package description no longer put answering first; people react to the whole
+  encounter, and a genuine question gets a direct answer when the situation permits.
+  The voice writer and reviewer still answer the example question an exchange poses.
+  The base capsule head (`kernel-ts/read/assemble.ts`) still says "Answer the player's
+  words first"; §40.9 did not change it.
 - **Writing is tool-enabled.** The host reuses the existing Pi task runner with
   `read,write,edit,bash`, no implicit extensions/context/skills, a per-attempt
   directory and retained packet, draft and process evidence. It publishes only
@@ -11508,7 +11515,7 @@ not a sentence-length failure. Narration Craft 2.1.9 changes generation guidance
 - People respond to the whole encounter, including physical actions and treatment. Immediate danger takes
   priority over conducting business. The Keeper judges an insult or rhetorical question as treatment, not
   automatically as an information request; genuine questions still get direct answers when the situation
-  permits. Full, brief, style axis, directive and floor must agree, replacing unconditional answer-first
+  permits. Full, brief, style axis, directive, floor and package description must agree, replacing unconditional answer-first
   guidance. The mask shapes register; it does not preserve yesterday's business as today's priority.
 - The full instruction teaches this decision with illustrative English speech; the per-turn brief carries
   its compact reminder. Examples supply neither campaign facts nor reusable threat scripts. The voice mask
@@ -11539,6 +11546,10 @@ authored both replies. The capsule carried the new brief, so missing delivery of
 Its full and per-turn style still unconditionally said to answer what was said first; version 2.1.9 replaces
 that competing priority with the whole-encounter rule. This is a locally evidenced candidate cause; real
 dialogue must validate the correction rather than treating prompt wording as proof of naturalness.
+Version 2.1.13 changes only the package description, which 2.1.9 left saying people "answer what was actually
+said first" in the Mods panel; package bytes are frozen per version, so the wording needed its own version.
+`tests/extension/keeper-prose-contract.test.mjs` finds each of these surfaces where it lives and requires all of
+them to agree, so a surface left behind by the next rewording fails there.
 
 **Precedent.** Potts, [Presupposition and implicature](https://web.stanford.edu/~cgpotts/manuscripts/potts-blackwellsemantics.pdf),
 describes interpretation through shared context and contributions fitted to conversational purpose.

@@ -35,13 +35,15 @@ test('compressed context supplies facts but never the player-facing sentence pat
   const brief = await readFile(new URL('../../mods/narration-craft/brief.md', import.meta.url), 'utf8');
   assert.ok(craft.includes('The investigator is always "you"'));
   assert.ok(brief.includes('The investigator is always “you”'));
-  // §40.9: full, brief, style axis, directive and floor agree that people react to the whole encounter, and none keeps
-  // the unconditional answer-first priority under which a struck NPC still recited money and keys (2.1.8 run, turn 2).
+  // §40.9: full, brief, style axis, directive, floor and package description agree that people react to the whole
+  // encounter, and none keeps the unconditional answer-first priority under which a struck NPC still recited money and
+  // keys (2.1.8 run, turn 2); the description was left behind until 2.1.13.
   // Each surface is found where it lives, so one that is renamed or dropped fails here instead of passing vacuously.
   const style = JSON.parse(await readFile(new URL('../../mods/narration-craft/style.json', import.meta.url), 'utf8'));
+  const manifest = JSON.parse(await readFile(new URL('../../mods/narration-craft/mod.json', import.meta.url), 'utf8'));
   const speak = style.directives['speak-in-person'] ?? {};
   const surfaces = {full: people, brief, axes: style.axes.join('\n'), 'directive full': speak.full, 'directive brief': speak.brief,
-    floor: style.floor.find(line => line.startsWith('voice:'))};
+    floor: style.floor.find(line => line.startsWith('voice:')), description: manifest.description?.en};
   for (const [surface, text = ''] of Object.entries(surfaces)) {
     assert.match(text, /\breacts?\b/i, `§40.9: the ${surface} has people react to the whole encounter`);
     assert.doesNotMatch(text, /\banswers?\b[^.;\n]*\b(?:first|what was (?:actually )?said)\b/i, `§40.9: the ${surface} still ranks answering what was said first`);

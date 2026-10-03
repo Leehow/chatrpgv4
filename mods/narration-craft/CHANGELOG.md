@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.1.13
+- The package description says what 2.1.9 changed: people react to what was said and done and answer a genuine question directly when the situation permits. It still said they "answer what was actually said first" (contract §40.9). Description only; the full instruction, brief and style are unchanged.
+
 ## 2.1.12
 - A first visit shows everything the book describes that can be seen or heard from where the investigator stands; what cannot (the inside of a room nobody has opened, what a gun is loaded with) waits until it can be, rather than being dropped. Installed App, Blood Road, 2026-10-02: from the pumps the prose described the office shotgun's rock-salt load, and from the bar door the telephone on each motel room's nightstand. The first-sight check already owes only visible details (contract §168.5).
 - Someone already met is not described again; a later turn gives only what has changed or what the moment draws the eye to (full instruction and brief). Same table, turn 6: the cook leaning out of the kitchen got his apron, ponytail and beard a second time, one turn after his first meeting.
