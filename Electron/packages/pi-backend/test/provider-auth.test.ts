@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { applyProviderModelCorrections, PRODUCT_NOTE_KEY } from "../../../../runtime/host.ts";
 import { createPiHostBackend, SUBAGENT_MODEL_CATALOG_SNAPSHOT_VERSION } from "../src/index.js";
 import { ProviderAuthBackend } from "../src/provider-auth.js";
 import type { AuthEventLike, AuthInteractionLike, AuthPromptLike, AuthRuntimeLike } from "../src/provider-auth.js";
@@ -42,6 +43,22 @@ function fakeAuthRuntime(initialCredentialed: string[] = []): AuthRuntimeLike & 
     logout: async (providerId: string) => { credentialed.delete(providerId); logouts.push(providerId) }
   };
 }
+
+/** The product's real corrections source, the one `piLaunch` merges into the agent home (contract §135.27.1). */
+const REAL_CORRECTIONS = resolve(import.meta.dirname, "../../../../content/providers/model-corrections.json");
+
+/** The `//` header the product wrote into models.json from 2026-09-25 to 2026-10-03 (contract §135.27.1.1). */
+const LEGACY_PRODUCT_HEADER = [
+  "// Product corrections merged by chatrpgv4 (contract §135.27.1; source",
+  "// content/providers/model-corrections.json). A key below is filled in only where your own",
+  "// override for that exact provider+model does not set it; a key you set is never replaced. The",
+  "// product currently knows a correction for:",
+  "//   - opencode-go/deepseek-v4.1-flash",
+  "//   - opencode-go/deepseek-v4-flash",
+  "",
+].join("\n");
+
+const modelKeys = (models: unknown) => (models as { provider: string; id: string }[]).map(m => `${m.provider}/${m.id}`);
 
 async function tempAgent(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "pipi-auth-"));
@@ -353,6 +370,84 @@ describe("provider auth via pi ModelRuntime bridge", () => {
     expect((await backend.handle("listModels", []) as any[]).map(model => `${model.provider}/${model.id}`)).not.toContain("jellytoken/m1");
     // (d) the active model fell back away from jellytoken.
     expect(state).toMatchObject({ model: { provider: "unknown", id: "unknown" } });
+  });
+
+  // -- Contract §135.27.1.1: the product's models.json reaches the App's strict readers --------------
+  // The real path: the product's own writer (`applyProviderModelCorrections`, what `piLaunch` runs on
+  // every session spawn, with the shipped corrections source) prepares the agent home, then the real
+  // backend reads and rewrites it.
+
+  it("§135.27.1.1: the installed App's 10-03 models.json fails the App until one host preparation, then yields its configured models and takes a compat add", async () => {
+    root = await tempAgent();
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+    const path = join(root, "models.json");
+    const installed = {
+      providers: {
+        "opencode-go": { modelOverrides: { "deepseek-v4.1-flash": { thinkingLevelMap: { minimal: null, low: "low", off: "off" } },
+          "deepseek-v4-flash": { thinkingLevelMap: { off: "off" } } } },
+        "my-relay": { api: "openai-completions", baseUrl: "https://relay.example/v1", apiKey: "sk-relay",
+          models: [{ id: "relay-1", name: "relay-1", reasoning: true, contextWindow: 128000 }] },
+      },
+    };
+    await writeFile(path, `${LEGACY_PRODUCT_HEADER}${JSON.stringify(installed, null, 2)}\n`);
+    const add = { name: "My Proxy", baseUrl: "https://proxy.example/v1", apiKey: "sk-literal", modelId: "gpt-4o-mini" };
+
+    // The known boundary: before the first table launch after the upgrade, the App's strict readers still fail.
+    const before = createPiHostBackend({ agentDir: root, authRuntime: fakeAuthRuntime() }) as any;
+    expect(modelKeys(await before.handle("listModels", []))).not.toContain("my-relay/relay-1");
+    await before.compatContextBackfill;
+    await expect(before.handle("addOpenAICompatibleProvider", [add])).rejects.toThrow(/无法读取 models\.json/);
+
+    // One host preparation removes the product's old header and writes strict JSON.
+    expect(await applyProviderModelCorrections(root, REAL_CORRECTIONS)).toEqual({ status: "written" });
+    const backend = createPiHostBackend({ agentDir: root, authRuntime: fakeAuthRuntime() }) as any;
+    expect(modelKeys(await backend.handle("listModels", []))).toContain("my-relay/relay-1");
+    const saved = await backend.handle("addOpenAICompatibleProvider", [add]) as { providerId: string };
+    expect(saved.providerId).toBe("my-proxy");
+    expect(modelKeys(await backend.handle("listModels", []))).toEqual(expect.arrayContaining(["my-relay/relay-1", "my-proxy/gpt-4o-mini"]));
+    await backend.compatContextBackfill;
+
+    // The App's rewrite keeps the product's note and corrections; the next launch then rewrites nothing.
+    const bytes = await readFile(path, "utf8");
+    const disk = JSON.parse(bytes);
+    expect(Array.isArray(disk[PRODUCT_NOTE_KEY])).toBe(true);
+    expect(disk.providers["opencode-go"]).toEqual(installed.providers["opencode-go"]);
+    expect(disk.providers["my-relay"]).toEqual(installed.providers["my-relay"]);
+    expect(disk.providers["my-proxy"]).toMatchObject({ api: "openai-completions", apiKey: "sk-literal" });
+    expect(await applyProviderModelCorrections(root, REAL_CORRECTIONS)).toEqual({ status: "unchanged" });
+    expect(await readFile(path, "utf8")).toBe(bytes);
+  });
+
+  it("§135.27.1.1: a product-prepared models.json yields its configured models, takes a compat add, a context backfill and a logout cleanup", async () => {
+    root = await tempAgent();
+    const path = join(root, "models.json");
+    await writeFile(path, JSON.stringify({ providers: {
+      jellytoken: { api: "openai-completions", baseUrl: "https://jelly.example/v1", apiKey: "sk-inline",
+        models: [{ id: "m1", name: "m1", reasoning: true }] },
+    } }));
+    expect(await applyProviderModelCorrections(root, REAL_CORRECTIONS)).toEqual({ status: "written" });
+    await writeFile(join(root, "auth.json"), JSON.stringify({ jellytoken: { type: "api_key", key: "sk-inline" } }));
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: [{ id: "m1", context_length: 262144 }, { id: "gpt-4o-mini", context_length: 128000 }] }),
+    })));
+    const runtime = fakeAuthRuntime(["jellytoken"]);
+    const backend = createPiHostBackend({ agentDir: root, authRuntime: runtime }) as any;
+    expect(modelKeys(await backend.handle("listModels", []))).toContain("jellytoken/m1");
+    await backend.compatContextBackfill;
+    expect(JSON.parse(await readFile(path, "utf8")).providers.jellytoken.models[0].contextWindow).toBe(262144);
+
+    await backend.handle("addOpenAICompatibleProvider", [{ name: "My Proxy", baseUrl: "https://proxy.example/v1", apiKey: "sk-literal", modelId: "gpt-4o-mini" }]);
+    expect(modelKeys(await backend.handle("listModels", []))).toContain("my-proxy/gpt-4o-mini");
+    await backend.handle("removeProviderCredentials", ["jellytoken"]);
+    expect(runtime.logouts).toEqual(["jellytoken"]);
+
+    const disk = JSON.parse(await readFile(path, "utf8"));
+    expect(disk.providers.jellytoken).toBeUndefined();
+    expect(disk.providers["my-proxy"]).toMatchObject({ apiKey: "sk-literal" });
+    expect(Array.isArray(disk[PRODUCT_NOTE_KEY])).toBe(true);
+    expect(disk.providers["opencode-go"].modelOverrides["deepseek-v4-flash"]).toEqual({ thinkingLevelMap: { off: "off" } });
+    expect(await applyProviderModelCorrections(root, REAL_CORRECTIONS)).toEqual({ status: "unchanged" });
   });
 
   it("backfills missing contextWindow on existing openai-completions providers after catalog load", async () => {

@@ -269,7 +269,8 @@ export function createRuntime(binding: RuntimeBinding, host: RuntimeHostOptions 
 // creates the home directory and reconciles `settings.json`). A user's own value always wins and is
 // never replaced -- key by key: an override the user wrote for the same provider+model keeps every
 // key it sets, and only the keys it never mentions are filled from the correction. Every other
-// provider and field in the user's file is left exactly as read.
+// provider and field in the user's file is left exactly as read. The file is written as strict JSON
+// (§135.27.1.1): the App reads and rewrites it with plain `JSON.parse`/`JSON.stringify`.
 
 export interface ProviderModelCorrectionEntry {
   readonly provider: string;
@@ -342,18 +343,49 @@ export function mergeProviderModelCorrections(existingModelsJson: unknown, corre
   return { config, entries };
 }
 
-function correctionsNote(entries: readonly ProviderModelCorrectionEntry[]): string {
-  if (!entries.length) return "";
-  const lines = entries.map(({ provider, model }) => `//   - ${provider}/${model}`);
+/**
+ * The product-owned top-level key that carries the merge's note (§135.27.1.1). The App's own
+ * readers and writers of `models.json` are strict JSON, so the note is data, not a comment: every
+ * writer round-trips it, and Pi's schema accepts an extra top-level key. `$comment`-prefixed like the
+ * corrections source's own documentation keys.
+ */
+export const PRODUCT_NOTE_KEY = "$comment-chatrpgv4";
+
+/** The `//` header this merge wrote from 2026-09-25 to 2026-10-03 (§135.27.1.1): these lines, then one `//   - p/m` per entry. */
+const LEGACY_HEADER_LINES = [
+  "// Product corrections merged by chatrpgv4 (contract §135.27.1; source",
+  "// content/providers/model-corrections.json). A key below is filled in only where your own",
+  "// override for that exact provider+model does not set it; a key you set is never replaced. The",
+  "// product currently knows a correction for:",
+];
+const LEGACY_HEADER_ENTRY = "//   - ";
+
+function correctionsNote(entries: readonly ProviderModelCorrectionEntry[]): string[] {
   return [
-    "// Product corrections merged by chatrpgv4 (contract §135.27.1; source",
-    "// content/providers/model-corrections.json). A key below is filled in only where your own",
-    "// override for that exact provider+model does not set it; a key you set is never replaced. The",
-    "// product currently knows a correction for:",
-    ...lines,
-    "",
-  ].join("\n");
+    "Provider model corrections merged by chatrpgv4 (contract §135.27.1; source content/providers/model-corrections.json).",
+    "Each is merged into providers.<id>.modelOverrides.<model> key by key: a key is filled in only where your own override for that exact provider+model does not set it; a key you set is never replaced.",
+    `Corrected: ${entries.map(({ provider, model }) => `${provider}/${model}`).join(", ")}.`,
+    "This key is the product's and is rewritten at every launch. The product writes no comments into this file, and leaves a file that carries yours untouched.",
+  ];
 }
+
+/** Drop the header this merge used to write, matched line by line against its own bytes, and nothing else. */
+function withoutLegacyHeader(text: string): string {
+  const lines = text.split("\n");
+  if (!LEGACY_HEADER_LINES.every((line, index) => lines[index] === line)) return text;
+  let index = LEGACY_HEADER_LINES.length;
+  while (index < lines.length && lines[index].startsWith(LEGACY_HEADER_ENTRY)) index++;
+  return lines.slice(index).join("\n");
+}
+
+function modelOverrideOf(config: unknown, { provider, model }: ProviderModelCorrectionEntry): unknown {
+  return jsonObject(jsonObject(jsonObject(jsonObject(config).providers)[provider]).modelOverrides)[model];
+}
+
+export type ProviderModelCorrectionsOutcome =
+  | { readonly status: "written" | "unchanged" | "no_corrections_file" }
+  | { readonly status: "left_untouched"; readonly reason: "unparsable" }
+  | { readonly status: "left_untouched"; readonly reason: "operator_comments"; readonly missing: readonly ProviderModelCorrectionEntry[] };
 
 /**
  * Merge the product's provider model corrections into `<agentHome>/models.json`. Called at host
@@ -364,12 +396,16 @@ function correctionsNote(entries: readonly ProviderModelCorrectionEntry[]): stri
  * A `models.json` that fails to parse even after stripping comments is left untouched rather than
  * blocking the table: Pi's own loader degrades the same way (`ModelConfig.load` disables custom
  * models and records `getError()`, but still starts).
+ *
+ * The file written is strict JSON (§135.27.1.1): the note is `PRODUCT_NOTE_KEY`, the header the
+ * merge used to write is dropped, and a file that still carries comments after that is an
+ * operator's, left byte for byte as it was, with the corrections that did not land reported.
  */
-export async function applyProviderModelCorrections(agentHome: string, correctionsPath: string): Promise<void> {
+export async function applyProviderModelCorrections(agentHome: string, correctionsPath: string): Promise<ProviderModelCorrectionsOutcome> {
   let correctionsText: string;
   try { correctionsText = await readFile(correctionsPath, "utf8"); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { status: "no_corrections_file" };
     throw error;
   }
   const corrections: unknown = JSON.parse(correctionsText);
@@ -379,13 +415,23 @@ export async function applyProviderModelCorrections(agentHome: string, correctio
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+  const source = withoutLegacyHeader(existingText);
   let existing: unknown = {};
-  if (existingText.trim()) {
-    try { existing = JSON.parse(stripJsonComments(existingText)); }
-    catch { return; } // a hand-broken models.json is the operator's; Pi's own loader will also flag it
+  if (source.trim()) {
+    try { existing = JSON.parse(stripJsonComments(source)); }
+    catch { return { status: "left_untouched", reason: "unparsable" }; } // the operator's; Pi's own loader will also flag it
   }
   const { config, entries } = mergeProviderModelCorrections(existing, corrections);
-  const body = `${correctionsNote(entries)}${JSON.stringify(config, null, 2)}\n`;
-  if (body === existingText) return;
+  if (stripJsonComments(source) !== source) {
+    // An operator wrote these comments; no strict-JSON rewrite could keep them.
+    const missing = entries.filter(entry =>
+      JSON.stringify(modelOverrideOf(existing, entry)) !== JSON.stringify(modelOverrideOf(config, entry)));
+    return { status: "left_untouched", reason: "operator_comments", missing };
+  }
+  const rest: Record<string, unknown> = { ...config };
+  delete rest[PRODUCT_NOTE_KEY];
+  const body = `${JSON.stringify(entries.length ? { [PRODUCT_NOTE_KEY]: correctionsNote(entries), ...rest } : rest, null, 2)}\n`;
+  if (body === existingText) return { status: "unchanged" };
   await writeFile(modelsPath, body, "utf8");
+  return { status: "written" };
 }

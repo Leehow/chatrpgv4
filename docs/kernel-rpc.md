@@ -22831,11 +22831,14 @@ mentioned, so a fast model set to `off` resolved to the catalog's `off: null`.) 
 field of an existing entry is left untouched. The merge is
 idempotent (the same inputs produce the same bytes, so it is safe to run at every launch) and tolerant the same way
 `runtime/tasks.ts`'s `childCatalog` already is about `models-store.json`/`models.json`: a missing corrections file is
-one correction fewer, never a failure, and a hand-broken `models.json` is left untouched rather than blocking the
-table (Pi's own `ModelConfig.load` degrades the same way -- it disables custom models and records `getError()`, but
-still starts). The written file carries a `//`-comment header (Pi's own `models.json` loader tolerates `//`/`/* */`
-comments, `stripJsonComments`) naming which provider/model pairs are the product's, so an operator who opens the file
-is not left wondering where an override came from.
+one correction fewer, never a failure, and a hand-broken `models.json` -- or, since 2026-10-03, one carrying an
+operator's own comments (§135.27.1.1) -- is left untouched rather than blocking the table (Pi's own
+`ModelConfig.load` degrades the same way -- it disables custom models and records `getError()`, but still starts).
+The written file carries a note naming which provider/model pairs are the product's, so an operator who opens the file
+is not left wondering where an override came from. (Amended 2026-10-03, §135.27.1.1. The note was first a `//`-comment
+header, on the claim that Pi's loader tolerates `//`/`/* */` comments; Pi strips `//` line comments and trailing commas
+only, and the header broke every strict-JSON reader the App has. The note is now the product-owned top-level data key
+`"$comment-chatrpgv4"`, and the file is strict JSON.)
 
 **The App's canonical `models.json`.** `Electron/apps/electron/src/main/pi-profile.ts` already has almost exactly
 this hook -- `installBundledModelCapabilityOverrides(profile, snapshotPath)`, "Install the bundled capability layer
@@ -22878,6 +22881,118 @@ plain `--thinking` level) and has the host's `before_provider_request` hook turn
 provider call after the first of a turn, so twelve-long-gate comparisons can isolate "thinking on the first step
 only" from "thinking off entirely." No settings key, no UI, no default; see §38.7.1 for the mechanism and the
 telemetry it adds.
+
+##### 135.27.1.1 Amendment (2026-10-03): the product writes no comments into `models.json`
+
+**The defect.** The merge above wrote a `//` header into `<agentHome>/models.json`. On the installed App
+(`~/Library/Application Support/Pipi/pipicoc/pi-coc/agent/models.json`, 2026-10-03) the file began
+`// Product corrections merged by chatrpgv4 ...`. Pi's loader accepts that. PipiUI does not: it reads the same file
+with plain `JSON.parse` at four sites in `Electron/packages/pi-backend/src/index.ts`, and each one failed at character 0.
+
+- `loadConfiguredModels` silently ended up with zero configured models.
+- `addOpenAICompatibleProvider` threw `无法读取 models.json`, so no custom provider could be added.
+- `backfillCompatContextWindows` silently returned.
+- The logout cleanup in `removeProviderCredentials` threw.
+
+This is the §31 shape: one producer changed the file's shape, and one of the file's consumers was never told.
+
+**Both ends of the file, read 2026-10-03.**
+
+- **The format owner: Pi.** Pi's `core/model-config.ts` `ModelConfig.load` runs `utils/json.ts` `stripJsonComments`,
+  which removes `//` line comments and trailing commas and nothing else. A `/* */` comment makes Pi reject the whole
+  file: `Failed to parse models.json`, and every custom model and override is disabled (probed against the vendored
+  Pi). The paragraph above wrongly said `/* */` was tolerated. Pi only reads this file; it never writes it.
+- **The writers.** Every program that writes this file serializes with `JSON.stringify`, so no comment survives any of
+  them. PipiUI has three atomic rewrites: `addOpenAICompatibleProvider`, `backfillCompatContextWindows`, and the logout
+  cleanup. There is also `project-pi-home.ts`'s `migrateSharedProjectModels` (isolated profiles only; PipiCOC runs
+  `profileMode: 'default'`) and the unwired `installBundledModelCapabilityOverrides`. Finally there is this merge
+  itself: it parsed with comments stripped and rewrote the file, which erased any operator comment except its own
+  header. So comments in this file come from two places only: an operator's hand, and the header this merge used to
+  write.
+- **The readers.** Pi and the product's own readers tolerate comments: `runtime/host.ts`, and `runtime/tasks.ts`
+  `childCatalog`, both through `runtime/json-comments.ts`. PipiUI's four sites above parse strict JSON, and so do
+  `migrateSharedProjectModels` (`parseModels`) and `installBundledModelCapabilityOverrides`.
+
+**The choice: the product stops writing comments.** The alternative was to make pi-backend parse the file the way Pi
+does. That option was rejected for three reasons.
+
+1. Tolerant reading is only half of it. Once pi-backend can read a commented file, its three writers would rewrite it
+   and silently drop the comments. Today they fail loudly on such a file; afterwards they would succeed and erase. Doing
+   it honestly needs a comment-preserving JSONC editor at each PipiUI writer and in this merge. Neither tree has one
+   (`jsonc-parser` is not a dependency).
+2. The product's note would still flap. Every PipiUI write erases it and the next launch writes it back, so whether an
+   operator who opens the file sees it depends on which writer ran last.
+3. A data key avoids both problems. It survives every one of those writers, because they all parse the file, change
+   the object, and serialize it again. Pi's `ModelsConfigSchema` (`Type.Object({providers})`) accepts an extra
+   top-level key: with the key present, `ModelRuntime` loads the file and resolves the corrections (probed).
+
+**What the merge does now** (`applyProviderModelCorrections`, which returns its outcome):
+
+1. **It writes strict JSON.** The note becomes the product-owned top-level key `"$comment-chatrpgv4"`, an array of
+   strings placed first in the file. It names the corrections source, the key-by-key rule, and the provider/model pairs
+   the product corrects.
+   - The name follows an existing convention: a key starting with `$comment` is documentation. The corrections source
+     uses such keys, and the merge strips them from entries.
+   - The key belongs to the product. It is rewritten at every launch and removed when there are no corrections.
+   - An operator's own `"$comment"`, and every other key, is never touched.
+   - Same inputs still produce the same bytes. So after a PipiUI write the next launch rewrites nothing, because
+     PipiUI kept the key and the corrections (outcome `unchanged`).
+2. **It removes the old header.** The old header is four fixed lines, starting with
+   `// Product corrections merged by chatrpgv4 (contract §135.27.1; source`, followed by one `//   - <provider>/<model>`
+   line per entry. In a file that starts with exactly those four lines, they and the entry lines after them are
+   dropped before parsing, and the next launch rewrites the file as strict JSON. This matches the product's own bytes
+   line by line and nothing else; it does not try to classify comments. An operator's own `//` line directly after the
+   header is not an entry line, so it stays and step 3 applies.
+3. **It never erases an operator's comments.** Any comment left after step 2 was written by an operator. The merge
+   leaves the file exactly as it was, just as it does for a hand-broken file, and returns
+   `{status: "left_untouched", reason: "operator_comments", missing}`. `missing` lists the corrections that did not
+   land; when it is non-empty, `piLaunch` prints one stderr line naming them, so the operator can add the overrides by
+   hand or remove the comments. This line matters because nothing else would report it: to Pi the file is valid.
+   Outcomes: `written`, `unchanged`, `no_corrections_file`, `left_untouched` (`reason: "unparsable" |
+   "operator_comments"`).
+
+**PipiUI is deliberately unchanged.** Its four sites stay strict. That now matches every writer of the file, since the
+product writes no comments. An operator's own `//` comment still breaks those sites, exactly as it did before
+2026-09-25. That posture predates this amendment, and this amendment does not change it. Making PipiUI read Pi's
+grammar is the rejected option above, with its writer half; it would be a ticket of its own.
+
+**Upgrade window, a known boundary with its own test.** An installed App whose file still has the old header keeps
+failing at those four sites until the first table launch after the upgrade. `piLaunch` runs once per session spawn,
+not when the App starts.
+
+**A known divergence, not fixed here.** `runtime/json-comments.ts` does not follow Pi's grammar. It accepts `/* */`,
+which Pi rejects, and rejects trailing commas, which Pi accepts. So an operator's trailing comma makes this merge leave
+the file untouched as hand-broken, and makes `childCatalog` drop the operator's custom models for lane children, while
+the Keeper, reading through Pi, still has them.
+
+*Tests.* In `tests/extension/provider-model-corrections.test.mjs`:
+
+- Every written file parses with plain `JSON.parse`, and its note is the data key.
+- A file with the old header and an operator's custom provider comes out strict JSON, with the provider, the
+  operator's override and the corrections kept.
+- A file with an operator's `//` comment stays byte for byte the same and reports what is missing, including one where
+  the comment sits directly under the old header. One with nothing missing reports nothing.
+- With no corrections left, a stale product note is removed.
+- An operator's own top-level `$comment` survives.
+- The existing real-Pi tests now load the strict file, note key included.
+
+In `Electron/packages/pi-backend/test/provider-auth.test.ts`, the real path runs from the product's writer to PipiUI:
+the real `applyProviderModelCorrections` with the real corrections source, then the real backend.
+
+- On the installed App's 10-03 shape (old header, plus a configured compat provider), the boundary first:
+  `listModels` lacks the configured model and `addOpenAICompatibleProvider` throws `无法读取 models.json`. After one
+  host preparation, `listModels` returns it and the add succeeds.
+- After the add, the note and the corrections are still on disk, and the next host preparation reports `unchanged`
+  and leaves the bytes as they were.
+- A product-prepared home with no old header behaves the same way.
+
+Mutations:
+
+- Put the `//` header back: 4 node tests and both pi-backend tests fail.
+- Drop the header heal: the old-header test fails in each file.
+- Drop the operator-comment guard: the two operator-comment node tests fail.
+- Drop the idempotency check: the `unchanged` assertions fail, 2 in each file.
+- Put the note after `providers`: the node key-order test fails.
 
 ### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
 
