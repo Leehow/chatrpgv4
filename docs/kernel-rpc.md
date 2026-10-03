@@ -31934,3 +31934,64 @@ This addendum is read with §§40.5, 40.7, 169, and 166; it does not replace the
 **Writing and review.** NarrationCraft owns encounter purpose, reactive emotion, source facts, and agency; `zh-optimize` owns Chinese linguistic realization and original references. Remove unconditional answer-first, repeat-to-anger, and occupation-to-fixed-reaction rules. No fabricated canon, authority, resources, secrets, or player choices; source-consistent responsive expression and fresh wording are permitted. Preserve variable/formal/long/quiet/refusal modes and the single-draft law. Masks and examples show range, not compulsory markers, and examples answer their actual preceding words. Semantic review is model judgment with at most one reviewed repair; no executable regex, detector, blacklist, or word list.
 
 **Evidence.** Every pending test remains pending; historical records do not prove current naturalness. Frozen offline comparisons are diagnostic only. Preserve old-world locks, source cards, historical evidence, and no automatic migration. App/source version consistency is separate; no App acceptance is claimed from source tests.
+
+## 171. The Keeper's delivery is drawn while it streams (owner request, 2026-10-03; amends §135.11.5's `firstProseVia` and §167's playback)
+
+**Why.** Owner, 2026-10-03, after a latency breakdown: 「那现在就是耗时的问题了，你看看怎么回事，能怎么优化」, then 「按你推荐的做，先做第1条」. Tables 15–18 (installed App, Keeper `flapcode/gpt-6-luna`) put the median first visible prose at 60.5 s. A Keeper call there costs about 7 s plus 64 ms per output token, so a 500-token narrate is on the wire for 30 s before its card lands. A probe through Pi and the App's own Flapcode extension found that luna streams tool arguments incrementally: 362 deltas over 18 s for one 390-token call, delivered in bursts about 3.3 s apart. Grok sends a call's arguments in one delta, so the same idea measured no gain on 2026-09-29. On luna the gain is most of the narrate's generation time.
+
+### 171.1 What is read
+
+A delivering call's prose is one string argument: `narrate.text`, `ask.text` and `apply.narrate` (`DELIVERY_PROSE_FIELDS`, `Electron/packages/pi-backend/src/live-prose.ts`; the schemas are in `extensions/kernel/tools.ts`). Pi's RPC `toolcall_start` names the tool (`toolName`), and its deltas carry raw JSON. The host follows a delivering call only in a bound session whose mode is `play`; setup never draws one.
+
+- **The field.** `streamingStringField` reads the field at the top level of the JSON received so far, by the JSON grammar alone. It steps over earlier fields of any kind, such as `apply.effects`. It decodes escapes and holds back a half-received escape or half a surrogate pair. At `toolcall_end`, the parsed arguments settle the text (`finishedProseField`). An `apply.narrate` written as an object is read from its `text`.
+- **The tokens.** `displayedProse` removes every complete `{{…}}` token by its braces, the §16.6 markers and the §40.1 say wrapper alike. It holds back an unclosed tail (`{{` and up to 64 characters, or a lone `{`), so no brace reaches the screen. Nothing reads the words.
+
+### 171.2 What the screen holds
+
+**One draft per stretch of prose.** Each player message (`message_end` with role `user`) starts a stretch with no draft. The first delivering call fills the draft as it streams. Draws are coalesced for 40 ms (`LIVE_PROSE_COALESCE_MS`), because the relay delivers dozens of deltas in one tick. A finished call draws at once.
+
+**A later delivering call in the same stretch.** This is a delivery the kernel refused and the Keeper resent. It changes nothing while it streams. Once its arguments are complete, the owner's ruling for that case (2026-10-03) applies:
+
+- if its prose is identical, the draft stays as it is;
+- if it differs, it replaces the draft's text in place;
+- nothing already shown is withdrawn by the host.
+
+A draft that showed nothing yet is filled by whichever call reaches it first.
+
+**How the draft is drawn.** It is a `presentation` of a `coc-mechanics` entry with a host-made id (`coc-live-prose:<session>:…`). Its details are `{draft: true, mechanics: [], marked_text: <displayed prose>, play_language}`. The delivery card's own renderer draws it, so it reads in the delivery's face and paragraphs. Speaker colour arrives with the delivered card. A redraw with the same id replaces it where it sits.
+
+**Playback.** §167's playback follows it: `useNarrationTypewriter(…, growing)`. With `growing` set from `details.draft`, playback that caught up resumes when more prose arrives, instead of showing the new part at once. A delivery that is not a draft keeps §167's "complete stays complete".
+
+### 171.3 The delivery takes the draft's place
+
+The first presentation the host streams whose prose counts under §135.11.5 carries `replacesDraft: <draft id>`. That is a `coc-mechanics` card with a non-blank `marked_text` or `rendered_text`, or a host-placed prose row that is not a §55 notice. A card with rows only (a roll card) does not replace the draft, and a draft draw still waiting for its coalescing window is cancelled.
+
+`applyStreamEvent` handles a delivery that carries `replacesDraft`:
+
+- It puts the delivery at the draft's index in the same update, even when rows of later Keeper work follow the draft.
+- It gives the delivery the draft's playback identity, so what was read is neither moved nor typed again.
+- If the delivery is already on screen, it stays where it is and the draft row is dropped.
+- A `replacesDraft` naming no row on screen is ignored, and the delivery is appended as before.
+
+§166 is unchanged. The draft is the Keeper's one draft as it is written; there is no review, rewrite or second writer, and the kernel's transaction is the same.
+
+### 171.4 What it means for the turn record
+
+`firstProseVia` gains `"draft"` (`turn-telemetry.ts`, `first-prose.ts`). The first draft draw with prose is new on screen: the host passes a row for it, so §135.11.5 counts it. Later draws pass none, as a redraw does. The delivered card that replaces the draft can never move the mark earlier. §164's reply time is unchanged: it still runs to the turn's last prose on screen, which is the delivered card.
+
+### 171.5 Limits
+
+- **A draft that is never delivered.** If a stretch ends with no delivery after its draft (every resend refused and the turn closed by a notice), the draft stays on the live screen. It is not in the transcript file, so a later reading of history shows what the kernel delivered and not the draft.
+- **Other Keepers.** A Keeper whose provider sends arguments in one delta (grok) gets one draw at `toolcall_end`, about a second before its card. That is no gain, and no cost.
+
+Writer: `LiveDeliveryProse` and `drawLiveProse` in pi-backend, from Pi's `toolcall_start`/`toolcall_delta`/`toolcall_end`.
+Reader: the transcript's presentation path and the controlled `coc-mechanics` renderer.
+Actor: the player reads the delivery as it is written.
+
+Tests:
+
+- `Electron/packages/pi-backend/test/live-prose.test.ts`: the field read, token removal, and the stretch's state, including identical and different resends.
+- `Electron/packages/pi-backend/test/live-delivery-prose.test.ts`: through `rpcEvent`, narrate and `apply.narrate` drafts grow with no brace, a roll card does not replace a draft, setup draws nothing, `replacesDraft` lands on the delivered card, and `firstProseVia` is `draft`.
+- `Electron/packages/ui/src/coc-live-prose.test.tsx`: growing playback resumes, the delivery lands at the draft's index past a later row with the same playback, and an unknown draft id is ignored.
+
+Each of five mutations turns these tests red: no `replacesDraft`, `via` forced to `mechanics`, every resend live, no growing resume, and no in-place replacement.
