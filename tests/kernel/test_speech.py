@@ -88,7 +88,8 @@ def test_a_say_token_is_never_a_dropped_marker(kernel):
     open_turn(kernel)
     result = narrate(kernel, "t1-c1", "{{say:steven-knott}}「进来。」{{/say}}")
     assert "dropped_markers" not in result
-    assert result["speech"][0]["who"] == {"npc": KNOTT_HANDLE, "name": KNOTT}
+    # §103.5: Knott is untold and has no word at this table, so the handle shows nothing on hover and tells nothing.
+    assert result["speech"][0]["who"] == {"npc": KNOTT_HANDLE, "name": KNOTT, "shown": ""}
 
 
 def test_ask_takes_the_same_token(kernel):

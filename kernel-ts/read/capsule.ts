@@ -127,7 +127,7 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
     const label = string(personRecord(world, graph.handle(node)).name || entry.label || "").trim();
     return {
         ...(label ? { label } : {}),
-        // Contract §103.1 (2026-10-03): the handle, so the Keeper-facing view can name this person by it instead of by the
+        // Contract §103.5 (2026-10-03): the handle, so the Keeper-facing view can name this person by it instead of by the
         // book's name until the name is said (extensions/kernel/untold-view.ts).
         id: graph.handle(node),
         // §115 asked this line to say `apply person` gives an epithet; compressed to "apply person, then called.name", the
@@ -135,9 +135,24 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
         // "never this name", the next table's Keeper applied the station owner's nickname instead, the short name the book gives him.
         // §115: every untold row of a crowded room carries this line and the handle, so together they stay near the first
         // line's length (the nine-person bench keeps four full dossiers only while they do). The Keeper's own copy replaces
-        // this line with the fuller one in extensions/kernel/untold-view.ts (§103.1).
+        // this line with the fuller one in extensions/kernel/untold-view.ts (§103.5).
         use: "Untold: by look; apply person an epithet; called.name and say token use it.",
     };
+}
+/**
+ * Contract §103.5 (2026-10-03): every person of the book the investigator has not been told the name of, as the host's
+ * rename of the Keeper's request needs them (`table.untold`): the book's name, the handle, and what the Keeper's copy
+ * shows instead -- this table's word for them, else the handle. Campaign-wide, not the scene's: a run that moves after
+ * its capsule was read meets the next scene's people in host messages and tool results the capsule never covered.
+ * A person the table itself established is left out; the name the table gave them is the only one there is.
+ */
+export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Row[]): Row[] {
+    return graph.kind("npc").flatMap(node => {
+        if (graph.isTablePerson(node)) return [];
+        const untold = untoldBlock(graph, world, journal, node, records), name = graph.displayName(node), id = graph.handle(node);
+        if (!untold || !name.trim() || name === id) return [];
+        return [{ name, id, shown: string(untold.label || "").trim() || id }];
+    });
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
     const label = row(world.clue_labels)[handle];

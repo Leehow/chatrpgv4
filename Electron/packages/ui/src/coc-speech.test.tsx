@@ -124,6 +124,21 @@ describe('the card colours a spoken line by who spoke it', () => {
     expect(drawn[0].getAttribute('title')).toBe('门后的人')
   })
 
+  it('hovers an untold speaker as the token showed them: nothing for a handle, never the book\'s name (§103.5)', () => {
+    const marked = '{{say:book-4-lars-williams}}「加油还是修车？」{{/say}}\n\n{{say:高瘦的老板}}「把盖子打开。」{{/say}}'
+    const {container} = render(<Delivery details={{turn: 1, mechanics: [], marked_text: marked, speech: [
+      {who: {npc: 'book-4-lars-williams', name: '拉塞尔·威廉姆斯', shown: ''}, text: '「加油还是修车？」'},
+      {who: {npc: 'book-4-lars-williams', name: '拉塞尔·威廉姆斯', shown: '高瘦的老板'}, text: '「把盖子打开。」'},
+    ]}} />)
+
+    const drawn = spans(container)
+    expect(drawn.map(el => el.getAttribute('title'))).toEqual([null, '高瘦的老板'])
+    expect(container.innerHTML).not.toContain('拉塞尔')
+    expect(container.innerHTML).not.toContain('book-4-lars-williams')
+    // One person, one hue, whatever the hover says.
+    expect(ink(drawn[0])).toBe(ink(drawn[1]))
+  })
+
   it('never prints a token, whatever script the name is in and whether or not it closes', () => {
     const marked = '{{say:诺特}}「锁了。」\n\n{{say:老太太}}「别信他。」{{/say}} 她转身走了。{{/say}}'
     const {container} = render(<Delivery details={{turn: 5, mechanics: [], marked_text: marked}} />)

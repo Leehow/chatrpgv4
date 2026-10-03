@@ -2,7 +2,9 @@
 type Row = Record<string, any>;
 
 /** Who a span resolved to. `npc` is the graph handle (a name the model may hold), never a node id. */
-export type Speaker = { npc: string; name: string } | { investigator: string; name: string } | { label: string };
+/** `shown` (§103.5): what the transcript shows for an untold person with no word at this table -- the token's own text, or
+ * nothing when the token was the handle. Absent, the card shows `name`. */
+export type Speaker = { npc: string; name: string; shown?: string } | { investigator: string; name: string } | { label: string };
 export type SpeakerResolver = (name: string) => Speaker;
 
 const TOKEN = /\{\{say:([^}\n]*)\}\}|\{\{\/say\}\}/g;

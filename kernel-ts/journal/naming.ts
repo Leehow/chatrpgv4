@@ -32,7 +32,9 @@ export function toldTurn(graph: ModuleGraph, node: Row, records: Iterable<Row>, 
     for (const record of committed) {
         if (array(record.speech).some(line => {
             const who = row(row(line).who);
-            return string(who.npc) === handle && words.some(word => occurs(normalize(who.name ?? ''), word));
+            // §103.5: what the transcript showed for the speaker -- `shown` where the delivery recorded one.
+            const shown = 'shown' in who ? string(who.shown) : string(who.name ?? '');
+            return string(who.npc) === handle && words.some(word => occurs(normalize(shown), word));
         }))
             return number(record.turn);
         if (words.some(word => occurs(normalize(record.rendered_text ?? ''), word)))

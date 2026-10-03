@@ -1,12 +1,12 @@
 /**
- * Contract §103.1 (owner ruling 2026-10-03): the Keeper's copy of the capsule names an untold person by this table's
+ * Contract §103.5 (owner ruling 2026-10-03): the Keeper's copy of the capsule names an untold person by this table's
  * epithet, or by their handle, and keeps the book's name aside for the moment it is said. On the installed App the
  * Keeper named the station owner, the trucker and the veteran in prose on first sight, from `present[].name`.
  */
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
-import {firstSightPeople, untoldView, UNTOLD_VIEW_USE} from '../../extensions/kernel/untold-view.ts';
+import {firstSightPeople, renameUntold, untoldPeople, untoldView, UNTOLD_VIEW_USE} from '../../extensions/kernel/untold-view.ts';
 
 const capsule = () => ({
   turn: {number: 2},
@@ -47,4 +47,30 @@ test('the kernel extension hands the Keeper this view and keeps the bus copy as 
   assert.ok(emit > 0 && view > emit, 'the bus copy goes out before the view is made');
   assert.ok(source.includes('content: JSON.stringify(keeperView.capsule),'));
   assert.ok(source.includes('firstSightPeople(sight!.people as unknown[], state.untoldNames)'), 'a mid-run first sight follows the same names');
+});
+
+test("§103.5 renameUntold: every host message and tool result names an untold person as the Keeper's copy does; the player, the Keeper and untold.name keep theirs", () => {
+  const people = untoldPeople({ people: [{ name: "拉塞尔·威廉姆斯", id: "book-4-lars-williams", shown: "book-4-lars-williams" },
+    { name: "Arty", id: "arty", shown: "the bartender" }, { name: "", shown: "x" }, { name: "same", shown: "same" }] });
+  assert.deepEqual(people.map((person) => person.name), ["拉塞尔·威廉姆斯", "Arty"], "rows without two different names are dropped");
+  const messages = [
+    { role: "user", content: "拉塞尔·威廉姆斯在吗？" },
+    { role: "assistant", content: [{ type: "text", text: "拉塞尔·威廉姆斯" }] },
+    { role: "custom", customType: "coc-clerk", content: JSON.stringify({ present: [{ name: "拉塞尔·威廉姆斯" }],
+      note: "Initialize the authored presence of 拉塞尔·威廉姆斯 at 埃索加油站; the Party of Arty" }) },
+    { role: "custom", customType: "coc-capsule", content: JSON.stringify({ present: [{ name: "book-4-lars-williams", untold: { name: "拉塞尔·威廉姆斯", use: "u" } }] }) },
+    { role: "toolResult", toolName: "look", content: [{ type: "text", text: "{\"name\":\"拉塞尔·威廉姆斯\"}" }, { type: "image", data: "x" }] },
+  ];
+  const before = structuredClone(messages), out = renameUntold(messages, people);
+  assert.deepEqual(messages, before, "the input messages are not changed");
+  assert.equal(out[0], messages[0], "the player's words stay");
+  assert.equal(out[1], messages[1], "the Keeper's own prose stays");
+  assert.deepEqual(JSON.parse(out[2].content), { present: [{ name: "book-4-lars-williams" }],
+    note: "Initialize the authored presence of book-4-lars-williams at 埃索加油站; the Party of the bartender" }, "Arty inside Party is a different word");
+  assert.equal(JSON.parse(out[3].content).present[0].untold.name, "拉塞尔·威廉姆斯", "untold.name is the one seat the book's name keeps");
+  assert.equal(out[4].content[0].text, "{\"name\":\"book-4-lars-williams\"}");
+  assert.equal(out[4].content[1], messages[4].content[1]);
+  assert.deepEqual(renameUntold(messages, []), messages);
+  const longest = renameUntold([{ role: "custom", content: "Steve Brown and Steve" }], untoldPeople({ people: [{ name: "Steve", shown: "s1" }, { name: "Steve Brown", shown: "s2" }] }));
+  assert.equal(longest[0].content, "s2 and s1", "the longer name is renamed first");
 });

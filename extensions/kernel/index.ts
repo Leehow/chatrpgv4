@@ -432,7 +432,7 @@ interface TableState {
 	firstSightOmitted: Set<string>;
 	/** The last delivered prose, the first-sight check's `earlier` (§168.5). */
 	lastDeliveredProse?: string;
-	/** §103.1: what each untold person is shown as in the Keeper's copy of the last capsule. */
+	/** §103.5: what each untold person is shown as in the Keeper's copy of the last capsule. */
 	untoldNames?: UntoldNames;
 	/** Contract §37.6: the independent source review refused the placement this turn's reentry needs.
 	 * Host-owned, from the kernel's own adaptation result — never prose — and cleared when a later
@@ -5705,7 +5705,7 @@ export default function (pi: ExtensionAPI) {
 				const turn = (capsule as { turn?: { number?: unknown } } | undefined)?.turn?.number;
 				if (!(state && state.campaign === campaign && typeof turn === "number")) return capsule;
 				const view = firstSightView(state, capsule, turn) as Record<string, unknown>;
-				// §103.1: a first sight read mid-run names untold people as the Keeper's copy of the capsule did.
+				// §103.5: a first sight read mid-run names untold people as the Keeper's copy of the capsule did.
 				const sight = view.first_sight as { people?: unknown[] } | undefined;
 				return (state.untoldNames && Array.isArray(sight?.people)
 					? { ...view, first_sight: { ...sight, people: firstSightPeople(sight!.people as unknown[], state.untoldNames) } } : view) as T;
@@ -6236,7 +6236,7 @@ export default function (pi: ExtensionAPI) {
 				context: result._context,
 				answering: state.answering,
 			});
-			// §103.1: the Keeper's copy names untold people by epithet or handle; the bus copy above keeps the book's names.
+			// §103.5: the Keeper's copy names untold people by epithet or handle; the bus copy above keeps the book's names.
 			const keeperView = untoldView(capsule);
 			state.untoldNames = keeperView.names;
 			return {

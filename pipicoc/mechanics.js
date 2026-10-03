@@ -1545,8 +1545,9 @@ export function createComponent(React) {
       const who = isRecord(row.who) ? row.who : {};
       const npc = text(who.npc), investigator = text(who.investigator), label = text(who.label);
       const kind = npc ? "npc" : investigator ? "investigator" : "label";
-      const name = text(who.name) || label || span.name;
-      return { who: kind, title: term(name), ink: speakerInk(npc || investigator || label || span.name, kind) };
+      // §103.5: `shown` is what an untold person with no word at this table is shown as -- nothing for a handle.
+      const name = "shown" in who ? text(who.shown) : text(who.name) || label || span.name;
+      return { who: kind, title: name ? term(name) : "", ink: speakerInk(npc || investigator || label || span.name, kind) };
     };
 
     const prose = text(details.rendered_text);

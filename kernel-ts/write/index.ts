@@ -19,7 +19,7 @@ import { mechanics } from '../read/mechanics.js';
 import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
-import { clockSection, sceneLabel } from '../read/capsule.js';
+import { clockSection, sceneLabel, untoldBlock } from '../read/capsule.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf, declaredPlayLanguage } from '../read/languages.js';
 import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
@@ -154,6 +154,11 @@ function timeRow(gap: Row, turn: Row, callId: string, params: Row): Row {
  * line and the turn it was said. A line the host wrapped (§128.3) is never refused: its repeats are
  * returned, and the delivery carries them as findings instead.
  */
+/** §103.5: who is untold at this delivery, for the say token's `shown` (write/speech.ts). Table-established people never are. */
+async function untoldAt(snapshot: CampaignSnapshot, graph: ModuleGraph): Promise<(node: Row) => boolean> {
+    const journal = row(await snapshot.optional('npc-journal.json')), records = snapshot.records.length ? snapshot.records : await snapshot.files('turns');
+    return node => !graph.isTablePerson(node) && untoldBlock(graph, snapshot.world, journal, node, records) !== null;
+}
 async function refuseRepeatedLine(snapshot: CampaignSnapshot, campaign: CampaignWriter, speech: unknown,
     host: ReadonlySet<number> = new Set()): Promise<Row[]> {
     const lines = array(speech);
@@ -1018,7 +1023,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             throw new RpcError('invalid_params', 'a campaign ending must be delivered with narrate, not ask');
         if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
         const receipts = [...array(turn.receipts)];
-        const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party));
+        const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph)));
         await refuseRepeatedLine(snapshot, campaign, delivery.speech);
         const language = await playLanguageOf(context, snapshot.meta);
         await stanceTable(context);
@@ -1088,7 +1093,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         report?.('load');
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await validateMods(snapshot.world);
-        const receipts = [...array(turn.receipts)], speakers = speakerResolver(module.graph, snapshot.world, snapshot.party);
+        const receipts = [...array(turn.receipts)], speakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
         // `let`: §143.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
         let text = required(params, 'text')!;
         let { placed, ...delivery } = deliveryText(text, receipts, speakers), rendered = delivery.rendered_text;

@@ -18071,25 +18071,52 @@ named person is refused), `tests/extension/npc-journal-lane.test.mjs` (the promp
 and the rules, label and named travel to `journal.submit`), `tests/extension/character-presentation.test.mjs`
 (a `named: false` row's word is not sent for translation).
 
-### 103.1 The Keeper's copy names an untold person by epithet or handle (owner ruling 2026-10-03)
+### 103.5 Until a name is said, the Keeper's request names that person by epithet or handle (owner ruling 2026-10-03)
+
+(First committed as a second "§103.1", 86aef486a; renumbered here, since §103.1 is "The fact and where it lives".)
 
 §103 put `untold` beside each person whose name the player has not been told, but left `present[].name` as the book's
 name -- the field the Keeper writes from. On the installed App (2026-10-02) the Keeper named the station owner, the
-trucker and the veteran in prose on first sight, across three tables, before anyone had said a name; asked to apply an
-epithet first, it did so once and kept to it, and named everyone else from `name`.
+trucker and the veteran in prose on first sight, across three tables, before anyone had said a name.
 
-- The kernel's `untold` block carries `id`, the person's handle, beside `label` and `use`. Its `use` line stays short
-  (`"Untold: by look; apply person an epithet; called.name and say token use it."`): every untold row of a crowded room
-  carries it, and the nine-person bench keeps four full dossiers only while line and handle stay near §115's length.
-- The kernel extension hands the Keeper `untoldView(capsule)` (`extensions/kernel/untold-view.ts`) as the `coc-capsule`
-  message. In it an untold person's row reads `name: <called.name, else untold.label, else untold.id>`, and `untold`
-  becomes `{name: <the book's name>, label?, use}` with the fuller `use`: nobody has said the name, in prose they are who
+The first fix renamed the capsule message the kernel extension persists, and the next table showed it was not the
+path (Blood Road, 2026-10-03): the context hook sends the Keeper its own copy of the capsule
+(`extensions/table/context-runtime.ts`, `capsuleSent`), the clerk moved the party into the gas station before the
+Keeper's first call and its note carried the station's people by their book names, and the Keeper wrote
+`{{say:拉塞尔·威廉姆斯}}`. That token resolved to the book's name, which the transcript shows on hover, so the kernel
+counted the name as told (§103.3's floor, `toldTurn`), and on turn 2 the Keeper wrote "拉塞尔" in the prose.
+
+- **Who is untold.** `table.untold {campaign}` (read-only) -> `{people: [{name, id, shown}]}`: every book person whose
+  `untold` block (§103.3) is not null -- campaign-wide, not the scene's, because a run that moves after its capsule was
+  read meets the next scene's people in messages the capsule never covered. `name` is the book's display name, `id`
+  the handle, `shown` this table's word for them (`untold.label`), else the handle. A person the table established is
+  left out; the name the table gave them is the only one there is.
+- **The request is the boundary.** The context hook reads the roster with each snapshot and passes every outgoing
+  request through `renameUntold` (`extensions/kernel/untold-view.ts`): in every host message (`role: custom` -- the
+  capsule, the clerk's note, the capsule update, the prescreen packet) and every tool result, each untold person's
+  book name becomes `shown`, at Latin word boundaries (journal/naming.ts `occurs`), longest name first. The player's
+  words and the Keeper's own prose are left alone. A list of message kinds to rename would miss the next kind; the
+  request is where they all meet. The degraded request (no snapshot) uses the last roster read.
+- **The capsule's one seat for the book's name.** The context hook's capsule copy goes through `untoldView`: an
+  untold person's row reads `name: <called.name, else untold.label, else untold.id>`, and `untold` becomes
+  `{name: <the book's name>, label?, use}` with the fuller `use` line -- nobody has said the name, in prose they are who
   they look like, `name` is for tool calls and say tokens, `untold.name` only once someone in the scene says it. The
-  capsule's `first_sight.people` follow the same names, and so does a first sight handed over mid-run
-  (`coc:first-sight` port).
-- Only the Keeper's copy changes. The raw capsule and the `coc:capsule` bus copy -- prescreen, Jev candidates, the
-  director line -- keep the book's names. Tool calls and say tokens resolve a handle or the table's epithet as they
-  resolve the name (`ModuleGraph.nameKeys`, §87.8).
+  rename keeps exactly that seat (`"untold":{"name":"…"`). The kernel's own `untold` block carries the handle as `id`
+  and a short `use` line, so the nine-person bench keeps four full dossiers (§115).
+- **A say token shows what it says.** For an untold person with no word at this table, a say token's speech row carries
+  `shown` (kernel-ts/write/speech.ts) beside the unchanged `name` whenever the two differ: the token's own text, or `""`
+  when the token was the handle. The card's hover reads `shown` (an empty one draws no hover; pipicoc/mechanics.js), and the told check reads
+  `shown` where a row has it (journal/naming.ts). So a token by handle or by epithet tells nothing, and a token that
+  wrote the book's name still shows it and still tells it. Rows recorded before this have no `shown` and read as
+  before.
+- Host readers keep the book's names: the raw capsule, the `coc:capsule` bus copy, prescreen and Jev candidates, the
+  director line. Tool calls and say tokens resolve a handle or the table's epithet as they resolve the name
+  (`ModuleGraph.nameKeys`, §87.8).
+
+*Tests.* `tests/extension/untold-request.test.mjs` (the kernel in process and the installed context hooks: the
+capsule the hook sends, a clerk note and a tool result renamed, the player's words kept; a token by handle tells
+nothing, one by the book's name tells); `tests/extension/untold-view.test.mjs`; `Electron/packages/ui/src/
+coc-speech.test.tsx` (the hover).
 
 ## 104. Characteristic-driven combat weapons use the actor's authored characteristic (2026-09-17)
 

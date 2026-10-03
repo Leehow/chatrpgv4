@@ -303,11 +303,12 @@ test('effective Mod locks and settings refresh a retained briefing even without 
         assert.deepEqual(brief.instructions, instructions, 'source identity alone does not authorize stale package instructions');
     }
     assert.equal(t.state.methods.filter(method => method === 'table.capsule').length, states.length);
-    const calls = t.state.calls;
+    const calls = t.state.methods.length;
     t.bus.get('coc:capsule')({capsule: {...t.cap(), mods: {instructions: [{...states.at(-1)[0], form: 'brief', instruction: 'Short reminder'}]}}, context: binding(0), epoch: 'ordinary-next-input'});
     const projected = await t.hooks.get('context')({messages: t.messages}, t.ctx);
     assert.deepEqual(JSON.parse(projected.messages.find(message => message.customType === api.BRIEF_TYPE).content).instructions, states.at(-1));
-    assert.equal(t.state.calls, calls, 'the same immutable package still reuses its full briefing');
+    // §103.5: a new input reads who is still untold; nothing else, so the briefing is the retained one.
+    assert.deepEqual(t.state.methods.slice(calls), ['table.untold'], 'the same immutable package still reuses its full briefing');
 });
 
 test('raw retained bytes alone never compact while measured context usage is below eighty percent', async () => {

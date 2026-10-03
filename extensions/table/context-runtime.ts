@@ -9,6 +9,7 @@ import {dirname, join} from 'node:path';
 import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
 import {getCurrentSystemMessage} from '@earendil-works/pi-ai';
 import {compactAt} from './fold.ts';
+import {renameUntold, untoldPeople, untoldView, type UntoldPerson} from '../kernel/untold-view.ts';
 import {createWorkpadStore, type WorkpadView} from './workspace/workpad-store.ts';
 import {selectWorkspace, workspaceBudgetOf, workspaceModeOf, workspaceSettingsOf, workspaceCandidates, type WorkspaceMode} from './workspace/projection.ts';
 import {reuseEvidence, dormantEvidence} from './workspace/evidence.ts';
@@ -74,6 +75,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // Contract §168.5: a capsule this hook reads itself is handed over through the kernel extension's first-sight view, as
     // the player-input capsule already was: an item whose check is still running is left out, and what is carried is noted.
     let firstSight:{campaign:string;view:(capsule:Row)=>Row}|undefined;
+    // Contract §103.5: who is still untold, campaign-wide (`table.untold`), read with each snapshot; the last one read
+    // renames every request, the degraded one included.
+    let untoldRoster:UntoldPerson[]=[];
     pi.events.on('coc:first-sight',value=>{const port=object(value);
         firstSight=typeof port.campaign==='string'&&typeof port.view==='function'?port as unknown as typeof firstSight:undefined;});
     const firstSightView=(owner:string,view:Row):Row=>{
@@ -167,10 +171,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled()))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
-    pi.on('session_start', async () => {resetPreparation();turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+    pi.on('session_start', async () => {resetPreparation();untoldRoster=[];turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
-    pi.on('session_shutdown', async () => {resetPreparation();sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+    pi.on('session_shutdown', async () => {resetPreparation();untoldRoster=[];sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
@@ -199,6 +203,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     if (!binding) return fail('context_binding_unavailable');
                     rawBinding = _context; capsule = view; rehydrated = true;
                 }
+                // §103.5: read with the snapshot, so a turn's every request renames by the same roster; a failed read keeps the last.
+                try { untoldRoster = untoldPeople(await rpc('table.untold', {})); } catch { /* the last roster stands */ }
+                if (ticket !== generation || signal.aborted) return undefined;
                 const source = briefingKey(binding, current);
                 if (!brief || briefKey !== source) {
                     let full = current;
@@ -412,7 +419,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             const rest = (requestMessages as unknown as Row[]).filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType)));
             const notice = diagnostic(lastReason);
             const cut = boundedTail(rest, Math.max(0, budget - requestSize([notice])));
-            const outgoing = [notice, ...cut.messages];
+            const outgoing = renameUntold([notice, ...cut.messages], untoldRoster);
             record({lane: 'context', event: 'request', version: POLICY_VERSION, reason: lastReason,
                 request_bytes: requestSize(outgoing) + systemBytes, system_bytes: systemBytes,
                 local_token_estimate: Math.ceil((requestSize(outgoing) + systemBytes) / BYTES_PER_TOKEN),
@@ -422,7 +429,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         }
         const messages = requestMessages as unknown as Row[];
         let seen = false;
-        const view = structuredClone(snapshot.capsule);
+        // §103.5: the capsule the Keeper is sent is this copy, not the persisted message; it carries the Keeper's untold view.
+        const view = untoldView(structuredClone(snapshot.capsule)).capsule;
         // The immutable full briefing already has these fields; retain the turn-specific craft selection.
         delete view.module;
         if (view.mods) {view.mods = {...view.mods}; delete view.mods.instructions;}
@@ -501,7 +509,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             const reused=prescreen,needsReassessment=object(object(reused?.details).prescreen).needs_reassessment===true;
             if(!prescreen||needsReassessment&&prescreenProviderBudget.actions>0&&Date.now()<prescreenDeadlineAt){
                 let refreshOutcome='unknown';
-                if(preparationSignal.aborted||ticket!==generation)return {messages:baseline.messages as typeof requestMessages};
+                if(preparationSignal.aborted||ticket!==generation)return {messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
                 const refreshed=await preparePrescreen({call:preparationCall,campaign:preparationCampaign,binding:snapshot.binding,capsule:snapshot.capsule,
                     signal:preparationSignal,record:event=>{record(event);if(event.event==='prepared')refreshOutcome='prepared';
                         else if(event.event==='fallback')refreshOutcome='fallback';else if(event.event==='skipped')refreshOutcome=String(event.reason??'skipped');},
@@ -510,11 +518,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     providerBudget:prescreenProviderBudget,...(sourceRuntime&&moduleId?{source:{moduleId,runtime:sourceRuntime}}:{})});
                 prescreen=refreshed??(needsReassessment&&['prepared','empty_catalog'].includes(refreshOutcome)?undefined:reused);
             }
-            if(ticket!==generation||preparationSignal.aborted)return {messages:baseline.messages as typeof requestMessages};
+            if(ticket!==generation||preparationSignal.aborted)return {messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
             prescreenMemo={key:memoKey,message:prescreen};
             if(prescreen)reusablePrescreen=prescreen;
         }
-        if(ticket!==generation||preparationSignal.aborted)return {messages:baseline.messages as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return {messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
         let result=prescreen?projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
             brief:briefSent,answering:snapshot.answering,budget:messageBudget,workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
@@ -524,10 +532,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (reason) result = projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
             brief:briefSent,answering:snapshot.answering,
             budget:Math.max(0,messageBudget-requestSize([diagnostic(reason)])),workspace,prescreen});
-        const outgoing = [...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail];
+        const outgoing = renameUntold([...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail], untoldRoster);
         const bytes = requestSize(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
         const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;
-        pendingProvider=prescreen?{requestId,prepared:prescreen,outgoingDigest:fingerprint(outgoing)}:undefined;
+        pendingProvider=prescreen?{requestId,prepared:renameUntold([prescreen],untoldRoster)[0],outgoingDigest:fingerprint(outgoing)}:undefined;
         record({lane: 'context', event: 'request', version: POLICY_VERSION, turn: snapshot.binding.turn,request_id:requestId,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             request_bytes: bytes, system_bytes: systemBytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
