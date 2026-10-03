@@ -8,6 +8,7 @@
 //
 // Usage:
 //   NODE_USE_ENV_PROXY=1 node probe.mjs [--auth <auth.json>] [--originator pi|codex_cli_rs]
+//                                       [--size auto|1024x1536|...] [--quality auto|low|medium|high]
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -23,6 +24,8 @@ const authPath = flag(
 	path.join(os.homedir(), "Library/Application Support/Pipi/pipicoc/pi-agent/auth.json"),
 );
 const originator = flag("--originator", "pi");
+const size = flag("--size", "auto");
+const quality = flag("--quality", "auto");
 const prompt = flag("--prompt", "A small brass key lying on an old leather-bound journal, candlelight, 1920s");
 
 const store = JSON.parse(fs.readFileSync(authPath, "utf8"));
@@ -43,7 +46,7 @@ if (expMs <= Date.now() + 60_000) {
 }
 
 const url = "https://chatgpt.com/backend-api/codex/images/generations";
-const body = { prompt, background: "auto", model: "gpt-image-2", quality: "auto", size: "auto" };
+const body = { prompt, background: "auto", model: "gpt-image-2", quality, size };
 const headers = {
 	Authorization: `Bearer ${cred.access}`,
 	"ChatGPT-Account-ID": accountId,
@@ -77,6 +80,6 @@ if (!b64) {
 }
 const outDir = path.join(path.dirname(new URL(import.meta.url).pathname), "out");
 fs.mkdirSync(outDir, { recursive: true });
-const out = path.join(outDir, `probe-${originator}-${Date.now()}.${meta.output_format ?? "png"}`);
+const out = path.join(outDir, `probe-${originator}-${quality}-${size}-${Date.now()}.${meta.output_format ?? "png"}`);
 fs.writeFileSync(out, Buffer.from(b64, "base64"));
 console.log(`saved ${out} (${fs.statSync(out).size} bytes)`);
