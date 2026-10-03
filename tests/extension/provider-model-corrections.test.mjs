@@ -272,6 +272,60 @@ test("with no corrections left, a stale product note is removed and nothing else
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { providers: { xai: { baseUrl: "https://example.invalid" } } });
 });
 
+// -- §135.27.1.2: the file is read in Pi's own grammar -------------------------------------
+
+/** An operator's hand-written relay, with the trailing commas Pi accepts and strict JSON does not. */
+const TRAILING_COMMAS = [
+	"{",
+	"  \"providers\": {",
+	"    \"my-proxy\": {",
+	"      \"baseUrl\": \"https://proxy.example/v1\",",
+	"      \"api\": \"openai-completions\",",
+	"      \"apiKey\": \"sk-literal\",",
+	"      \"models\": [",
+	"        { \"id\": \"gpt-x\", \"name\": \"gpt-x\" },",
+	"      ],",
+	"    },",
+	"  },",
+	"}",
+	"",
+].join("\n");
+const MY_PROXY = { baseUrl: "https://proxy.example/v1", api: "openai-completions", apiKey: "sk-literal", models: [{ id: "gpt-x", name: "gpt-x" }] };
+/** The same relay with a block comment, which Pi refuses: `Failed to parse models.json`, every custom model disabled. */
+const BLOCK_COMMENT = `/* my relay; ask before changing */\n${JSON.stringify({ providers: { "my-proxy": MY_PROXY } }, null, 2)}\n`;
+
+test("an operator's trailing commas are not comments: the corrections land and the operator's provider stays", async t => {
+	const home = scratch(t);
+	const path = join(home, "models.json");
+	writeFileSync(path, TRAILING_COMMAS);
+	assert.throws(() => JSON.parse(TRAILING_COMMAS), /JSON/, "a shape a strict reader fails on");
+
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "written" });
+	const parsed = JSON.parse(readFileSync(path, "utf8"));
+	assert.deepEqual(parsed.providers["my-proxy"], MY_PROXY, "the operator's provider is kept as read");
+	assert.deepEqual(parsed.providers["opencode-go"].modelOverrides["deepseek-v4.1-flash"], { thinkingLevelMap: { off: "off" } });
+	assert.deepEqual(parsed.providers["opencode-go"].modelOverrides["deepseek-v4-flash"], { thinkingLevelMap: { off: "off" } });
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "unchanged" });
+});
+
+test("a BOM is not a comment either: the corrections land", async t => {
+	const home = scratch(t);
+	const path = join(home, "models.json");
+	writeFileSync(path, `\uFEFF${JSON.stringify({ providers: { "my-proxy": MY_PROXY } }, null, 2)}\n`);
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "written" });
+	const written = readFileSync(path, "utf8");
+	assert.equal(written.startsWith("{"), true, "the rewrite is strict JSON, without the BOM");
+	assert.deepEqual(JSON.parse(written).providers["my-proxy"], MY_PROXY);
+});
+
+test("a /* */ comment fails Pi's grammar, so the file is left byte for byte and nothing is merged into it", async t => {
+	const home = scratch(t);
+	const path = join(home, "models.json");
+	writeFileSync(path, BLOCK_COMMENT);
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "left_untouched", reason: "unparsable" });
+	assert.equal(readFileSync(path, "utf8"), BLOCK_COMMENT);
+});
+
 // -- Integration: the real vendored Pi actually resolves the correction ----------------------
 
 const REAL_PI = existsSync(VENDORED_PI_INDEX);
@@ -326,4 +380,33 @@ test("Pi's own ModelRuntime gets the corrected off under an operator override th
 	assert.equal(model?.thinkingLevelMap?.off, "off");
 	assert.equal(model?.thinkingLevelMap?.low, "low", "the operator's own tiers are kept");
 	assert.equal(model?.thinkingLevelMap?.medium, null);
+});
+
+test("Pi's own ModelRuntime has the operator's trailing-comma relay before the merge, and it plus the correction after", { skip: !REAL_PI && "vendored Pi not built (npm run build:runtime)" }, async t => {
+	const { ModelRuntime, ModelRegistry } = await import(VENDORED_PI_INDEX);
+	const home = scratch(t);
+	const modelsPath = join(home, "models.json");
+	writeFileSync(modelsPath, TRAILING_COMMAS);
+	const before = await ModelRuntime.create({ modelsPath, refreshOnCreate: false });
+	assert.equal(before.getError(), undefined);
+	assert.ok(new ModelRegistry(before).find("my-proxy", "gpt-x"), "Pi reads the operator's file as written");
+
+	await applyProviderModelCorrections(home, REAL_CORRECTIONS);
+	const after = await ModelRuntime.create({ modelsPath, refreshOnCreate: false });
+	const registry = new ModelRegistry(after);
+	assert.equal(after.getError(), undefined);
+	assert.ok(registry.find("my-proxy", "gpt-x"));
+	assert.equal(registry.find("opencode-go", "deepseek-v4.1-flash")?.thinkingLevelMap?.off, "off");
+});
+
+test("Pi's own ModelRuntime refuses the /* */ file the merge left untouched: neither side reads it", { skip: !REAL_PI && "vendored Pi not built (npm run build:runtime)" }, async t => {
+	const { ModelRuntime, ModelRegistry } = await import(VENDORED_PI_INDEX);
+	const home = scratch(t);
+	const modelsPath = join(home, "models.json");
+	writeFileSync(modelsPath, BLOCK_COMMENT);
+	assert.equal((await applyProviderModelCorrections(home, REAL_CORRECTIONS)).reason, "unparsable");
+	const runtime = await ModelRuntime.create({ modelsPath, refreshOnCreate: false });
+	assert.match(runtime.getError() ?? "", /^Failed to parse models\.json/);
+	assert.equal(new ModelRegistry(runtime).find("my-proxy", "gpt-x"), undefined, "Pi disables the operator's custom models");
+	assert.equal(new ModelRegistry(runtime).find("opencode-go", "deepseek-v4.1-flash")?.thinkingLevelMap?.off ?? null, null);
 });

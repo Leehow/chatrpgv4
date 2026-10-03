@@ -22963,7 +22963,8 @@ not when the App starts.
 **A known divergence, not fixed here.** `runtime/json-comments.ts` does not follow Pi's grammar. It accepts `/* */`,
 which Pi rejects, and rejects trailing commas, which Pi accepts. So an operator's trailing comma makes this merge leave
 the file untouched as hand-broken, and makes `childCatalog` drop the operator's custom models for lane children, while
-the Keeper, reading through Pi, still has them.
+the Keeper, reading through Pi, still has them. (Settled 2026-10-03 by §135.27.1.2: both readers now parse the file in
+exactly Pi's grammar.)
 
 *Tests.* In `tests/extension/provider-model-corrections.test.mjs`:
 
@@ -22993,6 +22994,118 @@ Mutations:
 - Drop the operator-comment guard: the two operator-comment node tests fail.
 - Drop the idempotency check: the `unchanged` assertions fail, 2 in each file.
 - Put the note after `providers`: the node key-order test fails.
+
+##### 135.27.1.2 Amendment (2026-10-03): the product reads `models.json` in Pi's grammar, exactly
+
+**The divergence §135.27.1.1 recorded.** `runtime/json-comments.ts` had a grammar of its own: a character scanner
+that dropped `//` and `/* */` comments outside single- or double-quoted strings, and nothing else. Against the vendored
+Pi's own `ModelConfig.load` on the same bytes (Pi 1.0.0, probed 2026-10-03):
+
+| `models.json` | Pi | the product's readers before |
+| --- | --- | --- |
+| strict JSON, or with `//` comments | reads | reads |
+| trailing commas | reads | refuses |
+| a leading BOM | reads | refuses |
+| a `/* */` comment | refuses (`Failed to parse models.json`; every custom model and override disabled) | reads |
+| empty | refuses | the merge treats it as no file; `childCatalog` refuses |
+
+The BOM row is new: `ModelConfig.load` runs `JSON.parse(stripJsonComments(stripBom(content)))`, and the product never
+stripped a BOM.
+
+What the wrong rows did (read from the code):
+
+- **A trailing comma or a BOM.** The merge returned `left_untouched`/`unparsable`, so no correction landed and
+  `piLaunch` said nothing (it prints only for `operator_comments`), while the Keeper, through Pi, loaded the file.
+  `childCatalog` dropped the file; with `models-store.json` readable, a lane on a provider defined only in `models.json`
+  was refused `lane_model_unavailable`, although its child, which is Pi, would have run it.
+- **A `/* */` comment.** The merge returned `operator_comments`, and `piLaunch` advised adding the missing overrides by
+  hand -- to a file Pi ignores whole. `childCatalog` listed the file's providers, so a lane on one of them was spawned and
+  died in the child with `Model not found` and no events: the failure `ensureChildRunnableModel` exists to prevent.
+
+**Both ends (§31), read 2026-10-03.**
+
+- **Who writes it.** Operators by hand, and the machine writers §135.27.1.1 lists, every one of which serializes with
+  `JSON.stringify`. Pi never writes it. So any syntax beyond strict JSON in this file is an operator's.
+- **Who reads it.** Pi: the Keeper's `ModelRuntime`, and every lane and reader child (`pi -p --no-extensions` on the same
+  agent home, the vendored copy of ADR-0006). The product's two readers. PipiUI's strict readers (§135.27.1.1; not
+  changed here).
+- **Who acts on it.** Only Pi resolves a model from it. The product's two readers act on predictions of Pi: the merge
+  exists only to change what Pi resolves, and `childCatalog` exists only to predict whether a child Pi can resolve its
+  `--model`. A prediction made in a grammar other than the reader's it predicts is wrong in both directions, as the table
+  shows. The grammar is therefore not the product's to choose.
+
+**The ruling: exactly Pi's grammar.** `runtime/json-comments.ts` `parseModelsJson` does what `ModelConfig.load` does:
+drop a leading BOM (`dist/utils/text.js` `stripBom`), apply Pi's `stripJsonComments` (`dist/utils/json.js`: `//` line
+comments, then trailing commas, both outside double-quoted strings), then `JSON.parse`. Pi's two patterns are copied
+verbatim, with the source cited in the file. The function is identical in the 0.87.0 the installed App vendors and the
+1.0.0 this tree vendors, in the unbundled `dist` and in the `dist/bundle` chunk alike.
+
+It is copied, not imported. The package's `exports` (`.`, `./rpc-entry`, `./client`, `./experimental/plugin`) expose
+neither `stripJsonComments` nor `ModelConfig`, and importing a private path from `build/node_modules` at run time would
+bind the product to Pi's file layout. A test holds the copy to Pi instead (below); it fails on the Pi upgrade that
+changes the grammar. `docs/pi-host-contract.md`'s "no fork, no patch" is untouched: nothing in Pi changes.
+
+**What the readers do now.**
+
+1. **The merge** parses in Pi's grammar. Text Pi cannot parse is `left_untouched`/`unparsable`, a `/* */` comment
+   included: Pi applies none of that file, so there is no `missing` list worth reporting. For the `operator_comments`
+   rule, a comment is what Pi's first pass removes, a `//` line comment outside a string (`stripLineComments(source) !==
+   source`). A trailing comma or a BOM is not a comment. The strict rewrite drops it and loses nothing, so the
+   corrections land, and the rewritten file is also one PipiUI's strict readers can read.
+2. **`childCatalog`** parses in Pi's grammar. A file with trailing commas or a BOM contributes its providers. A file Pi
+   cannot parse contributes none, because the child will have none of it, so a lane on a provider defined only there is
+   refused before any child starts (`lane_model_unavailable`). When `models-store.json` does not read either, the
+   catalog is unknown and the model passes unjudged, as before.
+
+**Boundaries this amendment does not move.**
+
+- **An empty file.** Pi refuses it. The merge treats it as no file and writes the corrections: there is nothing to keep,
+  and the result is a file Pi reads. That is the merge's policy, not a grammar: `parseModelsJson("")` throws, and
+  `childCatalog` takes nothing from an empty file, as Pi does.
+- **Pi's schema.** After parsing, `ModelConfig.load` checks `ModelsConfigSchema`; a file that fails it (`Invalid
+  models.json schema`) also loses every custom model. Neither product reader checks the schema, so `childCatalog` can
+  still list providers from a file that parses but fails Pi's schema. This amendment settles the grammar only.
+- **Nobody in the App reports a file Pi cannot parse.** Pi records `Failed to parse models.json` in `getError()`, but
+  only its interactive TUI shows it; RPC mode, which the Keeper runs in, does not. `piLaunch` prints only for
+  `operator_comments`. Before this amendment a `/* */` file fell into the printed case by accident, with half-wrong
+  advice; it now joins every other file Pi cannot parse, which nothing reports. Whether `piLaunch` should also print for
+  `unparsable` is open (owner's call).
+- **The refusal's wording.** A lane refused because `models.json` failed Pi's parse is told `no provider "<id>" is
+  registered for lane children`. The message names the provider, not the file that failed to parse.
+
+*Tests.*
+
+- `tests/extension/models-json-grammar.test.mjs` (new), over a corpus of fifteen shapes (strict; `//` as a header,
+  after a value, under CRLF, after an escaped quote and inside a string; trailing commas, alone, before a `//` comment,
+  and as characters inside a string; a BOM, alone and with a trailing comma; `/* */`, alone and holding a `//`; a
+  single-quoted key; empty):
+  - without a build, the decisions themselves: trailing commas and a BOM read, `/* */`, single quotes and an empty file
+    do not, and only a `//` comment changes `stripLineComments`;
+  - the copy's `stripJsonComments` equals the vendored Pi's own `dist/utils/json.js` on every shape;
+  - `parseModelsJson` parses exactly the shapes the vendored Pi's `ModelConfig.load` parses, to the same providers.
+- `tests/extension/provider-model-corrections.test.mjs`:
+  - an operator's file with trailing commas comes out `written`: strict JSON, the operator's provider kept as read,
+    both corrections in, and the next launch `unchanged`;
+  - a file with a BOM comes out `written`, without the BOM;
+  - a file with a `/* */` comment is `unparsable` and stays byte for byte;
+  - with the vendored Pi: Pi reads the trailing-comma file before the merge and the corrected file after it, and refuses
+    the `/* */` file the merge left (neither side reads it).
+- `tests/extension/fast-model-resolution.test.mjs`: a Mod child runs a provider defined only in a `models.json` with
+  trailing commas, or one with a BOM; a provider defined only in a `/* */` file is refused `lane_model_unavailable`
+  before any child starts. With the vendored Pi, Pi resolves the provider from the first two agent homes and not from
+  the third.
+
+Mutations (one at a time, the three files run against each; restored by copy):
+
+- Drop Pi's trailing-comma pass: all 3 grammar tests, the trailing-comma merge test and its Pi twin, and the lane
+  trailing-comma case fail.
+- Accept `/* */` again: grammar tests 1 and 3, the `/* */` merge test and its Pi twin, and the lane `/* */` case fail.
+- Let the merge's comment test use the whole of `stripJsonComments` (so a trailing comma counts as a comment): the
+  trailing-comma merge test and its Pi twin fail.
+- Drop the BOM strip: grammar tests 1 and 3 and the BOM merge test fail.
+- Give `childCatalog` its own parse without the BOM strip: the lane BOM case fails.
+- Restore the three runtime files as they were before this amendment: the grammar file fails to load, 5 merge tests
+  and both lane cases fail.
 
 ### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
 

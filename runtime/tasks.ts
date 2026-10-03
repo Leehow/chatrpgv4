@@ -10,7 +10,7 @@ import { KernelError } from "../extensions/kernel/client.ts";
 import { runReader, type ReaderRequest } from "../extensions/module/reader.ts";
 import type { RuntimeCapabilities, RuntimeCheck, RuntimeContext } from "./host.ts";
 import { runHostProcess } from "./process.ts";
-import { stripJsonComments } from "./json-comments.ts";
+import { parseModelsJson } from "./json-comments.ts";
 import { FAST_MODEL_SETTINGS_FILE, fastModelChoiceOf, raiseThinkingToFloor, readFastModelChoice, resolveFastModel, resolveFastThinking } from "./fast-model.ts";
 
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
@@ -135,12 +135,12 @@ async function childCatalog(agentHome: string): Promise<ReadonlyMap<string, Read
       for (const [provider, entry] of Object.entries(store)) absorb(provider, (entry as { models?: unknown })?.models);
   } catch { /* an absent or half-written store is one source fewer, never a failure */ }
   try {
-    // An operator may comment this file (Pi strips `//` comments); the product writes none since §135.27.1.1.
-    const custom = JSON.parse(stripJsonComments(await readFile(join(agentHome, "models.json"), "utf8")));
+    // The child is Pi, so it resolves what Pi's grammar parses here and nothing else (§135.27.1.2).
+    const custom = parseModelsJson(await readFile(join(agentHome, "models.json"), "utf8")) as { providers?: unknown } | null;
     const providers = custom?.providers;
     if (providers && typeof providers === "object" && !Array.isArray(providers))
       for (const [provider, entry] of Object.entries(providers)) absorb(provider, (entry as { models?: unknown })?.models);
-  } catch { /* models.json is optional */ }
+  } catch { /* models.json is optional, and one Pi cannot parse gives the child none of its models either */ }
   return readable ? catalog : new Map();
 }
 
