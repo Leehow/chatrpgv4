@@ -91,13 +91,22 @@ test('§103.8: the Keeper holds no book name; an epithet carrying one is refused
 	assert.ok(!delivered.rendered_text.includes('{{') && !String(delivered.marked_text ?? '').includes('{{name'));
 	assert.equal(delivered.unresolved_names, undefined);
 	assert.ok(!(await untold()).some(person => person.id === knott.id), 'said in the delivery, he is told');
+
 	const next = await call('table.player_input', {text: 'And who sells the papers?'});
 	const seated = next.capsule.present.find(person => ['Steven Knott', 'the ink-stained clerk'].includes(person.name));
 	assert.equal(seated?.name, 'Steven Knott', 'told, the capsule names him');
 	assert.equal(seated?.called?.name, 'Steven Knott', 'and the table calls him by it from now on: the Keeper never held the name to set it');
-	const unknown = await call('table.narrate', {call_id: `t${next._context.turn}-c1`, text: 'Nobody answers. {{name:nobody-at-all}} is not a name here.'});
+	const unknown = await call('table.narrate', {call_id: `t${next._context.turn}-c1`,
+		text: `Nobody answers. {{name:nobody-at-all}} is not a name here. A boy calls from the street: {{say:${dooley.id}}}"Papers!"{{/say}}`});
 	assert.deepEqual(unknown.unresolved_names, ['nobody-at-all']);
 	assert.match(unknown.rendered_text, /nobody-at-all is not a name here/);
+	// The journal lane's label is what the table shows for someone the Keeper gave no epithet: the same rule refuses a piece
+	// of the book's name there (Mr. Dooley: "Dooley").
+	const job = await call('journal.job', {turn: next._context.turn});
+	assert.ok(job.recordable.includes('Mr. Dooley'), JSON.stringify(job.recordable));
+	await assert.rejects(call('journal.submit', {job_id: job.job_id, entries: [{name: 'Mr. Dooley', label: "Dooley's boy at the stand"}]}),
+		error => error?.details?.reason === 'untold_name', 'a piece of his book name');
+	await call('journal.submit', {job_id: job.job_id, entries: [{name: 'Mr. Dooley', label: 'the newsboy with the ink-black cap'}]});
 
 	const third = await call('table.player_input', {text: 'I call him by his name.'});
 	await call('table.apply', {call_id: `t${third._context.turn}-c1`, effects: [{kind: 'person', who: knott.id, name: 'Steven Knott'}]});

@@ -18298,7 +18298,12 @@ The owner had asked for this order in the first place: the name stays in the dat
 
 This sits beside §103.7's handle refusal and is just as deterministic: the kernel compares the word with the names it holds, never with what the word means.
 
-Writer: the Keeper's narrate, ask and `apply person`. Reader: the request's rename, `untoldView`, `withNames`, `refuseUntoldName`. Actor: the player, who meets a name only when the fiction says it.
+**5. The other two writers of that word follow the same rule.**
+
+- *The journal lane's label* (`kernel-ts/journal/jobs.ts`) is what the capsule's `untold.label` and the sidebar show for someone the Keeper gave no epithet; on table 21 the lane's labels stood for all three men at the gas station. `journal.submit` already refused a label carrying the person's name or display name; it now also refuses one carrying an alias or a piece (`invalid_params`, `details.reason: "untold_name"`). The lane holds the book's names, so its refusal may name the person by the name the lane wrote.
+- *The clerk's stated meeting* (`runtime/jev/obligation-candidates.ts`, §135.26). The owner ruling of 2026-09-23 staged an obligation's meeting under the table's label, else under the book's name, so no LLM step wrote it. The fallback is gone: without the table's label the meeting is not the clerk's, nor is the check it leads to, exactly as the roster candidate is not issued without one (§135.28). The Keeper stages the person with an epithet, and the check is offered to the clerk on the next run. Before this, the kernel refused the clerk's meeting and the step was dropped for the run (`tests/extension/scene-obligation-candidates.test.mjs` on the box, 2026-10-03).
+
+Writer: the Keeper's narrate, ask and `apply person`; the journal lane's labels; the clerk's stated meeting. Reader: the request's rename, `untoldView`, `withNames`, `refuseUntoldName`, `journal.submit`, `obligationCandidates`. Actor: the player, who meets a name only when the fiction says it.
 
 Tests (`tests/extension/untold-names-held.test.mjs`):
 
@@ -18311,6 +18316,8 @@ Tests (`tests/extension/untold-names-held.test.mjs`):
   - the table's word becomes his name (`called.name` in the next capsule), the assertion a mutation that drops the sync turns red;
   - an unknown `{{name:}}` is reported;
   - once told, his name is accepted as his word.
+
+The same file submits the journal lane's label "Dooley's boy at the stand" for Mr. Dooley, who spoke that turn, and it is refused; a label from a visible thing is accepted. `tests/extension/scene-obligation-candidates.test.mjs`: without the table's label neither Arty Wilmot's meeting nor the check is the clerk's, and an arrival run stages nobody and refuses nothing; with the label the journal lane wrote, the meeting is carried under it.
 
 `tests/extension/untold-request.test.mjs` now finds the row by its handle and asserts that `untold` has no `name`. `tests/kernel/test_journal.py`'s epithet test now refuses the book name as his word while untold and introduces him through `{{name:}}`.
 
@@ -22972,7 +22979,7 @@ ticket, not a retirement). So it is mounted:
 
 **What changes at a table.** On the default Keeper model (`grok-build/grok-4.7-build-fast`) nothing: the follow-up
 `off` is clamped to `low`, the level the table already runs at (§135.24). On a model whose catalog exposes a lower
-level, the requests after the first non-delivery tool batch of an input run at that level and the table's own level
+level, the requests after the first non-delivery tool batch of an input (since §172.1, the first that writes) run at that level and the table's own level
 returns for the next input, exactly as §3.7 states. The turn's first request, the lanes and the §32 review keep their
 own levels.
 
@@ -23296,8 +23303,8 @@ code-point boundary and ending with `...` when it would pass the ceiling (the le
 passes it is shortened and carries no quote). The clerk fits its own sentence, so the kernel never refuses it for its
 length. Composed today, and marked on the candidate (`Candidate.composed`):
 
-- a stated meeting's `why`: `The book puts <person> here for "<demand>", under the book's name` (or `named by the table's
-  own label`), with the player's words;
+- a stated meeting's `why`: `The book puts <person> here for "<demand>", named by the table's own label`, with the
+  player's words (the `under the book's name` form is gone with that fallback, §103.8 item 5);
 - a roster person's `why`: `The table's own label for <person> in this scene, staged for the player's declared action`,
   with the player's words;
 - a combat disposition's `why` (the parameters it was read from, §11.5.3), shortened to the ceiling;
@@ -32082,9 +32089,20 @@ Tests: `tests/extension/npc-mood.test.mjs` and `tests/extension/jev-pacing-mod-a
 
 ### 172.1 A step before the turn's first write keeps its thinking (owner ruling 2026-10-03, with §103.8)
 
-With `COC_FIRST_STEP_THINKING=1` (§38.7.1), as the installed App runs, every Keeper call after a turn's first ran without thinking. Once §172 put what needs no result into the narrate's response, the step that wrote the epithets, the moods and the prose was often the second: on table 20 a look came first, and the step after it wrote the book's names (§103.8).
+Two mechanisms lower thinking after a turn's first Keeper call, and both did it after a batch of reads alike:
 
-The rule is now this. A call keeps thinking until a Keeper call of this turn has written. Any call but `look`, `lookup` or `recall` counts as writing. The host's own operations raise the same `tool_call` event; they are recognized by `dispatcher.hostOrigin` and do not count (the clerk's move before the first call is not the Keeper's writing). The counter resets on player input, with `roundTrips`. The provider-request row's `first_step_thinking` is `true` for every call before the first write.
+- `extensions/thinking-schedule` (§135.27), mounted at every table: the installed App's. After the first tool batch of an input that does not deliver, it asks Pi for the lowest level, which runs the rest of the input.
+- `COC_FIRST_STEP_THINKING=1` (§38.7.1): an env-gated experiment that rewrites each provider request after the first. No launch sets it; the App does not.
 
-This costs a few seconds of thinking on a step that follows only reads, which is still one model step fewer than before §172. Tests: `tests/extension/first-step-thinking.test.mjs`. The step after a look keeps thinking, the step after a write is rewritten off, the reset still holds, and the unsupported-format case now follows a write.
+Once §172 put what needs no result into the narrate's response, the step that wrote the epithets, the moods and the prose was often the second: on table 20 a look came first, and the step after it, its request at `none`, wrote the book's names (§103.8).
+
+The rule is now this, in both. A call keeps thinking until a Keeper call of this turn has written. Any call but `look`, `lookup` or `recall` counts as writing; the one set is `STEP_READS` in `extensions/kernel/first-step-thinking.ts`.
+
+- `thinking-schedule` skips a batch whose calls are all reads. A batch with one write among reads is a writing batch.
+- The env-gated path counts on `tool_call`. The host's own operations raise the same event; they are recognized by `dispatcher.hostOrigin` and do not count (the clerk's move before the first call is not the Keeper's writing). The counter resets on player input, with `roundTrips`. The provider-request row's `first_step_thinking` is `true` for every call before the first write.
+
+This costs a few seconds of thinking on a step that follows only reads, which is still one model step fewer than before §172. Tests:
+
+- `tests/extension/thinking-schedule.test.mjs`: reads keep the table's level, a read beside a write lowers it, and the earlier cases now lower on a write.
+- `tests/extension/first-step-thinking.test.mjs`: the step after a look keeps thinking, the step after a write is rewritten off, the reset still holds, and the unsupported-format case now follows a write.
 
