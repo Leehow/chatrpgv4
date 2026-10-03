@@ -13,11 +13,14 @@
  * `thinkingLevelMap.off` from.
  */
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { applyProviderModelCorrections, mergeProviderModelCorrections, PRODUCT_NOTE_KEY } from "../../runtime/host.ts";
+import { parseModelsJson } from "../../runtime/json-comments.ts";
+import { piLaunch } from "../../runtime/launch.ts";
+import { PI_ENTRIES } from "../../runtime/deployment.mjs";
 
 const REPO = resolve(import.meta.dirname, "../..");
 const REAL_CORRECTIONS = join(REPO, "content/providers/model-corrections.json");
@@ -27,6 +30,13 @@ function scratch(t) {
 	const dir = mkdtempSync(join(tmpdir(), "provider-model-corrections-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	return dir;
+}
+
+/** `unparsable` carries the parse error Pi's own loader meets on the same text (§135.27.1.2). */
+function assertUnparsable(outcome) {
+	const { error, ...rest } = outcome;
+	assert.deepEqual(rest, { status: "left_untouched", reason: "unparsable" });
+	assert.ok(typeof error === "string" && error.length > 0, "the outcome carries the parse error");
 }
 
 // -- mergeProviderModelCorrections: pure, in-memory ------------------------------------------
@@ -169,7 +179,7 @@ test("a hand-broken models.json is left untouched rather than blocking the table
 	const home = scratch(t);
 	const broken = "{ not valid json";
 	writeFileSync(join(home, "models.json"), broken);
-	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "left_untouched", reason: "unparsable" });
+	assertUnparsable(await applyProviderModelCorrections(home, REAL_CORRECTIONS));
 	assert.equal(readFileSync(join(home, "models.json"), "utf8"), broken);
 });
 
@@ -322,7 +332,7 @@ test("a /* */ comment fails Pi's grammar, so the file is left byte for byte and 
 	const home = scratch(t);
 	const path = join(home, "models.json");
 	writeFileSync(path, BLOCK_COMMENT);
-	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "left_untouched", reason: "unparsable" });
+	assertUnparsable(await applyProviderModelCorrections(home, REAL_CORRECTIONS));
 	assert.equal(readFileSync(path, "utf8"), BLOCK_COMMENT);
 });
 
@@ -409,4 +419,75 @@ test("Pi's own ModelRuntime refuses the /* */ file the merge left untouched: nei
 	assert.match(runtime.getError() ?? "", /^Failed to parse models\.json/);
 	assert.equal(new ModelRegistry(runtime).find("my-proxy", "gpt-x"), undefined, "Pi disables the operator's custom models");
 	assert.equal(new ModelRegistry(runtime).find("opencode-go", "deepseek-v4.1-flash")?.thinkingLevelMap?.off ?? null, null);
+});
+
+// -- §135.27.1.2: piLaunch names a models.json Pi cannot parse --------------------------------
+
+/** A source-layout resource root piLaunch can prepare: the prompt, the two Pi entries, the shipped corrections. */
+function launchRoot(t) {
+	const root = scratch(t);
+	mkdirSync(join(root, "prompts"));
+	writeFileSync(join(root, "prompts", "keeper.md"), "# Keeper\n");
+	for (const entry of [PI_ENTRIES.pi, "build/runtime/pi-hybrid.mjs"]) {
+		mkdirSync(dirname(join(root, entry)), { recursive: true });
+		writeFileSync(join(root, entry), "");
+	}
+	mkdirSync(join(root, "content", "providers"), { recursive: true });
+	copyFileSync(REAL_CORRECTIONS, join(root, "content", "providers", "model-corrections.json"));
+	mkdirSync(join(root, ".pi", "coc-agent"), { recursive: true });
+	return { root, modelsPath: join(root, ".pi", "coc-agent", "models.json") };
+}
+
+/** What piLaunch writes to stderr while it prepares the agent home (it returns the launch; nothing is spawned). */
+async function launchNotices(t, root) {
+	const env = { ...process.env };
+	for (const key of ["PI_COC_LOOP_ENGINE", "PI_COC_LAYOUT", "PI_CODING_AGENT_DIR", "PI_COC_HOME", "PI_COC_CONTENT_ROOT", "PI_COC_CAMPAIGN"]) delete env[key];
+	const written = [];
+	const stderr = t.mock.method(process.stderr, "write", chunk => { written.push(String(chunk)); return true; });
+	try { await piLaunch(["--campaign", "models-json"], { resourceRoot: root, env }); }
+	finally { stderr.mock.restore(); }
+	return written;
+}
+
+function parseError(text) {
+	try { parseModelsJson(text); } catch (error) { return error.message; }
+	assert.fail("the fixture must not parse");
+}
+
+test("piLaunch names a models.json Pi cannot parse, with the error Pi records, and leaves the file as it was", async t => {
+	for (const [shape, text] of [["/* */ comment", BLOCK_COMMENT], ["hand-broken", "{ not valid json"]]) await t.test(shape, async t => {
+		const { root, modelsPath } = launchRoot(t);
+		writeFileSync(modelsPath, text);
+		const detail = parseError(text);
+		const notices = await launchNotices(t, root);
+		assert.equal(notices.length, 1, notices.join(""));
+		assert.ok(notices[0].startsWith(`${modelsPath} `), "the notice names the file");
+		assert.ok(notices[0].includes(`(${detail})`), "and carries the parse error");
+		assert.match(notices[0], /§135\.27\.1\.2/);
+		assert.equal(readFileSync(modelsPath, "utf8"), text);
+		if (!REAL_PI) return;
+		// The error Pi records for this file and shows only in its TUI is the one the notice carries.
+		const { ModelRuntime } = await import(VENDORED_PI_INDEX);
+		const recorded = (await ModelRuntime.create({ modelsPath, refreshOnCreate: false })).getError() ?? "";
+		assert.ok(recorded.startsWith(`Failed to parse models.json: ${detail}\n`), recorded);
+	});
+});
+
+test("piLaunch says nothing about a file Pi parses; an operator's // comments keep their own notice", async t => {
+	const relay = JSON.stringify({ providers: { "my-proxy": MY_PROXY } }, null, 2);
+	const cases = [
+		["strict", relay, []],
+		["trailing commas", TRAILING_COMMAS, []],
+		["BOM", `\uFEFF${relay}\n`, []],
+		["empty", "", []],
+		["// comment", `// mine\n${relay}\n`, [/§135\.27\.1\.1/]],
+	];
+	for (const [shape, text, expected] of cases) await t.test(shape, async t => {
+		const { root, modelsPath } = launchRoot(t);
+		writeFileSync(modelsPath, text);
+		const notices = await launchNotices(t, root);
+		assert.equal(notices.length, expected.length, notices.join(""));
+		expected.forEach((pattern, index) => assert.match(notices[index], pattern));
+		assert.ok(notices.every(notice => !notice.includes("§135.27.1.2")), "no unparsable notice for a file Pi reads");
+	});
 });

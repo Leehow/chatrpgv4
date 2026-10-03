@@ -123,11 +123,19 @@ export async function piLaunch(input: string[], options: RuntimeHostOptions = {}
   // to be wrong (e.g. an omitted thinking level the endpoint actually supports), merged the same
   // way settings.json is above -- a user's own override for the same provider+model always wins.
   const corrections = await applyProviderModelCorrections(context.agentHome, join(context.contentRoot, 'providers', 'model-corrections.json'));
+  const modelsPath = join(context.agentHome, 'models.json');
   // §135.27.1.1: an operator's comments keep the file untouched; Pi loads it fine, so nothing else would say so.
   if (corrections.status === 'left_untouched' && corrections.reason === 'operator_comments' && corrections.missing.length)
-    process.stderr.write(`${join(context.agentHome, 'models.json')} carries your own comments, so the product left it untouched `
+    process.stderr.write(`${modelsPath} carries your own comments, so the product left it untouched `
       + `and did not merge its provider model corrections for ${corrections.missing.map(({provider, model}) => `${provider}/${model}`).join(', ')} `
       + `(contract §135.27.1.1). Add those overrides yourself, or remove the comments and launch again.\n`);
+  // §135.27.1.2: Pi drops every custom model and override in a file it cannot parse, and shows its error only in its
+  // interactive TUI; the Keeper runs Pi in RPC mode, so nothing else would say so.
+  if (corrections.status === 'left_untouched' && corrections.reason === 'unparsable')
+    process.stderr.write(`${modelsPath} does not parse the way Pi reads it (${corrections.error}), so Pi ignores every custom `
+      + `provider, model and override in it, and the product merged none of its provider model corrections (contract §135.27.1.2). `
+      + `Pi accepts // line comments and trailing commas in this file, and nothing else beyond strict JSON (no /* */ comments); `
+      + `fix the file and launch again.\n`);
   const hostSession = forwarded.some(arg => arg === '--session' || arg.startsWith('--session='));
   const session = campaign && !hostSession ? ['--session-id', `coc-${mode === 'setup' ? 'setup-' : ''}${campaign}`] : [];
   // Provider extensions come from the shared list every lane child mounts too, so a model this

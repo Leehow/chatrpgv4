@@ -384,7 +384,7 @@ function modelOverrideOf(config: unknown, { provider, model }: ProviderModelCorr
 
 export type ProviderModelCorrectionsOutcome =
   | { readonly status: "written" | "unchanged" | "no_corrections_file" }
-  | { readonly status: "left_untouched"; readonly reason: "unparsable" }
+  | { readonly status: "left_untouched"; readonly reason: "unparsable"; readonly error: string }
   | { readonly status: "left_untouched"; readonly reason: "operator_comments"; readonly missing: readonly ProviderModelCorrectionEntry[] };
 
 /**
@@ -421,7 +421,10 @@ export async function applyProviderModelCorrections(agentHome: string, correctio
   let existing: unknown = {};
   if (source.trim()) {
     try { existing = parseModelsJson(source); }
-    catch { return { status: "left_untouched", reason: "unparsable" }; } // the operator's; Pi's own loader fails on the same text
+    catch (error) {
+      // The operator's; Pi's own loader fails on the same text, with this message (§135.27.1.2).
+      return { status: "left_untouched", reason: "unparsable", error: error instanceof Error ? error.message : String(error) };
+    }
   }
   const { config, entries } = mergeProviderModelCorrections(existing, corrections);
   if (stripLineComments(source) !== source) {

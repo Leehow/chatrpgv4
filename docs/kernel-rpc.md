@@ -23056,20 +23056,27 @@ changes the grammar. `docs/pi-host-contract.md`'s "no fork, no patch" is untouch
    cannot parse contributes none, because the child will have none of it, so a lane on a provider defined only there is
    refused before any child starts (`lane_model_unavailable`). When `models-store.json` does not read either, the
    catalog is unknown and the model passes unjudged, as before.
+3. **`piLaunch` names a file Pi cannot parse** (owner, 2026-10-03: "加上 unparsable 时的提示"). Pi records
+   `Failed to parse models.json: <error>` in `getError()`, but only its interactive TUI shows it; RPC mode, which the
+   Keeper runs in, does not. Before this amendment a `/* */` file fell into the `operator_comments` notice by accident,
+   with half-wrong advice, and every other file Pi cannot parse was reported by nothing. Now `unparsable` carries the
+   parse error (`{status: "left_untouched", reason: "unparsable", error}`; the same message Pi records, since the
+   grammar is the same), and `piLaunch` prints one stderr line: the file, that error, that Pi ignores every custom
+   provider, model and override in it and the product merged no correction, what Pi's grammar accepts, and to fix the
+   file and launch again. A file Pi parses gets no such line; an operator's `//` comments keep the §135.27.1.1 line.
 
 **Boundaries this amendment does not move.**
 
+- **Neither stderr notice reaches the operator in the App during play.** `pipicoc/rpc` runs `bin/pi-coc` with
+  `stdio: 'inherit'`, and pi-backend keeps that process's stderr only in a 16 KB tail that it shows when Pi exits
+  (`PiExitedError`). So this notice and the §135.27.1.1 one are read in a terminal (`bin/pi-coc`) and in the play
+  driver's logs, not in a healthy App session. Routing host notices into the App is a separate change.
 - **An empty file.** Pi refuses it. The merge treats it as no file and writes the corrections: there is nothing to keep,
   and the result is a file Pi reads. That is the merge's policy, not a grammar: `parseModelsJson("")` throws, and
   `childCatalog` takes nothing from an empty file, as Pi does.
 - **Pi's schema.** After parsing, `ModelConfig.load` checks `ModelsConfigSchema`; a file that fails it (`Invalid
   models.json schema`) also loses every custom model. Neither product reader checks the schema, so `childCatalog` can
   still list providers from a file that parses but fails Pi's schema. This amendment settles the grammar only.
-- **Nobody in the App reports a file Pi cannot parse.** Pi records `Failed to parse models.json` in `getError()`, but
-  only its interactive TUI shows it; RPC mode, which the Keeper runs in, does not. `piLaunch` prints only for
-  `operator_comments`. Before this amendment a `/* */` file fell into the printed case by accident, with half-wrong
-  advice; it now joins every other file Pi cannot parse, which nothing reports. Whether `piLaunch` should also print for
-  `unparsable` is open (owner's call).
 - **The refusal's wording.** A lane refused because `models.json` failed Pi's parse is told `no provider "<id>" is
   registered for lane children`. The message names the provider, not the file that failed to parse.
 
@@ -23089,7 +23096,13 @@ changes the grammar. `docs/pi-host-contract.md`'s "no fork, no patch" is untouch
   - a file with a BOM comes out `written`, without the BOM;
   - a file with a `/* */` comment is `unparsable` and stays byte for byte;
   - with the vendored Pi: Pi reads the trailing-comma file before the merge and the corrected file after it, and refuses
-    the `/* */` file the merge left (neither side reads it).
+    the `/* */` file the merge left (neither side reads it);
+  - every `unparsable` outcome carries a non-empty parse error;
+  - `piLaunch` itself, on a source-layout root with the shipped corrections (it returns the launch and spawns nothing),
+    stderr captured: a `/* */` file and a hand-broken one each get exactly one line, naming the file and carrying the
+    parse error, and the file stays byte for byte; with the vendored Pi, that error is the one Pi's `getError()`
+    records for the same file. A strict file, one with trailing commas, one with a BOM and an empty one get no line; one
+    with a `//` comment gets only the §135.27.1.1 line.
 - `tests/extension/fast-model-resolution.test.mjs`: a Mod child runs a provider defined only in a `models.json` with
   trailing commas, or one with a BOM; a provider defined only in a `/* */` file is refused `lane_model_unavailable`
   before any child starts. With the vendored Pi, Pi resolves the provider from the first two agent homes and not from
@@ -23106,6 +23119,10 @@ Mutations (one at a time, the three files run against each; restored by copy):
 - Give `childCatalog` its own parse without the BOM strip: the lane BOM case fails.
 - Restore the three runtime files as they were before this amendment: the grammar file fails to load, 5 merge tests
   and both lane cases fail.
+- Drop the `unparsable` notice, or print it without the error: the `piLaunch` naming test fails on both shapes.
+- Return an empty `error`: that test and the two `unparsable` merge tests fail. Return a fixed non-empty one: the
+  naming test fails on both shapes.
+- Print the notice for every `left_untouched`: the `// comment` case of the no-notice test fails.
 
 ### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
 
