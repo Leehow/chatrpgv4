@@ -267,6 +267,49 @@ describe("remembered manual model selection", () => {
       model: { provider: "relay", id: "configured-default" },
     });
   });
+  it("a session created before the catalog has loaded starts on the remembered model, never the placeholder or the agent home's default", async () => {
+    // 2026-10-02, installed PipiCOC: a table created while the model chip was still loading ran on
+    // the agent home's defaultModel, not the remembered extension-provider model, and nothing said so.
+    root = await mkdtemp(join(tmpdir(), "pipi-remembered-before-catalog-"));
+    const agent = join(root, "agent");
+    const cwd = join(root, "project");
+    await mkdir(agent, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(join(agent, "settings.json"), JSON.stringify({ defaultProvider: "flapcode", defaultModel: "home-default" }));
+    await writeFile(join(agent, "pipiui-settings.json"), JSON.stringify({
+      manualModelSelection: { provider: "flapcode", modelId: "remembered" },
+      manualThinkingLevel: "low",
+    }));
+    let release!: (models: any[]) => void;
+    const available = new Promise<any[]>((resolve) => { release = resolve; });
+    const backend = createPiHostBackend({
+      agentDir: agent,
+      sessionsRoot: join(root, "sessions"),
+      runtimeRoot: join(root, "runtime"),
+      piPath: "node",
+      authRuntime: { getProviders: async () => [], getAvailable: () => available, login: async () => undefined, logout: async () => undefined },
+    });
+    backends.push(backend);
+    await backend.handle("setProjectPaths", [[cwd]]);
+    const [project] = await backend.handle("listProjects", []) as any[];
+    const session = await backend.handle("newSession", [project.id]) as any;
+
+    const meta = await (backend as any).findSession(session.id);
+    expect((backend as any).desiredModelFor(meta)).toMatchObject({ model: { provider: "flapcode", id: "remembered" }, thinkingLevel: "low" });
+    // A session frozen on the placeholder by an older host run resolves the same way.
+    (backend as any).sessionModelSnapshots.set(session.id, {
+      model: { provider: "unknown", id: "unknown", name: "Unknown", reasoning: false }, thinkingLevel: "off", availableThinkingLevels: [],
+    });
+    expect((backend as any).desiredModelFor(meta).model).toMatchObject({ provider: "flapcode", id: "remembered" });
+
+    release([
+      { provider: "flapcode", id: "home-default", name: "Home Default", reasoning: true, api: "openai-responses", input: ["text"], contextWindow: 200000, maxTokens: 32000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+      { provider: "flapcode", id: "remembered", name: "Remembered", reasoning: true, api: "openai-responses", input: ["text"], contextWindow: 200000, maxTokens: 32000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+    ]);
+    expect(await backend.handle("getModelState", [session.id])).toMatchObject({
+      model: { provider: "flapcode", id: "remembered", name: "Remembered" },
+    });
+  });
 });
 
 describe("remembered manual thinking level", () => {

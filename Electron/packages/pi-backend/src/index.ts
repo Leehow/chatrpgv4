@@ -1031,6 +1031,10 @@ const TERMINAL_RECONCILIATION_PENDING_MAX_RETRIES = 6;
 /** Spawn waits this long for the auth-aware catalog (hosted-search exclusivity),
  * then proceeds on configured rows; a pending-forever catalog must not wedge startup. */
 const SPAWN_CATALOG_WAIT_MS = 5_000;
+/** The host's seeded placeholder (`provider: "unknown", id: "unknown"`), which names no model. */
+function isUnknownModel(model: Pick<Model, "provider" | "id">): boolean {
+  return model.provider === "unknown" && model.id === "unknown";
+}
 /** Pace for deferred session-file work (redaction / env refresh) while a writer stays busy. */
 const SESSION_FILE_RETRY_PACE_MS = 250;
 /** Matches Swift `SubagentWatchdog.staleThreshold`. */
@@ -4332,11 +4336,11 @@ export class PiHostBackend implements HostBackend {
    * no model record inherit the configured global default.
    */
   private desiredModelFor(s: SessionMeta): ModelState {
-    const inMemory =
-      this.sessionModelStates.get(s.header.id) ??
-      this.sessionModelSnapshots.get(s.header.id);
+    // The host's placeholder is not a model: a session frozen on it (created
+    // before any model was known) resolves now, as sessionModelOf already does.
+    const inMemory = this.knownSessionModelState(s.header.id);
     if (inMemory) return inMemory;
-    const base = this.modelState;
+    const base = this.defaultSessionModelState();
     const ref = this.sessionModelOf(s);
     if (!ref) {
       if (s.thinkingLevel === undefined) return base;
@@ -5551,6 +5555,43 @@ export class PiHostBackend implements HostBackend {
     }
     return home;
   }
+  /** This host run's state for a session, live first; the placeholder counts as none. */
+  private knownSessionModelState(sessionId: string): ModelState | undefined {
+    return [this.sessionModelStates.get(sessionId), this.sessionModelSnapshots.get(sessionId)]
+      .find((state): state is ModelState => state !== undefined && !isUnknownModel(state.model));
+  }
+  /**
+   * What a session with no model of its own starts on. Normally the host's
+   * model state: the remembered manual selection once the catalog holds it,
+   * else the configured default. Until the auth-aware catalog has loaded,
+   * though, a remembered model contributed by an extension provider is not in
+   * `this.models`, `applyManualModelSelection` skips it, and the host state is
+   * the `unknown` placeholder or the configured default. A session started then
+   * was frozen on that state; on the placeholder its spawn skipped
+   * `selectExactModel` and Pi ran its own settings default. On the installed
+   * PipiCOC (2026-10-02) a table created while the model chip was still
+   * loading ran on gpt-6-astra, the agent home's default, not the remembered
+   * gpt-6-luna, and nothing said so. So while the catalog is not ready, the
+   * remembered selection itself is the default; once it is ready, a
+   * remembered model the catalog lacks falls back exactly as before. Which of
+   * the two a not-yet-listed model is cannot be known before the catalog, so
+   * newSession does not freeze this provisional state: the session's first
+   * read (getModelState, spawn) waits for the catalog and decides then.
+   */
+  private defaultSessionModelState(): ModelState {
+    const base = this.modelState;
+    const remembered = this.manualModelSelection;
+    if (!remembered || this.modelCatalogReady) return base;
+    if (base.model.provider === remembered.provider && base.model.id === remembered.modelId) return base;
+    const model: Model = this.models.find(item => item.provider === remembered.provider && item.id === remembered.modelId)
+      ?? { provider: remembered.provider, id: remembered.modelId, name: remembered.modelId, reasoning: true };
+    const availableThinkingLevels = thinkingLevelsForModel(model);
+    return {
+      model,
+      thinkingLevel: resolveThinkingLevel(this.manualThinkingLevel ?? base.thinkingLevel, availableThinkingLevels) ?? "off",
+      availableThinkingLevels,
+    };
+  }
   private async newSession(projectId: string, name?: string): Promise<Session> {
     // Session creation needs only local configuration. The optional authenticated runtime
     // catalog may involve network-backed provider discovery and must never gate a sidebar click.
@@ -5604,8 +5645,9 @@ export class PiHostBackend implements HostBackend {
           name,
         }),
       );
-    const inheritedThinking = this.modelState.thinkingLevel;
-    if (this.modelState.availableThinkingLevels.includes(inheritedThinking)) {
+    const initialModelState = this.defaultSessionModelState();
+    const inheritedThinking = initialModelState.thinkingLevel;
+    if (initialModelState.availableThinkingLevels.includes(inheritedThinking)) {
       lines.push(
         JSON.stringify({
           type: "thinking_level_change",
@@ -5624,7 +5666,7 @@ export class PiHostBackend implements HostBackend {
         header,
         name: name ?? "New session",
         updatedAt: Date.now(),
-        thinkingLevel: this.modelState.availableThinkingLevels.includes(inheritedThinking)
+        thinkingLevel: initialModelState.availableThinkingLevels.includes(inheritedThinking)
           ? inheritedThinking
           : undefined,
         productProfile: initialProductProfile,
@@ -5632,7 +5674,7 @@ export class PiHostBackend implements HostBackend {
       created.size,
       created.mtimeMs,
     );
-    this.sessionModelSnapshots.set(id, this.modelState);
+    if (this.modelCatalogReady) this.sessionModelSnapshots.set(id, initialModelState);
     this.beginSessionRuntime(id);
     return {
       id,
@@ -5826,6 +5868,10 @@ export class PiHostBackend implements HostBackend {
       } catch {
         /* runtime catalog unavailable → configured rows only */
       }
+      this.assertSessionGeneration(id, generation);
+      // A catalog wait that ran out may not have read the remembered selection yet.
+      await this.loadManualModelSelection();
+      await this.loadManualThinkingLevel();
       this.assertSessionGeneration(id, generation);
       const desired = this.desiredModelFor(found);
       const previousModelSnapshot = this.sessionModelSnapshots.get(id);
@@ -6546,6 +6592,11 @@ export class PiHostBackend implements HostBackend {
       // with no visible output while queued messages correctly wait for the
       // settle — otherwise reads to the user as a wedged queue. Redact the
       // provider error text, matching the message_end error path.
+      // A scheduled retry is the turn waiting on purpose, not a wedge: the
+      // watchdog counts it, so a backoff up to pi's one-minute cap plus the next
+      // attempt's own idle timeout never reads as two silent minutes
+      // (runtime/launch.ts FOREGROUND_RETRY, 2026-10-03).
+      this.touchTurnActivity(live);
       const start = e.type === "auto_retry_start";
       const retryError = redactText(
         String(start ? (e.errorMessage ?? "") : (e.finalError ?? "")).slice(0, 200),
@@ -11501,9 +11552,7 @@ export class PiHostBackend implements HostBackend {
       // level -- the chip read 「Unknown / auto」 after a provider error, and the
       // level they chose was gone. The cold path below already prefers the
       // session's own model; this one did not.
-      const liveState = this.sessionModelStates.get(sessionId)
-        ?? this.sessionModelSnapshots.get(sessionId)
-        ?? this.desiredModelFor(meta);
+      const liveState = this.knownSessionModelState(sessionId) ?? this.desiredModelFor(meta);
       const persisted = meta.thinkingLevel;
       if (
         persisted &&
@@ -11517,7 +11566,7 @@ export class PiHostBackend implements HostBackend {
       }
       return liveState;
     }
-    const cached = this.sessionModelStates.get(sessionId) ?? this.sessionModelSnapshots.get(sessionId);
+    const cached = this.knownSessionModelState(sessionId);
     if (cached) return cached;
     const desired = this.desiredModelFor(await this.findSession(sessionId));
     this.sessionModelSnapshots.set(sessionId, desired);
@@ -11792,9 +11841,10 @@ export class PiHostBackend implements HostBackend {
   }
   private async coldSessionStats(id: string): Promise<SessionStats> {
     await this.loadConfiguredModels();
-    const cachedState = this.sessionModelStates.get(id) ?? this.sessionModelSnapshots.get(id);
+    const cachedState = this.knownSessionModelState(id);
     const state = cachedState ?? this.desiredModelFor(await this.findSession(id));
-    this.sessionModelSnapshots.set(id, state);
+    // Stats do not wait for the catalog: a state resolved before it is provisional (defaultSessionModelState).
+    if (cachedState || this.modelCatalogReady) this.sessionModelSnapshots.set(id, state);
     const known = this.sessionContextLastKnown.get(id);
     const performance = this.turnTelemetry.sessionPerformance(id);
     return {
