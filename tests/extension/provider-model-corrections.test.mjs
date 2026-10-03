@@ -17,7 +17,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { applyProviderModelCorrections, mergeProviderModelCorrections } from "../../runtime/host.ts";
+import { applyProviderModelCorrections, mergeProviderModelCorrections, PRODUCT_NOTE_KEY } from "../../runtime/host.ts";
 
 const REPO = resolve(import.meta.dirname, "../..");
 const REAL_CORRECTIONS = join(REPO, "content/providers/model-corrections.json");
@@ -117,20 +117,23 @@ test("a corrections shape with no modelOverrides, or an empty corrections object
 
 // -- applyProviderModelCorrections: the I/O wrapper piLaunch calls ---------------------------
 
-test("merge into an empty home writes models.json with the product's entries and a note", async t => {
+test("merge into an empty home writes strict-JSON models.json with the product's entries and a data-key note", async t => {
 	const home = scratch(t);
-	await applyProviderModelCorrections(home, REAL_CORRECTIONS);
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "written" });
 	const written = readFileSync(join(home, "models.json"), "utf8");
-	assert.match(written, /opencode-go\/deepseek-v4\.1-flash/, "the note names the corrected models");
-	assert.match(written, /opencode-go\/deepseek-v4-flash/);
-	const parsed = JSON.parse(written.replace(/^\/\/.*$/gm, ""));
+	// §135.27.1.1: the App reads this file with plain JSON.parse, so the product writes no comments.
+	const parsed = JSON.parse(written);
+	assert.deepEqual(Object.keys(parsed), [PRODUCT_NOTE_KEY, "providers"], "the note is a data key, placed first");
+	const note = parsed[PRODUCT_NOTE_KEY].join("\n");
+	assert.match(note, /opencode-go\/deepseek-v4\.1-flash/, "the note names the corrected models");
+	assert.match(note, /opencode-go\/deepseek-v4-flash/);
 	assert.deepEqual(parsed.providers["opencode-go"].modelOverrides["deepseek-v4.1-flash"], { thinkingLevelMap: { off: "off" } });
 	assert.deepEqual(parsed.providers["opencode-go"].modelOverrides["deepseek-v4-flash"], { thinkingLevelMap: { off: "off" } });
 });
 
 test("a missing corrections file is one correction fewer, never a failure: the home stays untouched", async t => {
 	const home = scratch(t);
-	await applyProviderModelCorrections(home, join(home, "no-such-corrections.json"));
+	assert.deepEqual(await applyProviderModelCorrections(home, join(home, "no-such-corrections.json")), { status: "no_corrections_file" });
 	assert.throws(() => readFileSync(join(home, "models.json"), "utf8"), /ENOENT/);
 });
 
@@ -141,7 +144,7 @@ test("a second launch's merge is idempotent: no write, same bytes", async t => {
 	const firstText = readFileSync(path, "utf8");
 	const firstMtime = statSync(path).mtimeMs;
 	await new Promise(r => setTimeout(r, 20)); // mtime resolution on some filesystems
-	await applyProviderModelCorrections(home, REAL_CORRECTIONS);
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "unchanged" });
 	assert.equal(readFileSync(path, "utf8"), firstText);
 	assert.equal(statSync(path).mtimeMs, firstMtime, "an unchanged merge must not rewrite the file");
 });
@@ -155,7 +158,7 @@ test("an operator's own hand-written models.json keeps its override and its othe
 		},
 	}, null, 2) + "\n");
 	await applyProviderModelCorrections(home, REAL_CORRECTIONS);
-	const parsed = JSON.parse(readFileSync(join(home, "models.json"), "utf8").replace(/^\/\/.*$/gm, ""));
+	const parsed = JSON.parse(readFileSync(join(home, "models.json"), "utf8"));
 	assert.deepEqual(parsed.providers["opencode-go"].modelOverrides["deepseek-v4.1-flash"], { thinkingLevelMap: { off: null } });
 	assert.deepEqual(parsed.providers["grok-build"], { name: "the operator's own grok-build tweaks" });
 	// the model the operator had no override for still gets the product's correction
@@ -166,8 +169,107 @@ test("a hand-broken models.json is left untouched rather than blocking the table
 	const home = scratch(t);
 	const broken = "{ not valid json";
 	writeFileSync(join(home, "models.json"), broken);
-	await applyProviderModelCorrections(home, REAL_CORRECTIONS);
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "left_untouched", reason: "unparsable" });
 	assert.equal(readFileSync(join(home, "models.json"), "utf8"), broken);
+});
+
+// -- §135.27.1.1: strict JSON, the old header healed, an operator's comments never erased -----
+
+/** The installed App's models.json on 2026-10-03, in shape: the `//` header the merge wrote 09-25..10-03, then JSON. */
+const LEGACY_HEADER = [
+	"// Product corrections merged by chatrpgv4 (contract §135.27.1; source",
+	"// content/providers/model-corrections.json). A key below is filled in only where your own",
+	"// override for that exact provider+model does not set it; a key you set is never replaced. The",
+	"// product currently knows a correction for:",
+	"//   - opencode-go/deepseek-v4.1-flash",
+	"//   - opencode-go/deepseek-v4-flash",
+	"",
+].join("\n");
+
+test("the header the merge used to write is dropped on the next launch; the operator's data is kept", async t => {
+	const home = scratch(t);
+	const path = join(home, "models.json");
+	const operator = {
+		providers: {
+			"opencode-go": { modelOverrides: {
+				"deepseek-v4.1-flash": { thinkingLevelMap: { minimal: null, low: "low", off: "off" } },
+				"deepseek-v4-flash": { thinkingLevelMap: { off: "off" } },
+			} },
+			"my-proxy": { baseUrl: "https://proxy.example/v1", api: "openai-completions", apiKey: "sk-literal",
+				models: [{ id: "gpt-x", name: "gpt-x", reasoning: true }] },
+		},
+	};
+	writeFileSync(path, `${LEGACY_HEADER}${JSON.stringify(operator, null, 2)}\n`);
+	assert.throws(() => JSON.parse(readFileSync(path, "utf8")), /not valid JSON/, "the 10-03 shape a strict reader fails on");
+
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "written" });
+	const written = readFileSync(path, "utf8");
+	assert.doesNotMatch(written, /^\/\//m, "no comment line survives");
+	const parsed = JSON.parse(written);
+	assert.deepEqual(parsed.providers, operator.providers, "every provider and override the operator had is kept as read");
+	assert.ok(Array.isArray(parsed[PRODUCT_NOTE_KEY]));
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), { status: "unchanged" });
+});
+
+test("an operator's own comments leave the file byte for byte untouched and report the corrections that did not land", async t => {
+	const home = scratch(t);
+	const path = join(home, "models.json");
+	const commented = [
+		"{",
+		"  // my relay; ask before changing",
+		"  \"providers\": {",
+		"    \"opencode-go\": { \"modelOverrides\": { \"deepseek-v4.1-flash\": { \"thinkingLevelMap\": { \"off\": \"off\" } } } }",
+		"  }",
+		"}",
+		"",
+	].join("\n");
+	writeFileSync(path, commented);
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS), {
+		status: "left_untouched", reason: "operator_comments",
+		missing: [{ provider: "opencode-go", model: "deepseek-v4-flash" }],
+	}, "only the correction the operator lacks is reported");
+	assert.equal(readFileSync(path, "utf8"), commented);
+
+	// The same operator header above the product's old header: the old header goes, the operator's comment keeps the file.
+	writeFileSync(path, `${LEGACY_HEADER}// mine\n{"providers": {}}\n`);
+	const before = readFileSync(path, "utf8");
+	const outcome = await applyProviderModelCorrections(home, REAL_CORRECTIONS);
+	assert.equal(outcome.reason, "operator_comments");
+	assert.equal(readFileSync(path, "utf8"), before);
+});
+
+test("an operator's comments with every correction already present report nothing missing", async t => {
+	const home = scratch(t);
+	const path = join(home, "models.json");
+	const commented = `// mine\n${JSON.stringify({ providers: { "opencode-go": { modelOverrides: {
+		"deepseek-v4.1-flash": { thinkingLevelMap: { off: null } },
+		"deepseek-v4-flash": { thinkingLevelMap: { off: "off" } },
+	} } } }, null, 2)}\n`;
+	writeFileSync(path, commented);
+	assert.deepEqual(await applyProviderModelCorrections(home, REAL_CORRECTIONS),
+		{ status: "left_untouched", reason: "operator_comments", missing: [] });
+	assert.equal(readFileSync(path, "utf8"), commented);
+});
+
+test("an operator's own top-level $comment is never touched; the product note is its own key", async t => {
+	const home = scratch(t);
+	const path = join(home, "models.json");
+	writeFileSync(path, JSON.stringify({ "$comment": "the operator's own note", providers: {} }, null, 2));
+	await applyProviderModelCorrections(home, REAL_CORRECTIONS);
+	const parsed = JSON.parse(readFileSync(path, "utf8"));
+	assert.equal(parsed.$comment, "the operator's own note");
+	assert.notEqual(PRODUCT_NOTE_KEY, "$comment");
+	assert.ok(Array.isArray(parsed[PRODUCT_NOTE_KEY]));
+});
+
+test("with no corrections left, a stale product note is removed and nothing else changes", async t => {
+	const home = scratch(t);
+	const path = join(home, "models.json");
+	const empty = join(home, "empty-corrections.json");
+	writeFileSync(empty, JSON.stringify({ providers: {} }));
+	writeFileSync(path, JSON.stringify({ [PRODUCT_NOTE_KEY]: ["stale"], providers: { xai: { baseUrl: "https://example.invalid" } } }, null, 2));
+	assert.deepEqual(await applyProviderModelCorrections(home, empty), { status: "written" });
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { providers: { xai: { baseUrl: "https://example.invalid" } } });
 });
 
 // -- Integration: the real vendored Pi actually resolves the correction ----------------------

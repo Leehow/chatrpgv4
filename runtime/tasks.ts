@@ -135,7 +135,7 @@ async function childCatalog(agentHome: string): Promise<ReadonlyMap<string, Read
       for (const [provider, entry] of Object.entries(store)) absorb(provider, (entry as { models?: unknown })?.models);
   } catch { /* an absent or half-written store is one source fewer, never a failure */ }
   try {
-    // Comments are legal in this file (Pi strips them; so does the product's correction note, §135.27.1).
+    // An operator may comment this file (Pi strips `//` comments); the product writes none since §135.27.1.1.
     const custom = JSON.parse(stripJsonComments(await readFile(join(agentHome, "models.json"), "utf8")));
     const providers = custom?.providers;
     if (providers && typeof providers === "object" && !Array.isArray(providers))
