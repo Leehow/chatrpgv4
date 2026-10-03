@@ -170,6 +170,37 @@ Structural and source-regression gates are complete at the versions and source s
 
 ## Integration slot
 
-**FINAL_INTEGRATION_RESULT: PENDING_FINAL_INTEGRATION**
+**FINAL_INTEGRATION_RESULT**
 
-The host fills this finite slot exactly once after integration. The active plan links this report; remaining work is recorded as findings and validation limits, not approved new features.
+```json
+{
+  "source_integration_commit": "e3ace20abd5fbe6c1561c3a51570a84274e3a2bb",
+  "source_equivalence": true,
+  "protected_unchanged": true,
+  "kernel_typecheck": "passed",
+  "integrated_focused": {
+    "tests": 35,
+    "passed": 35,
+    "failed": 0
+  },
+  "full_regression": {
+    "source": "f9244b7557d9e68c25953dee6a4a497872045a76",
+    "tests": 4390,
+    "passed": 4390,
+    "failed": 0
+  },
+  "full_matches_integrated_source": false,
+  "live_validation": {
+    "provider": "flapcode",
+    "model": "gpt-6-luna",
+    "thinking": "low",
+    "tables": 2,
+    "turns_per_table": 6
+  },
+  "live_quality_accepted": false,
+  "complete_ending_accepted": false,
+  "app_packaged": false
+}
+```
+
+The host filled this finite slot from the integration and verification records. The active plan links this report; remaining work is recorded as findings and validation limits, not approved new features.
