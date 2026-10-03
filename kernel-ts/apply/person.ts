@@ -88,7 +88,7 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
             fix: 'set address for how they are spoken to; a name a player chose is not renamed at the table',
             details: { field: 'person.name', who: person.id },
         });
-    // §103.7 (owner, 2026-10-03: 「能不能给有特征的唯一外号？」): the word this table calls someone tells them from everyone
+    // §103.7 (owner, 2026-10-03, asking for distinctive, unique epithets): the word this table calls someone tells them from everyone
     // else. Two people under one word cannot be told apart in prose, in a say token or on the card, and a later `who` that
     // names it resolves to nobody (§87.8 refuses two owners). Refused only when it is the same words as another person's
     // (normalized); whether a word is distinctive enough is the Keeper's, from the rule in this effect's description.

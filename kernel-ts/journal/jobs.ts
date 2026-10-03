@@ -327,8 +327,8 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
             if (carries(label, id))
                 return reject(i, `entries[${i}].label carries the name ${repr(name)}`, 'a label says how the player would know them and never names them', { field: 'label', name });
             // §103.7: a label tells one person from everyone else. On the installed App (table 15) the lane's labels were
-            // 「……高瘦中年男人」-style phrases any of the three men could wear. The kernel refuses only the same words held by
-            // someone else (normalized): one label inside another is often two people (老板 and 老板娘), and whether a label is
+            // "tall, lean, middle-aged man"-style phrases any of the three men could wear. The kernel refuses only the same words
+            // held by someone else (normalized): one label inside another is often two people (the owner and the owner's wife), and whether a label is
             // distinctive enough is the writer's to get right, from the rule in the instruction.
             const taken = epithetOf(id) ? '' : takenBy(label.trim(), id);
             if (taken)
