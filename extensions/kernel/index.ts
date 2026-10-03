@@ -1,3 +1,4 @@
+import {CASH_CONSENT_POLICY} from "./admission.ts";
 import {createQuotationQueue} from "./quotes.ts";
 import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
@@ -2720,7 +2721,7 @@ export default function (pi: ExtensionAPI) {
 				if(typeof index==='number'&&typeof row.delta==='number'&&row.delta<=0&&payload.effects[index]?.kind==='cash')
 					payload.effects[index]._cash_debit_limit=-row.delta;
 			}
-			cashContext = {investigator: capsule.known?.investigator, quotes: capsule.known?.cash_quotes ?? [], previews:preview.cash_previews ?? []};
+			cashContext = {investigator: capsule.known?.investigator, quotes: capsule.known?.cash_quotes ?? [], previews:preview.cash_previews ?? [], consent_policy:CASH_CONSENT_POLICY};
 		}
 		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
 			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;

@@ -1,6 +1,6 @@
 # Generate images on the player's Codex (ChatGPT) subscription
 
-Status: ready-for-agent — contract §172; implementation on `claude/codex-image-20261003`
+Status: implemented — contract §172; merged into 0.9.6a at 86590ea12 (branch `claude/codex-image-20261003`); packaged-App acceptance still owed
 Date: 2026-10-03
 Baseline inspected: 0.9.6a at 8bafe5141.
 Related contract: §22.7 (investigator portrait mount, image-gen dispatch reuse), §35.4 (illustration image call, protagonist reference), §23 (settings words are English-authored and projected). The contract change lands as a new § when this is implemented; this spec links back to it then.

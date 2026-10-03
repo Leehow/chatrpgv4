@@ -13204,6 +13204,27 @@ preserving the same card and playback state during these updates.
 
 ### 58.9 Unified purchases and exact quotations (owner request, 2026-10-02)
 
+**Chosen covered services continue in the same turn (owner ruling, 2026-10-03).**
+When the player already chose an ordinary service/item and living-standard coverage or
+kernel-computed daily Spending Level coverage applies, settle its complete priced quantity
+and dependent effects, then narrate completion in that turn. No preliminary quote-only stop,
+price acceptance or repeat of the chosen service question is required. Incidental price
+speech during fulfillment creates no fresh unaccepted offer. A price-only enquiry still
+chooses no purchase. Extras, meaningful new scope, explicit limits and actual cash debits
+retain ordinary admission; coverage and affordability do not authorize those.
+
+Coverage uses the full expense and daily aggregate, never a unit price. A one-gallon quote
+is not a full-tank bill. The Keeper supplies actual billed quantity under ordinary fiction
+authority; the kernel multiplies and previews it. Only genuinely unresolved player-owned
+scope or cash terms need another decision. Host-owned preview context carries this consent
+policy beside the actual delta to both typed Jev and the fallback lane. Neither reviewer
+adds prices or infers coverage. Existing arithmetic and debit ceilings remain unchanged.
+
+Writer: the Keeper proposes the complete chosen expense and the kernel previews its debit.
+Reader: Keeper guidance, the native carried-source/clerk note, and both reviewers read
+coverage policy; reviewers also receive the computed preview.
+Actor: the Keeper settles and narrates completion; the player answers only an unmade choice.
+
 The Keeper decides the open semantic question, using `category: living|purchase|transfer` on a
 cash effect. `living` means ordinary accommodation, food or incidental travel within this
 investigator's established living standard; admission judges this claim in context. It leaves
