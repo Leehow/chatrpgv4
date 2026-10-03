@@ -4,6 +4,7 @@ the book is never touched and the words die with the package), the capsule's `vo
 Keeper's `apply dossier` kept out of a `shape: "lines"` word. Through the RPC seam."""
 
 import json
+import re
 import shutil
 
 import pytest
@@ -177,9 +178,11 @@ def test_the_write_lands_in_the_package_namespace_and_reaches_the_capsule_as_voi
     knott = next(p for p in turn["present"] if p["name"] == KNOTT)
     assert "mask" not in knott and "in exchange" not in knott
     assert turn["voices"] == [{"name": KNOTT, "mask": VOICE["mask"], "in exchange": VOICE["exchanges"]}]
-    # §40.8: the head names the flexible register, answers-first, exchanges as reference.
+    # §40.8: the head names the flexible register and exchanges as reference. §40.9 (2026-10-03): how people answer is
+    # the prose package's, so the base head keeps the knowledge bounds and no answer-first priority of its own.
     assert "voices" in turn["head"] and "flexible register" in turn["head"]
-    assert "Answer the player's words first" in turn["head"] and "Exchanges are reference" in turn["head"]
+    assert "Preserve source secrets and listener identity" in turn["head"] and "Exchanges are reference" in turn["head"]
+    assert not re.search(r"\banswers?\b[^.;]*\b(?:first|what was (?:actually )?said)\b", turn["head"], re.I), "§40.9: no answer-first in the base head"
     assert "never lines to read out or slogans to repeat" in turn["head"]
     assert "Wear the mask on every line" not in turn["head"]
     # ... and only while the package is on.

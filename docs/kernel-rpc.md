@@ -11430,13 +11430,14 @@ opening's asynchronous-card gap.
   person's register. Neither the mask nor its examples overrules facts, source
   truth, the listener's identity or what that person can know. The capsule head,
   full instruction, brief, writer and reviewer all follow this rule.
-  *§40.9 rewrote this rule for Narration Craft (2.1.9, description 2.1.13):* its full
+  *§40.9 rewrote this rule (Narration Craft 2.1.9, description 2.1.13, base head 2026-10-03):* its full
   instruction, brief, style axis, `speak-in-person` directive, `voice` floor line and
   package description no longer put answering first; people react to the whole
   encounter, and a genuine question gets a direct answer when the situation permits.
   The voice writer and reviewer still answer the example question an exchange poses.
-  The base capsule head (`kernel-ts/read/assemble.ts`) still says "Answer the player's
-  words first"; §40.9 did not change it.
+  The base capsule head no longer says "Answer the player's words first": it keeps the
+  interface (flexible register, source secrets and listener identity, exchanges as
+  reference) and leaves how people answer to the prose package.
 - **Writing is tool-enabled.** The host reuses the existing Pi task runner with
   `read,write,edit,bash`, no implicit extensions/context/skills, a per-attempt
   directory and retained packet, draft and process evidence. It publishes only
@@ -11550,6 +11551,13 @@ Version 2.1.13 changes only the package description, which 2.1.9 left saying peo
 said first" in the Mods panel; package bytes are frozen per version, so the wording needed its own version.
 `tests/extension/keeper-prose-contract.test.mjs` finds each of these surfaces where it lives and requires all of
 them to agree, so a surface left behind by the next rewording fails there.
+The base capsule head (`kernel-ts/read/assemble.ts`) still carried §40.8's "Answer the player's words first" on every
+turn, beside the package and with it disabled. On 2026-10-03 the sentence is removed rather than reworded: the base
+keeps only interfaces and the prose package owns how people speak (`docs/specs/prose-mod.md` §6, owner ruling
+2026-09-25; §170 gives encounter purpose to Narration Craft), so a base sentence teaching the whole-encounter rule
+would be a second owner of it. The head keeps what is interface or authority: `voices` is flexible register, not a
+marker or a topic; source secrets and listener identity hold; exchanges are reference. `tests/kernel/test_voice.py`
+reads the emitted head and refuses an answer-first priority anywhere in it.
 
 **Precedent.** Potts, [Presupposition and implicature](https://web.stanford.edu/~cgpotts/manuscripts/potts-blackwellsemantics.pdf),
 describes interpretation through shared context and contributions fitted to conversational purpose.
@@ -31903,8 +31911,26 @@ Like `table.warn`, it takes no call id and lands after the turn it read has clos
 
 A Mod may contribute a locked package JSON through `contributes.expression_cards` and capability `npc.expression.references.v1`. Catalog version 1 contains 1-24 unique named cards: `{name, kind, applies, activation_question, pattern, examples}`. `kind` is habit or interaction; `activation_question` is a direct factual Noul question, at most 160 characters, authored by a tool-enabled Pi writer. Other limits are name 80, applies 360, pattern 500, one or two context/reply examples each at most 300 characters, and 24,000 UTF-8 catalog bytes. The read-only `mods.expression` returns the ordered active world-locked packages, exact file digests, play language and budget metadata. Capsules contain only enabled/catalog-revision metadata. Installation does not upgrade existing worlds; normal explicit `mods.configure` owns activation and version changes.
 
-The producer is the context-policy host: current declared utterance, present NPC source/state/voice masks, listener, risk and the exact committed exchange already materialized by `table.recall`. Truncation and verification remain explicit. The reader is one `expression-reference-selection` version-7 Jev batch, with participation plus independent activation and register-conflict Nouls per person/card. The host intersects calibrated gates, allows none and selects at most one habit and one interaction per person. No Choice forces a winner. The consumer is the existing main Keeper request: the host copies selected card content exactly; the Keeper writes the single delivered draft with source/current facts, knowledge and agency authoritative. Cards do not assign personality, mutate owned voice cards, authorize actions or supply example facts.
+The producer is the context-policy host: current declared utterance, present NPC source/state/voice masks, listener, risk and the exact committed exchange already materialized by `table.recall`. Truncation and verification remain explicit. The reader is one `expression-reference-selection` version-8 Jev batch, with participation plus independent activation and register-conflict Nouls per person/card. The host intersects calibrated gates, allows none and selects at most one habit and one interaction per person. No Choice forces a winner. The consumer is the existing main Keeper request: the host copies selected card content exactly; the Keeper writes the single delivered draft with source/current facts, knowledge and agency authoritative. Cards do not assign personality, mutate owned voice cards, authorize actions or supply example facts.
 
 Preparation is asynchronous. The user authorized first-request waiting on 2026-10-02: only the first eligible NPC request may await the existing attempt until 800 ms after the attempt for its exact writing snapshot started. Mandatory preparation for that snapshot spends the same window; obsolete provisional snapshots do not. Later requests, invalidation and second snapshots never renew it. Completion, none, failure, expiry and cancellation return immediately. A cold miss can still omit cards from the first response. The host bounds the projection to eight present people, 14,000 context bytes, at most 24 aggregate cards and the existing Jev packer limits; excess rosters/requests fall back without structurally selecting a preferred NPC. At most two distinct snapshot attempts per campaign/worldline/loop/turn are permitted, each with a 1200 ms cancellation deadline; an identical key is never retried. Ready results remain eligible after the work deadline but not after input cancellation or binding change. Catalog reads are cached only after success, keyed by the ordered active lock/digests and language; outputs additionally bind exact context, source/turn and question/model/policy versions. Final advice is at most 2200 bytes and cannot evict mandatory evidence. A changed source or state cancels preparation. No prose model, finished-prose judge, rewrite, NPC planner or own-card migration is added.
 
 At the public `before_provider_request` seam, the host records whether the exact packet survived actual Pi serialization, with request identity and selected-card provenance. A projected packet invalidated before that seam is withdrawn from the payload. Projection alone is not delivery, and this seam is not a server acknowledgement. None, cancellation, timeout, missing key, packing failure or provider error uses normal Keeper behavior; telemetry is audit-only. The original single-pass, replay and state-authority guards remain authoritative. Quality and complete-turn speed require independent response comparisons and genuine driver evidence; the earlier static style A/B is invalid for this selector's intent.
+
+## 170. NPC voice preparation and coherent expression guidance
+
+This addendum is read with §§40.5, 40.7, 169, and 166; it does not replace them.
+
+**Producer.** The host produces one bounded preparation input from the current declared utterance, present NPC source/state/voice masks, listener, risk, and the exact committed exchange materialized by `table.recall`. It preserves source-materialized history and verifies truncation, may include recent bounded spoken lines, and may request `voice.job` only for the current campaign/person. It may project at most eight people, 24 cards, and 14,000 context bytes.
+
+**Reader.** The reader is expression-reference-selection family **8**: one batch with participation, independent activation, and register-conflict Nouls. It may select none, or at most one habit and one interaction per person. State retains bounded source example context and its reply; register-conflict considers the examples’ actual demonstrated wording as well as the pattern. Output is advice, not an action, fact, personality assignment, authorization, or voice mutation. Keep existing none/cancellation/cache/source bindings and budgets. A changed source/state, mismatch, cancellation, missing key, timeout, packing failure, incomplete/invalid answer, or provider error returns ordinary fallback. No extra question, prose reviewer, or rewrite.
+
+**Consumer.** The existing Keeper request consumes selected card content exactly, with source, facts, knowledge, agency, listener, and established voice authoritative. The host records provenance at `before_provider_request` after actual Pi serialization. Projection is not delivery and the seam is not acknowledgement. There is one final prose writer.
+
+**Voice lifecycle.** Voice opts in to exactly one initial current-campaign job after both session context and kernel bridge are ready, in either order. It has no backfill flag and never sweeps the book. `voice.job` accepts optional host-owned `exclude_jobs`: an array of 0..128 opaque nonempty strings, each <=512 characters. Wrong type or overflow is structural `invalid_params`. Only exact current campaign/person/package generation job IDs exclude; foreign/stale IDs cannot suppress current work; default order is unchanged. Source-authored or established voices are excluded and never overwritten.
+
+`Queue.pauseFor` is bounded to 60,000 ms maximum and uses one timer cleaned on cancellation without blocking foreground. Voice unavailable uses default 15,000 ms cooldown; spent attempts remain spent. Host-local `rejected`, `unavailable`, and `cancelled` are determined by process/artifact/review stages, never regex over error prose. A rejected candidate retires after current <=2 attempts and later eligible people proceed. Unavailability defers the current drain with remaining allowance rather than hammering every NPC. Cancellation fails and publishes nothing, including stale artifacts.
+
+**Writing and review.** NarrationCraft owns encounter purpose, reactive emotion, source facts, and agency; `zh-optimize` owns Chinese linguistic realization and original references. Remove unconditional answer-first, repeat-to-anger, and occupation-to-fixed-reaction rules. No fabricated canon, authority, resources, secrets, or player choices; source-consistent responsive expression and fresh wording are permitted. Preserve variable/formal/long/quiet/refusal modes and the single-draft law. Masks and examples show range, not compulsory markers, and examples answer their actual preceding words. Semantic review is model judgment with at most one reviewed repair; no executable regex, detector, blacklist, or word list.
+
+**Evidence.** Every pending test remains pending; historical records do not prove current naturalness. Frozen offline comparisons are diagnostic only. Preserve old-world locks, source cards, historical evidence, and no automatic migration. App/source version consistency is separate; no App acceptance is claimed from source tests.

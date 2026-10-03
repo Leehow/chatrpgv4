@@ -1,5 +1,7 @@
 # Narration Craft
 
+## 2.1.16
+- Finalizes the speech-repair package fixture/version binding and preserves the incoming-main description as version metadata. Restores meaningful prose-guard examples plus conditional-reaction assertions. Craft guidance keeps encounter purpose, reactive emotion, source facts, and player agency with NarrationCraft; contextual examples demonstrate range rather than compulsory phrasing. Source guards, established voices, single-draft ownership, and existing public seams remain unchanged. This record is implementation history, not fresh-live literary-quality or App acceptance.
 ## 2.1.13
 - The package description says what 2.1.9 changed: people react to what was said and done and answer a genuine question directly when the situation permits. It still said they "answer what was actually said first" (contract §40.9). Description only; the full instruction, brief and style are unchanged.
 

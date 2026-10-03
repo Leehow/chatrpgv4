@@ -124,6 +124,33 @@ async function openVoice(t, { env = {}, people = [], responses = [], reviews = [
 	};
 }
 
+test("current-person voice preparation can publish before the first committed turn", async t => {
+	const table = await openVoice(t, {people: ["steven-knott"], responses: [answer("hello", "ordinary", "uncertain")]});
+	await completed(table);
+	assert.equal(table.calls("voice.submit").length, 1);
+	assert.equal(table.calls("voice.job")[0].params.backfill, undefined);
+});
+test("an unavailable author resumes its pending ticket after cooldown with only the remaining try", async t => {
+	let written = 0, submitted = false;
+	const table = await openVoice(t, {
+		writer: async request => {
+			if (++written === 1) return {ok: false, error: "Fixture provider unavailable", code: 1, timedOut: false, ms: 1, command: []};
+			writeFileSync(join(request.cwd, "draft.json"), JSON.stringify({voice: {mask: "Keeps an even tone", exchanges: ["hello → welcome", "where → here", "certain → not yet"]}}));
+			return {ok: true, code: 0, timedOut: false, ms: 1, command: []};
+		},
+		rpc: async method => {
+			if (method === "voice.job") return submitted ? {job_id: null} : packet("steven-knott");
+			if (method === "voice.submit") {submitted = true; return {};}
+		},
+	});
+	await waitFor(() => table.rows().some(row => row.deferred), {label: "voice author deferred"});
+	assert.equal(table.tasks.length, 1);
+	assert.equal(table.calls("voice.fail").length, 0);
+	await waitFor(() => table.calls("voice.submit").length === 1, {timeoutMs: 22_000, label: "voice publication after bounded cooldown"});
+	assert.equal(table.tasks.length, 2);
+	assert.equal(table.calls("voice.fail").length, 0);
+});
+
 const completed = (table, count = 1) => waitFor(() => table.rows().length >= count, { label: `voice telemetry ${count}` });
 /**
  * 等第 `count` 次 `voice.job`。遥测行不是它的替身：一行是 `record()` 里 `await appendJsonl` 落盘，
@@ -140,9 +167,9 @@ test("a committed turn drains the queue, one job per person, on a closed packet 
 	});
 	table.commit(1);
 	await completed(table, 2);
-	// Three asks: two people and the kernel's `job_id: null`, which is what ends a drain.
-	await asked(table, 3);
-	assert.deepEqual(table.calls("voice.job").map(row => row.params), Array(3).fill({ campaign: "camp" }));
+	// Startup drains the two people; the committed dispatch then observes the empty queue.
+	await asked(table, 4);
+	assert.deepEqual(table.calls("voice.job").map(row => row.params), Array(4).fill({ campaign: "camp" }));
 	assert.deepEqual(table.calls("voice.submit").map(row => row.params), [
 		{ campaign: "camp", job_id: "voice:camp:steven-knott", voice: { mask: "自称俺，句尾带「呗」。", exchanges: ["你是谁？ → 没什么好说的。", "雨大。 → 大就大呗。", "地窖呢？ → 你问这个干什么？"] } },
 		{ campaign: "camp", job_id: "voice:camp:dooley", voice: { mask: "自称俺，句尾带「呗」。", exchanges: ["随便看看。", "跟你没关系！", "走了。"] } },
@@ -190,13 +217,15 @@ test("one commit cannot become an unbounded run of model calls", async (t) => {
 		people: ["a", "b", "c", "d", "e", "f", "g", "h"],
 		responses: Array(8).fill(null).map((_, index) => answer(`at ease ${index}`, `ordinary ${index}`, `under strain ${index}`)),
 	});
-	table.commit(1);
 	await completed(table, 6);
 	await settle(40);
 	assert.equal(table.calls("voice.job").length, 6, "the ceiling holds even while people are still waiting");
 	assert.equal(table.calls("voice.submit").length, 6);
 	// The two left over are still the kernel's to offer: nothing here marks them done or failed.
 	assert.deepEqual(table.queue, ["g", "h"]);
+	table.commit(1);
+	await completed(table, 8);
+	assert.equal(table.calls("voice.submit").length, 8, "the next committed dispatch can drain the remainder");
 });
 
 for (const [name, voice] of [
@@ -230,12 +259,38 @@ for (const [thrown, reason] of [[{ code: "invalid_params", message: "the source 
 		});
 		table.commit(1);
 		await completed(table);
+		if (thrown.code === "bridge_closed") {
+			assert.equal(table.calls("voice.submit").length, 1);
+			assert.equal(table.calls("voice.fail").length, 0, "a lost bridge is not a rejected person");
+			assert.equal(table.rows()[0].deferred, true);
+			return;
+		}
 		assert.equal(table.calls("voice.submit").length, 2, "one retry, and only one");
 		assert.equal(table.calls("voice.fail").length, 1);
 		assert.equal(table.calls("voice.fail")[0].params.reason, reason);
 		assert.equal(table.calls("voice.fail")[0].params.job_id, "voice:camp:steven-knott");
 	});
 }
+
+test("a retired candidate cannot block a later person's publication in the same dispatch", async t => {
+	const done = new Set(), people = ["steven-knott", "dooley"];
+	const table = await openVoice(t, {
+		responses: [fauxAssistantMessage("not JSON"), fauxAssistantMessage("still not JSON"), answer("hello", "ordinary", "uncertain")],
+		rpc: async (method, params) => {
+			if (method === "voice.job") {
+				const person = people.find(name => !done.has(name) && !(params.exclude_jobs ?? []).includes(`voice:camp:${name}`));
+				return packet(person);
+			}
+			if (method === "voice.submit") {done.add(params.job_id.slice("voice:camp:".length)); return {};}
+		},
+	});
+	table.commit(1);
+	await completed(table, 2);
+	assert.equal(table.tasks.length, 3, "only the failed person's existing two tries are spent");
+	assert.equal(table.calls("voice.fail").length, 1);
+	assert.equal(table.calls("voice.submit")[0].params.job_id, "voice:camp:dooley");
+	assert.ok(table.calls("voice.job").some(row => row.params.exclude_jobs?.includes("voice:camp:steven-knott")));
+});
 
 test("a person is tried at most twice in a session, and the re-offered job ends the drain instead of spinning", async (t) => {
 	const table = await openVoice(t, {
@@ -269,19 +324,20 @@ for (const budget of ["unset", "0", "5"]) {
 		});
 		if (budget !== "5") {
 			await settle(60);
-			assert.equal(table.calls("voice.job").length, 0);
-			assert.deepEqual(table.rows(), []);
+			assert.equal(table.calls("voice.job").length, 2);
+			assert.equal(table.calls("voice.job").some(row => row.params.backfill), false);
+			assert.equal(table.calls("voice.submit").length, 1, "current-person startup is distinct from backfill");
 			return;
 		}
 		await completed(table);
 		await table.hook("agent_settled");
 		// Wait for the ask that ends the drain, then hold still: the settle is what gives a
 		// spurious third ask its chance, so the count below stays an upper bound too.
-		await asked(table, 2);
+		await asked(table, 3);
 		await settle(60);
 		// One drain: the person, then the kernel's `job_id: null`, and the budget is not spent again.
-		assert.deepEqual(table.calls("voice.job").map(row => row.params), Array(2).fill({ campaign: "camp", backfill: true }));
-		assert.equal(table.rows()[0].backfill, true);
+		assert.deepEqual(table.calls("voice.job").map(row => row.params), [{campaign: "camp"}, {campaign: "camp"}, {campaign: "camp", backfill: true}]);
+		assert.equal(table.rows()[0].backfill, undefined);
 		assert.equal(table.rows()[0].npc, "steven-knott");
 	});
 }
@@ -344,9 +400,10 @@ for (const unavailable of [false, true]) {
 		});
 		table.commit(1);
 		await completed(table);
-		assert.equal(reviews, unavailable ? 2 : 4);
+		assert.equal(reviews, unavailable ? 1 : 4);
 		assert.equal(table.calls("voice.submit").length, 0);
-		assert.equal(table.calls("voice.fail").length, 1);
+		assert.equal(table.calls("voice.fail").length, unavailable ? 0 : 1);
+		if (unavailable) assert.equal(table.rows()[0].deferred, true);
 	});
 }
 
@@ -412,8 +469,9 @@ for (const [label, review] of [
 		table.commit(1);
 		await completed(table);
 		assert.equal(table.calls("voice.submit").length, 0);
-		assert.equal(table.calls("voice.fail").length, 1);
-		assert.equal(table.tasks.length, label === "negative" ? 4 : 2);
+		assert.equal(table.calls("voice.fail").length, label === "unavailable" ? 0 : 1);
+		assert.equal(table.tasks.length, label === "negative" ? 4 : label === "unavailable" ? 1 : 2);
+		if (label === "unavailable") assert.equal(table.rows()[0].deferred, true);
 	});
 }
 

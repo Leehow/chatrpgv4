@@ -1,5 +1,8 @@
 # Chinese Optimization (zh-optimize)
 
+## 1.3.7
+- Aligns the Chinese realization package with selector family 8 and the repaired contextual-example/conditional-reaction fixture binding. `zh-optimize` owns linguistic realization and original references only; source facts, agency, owner/version identity, cancellation, and source-authored/established voice guards remain binding. This is an implementation record, not a claim of final-full, fresh-live, quality, or App acceptance.
+
 ## 1.3.6 — 2026-10-02
 
 - Current delivered package: family 7, full 2122 bytes, brief 1090 bytes (cap 1200); implementation/testing authorized with Flapcode GPT Luna.
