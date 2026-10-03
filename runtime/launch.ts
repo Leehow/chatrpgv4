@@ -39,6 +39,21 @@ import { selectLoopEngine } from './loop-engine.ts';
 const HTTP_IDLE_TIMEOUT_SETTING = 'httpIdleTimeoutMs';
 const HTTP_IDLE_TIMEOUT_MS = 60_000;
 
+/**
+ * How long the table's own model call keeps retrying a provider that turned it away (429, overloaded, 5xx).
+ *
+ * Pi's default is three retries at 2, 4 and 8 s. On the installed App (2026-10-02) the setup wizard met a Flapcode
+ * 429 while the book reader was drawing on the same provider, spent those three retries inside 17 s and gave the
+ * player a failed turn; a rate-limit window does not close that fast. Eight retries back off 2, 4, 8, 16, 32, then
+ * 60 s three times (Pi caps one wait at `maxAgentDelayMs`): about four minutes before the turn is given up, each
+ * wait shown to the player as a retry notice. That is a wait, not a hang: the host's turn watchdog counts Pi's
+ * `auto_retry_start` as activity, and every single wait stays under its two minutes. A lane child keeps Pi's own
+ * three (`extensions/module/reader.ts`, `writeChildSettings`), so its wall-clock budget still ends in a reason.
+ *
+ * Filled key by key and never re-asserted, like the timeout above: an operator's own `retry` values stay theirs.
+ */
+const FOREGROUND_RETRY = {maxRetries: 8, baseDelayMs: 2_000, maxAgentDelayMs: 60_000} as const;
+
 export async function piLaunch(input: string[], options: RuntimeHostOptions = {}) {
   const env = {...(options.env ?? process.env)};
   const root = options.resourceRoot ?? resourceRootFrom(import.meta.url, env);
@@ -67,8 +82,8 @@ export async function piLaunch(input: string[], options: RuntimeHostOptions = {}
   const path = join(context.agentHome, 'settings.json');
   if (!existsSync(path)) {
     writeFileSync(path, JSON.stringify(context.layout === 'source'
-      ? {packages: [context.resourceRoot], quietStartup: true, httpIdleTimeoutMs: HTTP_IDLE_TIMEOUT_MS, cacheWarming: 'off'}
-      : {quietStartup: true, httpIdleTimeoutMs: HTTP_IDLE_TIMEOUT_MS, cacheWarming: 'off'}, null, 2) + '\n');
+      ? {packages: [context.resourceRoot], quietStartup: true, httpIdleTimeoutMs: HTTP_IDLE_TIMEOUT_MS, cacheWarming: 'off', retry: {...FOREGROUND_RETRY}}
+      : {quietStartup: true, httpIdleTimeoutMs: HTTP_IDLE_TIMEOUT_MS, cacheWarming: 'off', retry: {...FOREGROUND_RETRY}}, null, 2) + '\n');
   } else {
     const settings = JSON.parse(readFileSync(path, 'utf8'));
     if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error(`${path} must contain an object`);
@@ -91,6 +106,16 @@ export async function piLaunch(input: string[], options: RuntimeHostOptions = {}
     if (!('cacheWarming' in settings)) {
       settings.cacheWarming = 'off';
       changed = true;
+    }
+    if (!('retry' in settings)) {
+      settings.retry = {...FOREGROUND_RETRY};
+      changed = true;
+    } else if (settings.retry && typeof settings.retry === 'object' && !Array.isArray(settings.retry)) {
+      for (const [key, value] of Object.entries(FOREGROUND_RETRY)) {
+        if (key in settings.retry) continue;
+        settings.retry[key] = value;
+        changed = true;
+      }
     }
     if (changed) writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
   }

@@ -85,7 +85,7 @@ test("a mod child carries its idle timeout while both child kinds disable hidden
 
 	const modArgs = await launch(context, "mod", join(home, "mod"));
 	assert.deepEqual(JSON.parse(await readFile(join(home, "mod", ".pi", "settings.json"), "utf8")),
-		{ httpIdleTimeoutMs: LANE_HTTP_IDLE_TIMEOUT_MS, retry: { provider: { maxRetries: 0 } } });
+		{ httpIdleTimeoutMs: LANE_HTTP_IDLE_TIMEOUT_MS, retry: { maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 60000, provider: { maxRetries: 0 } } });
   // The file is read by nobody without this flag: a print-mode child with no UI declines the trust
   // question, and pi then loads the project scope as if it were empty.
   assert.ok(modArgs.includes("--approve"), JSON.stringify(modArgs));
@@ -97,7 +97,7 @@ test("a mod child carries its idle timeout while both child kinds disable hidden
 	assert.equal(readerArgs.includes("--approve"), true, JSON.stringify(readerArgs));
 	const { reading } = JSON.parse(await readFile(join(ROOT, "content", "rulesets", "coc7", "host-budgets.json"), "utf8"));
 	assert.deepEqual(JSON.parse(await readFile(join(home, "reader", ".pi", "settings.json"), "utf8")),
-		{ httpIdleTimeoutMs: reading.idle_ms, retry: { provider: { maxRetries: 0 } } });
+		{ httpIdleTimeoutMs: reading.idle_ms, retry: { maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 60000, provider: { maxRetries: 0 } } });
 
   // The operator's own value is what the table runs on, and is neither read nor rewritten here.
   assert.deepEqual(JSON.parse(await readFile(join(agent, "settings.json"), "utf8")),
@@ -115,7 +115,7 @@ test("the host is the only writer of the child's project scope, and the operator
 
   await launch(context, "mod", cwd);
 	assert.deepEqual(JSON.parse(await readFile(join(cwd, ".pi", "settings.json"), "utf8")),
-		{ httpIdleTimeoutMs: 9000, retry: { provider: { maxRetries: 0 } } });
+		{ httpIdleTimeoutMs: 9000, retry: { maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 60000, provider: { maxRetries: 0 } } });
   await assert.rejects(readFile(join(cwd, ".pi", "APPEND_SYSTEM.md")), { code: "ENOENT" });
   await assert.rejects(readFile(join(cwd, ".pi", "extensions")), { code: "ENOENT" });
 });

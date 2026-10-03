@@ -23122,11 +23122,21 @@ first deltas came 60 s or more after the answer; those would now be retried, as 
 **What follows is the existing path, on both engines.** On hybrid-v1 the failed attempt goes to `recover` →
 `_recoverDrivenAttempt` → `_prepareRetry`: backoff, the failed attempt omitted from the model projection, and one more
 provider attempt of the same infer step, each a `step_attempt` row with attempt id `<stepId>#aN`, bounded by
-`retry.maxRetries` (default 3, so at most four attempts). When the retries are spent the step ends `unavailable`; a
+`retry.maxRetries` (Pi's default is 3; the table's agent home fills 8, see *Foreground retry* below). When the retries are spent the step ends `unavailable`; a
 failed response is not steered (§135.11: the turn close is asked only after a model step that answered), so the run
 finishes `undelivered` with reason `model_unavailable:no_delivered_evidence`, and at `agent_settled` the player gets
 §38.7's terminal provider notice (it outranks §38's generic line). On legacy the same error goes to
 `_handlePostAgentRun`'s retry and the run settles the same way. A stream that stalls never holds the run.
+
+**Foreground retry (2026-10-03).** Pi's default backoff (3 retries at 2, 4 and 8 s) gave up a Flapcode 429 inside
+17 s on the installed App's setup wizard while the book reader was drawing on the same provider. `runtime/launch.ts`
+(`FOREGROUND_RETRY`) now fills `retry: {maxRetries: 8, baseDelayMs: 2000, maxAgentDelayMs: 60000}` into the agent
+home's `settings.json` key by key, never over an operator's own key: backoff 2, 4, 8, 16, 32, 60, 60, 60 s, about four
+minutes before the turn is given up, each wait forwarded to the player as `auto_retry`. The host's turn watchdog counts
+`auto_retry_start`/`auto_retry_end` as activity, so no wait is read as a wedge. A child pins Pi's own three back in its
+project scope (`extensions/module/reader.ts`, `CHILD_RETRY`), since its wall-clock budget is shorter than four minutes
+and would otherwise end the retries in its own SIGTERM. This is a wait for a provider that answers, not a budget: a
+stream that stalls is still cut by the idle timeout above and retried on the same path.
 
 **Diagnostics.** No product switch dumps provider traffic. For a live capture, undici publishes each request's sent
 body and every received body chunk on `node:diagnostics_channel` (`undici:request:create`, `bodyChunkSent`,
