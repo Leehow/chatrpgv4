@@ -185,6 +185,31 @@ test("journal retries submit once without refetching the job, then emits only on
 	assert.equal(table.rows()[0].retried, true);
 });
 
+test("§103.6: the retry is told why the kernel refused the first answer, in the kernel's own words", async (t) => {
+	const seen = [];
+	let submissions = 0;
+	const table = await openLanes(t, {
+		responses: [context => { seen.push(context); return answer(); }, context => { seen.push(context); return answer(); }],
+		rpc: async (method, params) => {
+			if (method === "journal.job") return packet(params.turn);
+			if (method === "journal.submit" && ++submissions === 1)
+				throw Object.assign(new Error("entries[0].named: true for 'Dooley' needs named_quote"), {
+					code: "invalid_params", fix: "copy those words into named_quote; if nothing this turn said the name, leave named out and give label" });
+			return {};
+		},
+	});
+	table.commit(1);
+	await completed(table);
+	assert.equal(seen.length, 2);
+	assert.ok(!inputText(seen[0]).includes("previous answer was refused"), "the first attempt has nothing to be told");
+	assert.match(inputText(seen[1]), /\[Your previous answer was refused; answer again with this corrected\]/);
+	assert.match(inputText(seen[1]), /needs named_quote/);
+	assert.match(inputText(seen[1]), /Fix: copy those words into named_quote/);
+	assert.match(promptOf(seen[0]), /named_quote, the exact words of the prose or spoken line that gave it/);
+	assert.equal(table.calls("journal.submit").length, 2);
+	assert.equal(table.calls("journal.fail").length, 0);
+});
+
 for (const reason of ["model_error", "invalid", "lane_error"]) {
 	test(`journal's two failed attempts keep the existing ${reason} backlog reason`, async (t) => {
 		const table = await openLanes(t, {
