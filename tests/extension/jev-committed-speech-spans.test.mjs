@@ -84,6 +84,17 @@ test("rejects malformed input and noncanonical speaker rows", () => {
 		{ ...valid, speech: { 0: valid.speech[0] } },
 		{ ...valid, speech: [{ who: { label: "" }, text: "Same." }] },
 		{ ...valid, speech: [{ who: { npc: "n", name: "N", extra: true }, text: "Same." }] },
+		{ ...valid, speech: [{ who: { investigator: "i", name: "I", shown: "" }, text: "Same." }] },
+		{ ...valid, speech: [{ who: { npc: "n", name: "N", shown: 1 }, text: "Same." }] },
 		{ ...valid, speech: [{ who: npc("n", "N"), text: " Same. " }] },
 	]) assert.deepEqual(deriveCommittedSpeechSpans(value), { status: "unavailable", spans: [], reason: "invalid_input" });
+});
+
+test("§103.5: an untold speaker's `shown` is part of a canonical NPC row", () => {
+	const markedText = "{{say:steven-knott}}坐下。{{/say}}", renderedText = "坐下。";
+	for (const shown of ["", "高瘦的老板"]) {
+		const who = { npc: "steven-knott", name: "Steven Knott", shown };
+		assert.deepEqual(deriveCommittedSpeechSpans({ markedText, renderedText, speech: [{ who, text: "坐下。" }] }),
+			{ status: "verified", spans: [{ start: 0, end: 3, who }] });
+	}
 });
