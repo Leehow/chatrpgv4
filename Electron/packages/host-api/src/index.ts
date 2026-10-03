@@ -888,7 +888,11 @@ export type UserMcpServer = {
 export type StreamEvent =
   /** `sentAt`: the host clock when it began working on this message (contract §164); absent for one it never dispatched. */
   | { type: "user_message"; sessionId: string; content: string; id?: string; sentAt?: number }
-  | { type: "presentation"; sessionId:string; entry:HistoryEntry }
+  /**
+   * `replacesDraft` (contract §171.3): the id of the live-prose draft this delivery takes the place of. The renderer
+   * puts the delivery where the draft was, in the same update, and keeps its reading cadence (§167).
+   */
+  | { type: "presentation"; sessionId:string; entry:HistoryEntry; replacesDraft?: string }
   | { type: "text"; sessionId: string; contentIndex: number; delta: string; segment?: number; replace?: boolean }
   | { type: "thinking"; sessionId: string; contentIndex: number; delta: string; segment?: number }
   | { type: "tool_call"; sessionId: string; contentIndex?: number; toolCallId: string; name: string; delta?: string; segment?: number; status?: "running" | "completed" | "failed" }

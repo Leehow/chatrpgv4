@@ -57,15 +57,15 @@ type PhaseName = typeof PHASE_NAMES[number];
 
 export type TurnTelemetryPhase = { name: PhaseName; at: number };
 /** §135.11.5: the road the turn's first prose took to the screen. */
-export type FirstProseVia = "mechanics" | "host" | "text";
-const FIRST_PROSE_VIAS: ReadonlySet<string> = new Set<FirstProseVia>(["mechanics", "host", "text"]);
+export type FirstProseVia = "mechanics" | "host" | "text" | "draft";
+const FIRST_PROSE_VIAS: ReadonlySet<string> = new Set<FirstProseVia>(["mechanics", "host", "text", "draft"]);
 /**
  * What one event the backend streamed to the renderer means for §135.11.5 (`first-prose.ts` decides):
  * prose on a card or a host placement; a non-blank text delta, which counts only if its
  * `message_end` keeps it; or a replacement of the streamed text, which counts only when non-blank.
  */
 export type ProseArrival =
-  | { kind: "prose"; via: "mechanics" | "host" }
+  | { kind: "prose"; via: "mechanics" | "host" | "draft" }
   | { kind: "text" }
   | { kind: "text_replace"; prose: boolean };
 export type TurnResourceSample = { rssBytes?: number; childCount?: number };

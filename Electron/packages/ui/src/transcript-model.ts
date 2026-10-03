@@ -683,8 +683,15 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     const liveProse = (event.entry.role ?? 'assistant') === 'assistant' && (event.entry.presentation
       ? event.entry.presentation.renderer === 'coc-mechanics' && Boolean(details?.marked_text || details?.rendered_text)
       : Boolean(event.entry.content))
-    const typewriter = at >= 0 ? previous[at].typewriter : liveProse ? {} : undefined
+    // §171.3: a delivery that replaces the draft drawn while it streamed goes where the draft was, in this same update,
+    // and keeps the draft's playback (§167), so what was already read is neither moved nor typed again.
+    const replaces = event.replacesDraft
+    const draftAt = replaces ? previous.findIndex(item => item.id === replaces) : -1
+    const typewriter = at >= 0 ? previous[at].typewriter : draftAt >= 0 ? previous[draftAt].typewriter ?? (liveProse ? {} : undefined) : liveProse ? {} : undefined
     const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{}),...(typewriter?{typewriter}:{})};
+    if (draftAt >= 0) return at >= 0
+      ? previous.filter((_, i) => i !== draftAt).map(item => item.id === entryId ? message : item)
+      : previous.map((item, i) => i === draftAt ? message : item)
     return at<0?[...previous,message]:previous.map((item,i)=>i===at?message:item);
   }
   if (event.type === 'secret_redact') return applySecretRedact(previous, event.messages)

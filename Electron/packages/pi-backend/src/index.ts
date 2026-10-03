@@ -209,6 +209,7 @@ import {
 import { createToolBatchTelemetry, type ToolBatchTelemetry } from "./tool-batch-telemetry.js";
 import { createTurnTelemetry, type TurnTelemetry } from "./turn-telemetry.js";
 import { proseArrival } from "./first-prose.js";
+import { LiveDeliveryProse, type LiveProseDraw } from "./live-prose.js";
 import { ensureWebSearchDefaults } from "./web-search-defaults.js";
 import {
   createExtensionRegistry,
@@ -922,6 +923,11 @@ type Live = {
   cocSetupHandoffPending?: boolean;
   /** Concatenated `text_delta` for the in-flight assistant message. */
   streamedAssistantText?: string;
+  /** Contract §171: the Keeper's delivery drawn as it streams, in a bound play session; created on first use. */
+  liveProse?: LiveDeliveryProse;
+  /** §171: the newest draft waiting for its coalesced draw, and the timer that draws it. */
+  liveProsePending?: LiveProseDraw;
+  liveProseTimer?: ReturnType<typeof setTimeout>;
   /** Concatenated redacted `thinking_delta` for the in-flight assistant message; diffed against the final blocks at message_end. */
   streamedAssistantThinking?: string;
   streamRedactors?: { text: Map<number, StreamRedactor>; thinking: Map<number, StreamRedactor>; tool: Map<number, StreamRedactor> };
@@ -1666,6 +1672,8 @@ function historyPage(entries: HistoryEntry[], before: number | string, limit: nu
 
 /** §132: how many of its own cards one run keeps for a live redraw; an older card is redrawn by a re-read. */
 const COC_LIVE_CARD_LIMIT = 300;
+/** §171.2: how long one streaming draft draw waits for the rest of its burst. */
+const LIVE_PROSE_COALESCE_MS = 40;
 /** History is opened on demand and parsed incrementally; listing never reaches this path. */
 async function readHistoryFallback(
   path: string,
@@ -3353,6 +3361,17 @@ export class PiHostBackend implements HostBackend {
    * (contract §135.11.5).
    */
   private stream(event: any, row?: unknown) {
+    // §171.3: the turn's prose taking its place on screen takes the place of the draft drawn while it streamed.
+    if (event?.type === "presentation" && event.entry?.presentation?.details?.draft !== true && typeof event.sessionId === "string") {
+      const live = this.live.get(event.sessionId);
+      let arrival: ReturnType<typeof proseArrival>;
+      try { arrival = proseArrival(event, row); } catch { arrival = undefined; }
+      if (live?.liveProse && arrival?.kind === "prose") {
+        this.cancelLiveProse(live);
+        const draft = live.liveProse.delivered();
+        if (draft) event = { ...event, replacesDraft: draft };
+      }
+    }
     emitFrame(this.listeners, {
       protocolVersion: PIPI_HOST_PROTOCOL_VERSION,
       channel: "stream",
@@ -3366,6 +3385,49 @@ export class PiHostBackend implements HostBackend {
     } catch {
       /* timing telemetry is observational only */
     }
+  }
+  /** §171: the live prose reader for a bound play session; none elsewhere. */
+  private liveProseFor(live: Live): LiveDeliveryProse | undefined {
+    const binding = this.cocSessionBindings.get(live.session.id);
+    if (!binding || (binding.mode || "play") !== "play") return undefined;
+    return live.liveProse ??= new LiveDeliveryProse(`coc-live-prose:${live.session.id}:${Date.now().toString(36)}`);
+  }
+  /**
+   * §171.2: draw the draft. Pi's relays deliver arguments in bursts of dozens of deltas in one tick, so a streaming
+   * draw is coalesced over a short window; a finished call's draw (`now`) goes at once.
+   */
+  private drawLiveProse(live: Live, draw: LiveProseDraw | undefined, now = false): void {
+    if (!draw) return;
+    const pending = live.liveProsePending;
+    live.liveProsePending = pending ? { ...draw, first: pending.first || draw.first } : draw;
+    if (!now && live.liveProseTimer) return;
+    if (live.liveProseTimer) clearTimeout(live.liveProseTimer);
+    live.liveProseTimer = undefined;
+    const flush = () => {
+      live.liveProseTimer = undefined;
+      const next = live.liveProsePending;
+      live.liveProsePending = undefined;
+      if (!next) return;
+      const binding = this.cocSessionBindings.get(live.session.id);
+      // Drawn by the delivery card's own renderer, so it reads in the face, paragraphs and cadence (§167) the delivery
+      // will have; `draft` marks it as the turn's prose still arriving.
+      const entry = { id: next.id, role: "assistant" as const, content: "", timestamp: Date.now(),
+        presentation: { renderer: "coc-mechanics", details: { draft: true, mechanics: [], marked_text: next.text,
+          ...(binding?.play_language ? { play_language: binding.play_language } : {}) } } };
+      // The first draw with prose is new on screen (§135.11.5); later draws redraw it in place.
+      this.stream({ type: "presentation", sessionId: live.session.id, entry }, next.first ? { customType: "coc-live-prose" } : undefined);
+    };
+    if (now) flush();
+    else {
+      live.liveProseTimer = setTimeout(flush, LIVE_PROSE_COALESCE_MS);
+      (live.liveProseTimer as { unref?: () => void }).unref?.();
+    }
+  }
+  /** §171: a draw still waiting must not land after what replaced it. */
+  private cancelLiveProse(live: Live): void {
+    if (live.liveProseTimer) clearTimeout(live.liveProseTimer);
+    live.liveProseTimer = undefined;
+    live.liveProsePending = undefined;
   }
   private agent(event: AgentEvent) {
     emitFrame(this.listeners, {
@@ -6788,11 +6850,14 @@ export class PiHostBackend implements HostBackend {
       if (this.projectionDebugEnabled() && (d.type === "text_delta" || d.type === "thinking_delta"))
         this.projectionDebugLine(`[stream-debug] emit ${d.type} session=${this.projectionDebugSessionTag(id)} t=${Date.now()} len=${(d.delta ?? "").length}`, "log");
       if (d.type === "toolcall_start") {
-        // Name/id are stripped from RPC start/delta events. Emit a provisional
+        // RPC delta events carry no name or id (the start event names the tool as
+        // `toolName`, which the card does not take until the end). Emit a provisional
         // card immediately so a long think is not followed by a silent wait
         // until every toolcall_end arrives in one burst.
         const index = d.contentIndex ?? 0;
         if (!live.toolArgs.has(index)) live.toolArgs.set(index, "");
+        // §171.1: Pi's start event names the tool (`toolName`); a delivering one is drawn as it streams.
+        this.liveProseFor(live)?.start(index, d.toolName);
         this.stream({
           type: "tool_call",
           sessionId: id,
@@ -6806,6 +6871,7 @@ export class PiHostBackend implements HostBackend {
         const index = d.contentIndex ?? 0;
         const delta = redactor("tool", index).push(d.delta ?? "");
         live.toolArgs.set(index, (live.toolArgs.get(index) ?? "") + delta);
+        this.drawLiveProse(live, live.liveProse?.update(index, live.toolArgs.get(index) ?? ""));
         this.stream({
           type: "tool_call",
           sessionId: id,
@@ -6828,6 +6894,8 @@ export class PiHostBackend implements HostBackend {
             : typeof call.arguments === "string"
               ? redactText(call.arguments, secrets)
               : buffered;
+        // §171.2: the finished arguments settle the draft at once, before the tool runs and its delivery replaces it.
+        this.drawLiveProse(live, live.liveProse?.end(index, call.arguments ?? buffered), true);
         this.stream({
           type: "tool_call",
           sessionId: id,
@@ -6860,6 +6928,8 @@ export class PiHostBackend implements HostBackend {
       }
       const secrets = this.sessionSecrets(id);
       if (endedMessage.role === "assistant") {
+        // §171: Pi numbers the next message's content from zero again.
+        live.liveProse?.messageEnded();
         void this.persistAssistantUsage(id, endedMessage);
         const flushed = [...(live.streamRedactors?.text.values() ?? [])].map((item) => item.flush()).join("");
         live.streamRedactors?.text.clear();
@@ -6946,6 +7016,11 @@ export class PiHostBackend implements HostBackend {
           // Pi echoes an injected steer back as a user message_end — that is
           // the delivery receipt the steer ack alone never gives us.
           if (message.role === "user") this.confirmUnconfirmedSteer(id, content);
+          // §171.2: a player's message starts the next stretch of prose; the last one's draft stays where it was drawn.
+          if (message.role === "user" && live.liveProse) {
+            this.cancelLiveProse(live);
+            live.liveProse.startTurn();
+          }
           // §164: this echo is the message the host began on at `sentAt`; Pi's stamp is its key.
           const sentAt = message.role === "user" ? this.pendingSends.take(id, content) : undefined;
           if (sentAt !== undefined && typeof message.timestamp === "number")

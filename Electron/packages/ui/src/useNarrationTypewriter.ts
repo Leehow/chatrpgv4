@@ -4,13 +4,19 @@ type Progress = { visible: number; done: boolean }
 const playback = new WeakMap<object, Map<string, Progress>>()
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
-/** Live identity belongs to the message, so virtualization keeps progress without retaining old sessions. */
-export function useNarrationTypewriter(identity: object | undefined, full: string, channel = 'prose') {
+/**
+ * Live identity belongs to the message, so virtualization keeps progress without retaining old sessions.
+ *
+ * `growing` (contract §171.2): the text is a delivery still arriving. Playback that caught up with it resumes when
+ * more arrives, instead of showing the new part all at once; a finished delivery stays complete, as before.
+ */
+export function useNarrationTypewriter(identity: object | undefined, full: string, channel = 'prose', growing = false) {
   const ends = useMemo(() => Array.from(segmenter.segment(full), part => part.index + part.segment.length), [full])
   const [motionReduced, setMotionReduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false)
   const initial = () => ({ identity, channel, ...((identity ? playback.get(identity)?.get(channel) : undefined) ?? { visible: 0, done: false }) })
   const [progress, setProgress] = useState(initial)
   if (progress.identity !== identity || progress.channel !== channel) setProgress(initial())
+  else if (growing && progress.done && progress.visible < ends.length) setProgress({ ...progress, done: false })
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-reduced-motion: reduce)')
