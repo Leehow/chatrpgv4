@@ -31322,7 +31322,7 @@ was ever written, so a card with none is byte-identical to before. `look` on the
 (`mood`, `mood_earlier`). The capsule `head` gains one line: `present[].now` is what that person feels right now and
 carries their next line more than any fact does; when it is missing or no longer true, write it with `apply npc mood`
 (one short line in the play language) before they speak, in the same turn; its own `apply` is fine and it need not ride with
-their words (amended 2026-10-01, see 161.10). The projection reads the committed
+their words (amended 2026-10-01, see 161.10; amended again 2026-10-03: the same response as the narrate, apply first, §172). The projection reads the committed
 ledger, so a mood written this turn shows from the next turn; within the turn the Keeper has just written it.
 
 **161.4 Visibility.** Keeper only. §16.2's `mechanics` has no `npc` row, so no card is drawn; the transcript, the
@@ -31997,3 +31997,35 @@ Tests:
 - `Electron/packages/ui/src/coc-live-prose.test.tsx`: growing playback resumes, the delivery lands at the draft's index past a later row with the same playback, an unknown draft id is ignored, and a call's end closes its own card above the draft while a later message's call opens a row after it.
 
 Each of six mutations turns these tests red: no `replacesDraft`, `via` forced to `mechanics`, every resend live, no growing resume, no in-place replacement, and no place match for a call's card.
+
+## 172. What needs no result rides with the narrate (owner ruling, 2026-10-03; amends §161.3, §161.7, §161.10's wording note and §103.7)
+
+**Why.** The owner asked why a turn takes so long, and then for the recommendation: 「按你推荐的做」. The installed App ran with `flapcode/gpt-6-luna` as Keeper, and each model step there costs 7–12 s before its first token (§171). Of 51 delivered turns across 34 sessions (2026-10-02 noon to 2026-10-03), 28 opened with a step that held only writes whose landing their own arguments fix, and the prose followed in a second step:
+
+| What the first step wrote | Turns |
+| --- | --- |
+| a mood, with or without other effects | 13 (10 the mood alone, 12 s median) |
+| an epithet, at a first meeting | 9 |
+| a move, a cash quote or settle, an object | 9 |
+
+The base had said since §135.5 that such an apply goes in the same response as its narrate, writes first (`SILENT_WRITES`). Three nearer lines told the Keeper otherwise for the mood: §161.3's head line, the `mood` field and narration-craft's instruction all said "its own apply is fine; it need not ride with their words". They said it because of §162: grok double-serialized prose written in `apply.narrate` beside structured effects. A separate `narrate` call in the same response does not have that problem.
+
+**What changed.**
+- The capsule head, the `mood` field (`extensions/kernel/tools.ts`) and narration-craft 2.1.17 now say the mood needs no result, so its apply goes in the same response as the narrate carrying the person's words, apply first. The field adds "never a step of its own".
+- The person `name` field (§103.7's epithet) and the speech rule the §40 steers restate say the same for an epithet: it is written in the same response as the narrate that first describes the person, apply first.
+
+**The person marker.** A `person` receipt is keeper-only and `markersFor` names no marker for it (§16.6). On table 18 the Keeper waited for its apply only to copy the receipt id into the prose as `{{person:<receipt id>}}`. That marker names nothing, and the delivery drops it (§34.14), so a first meeting has no reason to wait either.
+
+**Owner rulings recorded with this.** The owner asked whether Jev could choose the mood from an enumerated table instead. Two offline rounds on 33 real moments answered no:
+
+- *Round one* asked from the persona first. The primary feeling matched the Keeper's line in 55%. 13 of 33 came out as suspicion, and every answer said the person was hiding it.
+- *Round two* asked for the reaction to what just happened, with the persona as background only, per the owner's correction 「情绪要根据环境变化的啊」. Again 55%, with a single-choice control at 70%. Suspicion still dominated (15, or 18 by single choice), and 14 of 16 openly shown feelings were still judged hidden.
+
+The feeling a person has is an author's choice that the input does not determine, so a selector collapses to the genre's prior. The mood stays the Keeper's. Evidence is in `.coc/playtests/speech-replay-20260930/mood-jev-20261003/`.
+
+**What it saves.** Folding the steps saves the second step's start-up and the host's preparation between the two steps, about 8–15 s on luna. It does not save the writes' own tokens or the first step's thinking.
+
+**Acceptance.** Read off a fresh real table on the installed App: the share of delivered turns whose first step holds only writes that need no result, against the 28 of 51 above, and the first visible prose per turn (§135.11.5). Nothing here is enforced by the host. If the Keeper still splits, that is evidence for a host-side change, not a reason to repeat the wording.
+
+Tests: `tests/extension/npc-mood.test.mjs` and `tests/extension/jev-pacing-mod-alignment.test.mjs` move their narration-craft pin to 2.1.17. The wording itself has no test, because a test that pinned it would only pin a string.
+

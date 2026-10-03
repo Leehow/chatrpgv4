@@ -1,5 +1,7 @@
 # Narration Craft
 
+## 2.1.17
+- The mood is written in the same response as the narrate that carries the person's words, apply first, not as a step of its own (contract §172). 2.1.6 had allowed "its own apply" because grok double-serialized prose in `apply.narrate` beside structured effects (§162); a separate `narrate` call in the same response has neither problem. Installed App, 2026-10-03: with `flapcode/gpt-6-luna` as Keeper, 13 of 51 delivered turns spent a whole model step on bookkeeping that carried a mood before the prose (10 of them on the mood alone, 12 s at the median).
 ## 2.1.16
 - Finalizes the speech-repair package fixture/version binding and preserves the incoming-main description as version metadata. Restores meaningful prose-guard examples plus conditional-reaction assertions. Craft guidance keeps encounter purpose, reactive emotion, source facts, and player agency with NarrationCraft; contextual examples demonstrate range rather than compulsory phrasing. Source guards, established voices, single-draft ownership, and existing public seams remain unchanged. This record is implementation history, not fresh-live literary-quality or App acceptance.
 ## 2.1.13

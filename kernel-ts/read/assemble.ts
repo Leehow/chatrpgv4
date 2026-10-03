@@ -66,7 +66,7 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     // Contract §161.3: the interface; what to do with it is the prose package's (§161.7).
     "present[].now is what that person feels right now and carries their next line more than any fact does; when it " +
     "is missing or no longer true, write it with apply npc mood (one short line in the play language) before they " +
-    "speak, in the same turn; its own apply is fine, it need not ride with their words. " +
+    "speak: it needs no result, so that apply goes in the same response as the narrate carrying their words, apply first. " +
     "Their relationships retain specific people and evidence; recent_speech is what that person actually said, " +
     "available even before memory extraction finishes. Reports are attributed, not new world truth. " +
     "Return at a genuine unselected decision or the completion of the selected goal; never choose " +
