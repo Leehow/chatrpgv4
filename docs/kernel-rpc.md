@@ -11430,13 +11430,14 @@ opening's asynchronous-card gap.
   person's register. Neither the mask nor its examples overrules facts, source
   truth, the listener's identity or what that person can know. The capsule head,
   full instruction, brief, writer and reviewer all follow this rule.
-  *§40.9 rewrote this rule for Narration Craft (2.1.9, description 2.1.13):* its full
+  *§40.9 rewrote this rule (Narration Craft 2.1.9, description 2.1.13, base head 2026-10-03):* its full
   instruction, brief, style axis, `speak-in-person` directive, `voice` floor line and
   package description no longer put answering first; people react to the whole
   encounter, and a genuine question gets a direct answer when the situation permits.
   The voice writer and reviewer still answer the example question an exchange poses.
-  The base capsule head (`kernel-ts/read/assemble.ts`) still says "Answer the player's
-  words first"; §40.9 did not change it.
+  The base capsule head no longer says "Answer the player's words first": it keeps the
+  interface (flexible register, source secrets and listener identity, exchanges as
+  reference) and leaves how people answer to the prose package.
 - **Writing is tool-enabled.** The host reuses the existing Pi task runner with
   `read,write,edit,bash`, no implicit extensions/context/skills, a per-attempt
   directory and retained packet, draft and process evidence. It publishes only
@@ -11550,6 +11551,13 @@ Version 2.1.13 changes only the package description, which 2.1.9 left saying peo
 said first" in the Mods panel; package bytes are frozen per version, so the wording needed its own version.
 `tests/extension/keeper-prose-contract.test.mjs` finds each of these surfaces where it lives and requires all of
 them to agree, so a surface left behind by the next rewording fails there.
+The base capsule head (`kernel-ts/read/assemble.ts`) still carried §40.8's "Answer the player's words first" on every
+turn, beside the package and with it disabled. On 2026-10-03 the sentence is removed rather than reworded: the base
+keeps only interfaces and the prose package owns how people speak (`docs/specs/prose-mod.md` §6, owner ruling
+2026-09-25; §170 gives encounter purpose to Narration Craft), so a base sentence teaching the whole-encounter rule
+would be a second owner of it. The head keeps what is interface or authority: `voices` is flexible register, not a
+marker or a topic; source secrets and listener identity hold; exchanges are reference. `tests/kernel/test_voice.py`
+reads the emitted head and refuses an answer-first priority anywhere in it.
 
 **Precedent.** Potts, [Presupposition and implicature](https://web.stanford.edu/~cgpotts/manuscripts/potts-blackwellsemantics.pdf),
 describes interpretation through shared context and contributions fitted to conversational purpose.
