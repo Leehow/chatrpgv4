@@ -273,6 +273,50 @@ it('the converse worker input carries only the stored difficulty, never a render
   }finally{await backend.close();}
 });
 
+it('auto-investigator is off unless the player stored it: no environment and no renderer field turns it on',async()=>{
+  // A transport seam fixture for contract §173.4: the host is the only authority, and its default is off
+  // everywhere so ordinary runs keep exercising character creation.
+  const {cp}=await import('node:fs/promises');
+  const {createPiHostBackend}=await import('../src/index.js');
+  const repo=resolve(import.meta.dirname,'../../../..'),root=await mkdtemp(join(tmpdir(),'coc-auto-investigator-authority-'));
+  const profile=join(root,'profile'),pack=join(profile,'extensions/coc-keeper');await mkdir(pack,{recursive:true});
+  await cp(join(repo,'pipiui-extension.json'),join(pack,'pipiui-extension.json'));await cp(join(repo,'pipicoc'),join(pack,'pipicoc'),{recursive:true});
+  const requests:any[]=[];
+  const preparation={invoke:async(request:any)=>{requests.push({...request});
+    return request.action==='catalog'?{presets:[],modules:[],occupations:[],templates:[{id:'first-card'}]}:{campaign:'auto-fixture',name:'Source meeting',play_language:'en'};},close:async()=>{}};
+  const registry={get:()=>preparation,close:async()=>{}};
+  const backend=createPiHostBackend({agentDir:profile,sessionsRoot:join(root,'sessions'),runtimeRoot:join(root,'runtime'),defaultPack:'coc-keeper',managedNodeModulesRoot:join(repo,'node_modules'),cocOnboardingRegistry:registry as any,
+    env:{...process.env,PI_COC_AUTO_INVESTIGATOR:'1'},spawn:()=>{throw new Error('No model is needed to inject a setting');}});
+  const converse=async(sessionId:string,extra:Record<string,unknown>={})=>{
+    const result=await backend.handle('invokeExtension',['coc-keeper','onboarding',{action:'converse',id:'import-fixture',...extra},{sessionId}]) as any;
+    expect(result.ok).toBe(true);return requests.at(-1);
+  };
+  try {
+    await backend.handle('addProject',[root]);const projects=await backend.handle('listProjects',[]) as any[];
+    const session=await backend.handle('newSession',[projects[0].id]) as any;
+    vi.spyOn(backend as any,'getModelState').mockResolvedValue({model:{provider:'unknown',id:'fixture'},thinkingLevel:'low'});
+    vi.spyOn(backend as any,'ensure').mockResolvedValue({});
+    vi.spyOn(backend as any,'command').mockResolvedValue({isStreaming:false});
+    // Nothing stored, the old environment switch set, and a renderer trying to turn it on: still off.
+    const catalog=await backend.handle('invokeExtension',['coc-keeper','onboarding',{action:'catalog'},{sessionId:session.id}]) as any;
+    expect(catalog.data.auto_investigator).toEqual({enabled:false,template:null});
+    const smuggled=await converse(session.id,{auto_investigator:{template:'first-card'},template:'first-card'});
+    expect(smuggled).not.toHaveProperty('auto_investigator');
+    expect(smuggled).not.toHaveProperty('template');
+    expect(smuggled).toEqual({action:'converse',id:'import-fixture',difficulty:{mode:'preset',preset:'normal'}});
+    // The player's own toggle, stored, turns it on with the stored card; a named card wins over it.
+    const saved=await backend.handle('updateExtensionSettings',['coc-keeper',{'ext.coc-keeper.autoInvestigator':{enabled:true,template:'stored-card'}}]) as any;
+    expect(saved.ok).toBe(true);
+    const on=await backend.handle('invokeExtension',['coc-keeper','onboarding',{action:'catalog'},{sessionId:session.id}]) as any;
+    expect(on.data.auto_investigator).toEqual({enabled:true,template:'stored-card'});
+    expect((await converse(session.id)).auto_investigator).toEqual({template:'stored-card'});
+    expect((await converse(session.id,{template:'named-card'})).auto_investigator).toEqual({template:'named-card'});
+    // Turned off again, the request is the plain one.
+    await backend.handle('updateExtensionSettings',['coc-keeper',{'ext.coc-keeper.autoInvestigator':{enabled:false,template:'stored-card'}}]);
+    expect(await converse(session.id,{template:'named-card'})).not.toHaveProperty('auto_investigator');
+  }finally{await backend.close();}
+});
+
 it('setup exit lets the play child establish a new turn when its agent_start was unobservable',async()=>{
   const {createPiHostBackend}=await import('../src/index.js');
   const root=await mkdtemp(join(tmpdir(),'coc-handoff-epoch-'));

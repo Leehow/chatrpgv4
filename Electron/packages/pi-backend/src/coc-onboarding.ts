@@ -71,6 +71,15 @@ export function bookTitle(name: unknown): unknown {
   const stem = name.slice(0, name.length - extname(name).length);
   return stem || name;
 }
+/**
+ * Whether the campaign's card was seated from a shipped template (contract §173.5): every investigator
+ * receipt says `source: "template"`. Such a card has no draft to confirm, so it counts as confirmed and
+ * the preparation panel may hand off once the opening is ready.
+ */
+export function templateSeated(meta:Row):boolean {
+  const seated=(Array.isArray(meta?.setup?.receipts)?meta.setup.receipts:[]).filter((receipt:any)=>receipt?.kind==='investigator');
+  return seated.length>0&&seated.every((receipt:any)=>receipt.source==='template');
+}
 /** What the overlay shows when a phase failed: the same pair, carried on the snapshot. */
 type Refusal = {code: string; message: string};
 function refusal(error: unknown, fallback: string): Refusal {
@@ -310,7 +319,7 @@ export class CocOnboardingHost {
     }catch{}
     if(job.campaign)try {
       const meta=JSON.parse(readFileSync(join(this.options.home,'.coc/campaigns',job.campaign,'campaign.json'),'utf8'));
-      character=meta.setup?.confirmed_revision||meta.setup?.handoff?'confirmed':meta.setup?.draft_revision?'draft':'conversing';
+      character=meta.setup?.confirmed_revision||meta.setup?.handoff||templateSeated(meta)?'confirmed':meta.setup?.draft_revision?'draft':'conversing';
       waitingForOpening=meta.setup?.waiting_for_opening===true;
       handoffCommitted=!!meta.setup?.handoff;playing=!['setting_up','ready_for_table'].includes(meta.status);
     }catch{}
@@ -556,7 +565,11 @@ export class CocOnboardingHost {
         // The host injects the extension's difficulty setting (contract §33.1); it is not a
         // player-editable import field, so only the converse run input carries it, never the job.
         const difficulty=params.difficulty&&typeof params.difficulty==='object'&&!Array.isArray(params.difficulty)?{difficulty:params.difficulty}:{};
-        await this.run('converse', {...job,title:bookTitle(job.name),play_language:job.play_language??await this.playLanguage(undefined),...difficulty},job);
+        // Contract §173.5: the auto-investigator choice is the host's, injected like difficulty, and
+        // like it rides only this run's input -- the import job never records it.
+        const auto=params.auto_investigator&&typeof params.auto_investigator==='object'&&!Array.isArray(params.auto_investigator)
+          ?{auto_investigator:{template:typeof params.auto_investigator.template==='string'&&params.auto_investigator.template?params.auto_investigator.template:null}}:{};
+        await this.run('converse', {...job,title:bookTitle(job.name),play_language:job.play_language??await this.playLanguage(undefined),...difficulty,...auto},job);
         this.patch(job,{state:'conversing'});
       } else throw refuse('unknown_action', 'Unknown onboarding action');
       return this.withWords(this.snapshot(this.load(job.id,session)),job.play_language);

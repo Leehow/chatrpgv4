@@ -19,11 +19,17 @@ import { SetupSteps } from './steps.js';
 import { SetupDrafts } from './drafts.js';
 import { SetupCatalog } from './catalog.js';
 import { investigatorRow, completeness } from './sheet.js';
+import { InvestigatorTemplates, TEMPLATE_SOURCE } from './templates.js';
+
+/** Receipt sources that seat a finished sheet rather than a drafted card (§21, §173): no draft to confirm. */
+const SEATED_SOURCES: readonly string[] = Object.freeze(['library', TEMPLATE_SOURCE]);
+const seated = (source: unknown): boolean => typeof source === 'string' && SEATED_SOURCES.includes(source);
 
 export class Setup {
   readonly drafts: SetupDrafts;
+  readonly templates: InvestigatorTemplates;
   private constructor(readonly context: KernelContext, readonly writer: ReturnType<typeof createWriteRuntime>, readonly tables: RuleTables,
-    readonly steps: SetupSteps, readonly chargen: Chargen, readonly catalog: SetupCatalog) { this.drafts = new SetupDrafts(this); }
+    readonly steps: SetupSteps, readonly chargen: Chargen, readonly catalog: SetupCatalog) { this.drafts = new SetupDrafts(this); this.templates = new InvestigatorTemplates(context, writer); }
   static async create(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): Promise<Setup> {
     const tables = new RuleTables(context), steps = await SetupSteps.create(context);
     const chargen = await Chargen.create(tables, steps.step('create-investigator'));
@@ -52,7 +58,7 @@ export class Setup {
     const kind = starter ? 'starter' : meta.opening_scene != null ? 'module' : 'pdf', completed = new Set(['choose-source', 'create-campaign']);
     if (this.steps.applies('prepare-module', kind) && module && (module.status === 'installed' || module.opening_ready === true || Object.hasOwn(row(module.character_guidance), meta.guidance_key))) completed.add('prepare-module');
     const investigatorKinds = new Set<string>();
-    for (const receipt of array(row(meta.setup).receipts)) if (isJsonObject(receipt) && receipt.kind === 'investigator') investigatorKinds.add(receipt.source === 'library' ? 'library' : 'new');
+    for (const receipt of array(row(meta.setup).receipts)) if (isJsonObject(receipt) && receipt.kind === 'investigator') investigatorKinds.add(seated(receipt.source) ? 'library' : 'new');
     if (investigatorKinds.has('new')) { completed.add('create-investigator'); completed.add('confirm-investigator'); }
     // A draft on the table is the new-investigator lane, taken: without the lane the step would be filtered out of the completed list on resume and the card could never be confirmed after a restart.
     if (truth(row(meta.setup).draft_revision)) { completed.add('create-investigator'); investigatorKinds.add('new'); }
@@ -130,7 +136,7 @@ export class Setup {
     if (meta.status !== 'setting_up') throw new RpcError('campaign_not_ready', `campaign ${repr(campaign.id)} is ${repr(meta.status)}`, {details: {status: meta.status ?? null}});
     const party = await campaign.party();
     if (!party.length) throw new RpcError('needs', 'the party is empty; create an investigator first', {fix: this.steps.nextLine('create-investigator'), details: {needs: {field: 'investigator', step: 'create-investigator'}}});
-    const receipts = array(row(meta.setup).receipts), imported = Boolean(receipts.length) && receipts.filter(receipt => receipt.kind === 'investigator').every(receipt => receipt.source === 'library');
+    const receipts = array(row(meta.setup).receipts), imported = Boolean(receipts.length) && receipts.filter(receipt => receipt.kind === 'investigator').every(receipt => seated(receipt.source));
     const issues = imported ? [] : party.flatMap(completeness);
     if (issues.length) throw new RpcError('campaign_not_ready', 'Complete the actual card before opening play', {codeDetail: 'incomplete_investigator', details: {issues}});
     if (!imported && (!truth(row(meta.setup).confirmed_revision) || row(meta.setup).confirmed_revision !== row(meta.setup).draft_revision)) throw new RpcError('needs', 'Confirm the displayed draft before completing setup', {codeDetail: 'preview_required'});
@@ -162,6 +168,8 @@ export function createSetupHandlers(context: KernelContext, writer: ReturnType<t
     'setup.occupations': async () => (await setup()).occupations(),
     'setup.investigator': async params => (await setup()).investigator(params),
     'setup.complete': async params => (await setup()).complete(params),
+    'setup.templates': async () => (await setup()).templates.list(),
+    'setup.template': async params => { const owner = await setup(); return owner.templates.load(params, value => owner.settingUp(value)); },
     'setup.draft': async params => (await setup()).drafts.draft(params),
     'setup.revise': async params => (await setup()).drafts.revise(params),
     'setup.reroll': async params => (await setup()).drafts.reroll(params),

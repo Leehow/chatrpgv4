@@ -194,7 +194,10 @@ async function main() {
     const presets = await starterCatalog(input.play_language);
     const library = await call('module.list');
     const occupations = await call('setup.occupations');
-    return {presets, modules: library.modules.filter((row: any) => row.source !== 'starter' && (row.status === 'installed'||row.setup_ready)), occupations: occupations.occupations};
+    // The template cards the start screen offers when auto-create is on (contract §173.5).
+    const templates = (await call('setup.templates')).templates;
+    return {presets, modules: library.modules.filter((row: any) => row.source !== 'starter' && (row.status === 'installed'||row.setup_ready)), occupations: occupations.occupations,
+      templates: Array.isArray(templates) ? templates : []};
   }
   if (action === 'inspect') {
     // Contract §14.16.3: the same registration every import uses; a book a built-in starter names
@@ -258,12 +261,25 @@ async function main() {
   }
   if (action === 'converse') {
     const campaign=input.campaign;
-    const existing=(await call('campaign.list')).campaigns?.some((row:any)=>row.id===campaign);
+    const listed=(await call('campaign.list')).campaigns?.find((row:any)=>row.id===campaign);
+    const existing=!!listed;
     // The host's difficulty setting (contract §33.1) is passed only when one is stored; the
     // kernel validates the shape and snapshots it into campaign.json.
     const difficulty=input.difficulty&&typeof input.difficulty==='object'&&!Array.isArray(input.difficulty)?{difficulty:input.difficulty}:{};
     if(!existing)await call('campaign.create',{id:campaign,module:input.module_id,title:input.title,play_language:input.play_language,
       start_scene:input.start_scene,guidance_key:input.guidance_key,...difficulty});
+    // Contract §173.5: the host put `auto_investigator` here only when its own setting is on. The card
+    // is seated and setup completed before the session exists, so no setup guide ever speaks; an
+    // opening still preparing leaves `waiting_for_opening` for the existing handoff to finish.
+    const auto=input.auto_investigator&&typeof input.auto_investigator==='object'&&!Array.isArray(input.auto_investigator)?input.auto_investigator:undefined;
+    if(auto&&(!existing||listed.status==='setting_up')) {
+      const template=typeof auto.template==='string'&&auto.template?auto.template:(await call('setup.templates')).templates?.[0]?.id;
+      if(typeof template!=='string'||!template)throw refuse('template_unavailable','No investigator template is shipped');
+      await call('setup.template',{campaign,template});
+      try {await call('setup.complete',{campaign});}
+      catch(error) {if(!(isKernelError(error)&&error.code==='campaign_not_ready'&&error.details?.reason==='opening_preparing'))throw error;}
+      return {campaign,play_language:input.play_language,auto_investigator:{template}};
+    }
     return {campaign,play_language:input.play_language};
   }
   throw refuse('unknown_action', 'Unknown onboarding operation');

@@ -266,3 +266,59 @@ it('continues a restored upload from the acknowledged prefix when the file is ch
   expect(host.seen.filter(p=>p.action==='begin')).toHaveLength(0)
   expect(host.chunks().map(p=>p.offset)).toEqual([2*CHUNK_SIZE])
 },20000)
+
+/**
+ * Contract §173.6: the auto-create toggle and its template cards. The setting is the host's
+ * (`ext.coc-keeper.autoInvestigator`), so the screen writes it where the settings sections write
+ * theirs; with it off the converse request is exactly what it always was.
+ */
+const TEMPLATES=[{id:'eleanor-reed',name:'埃莉诺·里德',occupation:'记者',era:'1920s',age:28},{id:'margaret-winslow',name:'玛格丽特·温斯洛',occupation:'Professor',era:'1920s',age:52}];
+function autoHost(auto:Row|undefined){
+  const invokeExtension=vi.fn(async(_id:string,_method:string,p:any)=>answer(
+    p.action==='catalog'?{presets:[{id:'the-haunting',title:'The Haunting'}],modules:[],occupations:[],templates:TEMPLATES,...(auto?{auto_investigator:auto}:{})}
+    :p.action==='select'?{id:'import',name:'The Haunting',state:'ready'}:{id:'import',name:'The Haunting',state:'conversing'}));
+  const updateExtensionSettings=vi.fn(async()=>({ok:true,data:{}}));
+  return {host:{invokeExtension,updateExtensionSettings} as any,invokeExtension,updateExtensionSettings};
+}
+async function chooseHaunting(){
+  fireEvent.click(await screen.findByRole('button',{name:new RegExp(zh('source.starter.title'))}));
+  fireEvent.click(await screen.findByRole('button',{name:/The Haunting/}));
+}
+it('with auto-create off, lists no template cards and converses exactly as before',async()=>{
+  const {host,invokeExtension,updateExtensionSettings}=autoHost({enabled:false,template:null});
+  render(<CocOnboarding host={host} sessionId="new"/>);
+  const toggle=await screen.findByRole('checkbox') as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  expect(screen.queryByText('玛格丽特·温斯洛')).toBeNull();
+  await chooseHaunting();
+  await waitFor(()=>expect(invokeExtension).toHaveBeenCalledWith('coc-keeper','onboarding',{action:'converse',id:'import'},{sessionId:'new'}));
+  expect(updateExtensionSettings).not.toHaveBeenCalled();
+});
+it('turning auto-create on writes the setting, selects the first template, and the converse names it',async()=>{
+  const {host,invokeExtension,updateExtensionSettings}=autoHost(undefined);
+  render(<CocOnboarding host={host} sessionId="new"/>);
+  fireEvent.click(await screen.findByRole('checkbox'));
+  await waitFor(()=>expect(updateExtensionSettings).toHaveBeenCalledWith('coc-keeper',{'ext.coc-keeper.autoInvestigator':{enabled:true,template:'eleanor-reed'}}));
+  const first=await screen.findByRole('button',{name:/埃莉诺·里德/});
+  expect(first.getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('button',{name:/玛格丽特·温斯洛/}).getAttribute('aria-pressed')).toBe('false');
+  fireEvent.click(screen.getByRole('button',{name:/玛格丽特·温斯洛/}));
+  await waitFor(()=>expect(updateExtensionSettings).toHaveBeenLastCalledWith('coc-keeper',{'ext.coc-keeper.autoInvestigator':{enabled:true,template:'margaret-winslow'}}));
+  await chooseHaunting();
+  await waitFor(()=>expect(invokeExtension).toHaveBeenCalledWith('coc-keeper','onboarding',{action:'converse',id:'import',template:'margaret-winslow'},{sessionId:'new'}));
+});
+it('remembers the stored choice: the stored template is selected and travels on the converse',async()=>{
+  const {host,invokeExtension,updateExtensionSettings}=autoHost({enabled:true,template:'margaret-winslow'});
+  render(<CocOnboarding host={host} sessionId="new"/>);
+  expect((await screen.findByRole('checkbox') as HTMLInputElement).checked).toBe(true);
+  expect((await screen.findByRole('button',{name:/玛格丽特·温斯洛/})).getAttribute('aria-pressed')).toBe('true');
+  await chooseHaunting();
+  await waitFor(()=>expect(invokeExtension).toHaveBeenCalledWith('coc-keeper','onboarding',{action:'converse',id:'import',template:'margaret-winslow'},{sessionId:'new'}));
+  expect(updateExtensionSettings).not.toHaveBeenCalled();
+});
+it('shows no toggle when the build ships no templates',async()=>{
+  const invokeExtension=vi.fn(async()=>answer({presets:[],modules:[],occupations:[],templates:[],auto_investigator:{enabled:true,template:null}}));
+  render(<CocOnboarding host={{invokeExtension} as any} sessionId="new"/>);
+  await screen.findByRole('button',{name:new RegExp(zh('source.starter.title'))});
+  expect(screen.queryByRole('checkbox')).toBeNull();
+});

@@ -1,0 +1,449 @@
+{
+  "schema_version": 1,
+  "id": "margaret-winslow",
+  "name": "玛格丽特·温斯洛",
+  "occupation": "Professor",
+  "era": "1920s",
+  "age": 52,
+  "sex": "F",
+  "characteristics": {
+    "STR": 41,
+    "CON": 47,
+    "SIZ": 80,
+    "DEX": 57,
+    "APP": 30,
+    "INT": 60,
+    "POW": 45,
+    "EDU": 72,
+    "LUCK": 70
+  },
+  "derived": {
+    "HP": 12,
+    "SAN": 45,
+    "MP": 9,
+    "MOV": 5,
+    "DB": "none",
+    "BUILD": 0
+  },
+  "skills": {
+    "Accounting": 5,
+    "Anthropology": 50,
+    "Appraise": 5,
+    "Archaeology": 50,
+    "Charm": 15,
+    "Climb": 20,
+    "Credit Rating": 20,
+    "Cthulhu Mythos": 0,
+    "Disguise": 5,
+    "Dodge": 28,
+    "Drive Auto": 20,
+    "Electrical Repair": 10,
+    "Fast Talk": 5,
+    "Fighting (Brawl)": 25,
+    "Firearms (Handgun)": 20,
+    "Firearms (Rifle/Shotgun)": 25,
+    "First Aid": 50,
+    "History": 50,
+    "Intimidate": 15,
+    "Jump": 20,
+    "Language (Other: Latin)": 50,
+    "Language (Own)": 72,
+    "Law": 5,
+    "Library Use": 50,
+    "Listen": 50,
+    "Locksmith": 1,
+    "Mechanical Repair": 10,
+    "Medicine": 1,
+    "Natural World": 10,
+    "Navigate": 10,
+    "Occult": 50,
+    "Operate Heavy Machinery": 1,
+    "Persuade": 16,
+    "Pilot": 1,
+    "Psychoanalysis": 1,
+    "Psychology": 50,
+    "Ride": 5,
+    "Science": 1,
+    "Sleight of Hand": 10,
+    "Spot Hidden": 50,
+    "Stealth": 20,
+    "Survival": 10,
+    "Swim": 20,
+    "Throw": 20,
+    "Track": 10
+  },
+  "weapons": [],
+  "equipment": [
+    "笔记本与铅笔",
+    "放大镜",
+    "手电筒",
+    "旧地图册"
+  ],
+  "backstory": {
+    "personal_description": "灰白短发，总戴一副旧金丝眼镜，外套口袋里塞满卡片。",
+    "ideology_beliefs": "每个传说背后都有一份被遗忘的记录。",
+    "significant_people": "已故的导师，留下一箱没人读完的田野笔记。",
+    "treasured_possessions": "导师的田野笔记本。",
+    "scenario_bound": "受人之托前来核查一桩旧传闻的出处。",
+    "concept": "研究比较民俗学的大学教授，先查旧档案再相信任何传闻。"
+  },
+  "key_connection": {
+    "backstory_field": "significant_people",
+    "summary": "她想读完导师留下的笔记。"
+  },
+  "own_language": "English",
+  "occupation_stated": null,
+  "credit_rating": 20,
+  "cash": "40 USD",
+  "finance": {
+    "credit_rating": 20,
+    "living_standard": "Average",
+    "cash": {
+      "amount": 40,
+      "currency": "USD",
+      "formula": "CR x 2"
+    },
+    "assets": {
+      "amount": 1000,
+      "currency": "USD",
+      "formula": "CR x 50"
+    },
+    "spending_level": {
+      "amount": 10,
+      "currency": "USD"
+    },
+    "period": "1920s",
+    "source": "cash-assets.periods.1920s"
+  },
+  "creation": {
+    "seed": "4153288307729447169",
+    "method": "rolled",
+    "characteristics": {
+      "method": "rolled",
+      "values": {
+        "STR": 45,
+        "CON": 50,
+        "SIZ": 80,
+        "DEX": 60,
+        "APP": 40,
+        "INT": 60,
+        "POW": 45,
+        "EDU": 70
+      },
+      "rolls": {
+        "STR": {
+          "dice": "3D6",
+          "faces": [
+            2,
+            6,
+            1
+          ],
+          "total": 9
+        },
+        "CON": {
+          "dice": "3D6",
+          "faces": [
+            3,
+            6,
+            1
+          ],
+          "total": 10
+        },
+        "SIZ": {
+          "dice": "2D6+6",
+          "faces": [
+            5,
+            5
+          ],
+          "total": 16
+        },
+        "DEX": {
+          "dice": "3D6",
+          "faces": [
+            5,
+            6,
+            1
+          ],
+          "total": 12
+        },
+        "APP": {
+          "dice": "3D6",
+          "faces": [
+            5,
+            2,
+            1
+          ],
+          "total": 8
+        },
+        "INT": {
+          "dice": "2D6+6",
+          "faces": [
+            5,
+            1
+          ],
+          "total": 12
+        },
+        "POW": {
+          "dice": "3D6",
+          "faces": [
+            1,
+            2,
+            6
+          ],
+          "total": 9
+        },
+        "EDU": {
+          "dice": "2D6+6",
+          "faces": [
+            4,
+            4
+          ],
+          "total": 14
+        }
+      },
+      "multiplier": 5,
+      "source": "characteristic-dice.characteristics"
+    },
+    "age": {
+      "bracket": "50-59",
+      "source": "age-adjustments.brackets",
+      "edu_reduction": 0,
+      "app_reduction": 10,
+      "characteristic_reductions": [
+        {
+          "characteristic": "STR",
+          "amount": 4
+        },
+        {
+          "characteristic": "CON",
+          "amount": 3
+        },
+        {
+          "characteristic": "DEX",
+          "amount": 3
+        }
+      ],
+      "edu_improvement_checks": [
+        {
+          "roll": 72,
+          "edu": 70,
+          "improvement": 2
+        },
+        {
+          "roll": 65,
+          "edu": 72
+        },
+        {
+          "roll": 17,
+          "edu": 72
+        }
+      ],
+      "mov_penalty": 2,
+      "luck_rolls_keep_highest": 1
+    },
+    "luck": {
+      "value": 70,
+      "dice": "3D6",
+      "attempts": [
+        {
+          "faces": [
+            6,
+            4,
+            4
+          ],
+          "total": 14
+        }
+      ],
+      "keep_highest": 1,
+      "multiplier": 5,
+      "source": "characteristic-dice.characteristics.Luck"
+    },
+    "derived": {
+      "HP": "derived-attributes.hit_points (CON+SIZ)/10",
+      "SAN": "derived-attributes.sanity (POW)",
+      "MP": "derived-attributes.magic_points (POW)/5",
+      "MOV": "movement-rate.rules both_str_and_dex_less_than_siz - age penalty 2",
+      "DB": "damage-bonus-build STR+SIZ=121",
+      "BUILD": "damage-bonus-build STR+SIZ=121",
+      "LUCK": "characteristic-dice.characteristics.Luck"
+    },
+    "skills": {
+      "standard_sheet": "skills.standard_sheet.1920s",
+      "cap": {
+        "value": 75,
+        "source": "skills.guided_creation_policy.starting_skill_cap"
+      },
+      "occupation": {
+        "id": "Professor",
+        "resolved": [
+          "Library Use",
+          "History",
+          "Language (Other: Latin)",
+          "Anthropology",
+          "Archaeology",
+          "Psychology",
+          "Persuade",
+          "Language (Own)"
+        ],
+        "choices_pending": [],
+        "budget": {
+          "formula": "EDU*4",
+          "total": 288,
+          "terms": [
+            "EDU*4"
+          ],
+          "alternative": null
+        },
+        "credit_rating": {
+          "value": 20,
+          "range": [
+            20,
+            70
+          ],
+          "source": "occupations.credit_rating_range[0]"
+        },
+        "points": 268,
+        "spent": 268,
+        "unspent": 0,
+        "allocations": {
+          "Library Use": 30,
+          "History": 45,
+          "Language (Other: Latin)": 49,
+          "Anthropology": 49,
+          "Archaeology": 49,
+          "Psychology": 40,
+          "Persuade": 6
+        },
+        "allocation": "spread",
+        "reserved": []
+      },
+      "interest": {
+        "budget": {
+          "formula": "INT*2",
+          "total": 120,
+          "terms": [
+            "INT*2"
+          ],
+          "alternative": null
+        },
+        "pool": [
+          "Spot Hidden",
+          "Occult",
+          "First Aid",
+          "Listen"
+        ],
+        "spent": 120,
+        "unspent": 0,
+        "allocations": {
+          "First Aid": 20,
+          "Listen": 30,
+          "Occult": 45,
+          "Spot Hidden": 25
+        },
+        "allocation": "spread",
+        "tiers": [
+          50,
+          70
+        ],
+        "source": "steps.json create-investigator.interest_allocation"
+      },
+      "bases": {
+        "Accounting": 5,
+        "Anthropology": 1,
+        "Appraise": 5,
+        "Archaeology": 1,
+        "Charm": 15,
+        "Climb": 20,
+        "Cthulhu Mythos": 0,
+        "Disguise": 5,
+        "Dodge": 28,
+        "Drive Auto": 20,
+        "Electrical Repair": 10,
+        "Fast Talk": 5,
+        "Fighting (Brawl)": 25,
+        "Firearms (Handgun)": 20,
+        "Firearms (Rifle/Shotgun)": 25,
+        "First Aid": 30,
+        "History": 5,
+        "Intimidate": 15,
+        "Jump": 20,
+        "Language (Own)": 72,
+        "Law": 5,
+        "Library Use": 20,
+        "Listen": 20,
+        "Locksmith": 1,
+        "Mechanical Repair": 10,
+        "Medicine": 1,
+        "Natural World": 10,
+        "Navigate": 10,
+        "Occult": 5,
+        "Operate Heavy Machinery": 1,
+        "Persuade": 10,
+        "Pilot": 1,
+        "Psychoanalysis": 1,
+        "Psychology": 10,
+        "Ride": 5,
+        "Science": 1,
+        "Sleight of Hand": 10,
+        "Spot Hidden": 25,
+        "Stealth": 20,
+        "Survival": 10,
+        "Swim": 20,
+        "Throw": 20,
+        "Track": 10,
+        "Language (Other: Latin)": 1
+      },
+      "custom": []
+    },
+    "allocation": {
+      "policy": "spread",
+      "tiers": [
+        50,
+        70
+      ],
+      "source": "steps.json create-investigator.allocation"
+    },
+    "interest_allocation": {
+      "policy": "spread",
+      "tiers": [
+        50,
+        70
+      ],
+      "source": "steps.json create-investigator.interest_allocation",
+      "applied": "spread"
+    },
+    "finance": {
+      "available": true,
+      "source": "cash-assets.periods.1920s"
+    },
+    "equipment": {
+      "source": null,
+      "note": "equipment.json records carry no occupation field; no default kit is invented"
+    },
+    "pins": {
+      "characteristics": {},
+      "skills": {}
+    },
+    "budget": {
+      "occupation": {
+        "total": 288,
+        "spent": 288,
+        "unspent": 0
+      },
+      "interest": {
+        "total": 120,
+        "spent": 120,
+        "unspent": 0
+      },
+      "characteristics": {
+        "total": 460,
+        "spent": 432,
+        "unspent": 28,
+        "source": "characteristic-dice.generation_methods.point_buy_460"
+      },
+      "legal": true,
+      "notes": []
+    }
+  },
+  "notes": "Investigator template (contract §173): generated once by the kernel (setup.draft then setup.confirm, rulebook-standard difficulty) and frozen; its numbers are the kernel's."
+}
