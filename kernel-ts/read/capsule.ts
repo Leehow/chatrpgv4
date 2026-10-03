@@ -127,12 +127,16 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
     const label = string(personRecord(world, graph.handle(node)).name || entry.label || "").trim();
     return {
         ...(label ? { label } : {}),
+        // Contract §103.1 (2026-10-03): the handle, so the Keeper-facing view can name this person by it instead of by the
+        // book's name until the name is said (extensions/kernel/untold-view.ts).
+        id: graph.handle(node),
         // §115 asked this line to say `apply person` gives an epithet; compressed to "apply person, then called.name", the
         // Keeper of the installed App's Blood Road table (2026-10-02, turn 5) applied the book's names and wrote them; told
         // "never this name", the next table's Keeper applied the station owner's nickname instead, the short name the book gives him.
-        // §115: every untold row of a crowded room carries this line, so it stays near its first length (the nine-person
-        // bench keeps four full dossiers only while it does).
-        use: "Name untold: by look; apply person an epithet, no name/nickname; called.name and say token use it.",
+        // §115: every untold row of a crowded room carries this line and the handle, so together they stay near the first
+        // line's length (the nine-person bench keeps four full dossiers only while they do). The Keeper's own copy replaces
+        // this line with the fuller one in extensions/kernel/untold-view.ts (§103.1).
+        use: "Untold: by look; apply person an epithet; called.name and say token use it.",
     };
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {

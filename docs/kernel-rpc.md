@@ -18071,6 +18071,26 @@ named person is refused), `tests/extension/npc-journal-lane.test.mjs` (the promp
 and the rules, label and named travel to `journal.submit`), `tests/extension/character-presentation.test.mjs`
 (a `named: false` row's word is not sent for translation).
 
+### 103.1 The Keeper's copy names an untold person by epithet or handle (owner ruling 2026-10-03)
+
+§103 put `untold` beside each person whose name the player has not been told, but left `present[].name` as the book's
+name -- the field the Keeper writes from. On the installed App (2026-10-02) the Keeper named the station owner, the
+trucker and the veteran in prose on first sight, across three tables, before anyone had said a name; asked to apply an
+epithet first, it did so once and kept to it, and named everyone else from `name`.
+
+- The kernel's `untold` block carries `id`, the person's handle, beside `label` and `use`. Its `use` line stays short
+  (`"Untold: by look; apply person an epithet; called.name and say token use it."`): every untold row of a crowded room
+  carries it, and the nine-person bench keeps four full dossiers only while line and handle stay near §115's length.
+- The kernel extension hands the Keeper `untoldView(capsule)` (`extensions/kernel/untold-view.ts`) as the `coc-capsule`
+  message. In it an untold person's row reads `name: <called.name, else untold.label, else untold.id>`, and `untold`
+  becomes `{name: <the book's name>, label?, use}` with the fuller `use`: nobody has said the name, in prose they are who
+  they look like, `name` is for tool calls and say tokens, `untold.name` only once someone in the scene says it. The
+  capsule's `first_sight.people` follow the same names, and so does a first sight handed over mid-run
+  (`coc:first-sight` port).
+- Only the Keeper's copy changes. The raw capsule and the `coc:capsule` bus copy -- prescreen, Jev candidates, the
+  director line -- keep the book's names. Tool calls and say tokens resolve a handle or the table's epithet as they
+  resolve the name (`ModuleGraph.nameKeys`, §87.8).
+
 ## 104. Characteristic-driven combat weapons use the actor's authored characteristic (2026-09-17)
 
 H-SIDE turn 171 proved that entering the authored Corbitt encounter was necessary but not sufficient.
