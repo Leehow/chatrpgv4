@@ -376,6 +376,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
      * second time when the ledger was left as the rolled-back narrate had written it.
      */
     async function rollBackNarrate(campaign: CampaignWriter, journal: Row): Promise<void> {
+        // §103.8: the table's words an introduction changed go back to what they were.
+        if (Object.hasOwn(journal, 'person_labels')) {
+            const world = await campaign.readWorld();
+            await campaign.writeWorld({ ...world, person_labels: row(journal.person_labels) });
+        }
         if (Object.hasOwn(journal, 'npc_ledger')) {
             if (journal.npc_ledger === null) await rm(campaign.path('npc-ledger.json'), { force: true });
             else await campaign.write('npc-ledger.json', row(journal.npc_ledger));
@@ -1098,11 +1103,15 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         report?.('load');
         preflightCampaign(snapshot.meta, snapshot.world, turn, snapshot.party);
         await validateMods(snapshot.world);
-        const receipts = [...array(turn.receipts)], speakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
+        const untold = await untoldAt(snapshot, module.graph);
+        const receipts = [...array(turn.receipts)], speakers = speakerResolver(module.graph, snapshot.world, snapshot.party, untold);
         // `let`: §143.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
         // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
         const naming = withNames(required(params, 'text')!, speakers, module.graph);
         let text = naming.text;
+        // §103.8: someone untold is named in this delivery, so from now on the table calls them by the book's name -- the sync
+        // the Keeper's own `apply person` used to make at an introduction, which it can no longer make without the name.
+        const introduced = reference ? [] : naming.named.map(handle => module.graph.find(handle, ['npc'])).filter((node): node is Row => !!node && untold(node));
         let { placed, ...delivery } = deliveryText(text, receipts, speakers), rendered = delivery.rendered_text;
         if (reference) delivery.speech = [];
         const hostRepeats = reference ? [] : await refuseRepeatedLine(snapshot, campaign, delivery.speech, hostAttributed(params, delivery.speech));
@@ -1213,7 +1222,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const priorLedger = await context.snapshots.pathExists(ledgerPath) ? await campaign.read('npc-ledger.json') : null;
         await writeJsonAtomic(narrateJournalPath(campaign.id), { turn: n, call_id: started.callId, before: rolledBack,
             prior_meta: await campaign.readCampaign(), npc_ledger: priorLedger, transcript_size: transcriptSize, events_size: eventsSize,
-            had_record: hadRecord, at: nowIso() });
+            had_record: hadRecord, ...(introduced.length ? { person_labels: row(snapshot.world.person_labels) } : {}), at: nowIso() });
         rememberCall(turn, started.callId, params, result);
         const record: Row = {
             ...deliveryRecord(turn, text, receipts, result, world),
@@ -1258,6 +1267,14 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         };
         await campaign.writeTurnRecord(record);
         if (!reference) await updateNpcLedger(campaign, module.graph, record);
+        if (introduced.length) {
+            const current = await campaign.readWorld(), labels: Row = { ...row(current.person_labels) };
+            for (const node of introduced) {
+                const handle = module.graph.handle(node);
+                labels[handle] = { ...row(labels[handle]), name: module.graph.displayName(node) };
+            }
+            await campaign.writeWorld({ ...current, person_labels: labels });
+        }
         await campaign.appendTranscript(n, 'keeper', rendered);
         await campaign.appendEvent(n, {
             type: 'turn-finalized',
@@ -1285,6 +1302,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             if (!(error instanceof CommitFailed))
                 throw error;
             await rollBackNarrate(campaign, { turn: n, before: rolledBack, prior_meta: priorMeta, npc_ledger: priorLedger,
+                ...(introduced.length ? { person_labels: row(snapshot.world.person_labels) } : {}),
                 transcript_size: transcriptSize, events_size: eventsSize, had_record: hadRecord });
             await clearNarrateJournal(campaign.id);
             // Contract §38.11: the Git verb, its exit code and what it printed reach the host as

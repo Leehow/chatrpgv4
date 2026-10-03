@@ -18287,6 +18287,7 @@ The owner had asked for this order in the first place: the name stays in the dat
 - `who` resolves exactly as a say token's name does: the handle, the table's word, or any key of the person.
 - The token becomes the book's display name. The rendered text then shows that name, so `toldTurn` counts the person as told from this delivery on, and the next capsule shows their name.
 - A token naming nobody is left as the word written and reported in `unresolved_names`. Nothing is refused (§34.14).
+- A narrate that names someone still untold also makes the book's name the table's word for them: `world.person_labels[handle].name` becomes the display name, so `called.name`, the say tokens and the sidebar follow. That is the sync the Keeper's own `apply person` used to make at an introduction, which it cannot make without the name. The labels before the delivery ride the narrate journal, and a failed or interrupted commit restores them (§141). An `ask` that carries the token puts the name in, but `toldTurn` counts only narrate deliveries.
 - A §171 draft drops the token by its braces, so while the delivery streams the name is a gap on the screen until the delivery replaces the draft.
 
 **4. An epithet may not carry a book name** (`refuseUntoldName`, `kernel-ts/apply/person.ts`). For a book person who is still untold (`untoldBlock`), an `apply person` name is refused `invalid_params` with `details.reason: "untold_name"` when it contains any of their book names, or a piece of one.
@@ -18307,10 +18308,11 @@ Tests (`tests/extension/untold-names-held.test.mjs`):
   - no book name anywhere the host wrote into the request, `untold` included;
   - "Steven Knott's clerk" and "old Dooley" are refused, and an epithet built from a visible thing is accepted;
   - `{{say:the ink-stained clerk}}"I am {{name:the ink-stained clerk}}…"` delivers "I am Steven Knott", after which he is told;
+  - the table's word becomes his name (`called.name` in the next capsule), the assertion a mutation that drops the sync turns red;
   - an unknown `{{name:}}` is reported;
   - once told, his name is accepted as his word.
 
-`tests/extension/untold-request.test.mjs` now finds the row by its handle and asserts that `untold` has no `name`.
+`tests/extension/untold-request.test.mjs` now finds the row by its handle and asserts that `untold` has no `name`. `tests/kernel/test_journal.py`'s epithet test now refuses the book name as his word while untold and introduces him through `{{name:}}`.
 
 ## 104. Characteristic-driven combat weapons use the actor's authored characteristic (2026-09-17)
 

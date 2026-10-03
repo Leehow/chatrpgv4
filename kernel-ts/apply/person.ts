@@ -118,7 +118,7 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
             fix: "name is the word the prose calls them, in the play language: for someone untold, an epithet built from the one visible thing only they have here",
             details: { field: 'person.name', name },
         });
-    // §103.8 (owner, 2026-10-03, "除了烂牙司机其他名字还是全漏出来了"): table 20's Keeper wrote the veteran's book name and the
+    // §103.8 (owner, 2026-10-03: every name but the trucker's leaked): table 20's Keeper wrote the veteran's book name and the
     // owner's nickname as their epithets, and the prose then used them. While a book person is untold, the word the table
     // calls them carries none of the book's names for them, nor a piece of one. The refusal names no name: it would tell it.
     if (name != null && person.is_investigator !== true) await refuseUntoldName(context, string(person.id), name);

@@ -38,7 +38,7 @@ export function bookNames(graph: ModuleGraph, node: Row): string[] {
 }
 
 /**
- * §103.8: a name's own pieces where the name separates them with punctuation ("拉塞尔·威廉姆斯": 拉塞尔 and 威廉姆斯), with
+ * §103.8: a name's own pieces where the name separates them with punctuation ("Jean-Luc Picard": Jean and Luc Picard; a middle dot splits a transliterated name the same way), with
  * the whole names. A piece of one character is no name. Read from the name's characters alone, never from what they mean.
  */
 export function namePieces(names: readonly string[]): string[] {

@@ -146,7 +146,7 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
  * its capsule was read meets the next scene's people in host messages and tool results the capsule never covered.
  * A person the table itself established is left out; the name the table gave them is the only one there is.
  * §103.8: one row for each name the book gives them, aliases too. Table 20 (2026-10-03): the trucker's biography said he
- * fakes helping "拉斯" with the cars, the owner's alias, and only the display name was renamed.
+ * fakes helping the owner with the cars, calling him by an alias the graph records, and only the display name was renamed.
  */
 export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Row[]): Row[] {
     const people = graph.kind("npc").map(node => ({ node, untold: graph.isTablePerson(node) ? null : untoldBlock(graph, world, journal, node, records) }));

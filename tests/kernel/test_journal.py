@@ -459,8 +459,11 @@ def test_a_table_epithet_is_not_disclosure_and_is_shared_by_player_surfaces(kern
     submit(kernel, packet["job_id"], [{"name": KNOTT, "exchange": "He nodded."}])
     assert "named_at" not in read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]
     kernel.table("player_input", text="I ask his name.")
-    kernel.table("apply", call_id="t3-c1", effects=[{"kind": "person", "who": label, "name": KNOTT}])
-    narrate(kernel, "t3-c2", f'{{{{say:{KNOTT}}}}}"My name is {KNOTT}."{{{{/say}}}}')
+    # §103.8: while he is untold his book name is not a word the table may call him, and the Keeper does not hold it: the
+    # introduction says it through {{name:}}, which the delivery fills in.
+    assert kernel.err("table.apply", {"campaign": CAMPAIGN, "call_id": "t3-c1", "effects": [{"kind": "person", "who": label, "name": KNOTT}]})["details"]["reason"] == "untold_name"
+    delivered = narrate(kernel, "t3-c2", f'{{{{say:{label}}}}}"My name is {{{{name:{label}}}}}."{{{{/say}}}}')
+    assert f"My name is {KNOTT}." in delivered["rendered_text"]
     later = kernel.table("player_input", text="I nod.")
     assert "untold" not in later["capsule"]["present"][0], "the committed introduction works before journal processing"
     packet = job(kernel, turn=3)
