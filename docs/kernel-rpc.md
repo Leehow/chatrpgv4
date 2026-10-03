@@ -5196,9 +5196,9 @@ Twelve sources put the same ask near 87 s, with room for one repair call, and ne
   the asks never run. An owner failure keeps its code and message. Later asks do not run and nothing is cached: a
   partial projection is still not a cache (§23).
 - **Not done here.** Accepted asks are not kept across a failed projection (no resume file), and asks do not run
-  concurrently. A tag with no seed is about 46 asks. On the cold path the Electron job deadline
-  (`PRESENTATION_DEADLINE_MS`, 360 s for the whole job) can end that before it finishes; the in-session path
-  (`pipicoc/ui-words.ts`) has no job deadline.
+  concurrently. A tag with no seed is 46 asks, 1,005 s on the lane setting (acceptance below). On the cold path the
+  Electron job deadline (`PRESENTATION_DEADLINE_MS`, 360 s for the whole job) ends that before it finishes; the
+  in-session path (`pipicoc/ui-words.ts`) has no job deadline and completes it.
 
 **3. A translation carries exactly its source's braces.** The lane issues its sources with protected syntax, whose
 notation rule makes any uppercase run a token. That part is right: `JSON`, `SAN`, `POW` stay verbatim. On 2026-10-03
@@ -5263,6 +5263,30 @@ print what they printed before; `validateUiPresentation` prints the detail.
     unchanged `text` and an unchanged `pieces` translation are one kind), and no two kinds say the same.
 - `tests/extension/ui-presentation-context.test.mjs`: this build's zh-Hans seed with one `mechanics` key dropped is
   asked exactly that key's caption (it was asked every caption).
+
+*Acceptance* (2026-10-03, the worker `build/pipicoc/onboarding-worker.mjs presentation` on a scratch home whose agent
+files link the App's, naming no model, so on the lane setting: `opencode-go/deepseek-v4.1-flash`, thinking off):
+
+- **zh-Hans, the observed case.** A content root of this build with the two §135.27.1.3 notices added to `en`: one
+  ask of 2 sources and 2 caption rows, `established_words` the 585-word seed, 10 calls, 47 s. The cache held exactly
+  the two keys, the reader answered the tag projected from the cache, and harvested onto the seed the diff is two
+  added lines.
+- **ja, no seed, this build's 585 captions (546 sources).** The first run (`24c74176b`) failed in ask 13 and gave
+  decision 4's first paragraph; the second (`cb2859b18`) failed in ask 1 and gave its second. The third
+  (`a08ffeacc`): 46 asks, every one done in its first round, 4 to 11 calls and 7 to 39 s each, 1,005 s in all. The
+  cache held all 585 keys, the reader answered the tag projected, and no word's braces or placeholders differ from its
+  source's; 12 captions were kept as written (`→`, `{family} {transition}`). The checker refused 10 answers inside
+  their runs, each repaired in the same round. Eight asks still spent calls reading the lane's compiled source (21 in
+  all), none near the 16-action ceiling.
+- Mutations (one at a time, restored by copy), each failing at least one of the tests above: no gap filter; one
+  unbounded ask; no earlier words handed on; the cache over every caption; every caption row listed; the unprojected
+  count without the unasked sources; the run's brace rule off for pieces, and for text; the host's brace rule off;
+  `selectPresentationReferences` dropping the flag; `validateUiPresentation` dropping the detail; no unchanged-pieces
+  refusal; one kind of refusal reusing another kind's detail. A detail reworded to a meaningless string survives by
+  design: the tests hold the structure (the alias, one reason per kind), not the wording.
+- `npm run test:ext` on leehow-pc at `a08ffeacc`: 4,391 of 4,391. (The two runs before it, at `24c74176b` and
+  `cb2859b18` on a box running three other suites at load 40 to 65, each had two or three timing tests red, a
+  different set each time, in files that import nothing this section touches; all pass alone.)
 
 ### Host decision: the identity card is a passport-style page (2026-09-11)
 
