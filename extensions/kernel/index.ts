@@ -5861,7 +5861,8 @@ export default function (pi: ExtensionAPI) {
 		try { words = await surface.words(); }
 		catch { /* the English line stands */ }
 		for (const notice of notices) {
-			try { pi.sendMessage(hostNoticeMessage(notice, words, turn)); }
+			// Never a steer or a run: idle (as at session start) it is appended now, mid-run Pi holds it to the run's end.
+			try { pi.sendMessage(hostNoticeMessage(notice, words, turn), { triggerTurn: false }); }
 			catch { return; /* the session is gone */ }
 		}
 	}

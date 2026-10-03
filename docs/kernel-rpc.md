@@ -23155,7 +23155,9 @@ person is still looking for the table.
    shapes is dropped. A new process is a new launch, a watchdog replacement included: while the file is still wrong,
    each launch places its notice again; once it is fixed, nothing is placed.
 3. **Placed.** One `coc-delivery` per notice: `display: true`, `details: {coc_delivery: true, turn, host_notice:
-   <notice>}`, with no `triggerTurn`.
+   <notice>}`, sent with `{triggerTurn: false}`. It never steers a run or starts one. When Pi is idle, as at session
+   start, it is appended at once. Mid-run, Pi holds it to the run's end. A send with no options would be steered into
+   a streaming run, and the SL-00 control-flow inventory counts such a send as run-driving.
    - In play, it goes after the table opens and before any recovery or opening run is sent, with `turn` the table's.
      So it sits before the next turn's boundary, where the context policy already drops a `coc-delivery` with an
      integer turn as closed noise (§19.2, `closedNoise`), the fold hook included.
@@ -23235,6 +23237,8 @@ Mutations (one at a time; restored by copy):
 - A malformed entry is accepted: the malformed-value case fails.
 - The turn is not an integer: the context-policy test fails (the notice is retained as unknown material).
 - pi-backend's startup catch-up is not run: the startup projection test fails.
+- The send loses `{triggerTurn: false}`: `control-flow-inventory.test.mjs` fails on an unlisted
+  `pi.sendMessage{steer-when-streaming}` site. The first full run on the box found exactly this.
 
 ### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
 
