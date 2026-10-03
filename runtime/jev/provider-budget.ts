@@ -165,7 +165,9 @@ export function createTaskProviderBudget(lease:TaskLease, options:{record?:(even
  */
 export function independentProviderBudget(owner:string, signal?:AbortSignal, timeoutMs=180_000, clock?:TaskClock):{budget:TaskProviderBudget;close():void} {
   const lease=new TaskLease({owner,goal:owner,scope:{owner,audience:'system'},capabilities:[],readSet:[],signal,...(clock?{clock}:{}),
-    budget:{deadlineAt:(clock?clock.now():Date.now())+timeoutMs,remainingInputTokens:1_000_000,remainingOutputTokens:65_536,remainingCostUsd:10,remainingActions:16}});
+    // A provider that rejects its output-limit field reserves its full declared maxTokens. Cover Flapcode gpt-6-luna
+    // (128,000) so the lane reaches normal dispatch; actual usage still settles against the unchanged $10 ceiling.
+    budget:{deadlineAt:(clock?clock.now():Date.now())+timeoutMs,remainingInputTokens:1_000_000,remainingOutputTokens:131_072,remainingCostUsd:10,remainingActions:16}});
   return {budget:createTaskProviderBudget(lease),close:()=>lease.close()};
 }
 

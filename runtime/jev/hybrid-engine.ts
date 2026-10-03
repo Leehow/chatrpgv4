@@ -82,6 +82,9 @@ const array = (value: unknown): any[] => Array.isArray(value) ? value : [];
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
 const digest = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const bytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8');
+/** The canonical dispatcher shares this lease with action admission. If a provider rejects an output-limit field,
+ * its lane reserves the declared maxTokens; keep the existing 40k run allowance plus Flapcode GPT-6's 128k bound. */
+const CLERK_PROVIDER_OUTPUT_BUDGET = 168_000;
 
 /**
  * §135.11.2 (SL-50 stage 2): the head line of the run's first `coc-clerk` note -- writes are silent, stated once per run
@@ -1190,7 +1193,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     const readSet: ReadSet = [{kind: 'world', resource: run.scope.campaign!, revision: digest([run.turn, run.inputRevision])}];
     run.lease ??= new TaskLease({owner: 'single-loop-clerk', goal: run.rawInput.trim() || 'single-loop clerk step', scope: run.scope, capabilities: ['apply', 'resolve'],
       readSet, signal: invocation.signal,
-      budget: {deadlineAt: Date.now() + 300_000, remainingInputTokens: 400_000, remainingOutputTokens: 40_000, remainingCostUsd: 2, remainingActions: 60}});
+      budget: {deadlineAt: Date.now() + 300_000, remainingInputTokens: 400_000, remainingOutputTokens: CLERK_PROVIDER_OUTPUT_BUDGET, remainingCostUsd: 2, remainingActions: 60}});
     const lease = run.lease, task = lease.context;
     const operation: OperationProposal = {id: `clerk:${invocation.operationId}`, taskId: task.id, operation: tool, args: args as Record<string, Json>,
       capability: tool, scope: task.scope, readSet: task.readSet, basis: []};

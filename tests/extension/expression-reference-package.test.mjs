@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,mkdir,rm,symlink} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {test,after} from 'node:test';
+import {build} from 'esbuild';
+const ROOT=resolve(import.meta.dirname,'../..'),temp=await mkdtemp(join(tmpdir(),'expression-package-'));
+after(()=>rm(temp,{recursive:true,force:true}));
+await symlink(join(ROOT,'node_modules'),join(temp,'node_modules'),'dir');
+await build({stdin:{contents:"export * from './kernel-ts/testing/api.ts';",resolveDir:ROOT},outfile:join(temp,'api.mjs'),bundle:true,packages:'external',format:'esm',platform:'node',target:'node22',logLevel:'silent'});
+const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
+
+test('expression catalog reads only active locked packages and never mutates NPC cards',async t=>{
+ const home=await mkdtemp(join(temp,'home-')),pkg=join(home,'package');await mkdir(pkg);
+ const card={name:'Ordinary clarification',kind:'interaction',activation_question:'Is the targeted person responding to the current request?',applies:'Clarifying an uncertain statement without hostility.',pattern:'Confirm the uncertain part and leave the rest implicit.',examples:[{context:'Time unknown.',reply:'I cannot give the exact time.'}]};
+ const manifest={id:'expression-fixture',version:'1.0.0',state_version:1,author:'test',name:'Expression fixture',description:'Read-only references',game_api:'pipicoc.game.v1',default_enabled:true,requires:['mods.package-files.v1','npc.expression.references.v1'],package_files:['cards.json'],settings:{},dependencies:{},conflicts:[],contributes:{expression_cards:'cards.json'}};
+ await writeFile(join(pkg,'mod.json'),JSON.stringify(manifest));await writeFile(join(pkg,'cards.json'),JSON.stringify({version:1,cards:[card]}));
+ const context=await api.createKernelContext({workspace:home,content:join(ROOT,'content'),seed:'expressions',locks:api.createAdvisoryLocks(async()=>{}),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(context);
+ t.after(()=>runtime.close());const call=(m,p={})=>runtime.handlers[m](p);
+ await call('campaign.create',{id:'before',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});
+ await call('mods.install',{path:pkg});
+ assert.equal((await call('mods.expression',{campaign:'before'})).packages.some(p=>p.id===manifest.id),false,'installation does not enroll a locked world');
+ await call('campaign.create',{id:'fresh',module:'the-haunting',pregen:'thomas-hayes',play_language:'zh-Hans'});
+ const read=await call('mods.expression',{campaign:'fresh'}),found=read.packages.find(p=>p.id===manifest.id);
+ assert.deepEqual(found.cards,[card]);assert.equal(typeof read.revision,'string');
+ const missingQuestion={...card};delete missingQuestion.activation_question;
+ await writeFile(join(pkg,'mod.json'),JSON.stringify({...manifest,version:'1.0.1'}));await writeFile(join(pkg,'cards.json'),JSON.stringify({version:1,cards:[missingQuestion]}));
+ await assert.rejects(call('mods.install',{path:pkg}),error=>error.code==='invalid_params');
+ const before=await call('table.capsule',{campaign:'fresh'});
+ assert.equal(before.mods.expression_reference.revision,read.revision,'catalog and capsule bind the same ordered package bytes and language');
+ assert.equal(JSON.stringify(before.mods.expression_reference).includes(card.examples[0].reply),false,'the core capsule contains metadata, not the reference pool');
+ await call('mods.configure',{campaign:'fresh',id:manifest.id,enabled:false});
+ const disabled=await call('mods.expression',{campaign:'fresh'});
+ assert.equal(disabled.packages.some(p=>p.id===manifest.id),false);assert.notEqual(disabled.revision,read.revision);
+ assert.deepEqual((await call('table.capsule',{campaign:'fresh'})).voices,before.voices,'reference selection does not replace NPC-owned speech cards');
+});

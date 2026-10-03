@@ -11481,6 +11481,14 @@ current player utterance, evidenced by real delivered dialogue, not merely a
 lineup attribution score. Deterministic tests prove wiring, migration and refusal;
 only genuine-table dialogue proves that the voice is natural.
 
+### §40.8 Contract addendum — proposed new requirements
+
+For offline material and card work, Jev **must** make the closed-set semantic screening, indexing, matching, card validation, and offline A/B decisions; unresolved, insufficient, or low-quality cases remain unaccepted. Tool-enabled Pi **must** author the original prose, masks, exchanges, demonstrations, and open explanations from host-materialized evidence. The host must retain raw decisions and evidence pointers, use the existing RPCs and budgets, and add no personality system, keyword classifier, or provider path.
+
+The host must maintain an effective revision over the locked voice owner, the ordered actual addenda, play language, and format revision. On explicit adoption, that adoption remains effective even after the language package is disabled. Installation alone must not mutate legacy locks, cards, or worlds; a busy change remains pending until the existing activation boundary. Only generated mask/exchange material may be archived: source-authored material and every other dossier/card field must remain. Before publication and idempotent replay, compare the current effective revision and reject stale results.
+
+Background generation must use source/current-fact fallback and must not delay first speech. After a relevant effective change, send one new FULL instruction at the actual provider inclusion, then the brief; cancellation or absent projection must not count as acknowledged delivery. The Keeper’s completed draft remains one-pass: no foreground draft judge, prose rewrite, or delivery-time semantic gate.
+
 ### 40.9 Speech serves the present exchange (2026-10-01)
 
 The owner supplied two threats that explained witnesses, payment paperwork and a police call while the speaker
@@ -29777,6 +29785,12 @@ turn carries, §30.7) is at most 400 UTF-8 bytes, checked at load: `details.reas
 (`tests/extension/jev-pacing-mod-alignment.test.mjs`, `tests/kernel/test_mod_director_text.py`); the same tests hold
 each scoped brief to 400. The addendum has no kernel budget: it rides the lane's packet, not the capsule.
 
+### §153.4 Amendment — 2026-10-02
+
+At the user's request, a scoped package may declare an optional manifest field `brief_budget_bytes`, a positive safe integer no greater than 1200. It applies only to that package's scoped brief. When present, the package must require capability `mods.language-brief-budget.v1`; an older runtime rejects the package rather than silently accepting the declaration. When absent, the effective budget remains 400 bytes.
+
+The kernel and listing expose the declared effective budget. Measurement is UTF-8 bytes, not characters. The shared 5000-byte ceiling remains unchanged, and no existing lock is auto-upgraded. This amendment is authorized independently of the pending improvement screen.
+
 ### 153.5 The kernel's decisions
 
 - A build older than this section ignores `play_languages` (an unknown top-level manifest field is not a §28.9 gap), so
@@ -29785,6 +29799,14 @@ each scoped brief to 400. The addendum has no kernel budget: it rides the lane's
 - The first shipped language package is `mods/zh-optimize` (play_languages `["zh"]`, owner 2026-09-29). Tests: `tests/extension/language-scoped-mods.test.mjs` with the fixture
   `tests/fixtures/mods/language-zh`, installed through `mods.install`; `tests/kernel/test_language_mods.py` over the
   emitted kernel's RPC; and the two ceiling tests above.
+
+### §153 Contract addendum — proposed new requirements
+
+Language-scoped selection must participate in a host-only effective revision comprising the locked voice owner, the actual enabled addenda in existing load order, the campaign play language, and the format revision. Explicit adoption is persistent: disabling the package later does not erase the adoption or restore legacy checks. Installation without adoption must not change an existing world, lock, card, or dossier. A change while busy is pending and becomes effective only at the existing safe activation boundary.
+
+The owner remains the voice-lane owner; each selected addendum is appended in actual order and does not replace the owner. Reuse existing RPCs and the established brief/full budgets. Generated mask/exchange keys may be archived on an effective change, while source-authored cards and all non-target dossier fields are preserved. The host must record the actual addendum/play-language/format inputs used by the provider. Before publish or replay, compare the current effective revision and refuse stale output; do not infer validity from a prepared but unbound string.
+
+For present/met NPCs, background author failure or unavailable delivery must fall back to source and current NPC facts without waiting for the first speech. A relevant change requires one new FULL instruction at actual provider inclusion before the brief; cancellation or missing projection is not a sent acknowledgement. These additions do not create a new personality system, language detector, semantic classifier, RPC, or foreground prose-review path.
 
 ## 154. Lean `apply` arguments: the machine fills what it can derive (2026-09-29; on by default, `PI_COC_LEAN_APPLY=0` turns it off)
 
@@ -31395,6 +31417,14 @@ Writer: the Keeper writes one candidate from the current declaration and receipt
 
 Regression acceptance must cover all four delivery paths, a withheld player choice, no-tool/speech-only/unwrapped prose, a repeated line and markup, and no automatic foreground or background prose review/edit calls. It must also show that unauthorized state operations and duplicate transaction replay remain guarded. Genuine live acceptance uses the existing driver and the main session as the only player; deterministic fixtures are not live-play evidence.
 
+### §166 Contract addendum — proposed new requirements
+
+The existing one-pass rule is extended to forbid any foreground draft judge, semantic prose classifier, automatic rewrite, or delivery gate before the player receives the Keeper’s completed draft. Existing narration/ask transactions, provider failure handling, state authority, cancellation, and duplicate-replay guards remain authoritative; reuse their RPCs and budgets.
+
+Offline preparation is separate from delivery: Jev may make closed material/index/card/AB decisions, while tool-enabled Pi authors the offline prose and guidance from host evidence. That work must not become a post-draft review lane. Background voice work must not delay first speech; when unavailable, use source/current facts.
+
+For a relevant effective input change, the host must emit a new FULL instruction once it is actually included at the provider, followed by the brief, while retaining the existing history/cache prefix. A cancelled operation or a projection not actually included must not be recorded as acknowledged. Generated keys may be archived only; source-authored and other dossier/card material must be preserved, and stale publication/replay must be refused after an effective revision mismatch. No new personality system, RPC, provider, or semantic rewrite mechanism is authorized by this addendum.
+
 ## 167. Live prose appears at a typewriter cadence (owner request, 2026-10-02)
 
 This is presentation pacing. A completed delivery is still committed immediately under section 166. New live Keeper prose is revealed at approximately 50 graphemes per second; this does not delay a kernel transaction or start a review/rewrite lane.
@@ -31623,3 +31653,14 @@ Like `table.warn`, it takes no call id and lands after the turn it read has clos
   - kernel: the section left out of the capsule; visibility ignored; a name-only summary counted; an all-unanchored item recorded as shown; an exact substring in place of `locateExcerpt`; an older check replacing a newer row; `table.branch` not carrying; `apply fork` not carrying; open rows ignored by the section; no budget fit; the head sentence always appended; another item's excerpt kept;
   - lane: an all-unanchored item sent as shown; an exact substring in place of `locateExcerpt`; `unanchored` not counted; the shape accepting non-strings; no after-delivery floor; a second answer overriding the first;
   - host: no check after `narrate`; in-flight items not left out; the context hook bypassing the view; the player-input capsule not viewed; a failed lane still recording; the delivery awaiting the check.
+
+
+## 169. Pre-draft Chinese NPC expression-card selection
+
+A Mod may contribute a locked package JSON through `contributes.expression_cards` and capability `npc.expression.references.v1`. Catalog version 1 contains 1-24 unique named cards: `{name, kind, applies, activation_question, pattern, examples}`. `kind` is habit or interaction; `activation_question` is a direct factual Noul question, at most 160 characters, authored by a tool-enabled Pi writer. Other limits are name 80, applies 360, pattern 500, one or two context/reply examples each at most 300 characters, and 24,000 UTF-8 catalog bytes. The read-only `mods.expression` returns the ordered active world-locked packages, exact file digests, play language and budget metadata. Capsules contain only enabled/catalog-revision metadata. Installation does not upgrade existing worlds; normal explicit `mods.configure` owns activation and version changes.
+
+The producer is the context-policy host: current declared utterance, present NPC source/state/voice masks, listener, risk and the exact committed exchange already materialized by `table.recall`. Truncation and verification remain explicit. The reader is one `expression-reference-selection` version-7 Jev batch, with participation plus independent activation and register-conflict Nouls per person/card. The host intersects calibrated gates, allows none and selects at most one habit and one interaction per person. No Choice forces a winner. The consumer is the existing main Keeper request: the host copies selected card content exactly; the Keeper writes the single delivered draft with source/current facts, knowledge and agency authoritative. Cards do not assign personality, mutate owned voice cards, authorize actions or supply example facts.
+
+Preparation is asynchronous. The user authorized first-request waiting on 2026-10-02: only the first eligible NPC request may await the existing attempt until 800 ms after the attempt for its exact writing snapshot started. Mandatory preparation for that snapshot spends the same window; obsolete provisional snapshots do not. Later requests, invalidation and second snapshots never renew it. Completion, none, failure, expiry and cancellation return immediately. A cold miss can still omit cards from the first response. The host bounds the projection to eight present people, 14,000 context bytes, at most 24 aggregate cards and the existing Jev packer limits; excess rosters/requests fall back without structurally selecting a preferred NPC. At most two distinct snapshot attempts per campaign/worldline/loop/turn are permitted, each with a 1200 ms cancellation deadline; an identical key is never retried. Ready results remain eligible after the work deadline but not after input cancellation or binding change. Catalog reads are cached only after success, keyed by the ordered active lock/digests and language; outputs additionally bind exact context, source/turn and question/model/policy versions. Final advice is at most 2200 bytes and cannot evict mandatory evidence. A changed source or state cancels preparation. No prose model, finished-prose judge, rewrite, NPC planner or own-card migration is added.
+
+At the public `before_provider_request` seam, the host records whether the exact packet survived actual Pi serialization, with request identity and selected-card provenance. A projected packet invalidated before that seam is withdrawn from the payload. Projection alone is not delivery, and this seam is not a server acknowledgement. None, cancellation, timeout, missing key, packing failure or provider error uses normal Keeper behavior; telemetry is audit-only. The original single-pass, replay and state-authority guards remain authoritative. Quality and complete-turn speed require independent response comparisons and genuine driver evidence; the earlier static style A/B is invalid for this selector's intent.

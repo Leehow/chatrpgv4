@@ -1,12 +1,32 @@
-# 中文优化 (zh-optimize)
+# Chinese Optimization (zh-optimize)
 
-## 1.1.0 (2026-10-01)
-- Contributes the NPC speech edit lane (`contributes.speech_edit_lane`, contract §165, requires `speech.edit.lane.v1`): after each narrate delivery, the NPC lines are edited for the connectives, discourse markers and modal particles of spoken Chinese, facts untouched, and the player's card is patched in place. `speech-edit-lane.md` is the offline lane v2 the owner judged on 2026-10-01: the connective and particle inventory by function, the rules, and the owner's rewrites of real lines as demonstrations (`.coc/playtests/speech-replay-20260930/`). On 38 lines of the blood-road table v2 changed no fact and raised particles from 0.87 to 2.08 and discourse markers from 0.81 to 2.2 per 100 characters; the owner judged it better than the first version and a corpus-retrieval variant no better at a higher cost. The JSON answer shape is the host's, so the file no longer carries it. Nothing else changed.
+## 1.3.6 — 2026-10-02
 
-## 1.0.1 (2026-09-29)
-- Measured 1.0.0 on two live the-haunting tables against the same stack without it (grok-4.5 low, same 15 lines): NPC lines won 10-1 and 12-1 in blind pairwise reads (5 and 3 ties); narration sentences of 10 characters or fewer fell from 12% to 7%; two readers' translationese tags fell 75 -> 68 and 62 -> 45, with objects as agents, written/official words and listed nouns down. One side effect: long pre-modifiers rose (9 -> 22, 5 -> 13): the joined sentences hung a string of modifiers before the noun. A section now says that joining means commas between short clauses, and that the thing comes first and its description follows in a clause; the tagged lines are its examples. The brief says it in one sentence (398 bytes).
+- Current delivered package: family 7, full 2122 bytes, brief 1090 bytes (cap 1200); implementation/testing authorized with Flapcode GPT Luna.
+- First eligible exact-writing-snapshot request may wait up to 800 ms from attempt start; same-snapshot mandatory work spends the window, obsolete provisional snapshots do not, with no renewal. At most two attempts/input and 1200 ms work allowance; stale/cancel fallback and no extra prose model/judge/rewrite.
+- Live evidence: 1.3.5 delivered 7/7; 1.3.6 delivered 2/3, one empty from HTTP 429. Observations are limited evidence, not quality, speed, release, deployment, or App acceptance proof. Historical failed screens, v5/v6 inconclusive trials, red suites, and undelivered evidence remain retained.
 
-## 1.0.0 (2026-09-29)
-- First version (owner request, 2026-09-29): Chinese tables' NPC lines (and, the owner added, their narration) read like "several sentences stitched together". Four live A/B rounds on grok-4.5 low traced it to English speech habits carried into Chinese: the voice-card lane rendered a book's "clipped" or "short offers" as 说话短促 and wrote sample exchanges as rows of full-stopped fragments, and the Keeper imitated them; prompt changes and a self-rewrite pass by the same model did not change it.
-- Narration is covered too (owner, same day, with a screenshot of full-stop-per-action narration): events run one into the next with commas and aspect words; a 30-passage tagging of the tables' narration found written/official words, long pre-modifiers, a "像…" simile after every small gesture, and passives most often.
-- The package, opened on tables whose play_language is Chinese (`play_languages: ["zh"]`, contract §153): a full instruction on Chinese speech (思果's test, curtness as manner not full stops, paratactic run-on sentences, particles as the carriers of tone, 余光中's six marks of English-style Chinese, spoken not official register), a brief inside the 400-byte language cap, and a voice-lane addendum so voice cards' masks name manner not sentence length and their exchanges are spoken Chinese. GUIDE.md explains how to write the same kind of package for another language.
+## 1.3.3 candidate — 2026-10-02
+
+- Candidate alignment is selector family7: one typed nullable decision seam, independent participation/card activation/register-conflict decisions, interaction reference before habit, and Host acceptance of at most one habit plus one interaction.
+- Added/retained read-only expression metadata, immutable world/version locks, source-materialized history and prior-state timestamps, same-key memoization, cancellation/stale withdrawal, actual Pi SDK serialization, raw provider-request replacement, and closure-safe narrate/ask/embedded delivery.
+- Actual limits remain 24 cards / 8 people / 14,000-byte context / 2,200-byte advice, at most two distinct snapshots, and a 1,200 ms asynchronous allowance with no extra foreground await. Proposed 800 ms first-request timing experiment is pending approval; current policy is ready-only, zero additional wait.
+- Candidate is not merged, released, deployed, or fresh-live-accepted. Actual live evidence is older family6/mod1.3.2. No quality or whole-turn speed improvement, baseline equivalence, or NPC-naturalness resolution is claimed.
+- Latest full suite remains red: 4,334/4,338 passed, four failures (three historical-reference-request cases and one Jev provider-budget child-IPC timeout). Targeted follow-ups do not erase the red full result.
+
+## Evidence limits
+
+- v7 toy calibration: 6 cases, five selected and one no-dialogue none, 601–721 ms; not held-out quality evidence.
+- v5/v6 root-blind trials remain exploratory (three speaker clusters, reused diagnosis contexts, one sample per arm, no owner vote/statistical proof); no final quality advantage demonstrated.
+- Old static screen is retained as **invalid-for-selector-intent** because it judged static style rather than contextual pre-draft selection.
+- Older genuine live run proved 754-byte reference inclusion on turns 1–2 and preparation of 652/639/302 ms, but not current-version live behavior or whole-turn A/B speed. Preserve the one undelivered turn and all process evidence.
+
+## 1.3.2 candidate — 2026-10-02
+
+- Historical family6 alignment: Jev pre-draft nullable advisory references, Host materialization and provider inclusion verification, source/current-fact fallback, stale/cancel/timeout withdrawal, bounded budgets, same-key memo, and zero added foreground await.
+- This revision is the actual live revision recorded above; it is not evidence for fresh acceptance of 1.3.3.
+
+## 1.2.0 and earlier
+
+- The 1.2.0 24-pair automatic screen was not quality acceptance or release evidence; retain it as historical failure evidence.
+- 1.1.0/1.0.x speech-edit, live A/B, and corpus observations belong to the old lane, not selector validation; existing voice ownership was not migrated.

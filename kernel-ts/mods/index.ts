@@ -18,6 +18,7 @@ import { ModJobs, type ModSources } from './jobs.js';
 import { stageModEffect } from './stage.js';
 import { resolveBeforeMain, type ModResolveInput } from './resolve.js';
 import { magicEffects } from './effects.js';
+import {expressionCatalog} from '../read/expression-reference.js';
 export { validateDefinition, validateDocumentSeed, definitionExpression } from './definition.js';
 export { projectInventory, projectSheet, weaponRows } from './projection.js';
 export { magicEffects, effectTarget, applyObjectEffects, saveEffectTarget, useItem, repairItem, castNpc } from './effects.js';
@@ -102,6 +103,10 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
         }
         return listing(params);
       },
+      'mods.expression': async params => {
+        const campaign=await writer.campaign(params),meta=await campaign.readCampaign(),world=await campaign.readWorld();
+        return expressionCatalog(await runtime.active(world),await playLanguageOf(context,meta));
+      },
       'mods.context': async params => {
         // A campaign still being set up has no capsule: it gets the setup shape (§26) from the same lock mods.configure writes.
         const settingUp = await writer.campaign(params, {requireWorld: false}), meta = await settingUp.readCampaign();
@@ -111,7 +116,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
         }
         const {campaign, module} = await readCampaign(context, params, false, false, writer.read);
         return modContext(context, module.graph, campaign.world, campaign.party, campaign.records, true, {
-          memory: campaign.logs.get('memory/candidates.jsonl') ?? [], story: campaign.logs.get('memory/story.jsonl') ?? [],
+          memory: campaign.logs.get('memory/candidates.jsonl') ?? [], story: campaign.logs.get('memory/story.jsonl') ?? [],play_language:await playLanguageOf(context,campaign.meta),
           worldline: string(campaign.meta.active_worldline || 'main'),
           loop: number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline || 'main')]).loop)
         });
