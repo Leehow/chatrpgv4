@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 
 export interface ProviderModel {
   provider:string; id:string; api:string; maxTokens:number; contextWindow:number;
+  compat?:unknown;
   cost:{input:number;output:number;cacheRead:number;cacheWrite:number;tiers?:Array<{input:number;output:number;cacheRead:number;cacheWrite:number}>};
 }
 export interface ProviderBound {model:ProviderModel;inputTokens:number;outputTokens:number}
@@ -58,6 +59,7 @@ export function providerSpend(bound:ProviderBound):BudgetSpend {
   if(!model||!['provider','id','api'].every(key=>typeof model[key as keyof ProviderModel]==='string'&&!!model[key as keyof ProviderModel])
     ||!integer(model.contextWindow)||model.contextWindow<1||!integer(model.maxTokens)||model.maxTokens<1
     ||!integer(bound.inputTokens)||!integer(bound.outputTokens)||bound.outputTokens<1||bound.outputTokens>model.maxTokens
+    ||!supportsOutputLimit(model)&&bound.outputTokens!==model.maxTokens
     ||!rates.length||rates.some(rate=>![rate.input,rate.output,rate.cacheRead,rate.cacheWrite].every(finite)))throw new ContractError('provider_bound_unavailable');
   return {inputTokens:bound.inputTokens,outputTokens:bound.outputTokens,actions:1,costUsd:
     (bound.inputTokens*Math.max(...rates.flatMap(rate=>[rate.input,rate.cacheRead,rate.cacheWrite]))+bound.outputTokens*Math.max(...rates.map(rate=>rate.output)))/1_000_000};
@@ -74,15 +76,28 @@ export function outputFieldPath(api:string, payload:any):string[]|null {
     default:return null;
   }
 }
+/** This native flag applies to the closed Responses wire APIs, never to model names. */
+function supportsOutputLimit(model:{api?:unknown;compat?:unknown}|undefined):boolean {
+  switch(model?.api) {
+    case 'openai-responses':case 'azure-openai-responses':case 'openai-codex-responses':
+      return (model.compat as {supportsMaxOutputTokens?:boolean}|undefined)?.supportsMaxOutputTokens!==false;
+    default:return true;
+  }
+}
 /**
  * Contract §140: a child agent that runs without a lease still sends its own output bound, `min(model maxTokens,
  * limit, any smaller bound already in the payload)`, so the provider's unstated default never decides it. Without
  * one, opencode-go's default of 8,192 output tokens let deepseek-v4.1-flash spend the whole response reasoning (at
  * "low", the lowest level it has) and end with no answer and no tool call. The payload is returned unchanged when the
  * API has no known output field or the model declares no usable maxTokens: this bound is room, never a refusal.
+ * A native declaration that the transport rejects output limits omits the field and asserts no wire cap.
  */
-export function withOutputRoom(model:{api?:unknown;maxTokens?:unknown}|undefined, payload:any, limit:number):any {
+export function withOutputRoom(model:{api?:unknown;maxTokens?:unknown;compat?:unknown}|undefined, payload:any, limit:number):any {
   if(!payload||typeof payload!=='object'||Array.isArray(payload)||typeof model?.api!=='string')return payload;
+  if(!supportsOutputLimit(model)) {
+    if(!Object.hasOwn(payload,'max_output_tokens'))return payload;
+    const compatible={...payload};delete compatible.max_output_tokens;return compatible;
+  }
   const path=outputFieldPath(model.api,payload),ceiling=Number(model.maxTokens);
   if(!path||!Number.isSafeInteger(ceiling)||ceiling<1||!Number.isSafeInteger(limit)||limit<1)return payload;
   const existing=path.reduce((value:any,key)=>value?.[key],payload);
@@ -100,14 +115,16 @@ export function boundProviderRequest(model:ProviderModel, payload:any, outputLim
   const path=outputFieldPath(model.api,payload);
   if(!path)throw new ContractError('provider_output_bound_unsupported');
   const existing=path.reduce((value,key)=>value?.[key],payload);
-  const outputTokens=Math.min(model.maxTokens,outputLimit,typeof existing==='number'?existing:Infinity);
+  const capped=supportsOutputLimit(model);
+  const outputTokens=capped?Math.min(model.maxTokens,outputLimit,typeof existing==='number'?existing:Infinity):model.maxTokens;
   const body=JSON.stringify(payload);
   // Compressed image bytes do not bound vision token use. Reserve the declared context ceiling.
   const multimodal=(value:any):boolean=>!!value&&typeof value==='object'&&(Array.isArray(value)?value.some(multimodal):
     ['image','input_image','image_url','document','input_audio'].includes(value.type)||Object.hasOwn(value,'image')||Object.hasOwn(value,'inlineData')||Object.hasOwn(value,'inline_data')||Object.values(value).some(multimodal));
   const inputTokens=multimodal(payload)?model.contextWindow:Buffer.byteLength(body,'utf8')+1024;
   const bounded=structuredClone(payload);let target=bounded;
-  for(const key of path.slice(0,-1))target=target[key]??=( {} );target[path.at(-1)!]=outputTokens;
+  for(const key of path.slice(0,-1))target=target[key]??=( {} );
+  if(capped)target[path.at(-1)!]=outputTokens;else delete target[path.at(-1)!];
   // structuredClone renders an AbortSignal as a bare `{}` (Node 24): truthy, no addEventListener, which
   // @google/genai's createAttemptSignal then calls -- so every Google lane call died in 1 ms with
   // `callerSignal.addEventListener is not a function` (SL-39 addendum, 2026-09-24), long before the
@@ -115,7 +132,8 @@ export function boundProviderRequest(model:ProviderModel, payload:any, outputLim
   // every other adapter passes it beside the body. Hand the adapter back its own signal, by identity.
   if(payload.config?.abortSignal!==undefined)bounded.config.abortSignal=payload.config.abortSignal;
   // Explicitly copy only public model accounting metadata across the child boundary.
-  const bound={model:{provider:model.provider,id:model.id,api:model.api,maxTokens:model.maxTokens,contextWindow:model.contextWindow,cost:structuredClone(model.cost)},inputTokens,outputTokens};
+  const bound={model:{provider:model.provider,id:model.id,api:model.api,maxTokens:model.maxTokens,contextWindow:model.contextWindow,cost:structuredClone(model.cost),
+    ...(!capped?{compat:{supportsMaxOutputTokens:false}}:{})},inputTokens,outputTokens};
   providerSpend(bound);
   return {payload:bounded,bound};
 }
@@ -147,7 +165,9 @@ export function createTaskProviderBudget(lease:TaskLease, options:{record?:(even
  */
 export function independentProviderBudget(owner:string, signal?:AbortSignal, timeoutMs=180_000, clock?:TaskClock):{budget:TaskProviderBudget;close():void} {
   const lease=new TaskLease({owner,goal:owner,scope:{owner,audience:'system'},capabilities:[],readSet:[],signal,...(clock?{clock}:{}),
-    budget:{deadlineAt:(clock?clock.now():Date.now())+timeoutMs,remainingInputTokens:1_000_000,remainingOutputTokens:65_536,remainingCostUsd:10,remainingActions:16}});
+    // A provider that rejects its output-limit field reserves its full declared maxTokens. Cover Flapcode gpt-6-luna
+    // (128,000) so the lane reaches normal dispatch; actual usage still settles against the unchanged $10 ceiling.
+    budget:{deadlineAt:(clock?clock.now():Date.now())+timeoutMs,remainingInputTokens:1_000_000,remainingOutputTokens:131_072,remainingCostUsd:10,remainingActions:16}});
   return {budget:createTaskProviderBudget(lease),close:()=>lease.close()};
 }
 

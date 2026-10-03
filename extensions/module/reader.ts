@@ -154,6 +154,13 @@ export function readerCommand(model?: string, systemPrompt?: string, thinking?: 
 }
 
 /**
+ * Pi's own retry defaults, pinned for a child. The table's agent home retries a turned-away call eight times over about
+ * four minutes (`runtime/launch.ts`, `FOREGROUND_RETRY`); a child would inherit that through the deep merge, and its
+ * wall-clock budget is shorter, so the retries would end in its own SIGTERM instead of the provider's reason.
+ */
+const CHILD_RETRY = { maxRetries: 3, baseDelayMs: 2_000, maxAgentDelayMs: 60_000 };
+
+/**
  * Give one child its own HTTP idle timeout without touching the operator's.
  *
  * The agent home's `httpIdleTimeoutMs` is written once and never re-asserted (`runtime/launch.ts`),
@@ -174,7 +181,7 @@ async function writeChildSettings(cwd: string, httpIdleTimeoutMs: number | undef
 	const dir = join(cwd, ".pi");
 	await rm(dir, { recursive: true, force: true });
 	await mkdir(dir, { recursive: true });
-	await writeFile(join(dir, "settings.json"), JSON.stringify({ ...(httpIdleTimeoutMs ? {httpIdleTimeoutMs} : {}), ...(budgeted ? {retry:{provider:{maxRetries:0}}} : {}) }, null, 2) + "\n");
+	await writeFile(join(dir, "settings.json"), JSON.stringify({ ...(httpIdleTimeoutMs ? {httpIdleTimeoutMs} : {}), retry: { ...CHILD_RETRY, ...(budgeted ? {provider:{maxRetries:0}} : {}) } }, null, 2) + "\n");
 }
 
 /** A lane keeps its own sentence; the child's reason rides along when there is one. */

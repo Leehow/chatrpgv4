@@ -177,8 +177,14 @@ export function committedFacts(receipts: Row[], snapshot: Row, label: (id: any) 
             committed.push(`Scene: ${string(r.from_label || r.from || null)} -> ${string(r.to_label || r.to || null)}${number(r.minutes) > 0 ? ` (${Math.trunc(number(r.minutes))} min)` : ''}`);
         else if (r.kind === 'clue')
             committed.push(`Clue found: ${string(r.label || r.clue || null)}`);
+        else if(r.kind==='cash'&&r.settlement==='quote')
+            committed.push(`Price offered: ${string(r.quote)} ${string(r.purchase_amount)} ${string(r.currency)}; no payment or object transfer`);
+        else if(r.kind==='cash'&&r.settlement==='living_standard')
+            committed.push(`Living-standard expense: ${string(r.subject_label||r.subject)} ${string(r.purchase_amount)} ${string(r.currency)}; cash unchanged at ${string(r.after)}`);
         else if (r.kind === 'cash' && r.settlement === 'spending_level')
             committed.push(`Spending level purchase: ${string(r.subject_label || r.subject || null)} ${string(r.purchase_amount ?? null)} ${string(r.currency ?? null)}; cash unchanged at ${string(r.after ?? null)}`);
+        else if(r.kind==='cash'&&r.purchase_amount!==undefined)
+            committed.push(`Purchase: ${string(r.subject_label||r.subject)} ${string(r.purchase_amount)} ${string(r.currency)}; cash ${string(r.before)} -> ${string(r.after)}; daily total ${string(r.daily_total)}`);
         else if (r.kind === 'delta' || r.kind === 'cash')
             committed.push(`${string(r.resource ?? null)}: ${string(r.item || r.subject_label || r.subject || null)} ${string(r.before ?? null)} -> ${string(r.after ?? null)}`);
         else if (r.kind === 'item') {

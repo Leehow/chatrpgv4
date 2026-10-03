@@ -127,7 +127,7 @@ function runLauncher(root, args, extraEnv = {}) {
  */
 function defaultMounts(root) {
 	const providers = providerExtensionManifests(root);
-	assert.deepEqual(providers.map(entry => entry.name), ['deepseek', 'grok-build-oauth'],
+	assert.deepEqual(providers.map(entry => entry.name), ['deepseek', 'flapcode', 'grok-build-oauth'],
 		'the fake tree must carry the same provider manifests the repo does');
 	return ['--no-extensions', ...['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'speech-edit', 'thinking-schedule'].flatMap(name => ['-e', join(root, 'build/extensions', name, 'index.mjs')]),
 		...providers.flatMap(entry => ['-e', entry.entry]),
@@ -217,7 +217,8 @@ test("bin/pi-coc：写 settings.json、导出战役、拼出 pi 的命令行", (
 	]);
 
 	const settings = JSON.parse(readFileSync(join(root, ".pi", "coc-agent", "settings.json"), "utf8"));
-	assert.deepEqual(settings, { packages: [root], quietStartup: true, httpIdleTimeoutMs: 60000, cacheWarming: "off" });
+	assert.deepEqual(settings, { packages: [root], quietStartup: true, httpIdleTimeoutMs: 60000, cacheWarming: "off",
+		retry: { maxRetries: 8, baseDelayMs: 2000, maxAgentDelayMs: 60000 } });
 });
 
 test("bin/pi-coc：已有 settings.json 只补 packages，不动别的键", (t) => {
@@ -268,6 +269,23 @@ test("bin/pi-coc：运营者自己定的空闲超时不被下一次启动覆盖"
 
 	const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
 	assert.equal(settings.httpIdleTimeoutMs, 0, "运营者写下的值是他的，不是缺省要抢的位置");
+});
+
+test("bin/pi-coc：前台重试缺省逐键补上，运营者写过的重试键不动", (t) => {
+	const root = fakeRepo();
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const settingsPath = join(root, ".pi", "coc-agent", "settings.json");
+	mkdirSync(dirname(settingsPath), { recursive: true });
+	// 2026-10-02：建卡遇到 Flapcode 429，pi 缺省的 3 次重试 17 秒内就用完，回合失败。
+	writeFileSync(settingsPath, JSON.stringify({ packages: [root] }, null, 2));
+	runLauncher(root, ["--campaign", "camp-r"]);
+	assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")).retry, { maxRetries: 8, baseDelayMs: 2000, maxAgentDelayMs: 60000 });
+
+	writeFileSync(settingsPath, JSON.stringify({ packages: [root], retry: { enabled: false, maxRetries: 2, provider: { maxRetries: 0 } } }, null, 2));
+	runLauncher(root, ["--campaign", "camp-r"]);
+	assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")).retry,
+		{ enabled: false, maxRetries: 2, provider: { maxRetries: 0 }, baseDelayMs: 2000, maxAgentDelayMs: 60000 },
+		"写过的键是运营者的，只补没写的");
 });
 
 test("bin/pi-coc：不给战役就不定 session-id，也不导出 PI_COC_CAMPAIGN", (t) => {

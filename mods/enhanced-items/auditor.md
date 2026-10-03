@@ -16,8 +16,8 @@ past events, hypothetical objects, ordinary decorative references, or a rulebook
 weapon already on a character sheet. Do not invent source facts or new objects.
 
 Also inspect unregistered_equipment (equipment_without_instances in focused context). This is a list of candidates for assessment, not a list of required registrations. Initial or
-legacy owned weapons and mechanically meaningful equipment must be parameterized
-even when the current text is about something else. For each such gap, return a
+legacy owned weapons must be parameterized even when the current text is about
+something else; other equipment only once the text uses it. For each such gap, return a
 missing entry naming the existing equipment, its category and a reason telling
 the Keeper to define it and use object.adopt with its exact name and owner. Do not
 award another copy. Ordinary decorative entries and executable weapon rows need

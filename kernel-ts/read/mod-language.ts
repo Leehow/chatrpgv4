@@ -12,11 +12,15 @@
  */
 import { RpcError } from "../errors.js";
 import { validSourceLanguage } from "../modules/contract.js";
-import { array, row, string, type Row } from "./values.js";
+import { array, row, string, integer, number, type Row } from "./values.js";
 
 export const LANGUAGE_ADDENDUM_CAPABILITY = "npc.voice.language-addendum.v1";
 /** Contract §153.4: the UTF-8 bytes one language-scoped package may add to every later turn's capsule. */
 export const LANGUAGE_BRIEF_BYTES = 400;
+export const LANGUAGE_BRIEF_BUDGET_CAPABILITY = "mods.language-brief-budget.v1";
+export const MAX_LANGUAGE_BRIEF_BYTES = 1200;
+export const languageBriefBudget = (manifest: Row): number => Object.hasOwn(manifest, "brief_budget_bytes")
+    ? number(manifest.brief_budget_bytes) : LANGUAGE_BRIEF_BYTES;
 
 const label = (manifest: Row): string => `${string(manifest.id ?? "?")} ${string(manifest.version ?? "?")}`;
 function refuse(manifest: Row, field: string, reason: string, message: string, fix: string, details: Row = {}): never {
@@ -55,6 +59,18 @@ export function languageAdmits(mod: Row | null | undefined, tag: string | null):
  */
 export function validateLanguageDeclaration(manifest: Row, files: ReadonlyMap<string, Uint8Array>): void {
     const contributes = row(manifest.contributes);
+    if (Object.hasOwn(manifest, "brief_budget_bytes")) {
+        const value = manifest.brief_budget_bytes;
+        if (!declaresLanguages(manifest) || !integer(value) || !Number.isSafeInteger(number(value))
+            || number(value) < 1 || number(value) > MAX_LANGUAGE_BRIEF_BYTES)
+            refuse(manifest, "brief_budget_bytes", "language_brief_budget_shape",
+                `brief_budget_bytes needs a scoped package and a positive integer at most ${MAX_LANGUAGE_BRIEF_BYTES}`,
+                "declare play_languages and a valid byte budget, or remove brief_budget_bytes");
+        if (!array(manifest.requires).includes(LANGUAGE_BRIEF_BUDGET_CAPABILITY))
+            refuse(manifest, "brief_budget_bytes", "language_brief_budget_capability",
+                `brief_budget_bytes requires ${LANGUAGE_BRIEF_BUDGET_CAPABILITY}`,
+                `add ${LANGUAGE_BRIEF_BUDGET_CAPABILITY} to requires, or remove brief_budget_bytes`);
+    }
     if (Object.hasOwn(manifest, "play_languages")) {
         const tags = manifest.play_languages;
         if (!Array.isArray(tags) || !tags.length || tags.some(tag => !validSourceLanguage(tag))
@@ -85,13 +101,14 @@ export function validateLanguageDeclaration(manifest: Row, files: ReadonlyMap<st
     if (field == null)
         return;
     const path = string(contributes[field]), bytes = files.get(path)?.length ?? 0;
-    if (bytes > LANGUAGE_BRIEF_BYTES)
+    const limit = languageBriefBudget(manifest);
+    if (bytes > limit)
         refuse(manifest, `contributes.${field}`, "language_brief_over_budget",
-            `the per-turn instruction ${path} is ${bytes} UTF-8 bytes; a package that declares play_languages carries at most ${LANGUAGE_BRIEF_BYTES} bytes each turn`,
+            `the per-turn instruction ${path} is ${bytes} UTF-8 bytes; this scoped package carries at most ${limit} bytes each turn`,
             field === "brief"
-                ? `shorten ${path} to ${LANGUAGE_BRIEF_BYTES} bytes or fewer; the full instruction still rides the first turn`
-                : `add a contributes.brief of ${LANGUAGE_BRIEF_BYTES} bytes or fewer, or shorten ${path} to that size`,
-            { path, bytes, limit: LANGUAGE_BRIEF_BYTES });
+                ? `shorten ${path} to ${limit} bytes or fewer; the full instruction still rides the first turn`
+                : `add a contributes.brief of ${limit} bytes or fewer, or shorten ${path} to that size`,
+            { path, bytes, limit });
 }
 
 /**

@@ -154,50 +154,18 @@ async function play(t, { responses, env = {}, read = nextMorning, failure, input
 
 const narrateCall = (text) => fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" });
 
-test("an explicit narrate that skips a night carries the reading, refusable, and its row says it was sent", async (t) => {
-	const { table, requests } = await play(t, { responses: [narrateCall(SKIP)] });
-	assert.equal(requests.length, 1);
-	assert.deepEqual(requests[0].state, { text: SKIP });
-	const [params] = narrateParams(table);
-	assert.deepEqual(params.time_reading, { cut: "next_day", confidence: 0.98, floor: 240, ends_at: "morning", refusable: true });
-	const [row] = readingRows(table);
-	assert.equal(row.path, "explicit");
-	assert.equal(row.ok, true);
-	assert.equal(row.sent, true);
-	assert.equal(row.cut, "next_day");
-	assert.equal(row.ends_at, "morning");
-	assert.equal(typeof row.ms, "number");
-});
 
-test("a delivery that plays through carries no reading; the row is still written", async (t) => {
-	const { table } = await play(t, { responses: [narrateCall(STAY)], read: noCut });
-	assert.equal(narrateParams(table)[0].time_reading, undefined);
-	assert.equal(readingRows(table)[0].sent, false);
-});
+
+
 
 test("the Keeper cannot send its own time_reading", async (t) => {
 	const { table } = await play(t, { responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: STAY, time_reading: { cut: "days" } })], { stopReason: "toolUse" })], read: noCut });
 	assert.equal(narrateParams(table)[0]?.time_reading, undefined);
 });
 
-test("no key: nothing is asked, the delivery goes out unread, the row says skipped", async (t) => {
-	const requests = installJev(t, nextMorning);
-	const table = await openTable({ env: {}, responses: [narrateCall(SKIP)] });
-	t.after(() => table.dispose());
-	await table.session.prompt("好，那我明天再来。");
-	await waitForIdle(table.session);
-	assert.equal(requests.length, 0);
-	assert.equal(narrateParams(table)[0].time_reading, undefined);
-	assert.deepEqual(readingRows(table).map((row) => [row.ok, row.skipped]), [[true, "unconfigured"]]);
-});
 
-test("Jev down: fail open, the delivery goes out unread, the row names the failure", async (t) => {
-	const { table } = await play(t, { responses: [narrateCall(SKIP)], failure: 500 });
-	assert.equal(narrateParams(table)[0].time_reading, undefined);
-	const [row] = readingRows(table);
-	assert.equal(row.ok, false);
-	assert.equal(typeof row.reason, "string");
-});
+
+
 
 test("the opening delivery is not read", async (t) => {
 	const { table, requests } = await play(t, { responses: [narrateCall(SKIP)], env: { FAKE_KERNEL_OPENING: "1" } });
@@ -206,40 +174,9 @@ test("the opening delivery is not read", async (t) => {
 	assert.deepEqual(readingRows(table), []);
 });
 
-test("a refusal spends the turn's one steer: the next delivery is not refusable, and the same words are not read twice", async (t) => {
-	const { table, requests } = await play(t, { env: { FAKE_KERNEL_TIME_REFUSE: "1" }, responses: [narrateCall(SKIP), narrateCall(SKIP)] });
-	const sent = narrateParams(table);
-	assert.equal(sent.length, 2);
-	assert.equal(sent[0].time_reading.refusable, true);
-	assert.equal(sent[1].time_reading.refusable, false, "the steer is spent: the kernel delivers with its finding");
-	assert.equal(requests.length, 1, "the resend's words were read once");
-	assert.deepEqual(readingRows(table).map((row) => row.cached ?? false), [false, true]);
-	const refused = table.telemetry().find((row) => row.tool === "narrate" && row.ok === false);
-	assert.equal(refused?.reason, "time_unrecorded");
-});
 
-test("the implicit close is read too, and a refusal takes the turn's one steer (§109.4) before the Keeper answers it", async (t) => {
-	const { table } = await play(t, {
-		// Nobody on stage: a draft with no say token would otherwise take the speech steer first (§40), spending the one steer.
-		env: { FAKE_KERNEL_TIME_REFUSE: "1", FAKE_KERNEL_PRESENT: "[]" },
-		responses: [
-			// A tool call first, so the prose that follows is a close, not a floor steer.
-			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-			fauxAssistantMessage(SKIP),
-			narrateCall(STAY),
-		],
-		read: (text) => (text.includes("第二天早上") ? nextMorning() : noCut()),
-	});
-	const sent = narrateParams(table);
-	assert.equal(sent[0].implicit, true);
-	assert.equal(sent[0].time_reading.refusable, true);
-	assert.equal(readingRows(table)[0].path, "implicit");
-	const steers = customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "audit-repair");
-	assert.equal(steers.length, 1, "the kernel's fix rode the one repair steer");
-	assert.ok(String(steers[0].content).includes("time_unrecorded") || String(steers[0].content).includes("apply time"));
-	assert.equal(sent.at(-1).text, STAY);
-	assert.equal(sent.at(-1).time_reading, undefined);
-});
+
+
 
 // ---------------------------------------------------------------------------------------------------------
 // The real kernel: the reconciliation (§145.3) answers the reading, and `until` (§145.1) closes it.
@@ -278,32 +215,9 @@ async function realTable(t, responses) {
 	return table;
 }
 
-test("real kernel: the skip is refused with the call that closes it; the Keeper lands until and the clock reads the next morning", async (t) => {
-	const table = await realTable(t, [
-		narrateCall(SKIP),
-		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "time", until: { days: 1, time: "08:00" }, why: "出门，第二天早上回来" }] })], { stopReason: "toolUse" }),
-		narrateCall(SKIP),
-	]);
-	const refusal = table.telemetry().find((row) => row.tool === "narrate" && row.ok === false);
-	assert.equal(refusal?.reason, "time_unrecorded");
-	const turn = record(table.workspace, 2);
-	const time = turn.receipts.find((receipt) => receipt.kind === "time");
-	// until names the next morning, 08:00: the minutes are what is left from where turn 1's walk left the clock.
-	assert.deepEqual([time.minutes, time.until], [22 * 60 - travel(table.workspace), { days: 1, time: "08:00" }]);
-	assert.equal((turn.warnings ?? []).filter((row) => row.kind === "time_unrecorded").length, 0, "the books agree: no finding");
-	assert.equal(world(table.workspace).clock.minutes, 22 * 60);
-	assert.deepEqual(kernelRows(table.workspace).map((row) => row.outcome), ["refused"]);
-});
 
-test("real kernel: a Keeper that delivers the skip again after the refusal gets it out, with the finding on the record", async (t) => {
-	const table = await realTable(t, [narrateCall(SKIP), narrateCall(SKIP)]);
-	const turn = record(table.workspace, 2);
-	const [finding] = (turn.warnings ?? []).filter((row) => row.kind === "time_unrecorded");
-	assert.equal(finding.cut, "next_day");
-	assert.deepEqual(finding.suggest, { until: { days: 1, time: "08:00" } });
-	assert.equal(world(table.workspace).clock.minutes, travel(table.workspace), "nothing landed this turn: the clock is where turn 1's walk left it");
-	assert.deepEqual(kernelRows(table.workspace).map((row) => row.outcome), ["refused", "delivered"]);
-});
+
+
 
 test("the apply schema offers until on time only (§145.1), and the narrate schema offers no time_reading", async () => {
 	const { COC_TOOLS } = await import("../../extensions/kernel/tools.ts");
@@ -316,25 +230,7 @@ test("the apply schema offers until on time only (§145.1), and the narrate sche
 	assert.equal(COC_TOOLS.find((tool) => tool.name === "narrate").parameters.properties.time_reading, undefined);
 });
 
-test("an implicit close after the turn's one steer is spent is read, not refusable, and delivered (turn 8's position)", async (t) => {
-	const { table } = await play(t, {
-		env: { FAKE_KERNEL_TIME_REFUSE: "1" },
-		responses: [
-			fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
-			// Someone is on stage and the draft carries no say token: the speech steer (§40) takes the turn's one steer.
-			fauxAssistantMessage(STAY),
-			fauxAssistantMessage(SKIP),
-		],
-		read: (text) => (text.includes("第二天早上") ? nextMorning() : noCut()),
-	});
-	assert.equal(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "speech").length, 1);
-	const sent = narrateParams(table);
-	assert.equal(sent.length, 1);
-	assert.equal(sent[0].implicit, true);
-	assert.equal(sent[0].time_reading.refusable, false, "a refusal here could never be handed back");
-	assert.equal(table.telemetry().filter((row) => row.tool === "narrate" && row.ok === false).length, 0);
-	assert.ok(table.telemetry().some((row) => row.event === "turn-closed" && row.ok === true));
-});
+
 
 test("an implicit opening is not read, even once its own Mod writes moved the turn to acting (live table time-skip-a, turn 0)", async (t) => {
 	// Turn 0 of time-skip-a settled a first-contact check and definitions before it closed in prose; the turn was no
@@ -348,3 +244,6 @@ test("an implicit opening is not read, even once its own Mod writes moved the tu
 	assert.equal(narrateParams(table)[0].time_reading, undefined);
 	assert.deepEqual(readingRows(table), []);
 });
+
+// Section 166 disables prose time review. Actual time-effect arithmetic remains tested in the kernel.
+// All first-draft paths and zero prose-review calls are exercised in single-pass-narration.test.mjs.

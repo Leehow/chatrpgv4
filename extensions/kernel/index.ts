@@ -1,3 +1,6 @@
+import {createQuotationQueue} from "./quotes.ts";
+import {patchCard} from "../table/card-patch.ts";
+import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts';
 /**
  * The pi-coc kernel extension: it starts the Python kernel, wires the seven verbs onto RPC,
@@ -7,7 +10,7 @@ import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts'
 
 import { textToolCalls } from "./text-tool-call.ts";
 import {narrationTransport} from './narration-transport.ts';
-import {HistoricalReference, historyEnabled, historyContext, historyBindingMatches, type HistoryInput} from '../../runtime/historical-reference.ts';
+import {HistoricalReference, historyEnabled, historyContext, historyBindingMatches, type HistoryInput, type HistoryResult} from '../../runtime/historical-reference.ts';
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentToolUpdateCallback, ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
@@ -129,7 +132,15 @@ import {
 	REFUSING_VERDICTS,
 } from "./admission.ts";
 import { ADMISSION_JEV_MODEL, batchVerdict } from "../../runtime/jev/admission-domain.ts";
-import { owedWaitMs, settleOwedReview } from "./owed-review.ts";
+import { watchOwedReview } from "./owed-review.ts";
+import { openingInstruction } from "./opening-instruction.ts";
+import { leaveOutRefused, leaveOutUnknownOwed, owedLeftOutNote, type OwedLeftOut } from "./owed-left-out.ts";
+import { splitNpcMood } from "./npc-mood-split.ts";
+import { fillObjectDefinitions } from "./object-definition-fill.ts";
+import { firstSightPeople, untoldView, type UntoldNames } from "./untold-view.ts";
+import { restoreTextualToolCalls } from "./textual-tool-calls.ts";
+import { createFirstSightTracker, type FirstSightTracker } from "./first-sight.ts";
+import { createFirstSightLane } from "../../runtime/jev/first-sight.ts";
 
 /**
  * One review returned pending (§32.12.2): the lane still running, if it is, and the typed reading the Keeper was shown.
@@ -234,6 +245,7 @@ function takeSkillAnnotation(run: SkillRun | undefined, input: Record<string, un
 }
 
 interface OpenResult {
+    quote_turns?: number[];
 	campaign?: { id?: string; title?: string; play_language?: string };
 	turn?: { number?: number; state?: TurnState };
 	investigators?: Array<Record<string, unknown>>;
@@ -319,6 +331,7 @@ interface ForcedPlayerChoiceCue {
 	run: string;
 	choices: ForcedPlayerChoice[];
 	review(draft: string, signal?: AbortSignal): Promise<ForcedChoiceCueReview>;
+	requestTurnClose?: () => void;
 }
 
 interface TableState {
@@ -413,6 +426,14 @@ interface TableState {
 	owed?: Array<Record<string, unknown>>;
 	/** §158.4: the previous delivery's post review while it runs; it settles once `table.warn` recorded (or failed). */
 	reviewInFlight?: { turn: number; done: Promise<void> };
+	/** §168.5: the first-sight items each turn's capsule handed the Keeper, and the checks of deliveries still running. */
+	firstSight: FirstSightTracker;
+	/** §168.5: `turn|item` pairs whose omission while their check ran is already on the telemetry line. */
+	firstSightOmitted: Set<string>;
+	/** The last delivered prose, the first-sight check's `earlier` (§168.5). */
+	lastDeliveredProse?: string;
+	/** §103.5: what each untold person is shown as in the Keeper's copy of the last capsule. */
+	untoldNames?: UntoldNames;
 	/** Contract §37.6: the independent source review refused the placement this turn's reentry needs.
 	 * Host-owned, from the kernel's own adaptation result — never prose — and cleared when a later
 	 * proposal is pending, ready or accepted, or when the next turn opens. */
@@ -1329,6 +1350,18 @@ function readMechanics(result: Record<string, unknown>): Array<Record<string, un
 }
 
 export default function (pi: ExtensionAPI) {
+	// A tool call the model wrote as text runs as the call it is (extensions/kernel/textual-tool-calls.ts). Registered
+	// first, so every later `message_end` handler -- this extension's own included -- reads the restored message.
+	pi.on("message_end", (event) => {
+		let active: string[] = [];
+		try { active = typeof pi.getActiveTools === "function" ? pi.getActiveTools() : []; } catch { active = []; }
+		const restored = restoreTextualToolCalls(event.message as any, name => active.includes(name));
+		if (!restored) return undefined;
+		const message = event.message as any;
+		void record({ lane: "model-output", event: "textual_tool_calls", restored: restored.restored,
+			provider: message?.provider ?? null, model: message?.model ?? null, stop_reason: message?.stopReason ?? null });
+		return { message: restored.message };
+	});
 	let runtime: HostRuntime | undefined;
 	let foregroundProviderBudget: (() => TaskProviderBudget | undefined) | undefined;
 	pi.events.on('coc:task-provider-budget', value => { foregroundProviderBudget = typeof value === 'function' ? value as typeof foregroundProviderBudget : undefined; });
@@ -1417,7 +1450,8 @@ export default function (pi: ExtensionAPI) {
 		for (const choice of incoming) if (!choices.some(seen => JSON.stringify(seen) === JSON.stringify(choice))) choices.push(choice);
 		const changed = choices.length !== previous.length;
 		state.forcedPlayerChoiceCue = {turn: state.turn, run: data.run, choices,
-			review: data.review as ForcedPlayerChoiceCue['review']};
+			review: data.review as ForcedPlayerChoiceCue['review'],
+			...(typeof data.requestTurnClose === 'function' ? {requestTurnClose: data.requestTurnClose as () => void} : {})};
 		if (changed) {
 			state.forcedPlayerChoiceCueChecked = undefined;
 			state.forcedPlayerChoiceCueRejected = undefined;
@@ -1458,6 +1492,35 @@ export default function (pi: ExtensionAPI) {
 	 * (`refuse`, the sentence the Keeper reads, and `refuse_code`); the tool gate refuses it before anything runs.
 	 */
 	let historicalReference: HistoricalReference | undefined;
+	/**
+	 * §124.12: one historical search under the lookup's gates -- active Mod, the grant's run/turn/binding, credentials and
+	 * the per-input allowance. The Keeper's own lookup carries the grant its model step announced; the host's scene
+	 * prefetch (2026-10-02) carries the grant the engine's need decision gave. The Keeper's lookups share the input's
+	 * allowance through the binding `<run>:<turn>`; each scene's host lookup has its own, `<run>:<turn>:<scene>` -- on the
+	 * App's third table the lookup at the scene a move left spent the input's four seconds and the destination's lookup
+	 * came back `budget_exhausted`, closing history for the turn.
+	 */
+	async function historicalSearch(state: TableState, request: {run?: string; scene?: string; grant?: Partial<HistoryInput> & {scope?: any; turn?: number};
+		requested_by: 'keeper' | 'host'; query: string; objective?: string; reference_mode?: HistoryInput['reference_mode']; name?: string;
+		reference_cursor?: number; signal?: AbortSignal; deadlineAt?: number; libraryMatch?: HistoryInput['libraryMatch']}): Promise<HistoryResult> {
+		const grant = request.grant;
+		const campaign = state.campaign, turn = state.turn;
+		const capsule = await state.kernel.call('table.capsule', {campaign});
+		const referenceScope = {owner:'historical-reference', campaign, audience:'keeper' as const,
+			worldline: (capsule as any)._context?.worldline, loop: (capsule as any)._context?.loop};
+		historicalReference ??= new HistoricalReference({home: cocHome(sessionCtx!.cwd), record:event=>{void record(event);}});
+		return historicalReference.search({binding: `${request.run ?? campaign}:${turn}${request.scene ? `:${request.scene}` : ''}`, turn,
+			scope: referenceScope, enabled: historyEnabled(capsule),
+			allowed: grant?.allowed === true && grant.turn === turn && historyBindingMatches(capsule, grant.scope, turn),
+			retrieval: grant?.turn === turn && historyBindingMatches(capsule, grant.scope, turn) ? grant.retrieval : undefined,
+			query: request.query, objective: request.objective, player_input: state.playerText ?? '',
+			reference_mode: request.reference_mode, name: request.name, reference_cursor: request.reference_cursor,
+			context: historyContext(capsule), requested_by: request.requested_by, ...(request.libraryMatch ? { libraryMatch: request.libraryMatch } : {}),
+			signal: request.signal ?? new AbortController().signal, deadlineAt: request.deadlineAt,
+			current: async()=>table === state && state.campaign === campaign && state.turn === turn
+				&& historyBindingMatches(await state.kernel.call('table.capsule', {campaign}), referenceScope, turn),
+		});
+	}
 	const modelSteps = new Map<string, { run: string; step: string; refuse?: string; refuseCode?: string; holdEmbeddedNarration?: boolean; history?: Partial<HistoryInput> }>();
 	pi.events.on("coc:model-step", (value) => {
 		const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -1526,6 +1589,8 @@ export default function (pi: ExtensionAPI) {
 	const setupMode = cocMode() === "setup";
 	// Contract §154 (prototype): lean `apply` arguments. Read once, like the tool schema itself; off is today's tools and payloads.
 	const leanApply = leanApplyEnabled(process.env);
+	// Contract §168.5: the check of a delivery against the book's descriptions, on the fast model, after the delivery.
+	const firstSightLane = createFirstSightLane(pi, { ctx: () => sessionCtx, campaign: () => table?.campaign });
 
 	// ---- Telemetry --------------------------------------------------------
 
@@ -1852,6 +1917,10 @@ export default function (pi: ExtensionAPI) {
 		const payload = state.pendingCommit;
 		state.pendingCommit = undefined;
 		if (!owed) return;
+		if (SINGLE_PASS_NARRATION) {
+			void record({ lane: "verifier", turn: payload?.turn ?? owed.turn, ok: true, ran: false, reason: "single_pass_narration" });
+			return;
+		}
 		const miss = (reason: string, detail: string): void => {
 			void record({ lane: "verifier", turn: payload?.turn ?? owed.turn, ok: false, ran: false, reason, detail });
 		};
@@ -2108,6 +2177,20 @@ export default function (pi: ExtensionAPI) {
 	 * driver lands it in the evidence and a future front end renders dice cards and change bars from
 	 * it. It is never injected into the prose: the TUI shows only what the Keeper wrote.
 	 */
+    const quotationQueues=new WeakMap<TableState,ReturnType<typeof createQuotationQueue>>();
+    function quotationQueue(state:TableState) {
+        let queue=quotationQueues.get(state);
+        if(!queue){
+            queue=createQuotationQueue({
+                call:(method,params)=>state.kernel.call(method,{...params,campaign:state.campaign}),
+                patch:(turn,quotes)=>patchCard(pi,{campaign:state.campaign,card:{turn},patch:{quotes},source:"quote-registration"}),
+                record:row=>{void record(row);},active:()=>table===state && !state.lanes.signal.aborted,
+            });
+            quotationQueues.set(state,queue);
+        }
+        return queue;
+    }
+
 	function noteMechanics(state: TableState, turn: number, mechanics: Array<Record<string, unknown>>,
 		markedText?: string, labels?: unknown, speech?: unknown[], extra?: Record<string, unknown>): void {
 		// §40.2: a delivery may mark say spans and no mechanics at all, and that turn still owes the
@@ -2389,6 +2472,7 @@ export default function (pi: ExtensionAPI) {
 	 */
 	async function purposeRepeats(state: TableState, text: string, signal: AbortSignal | undefined,
 		parent: TaskProviderBudget | undefined): Promise<Array<{ npc: string; ref: string }>> {
+		if (SINGLE_PASS_NARRATION) return [];
 		const env = process.env;
 		if (env.PI_COC_PURPOSE_GATE?.trim() === "0" || !text.includes("{{say:") || !readJevApiKey(env)) return [];
 		const began = Date.now(), row: Record<string, unknown> = { lane: "purpose", event: "purpose_check", turn: state.turn };
@@ -2448,6 +2532,7 @@ export default function (pi: ExtensionAPI) {
 	 */
 	async function readTimeSkip(state: TableState, text: string, path: "explicit" | "embedded" | "implicit", refusable: boolean,
 		signal: AbortSignal | undefined, parent: TaskProviderBudget | undefined): Promise<Record<string, unknown> | undefined> {
+		if (SINGLE_PASS_NARRATION) return undefined;
 		if (process.env.PI_COC_TIME_READING?.trim() === "0") return undefined;
 		const prose = deliveryProse(text), budget = await timeReadingBudget(), env = process.env, began = Date.now();
 		const row = { lane: "time-reading", turn: state.turn, path };
@@ -2506,7 +2591,8 @@ export default function (pi: ExtensionAPI) {
 
 	/** §163.9: review a player's withheld choice at the final prose boundary, before its operation can land. */
 	async function reviewForcedPlayerChoiceCue(state: TableState, draft: string, signal: AbortSignal | undefined,
-		path: 'explicit' | 'embedded' | 'implicit'): Promise<void> {
+		path: 'explicit' | 'embedded' | 'implicit', ctx?: ExtensionContext): Promise<void> {
+		if (SINGLE_PASS_NARRATION) return;
 		const pending = state.forcedPlayerChoiceCue;
 		if (!pending || pending.turn !== state.turn || !pending.choices.length) return;
 		const prose = deliveryProse(draft), draftHash = createHash('sha256').update(prose).digest('hex');
@@ -2527,14 +2613,27 @@ export default function (pi: ExtensionAPI) {
 			state.forcedPlayerChoiceCueRejected = {turn: pending.turn, draftHash, cueScores: review.cueScores, outcomeScores: review.outcomeScores};
 			stopRun = rejectCount >= 1;
 			repairSteer = stopRun && !state.steeredThisTurn;
-			if (repairSteer) state.deliveryFix = {kind: 'forced-player-choice-cue', text:
-				'The last drafts still imply a success, failure, or dependent consequence for a player-owned check that was not rolled. Treat only settled receipts as facts; do not state that the attempt succeeded, failed, or changed the world. Have a present person or the immediate situation return the unmade choice to the player in character. Use one narrate, then stop. Do not repeat accepted apply effects or ask out of fiction.'};
+			if (repairSteer) {
+				state.deliveryFix = {kind: 'forced-player-choice-cue', text:
+					'The last drafts still imply a success, failure, or dependent consequence for a player-owned check that was not rolled. Treat only settled receipts as facts; do not state that the attempt succeeded, failed, or changed the world. Have a present person or the immediate situation return the unmade choice to the player in character. Use one narrate, then stop. Do not repeat accepted apply effects or ask out of fiction.'};
+				if (ctx) {
+					try { pending.requestTurnClose?.(); } catch { /* the current runner's close remains the fallback */ }
+				}
+			}
 		} else if (review.status === 'pass') state.forcedPlayerChoiceCueChecked = {turn: pending.turn, draftHash};
 		await record({lane: 'forced-player-choice-cue-host', event: 'delivery-preflight', turn: pending.turn, run: pending.run, path,
 			status: review.status, choice_count: pending.choices.length, draft_sha256: draftHash,
 			...(review.status === 'unavailable' ? {reason: review.reason} : {cue_scores: review.cueScores, outcome_scores: review.outcomeScores}),
 			...(review.status === 'reject' ? {reject_count: rejectCount, repair_steer: repairSteer, stop_run: stopRun, cached: cachedDraft} : {})});
 		if (review.status === 'reject') {
+			if (stopRun && !repairSteer && ctx) {
+				// Pi's terminate hint ends this tool batch; the hybrid supervisor may start another model step.
+				// With no repair steer left, stop the active run so agent_settled reports the unfinished turn.
+				state.runCut = true;
+				await record({lane: 'forced-player-choice-cue-host', event: 'run_abort', turn: pending.turn, run: pending.run,
+					reason: state.forcedPlayerChoiceCueRepairSteered === state.turn ? 'repair_rejected' : 'close_steer_spent'});
+				try { ctx.abort(); } catch { /* the operation guard below still prevents another narration */ }
+			}
 			const outcomeRejected = review.outcomeScores.some(score => score > FORCED_CHOICE_OUTCOME_MAX);
 			const cueRejected = review.cueScores.some(score => score < FORCED_CHOICE_CUE_MIN);
 			const issue = [outcomeRejected ? 'the draft implies an outcome that depends on the unrolled check' : '',
@@ -2604,8 +2703,23 @@ export default function (pi: ExtensionAPI) {
 	 * already-landed resend (§32.4) both do.
 	 */
 	async function admissionScopeBuilder(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>):
-		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[] }> {
+		Promise<(effects: Array<Record<string, unknown>>) => { party: string[]; scene?: TableState["scene"]; destinations?: AdmissionDestination[]; answered?: string[]; cash?: Record<string, unknown> }> {
 		const destinations: AdmissionDestination[] = [];
+		let cashContext: Record<string, unknown> | undefined;
+		if (tool === 'apply' && Array.isArray(payload.effects) && payload.effects.some((effect: any) =>
+			effect?.kind === 'cash' && effect.mode !== 'quote' && (effect.quote !== undefined || effect.category !== undefined || effect.items !== undefined))) {
+            if(payload.effects.some((effect:any)=>effect?.kind==='cash' && effect.mode!=='quote' && typeof effect.quote==='string'))
+                await quotationQueue(state).finish();
+			const capsule = await state.kernel.call<{known?: {investigator?: Record<string, unknown>; cash_quotes?: unknown[]}}>('table.capsule', {campaign: state.campaign, _context_read: true});
+			const previewEffects=payload.effects.map((effect: any)=>{const {_cash_debit_limit:_old,...rest}=effect;return rest;});
+			const preview = await state.kernel.call<{cash_previews?: Array<Record<string, unknown>>}>('table.apply.options',{campaign:state.campaign,cash_effects:previewEffects});
+			for(const row of preview.cash_previews??[]){
+				const index=row.index;
+				if(typeof index==='number'&&typeof row.delta==='number'&&row.delta<=0&&payload.effects[index]?.kind==='cash')
+					payload.effects[index]._cash_debit_limit=-row.delta;
+			}
+			cashContext = {investigator: capsule.known?.investigator, quotes: capsule.known?.cash_quotes ?? [], previews:preview.cash_previews ?? []};
+		}
 		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
 			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
 			try {
@@ -2625,8 +2739,13 @@ export default function (pi: ExtensionAPI) {
 			const own = destinations.filter((value) => targets.has(value.requested));
 			// §143.18: the investigator by name or by the sheet's handle, as the kernel reads `action.actor`. Until 2026-09-26 only
 			// the name was here, so a Keeper's `actor: "thomas-hayes"` read as an NPC and its punch was never reviewed (C4 turn 8).
+			const ownCash=cashContext?{...cashContext,previews:(Array.isArray(cashContext.previews)?cashContext.previews:[]).flatMap((value: any)=>{
+				const original=Array.isArray(payload.effects)?payload.effects[value.index]:undefined,index=effects.indexOf(original);
+				return index>=0?[{...value,index}]:[];
+			})}:undefined;
 			return { party: state.party.flatMap((member) => [member.name, ...(member.id ? [member.id] : [])]), scene: state.scene,
-				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}) };
+				...(own.length ? { destinations: own } : {}), ...(state.answering ? { answered: state.answering } : {}),
+				...(ownCash && effects.some(effect => effect.kind === 'cash') ? {cash:ownCash} : {}) };
 		};
 	}
 
@@ -2689,6 +2808,11 @@ export default function (pi: ExtensionAPI) {
 	 */
 	async function prefetchAdmission(state: TableState, tool: "resolve" | "apply", payload: Record<string, unknown>): Promise<void> {
 		if (!state.playerText) return;
+		// §168.4: the real call leaves out an owed name the capsule never offered before it is admitted; so does its head start.
+		if (tool === "apply" && Array.isArray(payload.effects)) {
+			const effects = (payload.effects as unknown[]).map((effect) => effect && typeof effect === "object" ? { ...effect as Record<string, unknown> } : effect);
+			if (leaveOutUnknownOwed(effects, state.owed).length) payload = { ...payload, effects };
+		}
 		// §158.5: an owed write is admitted on what was told; there is no review to start early.
 		if (toldAdmission(tool, payload, undefined, state.owed ?? [])?.ok) return;
 		if (tool === "apply" && combatSceneMove(state, payload)) return;
@@ -3304,6 +3428,7 @@ export default function (pi: ExtensionAPI) {
 				noteMechanics(state, typeof result.turn === "number" ? result.turn : state.turn, mechanics,
 					asString(result.marked_text), result.labels, Array.isArray(result.speech) ? result.speech : undefined);
 				noteCommit(state, result, mechanics);
+                if(mechanics.some(row=>row.quote_status==="pending"))quotationQueue(state).schedule(state.deliveredTurn);
 				noteStanding(state, result, typeof result.turn === "number" ? result.turn : state.turn);
 				notePreparationWait(state, typeof result.turn === "number" ? result.turn : state.turn);
 				break;
@@ -3389,7 +3514,7 @@ export default function (pi: ExtensionAPI) {
 			const closedAt = Date.now();
 			let settled!: () => void;
 			const flight = { turn, done: new Promise<void>(resolve => { settled = resolve; }) };
-			// §158.4: the next run may wait a bounded while for this review, which may name what the ledger owes.
+			// §158.4: the next run's first read watches this review, which may name what the ledger owes.
 			state.reviewInFlight = flight;
 			const timer = setTimeout(() => {
 				void (async () => {
@@ -3407,6 +3532,47 @@ export default function (pi: ExtensionAPI) {
 		}
 		if (prepared.unreviewed) void warn({ mode: prepared.mode ?? "pre", unreviewed: prepared.unreviewed });
 		else if (prepared.reviewed?.job) void warn({ mode: "pre", job: prepared.reviewed.job });
+	}
+
+	/**
+	 * Contract §168.5: what the Keeper is handed of a capsule for `turn` -- without the first-sight items whose check is
+	 * still running, the very object the kernel returned when none is -- and what it still carries is noted for the
+	 * delivery's own check. An item left out is said once per turn on the telemetry line.
+	 */
+	function firstSightView<T>(state: TableState, capsule: T, turn: number): T {
+		const { capsule: view, omitted } = state.firstSight.view(capsule, turn);
+		for (const said of state.firstSightOmitted) if (Number(said.split("|")[0]) < turn) state.firstSightOmitted.delete(said);
+		const fresh = omitted.filter((item) => !state.firstSightOmitted.has(`${turn}|${item}`));
+		if (fresh.length) {
+			for (const item of fresh) state.firstSightOmitted.add(`${turn}|${item}`);
+			void record({ lane: "first-sight", event: "in_flight", turn, omitted: fresh });
+		}
+		return view;
+	}
+
+	/**
+	 * Contract §168.5: after a delivery whose capsule carried `first_sight`, check the delivered prose against what it
+	 * owed, in the background. Nothing here is awaited by the delivery, and the prose is never refused or rewritten for
+	 * it (§166). The result lands through `table.first_sight`; a lane failure records nothing, so the items stay owed.
+	 */
+	function afterDeliveryFirstSight(state: TableState, turn: number, prose: string | undefined): void {
+		const earlier = state.lastDeliveredProse;
+		if (prose) state.lastDeliveredProse = prose;
+		const items = state.firstSight.take(turn);
+		if (!items.length || !prose) return;
+		const kernel = state.kernel, campaign = state.campaign, signal = state.lanes.signal;
+		state.firstSight.start(turn, items, async () => {
+			if (signal.aborted) return;
+			const result = await firstSightLane.check({ turn, prose, ...(earlier ? { earlier } : {}), items }, signal);
+			if (!result.ok || !result.items.length || signal.aborted) return;
+			try {
+				await kernel.call("table.first_sight", { campaign, turn,
+					items: result.items.map((item) => ({ id: item.id, kind: item.kind, missing: item.missing })) });
+			} catch (error) {
+				await record({ lane: "first-sight", event: "recorded", ok: false, turn, reason: "kernel_refused",
+					code: isKernelError(error) ? error.code : "internal", detail: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+			}
+		});
 	}
 
 	function pauseReview(state: TableState, error: unknown): void {
@@ -4448,6 +4614,7 @@ export default function (pi: ExtensionAPI) {
 		// the ordinary tool dispatcher (a model-issued call is always "explicit"); the apply.narrate recursion below
 		// is the one caller that passes "embedded".
 		narratePath: "explicit" | "embedded" = "explicit",
+		ctx?: ExtensionContext,
 	): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; terminate?: boolean }> {
 		const providerBudget = dispatcher.providerBudget(toolCallId) ?? foregroundProviderBudget?.();
 		delete params._standing_defense;
@@ -4500,6 +4667,17 @@ export default function (pi: ExtensionAPI) {
 		// §143.3: the table's own act of a person -- the clerk's `npc_act` calls -- is marked by the host alone (`_generated`,
 		// `_draws`); every other call has the marks removed.
 		markNpcAct(spec.name, params, host);
+		// §161.1: a mood sharing its npc effect with another change is sent as the two effects the kernel's fix asks for.
+		const moodSplit = spec.name === "apply" && !host ? splitNpcMood(params.effects) : 0;
+		if (moodSplit) void record({ lane: "npc", event: "mood_split", turn: table?.turn ?? null, count: moodSplit });
+		// An object that adopts what its own batch defines, with `definition` left out: the host names the definition.
+		const definitionsFilled = spec.name === "apply" && !host ? fillObjectDefinitions(params.effects) : 0;
+		if (definitionsFilled) void record({ lane: "objects", event: "definition_filled", turn: table?.turn ?? null, count: definitionsFilled });
+		// §168.4: an owed name the capsule never offered is left out before admission, so the batch is reviewed as the
+		// ordinary write it is and the rest of it -- the embedded narration included -- is not lost to the kernel's refusal.
+		const owedLeftOut: OwedLeftOut[] = spec.name === "apply" && !host ? leaveOutUnknownOwed(params.effects, table?.owed) : [];
+		for (const entry of owedLeftOut) void record({ lane: "owed", event: "owed_left_out", stage: "before_admission", turn: table?.turn ?? null,
+			owed: entry.owed ?? null, reason: entry.reason, kind: entry.kind ?? null });
 		takeSkillAnnotation(state?.skillRun, params);
 		if (!state) {
 			throw new Error(startupError ?? "the kernel is not up, so this table cannot open");
@@ -4535,6 +4713,8 @@ export default function (pi: ExtensionAPI) {
 		// every effect below lands, through the same path an explicit narrate call takes (see the end of this
 		// function). §135.5 addendum 2.
 		const embeddedNarrateText = spec.name === "apply" && !fromStep?.holdEmbeddedNarration && typeof payload.narrate === "string" ? payload.narrate : undefined;
+        const embeddedQuotes=spec.name==="apply"?payload.quotes:undefined;
+        if(spec.name!=="narrate")delete payload.quotes;
 		delete payload.narrate;
 		// §22.4.7.1 (SL-56): only the host asks the kernel to land a person on the book's text.
 		delete payload._land_on_text;
@@ -4562,7 +4742,7 @@ export default function (pi: ExtensionAPI) {
 				if (transported.malformed) throw new KernelError({code:'invalid_params', message:'Narration is a serialized JSON field fragment, not raw prose',
 					details:{reason:'narration_transport_fragment'}, fix:'Resend raw play-language prose in text. Do not JSON-encode the string or include an outer quote/object delimiter. Keep committed receipts and do not reroll.'});
 				payload.text = transported.text;
-				await reviewForcedPlayerChoiceCue(state, payload.text, signal, narratePath);
+				await reviewForcedPlayerChoiceCue(state, payload.text, signal, narratePath, ctx);
 			}
 			if (spec.name === 'narrate' || spec.name === 'ask') await guardTaskDelivery(undefined, 'committing');
 			// §135.31: the delivery carries the turn's look/lookup calls to its turn record (host-only; after the Mod hooks).
@@ -4621,7 +4801,7 @@ export default function (pi: ExtensionAPI) {
 			// budget is spent here, synchronously, the moment the floor refuses: without it, a Keeper that keeps
 			// writing short drafts would be refused every time, never once, and a turn could run forever short of
 			// the floor instead of being handed back after one steer.
-			if (spec.name === "narrate" && narratePath === "embedded" && typeof payload.text === "string" && !closesOpening && !state.steeredThisTurn) {
+			if (!SINGLE_PASS_NARRATION && spec.name === "narrate" && narratePath === "embedded" && typeof payload.text === "string" && !closesOpening && !state.steeredThisTurn) {
 				const chars = proseCharCount(payload.text);
 				const { minProseChars } = await deliveryFloorBudget();
 				if (chars < minProseChars) {
@@ -4639,25 +4819,11 @@ export default function (pi: ExtensionAPI) {
 			let supportAnswer: Record<string, unknown> | undefined;
 			let historicalAnswer: Record<string, unknown> | undefined;
 			if (spec.name === 'lookup' && params.kind === 'historical_reference') {
-				const grant = fromStep?.history;
-				const campaign = state.campaign, turn = state.turn;
-				const capsule = await state.kernel.call('table.capsule', {campaign});
-				const referenceScope = {owner:'historical-reference', campaign, audience:'keeper' as const,
-					worldline: (capsule as any)._context?.worldline, loop: (capsule as any)._context?.loop};
-				historicalReference ??= new HistoricalReference({home: cocHome(sessionCtx.cwd), record:event=>{void record(event);}});
-				historicalAnswer = {...await historicalReference.search({binding: `${fromStep?.run ?? campaign}:${turn}`, turn,
-					scope: referenceScope, enabled: historyEnabled(capsule),
-					allowed: grant?.allowed === true && grant.turn === turn && historyBindingMatches(capsule, grant.scope, turn),
-					retrieval: grant?.turn === turn && historyBindingMatches(capsule, grant.scope, turn) ? grant.retrieval : undefined,
+				historicalAnswer = {...await historicalSearch(state, {run: fromStep?.run, grant: fromStep?.history, requested_by: 'keeper',
 					query: String(params.query ?? ''), objective: typeof params.objective === 'string' ? params.objective : undefined,
-					player_input: state.playerText ?? '',
 					reference_mode: params.reference_mode as HistoryInput['reference_mode'], name: typeof params.name === 'string' ? params.name : undefined,
 					reference_cursor: typeof params.reference_cursor === 'number' ? params.reference_cursor : undefined,
-					context: historyContext(capsule),
-					signal: signal ?? new AbortController().signal, deadlineAt: providerBudget?.deadlineAt,
-					current: async()=>table === state && state.campaign === campaign && state.turn === turn
-						&& historyBindingMatches(await state.kernel.call('table.capsule', {campaign}), referenceScope, turn),
-				})};
+					signal, deadlineAt: providerBudget?.deadlineAt})};
 			}
 			if(spec.name==='lookup'&&params.kind==='support'){
 				if(Object.keys(params).some(key=>!['kind','query'].includes(key)))throw new KernelError({code:'invalid_params',message:'Support lookup accepts only kind and query'});
@@ -4769,7 +4935,7 @@ export default function (pi: ExtensionAPI) {
           kind: 'source', ...(state.sourceWait.focus ? {name: state.sourceWait.focus} : {})};
         if (spec.name === 'narrate' && state.rebindingRefused) payload.rebinding_refused = {...state.rebindingRefused};
         if (spec.name === 'narrate' || spec.name === 'ask') payload.source_consultations=sourceConsultationsForAudit(state);
-        prepared = await mods.prepare(spec.name, payload, signal, providerBudget);
+        prepared = SINGLE_PASS_NARRATION && (spec.name === "narrate" || spec.name === "ask") ? undefined : await mods.prepare(spec.name, payload, signal, providerBudget);
         // §91. Only a delivery carries a continuity review, so only a delivery can report one missing.
         if (spec.name === 'narrate' || spec.name === 'ask') notePrepared(state, prepared);
       }
@@ -4802,7 +4968,7 @@ export default function (pi: ExtensionAPI) {
 					if (band!.field === "weapon") (payload.effects as Array<Record<string, unknown>>)[band!.index!].weapon = recovered.band;
 					// The same identity, retried once; admission and the Mod gates run again, as after a source preparation.
 					await admitAction(state, spec.name, payload, signal, providerBudget, origin);
-					if (mods) await mods.prepare(spec.name, payload, signal, providerBudget);
+					if (mods && !(SINGLE_PASS_NARRATION && (spec.name === "narrate" || spec.name === "ask"))) await mods.prepare(spec.name, payload, signal, providerBudget);
 					try { result = (await invokeOperation()) ?? {}; }
 					catch (again) {
 						// The pin landed; a retry refused for another reason says so in its fix, so the Keeper does not pin twice.
@@ -4812,6 +4978,23 @@ export default function (pi: ExtensionAPI) {
 					}
 					result.band_recovery = recovered.summary;
 					result.note = recovered.note;
+				}
+				// §168.4: the kernel refused an owed field that does not hold. Only that effect's field is left out, admission and the
+				// Mod gates run again, and the same batch is sent once more -- once per effect at most, as the band retry above.
+				else if (spec.name === "apply" && !host && isKernelError(failure) && failure.details?.field === "owed" && Array.isArray(payload.effects)) {
+					let refused: unknown = failure;
+					for (let attempt = 0; ; attempt++) {
+						const left = isKernelError(refused) && attempt < (payload.effects as unknown[]).length ? leaveOutRefused(refused.details, payload.effects) : [];
+						if (!left.length) throw refused;
+						for (const entry of left) {
+							owedLeftOut.push(entry);
+							void record({ lane: "owed", event: "owed_left_out", stage: "kernel_refused", turn: state.turn, owed: entry.owed ?? null, reason: entry.reason, kind: entry.kind ?? null });
+						}
+						partial = (await admitAction(state, spec.name, payload, signal, providerBudget, origin, evidence)) ?? partial;
+						if (mods && !referenceScope) await mods.prepare(spec.name, payload, signal, providerBudget);
+						try { result = (await invokeOperation()) ?? {}; break; }
+						catch (again) { refused = again; }
+					}
 				}
 				// §11.5.6 (SL-62): a person named in a write or check that the graph and carried text both miss is
 				// resolved against the scene's known people before this unknown_entity stands.
@@ -4887,7 +5070,7 @@ export default function (pi: ExtensionAPI) {
 				// Retry the original identity only after the exact source publication; consent and Mod gates run again.
 				if(spec.name==='resolve'||spec.name==='apply')partial=(await admitAction(state,spec.name,payload,signal,providerBudget,origin,evidence))??partial;
 				if(mods){
-					const again=await mods.prepare(spec.name,payload,signal,providerBudget);
+					const again=SINGLE_PASS_NARRATION&&(spec.name==='narrate'||spec.name==='ask')?undefined:await mods.prepare(spec.name,payload,signal,providerBudget);
 					if(spec.name==='narrate'||spec.name==='ask'){prepared=again;notePrepared(state,again);}
 				}
 				result = (await invokeOperation()) ?? {};
@@ -4895,6 +5078,8 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 			if (spec.name === "recall") result = state.recallPages.accept(result);
+			if (owedLeftOut.length) { result.owed_left_out = owedLeftOut.map(({ owed, reason, kind }) => ({ owed: owed ?? null, reason, kind: kind ?? null }));
+				result.note = [result.note, owedLeftOutNote(owedLeftOut)].filter(Boolean).join(" "); }
 			// Deferred Mod bookkeeping completes after the verb that opened this turn, never before it.
 			if (mods?.after && !referenceScope) await mods.after(spec.name, payload, signal, providerBudget);
 			if (spec.name === "lookup" && params.kind === "module" && params.question) {
@@ -5004,6 +5189,7 @@ export default function (pi: ExtensionAPI) {
 					...(state.session?.kind ? { session_kind: state.session.kind } : {}),
 				});
 				afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
+				afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 			}
 			// The delivery truly landed: the kernel returned and the bookkeeping above ran. Only now is
 			// the bound patch published; every failure mode — abort, refusal, split delivery, revision
@@ -5019,7 +5205,7 @@ export default function (pi: ExtensionAPI) {
 			// then `table.narrate`, it always has; only their one model tool call is new.
 			if (spec.name === "apply" && embeddedNarrateText !== undefined && !partial?.notLanded) {
 				const narrateSpec = COC_TOOLS.find((tool) => tool.name === "narrate")!;
-				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText }, signal, onUpdate, "embedded");
+				const embedded = await runTool(narrateSpec, `${toolCallId}:narrate`, { text: embeddedNarrateText, ...(embeddedQuotes!==undefined?{quotes:embeddedQuotes}:{}) }, signal, onUpdate, "embedded", ctx);
 				const embeddedError = (embedded.details as { coc_error?: Record<string, unknown> } | undefined)?.coc_error;
 				if (embeddedError) {
 					// Nothing is delivered: the effects above already landed and stand (a receipt cannot be
@@ -5177,7 +5363,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	const dispatcher = createCanonicalOperationDispatcher({
-		prepare: prepareOperation, execute: runTool, finalize: finalizeOperation,
+		prepare: prepareOperation,
+		execute: (spec, toolCallId, params, signal, onUpdate, ctx) => runTool(spec, toolCallId, params, signal, onUpdate, "explicit", ctx),
+		finalize: finalizeOperation,
 		preparedCallId: id => table?.mintedCallIds.get(id),
 	});
 	// The setup process's tool surface is only onboarding's `setup`: not one of the seven verbs is registered (contract §14.4).
@@ -5213,11 +5401,12 @@ export default function (pi: ExtensionAPI) {
 			},
 			// The actions of a turn are ordered: run them serially, so the calls after narrate in the same batch can be stopped.
 			executionMode: "sequential",
-			execute: async (toolCallId, params, signal, onUpdate) => dispatcher.execute(spec, toolCallId, params as Record<string, unknown>, signal, onUpdate),
+			execute: async (toolCallId, params, signal, onUpdate, ctx) => dispatcher.execute(spec, toolCallId,
+				params as Record<string, unknown>, signal, onUpdate, ctx),
 		});
 	}
 
-	// AgentToolResult has no isError field, so the error flag can only be raised in tool_result.
+	// Native isError is returned by the dispatcher; finalization still owns refusal accounting.
 	pi.on('tool_result', event => dispatcher.finalize(event));
 	async function finalizeOperation(event: ToolResultEvent) {
 		if (!COC_TOOL_NAMES.includes(event.toolName as never)) return;
@@ -5305,6 +5494,8 @@ export default function (pi: ExtensionAPI) {
 		pi.events.emit('coc:turn-close', undefined);
 		pi.events.emit('coc:source-answers', undefined);
 		pi.events.emit('coc:owed-review', undefined);
+		pi.events.emit('coc:first-sight', undefined);
+		pi.events.emit('coc:historical-reference', undefined);
 		const current = table;
 		table = undefined;
 		if (current) {
@@ -5427,6 +5618,8 @@ export default function (pi: ExtensionAPI) {
 				mapWords: {},
 				mapWordsAsked: new Set(),
 				lanes: new AbortController(),
+				firstSight: createFirstSightTracker(),
+				firstSightOmitted: new Set(),
 				party: [],
 				present: [],
 				roster: [],
@@ -5476,6 +5669,7 @@ export default function (pi: ExtensionAPI) {
 				record: (row: Record<string, unknown>) => { noteCompileAct(row); void record(row); },
 			});
 			pi.events.emit("coc:table-open", { campaign, open });
+            if(open.quote_turns?.length)quotationQueue(table).schedule();
 			const operationGate = bridgeGate;
 			pi.events.emit('coc:operation-dispatcher', Object.freeze({
 				bindIncumbentScope: (...args: Parameters<typeof dispatcher.bindIncumbentScope>) => {
@@ -5500,10 +5694,32 @@ export default function (pi: ExtensionAPI) {
 				campaign,
 				verdict: () => operationGate.open ? turnCloseVerdict() : { status: 'none', reason: 'no_table' },
 			}));
-			// §158.4: the next run's first read waits, within `PI_COC_OWED_WAIT_MS` of the run's start, for the previous
-			// delivery's post review still running: it may name what the ledger owes, and the run starts from the told position.
-			pi.events.emit('coc:owed-review', Object.freeze({ campaign, settle: (elapsedMs: number) =>
-				settleOwedReview(table?.campaign === campaign ? table.reviewInFlight : undefined, owedWaitMs(), elapsedMs) }));
+			// §158.4: the next run's first read watches the previous delivery's post review still running: it may name what
+			// the ledger owes, and a review that lands during the read is read before any candidate is built. Nothing waits.
+			pi.events.emit('coc:owed-review', Object.freeze({ campaign, watch: () =>
+				watchOwedReview(table?.campaign === campaign ? table.reviewInFlight : undefined) }));
+			// §168.5: every capsule the Keeper is handed goes through this view: an item whose check is still running is left
+			// out, and what the capsule carries is noted for its delivery's check. The context hook reads its capsules here.
+			pi.events.emit('coc:first-sight', Object.freeze({ campaign, view: <T>(capsule: T): T => {
+				const state = table;
+				const turn = (capsule as { turn?: { number?: unknown } } | undefined)?.turn?.number;
+				if (!(state && state.campaign === campaign && typeof turn === "number")) return capsule;
+				const view = firstSightView(state, capsule, turn) as Record<string, unknown>;
+				// §103.5: a first sight read mid-run names untold people as the Keeper's copy of the capsule did.
+				const sight = view.first_sight as { people?: unknown[] } | undefined;
+				return (state.untoldNames && Array.isArray(sight?.people)
+					? { ...view, first_sight: { ...sight, people: firstSightPeople(sight!.people as unknown[], state.untoldNames) } } : view) as T;
+			} }));
+			// §124.12 (2026-10-02): the engine's scene prefetch runs the lookup's own search, after Jev granted the need. A new
+			// scene searches the web: only a reference saved for this very query is reused, never a loosely relevant one.
+			pi.events.emit('coc:historical-reference', Object.freeze({ campaign, search: (request: { run: string; scene?: string; turn: number; scope: unknown;
+				query: string; objective?: string; signal?: AbortSignal; deadlineAt?: number }) => {
+				const state = table;
+				if (!state || state.campaign !== campaign) return Promise.resolve(undefined);
+				return historicalSearch(state, { run: request.run, scene: request.scene || undefined, grant: { allowed: true, turn: request.turn, scope: request.scope as any },
+					requested_by: 'host', query: request.query, objective: request.objective, signal: request.signal, deadlineAt: request.deadlineAt,
+					libraryMatch: 'exact' });
+			} }));
 			// §135.31.2 (SL-36): a consultation that went pending is carried to the Keeper once, when it lands, through this port.
 			// §22.4.4 (SL-37): a text read this turn is still waiting on rides as pending too, while the reading service says it is in flight.
 			pi.events.emit('coc:source-answers', Object.freeze({ campaign, take: (at?: { scene?: string; run?: string }) => {
@@ -5550,6 +5766,9 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 
+			// Opening a waiting item card starts its background owner, without replaying an opening
+			// or continuing an interrupted story. Real player input still uses the ordinary turn guard.
+			if (process.env.PI_COC_DETAILS_RECOVERY === '1') return;
 			const pending = open.pending_turn;
 			if (pending) {
 				if (watchdogRecovery) {
@@ -5566,7 +5785,7 @@ export default function (pi: ExtensionAPI) {
 					}
 					watchdogTurnBinding = undefined;
 				}
-				const review = await mods?.reviewStatus?.(campaign);
+				const review = SINGLE_PASS_NARRATION ? undefined : await mods?.reviewStatus?.(campaign);
 				// §91: a retained block no verdict stands behind cannot decide this turn either. The
 				// recovery run goes ahead; its own delivery meets the same review and, if that review
 				// is still down, is published unreviewed rather than stranding a turn twice over.
@@ -5599,8 +5818,9 @@ export default function (pi: ExtensionAPI) {
 				// authorize stranding some later turn in this process.
 				if (watchdogRecovery) await clearWatchdogRecovery();
 				if (open.opening_needed) sendHost(
-					`Opening the table: ${open.setup_prologue ? "The setup context records the prior meeting, and the investigator now exists: the guide already knows who the visitor is, so do not ask it again, and do not restage the arrival or the greeting. Open with one short paragraph that tells the player plainly where they stand now -- who this person is to them, what they were asked to do, what is on the table -- then let the guide react in their own words to who the visitor turned out to be and put one concrete question or offer to the player. Talk over atmosphere: one sentence of room at most, one gesture per line of speech, and the whole opening shorter than the prologue. Introduce at most two new proper names, each with what it is; the rest of the book's names wait until the player asks or goes there. No keys or money were granted. If pending_action exists, preserve that player request instead of asking for the same decision again; carry it forward through normal rules and state receipts, never claim unrecorded resources. Committed prologue: "+JSON.stringify(open.setup_prologue) : "There is no prior meeting. Begin the scene, orientation first: in two or three plain sentences a newcomer can follow, when and where this is, who the investigator is here in public terms, and why they are here; then the scene, with talk over atmosphere and at most two proper names, each with what it is."} This turn has no player input. Write all player-facing words in play_language=${table.playLanguage}. Use look to see the opening scene (lookup for background). Close with narrate and wait for free player input. NPC questions belong naturally in the prose. Do not generate story action menus or options. ` +
-            (open.mod_context && mods ? `The opening may settle registered Mod first-contact checks and define/place new objects when the fiction requires them; ordinary adventure actions wait for the player. Active Mod context: ${JSON.stringify(open.mod_context)}` : `Do not call apply or resolve before the first player turn; the only opening writes are ask and narrate.`),
+					openingInstruction({ prologue: open.setup_prologue || undefined, playLanguage: table.playLanguage,
+						party: Array.isArray(open.investigators) ? open.investigators.map((row: { name?: unknown }) => asString(row?.name)).filter((name: string | undefined): name is string => Boolean(name)) : undefined,
+						modContext: open.mod_context && mods ? open.mod_context : undefined }),
 					"opening",
 				);
 			}
@@ -5625,6 +5845,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+        if(table)quotationQueues.get(table)?.close();
 		await shutdownKernel();
 		sessionCtx = undefined;
 		watchdogRecoveryFile = undefined;
@@ -5785,7 +6006,7 @@ export default function (pi: ExtensionAPI) {
 			if (state.rebindingRefused) payload.rebinding_refused = { ...state.rebindingRefused };
 			payload.source_consultations=sourceConsultationsForAudit(state);
 			try {
-				if (mods) await mods.prepare("narrate", payload, state.lanes.signal);
+				if (mods && !SINGLE_PASS_NARRATION) await mods.prepare("narrate", payload, state.lanes.signal);
 				await reviewForcedPlayerChoiceCue(state, String(payload.text ?? ''), state.lanes.signal, 'implicit');
 				const result = await state.kernel.call<Record<string, unknown>>("table.narrate", payload);
 				if (mods?.after) await mods.after("narrate", payload, state.lanes.signal);
@@ -5990,7 +6211,8 @@ export default function (pi: ExtensionAPI) {
 				ok: true,
 			});
 			// §13.11: append host guidance to a fresh view; the raw kernel capsule is never changed.
-			let capsule = result.capsule ?? {};
+			// §168.5: the one exception, first-sight items whose check is still running, is the view's own.
+			let capsule = firstSightView(state, result.capsule ?? {}, state.turn);
 			// The package's own mode rides the capsule the table already holds (contract §19.2); the
 			// workpad gate reads it from here so a patch is bound only when the layer is enabled.
 			const workspaceSettings = workspaceSettingsOf(capsule);
@@ -6014,10 +6236,13 @@ export default function (pi: ExtensionAPI) {
 				context: result._context,
 				answering: state.answering,
 			});
+			// §103.5: the Keeper's copy names untold people by epithet or handle; the bus copy above keeps the book's names.
+			const keeperView = untoldView(capsule);
+			state.untoldNames = keeperView.names;
 			return {
 				message: {
 					customType: "coc-capsule",
-					content: JSON.stringify(capsule),
+					content: JSON.stringify(keeperView.capsule),
 					display: false,
 					details: { coc_host: true, turn: state.turn, epoch: contextEpoch, context: result._context },
 				},
@@ -6123,11 +6348,24 @@ export default function (pi: ExtensionAPI) {
 		if (!state) {
 			return { block: true, reason: startupError ?? "the kernel is not up, so this table has not opened" };
 		}
+		const cueRepairQueued = state.deliveryFix?.kind === 'forced-player-choice-cue'
+			&& state.forcedPlayerChoiceCueRepairSteered !== state.turn;
+		if (state.forcedPlayerChoiceCueRejects?.turn === state.turn && state.forcedPlayerChoiceCueRejects.count >= 1
+			&& state.steeredThisTurn && state.forcedPlayerChoiceCueRepairSteered !== state.turn && !cueRepairQueued) {
+			await record({tool: name, started_at: new Date().toISOString(), ok: false, code: 'blocked',
+				reason: 'forced_choice_cue_steer_spent', turn: state.turn});
+			state.runCut = true;
+			try { ctx.abort(); } catch { /* agent_settled still reports the unfinished turn */ }
+			return {block: true, terminate: true,
+				reason: 'The turn correction steer is spent and Jev rejected the narration. Stop this Keeper run; the host will report the unfinished turn.'};
+		}
 		if (state.forcedPlayerChoiceCueRepairSteered === state.turn) {
 			if (name !== 'narrate' || state.forcedPlayerChoiceCueRepairAttempted === state.turn) {
 				state.forcedPlayerChoiceCueRepairAttempted = state.turn;
 				await record({tool: name, started_at: new Date().toISOString(), ok: false, code: 'blocked',
 					reason: 'forced_choice_cue_repair_spent', turn: state.turn});
+				state.runCut = true;
+				try { ctx.abort(); } catch { /* agent_settled still reports the unfinished turn */ }
 				return {block: true, terminate: true,
 					reason: 'The one forced-choice narration repair allows one narrate only. Stop this response; do not issue another operation.'};
 			}
@@ -6370,10 +6608,16 @@ export default function (pi: ExtensionAPI) {
 		// A session (combat, chase, sanity bout) is not a turn state: it leaves the turn in acting, so the
 		// ask that hands a pending defence back to the player takes the ordinary road and is not blocked here.
 		const openingNarrate = (name === "narrate" || name === "ask") && state.openingPending && state.state === "awaiting_player";
+		// §23 (2026-09-18): the Keeper pins an opening datetime the book left open, once, and the kernel accepts that `clock`
+		// in the opening (`allowOpening`). This door used to admit only the Mod kinds, so the pin the capsule's own
+		// `where.clock.pin` asks for was refused at the opening every time -- twice running on a fresh Blood Road table
+		// (2026-10-02), 30 s before the prose. A batch of clocks alone needs no Mod layer.
+		const openingClockOnly = state.openingPending && state.state === "awaiting_player" && name === "apply"
+			&& Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => e?.kind === "clock");
 		const openingModShape = state.openingPending && state.state === "awaiting_player" && (
 			(name === "resolve" && typeof (input.action as any)?.decision === "string") ||
-			(name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability"].includes(e?.kind))));
-		const openingMod = openingModShape && (mods ? true : await modsBridgeWait(modsBridgeWaitMs()));
+			(name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability","clock"].includes(e?.kind))));
+		const openingMod = openingModShape && (openingClockOnly || mods ? true : await modsBridgeWait(modsBridgeWaitMs()));
 		// §86: what is left here is the *opening*, and only the opening. Every state with no door was
 		// answered by the one gate above, so reaching this line means `awaiting_player` with the opening
 		// still owed: a write that is not the opening's own is refused, the reads named below really are
@@ -6383,7 +6627,9 @@ export default function (pi: ExtensionAPI) {
 			const bridgePending = openingModShape && !mods;
 			const reason = bridgePending
 				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
-				: `the turn state is ${state.state}, so nothing may change state: wait for the player to speak, or use only look, lookup and recall`;
+				// Only the opening reaches this line (§86). The generic "use only look, lookup and recall" had the installed App's
+				// Keeper (Blood Road, 2026-10-02) try to pin the book's start hour twice, 20 s of round trips before the prose.
+				: `the turn state is ${state.state} and this is the table's opening: until the player first speaks only narrate, ask, apply clock (pinning an opening datetime the book left open) and the opening's Mod definitions are accepted; the scene and everything else stay as the table opened them, so put whatever you meant to change into the prose and close with narrate`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.
@@ -6636,7 +6882,7 @@ export default function (pi: ExtensionAPI) {
 			// draft it drops. The steered second leg is delivered by the implicit narrate below, which carries the wait; a leg
 			// that brings nothing, or one the kernel refuses, falls back to this draft. Dropping every leg for as long as the
 			// preparation ran stranded the long gate's turn 19 over prose the Keeper had written twice.
-			if (state.preparationWait && !sourceWait && !state.steeredThisTurn) {
+			if (!SINGLE_PASS_NARRATION && state.preparationWait && !sourceWait && !state.steeredThisTurn) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: `${state.preparationWait.kind}-wait`, text: preparationWaitInstruction(state, state.preparationWait) };
 				return dropText("preparation_wait");
@@ -6657,7 +6903,7 @@ export default function (pi: ExtensionAPI) {
 			const pending = state.pendingChoice;
 			const owesAsk = pending?.for === "player" && Array.isArray(pending.options) && pending.options.length >= 2;
 			const referenceAnswer = state.interactionScope !== undefined && state.interactionScope !== 'world';
-			if (owesAsk && !state.steeredThisTurn && !referenceAnswer) return dropText("owes_ask");
+			if (!SINGLE_PASS_NARRATION && owesAsk && !state.steeredThisTurn && !referenceAnswer) return dropText("owes_ask");
 			// Turn floor (docs/specs/turn-floor.md D4): the Keeper wrote prose and called no tool at all this
 			// turn. Once, the host drops that draft and steers it back to the capsule; whatever the second leg
 			// brings is honoured, an explicit narrate or prose closed implicitly as before. The opening is
@@ -6672,7 +6918,7 @@ export default function (pi: ExtensionAPI) {
 			// path keeps SL-80's two conditions and no length check.
 			const opening = state.state === "awaiting_player" && state.openingPending;
 			const speechOnly = !opening && !state.steeredThisTurn && isSpeechOnlyDraft(prose);
-			if ((state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn && !referenceAnswer) {
+			if (!SINGLE_PASS_NARRATION && (state.toolCallsThisTurn === 0 || speechOnly) && !opening && !state.steeredThisTurn && !referenceAnswer) {
 				state.floorDraft = prose;
 				state.deliveryFix = { kind: "floor", text: FLOOR_STEER };
 				await record({ lane: "floor", turn: state.turn, steered: true, round_trips: state.roundTrips, ...(speechOnly ? { reason: "speech_only" } : {}) });
@@ -6680,7 +6926,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			// The existing fictional speech repair applies only to world turns. Reference answers
 			// do not inherit dialogue obligations from NPCs still present in the paused scene.
-			const speechSteerOn = !referenceAnswer && process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && !state.steeredThisTurn;
+			const speechSteerOn = !SINGLE_PASS_NARRATION && !referenceAnswer && process.env.PI_COC_SPEECH_STEER?.trim() !== "0" && !state.deliveryFix && !state.deliveryTriedThisTurn && !state.steeredThisTurn;
 			const bareOfTokens = state.present.length > 0 && !opening && !/\{\{say:/.test(prose);
 			const unwrapped = speechSteerOn && !bareOfTokens ? unwrappedQuotes(prose, state.speechMarks) : [];
 			if (speechSteerOn && (bareOfTokens || unwrapped.length > 0)) {
@@ -6735,10 +6981,10 @@ export default function (pi: ExtensionAPI) {
 					params.source_consultations=sourceConsultationsForAudit(state);
 					state.skillRun?.tool_names.push(tool);
 					await guardTaskDelivery(event.message);
-					const prepared = referenceAnswer ? undefined : await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
+					const prepared = referenceAnswer || SINGLE_PASS_NARRATION ? undefined : await mods?.prepare(tool, params, state.lanes.signal, foregroundProviderBudget?.());
 					// §91: the host's own closing delivery is reviewed on the same terms as an explicit one.
 					notePrepared(state, prepared);
-					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit');
+					await reviewForcedPlayerChoiceCue(state, String(params.text ?? ''), state.lanes.signal, 'implicit', ctx);
 					await guardTaskDelivery(event.message, 'committing');
 					// §135.31: the host's own close carries the turn's look/lookup calls to its record too (after the Mod hooks).
 					const reads = readsOfTurn(state);
@@ -6756,6 +7002,7 @@ export default function (pi: ExtensionAPI) {
 					await record({ tool, call_id: callId, started_at: startedAt, ms: Date.now() - began, ok: true, implicit: true });
 					await record({ tool, event: "turn-closed", round_trips: state.roundTrips, ok: true, implicit: true });
 					afterDeliveryReview(state, prepared, typeof result.turn === "number" ? result.turn : state.turn);
+					afterDeliveryFirstSight(state, typeof result.turn === "number" ? result.turn : state.turn, asString(result.rendered_text));
 					rendered = asString(result.rendered_text);
 					break;
 				} catch (error) {

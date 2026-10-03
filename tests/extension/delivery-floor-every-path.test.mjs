@@ -99,53 +99,18 @@ const realHybridTable = ({ responses, env }) => {
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }], responses });
 };
 
-test("SL-93: apply {effects, narrate: 'text'} lands the effect but delivers nothing -- one floor steer, path embedded; the second leg with real prose delivers", async (t) => {
-	const table = await realHybridTable({ responses: [
-		fauxAssistantMessage([fauxToolCall("apply", {
-			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
-			narrate: "text",
-		})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("narrate", {
-			text: "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。",
-		})], { stopReason: "toolUse" }),
-	] });
+test("section 166: a short embedded draft keeps the accepted clue", async (t) => {
+	const draft = "A pause.";
+	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft})], {stopReason: "toolUse"})]});
 	t.after(() => table.dispose());
-	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
+	await table.session.prompt("I browse the clippings for the old story.");
 	await waitForIdle(table.session);
-
-	// The write landed and stands.
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "apply" && entry.ok === true).length, 1, "the effect landed");
-	// Nothing was delivered from the first leg: the embedded narrate's own refusal, not the audit's.
-	const embeddedRefusal = table.telemetry().find((entry) => entry.lane === "delivery" && entry.reason === "narrate_in_apply" && entry.ok === false);
-	assert.ok(embeddedRefusal, "the embedded narrate was refused, not delivered");
-	assert.equal(embeddedRefusal.code, "needs");
-	// The floor's own row: below the floor, on the embedded path, with the draft's own count. Since §144.1 (SL-96)
-	// "text" is the serialization's own label and is removed where the arguments enter the host, so the floor counts
-	// what is left of the draft: nothing.
-	assert.deepEqual(floorRows(table).map((row) => ({ reason: row.reason, path: row.path, chars: row.chars })),
-		[{ reason: "below_floor", path: "embedded", chars: 0 }], "one floor steer, naming the embedded path and the draft's own length");
-
-	// The apply's own tool result: isError, the refusal names below_floor, the landed effect still named in it.
-	const applyResult = table.session.messages.find((message) => message.role === "toolResult" && message.toolName === "apply");
-	assert.equal(applyResult.isError, true, "the refusal reaches the Keeper as any other narrate refusal would");
-	const details = JSON.parse(applyResult.content.map((block) => block.text ?? "").join(""));
-	assert.equal(details.narrate_in_apply, false);
-	assert.equal(details.coc_error?.details?.reason, "below_floor");
-	assert.equal(details.coc_error?.details?.chars, 0);
-	assert.ok(Array.isArray(details.effects) || Array.isArray(details.receipts), "the landed effect is still named in the result: it is not undone");
-
-	// This path never reaches `turn_close` the way the implicit close does -- the refused call's own `fix` field
-	// carries FLOOR_STEER's text back to the Keeper directly, through Pi's ordinary retry loop, and the one-steer
-	// budget (`state.steeredThisTurn`) is spent synchronously by the refusal itself (§135.11.4.1).
-	assert.match(details.coc_error?.fix ?? "", /Use the ordinary narrate or mechanics ask delivery path/);
-	assert.equal(keeperCalls(table), 2, "one apply.narrate attempt below the floor, one more call that actually closes the turn");
-	assert.equal(table.telemetry().filter((entry) => entry.tool === "narrate" && entry.ok === true && entry.event === undefined).length, 1,
-		"the second leg's explicit narrate delivered");
+	assert.equal(keeperCalls(table), 1);
+	assert.equal(floorRows(table).length, 0);
 	const record = turnRecord(table.workspace, 2);
 	assert.equal(record.closed_by, "narrate");
-	assert.ok(!record.rendered_text.includes("{{") && !record.rendered_text.includes("}}"), "no brace reached the player");
-	assert.ok(record.rendered_text.includes("找到了那篇被压下的旧闻"));
-	assert.equal(record.receipts.length, 1, "the clue from the first leg's apply is still the turn's one receipt");
+	assert.equal(record.rendered_text, draft);
+	assert.equal(record.receipts.length, 1);
 });
 
 test("SL-93: a 40-plus-code-point apply.narrate delivers on its first leg, in one model call", async (t) => {
@@ -218,28 +183,18 @@ test("SL-93 (re-scoped): an explicit narrate is not length-floored -- a short li
 	assert.equal(runEnd(table.events).status, "delivered");
 });
 
-test("SL-93: once the turn's one steer is spent, the next apply.narrate closes the turn whatever its length -- a turn is never stranded", async (t) => {
-	const table = await realHybridTable({ responses: [
-		fauxAssistantMessage([fauxToolCall("apply", {
-			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
-			narrate: "text",
-		})], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxToolCall("apply", {
-			effects: [{ kind: "time", minutes: 10, why: "the search takes ten minutes" }],
-			narrate: "still short",
-		})], { stopReason: "toolUse" }),
-	] });
+test("section 166: the first embedded draft closes without spending a floor steer", async (t) => {
+	const draft = "A pause.";
+	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft})], {stopReason: "toolUse"})]});
 	t.after(() => table.dispose());
-	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
+	await table.session.prompt("I browse the clippings for the old story.");
 	await waitForIdle(table.session);
-
-	assert.equal(keeperCalls(table), 2, "one retry after the floor's refusal, and no more");
-	assert.deepEqual(floorRows(table).map((row) => ({ reason: row.reason, path: row.path })), [{ reason: "below_floor", path: "embedded" }],
-		"the floor fired once, on the first leg; the second, equally short leg was not refused a second time");
+	assert.equal(keeperCalls(table), 1);
+	assert.equal(floorRows(table).length, 0);
 	const record = turnRecord(table.workspace, 2);
 	assert.equal(record.closed_by, "narrate");
-	assert.ok(record.rendered_text.includes("still short"), "the short second leg closed the turn");
-	assert.equal(record.receipts.length, 2, "both legs' effects landed and stand");
+	assert.equal(record.rendered_text, draft);
+	assert.equal(record.receipts.length, 1);
 });
 
 test("SL-93: a 40-plus-code-point Chinese draft delivers on the explicit path's first leg", async (t) => {
@@ -304,25 +259,16 @@ test("SL-93: lowering delivery_floor.min_prose_chars lets an apply.narrate the s
 	assert.ok(turnRecord(table.workspace, 2).rendered_text.includes("门开了"));
 });
 
-test("SL-93: raising delivery_floor.min_prose_chars steers an apply.narrate the shipped default would deliver", async (t) => {
-	resetDeliveryFloorBudgetCache();
-	t.after(() => resetDeliveryFloorBudgetCache());
-	const ordinary = "你在剪报室里翻了十分钟，指尖沾了灰，纸页边缘已经发黄发脆，终于找到了那篇被压下的旧闻 {{clue:globe-unpublished-story}}。";
-	const table = await realHybridTable({ env: { PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 200) }, responses: [
-		fauxAssistantMessage([fauxToolCall("apply", {
-			effects: [{ kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings" }],
-			narrate: ordinary,
-		})], { stopReason: "toolUse" }),
-		// The one steer is already spent by the first leg's refusal; the Keeper's own short narrate closes the turn.
-		fauxAssistantMessage([fauxToolCall("narrate", { text: "still short" })], { stopReason: "toolUse" }),
-	] });
+test("section 166: a high legacy floor cannot force another draft", async (t) => {
+	const draft = "The clippings are dusty, but the editor leaves them within reach.";
+	const table = await realHybridTable({responses: [fauxAssistantMessage([fauxToolCall("apply", {effects: [{kind: "clue", clue: "globe-unpublished-story", why: "found while going through the clippings"}], narrate: draft})], {stopReason: "toolUse"})], env: { PI_COC_CONTENT_ROOT: contentRootWithFloor(t, 200) }});
 	t.after(() => table.dispose());
-	await table.session.prompt("我翻一翻剪报，看看有没有旧闻。");
+	await table.session.prompt("I browse the clippings for the old story.");
 	await waitForIdle(table.session);
-
-	assert.equal(keeperCalls(table), 2, "a draft that clears the shipped default is steered once at a floor of 200");
-	assert.deepEqual(floorRows(table).map((row) => row.min_chars), [200]);
+	assert.equal(keeperCalls(table), 1);
+	assert.equal(floorRows(table).length, 0);
 	const record = turnRecord(table.workspace, 2);
-	assert.equal(record.rendered_text, "still short", "the floor never strands a turn");
-	assert.equal(record.receipts.length, 1, "the first leg's clue landed and stands");
+	assert.equal(record.closed_by, "narrate");
+	assert.equal(record.rendered_text, draft);
+	assert.equal(record.receipts.length, 1);
 });

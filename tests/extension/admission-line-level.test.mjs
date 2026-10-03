@@ -36,7 +36,7 @@ function toolResults(session, tool) {
 			text: (message.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join("") }));
 }
 const call = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
-const close = [call("narrate", { text: "你撬开了储物柜。" }), fauxAssistantMessage("after")];
+const close = [call("narrate", { text: "你撬开了储物柜。" }), ];
 const WORDS = "我下楼回厨房，撬开那个锁着的储物柜。";
 const THREAT = { kind: "threat", name: "corbitt-haunting", clock: "corbitt-awareness", why: "撬柜的木头响声传到楼上。" };
 const TIME = { kind: "time", minutes: 10, why: "下楼找到储物柜并试图撬开。" };
@@ -168,7 +168,7 @@ test("§32.12.3.2: no split -- the same batch whose clue the lane admits lands w
 test("§32.12.3 on the emitted kernel: long gate #2's turn-14 batch -- the lane reviews the time line alone, and both receipts land", async (t) => {
 	installJev(t, [{ verdict: "entailed", confidence: 0.6 }]);
 	const table = await openTable({ realKernel: true, campaign: "line-level-seam", env: KEY, responses: [
-		call("look", {}), call("narrate", { text: "诺特把钥匙推过桌面，等你开口。" }), fauxAssistantMessage("opening"),
+		call("look", {}), call("narrate", { text: "诺特把钥匙推过桌面，等你开口。" }),
 		call("apply", { effects: [THREAT, TIME] }), ...close],
 		laneResponses: { admission: [slowVerdict({ verdict: "entailed", grounds: "prying it open takes the time" }, 300)] } });
 	t.after(() => table.dispose());

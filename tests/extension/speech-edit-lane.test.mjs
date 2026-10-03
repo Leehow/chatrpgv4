@@ -146,254 +146,25 @@ async function openLane(t, game, {responses = [], env = {}, intercept} = {}) {
 const answer = lines => fauxAssistantMessage(JSON.stringify({lines}));
 const inputOf = context => context.messages.filter(message => message.role !== "system").flatMap(message => message.content).map(block => block.text ?? "").join("\n");
 
-test("an edit lands as the overlay and one card patch: only the edited span bodies change, markers and receipts intact", async t => {
-	const game = await deliveredTable(t);
-	const before = await game.record(), jev = installJev(t);
-	const lane = await openLane(t, game, {responses: [answer([EDIT_A, EDIT_L, EDIT_B])]});
-	lane.commit();
-	const row = await lane.finished();
 
-	// §165.3: the v2 prompt -- the package's words, the player's text, the prose and every line but the investigator's;
-	// the stranger speaks under the label the prose uses for them, with no mask (amended 2026-10-01).
-	const [context] = lane.seen;
-	const system = getCurrentSystemPrompt(context.messages);
-	assert.ok(system.startsWith((await readFile(LANE_FILE, "utf8")).trim()), "the package's instruction and demonstrations, whole");
-	assert.match(system, /exactly as many lines as given, in the same order/);
-	const input = inputOf(context);
-	assert.ok(input.includes("[Player this turn]\n我接下这活。钥匙和地址给我。"));
-	assert.ok(input.includes(`[Turn prose]\n${before.rendered_text}`));
-	assert.ok(input.endsWith(`[Spoken lines to edit]\n1. speaker: ${KNOTT}\n   line: ${LINE_A}\n2. speaker: ${STRANGER}\n   line: ${LINE_L}`
-		+ `\n3. speaker: ${KNOTT}\n   line: ${LINE_B}`), "the investigator's row is not sent");
-	assert.ok(!input.slice(input.indexOf("[Spoken lines to edit]")).includes("「我接了。」"), "nor its words among the lines to edit");
 
-	// §165.4 gate 3: one fanned-out request, a Noul per changed line over the two versions.
-	assert.equal(jev.length, 1);
-	assert.equal(jev[0].model, "jev-1.13.0");
-	assert.deepEqual(Object.values(jev[0].questions).map(question => question.type), ["noul", "noul", "noul"]);
-	// The contract's question (§165.4 gate 3, amended 2026-10-01), asked of each line on its own.
-	assert.deepEqual(Object.values(jev[0].questions).map(question => [question.instructions.instruction.includes(SPEECH_EDIT_FACT_QUESTION), question.instructions.target]),
-		[[true, "lines[0]"], [true, "lines[1]"], [true, "lines[2]"]]);
-	assert.deepEqual(jev[0].state.lines, [{original: LINE_A, edited: EDIT_A}, {original: LINE_L, edited: EDIT_L}, {original: LINE_B, edited: EDIT_B}]);
 
-	// §165.5.1: the kernel keeps the delivery and holds the edit beside it.
-	assert.deepEqual(lane.calls("speech.edit").map(row => row.params.lines),
-		[[{index: 1, original: LINE_A, edited: EDIT_A}, {index: 2, original: LINE_L, edited: EDIT_L}, {index: 3, original: LINE_B, edited: EDIT_B}]]);
-	const after = await game.record();
-	for (const key of ["text", "rendered_text", "marked_text", "speech"]) assert.deepEqual(after[key], before[key], key);
-	assert.deepEqual(after.speech_edit.lines.map(line => [line.index, line.edited]), [[1, EDIT_A], [2, EDIT_L], [3, EDIT_B]]);
-	assert.equal(after.speech_edit.model, "edit/e1");
 
-	// §165.5.2: one patch of that turn's card. Only the three bodies change; the receipt marker, the investigator's span and every
-	// byte between them are as delivered, and the card still has one span per speech row.
-	const patches = lane.entries("coc-card-patch");
-	assert.equal(patches.length, 1);
-	assert.deepEqual(patches[0].card, {turn: 1});
-	assert.equal(patches[0].source, "speech-edit");
-	const expected = before.marked_text.replace(LINE_A, EDIT_A).replace(LINE_L, EDIT_L).replace(LINE_B, EDIT_B);
-	assert.equal(patches[0].patch.marked_text, expected);
-	assert.ok(patches[0].patch.marked_text.includes(`{{${game.marker}}}`), "the receipt marker stays where it was");
-	const spans = text => (text.match(/\{\{say:[^}\n]*\}\}/g) ?? []).length;
-	assert.equal(spans(patches[0].patch.marked_text), spans(before.marked_text));
-	assert.equal(spans(before.marked_text), before.speech.length);
-	const editedAt = new Map([[1, EDIT_A], [2, EDIT_L], [3, EDIT_B]]);
-	assert.deepEqual(patches[0].patch.speech, before.speech.map((line, index) => editedAt.has(index) ? {...line, text: editedAt.get(index)} : line));
-	assert.deepEqual(patches[0].patch.speech[2].who, {label: STRANGER}, "the label row keeps who it is");
-	assert.deepEqual(patches[0].patch.speech_original, {marked_text: before.marked_text});
 
-	// §165.7: one row for the run.
-	assert.equal(row.outcome, "applied");
-	assert.equal(row.ok, true);
-	assert.equal(row.turn, 1);
-	assert.equal(row.lines, 3);
-	assert.equal(row.changed, 3);
-	assert.equal(row.model, "edit/e1");
-	assert.equal(typeof row.wall_ms, "number");
-	assert.deepEqual(row.verdicts, [1, 2, 3].map(index => ({index, noul: 0.05, verdict: "edited"})));
-	assert.equal(lane.rows().length, 1, "one run, one row");
-	// §165.3: one zero-tool round at effort low, on the lane's own model variable.
-	const start = lane.entries("coc-telemetry").filter(entry => entry.lane === "lane-call" && entry.phase === "start");
-	assert.deepEqual(start.map(entry => [entry.subsession, entry.model, entry.lane_thinking, entry.thinking_source]), [["speech-edit", "edit/e1", "low", "caller"]]);
-});
 
-test("a count mismatch or marker syntax drops the whole edit before Jev or the kernel hears of it", async t => {
-	for (const [label, lines] of [["count", [EDIT_A, EDIT_B]], ["marker", [EDIT_A, EDIT_L, `「至于{{say:x}}马卡里奥一家，我也不知道。」`]], ["blank", [EDIT_A, EDIT_L, "  "]]]) {
-		const game = await deliveredTable(t), jev = installJev(t);
-		const lane = await openLane(t, game, {responses: [answer(lines)]});
-		lane.commit();
-		const row = await lane.finished();
-		assert.equal(row.outcome, "dropped:shape", label);
-		assert.equal(row.ok, false, label);
-		assert.equal(jev.length, 0, `${label}: no Jev question`);
-		assert.equal(lane.calls("speech.edit").length, 0, `${label}: nothing landed`);
-		assert.deepEqual(lane.entries("coc-card-patch"), [], `${label}: no patch`);
-		assert.equal((await game.record()).speech_edit, undefined, label);
-	}
-});
 
-test("a quotation-mark failure keeps that line's original; retyped marks come back as the delivered ones", async t => {
-	const game = await deliveredTable(t), jev = installJev(t);
-	// Line A lost its closing mark; line B came back in curly quotes, which §139 counts as the same marks.
-	const lane = await openLane(t, game, {responses: [answer(["「行，钥匙在这儿，地址就写在租约上。", LINE_L, "“至于马卡里奥一家搬去哪儿，我也不知道。”"])]});
-	lane.commit();
-	const row = await lane.finished();
-	assert.equal(row.outcome, "applied");
-	assert.deepEqual(row.quote_reverted, [1]);
-	assert.deepEqual(jev[0].state.lines, [{original: LINE_B, edited: EDIT_B}], "only the line that passed is asked about, in its own marks");
-	assert.deepEqual(lane.calls("speech.edit")[0].params.lines, [{index: 3, original: LINE_B, edited: EDIT_B}]);
-	const [patch] = lane.entries("coc-card-patch");
-	assert.ok(patch.patch.marked_text.includes(LINE_A), "line A is as the Keeper wrote it");
-	assert.ok(patch.patch.marked_text.includes(EDIT_B));
-	// Every changed line failing the marks is a dropped edit, not an empty patch.
-	const second = await deliveredTable(t), jev2 = installJev(t);
-	const quoted = await openLane(t, second, {responses: [answer(["行，钥匙在这儿。", LINE_L, "至于他们，我也不知道。"])]});
-	quoted.commit();
-	assert.equal((await quoted.finished()).outcome, "dropped:quotes");
-	assert.equal(jev2.length, 0);
-	assert.deepEqual(quoted.entries("coc-card-patch"), []);
-});
 
-test("a noul at or above 0.5 keeps that line's original; an unchanged line is never asked", async t => {
-	const game = await deliveredTable(t);
-	// Line A changed and Jev reads a changed fact at exactly the gate; the stranger's line and line B came back unchanged.
-	const jev = installJev(t, () => 0.5);
-	const lane = await openLane(t, game, {responses: [answer([EDIT_A, LINE_L, LINE_B])]});
-	lane.commit();
-	const row = await lane.finished();
-	assert.deepEqual(jev[0].state.lines, [{original: LINE_A, edited: EDIT_A}], "unchanged lines are not asked about");
-	assert.equal(row.outcome, "nothing_changed");
-	assert.deepEqual(row.verdicts, [{index: 1, noul: 0.5, verdict: "kept_original"}]);
-	assert.equal(lane.calls("speech.edit").length, 0);
-	assert.deepEqual(lane.entries("coc-card-patch"), []);
-	// One line over the gate, one under: only the one under lands.
-	const second = await deliveredTable(t);
-	installJev(t, line => line.original === LINE_A ? 0.8 : 0.1);
-	const mixed = await openLane(t, second, {responses: [answer([EDIT_A, LINE_L, EDIT_B])]});
-	mixed.commit();
-	const landed = await mixed.finished();
-	assert.equal(landed.outcome, "applied");
-	assert.equal(landed.changed, 1);
-	assert.deepEqual(mixed.calls("speech.edit")[0].params.lines.map(line => line.index), [3]);
-	const [patch] = mixed.entries("coc-card-patch");
-	assert.ok(patch.patch.marked_text.includes(LINE_A) && patch.patch.marked_text.includes(EDIT_B));
-});
 
-test("Jev unavailable drops the whole edit, and with no key the model is never asked", async t => {
-	const game = await deliveredTable(t);
-	installJev(t, undefined, {failure: 503});
-	const lane = await openLane(t, game, {responses: [answer([EDIT_A, EDIT_L, EDIT_B])]});
-	lane.commit();
-	const row = await lane.finished();
-	assert.equal(row.outcome, "dropped:jev_unavailable");
-	assert.equal(row.ok, false);
-	assert.equal(lane.calls("speech.edit").length, 0);
-	assert.deepEqual(lane.entries("coc-card-patch"), []);
-	assert.equal((await game.record()).speech_edit, undefined);
 
-	const second = await deliveredTable(t), jev = installJev(t);
-	const keyless = await openLane(t, second, {responses: [answer([EDIT_A, EDIT_L, EDIT_B])], env: {EXT_JEV_APIKEY: undefined}});
-	keyless.commit();
-	assert.equal((await keyless.finished()).outcome, "dropped:jev_unavailable");
-	assert.equal(keyless.seen.length, 0, "no gate, no edit, so no model call is spent on one");
-	assert.equal(jev.length, 0);
-});
 
-test("a record that changed under the lane is stale: no overlay, no patch", async t => {
-	const game = await deliveredTable(t);
-	installJev(t);
-	// Between the lane's read and its landing the turn is replaced: the line at index 3 is not the one it edited.
-	const lane = await openLane(t, game, {responses: [answer([EDIT_A, EDIT_L, EDIT_B])], intercept: async method => {
-		if (method !== "speech.edit") return;
-		const record = JSON.parse(await readFile(game.recordPath, "utf8"));
-		record.speech[3].text = "「我什么都不知道。」";
-		await writeFile(game.recordPath, JSON.stringify(record));
-	}});
-	lane.commit();
-	const row = await lane.finished();
-	assert.equal(row.outcome, "dropped:stale");
-	assert.equal((await game.record()).speech_edit, undefined);
-	assert.deepEqual(lane.entries("coc-card-patch"), []);
-});
 
-test("without exactly one enabled contributing package the lane does not run", async t => {
-	// zh-optimize switched off: nobody contributes, so no model call, no row, no patch.
-	const game = await deliveredTable(t);
-	await game.call("mods.configure", {campaign: "zh", id: "zh-optimize", enabled: false});
-	const lane = await openLane(t, game, {responses: [answer([EDIT_A, EDIT_L, EDIT_B])]});
-	lane.commit();
-	await waitFor(() => lane.calls("speech.job").length === 1, {label: "speech.job"});
-	await new Promise(settle => setTimeout(settle, 100));
-	assert.equal(lane.seen.length, 0);
-	assert.deepEqual(lane.rows(), []);
-	assert.deepEqual(lane.entries("coc-card-patch"), []);
-	// A second contributor: the lane does not run, and the row names both.
-	const second = await deliveredTable(t);
-	const variant = join(await mkdtemp(join(tmpdir(), "speech-edit-variant-")), "zh-speech-second");
-	t.after(() => rm(resolve(variant, ".."), {recursive: true, force: true}));
-	const {cp} = await import("node:fs/promises");
-	await cp(join(ROOT, "mods/zh-optimize"), variant, {recursive: true});
-	const manifest = JSON.parse(await readFile(join(variant, "mod.json"), "utf8"));
-	await writeFile(join(variant, "mod.json"), JSON.stringify({...manifest, id: "zh-speech-second", version: "1.0.0", default_enabled: false}));
-	await second.call("mods.install", {path: variant});
-	await second.call("mods.configure", {campaign: "zh", id: "zh-speech-second", version: "1.0.0", enabled: true});
-	const conflicted = await openLane(t, second, {responses: [answer([EDIT_A, EDIT_L, EDIT_B])]});
-	conflicted.commit();
-	const row = await conflicted.finished();
-	assert.equal(row.outcome, "dropped:conflict");
-	assert.equal(row.ok, false);
-	assert.deepEqual(row.contributors.map(entry => entry.mod).sort(), ["zh-optimize", "zh-speech-second"]);
-	assert.equal(conflicted.seen.length, 0);
-	assert.deepEqual(conflicted.entries("coc-card-patch"), []);
-});
 
-test("the trigger reads the bus payload: a delivery whose only lines are the investigator's is never queued", async t => {
-	const game = await deliveredTable(t);
-	const lane = await openLane(t, game, {responses: [answer([EDIT_A, EDIT_L, EDIT_B])]});
-	lane.commit({speech: game.narrated.speech.filter(line => line.who.investigator)});
-	lane.commit({speech: undefined});
-	await new Promise(settle => setTimeout(settle, 100));
-	assert.equal(lane.calls("speech.job").length, 0);
-	// A stranger's line alone, a label the table has not bound to anyone, is enough.
-	lane.commit({speech: game.narrated.speech.filter(line => line.who.label)});
-	await waitFor(() => lane.calls("speech.job").length === 1, {label: "speech.job for a labelled line"});
-});
 
-test("a stranger's line, known only by its label, is sent under the label with no mask and lands alone", async t => {
-	const game = await deliveredTable(t), jev = installJev(t);
-	const before = await game.record();
-	const lane = await openLane(t, game, {responses: [answer([LINE_A, EDIT_L, LINE_B])]});
-	lane.commit();
-	const row = await lane.finished();
-	const input = inputOf(lane.seen[0]);
-	assert.ok(input.includes(`2. speaker: ${STRANGER}\n   line: ${LINE_L}`));
-	assert.ok(!input.includes(`2. speaker: ${STRANGER} | how they are heard`), "a label row carries no mask");
-	assert.deepEqual(jev[0].state.lines, [{original: LINE_L, edited: EDIT_L}]);
-	assert.equal(row.outcome, "applied");
-	assert.deepEqual((await game.record()).speech_edit.lines, [{index: 2, original: LINE_L, edited: EDIT_L}]);
-	const [patch] = lane.entries("coc-card-patch");
-	assert.equal(patch.patch.marked_text, before.marked_text.replace(LINE_L, EDIT_L));
-	assert.deepEqual(patch.patch.speech[2], {who: {label: STRANGER}, text: EDIT_L});
-});
 
-test("the known boundary: an ask delivery is not edited", async t => {
-	const home = await mkdtemp(join(tmpdir(), "speech-edit-ask-"));
-	const context = await kernelApi.createKernelContext({workspace: home, content: join(ROOT, "content"), seed: "speech-edit-ask",
-		locks: kernelApi.createAdvisoryLocks(async () => {}), env: {...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1"}});
-	const runtime = kernelApi.createKernelRuntime(context);
-	t.after(async () => {await runtime.close(); await rm(home, {recursive: true, force: true});});
-	const call = (method, params = {}) => runtime.handlers[method](params);
-	await call("campaign.create", {id: "zh", module: "the-haunting", pregen: "thomas-hayes", play_language: "zh-Hans"});
-	await call("table.narrate", {campaign: "zh", call_id: "t0-c1", text: "开场。\n\n诺特把钥匙拍在桌上。"});
-	await call("table.player_input", {campaign: "zh", text: "钥匙和地址给我。"});
-	const asked = await call("table.ask", {campaign: "zh", call_id: "t1-c1", prompt: "接不接？", options: ["接", "不接"], text: `{{say:${KNOTT}}}${LINE_A}{{/say}}`});
-	installJev(t);
-	// Even a commit event for that turn (the host emits none for an ask) finds nothing to edit.
-	const lane = await openLane(t, {call, narrated: asked}, {responses: [answer([EDIT_A])]});
-	lane.commit();
-	const row = await lane.finished();
-	assert.equal(row.outcome, "dropped:stale");
-	assert.equal(lane.seen.length, 0);
-	assert.deepEqual(lane.entries("coc-card-patch"), []);
-});
+
+
+
+
 
 test("splicing pairs spans with rows by order and keeps every byte outside the edited bodies", () => {
 	const speech = [{who: {investigator: "inv", name: "I"}, text: "「我接了。」"}, {who: {npc: "k", name: "K"}, text: "「好。」"}, {who: {label: "L"}, text: "「走。」"}];
@@ -418,4 +189,17 @@ test("the shape and quotation-mark gates are structural", () => {
 	assert.equal(keepQuotationMarks("「好。」", "「好吧。"), undefined);
 	assert.equal(keepQuotationMarks("好。", "「好吧。」"), undefined);
 	assert.equal(keepQuotationMarks("好。", "嗯，好吧。"), "嗯，好吧。");
+});
+
+test("section 166: a committed NPC line starts no edit, no facts review and no card patch", async t => {
+	const game = await deliveredTable(t);
+	const before = await game.record();
+	const lane = await openLane(t, game, {responses: [answer(["A different line."])]});
+	lane.commit();
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(lane.seen.length, 0);
+	assert.equal(lane.calls("speech.job").length, 0);
+	assert.equal(lane.calls("speech.edit").length, 0);
+	assert.equal(lane.entries("coc-card-patch").length, 0);
+	assert.deepEqual(await game.record(), before);
 });

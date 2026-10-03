@@ -111,6 +111,19 @@ test('worldline reset expires old deliveries and turn notes even when old turn n
     assert.deepEqual(result.messages.slice(-4), messages.slice(-4));
 });
 
+test('the setup guide\'s step orders never ride a play request: they are not the Keeper\'s', () => {
+    // A fresh Blood Road table (2026-10-02, turn 9): the setup step note -- "missing: occupation ... ask for what missing
+    // lists, and nothing else" -- was retained as unclassified material in every play request, and the Keeper answered
+    // the player by asking for an occupation.
+    const step = {role: 'custom', customType: 'coc-setup-step', content: JSON.stringify({kind: 'setup_step', missing: ['occupation'],
+        instruction: 'ask for what missing lists, and nothing else'}), details: {}};
+    const prologue = {role: 'custom', customType: 'coc-setup-opening', content: 'West Texas, 1975. Who are you?', details: {kind: 'setup-opening'}};
+    const messages = [prologue, {role: 'user', content: [{type: 'text', text: 'Daniel, a car salesman.'}]}, step, ...group(1), ...group(2)];
+    const result = api.projectedMessages({messages, binding: binding(2), history: api.historyView(binding(2), [])});
+    assert.ok(!JSON.stringify(result.messages).includes('missing lists'), 'the setup step note is gone');
+    assert.ok(JSON.stringify(result.messages).includes('Who are you?'), 'the prologue the player was shown still rides, unclassified as before');
+});
+
 test('unknown context is retained in the request and carried verbatim into the fold, never a permanent veto', () => {
     const unknown = {role: 'custom', customType: 'external-instruction', content: 'Unknown scope', details: {}}, messages = [unknown, ...group(1), ...group(2)];
     const history = api.historyView(binding(2), []);
@@ -290,11 +303,12 @@ test('effective Mod locks and settings refresh a retained briefing even without 
         assert.deepEqual(brief.instructions, instructions, 'source identity alone does not authorize stale package instructions');
     }
     assert.equal(t.state.methods.filter(method => method === 'table.capsule').length, states.length);
-    const calls = t.state.calls;
+    const calls = t.state.methods.length;
     t.bus.get('coc:capsule')({capsule: {...t.cap(), mods: {instructions: [{...states.at(-1)[0], form: 'brief', instruction: 'Short reminder'}]}}, context: binding(0), epoch: 'ordinary-next-input'});
     const projected = await t.hooks.get('context')({messages: t.messages}, t.ctx);
     assert.deepEqual(JSON.parse(projected.messages.find(message => message.customType === api.BRIEF_TYPE).content).instructions, states.at(-1));
-    assert.equal(t.state.calls, calls, 'the same immutable package still reuses its full briefing');
+    // §103.5: a new input reads who is still untold; nothing else, so the briefing is the retained one.
+    assert.deepEqual(t.state.methods.slice(calls), ['table.untold'], 'the same immutable package still reuses its full briefing');
 });
 
 test('raw retained bytes alone never compact while measured context usage is below eighty percent', async () => {

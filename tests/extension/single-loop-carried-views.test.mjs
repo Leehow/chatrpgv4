@@ -24,6 +24,7 @@ import { BIND_FAMILY, ROUTE_FAMILY } from "../../runtime/jev/step-policy.ts";
 import { CARD_FIELD_ORDER, CARRIED_VIEW_BYTES, CARRIED_VIEWS_BYTES, CARRIED_VIEWS_HEAD, carriedSection, fitView, namedPeople, PRESENT_FIELDS, readCarriedViews } from "../../runtime/jev/carried-views.ts";
 import { readArguments } from "../../extensions/kernel/index.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
+import { renameUntold, untoldPeople } from "../../extensions/kernel/untold-view.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "test-camp";
@@ -98,6 +99,11 @@ function newCarried(requests) {
 	}
 	return out;
 }
+/** §103.5: direct kernel reads as the Keeper's request carries them -- each untold person by this table's word or handle. */
+function asKeeperSees(workspace, views) {
+	const roster = untoldPeople(kernelSteps(workspace, [["table.untold", {}]])[0]);
+	return views.map((view) => JSON.parse(renameUntold([{ role: "toolResult", content: [{ type: "text", text: JSON.stringify(view) }] }], roster)[0].content[0].text));
+}
 const pick = (row, keys) => Object.fromEntries(keys.filter((key) => Object.hasOwn(row, key)).map((key) => [key, row[key]]));
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
@@ -132,8 +138,8 @@ test("§135.31 after a clerk move: the scene the run moved into and the people t
 	// `{where, present}`, whole (the Globe's is under 4 KiB): exits, affordances and the people there travel with it.
 	const [scene] = byFocus("scene");
 	assert.equal(scene?.name, "newspaper-morgue");
-	const [lookScene, lookArty, lookRuth] = kernelSteps(table.table.workspace, [["table.look", { focus: "scene" }],
-		["table.look", { focus: "npc", name: "Arty Wilmot" }], ["table.look", { focus: "npc", name: "Ruth Blake" }]]);
+	const [lookScene, lookArty, lookRuth] = asKeeperSees(table.table.workspace, kernelSteps(table.table.workspace, [["table.look", { focus: "scene" }],
+		["table.look", { focus: "npc", name: "Arty Wilmot" }], ["table.look", { focus: "npc", name: "Ruth Blake" }]]));
 	assert.equal(scene.truncated, undefined, `the Globe's scene view is ${size(lookScene)} bytes: carried whole`);
 	assert.deepEqual(scene.view.where, lookScene.where, "the scene view is look focus=scene");
 	// `present` is reduced to who is there: name, called and role; the dossiers are what the person cards carry.
@@ -145,8 +151,9 @@ test("§135.31 after a clerk move: the scene the run moved into and the people t
 	// The people: the gatekeeper the Globe's obligation puts in the way (its carried meeting) and the archivist the Mod's
 	// first-impression check targets; the investigator is never among them.
 	const people = byFocus("npc");
-	assert.deepEqual(people.map((entry) => entry.name).sort(), ["Arty Wilmot", "Ruth Blake"]);
-	for (const [entry, look] of [[people.find((value) => value.name === "Arty Wilmot"), lookArty], [people.find((value) => value.name === "Ruth Blake"), lookRuth]]) {
+	assert.deepEqual([lookArty.name, lookRuth.name], ["arty-wilmot", "ruth-blake"], "§103.5: nobody has told the investigator their names");
+	assert.deepEqual(people.map((entry) => entry.name).sort(), ["arty-wilmot", "ruth-blake"]);
+	for (const [entry, look] of [[people.find((value) => value.name === lookArty.name), lookArty], [people.find((value) => value.name === lookRuth.name), lookRuth]]) {
 		const { kind: _kind, ...card } = look;
 		assert.deepEqual(pick(entry.view, ["name", "id", "role", "wants", "fears", "hides", "voice"]), pick(card, ["name", "id", "role", "wants", "fears", "hides", "voice"]),
 			"a person's view is look focus=npc");
@@ -179,7 +186,7 @@ test("§135.31 at a pending defence: the defender's card and the session view, b
 	const { requests } = table;
 	assert.equal(requests.length, 1);
 	const carried = carriedIn(requests[0]);
-	const [lookSession, lookKnott] = kernelSteps(table.table.workspace, [["table.look", { focus: "session" }], ["table.look", { focus: "npc", name: "steven-knott" }]]);
+	const [lookSession, lookKnott] = asKeeperSees(table.table.workspace, kernelSteps(table.table.workspace, [["table.look", { focus: "session" }], ["table.look", { focus: "npc", name: "steven-knott" }]]));
 
 	const session = carried.views.find((entry) => entry.focus === "session");
 	assert.ok(session, "a session is active: its view is carried");
@@ -223,7 +230,7 @@ test("§159 with a session active: refused model resolve leaves the carried view
 	assert.equal(sections.length, 1, "a refused model attack and a read do not create another session state");
 	const [first] = sections;
 	assert.deepEqual(first.views.map((entry) => entry.focus), ["session", "npc"]);
-	const [lookSession] = kernelSteps(table.table.workspace, [["table.look", { focus: "session" }]]);
+	const [lookSession] = asKeeperSees(table.table.workspace, kernelSteps(table.table.workspace, [["table.look", { focus: "session" }]]));
 	assert.deepEqual(first.views[0].view, { session: lookSession.session, pending_choice: lookSession.pending_choice });
 	const rows = table.table.telemetry(CAMPAIGN);
 	assert.equal(rows.filter((row) => row.lane === "run" && row.event === "carried").length, 1);

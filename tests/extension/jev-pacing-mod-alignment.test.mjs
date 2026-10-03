@@ -11,7 +11,7 @@ const ROOT=resolve(import.meta.dirname,"../..");
 const PACKAGES={
 	"keeper-pacing":{version:"1.3.0",state_version:1,requires:["context.pacing.v1","mods.package-files.v1"],settings:{stall_turns:2},
 		settings_schema:{stall_turns:{minimum:1,maximum:6}}},
-	"narration-craft":{version:"2.1.9",state_version:2,requires:["mods.package-files.v1","context.style.v1","npc.voice.generation.v2","npc.voice.consolidation.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1","npc.mood.v1"],settings:{density_guide:"off",coarse_language:true},
+	"narration-craft":{version:"2.1.12",state_version:2,requires:["mods.package-files.v1","context.style.v1","npc.voice.generation.v2","npc.voice.consolidation.v1","graph.vocabulary.v1","graph.vocabulary.table.v1","context.npc.v1","npc.mood.v1"],settings:{density_guide:"off",coarse_language:true},
 		settings_schema:{coarse_language:{title:{["zh-Hans"]:"允许粗话",en:"Coarse language"}},density_guide:{enum:["off","on"]}}},
 };
 
@@ -33,14 +33,14 @@ const SHARED_CEILING=5000,LANGUAGE_CEILING=400;
 /** Contract §153.4: a package that declares play_languages is measured against its own 400-byte ceiling, per package,
  *  and is left out of the 5000-byte ceiling every other brief shares (§30.7, §40.6). The kernel's listing says which. */
 async function languageScoped(call){
-	return new Set((await call("mods.list")).mods.filter(row=>Array.isArray(row.play_languages)).map(row=>row.id));
+	return new Map((await call("mods.list")).mods.filter(row=>Array.isArray(row.play_languages)).map(row=>[row.id,row.brief_budget_bytes??LANGUAGE_CEILING]));
 }
 function assertCeilings(briefs,language){
 	const shared=briefs.filter(row=>!language.has(row.mod)),scoped=briefs.filter(row=>language.has(row.mod));
 	const combined=shared.reduce((sum,row)=>sum+utf8(row.instruction),0);
 	assert.ok(combined<=SHARED_CEILING,`active brief bytes ${combined} exceed the ${SHARED_CEILING}-byte shared ceiling`);
 	for(const row of scoped)
-		assert.ok(utf8(row.instruction)<=LANGUAGE_CEILING,`${row.mod}'s language brief is ${utf8(row.instruction)} bytes; its own ceiling is ${LANGUAGE_CEILING}`);
+		assert.ok(utf8(row.instruction)<=language.get(row.mod),`${row.mod}'s language brief exceeds its declared ceiling`);
 	return{shared,scoped,combined};
 }
 function aligned(id,text){
@@ -109,7 +109,7 @@ test("a language-scoped brief is measured against its own 400-byte ceiling, outs
 		try{manifest=JSON.parse(await readFile(join(ROOT,"mods",id,"mod.json"),"utf8"));}catch{continue;}
 		if(!Array.isArray(manifest.play_languages))continue;
 		const file=manifest.contributes.brief??manifest.contributes.instructions;
-		if(file)assert.ok(utf8(await readFile(join(ROOT,"mods",id,file),"utf8"))<=LANGUAGE_CEILING,`mods/${id}/${file} exceeds the ${LANGUAGE_CEILING}-byte language ceiling`);
+		if(file)assert.ok(utf8(await readFile(join(ROOT,"mods",id,file),"utf8"))<=(manifest.brief_budget_bytes??LANGUAGE_CEILING),`mods/${id}/${file} exceeds its language ceiling`);
 	}
 	// Through the kernel: the fixture package is on for a zh-Hans table, its brief rides beside the shared ones and is
 	// counted only against its own ceiling.
@@ -122,7 +122,7 @@ test("a language-scoped brief is measured against its own 400-byte ceiling, outs
 	const next=await call("table.player_input",{text:"I stay with the conversation."});
 	const briefs=next.capsule.mods.instructions.filter(row=>row.form==="brief"),language=await languageScoped(call);
 	// The shipped Chinese package (mods/zh-optimize, play_languages ["zh"]) is on for a zh-Hans table beside the fixture.
-	assert.deepEqual([...language].sort(),["language-zh","zh-optimize"]);
+	assert.deepEqual([...language.keys()].sort(),["language-zh","zh-optimize"]);
 	const{shared,scoped,combined}=assertCeilings(briefs,language);
 	assert.deepEqual(scoped.map(row=>row.mod).sort(),["language-zh","zh-optimize"],"the language briefs are assembled");
 	assert.ok(!shared.some(row=>row.mod==="language-zh"||row.mod==="zh-optimize"),"and left out of the shared sum");

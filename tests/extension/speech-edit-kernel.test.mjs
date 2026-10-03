@@ -80,7 +80,7 @@ test("speech.job hands the lane zh-optimize's words, the turn, and one row per l
 
 	const job = await game.call("speech.job", {campaign: "zh", turn: 1});
 	const record = await game.record("zh", 1);
-	assert.deepEqual(job.lane, {mod: "zh-optimize", version: "1.1.0"});
+	assert.deepEqual(job.lane, {mod: "zh-optimize", version: JSON.parse(await readFile(join(SHIPPED,"mod.json"),"utf8")).version});
 	assert.equal(job.instruction, (await readFile(join(SHIPPED, "speech-edit-lane.md"), "utf8")).trim(), "the package's file, whole");
 	assert.equal(job.player_text, "我接下这活。钥匙和地址给我。");
 	for (const key of ["rendered_text", "marked_text", "speech"]) assert.deepEqual(job[key], record[key], key);

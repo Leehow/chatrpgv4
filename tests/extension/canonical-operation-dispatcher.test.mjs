@@ -29,7 +29,6 @@ function dispatchCall() {
 function closeTurn(text = "The bounded dispatcher turn closes.") {
 	return [
 		fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("discarded post-delivery tail"),
 	];
 }
 
@@ -301,7 +300,6 @@ test("real TS kernel: mutation journal precedes apply, retry recovers the same r
 		realKernel: true,
 		responses: [
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "The opening closes before the mutation test." })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("discarded opening tail"),
 			dispatchCall(), dispatchCall(), dispatchCall(), ...closeTurn("The clock advances once."),
 		],
 		mods: { async prepare(method) { prepares.push(method); }, async after(method) { afters.push(method); } },
@@ -562,7 +560,6 @@ test("real TS kernel: the closed schema accepts npc mood (§161.5) and still ref
 		realKernel: true,
 		responses: [
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "The opening closes before the mood test." })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("discarded opening tail"),
 			dispatchCall(), dispatchCall(), ...closeTurn("Knott wipes his neck."),
 		],
 	});

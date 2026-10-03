@@ -16,7 +16,7 @@ import { mergeProviderAttributionHeaders } from "./provider-attribution.ts";
 import type { ResourceLoader } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
-import { SettingsManager } from "./settings-manager.ts";
+import { DEFAULT_TOOL_NAMES, SettingsManager } from "./settings-manager.ts";
 import { watchCallCap, watchStreamProgress } from "./stream-progress.ts";
 import { time } from "./timings.ts";
 import {
@@ -30,9 +30,9 @@ import {
 	createReadOnlyTools,
 	createReadTool,
 	createWriteTool,
-	type ToolName,
 	withFileMutationQueue,
 } from "./tools/index.ts";
+import { getBranchSelection } from "./virtual-models.ts";
 
 // Preserve the pre-0.81 fallback for extensions that construct Agent instances
 // or invoke low-level agent loops without supplying streamFn. Agent core remains
@@ -66,7 +66,7 @@ export interface CreateAgentSessionOptions {
 	/**
 	 * Optional allowlist of tool names.
 	 *
-	 * When omitted, pi uses the `defaultTools` setting for the initial built-in
+	 * When omitted, pi uses the resolved `defaultTools` setting for the initial
 	 * selection when configured. Otherwise it enables the default built-in tools
 	 * (read, bash, edit, write). Extension/custom tools remain enabled unless
 	 * `noTools` changes that default. When provided, only the listed tool names are
@@ -212,14 +212,20 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;
 
+	// Assistant messages name the physical model that answered, so a virtual selection is only in
+	// model_change entries.
+	const sessionModel = getBranchSelection(sessionManager.getBranch(), (provider, modelId) =>
+		modelRuntime.getModel(provider, modelId),
+	);
+
 	// If session has data, try to restore model from it
-	if (!model && hasExistingSession && existingSession.model) {
-		const restoredModel = modelRuntime.getModel(existingSession.model.provider, existingSession.model.modelId);
+	if (!model && hasExistingSession && sessionModel) {
+		const restoredModel = modelRuntime.getModel(sessionModel.provider, sessionModel.modelId);
 		if (restoredModel && modelRuntime.hasConfiguredAuth(restoredModel.provider)) {
 			model = restoredModel;
 		}
 		if (!model) {
-			modelFallbackMessage = `Could not restore model ${existingSession.model.provider}/${existingSession.model.modelId}`;
+			modelFallbackMessage = `Could not restore model ${sessionModel.provider}/${sessionModel.modelId}`;
 		}
 	}
 
@@ -269,13 +275,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = clampThinkingLevel(model, thinkingLevel) as ThinkingLevel;
 	}
 
-	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write"];
 	const configuredDefaultToolNames = settingsManager.getDefaultTools();
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;
 	const excludedToolNameSet = excludedToolNames ? new Set(excludedToolNames) : undefined;
 	const initialActiveToolNames = (
-		options.tools ?? (options.noTools ? [] : (configuredDefaultToolNames ?? defaultActiveToolNames))
+		options.tools ?? (options.noTools ? [] : (configuredDefaultToolNames ?? DEFAULT_TOOL_NAMES))
 	).filter((name) => !excludedToolNameSet?.has(name));
 
 	// Create convertToLlm wrapper that filters images if blockImages is enabled (defense-in-depth)
@@ -349,6 +354,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			},
 		};
 	};
+	// Warm only requests for the selected model. Requests a virtual selection routed, or that an
+	// extension redirected, may not be repeated by the next request, so warming them could be wasted.
 	const cacheContextIsCurrent = (requestModel: Model<any>) => {
 		const messages = agent.state.messages;
 		return () => {
@@ -374,6 +381,20 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			type: "after_provider_response",
 			status: response.status,
 			headers: response.headers,
+		});
+	};
+	const handleProviderStreamEvent: NonNullable<ModelsSimpleStreamOptions["onProviderStreamEvent"]> = async (
+		data,
+		model,
+	) => {
+		const runner = extensionRunnerRef.current;
+		if (!runner?.hasHandlers("provider_stream_event")) return;
+		await runner.emit({
+			data,
+			type: "provider_stream_event",
+			provider: model.provider,
+			api: model.api,
+			model: model.id,
 		});
 	};
 
@@ -420,26 +441,24 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			// SL-82: resolved fresh on every attempt (a function may answer differently call to call, e.g.
 			// the product's own "is this the turn's first Keeper call" cap); a plain number is unaffected.
 			const keeperCallCapMs = typeof keeperCallCapSetting === "function" ? await keeperCallCapSetting() : keeperCallCapSetting;
-			if (!(keeperCallCapMs > 0)) return underIdleWatchdog(requestOptions.signal);
 			const stepSignal = options?.signal;
+			// 0005 (owner, 2026-10-02): the re-send after an overrun runs without a cap, so no step ends because a
+			// provider was slow to answer; until 0005 a second overrun ended the step with nothing delivered.
+			const overran = (stepSignal ? keeperCallCapOverruns.get(stepSignal) : undefined) ?? 0;
+			if (!(keeperCallCapMs > 0) || overran >= 1) return underIdleWatchdog(requestOptions.signal);
 			return watchCallCap(underIdleWatchdog, requestOptions.signal, keeperCallCapMs,
 				{ api: model.api, provider: model.provider, id: model.id }, (phase) => {
-					const attempt = (stepSignal ? keeperCallCapOverruns.get(stepSignal) : undefined) ?? 0;
-					const next = attempt + 1;
-					if (stepSignal) keeperCallCapOverruns.set(stepSignal, next);
+					if (stepSignal) keeperCallCapOverruns.set(stepSignal, overran + 1);
 					onKeeperCallCap?.(phase, keeperCallCapMs);
-					// First overrun: worded to match pi-ai's own retry patterns ("timed? out"), so the
-					// session's existing auto-retry resends this step once, under the same context, exactly
-					// as an idle-progress timeout already does. Second overrun of the *same* step: worded to
-					// match none of them, so the session's own retry check declines and the step ends through
-					// its existing no-delivered-evidence fallback -- never a second automatic resend.
-					return next <= 1
-						? `Keeper call timed out: exceeded its per-call cap of ${keeperCallCapMs} ms (phase: ${phase})`
-						: `Keeper call exceeded its per-call cap of ${keeperCallCapMs} ms a second time (phase: ${phase}); this step ends now.`;
+					// Worded to match pi-ai's own retry patterns ("timed? out"), so the session's existing
+					// auto-retry resends this step once, under the same context, exactly as an idle-progress
+					// timeout already does.
+					return `Keeper call timed out: no answer within its per-call cap of ${keeperCallCapMs} ms (phase: ${phase})`;
 				});
 		},
 		onPayload: transformProviderPayload,
 		onResponse: handleProviderResponse,
+		onProviderStreamEvent: handleProviderStreamEvent,
 		sessionId: sessionManager.getSessionId(),
 		transformContext: async (messages) => {
 			const runner = extensionRunnerRef.current;
@@ -477,6 +496,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		modelRuntime,
 		cacheWarmer,
 		initialActiveToolNames,
+		usesDefaultTools: options.tools === undefined && !options.noTools,
 		allowedToolNames,
 		excludedToolNames,
 		extensionRunnerRef,

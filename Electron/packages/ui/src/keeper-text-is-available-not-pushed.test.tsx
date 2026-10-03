@@ -34,6 +34,7 @@ vi.mock('@xterm/xterm', () => ({ Terminal: class { open = vi.fn(); write = vi.fn
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit = vi.fn(); dispose = vi.fn() } }))
 
 afterEach(() => {
+  vi.useRealTimers()
   cleanup()
   vi.restoreAllMocks()
   localStorage.clear()
@@ -91,7 +92,8 @@ describe('where the assistant keeps secrets, a message\'s text is folded until t
     expect(third.container.textContent).not.toContain('floating knife')
   })
 
-  it('keeps implicit prose folded while it streams and draws the host\'s rewrite as prose at its message end', () => {
+  it('keeps implicit prose folded while it streams and types the host\'s delivered prose at its message end', () => {
+    vi.useFakeTimers()
     const streaming = draw(play(text(7, DRAFT)))
     expect(workingCards(streaming.container)).toHaveLength(1)
     expect(proseSegments(streaming.container)).toEqual([])
@@ -99,11 +101,15 @@ describe('where the assistant keeps secrets, a message\'s text is folded until t
 
     const ended = draw(play(text(7, DRAFT), text(7, RENDERED, { replace: true })))
     expect(workingCards(ended.container)).toEqual([])
+    expect(proseSegments(ended.container)).toEqual([''])
+    act(() => vi.advanceTimersByTime(4000))
     expect(proseSegments(ended.container)).toEqual([RENDERED])
     expect(ended.container.textContent).not.toContain('{{say')
+    vi.useRealTimers()
   })
 
   it('draws kept text that its message end left unchanged as prose once a later message begins or the turn ends', () => {
+    vi.useFakeTimers()
     const kept = play(text(2, PROSE))
     const open = draw(kept)
     expect(workingCards(open.container)).toHaveLength(1)
@@ -112,13 +118,18 @@ describe('where the assistant keeps secrets, a message\'s text is folded until t
     // The next message of the same turn has begun: the host advances the segment only at a message_end.
     const next = draw(play(text(2, PROSE), { type: 'thinking', sessionId: 's', contentIndex: 0, segment: 3, delta: 'Next.' }))
     expect(workingCards(next.container)).toEqual([])
+    expect(proseSegments(next.container)).toEqual([''])
+    act(() => vi.advanceTimersByTime(4000))
     expect(proseSegments(next.container)).toEqual([PROSE])
     cleanup()
 
     // Or the turn settles.
     const settled = draw(finishStreamingMessage(kept))
     expect(workingCards(settled.container)).toEqual([])
+    expect(proseSegments(settled.container)).toEqual([''])
+    act(() => vi.advanceTimersByTime(4000))
     expect(proseSegments(settled.container)).toEqual([PROSE])
+    vi.useRealTimers()
   })
 
   it('opens nothing by itself: the body is one click away, and the label says the Keeper is working', () => {

@@ -93,39 +93,9 @@ test('tampered evidence fails; disabled source auditor retains legacy audit outp
     assert.deepEqual(await t.call('mods.accept', {job: legacy.job}), {missing: [], findings: []});
 });
 
-test('unsupported and unclear source verdicts refuse both delivery verbs; source timeouts never fall through', async () => {
-    for (const verdict of ['unsupported', 'unclear']) {
-        const pi = {events: new EventEmitter(), on() {}}, result = {...emptyReview, source_review: {...emptyReview.source_review, verdict, summary: 'A material claim is not supported.'}};
-        let bridge; pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
-        pi.events.emit('coc:kernel-bridge', {call: async method => method === 'mods.job' ? {enabled: true, accepted: true, job: 'fixture'} : method === 'mods.accept' ? result : {effects: [], unfinished: []}});
-        for (const verb of ['narrate', 'ask']) await assert.rejects(bridge.prepare(verb, {campaign: 'c1', text: 'Unsupported ownership.'}), e => e.details?.reason === 'mod_narrative_repair' && e.details.source_review.verdict === verdict);
-    }
-    const pi = {events: new EventEmitter(), on() {}}, cwd = await mkdtemp(join(directory, 'host-'));
-    let bridge; pi.events.on('coc:mods-bridge', value => bridge = value); modsExtension(pi);
-    pi.events.emit('coc:kernel-bridge', {call: async method => method === 'mods.job' ? {enabled: true, source_review: true, cwd, system_prompt: join(cwd, 'prompt.md'), job: 'fixture'} : {effects: [], unfinished: []},
-        runtime: {async runTask(task) {assert.equal(task.request.tools, 'read,write,edit,bash'); return {ok: false, timedOut: true, ms: 180000};}}});
-    await assert.rejects(bridge.prepare('narrate', {campaign: 'c1', text: 'Unreviewed text.'}), e => e.details?.source_review === true && e.details?.timed_out === true);
-});
 
-test('implicit prose cannot bypass a rejected explicit audit and only corrected text reaches the kernel', async t => {
-    const bad = 'An invented family owns the house.', good = 'The ownership connection is not established.';
-    const session = await openTable({retainAt: directory, responses: [
-        fauxAssistantMessage([fauxToolCall('narrate', {text: bad})], {stopReason: 'toolUse'}),
-        fauxAssistantMessage(bad),
-        fauxAssistantMessage([fauxToolCall('narrate', {text: good})], {stopReason: 'toolUse'}),
-        fauxAssistantMessage('Delivery wrapper.')
-    ]});
-    t.after(() => session.dispose());
-    const audited = [];
-    session.emit('coc:mods-bridge', {async after() {}, async prepare(method, payload) {
-        if (method !== 'narrate') return;
-        audited.push(payload.text);
-        if (payload.text === bad) throw new KernelError({code: 'needs', message: 'Unsupported source claim', fix: 'Remove the invented ownership.', details: {reason: 'mod_narrative_repair'}});
-    }});
-    await session.session.prompt('Clarify only the known facts.'); await waitForIdle(session.session);
-    assert.deepEqual(audited, [bad, bad, good]);
-    const delivered = session.kernelRequests().filter(request => request.method === 'table.narrate');
-    assert.ok(delivered.length); assert.ok(delivered.every(request => request.params.text === good));
-    assert.ok(assistantTexts(session.session).some(text => text.includes(good)));
-    assert.ok(assistantTexts(session.session).every(text => !text.includes(bad)));
-});
+
+
+
+// Section 166 retires automatic prose-review integration cases.
+// Current no-review delivery coverage: single-pass-narration.test.mjs and post-delivery-continuity.test.mjs.

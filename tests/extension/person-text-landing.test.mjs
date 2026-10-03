@@ -208,7 +208,8 @@ test("§22.4.7.1 at the seam: the write lands on the book's text in one call, th
 	assert.equal(texts.length, 1, `the page text is carried once: ${JSON.stringify(texts)}`);
 	assert.equal(texts[0].request, 1, "on the step after the write");
 	assert.equal(texts[0].view.name, "Silas Marsh");
-	assert.deepEqual(Object.values(texts[0].view.view), PAGES);
+	// §103.5: Old Mae is a book person nobody has named to the investigator, so the Keeper's copy of the page has her handle.
+	assert.deepEqual(Object.values(texts[0].view.view), PAGES.map((page) => page.replace("Old Mae", "old-mae")));
 	const note = clerkNotes(requests[1]).at(-1);
 	assert.ok(note.carried.head.includes(CARRIED_PERSON_TEXT_HEAD));
 	assert.deepEqual(note.carried.pending.map((row) => [row.focus, row.person, row.purpose]), [["Silas Marsh", "Silas Marsh", "detail"]], "the pending row names the person");

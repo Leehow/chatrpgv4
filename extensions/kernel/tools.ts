@@ -252,19 +252,48 @@ const AbilityEffect = Type.Object({
 });
 
 /** A priced transaction (contract §5 `cash`, #19; §58 source and Spending Level settlement). */
+const QuotationDrafts = Type.Optional(Type.Array(Type.Object({
+    quote: Type.String({maxLength:200,description:"offer name reused on acceptance"}),
+    category: StringEnum(["living","purchase"] as const),
+    items: Type.Array(Type.Object({name:Type.String(),quantity:Type.Number({exclusiveMinimum:0}),unit_price:Type.Number({minimum:0})}),{minItems:1,maxItems:24}),
+    subject: Type.Optional(Type.String({description:"omit for one investigator; otherwise use their exact capsule name/id"})),
+    with: Type.Optional(Type.String({description:"seller name/role; required unless source price"})),
+    source: Type.Optional(StringEnum(["quote","price"] as const)),
+    price_id: Type.Optional(Type.String()),
+    currency: Type.Optional(Type.String({description:"omit for the held cash currency; never translate its code"})),
+    why: Type.Optional(Sentence("brief player-visible quotation purpose in play_language")),
+}),{maxItems:8,description:"Offers only. Write closing prose first, then these priced lines in the same call. Background registration computes totals and updates the card after delivery. No payment or item transfer"}));
+
+// Both delivery schemas carry the same bounded drafts; describe their fields once in narrate. Spreading the optional
+// schema keeps its shape but not its optional mark, and `Type.Object` then lists the property as required: every
+// apply without quotes -- the clerk's move, the Keeper's ordinary write -- failed validation ("quotes: must have
+// required properties quotes"), 35 loop tests on 2026-10-02. Type.Optional restores the mark.
+const EmbeddedQuotationDrafts = Type.Optional({
+    ...QuotationDrafts,
+    description: "Background offers only; the same fields as narrate.quotes",
+    items: {...QuotationDrafts.items, properties: Object.fromEntries(Object.entries(QuotationDrafts.items.properties).map(([name,schema])=>{
+        const {description:_description,...fields}=schema;
+        return [name,fields];
+    }))},
+} as typeof QuotationDrafts);
+
 const CashEffect = Type.Object({
 	owed: OwedRef,
 	...IntentResult,
-	kind: StringEnum(["cash"] as const, { description: "settle money received or a purchase, either from cash or under the investigator's Spending Level" }),
+	kind: StringEnum(["cash"] as const, { description: "record an exact itemized quote, settle a chosen purchase under the living-standard/daily-spending rules, or transfer actual cash" }),
+	mode: Type.Optional(StringEnum(["quote", "settle"] as const, {description:"settle (default) pays the chosen transaction. quote registers an offer synchronously; prefer narrate.quotes for ordinary offers so prose does not wait. Use synchronous quote only when another operation needs its exact result before delivery. Quoting does not pay or transfer items"})),
+	quote: Type.Optional(Type.String({maxLength:200,description:"human-readable offer name. With mode quote this names the offer being registered; with settle it reuses that saved offer's exact terms and computed amount once, so omit delta/items/source/category/with/currency unless unchanged"})),
+	category: Type.Optional(StringEnum(["living", "purchase", "transfer"] as const, {description:"required for a negative price/quote: living is ordinary accommodation, food or incidental travel within the investigator's living standard; purchase is additional daily spending, including an incidental gratuity when appropriate; transfer is actual non-purchase cash movement. Make the contextual judgement, never use the purchase amount alone to classify it. The kernel chooses whether any cash is debited"})),
+	items: Type.Optional(Type.Array(Type.Object({name:Type.String(),quantity:Type.Number({exclusiveMinimum:0}),unit_price:Type.Number({minimum:0})}),{minItems:1,maxItems:24,description:"quoted priced lines; the kernel multiplies quantity by unit_price and sums exactly. Omit delta to use that total. A saved quote already contains its lines"})),
 	subject: Type.Optional(Type.String({ description: "whose money; defaults to the current investigator" })),
 	stated: StatedAmount,
-	delta: Type.Optional(Type.Number({ description: "required unless stated gives it (a reward the book pays): signed finite amount in the balance's unit. A purchase is negative. With settlement spending_level this is the purchase price even though cash remains unchanged" })),
+	delta: Type.Optional(Type.Number({ description: "signed finite amount; a direct purchase is negative. Omit when items, a saved quote or stated provides it. A supplied purchase delta must equal the negative computed line total. Purchase input is its price, while the receipt delta is the actual cash movement after coverage and daily aggregation" })),
 	source: Type.Optional(StringEnum(["price", "quote", "found"] as const, { description: "required unless stated gives the amount, which is then a quote: where the amount came from, before you say how much. price: the rulebook prints this price — give its price_id, and run lookup kind=catalog kinds=[\"item\"] for the thing being bought if you do not have one. quote: someone in the fiction named this amount — name them in `with`. found: no price is involved (found, stolen, wages, a gift, a debt settled). A figure the player said about their own purse is a balance, not a price: the capsule tells you the balance, so charge what the thing is worth, not what they have" })),
-	settlement: Type.Optional(StringEnum(["cash", "spending_level"] as const, { description: "cash (default) changes the purse and requires disclosed terms plus player acceptance. spending_level is the rulebook fast path for an occasional purchase no greater than known.investigator.living.spending_level: it records the price but spends no cash and needs no separate price confirmation. Use it only after the player chose the service, item or activity; the kernel enforces the numeric limit" })),
+	settlement: Type.Optional(StringEnum(["cash", "spending_level"] as const, { description: "legacy assertion; normally omit it. The kernel applies living-standard coverage and the cumulative daily Spending Level automatically. cash cannot debit a covered purchase; spending_level refuses a daily total over the limit. Always obtain the player's choice of the item/service; a cash commitment still requires accepted terms or applicable delegation" })),
 	price_id: Type.Optional(Type.String({ description: "required with source price: the price_id of the printed record you are charging, exactly as lookup kind=catalog returned it. An invented one is refused" })),
 	currency: Type.Optional(Type.String({ description: "the unit this amount is counted in, when the fiction named one. It must be the unit the balance is held in — the kernel does not convert between units. If a price was quoted in another currency, settle the exchange in the fiction and record what actually left the purse" })),
-	with: Type.Optional(Type.String({ description: "the person on the other side of it: an NPC name. Name them whenever money is paid to or taken from someone — that is what puts it on their account, and you are told it again the next time they are in the room" })),
-	why: Type.Optional(Sentence("where the money went, or where it came from")),
+	with: Type.Optional(Type.String({ description: "the person on the other side: a known NPC name, or a player-visible name/role for a one-off counterparty such as a counter clerk. This label records the transaction without creating an NPC profile; registered people keep their canonical identity" })),
+	why: Type.Optional(Sentence("brief player-visible payment purpose in the campaign's play_language: what was paid for, or where received money came from. This is shown on its cash card; omit private motives and internal reasoning")),
 });
 
 /** The Keeper's pacing instrument (contract §30.9): the book writes the clock, only this moves it. */
@@ -790,6 +819,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 			narrate: Type.Optional(Type.String({ description: withPlainProse("this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead") })),
+			quotes: EmbeddedQuotationDrafts,
 		}),
 	},
 	{
@@ -820,11 +850,12 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		label: "Narrate",
 		method: "table.narrate",
 		description:
-			"Deliver story text and close the turn. Describe fiction and observable consequences only. Roll values, targets, grades, resource accounting, elapsed time as a figure (minutes, hours) and rule options are exclusively mechanics JSON rendered by the frontend and its clock. Do not repeat them in text or ask how to handle a failed check. Use the campaign play_language. A no_roll caused by player_choice settles only that no check is made; it does not settle success or failure. Do not imply a hit or miss, harm, injury, condition change, incapacitation, forced movement or another consequence that depends on that check. Narrate only settled events before the consequence, then end with a present person or immediate situation returning the player's choice in character; do not leave the declared action hanging or ask out of fiction. Likewise, a host refusal saying an outcome cannot land constrains the story text. Mark where each mechanic happened: resolve and apply hand back markers (the `markers` list in their result — copy a name exactly), and writing {{that-marker}} at the point in the sentence where it happened lets the frontend draw the roll or the change there instead of after everything. Place only markers this turn handed back, each at most once; leaving one out is fine and simply groups it at the end. A marker naming nothing this turn is dropped from the delivery and reported in dropped_markers — the prose still goes out, but that mechanic never landed, so do not write it as done. When this call shares a message with the non-blocking writes it describes, you have not seen their own markers yet: name the effect instead, {{kind:handle}} (its receipt kind and the handle you gave it, such as {{clue:globe-fire-cutoff}} or {{move:newspaper-morgue}}) — it resolves to that write's receipt the same way, and an effect key naming nothing this turn is dropped exactly like an unknown marker. Wrap every spoken line as {{say:Name}}…{{/say}} with Name exactly as present[].name gives it (a label for anyone not present), keeping the play language's own quotation marks inside the token; the kernel strips the tokens and the frontend colours each speaker. After delivery write no more prose.",
+			"Deliver story text and close the turn. When presenting prices, supply quotes in this same call even for a price-only question; no payment acceptance is needed to offer a price. Describe fiction and observable consequences only. Roll values, targets, grades, resource accounting, elapsed time as a figure (minutes, hours) and rule options are exclusively mechanics JSON rendered by the frontend and its clock. Do not repeat them in text or ask how to handle a failed check. Use the campaign play_language. A no_roll caused by player_choice settles only that no check is made; it does not settle success or failure. Do not imply a hit or miss, harm, injury, condition change, incapacitation, forced movement or another consequence that depends on that check. Narrate only settled events before the consequence, then end with a present person or immediate situation returning the player's choice in character; do not leave the declared action hanging or ask out of fiction. Likewise, a host refusal saying an outcome cannot land constrains the story text. Mark where each mechanic happened: resolve and apply hand back markers (the `markers` list in their result — copy a name exactly), and writing {{that-marker}} at the point in the sentence where it happened lets the frontend draw the roll or the change there instead of after everything. Place only markers this turn handed back, each at most once; leaving one out is fine and simply groups it at the end. A marker naming nothing this turn is dropped from the delivery and reported in dropped_markers — the prose still goes out, but that mechanic never landed, so do not write it as done. When this call shares a message with the non-blocking writes it describes, you have not seen their own markers yet: name the effect instead, {{kind:handle}} (its receipt kind and the handle you gave it, such as {{clue:globe-fire-cutoff}} or {{move:newspaper-morgue}}) — it resolves to that write's receipt the same way, and an effect key naming nothing this turn is dropped exactly like an unknown marker. Wrap every spoken line as {{say:Name}}…{{/say}} with Name exactly as present[].name gives it (a label for anyone not present), keeping the play language's own quotation marks inside the token; the kernel strips the tokens and the frontend colours each speaker. After delivery write no more prose.",
 		promptSnippet: "Deliver this turn's narration and close the turn",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
 			text: Type.String({ description: withPlainProse("this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened and every spoken line inside {{say:Name}}…{{/say}}") }),
+			quotes: QuotationDrafts,
 			workpad_patch: WorkpadPatch,
 		}),
 	},

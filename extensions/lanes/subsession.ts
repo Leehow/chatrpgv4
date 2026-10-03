@@ -554,6 +554,23 @@ export async function runLane<T>(request: LaneRequest<T>): Promise<LaneResult<T>
 	}
 }
 
+/**
+ * The Flapcode extension strips these Responses fields in Pi's `before_provider_request` hook:
+ * that hook is not run for the direct `ModelRegistry.complete()` lane path below. Mirror the
+ * provider's structural compatibility transform here so zero-tool lanes use the same relay-safe
+ * request as the Keeper's normal Pi stream. Keep the provider check closed and the fields exact.
+ */
+function laneCompatiblePayload(model: { provider: string }, payload: unknown): unknown {
+	if (model.provider.toLowerCase() !== "flapcode" || !payload || typeof payload !== "object" || Array.isArray(payload))
+		return payload;
+	const fields = ["max_output_tokens", "prompt_cache_retention", "prompt_cache_options"] as const;
+	const record = payload as Record<string, unknown>;
+	if (!fields.some((field) => Object.hasOwn(record, field))) return payload;
+	const compatible = { ...record };
+	for (const field of fields) delete compatible[field];
+	return compatible;
+}
+
 async function runLaneAttempt<T>(
 	request: LaneRequest<T>,
 	signal: AbortSignal,
@@ -606,10 +623,11 @@ async function runLaneAttempt<T>(
 				{ signal, maxRetries:0, ...reasoning, ...rows.options, ...(headers ? { headers } : {}),
 					onPayload:async(payload:unknown)=>{
 						const prepared=boundProviderRequest(resolved.model,payload);
+						const compatiblePayload = laneCompatiblePayload(resolved.model, prepared.payload);
 						const charge=await request.providerBudget!.reserve(prepared.bound,signal);
-						try{await rows.options.onPayload(prepared.payload);signal.throwIfAborted();}
+						try{await rows.options.onPayload(compatiblePayload);signal.throwIfAborted();}
 						catch(error){charge.release();throw error;}
-						charges.push(charge);return prepared.payload;
+						charges.push(charge);return compatiblePayload;
 					}},
 			);
 		} catch (error) {

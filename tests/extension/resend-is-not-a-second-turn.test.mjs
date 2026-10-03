@@ -53,13 +53,9 @@ function holdTurnOpen(session, { pauseDelivery = false } = {}) {
 	let release;
 	const arrived = new Promise((resolve) => { release = resolve; });
 	let paused = false;
-	session.emit("coc:mods-bridge", {
-		async after() {},
-		async prepare(method) {
-			if (method !== "narrate") return;
-			await arrived;
-			if (pauseDelivery && !paused) { paused = true; throw reviewUnavailable(); }
-		},
+	session.emit("coc:task-delivery-guard", async () => {
+		await arrived;
+		if (pauseDelivery && inputsTo(session).length === 1) throw new Error("Fixture publication task expired");
 	});
 	return release;
 }

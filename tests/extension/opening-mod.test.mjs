@@ -72,3 +72,27 @@ test("with no bridge announced the opening Mod call waits, then refuses with a r
 	const row = table.telemetry().find((entry) => entry.cause === "mods_bridge_pending");
 	assert.ok(row, "the refusal is marked as bridge-pending, not as a closed turn");
 });
+
+test("§23 at the opening: a clock pin passes the host's door with no Mod layer, and its embedded narration follows", async (t) => {
+	// A fresh Blood Road table (2026-10-02): the kernel accepts the pin at the opening and the capsule asks for it, but the
+	// host's opening door admitted only Mod kinds and refused it twice running before the prose.
+	const table = await openTable({
+		env: { FAKE_KERNEL_OPENING: "1", PI_COC_MODS_WAIT_MS: "50" },
+		responses: [
+			fauxAssistantMessage([
+				fauxToolCall("apply", { effects: [{ kind: "clock", local_datetime: "1975-07-15T09:00", why: "书只写了七月" }], narrate: "七月的公路上，你握着方向盘。" }),
+			], { stopReason: "toolUse" }),
+			fauxAssistantMessage("after"),
+		],
+	});
+	t.after(() => table.dispose());
+	await waitForIdle(table.session);
+
+	const apply = table.kernelRequests().find((row) => row.method === "table.apply");
+	assert.ok(apply, "the pin reached the kernel");
+	assert.deepEqual(apply.params.effects.map((effect) => effect.kind), ["clock"]);
+	assert.equal(table.telemetry().filter((row) => row.code === "turn_state").length, 0, "no closed-turn refusal");
+	assert.equal(table.telemetry().filter((row) => row.cause === "mods_bridge_pending").length, 0, "a clock waits for no Mod layer");
+	const [text] = toolResultTexts(table.session, "apply");
+	assert.doesNotMatch(text ?? "", /stay as the table opened them, so put whatever/);
+});

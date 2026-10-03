@@ -19,6 +19,8 @@ import {validateRecallRequest} from './pages.js';
 import {referencedJob, referencedSource, submitReferenced} from './referenced.js';
 import {createMemoryEvidenceOwner} from './evidence.js';
 import {closeSatisfied, mergeOwed, owedNames, projectOwed, resolveOwedEquipment, readOwed, writeOwed} from '../owed/index.js';
+import {applyFirstSight, checkFirstSightItems, FIRST_SIGHT_BUDGET, firstSightSection, fitFirstSight, readFirstSight, turnFirstSight, writeFirstSight} from '../first-sight/index.js';
+import {HEAD_FIRST_SIGHT} from '../read/assemble.js';
 /** The verifier's finding kinds, `play_language_mismatch` among them: the kernel makes no language refusal of its own (contract section 23). */
 const FINDINGS = ['reveal', 'uncommitted_state', 'player_agency', 'play_language_mismatch', 'unmarked_speech', 'investigator_identity_mismatch'];
 /**
@@ -170,6 +172,30 @@ async function warn(context: KernelContext, loaded: { campaign: CampaignWriter; 
         ...(unanchored.length ? { unanchored } : {}) });
     return { turn, lane, accepted: accepted.length, dropped, warnings: warnings.map(value => ({ kind: value.kind, quote: value.quote, why: value.why, ...(value.clue ? { clue: value.clue } : {}) })) };
 }
+/**
+ * Contract §168.5: what the host's first-sight check found a delivery showed of the place and people it owed. Like
+ * `table.warn` it lands after the turn it read has closed and takes no call id: an item with nothing missing is shown,
+ * any other is an open row the next capsule carries as `missing`. The record keeps the turn's results for a fork.
+ */
+async function firstSight(context: KernelContext, loaded: { campaign: CampaignWriter; module: { graph: ModuleGraph } }, params: Row): Promise<Row> {
+    const { campaign, module } = loaded, turn = params.turn;
+    if (!integer(turn) || number(turn) < 0)
+        throw new RpcError('invalid_params', 'params.turn must be a committed turn number');
+    const record = await campaign.readTurnRecord(number(turn));
+    if (!record || !['narrate', 'ask'].includes(string(record.closed_by)))
+        throw new RpcError('invalid_params', `turn ${turn} has no delivery record for a first-sight check`, { details: { turn } });
+    const { results, dropped } = checkFirstSightItems(module.graph, params.items), at = nowIso();
+    if (results.length) {
+        await writeFirstSight(context, campaign.id, applyFirstSight(await readFirstSight(context, campaign.id), number(turn), results, at));
+        record.first_sight = turnFirstSight(record.first_sight, results, at);
+        await campaign.writeTurnRecord(record);
+    }
+    const shown = results.filter(result => !result.missing.length).map(result => ({ kind: result.kind, id: result.id }));
+    const open = results.filter(result => result.missing.length).map(result => ({ kind: result.kind, id: result.id, missing: result.missing }));
+    await campaign.telemetry({ lane: 'first-sight', event: 'recorded', turn: number(turn), shown: shown.length, open: open.length,
+        ...(dropped.length ? { dropped } : {}) });
+    return { turn: number(turn), shown, open, dropped };
+}
 export function createMemoryHandlers(context: KernelContext, writer: ReturnType<typeof createWriteRuntime>): HandlerGroup {
     const evidence = createMemoryEvidenceOwner(context, params => writer.campaign(params));
     async function load(params: Row) {
@@ -210,6 +236,18 @@ export function createMemoryHandlers(context: KernelContext, writer: ReturnType<
             return referencedSource(await writer.campaign(params), number(params.turn));
         },
         'table.warn': async (params) => warn(context, await load(params), params),
+        'table.first_sight': async (params) => firstSight(context, await load(params), params),
+        // Contract §168.5: the first sight owed where the party stands now, for a run that moved after its capsule was read.
+        'table.first_sight.view': async (params): Promise<Row> => {
+            const { campaign, snapshot, module } = await load(params);
+            let scene: Row;
+            try { scene = module.graph.scene(string(snapshot.world.active_scene)); }
+            catch { return { first_sight: null }; }
+            const section = firstSightSection(module.graph, snapshot.world, scene, await readFirstSight(context, campaign.id));
+            if (!section) return { first_sight: null };
+            fitFirstSight(section, FIRST_SIGHT_BUDGET);
+            return { first_sight: section, head: HEAD_FIRST_SIGHT.trim() };
+        },
         'memory.job': async (params) => {
             const { campaign, snapshot, module } = await load(params);
             if (params.mode != null && params.mode !== 'referenced') throw new RpcError('invalid_params', 'Unknown memory job protocol');

@@ -230,7 +230,26 @@ Exa highlights 记作提供方返回的网页摘录。宿主保存本次摘录�
 - Native CUA on the installed App selected and applied Historical Reference 1.0.7 in the task's GUI test campaign, visibly disabled then re-enabled it, and kept the new-campaign default on. Exa remained `Saved` in a secure input. After normal quit/relaunch, version lock 1.0.7, enabled state, default and saved credential persisted. No credential value was read and no story prompt was sent during this settings check. Existing campaigns retain their version locks until the user selects a newer version; they are not silently upgraded.
 - Original worktree `.coc`, `.tmp` and `.pi` evidence was moved intact under `selected-preparation-repair-20261001/original-worktree-evidence/` before ordinary lifecycle closeout. The task-owned worktree/branch are closed; final audit is `audit_ok`, pending 0. Current delivery evidence is `delivery-acceptance.json`; the earlier real Keeper report/runs and controlled fictional-style probe remain separate evidence layers. The cancelled heartbeat was not reactivated.
 
-#### Selected preparation repair — approved, in progress (2026-09-30)
+#### Host scene lookup — replaces the selected preparation (owner, 2026-10-02)
+
+The owner chose the host-built query with per-scene reuse after the installed App's 18 turns showed what the forced lookup round cost. Jev granted the need on 16 turns; the Keeper call that only wrote the query took 4–21 s, against 1–2 s for the search; and two turns ran out of budget before searching. Contract §124.12 *Host scene lookup* is authoritative. In short:
+- A granted need starts the search in the host. The query is the era plus the scene name; the objective is the scene summary plus the scenario background. Both come from fixed shapes over authored fields, with no model.
+- The result goes to the Keeper's first writing step.
+- A scene's result is reused on later turns without a search.
+- The Keeper's own lookup remains for specific details.
+
+Mod 1.0.8 carries the new instruction.
+
+#### English query, web for a new scene, period gate (owner, 2026-10-02)
+
+The first App table of the host scene lookup (Blood Road, turns 5–9) never reached the web. Five loosely relevant library pages, all from one Chinese search on turn 1, stood in for every scene, and the prose borrowed one idea from them in nine turns. Owner rulings:
+- The fast model writes each new scene's query in English, once per scene.
+- A new scene searches the web; only an exact query match reuses the library.
+- An excerpt must show how things were at that time.
+
+Contract §124.12 has the mechanics.
+
+#### Selected preparation repair — approved, superseded 2026-10-02 (2026-09-30)
 
 - The user approved repair after four genuine in-fiction turns made no historical reads. The medieval 0.54 decision was projected but remained an optional permission, and the Keeper bypassed it. Soviet decisions 0.50/0.49 were declined by the unchanged greater-than-0.5 gate. The existing single need question mixes material value with interruption and shares an action-only compile policy. The negative scores' individual causes are not established by the retained telemetry.
 - Repair scope: select one bounded preparation attempt on a positive need, using the same main Keeper/native tool channel; separate support value from immediate interruption in the same Jev batch; carry fictional-canon/style-reference purpose through lookup, filtering and normal narration. Preserve library reuse, price-anchor cost controls, resource closure and world-operation authority. No threshold reduction, unrelated NPC pacing/check-selection change, research agent or automatic per-scene web search.

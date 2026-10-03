@@ -323,48 +323,9 @@ function deferredRegistration(variant) {
 	});
 }
 
-test("an exact owned deferred-registration receipt advances the auditing task and permits one delivery", async t => {
-	let decisions = 0;
-	const table = await createKernelHost(t, {
-		mods: deferredRegistration("owned"),
-		responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "The deferred registration and this answer share one turn." })], { stopReason: "toolUse" })],
-		async decide() { decisions++; throw new Error("direct draft must not invoke Jev"); },
-	});
-	await table.session.prompt("Answer directly while deferred registration completes.", { source: "rpc" });
-	await waitForIdle(table.session);
 
-	const status = table.adapter.status();
-	const requests = await table.kernelRequests();
-	assert.equal(decisions, 0);
-	assert.equal(status.task.status, "closed");
-	assert.equal(status.task.reason, "delivered");
-	assert.equal(status.task.checkpoint.context.readSet.find(row => row.kind === "world").revision, "world-r2");
-	assert.deepEqual(status.task.checkpoint.settledReceipts, table.control.registration.receipts);
-	assert.equal(requests.filter(row => row.method === "table.apply").length, 1, "the deferred registration creates one world effect");
-	assert.equal(requests.filter(row => row.method === "table.narrate").length, 1, "delivery follows the owned advance without replaying the effect");
-	assert.deepEqual(table.extensionErrors, []);
-});
 
-test("foreign-scope and old-before receipt events never unlock delivery after a world change", async t => {
-	for (const variant of ["foreign-scope", "old-before"]) await t.test(variant, async t => {
-		const table = await createKernelHost(t, {
-			mods: deferredRegistration(variant),
-			responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "This draft must stay blocked." })], { stopReason: "toolUse" })],
-			async decide() { throw new Error("direct draft must not invoke Jev"); },
-		});
-		await table.session.prompt(`Reject the ${variant} receipt event.`, { source: "rpc" });
-		await waitForIdle(table.session);
 
-		const status = table.adapter.status();
-		const requests = await table.kernelRequests();
-		assert.equal(status.task.status, "ready");
-		assert.equal(status.task.phase, "auditing");
-		assert.equal(status.task.checkpoint.context.readSet.find(row => row.kind === "world").revision, "world-r1");
-		assert.deepEqual(status.task.checkpoint.settledReceipts, []);
-		assert.equal(requests.filter(row => row.method === "table.apply").length, 1, "the deferred effect settles exactly once");
-		assert.equal(requests.filter(row => row.method === "table.narrate").length, 0, "stale delivery never reaches the kernel");
-	});
-});
 
 test("a changed authoritative world revision makes the accepted plan stale before any operation dispatch", async t => {
 	let table;
@@ -540,3 +501,5 @@ test("public session new, switch, and shutdown rebuild and close adapter state",
 	assert.ok(log.starts.includes("new"));
 	assert.ok(log.starts.includes("resume"));
 });
+
+// Section 166 retires prose-repair retries. Single-pass delivery and real task guards have current coverage in single-pass-narration.test.mjs and jev-s0-delivery-guard.test.mjs.

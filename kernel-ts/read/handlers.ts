@@ -16,7 +16,7 @@ import { buildCapsule } from "./assemble.js";
 import { lastExchange, lastInteraction } from "./exchange.js";
 import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
-import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection } from "./capsule.js";
+import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection, untoldRoster } from "./capsule.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
@@ -376,6 +376,12 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                     ? await contributions.capsule(campaign, module, { rehydrate })
                     : await buildCapsule(campaign, module, rehydrate ? { styleFull: true, moduleBrief: true } : {});
             return { ...view, _context: await contextBinding(campaign, module, view) };
+        },
+        // Contract §103.5: who is still untold, campaign-wide, for the host's rename of the Keeper's request. Read-only.
+        "table.untold": async (params) => {
+            const { campaign, module } = await readCampaign(context, params, false, true, contributions, true);
+            const journal = row(await campaign.optional("npc-journal.json")), records = campaign.records.length ? campaign.records : await campaign.files("turns");
+            return { people: untoldRoster(module.graph, campaign.world, journal, records) };
         },
         "table.look": async (params) => {
             const contextRead = params._context_read === true;

@@ -1,19 +1,16 @@
-Stalled provider streams: an attempt ends when its stream stops producing events (contract §135.29).
-Base: 0002 applied (cebffa0e1). Apply with: git apply -p1 from the repository root.
-
 diff --git a/vendor/pi/packages/coding-agent/src/core/sdk.ts b/vendor/pi/packages/coding-agent/src/core/sdk.ts
-index d60925e2a..6c00754c5 100644
+index 27c278f31..352abe623 100644
 --- a/vendor/pi/packages/coding-agent/src/core/sdk.ts
 +++ b/vendor/pi/packages/coding-agent/src/core/sdk.ts
 @@ -17,6 +17,7 @@ import type { ResourceLoader } from "./resource-loader.ts";
  import { DefaultResourceLoader } from "./resource-loader.ts";
  import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
- import { SettingsManager } from "./settings-manager.ts";
+ import { DEFAULT_TOOL_NAMES, SettingsManager } from "./settings-manager.ts";
 +import { watchStreamProgress } from "./stream-progress.ts";
  import { time } from "./timings.ts";
  import {
  	createBashTool,
-@@ -384,7 +385,13 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
+@@ -405,7 +406,13 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
  			if (options?.sessionId === sessionManager.getSessionId()) {
  				cacheWarmer.start({ model, context, options: requestOptions }, cacheContextIsCurrent(model));
  			}

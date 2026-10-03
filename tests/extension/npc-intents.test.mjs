@@ -178,15 +178,13 @@ test('the intention ledger is a fold of the turn records and is rebuilt from the
 
 const record=async(home,turn)=>JSON.parse(await readFile(join(home,'.coc','campaigns',campaign,'turns',`${String(turn).padStart(4,'0')}.json`),'utf8'));
 
-test('a delivery that reports no result for an intention under way is refused once, then delivered with a finding',async t=>{
+test('section 166: an owed intention is recorded without refusing the first draft',async t=>{
  const {client,home}=await opened(t);
  await begin(client);
  await apply(client,'t1-c1',{intends:SHOUT,outcome:'attempted'});
  await nextTurn(client,1);
  const ref=(await knottLedger(home)).intents[0].ref;
- await assert.rejects(client.call('table.narrate',{campaign,call_id:'t2-c1',text:'You swing again.'}),
-  e=>e.code==='needs'&&e.details?.reason==='intent_result_owed'&&e.details.owed.map(item=>item.ref).join()===ref);
- const delivered=await client.call('table.narrate',{campaign,call_id:'t2-c2',text:'You swing again.'});
+ const delivered=await client.call('table.narrate',{campaign,call_id:'t2-c1',text:'You swing again.'});
  assert.equal(delivered.turn,2,'the same owed set a second time is delivered');
  const warning=(await record(home,2)).warnings.find(value=>value.kind==='intent_result_owed');
  assert.equal(warning.ref,ref);

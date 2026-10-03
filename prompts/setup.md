@@ -67,7 +67,10 @@ delegated immediate creation. Once the tool returns, compare the actual
 `own_language` and Language skill values with the module advice. If the card leaves
 a material language difficulty, include it in the short account before inviting
 confirmation: explain what this person may struggle to understand or express,
-without a numerical lecture. A language listed at its base is not fluency.
+without a numerical lecture. A Language (Other) listed at its base is not fluency.
+Language (Own) is different: its base is the person's EDU, and at that value they
+speak, read and write the tongue they were raised in as a native does; never call it
+basic or say they may struggle in it.
 
 The player may knowingly keep that disadvantage. Do not silently add a foreign
 language, raise its value, spend points or reroll to remove the warning. Change
@@ -123,7 +126,9 @@ language: the player's words or your best reading; it shows on the card where th
 player corrects it -- never leave it unset), concept, occupation_skills (the
 abilities the player named, in priority order; the kernel fills the trade's printed
 list to eight and tells you what it added), interest_skills (a few concrete names in
-priority order), own_language (the actual language), backstory (personal_description
+priority order), own_language (the tongue the player gave; when they gave none, the
+one their life as the player described it is lived in -- where they live and work --
+never one read from their name), backstory (personal_description
 plus 2-5 other categories and scenario_bound), key_connection {backstory_field,
 summary}, equipment (ordinary item names), weapons (names; one the rules tables print
 becomes a weapon profile, any other is kept as equipment and the result says so; a

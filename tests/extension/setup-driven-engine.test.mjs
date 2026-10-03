@@ -10,6 +10,7 @@
 import { strict as assert } from "node:assert";
 import { stream as responsesStream } from "@earendil-works/pi-ai/api/openai-responses";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
@@ -270,6 +271,35 @@ test("§151.6: a stated catalog occupation on the card binds without a model cal
 	assert.deepEqual(last.model_steps, { bind: 0, compose: 1, adjudicate: 0 });
 	assert.equal(last.plan, "direct");
 	assert.equal(kernel(table, "setup.confirm").length, 0);
+});
+
+test("a compose reply's commentary-phase preambles are the guide's working: kept as evidence, off the reply; a reply of commentary alone stands", async (t) => {
+	// Installed App, 2026-10-02: in a step with no tool, gpt-6-luna wrote four English preambles ("**Recording the
+	// strengths ...**") marked phase "commentary" ahead of its Chinese reply, and the player read all five.
+	const phase = (text, value) => ({ type: "text", text, textSignature: JSON.stringify({ v: 1, id: `msg_${value}_${text.length}`, phase: value }) });
+	const reply = fauxAssistantMessage("卡好了。");
+	const run = await drivenSetup({ decide: cardFieldsJev(FIRST_FIELDS), responses: [bindCall, reply] });
+	t.after(() => run.table.dispose());
+	await run.table.session.prompt(FIRST_INPUT);
+	await waitForIdle(run.table.session);
+	const before = run.table.entries("coc-setup-output-rejected").length;
+	run.respond([{ ...fauxAssistantMessage("x"), content: [phase("**Recording the strengths.**", "commentary"), phase("**Noting the trade.**", "commentary"),
+		phase("好，艾伦现在是警探。", "final_answer")] }]);
+	run.decide(cardFieldsJev({ occupation: "o2", occupation_stated: 0.95 }));
+	await run.table.session.prompt("其实他是个警探。");
+	await waitForIdle(run.table.session);
+	const last = run.table.session.messages.findLast((message) => message.role === "assistant");
+	assert.deepEqual(last.content.filter((block) => block.type === "text").map((block) => block.text), ["好，艾伦现在是警探。"]);
+	const evidence = run.table.entries("coc-setup-output-rejected").slice(before);
+	assert.equal(evidence.length, 1);
+	assert.equal(evidence[0].reason, "setup_commentary_text");
+	assert.deepEqual(evidence[0].message.content.map((block) => block.text), ["**Recording the strengths.**", "**Noting the trade.**", "好，艾伦现在是警探。"]);
+	// Commentary alone is left as it is: the player is never handed an empty reply.
+	run.respond([{ ...fauxAssistantMessage("x"), content: [phase("只有一句。", "commentary")] }]);
+	run.decide(cardFieldsJev({ occupation: "o1", occupation_stated: 0.95 }));
+	await run.table.session.prompt("还是改成医生吧。");
+	await waitForIdle(run.table.session);
+	assert.deepEqual(run.table.session.messages.findLast((message) => message.role === "assistant").content.map((block) => block.text), ["只有一句。"]);
 });
 
 test("§151.6: an open field on the card goes through the narrowed tool, which refuses a closed key with the open keys and the bound values; the refusal goes to the full tool", async (t) => {
@@ -671,4 +701,18 @@ test("§151.6: the shipped interest-fit gate is 0.5 (interest_row_ratio 1), and 
 	assert.match(spot.instructions, /"侦查" \(Spot Hidden\)/, "like with like: the label the catalog issues for the play language, beside the rules name");
 	assert.match(spot.instructions, /in any words/);
 	assert.match(spot.instructions, /kept at its starting value/);
+});
+
+test("§151.6: a first card's fields are read from every message of this setup; once a card exists, from the latest alone", () => {
+	// Dust to Dust (2026-10-02): the name came in one message and the trade in the next; reading only the latest, the
+	// guide asked for the trade, then for the name again, then the trade.
+	const earlier = ["我叫伊芙琳·格雷，《阿卡姆宣告报》的记者。", "她最擅长从细节里发现异常。"];
+	const first = fieldsBatch({ read: read({ input: { key: "k", text: "记者。", earlier } }), scope, readSet: [] });
+	assert.equal(first.state.player_input, [...earlier, "记者。"].join("\n\n"));
+	const card = { revision: 1, summary: { card: { name: "伊芙琳·格雷", occupation: "Journalist" } }, profile: { occupation_skills: [], interest_skills: [] } };
+	const later = fieldsBatch({ read: read({ card, input: { key: "k", text: "把她改成医生。", earlier } }), scope, readSet: [] });
+	assert.equal(later.state.player_input, "把她改成医生。", "a revision reads only what the player just said");
+	assert.equal(fieldsBatch({ read: read({ input: { key: "k", text: "记者。" } }), scope, readSet: [] }).state.player_input, "记者。");
+	const source = readFileSync(join(import.meta.dirname, "..", "..", "extensions", "onboarding", "index.ts"), "utf8");
+	assert.ok(source.includes("...(!card && earlierInputs.length ? {earlier: earlierInputs.slice(-6)} : {})"), "the setup read hands the earlier messages only before the card");
 });

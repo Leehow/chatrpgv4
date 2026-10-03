@@ -7,7 +7,7 @@ import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
 import { advanceClock } from './clock.js';
 import { establishTableEntity, validateEstablishment } from '../read/table-entities.js';
-import { isAmbiguity } from '../read/module-graph.js';
+import { isAmbiguity, recordOf, type ModuleGraph } from '../read/module-graph.js';
 export function stageMove(context: ApplyContext, effect: Row): {
     receipt: Row;
     event: DomainEvent | null;
@@ -69,8 +69,37 @@ export function stageMove(context: ApplyContext, effect: Row): {
     world.active_scene = target;
     if (row(world.ending).scope === 'chapter')
         world.ending.continued = true;
+    // §168.3: the people the entrance seated walk on with the party when the book's playing order leads on.
+    const company = established ? [] : entranceCompany(graph, world, current, destination);
+    if (company.length) {
+        for (const handle of company) (world.npc_presence ??= {})[handle] = target;
+        receipt.with = company;
+    }
     if (!array(world.visited_scenes ??= []).includes(target))
         world.visited_scenes.push(target);
     advanceClock(world, minutes);
-    return { receipt, event: { type: 'scene-moved', data: { from, to: target, minutes } } };
+    return { receipt, event: { type: 'scene-moved', data: { from, to: target, minutes, ...(company.length ? { with: company } : {}) } } };
+}
+/**
+ * Contract §168.3: an entrance carries its people into the scene it leads to.
+ *
+ * A campaign seats each person once, in the first scene to claim them, the start scene first (`initialWorld`), so the
+ * opening is never played to an empty room. A book that seats them in its entrance and again in the scene the entrance
+ * leads on to then kept them in the entrance for good. Blood Road's prologue (`is_entrance`) `hands-off-to` the Esso
+ * station, and both seat Lars, Nate and Steve. The player's pull-up at the pumps moved the party to the station, the turn
+ * record read `Present: nobody` beside a description of three men under the awning, and the Keeper asked the player
+ * for their occupation.
+ *
+ * Only a move out of the entrance -- the start scene, a scene the book marks `is_entrance`, or the first scene this
+ * table opened in -- along an entrance relation carries anyone, and only those the ledger has in the entrance whom the
+ * destination also seats. Travel by `route-to` carries nobody: a person the book sets in two places is not dragged
+ * along on an ordinary journey. Graph relations and the ledger decide; nothing reads prose.
+ */
+function entranceCompany(graph: ModuleGraph, world: Row, current: Row, destination: Row): string[] {
+    const from = graph.handle(current);
+    const entrance = recordOf(current).is_start === true || row(current.properties).is_entrance === true || string(array(world.visited_scenes)[0] ?? '') === from;
+    if (!entrance || !graph.entranceRelation(current, destination))
+        return [];
+    const presence = row(world.npc_presence);
+    return graph.sceneNpcIds(destination).map(id => graph.handle(graph.nodes.get(id)!)).filter(handle => presence[handle] === from);
 }

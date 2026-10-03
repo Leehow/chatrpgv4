@@ -34,6 +34,8 @@ export type AccountUsageCapabilities = {
   persistCookie?: (provider: "qwen-token-plan", cookie: string) => Promise<void> | void;
   /** Optional local-database capability; the host owns SQLite access. */
   readLocalUsage?: (provider: "opencode-go") => Promise<LocalUsageRow[] | undefined>;
+  /** Snapshot captured by the Flapcode extension from live relay response headers. */
+  readFlapcodeRateLimits?: () => Promise<unknown>;
   now?: () => number;
   timeoutMs?: number;
 };
@@ -137,6 +139,20 @@ export function codexWindowLabel(seconds?: number): string {
   if (days >= 4 && days <= 12) return "周";
   if (days >= 20 && days <= 45) return "月";
   return "额度";
+}
+
+/** Normalize extension-captured windows without making an account probe. */
+export function parseFlapcodeRateLimitSnapshot(value: unknown): UsageWindow[] {
+  const root = record(json(value));
+  const out: UsageWindow[] = [];
+  for (const [id, raw] of [["primary_window", root?.primary], ["secondary_window", root?.secondary]] as const) {
+    const entry = record(raw); const used = number(entry?.usedPercent); if (used === undefined) continue;
+    const minutes = number(entry?.windowMinutes) ?? 0;
+    if (id === "secondary_window" && minutes <= 0) continue;
+    const label = codexWindowLabel(minutes * 60);
+    out.push(window(id, used, label, label, resetMs(entry?.resetAtSeconds)));
+  }
+  return out.map((item, index) => out.length > 1 ? { ...item, id: `window${index}` } : item);
 }
 
 export function parseCodexWindows(body: unknown): UsageWindow[] {
@@ -430,6 +446,12 @@ export const builtinAccountUsageAdapters: AccountUsageAdapter[] = [
       const headers = bearer(access); if (accountId) headers["ChatGPT-Account-Id"] = accountId;
       const windows = parseCodexWindows(await fetchJson(ctx, "https://chatgpt.com/backend-api/wham/usage", { method: "GET", headers }));
       return windows.length ? { provider: "codex", accountLabel: "Codex 账号额度", windows, source: "subscription" } : undefined;
+    },
+  },
+  {
+    id: "flapcode", kind: "subscription", matches: includes("flapcode"), async load(ctx) {
+      const windows = parseFlapcodeRateLimitSnapshot(await ctx.readFlapcodeRateLimits?.());
+      return windows.length ? { provider: "flapcode", accountLabel: "Flapcode account quota", windows, source: "subscription" } : undefined;
     },
   },
   {

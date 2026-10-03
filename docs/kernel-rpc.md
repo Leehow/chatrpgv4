@@ -11481,6 +11481,14 @@ current player utterance, evidenced by real delivered dialogue, not merely a
 lineup attribution score. Deterministic tests prove wiring, migration and refusal;
 only genuine-table dialogue proves that the voice is natural.
 
+### §40.8 Contract addendum — proposed new requirements
+
+For offline material and card work, Jev **must** make the closed-set semantic screening, indexing, matching, card validation, and offline A/B decisions; unresolved, insufficient, or low-quality cases remain unaccepted. Tool-enabled Pi **must** author the original prose, masks, exchanges, demonstrations, and open explanations from host-materialized evidence. The host must retain raw decisions and evidence pointers, use the existing RPCs and budgets, and add no personality system, keyword classifier, or provider path.
+
+The host must maintain an effective revision over the locked voice owner, the ordered actual addenda, play language, and format revision. On explicit adoption, that adoption remains effective even after the language package is disabled. Installation alone must not mutate legacy locks, cards, or worlds; a busy change remains pending until the existing activation boundary. Only generated mask/exchange material may be archived: source-authored material and every other dossier/card field must remain. Before publication and idempotent replay, compare the current effective revision and reject stale results.
+
+Background generation must use source/current-fact fallback and must not delay first speech. After a relevant effective change, send one new FULL instruction at the actual provider inclusion, then the brief; cancellation or absent projection must not count as acknowledged delivery. The Keeper’s completed draft remains one-pass: no foreground draft judge, prose rewrite, or delivery-time semantic gate.
+
 ### 40.9 Speech serves the present exchange (2026-10-01)
 
 The owner supplied two threats that explained witnesses, payment paperwork and a police call while the speaker
@@ -13047,13 +13055,9 @@ There is deliberately no source meaning "a figure the player said". A number a p
 about their own purse is a balance, and §58.4 puts the balance in front of the keeper so it
 does not have to guess which one it is hearing.
 
-`settlement` is optional and defaults to `cash`. `spending_level` is the rulebook's quick
-settlement for an occasional negative `price` or `quote` no greater than the investigator's
-printed Spending Level: `delta` still names the purchase price, but the receipt carries
-`settlement: "spending_level"`, `purchase_amount`, `spending_level`, `delta: 0`, and equal
-`before` / `after` cash. Positive amounts, `found`, missing Spending Level, and amounts above
-the limit are refused. This is not a hidden allowance invented by the Keeper: the value already
-comes from `cash-assets.json` through the investigator's Credit Rating.
+Purchase settlement follows section 58.9. The kernel chooses whether cash changes from the
+expense category, the printed Spending Level and that day's ledger. The optional legacy
+`settlement` field cannot turn a covered purchase into a debit or bypass the daily limit.
 
 ### 58.3 `currency` is declared, not echoed
 
@@ -13103,16 +13107,177 @@ price list can be asked for by name.
   the mechanics card, so a purchase can be read back against what it was based on.
 - **Acts on it.** The keeper, which must answer "from what?" before it may answer "how much",
   has `lookup kind=catalog` to answer it with, and uses the projected Spending Level for quick
-  settlement while escalating clear repeated stacking to a real debit.
+  settlement; the kernel's classified daily ledger settles repeated spending.
 
 ### 58.7 What this section does not decide
 
 It does not compare a charge against the printed price and refuse the difference, and it does
-not detect a currency in prose. Ordinary `settlement: "cash"` still checks affordability exactly
-as before; `settlement: "spending_level"` is the one numeric rule added here and is bounded by the
-printed level. A shape check on the receipt — a `delta` that happens to equal `before` — is a
+not detect a currency in prose. Classified purchase arithmetic and daily coverage follow section
+58.9; actual transfers still check affordability. A shape check on the receipt — a `delta` that happens to equal `before` — is a
 symptom, not this defect: the same mistake at ninety per cent of the balance is silent, and the
 fix for "the number came from nowhere" is a source, not an alarm on one of its shapes.
+
+### 58.8 A cash card names the payment purpose (owner request, 2026-10-02)
+
+`cash` mechanics may carry `purpose`, the receipt's nonempty `why` verbatim. The Keeper writes
+this brief, player-visible description in the campaign's `play_language`, naming what was paid
+for or where received money came from, with no private motives or internal reasoning. The card
+draws it beneath the investigator's name beside that receipt's existing balance change. A missing
+purpose leaves the ordinary cash row visible; the UI never guesses one from adjacent story text
+or another receipt.
+
+Writer: the Keeper's existing `apply cash.why`, retained by `stageCash`. Reader: `mechanicsOf`
+projects it as `purpose`; the shared cash-row renderer displays it. Actor: the player can distinguish
+a repair payment from a separate tip. This is a deterministic presentation step using text already
+on the receipt, with no new model call or wait on the narration path. A later card replacement
+can add or correct a purpose through the existing card-update path while preserving the delivery's
+prose and typewriter progress. Historical records and balances are preserved.
+
+### 58.10 Quotations complete after prose delivery (owner request, 2026-10-02)
+
+For an offer that has not been accepted, the Keeper supplies `narrate.quotes` (or
+`apply.quotes` beside embedded `narrate`), at most eight drafts. Each draft has a human
+`quote` name, `category: living|purchase`, priced `items`, and optional `subject`, `with`,
+`source: quote|price`, `price_id`, `currency`, and player-visible `why`. The closing prose
+is written in the same call, before the quotes argument. It can name individual prices;
+leave the bill total to the quotation card. No foreground quote registration or second
+Keeper round is needed. The existing synchronous `apply cash mode:quote` remains available
+when another operation genuinely needs the computed offer before delivery.
+
+The delivery persists drafts, the default investigator, and the active worldline/loop in
+its committed turn record. It projects pending cash rows with host-owned `quote_key`s,
+without an invented total or balance movement. Quote errors never refuse or rewrite
+finished prose. After the card is appended, a detached host queue calls the host-only
+`table.quotes.flush {campaign, turn}`. This uses the same `stageCash` quote arithmetic
+and source validation as synchronous offers, always forcing quote mode and allowing only
+draft fields. It writes open offers and completed/failed job projections together in one
+atomic `world.json` write. It never writes a sheet, daily expenditure, player action,
+item transfer, or the current turn. Repeat processing replays the saved job, including
+after settlement, rather than reopening an offer. A later offer with the same name wins;
+an old delayed draft is superseded. A different active worldline/loop cannot receive it.
+
+Without `turn`, the method lists committed quotation turns and their host-owned draft
+keys in the current scope. Completion caching uses these scoped keys, never turn number
+alone: a loop or worldline can reuse a turn number. The
+host schedules these on startup only when `table.open` reports `quote_turns`, projected
+from the records it already loaded. A campaign without quotation drafts starts no quote
+RPC or queue scan. This recovers interrupted work and missing card patches.
+It patches `quotes: {<quote_key>: <public cash row>}` on the original turn via section
+132. The backend merges each row onto its matching pending cash row, preserving other
+mechanics, prose, speech and playback identity. Failed/superseded drafts lose the waiting
+indicator and expose no financial amount; operator telemetry preserves the cause.
+The queue is never awaited by narration. A subsequent settlement referring to a quote
+may finish outstanding deterministic registrations before its existing cash preview and
+admission; unrelated generation does not wait. Quoting grants no purchase authorization. Admission judges actual proposed effects only;
+quotation drafts beside a move or conversation cannot turn it into an unproposed purchase.
+
+Writer: the Keeper supplies structured drafts, delivery commits them, and the background
+kernel operation registers computed offers. Reader: the original card receives an addressed
+patch, and the next capsule reads the saved offers. Actor: the player reads the exact
+bill and chooses whether to buy; actual settlement retains section 58.9's guards.
+No model extraction, prose review, rewrite or extra model lane is added.
+
+Precedent: Microsoft's [asynchronous request/reply pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/asynchronous-request-reply)
+supports durable work, immediate acknowledgement, and replay-safe completion. Its polling
+transport is unnecessary here because section 132 already pushes card updates. React's
+[state identity guidance](https://react.dev/learn/preserving-and-resetting-state) supports
+preserving the same card and playback state during these updates.
+
+### 58.9 Unified purchases and exact quotations (owner request, 2026-10-02)
+
+The Keeper decides the open semantic question, using `category: living|purchase|transfer` on a
+cash effect. `living` means ordinary accommodation, food or incidental travel within this
+investigator's established living standard; admission judges this claim in context. It leaves
+cash unchanged and does not consume the additional Spending Level. `purchase` is additional
+spending (including an incidental gratuity when appropriate). `transfer` is actual cash moving
+for a non-purchase reason, such as theft, income or a gift. The kernel does not classify prose,
+item names or occupations with lists or regular expressions.
+
+A negative `price`/`quote` requires a category. A legacy explicit `spending_level` supplies
+`purchase` when the category is missing. A `found` amount defaults to `transfer`; the Keeper can
+explicitly classify a negative incidental expense as `purchase`. Positive amounts and already
+delivered owed-cash reconciliation remain actual cash transfers. Missing classification refuses
+before state changes, rather than silently defaulting to a debit. The legacy `cash` selector
+does not override living-standard or Spending Level coverage.
+
+For `purchase`, `finance.daily_spending` stores the current game day, cumulative amount and cash
+already debited for that day's purchases. The day uses the existing pinned opening clock and
+local-midnight calculation. At or below Spending Level no cash is debited. Above it, the full
+daily purchase total is payable: the current debit is total minus cash already debited, so a
+6 + 4 + 1 sequence at a limit of 10 debits 0, 0, then 11, and a subsequent 2 debits 2. This is
+never just the excess over 10. The rule is evaluated in staged sheet order, atomically with the
+whole apply batch, and call replay cannot charge or count a purchase twice. A new day starts a
+new total. Existing unclassified historical receipts and balances are preserved; the ledger
+starts with classified settlements under this contract, without guessing historical categories.
+
+`mode: quote` registers a priced offer without paying it. `quote` is its human-readable name;
+`items` is a bounded list of `{name, quantity, unit_price}`. A quoted NPC price requires `with`;
+a cited printed price may omit the counterparty. The Keeper supplies prices and
+quantities; the kernel calculates each amount and their total with exact decimal arithmetic.
+An optional `delta` must equal the negative computed total or the batch is refused. For the synchronous mode, the quote
+receipt and the apply result expose the computed `purchase_amount` and item amounts before
+the Keeper writes the offer. Structured quotation cards carry the authoritative figures;
+the Keeper uses those figures instead of doing a second sum in dialogue.
+
+Later `mode: settle` (the default) with `quote: <name>` reuses that saved amount, category,
+currency, counterparty and purpose. A mismatched supplied amount or term is refused. A quote
+can be settled once; a repeated RPC call replays its receipt, while a new payment requires a
+new offer. Direct purchases can also carry `items`; omitting delta lets the kernel calculate
+it. Names are semantic references; receipt identifiers remain host-owned.
+
+A one-off counterparty can use its player-visible name/role in `with` without NPC registration.
+Known graph NPCs retain canonical handles and their existing exchange ledger; ambiguous known
+names still refuse. An unregistered label stays on the cash receipt and quotation, and does not
+create an NPC profile. `mode: quote` supplies source quote when omitted (or price with a cited
+price_id); direct cash transfers still require their explicit source. Currency codes remain
+unchanged, never translated or converted.
+
+Receipts and their mechanics retain `category`, `purchase_amount`, `items`, `spending_day`,
+`daily_total`, `daily_debited`, `spending_level` and the chosen `settlement` (`quote`,
+`living_standard`, `spending_level` or `cash`) where applicable. `delta` always means actual cash
+movement. The card displays the quoted/current purchase amount, its purpose, and the daily total
+against the limit, separately from any balance change. The Keeper's capsule reads the daily
+ledger and open quotes. Admission still guards the chosen purchase and any actual commitment;
+recording an offer alone is no acceptance. Quotes and covered purchases are not promised object
+transfers, and cannot land owed-cash rows.
+
+The host obtains a read-only `table.apply.options {cash_effects: <ordered batch>}` preview using
+the same `stageCash` calculation against cloned state. It returns the actual debit alongside
+the purchase price, including same-batch cumulative spending. Admission reads that computed
+debit for the player's cash budget. A host-owned debit ceiling binds the subsequent write; a
+larger debit refuses for fresh preview/admission before any state changes. Unresolved movement
+or time before a purchase must land separately so its game day is established first. This adds
+no model call and never counts or pays an expense during preview.
+
+Writer: `stageCash` stages the quote and per-investigator ledger; reader: apply's quotation
+result, the capsule and the cash mechanics projection; actor: the Keeper quotes the exact result
+and settles the chosen purchase, and the player reads the resulting cash card. No post-delivery
+review, rewrite or model call is added. The existing one-pass narration contract remains.
+
+Precedent: the rulebook pp. 46/95 separates ordinary living expenses from additional daily
+spending. [CoC7 Foundry](https://github.com/Miskatonic-Investigative-Society/CoC7-FoundryVTT/blob/develop/.github/CHANGELOG.md)
+separates Spending Level, cash and a daily spending counter; its human-operated sheet does not
+solve automatic classification. [Stripe quotations](https://docs.stripe.com/api/quotes/create)
+use quantities and decimal unit amounts; this confirms the shared quote/settlement arithmetic
+shape, without importing real-payment policy or infrastructure into this game.
+
+Verification: eight real-TS RPC regressions cover category omission, ordinary living coverage,
+daily full-total debit, replay/restart/midnight, exact quotation reuse, budget preview/ceiling,
+atomic refusals, printed quotations and unregistered counterparty labels. The cash controller's
+11 Python-driven RPC checks and 13 focused UI/typewriter checks pass. The LAN extension suite
+passes 4272 of 4273 checks; its remaining Narration Craft source-text assertion also fails on
+the untouched base and is outside this repair.
+
+Live acceptance uses Flapcode `gpt-6-luna`/low as Keeper (owner override), the main session as
+the only player, and the existing driver. App fast-model settings are mirrored only in the test
+home after a table-following admission lane returned HTTP 400; its healthy fast lane is
+`opencode-go/deepseek-v4.1-flash`. The real table settled a 0.25 living-standard lunch without
+debit or daily accumulation; quoted two waters at 0.05 each plus cigarettes at 0.15 as 0.25;
+settled that purchase without debiting cash; then settled a 12 tool purchase by debiting the
+full daily 12.25, leaving cash 37.75 from 50. Receipts preserve the individual price, cumulative
+total and actual movement separately. Evidence is preserved under the task's
+`purchase-settlement-20261002` playtest archive. Earlier provider failures remain evidence,
+and are not passing live runs. This verifies the source runtime, not a newly packaged App.
 
 ## 59. A card says which of three things is true about opening it (2026-09-16, amends §16.2)
 
@@ -17914,6 +18079,97 @@ named person is refused), `tests/extension/npc-journal-lane.test.mjs` (the promp
 and the rules, label and named travel to `journal.submit`), `tests/extension/character-presentation.test.mjs`
 (a `named: false` row's word is not sent for translation).
 
+### 103.5 Until a name is said, the Keeper's request names that person by epithet or handle (owner ruling 2026-10-03)
+
+(First committed as a second "§103.1", 86aef486a; renumbered here, since §103.1 is "The fact and where it lives".)
+
+§103 put `untold` beside each person whose name the player has not been told, but left `present[].name` as the book's
+name -- the field the Keeper writes from. On the installed App (2026-10-02) the Keeper named the station owner, the
+trucker and the veteran in prose on first sight, across three tables, before anyone had said a name.
+
+The first fix renamed the capsule message the kernel extension persists, and the next table showed it was not the
+path (Blood Road, 2026-10-03): the context hook sends the Keeper its own copy of the capsule
+(`extensions/table/context-runtime.ts`, `capsuleSent`), the clerk moved the party into the gas station before the
+Keeper's first call and its note carried the station's people by their book names, and the Keeper wrote
+`{{say:拉塞尔·威廉姆斯}}`. That token resolved to the book's name, which the transcript shows on hover, so the kernel
+counted the name as told (§103.3's floor, `toldTurn`), and on turn 2 the Keeper wrote "拉塞尔" in the prose.
+
+- **Who is untold.** `table.untold {campaign}` (read-only) -> `{people: [{name, id, shown}]}`: every book person whose
+  `untold` block (§103.3) is not null -- campaign-wide, not the scene's, because a run that moves after its capsule was
+  read meets the next scene's people in messages the capsule never covered. `name` is the book's display name, `id`
+  the handle, `shown` this table's word for them (`untold.label`), else the handle. A person the table established is
+  left out; the name the table gave them is the only one there is.
+- **The request is the boundary.** The context hook reads the roster with each snapshot and passes every outgoing
+  request through `renameUntold` (`extensions/kernel/untold-view.ts`): in every host message (`role: custom` -- the
+  capsule, the clerk's note, the capsule update, the prescreen packet) and every tool result, each untold person's
+  book name becomes `shown`, at Latin word boundaries (journal/naming.ts `occurs`), longest name first. The player's
+  words and the Keeper's own prose are left alone. A list of message kinds to rename would miss the next kind; the
+  request is where they all meet. The degraded request (no snapshot) uses the last roster read.
+- **The capsule's one seat for the book's name.** The context hook's capsule copy goes through `untoldView`: an
+  untold person's row reads `name: <called.name, else untold.label, else untold.id>`, and `untold` becomes
+  `{name: <the book's name>, label?, use}` with the fuller `use` line -- nobody has said the name, in prose they are who
+  they look like, `name` is for tool calls and say tokens, `untold.name` only once someone in the scene says it. The
+  rename keeps exactly that seat (`"untold":{"name":"…"`). The kernel's own `untold` block carries the handle as `id`
+  and a short `use` line, so the nine-person bench keeps four full dossiers (§115).
+- **A say token shows what it says.** For an untold person with no word at this table, a say token's speech row carries
+  `shown` (kernel-ts/write/speech.ts) beside the unchanged `name` whenever the two differ: the token's own text, or `""`
+  when the token was the handle. The card's hover reads `shown` (an empty one draws no hover; pipicoc/mechanics.js), and the told check reads
+  `shown` where a row has it (journal/naming.ts). So a token by handle or by epithet tells nothing, and a token that
+  wrote the book's name still shows it and still tells it. Rows recorded before this have no `shown` and read as
+  before.
+- Host readers keep the book's names: the raw capsule, the `coc:capsule` bus copy, prescreen and Jev candidates, the
+  director line. Tool calls and say tokens resolve a handle or the table's epithet as they resolve the name
+  (`ModuleGraph.nameKeys`, §87.8).
+
+*Tests.* `tests/extension/untold-request.test.mjs` (the kernel in process and the installed context hooks: the
+capsule the hook sends, a clerk note and a tool result renamed, the player's words kept; a token by handle tells
+nothing, one by the book's name tells); `tests/extension/untold-view.test.mjs`; `Electron/packages/ui/src/
+coc-speech.test.tsx` (the hover).
+
+### 103.6 The journal names a person only with the words that named them (owner ruling 2026-10-03; amends §103.2)
+
+Owner: 「每次咱们出文之后不是都会记录npc信息到右侧栏么，应该有角色描述和不在ui上显示只在数据里的真实姓名，可以从那里取，如果真实姓名在剧情里被人说出来就同步，直接在生成前告诉kp，不要后验！」, then 「那你直接把日志同步这一步修了吧」.
+
+**Evidence.** Installed App, Blood Road, table 14 (campaign `game-99780158`), turn 1. The turn-1 journal job listed all
+three men at the gas station under `unnamed`; neither the prose nor the two spoken lines named anyone, and one of them
+never spoke. The lane (`opencode-go/deepseek-v4.1-flash`) submitted, for each, a `label` **and** `named: true`.
+`journal.submit` took `named: true` on the lane's word, `npc-journal.json` recorded `named_at: 1` for all three, and
+turn 2's capsule handed the Keeper 拉塞尔·威廉姆斯 and 内特·帕特森 as plain names. On turn 2 the Keeper wrote
+「拉塞尔看了你一眼……棚下的内特」. The lane's prompt had shown, as the shape of an answer, one entry carrying both
+`"label"` and `"named": true`.
+
+The journal record is the one source the Keeper's view of a person is built from before it writes (§103.3, §103.5): the
+description and label the player knows, the real name in the data, and `named_at`. Nothing reads or judges the
+Keeper's finished draft (§166). The step that must not be wrong is the sync that moves a person from unnamed to named.
+
+- **`named_quote`.** A journal entry may carry `named_quote`: the exact words of this turn's delivery (its prose or one
+  of its spoken lines) in which the player was given the name, 1–200 characters (`budget.max_named_quote_chars`).
+- **`named: true` for a person not yet named** is accepted only with a `named_quote` that is found in the delivery the
+  job was opened on: the packet's `keeper_text` or one of its `speech[].text`, by `locateExcerpt` (§139: quotation marks
+  are one class, everything else exact). Otherwise `invalid_params`, `details: {index, field: "named_quote", name}`, with
+  a fix that says to copy those words, or, if nothing this turn said or showed the name, to leave `named` out and give
+  a label. The check is that the cited words exist, not what they mean. A refusal changes nothing, so the person stays
+  unnamed and the Keeper keeps getting the label.
+- **`named: true` beside a `label`** for a person not yet named is a contradiction: `invalid_params`, `details: {index,
+  field: "label", name}`, fix "named with named_quote, or label, never both".
+- **`named_quote` without `named: true`** is refused (`field: "named_quote"`).
+- For a person already named (the journal's `named_at`, the record floor, or an earlier row of the batch), `named: true`
+  needs nothing and changes nothing, as before.
+- The quote is not stored on the journal entry. The job file's `submitted` keeps the lane's answer as given.
+- **The lane** (`extensions/npc-journal`). The fixed instruction and the field rules ask for `named_quote` with `named`
+  and say that appearing, acting or being described is not being named. The answer template no longer shows `named`.
+  The shape check passes `named_quote` through. The lane's one retry now carries the first attempt's refusal (the
+  kernel's message and fix) under "[Your previous answer was refused; answer again with this corrected]"; before, it asked
+  the identical question again, made the same mistake twice, and the turn's entries went to the backlog.
+
+*Tests.*
+- `tests/kernel/test_journal.py::test_named_needs_the_words_that_named_them`: the table-14 shape (label plus named) is
+  refused; `named` with no quote, with words the delivery lacks, and a stray quote are each refused; nothing lands, and
+  the person is still untold. A quote typed with ASCII marks for curly-quoted dialogue is found and sets `named_at`.
+- The existing journal tests carry the quotes their prose holds.
+- `tests/extension/npc-journal-lane.test.mjs`: the retry carries the refusal and its fix, and the first attempt does not.
+- Mutations of the quote check, the contradiction check and the retry text each fail their test.
+
 ## 104. Characteristic-driven combat weapons use the actor's authored characteristic (2026-09-17)
 
 H-SIDE turn 171 proved that entering the authored Corbitt encounter was necessary but not sufficient.
@@ -19257,15 +19513,36 @@ SL-44 ticket's Comments.
 
 **Selected preparation (2026-09-30 approved repair).** A positive Jev historical-support decision selects one bounded preparation attempt before the next turn-writing Keeper step. The host projects its purpose, requests the historical lookup through that same Keeper's native tool channel, and retires the preparation after a tool result. It does not delegate a query author or add a research/summarization agent. The stable tool declarations remain unchanged; this step requests `lookup` and permits only the existing historical subtype for the preparation itself. Existing source scope, Mod, credential, quote-challenge, library-first and retrieval-budget gates remain authoritative. The host clears the native constraint after the read, closure, agent end or a new run; ordinary gameplay and later player inputs do not inherit it. Empty, unavailable, cancelled and refused results end the preparation without a gameplay obligation or a repeat loop. Unsupported native control falls back to one advisory attempt rather than blocking a turn. The need batch separates the value of background detail from immediate interruption; these are host preparation judgments, not additional investigator actions under the compile's action-only policy. Existing thresholds are retained. Query/objective distinguish authored fiction and the chosen historical/style analogue, and selected excerpts are integrated into the current scene or NPC reply while preserving canon.
 
+**Host scene lookup (owner, 2026-10-02: 「按你推荐的 2 和 1 一起做」; supersedes the selected preparation above).** The selected preparation spent a whole Keeper call writing one query. On the installed App's two tables (Blood Road and The Haunting, 18 turns, 2026-10-02) Jev granted the need on 16 turns. That call took 4–21 s (about 10 s typical) while the search itself took 1–2 s, and on two turns the call ran past the turn budget so the search never ran. Now a granted need starts the lookup in the host at once, beside the run's later steps, and no Keeper request is rewritten.
+
+- *Query.* `sceneQuery` (`runtime/historical-reference.ts`) builds it from the capsule's `historical_setting` and `where`, in one fixed shape. `query` is the era plus the scene's display name. `objective` (Exa: the task the search serves) is one fixed English sentence carrying the scene's display name and summary and the scenario's era and background, at most 512 UTF-16 units. No model writes it and nothing is classified. Without an era or a scene display name there is no query, and nothing is searched (`prefetch` row `skipped`, reason `no_setting`).
+- *Path.* With the table, the kernel extension publishes the bus port `coc:historical-reference` (`search`). It runs the lookup's own search (`historicalSearch`), under the same gates: active Mod, a grant bound to this campaign line and turn, credentials, and the per-input allowance. The host lookup and the Keeper's own lookups share that allowance through the binding `<run>:<turn>`. The search row says `requested_by: "host" | "keeper"`.
+- *Delivery.* The first `compose` or `adjudicate` step after the grant carries the result as `historical_reference_materials` (`origin`, `query`, `status`, `reason`, `authority`, `usage`, and `materials` with their applicability), with the instruction `HISTORY_SUPPLIED`. Since 2026-10-02 (owner, after a table where three good period sources reached the Keeper and none appeared in the prose) that instruction asks for one or two concrete details from the excerpts in that reply, unannounced; narration-craft 2.1.10 and historical-reference 1.0.9 say the same. A search still running is waited for, bounded by its own four-second allowance, unless the run's history is closed or its time budget spent. A result already back is handed over either way.
+- *Reuse per scene.* The engine keeps each scene's returned result (`ready` or `empty`) by campaign, worldline, loop and scene. A later granted need at the same scene hands that result over again (`origin: "host_scene_reused"`), with no search and no Jev call. Earlier turns' notes and tool results are not in the Keeper's request (context policy `closedNoise`), so this is how a scene's background stays in front of the Keeper. An `unavailable` result is not kept, so the scene is tried again on a later turn. An App restart empties the store; the scene's query is the same string, so the reference library then answers it without a web search.
+- *Unchanged.* The need and interruption questions and their thresholds. The Keeper's own `lookup kind=historical_reference`: allowed under a granted need, and saved reads without one. It is now for a specific detail the scene's excerpts lack, such as a price baseline. Closure and the price-anchor policy. Reference-scope (out-of-fiction) runs search nothing on the host's initiative and leave lookup to the Keeper.
+
+This deliberately replaces the 2026-09-30 repair's "no automatic per-scene web search". A search still needs the Jev need decision for the current input, and a scene is searched at most once until a search fails or the App restarts. Telemetry: `lane: "historical-reference", event: "prefetch"`, `phase: started | reused | skipped | delivered`. A `delivered` row carries `waited_ms`, `status` (`not_back` when the search was not waited for), `materials` and `reused`. Mod 1.0.8 tells the Keeper the same.
+
+**English query, web for a new scene, and only what shows that time (owner, 2026-10-02, after the first App table of the host scene lookup).** On the installed App's Blood Road table the scene lookups of five turns never reached Exa. The library held five pages from the one web search the Keeper had written on turn 1, in Chinese: two present-day Chinese travel-guide pages about Route 66 towns (phone numbers, opening hours, 2016 motel rates), a Chinese travel blog, a translated novel and one 1970s Texas Monthly article. Jev judged them loosely relevant, so they stood in for a bar, a gas station and a general store, and only one idea in nine turns of prose could be traced to them (the old highway bypassed, so the town emptied). The owner's rulings: 「为什么会用中文搜索，应该用英文吧」, 「1 可以搜」, 「2 肯定是当时的样子」, and the fast model writes the query, once per scene. This amends *Host scene lookup* above and the no-query-writing-pass sentences of this section for this one lane.
+
+- *The English query.* Before a new scene's search, one zero-tool completion on the fast model (`runtime/jev/history-query.ts`, lane `history-query`: `PI_COC_HISTORY_QUERY_MODEL`, then the fast-model setting, then the table; 6 s) reads the authored `sceneFacts` (era, scene name and summary, background) and answers `{query, objective}` in English. The query names the real period, region and kind of place; the objective asks for sources that show how it was then. Any failure (`no_session`, `timeout`, `model_unavailable`, `model_error`, `bad_output`, `cancelled`, `lane_error`) searches nothing that turn and keeps nothing, so the scene is tried again on its next turn (`prefetch` row `skipped`, reason `no_query`). Until the third App table a failure searched the fixed-shape authored wording; there it searched Chinese, matched a Chinese query saved on the first table, and brought back the same present-day travel pages. The fixed shape is searched only where no lane is configured. An over-long answer is cut at a code point to the bounds (query 300, objective 512), not refused; a refused answer's row names its fields and their lengths (third App table: the first answer to the fuller instruction was refused whole, and the scene searched its authored Chinese wording). The `prefetch` row `started` says `query_source: fast_model | fixed_shape` and `query_failure`; the scene's kept result keeps the query it was searched with, so a reuse asks the lane nothing.
+- *Web for a new scene.* The host's request carries `libraryMatch: "exact"`: a reference saved for this very query is reused, and no loosely relevant one is. The Keeper's own lookups keep `auto`'s library-first reuse. The search row says `library_match`. Each scene's host lookup has its own retrieval allowance (binding `<run>:<turn>:<scene>`); the Keeper's lookups keep the input's `<run>:<turn>`. On the third App table a move inside the turn ran the lookup at the scene left and then at the destination, and the first had spent the input's four seconds: the destination's came back `budget_exhausted` and closed history for the turn.
+- *Only what shows that time.* Every selection batch (`selectionBatch`, family version 3) asks, beside each candidate's applicability, the Noul `period_N` (`PERIOD_QUESTION`): does the excerpt show how things actually were at the time and place asked about. Writing from that time counts, and so does a later first-hand account, memoir or oral history of it. Present-day guides, listings, current services, museum notes and catalogue pages with no description do not count. Below `PERIOD_MIN` the candidate is dropped whatever its applicability, for host and Keeper lookups alike. The kept ones are taken highest score first. The search row records each candidate's score as `periods`.
+
+*Second App table (2026-10-02, owner: 「改查询指令，搜当时的文字资料」).* The first English query ("1975 West Texas small-town general store wooden porch interior") found photo-archive catalogue pages with almost no text, scored 0.18–0.38, and the Keeper got nothing. The lane's instruction now aims the query at written accounts of that time and place: first-hand accounts, memoirs, oral histories, newspaper or magazine features, travel writing. The decade, the real region and the kind of place are named with words for such writing (e.g. "1970s rural West Texas country store first-hand account"), and photographs, postcards and catalogues are ruled out. `PERIOD_MIN` is 0.3, calibrated on live Jev with the question above (19 Exa results for three 1970s West Texas scenes):
+  - every present-day page, travel guide, listing and catalogue page scored 0.04–0.24;
+  - first-hand memoirs of mid-century Texas stores and filling stations scored 0.31–0.49, and none reached the first value of 0.5;
+  - one present-day travel blog retelling a 1950 station's history scored 0.32 and gets through.
+
 **Fictional canon and historical analogues (2026-09-30 owner amendment; implemented with controlled service evidence).** Authored and established world facts remain authoritative. A module may mix real history with fictional countries, cultures, institutions, calendars or local rules. Each lookup distinguishes the scenario's own setting from the requested historical reference basis and the aspects being borrowed; there is no mandatory whole-module real/fictional classification. The Keeper selects the basis within ordinary inference, preferring the authored analogue, using compatible player style preferences when none is declared, and marking an inferred one as provisional. Selecting a reference does not authorize changing the fiction. Existing query/objective and the host-bound scenario carry the distinction into the same Jev selection batch and retained acquisition context. Useful stylistic analogies are not rejected solely for having a different real-world name; historical authenticity does not authorize importing rulers, religions, laws, restrictions or political relationships contrary to the fiction. Compatible appearance, materials or practices may inform normal narration and NPC interaction. Price anchors retain original historical units and currency; fictional quotations use an adapted scale, without inventing a fixed exchange rate or searching a fictional object as if it had an exact historical retail price. Saved originals remain unchanged and reuse checks the current fiction and reference purpose. No new research, query-writing, classification or summary model pass, country lookup table or automatic canon correction is introduced. The existing 1.0.5 generic analogy guidance is not evidence that this distinction or ordinary-play enrichment has passed; Implementation and its genuine scene/NPC evidence follow spec section 7.1; a fictional-country live-module pass is not claimed.
 
-**Scenario setting (2026-09-30).** Every capsule carries a bounded `historical_setting` independent of the opening-only module briefing. Its `era`, `starting_place` and `background` copy authored values from the selected entrance/module and, when bound to this campaign and source, the approved public character-guidance artifact. If an older/setup-adjudicated campaign omits its guidance key, the reader may use exactly one accepted guide matching its opening scene identity and play language; ambiguity does not authorize an arbitrary guide. Missing fields remain null. A legacy graph may provide its module summary as keeper-only background; this is never a new public disclosure or a search instruction. The projection is at most 2048 UTF-8 bytes, reports truncation, and makes no model call. The authored era takes precedence over any investigator finance-period fallback; finance tables do not describe the setting. The main Keeper uses this setting and current scene when writing period/place-specific queries. The same host projection reaches Jev's need, saved-reference relevance, price-anchor and result-applicability decisions and participates in the exact-query cache binding. Region and social/economic systems remain source text interpreted by the existing agents, never keyword classifiers or a default US market. Publication dates still do not describe historical eras. Source import/guidance writes the evidence, the capsule and historical callers read it, and Keeper-authored queries plus selected excerpts are the consumer evidence.
+**Scenario setting (2026-09-30).** Every capsule carries a bounded `historical_setting` independent of the opening-only module briefing. Its `era`, `starting_place` and `background` copy authored values from the selected entrance/module and, when bound to this campaign and source, the approved public character-guidance artifact. If an older/setup-adjudicated campaign omits its guidance key, the reader may use exactly one accepted guide matching its opening scene identity and play language; ambiguity does not authorize an arbitrary guide. Missing fields remain null. A legacy graph may provide its module summary as keeper-only background; this is never a new public disclosure or a search instruction. The projection is at most 2048 UTF-8 bytes, reports truncation, and makes no model call. The authored era takes precedence over any investigator finance-period fallback; finance tables do not describe the setting. The main Keeper uses this setting and current scene when writing period/place-specific queries, and the host's scene lookup builds its query from the same projection (2026-10-02). The same host projection reaches Jev's need, saved-reference relevance, price-anchor and result-applicability decisions and participates in the exact-query cache binding. Region and social/economic systems remain source text interpreted by the existing agents, never keyword classifiers or a default US market. Publication dates still do not describe historical eras. Source import/guidance writes the evidence, the capsule and historical callers read it, and Keeper-authored queries plus selected excerpts are the consumer evidence.
 
 **Price anchors (2026-09-30 user amendment).** Ordinary item prices are Keeper estimates based on saved, source-backed price anchors for the setting. A new object is not a reason to buy another Exa search. The historical reader batches a closed query-category decision, an explicit quotation-challenge decision over host-owned player input, and saved-reference relevance before any auto/web search can spend credit. A routine price request returns applicable anchors regardless of the objects those anchors price; if none exist, it requests a broad price baseline instead of searching the specific item. A baseline search is permitted only when no usable anchor for that market is available. Even explicit web mode reuses suitable anchors for routine prices. Only a concrete player challenge permits a targeted item-price search, still under the ordinary grant, credential, cancellation and budget gates. Unknown policy spends no Exa credit. Applicability selection qualifies original excerpts as price anchors only when they contain useful monetary amounts with currency, unit and period; an additive library marker records that role without changing old packets. Estimates are not stored as historical sources, and references do not change purchase arithmetic, Spending Level or already committed quotations/transactions. No new research or summary agent is added.
 
 The optional `historical-reference` Mod defaults on for new campaigns; explicit disables and existing package locks remain authoritative. It requires `context.historical-reference.v1`. Its `host_settings: ["exa_api_key"]` declaration binds only the host-registered secret slot, never an arbitrary setting name. The right-hand Mod panel uses the existing app secret settings API for `ext.coc-keeper.exaApiKey`; ordinary Mod settings, campaign snapshots, model messages and exports never contain its value. Saving a credential neither searches nor changes the Mod switch. Missing credentials leave play available. Secret replacement and clearing use the host's idle restart boundary.
 
-`lookup {kind:"historical_reference",query:string,objective?:string}` is a host-only read. The main Keeper writes its own query in its ordinary inference; no researcher, query author, summarizer or translator process is created. Jev adds one optional need question to the existing compile/route decision; a granted need permits this one lookup subtype even during narrator-only composition, without widening other verbs. The host checks active Mod, credentials, current run/turn and the grant before execution. An unavailable reference never becomes an unresolved gameplay obligation.
+`lookup {kind:"historical_reference",query:string,objective?:string}` is a host-only read. The main Keeper writes its own query in its ordinary inference; no researcher, query author, summarizer or translator process is created. (Amended 2026-10-02: the host's scene lookup builds its own query from authored fields in a fixed shape, with no model; see *Host scene lookup* above.) Jev adds one optional need question to the existing compile/route decision; a granted need permits this one lookup subtype even during narrator-only composition, without widening other verbs. The host checks active Mod, credentials, current run/turn and the grant before execution. An unavailable reference never becomes an unresolved gameplay obligation.
 
 The host calls Exa Search with compact highlights and cached contents, then uses one bounded Jev batch to select useful supplied excerpts and qualify direct, analogous or uncertain applicability. A passage may answer only one component of the request; it need not document the fictional institution or cover every topic. Nearby-period examples from other institutions may be qualified analogies, without making their place-specific practices campaign facts. Publication and excavation dates are not the dates of the practice described. Text is copied from the actual result, not generated. No Exa answer, summary, output schema or deep-research mode is used. Results return through this same tool invocation as `historical_reference`, with `ready|empty|unavailable`, reason, material bodies, source URLs, retrieval metadata and applicability. They are advisory external excerpts, never module truth, player knowledge, consent, price-table identifiers or settled effects. Existing prices and fiction are not retroactively changed; cash still follows §58.
 
@@ -19666,6 +19943,33 @@ that fails to land is dropped; the empty item remains.
 
 Tests: `tests/extension/item-fast.test.mjs`, `tests/extension/apply-defer-any-batch.test.mjs`.
 
+### 129.6 Reopening a waiting card resumes its detail work (2026-10-02)
+
+Opening an unarchived, writable play session with a projected pending item card starts its ordinary
+session runtime in detail-recovery mode, without a player prompt, a new turn, an opening or a retained
+story continuation. History loading returns immediately. The backend retains the loaded card ids for
+the existing live patch reader; results completed during startup are reconciled from the durable
+history and later results redraw those same cards. A read-only or archived session starts no worker.
+
+The Mod host recovers once at session start. Host-only `mods.queued {details_only: true}` reads queued
+registrations including the last delivered turn, returns accepted definitions and unfinished requests,
+and never applies, discards or publishes world state. Accepted work is announced through the existing
+`coc-card-patch`/`coc-object-details` path; unfinished work uses the existing tool-enabled creator,
+original job identity and deterministic acceptance gate. World registration still lands only at the
+ordinary next-turn safe boundary. No handover, cash receipt or narration is replayed.
+
+Recovery shares the outstanding-work owner with foreground preparation. A preceding batch cannot
+clear a successor's ownership; late completion after shutdown cannot patch the replacement session.
+Retries allocate new numbered attempt files, preserving interrupted logs and partial artifacts. A
+failed recovery retains its queue and evidence and can retry on a later session start or player turn.
+
+Evidence: campaign `game-abbdde48-5e44-44c8-867f-347624b36e88`, turn 4: gasoline was accepted and
+announced; the map stopped during a write and the spare tire never started. App restart loaded history
+with two pending rows but no session process, so neither generation nor a card update could occur.
+The recovery approach was cross-checked against BullMQ's stalled-worker requeue and Temporal's
+durable task replay; this project reuses its existing job ledger and writer lease, with no new service.
+Sources: https://docs.bullmq.io/guide/workers/stalled-jobs and https://docs.temporal.io/tasks.
+
 ## 130. The player reads first; the continuity review reads after (2026-09-22, amends §12.8, §36.14 and §91)
 
 The continuity review of §36.14 has been a gate before publication: `narrate` and `ask` waited inside
@@ -20041,13 +20345,17 @@ which never throws and returns whether it wrote:
   (`turn`, `mechanics`, `labels`, `marked_text`, `speech`, `play_language`, `ui`). An object merges key
   by key, `null` deletes the key, an array (`mechanics` included) is replaced whole, and a scalar
   replaces. An empty or non-object patch is not a patch.
-- Two keys of `details` are **addressing**, because rows live in an array a merge patch can only
+- Three keys of `details` are **addressing**, because rows live in an array a merge patch can only
   replace whole, and a lane that finished later cannot know the whole array:
   - `definitions: {<definition name>: {…}}` — merged onto every `item` row whose `definition_name` is
     that name (a row §129.1 drew `pending`);
   - `objects: {<object name>: {…}}` — merged onto every `item` row whose `name` is that name.
 
-  Each is merged with the same merge-patch rule, after all patches are applied, and neither key reaches
+  - `quotes: {<quote_key>: {…}}` (section 58.10) — merged onto the exact `cash` row
+    carrying that host-owned scoped key. A delayed quote never replaces another cash row,
+    the prose, or the mechanics array.
+
+  Each is merged with the same merge-patch rule, after all patches are applied, and none of these keys reaches
   the renderer. The Keeper filter and §16.5's concealment run again over the rows a patch left.
 - `source` names the lane (`object-details`, `usage-prefetch`); `at` is when it was written. Neither
   changes what is drawn.
@@ -22386,6 +22694,20 @@ and a Keeper that makes two batches before it narrates, the run has exactly one 
 note. The step after the Keeper's next batch is `adjudicate` with reason `keeper_carries`. The summary row names the spent
 budget.
 
+#### 135.25 amendment -- the budget is a target, never a limit (owner, 2026-10-02; amends this section and §124.12's closures)
+
+**The ruling.** The owner: 「之前我记得有个特别蠢的规则要限制60秒，这个跟我的意思有出入，我是希望能用优化的方法让它最终速度到60秒内生成完毕，而不是60秒就让他停」. The 60-second goal is reached by making the turn faster. Nothing stops or shortens a turn because time ran on. Asked how, the owner chose: a call that is answering is never cut, a call that has not answered is re-sent once, and 45 s is recorded, not enforced.
+
+**What changed.** The hybrid engine gives the step policy no run budget (`maxRunMs: Infinity`). The policy's budget branches stay, pure and tested, but this engine never reaches them. Past 45 s:
+- the next model step is no longer turned into a forced compose (`run_budget`);
+- no clerk step is deferred (`deferred_by_budget`, `deferred_last_turn`);
+- no person's act is skipped (`npc_act skipped_budget`);
+- the Keeper gets no `budget_note`.
+
+The run's history is no longer closed for time (`turn_budget_exhausted`): only the retrieval's own four-second allowance closes it. The scene lookup is bounded by that allowance and its lane's 6 s, never by the turn. `PI_COC_TURN_BUDGET_MS` (default 45 000) is the target the summary row measures: `lane: "run", event: "budget", decision: "summary"` keeps `budget_ms`, `elapsed_ms`, `elapsed_at_compose` and `over_budget`. It still derives the Keeper call cap's default (§135.29, as amended).
+
+**Evidence that it was a stop, not a speed-up.** On the installed App's Blood Road table (2026-10-02), turns 7 and 9 ran past 45 s and were closed by the budget. On the Haunting, history retrieval closed for `turn_budget_exhausted` after the Keeper had written its query, so the search never ran.
+
 ### 135.26 Scene obligations become the clerk's candidates (2026-09-23, SO-04 of `docs/specs/scene-obligations-as-candidates.md`; amends §135.2, §135.3, §135.5, §135.8, §135.9, §135.20)
 
 The builder reads a scene's obligations from one place, `table.apply.options.obligations` (§134.10): the same rows the
@@ -22879,11 +23201,21 @@ first deltas came 60 s or more after the answer; those would now be retried, as 
 **What follows is the existing path, on both engines.** On hybrid-v1 the failed attempt goes to `recover` →
 `_recoverDrivenAttempt` → `_prepareRetry`: backoff, the failed attempt omitted from the model projection, and one more
 provider attempt of the same infer step, each a `step_attempt` row with attempt id `<stepId>#aN`, bounded by
-`retry.maxRetries` (default 3, so at most four attempts). When the retries are spent the step ends `unavailable`; a
+`retry.maxRetries` (Pi's default is 3; the table's agent home fills 8, see *Foreground retry* below). When the retries are spent the step ends `unavailable`; a
 failed response is not steered (§135.11: the turn close is asked only after a model step that answered), so the run
 finishes `undelivered` with reason `model_unavailable:no_delivered_evidence`, and at `agent_settled` the player gets
 §38.7's terminal provider notice (it outranks §38's generic line). On legacy the same error goes to
 `_handlePostAgentRun`'s retry and the run settles the same way. A stream that stalls never holds the run.
+
+**Foreground retry (2026-10-03).** Pi's default backoff (3 retries at 2, 4 and 8 s) gave up a Flapcode 429 inside
+17 s on the installed App's setup wizard while the book reader was drawing on the same provider. `runtime/launch.ts`
+(`FOREGROUND_RETRY`) now fills `retry: {maxRetries: 8, baseDelayMs: 2000, maxAgentDelayMs: 60000}` into the agent
+home's `settings.json` key by key, never over an operator's own key: backoff 2, 4, 8, 16, 32, 60, 60, 60 s, about four
+minutes before the turn is given up, each wait forwarded to the player as `auto_retry`. The host's turn watchdog counts
+`auto_retry_start`/`auto_retry_end` as activity, so no wait is read as a wedge. A child pins Pi's own three back in its
+project scope (`extensions/module/reader.ts`, `CHILD_RETRY`), since its wall-clock budget is shorter than four minutes
+and would otherwise end the retries in its own SIGTERM. This is a wait for a provider that answers, not a budget: a
+stream that stalls is still cut by the idle timeout above and retried on the same path.
 
 **Diagnostics.** No product switch dumps provider traffic. For a live capture, undici publishes each request's sent
 body and every received body chunk on `node:diagnostics_channel` (`undici:request:create`, `bodyChunkSent`,
@@ -23036,6 +23368,17 @@ ordinary cap on step 2 when it is on; a real-socket integration test (the `keepe
 mjs` harness) proves the vendored seam itself accepts and freshly resolves a function value, including one
 that changes its answer between attempts, and that the `keeper_call_cap` telemetry row it writes carries
 `step`.
+
+#### 135.29 amendment -- only an unanswered call is capped, and its re-send is not (owner, 2026-10-02, vendored patch 0005; amends the two addenda above)
+
+**The ruling** is §135.25's amendment: speed comes from optimisation, never from stopping a call. On the installed App's Haunting (2026-10-02, turn 5) the Keeper was writing its prose when the 60 s cap cut it, phase `streaming`. The re-send was cut again, and the step ended with nothing delivered.
+
+**The mechanism (`watchCallCap`, `vendor/pi/patches/0005-keeper-call-cap-first-answer.patch`).**
+- The cap covers only the wait for the attempt's first event. Every adapter pushes that event once the provider's response has answered (`start` after the response headers, or after the websocket opens). From then on the timer is gone. A call that is answering runs as long as it produces events, and a stall after the first event is the idle watchdog's (0003), not the cap's. `CallCapPhase` is `first_byte` only.
+- An overrun is worded to be retried (`timed out`), and the session's own retry re-sends the step once. That re-send runs without a cap. No overrun ends a step any more, so the "second time" wording is gone.
+- `keeperCallCapMs` is still resolved before every attempt, and the `keeper_call_cap` row is unchanged.
+
+The default value is unchanged: `max(PI_COC_KEEPER_CALL_CAP_FLOOR_MS, PI_COC_TURN_BUDGET_MS / 2)`, 22 500 ms, or the thinking allowance (60 s) when the Keeper thinks. It now means "no answer at all within this long", the case the 09-25 evidence was about: calls with no first byte for minutes.
 
 ### 135.30 Routing asks what the player does: one compile per run reads the declaration into typed features, and predicates select the clerk's candidates (2026-09-24, SL-13; amends §135.1, §135.6, §135.7, §135.26)
 
@@ -25757,6 +26100,29 @@ For a Noul the two gates collapse into one number: `yes ≥ row_min` and `yes �
 
 
 ## 140. A child agent with no lease still sends its own output bound (2026-09-26; amends §20 addendum 2's per-call bound)
+
+### Native transport output-limit capability (2026-10-02)
+
+For Responses transports, the provider's native model declaration
+`compat.supportsMaxOutputTokens: false` means the wire does not accept
+`max_output_tokens`. Flapcode declares this capability in its shared catalog;
+Pi preserves it through model composition and both host budget helpers read it.
+An unleased output-room hook omits that field. A leased request also omits it,
+but reserves the model's full declared `maxTokens`, including reasoning output,
+rather than claiming that the usual 8192-token wire limit exists. The bounded
+IPC model metadata carries this one capability, and the host rejects a smaller
+reservation for such a model. Actual usage refunds the conservative reservation;
+unknown usage consumes it. Existing owner ceilings, deadlines, and authority are
+unchanged: an owner that cannot fund the model ceiling refuses before dispatch.
+No fallback creates a larger lease. This applies equally to zero-tool completion
+and tool-enabled children, so a later budget hook cannot undo provider sanitation.
+
+The capability is transport syntax, not a provider-name heuristic. Upstream Pi
+1.0 exposes this native flag and its Responses adapter omits the field when it is
+false. External Codex reports likewise show gateways rejecting the field
+([31181](https://github.com/openai/codex/issues/31181)) and proxy defaults differing
+when it is omitted ([36180](https://github.com/openai/codex/issues/36180)); their
+omission behavior does not supply this product's nested-lease accounting guarantee.
 
 **Evidence.** A character-creation table on the PDF module 血色公路 (line-2 @ d08fa2ebb, Keeper and lanes on opencode-go/deepseek-v4.1-flash, thinking low) could not start: the module's setup guidance had to be regenerated (its key binds the setup prompts, which changed since the guidance was accepted on 2026-09-16), and in both attempts the reviewer's second response reported `output 8192, reasoning 8192, stopReason length` and ended with no `review.json`. The guidance job is started by onboarding without a lease, so its children sent no output bound and the provider's unstated default (8,192 on opencode-go) decided it; `low` is the lowest level this model has. The reader runner counts a child that exits cleanly as `ok`, so the job then read a missing file (a bare ENOENT) and the guide told the player to come back later. In the App's module work logs (10,747 child messages, the grok period) no child ever stopped at `length`: the limit bites with a model that reasons at length.
 
@@ -29463,6 +29829,12 @@ turn carries, §30.7) is at most 400 UTF-8 bytes, checked at load: `details.reas
 (`tests/extension/jev-pacing-mod-alignment.test.mjs`, `tests/kernel/test_mod_director_text.py`); the same tests hold
 each scoped brief to 400. The addendum has no kernel budget: it rides the lane's packet, not the capsule.
 
+### §153.4 Amendment — 2026-10-02
+
+At the user's request, a scoped package may declare an optional manifest field `brief_budget_bytes`, a positive safe integer no greater than 1200. It applies only to that package's scoped brief. When present, the package must require capability `mods.language-brief-budget.v1`; an older runtime rejects the package rather than silently accepting the declaration. When absent, the effective budget remains 400 bytes.
+
+The kernel and listing expose the declared effective budget. Measurement is UTF-8 bytes, not characters. The shared 5000-byte ceiling remains unchanged, and no existing lock is auto-upgraded. This amendment is authorized independently of the pending improvement screen.
+
 ### 153.5 The kernel's decisions
 
 - A build older than this section ignores `play_languages` (an unknown top-level manifest field is not a §28.9 gap), so
@@ -29471,6 +29843,14 @@ each scoped brief to 400. The addendum has no kernel budget: it rides the lane's
 - The first shipped language package is `mods/zh-optimize` (play_languages `["zh"]`, owner 2026-09-29). Tests: `tests/extension/language-scoped-mods.test.mjs` with the fixture
   `tests/fixtures/mods/language-zh`, installed through `mods.install`; `tests/kernel/test_language_mods.py` over the
   emitted kernel's RPC; and the two ceiling tests above.
+
+### §153 Contract addendum — proposed new requirements
+
+Language-scoped selection must participate in a host-only effective revision comprising the locked voice owner, the actual enabled addenda in existing load order, the campaign play language, and the format revision. Explicit adoption is persistent: disabling the package later does not erase the adoption or restore legacy checks. Installation without adoption must not change an existing world, lock, card, or dossier. A change while busy is pending and becomes effective only at the existing safe activation boundary.
+
+The owner remains the voice-lane owner; each selected addendum is appended in actual order and does not replace the owner. Reuse existing RPCs and the established brief/full budgets. Generated mask/exchange keys may be archived on an effective change, while source-authored cards and all non-target dossier fields are preserved. The host must record the actual addendum/play-language/format inputs used by the provider. Before publish or replay, compare the current effective revision and refuse stale output; do not infer validity from a prepared but unbound string.
+
+For present/met NPCs, background author failure or unavailable delivery must fall back to source and current NPC facts without waiting for the first speech. A relevant change requires one new FULL instruction at actual provider inclusion before the brief; cancellation or missing projection is not a sent acknowledgement. These additions do not create a new personality system, language detector, semantic classifier, RPC, or foreground prose-review path.
 
 ## 154. Lean `apply` arguments: the machine fills what it can derive (2026-09-29; on by default, `PI_COC_LEAN_APPLY=0` turns it off)
 
@@ -29888,9 +30268,11 @@ This is state, not the advice §13.7 keeps out of the capsule. The spec decides 
 - A row that cannot land (refused by the kernel) stays open. The clerk's `bind` row records the step with its `status`, the Keeper's clerk note carries it as a step the clerk tried, and move candidates stay withheld. The Keeper sees the row and the refusal, never a ledger position to side with.
 - Any other move that lands after the told turn -- the Keeper's own, or one the player later chooses -- closes an open owed move as `superseded` (`settleOwed`, `kernel-ts/owed/land.ts`): the story has moved on, and landing the old arrival later would carry the party back to a position it has left.
 
-**The wait for a review in flight.** A post review of the previous delivery that is still running when the next run starts may be about to name what is owed. The host keeps, per campaign, the promise of the last delivery's post review (`afterDeliveryReview`). The run's first read waits for it for at most `PI_COC_OWED_WAIT_MS` (default 15 000, counted from the run's start), concurrently with the read itself. Measured on this table, the read took 8–12 s, and turn 26's review landed 13 s after turn 27 opened.
+**The review in flight is watched, never waited for.** A post review of the previous delivery that is still running when the next run starts may be about to name what is owed. The host keeps, per campaign, the promise of the last delivery's post review (`afterDeliveryReview`) and publishes a port that watches it (`coc:owed-review`, `watch()`, `extensions/kernel/owed-review.ts`). The run's first read starts the watch before it reads the table. A review that lands while the read runs (prescreen included) is read before any candidate is built. Nothing waits past the read. A review still running when the read ends is read at the run's next read or the next run, and what it names lands then (§158.5).
 
-The wait is paid only when a review is in flight. A review that lands later is read at the run's next read or the next run. Telemetry: `event: "owed_wait", waited_ms, landed: boolean`.
+Telemetry, when a review was in flight at the first read: `lane: "run", event: "owed_review", landed: boolean, turn`.
+
+*Amended 2026-10-02 (owner: 「先修复核空等」).* The first version waited up to `PI_COC_OWED_WAIT_MS` (default 15 000, counted from the run's start), measured on Dust to Dust where turn 26's review landed 13 s after turn 27 opened. On the installed App's Blood Road table (gpt-6-luna) the post reviews took 58–159 s. Every first read finished its prescreen in 3.4–4.4 s and then sat until 14.3 s. None of the four waits landed. That is about 10 s of every turn spent on nothing. The variable and the `owed_wait` row are gone.
 
 `deferred_last_turn` (§135.25) is unchanged. It is the clerk's own note, kept in session memory. Owed state does not depend on it.
 
@@ -29940,7 +30322,7 @@ The kernel-authored forward fixes are §158.3's.
 - *Writer:* the private reviewer through `submit_audit` (the `owed` field), bound by `mods.accept`, projected by `table.warn` into `owed.json` and the record.
 - *Reader:* the capsule's `owed` section (`kernel-ts/read/assemble.ts`), the clerk's candidate builder, admission's `told` basis, and the kernel's `owed` effect check.
 - *Actor:* the clerk (`told_bookkeeping`) or the Keeper, whose ordinary `apply` lands the row and closes it.
-- *Counted:* `owed.json`'s `closed` list, the receipts' `owed`, the admission rows with `path: "told"`, and the run's `owed` / `owed_wait` rows.
+- *Counted:* `owed.json`'s `closed` list, the receipts' `owed`, the admission rows with `path: "told"`, and the run's `owed` / `owed_review` rows.
 
 ### 158.7 Follow-up reconciliation (FR-06--FR-09, 2026-09-30)
 
@@ -30686,6 +31068,12 @@ The other exclusions of §158.7 stand: a failed, aborted, truncated, already del
 
 **Tests.** `tests/extension/encoded-string-argument.test.mjs`: each of the eight recorded arguments decodes to the prose its own shape spells, with its `shapes`. Each shape is reconstructed by hand in the test as the literal it is a fragment of: the A′ brace dropped, B wrapped in quotes, C and D completed to their object. Also: the envelope's head on the field's own name and on the carried parameter's name, with and without whitespace; a tail alone without an escape is left as written; the boundaries above; the survey's other strings (plain prose, ASCII-quoted speech, paths) come back as the same object. Through the real registration: every recorded call on both engines (the fake kernel receives the decoded prose, with the row); B's recorded `narrate.text` on the emitted kernel and the hybrid engine delivers with real line breaks and no backslash. `tests/extension/text-tool-call.test.mjs`: the `{name, arguments}` envelope bare and fenced; the recorded E text routes as `apply` and then `narrate`; a sequence with prose between the fences, one invalid envelope, or one unknown tool routes nothing. Through a real `message_end`, the recorded E text runs both calls and the turn record holds the narrate's prose, not a fence. Mutations (a copy of the file, never `git checkout --`) each turn tests red: each reading removed in turn; the head without its key; a tail alone taken without an escape; `shapes` not recorded; the `{name, arguments}` shape removed; a partial sequence routed; one fence only.
 
+### 160.3 A tool call written as text, `to=functions.<name>`, is restored as that call at `message_end`, in every mode (2026-10-02; extends §160.2)
+
+**Evidence.** On the installed App (2026-10-02, flapcode/gpt-6-luna, character setup), the model had just called `setup` natively. It then wrote its next three calls into the text channel, between its thinking blocks, as ` to=functions.setup  code:\n{"step":"note",...}`, and ended with `stop`. Nothing ran. The three raw lines were shown to the player as the wizard's reply, and the model told the player the card had not been made. §160.2 routes fenced envelopes only, and only in a play turn's implicit close.
+
+**Rule.** The kernel extension registers the first `message_end` handler (`extensions/kernel/textual-tool-calls.ts`). A text block is checked when it holds `to=functions.<name>`, `<name>` is a tool active in this session (`getActiveTools`), and the header is followed by exactly one JSON object that parses, after at most a channel word and a colon on its own line. Such a call is restored as a `toolCall` block where it stood, with an id `textcall_<24 hex>`. The prose around it stays; a text block left empty is dropped; `stop` becomes `toolUse`. Pi replaces the finalized message in place before the loop reads its tool calls, so a restored call runs like a native one and the player never reads the raw line. Anything else is left as it was: an unknown tool, unbalanced or unparsable JSON, a non-object, or words between header and object. It is structural parsing of the chat format's recipient line, never a reading of the prose. Telemetry: `lane: "model-output", event: "textual_tool_calls", restored, provider, model, stop_reason`.
+
 ## 161. What a person feels right now is a ledger row the Keeper writes and reads before they speak (2026-09-30; amends §17.3, §17.4, §17.5, §17.8; follows §142's shape)
 
 **Evidence.** The owner, 2026-09-30, after reading the 40-turn table `blood-road-jev-20260930` (grok-4.5, narration-craft
@@ -30711,6 +31099,8 @@ effects. It changes no world value. It mints the ordinary `npc` receipt (`npc:<s
 trimming, a line over 120 characters, a line with a line break, or one carrying a `{{` marker. The same line as the current
 one is accepted and minted again (a feeling held is still a feeling stated; nothing compares meanings). There is no
 clearing value: a new line replaces the old.
+
+**161.1.1 The host splits a shared mood (2026-10-02).** The kernel still refuses a mood that shares its npc effect with another change. The kernel extension sends the Keeper's own `apply` with each such effect split before admission (`splitNpcMood`, `extensions/kernel/npc-mood-split.ts`): the effect without its mood, then `{kind: "npc", name, mood}`, so a person the first brings in exists before their feeling is written. Telemetry `{lane: "npc", event: "mood_split", count}`. On the installed App's Dust to Dust table the Keeper had spent a model round trip on that refusal on two turns running, each time resending exactly this split.
 
 **161.2 Fold.** `foldNpcTurn` folds a receipt's `mood` into the person's ledger entry at turn close:
 `mood: {text, since_turn, receipt, why?}`, the newest written last in the turn winning, and the replaced line moves to
@@ -30920,7 +31310,7 @@ Confident answers are unchanged: when Jev reads the player's declaration past th
 
 A forced `no_roll` whose `why` includes `player_choice` remains open in the fiction until the player chooses. Before the host delivers `narrate` or `ask`—including the narration embedded in `apply`, which uses the same `narrate` path after `apply` lands—it asks Jev-1.13.0 two Noul questions per withheld choice against the exact player-facing draft: whether its closing beat returns that choice through a present person or immediate situation in character, and whether it states or implies an outcome that depends on the unrolled check. The host accepts the draft only when every cue score is at least `.60` and every dependent-outcome score is at most `.25`. Otherwise it refuses only the narration with `next: narrate`; any `apply` effects already accepted remain committed, and the Keeper revises the prose without repeating those effects.
 
-This is an output check only. It cannot choose or roll a check, make the choice, or authorize a world change. An unavailable, incomplete, or unconfigured Jev review is recorded and fails open so a service outage does not strand the table; the existing Keeper instruction still applies. Repeated rejections are bounded: the same draft reuses its review, the first rejected delivery spends the turn's one existing close steer with a targeted repair, and only one narration repair is allowed after that. A further rejection stops the run so the host can report an unfinished turn instead of generating indefinitely. A successful delivery clears the pending review, which is scoped to that turn. **Three ends:** the hybrid projection writes the pending choices, the kernel extension reviews the exact draft before delivery, and the Keeper revises a refused draft to narrate settled events and return the player's choice in character.
+This is an output check only. It cannot choose or roll a check, make the choice, or authorize a world change. An unavailable, incomplete, or unconfigured Jev review is recorded and fails open so a service outage does not strand the table; the existing Keeper instruction still applies. Repeated rejections are bounded: the same draft reuses its review. If the turn's one close steer is still free, the first rejected delivery spends it on a targeted repair. In a hybrid run, after the current model-proposal batch drains, the policy forces the existing `turn_close` operation before asking for another Keeper proposal; that steer admits exactly one subsequent narration repair. If another host lane already spent the steer, the Jev rejection cannot buy another repair. After a rejection with no steer remaining, or after the single repair is rejected, the host aborts further Keeper operations and uses the existing unfinished-turn notice and release path; no dependent outcome or effect is inferred. A successful delivery clears the pending review, which is scoped to that turn. **Three ends:** the hybrid projection writes the pending choices, the kernel extension reviews the exact draft before delivery, and the host enforces the one-steer repair budget before reporting an unfinished turn when it is exhausted.
 
 ## 164. Each reply shows how long the player waited for it; the host keeps when it took each message (2026-10-01, owner request)
 
@@ -30961,6 +31351,7 @@ The base host owns the mechanism and no wording. The instruction and the demonst
 - **Input** (the v2 prompt, unchanged in substance): the Mod's instruction and demonstrations; the player's text of that turn; the turn's `rendered_text`; and, per row in order that is not the investigator's, the speaker's name, the speaker's §40.7 `voice_mask` when the dossier has one, and the line exactly as delivered (`speech[i].text`, quotation marks included). Investigator rows are not sent and never edited.
 - **Label rows are NPCs** (amended 2026-10-01). A `who: {label}` row is a person the table has not bound to a handle yet (§40.1: someone not in `present[]`, written under the label the prose uses). It is sent like a named NPC's row, with the label as the speaker and no mask, and edited like one. The first version excluded label rows; on the acceptance table's first turn (`se-accept-20261001`, the-haunting's opening) both of Knott's lines were `who: {label: "桌后的男人"}` because he had not been named yet, so the lane never ran. Across all retained campaigns `speech` holds 1924 `npc` rows, 144 `label` and 91 `investigator`; the labels are mostly people (护士, 看护, 档案员, 巡佐, 对面的男人, 桌后的男人) and a few written texts (「W. Corbitt 的日记」). Which `who` key is present decides, never a label's words; a line that is written rather than spoken comes back unchanged under the package's own rule (zh-optimize's lane file says so), which is the lane model's call.
 - **Model:** `resolveLaneModel(ctx, "PI_COC_SPEECH_EDIT_MODEL")` — environment, then the fast-model setting, then the table's model (the 2026-09-23 single-setting ruling; with the setting unset this is the table's model, grok-4.7 at the time of the ruling). Effort `low`.
+  - **Confirmed on the installed App (owner, 2026-10-01).** The App's fast-model setting (`ext.coc-keeper.laneModel` in `~/Library/Application Support/Pipi/pipicoc/pi-coc/agent/pipiui-settings.json`) is `opencode-go/deepseek-v4.1-flash`, so the lane ran there in 8.0 s, not on grok-4.7. The lead had told the owner the setting was unset, after reading another application's settings file. Told the truth, the owner kept the rule as written: 「保持现状，我感觉确实有助词了，而且用不同模型出来的效果其实可能更好」. The lane follows the fast-model setting like every quick lane; the "stay on grok-4.7" answer above was about not trialling other models, and does not pin the lane to the table's model.
 - **Shape:** a zero-tool `runLane` completion (owner's exception above), timeout 60 s. Output: JSON `{"lines": ["…", …]}`, exactly as many lines as rows sent, same order.
 
 ### 165.4 Gates
@@ -31046,3 +31437,274 @@ Where §165.1–165.8 left a choice to the code, this is what was chosen and why
 **Three ends (§31).** *Writer:* the lane's round, through the three gates, into `speech.edit` and `patchCard`. *Reader:* `CocCardLedger` and `mechanicsEntry` (the card, live and on every re-read) and `foldMarkedDeliveries` (`speech_original`); the record's `speech_edit` is read by nobody at the table, by design: every kernel reader keeps the delivered lines. *Actor:* the player, who reads the edited lines where the Keeper's stood.
 
 **Tests.** `tests/extension/speech-edit-kernel.test.mjs` (the real kernel: `speech.job`'s packet, mask and indices; the overlay with every delivered field and the transcript byte-identical, and the replay; `stale` with no write; the ask boundary; none, conflict and no NPC lines; the capability and text refusals; `speech.edit`'s shape refusals), `tests/extension/speech-edit-lane.test.mjs` (the mounted extension against the real kernel, a faux model and a controlled Jev endpoint: the prompt, the request, the overlay, the patch and its splice with a receipt marker and interleaved investigator and label rows, the row; the shape, quotes, Jev-gate, Jev-unavailable, stale, none/conflict, trigger and ask cases; a stranger's label line sent under its label with no mask and landed alone; the splice and gate functions), `tests/extension/speech-edit-table.test.mjs` (a real-kernel table: the Keeper's narrate, a named NPC's line and a stranger's, reaches the lane over the bus, on the table's model, and patches the card), `Electron/packages/pi-backend/test/coc-speech-edit.test.ts` (the fold on the live and the history road), `Electron/packages/ui/src/coc-markers.test.tsx` (the fold by the kept original).
+
+
+## 166. Narration is delivered in one pass (owner ruling, 2026-10-01)
+
+The owner approved one finished draft delivered directly: accept narration mistakes for now, without automatic review or rewriting. This supersedes the delivery-time and post-delivery prose review/repair portions of sections 12.5, 34, 38, 40, 91, 113 D, 130, 135.11, 142.7, 143.10, 143.24, 145.2, 163.9 and 165. Historical contracts and evidence remain retained; they do not authorize automatic prose revision in the current product.
+
+### 166.1 The first completed draft is the delivery
+
+Explicit narrate, ask text, apply's embedded narrate and the implicit prose close share this policy. A draft is not refused or regenerated for length, missing speech tokens, speech-only form, repetition, markup, a prose-implied time gap, a missing NPC intention result, a preparation wait, or a withheld-choice cue. Existing deterministic token rendering still runs; semantic speech attribution may attach speaker metadata without changing words. The policy is fixed in the product, not an operator flag or a test-only exemption.
+
+No automatic continuity reviewer, post-delivery verifier, forced-choice output review, speech-purpose review or NPC speech editing lane is started for a delivery. Legacy continuity pre/post settings cannot re-enable those calls. Existing records, reviews, overlays and explicit inspection interfaces are preserved. Deterministic delivery findings may be retained as evidence; they do not demand a rewrite.
+
+### 166.2 Prepare the facts, then write once
+
+The Keeper still receives the player's declaration, settled receipts and open player-owned values before composing. Section 163.8 still withholds a player-owned choice from actual check execution; section 32 still guards actual state changes. The Keeper is instructed to narrate settled events and return an open choice naturally, but the host does not ask another model to judge that finished draft. Narration mistakes are accepted without authorizing any additional roll, resource spend, move or item transfer.
+
+Rule arithmetic, action admission, transaction/call replay, current-turn ownership, structured choice validation, transport decoding, delivery commit and error/cancellation handling remain authoritative. A failed provider stream is not a completed draft. A completed nonempty draft closes through the existing narrate/ask transaction; a turn with no draft keeps the existing bounded close/notice behavior. Provider recovery is outside this change.
+
+### 166.3 Three ends and acceptance
+
+Writer: the Keeper writes one candidate from the current declaration and receipts. Reader: the kernel's existing delivery transaction and the host's existing transcript/card projection. Actor: the player reads that first candidate and chooses the next action. No prose reviewer is between writer and player.
+
+Regression acceptance must cover all four delivery paths, a withheld player choice, no-tool/speech-only/unwrapped prose, a repeated line and markup, and no automatic foreground or background prose review/edit calls. It must also show that unauthorized state operations and duplicate transaction replay remain guarded. Genuine live acceptance uses the existing driver and the main session as the only player; deterministic fixtures are not live-play evidence.
+
+### §166 Contract addendum — proposed new requirements
+
+The existing one-pass rule is extended to forbid any foreground draft judge, semantic prose classifier, automatic rewrite, or delivery gate before the player receives the Keeper’s completed draft. Existing narration/ask transactions, provider failure handling, state authority, cancellation, and duplicate-replay guards remain authoritative; reuse their RPCs and budgets.
+
+Offline preparation is separate from delivery: Jev may make closed material/index/card/AB decisions, while tool-enabled Pi authors the offline prose and guidance from host evidence. That work must not become a post-draft review lane. Background voice work must not delay first speech; when unavailable, use source/current facts.
+
+For a relevant effective input change, the host must emit a new FULL instruction once it is actually included at the provider, followed by the brief, while retaining the existing history/cache prefix. A cancelled operation or a projection not actually included must not be recorded as acknowledged. Generated keys may be archived only; source-authored and other dossier/card material must be preserved, and stale publication/replay must be refused after an effective revision mismatch. No new personality system, RPC, provider, or semantic rewrite mechanism is authorized by this addendum.
+
+## 167. Live prose appears at a typewriter cadence (owner request, 2026-10-02)
+
+This is presentation pacing. A completed delivery is still committed immediately under section 166. New live Keeper prose is revealed at approximately 50 graphemes per second; this does not delay a kernel transaction or start a review/rewrite lane.
+
+The UI's live presentation/replacement path creates a transient playback identity. History has none. A redraw keeps that identity and its displayed character budget, so a replacement of the unrevealed tail does not flash the whole delivery or restart from zero. Once displayed, a delivery stays complete across patches and virtualized row remounts. Reduced-motion preference shows the complete delivery immediately. Timers are cancelled on unmount and never catch up in a burst after a hidden window.
+
+The host passes optional UI-only `typewriter: {visible: number, active: boolean}` to the controlled mechanics renderer. It counts graphemes of player prose, never speaker or receipt tokens. The renderer parses a complete marked delivery once per content update, then reveals prepared text runs and the receipts at their prose positions. Closed markers remain atomic; no brace or partial Unicode grapheme is displayed. Trailing folds/help appear when prose completes. Copy, illustrations, persisted text and elapsed-time evidence still use the complete delivery.
+
+Writer: `applyStreamEvent` creates and preserves live playback identity. Reader: the transcript reveal hook and the controlled renderer receive its cursor budget. Actor: the player reads progressively; an in-place card update uses the same playback. Verification covers live and history paths, tail replacement, completion/remount, reduced motion, Unicode, inline receipts, marker hiding and timer disposal.
+
+Implementation precedent: React's [state identity guidance](https://react.dev/learn/preserving-and-resetting-state) confirms that an in-place update should retain its component identity. MDN's [animation scheduling guidance](https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame) explains background suspension; playback advances by a bounded amount per tick instead of recovering elapsed wall time in a burst. Neither source requires changing the delivery transaction.
+
+Implementation decision: the shared UI hook stores per-message playback in a weak map; same-id history refreshes retain the live identity, while cold history receives none. The controlled loader forwards only the cursor budget. The mechanics component memoizes its parsed tree and reveals text runs at Unicode grapheme boundaries, keeping speaker spans and receipt positions. Plain Keeper prose uses Streamdown's existing streaming view until playback completes. A renderer that is still loading spends no reveal budget.
+
+Verification: 173 focused UI tests and 9 pack/language checks passed; the Vite UI bundle built successfully. The UI TypeScript check has 56 distinct pre-existing errors on both base and modified source, with no new errors. The older full controlled-loader test file also cannot import the base tree's missing `git-capability` fixture; the new test instead covers the actual controlled-loader-to-mechanics path. Playwright captured progressive Chinese prose, an unseen tail replacement after 600 ms, speaker colour, and the completed delivery with no remaining cursor. Evidence is retained under `.coc/playtests/coc-typewriter-ui-20261002`. This is frontend verification; no packaged App or live Keeper acceptance was performed.
+
+## 168. First sight: the book's descriptions reach a new player (2026-10-02, docs/specs/first-sight.md)
+
+### 168.1 The ruling and the evidence
+
+The owner's rulings, 2026-10-02:
+- 「模组里有些的东西一定一定要展示出来！！禁止简略！」
+- 「行了，可以停了，你测试的时候自己不看看的么，有描述吗？」
+- 「1 和 3 直接改，2 和首见面义务按你推荐的做」
+
+The installed App `153469067` played Blood Road (`book-4`, campaign `game-717a9e4b`) as a first-time player, with flapcode gpt-6-luna as Keeper.
+- **Turn 0:** the opening showed one of the three men under the awning, none of the station, and denied the errand the card records.
+- **Turn 1:** 「我……打量一下这个加油站和棚子底下的人」 got 「你从事什么职业？」 and nothing else.
+- **Turn 2:** a price, with a name the player was never told.
+- **Turn 3:** the Keeper wrote the station and all three men in full inside `apply.narrate`; the batch was refused and the prose lost.
+
+The four causes and their decisions are in `docs/specs/first-sight.md`. Sections 168.2–168.5 are the four fixes.
+
+### 168.2 The host's opening message carries the opening's contract, not its craft (amends §14.18 and `docs/specs/opening-guidance.md` §2)
+
+`openingInstruction` (`extensions/kernel/opening-instruction.ts`) writes the "Opening the table" host message. It carries:
+- no player input this turn;
+- after a setup meeting, the investigator is not asked for again, and the committed prologue's sentences are not repeated;
+- why the investigator is here comes from the card and the prologue, never stating that either lacks something;
+- the play language;
+- `pending_action` preserved;
+- no keys or money granted;
+- close with narrate;
+- the Mod context, when given.
+
+Without a meeting, orientation still comes first. Everything about how to open — the place and the people, how much of them, how many names — is the active prose package's ("Opening the table" and the first-sight paragraphs of narration-craft).
+
+The 2026-09-16 caps are gone: "one sentence of room at most, one gesture per line of speech, and the whole opening shorter than the prologue … at most two new proper names". They overrode the prose package's opposite rule; on Blood Road the opening showed one man and no station. `tests/extension/opening-instruction.test.mjs` refuses any rationing wording in either form and any second inline copy of the message.
+
+**The party as it is (2026-10-02).** The opening message names the investigators (`table.open`'s `investigators`): the book and anything prepared from it before the card may speak to a group, but nobody else is with them unless the card says so. On every later turn, a party of one carries `known.investigator.alone` in the capsule (`knownSection`, `kernel-ts/read/capsule.ts`), one sentence: nobody travels with this investigator, and people speak to and of them as one person. Evidence: Blood Road's prologue speaks to a group; with one investigator the owner explained knowing her name by "someone in the car called you", and on a later table locals said "you people" to a man driving alone. The opening may pin an opening datetime the book left open with `apply clock` (§23): the kernel accepts it at the opening and the capsule's `where.clock.pin` asks for it, and since 2026-10-02 the host's opening door admits a clock-only batch with no Mod layer (it had admitted only Mod kinds, and refused the pin twice running on a fresh Blood Road table). The opening message says the scene stays as the table opened it.
+
+### 168.3 An entrance carries its people into the scene it leads to (amends §17's move and the seat rule of `initialWorld`)
+
+A campaign seats each person once, in the first scene to claim them, start scene first. A book that seats people in its entrance and again in the scene the entrance leads on to therefore kept them in the entrance. Blood Road's prologue (`is_entrance`) `hands-off-to` the Esso station, and both seat Lars, Nate and Steve. A move to the station read `Present: nobody` beside a description of three men under the awning.
+
+`stageMove` (`kernel-ts/apply/move.ts`) now carries company out of the entrance:
+- **When:** the move is out of an entrance, along an entrance relation. An entrance is the start scene (`is_start`), a scene with `properties.is_entrance`, or the first scene this table opened in. The entrance relations are the template's `entrance_relation_kinds` (`play-precedes`, `may-lead-to`, `alternative-to`, `hands-off-to`; `ModuleGraph.entranceRelation`).
+- **Who:** everyone the ledger has in the entrance whom the destination also seats (`sceneNpcIds`).
+- **How:** their `npc_presence` becomes the destination in the same write, and the receipt and the `scene-moved` event carry `with: [handles]`.
+- **What carries nobody:** a `route-to` move (travel between places), an established destination, and any move that does not start in an entrance.
+
+Graph relations and the ledger decide; nothing reads prose. `tests/extension/entrance-company.test.mjs` covers carry, route-to and past-the-entrance, each killed by a mutation.
+
+### 168.4 An `owed` annotation that does not hold is left out; the write stands (amends §158.5)
+
+On Blood Road turn 3, the Keeper copied the capsule's §51.4 `unrecorded` line into `owed` on its `apply npc`. `owed_unknown` refused the whole batch, embedded narration included. Every `owed` refusal's own fix begins "Leave owed out". For the Keeper's own `apply` (`extensions/kernel/owed-left-out.ts`, `runTool`):
+
+- **Before admission:** an `owed` that names no row of the owed rows the host last read from the capsule is removed, and the batch goes through ordinary review instead of `told`. With no capsule read yet, nothing is removed and the kernel decides. The admission prefetch removes the same names.
+- **After the kernel refuses** with `details.field: "owed"` (`owed_unknown`, `owed_mismatch`, `owed_not_told`, `owed_kind`, `owed_unresolved`):
+  - only the refused effect's field is removed;
+  - admission and the Mod gates run again;
+  - the call is sent once more, at most once per effect.
+
+  Other effects' valid `owed` stay, so an owed time row is never landed twice.
+- **The result:** carries `owed_left_out: [{owed, reason, kind}]` and a note telling the Keeper the name was left out, and that `unrecorded` lines are not owed rows.
+- **Telemetry:** `lane: "owed", event: "owed_left_out", stage: "before_admission" | "kernel_refused", owed, reason, kind, turn`.
+
+A forged name never buys the told basis: once the name is left out, the write is reviewed as ordinary, and the kernel remains the final check. A clerk (policy-origin) owed landing is unchanged (§158.4: a row that cannot land stays open). `tests/extension/owed-left-out.test.mjs` covers both stages on the real tool path; `owed-landing.test.mjs`'s forged-name case now asserts an ordinary review that refuses and lands nothing.
+
+### 168.5 First sight is an obligation with its material
+
+**Evidence** (spec §1, item 4). On the installed App's Blood Road table (`game-717a9e4b`), turns 0–2 described neither the Esso station nor the three men under its awning, though the book describes all four and the station's description was in the capsule. Prose rules alone did not make the Keeper write it. This section makes a first sight an obligation the kernel tracks, carries its material to the Keeper, and checks after each delivery whether the material reached the player.
+
+**State: `first-sight.json`** (`kernel-ts/first-sight/index.ts`), in the campaign directory:
+
+```
+{"shown": {"places": [<scene handle>], "people": [<person handle>]},
+ "open":  [{"kind": "place"|"person", "id": <handle>, "missing": [<excerpt of the book>], "turn": <checked turn>, "at": <iso>}]}
+```
+
+- It follows `owed.json` (§158.3). It is written after the turn it reads has closed and is part of no world revision. It is committed with the next commit (`git add -A`) and read with the capsule's full snapshot (`CampaignSnapshot.preload("all")`).
+- **Forks carry it.** A fork at an earlier commit (`table.branch`, or `apply fork` with `from_turn`) checks out that commit's ledger. The fork turn's own check landed after that commit, so its results are read from that turn's record (`record.first_sight`) before the source line is left, and are landed after the checkout (`firstSightOfTurn` / `carryFirstSight`, as `owedOfTurn` / `carryOwed`).
+- A loop rewind or a confluence leaves the ledger alone. The player has still seen what they saw.
+- At most 64 open rows are kept; the oldest give way.
+
+An item is **owed** while the party stands in the place, or the person is present, and it is not in `shown`.
+
+**Producer: the capsule section `first_sight`** (`firstSightSection`, `kernel-ts/read/assemble.ts`):
+
+- `place: {id, name, described}` when the active scene is not in `shown.places`:
+  - `id` is the scene handle; `name` is the table's label for it (`sceneLabel`);
+  - `described` is the scene's `properties.description`, else its summary.
+- `people: [{id, name, described}]`, one for each actor `npcsPresent` gives that is an `npc` node with `visibility: "player-safe"` and is not in `shown.people`:
+  - `name` is `displayName`;
+  - `described` is `properties.biography`, else the summary.
+  - Creatures and people the table established (keeper-only) are not carried.
+- **A name is not a description.** Words that only repeat the node's own name, display name, handle or node id describe nothing, so such an item is not carried. The Haunting's scenes are summarised as "scene basement rites"; mystery-house's people as their names.
+- **An open row replaces the description.** An item with an open row carries `missing` (its excerpts) instead of `described`.
+- **Placement.** The section sits before `present`. It is left out when nothing is owed, so a capsule with nothing owed is byte-for-byte what it was.
+- **Budget.** Its own budget is `FIRST_SIGHT_BUDGET`, 8192, fitted on its own (`fitFirstSight`); no other section's budget cuts it. 4096 would cut Blood Road's station and three biographies (about 3.6 KB of Chinese, three bytes a character, before JSON), and a description cut short is what the owner ruled out.
+  - Over budget, the largest item gives up a fifth of its description (or its last excerpt) at a time, down to 40 characters.
+  - If it is still over, the last items keep only `id` and `name`.
+  - Each cut item says `truncated: true`, and the section joins the capsule's `truncated`. Nobody is dropped.
+- **HEAD.** `HEAD_FIRST_SIGHT` is appended to `head` only when the section is there. In English it says:
+  - this is the player's first sight of these;
+  - write what the book describes of the place, and of each person their looks, dress and manner, in this reply, in the play language, along the eye's path, before the turn's business;
+  - a person is seen before named;
+  - nothing here is a fact to recite: only what can be seen or heard on arrival;
+  - `missing` means the details were left out of an earlier reply and are still owed;
+  - `truncated` means `look` returns the rest.
+
+The opening (turn 0, no player input) reads `table.capsule` and gets the section like any other turn.
+
+**RPC: `table.first_sight {campaign, turn, items: [{id, kind, missing}]}`** (`kernel-ts/memory/index.ts`, registered beside `table.warn`).
+
+Like `table.warn`, it takes no call id and lands after the turn it read has closed.
+
+- **Turn.** `turn` must have a delivery record (`closed_by` `narrate` or `ask`).
+- **Items.** 1 to 32 of them.
+  - `kind` is `place` or `person`.
+  - `id` names a graph scene (place) or a graph `npc` (person), and is resolved to its handle.
+  - `missing` is a list of at most 24 nonblank strings of at most 800 characters.
+  - Anything else is refused `invalid_params`, and nothing is recorded.
+- **Excerpts.** Each excerpt is located in that item's own book words with `locateExcerpt` (§139), and the book's own span is kept.
+  - An excerpt found nowhere is dropped: `dropped: {index, kind, id, reason: "excerpt_not_in_book", excerpts}`.
+  - **If every excerpt of an item is dropped, the item is not recorded at all** (`reason: "missing_not_in_book"`; integrator's ruling, 2026-10-02). It is neither shown nor given an open row, and stays owed exactly as before.
+  - A second answer for the same item in one call is dropped (`duplicate_item`).
+- **Landing.**
+  - An item whose `missing` is empty joins `shown` for good, and its open row closes. Only an explicitly empty list does this.
+  - Any other item's open row is created or replaced. Two exceptions: a newer check (a higher `turn`) already wrote one, or the item is already shown.
+  - Owed once (2026-10-02): an item that already had an open row from an earlier turn was carried as owed on this turn, and this check closes it -- moved to `shown` -- whatever it still finds. On the installed App's Blood Road table a veteran's row shrank 8, 4, 3, 2, 1 details a turn, and the Keeper wrote him out again from his hair to his tattoos on each of those turns.
+- **Record.** The delivered record gets `first_sight: [{kind, id, missing, at}]`, the latest answer per item, for a fork.
+- **Result.** `{turn, shown: [{kind, id}], open: [{kind, id, missing}], dropped}`.
+- **Telemetry.** `{lane: "first-sight", event: "recorded", turn, shown, open, dropped?}`.
+
+**The check lane `first-sight`** (`runtime/jev/first-sight.ts`). It is a single completion under Agents.md's criteria: a short closed JSON answer, after delivery, which the player does not wait for.
+
+- **Model.** One zero-tool `runLane` on the fast model: `PI_COC_FIRST_SIGHT_MODEL`, then the fast-model setting, then the table.
+  - A 120 s watchdog stops only a check that hangs; nothing waits for it, so a slow check costs the player nothing. The first cap, 20 s, cut off a fast model still writing on the installed App's Blood Road opening (headers at 2.1 s), which the owner's standing ruling forbids ("只防卡死，不掐慢").
+  - Reasoning is off, named by the lane so §37.11.1's after-delivery floor does not raise it: on the Blood Road opening the floor's `low` reasoned for 53 s until the output ran out (`stop_reason: length`) and no JSON was written.
+  - It is `afterDelivery: true`, so §37.11.1's thinking floor applies.
+  - It never sends `temperature` or `top_p`.
+- **Input.** `{prose: <the delivered rendered_text>, earlier?: <the delivery before it>, items: [{id, kind, described}]}`. For an item with an open row, `described` is its `missing` excerpts joined by newlines. A detail `prose` or `earlier` shows counts as shown (2026-10-02): a person first seen from a distance is described before they become an item, and on a fresh Blood Road table the opening showed the station owner from the road while he stood in the next scene; the check of the turn that arrived there, reading that turn alone, owed his height, tan and overalls again. The host keeps the last delivered prose in memory (`lastDeliveredProse`), so a restarted process has no `earlier` for its first check.
+- **Instruction.** For each item, list the details of `described` that a newcomer could see or hear on arrival that the prose did not show:
+  - how the place looks, sounds and smells; a person's looks, build, apparent age, dress and manner;
+  - a detail shown in other words or another language counts as shown;
+  - leave out history, unsaid names, secrets, motives, relationships, knowledge, rules and numbers;
+  - copy each detail exactly as `described` writes it.
+- **Output.** `{items: [{id, details: [{excerpt, visible, shown}]}]}`: every detail of `described`, copied exactly, each with two verdicts: `visible` (a newcomer could see or hear it on arrival) and `shown` (the prose showed it). An item's `missing` is its details marked visible and not shown. `checkFirstSightAnswer` checks the shape only; the judgement is the model's.
+  - Why one verdict per detail: the first instruction asked in one breath for the visible details the prose did not show, and with reasoning off the fast model did one half or the other. On the Blood Road opening it returned every visible detail as missing, though the prose showed nearly all of them; offline, the same input gave the invisible ones (a son, a church). With a `shown` verdict per detail, the same model got the first half right. The visible filter still let a son, a church and a dead wife through as unshown on the fifth table. With both verdicts per detail, it kept the two apart on that opening and on a control that showed one man of three, two runs each (4–8 s, reasoning off).
+- **Host anchoring** (`anchorFirstSight`) applies the kernel's rules:
+  - an excerpt is kept only if it is located in that item's `described` (§139);
+  - an item whose listed excerpts all fail is not sent, and is counted as `unanchored`;
+  - an item the answer leaves out is not sent;
+  - unknown ids, and a second answer for an item, are ignored.
+- **Failure.** `write` never throws. A failure is one of `no_session`, `cancelled`, `timeout`, `model_unavailable`, `model_error`, `bad_output`, `lane_error`, and nothing is recorded, so every item stays owed in full.
+- **Telemetry.**
+  - Success: `{lane: "first-sight", ok: true, turn, ms, model, items, shown, missing, unanchored?}`. `items` counts the items checked; `shown` and `missing` count the answered items with an empty and a nonempty `missing`; `unanchored` counts the items whose excerpts all failed.
+  - Failure: `{ok: false, turn, ms, model, items, reason, detail}`.
+  - Also `runLane`'s `lane-call` rows (`subsession: "first-sight"`), and the outage notice after three consecutive failures (`createLaneTelemetry`).
+- **Inventory.** The call site is inventoried in SL-00 as an app-play-gated leaf.
+
+**Host wiring** (`extensions/kernel/first-sight.ts`, `extensions/kernel/index.ts`, `extensions/table/context-runtime.ts`):
+
+- **One view for every capsule the Keeper is handed.**
+  - It covers `table.player_input`'s capsule, before `coc:capsule` and the `coc-capsule` message.
+  - It covers each `table.capsule` the context hook reads itself, through the port `coc:first-sight` (`{campaign, view}`). The opening's capsule is one of these.
+  - The view leaves out the items whose check is in flight.
+  - It notes what the capsule still carries under that capsule's `turn.number`, the latest text of each item kept.
+- **After every delivery**, `afterDeliveryFirstSight` runs: explicit `narrate` and `ask`, `apply`'s embedded narrate (which delivers through the same call), and the implicit close.
+  - It remembers this delivery's prose as the next check's `earlier`, owed items or not, after reading the one before it.
+  - It takes the turn's carried items.
+  - If there are any, and the delivery has `rendered_text`, it starts the check on a zero-delay timer, under the table's lane signal. The delivery never awaits it.
+  - When the lane answers with items, it calls `table.first_sight`.
+  - A kernel refusal is a host row: `{lane: "first-sight", event: "recorded", ok: false, reason: "kernel_refused", code, detail}`.
+- **Watched, not waited for** (as §158.4).
+  - A check lands whenever it finishes, and every capsule read after that reads its result.
+  - While a check runs, its items are left out of every capsule the Keeper is handed, so the next turn does not describe them a second time. This is logged once per turn and item: `{lane: "first-sight", event: "in_flight", turn, omitted: ["place:<id>", "person:<id>"]}`.
+  - They return at the next read after the check lands, if it found them unshown.
+  - A turn whose capsule left them out has nothing of theirs to check.
+- **Amends §13.9.** Leaving out an in-flight item is the one change the host makes to a kernel section. A capsule with nothing in flight is handed over as the kernel's own object.
+- **A run that moves after its capsule was read** (`runtime/jev/first-sight-step.ts`). The capsule a run begins with carries the first sight of the scene it began in. When the run then moves -- the clerk's move of a declared action is the common case -- the next model step's note carries `first_sight` for the scene it moved into, once per scene per run:
+  - read from the kernel with `table.first_sight.view {campaign}` -> `{first_sight: section|null, head}`, the same section the capsule would carry there;
+  - handed through the host view, so in-flight items are left out and the rest are noted for this turn's check.
+
+  Evidence: on the sixth Blood Road table (turn 1), the clerk moved the party from the prologue to the Esso station. The station reached the Keeper only as a scene view, the prose gave none of the book's station, and no check ran.
+  Telemetry: `lane: "run", event: "first_sight", scene, place, people`.
+- **§166 stands.** Nothing is checked before delivery, and no prose is refused or rewritten. The check only records what the next capsule owes.
+
+**Interpretation not settled by the spec.** A campaign already in play when this lands has no `first-sight.json`. Its current place and people are therefore owed once, as if new, until a check shows them. The ledger is not back-filled from earlier turns.
+
+**Three ends (§31).**
+- *Writer:* the `first-sight` lane's answer, anchored by the host, through `table.first_sight` into `first-sight.json` and the delivered record.
+- *Reader:* the capsule's `first_sight` section (`firstSightSection`), reaching the Keeper through the host's view.
+- *Actor:* the Keeper, whose next reply describes the place and people. That delivery's check closes them (shown) or narrows them (`missing`).
+- *Counted:* `first-sight.json` (`shown`, `open`), the records' `first_sight`, the lane rows (`items`, `shown`, `missing`, `unanchored`), the kernel's `recorded` rows, and the host's `in_flight` rows.
+
+**Tests.**
+- `tests/extension/first-sight-kernel.test.mjs` runs the real TS kernel in process on a fixture starter: the voice-bench teahouse with a book description and two `player-safe` people, one with a biography and one with a summary, beside a `player-safe` person described by name alone. It covers:
+  - the opening section and its seat before `present`;
+  - shown, open and all-unanchored landings;
+  - the next capsule's `missing`;
+  - the section and its head sentence leaving once nothing is owed;
+  - every refusal;
+  - §139 retyped quotation marks;
+  - an older check never replacing a newer row;
+  - the budget fit;
+  - both fork carries.
+- `tests/extension/first-sight-lane.test.mjs` covers the shape, the anchoring (including all-unanchored), one zero-tool round with its row, and the failures.
+- `tests/extension/first-sight-host.test.mjs` runs the product path: the fake kernel's `FAKE_KERNEL_FIRST_SIGHT`, and the harness's own lane provider `firstsight/f1`. It covers:
+  - the opening checked in the background, with the turn over while the check is held;
+  - in-flight items left out of the Keeper's next request and the persisted capsule;
+  - the open item returning once the check lands, and its delivery checked against `missing`;
+  - a failed lane recording nothing.
+- Mutations, each of which turned a test red:
+  - kernel: the section left out of the capsule; visibility ignored; a name-only summary counted; an all-unanchored item recorded as shown; an exact substring in place of `locateExcerpt`; an older check replacing a newer row; `table.branch` not carrying; `apply fork` not carrying; open rows ignored by the section; no budget fit; the head sentence always appended; another item's excerpt kept;
+  - lane: an all-unanchored item sent as shown; an exact substring in place of `locateExcerpt`; `unanchored` not counted; the shape accepting non-strings; no after-delivery floor; a second answer overriding the first;
+  - host: no check after `narrate`; in-flight items not left out; the context hook bypassing the view; the player-input capsule not viewed; a failed lane still recording; the delivery awaiting the check.
+
+
+## 169. Pre-draft Chinese NPC expression-card selection
+
+A Mod may contribute a locked package JSON through `contributes.expression_cards` and capability `npc.expression.references.v1`. Catalog version 1 contains 1-24 unique named cards: `{name, kind, applies, activation_question, pattern, examples}`. `kind` is habit or interaction; `activation_question` is a direct factual Noul question, at most 160 characters, authored by a tool-enabled Pi writer. Other limits are name 80, applies 360, pattern 500, one or two context/reply examples each at most 300 characters, and 24,000 UTF-8 catalog bytes. The read-only `mods.expression` returns the ordered active world-locked packages, exact file digests, play language and budget metadata. Capsules contain only enabled/catalog-revision metadata. Installation does not upgrade existing worlds; normal explicit `mods.configure` owns activation and version changes.
+
+The producer is the context-policy host: current declared utterance, present NPC source/state/voice masks, listener, risk and the exact committed exchange already materialized by `table.recall`. Truncation and verification remain explicit. The reader is one `expression-reference-selection` version-7 Jev batch, with participation plus independent activation and register-conflict Nouls per person/card. The host intersects calibrated gates, allows none and selects at most one habit and one interaction per person. No Choice forces a winner. The consumer is the existing main Keeper request: the host copies selected card content exactly; the Keeper writes the single delivered draft with source/current facts, knowledge and agency authoritative. Cards do not assign personality, mutate owned voice cards, authorize actions or supply example facts.
+
+Preparation is asynchronous. The user authorized first-request waiting on 2026-10-02: only the first eligible NPC request may await the existing attempt until 800 ms after the attempt for its exact writing snapshot started. Mandatory preparation for that snapshot spends the same window; obsolete provisional snapshots do not. Later requests, invalidation and second snapshots never renew it. Completion, none, failure, expiry and cancellation return immediately. A cold miss can still omit cards from the first response. The host bounds the projection to eight present people, 14,000 context bytes, at most 24 aggregate cards and the existing Jev packer limits; excess rosters/requests fall back without structurally selecting a preferred NPC. At most two distinct snapshot attempts per campaign/worldline/loop/turn are permitted, each with a 1200 ms cancellation deadline; an identical key is never retried. Ready results remain eligible after the work deadline but not after input cancellation or binding change. Catalog reads are cached only after success, keyed by the ordered active lock/digests and language; outputs additionally bind exact context, source/turn and question/model/policy versions. Final advice is at most 2200 bytes and cannot evict mandatory evidence. A changed source or state cancels preparation. No prose model, finished-prose judge, rewrite, NPC planner or own-card migration is added.
+
+At the public `before_provider_request` seam, the host records whether the exact packet survived actual Pi serialization, with request identity and selected-card provenance. A projected packet invalidated before that seam is withdrawn from the payload. Projection alone is not delivery, and this seam is not a server acknowledgement. None, cancellation, timeout, missing key, packing failure or provider error uses normal Keeper behavior; telemetry is audit-only. The original single-pass, replay and state-authority guards remain authoritative. Quality and complete-turn speed require independent response comparisons and genuine driver evidence; the earlier static style A/B is invalid for this selector's intent.

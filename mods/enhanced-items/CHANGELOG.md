@@ -1,3 +1,14 @@
+# 1.3.1
+
+Weapons on the sheet are still registered before the opening is delivered; every other
+`unregistered_equipment` row waits until the fiction uses it (drawn, shown, handed over,
+used in a check, damaged or lost) and is registered in that turn. Installed App, Blood
+Road, 2026-10-02: on turns where the player only drove on or watched the mirror, the
+Keeper spent 26-40 s adopting a briefcase, a field notebook, index cards, pencils, a map
+and a water bottle, one batch refused for a missing definition, and the turn's prose came
+out as one paragraph. A batch of definitions and adoptions does not hold the delivery on
+the host's side, but it is a model round trip before the narration on the Keeper's.
+
 # 1.3.0
 
 Requires weapons.preset.v1 (contract §138.7). When the host names a rulebook weapon

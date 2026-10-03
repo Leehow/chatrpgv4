@@ -17,6 +17,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {fauxAssistantMessage, fauxToolCall, getCurrentTools} from '@earendil-works/pi-ai';
 import {openTable, waitFor, waitForIdle} from './harness.mjs';
+import {convertToLlm} from './pi.mjs';
 
 const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/playtests/long-campaign-context');
 await mkdir(evidence, {recursive: true});
@@ -28,10 +29,10 @@ const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
 
 /** One Keeper turn on the real path: a tool call, a delivery, then a discarded tail. */
 const keeperTurn = text => [fauxAssistantMessage([fauxToolCall('look', {})], {stopReason: 'toolUse'}),
-    fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), fauxAssistantMessage('Discarded post-delivery tail.')];
+    fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), ];
 /** A turn that keeps working before it delivers, so its own tool traffic is what grows. */
 const busyTurn = (text, steps) => [...Array.from({length: steps}, () => fauxAssistantMessage([fauxToolCall('look', {})], {stopReason: 'toolUse'})),
-    fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), fauxAssistantMessage('Discarded post-delivery tail.')];
+    fauxAssistantMessage([fauxToolCall('narrate', {text})], {stopReason: 'toolUse'}), ];
 /** Whether the Keeper's narrate of `text` has a tool result in the session. */
 function narrated(session, text) {
     const call = session.messages.flatMap(message => message.role === 'assistant' && Array.isArray(message.content) ? message.content : [])
@@ -46,7 +47,13 @@ const outbound = table => {
     const runner = table.session._extensionRunner, transform = runner.emitContext.bind(runner), requests = [];
     runner.emitContext = async messages => {
         const result = await transform(messages);
-        requests.push({messages: result, bytes: api.sizeOf(result), branchBytes: api.sizeOf(branchMessages(table))});
+        // Observe the restored provider-facing projection. Tool details are host-only
+        // state and never become model input; raw transcript bytes remain evidence.
+        const modelMessages = convertToLlm(result).map(message => {
+            const {details, ...visible} = message;
+            return visible;
+        });
+        requests.push({messages: result, bytes: api.sizeOf(modelMessages), rawBytes: api.sizeOf(result), branchBytes: api.sizeOf(branchMessages(table))});
         return result;
     };
     return requests;
@@ -59,7 +66,10 @@ test('campaign length never reaches the provider: the branch outgrows the ceilin
     // 2026-10-01 (§161): 192 KiB -> 200 KiB. narration-craft 2.1.5's full instruction (+604 B in the brief message) and
     // the capsule head's present[].now line (+252 B) put the largest request, measured raw here, at 197,208 B against
     // 196,608, while the policy's own measure (telemetry request_bytes) peaked at 191,429; the stored branch is ~790 KB.
-    const ceiling = 200 * 1024, turns = 6;
+    // 2026-10-02 (§168): 200 KiB -> 208 KiB. narration-craft 2.1.10-2.1.11's first-arrival and first-meeting paragraphs
+    // put the largest raw request at 204,633 B on the Mac and 204,830 B on the Linux box (its longer workspace path rides
+    // in the messages) against 204,800; the stored branch is ~797 KB, so the ceiling is still far below it.
+    const ceiling = 208 * 1024, turns = 6;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-ceiling', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: turns}, (_, turn) => keeperTurn(long(turn + 1))).flat()]});
@@ -150,7 +160,11 @@ test('a turn the policy cannot prepare is bounded, not answered with the whole s
 test('a turn with more tool traffic than the ceiling allows keeps the newest evidence and drops the oldest', async t => {
     // Well above the incompressible floor (the book briefing, the bounded history and this turn's
     // own input) so the squeeze can only land on the tool traffic the turn keeps accumulating.
-    const ceiling = 192 * 1024;
+    // 2026-10-02 (§168.2, §115, narration-craft 2.1.12, enhanced-items 1.3.1): 192 KiB -> 200 KiB. About 700 B of
+    // prompt (the opening's party and clock lines, the untold epithet line, the two packages' new sentences) put the
+    // worst squeezed request at 196,720 and 196,815 B on the Linux box against 196,608: the floor itself, so nothing
+    // was left to drop. The squeeze still has to bind at 200 KiB (`squeezed.length` below).
+    const ceiling = 200 * 1024;
     const table = await openTable({realKernel: true, campaign: 'long-campaign-squeeze', retainAt: directory,
         env: {PI_COC_COMPACT_AT: '100', PI_COC_REQUEST_BYTES: String(ceiling)}, settings: {compaction: {enabled: false}},
         responses: [...keeperTurn(long(0)), ...Array.from({length: 3}, (_, turn) => busyTurn(long(turn + 1), 14)).flat()]});

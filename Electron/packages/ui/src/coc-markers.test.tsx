@@ -510,6 +510,14 @@ describe('the plain copy of a drawn delivery is folded away', () => {
     expect(foldMarkedDeliveries([{ ...edited, presentation: { ...edited.presentation!, details: bare } } as ChatMessage, copy])).toHaveLength(2)
   })
 
+  it('folds the copy when a marker names a handout by its book title, as the card drops it too (2026-10-02)', () => {
+    // The Haunting, turn 7 on the installed App: the card drew the handout row, the plain copy printed a second time.
+    const marked = '卡片字迹是馆里惯用的钢笔体。{{handout:Handout 3: The House Is Built (1835)}}\n\n灯已经偏暗，台后抽屉还敞着。'
+    const delivered = '卡片字迹是馆里惯用的钢笔体。\n\n灯已经偏暗，台后抽屉还敞着。'
+    expect(withoutMechanicsMarkers(marked)).toBe(delivered)
+    expect(foldMarkedDeliveries([card(marked), said(delivered)]).map(row => row.id)).toEqual(['m1'])
+  })
+
   it('changes nothing when no delivery was marked', () => {
     const messages = [said('一段叙事。')]
     expect(foldMarkedDeliveries(messages)).toEqual(messages)

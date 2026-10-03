@@ -90,21 +90,25 @@ export function watchStreamProgress(
 	return out;
 }
 
-/** The phase a per-call cap fired in (contract §135.29's SL-69 addendum): before the attempt's first event
- * ("first_byte" -- the idle watchdog above never fires here; the transport timeouts alone govern that gap),
- * or after it ("streaming", the same gap `watchStreamProgress` also times out on its own, shorter, terms). */
-export type CallCapPhase = "first_byte" | "streaming";
+/** The phase a per-call cap fired in (contract §135.29's SL-69 addendum): before the attempt's first event, the
+ * only phase it fires in since 0005 -- the idle watchdog above never fires there; the transport timeouts alone
+ * govern that gap. */
+export type CallCapPhase = "first_byte";
 const EMPTY_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 
 /**
- * A Keeper call is abandoned once it runs past its own per-call cap, independent of and in addition to the
- * idle-gap watchdog above (contract §135.29's SL-69 addendum): a per-call TOTAL-duration ceiling, a named
- * default derived from the table's own turn budget, never below a floor (`runtime/jev/hybrid-engine.ts`
- * computes the value; this function only enforces whatever it is handed). `capMs <= 0` disables it, exactly
- * like `idleMs` above. `model` supplies what a synthetic failure message needs when the cap fires before any
- * real message ever arrived (`first_byte`): `watchStreamProgress`'s own `stall()` has a real partial message
- * to copy at that point; this one may not.
+ * A Keeper call is abandoned when its provider has not answered within its own per-call cap, independent of and in
+ * addition to the idle-gap watchdog above (contract §135.29's SL-69 addendum): a ceiling on the wait for the
+ * attempt's first event (the adapter pushes it once the response has answered), a named default derived from the
+ * table's own turn budget, never below a floor (`runtime/jev/hybrid-engine.ts` computes the value; this function
+ * only enforces whatever it is handed). `capMs <= 0` disables it, exactly like `idleMs` above.
+ *
+ * 0005 (owner, 2026-10-02: speed comes from optimisation, never from stopping a call): once the first event has
+ * arrived the cap is gone. A call that is answering is never cut for its length; a stall after its first event is
+ * the idle watchdog's. Until 0005 the cap also cut a call mid-stream, and on the installed App a Keeper writing its
+ * prose was cut at 60 s twice and the turn ended with nothing delivered. `model` supplies what the synthetic
+ * failure message needs, since no real message has arrived when the cap fires.
  *
  * `onCap` is asked for the error message to use, and is the caller's only chance to make this one
  * retryable or not: pi-ai's retry patterns key on wording (`"timed? out"`, `"timeout"`, …), so a message
@@ -127,7 +131,7 @@ export function watchCallCap(
 	else outer?.addEventListener("abort", relay, { once: true });
 	const source = start(request.signal);
 	const out = createAssistantMessageEventStream();
-	let last: AssistantMessage | undefined;
+	let answered = false;
 	let ended = false;
 	const settle = () => {
 		ended = true;
@@ -135,19 +139,14 @@ export function watchCallCap(
 		outer?.removeEventListener("abort", relay);
 	};
 	const cap = () => {
-		if (ended || outer?.aborted) return;
-		const phase: CallCapPhase = last ? "streaming" : "first_byte";
+		if (ended || answered || outer?.aborted) return;
 		settle();
-		const errorMessage = onCap(phase);
-		const base: AssistantMessage = last ?? {
+		const errorMessage = onCap("first_byte");
+		const base: AssistantMessage = {
 			role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id,
 			usage: EMPTY_USAGE, stopReason: "error", timestamp: Date.now(),
 		};
-		out.push({
-			type: "error",
-			reason: "error",
-			error: { ...base, content: last ? settledContent(last) : [], stopReason: "error", errorMessage },
-		});
+		out.push({ type: "error", reason: "error", error: { ...base, errorMessage } });
 		out.end();
 		request.abort(new Error(errorMessage));
 	};
@@ -156,7 +155,8 @@ export function watchCallCap(
 		try {
 			for await (const event of source) {
 				if (ended) break;
-				if ("partial" in event) last = event.partial;
+				// 0005: the provider answered; from here on the call runs as long as it keeps producing events.
+				if (!answered) { answered = true; clearTimeout(timer); }
 				out.push(event);
 				if (event.type === "done" || event.type === "error") {
 					settle();

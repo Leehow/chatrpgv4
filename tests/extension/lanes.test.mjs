@@ -233,96 +233,9 @@ test("a malformed story assessment is retained as the existing memory backlog an
 	assert.equal(calls(table, "memory.fail")[0].params.reason, "model_error");
 });
 
-test("校验车道：读正文与两份事实清单，发现交给 table.warn", async (t) => {
-	let seen;
-	const table = await openTable({ responses: keeperTurn() });
-	t.after(() => table.dispose());
-	table.lanes.verifier.setResponses([
-		(context) => {
-			seen = context;
-			return fauxAssistantMessage(
-				`\`\`\`json\n${JSON.stringify({
-					findings: [
-						{ kind: "reveal", quote: "门框上有一道深深的抓痕。", why: "地窖的抓痕还没被玩家发现。" },
-						{ kind: "play_language_mismatch", quote: "门框上有一道深深的抓痕。", why: "这一句不是战役的玩家语言。" },
-						{ kind: "investigator_identity_mismatch", quote: "门框上有一道深深的抓痕。", why: "称呼与调查员身份冲突。" },
-						{ kind: "没这一类", quote: "随便", why: "闭合枚举之外的整条丢掉" },
-						{ kind: "player_agency", quote: "缺 why 的一条" },
-					],
-				})}\n\`\`\``,
-			);
-		},
-	]);
 
-	await table.session.prompt("我检查地窖门的门框");
-	await waitFor(() => calls(table, "table.warn").length > 0, { label: "table.warn" });
 
-	const [warn] = calls(table, "table.warn");
-	assert.equal(warn.params.campaign, "test-camp");
-	assert.equal(warn.params.turn, 1);
-	assert.equal(warn.params.lane, "verifier");
-	assert.equal(warn.params.call_id, undefined, "车道的 RPC 不带 call_id");
-	assert.deepEqual(warn.params.findings, [
-		{ kind: "reveal", quote: "门框上有一道深深的抓痕。", why: "地窖的抓痕还没被玩家发现。" },
-		// 第四类（§23，2026-09-09）：内核不再按脚本拒交付，用没用玩家语言由车道读了以后报，
-		// 和另外三类一样是建议。`why` 仍写在战役的语言里。
-		{ kind: "play_language_mismatch", quote: "门框上有一道深深的抓痕。", why: "这一句不是战役的玩家语言。" },
-		{ kind: "investigator_identity_mismatch", quote: "门框上有一道深深的抓痕。", why: "称呼与调查员身份冲突。" },
-	]);
 
-	assert.ok(seen, "校验车道确实起了一次子会话");
-	assert.deepEqual(getCurrentTools(seen.messages), [], "零工具会话");
-	const input = conversationalText(seen.messages);
-	assert.match(input, /门框上有一道深深的抓痕。/, "读的是交付的正文");
-	assert.ok(!input.includes("Spot Hidden"), "机制投影不进车道：车道读的是正文加两份事实清单（契约 §12.5）");
-	assert.match(input, /托马斯·海耶斯用侦查看门框，通过。/, "已提交事实清单在输入里");
-	assert.match(input, /看门人的秘密/, "守秘人专属事实清单在输入里");
-
-	const row = await waitForLaneRow(table, "verifier");
-	assert.equal(row.ok, true);
-	assert.equal(row.turn, 1);
-	assert.equal(row.findings, 3, "三条留下来了：闭合枚举之外那条和缺 why 那条被丢掉");
-	assert.equal(row.model, "verifier/v1");
-});
-
-test("Jev 校验显式开启但未配置时，在同一次截止时间内只回退一次既有校验车道", async (t) => {
-	const table = await openTable({
-		responses: keeperTurn(),
-		env: { PI_COC_JEV_VERIFIER: "1", TYPESAFE_API_KEY: undefined },
-		laneResponses: {
-			memory: [noCandidates()],
-			verifier: [fauxAssistantMessage(JSON.stringify({ findings: [
-				{ kind: "uncommitted_state", quote: RENDERED, why: "The incumbent found an unsupported change." },
-			] }))],
-		},
-	});
-	t.after(() => table.dispose());
-
-	await table.session.prompt("我检查地窖门的门框");
-	await waitFor(() => calls(table, "table.warn").length > 0, { label: "Jev incumbent fallback table.warn" });
-	const rows = await waitFor(() => {
-		const complete = laneRows(table, "verifier").filter(row => row.ok !== undefined);
-		return complete.length ? complete : undefined;
-	}, {
-		label: "Jev incumbent fallback telemetry",
-	});
-
-	assert.equal(calls(table, "table.warn").length, 1, "only the incumbent route publishes warnings");
-	assert.deepEqual(calls(table, "table.warn")[0].params.findings, [
-		{ kind: "uncommitted_state", quote: RENDERED, why: "The incumbent found an unsupported change." },
-	]);
-	assert.equal(table.lanes.verifier.getPendingResponseCount(), 0, "the incumbent model was called exactly once");
-	assert.equal(rows.length, 1, "the family attempt still writes exactly one terminal verifier row");
-	assert.equal(rows[0].route, "incumbent");
-	assert.equal(rows[0].fallback, true);
-	assert.equal(rows[0].fallback_reason, "unconfigured");
-	assert.equal(rows[0].jev_calls, 1);
-	assert.equal(rows[0].jev_input_tokens, 0);
-	assert.equal(rows[0].incumbent_calls, 1);
-	assert.ok(rows[0].incumbent_input_tokens > 0, "unknown incumbent usage keeps its conservative UTF-8 input bound");
-	assert.equal(rows[0].incumbent_output_tokens, 30, "unknown incumbent usage keeps the faux model's full output bound below the public ceiling");
-	assert.equal(rows[0].model, "verifier/v1");
-});
 
 test("提交载荷上总线：campaign、turn、commit、job_id、facts、rendered_text 一个不少", async (t) => {
 	const table = await openTable({ responses: keeperTurn() });
@@ -342,163 +255,15 @@ test("提交载荷上总线：campaign、turn、commit、job_id、facts、render
 	assert.deepEqual(Object.keys(payload.facts).sort(), ["committed", "keeper_only"]);
 });
 
-test("内核不回 facts 时校验车道不跑，但「没跑」也留一行带原因码的遥测（#28）", async (t) => {
-	const table = await openTable({ env: { FAKE_KERNEL_NO_FACTS: "1" }, responses: keeperTurn() });
-	t.after(() => table.dispose());
-	table.lanes.memory.setResponses([fauxAssistantMessage(JSON.stringify({ candidates: [] }))]);
-	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
 
-	await table.session.prompt("我检查地窖门的门框");
-	await waitFor(() => calls(table, "memory.submit").length > 0, { label: "memory.submit" });
 
-	assert.equal(calls(table, "table.warn").length, 0, "切片 0、1 的内核没有 facts，校验车道整条不起");
-	assert.equal(table.lanes.verifier.getPendingResponseCount(), 1, "校验车道那个模型一次都没被叫过");
 
-	// 真桌证据（toomany-s4 第 3、4、14 回合）：不跑就一行都不留，事后没人看得出来。
-	const rows = await waitFor(() => (laneRows(table, "verifier").length > 0 ? laneRows(table, "verifier") : undefined), {
-		label: "校验车道「没跑」的遥测",
-	});
-	assert.equal(rows.length, 1, "narrate 关掉的回合恰好一行校验车道遥测");
-	assert.equal(rows[0].ok, false);
-	assert.equal(rows[0].ran, false, "这一行说的是「没跑」，不是「跑了没发现」");
-	assert.equal(rows[0].reason, "no_facts");
-	assert.equal(rows[0].turn, 1);
 
-	assert.equal((await waitForLaneRow(table, "memory")).ok, true, "记忆车道照跑：任务包由内核按回合出，不看 facts");
-});
 
-test("车道超时也留一行：模型不回答时按 PI_COC_LANE_TIMEOUT_MS 掐断并记 timeout（#28）", async (t) => {
-	const held = gate();
-	const table = await openTable({
-		responses: keeperTurn(),
-		// 校验车道 30 毫秒就掐；记忆车道不给 timeoutMs，走它自己的老路。
-		env: { PI_COC_LANE_TIMEOUT_MS: "30" },
-	});
-	t.after(() => {
-		held.open();
-		return table.dispose();
-	});
-	table.lanes.memory.setResponses([fauxAssistantMessage(JSON.stringify({ candidates: [] }))]);
-	// 一个永远不回答的模型：以前它会让车道一直挂着，一行遥测都不留。
-	table.lanes.verifier.setResponses([
-		async () => {
-			await held.promise;
-			return fauxAssistantMessage(JSON.stringify({ findings: [] }));
-		},
-	]);
 
-	await table.session.prompt("我检查地窖门的门框");
-	const row = await waitForLaneRow(table, "verifier");
 
-	assert.equal(row.ok, false);
-	assert.equal(row.reason, "timeout");
-	assert.equal(row.turn, 1);
-	assert.equal(row.model, "verifier/v1", "超时那一行照样说得出用的是哪个模型");
-	assert.match(String(row.detail), /30 ms/);
-	assert.equal(calls(table, "table.warn").length, 0, "超时不往内核送空发现");
-	assert.equal(assistantTexts(table.session).filter((text) => text.length > 0).at(-1), RENDERED, "掐断车道不动交付");
-});
 
-test("每个 narrate 关掉的回合恰好一行校验车道遥测：三种收尾都不留静默的洞（#28）", async (t) => {
-	const table = await openTable({
-		responses: [
-			// 第一回合：车道跑通，落 ok
-			...keeperTurn("第一回合的交付。"),
-			// 第二回合：车道模型出错（假 provider 的回答队列空了），落 model_error
-			...keeperTurn("第二回合的交付。"),
-			// 第三回合：车道模型出错，再落一行
-			...keeperTurn("第三回合的交付。"),
-		],
-	});
-	t.after(() => table.dispose());
-	table.lanes.memory.setResponses([noCandidates(), noCandidates(), noCandidates()]);
-	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
 
-	await table.session.prompt("第一句");
-	await table.session.prompt("第二句");
-	await table.session.prompt("第三句");
-	const rows = await waitFor(() => (laneRows(table, "verifier").length >= 3 ? laneRows(table, "verifier") : undefined), {
-		label: "三行校验车道遥测",
-	});
-
-	assert.equal(calls(table, "table.narrate").length, 3, "三个回合都由 narrate 关掉");
-	assert.equal(rows.length, 3, "一个回合一行，不多不少");
-	assert.deepEqual(
-		rows.map((row) => row.turn),
-		[1, 2, 3],
-		"每一行认得出自己是哪一回合",
-	);
-	assert.equal(rows[0].ok, true, "第一回合车道跑通");
-	for (const row of rows.slice(1)) {
-		assert.equal(row.ok, false);
-		assert.ok(typeof row.reason === "string" && row.reason.length > 0, "失败的行必须带原因码");
-	}
-});
-
-test("交付不等车道：正文换完的时候两条车道都还没跑完", async (t) => {
-	const held = gate();
-	const table = await openTable({ responses: keeperTurn() });
-	t.after(() => {
-		held.open();
-		return table.dispose();
-	});
-	table.lanes.memory.setResponses([
-		async () => {
-			await held.promise;
-			return fauxAssistantMessage(JSON.stringify({ candidates: [] }));
-		},
-	]);
-	table.lanes.verifier.setResponses([
-		async () => {
-			await held.promise;
-			return fauxAssistantMessage(JSON.stringify({ findings: [] }));
-		},
-	]);
-
-	await table.session.prompt("我检查地窖门的门框");
-
-	assert.equal(assistantTexts(table.session).filter((text) => text.length > 0).at(-1), RENDERED, "交付已经是内核渲染的文本");
-	assert.equal(calls(table, "memory.submit").length, 0, "记忆车道还卡在模型那儿");
-	assert.equal(calls(table, "table.warn").length, 0, "校验车道也还没回来");
-
-	held.open();
-	await waitFor(() => calls(table, "memory.submit").length > 0 && calls(table, "table.warn").length > 0, {
-		label: "两条车道收尾",
-	});
-	assert.equal(assistantTexts(table.session).filter((text) => text.length > 0).at(-1), RENDERED, "车道跑完也不改交付");
-});
-
-test("车道模型出错：记忆落 memory.fail，校验只落遥测，都不催守秘人、不动回合", async (t) => {
-	// 两个车道的假 provider 都不给回答：每次调用都回一条错误消息。
-	const table = await openTable({ responses: keeperTurn() });
-	t.after(() => table.dispose());
-
-	await table.session.prompt("我检查地窖门的门框");
-	await waitFor(() => calls(table, "memory.fail").length > 0, { label: "memory.fail" });
-	const verifier = await waitForLaneRow(table, "verifier");
-	const failed = await waitForLaneRow(table, "memory");
-
-	const [fail] = calls(table, "memory.fail");
-	assert.equal(fail.params.job_id, "extract:test-camp:t1");
-	assert.equal(fail.params.reason, "model_error", "reason 取的是 backlog 的闭合枚举");
-	assert.match(String(fail.params.detail), /faux/i);
-	assert.equal(calls(table, "memory.submit").length, 0, "抽不出来就不提交");
-	assert.equal(
-		table.telemetry().filter((row) => row.method === "memory.job").length + turnJobs(table).length,
-		1,
-		"一个任务包只取一次，重试重试的是子会话与提交",
-	);
-
-	assert.equal(failed.ok, false);
-	assert.equal(failed.reason, "model_error");
-	assert.equal(verifier.ok, false);
-	assert.equal(calls(table, "table.warn").length, 0, "校验车道自己出错时不写 warn");
-
-	assert.deepEqual(customMessages(table.session, "coc-host"), [], "车道失败不发宿主消息，不催守秘人");
-	assert.equal(calls(table, "table.player_input").length, 1, "回合数没变");
-	assert.equal(calls(table, "table.narrate").length, 1, "也没重开回合");
-	assert.equal(assistantTexts(table.session).filter((text) => text.length > 0).at(-1), RENDERED, "交付不受影响");
-});
 
 test("连着两次提交：记忆车道排队，不重叠", async (t) => {
 	const first = gate();
@@ -539,81 +304,11 @@ test("连着两次提交：记忆车道排队，不重叠", async (t) => {
 	);
 });
 
-test("车道模型来自环境变量：认 provider/model，认不出就只落遥测不动内核", async (t) => {
-	const table = await openTable({
-		responses: keeperTurn(),
-		// 校验车道点名一个不存在的模型；记忆车道用默认的 memory/m1。
-		env: { PI_COC_VERIFIER_MODEL: "verifier/没这个模型" },
-	});
-	t.after(() => table.dispose());
-	table.lanes.memory.setResponses([fauxAssistantMessage(JSON.stringify({ candidates: [] }))]);
 
-	await table.session.prompt("我检查地窖门的门框");
-	const verifier = await waitForLaneRow(table, "verifier");
-	await waitFor(() => calls(table, "memory.submit").length > 0, { label: "memory.submit" });
 
-	assert.equal(verifier.ok, false);
-	assert.equal(verifier.reason, "model_unavailable");
-	assert.match(String(verifier.detail), /PI_COC_VERIFIER_MODEL/);
-	assert.equal(calls(table, "table.warn").length, 0, "模型都解析不出来，不写 warn");
 
-	assert.equal((await waitForLaneRow(table, "memory")).model, "memory/m1", "另一条车道照走 PI_COC_MEMORY_MODEL");
-});
 
-test("不点名模型时两条车道都跟桌子同模型", async (t) => {
-	// Each queued step is identified from the replayed system prompt, so whichever party asks first still gets its answer.
-	const responder = (context) => {
-		const prompt = promptOf(context);
-		if (/after-the-fact verification/.test(prompt)) {
-			return fauxAssistantMessage(JSON.stringify({ findings: [] }));
-		}
-		if (/candidates/.test(prompt)) {
-			return fauxAssistantMessage(JSON.stringify({ candidates: [] }));
-		}
-		return fauxAssistantMessage("守秘人在 narrate 之后又写的正文，应该被换掉");
-	};
-	const table = await openTable({
-		responses: [
-			fauxAssistantMessage([fauxToolCall("narrate", { text: "门框上有一道深深的抓痕。" })], { stopReason: "toolUse" }),
-			responder,
-			responder,
-			responder,
-		],
-		env: { PI_COC_VERIFIER_MODEL: undefined, PI_COC_MEMORY_MODEL: undefined },
-	});
-	t.after(() => table.dispose());
 
-	await table.session.prompt("我检查地窖门的门框");
-	await waitFor(() => calls(table, "table.warn").length > 0 && calls(table, "memory.submit").length > 0, {
-		label: "两条车道收尾",
-	});
-
-	assert.equal((await waitForLaneRow(table, "verifier")).model, "faux/faux-1", "校验车道缺省用桌子的模型");
-	assert.equal((await waitForLaneRow(table, "memory")).model, "faux/faux-1", "记忆车道同理");
-	assert.equal(assistantTexts(table.session).filter((text) => text.length > 0).at(-1), RENDERED);
-});
-
-test("不点名环境变量的车道跟 App 的车道模型设置；点了名的仍以变量为准（§109.3）", async (t) => {
-	// 直到 §109，面板里那一个「车道模型」只到得了 mod 子进程；准入、校验、记忆这些零工具车道
-	// 仍跟桌子，于是把桌子放在慢模型上时，玩家等的恰是没被设置动到的那条（准入 p50 20 s / p90 79 s）。
-	const agentHome = mkdtempSync(join(tmpdir(), "pi-coc-lane-setting-"));
-	writeFileSync(join(agentHome, "pipiui-settings.json"), JSON.stringify({
-		extensions: { "coc-keeper": { settings: { "ext.coc-keeper.laneModel": { model: "verifier/v1" } } } },
-	}));
-	const table = await openTable({
-		responses: keeperTurn(),
-		// 校验车道不点名变量：应当跟设置里的 verifier/v1（那条假供应商自己的队列），而不是桌子的 faux/faux-1。
-		// 记忆车道仍点名 memory/m1。
-		env: { PI_COC_VERIFIER_MODEL: undefined, PI_CODING_AGENT_DIR: agentHome },
-		laneResponses: { verifier: [fauxAssistantMessage(JSON.stringify({ findings: [] }))], memory: [noCandidates()] },
-	});
-	t.after(() => table.dispose());
-
-	await table.session.prompt("我检查地窖门的门框");
-	const verifier = await waitForLaneRow(table, "verifier");
-	assert.deepEqual([verifier.model, verifier.ok], ["verifier/v1", true], "没点名变量的车道跟设置，不跟桌子");
-	assert.equal((await waitForLaneRow(table, "memory")).model, "memory/m1", "点了名的变量仍然赢过设置");
-});
 
 test("重开桌子：胶囊自己带 resume，宿主不为它多发一条消息", async (t) => {
 	const table = await openTable({
@@ -868,106 +563,13 @@ function waitForLaneCallPhase(table, subsession, phase) {
 	return waitFor(() => laneCallPhase(table, subsession, phase).at(-1), { label: `${subsession} 车道的 ${phase} 行` });
 }
 
-test("车道调用留四行：补全自己计时，与车道其余部分分开（#67）", async (t) => {
-	const table = await openTable({ responses: keeperTurn() });
-	t.after(() => table.dispose());
-	table.lanes.memory.setResponses([noCandidates()]);
-	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
 
-	await table.session.prompt("我检查地窖门的门框");
-	const laneRow = await waitForLaneRow(table, "verifier");
-	await waitForLaneCallPhase(table, "verifier", "end");
 
-	const rows = laneCallRows(table, "verifier");
-	assert.deepEqual(
-		rows.map((row) => row.phase),
-		["start", "request", "response", "end"],
-		"一次车道调用恰好四行，顺序就是请求体上线、响应头到、补全落定",
-	);
-	for (const row of rows) {
-		assert.equal(row.subsession, "verifier", "每一行都说得出自己是哪条车道的");
-		assert.equal(row.turn, 1, "每一行都落在这一回合上");
-		assert.match(String(row.at), /^\d{4}-\d{2}-\d{2}T/, "每一行都有 ISO 时间戳");
-	}
 
-	const [start, request, response, end] = rows;
-	assert.equal(start.model, "verifier/v1", "起跑行记的是解析出来的 provider/model");
-	assert.equal(start.ms, undefined, "起跑行不记 ms：它就是 ms 的原点");
-	assert.equal(request.model, "v1", "请求行记的是请求体里的模型 id");
-	assert.equal(response.status, 200);
-	assert.equal(end.ok, true);
-	assert.equal(end.stop_reason, "stop");
 
-	for (const row of [request, response, end]) assert.equal(typeof row.ms, "number", `${row.phase} 行带 ms`);
-	assert.ok(request.ms <= response.ms, "ms 都从起跑行算起，所以请求不晚于响应");
-	assert.ok(response.ms <= end.ms, "响应头不晚于补全落定");
 
-	// 这就是拆不开的那个数被拆开：车道那一行仍然只有一个 ms，但它现在减得动了。
-	assert.equal(laneRows(table, "verifier").length, 1, "原来那一行还是恰好一行，条数与字段都没被动过");
-	assert.equal(laneRow.ok, true);
-	assert.ok(laneRow.ms >= end.ms, "车道那一行盖住补全，二者之差就是提示拼装、验形与 table.warn 那段");
-});
 
-test("reasoning 档记的是出站请求体里真写着的那个（#67）", async (t) => {
-	const table = await openTable({ responses: [...keeperTurn("第一回合的交付。"), ...keeperTurn("第二回合的交付。")] });
-	t.after(() => table.dispose());
-	table.lanes.memory.setResponses([noCandidates(), noCandidates()]);
-	table.lanes.verifier.setResponses([
-		fauxAssistantMessage(JSON.stringify({ findings: [] })),
-		fauxAssistantMessage(JSON.stringify({ findings: [] })),
-	]);
 
-	// 第一回合：请求体里根本没有 reasoning 字段。xai/grok-4.6 的 `thinkingLevelMap.off` 是 null，
-	// 而 runLane 一个 thinking 档都不传，真实的车道请求就是这个形状——档由供应商自己定。
-	await table.session.prompt("第一句");
-	await waitForLaneCallPhase(table, "verifier", "end");
-	assert.equal(laneCallPhase(table, "verifier", "request").at(-1).reasoning_effort, null, "请求体里没有 reasoning 字段就记 null，不猜");
-
-	// 第二回合：请求体里嵌套着 reasoning.effort。同一行改口，证明它读的是请求体不是常量。
-	table.lanes.verifier.setTransport({ body: { model: "v1", messages: [], stream: true, reasoning: { effort: "low" } } });
-	await table.session.prompt("第二句");
-	await waitFor(() => laneCallPhase(table, "verifier", "request").length === 2, { label: "第二回合的请求行" });
-	assert.equal(laneCallPhase(table, "verifier", "request").at(-1).reasoning_effort, "low", "嵌套的 reasoning.effort 读得到");
-});
-
-test("扁平的 reasoning_effort 也读得到，与 provider 行同一条读法（#67）", async (t) => {
-	const table = await openTable({ responses: keeperTurn() });
-	t.after(() => table.dispose());
-	table.lanes.memory.setResponses([noCandidates()]);
-	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
-	table.lanes.verifier.setTransport({ body: { model: "v1", messages: [], stream: true, reasoning_effort: "medium" } });
-
-	await table.session.prompt("我检查地窖门的门框");
-	const request = await waitForLaneCallPhase(table, "verifier", "request");
-	assert.equal(request.reasoning_effort, "medium");
-});
-
-test("响应行只记状态与白名单 request-id，别的头一个字都不进遥测（#67）", async (t) => {
-	const table = await openTable({ responses: keeperTurn() });
-	t.after(() => table.dispose());
-	table.lanes.memory.setResponses([noCandidates()]);
-	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
-	table.lanes.verifier.setTransport({
-		status: 429,
-		headers: {
-			"X-Request-Id": "req-42",
-			authorization: "Bearer sk-绝不能进遥测",
-			"set-cookie": "session=也不能",
-			"x-ratelimit-remaining": "9",
-		},
-	});
-
-	await table.session.prompt("我检查地窖门的门框");
-	const response = await waitForLaneCallPhase(table, "verifier", "response");
-
-	assert.equal(response.status, 429, "状态码原样");
-	assert.equal(response.request_id, "req-42", "大小写不同的 X-Request-Id 也认得");
-	const everything = JSON.stringify(laneCallRows(table, "verifier"));
-	assert.ok(!everything.includes("sk-绝不能进遥测"), "凭据不进遥测");
-	assert.ok(!everything.includes("set-cookie") && !everything.includes("session=也不能"), "cookie 不进遥测");
-	assert.ok(!everything.includes("ratelimit"), "没登记的头一律不记");
-	assert.ok(!everything.includes("门框上有一道深深的抓痕"), "车道的输入是守秘人正文，出不了这条路");
-});
 
 test("同一处埋点让两条车道都可见：记忆车道也留同样的四行（#67）", async (t) => {
 	const table = await openTable({ responses: keeperTurn() });
@@ -996,25 +598,7 @@ test("同一处埋点让两条车道都可见：记忆车道也留同样的四�
 	assert.equal(laneRows(table, "memory").length, 1, "记忆车道原来那一行也还是一行");
 });
 
-test("等响应头时被砍：只有请求行、没有响应行，那就是这次超时的形状（#67）", async (t) => {
-	const held = gate();
-	// The headers are held for ever, so the timeout's size only sets how long the test waits; 30 ms raced the
-	// request-phase row under a 12-way loaded run (the row was not yet written when the timer fired), and SL-87 found 300 ms
-	// racing it too on a box at load ~100 (`model_error`). It is spent whole on every run, so it is 5 s, not a minute.
-	const table = await openTable({ responses: keeperTurn(), env: { PI_COC_LANE_TIMEOUT_MS: "5000" } });
-	t.after(() => {
-		held.open();
-		return table.dispose();
-	});
-	table.lanes.memory.setResponses([noCandidates()]);
-	table.lanes.verifier.setResponses([fauxAssistantMessage(JSON.stringify({ findings: [] }))]);
-	// 停在响应头到达之前：请求发出去了，头一直不来。
-	table.lanes.verifier.setTransport({ holdHeaders: held.promise });
 
-	await table.session.prompt("我检查地窖门的门框");
-	const row = await waitForLaneRow(table, "verifier");
-	assert.equal(row.reason, "timeout");
 
-	const phases = laneCallRows(table, "verifier").map((entry) => entry.phase);
-	assert.deepEqual(phases, ["start", "request"], "请求行有、响应行没有——这一次是在等响应头，不是在等流");
-});
+// Section 166 retires automatic prose-review integration cases.
+// Current no-review delivery coverage: single-pass-narration.test.mjs and post-delivery-continuity.test.mjs.

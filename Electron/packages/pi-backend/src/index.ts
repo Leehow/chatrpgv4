@@ -1031,6 +1031,10 @@ const TERMINAL_RECONCILIATION_PENDING_MAX_RETRIES = 6;
 /** Spawn waits this long for the auth-aware catalog (hosted-search exclusivity),
  * then proceeds on configured rows; a pending-forever catalog must not wedge startup. */
 const SPAWN_CATALOG_WAIT_MS = 5_000;
+/** The host's seeded placeholder (`provider: "unknown", id: "unknown"`), which names no model. */
+function isUnknownModel(model: Pick<Model, "provider" | "id">): boolean {
+  return model.provider === "unknown" && model.id === "unknown";
+}
 /** Pace for deferred session-file work (redaction / env refresh) while a writer stays busy. */
 const SESSION_FILE_RETRY_PACE_MS = 250;
 /** Matches Swift `SubagentWatchdog.staleThreshold`. */
@@ -3813,6 +3817,7 @@ export class PiHostBackend implements HostBackend {
     if (!session) throw new Error(`unknown session ${sessionId}`);
     const started = Date.now();
     const history = await readHistory(session.path, 0, Number.MAX_SAFE_INTEGER, this.vaultDir, sessionId);
+    this.startCocDetailsRecovery(sessionId, session.path, history);
     this.reconcileOrphanedNow(sessionId);
     const agents = [...this.agents.values()]
       .filter(agent => agent.sessionId === sessionId)
@@ -3832,6 +3837,51 @@ export class PiHostBackend implements HostBackend {
       ms: Date.now() - started,
     });
     return { history, agents, agentLogs };
+  }
+
+  private readonly cocDetailsRecoveries = new Map<string, Promise<void>>();
+  /** A loaded waiting card owns recovery; no player sentence or story turn is manufactured. */
+  private startCocDetailsRecovery(sessionId: string, path: string, history: HistoryEntry[]): void {
+    if (this.closed || this.sidebarArchivedCache.has(sessionId) || this.cocDetailsRecoveries.has(sessionId)) return;
+    const cards = history.filter(entry => entry.presentation?.renderer === 'coc-mechanics'
+      && isRecord(entry.presentation.details) && Array.isArray(entry.presentation.details.mechanics)
+      && entry.presentation.details.mechanics.some((row: any) => row.kind === 'item' && row.definition === 'pending'));
+    if (!cards.length || !this.cocHostPaths()) return;
+    const existing = this.live.get(sessionId);
+    if (!this.canRewriteSessionFile(sessionId) && !(existing && this.liveProcessUsable(existing))) return;
+    const work = (async () => {
+      const binding = await readCocBinding(path);
+      if (!binding || binding.mode === 'setup' || this.closed || this.sidebarArchivedCache.has(sessionId)) return;
+      if (!(await this.leaseFor(await this.locate(sessionId)).query()).writable) return;
+      const live = await this.ensure(sessionId, undefined, true);
+      if (this.live.get(sessionId) !== live || !this.liveProcessUsable(live)) return;
+      // Seed the same live patch reader with the cards the history page already drew. Startup may
+      // have completed a job before ensure returned; the following durable re-read catches it.
+      for (const card of cards) {
+        this.noteCardRow(live, {type: 'custom', customType: 'coc-mechanics', id: card.id,
+          timestamp: new Date(card.timestamp).toISOString(), data: card.presentation!.details});
+        (live.cocCardDrawn ??= new Map()).set(card.id, JSON.stringify(card.presentation));
+      }
+      const latest = await this.readHistoryCached(path, 0, Number.MAX_SAFE_INTEGER, sessionId);
+      if (this.live.get(sessionId) !== live || !this.liveProcessUsable(live)) return;
+      const ids = new Set(cards.map(card => card.id));
+      for (const card of latest) {
+        if (!ids.has(card.id) || card.presentation?.renderer !== 'coc-mechanics') continue;
+        const raw = {type: 'custom', customType: 'coc-mechanics', id: card.id,
+          timestamp: new Date(card.timestamp).toISOString(), data: card.presentation.details};
+        this.noteCardRow(live, raw);
+        const entry = mechanicsEntry(raw, binding.play_language, undefined, this.cocLiveWords(sessionId), undefined,
+          live.cocCards?.patchesFor(card.id), binding);
+        if (!entry) continue;
+        const drawn = JSON.stringify(entry.presentation);
+        if (live.cocCardDrawn?.get(card.id) === drawn) continue;
+        live.cocCardDrawn!.set(card.id, drawn);
+        this.stream({type: 'presentation', sessionId, entry});
+      }
+    })().catch(error => {
+      if (!this.closed) console.warn(`[pipicoc] Item detail recovery failed for ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+    }).finally(() => { if (this.cocDetailsRecoveries.get(sessionId) === work) this.cocDetailsRecoveries.delete(sessionId); });
+    this.cocDetailsRecoveries.set(sessionId, work);
   }
   private async scanIndex(): Promise<SessionMeta[]> {
     this.indexGenerations += 1;
@@ -4286,11 +4336,11 @@ export class PiHostBackend implements HostBackend {
    * no model record inherit the configured global default.
    */
   private desiredModelFor(s: SessionMeta): ModelState {
-    const inMemory =
-      this.sessionModelStates.get(s.header.id) ??
-      this.sessionModelSnapshots.get(s.header.id);
+    // The host's placeholder is not a model: a session frozen on it (created
+    // before any model was known) resolves now, as sessionModelOf already does.
+    const inMemory = this.knownSessionModelState(s.header.id);
     if (inMemory) return inMemory;
-    const base = this.modelState;
+    const base = this.defaultSessionModelState();
     const ref = this.sessionModelOf(s);
     if (!ref) {
       if (s.thinkingLevel === undefined) return base;
@@ -4607,6 +4657,7 @@ export class PiHostBackend implements HostBackend {
             limit,
             session.header.id,
           );
+          this.startCocDetailsRecovery(session.header.id, session.path, entries);
           freezeProbeHistoryIpcEnd({ session: session.header.id, ms: Date.now() - started, rows: entries.length });
           return entries;
         } catch (error) {
@@ -5504,6 +5555,43 @@ export class PiHostBackend implements HostBackend {
     }
     return home;
   }
+  /** This host run's state for a session, live first; the placeholder counts as none. */
+  private knownSessionModelState(sessionId: string): ModelState | undefined {
+    return [this.sessionModelStates.get(sessionId), this.sessionModelSnapshots.get(sessionId)]
+      .find((state): state is ModelState => state !== undefined && !isUnknownModel(state.model));
+  }
+  /**
+   * What a session with no model of its own starts on. Normally the host's
+   * model state: the remembered manual selection once the catalog holds it,
+   * else the configured default. Until the auth-aware catalog has loaded,
+   * though, a remembered model contributed by an extension provider is not in
+   * `this.models`, `applyManualModelSelection` skips it, and the host state is
+   * the `unknown` placeholder or the configured default. A session started then
+   * was frozen on that state; on the placeholder its spawn skipped
+   * `selectExactModel` and Pi ran its own settings default. On the installed
+   * PipiCOC (2026-10-02) a table created while the model chip was still
+   * loading ran on gpt-6-astra, the agent home's default, not the remembered
+   * gpt-6-luna, and nothing said so. So while the catalog is not ready, the
+   * remembered selection itself is the default; once it is ready, a
+   * remembered model the catalog lacks falls back exactly as before. Which of
+   * the two a not-yet-listed model is cannot be known before the catalog, so
+   * newSession does not freeze this provisional state: the session's first
+   * read (getModelState, spawn) waits for the catalog and decides then.
+   */
+  private defaultSessionModelState(): ModelState {
+    const base = this.modelState;
+    const remembered = this.manualModelSelection;
+    if (!remembered || this.modelCatalogReady) return base;
+    if (base.model.provider === remembered.provider && base.model.id === remembered.modelId) return base;
+    const model: Model = this.models.find(item => item.provider === remembered.provider && item.id === remembered.modelId)
+      ?? { provider: remembered.provider, id: remembered.modelId, name: remembered.modelId, reasoning: true };
+    const availableThinkingLevels = thinkingLevelsForModel(model);
+    return {
+      model,
+      thinkingLevel: resolveThinkingLevel(this.manualThinkingLevel ?? base.thinkingLevel, availableThinkingLevels) ?? "off",
+      availableThinkingLevels,
+    };
+  }
   private async newSession(projectId: string, name?: string): Promise<Session> {
     // Session creation needs only local configuration. The optional authenticated runtime
     // catalog may involve network-backed provider discovery and must never gate a sidebar click.
@@ -5557,8 +5645,9 @@ export class PiHostBackend implements HostBackend {
           name,
         }),
       );
-    const inheritedThinking = this.modelState.thinkingLevel;
-    if (this.modelState.availableThinkingLevels.includes(inheritedThinking)) {
+    const initialModelState = this.defaultSessionModelState();
+    const inheritedThinking = initialModelState.thinkingLevel;
+    if (initialModelState.availableThinkingLevels.includes(inheritedThinking)) {
       lines.push(
         JSON.stringify({
           type: "thinking_level_change",
@@ -5577,7 +5666,7 @@ export class PiHostBackend implements HostBackend {
         header,
         name: name ?? "New session",
         updatedAt: Date.now(),
-        thinkingLevel: this.modelState.availableThinkingLevels.includes(inheritedThinking)
+        thinkingLevel: initialModelState.availableThinkingLevels.includes(inheritedThinking)
           ? inheritedThinking
           : undefined,
         productProfile: initialProductProfile,
@@ -5585,7 +5674,7 @@ export class PiHostBackend implements HostBackend {
       created.size,
       created.mtimeMs,
     );
-    this.sessionModelSnapshots.set(id, this.modelState);
+    if (this.modelCatalogReady) this.sessionModelSnapshots.set(id, initialModelState);
     this.beginSessionRuntime(id);
     return {
       id,
@@ -5708,7 +5797,7 @@ export class PiHostBackend implements HostBackend {
       return {};
     }
   }
-  private async ensure(id: string, expectedGeneration?: unknown): Promise<Live> {
+  private async ensure(id: string, expectedGeneration?: unknown, cocDetailsRecovery = false): Promise<Live> {
     const generation = expectedGeneration !== undefined
       ? expectedGeneration
       : this.sessionRuntimeToken(id) ?? this.beginSessionRuntime(id);
@@ -5724,7 +5813,7 @@ export class PiHostBackend implements HostBackend {
       await (live.exit ?? Promise.resolve());
       this.assertSessionGeneration(id, generation);
       if (this.live.get(id) === live) this.live.delete(id);
-      return this.ensure(id, generation);
+      return this.ensure(id, generation, cocDetailsRecovery);
     }
     this.stopEscalation.cancel(id);
     this.cutInStopEscalation.cancel(id);
@@ -5739,13 +5828,13 @@ export class PiHostBackend implements HostBackend {
         throw new Error("会话已归档：请先在侧栏取消归档，再继续该会话");
       }
     }
-    const attempt = this.spawnLive(id, generation).finally(() => {
+    const attempt = this.spawnLive(id, generation, cocDetailsRecovery).finally(() => {
       this.ensureInFlight.delete(id);
     });
     this.ensureInFlight.set(id, attempt);
     return attempt;
   }
-  private async spawnLive(id: string, generation = this.sessionRuntimeToken(id)): Promise<Live> {
+  private async spawnLive(id: string, generation = this.sessionRuntimeToken(id), cocDetailsRecovery = false): Promise<Live> {
     this.assertSessionGeneration(id, generation);
     const found = await this.locate(id);
     if (found.header.cocWorldline) await this.activateCocConversation(found);
@@ -5779,6 +5868,10 @@ export class PiHostBackend implements HostBackend {
       } catch {
         /* runtime catalog unavailable → configured rows only */
       }
+      this.assertSessionGeneration(id, generation);
+      // A catalog wait that ran out may not have read the remembered selection yet.
+      await this.loadManualModelSelection();
+      await this.loadManualThinkingLevel();
       this.assertSessionGeneration(id, generation);
       const desired = this.desiredModelFor(found);
       const previousModelSnapshot = this.sessionModelSnapshots.get(id);
@@ -5955,6 +6048,7 @@ export class PiHostBackend implements HostBackend {
               // still passed through -- by `mergedSpawnEnvironment`'s parent layer, as an operator
               // override rather than as a setting wearing one's clothes.
               ...(cocBinding ? {PI_COC_CAMPAIGN:cocBinding.campaign,PI_COC_HOME:cocBinding.home, PI_COC_MODE:cocBinding.mode || "play",
+                ...(cocDetailsRecovery ? {PI_COC_DETAILS_RECOVERY: '1'} : {}),
                 ...(cocBinding.mode === "setup" ? {PI_COC_SETUP_AUTOSTART:"1"} : {}),
                 ...(cocWatchdogRecovery ? {[COC_WATCHDOG_RECOVERY_ENV]:"1"} : {})} : {}),
             }),
@@ -6498,6 +6592,11 @@ export class PiHostBackend implements HostBackend {
       // with no visible output while queued messages correctly wait for the
       // settle — otherwise reads to the user as a wedged queue. Redact the
       // provider error text, matching the message_end error path.
+      // A scheduled retry is the turn waiting on purpose, not a wedge: the
+      // watchdog counts it, so a backoff up to pi's one-minute cap plus the next
+      // attempt's own idle timeout never reads as two silent minutes
+      // (runtime/launch.ts FOREGROUND_RETRY, 2026-10-03).
+      this.touchTurnActivity(live);
       const start = e.type === "auto_retry_start";
       const retryError = redactText(
         String(start ? (e.errorMessage ?? "") : (e.finalError ?? "")).slice(0, 200),
@@ -11306,10 +11405,11 @@ export class PiHostBackend implements HostBackend {
         this.turnTelemetry.preparationComplete(id, Buffer.byteLength(JSON.stringify(body), "utf8"));
         this.turnTelemetry.dispatchStarted(id);
       }
+      let response: { disposition?: unknown } | undefined;
       try {
         this.structuredOutputs?.assertReadyToSend(id);
         this.assertSessionGeneration(id, generation);
-        await this.command(id, body, false, runtimeToken);
+        response = await this.command(id, body, false, runtimeToken);
         this.assertSessionGeneration(id, generation);
       } catch (error) {
         if (body.type !== "prompt" || !isAlreadyProcessingError(error)) {
@@ -11320,13 +11420,21 @@ export class PiHostBackend implements HostBackend {
         // running). Pi is the authority: re-send with the behavior it asked for
         // instead of surfacing the raw RPC error to the composer.
         this.assertSessionGeneration(id, generation);
-        await this.command(id, { ...body, streamingBehavior: "followUp" }, false, runtimeToken);
+        response = await this.command(id, { ...body, streamingBehavior: "followUp" }, false, runtimeToken);
         this.assertSessionGeneration(id, generation);
       }
       this.assertSessionGeneration(id, generation);
       if (recordTurn) this.turnTelemetry.dispatchAccepted(id);
-      if (behavior === "steer" && payload.text.trim()) this.noteUnconfirmedSteer(id, payload);
+      if (response?.disposition === "handled") {
+        this.pendingSends.drop(id, send);
+        if (live.pendingDrainPrompt === payload.text) live.pendingDrainPrompt = undefined;
+        if (recordTurn && !this.queue.isTurnActive(id)) {
+          this.turnTelemetry.terminal(id, "settled");
+          this.turnTelemetry.flushTerminal(id);
+        }
+      } else if (behavior === "steer" && payload.text.trim()) this.noteUnconfirmedSteer(id, payload);
       leaseCommitted = true;
+      return response;
     } catch (error) {
       if (!leaseCommitted) await this.rollbackSessionLeaseAttempt(leaseAttempt);
       this.pendingSends.drop(id, send);
@@ -11444,9 +11552,7 @@ export class PiHostBackend implements HostBackend {
       // level -- the chip read 「Unknown / auto」 after a provider error, and the
       // level they chose was gone. The cold path below already prefers the
       // session's own model; this one did not.
-      const liveState = this.sessionModelStates.get(sessionId)
-        ?? this.sessionModelSnapshots.get(sessionId)
-        ?? this.desiredModelFor(meta);
+      const liveState = this.knownSessionModelState(sessionId) ?? this.desiredModelFor(meta);
       const persisted = meta.thinkingLevel;
       if (
         persisted &&
@@ -11460,7 +11566,7 @@ export class PiHostBackend implements HostBackend {
       }
       return liveState;
     }
-    const cached = this.sessionModelStates.get(sessionId) ?? this.sessionModelSnapshots.get(sessionId);
+    const cached = this.knownSessionModelState(sessionId);
     if (cached) return cached;
     const desired = this.desiredModelFor(await this.findSession(sessionId));
     this.sessionModelSnapshots.set(sessionId, desired);
@@ -11735,9 +11841,10 @@ export class PiHostBackend implements HostBackend {
   }
   private async coldSessionStats(id: string): Promise<SessionStats> {
     await this.loadConfiguredModels();
-    const cachedState = this.sessionModelStates.get(id) ?? this.sessionModelSnapshots.get(id);
+    const cachedState = this.knownSessionModelState(id);
     const state = cachedState ?? this.desiredModelFor(await this.findSession(id));
-    this.sessionModelSnapshots.set(id, state);
+    // Stats do not wait for the catalog: a state resolved before it is provisional (defaultSessionModelState).
+    if (cachedState || this.modelCatalogReady) this.sessionModelSnapshots.set(id, state);
     const known = this.sessionContextLastKnown.get(id);
     const performance = this.turnTelemetry.sessionPerformance(id);
     return {

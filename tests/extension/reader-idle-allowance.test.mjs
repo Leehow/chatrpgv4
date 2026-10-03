@@ -107,11 +107,11 @@ test("the shipped reading allowance clears the worst healthy reader silence and 
 test("a reader child gets the reading allowance from the data file; a mod lane child keeps its own; the agent home is untouched", async t => {
   const { agent, launch } = await capturing(t, await contentWith(t, { idle_ms: 123_456 }));
   const reader = await launch("reader", "reader");
-  assert.deepEqual(reader.settings, { httpIdleTimeoutMs: 123_456, retry: { provider: { maxRetries: 0 } } });
+  assert.deepEqual(reader.settings, { httpIdleTimeoutMs: 123_456, retry: { maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 60000, provider: { maxRetries: 0 } } });
   // Pi reads `<cwd>/.pi/settings.json` only for a trusted project.
   assert.ok(reader.argv.includes("--approve"), JSON.stringify(reader.argv));
   const mod = await launch("mod", "mod");
-  assert.deepEqual(mod.settings, { httpIdleTimeoutMs: LANE_HTTP_IDLE_TIMEOUT_MS, retry: { provider: { maxRetries: 0 } } });
+  assert.deepEqual(mod.settings, { httpIdleTimeoutMs: LANE_HTTP_IDLE_TIMEOUT_MS, retry: { maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 60000, provider: { maxRetries: 0 } } });
   assert.deepEqual(JSON.parse(await readFile(join(agent, "settings.json"), "utf8")), { quietStartup: true, httpIdleTimeoutMs: KEEPER_IDLE_MS },
     "the operator's value, which the Keeper runs on, is neither read nor rewritten");
 });

@@ -2,7 +2,7 @@
 import { isPlainRecord } from './value-contracts.ts';
 
 export type CommittedSpeaker =
-  | { npc: string; name: string }
+  | { npc: string; name: string; shown?: string }
   | { investigator: string; name: string }
   | { label: string };
 
@@ -31,6 +31,9 @@ function speaker(value: unknown): value is CommittedSpeaker {
   if (!isPlainRecord(value)) return false;
   const keys = Object.keys(value);
   if (keys.length === 1 && keys[0] === 'label') return nonempty(value.label);
+  // §103.5: an untold NPC speaker may carry `shown`, what the transcript showed for them ("" for a handle token).
+  if (keys.length === 3 && keys.includes('npc') && keys.includes('shown'))
+    return typeof value.shown === 'string' && nonempty(value.name) && nonempty(value.npc);
   if (keys.length !== 2 || !keys.includes('name') || !nonempty(value.name)) return false;
   return keys.includes('npc') && nonempty(value.npc) || keys.includes('investigator') && nonempty(value.investigator);
 }

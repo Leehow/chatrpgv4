@@ -75,6 +75,7 @@ const CSS = `
   line-height:var(--md-lh,1.78);color:var(--text);
   overflow-wrap:break-word;line-break:strict;text-wrap:pretty;text-spacing-trim:trim-start}
 .coc-mech-prose{white-space:pre-wrap}
+.coc-typewriter-cursor{display:inline-block;height:1em;border-right:1.5px solid currentColor;vertical-align:-.1em;margin-left:2px;opacity:.55}
 
 /* A marked delivery (§16.6): the narration reads straight down and a receipt sits at the point
    the keeper put it, inset just enough to read as an aside rather than as a paragraph. */
@@ -111,6 +112,8 @@ const CSS = `
 .coc-mech-row[data-family] .coc-mech-ico{color:var(--fam, var(--muted));
   background:color-mix(in oklab, var(--fam, var(--muted)) 13%, transparent)}
 .coc-mech-body{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--text)}
+.coc-mech-cash-purpose{display:block;color:var(--muted);font-size:11.5px;line-height:1.5}
+.coc-mech-cash-detail{display:block;color:var(--subtle);font-size:11px;line-height:1.5}
 .coc-mech-who{color:var(--muted)}
 .coc-mech-skill{font-weight:550}
 .coc-mech-res{font-size:11px;font-weight:650;letter-spacing:.04em;color:var(--muted)}
@@ -802,6 +805,28 @@ function familyLabel(group, t, term) {
 export function createComponent(React) {
   const h = React.createElement;
   const HandoutReading = createHandoutReading(React);
+  const Reveal = typeof React.createContext === "function" ? React.createContext(null) : null;
+  const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  function RevealBlock({ at, children }) {
+    const budget = React.useContext(Reveal);
+    return budget !== null && budget < at ? null : children;
+  }
+  function RevealText({ value, start, ends }) {
+    const budget = React.useContext(Reveal);
+    if (budget === null || budget >= start + ends.length) return value;
+    if (budget < start) return null;
+    const shown = budget - start;
+    return h(React.Fragment, null, value.slice(0, shown ? ends[shown - 1] : 0),
+      h("span", { className: "coc-typewriter-cursor", "aria-hidden": true }));
+  }
+  /** Prepared once per delivery update; the cursor only slices a run at a grapheme boundary. */
+  const progressiveText = (value, progress) => {
+    if (!progress) return value;
+    const ends = Array.from(graphemes.segment(value), part => part.index + part.segment.length);
+    const start = progress.total;
+    progress.total += ends.length;
+    return h(RevealText, { key: start, value, start, ends });
+  };
 
   /**
    * §155.8: the host call and the words a pictured handout's control needs, handed from the card to
@@ -1229,16 +1254,33 @@ export function createComponent(React) {
         return withUses(h(Row, { key, kindKey: "item", kindLabel, family }, ...head));
       }
       case "cash": {
+        if (row.quote_status && row.quote_status !== "ready")
+          return h(Row, { key, kindKey: "cash", kindLabel, family },
+            h("span", { className: "coc-mech-body" }, term(text(row.purpose || row.quote))),
+            row.quote_status === "pending" ? h(Waiting, { label: t("preparing") }) : null);
         const before = num(row.before);
         const after = num(row.after);
+        const purpose = text(row.purpose).trim();
+        const quoted = row.settlement === "quote";
+        const purchase = num(row.purchase_amount);
+        const items = Array.isArray(row.items) ? row.items.filter(isRecord) : [];
         // Cash is the decimal resource: a purchase of 0.02 is the case that exposed `after - before`.
         const delta = exactDelta(before, after);
         return h(Row, { key, kindKey: "cash", kindLabel, family },
-          h("span", { className: "coc-mech-body" }, text(row.subject_label || row.subject)),
+          h("span", { className: "coc-mech-body" }, text(row.subject_label || row.subject),
+            purpose ? h("span", { className: "coc-mech-cash-purpose" }, term(purpose)) : null,
+            items.map((item, i) => h("span", { key: `price:${i}`, className: "coc-mech-cash-detail" },
+              term(text(item.name)), ` ×${text(item.quantity)} · ${text(item.unit_price)} = ${text(item.amount)} `, term(text(row.currency)))),
+            purchase !== undefined && !quoted ? h("span", { className: "coc-mech-cash-detail coc-mech-purchase" }, text(row.purchase_amount), " ", term(text(row.currency))) : null,
+            row.daily_total !== undefined ? h("span", { className: "coc-mech-cash-detail coc-mech-spending" },
+              sheet("spending"), ` ${text(row.daily_total)} / ${text(row.spending_level)} `, term(text(row.currency))) : null,
+            row.settlement === "living_standard" ? h("span", { className: "coc-mech-cash-detail" }, sheet("livingStandard")) : null),
           h("span", { className: "coc-mech-figure" },
-            h("span", { className: "coc-mech-from" }, text(row.before)),
-            ` ${t("arrow")} `,
-            h(N, null, text(row.after)),
+            ...(quoted ? [h(N, null, text(row.purchase_amount))] : [
+              h("span", { className: "coc-mech-from" }, text(row.before)),
+              ` ${t("arrow")} `,
+              h(N, null, text(row.after)),
+            ]),
             h("span", { className: "coc-mech-faces" }, term(text(row.currency)))),
           h(Delta, { value: delta }));
       }
@@ -1367,7 +1409,7 @@ export function createComponent(React) {
    * `state.spans` counts opens in text order, which is the order `speech[]` arrives in (§40.2), so
    * a span and its speaker are matched by position. Nothing here reads a name to decide anything.
    */
-  function proseBlocks(chunk, key, state, speaker) {
+  function proseBlocks(chunk, key, state, speaker, progress) {
     const pieces = [];
     let last = 0;
     SAY_TOKEN.lastIndex = 0;
@@ -1394,9 +1436,12 @@ export function createComponent(React) {
       }
     }
     return paragraphs.map(trimPieces).filter(paragraph => paragraph.length)
-      .map((paragraph, index) => h("p", { className: "coc-mech-para", key: `${key}:${index}` },
+      .map((paragraph, index) => {
+        const start = progress?.total;
+        const block = h("p", { className: "coc-mech-para", key: `${key}:${index}` },
         paragraph.map((piece, at) => {
-          if (!piece.span) return piece.text;
+          const words = progressiveText(piece.text, progress);
+          if (!piece.span) return words;
           const voice = speaker(piece.span);
           return h("span", {
             key: at,
@@ -1404,8 +1449,10 @@ export function createComponent(React) {
             "data-who": voice.who,
             ...(voice.title ? { title: voice.title } : {}),
             ...(voice.ink ? { style: { "--coc-say-ink": voice.ink } } : {}),
-          }, piece.text);
-        })));
+          }, words);
+        }));
+        return progress ? h(RevealBlock, { at: start, key: `${key}:${index}` }, block) : block;
+      });
   }
 
   /**
@@ -1458,7 +1505,7 @@ export function createComponent(React) {
   };
 
   /** @param {{content: string, details?: unknown}} props */
-  function drawCard(props) {
+  function drawCard(props, progress) {
     const details = isRecord(props.details) ? props.details : {};
     if (isRecord(details.coc_error)) return null; // the host's own error card is better than ours
     const help = helpOf(details);
@@ -1498,8 +1545,9 @@ export function createComponent(React) {
       const who = isRecord(row.who) ? row.who : {};
       const npc = text(who.npc), investigator = text(who.investigator), label = text(who.label);
       const kind = npc ? "npc" : investigator ? "investigator" : "label";
-      const name = text(who.name) || label || span.name;
-      return { who: kind, title: term(name), ink: speakerInk(npc || investigator || label || span.name, kind) };
+      // §103.5: `shown` is what an untold person with no word at this table is shown as -- nothing for a handle.
+      const name = "shown" in who ? text(who.shown) : text(who.name) || label || span.name;
+      return { who: kind, title: name ? term(name) : "", ink: speakerInk(npc || investigator || label || span.name, kind) };
     };
 
     const prose = text(details.rendered_text);
@@ -1513,20 +1561,23 @@ export function createComponent(React) {
       // the cards that interrupt them (§40.4).
       const state = { span: null, spans: 0 };
       return h("div", { className: "coc-mech coc-mech-inline" },
-        parts.map((part, index) => part.row
-          ? h("div", { className: "coc-mech-here", key: `row:${index}` }, renderRow(part.row, t, term, index, sheet, open))
-          : proseBlocks(part.text, `text:${index}`, state, speaker)),
-        folds(unplaced, (rows, key) => rows.map((row, i) => renderRow(row, t, term, `${key}:${i}`, sheet, open))),
-        help ? h(HelpFold, { help }) : null);
+        parts.map((part, index) => {
+          if (!part.row) return proseBlocks(part.text, `text:${index}`, state, speaker, progress);
+          const row = h("div", { className: "coc-mech-here", key: `row:${index}` }, renderRow(part.row, t, term, index, sheet, open));
+          return progress ? h(RevealBlock, { at: progress.total, key: `row:${index}` }, row) : row;
+        }),
+        progress ? h(RevealBlock, { at: progress.total },
+          folds(unplaced, (rows, key) => rows.map((row, i) => renderRow(row, t, term, `${key}:${i}`, sheet, open))),
+          help ? h(HelpFold, { help }) : null)
+          : [folds(unplaced, (rows, key) => rows.map((row, i) => renderRow(row, t, term, `${key}:${i}`, sheet, open))), help ? h(HelpFold, { help }) : null]);
     }
 
     const rows = all;
     // Nothing of ours to add: let the host draw its default card rather than an empty one.
     if (!prose && !rows.length && !help) return null;
 
-    return h("div", { className: "coc-mech" },
-      prose ? h("div", { className: "coc-mech-prose" }, prose) : null,
-      help ? h(HelpFold, { help }) : null,
+    const body = prose ? h("div", { className: "coc-mech-prose" }, progressiveText(prose, progress)) : null;
+    const tail = [help ? h(HelpFold, { help }) : null,
       folds(rows, (foldRows, key) =>
             groupRows(foldRows).map((group, index) => group.call && group.rows.length > 1
               // A settlement of one row needs no group chrome: the disc already wears the tone.
@@ -1537,7 +1588,9 @@ export function createComponent(React) {
                 },
                 h("div", { className: "coc-mech-fam" }, familyLabel(group, t, term)),
                 group.rows.map((row, i) => renderRow(row, t, term, i, sheet, open)))
-              : group.rows.map((row, i) => renderRow(row, t, term, `${key}:${index}:${i}`, sheet, open)))));
+              : group.rows.map((row, i) => renderRow(row, t, term, `${key}:${index}:${i}`, sheet, open))))];
+    return h("div", { className: "coc-mech" }, body,
+      ...(progress ? [h(RevealBlock, { at: progress.total }, ...tail)] : tail));
   }
 
   /**
@@ -1548,10 +1601,17 @@ export function createComponent(React) {
    * @param {{content: string, details?: unknown, onInvoke?: (method: string, params: unknown) => Promise<unknown>}} props
    */
   return function DeliveryCard(props) {
-    const card = drawCard(props);
+    const enabled = Boolean(Reveal && props.typewriter);
+    const draw = () => {
+      const progress = enabled ? { total: 0 } : undefined;
+      return drawCard(props, progress);
+    };
+    // Cursor ticks retain the parsed paragraphs, speech spans and receipt positions.
+    const card = typeof React.useMemo === "function" ? React.useMemo(draw, [props.details, props.content, props.onOpenPanel, enabled]) : draw();
     if (!card || !HostCall) return card;
     const invoke = typeof props.onInvoke === "function" ? props.onInvoke : null;
     const ui = isRecord(props.details) ? props.details.ui : null;
-    return h(HostCall.Provider, { value: invoke ? { invoke, ui } : null }, card);
+    return h(HostCall.Provider, { value: invoke ? { invoke, ui } : null },
+      enabled ? h(Reveal.Provider, { value: props.typewriter.active ? props.typewriter.visible : null }, card) : card);
   };
 }

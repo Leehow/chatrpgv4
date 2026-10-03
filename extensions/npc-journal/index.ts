@@ -35,6 +35,7 @@ const DEFAULT_MAX_ENTRIES = 6;
 const DEFAULT_MAX_DESCRIPTION_CHARS = 300;
 const DEFAULT_MAX_EXCHANGE_CHARS = 200;
 const DEFAULT_MAX_LABEL_CHARS = 60;
+const DEFAULT_MAX_NAMED_QUOTE_CHARS = 200;
 /** The manifest id the sheet panel is mounted under; the same id the turn commit announces to. */
 const PANEL_ID = "coc-keeper";
 
@@ -48,6 +49,8 @@ interface Entry {
 	label?: string;
 	/** §103: this turn's narrative gave the player the name, in a spelling the kernel's own scan could not see. */
 	named?: true;
+	/** §103.6: the exact words of this turn's delivery that gave the name; the kernel refuses `named` without them. */
+	named_quote?: string;
 }
 
 /** The job packet from `journal.job`; only the fields it lists are read, and nothing else reaches the prompt. */
@@ -66,7 +69,7 @@ interface JobPacket {
 	unnamed?: unknown[];
 	speech?: Array<{person?:string;name?:string;text?:string}>;
 	prior?: Array<{ person?:string; name?: string; label?: string; description?: string; last_seen_turn?: number }>;
-	budget?: { max_entries?: number; max_description_chars?: number; max_exchange_chars?: number; max_label_chars?: number };
+	budget?: { max_entries?: number; max_description_chars?: number; max_exchange_chars?: number; max_label_chars?: number; max_named_quote_chars?: number };
 	instruction?: string;
 }
 
@@ -95,6 +98,7 @@ export function journalSystemPrompt(packet: JobPacket): string {
 	const maxDescription = packet.budget?.max_description_chars ?? DEFAULT_MAX_DESCRIPTION_CHARS;
 	const maxExchange = packet.budget?.max_exchange_chars ?? DEFAULT_MAX_EXCHANGE_CHARS;
 	const maxLabel = packet.budget?.max_label_chars ?? DEFAULT_MAX_LABEL_CHARS;
+	const maxQuote = packet.budget?.max_named_quote_chars ?? DEFAULT_MAX_NAMED_QUOTE_CHARS;
 	return [
 		// The instruction is the fixed passage the kernel writes (contract §17.10); the lane passes it
 		// on verbatim, rewriting nothing and adding nothing.
@@ -102,19 +106,19 @@ export function journalSystemPrompt(packet: JobPacket): string {
 			"Write an entry only for someone who truly appeared in this turn's narrative, and write it in the campaign's play language.",
 		"",
 		"Answer with one JSON object only, no code fence and no explanation:",
-		referenced ? '{"entries":[{"person":"person:0","description":"...","exchange":"...","label":"...","named":true}]}' : '{"entries":[{"name":"...","description":"...","exchange":"...","label":"...","named":true}]}',
+		referenced ? '{"entries":[{"person":"person:0","description":"...","exchange":"...","label":"..."}]}' : '{"entries":[{"name":"...","description":"...","exchange":"...","label":"..."}]}',
 		"Field rules:",
 		referenced ? "- person selects one issued recordable alias. Select each person at most once; do not supply name, ID or source-coordinate fields." : "- name must be one of the recordable names below, copied exactly.",
 		`- description is 1 to ${maxDescription} characters and says only what the player can perceive; omit it to keep the stored one.`,
 		`- exchange is 1 to ${maxExchange} characters, one sentence on what passed between this person and the player this turn; omit it when nothing passed.`,
 		`- label, only for a name listed under not yet named: 1 to ${maxLabel} characters saying how the player would know this person from what was shown, carrying no part of the name; the description and the exchange must not name them either.`,
-		"- named: true, only for a name listed under not yet named, when this turn's prose actually gave the player the name in any spelling; then give no label.",
-		`- write no key other than ${referenced ? "person" : "name"}, description, exchange, label and named, and in particular no turn number, commit, receipt id or entry id.`,
+		`- named: true, only for a name listed under not yet named, when someone in this turn's prose actually said or showed the player the name in any spelling; then also give named_quote, the exact words of the prose or spoken line that gave it (at most ${maxQuote} characters, copied character for character), and give no label. Having appeared, acted or been described is not being named.`,
+		`- write no key other than ${referenced ? "person" : "name"}, description, exchange, label, named and named_quote, and in particular no turn number, commit, receipt id or entry id.`,
 		`- at most ${maxEntries} rows; with nobody new to record, answer {"entries":[]}.`,
 	].join("\n");
 }
 
-export function journalUserInput(packet: JobPacket): string {
+export function journalUserInput(packet: JobPacket, refusal?: string): string {
 	const referenced=packet.protocol==="journal-reference-v2";
 	return [
 		`[Location] ${packet.scene?.display_name ?? packet.scene?.name ?? "(unknown)"}`,
@@ -132,6 +136,9 @@ export function journalUserInput(packet: JobPacket): string {
 		"[Journal so far: do not restate a description that already holds]",
 		priorLines(packet.prior),
 		...(referenced ? ["[Attributed speech]",JSON.stringify(packet.speech ?? [])] : []),
+		// §103.6: the second attempt is told why the first was refused, in the kernel's own words. Re-asking the same
+		// question made the same mistake twice and the turn's entries went to the backlog.
+		...(refusal ? ["", "[Your previous answer was refused; answer again with this corrected]", refusal] : []),
 	].join("\n");
 }
 
@@ -148,15 +155,16 @@ export function shapeJournalEntries(parsed: unknown, packet: JobPacket): Entry[]
 	const maxDescription = packet.budget?.max_description_chars ?? DEFAULT_MAX_DESCRIPTION_CHARS;
 	const maxExchange = packet.budget?.max_exchange_chars ?? DEFAULT_MAX_EXCHANGE_CHARS;
 	const maxLabel = packet.budget?.max_label_chars ?? DEFAULT_MAX_LABEL_CHARS;
+	const maxQuote = packet.budget?.max_named_quote_chars ?? DEFAULT_MAX_NAMED_QUOTE_CHARS;
 	if(packet.protocol==="journal-reference-v2") {
         if(!parsed||Array.isArray(parsed)||Object.keys(parsed).some(key=>key!=="entries")||raw.length>limit) return undefined;
         const allowed=new Set((packet.recordable??[]).flatMap(value=>value&&typeof value==="object"&&typeof (value as any).alias==="string"?[(value as any).alias]:[])),seen=new Set<string>(),entries:Entry[]=[];
         for(const value of raw) {
-            if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!["person","description","exchange","label","named"].includes(key))) return undefined;
+            if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!["person","description","exchange","label","named","named_quote"].includes(key))) return undefined;
             const row=value as Record<string,unknown>;
             if(typeof row.person!=="string"||!allowed.has(row.person)||seen.has(row.person)) return undefined;
             seen.add(row.person);const entry:Entry={person:row.person};
-            for(const [key,maximum] of [["description",maxDescription],["exchange",maxExchange],["label",maxLabel]] as const) {
+            for(const [key,maximum] of [["description",maxDescription],["exchange",maxExchange],["label",maxLabel],["named_quote",maxQuote]] as const) {
                 if(row[key]===undefined||row[key]===null) continue;
                 if(typeof row[key]!=="string"||!(row[key] as string).trim()||(row[key] as string).trim().length>maximum) return undefined;
                 entry[key]=(row[key] as string).trim();
@@ -190,6 +198,8 @@ export function shapeJournalEntries(parsed: unknown, packet: JobPacket): Entry[]
 			entry.label = label;
 		}
 		if (record.named === true) entry.named = true;
+		if (typeof record.named_quote === "string" && record.named_quote.trim().length >= 1 && record.named_quote.trim().length <= maxQuote)
+			entry.named_quote = record.named_quote.trim();
 		if (!entry.description && !entry.exchange && !entry.label && !entry.named) continue;
 		entries.push(entry);
 		if (entries.length >= limit) break;
@@ -236,7 +246,8 @@ export default function (pi: ExtensionAPI) {
 		campaign: string,
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
-	): Promise<{ ok: true; entries: number; model: string } | { ok: false; reason: string; detail: string }> {
+		refusal?: string,
+	): Promise<{ ok: true; entries: number; model: string } | { ok: false; reason: string; detail: string; refusal?: string }> {
 		const lane = await runLane<Entry[]>({
 			ctx: scheduler.ctx as ExtensionContext,
 			envName: "PI_COC_NPCJOURNAL_MODEL",
@@ -245,7 +256,7 @@ export default function (pi: ExtensionAPI) {
 			lane: "journal",
 			record: (row) => note({ turn: packet.turn, job_id: jobId, ...row }),
 			systemPrompt: journalSystemPrompt(packet),
-			input: journalUserInput(packet),
+			input: journalUserInput(packet, refusal),
 			signal: scheduler.signal,
 			shape: (parsed) => shapeJournalEntries(parsed, packet),
 		});
@@ -260,10 +271,12 @@ export default function (pi: ExtensionAPI) {
 			return { ok: true, entries: lane.value.length, model: lane.model };
 		} catch (error) {
 			const code = errorCode(error);
+			const fix = (error as { fix?: unknown } | null)?.fix;
 			return {
 				ok: false,
 				reason: code === "invalid_params" ? "invalid" : "lane_error",
 				detail: `${code ?? "internal"}: ${errorText(error)}`,
+				...(code === "invalid_params" ? { refusal: [errorText(error), typeof fix === "string" && fix ? `Fix: ${fix.slice(0, 400)}` : ""].filter(Boolean).join("\n") } : {}),
 			};
 		}
 	}
@@ -316,9 +329,9 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 
-		let last: { ok: false; reason: string; detail: string } | undefined;
+		let last: { ok: false; reason: string; detail: string; refusal?: string } | undefined;
 		for (let tries = 0; tries < 2 && !scheduler.stopped; tries += 1) {
-			const outcome = await attempt(packet, jobId, job.campaign, current.call, note);
+			const outcome = await attempt(packet, jobId, job.campaign, current.call, note, last?.refusal);
 			if (outcome.ok) {
 				await note({
 					turn: packet.turn ?? job.turn,

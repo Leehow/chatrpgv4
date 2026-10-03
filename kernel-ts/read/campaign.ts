@@ -86,8 +86,9 @@ export class CampaignSnapshot {
         }
         if (mode === "view")
             return;
-        // §158.4: the campaign's owed ledger (`owed.json`) rides with the full snapshot the capsule reads.
-        for (const path of ["npc-ledger.json", "npc-journal.json", ...(mode === "all" ? ["save/worldlines/anchor.json", "save/worldlines/echoes.json", "owed.json"] : [])]) {
+        // §158.4: the campaign's owed ledger (`owed.json`) rides with the full snapshot the capsule reads; so does §168.5's
+        // first-sight ledger (`first-sight.json`).
+        for (const path of ["npc-ledger.json", "npc-journal.json", ...(mode === "all" ? ["save/worldlines/anchor.json", "save/worldlines/echoes.json", "owed.json", "first-sight.json"] : [])]) {
             try {
                 await this.optional(path);
             }

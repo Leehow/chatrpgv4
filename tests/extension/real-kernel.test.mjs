@@ -24,11 +24,9 @@ test("a source wait closes without creating a story action menu", async t => {
 	const notice = "资料仍在准备，要继续等待还是暂停？";
 	const table = await openTable({ realKernel: true, campaign: "source-wait-seam", responses: [
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "委托人把文件放在桌上，等你开口。" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("开场后不应再交付的文字。"),
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "Knott", question: "The original commission" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage(notice),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: notice })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("不应泄漏的系统说明。"),
 	] });
 	t.after(() => table.dispose());
 	// SL-87: waits on the opening's delivery and on turn 1's record, not on an idle heuristic. On a loaded box `waitForIdle`
@@ -59,8 +57,6 @@ test("真内核：开场与一个回合走通，收据、渲染、git 提交齐�
 				[fauxToolCall("narrate", { text: "1920 年的波士顿。诺特律师把一把钥匙放在桌上，房子在查珀尔街。\n\n他说前一家租户出了事。" })],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage("开场之后守秘人多写的一句，应被替换"),
-			// 玩家回合。
 			fauxAssistantMessage(
 				[
 					fauxToolCall("resolve", {
@@ -83,7 +79,6 @@ test("真内核：开场与一个回合走通，收据、渲染、git 提交齐�
 				[fauxToolCall("narrate", { text: "诺特抬起眼，手指在文件上停了一下。\n\n他说，市政厅和报社都有这栋房子的旧档。" })],
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage("回合之后守秘人多写的一句，应被替换"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -145,7 +140,6 @@ test("a placed marker leaves the delivery and reaches the frontend on the projec
 	const table = await openTable({ realKernel: true, campaign: "marker-seam", responses: [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("开场之后多写的一句，应被替换"),
 		fauxAssistantMessage([fauxToolCall("resolve", { action: {
 			intent: "investigate", goal: "看清他没说的事", method: "打量他的神色", skill: "Spot Hidden",
 		} })], { stopReason: "toolUse" }),
@@ -153,7 +147,6 @@ test("a placed marker leaves the delivery and reaches the frontend on the projec
 		fauxAssistantMessage([fauxToolCall("narrate", {
 			text: "你打量他的神色{{check:spot-hidden}}，他松口提起了市政厅的旧档{{clue:knott-research-leads}}。",
 		})], { stopReason: "toolUse" }),
-		fauxAssistantMessage("回合之后多写的一句，应被替换"),
 	] });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
@@ -185,14 +178,11 @@ test("a source read that times out refuses only that material: the rest of the t
 	const table = await openTable({ realKernel: true, campaign, responses: [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("开场之后多写的一句，应被替换"),
-		// The player reaches for the unread book, and then for what is already in front of him.
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the-ruins", question: "What waits at the ruins?" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("resolve", { action: {
 			intent: "investigate", goal: "看清诺特没说的事", method: "打量他的神色和手上的文件", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "clue", clue: "clue-knott-research-leads", how: "诺特提到可以去查档案" }] })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特抬起眼，手指在文件上停了一下。遗址那几页还在核读，他说不出更多。" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("回合之后多写的一句，应被替换"),
 	] });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session, { timeoutMs: 60_000 });
@@ -242,18 +232,12 @@ test("a source wait dies with its turn instead of owning the rest of the session
 	const table = await openTable({ realKernel: true, campaign, responses: [
 		fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特把钥匙推过桌面，等你开口。" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("开场之后多写的一句，应被替换"),
-		// Turn 1: the source read times out and the Keeper closes on what it has.
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the-ruins", question: "What waits at the ruins?" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "遗址那几页还在核读。诺特还坐在你对面。" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("多写的一句，应被替换"),
-		// Turn 2: a new player input is a new context. The Keeper may reach for that page again -- the
-		// wait of turn 1 is not a standing order, and the player is never left without a way back to it.
 		fauxAssistantMessage([fauxToolCall("lookup", { kind: "source", query: "the-ruins", question: "What waits at the ruins?" })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("resolve", { action: {
 			intent: "investigate", goal: "看清诺特没说的事", method: "打量他的神色", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
 		fauxAssistantMessage([fauxToolCall("narrate", { text: "他的手指在文件边缘停住。" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage("多写的一句，应被替换"),
 	] });
 	t.after(() => table.dispose());
 	await waitForIdle(table.session, { timeoutMs: 60_000 });

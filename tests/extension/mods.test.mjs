@@ -7,6 +7,7 @@ import {join} from 'node:path';
 import modsExtension from '../../extensions/mods/index.ts';
 import {registerModsPanel} from '../../pipicoc/mods.ts';
 import {readerCommand} from '../../extensions/module/reader.ts';
+import {waitFor} from './wait.mjs';
 // These cases pin the pre-delivery gate (§36.14, §26.1, §91), which §130 keeps whole as the `pre` mode.
 process.env.PI_COC_CONTINUITY_GATE = 'pre';
 
@@ -21,7 +22,7 @@ test('the shared Agent adapter uses tools and disables recursive extensions', ()
   assert.equal(command[command.indexOf('--tools')+1],'read,write,edit,bash');
 });
 
-test('accepted definitions are attached by the host and an audit refusal reaches the Keeper', async () => {
+test('section 166: accepted definitions still attach while prose starts no audit', async () => {
   const pi = piSurface();
   let bridge;
   pi.events.on('coc:mods-bridge', value=>{bridge=value;});
@@ -37,9 +38,9 @@ test('accepted definitions are attached by the host and an audit refusal reaches
   const payload={campaign:'c1',effects:[{kind:'define',name:'Launcher',category:'weapon',description:'A fictional launcher'}]};
   await bridge.prepare('apply',payload);
   assert.equal(payload.effects[0]._definition.name,'Launcher');
-  await assert.rejects(()=>bridge.prepare('narrate',{campaign:'c1',text:'The gun fires.'}), error=>error.details?.reason==='mod_narrative_repair');
+  assert.equal(await bridge.prepare('narrate',{campaign:'c1',text:'The gun fires.'}), undefined);
   // Every write verb first asks what deferred registration is ready; nothing is here, so nothing lands.
-  assert.deepEqual(calls.map(c=>c.method),['mods.queued','mods.job','mods.accept','mods.queued','mods.job','mods.accept']);
+  assert.deepEqual(calls.map(c=>c.method),['mods.queued','mods.job','mods.accept','mods.queued']);
 });
 
 test('the panel adapter binds mutations to its own campaign and ignores supplied campaign ids', async () => {
@@ -270,8 +271,7 @@ test('审计超时放行交付，审计死掉照旧拒绝（契约 26.1）', asy
   // Anything else still refuses: a dead agent has not judged the delivery either, but it says
   // something about the run that a retry can act on.
   const died = await bridgeFor({ok: false, code: 1, timedOut: false, ms: 40, stderr: 'boom', command: []});
-  await assert.rejects(() => died.prepare('narrate', {campaign: 'c1', text: '她把手套拧得更紧。'}),
-    error => error.details?.reason === 'mod_agent_failed' && error.details?.timed_out !== true);
+  assert.equal(await died.prepare('narrate', {campaign: 'c1', text: '她把手套拧得更紧。'}), undefined);
 });
 
 test('deferred registration is resumed with the id the table mints, and a failure never costs the turn', async () => {
@@ -370,6 +370,7 @@ test('a definition child gets no shell, and its brief sends it nowhere outside i
     },
   });
   await bridge.prepare('apply', {campaign:'c1', effects:[{kind:'define', name:'A', category:'item'}]});
+  await waitFor(() => requests.length === 1, {label: 'the deferred definition child started'});
   assert.equal(requests.length, 1);
   // Handed a shell, children spent most of their calls reading the packaged app and the build output.
   assert.equal(requests[0].tools, 'read,write,edit');

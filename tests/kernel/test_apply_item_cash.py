@@ -263,7 +263,8 @@ def test_cash_builds_the_finance_block_from_the_era_table_and_moves_it(kernel):
     assert narrated["rendered_text"] == text
     assert [m for m in narrated["mechanics"] if m["kind"] == "cash"] == [
         {"kind": "cash", "marker": marker, "receipt": receipt_id, "subject": INVESTIGATOR, "subject_label": INV_NAME, "before": b, "after": a,
-         "currency": table["currency"], "source": "found", "call": call_id}
+         "currency": table["currency"], "source": "found", "call": call_id,
+         **({"purpose": "诺特的定金"} if call_id == "t1-c1" else {})}
         for marker, receipt_id, call_id, b, a in (("cash", "cash:t1-c1", "t1-c1", start, start + 20),
                                                   ("cash-2", "cash:t1-c2", "t1-c2", start + 20, start + 15),
                                                   ("cash-3", "cash:t1-c2-2", "t1-c2", start + 15, start + 10))]
@@ -349,7 +350,7 @@ def test_a_cash_amount_needs_a_source_and_a_cited_price_is_resolved_from_the_pri
     printed = next(r for r in read_json(RULES / "equipment.json")["records"] if r["price_id"] == LUNCH)
     ok = kernel.table("apply", call_id="t1-c2", effects=[
         {"kind": "cash", "delta": -printed["price"]["amount"], "source": "price", "price_id": LUNCH,
-         "currency": "USD", "why": "科达诺酒吧一顿便饭"}])
+         "category": "living", "currency": "USD", "why": "科达诺酒吧一顿便饭"}])
     assert ok["receipts"] == ["cash:t1-c2"]
     receipt = receipts_of(kernel)["cash:t1-c2"]
     assert receipt["source"] == "price" and receipt["price_id"] == LUNCH
@@ -357,7 +358,7 @@ def test_a_cash_amount_needs_a_source_and_a_cited_price_is_resolved_from_the_pri
     assert receipt["source_amount"] == printed["price"]["amount"] and receipt["source_currency"] == printed["price"]["currency"]
     assert receipt["source_display"] == printed["price"]["source_display"]
     assert receipt["source_provenance"]["print_page"] == printed["provenance"]["print_page"]
-    assert sheet(kernel)["finance"]["cash"]["amount"] == start - printed["price"]["amount"]
+    assert sheet(kernel)["finance"]["cash"]["amount"] == start
 
 
 def test_spending_level_settles_an_occasional_purchase_without_debiting_cash(kernel):
@@ -422,9 +423,9 @@ def test_the_capsule_tells_the_keeper_the_balance_and_what_this_table_has_alread
     assert "prices_paid" not in known  # money received is not a price this table has set
 
     kernel.table("apply", call_id="t1-c2", effects=[
-        {"kind": "cash", "delta": -1, "source": "quote", "with": "steven-knott", "why": "旅馆一晚"}])
+        {"kind": "cash", "delta": -1, "source": "quote", "category": "living", "with": "steven-knott", "why": "旅馆一晚"}])
     kernel.table("narrate", call_id="t1-c3", text="她把钱放在柜台上，掌柜点了点头。")
     kernel.table("player_input", text="我再看一眼账。")
     paid = kernel.table("capsule")["known"]["prices_paid"]
     assert [{k: v for k, v in row.items() if k != "turn"} for row in paid] == [
-        {"amount": 1, "currency": "USD", "source": "quote", "with": "Steven Knott", "why": "旅馆一晚"}]
+        {"amount": 1, "currency": "USD", "source": "quote", "settlement": "living_standard", "with": "Steven Knott", "why": "旅馆一晚"}]

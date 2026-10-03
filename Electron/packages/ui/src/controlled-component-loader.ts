@@ -417,8 +417,8 @@ export async function loadControlledContributions(
         toolName: renderer.tool,
         // §155.8: a renderer calls the host only as the extension that registered it, and only
         // when the host UI handed a session-bound call down; the pack never names an extension.
-        render: ({ content, details, images, onSelectOption, onInvokeExtension }) => createElement(Component, {
-          content, details, images, onSelectOption,
+        render: ({ content, details, images, typewriter, onSelectOption, onInvokeExtension }) => createElement(Component, {
+          content, details, images, typewriter, onSelectOption,
           ...(onInvokeExtension ? { onInvoke: (method: string, params: unknown) => onInvokeExtension(descriptor.id, method, params) } : {}),
         }),
       }))

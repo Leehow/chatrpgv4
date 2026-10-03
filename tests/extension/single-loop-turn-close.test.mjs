@@ -146,38 +146,7 @@ test("§135.11: a step that called narrate itself is unchanged: its own result i
 	assert.equal(kernel(table.table, "table.narrate")[0].params.implicit, undefined);
 });
 
-test("§135.11: a draft dropped for the speech steer is steered once inside the run, with legacy's coc-host message, then delivered", async (t) => {
-	const bare = "The gatekeeper shakes his head. \"Not today.\"";
-	const wrapped = "The gatekeeper shakes his head. {{say:Gatekeeper}}\"Not today.\"{{/say}}";
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_CHECK_FAILS: "1", FAKE_KERNEL_PRESENT: GATEKEEPER },
-		responses: [
-			fauxAssistantMessage([fauxToolCall("resolve", { action: { intent: "social", goal: "get the clippings", method: "explain the errand", skill: "Spot Hidden" } })], { stopReason: "toolUse" }),
-			// Live turn 2's shape: the check failed, and the Keeper wrote the refusal with a person present and no say token.
-			fauxAssistantMessage([{ type: "thinking", thinking: "The check failed; narrate the refusal." }, { type: "text", text: bare }], { stopReason: "stop" }),
-			fauxAssistantMessage(wrapped),
-		],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
 
-	assert.ok(table.table.telemetry().some((entry) => entry.lane === "speech" && entry.steered === true), "the host dropped the bare draft for the speech steer");
-	assert.equal(table.requests.length, 3, "one more model step, inside the same run");
-	assert.deepEqual(steerIn(table.requests[2]), ["speech"], "that step carried the speech steer");
-	assert.deepEqual(steerIn(table.requests[1]), [], "the step before it did not");
-	const narrates = kernel(table.table, "table.narrate");
-	assert.equal(narrates.length, 1);
-	assert.equal(narrates[0].params.implicit, true);
-	assert.equal(narrates[0].params.text, wrapped);
-
-	const end = runEnd(table.events);
-	assert.equal(end.status, "delivered");
-	assert.equal(end.reason, "implicit_narrate");
-	assert.equal(new Set(table.events.map((event) => event.runId)).size, 1, "one run");
-	assert.equal(turnCloses(table.events).length, 2, "asked after the dropped draft, and after the steered answer");
-	assert.deepEqual(hostSteers(table.table.session).map((message) => message.details.kind), ["speech"], "the steer was persisted once, as legacy's coc-host message");
-	assert.equal(unfinished(table.table.session).length, 0);
-});
 
 test("§135.11: a thinking-only step after a failed check is steered once, and the Keeper's narrate then delivers the turn", async (t) => {
 	const table = await hybridTable({
@@ -200,27 +169,7 @@ test("§135.11: a thinking-only step after a failed check is steered once, and t
 	assert.equal(unfinished(table.table.session).length, 0);
 });
 
-test("§135.11: a prose-only turn with no tool call is floor-steered once; a second leg that brings nothing delivers the dropped draft", async (t) => {
-	const prose = "You wait by the door; nothing in the house answers.";
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_PRESENT: "[]" },
-		decide: (batch) => answered(batch, "finish"),
-		responses: [
-			fauxAssistantMessage(prose),
-			fauxAssistantMessage([{ type: "thinking", thinking: "Nothing to add." }], { stopReason: "stop" }),
-		],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I wait.");
 
-	assert.deepEqual(steerIn(table.requests[1]), ["floor"]);
-	const narrates = kernel(table.table, "table.narrate");
-	assert.equal(narrates.length, 1);
-	assert.equal(narrates[0].params.text, prose, "the prose the floor steer dropped is what reached the player");
-	assert.ok(table.table.telemetry().some((entry) => entry.lane === "delivery" && entry.reason === "floor_steer"), "the floor steer's drop is recorded");
-	assert.equal(runEnd(table.events).status, "delivered");
-	assert.equal(unfinished(table.table.session).length, 0, "the notice never hides prose that existed");
-});
 
 test("§135.11: a Keeper who brings nothing twice ends undelivered with the notice, and no steer is left for the next input", async (t) => {
 	const thought = () => fauxAssistantMessage([{ type: "thinking", thinking: "..." }], { stopReason: "stop" });
@@ -263,94 +212,13 @@ const refusedCheck = () => fauxAssistantMessage([fauxToolCall("resolve", { actio
 const bareDraft = "The gatekeeper shakes his head. \"Not today.\"";
 const wrappedDraft = "The gatekeeper shakes his head. {{say:Gatekeeper}}\"Not today.\"{{/say}}";
 
-test("§135.11 (gate #4): the steered second leg's narrate is refused and the steer is spent: the dropped first draft is delivered, and the rows say so", async (t) => {
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_CHECK_FAILS: "1", FAKE_KERNEL_PRESENT: GATEKEEPER,
-			FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": REPEATED }), FAKE_KERNEL_ERRORS_ONCE: "1" },
-		responses: [
-			refusedCheck(),
-			fauxAssistantMessage([{ type: "thinking", thinking: "The check failed; narrate the refusal." }, { type: "text", text: bareDraft }], { stopReason: "stop" }),
-			fauxAssistantMessage([{ type: "thinking", thinking: "Wrap his line." }, { type: "text", text: wrappedDraft }], { stopReason: "stop" }),
-		],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
 
-	assert.equal(table.requests.length, 3, "the one speech steer, and no further model step");
-	const narrates = kernel(table.table, "table.narrate");
-	assert.deepEqual(narrates.map((request) => request.params.text), [wrappedDraft, bareDraft],
-		"the second leg was tried first; after its refusal the draft the steer dropped went to the kernel");
-	assert.ok(narrates.every((request) => request.params.implicit === true));
-	assert.equal(lastAssistantText(table.table.session), bareDraft, "the player reads the first draft");
 
-	const end = runEnd(table.events);
-	assert.equal(end.status, "delivered");
-	assert.equal(end.reason, "implicit_narrate");
-	const close = table.table.telemetry().filter((entry) => entry.lane === "turn" && entry.event === "turn_close").at(-1);
-	assert.equal(close.status, "delivered", "the run's turn close reports the fallback's delivery");
-	assert.equal(close.implicit, true);
-	assert.equal(close.call_id, narrates[1].params.call_id, "and names the fallback narrate's own call");
 
-	const refused = deliveryRows(table).find((row) => row.reason === "steered_leg_refused");
-	assert.ok(refused, "the refused second leg is recorded as a drop, with the kernel's own reason");
-	assert.equal(refused.kernel_reason, "repeated_line");
-	assert.equal(refused.fallback, "dropped_draft");
-	assert.ok(deliveryRows(table).some((row) => row.reason === "speech_steer"), "the first draft's drop is recorded too");
-	assert.equal(unfinished(table.table.session).length, 0, "no 'no result' notice over a delivered turn");
-});
 
-test("§135.11 (gate #4): both drafts refused: the run is undelivered, and every drop and the unsent repair are on the rows", async (t) => {
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_CHECK_FAILS: "1", FAKE_KERNEL_PRESENT: GATEKEEPER, FAKE_KERNEL_ERRORS: JSON.stringify({ "table.narrate": REPEATED }) },
-		responses: [
-			refusedCheck(),
-			fauxAssistantMessage(bareDraft),
-			fauxAssistantMessage(wrappedDraft),
-		],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
 
-	assert.equal(table.requests.length, 3, "no model step past the one steer");
-	assert.deepEqual(kernel(table.table, "table.narrate").map((request) => request.params.text), [wrappedDraft, bareDraft], "the fallback is tried once");
-	assert.equal(runEnd(table.events).status, "undelivered");
-	assert.deepEqual(deliveryRows(table).map((row) => row.reason), ["speech_steer", "steered_leg_refused", "implicit_narrate_refused"],
-		"each dropped draft has its row");
-	const close = table.table.telemetry().filter((entry) => entry.lane === "turn" && entry.event === "turn_close").at(-1);
-	assert.equal(close.reason, "steer_spent");
-	assert.equal(close.unsent_fix, "audit-repair", "the repair the spent steer could not carry is named, not silent");
-	await waitFor(() => unfinished(table.table.session).length === 1, { label: "the §38 notice" });
-});
 
-test("§135.11 (gate #4): prose without a say token twice: the second leg is delivered by the implicit narrate", async (t) => {
-	const second = "The gatekeeper shakes his head again. \"Come back tomorrow.\"";
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_CHECK_FAILS: "1", FAKE_KERNEL_PRESENT: GATEKEEPER },
-		responses: [refusedCheck(), fauxAssistantMessage(bareDraft), fauxAssistantMessage(second)],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
 
-	assert.deepEqual(kernel(table.table, "table.narrate").map((request) => request.params.text), [second], "the steer is spent: no second speech steer");
-	assert.equal(lastAssistantText(table.table.session), second);
-	assert.equal(runEnd(table.events).reason, "implicit_narrate");
-	assert.equal(unfinished(table.table.session).length, 0);
-});
-
-test("§135.11 (gate #4): a speech-steered second leg that brings nothing delivers the dropped draft", async (t) => {
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_CHECK_FAILS: "1", FAKE_KERNEL_PRESENT: GATEKEEPER },
-		responses: [refusedCheck(), fauxAssistantMessage(bareDraft),
-			fauxAssistantMessage([{ type: "thinking", thinking: "Nothing to add." }], { stopReason: "stop" })],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
-
-	assert.deepEqual(steerIn(table.requests[2]), ["speech"]);
-	assert.deepEqual(kernel(table.table, "table.narrate").map((request) => request.params.text), [bareDraft]);
-	assert.equal(runEnd(table.events).reason, "implicit_narrate");
-	assert.equal(unfinished(table.table.session).length, 0);
-});
 
 test("§135.11 addendum: process talk beside a tool call leaves the message with a delivery row", async (t) => {
 	const prose = "The door gives under your shoulder.";
@@ -382,43 +250,9 @@ const settledCheck = () => fauxAssistantMessage([fauxToolCall("resolve", { actio
 const sayOnly = '{{say:Gatekeeper}}"Not today."{{/say}}';
 const sayWithProse = 'The gatekeeper folds his arms. {{say:Gatekeeper}}"Not today."{{/say}}';
 
-test("§135.11 SL-80: a reply that is one say span and nothing else, after a settled check, is floor-steered once, not delivered; a second leg with prose then delivers", async (t) => {
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_PRESENT: GATEKEEPER },
-		responses: [settledCheck(), fauxAssistantMessage(sayOnly), fauxAssistantMessage(sayWithProse)],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
 
-	assert.deepEqual(steerIn(table.requests[2]), ["floor"], "the say-only draft is floor-steered even though a check settled this turn");
-	const narrates = kernel(table.table, "table.narrate");
-	assert.equal(narrates.length, 1, "the say-only first draft never reached the kernel");
-	assert.equal(narrates[0].params.text, sayWithProse, "the second leg's prose is what the player reads");
-	assert.equal(narrates[0].params.implicit, true);
-	assert.ok(table.table.telemetry().some((entry) => entry.lane === "floor" && entry.steered === true && entry.reason === "speech_only"),
-		"the floor steer's telemetry names why it fired, not just that it did");
-	assert.ok(table.table.telemetry().some((entry) => entry.lane === "delivery" && entry.ok === false && entry.reason === "floor_steer"),
-		"the drop is the existing floor_steer reason, not a second one");
-	assert.equal(runEnd(table.events).status, "delivered");
-	assert.equal(runEnd(table.events).reason, "implicit_narrate");
-	assert.equal(unfinished(table.table.session).length, 0);
-});
 
-test("§135.11 SL-80: a second leg that brings nothing delivers the held say-only draft once the steer is spent", async (t) => {
-	const table = await hybridTable({
-		env: { FAKE_KERNEL_PRESENT: GATEKEEPER },
-		responses: [settledCheck(), fauxAssistantMessage(sayOnly), fauxAssistantMessage([{ type: "thinking", thinking: "Nothing to add." }], { stopReason: "stop" })],
-	});
-	t.after(() => table.dispose());
-	await table.table.session.prompt("I explain why I am here and ask for the clippings.");
 
-	assert.deepEqual(steerIn(table.requests[2]), ["floor"]);
-	const narrates = kernel(table.table, "table.narrate");
-	assert.equal(narrates.length, 1);
-	assert.equal(narrates[0].params.text, sayOnly, "the held say-only draft closes the turn -- the dropped-draft rule, §135.11's gate #4 addendum");
-	assert.equal(runEnd(table.events).reason, "implicit_narrate");
-	assert.equal(unfinished(table.table.session).length, 0);
-});
 
 test("§135.11 SL-80: a reply with prose beside the say span is not speech-only and delivers on its first leg", async (t) => {
 	const table = await hybridTable({
@@ -459,5 +293,22 @@ test("§135.11 SL-80: an explicit narrate of the same say-only shape is unchange
 	assert.equal(narrates[0].params.implicit, undefined, "the Keeper's own explicit call, not the host's implicit close");
 	assert.equal(runEnd(table.events).status, "delivered");
 	assert.equal(runEnd(table.events).reason, "delivery_accepted");
+	assert.equal(unfinished(table.table.session).length, 0);
+});
+
+// Section 166 replaces the old floor/speech rewrite cases while retaining the no-draft close cases above.
+for (const [shape, draft] of [
+	["unwrapped speech", 'The gatekeeper watches you. "Not today."'],
+	["short prose with no tool", 'A pause.'],
+	["speech only", '{{say:Gatekeeper}}"Not today."{{/say}}'],
+]) test(`section 166: the hybrid close delivers the first ${shape} draft`, async (t) => {
+	const table = await hybridTable({env: {FAKE_KERNEL_PRESENT: GATEKEEPER}, responses: [fauxAssistantMessage(draft)]});
+	t.after(() => table.dispose());
+	await table.table.session.prompt("I wait for the gatekeeper.");
+	assert.equal(table.requests.length, 1);
+	assert.equal(kernel(table.table, "table.narrate").length, 1);
+	assert.equal(kernel(table.table, "table.narrate")[0].params.text, draft);
+	assert.equal(hostSteers(table.table.session).length, 0);
+	assert.equal(runEnd(table.events).status, "delivered");
 	assert.equal(unfinished(table.table.session).length, 0);
 });

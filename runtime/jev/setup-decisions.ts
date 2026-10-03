@@ -103,7 +103,8 @@ export interface SetupRead {
   library: Array<{library_id: string; name?: string; occupation?: string}>;
   catalog: {occupations: Array<{id: string; label?: string; skills?: string[]}>; skills: Array<{name: string; label?: string; listed?: boolean}>; characteristics: Array<{abbr: string; name?: string}>} | null;
   eras: string[];
-  input: {key: string; text: string} | null;
+  /** `earlier`: the player's earlier messages of this setup, given only while there is no card yet. */
+  input: {key: string; text: string; earlier?: string[]} | null;
   play_language: string | null;
 }
 
@@ -305,7 +306,10 @@ export function fieldsBatch({read, scope, readSet}: FieldsQuestionInput): Decisi
   const catalog = read.catalog;
   if (!catalog || !read.input) return undefined;
   const card = read.card;
-  const state: Row = {player_input: read.input.text,
+  // A first card is read from everything the player has said in this setup (§151.6): one fact per message would
+  // otherwise be asked for again each time the other arrived. Once a card exists only the latest message changes it.
+  const said = !card && read.input.earlier?.length ? [...read.input.earlier, read.input.text].join('\n\n') : read.input.text;
+  const state: Row = {player_input: said,
     card: card ? {name: card.summary?.card?.name ?? null, occupation: card.summary?.card?.occupation ?? null,
       occupation_skills: card.profile?.occupation_skills ?? [], interest_skills: card.profile?.interest_skills ?? []} : null,
     occupations: catalog.occupations.map(row => row.label && row.label !== row.id ? `${row.label} (${row.id})` : row.id),

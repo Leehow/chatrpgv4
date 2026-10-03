@@ -1,3 +1,4 @@
+import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
 /**
  * The NPC speech edit lane (contract §165).
  *
@@ -91,6 +92,8 @@ const errorCode = (error: unknown): string | undefined => {
 };
 
 export default function speechEdit(pi: ExtensionAPI) {
+	// Section 166: keep existing overlays readable, but do not author another version of a delivery.
+	if (SINGLE_PASS_NARRATION) return;
 	// Character creation has no deliveries and so no lines to edit.
 	if (cocMode() === "setup") return;
 

@@ -310,8 +310,10 @@ function countTyped(t) {
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== "https://api.typesafe.ai/v1/systemone") return original(url, init);
 		const body = JSON.parse(init.body);
-		// §145.2: the time reading is a family of its own; it falls back (503) and is not counted with this file's requests.
-		if (!body.questions?.cut) requests.push(body);
+		// Time reading and expression references are independent advisory families, not admission reviews.
+		// Their issued question keys identify the family; all still receive the same unavailable endpoint.
+		const expression=body.questions?.participates_0&&body.questions?.fit_0_0&&body.questions?.conflict_0_0;
+		if (!body.questions?.cut&&!expression) requests.push(body);
 		return new Response(JSON.stringify({ error: { message: "the test counts typed requests and answers none" } }), { status: 503 });
 	};
 	t.after(() => { globalThis.fetch = original; });

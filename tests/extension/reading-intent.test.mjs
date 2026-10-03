@@ -45,7 +45,6 @@ test("a reading timeout shows the Keeper the focus and question its fix tells it
 		responses: [
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "move", to: "farm", travel_minutes: 10 }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "The road to the farm is still being prepared." })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("The road to the farm is still being prepared."),
 		],
 	});
 	t.after(() => table.dispose());
@@ -196,11 +195,8 @@ test("a kernel refusal that points at details.clues_here shows the clues that ar
 		campaign: "clues-here-seam",
 		responses: [
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "诺特律师把文件放在桌上，等你开口。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("开场后不应再交付的文字。"),
-			// The diaries are in the Corbitt house; the table is still at the commission briefing.
 			fauxAssistantMessage([fauxToolCall("apply", { effects: [{ kind: "clue", clue: "clue-corbitt-diaries" }] })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxToolCall("narrate", { text: "这里没有什么日记。" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage("这里没有什么日记。"),
 		],
 	});
 	t.after(() => table.dispose());

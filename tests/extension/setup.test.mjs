@@ -246,6 +246,46 @@ test("a live setup process learns the card button's cold completion from the ker
 		"the live setup process exits so the launcher relaunches play on the ready_for_table campaign");
 });
 
+test("the card button's completion is handed off by the host directly, with no guide turn (§98)", async (t) => {
+	// Installed App 6d8b33559, Blood Road, 2026-10-02: after the button the App sent "Confirmed from the card. Open the
+	// table." and the guide spent 10-25 s answering it -- 「玛丽·艾伦已经确认，准备进入故事。 приключение由桌面接管。」 --
+	// before the table opened. `setup-handoff` only accepted an opening the card had waited for.
+	const campaign = "button-handoff";
+	const profile = {name: "Helen", occupation: "Journalist", age: 29, sex: "female",
+		concept: "A cautious local reporter seeking rent money.", own_language: "English",
+		occupation_skills: ["Art and Craft (Photography)", "History", "Language (Own)", "Library Use", "Psychology", "Persuade", "Spot Hidden", "Listen"],
+		interest_skills: ["Accounting", "Law", "First Aid", "Drive Auto"],
+		backstory: {personal_description: "A practical coat", ideology_beliefs: "Evidence before rumors",
+			significant_people: "An editor friend", scenario_bound: "Meeting Knott about the house investigation"},
+		key_connection: {backstory_field: "significant_people", summary: "The editor friend"},
+		equipment: ["Press card", "Notebook", "Camera", "Flashlight"]};
+	const symbol = Symbol.for("pipiui.ext-invoke.registry"), prior = globalThis[symbol], handlers = new Map();
+	globalThis[symbol] = {version: 1, register(id, method, handler) { handlers.set(`${id}:${method}`, handler); return () => {}; }};
+	t.after(() => { globalThis[symbol] = prior; });
+	const table = await openTable({
+		mode: "setup", campaign, realKernel: true, seedCampaign: false,
+		prepareWorkspace: (workspace) => coldKernel(workspace, [
+			["campaign.create", {id: campaign, module: "the-haunting", play_language: "en"}],
+			["setup.draft", {campaign, profile}],
+		]),
+		responses: [fauxAssistantMessage("The card is on the table; confirm it or tell me what to change.")],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("Show me the card.");
+	await waitForIdle(table.session);
+	const handoff = handlers.get("coc-keeper:setup-handoff");
+	assert.equal(typeof handoff, "function");
+	assert.deepEqual(await handoff({}), {waiting: false}, "nothing is confirmed yet: no handoff");
+
+	const [{state: {draft: {revision}}}] = coldKernel(table.workspace, [["setup.steps", {campaign}]]);
+	coldKernel(table.workspace, [["setup.confirm", {campaign, revision, consent: "approved"}], ["setup.complete", {campaign}]]);
+	const turns = table.session.messages.filter((message) => message.role === "assistant").length;
+	assert.deepEqual(await handoff({}), {completed: true}, "the button's completion is enough");
+	assert.equal(table.entries("coc-setup-exit").length, 1, "the launcher is told to replace setup with play");
+	assert.equal(table.entries("coc-session").at(-1)?.mode, "play");
+	assert.equal(table.session.messages.filter((message) => message.role === "assistant").length, turns, "no guide turn ran");
+});
+
 // ---- The setup guide is told the table's language (contract §14.17) -------------------------
 //
 // Live table npc-acts-b (2026-09-26: mystery-house, zh-Hans, deepseek-v4.1-flash, thinking off).

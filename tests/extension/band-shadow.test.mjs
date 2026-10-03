@@ -71,7 +71,7 @@ const call = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { 
 
 async function play(t, { keeper, env = ENV, pick = () => ({ choice: "unknown", confidence: 0.9 }), hold, onTable }) {
 	const requests = installJev(t, { pick, hold });
-	const table = await openTable({ responses: [...keeper, call("narrate", { text: "抽屉一格格空了。" }), fauxAssistantMessage("done")], env });
+	const table = await openTable({ responses: [...keeper, call("narrate", { text: "抽屉一格格空了。" }), ], env });
 	t.after(() => table.dispose());
 	onTable?.(table);
 	// The fake kernel owes no opening, so nothing runs before the player speaks.
@@ -221,10 +221,8 @@ test("over the real kernel: the shadow reads the kernel's own rows, and the turn
 	async function turn(env) {
 		const table = await openTable({ realKernel: true, campaign: CAMPAIGN, env, responses: [
 			call("narrate", { text: "诺特把钥匙推过桌面，等你开口。" }),
-			fauxAssistantMessage("开场之后多写的一句"),
 			call("apply", { effects: [{ kind: "time", minutes: 25, why: WHY }] }),
 			call("narrate", { text: "抽屉一格格空了。" }),
-			fauxAssistantMessage("done"),
 		] });
 		// Disposed before the next table opens: the harness restores the environment (the key) only on dispose.
 		try {

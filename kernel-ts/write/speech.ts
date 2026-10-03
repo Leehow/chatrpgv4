@@ -7,7 +7,7 @@
  */
 import { ModuleGraph } from '../read/module-graph.js';
 import { RpcError } from '../errors.js';
-import { calledPerson, npcsPresent, personLabel } from '../read/capsule.js';
+import { calledPerson, npcsPresent, personLabel, personRecord } from '../read/capsule.js';
 import { array, normalize, normalizeText, row, string, truth, type Row } from '../read/values.js';
 
 import type {Speaker, SpeakerResolver} from './speech-pass.js';
@@ -25,15 +25,27 @@ export {speechPass, NAME_LIMIT, SAY_TOKENS, isSayMarker, type Speaker, type Spea
  *
  * The resolved row carries the table's name too: `npc` / `investigator` is the identity and `name`
  * is what to call them (§76.2), so the journal and the ledger legend read one word for one person.
+ *
+ * §103.5 (2026-10-03): for a person the investigator has not been told about and this table has no word for (`untold`),
+ * `name` would be the book's name, and the transcript shows a speaker's name when the line is hovered: a token that
+ * named him by his handle put the book's name in front of the player and counted as telling it (journal/naming.ts). Such a
+ * row also carries `shown`, the token's own text -- nothing when that was the handle -- whenever it differs from `name`,
+ * and the card and the told check read it. A token that wrote the book's name still shows it, and still tells it.
  */
-export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[]): SpeakerResolver {
+export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[], untold: (node: Row) => boolean = () => false): SpeakerResolver {
     let present: Row[] | null = null;
     const keysOf = (node: Row) => graph.nameKeys(node).map(normalize).filter(Boolean);
     const only = (nodes: Row[], key: string): Row | null => {
         const hits = nodes.filter(node => keysOf(node).includes(key));
         return hits.length === 1 ? hits[0] : null;
     };
-    const npc = (node: Row): Speaker => ({ npc: graph.handle(node), name: personLabel(world, graph.handle(node), graph.displayName(node)) });
+    const npc = (node: Row, said = ''): Speaker => {
+        const handle = graph.handle(node), name = personLabel(world, handle, graph.displayName(node));
+        if (string(personRecord(world, handle).name || '').trim() || !untold(node)) return { npc: handle, name };
+        // Exact: normalized, a handle and the name it was made from are the same string ("steven-knott", "Steven Knott").
+        const shown = said.trim() === handle ? '' : said.trim();
+        return shown === name ? { npc: handle, name } : { npc: handle, name, shown };
+    };
     const sheetSpeaker = (sheet: Row): Speaker => ({ investigator: string(sheet.id), name: personLabel(world, string(sheet.id), string(sheet.name)) });
     return (name: string): Speaker => {
         const key = normalize(name);
@@ -42,11 +54,11 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[]): S
             try { present = npcsPresent(graph, world, graph.scene(world.active_scene)); } catch { present = []; }
         }
         const here = only(present, key);
-        if (here) return npc(here);
+        if (here) return npc(here, name);
         const investigators = party.filter(sheet => [sheet.name, sheet.id].map(normalize).includes(key));
         if (investigators.length === 1) return sheetSpeaker(investigators[0]);
         const anyone = only([...graph.nodes.values()].filter(node => node.node_kind === 'npc'), key);
-        if (anyone) return npc(anyone);
+        if (anyone) return npc(anyone, name);
         // §87.8's junction: the one person this table gave the word. Two of them leave it a label -- a token is a
         // rendering hint and never a reason to refuse (§34.14), and picking one would put the line in the wrong mouth.
         let owner: Row | null = null;

@@ -14,12 +14,12 @@ import {
 } from "@pipi/account-usage-core";
 import type { QuotaSnapshot, QuotaWindow } from "@pipi/host-api";
 
-export type QuotaProviderKind = "grok" | "claude" | "codex" | "cursor" | "kimi" | "qwenTokenPlan" | "opencodeGo";
+export type QuotaProviderKind = "grok" | "claude" | "codex" | "cursor" | "kimi" | "qwenTokenPlan" | "opencodeGo" | "flapcode";
 export type BalanceProviderKind = "deepseek" | "moonshot" | "siliconflow" | "openrouter";
 
 export const QUOTA_ACCOUNT_LABELS: Record<QuotaProviderKind, string> = {
   grok: "Grok 账号额度", claude: "Claude 账号额度", codex: "Codex 账号额度",
-  cursor: "Cursor 账号额度", kimi: "Kimi 账号额度", qwenTokenPlan: "Qwen Token Plan 额度", opencodeGo: "OpenCode Go 本机用量",
+  cursor: "Cursor 账号额度", kimi: "Kimi 账号额度", qwenTokenPlan: "Qwen Token Plan 额度", opencodeGo: "OpenCode Go 本机用量", flapcode: "Flapcode account quota",
 };
 export const BALANCE_ACCOUNT_LABEL = "账户余额";
 export const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
@@ -76,6 +76,7 @@ export type QuotaFetchDeps = {
   readPiAuth?: () => Promise<string | undefined>;
   readGrokAuth?: () => Promise<string | undefined>;
   readOpenCodeAuth?: () => Promise<string | undefined>;
+  readFlapcodeRateLimits?: () => Promise<string | undefined>;
   openCodeDatabasePath?: string;
   readCookie?: AccountUsageCapabilities["readCookie"];
   readCursorAuth?: AccountUsageCapabilities["readCursorAuth"];
@@ -173,6 +174,7 @@ async function capabilities(env: NodeJS.ProcessEnv, deps: QuotaFetchDeps): Promi
     readCookie: deps.readCookie,
     readCursorAuth: deps.readCursorAuth,
     persistCookie: deps.persistCookie,
+    readFlapcodeRateLimits: () => (deps.readFlapcodeRateLimits ?? (() => optionalFile(join(agentDir, "flapcode-rate-limits.json"))))(),
     // The credential gate lives in the adapter (env OPENCODE_API_KEY or opencode-go
     // auth entry); the host default only owns SQLite access.
     readLocalUsage: deps.readLocalUsage ?? (async provider => {

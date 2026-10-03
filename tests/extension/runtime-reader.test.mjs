@@ -374,7 +374,7 @@ test("every provider extension in the tree is discovered, and registers the id i
   // renamed inside an extension cannot leave it mounted under one name and judged under another.
   const found = providerExtensionManifests(ROOT);
   assert.ok(found.length >= 2, `discovery found ${found.length} provider extensions`);
-  assert.deepEqual(found.map(entry => entry.name).sort(), ["deepseek", "grok-build-oauth"]);
+  assert.deepEqual(found.map(entry => entry.name).sort(), ["deepseek", "flapcode", "grok-build-oauth"]);
   for (const { name, providers, entry } of found) {
     const manifest = JSON.parse(await readFile(join(ROOT, "extensions", name, "pipiui-extension.json"), "utf8"));
     assert.deepEqual([...providers], [manifest.auth.provider.id]);

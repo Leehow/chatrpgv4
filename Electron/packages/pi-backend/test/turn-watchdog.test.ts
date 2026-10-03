@@ -594,3 +594,30 @@ describe("turn watchdog and the RunDriver's step events (SL-01)", () => {
     await backend.close();
   });
 });
+
+describe("turn watchdog and pi's auto-retry (2026-10-03)", () => {
+  it("counts a scheduled retry as activity, so a long backoff after a 429 is not aborted as a wedge", async () => {
+    const { backend } = await fixture();
+    const statuses: string[] = [];
+    const off = backend.subscribe(e => { if (e.channel === "stream" && e.event.type === "status") statuses.push(e.event.status); });
+    await backend.handle("sendPrompt", ["s1", "__hold__"]);
+    await eventually(() => statuses.includes("started"));
+    const live = (backend as any).live.get("s1");
+    const silent = Date.now() - (TURN_WATCHDOG_TIMEOUT_MS + 5_000);
+    for (const event of [
+      { type: "auto_retry_start", attempt: 6, maxAttempts: 8, delayMs: 60_000, errorMessage: "429 Too Many Requests" },
+      { type: "auto_retry_end", success: true, attempt: 6 },
+    ]) {
+      live.lastTurnActivityAt = silent;
+      (backend as any).rpcEvent(live, event);
+      expect(Date.now() - live.lastTurnActivityAt).toBeLessThan(TURN_WATCHDOG_TIMEOUT_MS);
+    }
+    live.lastTurnActivityAt = silent;
+    (backend as any).rpcEvent(live, { type: "auto_retry_start", attempt: 7, maxAttempts: 8, delayMs: 60_000, errorMessage: "429 Too Many Requests" });
+    await (backend as any).checkTurnWatchdogs();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(statuses).not.toContain("stopped");
+    off();
+    await backend.close();
+  });
+});

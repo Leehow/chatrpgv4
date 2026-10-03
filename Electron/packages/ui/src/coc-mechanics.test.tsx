@@ -20,6 +20,14 @@ function draw(mechanics:unknown[], labels={}) {
   for(const toggle of drawn.container.querySelectorAll<HTMLButtonElement>('.coc-mech-list button[aria-controls]'))fireEvent.click(toggle)
   return drawn.container
 }
+it('pending and failed quotes draw no guessed total or balance change',()=>{
+  for(const quote_status of ['pending','failed','superseded']){
+    const container=draw([{kind:'cash',quote_key:'q1',quote:'Water',purpose:'Water',settlement:'quote',quote_status}]);
+    expect(container.textContent).toContain('Water');
+    expect(container.querySelector('.coc-mech-figure')).toBeNull();
+    expect(container.querySelector('.coc-mech-delta')).toBeNull();
+  }
+});
 it('draws explicit source to target and each HP value, using the presenter skill word',()=>{
   const container=draw([roll,{...row,kind:'dice',receipt:'d1',word:'hp_damage',label:'HP Damage',faces:[3],total:3},
     {kind:'change',receipt:'hp1',family:'combat',call:'t1-c1',resource:'hp',public_combat:true,subject_label:'Alice',source_label:'Masked visitor',source_receipt:'d1',before:12,after:9}],{Fighting:'Combat rapproché'})
@@ -67,4 +75,19 @@ it('never infers a damage target from another row and has no damage for a miss',
     {kind:'roll',receipt:'other',skill:'Dodge',actor_is_investigator:true,actor_label:'Bob',roll:50,target:60,passed:true}])
   expect(container.querySelectorAll('[data-kind="dice"], [data-kind="change"]')).toHaveLength(0)
   expect(container.querySelector('[data-kind="roll"]')?.textContent).toContain('Masked visitor → Alice')
+})
+it('shows the exact quoted total, purchase purpose and cumulative limit separately from cash movement',()=>{
+  const container=draw([
+    {kind:'cash',receipt:'quote1',settlement:'quote',purpose:'Water and cigarettes',purchase_amount:2.75,before:50,after:50,currency:'USD',
+      items:[{name:'Water',quantity:2,unit_price:0.5,amount:1},{name:'Cigarettes',quantity:1,unit_price:1.75,amount:1.75}]},
+    {kind:'cash',receipt:'pay1',settlement:'cash',purpose:'Another purchase',purchase_amount:1,before:50,after:39,currency:'USD',daily_total:11,spending_level:10},
+  ])
+  const rows=container.querySelectorAll('[data-kind="cash"]')
+  expect(rows[0].querySelector('.coc-mech-figure')?.textContent).toBe('2.75USD')
+  expect(rows[0].querySelector('.coc-mech-delta')).toBeNull()
+  expect(rows[0].textContent).toContain('Water ×2 · 0.5 = 1 USD')
+  expect(rows[1].querySelector('.coc-mech-figure')?.textContent).toBe('50 → 39USD')
+  expect(rows[1].querySelector('.coc-mech-purchase')?.textContent).toBe('1 USD')
+  expect(rows[1].querySelector('.coc-mech-spending')?.textContent).toContain('11 / 10 USD')
+  expect(rows[1].querySelector('.coc-mech-cash-purpose')?.textContent).toBe('Another purchase')
 })

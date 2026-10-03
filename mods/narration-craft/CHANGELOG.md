@@ -1,5 +1,10 @@
 # Narration Craft
 
+## 2.1.12
+- A first visit shows everything the book describes that can be seen or heard from where the investigator stands; what cannot (the inside of a room nobody has opened, what a gun is loaded with) waits until it can be, rather than being dropped. Installed App, Blood Road, 2026-10-02: from the pumps the prose described the office shotgun's rock-salt load, and from the bar door the telephone on each motel room's nightstand. The first-sight check already owes only visible details (contract §168.5).
+- Someone already met is not described again; a later turn gives only what has changed or what the moment draws the eye to (full instruction and brief). Same table, turn 6: the cook leaning out of the kitchen got his apron, ponytail and beard a second time, one turn after his first meeting.
+- What the narration said of a place stays true until something changes it, and last turn's gesture or background sound is not given again (full instruction and brief). Same table, turns 5-10: the barman's rag stopped mid-air or went back on the bar in four turns running, and the jukebox, silent in turns 6 and 7, was playing in turn 8 with nobody near it.
+
 ## 2.1.9
 - People react to the whole encounter, including physical actions and treatment. A rhetorical taunt is not automatically an information request; immediate danger takes priority over conducting business. Full, brief, style axis, directive and floor agree on this priority. A genuine question still gets a direct answer when the situation permits. Real 2.1.8 play exposed the conflicting unconditional answer-first guidance: the first blow, accompanied by a price taunt, still elicited money and keys; the next purely violent threat elicited a natural call for help. The NPC action lane did not run in those turns.
 
