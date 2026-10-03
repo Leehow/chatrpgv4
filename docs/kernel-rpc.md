@@ -18217,7 +18217,21 @@ The examples are given in English and the writer writes in the play language. No
     batch, is refused: `details: {index, field: "label", name, taken}`.
   - So the card, the capsule's `untold.label` and the prose carry one word for one person.
 
+**A handle is not a word (table 16, 2026-10-03).** The first table on this build showed the Keeper sending
+`apply person {who: <handle>, name: <handle>, label: "白衬衫老板"}`. The kernel dropped the `label` field it does not have
+without a word and wrote the handle as what the table calls the man. The journal then put that handle on the player's card.
+The Keeper's own epithets that turn (白衬衫老板, 啤酒肚卡车司机, 海军纹身老人) were exactly the distinctive kind this section asks for.
+
+- `apply person` refuses a field a person effect does not have (`kind, who, name, address, why, intent_ref,
+  intent_outcome, owed`; `_` keys are the host's): `invalid_params`, `details.fields`. The fix says the word goes in
+  `name` and the form of address in `address`.
+- `apply person` refuses a `name` that is an NPC's handle: `details.field: "person.name"`. A handle is for tool calls only.
+- `personRecord` (`kernel-ts/read/capsule.ts`) reads a record whose `name` is the person's own handle as having no name.
+  Every reader goes through it (the card, the capsule's `called` and `untold.label`, the say-token resolver, the journal's
+  epithets), so a table that already holds one shows the journal label, not the handle.
+
 *Tests.*
+- `tests/kernel/test_journal.py::test_a_handle_is_not_what_the_table_calls_anyone`: the three refusals; a pre-existing handle name names nobody in the capsule, the packet or the card.
 - `tests/kernel/test_journal.py::test_one_word_for_one_person`:
   - `apply person` refuses a second person's same words and lists the words in use; the same person re-applying their word is fine.
   - A lane label equal to another person's word is refused.
