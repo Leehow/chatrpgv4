@@ -10,14 +10,18 @@
  *
  * Two tags never reach the model: the authored tag itself, which is the source, and a tag the
  * product ships a seed for, whose seed is already the cache.
+ *
+ * Any other tag is asked only its gap, the captions its seed lacks, because the reader lays the seed
+ * over the cache and never reads a seeded key from it; and the gap is asked in asks of at most
+ * `UI_ASK_SOURCES` sources, each one attempt under the unchanged ceilings (contract §23.3).
  */
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { runtimeEntryUrl } from "../../runtime/deployment.mjs";
 import {
-	acceptPresentationReferences, issuePresentationReferences, presentationAlias, selectPresentationReferences,
-	type PresentationCatalog, type PresentationSource, validatePresentationReferenceShape,
+	acceptPresentationReferences, issuePresentationReferences, presentationAlias, PRESENTATION_REFERENCE_PROTOCOL,
+	selectPresentationReferences, type PresentationCatalog, type PresentationSource, validatePresentationReferenceShape,
 } from "../../runtime/jev/presentation-references.ts";
 import {
 	PLAY_LANGUAGE_TAG, loadPlayLanguages, resolveUiWords, shippedUiWords, uiWordsCachePath, uiWordsDigest,
@@ -31,6 +35,15 @@ import { runPresentationAttempt } from "./presentation-attempt.ts";
 
 /** The lane's instruction, beside the card's own in the same content bundle. */
 const INSTRUCTION = "setup/ui-presentation.md";
+
+/**
+ * The most distinct sources one ask carries (contract §23.3). The ceilings an attempt runs under are
+ * fixed -- 120 s, 16 provider actions, 8,192 output tokens a call, and for a provider that refuses an
+ * output limit a 128,000-token reservation against the lease's 131,072 -- so the ask is sized to them
+ * rather than they to it. 21 sources finished on the slowest lane model tried (gpt-6-luna low) in
+ * about 115 of the 120 s, 3.3 s a source in its write; twelve puts that ask near 87 s.
+ */
+export const UI_ASK_SOURCES = 12;
 
 /** One place a caption appears: the surface file it lives in, the key it is filed under, and the authored words. */
 export interface UiCaption {
@@ -77,6 +90,18 @@ export function uiSourceTexts(captions: readonly UiCaption[]): string[] {
 }
 
 /**
+ * The asks a gap is put to the lane in (contract §23.3): its distinct source strings in caption
+ * order, at most `limit` to an ask. A string several captions show is asked once, in the ask where
+ * the first of them falls.
+ */
+export function uiAsks(captions: readonly UiCaption[], limit = UI_ASK_SOURCES): string[][] {
+	const texts = [...new Set(captions.map(row => row.text))];
+	const asks: string[][] = [];
+	for (let start = 0; start < texts.length; start += limit) asks.push(texts.slice(start, start + limit));
+	return asks;
+}
+
+/**
  * The checker the run executes: every asked string answered with a non-empty string, nothing else.
  *
  * All-or-nothing on purpose, because that is what the run must repair before it finishes. The
@@ -86,8 +111,13 @@ export function uiSourceTexts(captions: readonly UiCaption[]): string[] {
 function validCaption(value: unknown): value is string { return typeof value === "string" && !!value.trim(); }
 
 export function validateUiPresentation(value: unknown, sources: readonly PresentationSource[]): void {
-	try { validatePresentationReferenceShape(value, sources); }
-	catch { throw coded("preparation_failed", "Incomplete UI word projection"); }
+	// The lane issues with protected syntax, so its braces are template syntax (§23.3). What the
+	// checker can name, `check.mjs` prints, so the run repairs that rather than guessing.
+	try { validatePresentationReferenceShape(value, sources, [], PRESENTATION_REFERENCE_PROTOCOL, { protectedSyntax: true }); }
+	catch (error) {
+		const detail = (error as { detail?: unknown })?.detail;
+		throw coded("preparation_failed", typeof detail === "string" ? `Incomplete UI word projection: ${detail}` : "Incomplete UI word projection");
+	}
 }
 
 /** What this round got right, whatever it got wrong: a near miss costs one more question, not the tag. */
@@ -103,6 +133,13 @@ export function assembleUiWords(captions: readonly UiCaption[], projected: Recor
 		if (typeof word !== "string" || !word.trim()) continue;
 		(words[row.surface] ??= {})[row.key] = word;
 	}
+	return words;
+}
+
+/** One word table laid over another, surface by surface. */
+function withWords(base: Record<string, Record<string, string>>, more: Record<string, Record<string, string>>): Record<string, Record<string, string>> {
+	const words: Record<string, Record<string, string>> = {};
+	for (const surface of new Set([...Object.keys(base), ...Object.keys(more)])) words[surface] = { ...(base[surface] ?? {}), ...(more[surface] ?? {}) };
 	return words;
 }
 
@@ -168,7 +205,6 @@ export async function prepareUiWords(options: UiPresentationOptions): Promise<Ui
 	const runner = options.runner;
 	if (!runner) throw coded("preparation_failed", "UI word projection requires its owner runtime");
 
-	const attempt = join(options.home, ".coc/ui-words/attempts", randomUUID());
 	const checkSource =
 		`import {readFileSync} from 'node:fs';\n` +
 		`import {validateUiPresentation} from ${JSON.stringify(runtimeEntryUrl("uiPresentation", import.meta.url))};\n` +
@@ -178,43 +214,60 @@ export async function prepareUiWords(options: UiPresentationOptions): Promise<Ui
 		`catch(error){console.error(error.message);process.exitCode=1;}\n`;
 
 	const context = await uiPresentationContext(contentRoot, tag, captions);
-	let missing = uiSourceTexts(captions);
-	const catalog = issuePresentationReferences(missing, {protectSyntax:true});
+	// §23.3: the reader lays the seed over the cache, so a key the seed answers is never read from it.
+	// The gap -- the captions with no established word -- is everything the lane is asked.
+	const gap = captions.filter(row => !context.established_words[row.surface]?.[row.key]);
+	// Unreachable while the reader and this filter agree on what a seed answers; a projection that
+	// asked nothing would cache nothing, read as no projection, and be started again.
+	if (!gap.length) throw coded("preparation_failed", "The seed answers every caption, yet the tag reads as unprojected");
+	const projection = randomUUID();
 	const projected: Record<string, string> = {};
-	await runPresentationAttempt({
-		attempt, checkSource, outputFile: "presentation.json", systemPrompt: prompt, runner,
-		model: options.model, thinking: options.thinking, signal: options.signal,
-		prepareRound: async round => {
-			const current = selectPresentationReferences(catalog, missing);
-			await writeFile(join(attempt, "texts.json"), JSON.stringify({
-				protocol: current.protocol,
-				play_language: tag,
-				captions: captions.filter(row => missing.includes(row.text)).map(row => ({
-					surface: row.surface, key: row.key, source: presentationAlias(catalog, row.text),
-				})),
-				sources: current.sources,
-				established_terms: context.established_terms,
-				established_words: context.established_words,
-			}, null, 2));
-			return "Read texts.json and write one presentation-reference-v1 operation for every issued source alias to presentation.json. Choose keep when no translation is needed; otherwise generate translated text. For a protected source, return generated text pieces plus every issued token occurrence alias exactly once, ordered where the target language needs it. Never copy a source string, placeholder, notation, surface key or private coordinate into a selector field. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
-				+ (round > 1 ? " Read findings.json and supply exactly the source aliases it still names; accepted captions are not asked again." : "");
-		},
-		failure: (_outcome, aborted) => coded(aborted ? "presentation_timeout" : "preparation_failed", "The UI words could not be projected"),
-		invalidOutput: error => ({ error: String(error), sources: selectPresentationReferences(catalog, missing).sources.map(source => source.alias) }),
-		accept: value => {
-			const current = selectPresentationReferences(catalog, missing);
-			Object.assign(projected, acceptedUiTexts(value, current));
-			missing = missing.filter(text => !projected[text]);
-			return missing.length ? { done: false, findings: {
-				error: "these source aliases were not answered with a valid keep or translation operation",
-				sources: selectPresentationReferences(catalog, missing).sources.map(source => source.alias),
-			} } : { done: true };
-		},
-	});
-	if (missing.length)
-		throw coded("preparation_failed", `Incomplete UI word projection: ${missing.length} caption${missing.length === 1 ? "" : "s"} were not projected`);
+	const asks = uiAsks(gap);
+	for (const [index, asked] of asks.entries()) {
+		const attempt = join(options.home, ".coc/ui-words/attempts", `${projection}-${index + 1}`);
+		// Handed once, before the ask's first round: the seed and what the earlier asks accepted,
+		// never a word for this ask's own captions.
+		const established = withWords(context.established_words, assembleUiWords(gap, projected));
+		const catalog = issuePresentationReferences(asked, {protectSyntax:true});
+		let missing = asked;
+		await runPresentationAttempt({
+			attempt, checkSource, outputFile: "presentation.json", systemPrompt: prompt, runner,
+			model: options.model, thinking: options.thinking, signal: options.signal,
+			prepareRound: async round => {
+				const current = selectPresentationReferences(catalog, missing);
+				await writeFile(join(attempt, "texts.json"), JSON.stringify({
+					protocol: current.protocol,
+					play_language: tag,
+					captions: gap.filter(row => missing.includes(row.text)).map(row => ({
+						surface: row.surface, key: row.key, source: presentationAlias(catalog, row.text),
+					})),
+					sources: current.sources,
+					established_terms: context.established_terms,
+					established_words: established,
+				}, null, 2));
+				return "Read texts.json and write one presentation-reference-v1 operation for every issued source alias to presentation.json. Choose keep when no translation is needed; otherwise generate translated text. For a protected source, return generated text pieces plus every issued token occurrence alias exactly once, ordered where the target language needs it. Never copy a source string, placeholder, notation, surface key or private coordinate into a selector field. The file must contain exactly one JSON object, without Markdown or trailing text. Run node check.mjs and correct any error before finishing."
+					+ (round > 1 ? " Read findings.json and supply exactly the source aliases it still names; accepted captions are not asked again." : "");
+			},
+			failure: (_outcome, aborted) => coded(aborted ? "presentation_timeout" : "preparation_failed", "The UI words could not be projected"),
+			invalidOutput: error => ({ error: String(error), sources: selectPresentationReferences(catalog, missing).sources.map(source => source.alias) }),
+			accept: value => {
+				const current = selectPresentationReferences(catalog, missing);
+				Object.assign(projected, acceptedUiTexts(value, current));
+				missing = missing.filter(text => !projected[text]);
+				return missing.length ? { done: false, findings: {
+					error: "these source aliases were not answered with a valid keep or translation operation",
+					sources: selectPresentationReferences(catalog, missing).sources.map(source => source.alias),
+				} } : { done: true };
+			},
+		});
+		if (missing.length) {
+			// The ask's remainder and every source of the asks that will not run now.
+			const unprojected = missing.length + asks.slice(index + 1).reduce((sum, later) => sum + later.length, 0);
+			throw coded("preparation_failed", `Incomplete UI word projection: ${unprojected} caption${unprojected === 1 ? "" : "s"} were not projected`);
+		}
+	}
 
-	const cache: UiWordsCache = { play_language: tag, digest, texts: assembleUiWords(captions, projected) };
+	const cache: UiWordsCache = { play_language: tag, digest, texts: assembleUiWords(gap, projected) };
 	await writeCache(uiWordsCachePath(options.home, tag, digest), cache);
 	return cache;
 }

@@ -77,3 +77,27 @@ test('all three tool-enabled presenter instructions require aliases rather than 
         assert.doesNotMatch(prompt,/keyed by the source string/);
     }
 });
+
+test('a protected catalog refuses braces its source lacks, in both checkers; an unprotected one keeps braces as text (§23.3)', () => {
+    const protectedCatalog = issuePresentationReferences(['Beyond plain JSON','Turn {n}'],{protectSyntax:true});
+    assert.equal(protectedCatalog.protectedSyntax,true);
+    const round = selectPresentationReferences(protectedCatalog,['Beyond plain JSON']);
+    assert.equal(round.protectedSyntax,true,'a retry round keeps the catalog\'s syntax rule');
+    const [json] = round.sources;
+    const token = json.pieces.find(piece => 'token' in piece).token;
+    const wrapped = artifact([{source:json.alias,action:'translate',pieces:[{text:'Mas alla del simple {'},{token},{text:'}'}]}]);
+    assert.throws(() => validatePresentationReferenceShape(wrapped,round.sources,[],PRESENTATION_REFERENCE_PROTOCOL,{protectedSyntax:true}),
+        error => error.message === 'Incomplete presentation reference artifact' && error.detail.includes(json.alias) && /brace/.test(error.detail));
+    assert.doesNotThrow(() => validatePresentationReferenceShape(wrapped,round.sources),'the rule is the protected catalog\'s, asked for by name');
+    const refused = acceptPresentationReferences(wrapped,round);
+    assert.deepEqual(refused.texts,{});
+    assert.deepEqual(refused.missing,[json.alias]);
+    assert.match(refused.errors[0],/brace/);
+    assert.throws(() => validatePresentationReferences(wrapped,round),'the full checker reads the rule from the catalog');
+
+    const plain = issuePresentationReferences(['Open {the} box']);
+    assert.equal(plain.protectedSyntax,undefined);
+    const braces = artifact([translate('text:0','Abre {la} caja')]);
+    assert.deepEqual(acceptPresentationReferences(braces,plain).texts,{'Open {the} box':'Abre {la} caja'},'a brace is text where no syntax is protected');
+    assert.doesNotThrow(() => validatePresentationReferences(braces,plain));
+});

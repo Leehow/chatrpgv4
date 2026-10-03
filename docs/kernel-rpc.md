@@ -5213,9 +5213,10 @@ outside any placeholder, which no caption has today, keeps its count.
   `validateUiPresentation`) and the host's acceptance (`acceptPresentationReferences`, from the catalog's
   `protectedSyntax`, which `issuePresentationReferences` sets and `selectPresentationReferences` keeps).
 - The run's checker names it. The error carries the alias and the rule as its `detail`, and `validateUiPresentation`
-  puts that detail in the message `check.mjs` prints ("Incomplete UI word projection: text:3 adds a brace its source
-  does not have; braces belong only to the issued placeholder tokens"), where every failure used to print the same
-  five words.
+  puts that detail in the message `check.mjs` prints ("Incomplete UI word projection: text:3: generated text must not
+  add { or }: a brace belongs only to an issued placeholder token, so select token aliases without braces around
+  them"), where every failure used to print the same five words. The host's acceptance records the same rule as that
+  row's error.
 - Catalogs issued without protected syntax (map, character, document) are unchanged: a brace there is text.
 
 *Tests* (each fails on the code before this change):

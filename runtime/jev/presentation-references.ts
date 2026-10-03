@@ -13,6 +13,8 @@ export interface PresentationCatalog {
     protocol:string;
     sources:PresentationSource[];
     bindings:Record<string,Binding>;
+    /** Issued with protected syntax: braces are template syntax, so a translation keeps its source's (§23.3). */
+    protectedSyntax?:true;
 }
 export interface PresentationAcceptance {
     texts:Record<string,string>;
@@ -27,6 +29,18 @@ const exact = (value:Record<string,any>, keys:string[]) => Object.keys(value).le
 // Closed syntax only: brace placeholders, numeric/dice forms, and uppercase notation. This never
 // decides a language or the meaning of a word.
 const PROTECTED_SYNTAX = /\{[^{}\r\n]+\}|(?<![A-Za-z0-9_])(?:[+\-]?\d+(?:[Dd]\d+)(?:[+\-*/×]\d+)*|[+\-]?\d+(?:[\/–—-]\d+)+|[+\-]?\d+(?:[.,]\d+)?%?|[A-Z][A-Z0-9]{1,})(?![A-Za-z0-9_])/g;
+
+// §23.3: in a protected catalog every brace placeholder of a source is an issued token, so a brace
+// in generated text can only wrap a token (`{JSON}`, which `fill` shows as an unfilled placeholder),
+// invent a placeholder, or stray. The materialized caption keeps exactly its source's braces.
+const BRACE_RULE = 'generated text must not add { or }: a brace belongs only to an issued placeholder token, so select token aliases without braces around them';
+const braceCount = (text:string, brace:'{'|'}') => text.split(brace).length - 1;
+const sameBraces = (value:string, original:string) =>
+    braceCount(value,'{') === braceCount(original,'{') && braceCount(value,'}') === braceCount(original,'}');
+const sourceOriginal = (source:PresentationSource) =>
+    'text' in source ? source.text : source.pieces.map(piece => 'text' in piece ? piece.text : piece.value).join('');
+/** The run's checker keeps one message for a refused artifact; `detail` says what to repair. */
+const shapeError = (detail?:string) => Object.assign(new Error('Incomplete presentation reference artifact'), detail ? {detail} : {});
 
 function protectedPieces(text:string, nextToken:()=>string): {pieces:PresentationInputPiece[];tokens:Binding['tokens']} {
     const pieces:PresentationInputPiece[] = [], tokens:Binding['tokens'] = [];
@@ -56,7 +70,7 @@ export function issuePresentationReferences(texts:readonly string[], options:{pr
             sources.push({alias,text:original}); bindings[alias] = {original,tokens:[]};
         }
     });
-    return {protocol:options.protocol ?? PRESENTATION_REFERENCE_PROTOCOL,sources,bindings};
+    return {protocol:options.protocol ?? PRESENTATION_REFERENCE_PROTOCOL,sources,bindings,...(options.protectSyntax ? {protectedSyntax:true as const} : {})};
 }
 
 export function presentationAlias(catalog:PresentationCatalog, original:string):string|undefined {
@@ -66,10 +80,11 @@ export function presentationAlias(catalog:PresentationCatalog, original:string):
 /** Keep stable aliases while a second round asks only for unresolved sources. */
 export function selectPresentationReferences(catalog:PresentationCatalog, originals:readonly string[]):PresentationCatalog {
     const wanted = new Set(originals), sources = catalog.sources.filter(source => wanted.has(catalog.bindings[source.alias]?.original));
-    return {protocol:catalog.protocol,sources,bindings:Object.fromEntries(sources.map(source => [source.alias,catalog.bindings[source.alias]]))};
+    return {protocol:catalog.protocol,sources,bindings:Object.fromEntries(sources.map(source => [source.alias,catalog.bindings[source.alias]])),
+        ...(catalog.protectedSyntax ? {protectedSyntax:true as const} : {})};
 }
 
-function operationValue(operation:unknown, source:PresentationSource, binding:Binding): {value?:string;error?:string} {
+function operationValue(operation:unknown, source:PresentationSource, binding:Binding, protectedSyntax=false): {value?:string;error?:string} {
     if (!record(operation) || typeof operation.source !== 'string' || operation.source !== source.alias)
         return {error:'Select one issued source alias'};
     if (operation.action === 'keep') {
@@ -81,6 +96,7 @@ function operationValue(operation:unknown, source:PresentationSource, binding:Bi
         if (!exact(operation,['source','action','text']) || typeof operation.text !== 'string' || !operation.text.trim())
             return {error:'Translate needs nonempty generated text'};
         if (operation.text === binding.original) return {error:'Use keep when the source needs no change'};
+        if (protectedSyntax && !sameBraces(operation.text,binding.original)) return {error:BRACE_RULE};
         return {value:operation.text};
     }
     if (!exact(operation,['source','action','pieces']) || !Array.isArray(operation.pieces) || !operation.pieces.length)
@@ -104,6 +120,7 @@ function operationValue(operation:unknown, source:PresentationSource, binding:Bi
     const value = materialized.join('');
     if (!value.trim()) return {error:'Translation must not be empty'};
     if (value === binding.original) return {error:'Use keep when the source needs no change'};
+    if (protectedSyntax && !sameBraces(value,binding.original)) return {error:BRACE_RULE};
     return {value};
 }
 
@@ -119,7 +136,7 @@ export function acceptPresentationReferences(value:unknown, catalog:Presentation
     for (const source of catalog.sources) {
         const row = rows.find(operation => record(operation) && operation.source === source.alias);
         if (!row) continue;
-        const result = operationValue(row,source,catalog.bindings[source.alias]);
+        const result = operationValue(row,source,catalog.bindings[source.alias],catalog.protectedSyntax === true);
         if (result.value !== undefined) {
             texts[catalog.bindings[source.alias].original] = result.value; values[source.alias]=result.value; accepted.push(source.alias);
         } else errors.push(`${source.alias}: ${result.error}`);
@@ -127,8 +144,12 @@ export function acceptPresentationReferences(value:unknown, catalog:Presentation
     return {texts,values,accepted,missing:aliases.filter(alias => !accepted.includes(alias)),errors};
 }
 
-/** Public checker: validates alias/token coverage without receiving host-only token bytes. */
-export function validatePresentationReferenceShape(value:unknown, sources:readonly PresentationSource[], extraKeys:string[]=[], protocol:string=PRESENTATION_REFERENCE_PROTOCOL):void {
+/**
+ * Public checker: validates alias/token coverage without receiving host-only token bytes. `protectedSyntax` is the
+ * caller's statement that the sources were issued with protected syntax, whose braces a translation keeps (§23.3).
+ */
+export function validatePresentationReferenceShape(value:unknown, sources:readonly PresentationSource[], extraKeys:string[]=[], protocol:string=PRESENTATION_REFERENCE_PROTOCOL,
+    options:{protectedSyntax?:boolean}={}):void {
     if (!record(value) || !exact(value,['protocol','texts',...extraKeys]) || value.protocol !== protocol || !Array.isArray(value.texts))
         throw new Error('Incomplete presentation reference artifact');
     const aliases = sources.map(source => source.alias), rows = value.texts as unknown[];
@@ -147,6 +168,7 @@ export function validatePresentationReferenceShape(value:unknown, sources:readon
         if (!protectedTokens.length) {
             if (!exact(operation,['source','action','text']) || typeof operation.text !== 'string' || !operation.text.trim()
                 || 'text' in source && operation.text === source.text) throw new Error('Incomplete presentation reference artifact');
+            if (options.protectedSyntax && !sameBraces(operation.text,sourceOriginal(source))) throw shapeError(`${source.alias}: ${BRACE_RULE}`);
             continue;
         }
         if (!exact(operation,['source','action','pieces']) || !Array.isArray(operation.pieces) || !operation.pieces.length)
@@ -164,12 +186,17 @@ export function validatePresentationReferenceShape(value:unknown, sources:readon
         }
         if (seen.length !== protectedTokens.length || new Set(seen).size !== seen.length || protectedTokens.some(alias => !seen.includes(alias)))
             throw new Error('Incomplete presentation reference artifact');
+        if (options.protectedSyntax && 'pieces' in source) {
+            const values = new Map(source.pieces.flatMap(piece => 'token' in piece ? [[piece.token,piece.value] as const] : []));
+            const materialized = operation.pieces.map((piece:Record<string,string>) => 'text' in piece ? piece.text : values.get(piece.token) ?? '').join('');
+            if (!sameBraces(materialized,sourceOriginal(source))) throw shapeError(`${source.alias}: ${BRACE_RULE}`);
+        }
     }
 }
 
 /** Full checker used by the tool-enabled owner's check.mjs. */
 export function validatePresentationReferences(value:unknown, catalog:PresentationCatalog, extraKeys:string[]=[]):Record<string,string> {
-    validatePresentationReferenceShape(value,catalog.sources,extraKeys,catalog.protocol);
+    validatePresentationReferenceShape(value,catalog.sources,extraKeys,catalog.protocol,{protectedSyntax:catalog.protectedSyntax === true});
     const accepted = acceptPresentationReferences(value,catalog,extraKeys);
     if (accepted.missing.length || accepted.errors.length || (value as any)?.texts?.length !== catalog.sources.length)
         throw new Error('Incomplete presentation reference artifact');
