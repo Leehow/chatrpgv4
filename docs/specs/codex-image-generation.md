@@ -15,6 +15,10 @@ Rulings after the research and live probe:
 
 > OpenAI gpt-image 也接上画质，开始实现吧
 
+> 如果不能设置画质那就不需要这个画质选项了呗，以后的事以后再说，现在先尽可能简洁，就跟grok build那样
+
+**Amended 2026-10-03 after the probes: the quality setting is withdrawn.** The Codex endpoint ignores `quality` and `size`, and the aspect ratio is steered by a prompt prefix instead. Contract §172 is authoritative. Everything below about a quality option, the portrait's fixed `low`, OpenAI `gpt-image` quality, the `quality` invoke op and `image-model.json`'s `quality` field (user stories 11–15 and 21, the Quality / Settings persistence decisions, and the related tests) no longer applies.
+
 ## Problem Statement
 
 A player who pays for ChatGPT (Plus / Pro) already has a Codex image quota, but PipiCOC cannot spend it. Image generation for portraits, illustrations and the `image_gen` / `image_edit` tools runs on grok-build or on a separately keyed vendor. A player without grok-build and without an image API key gets "no image model configured" even though their ChatGPT login could generate images.

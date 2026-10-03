@@ -31998,7 +31998,7 @@ Tests:
 
 Each of six mutations turns these tests red: no `replacesDraft`, `via` forced to `mechanics`, every resend live, no growing resume, no in-place replacement, and no place match for a call's card.
 
-## 172. Images on the player's Codex subscription, and a quality setting (owner request, 2026-10-03; amends the image-gen dispatch wording of §22.7 and §35.4; docs/specs/codex-image-generation.md)
+## 172. Images on the player's Codex subscription (owner request, 2026-10-03; amends the image-gen dispatch wording of §22.7 and §35.4; docs/specs/codex-image-generation.md)
 
 The image-gen extension spends the player's ChatGPT subscription through Pi's built-in `openai-codex` login. PipiCOC adds no login, credential store or provider registration of its own: `openai-codex` is a reserved official provider id (pi-backend rejects an extension that claims it), and Pi owns OAuth, refresh and the auth.json lock.
 
@@ -32039,17 +32039,10 @@ The JWT payload is decoded without signature verification and is used only for r
   - `User-Agent: pi (<platform> <release>; <arch>)`
   - `x-codex-image-turn-id: <fresh UUID per call>`
   - `Content-Type: application/json`
-- Body: `{ prompt, model: "gpt-image-2", background: "auto", quality, size }`.
+- Body: `{ prompt, model: "gpt-image-2", background: "auto", quality: "auto", size: "auto" }`, the same fixed values Codex CLI sends.
 - Edits add `images: [{ image_url: <data URL> }]`, between 1 and 5 entries, in JSON (never multipart).
 - Never sent: `n`, `response_format`.
-- `size`:
-  - `1024x1536` for the portrait ratio set;
-  - `1536x1024` for the landscape ratio set;
-  - `auto` only when the aspect ratio is `auto` or absent;
-  - `1024x1024` otherwise.
-  - These are the same closed ratio sets as the OpenAI adapter.
-  - The server currently ignores `size`; it is sent so that the request works unchanged if the server starts honouring it.
-- **The aspect ratio travels in the prompt.** When the aspect ratio is neither `auto` nor absent, the adapter prefixes the prompt with one fixed English sentence built from the ratio and its closed orientation set:
+- **The aspect ratio travels in the prompt.** When the aspect ratio is neither `auto` nor absent, the adapter prefixes the prompt with one fixed English sentence built from the ratio and the OpenAI adapter's closed portrait / landscape ratio sets:
   - portrait set: `Vertical portrait-orientation image, <ratio> aspect ratio, taller than wide. `
   - landscape set: `Horizontal landscape-orientation image, <ratio> aspect ratio, wider than tall. `
   - anything else: `Square image, 1:1 aspect ratio. `
@@ -32057,25 +32050,19 @@ The JWT payload is decoded without signature verification and is used only for r
 - The result is `data[0].b64_json`, mime sniffed from the bytes. A missing `data` is an error.
 - The token appears in no log line, tool result or error text.
 
-### 172.5 Quality
+### 172.5 No quality setting
 
-- `quality ∈ {low, medium, high}`. The dispatch operation carries an optional `quality`. The effective value is the operation's own, else the configured one, else `medium`.
-- The portrait mount always passes `low`. Illustrations, `image_gen` and `image_edit` pass none, so they follow the player's setting. The tools expose no quality parameter.
-- **Honoured by:** the Codex adapter, and the OpenAI Images adapter for `gpt-image*` models (generations and multipart edits).
-- **Not honoured by:** DALL·E models, which never receive `quality`. The xAI, Ark, Gemini and DashScope adapters and grok-build accept it and ignore it.
+There is no quality option (owner ruling, 2026-10-03: "如果不能设置画质那就不需要这个画质选项了……现在先尽可能简洁，就跟 grok build 那样"). The Codex endpoint ignores `quality` (§172.8). No adapter, caller or setting gains a quality field, and the OpenAI Images adapter is unchanged.
 
-### 172.6 Settings file and host invoke
+### 172.6 Settings and host invoke
 
-- `<agentHome>/image-model.json` is `{ "model"?: string, "quality"?: "low"|"medium"|"high" }`.
-- Every writer preserves the field it does not set. `clear` removes only `model`, and the file is deleted only when neither field remains. An absent or invalid `quality` reads as `medium`.
-- The app-level `image-gen` / `model` invoke answers `{ current, grokDefault, quality, codexSignedIn, autoRoute }`:
+- `<agentHome>/image-model.json` keeps its shape `{ "model": string }`. `clear` deletes it as before.
+- The app-level `image-gen` / `model` invoke answers `{ current, grokDefault, codexSignedIn, autoRoute }`:
   - `codexSignedIn` is true when auth.json holds an `openai-codex` entry with an access token;
   - `autoRoute ∈ {"codex", "grok-build", "none"}` applies §172.1 steps 2–4. The host decodes the stored access token's claims only for the plan check and never logs them.
-- New op `{ op: "quality", quality }` sets the quality. A value outside the enum is refused with `capability_denied`.
 - The settings section adds:
   - a "Codex (gpt-image-2)" row (ref `openai-codex/gpt-image-2`) whenever `codexSignedIn`;
-  - an Automatic-row subtitle naming `autoRoute`;
-  - a three-way quality control with the caption that the portrait is always low.
+  - an Automatic-row subtitle naming `autoRoute`.
 
 ### 172.7 Errors
 
@@ -32105,9 +32092,4 @@ Owner-run probes on 2026-10-03 (owner's ChatGPT Pro account, `experiments/codex-
 | high | 1024x1536 | plain | low, 1370x1148 |
 | low | 1024x1536 | prefixed "Vertical portrait-orientation image, 3:4 aspect ratio, taller than wide." | low, **1086x1448** (exactly 3:4) |
 
-**The Codex endpoint ignores both `quality` and `size`.** The server answers `low` at a size of its own choosing. Codex CLI itself always sends `auto`. The orientation is steered only by the prompt, hence the prompt prefix in §172.4. The Codex adapter still sends the effective `quality` and the mapped `size`, so that nothing needs to change if the server starts honouring them.
-
-Consequences:
-- The portrait's fixed `low` already holds on Codex.
-- The player's quality setting has a visible effect only on the OpenAI `gpt-image` route.
-- The settings caption must say so.
+**The Codex endpoint ignores both `quality` and `size`.** The server answers `low` at a size of its own choosing, and Codex CLI itself always sends `auto`. The orientation is steered only by the prompt, hence the prompt prefix in §172.4. A quality setting was specified and then withdrawn for this reason (§172.5).
