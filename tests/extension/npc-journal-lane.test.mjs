@@ -150,7 +150,8 @@ test("mounted NPC lane sends a closed player-safe prompt and payload, then refre
 	assert.deepEqual(getCurrentTools(seen.messages), []);
 	assert.match(promptOf(seen), /Record only people who appeared/);
 	assert.match(promptOf(seen), /at most 3 rows/);
-	assert.match(promptOf(seen), /label, only for a name listed under not yet named: 1 to 30 characters/);
+	assert.match(promptOf(seen), /label, only for a name listed under not yet named who has no epithet: 1 to 30 characters/);
+	assert.match(promptOf(seen), /a recordable person with an epithet is called that at this table/);
 	assert.match(promptOf(seen), /named: true, only for a name listed under not yet named/);
 	assert.match(inputText(seen), /\[Recordable names\] Dooley/);
 	assert.match(inputText(seen), /\[Not yet named to the player\] Dooley/);
