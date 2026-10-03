@@ -32048,6 +32048,12 @@ The JWT payload is decoded without signature verification and is used only for r
   - `auto` only when the aspect ratio is `auto` or absent;
   - `1024x1024` otherwise.
   - These are the same closed ratio sets as the OpenAI adapter.
+  - The server currently ignores `size`; it is sent so that the request works unchanged if the server starts honouring it.
+- **The aspect ratio travels in the prompt.** When the aspect ratio is neither `auto` nor absent, the adapter prefixes the prompt with one fixed English sentence built from the ratio and its closed orientation set:
+  - portrait set: `Vertical portrait-orientation image, <ratio> aspect ratio, taller than wide. `
+  - landscape set: `Horizontal landscape-orientation image, <ratio> aspect ratio, wider than tall. `
+  - anything else: `Square image, 1:1 aspect ratio. `
+  - `<ratio>` is the caller's ratio string verbatim (e.g. `3:4`).
 - The result is `data[0].b64_json`, mime sniffed from the bytes. A missing `data` is an error.
 - The token appears in no log line, tool result or error text.
 
@@ -32088,4 +32094,20 @@ The error codes are stable and the messages are English.
 
 ### 172.8 Inner decisions
 
-The adapter's base URL, model id and originator are single constants. A live probe on 2026-10-03 (owner's account, `experiments/codex-image-probe/probe.mjs`) returned HTTP 200 in 21 s with `originator: pi`. `quality: "auto"` produced `low` at `1370x1148`. The accepted explicit sizes and qualities are confirmed by the owner-run probe before acceptance, and any refused value is recorded here.
+The adapter's base URL, model id and originator are single constants.
+
+Owner-run probes on 2026-10-03 (owner's ChatGPT Pro account, `experiments/codex-image-probe/probe.mjs`, `originator: pi`) all returned HTTP 200 in 19–21 s:
+
+| `quality` sent | `size` sent | prompt | returned |
+|---|---|---|---|
+| auto | auto | plain | low, 1370x1148 |
+| low | 1024x1536 | plain | low, 1379x1141 |
+| high | 1024x1536 | plain | low, 1370x1148 |
+| low | 1024x1536 | prefixed "Vertical portrait-orientation image, 3:4 aspect ratio, taller than wide." | low, **1086x1448** (exactly 3:4) |
+
+**The Codex endpoint ignores both `quality` and `size`.** The server answers `low` at a size of its own choosing. Codex CLI itself always sends `auto`. The orientation is steered only by the prompt, hence the prompt prefix in §172.4. The Codex adapter still sends the effective `quality` and the mapped `size`, so that nothing needs to change if the server starts honouring them.
+
+Consequences:
+- The portrait's fixed `low` already holds on Codex.
+- The player's quality setting has a visible effect only on the OpenAI `gpt-image` route.
+- The settings caption must say so.
