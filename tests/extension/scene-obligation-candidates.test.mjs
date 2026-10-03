@@ -364,7 +364,7 @@ test("no candidate for a step the Mod serves, a step the page leaves unstated, o
 test("an obligation's route question is a fact about the input -- is the declaration after what it guards -- naming the guarded things", async (t) => {
 	const { call } = kernel(t);
 	await atMorgue(call);
-	const candidates = buildCandidates(await reads(call), INPUT);
+	const candidates = buildCandidates(labelled(await reads(call)), INPUT);
 	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
 	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
 	const { batch, offered } = routeBatch(view, scope, []);
