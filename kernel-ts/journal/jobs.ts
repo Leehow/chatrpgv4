@@ -143,7 +143,8 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     const epithets: Row = {};
     for (const [, id] of named) {
         const node = graph.nodes.get(id), word = node ? string(personRecord(world, graph.handle(node)).name || '').trim() : '';
-        if (word) epithets[id] = word;
+        // A book person's handle written as their word (table 16, before apply person refused it) is not an epithet.
+        if (word && (word !== graph.handle(node!) || graph.isTablePerson(node))) epithets[id] = word;
     }
     const prior: Row[] = [], namedPrior = new Set<string>();
     for (const [name, id] of named) {

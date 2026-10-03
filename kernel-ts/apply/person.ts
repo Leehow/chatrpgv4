@@ -94,8 +94,9 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
         });
     // An investigator's name is the player's, written on the sheet, already in the play language.
     // A second record for it is exactly the defect §76 closed: one fact, one place it lives.
-    // §103.7: a handle is for tool calls; it is not a word the table calls anyone.
-    if (name != null && context.graph.kind('npc').some(node => context.graph.handle(node) === name))
+    // §103.7: a book person's handle is for tool calls; it is not a word the table calls anyone. A person the table itself
+    // established has their name as their handle, and that name is theirs.
+    if (name != null && context.graph.kind('npc').some(node => !context.graph.isTablePerson(node) && context.graph.handle(node) === name))
         throw new RpcError('invalid_params', `${repr(name)} is a handle, not what the table calls anyone`, {
             fix: "name is the word the prose calls them, in the play language: for someone untold, an epithet built from the one visible thing only they have here",
             details: { field: 'person.name', name },

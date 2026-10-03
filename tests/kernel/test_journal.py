@@ -406,13 +406,11 @@ def test_a_handle_is_not_what_the_table_calls_anyone(kernel):
     stray = kernel.table_err("apply", call_id="t1-c3", effects=[
         {"kind": "person", "who": "steven-knott", "name": "steven-knott", "label": "擦汗的房东"}])
     assert stray["code"] == "invalid_params" and stray["details"]["fields"] == ["label"] and "goes in name" in stray["fix"]
-    # A table that already holds one names nobody by it: not the capsule, not the journal's packet, not the card.
+    # A table that already holds one (written before this) labels nobody by it: not the journal's packet, not the card.
     path = campaign_dir(kernel.workspace) / "world.json"
     state = read_json(path)
     state.setdefault("person_labels", {})["steven-knott"] = {"name": "steven-knott"}
     path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-    knott = next(p for p in kernel.table("capsule")["present"] if p["name"] == KNOTT)
-    assert "called" not in knott and "label" not in knott["untold"], knott
     narrate(kernel, "t1-c4", "房东擦了擦汗。")
     packet = kernel.ok("journal.job", {"campaign": CAMPAIGN, "turn": 1, "mode": "referenced"})
     assert packet["recordable"] == [{"alias": "person:0", "name": KNOTT}]

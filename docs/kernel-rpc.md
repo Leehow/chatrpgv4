@@ -18225,13 +18225,15 @@ The Keeper's own epithets that turn (白衬衫老板, 啤酒肚卡车司机, 海
 - `apply person` refuses a field a person effect does not have (`kind, who, name, address, why, intent_ref,
   intent_outcome, owed`; `_` keys are the host's): `invalid_params`, `details.fields`. The fix says the word goes in
   `name` and the form of address in `address`.
-- `apply person` refuses a `name` that is an NPC's handle: `details.field: "person.name"`. A handle is for tool calls only.
-- `personRecord` (`kernel-ts/read/capsule.ts`) reads a record whose `name` is the person's own handle as having no name.
-  Every reader goes through it (the card, the capsule's `called` and `untold.label`, the say-token resolver, the journal's
-  epithets), so a table that already holds one shows the journal label, not the handle.
+- `apply person` refuses a `name` that is a book NPC's handle: `details.field: "person.name"`. A handle is for tool calls
+  only. A person the table itself established has their name as their handle (`{who: <name>, name: <name>}` from a
+  passage), and that name is theirs, so it is not refused.
+- A table that already holds a book person's handle as their word (written before this) has it skipped where the word is
+  shown as a label: the journal's epithets and the card's name. The capsule's `called` still carries it, and for the Keeper
+  it is the same string as the handle it already sees.
 
 *Tests.*
-- `tests/kernel/test_journal.py::test_a_handle_is_not_what_the_table_calls_anyone`: the three refusals; a pre-existing handle name names nobody in the capsule, the packet or the card.
+- `tests/kernel/test_journal.py::test_a_handle_is_not_what_the_table_calls_anyone`: the three refusals; a pre-existing handle word labels nobody in the journal's packet or on the card. `tests/extension/a-person-this-table-has.test.mjs` and `lean-apply.test.mjs` keep a passage-established person's own name.
 - `tests/kernel/test_journal.py::test_one_word_for_one_person`:
   - `apply person` refuses a second person's same words and lists the words in use; the same person re-applying their word is fine.
   - A lane label equal to another person's word is refused.
