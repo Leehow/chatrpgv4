@@ -22,6 +22,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runLane, type LaneResult } from "../lanes/subsession.ts";
 import { KernelError } from "./client.ts";
 import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
+import { HANDOVER_GROUND_NOTE } from "../../runtime/jev/action-field-semantics.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease, hostClock, type TaskClock } from "../../runtime/jev/task-context.ts";
@@ -90,6 +91,8 @@ export interface AdmissionVerdict {
 	verdict: string;
 	grounds: string;
 	missing?: string;
+	/** A rejected representation of an already chosen act; never authorization. */
+	recovery?: "correct_proposal";
 	/** Which reviewer gave this verdict (§32.10); absent on verdicts from before the typed route. */
 	reviewer?: AdmissionReviewer;
 	/** Whose verdict stood (§32.11, §32.12), kept so a reused row names it too. */
@@ -425,6 +428,8 @@ export interface AdmissionContext {
 	landed: string[];
 	/** Proposals already refused this turn, so a rewording is read as the same action. */
 	refused: string[];
+	/** Earlier argument mismatches, not withdrawn player declarations or missing choices. */
+	corrections?: string[];
 	/**
 	 * §11.5.4 (SL-51): the book's own text the host carried to the Keeper this turn (Keeper-only; never what the player was
 	 * told). Read by the typed reviewer only; the lane's prompt is unchanged.
@@ -443,6 +448,8 @@ export const CASH_CONSENT_POLICY = "Use the kernel preview's actual delta, not a
 
 export function admissionSystemPrompt(): string {
 	return [
+		HANDOVER_GROUND_NOTE,
+		"When the player already chose an act but the proposed arguments misrepresent it, refuse that proposal with recovery correct_proposal. This does not authorize the proposal. State the mismatch in grounds, not a choice already made in missing. A corrected proposal is judged afresh; earlier argument mismatches do not withdraw the player's declaration. Actual unchosen actions, methods, targets or commitments retain the ordinary refusal and missing choice.",
 		"You are the action-admission reviewer at a Call of Cthulhu table. The Keeper (the game master, an AI) proposes a resolution or effects. First classify each component: is it the investigator's voluntary action, or genuine NPC initiative, environmental force, rules acting on the investigator, or a consequence of something already chosen and settled? The latter are not_player_action: an involuntary destination, elapsed time, hidden danger or outcome does not require the player to know, name or choose it beforehand. You judge agency and consent, not whether a consequence is true or supported by the module.",
 		"Only for voluntary investigator actions, answer: did the player choose this? In a mixed batch, every voluntary component still needs authorization; non-voluntary components do not authorize the rest. Calling something a 'consequence' or 'forced' is not evidence that it is involuntary and cannot disguise a new voluntary route, method, purchase or cost. An NPC demanding payment is not the investigator choosing to pay.",
 		"For that consent judgment, judge only from the player's exact current words, what the player was already told (the earlier deliveries), and any still-valid earlier instruction the player gave and did not withdraw. The Keeper's own goal, method, why, how and stakes text describes the proposal; it is not evidence of the player's consent. A Keeper suggestion in earlier narration is not acceptance. Interest in a subject is not a trip to a place. Risk in an action the player chose does not license a different method, destination or target.",
@@ -464,6 +471,7 @@ export function admissionSystemPrompt(): string {
 		"You judge the choice, never the result: do not ask that the player knew or approved hidden dangers, surprises or outcomes. A short, quiet or plain reply is still a reply — read what it says. An action already refused this turn and proposed again in other words is the same action.",
 		"Answer with one JSON object only, no code fence and no explanation:",
 		'{"verdict":"authorized"|"entailed"|"not_player_action"|"not_authorized"|"uncertain","grounds":"<=200 chars: the words you relied on","missing":"<only for not_authorized or uncertain: the choice the player has not made, <=160 chars, as a plain description of the choice, not a menu>"}',
+		"Only for a refused representation of an already chosen act, include recovery: correct_proposal instead of missing. Never include recovery on an admitting verdict.",
 		"Write grounds and missing in English: they are read by the Keeper, who writes to the player in the player's own language. Quote the player's words as they are.",
 	].join("\n");
 }
@@ -506,6 +514,7 @@ export function buildAdmissionInput(proposal: AdmissionProposal, context: Admiss
 		"",
 		"[Already refused this turn]",
 		context.refused.length ? context.refused.map((line) => `- ${line}`).join("\n") : "(nothing)",
+		...(context.corrections?.length ? ["", "[Earlier mismatched proposals; the player's declaration still stands, and a corrected proposal requires fresh review]", ...context.corrections] : []),
 		"",
 		...(proposal.beside?.lines.length ? [BESIDE_HEADING, proposal.beside.lines.map((line) => `- ${line}`).join("\n"), ""] : []),
 		"[The Keeper now proposes]",
@@ -521,11 +530,20 @@ export function shapeVerdict(parsed: unknown): AdmissionVerdict | undefined {
 	if (!ADMITTING_VERDICTS.has(verdict) && !REFUSING_VERDICTS.has(verdict)) return undefined;
 	const grounds = typeof row.grounds === "string" ? row.grounds.trim().slice(0, 300) : "";
 	const missing = typeof row.missing === "string" && row.missing.trim() ? row.missing.trim().slice(0, 240) : undefined;
-	return { verdict, grounds, ...(missing ? { missing } : {}) };
+	if (row.recovery !== undefined && (row.recovery !== "correct_proposal" || ADMITTING_VERDICTS.has(verdict) || missing !== undefined)) return undefined;
+	return { verdict, grounds, ...(missing ? { missing } : {}), ...(row.recovery === "correct_proposal" ? {recovery: "correct_proposal" as const} : {}) };
 }
 
 /** The refusal the Keeper reads when the review did not admit the action (contract §32.2). */
-export function admissionRefusal(proposal: AdmissionProposal, verdict: AdmissionVerdict): KernelError {
+export function admissionRefusal(proposal: AdmissionProposal, verdict: AdmissionVerdict, correctionAvailable = false): KernelError {
+	if (verdict.recovery === "correct_proposal") return new KernelError({
+		code: "needs", message: "The proposed arguments do not represent the action the player already chose",
+		fix: correctionAvailable
+			? "Nothing of this batch has happened. Preserve the player's declared act; do not ask them to choose it again. Correct the proposed arguments once to represent that same act, without adding a target, method, cost or commitment. The corrected batch must pass fresh admission. Do not resend the unchanged rejected proposal."
+			: "Nothing of this batch has happened. The correction allowance for this turn is spent. Do not retry or narrate the refused effects. Preserve the player's declaration and any existing receipts; do not turn an internal argument mismatch into a new player choice.",
+		details: {reason: "action_proposal_mismatch", verdict: verdict.verdict, recovery: verdict.recovery,
+			correction_allowed: correctionAvailable, grounds: verdict.grounds, proposed: proposal.lines, tool: proposal.tool},
+	});
 	const missing = verdict.missing ?? (verdict.verdict === "uncertain"
 		? "whether the player chose this action at all is not clear from their words"
 		: "the player has not chosen this action");
@@ -822,6 +840,7 @@ export function batchRefusal(tool: AdmissionProposal["tool"], proposed: string[]
 	const find = (test: (error: KernelError) => boolean) => entries.find((entry) => test(entry.error));
 	const deciding = find((error) => reasonOf(error) === "action_not_authorized" && error.details?.verdict === "not_authorized")
 		?? find((error) => reasonOf(error) === "action_not_authorized")
+		?? find((error) => reasonOf(error) === "action_proposal_mismatch")
 		?? find((error) => reasonOf(error) === "admission_unavailable")
 		?? find((error) => reasonOf(error) === REVIEW_TIMEOUT)
 		?? find((error) => reasonOf(error) === REVIEW_PENDING)
@@ -867,6 +886,7 @@ async function typedAttempt(options: PrimaryAdmissionReviewOptions, env: NodeJS.
 		delivered: context.delivered.map((row) => ({ turn: row.turn, player: row.player ?? null, keeper: row.keeper })),
 		landed: [...context.landed],
 		refused: [...context.refused],
+		...(context.corrections?.length ? {corrections: [...context.corrections]} : {}),
 		...(context.bookText?.length ? { bookText: context.bookText.map((row) => ({ ...row })) } : {}),
 	};
 	const family = TYPED_DESIGNS[design];

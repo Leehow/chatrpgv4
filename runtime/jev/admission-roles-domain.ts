@@ -35,11 +35,12 @@ import {splitSourceText} from './source-ref.ts';
 import type {DecisionBatch, DecisionDescriptor, DecisionQuestion, DecisionResult, Json, ReadSet, ScopeBinding} from './contracts.ts';
 import type {TaskLease} from './task-context.ts';
 import {ADMISSION_MISSING_KINDS, batchVerdict} from './admission-domain.ts';
+import {HANDOVER_GROUND_NOTE} from './action-field-semantics.ts';
 import type {AdmissionJevInput, AdmissionJevLine, AdmissionJevResult, AdmissionJevVerdict, AdmissionMissingKind} from './admission-domain.ts';
 
 /** The experiment's family id and revision, kept so the product sends the requests that were measured. */
 export const ADMISSION_ROLES_FAMILY = 'action-admission-roles';
-export const ADMISSION_ROLES_VERSION = '2a.3';
+export const ADMISSION_ROLES_VERSION = '2a.4';
 export const ADMISSION_ROLES_MODEL = JEV_MODEL;
 /** Same bound as §32.10: a larger proposal goes to the lane. */
 export const ADMISSION_ROLES_MAX_LINES = 8;
@@ -234,6 +235,8 @@ function catalog(input: AdmissionJevInput): Catalog {
   const visible = (rows: Passage[]) => rows.map(({alias, text}) => ({alias, text}));
   const justTold = told.length ? told[told.length - 1] : undefined;
   const notes: Record<string, string> = {...FIELD_NOTES};
+  notes.handover = HANDOVER_GROUND_NOTE;
+  if (input.corrections?.length) notes.proposalCorrections = 'Earlier rejected argument representations, not unmade player choices. The original declaration stands; judge corrected arguments afresh without adding a target, method, cost or commitment.';
   if (!unfinished.length) delete notes.unfinishedDeclaration;
   if (book.length) notes.bookText = BOOK_TEXT_NOTE;
   const state = {
@@ -247,6 +250,7 @@ function catalog(input: AdmissionJevInput): Catalog {
     ...(book.length ? {bookText: visible(book)} : {}),
     settledThisTurn: [...input.landed],
     refusedThisTurn: [...input.refused],
+    ...(input.corrections?.length ? {proposalCorrections: [...input.corrections]} : {}),
     proposal: input.proposal.map((text, index) => ({line: index, kind: rolesLineKind(input, index), text})),
   } as unknown as Json;
   const basisCriteria: Record<string, DecisionDescriptor> = {none: 'No player-visible passage bears on this line.'};

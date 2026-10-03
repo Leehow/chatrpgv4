@@ -42,7 +42,7 @@ function packet(handle) {
 	};
 }
 
-async function openVoice(t, { env = {}, people = [], responses = [], reviews = [], writer, rpc, mode = "play" } = {}) {
+async function openVoice(t, { env = {}, people = [], responses = [], reviews = [], writer, rpc, sourceReferences, mode = "play" } = {}) {
 	const workspace = mkdtempSync(join(tmpdir(), "pi-coc-voice-lane-"));
 	const values = {
 		PI_COC_MODE: mode, PI_COC_HOME: workspace, PI_OFFLINE: "1",
@@ -97,7 +97,7 @@ async function openVoice(t, { env = {}, people = [], responses = [], reviews = [
 		return {};
 	};
 	const tasks = [], pending = [...responses];
-	const runtime = { home: workspace, async runTask(task, signal) {
+	const runtime = { home: workspace, sourceReferences, async runTask(task, signal) {
 		tasks.push(task);
 		const request = task.request;
 		if (writer) return writer(request, signal);
@@ -323,7 +323,7 @@ for (const budget of ["unset", "0", "5"]) {
 			env: budget === "unset" ? {} : { PI_COC_NPCVOICE_BACKFILL: budget }, people: ["steven-knott"], responses: [answer("a", "b", "c")],
 		});
 		if (budget !== "5") {
-			await settle(60);
+			await asked(table, 2);
 			assert.equal(table.calls("voice.job").length, 2);
 			assert.equal(table.calls("voice.job").some(row => row.params.backfill), false);
 			assert.equal(table.calls("voice.submit").length, 1, "current-person startup is distinct from backfill");
@@ -558,4 +558,19 @@ test("the voice guard lets honoured lines through unchanged", async (t) => {
 	await completed(table);
 	assert.deepEqual(table.calls("voice.submit").map(row => row.params.voice.exchanges), [["先买份报。", "下雨了。", "跟你没关系。"]]);
 	assert.equal(table.rows().find(row => row.npc)?.voice_check, "passed");
+});
+
+test("a bounded Jev card verdict reaches publication and a rejected card receives one reviewed repair", async t => {
+ const original=globalThis.fetch;let reviews=0;
+ t.after(()=>{globalThis.fetch=original;});
+ globalThis.fetch=async (_url, options)=>{
+  const body=JSON.parse(options.body);const bad=reviews++===0;
+  return new Response(JSON.stringify({model:body.model,answers:Object.fromEntries(Object.entries(body.questions).map(([key,q])=>[key,{type:q.type,noul:bad&&key==='fixed_agenda'?.99:.01}])),usage:{input_tokens:100,output_tokens:1}}),{status:200});
+ };
+ const table=await openVoice(t,{sourceReferences:true,reviews:[verdict(true),verdict(true)],env:{EXT_JEV_APIKEY:"fixture-key"},people:["steven-knott"],responses:[answer("hello","ordinary","uncertain"),answer("welcome","practical","reserved")]});
+ await waitFor(()=>table.calls("voice.submit").length===1);
+ assert.equal(table.tasks.length,2,"the rejected draft was repaired once");
+ assert.equal(table.voice.getPendingResponseCount(),2,"confident bounded judgments do not require a prose review completion");
+ assert.equal(reviews,2,"the repaired card was judged afresh");
+ assert.deepEqual(table.rows().filter(r=>r.reviewer==='jev').map(r=>r.status),['rejected','accepted']);
 });

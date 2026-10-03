@@ -43,6 +43,7 @@ function mount(h, runJob, onError = async () => {}, backfillEnv = ENV) {
 }
 
 test("a queue cooldown defers work, resumes it, and shutdown cancels the wake", async t => {
+	t.mock.timers.enable({apis: ["setTimeout", "Date"], now: 0});
 	budget(t, "0");
 	const h = host(), jobs = [];
 	const queue = mount(h, async job => {jobs.push(job.turn);});
@@ -50,11 +51,11 @@ test("a queue cooldown defers work, resumes it, and shutdown cancels the wake", 
 	queue.pauseFor(25);
 	h.commit(1); await drain();
 	assert.deepEqual(jobs, []);
-	await new Promise(resolve => setTimeout(resolve, 40));
+	t.mock.timers.tick(40); await drain();
 	assert.deepEqual(jobs, [1]);
 	queue.pauseFor(25); h.commit(2);
 	await h.hook("session_shutdown");
-	await new Promise(resolve => setTimeout(resolve, 40));
+	t.mock.timers.tick(40); await drain();
 	assert.deepEqual(jobs, [1], "a cancelled queue cannot restart from an old timer");
 });
 test("deferred work keeps its ticket and resumes before later queued turns", async t => {

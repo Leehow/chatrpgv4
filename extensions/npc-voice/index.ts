@@ -18,6 +18,8 @@ import { cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
 import { createLaneTelemetry } from "../lanes/telemetry.ts";
+import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
+import { reviewVoiceCard, VOICE_REVIEW_FAMILY } from "../../runtime/jev/voice-card-review.ts";
 
 /** Fallbacks only: the kernel's job packet carries the real budget, and these stand in when it does not. */
 const DEFAULT_EXCHANGES = 3;
@@ -97,6 +99,8 @@ const SILENT_REASON = "does_not_speak";
 /** Short semantic validation in the existing validation lane; never a code-level prose classifier. */
 function judgePrompt(): string {
 	return [
+		"Card-writer and fallback reviewer: mask only meaningful heard word choice, register, attitude, address, or interaction habit. Omit or reinterpret scenery, room/location atmosphere, and translation imagery; never echo them as vocal quality. Preserve formal and long speech; sentence length and cadence follow the encounter, even when the source says short or clipped.",
+		"Treat source metaphor, imagery, and scene atmosphere as guidance for how a moment feels or how a voice may sound, not as literal wording that the person habitually says; write what this listener would actually hear in the present exchange, preserving source facts without inventing objects, events, secrets, or state. A mask describes flexible voice, register, attitude, or address, not a compulsory task, topic, agenda, catchphrase, refusal, brevity, courtesy, or rhythm: an ordinary greeting remains possible, and a relevant practical or formal question may receive a longer connected response when the situation warrants it.",
 		"Review every candidate against the supplied source, even when it has no voice description or the candidate is silent.",
 		"For a silent candidate (voice:null), approve only if the source explicitly says this person does not speak. A nonempty voice description, soft speech, reserve or shyness does not establish silence.",
 		"For a speaking candidate, reject invented speech when the source explicitly establishes silence; otherwise assess the mask and exchanges below.",
@@ -285,7 +289,17 @@ export default function (pi: ExtensionAPI) {
 		for (let round = 0; ; round++) {
 			const input = judgeInput(packet, lane.value);
 			await writeFile(join(lane.cwd, "review-input.json"), JSON.stringify({ systemPrompt: judgePrompt(), input }));
-			const verdict = await runLane<{ honours: boolean; why: string }>({
+			const began = Date.now();
+			const typed = owner.sourceReferences === true ? await reviewVoiceCard({campaign, jobId,
+				source: {play_language: packet.play_language, coarse_language: packet.coarse_language, npc: packet.npc,
+					investigator: packet.investigator, documents: packet.documents, taken_masks: packet.taken_masks, said: packet.said},
+				candidate: "voice" in lane.value ? {voice: lane.value.voice} : {voice: null, reason: SILENT_REASON}},
+				createDecisionAdapter({env: {...process.env}, enabled: owner.sourceReferences === true, maxConcurrency: 1,
+					retryPolicies: {[VOICE_REVIEW_FAMILY]: {maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, attemptTimeoutMs: 2000}}}), signal) : {status: "fallback" as const, reason: "unconfigured"};
+			if (owner.sourceReferences === true) await note({job_id: jobId, check: "voice", reviewer: "jev", status: typed.status, ms: Date.now() - began,
+				...(typed.status === "fallback" ? {fallback: typed.reason} : {defects: typed.defects})});
+			const verdict = typed.status !== "fallback" ? {ok: true as const, value: {honours: typed.status === "accepted", why: typed.defects.length ? `Voice card review defects: ${typed.defects.join(", ")}` : ""}, model: "jev-1.13.0"}
+				: await runLane<{ honours: boolean; why: string }>({
 				ctx: scheduler.ctx as ExtensionContext, envName: "PI_COC_VOICE_MODEL", lane: "voice",
 				record: row => note({ job_id: jobId, check: "voice", ...row }),
 				systemPrompt: judgePrompt(), input, signal, shape: shapeVerdict, timeoutMs: 120_000,

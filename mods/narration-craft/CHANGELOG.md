@@ -1,5 +1,12 @@
 # Narration Craft
 
+## 2.1.18
+- Integration evidence records a mixed live result: the first real table observed a successful key return, while the other actor did not reliably represent the already chosen ending correction. Strictly preserve source facts, listener/identity boundaries, declared acts versus receipts, and unknown factual claims; unknown or unsupported past/negative claims remain unknown rather than becoming canon. This is an observed reason for the quality trial not being accepted, not a new runtime feature.
+
+
+## 2.1.17
+- Clarifies recovery of an argument mismatch: the host may spend at most one correction on the active player turn only when the already chosen act was misrepresented, then reviews the new proposal afresh; this allowance is not durable across process restart. Forward-only reconciliation remains valid: keep the current declared act separate from actual receipts, and do not retcon prior deliveries or forbid landing previously delivered canon forward. Background Jev card checks use `Jev1.13.0`, bounds `<=0.1` clear / `>=0.9` defect, 2,000 ms per review, 24,000 state bytes, and 12 independent questions; unknown, incomplete, or unavailable evidence falls back to `flapcode/gpt-6-luna low`. Questions concern the candidate example request/reply context, not only an absent current-source question. Metaphor or image in input does not establish object or identity; source and receipts do. Flap/Luna remains a scoped test/author choice, not a hardcoded product model. No defaults, migrations, or contribution shapes change.
+
 ## 2.1.16
 - Finalizes the speech-repair package fixture/version binding and preserves the incoming-main description as version metadata. Restores meaningful prose-guard examples plus conditional-reaction assertions. Craft guidance keeps encounter purpose, reactive emotion, source facts, and player agency with NarrationCraft; contextual examples demonstrate range rather than compulsory phrasing. Source guards, established voices, single-draft ownership, and existing public seams remain unchanged. This record is implementation history, not fresh-live literary-quality or App acceptance.
 ## 2.1.13

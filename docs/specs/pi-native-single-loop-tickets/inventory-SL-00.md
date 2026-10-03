@@ -180,6 +180,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | `extensions/mods/index.ts` | `warm.runner` | 739 | `owner.runTask` | mods ext: document presentation warmup | app-play | not observed | Runner handed to presentDocument (child kind mod). |
 | `extensions/npc-journal/index.ts` | `attempt` | 240 | `runLane` | npc-journal ext | app-play | observed: 4 journal rows | Background journal lane after commit. |
 | `extensions/npc-voice/index.ts` | `attempt` | 303 | `runLane` | npc-voice ext: voice check | app-play | observed: 3 voice lane-calls | Voice mask check lane; background. |
+| `extensions/npc-voice/index.ts` | `attempt` | 296 | `createDecisionAdapter` | source-bound background NPC voice-card reviewer | app-play-gated | leaf | An existing voice preparation job and captured Jev availability; not a foreground prose reviewer. |
 | `extensions/npc-voice/writer.ts` | `writeVoice` | 25 | `runtime.runTask` | npc-voice ext: voice mask author | app-play | observed: voice job rows | Background tool-enabled author child; not awaited by the turn. |
 | `extensions/npc/writer.ts` | `authorNpc` | 14 | `runtime.runTask` | npc ext: NPC author | app-play | observed: npc personality/responses x3 | Background tool-enabled author child. |
 
