@@ -10108,25 +10108,42 @@ export class PiHostBackend implements HostBackend {
     if (id === "image-gen" && method === "model") {
       // The Image Generation extension's model choice, app-level: the picker in its settings
       // section reads/writes the same <agentDir>/image-model.json the agent reads per call, so
-      // no live session is needed. `grokDefault` mirrors the dispatch's grok-by-default
-      // rule: the grok-build login the dispatch uses only while no model is configured.
+      // no live session is needed. `grokDefault` reports the grok-build login; `autoRoute`
+      // mirrors the dispatch's automatic order (contract §172.1 steps 2-4): Codex on a paid
+      // plan, then grok-build, else none.
       const file = join(this.agentDir, "image-model.json");
       const op = isRecord(params) && typeof params.op === "string" ? params.op : "get";
-      const grokDefault = (() => { try { return isRecord(JSON.parse(readFileSync(join(this.agentDir, "auth.json"), "utf8"))["grok-build"]); } catch { return false; } })();
+      const auth = (() => { try { const raw = JSON.parse(readFileSync(join(this.agentDir, "auth.json"), "utf8")); return isRecord(raw) ? raw : {}; } catch { return {}; } })();
+      const grokDefault = isRecord(auth["grok-build"]);
+      const codexEntry = auth["openai-codex"];
+      const codexAccess = isRecord(codexEntry) && typeof codexEntry.access === "string" ? codexEntry.access.trim() : "";
+      const codexSignedIn = codexAccess !== "";
+      // The stored token's claims are decoded only for the plan check (§172.6) and never logged.
+      const codexUsable = codexSignedIn && (() => {
+        try {
+          const claims = JSON.parse(Buffer.from(codexAccess.split(".")[1] ?? "", "base64url").toString("utf8"));
+          const authClaim = isRecord(claims) ? claims["https://api.openai.com/auth"] : undefined;
+          return isRecord(authClaim)
+            && typeof authClaim.chatgpt_account_id === "string" && authClaim.chatgpt_account_id.trim() !== ""
+            && authClaim.chatgpt_plan_type !== "free";
+        } catch { return false; }
+      })();
+      const autoRoute = codexUsable ? "codex" : grokDefault ? "grok-build" : "none";
+      const answer = (current: string | null) => ({ ok: true as const, data: { current, grokDefault, codexSignedIn, autoRoute } });
       if (op === "get") {
         let current: string | null = null;
         try { const saved = JSON.parse(readFileSync(file, "utf8")); if (isRecord(saved) && typeof saved.model === "string" && saved.model.trim()) current = saved.model.trim(); } catch {}
-        return { ok: true, data: { current, grokDefault } };
+        return answer(current);
       }
       if (op === "set") {
         const model = isRecord(params) && typeof params.model === "string" ? params.model.trim() : "";
         if (!model) return settingsDenied("capability_denied", "model 必须是非空 string");
         await fs.writeFile(file, JSON.stringify({ model }) + "\n", { mode: 0o600 });
-        return { ok: true, data: { current: model, grokDefault } };
+        return answer(model);
       }
       if (op === "clear") {
         await fs.rm(file, { force: true });
-        return { ok: true, data: { current: null, grokDefault } };
+        return answer(null);
       }
       return settingsDenied("capability_denied", `unknown image-gen model op: ${op}`);
     }

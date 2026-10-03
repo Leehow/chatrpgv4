@@ -31,7 +31,7 @@ it("get answers the saved choice and the grok-build default", async () => {
   try {
     await (await import("node:fs/promises")).mkdir(agentDir, { recursive: true });
     let result = await backend.handle("invokeExtension", ["image-gen", "model", { op: "get" }]) as any;
-    expect(result).toEqual({ ok: true, data: { current: null, grokDefault: false } });
+    expect(result).toEqual({ ok: true, data: { current: null, grokDefault: false, codexSignedIn: false, autoRoute: "none" } });
     await writeFile(join(agentDir, "auth.json"), JSON.stringify({ "grok-build": { access: "x" } }));
     result = await backend.handle("invokeExtension", ["image-gen", "model", { op: "get" }]) as any;
     expect(result.data.grokDefault).toBe(true);
@@ -68,6 +68,46 @@ it("refuses a malformed set without touching the file", async () => {
     await expect(stat(join(agentDir, "image-model.json"))).rejects.toThrow();
     const unknown = await backend.handle("invokeExtension", ["image-gen", "model", { op: "wat" }]) as any;
     expect(unknown.ok).toBe(false);
+  } finally {
+    await dispose();
+  }
+});
+
+/** A Pi-shaped openai-codex OAuth entry whose access token is a fake JWT with the given auth claim. */
+function codexEntry(authClaim: Record<string, unknown>) {
+  const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return {
+    type: "oauth",
+    access: `${part({ alg: "RS256" })}.${part({ "https://api.openai.com/auth": authClaim })}.c2ln`,
+    refresh: "refresh-token",
+    expires: 4102444800000,
+  };
+}
+
+it("get reports codexSignedIn and autoRoute (Codex on a paid plan, then grok-build, else none)", async () => {
+  const { agentDir, backend, dispose } = await harness();
+  const fixtures: Array<[string, Record<string, unknown> | undefined, { codexSignedIn: boolean; autoRoute: string; grokDefault: boolean }]> = [
+    ["codex paid + grok", { "openai-codex": codexEntry({ chatgpt_account_id: "acct", chatgpt_plan_type: "plus" }), "grok-build": { access: "x" } }, { codexSignedIn: true, autoRoute: "codex", grokDefault: true }],
+    ["codex free + grok", { "openai-codex": codexEntry({ chatgpt_account_id: "acct", chatgpt_plan_type: "free" }), "grok-build": { access: "x" } }, { codexSignedIn: true, autoRoute: "grok-build", grokDefault: true }],
+    ["codex free alone", { "openai-codex": codexEntry({ chatgpt_account_id: "acct", chatgpt_plan_type: "free" }) }, { codexSignedIn: true, autoRoute: "none", grokDefault: false }],
+    ["codex without an account claim", { "openai-codex": codexEntry({ chatgpt_plan_type: "pro" }) }, { codexSignedIn: true, autoRoute: "none", grokDefault: false }],
+    ["codex entry without an access token", { "openai-codex": { type: "oauth", refresh: "r" } }, { codexSignedIn: false, autoRoute: "none", grokDefault: false }],
+    ["grok only", { "grok-build": { access: "x" } }, { codexSignedIn: false, autoRoute: "grok-build", grokDefault: true }],
+    ["none", undefined, { codexSignedIn: false, autoRoute: "none", grokDefault: false }],
+  ];
+  try {
+    for (const [label, auth, expected] of fixtures) {
+      if (auth) await writeFile(join(agentDir, "auth.json"), JSON.stringify(auth));
+      else await rm(join(agentDir, "auth.json"), { force: true });
+      const result = await backend.handle("invokeExtension", ["image-gen", "model", { op: "get" }]) as any;
+      expect({ label, ...result.data }).toEqual({ label, current: null, ...expected });
+    }
+    // set and clear answer the same routing fields.
+    await writeFile(join(agentDir, "auth.json"), JSON.stringify({ "openai-codex": codexEntry({ chatgpt_account_id: "acct", chatgpt_plan_type: "pro" }) }));
+    const set = await backend.handle("invokeExtension", ["image-gen", "model", { op: "set", model: "openai-codex/gpt-image-2" }]) as any;
+    expect(set.data).toEqual({ current: "openai-codex/gpt-image-2", grokDefault: false, codexSignedIn: true, autoRoute: "codex" });
+    const clear = await backend.handle("invokeExtension", ["image-gen", "model", { op: "clear" }]) as any;
+    expect(clear.data).toEqual({ current: null, grokDefault: false, codexSignedIn: true, autoRoute: "codex" });
   } finally {
     await dispose();
   }
