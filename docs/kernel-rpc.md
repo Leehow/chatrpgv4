@@ -18263,6 +18263,55 @@ The Keeper's own epithets that turn (白衬衫老板, 啤酒肚卡车司机, 海
 - The §87.8 tests now build their shared word as a pre-§103.7 table's record.
 - Mutations of the refusal, the mirror, the label refusal and the packet field each fail a test.
 
+### 103.8 The Keeper does not hold an untold person's name (owner ruling 2026-10-03; amends §103.5 and §103.7)
+
+**Evidence.** Table 20 of the installed App (Blood Road, `game-48858a0b`, §172) leaked on its first turn. The owner's words: 「除了烂牙司机其他名字还是全漏出来了」.
+
+- The Keeper's first step looked at the trucker. His biography mentions his neighbour 史蒂夫·布朗 and says he pretends to help 拉斯 with the cars. 拉斯 is an alias the graph records for the owner (`aliases: ["拉斯", "拉索"]`), and the request's rename (§103.5) replaced only each person's display name.
+- §103.5 also kept each untold person's book name in the Keeper's copy as `untold.name`, "for the moment someone says it".
+- The next step ran without thinking (§172.1). It wrote "史蒂夫·布朗" and "拉斯·威廉姆斯" as epithets, the sidebar showed them, the prose said 「年近七十的史蒂夫」, and the next turn 「拉斯看了眼油泵」. Only the trucker got a real epithet, 烂牙司机.
+
+The owner had asked for this order in the first place: the name stays in the data, and the Keeper gets it once it has been said (「真实姓名在剧情里被人说出来就同步，直接在生成前告诉kp」).
+
+**1. Every book name is renamed.**
+
+- `bookNames(graph, node)` (`kernel-ts/journal/naming.ts`) is a person's `name`, display name and `aliases`, never a handle or node id. The id comparison is exact, because normalized, a handle and the name it was made from are the same string.
+- `table.untold` (`untoldRoster`) carries one row per book name of each untold person.
+- A name that someone the investigator already knows also goes by is left out of the rename, so that person is not hidden with it.
+- A short alias can also occur inside an unrelated word, which then reaches the Keeper renamed. That costs the Keeper some reading, and it never leaks a name.
+
+**2. The Keeper's copy carries no book name.** `untoldView` (`extensions/kernel/untold-view.ts`) no longer writes `untold.name`, and the request's rename keeps no seat for it. The untold line tells the Keeper it does not have the name, and that when the fiction has it said (they give it, someone calls them by it, a paper shows it) it writes `{{name:<who>}}` there. The narrate `text` field says the same.
+
+**3. `{{name:<who>}}` puts the name in at delivery** (`kernel-ts/write/names.ts`, on `table.narrate` and `table.ask` before `deliveryText`):
+
+- `who` resolves exactly as a say token's name does: the handle, the table's word, or any key of the person.
+- The token becomes the book's display name. The rendered text then shows that name, so `toldTurn` counts the person as told from this delivery on, and the next capsule shows their name.
+- A token naming nobody is left as the word written and reported in `unresolved_names`. Nothing is refused (§34.14).
+- A §171 draft drops the token by its braces, so while the delivery streams the name is a gap on the screen until the delivery replaces the draft.
+
+**4. An epithet may not carry a book name** (`refuseUntoldName`, `kernel-ts/apply/person.ts`). For a book person who is still untold (`untoldBlock`), an `apply person` name is refused `invalid_params` with `details.reason: "untold_name"` when it contains any of their book names, or a piece of one.
+
+- A piece is what the name itself separates with punctuation: 拉塞尔·威廉姆斯 gives 拉塞尔 and 威廉姆斯, and Mr. Dooley gives Dooley. Pieces of one character are not pieces. A space is not punctuation, so Steven Knott gives no piece.
+- The refusal repeats the Keeper's own word and names no book name.
+- Once the person is told, their name may be the table's word for them.
+
+This sits beside §103.7's handle refusal and is just as deterministic: the kernel compares the word with the names it holds, never with what the word means.
+
+Writer: the Keeper's narrate, ask and `apply person`. Reader: the request's rename, `untoldView`, `withNames`, `refuseUntoldName`. Actor: the player, who meets a name only when the fiction says it.
+
+Tests (`tests/extension/untold-names-held.test.mjs`):
+
+- book names, aliases and pieces;
+- the roster with a shared alias;
+- on the real kernel with The Haunting:
+  - no book name anywhere the host wrote into the request, `untold` included;
+  - "Steven Knott's clerk" and "old Dooley" are refused, and an epithet built from a visible thing is accepted;
+  - `{{say:the ink-stained clerk}}"I am {{name:the ink-stained clerk}}…"` delivers "I am Steven Knott", after which he is told;
+  - an unknown `{{name:}}` is reported;
+  - once told, his name is accepted as his word.
+
+`tests/extension/untold-request.test.mjs` now finds the row by its handle and asserts that `untold` has no `name`.
+
 ## 104. Characteristic-driven combat weapons use the actor's authored characteristic (2026-09-17)
 
 H-SIDE turn 171 proved that entering the authored Corbitt encounter was necessary but not sufficient.
@@ -32028,4 +32077,12 @@ The feeling a person has is an author's choice that the input does not determine
 **Acceptance.** Read off a fresh real table on the installed App: the share of delivered turns whose first step holds only writes that need no result, against the 28 of 51 above, and the first visible prose per turn (§135.11.5). Nothing here is enforced by the host. If the Keeper still splits, that is evidence for a host-side change, not a reason to repeat the wording.
 
 Tests: `tests/extension/npc-mood.test.mjs` and `tests/extension/jev-pacing-mod-alignment.test.mjs` move their narration-craft pin to 2.1.17. The wording itself has no test, because a test that pinned it would only pin a string.
+
+### 172.1 A step before the turn's first write keeps its thinking (owner ruling 2026-10-03, with §103.8)
+
+With `COC_FIRST_STEP_THINKING=1` (§38.7.1), as the installed App runs, every Keeper call after a turn's first ran without thinking. Once §172 put what needs no result into the narrate's response, the step that wrote the epithets, the moods and the prose was often the second: on table 20 a look came first, and the step after it wrote the book's names (§103.8).
+
+The rule is now this. A call keeps thinking until a Keeper call of this turn has written. Any call but `look`, `lookup` or `recall` counts as writing. The host's own operations raise the same `tool_call` event; they are recognized by `dispatcher.hostOrigin` and do not count (the clerk's move before the first call is not the Keeper's writing). The counter resets on player input, with `roundTrips`. The provider-request row's `first_step_thinking` is `true` for every call before the first write.
+
+This costs a few seconds of thinking on a step that follows only reads, which is still one model step fewer than before §172. Tests: `tests/extension/first-step-thinking.test.mjs`. The step after a look keeps thinking, the step after a write is rewritten off, the reset still holds, and the unsupported-format case now follows a write.
 

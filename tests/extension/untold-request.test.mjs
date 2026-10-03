@@ -50,12 +50,12 @@ test('§103.1: the request names an untold person by handle everywhere the host 
   const {messages: sent} = await hooks.get('context')({messages}, {model: {contextWindow: 1000000}});
   assert.ok(!sent.some(message => message.customType === 'coc-context-status'), JSON.stringify(rows.slice(-3)));
   const capsule = JSON.parse(sent.find(message => message.customType === 'coc-capsule').content);
-  const row = capsule.present.find(person => person.untold?.name === 'Steven Knott');
+  const row = capsule.present.find(person => person.untold && person.name === 'steven-knott');
   assert.ok(row, JSON.stringify(capsule.present));
-  assert.equal(row.name, 'steven-knott', 'the capsule the hook itself sends carries the Keeper\'s view');
-  const elsewhere = sent.filter(message => message.role !== 'user' && message.role !== 'assistant').map(message => JSON.stringify(message.content))
-    .join('\n').replaceAll('\\"untold\\":{\\"name\\":\\"Steven Knott\\"', '');
-  assert.ok(!elsewhere.includes('Steven Knott'), 'nothing the host wrote names him outside untold.name');
+  // §103.8: the Keeper's copy keeps no seat for the book's name either.
+  assert.equal('name' in row.untold, false, 'the capsule the hook itself sends carries the Keeper\'s view');
+  const elsewhere = sent.filter(message => message.role !== 'user' && message.role !== 'assistant').map(message => JSON.stringify(message.content)).join('\n');
+  assert.ok(!elsewhere.includes('Steven Knott'), 'nothing the host wrote names him');
   assert.match(JSON.stringify(sent), /presence of steven-knott/, 'the clerk\'s note is renamed');
   assert.match(sent.find(message => message.role === 'toolResult').content[0].text, /"name":"steven-knott"/, 'and a tool result');
   assert.equal(sent.find(message => message.role === 'user').content, 'I ask Steven Knott what he wants.', 'the player\'s words are theirs');

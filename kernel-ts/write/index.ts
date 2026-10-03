@@ -39,6 +39,7 @@ import { deliveryText, deliveryRecord, keeperReads } from './delivery.js';
 import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from './markup.js';
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
+import { withNames } from './names.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -1023,7 +1024,10 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             throw new RpcError('invalid_params', 'a campaign ending must be delivered with narrate, not ask');
         if(truth(turn.worldline))throw new RpcError('invalid_params','a turn that forks or switches the worldline cannot be closed by ask',{fix:"close this turn with narrate; ask on the new line's first turn",details:{worldline:row(turn.worldline).operation??null}});
         const receipts = [...array(turn.receipts)];
-        const { placed, ...delivery } = deliveryText(text, receipts, speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph)));
+        const askSpeakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
+        // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
+        const asked = text ? withNames(text, askSpeakers, module.graph) : null;
+        const { placed, ...delivery } = deliveryText(asked ? asked.text : text, receipts, askSpeakers);
         await refuseRepeatedLine(snapshot, campaign, delivery.speech);
         const language = await playLanguageOf(context, snapshot.meta);
         await stanceTable(context);
@@ -1038,6 +1042,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const standing = standingStates(snapshot.party, receipts);
         const result: Row = {
             pending_choice: pending,
+            ...(asked?.unresolved.length ? { unresolved_names: asked.unresolved } : {}),
             interaction: {
                 ...pending,
                 play_language: language
@@ -1095,7 +1100,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         await validateMods(snapshot.world);
         const receipts = [...array(turn.receipts)], speakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
         // `let`: §143.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
-        let text = required(params, 'text')!;
+        // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
+        const naming = withNames(required(params, 'text')!, speakers, module.graph);
+        let text = naming.text;
         let { placed, ...delivery } = deliveryText(text, receipts, speakers), rendered = delivery.rendered_text;
         if (reference) delivery.speech = [];
         const hostRepeats = reference ? [] : await refuseRepeatedLine(snapshot, campaign, delivery.speech, hostAttributed(params, delivery.speech));
@@ -1190,6 +1197,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             ...(reference ? {interaction_scope: interactionScope} : {facts: factLists, extraction: {
                 job_id: `extract:${campaign.id}:t${n}`
             }}),
+            ...(naming.unresolved.length ? { unresolved_names: naming.unresolved } : {}),
             ...(hostRepeats.length ? { repeated_lines: {
                 lines: hostRepeats.map(repeat => ({ name: repeat.name, line: repeat.line, earlier_turn: repeat.earlier_turn })),
                 note: 'the host wrapped these lines (§128.3) and they repeat what the same person already said; delivered, not refused, and recorded as a finding for the next turn'

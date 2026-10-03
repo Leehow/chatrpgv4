@@ -9,16 +9,21 @@
  * named from `name`.
  *
  * Only the Keeper's copy changes: the raw capsule, the bus copy and every host reader still see the book's name. In this
- * view an untold person's row reads `name: <epithet or handle>`, and `untold.name` holds the book's name for the
- * moment someone in the scene says it. Tool calls and say tokens resolve the handle and the table's epithet as they
- * resolve the name (`ModuleGraph.nameKeys`, §87.8). The first-sight rows for the same people follow the same names.
+ * view an untold person's row reads `name: <epithet or handle>`. Tool calls and say tokens resolve the handle and the
+ * table's epithet as they resolve the name (`ModuleGraph.nameKeys`, §87.8). The first-sight rows for the same people
+ * follow the same names.
+ *
+ * §103.8 (owner, 2026-10-03): the book's name is not in this view at all. It was kept in `untold.name` "for the moment
+ * someone says it"; on table 20 the Keeper wrote it as the epithet and then into the prose. When the fiction has the name
+ * said, the Keeper writes `{{name:<who>}}` and the kernel puts the book's name in at delivery (kernel-ts/write/names.ts).
  */
 type Row = Record<string, unknown>;
 const object = (value: unknown): Row => value && typeof value === "object" && !Array.isArray(value) ? value as Row : {};
 const text = (value: unknown): string => typeof value === "string" ? value.trim() : "";
 
-export const UNTOLD_VIEW_USE = "Nobody has said this person's name to the investigator: in prose they are who they look like. `name` is "
-	+ "their handle or this table's epithet, for tool calls and say tokens; untold.name is what they are called, used only once someone in the scene says it.";
+export const UNTOLD_VIEW_USE = "Nobody has said this person's name to the investigator, and you do not have it: in prose they are who they look like. "
+	+ "`name` is their handle or this table's epithet, for tool calls and say tokens. When the fiction has their name said (they give it, "
+	+ "someone calls them by it, a paper shows it), write {{name:<their name field>}} there: the delivery puts in the name the book gives them.";
 
 /** What each untold person is shown as in the Keeper's copy, by handle and by the book's name. */
 export interface UntoldNames { byId: Map<string, string>; byName: Map<string, string> }
@@ -36,7 +41,7 @@ export function untoldView<T>(capsule: T): { capsule: T; names: UntoldNames } {
 		names.byName.set(name, shown);
 		if (id) names.byId.set(id, shown);
 		const { name: _book, untold: _untold, ...rest } = row;
-		return { name: shown, ...rest, untold: { name, ...(text(untold.label) ? { label: text(untold.label) } : {}), use: UNTOLD_VIEW_USE } };
+		return { name: shown, ...rest, untold: { ...(text(untold.label) ? { label: text(untold.label) } : {}), use: UNTOLD_VIEW_USE } };
 	});
 	if (!names.byName.size) return { capsule, names };
 	const view: Row = { ...source, present };
@@ -86,17 +91,11 @@ function replaceWord(text: string, word: string, by: string): string {
 
 function renameText(source: string, people: readonly UntoldPerson[]): string {
 	let out = source;
-	const kept: string[] = [];
 	for (const person of people) {
 		const name = escaped(person.name);
-		if (!out.includes(name)) continue;
-		// The capsule's `untold.name` is the one seat the book's name keeps (untoldView): it is what the person is called
-		// once someone in the scene says it.
-		const seat = `"untold":{"name":"${name}"`;
-		out = out.split(seat).join(`\u0000${kept.push(seat) - 1}\u0000`);
-		out = replaceWord(out, name, escaped(person.shown));
+		if (out.includes(name)) out = replaceWord(out, name, escaped(person.shown));
 	}
-	return kept.length ? out.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => kept[Number(index)]) : out;
+	return out;
 }
 
 /**

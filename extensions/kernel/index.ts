@@ -45,6 +45,8 @@ import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
 import { createHash, randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { disableStepThinking, isFirstStepOfTurn } from "./first-step-thinking.ts";
+/** §172.1: the Keeper's reads; any other call writes. */
+const STEP_READS = new Set(["look", "lookup", "recall"]);
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { deliveryProse, isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
@@ -540,6 +542,8 @@ interface TableState {
 	 * finish it any more. The next player input releases it instead of being refused turn_state. */
 	strandedTurn?: boolean;
 	roundTrips: number;
+	/** §172.1: a Keeper call of this turn has written (anything but a read); steps after it may run without thinking. */
+	wroteThisTurn?: boolean;
 	/** E0 measurements belong to one settled run, including its retries and queued continuations. */
 	skillRun?: SkillRun;
 	mintedCallIds: Map<string, string>;
@@ -6181,6 +6185,7 @@ export default function (pi: ExtensionAPI) {
 			state.personResolved.clear();
 			state.deliveryFix = undefined;
 			state.roundTrips = 0;
+			state.wroteThisTurn = false;
 			state.attachments = [];
 			state.mapAttachments = [];
 			// A new player input is a new context (contract §32.4): no verdict outlives it.
@@ -6320,7 +6325,12 @@ export default function (pi: ExtensionAPI) {
 		if (table) table.roundTrips += 1;
 	});
 
-	pi.on('tool_call', (event, ctx) => dispatcher.prepare(event, ctx));
+	pi.on('tool_call', (event, ctx) => {
+		// §172.1: a Keeper call that is not a read is this turn's writing; the steps after it can run without thinking. The
+		// host's own operations (the clerk's move before the first call) raise the same event and are not the Keeper's.
+		if (table && !STEP_READS.has(event.toolName) && !dispatcher.hostOrigin(event.toolCallId)) table.wroteThisTurn = true;
+		return dispatcher.prepare(event, ctx);
+	});
 
 	// §128.1: a run the host starts with a message reads the prompt the transcript last recorded on its
 	// first request -- after setup that is the setup guide's. That one request is sent on this session's
@@ -7111,7 +7121,10 @@ export default function (pi: ExtensionAPI) {
 		let firstStepFields: { step: number; first_step_thinking: true | false | "unsupported_format" } | undefined;
 		if (table && process.env.COC_FIRST_STEP_THINKING === "1") {
 			const step = table.roundTrips;
-			if (isFirstStepOfTurn(step)) {
+			// §172.1 (owner, 2026-10-03): until a call of this turn has written, the step still decides what lands. With what
+			// needs no result riding with the narrate (§172), that step is often the second: on table 20 a look came first,
+			// and the step that then wrote the epithets, the moods and the prose ran without thinking and wrote the book's names.
+			if (isFirstStepOfTurn(step) || !table.wroteThisTurn) {
 				firstStepFields = { step, first_step_thinking: true };
 			} else {
 				const outcome = disableStepThinking(event.payload, ctx.model?.thinkingLevelMap);
