@@ -16,7 +16,7 @@ import { buildCapsule } from "./assemble.js";
 import { lastExchange, lastInteraction } from "./exchange.js";
 import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
-import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection, untoldRoster } from "./capsule.js";
+import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
@@ -235,7 +235,9 @@ async function npcJournalSection(campaign: CampaignSnapshot, graph?: ModuleGraph
         return {
             // The handle a say span carries (§40.2), so the legend swatch and the line share one anchor.
             id: node ? graph!.handle(node) : id,
-            name: node ? personLabel(campaign.world, graph!.handle(node), named ? string(entry.name) : label) : named ? string(entry.name) : label,
+            // §103.7: a book person's handle written as the table's word (table 16, before apply person refused it) is not shown.
+            name: node && !(string(personRecord(campaign.world, graph!.handle(node)).name) === graph!.handle(node) && !graph!.isTablePerson(node))
+                ? personLabel(campaign.world, graph!.handle(node), named ? string(entry.name) : label) : named ? string(entry.name) : label,
             named,
             description: string(entry.description),
             seen_count: number(entry.seen_count),

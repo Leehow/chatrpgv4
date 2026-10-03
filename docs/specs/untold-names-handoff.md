@@ -1,6 +1,11 @@
 # Untold names: the Keeper still writes names the player was never told (handoff, 2026-10-03)
 
-Status: ready-for-agent (§5).
+Status: done. §5 implemented as contract §103.6 (owner, 2026-10-03: 「那你直接把日志同步这一步修了吧」), commit `0c3242da5`. Live acceptance (§6) passed on table 15 (installed App `cae9cbeb0`, campaign `game-e8e9249b`):
+- Turns 1–4 at the gas station: no name in the prose and no `named_at`. Table 13 and table 14 both failed at turn 2.
+- Turn 5: the owner introduced himself in dialogue (「拉斯。拉塞尔也行，镇上都叫我拉斯。」). The lane gave `named: true` with exactly those words as `named_quote`, and only he got `named_at: 5`.
+- Turn 6: the prose used his name and still called the other two by epithet.
+
+Still open, separate: the journal lane attaches labels and descriptions to the wrong person when the turn has no attributed speech. Its packet gives book names and aliases, not what the prose calls each person.
 
 Owner, 2026-10-03: 「你写个交接文档，看是什么问题，你推荐怎么解决，我让别的ai处理这个」.
 

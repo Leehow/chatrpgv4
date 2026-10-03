@@ -11430,6 +11430,14 @@ opening's asynchronous-card gap.
   person's register. Neither the mask nor its examples overrules facts, source
   truth, the listener's identity or what that person can know. The capsule head,
   full instruction, brief, writer and reviewer all follow this rule.
+  *§40.9 rewrote this rule (Narration Craft 2.1.9, description 2.1.13, base head 2026-10-03):* its full
+  instruction, brief, style axis, `speak-in-person` directive, `voice` floor line and
+  package description no longer put answering first; people react to the whole
+  encounter, and a genuine question gets a direct answer when the situation permits.
+  The voice writer and reviewer still answer the example question an exchange poses.
+  The base capsule head no longer says "Answer the player's words first": it keeps the
+  interface (flexible register, source secrets and listener identity, exchanges as
+  reference) and leaves how people answer to the prose package.
 - **Writing is tool-enabled.** The host reuses the existing Pi task runner with
   `read,write,edit,bash`, no implicit extensions/context/skills, a per-attempt
   directory and retained packet, draft and process evidence. It publishes only
@@ -11508,7 +11516,7 @@ not a sentence-length failure. Narration Craft 2.1.9 changes generation guidance
 - People respond to the whole encounter, including physical actions and treatment. Immediate danger takes
   priority over conducting business. The Keeper judges an insult or rhetorical question as treatment, not
   automatically as an information request; genuine questions still get direct answers when the situation
-  permits. Full, brief, style axis, directive and floor must agree, replacing unconditional answer-first
+  permits. Full, brief, style axis, directive, floor and package description must agree, replacing unconditional answer-first
   guidance. The mask shapes register; it does not preserve yesterday's business as today's priority.
 - The full instruction teaches this decision with illustrative English speech; the per-turn brief carries
   its compact reminder. Examples supply neither campaign facts nor reusable threat scripts. The voice mask
@@ -11539,6 +11547,17 @@ authored both replies. The capsule carried the new brief, so missing delivery of
 Its full and per-turn style still unconditionally said to answer what was said first; version 2.1.9 replaces
 that competing priority with the whole-encounter rule. This is a locally evidenced candidate cause; real
 dialogue must validate the correction rather than treating prompt wording as proof of naturalness.
+Version 2.1.13 changes only the package description, which 2.1.9 left saying people "answer what was actually
+said first" in the Mods panel; package bytes are frozen per version, so the wording needed its own version.
+`tests/extension/keeper-prose-contract.test.mjs` finds each of these surfaces where it lives and requires all of
+them to agree, so a surface left behind by the next rewording fails there.
+The base capsule head (`kernel-ts/read/assemble.ts`) still carried §40.8's "Answer the player's words first" on every
+turn, beside the package and with it disabled. On 2026-10-03 the sentence is removed rather than reworded: the base
+keeps only interfaces and the prose package owns how people speak (`docs/specs/prose-mod.md` §6, owner ruling
+2026-09-25; §170 gives encounter purpose to Narration Craft), so a base sentence teaching the whole-encounter rule
+would be a second owner of it. The head keeps what is interface or authority: `voices` is flexible register, not a
+marker or a topic; source secrets and listener identity hold; exchanges are reference. `tests/kernel/test_voice.py`
+reads the emitted head and refuses an answer-first priority anywhere in it.
 
 **Precedent.** Potts, [Presupposition and implicature](https://web.stanford.edu/~cgpotts/manuscripts/potts-blackwellsemantics.pdf),
 describes interpretation through shared context and contributions fitted to conversational purpose.
@@ -18125,6 +18144,124 @@ counted the name as told (§103.3's floor, `toldTurn`), and on turn 2 the Keeper
 capsule the hook sends, a clerk note and a tool result renamed, the player's words kept; a token by handle tells
 nothing, one by the book's name tells); `tests/extension/untold-view.test.mjs`; `Electron/packages/ui/src/
 coc-speech.test.tsx` (the hover).
+
+### 103.6 The journal names a person only with the words that named them (owner ruling 2026-10-03; amends §103.2)
+
+Owner: 「每次咱们出文之后不是都会记录npc信息到右侧栏么，应该有角色描述和不在ui上显示只在数据里的真实姓名，可以从那里取，如果真实姓名在剧情里被人说出来就同步，直接在生成前告诉kp，不要后验！」, then 「那你直接把日志同步这一步修了吧」.
+
+**Evidence.** Installed App, Blood Road, table 14 (campaign `game-99780158`), turn 1. The turn-1 journal job listed all
+three men at the gas station under `unnamed`; neither the prose nor the two spoken lines named anyone, and one of them
+never spoke. The lane (`opencode-go/deepseek-v4.1-flash`) submitted, for each, a `label` **and** `named: true`.
+`journal.submit` took `named: true` on the lane's word, `npc-journal.json` recorded `named_at: 1` for all three, and
+turn 2's capsule handed the Keeper 拉塞尔·威廉姆斯 and 内特·帕特森 as plain names. On turn 2 the Keeper wrote
+「拉塞尔看了你一眼……棚下的内特」. The lane's prompt had shown, as the shape of an answer, one entry carrying both
+`"label"` and `"named": true`.
+
+The journal record is the one source the Keeper's view of a person is built from before it writes (§103.3, §103.5): the
+description and label the player knows, the real name in the data, and `named_at`. Nothing reads or judges the
+Keeper's finished draft (§166). The step that must not be wrong is the sync that moves a person from unnamed to named.
+
+- **`named_quote`.** A journal entry may carry `named_quote`: the exact words of this turn's delivery (its prose or one
+  of its spoken lines) in which the player was given the name, 1–200 characters (`budget.max_named_quote_chars`).
+- **`named: true` for a person not yet named** is accepted only with a `named_quote` that is found in the delivery the
+  job was opened on: the packet's `keeper_text` or one of its `speech[].text`, by `locateExcerpt` (§139: quotation marks
+  are one class, everything else exact). Otherwise `invalid_params`, `details: {index, field: "named_quote", name}`, with
+  a fix that says to copy those words, or, if nothing this turn said or showed the name, to leave `named` out and give
+  a label. The check is that the cited words exist, not what they mean. A refusal changes nothing, so the person stays
+  unnamed and the Keeper keeps getting the label.
+- **`named: true` beside a `label`** for a person not yet named is a contradiction: `invalid_params`, `details: {index,
+  field: "label", name}`, fix "named with named_quote, or label, never both".
+- **`named_quote` without `named: true`** is refused (`field: "named_quote"`).
+- For a person already named (the journal's `named_at`, the record floor, or an earlier row of the batch), `named: true`
+  needs nothing and changes nothing, as before.
+- The quote is not stored on the journal entry. The job file's `submitted` keeps the lane's answer as given.
+- **The lane** (`extensions/npc-journal`). The fixed instruction and the field rules ask for `named_quote` with `named`
+  and say that appearing, acting or being described is not being named. The answer template no longer shows `named`.
+  The shape check passes `named_quote` through. The lane's one retry now carries the first attempt's refusal (the
+  kernel's message and fix) under "[Your previous answer was refused; answer again with this corrected]"; before, it asked
+  the identical question again, made the same mistake twice, and the turn's entries went to the backlog.
+
+*Tests.*
+- `tests/kernel/test_journal.py::test_named_needs_the_words_that_named_them`: the table-14 shape (label plus named) is
+  refused; `named` with no quote, with words the delivery lacks, and a stray quote are each refused; nothing lands, and
+  the person is still untold. A quote typed with ASCII marks for curly-quoted dialogue is found and sets `named_at`.
+- The existing journal tests carry the quotes their prose holds.
+- `tests/extension/npc-journal-lane.test.mjs`: the retry carries the refusal and its fix, and the first attempt does not.
+- Mutations of the quote check, the contradiction check and the retry text each fail their test.
+
+### 103.7 One distinctive word for one person (owner request 2026-10-03; amends §79 and §103.2)
+
+Owner: 「能不能给有特征的唯一外号？高瘦中年男人这种太容易重叠了，你可以研究研究网上有没有小说文学作品之类的取外号的方法」.
+
+**Evidence (table 15, installed App).** The Keeper's epithets were job words (加油站老板, 退休卡车司机, 退伍老兵). The journal lane
+wrote its own labels from looks: 「棚下工装服整洁、口袋挂烟的高瘦中年男人」, 「棚下挺着啤酒肚……」. It put each one on the wrong man,
+because its packet named people only by their book names while the prose only described them. A turn later it gave the trucker's
+words to the veteran and merged the two into one label. Nothing stopped two people from carrying one word: `apply person` wrote
+whatever it was given.
+
+**The craft (where the rule comes from).**
+- Dwight V. Swain, *Techniques of the Selling Writer*: a tag is a distinctive, unmistakable trait, and no two characters share one.
+- Game-master practice for unnamed NPCs (Sly Flourish's tables: a scarred cheek, a pipe, gold teeth, a limp): one visible
+  trait the players can hold on to.
+- Chinese fiction names by the single striking feature. Lu Xun's 杨二嫂 becomes 「圆规」 after one image. *Water Margin*'s epithets
+  come from looks, skill, temper or weapon (青面兽, 浪里白条, 黑旋风, 大刀).
+- Age, height, build and sex alone are what everyone in a scene shares, so they tell nobody apart.
+
+**The rule, where epithets are written.** The `apply person` `name` description (extensions/kernel/tools.ts), the speech rule's
+epithet sentence, the journal lane's fixed instruction and field rules:
+- For someone untold, build the word from the one visible thing only this person has here: something they carry or wear, a mark, a
+  habit, the job they are doing.
+- Keep it as short as a nickname.
+- Never use age, height, build or sex alone.
+- Never use a word another person already carries.
+
+The examples are given in English and the writer writes in the play language. No word list is involved.
+
+**What the kernel enforces.** Exact strings only, never a judgement of meaning:
+- **`apply person`** refuses a `name` that is, normalized, the same words as another person's table word.
+  - Refusal: `invalid_params`, `details: {field: "person.name", name, taken, in_use}`.
+  - The fix restates the rule and lists the words in use.
+  - The same person keeping or re-applying their own word is fine.
+  - One word inside another is not refused: 老板 and 老板娘 are two people.
+  - A table that already holds a shared word (written before this) is still refused at every person entrance (§87.8).
+- **The journal's job packet** carries each recordable person's table word.
+  - `recordable[].epithet` in the referenced packet.
+  - The job keeps them as `epithets`, by journal id.
+  - The instruction says a person listed with an epithet is called that at this table, so the lane tells who is who in the prose
+    by it and gives them no label.
+- **`journal.submit`** labels an unnamed person who has a table word with that word, whatever the lane wrote, and a first row for
+  them needs no label.
+  - The word is not used when it carries one of the person's name words.
+  - For anyone else, a lane label that is the same words as another person's word or stored label, or one given earlier in the
+    batch, is refused: `details: {index, field: "label", name, taken}`.
+  - So the card, the capsule's `untold.label` and the prose carry one word for one person.
+
+**A handle is not a word (table 16, 2026-10-03).** The first table on this build showed the Keeper sending
+`apply person {who: <handle>, name: <handle>, label: "白衬衫老板"}`. The kernel dropped the `label` field it does not have
+without a word and wrote the handle as what the table calls the man. The journal then put that handle on the player's card.
+The Keeper's own epithets that turn (白衬衫老板, 啤酒肚卡车司机, 海军纹身老人) were exactly the distinctive kind this section asks for.
+
+- `apply person` refuses a field a person effect does not have (`kind, who, name, address, why, intent_ref,
+  intent_outcome, owed`; `_` keys are the host's): `invalid_params`, `details.fields`. The fix says the word goes in
+  `name` and the form of address in `address`.
+- `apply person` refuses a `name` that is a book NPC's handle: `details.field: "person.name"`. A handle is for tool calls
+  only. A person the table itself established has their name as their handle (`{who: <name>, name: <name>}` from a
+  passage), and that name is theirs, so it is not refused.
+- A table that already holds a book person's handle as their word (written before this) has it skipped where the word is
+  shown as a label: the journal's epithets and the card's name. The capsule's `called` still carries it, and for the Keeper
+  it is the same string as the handle it already sees.
+
+*Tests.*
+- `tests/kernel/test_journal.py::test_a_handle_is_not_what_the_table_calls_anyone`: the three refusals; a pre-existing handle word labels nobody in the journal's packet or on the card. `tests/extension/a-person-this-table-has.test.mjs` and `lean-apply.test.mjs` keep a passage-established person's own name.
+- `tests/kernel/test_journal.py::test_one_word_for_one_person`:
+  - `apply person` refuses a second person's same words and lists the words in use; the same person re-applying their word is fine.
+  - A lane label equal to another person's word is refused.
+  - A first row with no lane label is labelled with the table's word, and a later lane label is replaced by it.
+  - The sidebar shows it.
+- `::test_the_lane_is_told_what_the_table_calls_each_person`: the referenced packet's `recordable[].epithet` and its instruction
+  line.
+- The §87.8 tests now build their shared word as a pre-§103.7 table's record.
+- Mutations of the refusal, the mirror, the label refusal and the packet field each fail a test.
 
 ## 104. Characteristic-driven combat weapons use the actor's authored characteristic (2026-09-17)
 
@@ -32020,8 +32157,185 @@ Like `table.warn`, it takes no call id and lands after the turn it read has clos
 
 A Mod may contribute a locked package JSON through `contributes.expression_cards` and capability `npc.expression.references.v1`. Catalog version 1 contains 1-24 unique named cards: `{name, kind, applies, activation_question, pattern, examples}`. `kind` is habit or interaction; `activation_question` is a direct factual Noul question, at most 160 characters, authored by a tool-enabled Pi writer. Other limits are name 80, applies 360, pattern 500, one or two context/reply examples each at most 300 characters, and 24,000 UTF-8 catalog bytes. The read-only `mods.expression` returns the ordered active world-locked packages, exact file digests, play language and budget metadata. Capsules contain only enabled/catalog-revision metadata. Installation does not upgrade existing worlds; normal explicit `mods.configure` owns activation and version changes.
 
-The producer is the context-policy host: current declared utterance, present NPC source/state/voice masks, listener, risk and the exact committed exchange already materialized by `table.recall`. Truncation and verification remain explicit. The reader is one `expression-reference-selection` version-7 Jev batch, with participation plus independent activation and register-conflict Nouls per person/card. The host intersects calibrated gates, allows none and selects at most one habit and one interaction per person. No Choice forces a winner. The consumer is the existing main Keeper request: the host copies selected card content exactly; the Keeper writes the single delivered draft with source/current facts, knowledge and agency authoritative. Cards do not assign personality, mutate owned voice cards, authorize actions or supply example facts.
+The producer is the context-policy host: current declared utterance, present NPC source/state/voice masks, listener, risk and the exact committed exchange already materialized by `table.recall`. Truncation and verification remain explicit. The reader is one `expression-reference-selection` version-8 Jev batch, with participation plus independent activation and register-conflict Nouls per person/card. The host intersects calibrated gates, allows none and selects at most one habit and one interaction per person. No Choice forces a winner. The consumer is the existing main Keeper request: the host copies selected card content exactly; the Keeper writes the single delivered draft with source/current facts, knowledge and agency authoritative. Cards do not assign personality, mutate owned voice cards, authorize actions or supply example facts.
 
 Preparation is asynchronous. The user authorized first-request waiting on 2026-10-02: only the first eligible NPC request may await the existing attempt until 800 ms after the attempt for its exact writing snapshot started. Mandatory preparation for that snapshot spends the same window; obsolete provisional snapshots do not. Later requests, invalidation and second snapshots never renew it. Completion, none, failure, expiry and cancellation return immediately. A cold miss can still omit cards from the first response. The host bounds the projection to eight present people, 14,000 context bytes, at most 24 aggregate cards and the existing Jev packer limits; excess rosters/requests fall back without structurally selecting a preferred NPC. At most two distinct snapshot attempts per campaign/worldline/loop/turn are permitted, each with a 1200 ms cancellation deadline; an identical key is never retried. Ready results remain eligible after the work deadline but not after input cancellation or binding change. Catalog reads are cached only after success, keyed by the ordered active lock/digests and language; outputs additionally bind exact context, source/turn and question/model/policy versions. Final advice is at most 2200 bytes and cannot evict mandatory evidence. A changed source or state cancels preparation. No prose model, finished-prose judge, rewrite, NPC planner or own-card migration is added.
 
 At the public `before_provider_request` seam, the host records whether the exact packet survived actual Pi serialization, with request identity and selected-card provenance. A projected packet invalidated before that seam is withdrawn from the payload. Projection alone is not delivery, and this seam is not a server acknowledgement. None, cancellation, timeout, missing key, packing failure or provider error uses normal Keeper behavior; telemetry is audit-only. The original single-pass, replay and state-authority guards remain authoritative. Quality and complete-turn speed require independent response comparisons and genuine driver evidence; the earlier static style A/B is invalid for this selector's intent.
+
+## 170. NPC voice preparation and coherent expression guidance
+
+This addendum is read with §§40.5, 40.7, 169, and 166; it does not replace them.
+
+**Producer.** The host produces one bounded preparation input from the current declared utterance, present NPC source/state/voice masks, listener, risk, and the exact committed exchange materialized by `table.recall`. It preserves source-materialized history and verifies truncation, may include recent bounded spoken lines, and may request `voice.job` only for the current campaign/person. It may project at most eight people, 24 cards, and 14,000 context bytes.
+
+**Reader.** The reader is expression-reference-selection family **8**: one batch with participation, independent activation, and register-conflict Nouls. It may select none, or at most one habit and one interaction per person. State retains bounded source example context and its reply; register-conflict considers the examples’ actual demonstrated wording as well as the pattern. Output is advice, not an action, fact, personality assignment, authorization, or voice mutation. Keep existing none/cancellation/cache/source bindings and budgets. A changed source/state, mismatch, cancellation, missing key, timeout, packing failure, incomplete/invalid answer, or provider error returns ordinary fallback. No extra question, prose reviewer, or rewrite.
+
+**Consumer.** The existing Keeper request consumes selected card content exactly, with source, facts, knowledge, agency, listener, and established voice authoritative. The host records provenance at `before_provider_request` after actual Pi serialization. Projection is not delivery and the seam is not acknowledgement. There is one final prose writer.
+
+**Voice lifecycle.** Voice opts in to exactly one initial current-campaign job after both session context and kernel bridge are ready, in either order. It has no backfill flag and never sweeps the book. `voice.job` accepts optional host-owned `exclude_jobs`: an array of 0..128 opaque nonempty strings, each <=512 characters. Wrong type or overflow is structural `invalid_params`. Only exact current campaign/person/package generation job IDs exclude; foreign/stale IDs cannot suppress current work; default order is unchanged. Source-authored or established voices are excluded and never overwritten.
+
+`Queue.pauseFor` is bounded to 60,000 ms maximum and uses one timer cleaned on cancellation without blocking foreground. Voice unavailable uses default 15,000 ms cooldown; spent attempts remain spent. Host-local `rejected`, `unavailable`, and `cancelled` are determined by process/artifact/review stages, never regex over error prose. A rejected candidate retires after current <=2 attempts and later eligible people proceed. Unavailability defers the current drain with remaining allowance rather than hammering every NPC. Cancellation fails and publishes nothing, including stale artifacts.
+
+**Writing and review.** NarrationCraft owns encounter purpose, reactive emotion, source facts, and agency; `zh-optimize` owns Chinese linguistic realization and original references. Remove unconditional answer-first, repeat-to-anger, and occupation-to-fixed-reaction rules. No fabricated canon, authority, resources, secrets, or player choices; source-consistent responsive expression and fresh wording are permitted. Preserve variable/formal/long/quiet/refusal modes and the single-draft law. Masks and examples show range, not compulsory markers, and examples answer their actual preceding words. Semantic review is model judgment with at most one reviewed repair; no executable regex, detector, blacklist, or word list.
+
+**Evidence.** Every pending test remains pending; historical records do not prove current naturalness. Frozen offline comparisons are diagnostic only. Preserve old-world locks, source cards, historical evidence, and no automatic migration. App/source version consistency is separate; no App acceptance is claimed from source tests.
+
+## 171. The Keeper's delivery is drawn while it streams (owner request, 2026-10-03; amends §135.11.5's `firstProseVia` and §167's playback)
+
+**Why.** Owner, 2026-10-03, after a latency breakdown: 「那现在就是耗时的问题了，你看看怎么回事，能怎么优化」, then 「按你推荐的做，先做第1条」. Tables 15–18 (installed App, Keeper `flapcode/gpt-6-luna`) put the median first visible prose at 60.5 s. A Keeper call there costs about 7 s plus 64 ms per output token, so a 500-token narrate is on the wire for 30 s before its card lands. A probe through Pi and the App's own Flapcode extension found that luna streams tool arguments incrementally: 362 deltas over 18 s for one 390-token call, delivered in bursts about 3.3 s apart. Grok sends a call's arguments in one delta, so the same idea measured no gain on 2026-09-29. On luna the gain is most of the narrate's generation time.
+
+### 171.1 What is read
+
+A delivering call's prose is one string argument: `narrate.text`, `ask.text` and `apply.narrate` (`DELIVERY_PROSE_FIELDS`, `Electron/packages/pi-backend/src/live-prose.ts`; the schemas are in `extensions/kernel/tools.ts`). Pi's RPC `toolcall_start` names the tool (`toolName`), and its deltas carry raw JSON. The host follows a delivering call only in a bound session whose mode is `play`; setup never draws one.
+
+- **The field.** `streamingStringField` reads the field at the top level of the JSON received so far, by the JSON grammar alone. It steps over earlier fields of any kind, such as `apply.effects`. It decodes escapes and holds back a half-received escape or half a surrogate pair. At `toolcall_end`, the parsed arguments settle the text (`finishedProseField`). An `apply.narrate` written as an object is read from its `text`.
+- **The tokens.** `displayedProse` removes every complete `{{…}}` token by its braces, the §16.6 markers and the §40.1 say wrapper alike. It holds back an unclosed tail (`{{` and up to 64 characters, or a lone `{`), so no brace reaches the screen. Nothing reads the words.
+
+### 171.2 What the screen holds
+
+**One draft per stretch of prose.** Each player message (`message_end` with role `user`) starts a stretch with no draft. The first delivering call fills the draft as it streams. Draws are coalesced for 40 ms (`LIVE_PROSE_COALESCE_MS`), because the relay delivers dozens of deltas in one tick. A finished call draws at once.
+
+**A later delivering call in the same stretch.** This is a delivery the kernel refused and the Keeper resent. It changes nothing while it streams. Once its arguments are complete, the owner's ruling for that case (2026-10-03) applies:
+
+- if its prose is identical, the draft stays as it is;
+- if it differs, it replaces the draft's text in place;
+- nothing already shown is withdrawn by the host.
+
+A draft that showed nothing yet is filled by whichever call reaches it first.
+
+**How the draft is drawn.** It is a `presentation` of a `coc-mechanics` entry with a host-made id (`coc-live-prose:<session>:…`). Its details are `{draft: true, mechanics: [], marked_text: <displayed prose>, play_language}`. The delivery card's own renderer draws it, so it reads in the delivery's face and paragraphs. Speaker colour arrives with the delivered card. A redraw with the same id replaces it where it sits.
+
+**The call's own card.** A call's card is opened under the provisional id `content-<index>`, and its end event names the real id. Once a draft row follows that card, the last row is the draft. So `applyStreamEvent` finds the card by its place in its message (content index within the segment) and closes it where it is. Without this, the installed App's first table (2026-10-03) showed a second card for the call below the draft and left the first one running until the history read.
+
+**Playback.** §167's playback follows it: `useNarrationTypewriter(…, growing)`. With `growing` set from `details.draft`, playback that caught up resumes when more prose arrives, instead of showing the new part at once. A delivery that is not a draft keeps §167's "complete stays complete".
+
+### 171.3 The delivery takes the draft's place
+
+The first presentation the host streams whose prose counts under §135.11.5 carries `replacesDraft: <draft id>`. That is a `coc-mechanics` card with a non-blank `marked_text` or `rendered_text`, or a host-placed prose row that is not a §55 notice. A card with rows only (a roll card) does not replace the draft, and a draft draw still waiting for its coalescing window is cancelled.
+
+`applyStreamEvent` handles a delivery that carries `replacesDraft`:
+
+- It puts the delivery at the draft's index in the same update, even when rows of later Keeper work follow the draft.
+- It gives the delivery the draft's playback identity, so what was read is neither moved nor typed again.
+- If the delivery is already on screen, it stays where it is and the draft row is dropped.
+- A `replacesDraft` naming no row on screen is ignored, and the delivery is appended as before.
+
+§166 is unchanged. The draft is the Keeper's one draft as it is written; there is no review, rewrite or second writer, and the kernel's transaction is the same.
+
+### 171.4 What it means for the turn record
+
+`firstProseVia` gains `"draft"` (`turn-telemetry.ts`, `first-prose.ts`). The first draft draw with prose is new on screen: the host passes a row for it, so §135.11.5 counts it. Later draws pass none, as a redraw does. The delivered card that replaces the draft can never move the mark earlier. §164's reply time is unchanged: it still runs to the turn's last prose on screen, which is the delivered card.
+
+### 171.5 Limits
+
+- **A draft that is never delivered.** If a stretch ends with no delivery after its draft (every resend refused and the turn closed by a notice), the draft stays on the live screen. It is not in the transcript file, so a later reading of history shows what the kernel delivered and not the draft.
+- **Other Keepers.** A Keeper whose provider sends arguments in one delta (grok) gets one draw at `toolcall_end`, about a second before its card. That is no gain, and no cost.
+
+Writer: `LiveDeliveryProse` and `drawLiveProse` in pi-backend, from Pi's `toolcall_start`/`toolcall_delta`/`toolcall_end`.
+Reader: the transcript's presentation path and the controlled `coc-mechanics` renderer.
+Actor: the player reads the delivery as it is written.
+
+Tests:
+
+- `Electron/packages/pi-backend/test/live-prose.test.ts`: the field read, token removal, and the stretch's state, including identical and different resends.
+- `Electron/packages/pi-backend/test/live-delivery-prose.test.ts`: through `rpcEvent`, narrate and `apply.narrate` drafts grow with no brace, a roll card does not replace a draft, setup draws nothing, `replacesDraft` lands on the delivered card, and `firstProseVia` is `draft`.
+- `Electron/packages/ui/src/coc-live-prose.test.tsx`: growing playback resumes, the delivery lands at the draft's index past a later row with the same playback, an unknown draft id is ignored, and a call's end closes its own card above the draft while a later message's call opens a row after it.
+
+Each of six mutations turns these tests red: no `replacesDraft`, `via` forced to `mechanics`, every resend live, no growing resume, no in-place replacement, and no place match for a call's card.
+
+## 172. Images on the player's Codex subscription (owner request, 2026-10-03; amends the image-gen dispatch wording of §22.7 and §35.4; docs/specs/codex-image-generation.md)
+
+The image-gen extension spends the player's ChatGPT subscription through Pi's built-in `openai-codex` login. PipiCOC adds no login, credential store or provider registration of its own: `openai-codex` is a reserved official provider id (pi-backend rejects an extension that claims it), and Pi owns OAuth, refresh and the auth.json lock.
+
+### 172.1 Dispatch order
+
+The shared dispatch behind `image_gen`, `image_edit`, the portrait mount (§22.7) and illustrations (§35.4) resolves one route per call:
+
+1. **Explicit choice**: the tool's `model` parameter, else the configured model.
+2. **Codex**, when usable (§172.2).
+3. **grok-build**, when usable.
+4. Otherwise the existing `image_model_unconfigured` error.
+
+A failure on the route taken surfaces as it is. Nothing falls through to another lane in either direction, including on quota exhaustion. Where §22.7 and §35.4 say "grok-build the default", read "Codex, then grok-build, the default".
+
+### 172.2 Codex usability
+
+Codex is usable when all of these hold:
+- the call has an extension context whose model registry returns a non-empty token for `openai-codex`;
+- the token's `https://api.openai.com/auth` claim carries `chatgpt_account_id`;
+- the same claim's `chatgpt_plan_type` is not `free`.
+
+The JWT payload is decoded without signature verification and is used only for routing. The extension never reads or writes auth.json and never refreshes a token itself.
+
+### 172.3 Routing
+
+- The vendor router takes `(provider, modelId)`.
+- Provider `openai-codex` routes to the `codex` adapter. Every other provider keeps the closed model-id map, in which `gpt-image` still means the OpenAI Images API.
+- The Codex configured-model ref is `openai-codex/gpt-image-2`. A bare `gpt-image-2` keeps the registry lookup and does not reach Codex.
+
+### 172.4 Codex adapter wire shape
+
+- Base `https://chatgpt.com/backend-api`, HTTPS only.
+- Generate: `POST {base}/codex/images/generations`. Edit: `POST {base}/codex/images/edits`.
+- Headers:
+  - `Authorization: Bearer <token>`
+  - `ChatGPT-Account-ID: <chatgpt_account_id>`
+  - `originator: pi`
+  - `User-Agent: pi (<platform> <release>; <arch>)`
+  - `x-codex-image-turn-id: <fresh UUID per call>`
+  - `Content-Type: application/json`
+- Body: `{ prompt, model: "gpt-image-2", background: "auto", quality: "auto", size: "auto" }`, the same fixed values Codex CLI sends.
+- Edits add `images: [{ image_url: <data URL> }]`, between 1 and 5 entries, in JSON (never multipart).
+- Never sent: `n`, `response_format`.
+- **The aspect ratio travels in the prompt.** When the aspect ratio is neither `auto` nor absent, the adapter prefixes the prompt with one fixed English sentence built from the ratio and the OpenAI adapter's closed portrait / landscape ratio sets:
+  - portrait set: `Vertical portrait-orientation image, <ratio> aspect ratio, taller than wide. `
+  - landscape set: `Horizontal landscape-orientation image, <ratio> aspect ratio, wider than tall. `
+  - anything else: `Square image, 1:1 aspect ratio. `
+  - `<ratio>` is the caller's ratio string verbatim (e.g. `3:4`).
+- The result is `data[0].b64_json`, mime sniffed from the bytes. A missing `data` is an error.
+- The token appears in no log line, tool result or error text.
+
+### 172.5 No quality setting
+
+There is no quality option (owner ruling, 2026-10-03: "如果不能设置画质那就不需要这个画质选项了……现在先尽可能简洁，就跟 grok build 那样"). The Codex endpoint ignores `quality` (§172.8). No adapter, caller or setting gains a quality field, and the OpenAI Images adapter is unchanged.
+
+### 172.6 Settings and host invoke
+
+- `<agentHome>/image-model.json` keeps its shape `{ "model": string }`. `clear` deletes it as before.
+- The app-level `image-gen` / `model` invoke answers `{ current, grokDefault, codexSignedIn, autoRoute }`:
+  - `codexSignedIn` is true when auth.json holds an `openai-codex` entry with an access token;
+  - `autoRoute ∈ {"codex", "grok-build", "none"}` applies §172.1 steps 2–4. The host decodes the stored access token's claims only for the plan check and never logs them.
+- The settings section adds:
+  - a "Codex (gpt-image-2)" row (ref `openai-codex/gpt-image-2`) whenever `codexSignedIn`;
+  - an Automatic-row subtitle naming `autoRoute`.
+
+### 172.7 Errors
+
+The error codes are stable and the messages are English.
+
+| Code | When |
+|---|---|
+| `codex_not_signed_in` | Codex is chosen explicitly and the registry has no token |
+| `codex_plan_excluded` | Codex is chosen explicitly and the plan is `free` |
+| `codex_account_missing` | the token has no `chatgpt_account_id` |
+| `image_quota_exhausted` | HTTP 429 whose body has `error.type: "usage_limit_reached"` |
+
+- `image_quota_exhausted` carries `resets_at` when present and reports the `x-codex-active-limit` header verbatim. Limit ids are never matched against a list; the probe saw `imagegen_premium`.
+- Any other non-2xx keeps the existing `image request failed HTTP <status>: <text>` shape.
+- The portrait mount maps all four codes to `portrait_unavailable`, never to `portrait_no_model`.
+
+### 172.8 Inner decisions
+
+The adapter's base URL, model id and originator are single constants.
+
+Owner-run probes on 2026-10-03 (owner's ChatGPT Pro account, `experiments/codex-image-probe/probe.mjs`, `originator: pi`) all returned HTTP 200 in 19–21 s:
+
+| `quality` sent | `size` sent | prompt | returned |
+|---|---|---|---|
+| auto | auto | plain | low, 1370x1148 |
+| low | 1024x1536 | plain | low, 1379x1141 |
+| high | 1024x1536 | plain | low, 1370x1148 |
+| low | 1024x1536 | prefixed "Vertical portrait-orientation image, 3:4 aspect ratio, taller than wide." | low, **1086x1448** (exactly 3:4) |
+
+**The Codex endpoint ignores both `quality` and `size`.** The server answers `low` at a size of its own choosing, and Codex CLI itself always sends `auto`. The orientation is steered only by the prompt, hence the prompt prefix in §172.4. A quality setting was specified and then withdrawn for this reason (§172.5).

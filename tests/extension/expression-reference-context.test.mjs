@@ -8,7 +8,7 @@ for(const closePath of ['narrate','embedded'])test(`actual provider content and 
  try{
  const hooks=new Map(),bus=new Map(),rows=[],binding={version:1,campaign:'c',worldline:'main',loop:0,turn:0,source_revision:'a'.repeat(64),memory_coverage:{committed:0,completed:0,gaps:0,recent:[],older:{gaps:0}}};
  const card={name:'Friendly',kind:'interaction',activation_question:'Is the targeted person responding to the current request?',applies:'An ordinary greeting.',pattern:'Acknowledge politely.',examples:[{context:'Greeting.',reply:'Hello, come in.'}]};
- const cap={turn:{number:0,player_text:'Hello'},recent:[],present:[{name:'Clerk',voice:'Polite.'}],voices:[],where:{name:'Office'},known:{investigator:{name:'Visitor'}},mods:{active:[{id:'x',version:'1.0.0'}],expression_reference:{enabled:true,revision:'r1',play_language:'zh-Hans'},instructions:[]},module:{title:'Book'},style:{floor:[]}};
+ const cap={turn:{number:0,player_text:'Hello'},recent:[],present:[{name:'Clerk',voice:'Polite.'}],voices:[{name:'Clerk',mask:'Measured phrasing with warm acknowledgements','in exchange':['hello → welcome','where → here','certain → not yet']}],where:{name:'Office'},known:{investigator:{name:'Visitor'}},mods:{active:[{id:'x',version:'1.0.0'}],expression_reference:{enabled:true,revision:'r1',play_language:'zh-Hans'},instructions:[]},module:{title:'Book'},style:{floor:[]}};
  const reads=[];const pi={on:(n,f)=>hooks.set(n,f),events:{on:(n,f)=>bus.set(n,f)},sendMessage(){}};api.installContextPolicy(pi,row=>rows.push(row));
  bus.get('coc:kernel-bridge')({campaign:'c',call:async method=>{reads.push(method);return method==='mods.expression'?{enabled:true,revision:'r1',play_language:'zh-Hans',packages:[{id:'x',version:'1.0.0',digest:'d',cards:[card]}]}:{...structuredClone(cap),_context:binding}}});
  bus.get('coc:capsule')({epoch:'e1',capsule:cap,context:binding});
@@ -18,6 +18,7 @@ for(const closePath of ['narrate','embedded'])test(`actual provider content and 
  assert.ok(!JSON.stringify(projected.messages).includes('expression_exchange'),'selector-only history is never copied into the protected capsule');
  const {convertToLlm,ExtensionRunner,createExtensionRuntime}=await import('../../build/node_modules/@earendil-works/pi-coding-agent/dist/index.js');const payload={messages:convertToLlm(projected.messages)};
  const runner=new ExtensionRunner([{path:'expression-conformance',handlers:new Map([['before_provider_request',[hooks.get('before_provider_request')]]])}],createExtensionRuntime(),ROOT,{},{});runner.bindCore({}, {getModel:()=>ctx.model,abort(){}});
+ assert.ok(JSON.stringify(payload).includes(cap.voices[0].mask),'published voice remains in the actual SDK-converted writing request');
  await runner.emitBeforeProviderRequest(payload);assert.equal(rows.filter(r=>r.lane==='expression'&&r.event==='delivered').at(-1).delivered,true);
  const again=await hooks.get('context')({messages},ctx),old=again.messages.find(m=>m.customType==='coc-expression-reference');assert.ok(old);
  bus.get('coc:source-published')({campaign:'c'});const stale={messages:convertToLlm(again.messages)};

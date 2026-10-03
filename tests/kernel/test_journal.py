@@ -74,7 +74,7 @@ def test_job_packet_shape_and_the_closed_recordable_set(kernel):
     # the name is the lane's call, so he is on the closed unnamed list until the lane or a record says so.
     assert packet["unnamed"] == [KNOTT]
     assert packet["budget"] == {"max_entries": 6, "max_description_chars": 300, "max_exchange_chars": 200,
-                                "max_label_chars": 60}
+                                "max_label_chars": 60, "max_named_quote_chars": 200}
     assert "recordable" in packet["instruction"] and "zh-Hans" in packet["instruction"]
     stored = read_json(journal_dir(kernel.workspace) / "jobs" / "journal:c1:t1.json")
     assert stored["status"] == "open" and stored["packet"]["job_id"] == "journal:c1:t1"
@@ -108,7 +108,7 @@ def test_submit_merges_entries_and_counts_a_turn_once(kernel):
     first_turn(kernel)
     # Two rows for the same person in one job: seen_count still moves at most once per turn.
     result = submit(kernel, "journal:c1:t1", [
-        {"name": KNOTT, "named": True, "description": "房东先生，有些心不在焉。", "exchange": "他把钥匙推过来。"},
+        {"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "description": "房东先生，有些心不在焉。", "exchange": "他把钥匙推过来。"},
         {"name": KNOTT, "exchange": "他叹了口气。"},
     ])
     assert result == {"job_id": "journal:c1:t1", "turn": 1, "entries": 2}
@@ -139,7 +139,7 @@ def test_submit_merges_entries_and_counts_a_turn_once(kernel):
 def test_each_rejection_points_at_the_entry_and_nothing_lands(kernel):
     first_turn(kernel)
     job_id = job(kernel)["job_id"]
-    ok = {"name": KNOTT, "named": True, "exchange": "点头。"}
+    ok = {"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "exchange": "点头。"}
     cases = [
         ("unknown field", [{**ok, "mood": "happy"}], 0, "mood"),
         ("machine key", [{**ok, "turn": 1}], 0, "turn"),
@@ -173,7 +173,7 @@ def test_each_rejection_points_at_the_entry_and_nothing_lands(kernel):
 
 def test_replay_is_idempotent_and_divergence_conflicts(kernel):
     first_turn(kernel)
-    entries = [{"name": KNOTT, "named": True, "description": "房东。", "exchange": "给了钥匙。"}]
+    entries = [{"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "description": "房东。", "exchange": "给了钥匙。"}]
     first = submit(kernel, "journal:c1:t1", entries)
     again = submit(kernel, "journal:c1:t1", entries)
     assert again == {**first, "replayed": True}
@@ -214,7 +214,7 @@ def test_fail_backlogs_the_job_and_the_default_does_not_redispatch_it(kernel):
 
 def test_table_view_projects_the_journal_for_the_player(kernel):
     first_turn(kernel)
-    submit(kernel, "journal:c1:t1", [{"name": KNOTT, "named": True, "description": "房东先生。", "exchange": "他把钥匙推过来。"}])
+    submit(kernel, "journal:c1:t1", [{"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "description": "房东先生。", "exchange": "他把钥匙推过来。"}])
     # Grow the file by hand: a second person and an exchange history longer than the projection gives.
     path = journal_path(kernel.workspace)
     data = read_json(path)
@@ -312,7 +312,7 @@ def test_the_lane_can_name_a_person_the_scan_cannot_see(kernel):
     assert packet["prior"] == [{"name": KNOTT, "label": "办公桌后的男人", "description": "戴着遮阳帽舌的男子。", "last_seen_turn": 1}]
     wrong = submit_err(kernel, packet["job_id"], [{"name": KNOTT, "named": "yes"}])
     assert wrong["code"] == "invalid_params" and wrong["details"] == {"index": 0, "field": "named"}
-    submit(kernel, packet["job_id"], [{"name": KNOTT, "named": True, "exchange": "他说了自己的名字。"}])
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "named": True, "named_quote": "诺特自报了姓名。", "exchange": "他说了自己的名字。"}])
     stored = read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]
     assert stored["named_at"] == 2
     [knott] = kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"]
@@ -324,6 +324,101 @@ def test_the_lane_can_name_a_person_the_scan_cannot_see(kernel):
     assert submit_err(kernel, packet["job_id"], [{"name": KNOTT, "label": "那个人"}])["details"]["field"] == "label"
     submit(kernel, packet["job_id"], [{"name": KNOTT, "exchange": "他又点点头。"}])
     assert read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]["named_at"] == 2
+
+
+def test_named_needs_the_words_that_named_them(kernel):
+    """§103.6. Installed App, Blood Road, table 14, turn 1: the lane gave `named: true` beside a label for three men at
+    the gas station whom nobody had named, one of whom never spoke; the journal recorded them as named and the next
+    turn's capsule handed the Keeper their book names. `named` now needs the words of the delivery that named the
+    person, which must be found in the delivery the job was opened on; with a label beside it, it is a contradiction."""
+    first_turn(kernel)
+    job_id = job(kernel)["job_id"]
+    both = submit_err(kernel, job_id, [{"name": KNOTT, "label": "办公桌后的男人", "named": True, "named_quote": "诺特叹了口气。"}])
+    assert both["code"] == "invalid_params" and both["details"] == {"index": 0, "field": "label", "name": KNOTT}
+    bare = submit_err(kernel, job_id, [{"name": KNOTT, "named": True, "exchange": "点头。"}])
+    assert bare["code"] == "invalid_params" and bare["details"] == {"index": 0, "field": "named_quote", "name": KNOTT}
+    assert "named_quote" in bare["fix"] and "label" in bare["fix"]
+    elsewhere = submit_err(kernel, job_id, [{"name": KNOTT, "named": True, "named_quote": "我叫史蒂文·诺特。"}])
+    assert elsewhere["details"] == {"index": 0, "field": "named_quote", "name": KNOTT}, "words the delivery does not contain"
+    stray = submit_err(kernel, job_id, [{"name": KNOTT, "label": "办公桌后的男人", "named_quote": "诺特叹了口气。"}])
+    assert stray["details"] == {"index": 0, "field": "named_quote"}
+    assert not journal_path(kernel.workspace).exists(), "nothing landed"
+    assert "untold" in kernel.table("look", focus="npc", name=KNOTT), "still untold: the Keeper is still not given the name"
+    # The words are found as delivered, with quotation marks as one class (§139).
+    close_turn(kernel, 2, "他抬起头：“叫我诺特就行。”")
+    submit(kernel, job_id, [{"name": KNOTT, "label": "办公桌后的男人", "description": "戴着遮阳帽舌的男子。"}])
+    packet = job(kernel, turn=2)
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "named": True, "named_quote": '"叫我诺特就行。"'}])
+    assert read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]["named_at"] == 2
+
+
+def test_one_word_for_one_person(kernel):
+    """§103.7 (owner, 2026-10-03: 「能不能给有特征的唯一外号？高瘦中年男人这种太容易重叠了」). Two people under one word
+    cannot be told apart in prose, in a say token or on the card. The table's word for someone is refused when it is the
+    same words as another person's; the journal labels a person the table has a word for with that word, and refuses a
+    lane label that another person already has."""
+    open_turn(kernel, "我接过那封信。")
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "person", "who": KNOTT, "name": "擦汗的房东"},
+                                                    {"kind": "clue", "clue": "knott-commission", "from": CORBITT}])
+    taken = kernel.table_err("apply", call_id="t1-c2", effects=[{"kind": "person", "who": CORBITT, "name": " 擦汗的房东 "}])
+    assert taken["code"] == "invalid_params"
+    assert {key: taken["details"][key] for key in ("field", "name", "taken", "in_use")} == \
+        {"field": "person.name", "name": "擦汗的房东", "taken": "擦汗的房东", "in_use": ["擦汗的房东"]}
+    assert "one visible thing only they have here" in taken["fix"] and "擦汗的房东" in taken["fix"]
+    kernel.table("apply", call_id="t1-c3", effects=[{"kind": "person", "who": KNOTT, "name": "擦汗的房东"}])
+    narrate(kernel, "t1-c4", "房东擦了擦汗，把一封信推过来。")
+    packet = job(kernel, turn=1)
+    clash = submit_err(kernel, packet["job_id"], [{"name": CORBITT, "label": "擦汗的房东", "description": "写信的人。"}])
+    assert clash["code"] == "invalid_params"
+    assert clash["details"] == {"index": 0, "field": "label", "name": CORBITT, "taken": "擦汗的房东"}
+    # A first row for someone the table has a word for needs no label from the lane: the word is their label.
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "description": "满头大汗的男人。"},
+                                      {"name": CORBITT, "label": "写信的人", "description": "写信的人。"}])
+    entries = read_json(journal_path(kernel.workspace))["entries"]
+    assert entries[KNOTT_ID]["label"] == "擦汗的房东" and "named_at" not in entries[KNOTT_ID]
+    close_turn(kernel, 2, "房东又擦了擦汗。")
+    submit(kernel, job(kernel, turn=2)["job_id"], [{"name": KNOTT, "label": "胖男人", "exchange": "他又擦了擦汗。"}])
+    assert read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]["label"] == "擦汗的房东", "the table's word, not the lane's"
+    names = {row["id"]: row["name"] for row in kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"]}
+    assert names["steven-knott"] == "擦汗的房东"
+
+
+def test_the_lane_is_told_what_the_table_calls_each_person(kernel):
+    """§103.7: on table 15 the lane, given only book names and three descriptions, put each label on the wrong man. The
+    referenced packet's recordable rows carry the table's word, which is what the prose calls them."""
+    open_turn(kernel, "我看着他。")
+    kernel.table("apply", call_id="t1-c1", effects=[{"kind": "person", "who": KNOTT, "name": "擦汗的房东"}])
+    narrate(kernel, "t1-c2", "房东擦了擦汗。")
+    packet = kernel.ok("journal.job", {"campaign": CAMPAIGN, "turn": 1, "mode": "referenced"})
+    assert packet["recordable"] == [{"alias": "person:0", "name": KNOTT, "epithet": "擦汗的房东"}]
+    assert "listed with an epithet" in packet["instruction"]
+
+
+def test_a_handle_is_not_what_the_table_calls_anyone(kernel):
+    """§103.7. Installed App, table 16 (2026-10-03): the Keeper sent apply person {who: <handle>, name: <handle>,
+    label: <the epithet>}. The kernel dropped `label` without a word and wrote the handle as what the table calls the man,
+    and the journal then labelled him with it on the player's card."""
+    open_turn(kernel, "我看着他。")
+    own = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "person", "who": KNOTT, "name": "steven-knott"}])
+    assert own["code"] == "invalid_params" and own["details"]["field"] == "person.name" and "epithet" in own["fix"]
+    other = kernel.table_err("apply", call_id="t1-c2", effects=[{"kind": "person", "who": KNOTT, "name": "walter-corbitt"}])
+    assert other["code"] == "invalid_params" and other["details"]["field"] == "person.name"
+    stray = kernel.table_err("apply", call_id="t1-c3", effects=[
+        {"kind": "person", "who": "steven-knott", "name": "steven-knott", "label": "擦汗的房东"}])
+    assert stray["code"] == "invalid_params" and stray["details"]["fields"] == ["label"] and "goes in name" in stray["fix"]
+    # A table that already holds one (written before this) labels nobody by it: not the journal's packet, not the card.
+    path = campaign_dir(kernel.workspace) / "world.json"
+    state = read_json(path)
+    state.setdefault("person_labels", {})["steven-knott"] = {"name": "steven-knott"}
+    path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    narrate(kernel, "t1-c4", "房东擦了擦汗。")
+    packet = kernel.ok("journal.job", {"campaign": CAMPAIGN, "turn": 1, "mode": "referenced"})
+    assert packet["recordable"] == [{"alias": "person:0", "name": KNOTT}]
+    kernel.ok("journal.submit", {"campaign": CAMPAIGN, "job_id": packet["job_id"], "protocol": packet["protocol"],
+                                 "selection_binding": packet["selection_binding"],
+                                 "entries": [{"person": "person:0", "label": "擦汗的房东", "description": "满头大汗的男人。"}]})
+    [card] = kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"]
+    assert card["name"] == "擦汗的房东" and card["named"] is False
 
 
 def test_untold_starts_at_opening_without_a_journal(kernel):

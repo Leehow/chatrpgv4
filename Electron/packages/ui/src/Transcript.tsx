@@ -399,8 +399,9 @@ function PresentationEntry({message,illustration,draftSuperseded,onInvokeExtensi
   useToolRenderers()
   const data=message.presentation!
   const render=getToolRenderer(data.renderer)?.render
-  const prose = data.details as { marked_text?: string; rendered_text?: string } | undefined
-  const typewriter = useNarrationTypewriter(render ? message.typewriter : undefined, withoutMechanicsMarkers(prose?.marked_text || prose?.rendered_text || ''))
+  const prose = data.details as { marked_text?: string; rendered_text?: string; draft?: unknown } | undefined
+  // §171.2: a draft is the delivery still arriving, so its playback follows it as it grows.
+  const typewriter = useNarrationTypewriter(render ? message.typewriter : undefined, withoutMechanicsMarkers(prose?.marked_text || prose?.rendered_text || ''), 'prose', prose?.draft === true)
   // §98: one card per campaign, updated in place. A row the revision has moved past is a line
   // saying which draft it was -- kept rather than dropped, so the player sees the card moved.
   if(data.renderer==='coc-character-draft'&&draftSuperseded)return <article className="message assistant-message"><p className="coc-draft-superseded">{draftWord(data.details,'Earlier draft')} · {String((data.details as {revision?:unknown})?.revision??'')}</p></article>

@@ -1,24 +1,252 @@
 {
   "version": 1,
   "cards": [
-    {"name":"Measured practical explanation","kind":"habit","applies":"Use for a concrete matter when the NPC has the relevant facts and time to explain; keep the listener's choice their own.","pattern":"Answer the practical point first, add the relevant reason or next detail, and let the exchange move on naturally.","activation_question":"Does the speaker have the relevant facts and time to explain a concrete matter to this listener?", "examples":[{"context":"罗伯特是旅店老板，听众是已付费的客人杰克；房间已经安排好。杰克问‘我的房间已经安排好了吗？’双方有空。","reply":"已经安排好了，杰克。"}]},
-    {"name":"Courteous status-aware address","kind":"habit","applies":"Use proportional courtesy when the relationship or setting calls for it; do not infer rank merely from a job or title.","pattern":"Use the fitting form of address, answer the actual matter, and keep the warmth and formality natural to the relationship.","activation_question":"Does this relationship or setting call for proportional courtesy in the current exchange?", "examples":[{"context":"客人杰克对旅店老板罗伯特说‘初次见面，请问您怎么称呼？’杰克是住客，罗伯特愿意正常寒暄；目的为自我介绍。","reply":"您好，我是罗伯特，这家店的老板。杰克，是吗？欢迎您来。"}]},
-    {"name":"Cautious uncertainty","kind":"habit","applies":"Use when the evidence is partial; separate the remembered point from the missing detail without predicting or promising.","pattern":"Lead with what is certain, name the one detail that remains unclear, and repeat it patiently when the listener is checking.","activation_question":"Does this speaker have only partial recollection or evidence for the requested detail?", "examples":[{"context":"询问者问证人‘包裹几点到的？’；证人记得包裹下午、天黑前到过，但忘了钟点，询问者是为确认而重问，关系平静。","reply":"我只记得是下午、天还没黑的时候。具体几点，我确实想不起来了。"}]},
-    {"name":"Layered leisurely account","kind":"habit","applies":"Use in a calm conversation when the listener welcomes a connected account; include relevant sequence, not an invented backstory.","pattern":"Open on the scene, move through the event in time order, and land on the result with an easy spoken rhythm.","activation_question":"Is this a calm conversation in which the listener welcomes a connected account?", "examples":[{"context":"退休车工与老朋友坐着慢聊；朋友问‘你第一次进厂，究竟怎么进去的？’车工知道厂门没开、等到午后、师傅问话后把他叫进去，目的是讲往事。","reply":"那天厂门一直没开，我就在门口等到午后。后来一个师傅从里面出来，问我找谁；我说明来意，他便把我叫了进去。就这么着，我第一次进了厂。"}]},
-    {"name":"Economical directness","kind":"habit","applies":"Use when the question is narrow or time is pressing; retain the one fact needed to avoid misleading the listener.","pattern":"Put the needed answer first, use the fewest useful words, and add an established qualification only where it changes the meaning.","activation_question":"Is the current question narrow or is time pressing for this speaker?", "examples":[{"context":"听众是赶时间的办事人，问职员‘缺什么材料？’职员已确认只缺地址证明；目的为补齐材料。","reply":"只缺地址证明。"}]},
-    {"name":"Privacy-preserving restraint","kind":"habit","applies":"Use when a private detail is outside the listener's permission or the NPC's stated boundary; do not invent a secret or threat.","pattern":"Answer the public part plainly, turn to a relevant shared topic, and keep the tone matter-of-fact.","activation_question":"Is a private detail outside this listener's permission or the speaker's stated boundary?", "examples":[{"context":"邻居问姐姐‘你弟弟的钱到底放哪儿？’姐姐与邻居只是熟人，弟弟的存放处未公开；一碗面已经替弟弟留好，姐姐愿意谈弟弟吃饭，不愿泄露私事。","reply":"钱放在哪里不方便说。你若是问他吃饭没有，这碗面还给他留着。"}]},
-    {"name":"Clarify before committing","kind":"interaction","applies":"Use when a request has multiple plausible referents and responding would commit the NPC to one; ask only the focused question needed.","pattern":"Point to the two possible referents in ordinary words, ask one precise question, and pause for the reply.","activation_question":"Does this request have multiple plausible referents that would commit the speaker to one choice?", "examples":[{"context":"玩家对店员说‘把包裹给他’；柜台前有两名男性，店员不知道所指对象，关系为陌生顾客与店员，目的为交付。","reply":"您说的是左边这位，还是右边这位？"}]},
-    {"name":"Receive ordinary courtesy","kind":"interaction","applies":"Use for a greeting, thanks, apology, or routine opening when no urgent danger interrupts; match the established social register.","pattern":"Return the greeting, thanks, or apology in the same register, then open naturally onto the conversation.","activation_question":"Is the listener currently offering a greeting, thanks, apology, or routine opening without urgent danger?", "examples":[{"context":"客人杰克刚对旅店老板罗伯特说‘谢谢您，罗伯特。’住宿费已付，二人关系是礼貌的店主与住客，杰克准备继续询问旅店。","reply":"不客气，杰克。您还想问些什么？"}]},
-    {"name":"Formal requested account","kind":"interaction","applies":"Use when a listener explicitly asks for a formal explanation and the NPC has a complete enough set of procedural facts.","pattern":"Lay out the steps in order, give the useful timing and handling details, and keep the formal explanation clear and human.","activation_question":"Has the listener explicitly asked this speaker for a formal explanation, with enough procedural facts available?", "examples":[{"context":"听众认真问职员‘请详细说明补材料的程序。’职员知道只缺地址证明，窗口周二周四上午办公，核验原件后退回且不收费；目的为正式说明。","reply":"目前只缺地址证明。请在周二或周四上午到窗口，工作人员核验原件后会退回；这项补交不收额外费用。"}]},
-    {"name":"Risk-first interruption","kind":"interaction","applies":"Use when immediate danger is established and speaking about another matter would delay a necessary warning; do not decide the danger has ended.","pattern":"Lead with the immediate danger, use a short imperative or warning, and place the other matter after the urgent turn.","activation_question":"Is the current speaker facing an immediate physical threat from the listener's present words or actions?", "examples":[{"context":"房东刚被对方推倒，对方又逼近辱骂；房东害怕，手边有电话但尚未拨打。对方是冲突中的租客，房东的目的只是让其停手。","reply":"别再靠近我！退后，否则我就报警。"}]},
-    {"name":"Calm correction","kind":"interaction","applies":"Use when the NPC can directly correct a mistaken current fact; treat a normal error as an error, not an insult.","pattern":"Say which detail is wrong, supply the correct one, and continue toward the shared practical purpose.","activation_question":"Can this speaker directly correct a mistaken current fact in the exchange?", "examples":[{"context":"玩家对守门人说‘窗口在东墙。’守门人清楚窗口在西墙，且知道沿西墙走就能看见窗口；双方是问路者与守门人，玩家想找到窗口。","reply":"不是东墙，窗口在西墙。沿这面走就能看见。"}]},
-    {"name":"Respectful refusal","kind":"interaction","applies":"Use when the request exceeds the NPC's stated boundary or authority; refuse only the unsupported part and do not promise an unauthorized substitute.","pattern":"Say which part cannot be done, give the brief relevant reason, and turn to the part the other person can handle.","activation_question":"Does the listener's request exceed this speaker's stated boundary or authority?", "examples":[{"context":"弟弟对姐姐说‘你替我答应这份工作吧。’一碗面已经替弟弟留好；姐姐只是亲人，没有替他承诺的权限；弟弟还在写信，姐姐的目的为关心而非替他决定。","reply":"这份工作得由你自己答应。我先把面给你留着，别饿着。"}]},
-    {"name":"Conditional agreement with declared basis","kind":"interaction","applies":"Use when the NPC can agree within a boundary already present in the scene; do not add a new price, deadline, or side condition.","pattern":"Accept the request in the words of the conversation, state its present scope, and keep the reply modest and direct.","activation_question":"Can this speaker agree within a boundary already present in the scene without adding conditions?", "examples":[{"context":"旅店老板罗伯特已收杰克住宿费，只负责店内住宿；杰克说‘今晚房里若有问题，我来找您，可以吗？’关系为店主与住客，目的为确认求助范围。","reply":"可以，房里的问题来找我就好。"}]},
-    {"name":"Relationship-sensitive reassurance","kind":"interaction","applies":"Use when a concerned person and the current relationship support a modest reassurance; do not claim safety or future action without evidence.","pattern":"Acknowledge the worry, point to the care already present, and offer one immediate comfort in a gentle voice.","activation_question":"Does the current relationship support modest reassurance to a person who is presently concerned?", "examples":[{"context":"姐姐知道弟弟整天等工钱、午饭没吃，桌上有她留的面；弟弟说‘我先把信写完。’姐弟关系亲近，工期不急，姐姐想表达关心。","reply":"我知道你想先写完，可你一上午没吃东西。面还在桌上，先吃几口吧。"}]},
-    {"name":"Probe a suspicious inconsistency","kind":"interaction","applies":"Use when two present statements visibly conflict and the NPC can ask about them; do not turn inconsistency into an accusation.","pattern":"Place the two observations side by side, then ask which sequence or detail the speaker means.","activation_question":"Do two present statements in this exchange visibly conflict in a way this speaker can clarify?", "examples":[{"context":"证人对询问者说‘包裹是晚上到的’，但同一证人刚确认包裹到时天还没黑；关系为平静问询，目的为核对记忆。","reply":"您刚才说到时天还没黑，现在又说是晚上。您记得的是下午，还是天黑以后？"}]},
-    {"name":"Privacy-aware redirection","kind":"interaction","applies":"Use when someone presses for a private detail but a relevant public matter is available; hold the boundary without inventing an answer.","pattern":"Answer with the relevant public point instead, turn toward the shared concern, and let the subject rest when it does not open.","activation_question":"Is someone pressing this speaker for a private detail while a relevant public matter is available?", "examples":[{"context":"邻居问姐姐‘你弟弟为什么没拿到工钱？’姐姐只知道弟弟在等工钱，不知道雇主细节；她愿意谈弟弟没吃午饭，邻居是普通熟人。","reply":"工钱的内情我不清楚，也不方便替他说。你若担心他，我正劝他先吃面。"}]},
-    {"name":"Long courteous narrative on invitation","kind":"interaction","applies":"Use when the listener explicitly invites a story, the scene is safe, and the NPC has several connected facts to recount.","pattern":"Tell it through a beginning, a turn, and a result, using courteous spoken prose and a clear pause between stages.","activation_question":"Has the listener explicitly invited a story, is the scene safe, and does the speaker have several connected facts?", "examples":[{"context":"老朋友问退休车工‘讲讲你第一次进厂吧。’两人坐着慢聊；车工知道那天厂门没开，他等到午后，师傅问他找谁后把他叫进去；目的为听故事。","reply":"当然可以。那天厂门没开，我从早上等到午后，正想着是不是白来了，一个师傅从里面出来问我找谁。我把来意说了，他便招手叫我进去；第一次进厂，就是这样开始的。"}]},
-    {"name":"De-escalate a strained exchange","kind":"interaction","applies":"Use when the listener is upset but no immediate danger controls the exchange; acknowledge tension without assigning motives or forcing reconciliation.","pattern":"Recognize the strain without dramatizing it, say what the speaker means, and offer one calm way to continue.","activation_question":"Is this speaker responding to an upset or dissatisfied listener right now?", "examples":[{"context":"弟弟对姐姐说‘你一直催我吃，烦不烦？’姐姐知道他没吃午饭，关系亲近且没有危险；姐姐想关心而不是争吵。","reply":"我不是要催得你心烦，只是看你还没吃。信先写着，面就在这里，什么时候吃由你定。"}]},
-    {"name":"Friendly specific reply","kind":"interaction","applies":"Use when a familiar listener makes an ordinary personal request and the NPC can answer warmly from present facts; do not add a new commitment.","pattern":"Use the person's name or familiar address, answer the request with its concrete detail, and add a small natural touch of warmth.","activation_question":"Is a familiar listener making an ordinary personal request that this speaker can answer warmly from present facts?", "examples":[{"context":"杰克对旅店老板罗伯特说‘罗伯特，能告诉我早餐在哪儿吃吗？’杰克是已付费住客，双方关系友好而礼貌；早餐地点已经知道是一楼后厅，沿楼梯下来可到；罗伯特知道答案。","reply":"当然，杰克。早餐就在一楼后厅，沿楼梯下来就能找到。"}]}
+    {
+      "name": "Measured practical explanation",
+      "kind": "habit",
+      "applies": "Use for a concrete matter when the NPC has the relevant facts and time to explain; keep the listener's choice their own.",
+      "pattern": "Answer the practical point first, add the relevant reason or next detail, and let the exchange move on naturally.",
+      "activation_question": "Does the speaker have the relevant facts and time to explain a concrete matter to this listener?",
+      "examples": [
+        {
+          "context": "Robert, an innkeeper, tells paying guest Jack that the room is ready; both have time and the purpose is practical confirmation.",
+          "reply": "已经安排好了，杰克，钥匙在柜台这边。"
+        }
+      ]
+    },
+    {
+      "name": "Courteous status-aware address",
+      "kind": "habit",
+      "applies": "Use proportional courtesy when the relationship or setting calls for it; do not infer rank merely from a job or title.",
+      "pattern": "Use the fitting form of address, answer the actual matter, and keep the warmth and formality natural to the relationship.",
+      "activation_question": "Does this relationship or setting call for proportional courtesy in the current exchange?",
+      "examples": [
+        {
+          "context": "Paying guest Jack asks innkeeper Robert his name; Robert is willing to make ordinary introductions.",
+          "reply": "您好，我是罗伯特，这家店的老板。杰克，是吗？欢迎您来。"
+        }
+      ]
+    },
+    {
+      "name": "Cautious uncertainty",
+      "kind": "habit",
+      "applies": "Use when the evidence is partial; separate the remembered point from the missing detail without predicting or promising.",
+      "pattern": "Lead with what is certain, name the one detail that remains unclear, and repeat it patiently when the listener is checking.",
+      "activation_question": "Does this speaker have only partial recollection or evidence for the requested detail?",
+      "examples": [
+        {
+          "context": "A calm questioner asks a witness when a parcel arrived; the witness remembers afternoon before dark but not the hour.",
+          "reply": "我只记得是下午、天还没黑的时候。具体几点，我确实想不起来了。"
+        }
+      ]
+    },
+    {
+      "name": "Layered leisurely account",
+      "kind": "habit",
+      "applies": "Use in a calm conversation when the listener welcomes a connected account; include relevant sequence, not an invented backstory.",
+      "pattern": "Open on the scene, move through the event in time order, and land on the result with an easy spoken rhythm.",
+      "activation_question": "Is this a calm conversation in which the listener welcomes a connected account?",
+      "examples": [
+        {
+          "context": "A retired mechanic tells an old friend how he first entered the factory; the gate was shut, he waited until afternoon, and a foreman let him in.",
+          "reply": "那天厂门一直没开，我就在门口等到午后。后来一个师傅出来问我找谁，我说明来意，他便把我叫了进去，就这么着。"
+        }
+      ]
+    },
+    {
+      "name": "Economical directness",
+      "kind": "habit",
+      "applies": "Use when the question is narrow or time is pressing; retain the one fact needed to avoid misleading the listener.",
+      "pattern": "Put the needed answer first, use the fewest useful words, and add an established qualification only where it changes the meaning.",
+      "activation_question": "Is the current question narrow or is time pressing for this speaker?",
+      "examples": [
+        {
+          "context": "A hurried clerk has checked the file and knows that only address proof is missing; the visitor asks what to bring.",
+          "reply": "只缺地址证明，带来就行。"
+        }
+      ]
+    },
+    {
+      "name": "Privacy-preserving restraint",
+      "kind": "habit",
+      "applies": "Use when a private detail is outside the listener's permission or the NPC's stated boundary; do not invent a secret or threat.",
+      "pattern": "Answer the public part plainly, turn to a relevant shared topic, and keep the tone matter-of-fact.",
+      "activation_question": "Is a private detail outside this listener's permission or the speaker's stated boundary?",
+      "examples": [
+        {
+          "context": "A neighbour asks a sister where her brother keeps his money; she will not disclose it but has kept him a bowl of noodles.",
+          "reply": "钱放在哪里不方便说。你若是问他吃饭没有，这碗面还给他留着。"
+        }
+      ]
+    },
+    {
+      "name": "Clarify before committing",
+      "kind": "interaction",
+      "applies": "Use when a request has multiple plausible referents and responding would commit the NPC to one; ask only the focused question needed.",
+      "pattern": "Point to the two possible referents in ordinary words, ask one precise question, and pause for the reply.",
+      "activation_question": "Does this request have multiple plausible referents that would commit the speaker to one choice?",
+      "examples": [
+        {
+          "context": "A clerk is told to give a parcel to him, but two men stand at the counter; the purpose is delivery.",
+          "reply": "您说的是左边这位，还是右边这位？"
+        }
+      ]
+    },
+    {
+      "name": "Receive ordinary courtesy",
+      "kind": "interaction",
+      "applies": "Use for a greeting, thanks, apology, or routine opening when no urgent danger interrupts; match the established social register.",
+      "pattern": "Return the greeting, thanks, or apology in the same register, then open naturally onto the conversation.",
+      "activation_question": "Is the listener currently offering a greeting, thanks, apology, or routine opening without urgent danger?",
+      "examples": [
+        {
+          "context": "Paying guest Jack thanks innkeeper Robert and is about to ask about the inn; their exchange is polite.",
+          "reply": "不客气，杰克。您还想问些什么？"
+        }
+      ]
+    },
+    {
+      "name": "Formal requested account",
+      "kind": "interaction",
+      "applies": "Use when a listener explicitly asks for a formal explanation and the NPC has a complete enough set of procedural facts.",
+      "pattern": "Lay out the steps in order, give the useful timing and handling details, and keep the formal explanation clear and human.",
+      "activation_question": "Has the listener explicitly asked this speaker for a formal explanation, with enough procedural facts available?",
+      "examples": [
+        {
+          "context": "A listener explicitly asks a clerk for a formal account. The clerk knows only an address proof is missing; the window is open Tuesday and Thursday mornings, the original is checked and returned, and no fee is charged.",
+          "reply": "目前只缺地址证明。请在周二或周四上午到窗口，工作人员核验原件后会退回；这项补交不收费。"
+        }
+      ]
+    },
+    {
+      "name": "Risk-first interruption",
+      "kind": "interaction",
+      "applies": "Use when immediate danger is established and speaking about another matter would delay a necessary warning; do not decide the danger has ended.",
+      "pattern": "Lead with the immediate danger, use a short imperative or warning, and place the other matter after the urgent turn.",
+      "activation_question": "Is the current speaker facing an immediate physical threat from the listener's present words or actions?",
+      "examples": [
+        {
+          "context": "A landlord has just been pushed down and the tenant is advancing again; the landlord's purpose is to make him stop.",
+          "reply": "别再靠近我！退后，否则我就报警。"
+        }
+      ]
+    },
+    {
+      "name": "Calm correction",
+      "kind": "interaction",
+      "applies": "Use when the NPC can directly correct a mistaken current fact; treat a normal error as an error, not an insult.",
+      "pattern": "Say which detail is wrong, supply the correct one, and continue toward the shared practical purpose.",
+      "activation_question": "Can this speaker directly correct a mistaken current fact in the exchange?",
+      "examples": [
+        {
+          "context": "A guard knows the window is on the west wall, not the east, and the visitor wants to find it.",
+          "reply": "不是东墙，窗口在西墙。沿这面走就能看见。"
+        }
+      ]
+    },
+    {
+      "name": "Respectful refusal",
+      "kind": "interaction",
+      "applies": "Use when the request exceeds the NPC's stated boundary or authority; refuse only the unsupported part and do not promise an unauthorized substitute.",
+      "pattern": "Say which part cannot be done, give the brief relevant reason, and turn to the part the other person can handle.",
+      "activation_question": "Does the listener's request exceed this speaker's stated boundary or authority?",
+      "examples": [
+        {
+          "context": "A brother asks his sister to accept a job for him; she cannot promise in his place and wants him to decide.",
+          "reply": "这份工作得由你自己答应。我先把面给你留着，别饿着。"
+        }
+      ]
+    },
+    {
+      "name": "Conditional agreement with declared basis",
+      "kind": "interaction",
+      "applies": "Use when the NPC can agree within a boundary already present in the scene; do not add a new price, deadline, or side condition.",
+      "pattern": "Accept the request in the words of the conversation, state its present scope, and keep the reply modest and direct.",
+      "activation_question": "Can this speaker agree within a boundary already present in the scene without adding conditions?",
+      "examples": [
+        {
+          "context": "Robert has accepted Jack's lodging payment and is responsible for the inn; Jack asks whether to come to him if the room has a problem.",
+          "reply": "可以，房里的问题来找我就好。"
+        }
+      ]
+    },
+    {
+      "name": "Relationship-sensitive reassurance",
+      "kind": "interaction",
+      "applies": "Use when a concerned person and the current relationship support a modest reassurance; do not claim safety or future action without evidence.",
+      "pattern": "Acknowledge the worry, point to the care already present, and offer one immediate comfort in a gentle voice.",
+      "activation_question": "Does the current relationship support modest reassurance to a person who is presently concerned?",
+      "examples": [
+        {
+          "context": "A sister knows her brother has not eaten and has left noodles on the table; he says he will finish his letter first.",
+          "reply": "我知道你想先写完，可你还没吃东西。面就在桌上，先吃几口吧。"
+        }
+      ]
+    },
+    {
+      "name": "Probe a suspicious inconsistency",
+      "kind": "interaction",
+      "applies": "Use when two present statements visibly conflict and the NPC can ask about them; do not turn inconsistency into an accusation.",
+      "pattern": "Place the two observations side by side, then ask which sequence or detail the speaker means.",
+      "activation_question": "Do two present statements in this exchange visibly conflict in a way this speaker can clarify?",
+      "examples": [
+        {
+          "context": "A witness says the parcel arrived at night but has just said it was still light; the questioner is calmly checking memory.",
+          "reply": "您刚才说到时天还没黑，现在又说是晚上。您记得的是下午，还是天黑以后？"
+        }
+      ]
+    },
+    {
+      "name": "Privacy-aware redirection",
+      "kind": "interaction",
+      "applies": "Use when someone presses for a private detail but a relevant public matter is available; hold the boundary without inventing an answer.",
+      "pattern": "Answer with the relevant public point instead, turn toward the shared concern, and let the subject rest when it does not open.",
+      "activation_question": "Is someone pressing this speaker for a private detail while a relevant public matter is available?",
+      "examples": [
+        {
+          "context": "A neighbour asks why the sister's brother has not received wages; she does not know the employer's details but is concerned that he has not eaten.",
+          "reply": "工钱的内情我不清楚，也不方便替他说。你若担心他，我正劝他先吃面。"
+        }
+      ]
+    },
+    {
+      "name": "Long courteous narrative on invitation",
+      "kind": "interaction",
+      "applies": "Use when the listener explicitly invites a story, the scene is safe, and the NPC has several connected facts to recount.",
+      "pattern": "Tell it through a beginning, a turn, and a result, using courteous spoken prose and a clear pause between stages.",
+      "activation_question": "Has the listener explicitly invited a story, is the scene safe, and does the speaker have several connected facts?",
+      "examples": [
+        {
+          "context": "An old friend invites a retired mechanic to tell how he first entered the factory; he remembers the shut gate, waiting, and the foreman's invitation.",
+          "reply": "当然可以。那天厂门没开，我从早上等到午后，正想着是不是白来了，一个师傅出来问我找谁。我把来意说了，他便招手叫我进去；第一次进厂，就是这样开始的。"
+        }
+      ]
+    },
+    {
+      "name": "De-escalate a strained exchange",
+      "kind": "interaction",
+      "applies": "Use when the listener is upset but no immediate danger controls the exchange; acknowledge tension without assigning motives or forcing reconciliation.",
+      "pattern": "Recognize the strain without dramatizing it, say what the speaker means, and offer one calm way to continue.",
+      "activation_question": "Is this speaker responding to an upset or dissatisfied listener right now?",
+      "examples": [
+        {
+          "context": "A brother says his sister's reminders are annoying; she knows he has not eaten and wants care, not an argument.",
+          "reply": "我不是要催得你心烦，只是看你还没吃。信先写着，面就在这里，什么时候吃由你定。"
+        }
+      ]
+    },
+    {
+      "name": "Friendly specific reply",
+      "kind": "interaction",
+      "applies": "Use when a familiar listener makes an ordinary personal request and the NPC can answer warmly from present facts; do not add a new commitment.",
+      "pattern": "Use the person's name or familiar address, answer the request with its concrete detail, and add a small natural touch of warmth.",
+      "activation_question": "Is a familiar listener making an ordinary personal request that this speaker can answer warmly from present facts?",
+      "examples": [
+        {
+          "context": "Friendly paying guest Jack asks Robert where breakfast is; Robert knows it is in the rear hall downstairs and can answer.",
+          "reply": "当然，杰克。早餐就在一楼后厅，沿楼梯下来就能找到。"
+        }
+      ]
+    }
   ]
 }

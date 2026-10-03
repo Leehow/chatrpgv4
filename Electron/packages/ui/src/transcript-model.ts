@@ -683,8 +683,15 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
     const liveProse = (event.entry.role ?? 'assistant') === 'assistant' && (event.entry.presentation
       ? event.entry.presentation.renderer === 'coc-mechanics' && Boolean(details?.marked_text || details?.rendered_text)
       : Boolean(event.entry.content))
-    const typewriter = at >= 0 ? previous[at].typewriter : liveProse ? {} : undefined
+    // §171.3: a delivery that replaces the draft drawn while it streamed goes where the draft was, in this same update,
+    // and keeps the draft's playback (§167), so what was already read is neither moved nor typed again.
+    const replaces = event.replacesDraft
+    const draftAt = replaces ? previous.findIndex(item => item.id === replaces) : -1
+    const typewriter = at >= 0 ? previous[at].typewriter : draftAt >= 0 ? previous[draftAt].typewriter ?? (liveProse ? {} : undefined) : liveProse ? {} : undefined
     const message:ChatMessage={id:event.entry.id,role:event.entry.role??'assistant',content:event.entry.content,timestamp:event.entry.timestamp,presentation:event.entry.presentation,...(opening?{opening:true}:{}),...(event.entry.help?{help:event.entry.help}:{}),...(typewriter?{typewriter}:{})};
+    if (draftAt >= 0) return at >= 0
+      ? previous.filter((_, i) => i !== draftAt).map(item => item.id === entryId ? message : item)
+      : previous.map((item, i) => i === draftAt ? message : item)
     return at<0?[...previous,message]:previous.map((item,i)=>i===at?message:item);
   }
   if (event.type === 'secret_redact') return applySecretRedact(previous, event.messages)
@@ -724,11 +731,21 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
   const matchingSegmentAssistantIndex = replacedSegment === undefined ? -1
     : previous.findLastIndex(item => item.role === 'assistant' && item.streaming === true && !item.presentation
       && Boolean(item.activities?.some(activity => activity.type === 'text' && activity.segment === replacedSegment)))
+  // §171.2: a call's end names its real id, but its card was opened under the provisional `content-<index>`.
+  // Once a live-prose draft row follows that card, the last row is the draft, so the card is found by its
+  // place in its message (content index within the segment) and is closed where it is.
+  const toolSegment = event.type === 'tool_call' ? event.segment : undefined
+  const toolContentIndex = event.type === 'tool_call' ? event.contentIndex : undefined
+  const matchingPlaceAssistantIndex = matchingToolAssistantIndex >= 0 || toolSegment === undefined || toolContentIndex === undefined ? -1
+    : previous.findLastIndex(item => item.role === 'assistant' && item.streaming === true && !item.presentation
+      && Boolean(item.activities?.some(activity => activity.type === 'tool' && activity.contentIndex === toolContentIndex && (activity.segment ?? 0) === toolSegment)))
   const lastAssistantIndex = previous.findLastIndex(item => item.role === 'assistant')
   const index = matchingToolAssistantIndex >= 0 ? matchingToolAssistantIndex
-    : matchingSegmentAssistantIndex >= 0 ? matchingSegmentAssistantIndex
-      : lastAssistantIndex
+    : matchingPlaceAssistantIndex >= 0 ? matchingPlaceAssistantIndex
+      : matchingSegmentAssistantIndex >= 0 ? matchingSegmentAssistantIndex
+        : lastAssistantIndex
   const mayCrossUserBoundary = matchingToolAssistantIndex >= 0
+    || matchingPlaceAssistantIndex >= 0
     || matchingSegmentAssistantIndex >= 0
     || event.type === 'citations'
     || event.type === 'input_file_sources'

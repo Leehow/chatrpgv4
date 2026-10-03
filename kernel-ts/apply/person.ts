@@ -13,7 +13,7 @@
 import { RpcError } from '../errors.js';
 import type { DomainEvent } from '../transactions.js';
 import { calledPerson, personRecord } from '../read/capsule.js';
-import { normalize, repr, string, type Row } from '../read/values.js';
+import { normalize, repr, row, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
 import { passageOf } from '../read/table-people.js';
@@ -71,8 +71,19 @@ function word(effect: Row, field: string): string | null {
     return trimmed;
 }
 
+/** The fields a person effect carries (extensions/kernel/tools.ts `PersonEffect`, plus `owed` on any effect); `_` keys are the host's. */
+const PERSON_FIELDS = ['kind', 'who', 'name', 'address', 'why', 'intent_ref', 'intent_outcome', 'owed'];
+
 export async function stagePerson(context: ApplyContext, effect: Row): Promise<{ receipt: Row; event: DomainEvent }> {
     const { world, callId, turn, ordinal } = context;
+    // §103.7: a field the effect does not have was dropped without a word. Table 16 (2026-10-03): the Keeper put the epithet
+    // in `label` and the handle in `name`, and the handle became what the table calls the person.
+    const unknown = Object.keys(effect).filter(key => !key.startsWith('_') && !PERSON_FIELDS.includes(key));
+    if (unknown.length)
+        throw new RpcError('invalid_params', `a person effect has no field ${unknown.map(key => repr(key)).join(', ')}`, {
+            fix: "the word this table calls them goes in name (for someone untold, their epithet); how they are spoken to goes in address; who is the person it is about",
+            details: { fields: unknown },
+        });
     const person = await personOf(context, required(effect, 'who'), effect);
     const name = word(effect, 'name'), address = word(effect, 'address');
     const why = typeof effect.why === 'string' && effect.why.trim() ? effect.why.trim() : null;
@@ -83,11 +94,32 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
         });
     // An investigator's name is the player's, written on the sheet, already in the play language.
     // A second record for it is exactly the defect §76 closed: one fact, one place it lives.
+    // §103.7: a book person's handle is for tool calls; it is not a word the table calls anyone. A person the table itself
+    // established has their name as their handle, and that name is theirs.
+    if (name != null && context.graph.kind('npc').some(node => !context.graph.isTablePerson(node) && context.graph.handle(node) === name))
+        throw new RpcError('invalid_params', `${repr(name)} is a handle, not what the table calls anyone`, {
+            fix: "name is the word the prose calls them, in the play language: for someone untold, an epithet built from the one visible thing only they have here",
+            details: { field: 'person.name', name },
+        });
     if (name != null && person.is_investigator === true)
         throw new RpcError('invalid_params', `${person.name} carries their own name on their sheet`, {
             fix: 'set address for how they are spoken to; a name a player chose is not renamed at the table',
             details: { field: 'person.name', who: person.id },
         });
+    // §103.7 (owner, 2026-10-03, asking for distinctive, unique epithets): the word this table calls someone tells them from everyone
+    // else. Two people under one word cannot be told apart in prose, in a say token or on the card, and a later `who` that
+    // names it resolves to nobody (§87.8 refuses two owners). Refused only when it is the same words as another person's
+    // (normalized); whether a word is distinctive enough is the Keeper's, from the rule in this effect's description.
+    if (name != null && person.is_investigator !== true) {
+        const others = Object.entries(row(world.person_labels)).filter(([id, record]) => id !== string(person.id) && string(row(record).name).trim())
+            .map(([, record]) => string(row(record).name).trim());
+        const taken = others.find(other => normalize(other) === normalize(name));
+        if (taken)
+            throw new RpcError('invalid_params', `${repr(name)} is already what this table calls someone else`, {
+                fix: `give this person a word of their own: the one visible thing only they have here -- something they carry or wear, a mark, a habit, the job they are doing -- not age, height, build or sex alone. Words in use: ${others.map(word => repr(word)).join(', ')}`,
+                details: { field: 'person.name', name, taken, in_use: others },
+            });
+    }
     const before = personRecord(world, string(person.id));
     const record = { ...before, ...(name != null ? { name } : {}), ...(address != null ? { address } : {}) };
     (world.person_labels ??= {})[string(person.id)] = record;

@@ -12,6 +12,8 @@ what the table calls them. Nothing in the kernel compares them to anything: it r
 person` wrote.
 """
 
+import json
+
 from conftest import campaign_dir, narrate, open_turn, read_json
 from test_obligation_fold import ACCESS, FAIL, FLAG, PASS, morgue, resolve as gate3  # noqa: F401 -- `morgue` is a fixture
 
@@ -28,8 +30,12 @@ def name(client, who, word, call_id="t1-c1"):
 
 
 def share_one_word(client):
-    client.table("apply", call_id="t1-c1", effects=[
-        {"kind": "person", "who": KNOTT, "name": SHARED}, {"kind": "person", "who": CORBITT, "name": SHARED}])
+    """Two people under one word. Since §103.7 `apply person` refuses a word someone else already carries, so this is a
+    table written before that (or by hand): the record is put in place directly, and the junction still has to refuse it."""
+    path = campaign_dir(client.workspace) / "world.json"
+    world = read_json(path)
+    world.setdefault("person_labels", {}).update({"steven-knott": {"name": SHARED}, "walter-corbitt": {"name": SHARED}})
+    path.write_text(json.dumps(world, ensure_ascii=False), encoding="utf-8")
 
 
 def receipts(client, kind):

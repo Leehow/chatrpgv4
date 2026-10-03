@@ -71,7 +71,8 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "available even before memory extraction finishes. Reports are attributed, not new world truth. " +
     "Return at a genuine unselected decision or the completion of the selected goal; never choose " +
     "the next goal for the player. voices gives each person's flexible register, not a required marker " +
-    "on every line or a topic for every reply. Answer the player's words first; preserve source secrets and " +
+    // Contract §40.9: how people answer is the prose package's; the base keeps the interface and the knowledge bounds.
+    "on every line or a topic for every reply. Preserve source secrets and " +
     "listener identity. Exchanges are reference, never lines to read out or slogans to repeat. " +
     "unrecorded is what an earlier turn's prose already gave the player while the ledger still disagrees, " +
     "of three kinds: a clue still called undiscovered, a person you gave lines to here whom the books " +

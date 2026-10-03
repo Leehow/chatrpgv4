@@ -14,6 +14,8 @@ export interface LaneJob {
 }
 
 interface QueueOptions {
+	/** Prepare the current campaign once when both session and bridge are ready; never a backfill. */
+	initialJob?: boolean;
 	/** The variable naming this lane's backfill budget; a lane with none never backfills (the speech edit lane, §165). */
 	backfillEnv?: string;
 	/** Rounds of backfill per session when the env is unset; the journal and memory lanes keep 5, the voice lane 0 (§40.5). */
@@ -23,7 +25,7 @@ interface QueueOptions {
 	 * every one. The speech edit lane takes only a delivery with a line not the investigator's in its `speech` (§165.3).
 	 */
 	accept?: (payload: Record<string, unknown>) => boolean;
-	runJob: (job: LaneJob) => Promise<void>;
+	runJob: (job: LaneJob) => Promise<void | {deferred: true}>;
 	onError: (job: LaneJob, error: unknown) => Promise<void>;
 }
 
@@ -46,8 +48,16 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 	let backfillDone = false;
 	let agentRunning = false;
 	let foregroundPending = false;
+	let pauseUntil = 0, pauseTimer: ReturnType<typeof setTimeout> | undefined;
+	const initialCampaigns = new Set<string>();
+	function prepareInitial(): void {
+		if (!options.initialJob || stopped || !ctx || !bridge || initialCampaigns.has(bridge.campaign)) return;
+		initialCampaigns.add(bridge.campaign);
+		queue.push({campaign: bridge.campaign});
+	}
 
 	function nextJob(): LaneJob | undefined {
+		if (Date.now() < pauseUntil) return undefined;
 		// Committed turns are FIFO and always precede backfill, even after the agent has settled.
 		const queued = queue.shift();
 		if (queued) return queued;
@@ -63,8 +73,13 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 			while (!stopped) {
 				const job = nextJob();
 				if (!job) break;
+				const signal = lanes.signal;
 				try {
-					await options.runJob(job);
+					const outcome = await options.runJob(job);
+					if (outcome?.deferred && !stopped && !signal.aborted) {
+						queue.unshift(job);
+						break;
+					}
 				} catch (error) {
 					// A broken job must not block the next one; its lane owns the telemetry.
 					await options.onError(job, error);
@@ -78,12 +93,24 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 	function wake(): void {
 		void pump().catch(() => undefined);
 	}
+	function clearPause(): void {
+		clearTimeout(pauseTimer); pauseTimer = undefined; pauseUntil = 0;
+	}
+	function pauseFor(milliseconds: number): void {
+		if (stopped || !Number.isFinite(milliseconds) || milliseconds <= 0) return;
+		const duration = Math.min(60_000, Math.max(1, Math.floor(milliseconds)));
+		const until = Date.now() + duration;
+		if (until <= pauseUntil) return;
+		clearTimeout(pauseTimer); pauseUntil = until;
+		pauseTimer = setTimeout(() => {pauseTimer = undefined; pauseUntil = 0; if (!stopped) wake();}, duration);
+	}
 
 	pi.events.on("coc:kernel-bridge", (data) => {
 		const payload = (data ?? {}) as { campaign?: string; call?: KernelCall };
 		bridge = typeof payload.call === "function" && payload.campaign
 			? { campaign: payload.campaign, call: payload.call }
 			: undefined;
+		prepareInitial();
 		// Either the bridge or session_start may arrive first. Only the second can start backfill.
 		if (bridge && ctx && !stopped) wake();
 	});
@@ -117,16 +144,20 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 		agentRunning = false;
 		foregroundPending = false;
 		lanes = new AbortController();
+		clearPause();
 		queue.length = 0;
+		initialCampaigns.clear();
 		backfillLeft = backfillBudget(options.backfillEnv, options.backfillDefault);
 		backfillDone = backfillLeft <= 0;
 		// Do not reset running: a previous session's continuation still owns the pump until finally.
-		if (!backfillDone) wake();
+		prepareInitial();
+		if (queue.length || !backfillDone) wake();
 	});
 
 	pi.on("session_shutdown", async () => {
 		// Never await the model or fail an unfinished job: the kernel can dispatch it next session.
 		stopped = true;
+		clearPause();
 		foregroundPending = false;
 		queue.length = 0;
 		backfillLeft = 0;
@@ -143,5 +174,6 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 		get signal() { return lanes.signal; },
 		get stopped() { return stopped; },
 		stopBackfill() { backfillDone = true; },
+		pauseFor,
 	};
 }

@@ -1,6 +1,6 @@
 {
   "id": "narration-craft",
-  "version": "2.1.12",
+  "version": "2.1.16",
   "game_api": "pipicoc.game.v1",
   "state_version": 2,
   "migrations": [
@@ -22,8 +22,8 @@
     "zh-Hans": "叙述手艺"
   },
   "description": {
-    "en": "The one prose package: how the Keeper writes. The player's act written into the scene in the Keeper's own words, then the world's reply, never the player's sentence pasted back; whole sentences with one focus per paragraph; people who answer what was actually said first, in natural connected speech and their own register, keeping their position; per-beat craft lines in the capsule's style; the turn floor; NPC voice masks and their generation lane; coarse language and an optional density guide. Turn it off and the base keeps only its interfaces.",
-    "zh-Hans": "唯一的文笔包：守秘人怎么写。把玩家这回合的行动用守秘人自己的话写进场景（不照抄原话、不违背玩家本意），再写世界的回答；整句、一段一个焦点；在场的人先回答对方真正说的话，用自己的口吻自然连贯地说，立场不因换词而动；按 beat 的文风行进胶囊 style；回合地板；NPC 口吻面具与生成车道；粗话开关与可选的密度指引。关掉它，基底只剩接口。"
+    "en": "The one prose package: how the Keeper writes. The player's act written into the scene in the Keeper's own words, then the world's reply, never the player's sentence pasted back; whole sentences with one focus per paragraph; people who react to what was said and done, answering a genuine question directly when the situation permits, in natural connected speech and their own register, keeping their position; per-beat craft lines in the capsule's style; the turn floor; NPC voice masks and their generation lane; coarse language and an optional density guide. Turn it off and the base keeps only its interfaces.",
+    "zh-Hans": "唯一的文笔包：守秘人怎么写。把玩家这回合的行动用守秘人自己的话写进场景（不照抄原话、不违背玩家本意），再写世界的回答；整句、一段一个焦点；在场的人对别人的言行作出反应，情势允许时直接回答真正的提问，用自己的口吻自然连贯地说，立场不因换词而动；按 beat 的文风行进胶囊 style；回合地板；NPC 口吻面具与生成车道；粗话开关与可选的密度指引。关掉它，基底只剩接口。"
   },
   "default_enabled": true,
   "requires": [

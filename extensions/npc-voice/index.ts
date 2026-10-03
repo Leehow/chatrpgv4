@@ -1,36 +1,19 @@
 /**
- * The NPC voice lane (contract §40.8, scheduling shared with §12.8).
- *
- * Most imported books give most people no printed speech at all, so most people at most tables
- * have nothing for the Keeper to perform from. This lane writes one speech mask per person — how
- * their register varies — and three exchanges showing it in reply, and `voice.submit` files them
- * under this package's own dossier words (§28.7), where they reach the Keeper in the capsule's
- * `voices`. They are Keeper-facing material like `voice`: never the journal, never `table.view`,
- * never the player.
- *
- * The boundaries are the journal lane's own: the lane never blocks narrate (everything here is
- * after the delivery and is not awaited); only one job runs at a time and the rest queue; whatever
- * has not finished at process exit is left to a later dispatch. One job is one person, and a
- * person whose lines are already written — authored by the book or established here — is never
- * offered until an explicit package upgrade starts a new generation.
- *
- * Draining: `voice.job` names no turn. A committed turn may leave several people needing lines
- * (a crowded scene), so a commit drains the queue — asking again until the kernel answers
- * `job_id: null` — with a ceiling of MAX_JOBS_PER_COMMIT so one turn can never turn into an
- * unbounded run of model calls. Backfill is one drain of the same kind behind
- * `PI_COC_NPCVOICE_BACKFILL`, asked with `backfill: true` so the kernel widens the order to every
- * named NPC of the graph; a table that opens on a crowded scene is covered by its second turn.
- *
- * Retries: at most one per person per session (contract §40.5). A job that fails twice is failed
- * to the kernel and the person is retired for this session; because a failed job is offered again,
- * meeting a retired person ends the drain rather than spinning on them.
+ * Background NPC voice preparation through the existing owner-bound RPCs.
+ * A current-person dispatch starts once the play session and kernel bridge are ready;
+ * committed turns enqueue later dispatches. Whole-book backfill remains opt-in.
+ * Rejected candidates keep the existing two outer attempts per session, then are
+ * excluded so later people can proceed. Unavailable work defers the same ticket
+ * behind a bounded cooldown; cancellation never publishes or fails a stale job.
+ * Each original ticket visits at most six distinct jobs, including across deferrals.
+ * Keeper delivery never waits for this prose author.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostRuntime } from "../../runtime/host.ts";
-import { writeVoice } from "./writer.ts";
+import { writeVoice, type VoiceFailureKind } from "./writer.ts";
 import { cocMode } from "../lanes/host.ts";
 import { resolveLaneModel, runLane } from "../lanes/subsession.ts";
 import { createLaneQueue, type KernelCall, type LaneJob } from "../lanes/queue.ts";
@@ -43,6 +26,7 @@ const DEFAULT_MAX_CHARS = 200;
 const MAX_JOBS_PER_COMMIT = 6;
 /** Two attempts is one retry (contract §40.5). */
 const MAX_ATTEMPTS = 2;
+const UNAVAILABLE_COOLDOWN_MS = 15_000;
 
 /** The job packet from `voice.job`; only the fields §40.5 lists are read, and nothing else reaches the prompt. */
 interface JobPacket {
@@ -96,6 +80,8 @@ function systemPrompt(packet: JobPacket): string {
 		`- exchanges is exactly ${exchanges} strings: ordinary first contact, a direct practical answer, and a sensitive question without revealing secrets.`,
 		`- each exchange is 1 to ${maxChars} characters, on one line, and no two are the same line.`,
 		"- Use flexible register, not a catchphrase or a marker on every line. Show conversational range, not one repeated agenda.",
+		"- The mask describes how words sound, not an objective or a requirement to steer every conversation toward the person's wants. Keep source goals separate from phrasing habits.",
+		"- Make ordinary first contact a greeting or courtesy that needs no new world fact. Do not make every example demand progress, reports or proof unless the source explicitly requires that response in each situation.",
 		"- Answer each question directly when the source permits it. Occupation does not decide every topic; courtesy and uncertainty fit any register.",
 		"- Preserve source voice, secrets and listener identity; do not copy examples or recent said lines.",
 		"- write everything in play_language; the only keys are voice, and reason for a source-grounded silent result. Never include a job id.",
@@ -117,6 +103,8 @@ function judgePrompt(): string {
 		"Require natural connected speech, actual answers to the example questions, and conversational range rather than repeated refusal or agenda.",
 		"Honour source voice and secrets, play_language, coarse_language and listener identity. Do not invent facts or disclose hidden names.",
 		"Register must stay flexible: no compulsory marker, catchphrase or occupational topic on every line. Ordinary courtesy, agreement and uncertainty are valid.",
+		"Reject a mask that turns wants, fears or the job into an obligatory conversation agenda. Money-minded vocabulary can fit a relevant exchange; steering every topic back to evidence or deadlines is not a phrasing habit.",
+		"Three differently worded questions do not establish range if every reply redirects to the same task. Assess ordinary contact separately from the practical and sensitive questions; preserve source-required refusal without imposing it elsewhere.",
 		"Reject copied or repetitive wording from the other examples, taken_masks or recent said lines. Judge meaning, not exact word overlap.",
 		"Answer with one JSON object only, no code fence and no explanation:",
 		'{"honours":true|false,"why":"<at most 120 characters, in English>"}',
@@ -249,6 +237,10 @@ export default function (pi: ExtensionAPI) {
 	const retired = new Set<string>();
 	/** One telemetry row per retired job, not one per commit that meets it again. */
 	const noticed = new Set<string>();
+	const tickets = new WeakMap<LaneJob, Set<string>>();
+	pi.on("session_start", async () => {
+		attempts.clear(); retired.clear(); noticed.clear();
+	});
 
 	// The shared writer, which also escalates a streak of failures to the operator (contract §56).
 	const telemetry = createLaneTelemetry(pi, {
@@ -257,20 +249,13 @@ export default function (pi: ExtensionAPI) {
 	const record = (campaign: string, row: Record<string, unknown>) => telemetry.record(campaign, row);
 
 	const scheduler = createLaneQueue(pi, {
+		initialJob: true,
 		backfillEnv: "PI_COC_NPCVOICE_BACKFILL",
 		// Off unless asked (user ruling 2026-09-15): a fifty-person book would spend fifty model calls at
 		// the door on people the table may never meet; "present or met first" already covers play.
 		backfillDefault: 0,
 		runJob,
 		onError: (job, error) => record(job.campaign, { ok: false, reason: "lane_error", detail: errorText(error) }),
-	});
-
-	pi.on("session_start", async () => {
-		// The retry budget is per session (contract §40.5), so it is cleared with the session and not
-		// with the campaign: a table reopened is a table that may try a failed person once more.
-		attempts.clear();
-		retired.clear();
-		noticed.clear();
 	});
 
 	// ---- One person -------------------------------------------------------
@@ -282,11 +267,11 @@ export default function (pi: ExtensionAPI) {
 		campaign: string,
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
-	): Promise<{ ok: true; model: string; voice_check?: string } | { ok: false; reason: string; detail: string }> {
+	): Promise<{ ok: true; model: string; voice_check?: string } | { ok: false; reason: string; detail: string; failureKind: VoiceFailureKind }> {
 		const owner = runtime;
-		if (!owner) return { ok: false, reason: "lane_error", detail: "The voice task runtime is unavailable" };
+		if (!owner) return { ok: false, reason: "lane_error", detail: "The voice task runtime is unavailable", failureKind: "unavailable" };
 		const model = resolveLaneModel(scheduler.ctx as ExtensionContext, "PI_COC_VOICE_MODEL");
-		if (!model.ok) return { ok: false, reason: "lane_error", detail: model.detail };
+		if (!model.ok) return { ok: false, reason: "lane_error", detail: model.detail, failureKind: "unavailable" };
 		const signal = scheduler.signal;
 		const write = (objection?: string, previous?: Lines) => writeVoice<Lines>({
 			runtime: owner, jobId, model: `${model.model.provider}/${model.model.id}`, pinned: model.source === "operator",
@@ -306,16 +291,17 @@ export default function (pi: ExtensionAPI) {
 				systemPrompt: judgePrompt(), input, signal, shape: shapeVerdict, timeoutMs: 120_000,
 			});
 			await writeFile(join(lane.cwd, "review.json"), JSON.stringify(verdict));
-			if (!verdict.ok) return { ok: false, reason: "model_error", detail: `Voice review unavailable: ${verdict.detail}` };
+			if (!verdict.ok) return { ok: false, reason: "model_error", detail: `Voice review unavailable: ${verdict.detail}`,
+				failureKind: signal.aborted ? "cancelled" : verdict.reason === "bad_output" ? "rejected" : "unavailable" };
 			if (verdict.value.honours) { voiceCheck = round ? "repaired_passed" : "passed"; break; }
-			if (round) return { ok: false, reason: "model_error", detail: `Voice review rejected repair: ${verdict.value.why}` };
+			if (round) return { ok: false, reason: "model_error", detail: `Voice review rejected repair: ${verdict.value.why}`, failureKind: "rejected" };
 			const previous = lane.value;
 			lane = await write(verdict.value.why || "The candidate failed semantic review", previous);
 			if (!lane.ok) return lane;
 			// Every repaired candidate is reviewed again, including a switch to or from silence.
 		}
 		try {
-			if (signal.aborted || scheduler.stopped) return { ok: false, reason: "lane_error", detail: "Voice generation was cancelled" };
+			if (signal.aborted || scheduler.stopped) return { ok: false, reason: "lane_error", detail: "Voice generation was cancelled", failureKind: "cancelled" };
 			await call("voice.submit", "voice" in lane.value
 				? { campaign, job_id: jobId, voice: lane.value.voice }
 				: { campaign, job_id: jobId, voice: null, reason: SILENT_REASON });
@@ -324,6 +310,7 @@ export default function (pi: ExtensionAPI) {
 			const code = errorCode(error);
 			return {
 				ok: false,
+				failureKind: signal.aborted ? "cancelled" : code === "invalid_params" ? "rejected" : "unavailable",
 				reason: code === "invalid_params" ? "invalid" : "lane_error",
 				detail: `${code ?? "internal"}: ${errorText(error)}`,
 			};
@@ -339,9 +326,9 @@ export default function (pi: ExtensionAPI) {
 		call: KernelCall,
 		note: (row: Record<string, unknown>) => Promise<void>,
 		modelLabel: string,
-	): Promise<boolean> {
+	): Promise<"published" | "rejected" | "unavailable" | "cancelled"> {
 		const began = Date.now();
-		let last: { ok: false; reason: string; detail: string } | undefined;
+		let last: { ok: false; reason: string; detail: string; failureKind: VoiceFailureKind } | undefined;
 		const spent = attempts.get(jobId) ?? 0;
 		for (let tries = spent; tries < MAX_ATTEMPTS && !scheduler.stopped; tries += 1) {
 			attempts.set(jobId, tries + 1);
@@ -352,13 +339,18 @@ export default function (pi: ExtensionAPI) {
 					...(outcome.voice_check ? { voice_check: outcome.voice_check } : {}),
 					...(tries > spent ? { retried: true } : {}),
 				});
-				return true;
+				return "published";
 			}
 			last = outcome;
+			if (outcome.failureKind === "cancelled") return "cancelled";
+			if (outcome.failureKind === "unavailable" && tries + 1 < MAX_ATTEMPTS) {
+				await note({npc: handle, job_id: jobId, ok: false, reason: outcome.reason, detail: outcome.detail.slice(0, 200), deferred: true});
+				return "unavailable";
+			}
 		}
-		if (scheduler.stopped) return false;
+		if (scheduler.stopped) return "cancelled";
 		retired.add(jobId);
-		const failure = last ?? { reason: "lane_error", detail: "the lane never started" };
+		const failure = last ?? { reason: "lane_error", detail: "the lane never started", failureKind: "rejected" as VoiceFailureKind };
 		try {
 			await call("voice.fail", { campaign, job_id: jobId, reason: failure.reason, detail: failure.detail });
 		} catch (error) {
@@ -366,18 +358,18 @@ export default function (pi: ExtensionAPI) {
 				npc: handle, job_id: jobId, ok: false, reason: "lane_error",
 				detail: `voice.fail did not land either: ${errorText(error)}`,
 			});
-			return false;
+			return "unavailable";
 		}
 		await note({
 			npc: handle, job_id: jobId, ok: false, ms: Date.now() - began, model: modelLabel,
 			reason: failure.reason, detail: failure.detail.slice(0, 200), failed: true,
 		});
-		return false;
+		return failure.failureKind === "unavailable" ? "unavailable" : "rejected";
 	}
 
 	// ---- One dispatch -----------------------------------------------------
 
-	async function runJob(job: LaneJob): Promise<void> {
+	async function runJob(job: LaneJob): Promise<void | {deferred: true}> {
 		// Every backfill telemetry row carries `backfill: true`: writing at the table and filling holes stay apart.
 		const note = (row: Record<string, unknown>) =>
 			record(job.campaign, { ...(job.backfill ? { backfill: true } : {}), ...row });
@@ -395,6 +387,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		const modelLabel = `${model.model.provider}/${model.model.id}`;
+		const ticket = tickets.get(job) ?? new Set<string>(); tickets.set(job, ticket);
 
 		for (let dispatched = 0; dispatched < MAX_JOBS_PER_COMMIT && !scheduler.stopped; dispatched += 1) {
 			let packet: JobPacket;
@@ -402,6 +395,7 @@ export default function (pi: ExtensionAPI) {
 				packet = ((await current.call("voice.job", {
 					campaign: job.campaign,
 					...(job.backfill ? { backfill: true } : {}),
+					...(retired.size ? {exclude_jobs: [...retired].filter(id => id.startsWith(`voice:${job.campaign}:`)).slice(-128)} : {}),
 				})) ?? {}) as JobPacket;
 			} catch (error) {
 				await note({
@@ -418,6 +412,8 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			const handle = handleOf(packet, jobId);
+			if (!ticket.has(jobId) && ticket.size >= MAX_JOBS_PER_COMMIT) return;
+			ticket.add(jobId);
 			if (retired.has(jobId) || (attempts.get(jobId) ?? 0) >= MAX_ATTEMPTS) {
 				// A failed job is offered again (§40.5) and the kernel's order is fixed, so the same person
 				// would come back on every further ask: end the drain instead of spinning on them.
@@ -427,9 +423,11 @@ export default function (pi: ExtensionAPI) {
 				}
 				return;
 			}
-			// A person who could not be written is the end of this drain: their failed job is offered
-			// again, and burning the rest of the ceiling on a lane that is already failing helps nobody.
-			if (!await runPerson(packet, jobId, handle, job.campaign, current.call, note, modelLabel)) return;
+			// Rejected work advances through exact-generation exclusions; provider unavailability
+			// pauses this ticket before another person can consume the remaining allowance.
+			const outcome = await runPerson(packet, jobId, handle, job.campaign, current.call, note, modelLabel);
+			if (outcome === "cancelled") return;
+			if (outcome === "unavailable") {scheduler.pauseFor(UNAVAILABLE_COOLDOWN_MS); return {deferred: true};}
 		}
 	}
 }

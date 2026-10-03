@@ -23,6 +23,16 @@ import { KEYS, assertJobGeneration, buildPacket, fail, investigatorIdentity, nex
  *  contribute one, in load order. The frozen copy and the fallback are exactly what they were: an addendum is written
  *  against a current owner's words, and an owner that predates them keeps the lane it was written against. */
 const decode = (bytes: Uint8Array): string => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+/** Host-owned exclusions suppress only an exact current generation, never a person permanently. */
+function exclusions(params: Row): ReadonlySet<string> {
+    if (!Object.hasOwn(params, 'exclude_jobs')) return new Set();
+    const values = params.exclude_jobs;
+    if (!Array.isArray(values) || values.length > 128
+        || values.some(value => typeof value !== 'string' || !value.trim() || [...value].length > 512))
+        throw new RpcError('invalid_params', 'exclude_jobs must contain at most 128 nonempty job ids, each at most 512 characters',
+            { details: { field: 'exclude_jobs', reason: 'voice_job_exclusions' } });
+    return new Set(values);
+}
 async function laneInstruction(context: KernelContext, owner: VoiceOwner, world: Row, catalog: ModCatalog): Promise<string | undefined> {
     const manifest = row(owner.manifest), path = row(manifest.contributes).voice_lane;
     const files = manifest.files instanceof Map ? manifest.files as ReadonlyMap<string, Uint8Array> : undefined;
@@ -58,8 +68,9 @@ export function createVoiceHandlers(context: KernelContext, writer: ReturnType<t
     }
     return Object.freeze({
         'voice.job': async (params) => {
+            const excluded = exclusions(params);
             const { campaign, snapshot, module, owner, catalog } = await load(params), graph = module.graph;
-            const node = await nextPerson(campaign, graph, snapshot.world, owner, params.backfill === true);
+            const node = await nextPerson(campaign, graph, snapshot.world, owner, params.backfill === true, excluded);
             if (!node)
                 return { job_id: null };
             const ledger = await readNpcLedger(campaign), dossier = npcView(graph, snapshot.world, node, ledger);

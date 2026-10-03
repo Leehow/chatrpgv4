@@ -22,16 +22,35 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.ok(craft.includes('respond to the whole encounter, what was done as well as said'));
   assert.ok(craft.includes('Immediate danger takes priority over conducting business'));
   assert.ok(craft.includes('rather than automatically answering it as a request for information'));
-  assert.ok(craft.includes('Answer a genuine question directly when the situation permits, with natural connected speech'));
+  assert.ok(craft.includes('Answer a genuine question directly when the situation permits'));
+  assert.ok(craft.includes('and the NPC chooses to, with natural connected speech'));
   assert.equal(craft.includes('Answer the actual question first, with natural connected speech'), false);
+  const peopleAt = craft.indexOf('\n## The people here\n');
+  assert.ok(peopleAt >= 0, 'the full instruction keeps its people section');
+  const people = craft.slice(peopleAt, craft.indexOf('\n## ', peopleAt + 1));
   assert.ok(craft.includes('Same thought, two mouths'));
   assert.equal(craft.includes('do not begin with what the investigator did'), false);
-  assert.ok(craft.includes('The facts do not change; their patience does.'));
-  assert.ok(craft.includes('Sarcasm, contempt and insult land'));
+  assert.ok(craft.includes("Keep each person's facts and position"));
+  assert.ok(craft.includes('Repetition may test patience, persuade, clarify, or change nothing'));
+  assert.ok(craft.includes('Sarcasm, contempt and insult may colour what they offer next, but do not force offence'));
   // prose-mod-c (2026-09-26): two of fifteen turns narrated the investigator in the third person; both forms state the viewpoint.
   const brief = await readFile(new URL('../../mods/narration-craft/brief.md', import.meta.url), 'utf8');
   assert.ok(craft.includes('The investigator is always "you"'));
-  assert.ok(brief.includes('The investigator is always “you”'));
+  assert.ok(brief.includes('The investigator is “you”'));
+  assert.ok(brief.includes('never a name or he/she'));
+  // §40.9: full, brief, style axis, directive, floor and package description agree that people react to the whole
+  // encounter, and none keeps the unconditional answer-first priority under which a struck NPC still recited money and
+  // keys (2.1.8 run, turn 2); the description was left behind until 2.1.13.
+  // Each surface is found where it lives, so one that is renamed or dropped fails here instead of passing vacuously.
+  const style = JSON.parse(await readFile(new URL('../../mods/narration-craft/style.json', import.meta.url), 'utf8'));
+  const manifest = JSON.parse(await readFile(new URL('../../mods/narration-craft/mod.json', import.meta.url), 'utf8'));
+  const speak = style.directives['speak-in-person'] ?? {};
+  const surfaces = {full: people, brief, axes: style.axes.join('\n'), 'directive full': speak.full, 'directive brief': speak.brief,
+    floor: style.floor.find(line => line.startsWith('voice:')), description: manifest.description?.en};
+  for (const [surface, text = ''] of Object.entries(surfaces)) {
+    assert.match(text, /\breacts?\b/i, `§40.9: the ${surface} has people react to the whole encounter`);
+    assert.doesNotMatch(text, /\banswers?\b[^.;\n]*\b(?:first|what was (?:actually )?said)\b/i, `§40.9: the ${surface} still ranks answering what was said first`);
+  }
   assert.equal(craft.includes('as a writer writes'), false);
   assert.ok(prompt.includes('Address every player-controlled investigator in the second person'));
   assert.ok(prompt.includes('Words the player directly spoke are already their part of the conversation'));

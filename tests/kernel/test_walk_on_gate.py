@@ -9,6 +9,8 @@ and his lines onto a duplicate and the same man ended the session with two ledge
 Steven Knott is this fixture's 王铁柱: present in the opening and never named to the player.
 """
 
+import json
+
 from conftest import RpcClient, campaign_dir, open_turn, read_json
 
 KNOTT = "Steven Knott"
@@ -116,8 +118,11 @@ def test_one_word_given_to_two_people_is_refused_not_picked(tmp_path):
     client = RpcClient(tmp_path / "ws")
     try:
         open_turn(client)
-        client.table("apply", call_id="t1-c1", effects=[
-            {"kind": "person", "who": KNOTT, "name": "那个人"}, {"kind": "person", "who": "Walter Corbitt", "name": "那个人"}])
+        # A table written before §103.7, which now refuses a second person the same word: the record is put in place.
+        path = campaign_dir(client.workspace) / "world.json"
+        state = read_json(path)
+        state.setdefault("person_labels", {}).update({"steven-knott": {"name": "那个人"}, "walter-corbitt": {"name": "那个人"}})
+        path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         refused = client.table_err("apply", call_id="t1-c2", effects=[{"kind": "npc", "name": "那个人", "stance": "wary", "why": "x"}])
         assert refused["code"] == "unknown_entity"
         assert sorted(candidate["name"] for candidate in refused["details"]["candidates"]) == ["steven-knott", "walter-corbitt"]

@@ -39,7 +39,8 @@ export function isServiceNoticeRow(row: unknown): boolean {
  *
  * - A `coc-mechanics` card counts when it carries delivery prose: a non-blank `marked_text` or
  *   `rendered_text`, the two fields `pipicoc/mechanics.js` draws as prose. A mechanics-only card
- *   (a roll or clue card, the §50 settled-without-delivery card) does not.
+ *   (a roll or clue card, the §50 settled-without-delivery card) does not. A §171 draft, the
+ *   delivery drawn while it streams, counts as `draft`.
  * - A host-placed row (`placedByHost`, §83) counts unless its row is a service notice.
  * - Assistant text: a non-blank delta is a candidate that counts only if `message_end` keeps it; a
  *   replacement counts at once when it carries non-blank text and never when it carries none.
@@ -55,8 +56,9 @@ export function proseArrival(event: unknown, row?: unknown): ProseArrival | unde
   if (isRecord(entry.presentation)) {
     if (entry.presentation.renderer !== "coc-mechanics") return undefined;
     const details = isRecord(entry.presentation.details) ? entry.presentation.details : {};
+    // §171: a draft is the delivery drawn while its arguments stream; the player reads it from its first draw.
     return nonBlank(details.marked_text) || nonBlank(details.rendered_text)
-      ? { kind: "prose", via: "mechanics" }
+      ? { kind: "prose", via: details.draft === true ? "draft" : "mechanics" }
       : undefined;
   }
   if (entry.placedByHost === true && nonBlank(entry.content) && !isServiceNoticeRow(row)) {

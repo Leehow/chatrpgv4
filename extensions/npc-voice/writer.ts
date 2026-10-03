@@ -3,13 +3,15 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HostRuntime } from "../../runtime/host.ts";
+export type VoiceFailureKind = "rejected" | "unavailable" | "cancelled";
 
 export async function writeVoice<T>(options: {
 	runtime: HostRuntime; jobId: string; model: string; pinned?: boolean; systemPrompt: string; input: string;
 	signal: AbortSignal; shape: (parsed: unknown) => T | undefined;
-}): Promise<{ ok: true; value: T; model: string; cwd: string } | { ok: false; reason: string; detail: string }> {
+}): Promise<{ ok: true; value: T; model: string; cwd: string } | { ok: false; reason: string; detail: string; failureKind: VoiceFailureKind }> {
 	const { runtime, signal } = options;
 	let cwd: string | undefined;
+	let failureKind: VoiceFailureKind = "unavailable";
 	try {
 		if (signal.aborted) throw new Error("Voice writing was cancelled");
 		const key = createHash("sha256").update(options.jobId).digest("hex");
@@ -29,6 +31,7 @@ export async function writeVoice<T>(options: {
 		await writeFile(join(cwd, "attempt.json"), JSON.stringify(outcome, null, 2));
 		if (signal.aborted) throw new Error("Voice writing was cancelled");
 		if (!outcome.ok) throw new Error(outcome.error || outcome.stderr || "Voice writer did not finish successfully");
+		failureKind = "rejected";
 		const value = options.shape(JSON.parse(await readFile(join(cwd, "draft.json"), "utf8")));
 		if (value === undefined) throw new Error("The voice artifact has an invalid shape");
 		const modelIndex = outcome.command.indexOf("--model");
@@ -37,6 +40,6 @@ export async function writeVoice<T>(options: {
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
 		if (cwd) await writeFile(join(cwd, "failure.json"), JSON.stringify({ detail, cancelled: signal.aborted })).catch(() => undefined);
-		return { ok: false, reason: "model_error", detail };
+		return { ok: false, reason: "model_error", detail, failureKind: signal.aborted ? "cancelled" : failureKind };
 	}
 }
