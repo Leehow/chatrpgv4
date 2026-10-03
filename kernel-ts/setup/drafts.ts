@@ -63,7 +63,14 @@ export class SetupDrafts {
     if (!nonempty(profile.sex)) issues.push('sex is required; draft the words the player used or your best reading, in the play language — the player corrects it on the card');
     const raw = profile.backstory, story = row(raw);
     if (!isJsonObject(raw) || Object.keys(story).some(key => ![...BACKSTORY, 'scenario_bound'].includes(key))) issues.push('backstory must use the declared categories');
-    else if (BACKSTORY.filter(key => nonempty(story[key])).length < 3 || !nonempty(story.scenario_bound)) issues.push('supply 3-6 backstory categories and scenario_bound');
+    else {
+        if (BACKSTORY.filter(key => nonempty(story[key])).length < 3) issues.push('supply 3-6 backstory categories');
+        // Table 21 (2026-10-03): the Keeper sent `scenario_bound: true` four times against "supply ... scenario_bound" and gave
+        // up on the card. The issue says what the field is.
+        if (!nonempty(story.scenario_bound)) issues.push(typeof story.scenario_bound === 'boolean'
+            ? 'scenario_bound is prose, not true or false: a sentence in the play language on what ties them to this scenario'
+            : 'supply scenario_bound: a sentence in the play language on what ties them to this scenario');
+    }
     if (!nonempty(story.personal_description)) issues.push('personal_description is required; supply visible appearance in the player language');
     const key = truth(profile.key_connection) ? profile.key_connection : {};
     if (!isJsonObject(key) || !BACKSTORY.includes(key.backstory_field as string) || !nonempty(key.summary) || !nonempty(story[string(key.backstory_field)])) issues.push('key_connection needs backstory_field and summary referring to a populated category');

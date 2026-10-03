@@ -129,7 +129,7 @@ list to eight and tells you what it added), interest_skills (a few concrete name
 priority order), own_language (the tongue the player gave; when they gave none, the
 one their life as the player described it is lived in -- where they live and work --
 never one read from their name), backstory (personal_description
-plus 2-5 other categories and scenario_bound), key_connection {backstory_field,
+plus 2-5 other categories and scenario_bound, a sentence on what ties them to this scenario), key_connection {backstory_field,
 summary}, equipment (ordinary item names), weapons (names; one the rules tables print
 becomes a weapon profile, any other is kept as equipment and the result says so; a
 weapon the player named that plays by a printed profile is written {name, profile},

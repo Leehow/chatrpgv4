@@ -156,6 +156,20 @@ def test_pending_action_must_come_from_actual_player_input(kernel):
     assert handoff["prologue"]["pending_action"] == "I will inspect the door"
 
 
+def test_scenario_bound_is_a_sentence_and_the_issue_says_so(kernel):
+    """Table 21 (2026-10-03): `scenario_bound: true` refused four times as "supply ... scenario_bound"; the card was given up."""
+    kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
+    flagged = profile()
+    flagged["backstory"]["scenario_bound"] = True
+    issues = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": flagged})["details"]["issues"]
+    assert any(issue.startswith("scenario_bound is prose, not true or false") for issue in issues), issues
+    assert not any("backstory categories" in issue for issue in issues), "three categories are there"
+    missing = profile()
+    missing["backstory"].pop("scenario_bound")
+    issues = kernel.err("setup.draft", {"campaign": CAMPAIGN, "profile": missing})["details"]["issues"]
+    assert any(issue.startswith("supply scenario_bound: a sentence") for issue in issues), issues
+
+
 def test_new_draft_requires_appearance_and_preserves_it_across_skill_changes(kernel):
     kernel.ok("campaign.create", {"id": CAMPAIGN, "module": "the-haunting", "play_language": "en"})
     missing = profile()
