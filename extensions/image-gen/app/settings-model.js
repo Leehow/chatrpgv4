@@ -4,9 +4,19 @@
  * branch into <agentDir>/image-model.json — the file the agent reads per generation call.
  *
  * Loaded as a data: module (no relative imports), so the image-family predicate below mirrors
- * the closed vendor map in ../agent/vendors.js routeByModelId. Keep the two in sync; the map is
- * a closed word list (contract enum), not a semantic classifier.
+ * the closed vendor map in ../agent/vendors.js routeByModelId, and the Codex ref mirrors
+ * ../agent/codex.js CODEX_MODEL_REF. Keep them in sync; the map is a closed word list
+ * (contract enum), not a semantic classifier.
  */
+const CODEX_MODEL_REF = "openai-codex/gpt-image-2";
+
+/** The Automatic row's subtitle per autoRoute (contract §172.6, a closed enum). */
+const AUTO_ROUTE_SUBTITLES = {
+  codex: "OpenAI Codex is signed in on a paid plan; it generates by default",
+  "grok-build": "grok-build is signed in; it generates by default",
+  none: "No model selected; OpenAI Codex (paid plan) or grok-build is used once signed in",
+};
+
 function isImageModelId(modelId) {
   const id = String(modelId ?? "").toLowerCase();
   if (!id) return false;
@@ -52,15 +62,27 @@ export function createComponent(React) {
 
     const current = state && typeof state.current === "string" ? state.current : null;
     const grokDefault = Boolean(state && state.grokDefault);
+    const autoRoute = state && typeof state.autoRoute === "string" && AUTO_ROUTE_SUBTITLES[state.autoRoute]
+      ? state.autoRoute
+      : grokDefault ? "grok-build" : "none";
+    const codexSignedIn = Boolean(state && state.codexSignedIn);
     const rows = [
       {
         key: "auto",
         title: "Automatic",
-        subtitle: grokDefault ? "grok-build is signed in; it generates by default" : "No model selected; grok-build is used once signed in",
+        subtitle: AUTO_ROUTE_SUBTITLES[autoRoute],
         selected: current === null,
         pick: () => void choose("clear"),
       },
-      ...models.map((model) => {
+      // Pi's Codex catalog has no image model, so the Codex row is synthesized from the login.
+      ...(codexSignedIn ? [{
+        key: CODEX_MODEL_REF,
+        title: "Codex (gpt-image-2)",
+        subtitle: CODEX_MODEL_REF,
+        selected: current === CODEX_MODEL_REF,
+        pick: () => void choose("set", CODEX_MODEL_REF),
+      }] : []),
+      ...models.filter((model) => `${model.provider}/${model.id}` !== CODEX_MODEL_REF).map((model) => {
         const ref = `${model.provider}/${model.id}`;
         return {
           key: ref,
@@ -91,6 +113,6 @@ export function createComponent(React) {
             h("span", { className: "model-row-id" }, row.subtitle),
             row.selected ? h("span", { className: "model-row-current" }, "Current") : null)))
         : h("div", { className: "model-modal-state" },
-            "No image-capable models in Model Management yet. Sign in an image-capable provider there (for example grok-build), then come back."));
+            "No image-capable models in Model Management yet. Sign in an image-capable provider there (for example OpenAI Codex or grok-build), then come back."));
   };
 }

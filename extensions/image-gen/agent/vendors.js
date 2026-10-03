@@ -1,12 +1,15 @@
 /**
  * Vendor fallback adapters for image_gen / image_edit.
  *
- * Routing is a closed mapping on the model id (no semantic classification):
- * the vendor families this extension knows how to call, keyed by a substring
- * of the configured model id. Every adapter takes
+ * Routing takes `(provider, modelId)` (contract §172.3): Pi's `openai-codex`
+ * provider goes to the Codex adapter; every other provider keeps a closed
+ * mapping on the model id (no semantic classification): the vendor families
+ * this extension knows how to call, keyed by a substring of the configured
+ * model id. Every adapter takes
  *
- *   req   = { kind: "gen" | "edit", prompt, aspectRatio?, images: dataUrl[] }
+ *   req   = { kind: "gen" | "edit", prompt, aspectRatio?, images: dataUrl[], model }
  *   creds = { apiKey, baseUrl, headers }   (from ctx.modelRegistry, never auth.json)
+ *           { apiKey, accountId }          (codex: the openai-codex token and its account claim)
  *   opts  = { fetchImpl?, signal?, pollIntervalMs? }
  *
  * and resolves to `{ bytes, mime, model }`. Bearer credentials go over HTTPS
@@ -15,7 +18,10 @@
  * defensive: where a vendor documents both b64 and URL result fields, both
  * are accepted.
  */
+import { arch, platform, release } from "node:os";
+import { randomUUID } from "node:crypto";
 import { sniffImageMime } from "../../grok-build-oauth/agent/images/client.js";
+import { CODEX_BASE_URL, CODEX_IMAGE_MODEL, CODEX_ORIGINATOR, CODEX_PROVIDER } from "./codex.js";
 
 export const VENDOR_DEFAULT_BASE_URLS = Object.freeze({
 	openai: "https://api.openai.com",
@@ -48,6 +54,16 @@ export function routeByModelId(modelId) {
 		throw new Error(`image model "${modelId}" is an Imagen model; Vertex predict is not supported by this extension. Supported families: ${SUPPORTED_FAMILIES}.`);
 	}
 	throw new Error(`no image-generation adapter knows the model "${modelId}". Supported families: ${SUPPORTED_FAMILIES}.`);
+}
+
+/**
+ * The provider-aware router: provider `openai-codex` is the Codex adapter, every
+ * other provider (or none) keeps the closed model-id map, in which `gpt-image`
+ * still means the OpenAI Images API.
+ */
+export function routeImageModel(provider, modelId) {
+	if (provider === CODEX_PROVIDER) return "codex";
+	return routeByModelId(modelId);
 }
 
 const DEFAULT_TIMEOUT_MS = 300_000;
@@ -361,7 +377,115 @@ async function dashScopeAsyncAdapter(req, creds, opts) {
 	throw new Error("the DashScope image task did not finish in time");
 }
 
+const CODEX_MAX_EDIT_IMAGES = 5;
+
+/**
+ * The server ignores `size` and `quality` (§172.8), so the orientation travels in
+ * the prompt: one fixed sentence per closed ratio set (the OpenAI adapter's), the
+ * caller's ratio string verbatim; nothing for an auto or absent ratio.
+ */
+function codexRatioPrefix(aspectRatio) {
+	if (!aspectRatio || aspectRatio === "auto") return "";
+	if (PORTRAIT_RATIOS.has(aspectRatio)) return `Vertical portrait-orientation image, ${aspectRatio} aspect ratio, taller than wide. `;
+	if (LANDSCAPE_RATIOS.has(aspectRatio)) return `Horizontal landscape-orientation image, ${aspectRatio} aspect ratio, wider than tall. `;
+	return "Square image, 1:1 aspect ratio. ";
+}
+
+/** Pi's own User-Agent shape for Codex traffic. */
+function codexUserAgent() {
+	return `pi (${platform()} ${release()}; ${arch()})`;
+}
+
+/** Response text for an error line, with the bearer token cut out should the server echo it. */
+function redactToken(text, token) {
+	return token ? text.split(token).join("[redacted]") : text;
+}
+
+/**
+ * A 429 whose body says `usage_limit_reached` is the quota (§172.7): stable code,
+ * `resets_at` carried when present, the active-limit header reported verbatim
+ * (limit ids are never matched against a list).
+ */
+function codexHttpError(res, raw, token) {
+	let parsed;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		parsed = undefined;
+	}
+	if (res.status === 429 && parsed?.error?.type === "usage_limit_reached") {
+		const limit = res.headers?.get?.("x-codex-active-limit") ?? undefined;
+		const resetsAt = parsed.error.resets_at;
+		const when = typeof resetsAt === "number" && Number.isFinite(resetsAt)
+			? new Date(resetsAt * 1000).toISOString()
+			: resetsAt;
+		const error = new Error(
+			`the Codex image quota is exhausted${limit ? ` (limit: ${limit})` : ""}`
+			+ (when !== undefined && when !== null ? `; it resets at ${when}` : "")
+			+ " — wait for the reset or choose another image model",
+		);
+		error.code = "image_quota_exhausted";
+		if (resetsAt !== undefined && resetsAt !== null) error.resets_at = resetsAt;
+		if (limit) error.limit = limit;
+		return error;
+	}
+	const text = redactToken([...raw].slice(0, 200).join(""), token);
+	return new Error(`image request failed HTTP ${res.status}: ${text}`);
+}
+
+/**
+ * Codex image generation on the player's ChatGPT subscription (§172.4): one
+ * synchronous JSON request to chatgpt.com/backend-api; edits carry their
+ * references as data URLs in the same JSON shape (never multipart).
+ */
+async function codexAdapter(req, creds, opts) {
+	const token = creds.apiKey;
+	if (!token) throw new Error("missing the OpenAI Codex token");
+	if (!creds.accountId) throw new Error("missing the ChatGPT account id for the Codex image request");
+	const fetchImpl = opts.fetchImpl ?? fetch;
+	const body = {
+		prompt: `${codexRatioPrefix(req.aspectRatio)}${req.prompt}`,
+		model: CODEX_IMAGE_MODEL,
+		background: "auto",
+		// The fixed values Codex CLI sends; the server picks quality and size itself.
+		quality: "auto",
+		size: "auto",
+	};
+	let path = "/codex/images/generations";
+	if (req.kind === "edit") {
+		if (!req.images.length) throw new Error("image_edit needs at least one reference image");
+		if (req.images.length > CODEX_MAX_EDIT_IMAGES) {
+			throw new Error(`the Codex image edit takes at most ${CODEX_MAX_EDIT_IMAGES} reference images (got ${req.images.length})`);
+		}
+		path = "/codex/images/edits";
+		body.images = req.images.map((dataUrl) => ({ image_url: dataUrl }));
+	}
+	const res = await fetchImpl(`${ensureHttps(CODEX_BASE_URL, "Codex base URL")}${path}`, {
+		method: "POST",
+		headers: {
+			"Authorization": `Bearer ${token}`,
+			"ChatGPT-Account-ID": creds.accountId,
+			"originator": CODEX_ORIGINATOR,
+			"User-Agent": codexUserAgent(),
+			"x-codex-image-turn-id": randomUUID(),
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(body),
+		signal: combinedSignal(opts.signal, DEFAULT_TIMEOUT_MS),
+	});
+	if (!res.ok) throw codexHttpError(res, await res.text().catch(() => ""), token);
+	const json = await res.json().catch(() => {
+		throw new Error("could not parse the Codex image response as JSON");
+	});
+	const b64 = Array.isArray(json?.data) ? json.data[0]?.b64_json : undefined;
+	if (typeof b64 !== "string" || !b64.trim()) throw new Error("the Codex image response is missing data[0].b64_json");
+	const bytes = Buffer.from(b64.replace(/\s+/g, ""), "base64");
+	if (bytes.byteLength === 0) throw new Error("the Codex image response contained empty b64_json data");
+	return { bytes, mime: sniffImageMime(bytes), model: CODEX_IMAGE_MODEL };
+}
+
 export const VENDOR_ADAPTERS = Object.freeze({
+	codex: codexAdapter,
 	openai: openaiAdapter,
 	xai: xaiAdapter,
 	ark: arkAdapter,
