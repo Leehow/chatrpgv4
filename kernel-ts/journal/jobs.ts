@@ -30,10 +30,11 @@ const instruction = (language: string) => 'Write an entry only for someone who t
     'numbers, receipts or any machine key. Names listed under unnamed belong to people the player has not been told ' +
     'the name of: the prose has only described them. A recordable person listed with an epithet is called that at this ' +
     'table: tell who is who in the prose by it, and give them no label, because the epithet is their label. For anyone ' +
-    'else unnamed give label, a short phrase in the play language saying how the player would know them, built from ' +
-    'the one visible thing only this person has here (something they carry or wear, a mark, a habit, the job they are ' +
-    'doing), never age, height, build or sex alone, carrying no part of the name and no label another person already ' +
-    "has; the description and the exchange must not name them either. If someone in this turn's narrative actually " +
+    'else unnamed give label, a nickname in the play language: the one visible thing only this person has here ' +
+    '(something they carry or wear, a mark, a habit, the job they are doing) and at most a word for who they are, like ' +
+    "'the oily-rag owner' or 'the bad-teeth trucker' -- one thing, not a list and not a sentence; never age, height, " +
+    'build or sex alone, no part of the name and no label another person already has. The description says the rest. ' +
+    "The description and the exchange must not name them either. If someone in this turn's narrative actually " +
     "said or showed the player this person's name, in any spelling, give named: true with named_quote -- the exact " +
     "words of the prose or the spoken line that gave it, copied character for character -- instead of a label. " +
     'Having appeared, acted or been described is not being named: without such words, give a label. Someone not ' +
