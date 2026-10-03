@@ -71,8 +71,19 @@ function word(effect: Row, field: string): string | null {
     return trimmed;
 }
 
+/** The fields a person effect carries (extensions/kernel/tools.ts `PersonEffect`, plus `owed` on any effect); `_` keys are the host's. */
+const PERSON_FIELDS = ['kind', 'who', 'name', 'address', 'why', 'intent_ref', 'intent_outcome', 'owed'];
+
 export async function stagePerson(context: ApplyContext, effect: Row): Promise<{ receipt: Row; event: DomainEvent }> {
     const { world, callId, turn, ordinal } = context;
+    // §103.7: a field the effect does not have was dropped without a word. Table 16 (2026-10-03): the Keeper put the epithet
+    // in `label` and the handle in `name`, and the handle became what the table calls the person.
+    const unknown = Object.keys(effect).filter(key => !key.startsWith('_') && !PERSON_FIELDS.includes(key));
+    if (unknown.length)
+        throw new RpcError('invalid_params', `a person effect has no field ${unknown.map(key => repr(key)).join(', ')}`, {
+            fix: "the word this table calls them goes in name (for someone untold, their epithet); how they are spoken to goes in address; who is the person it is about",
+            details: { fields: unknown },
+        });
     const person = await personOf(context, required(effect, 'who'), effect);
     const name = word(effect, 'name'), address = word(effect, 'address');
     const why = typeof effect.why === 'string' && effect.why.trim() ? effect.why.trim() : null;
@@ -83,6 +94,12 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
         });
     // An investigator's name is the player's, written on the sheet, already in the play language.
     // A second record for it is exactly the defect §76 closed: one fact, one place it lives.
+    // §103.7: a handle is for tool calls; it is not a word the table calls anyone.
+    if (name != null && context.graph.kind('npc').some(node => context.graph.handle(node) === name))
+        throw new RpcError('invalid_params', `${repr(name)} is a handle, not what the table calls anyone`, {
+            fix: "name is the word the prose calls them, in the play language: for someone untold, an epithet built from the one visible thing only they have here",
+            details: { field: 'person.name', name },
+        });
     if (name != null && person.is_investigator === true)
         throw new RpcError('invalid_params', `${person.name} carries their own name on their sheet`, {
             fix: 'set address for how they are spoken to; a name a player chose is not renamed at the table',

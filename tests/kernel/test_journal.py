@@ -394,6 +394,35 @@ def test_the_lane_is_told_what_the_table_calls_each_person(kernel):
     assert "listed with an epithet" in packet["instruction"]
 
 
+def test_a_handle_is_not_what_the_table_calls_anyone(kernel):
+    """§103.7. Installed App, table 16 (2026-10-03): the Keeper sent apply person {who: <handle>, name: <handle>,
+    label: <the epithet>}. The kernel dropped `label` without a word and wrote the handle as what the table calls the man,
+    and the journal then labelled him with it on the player's card."""
+    open_turn(kernel, "我看着他。")
+    own = kernel.table_err("apply", call_id="t1-c1", effects=[{"kind": "person", "who": KNOTT, "name": "steven-knott"}])
+    assert own["code"] == "invalid_params" and own["details"]["field"] == "person.name" and "epithet" in own["fix"]
+    other = kernel.table_err("apply", call_id="t1-c2", effects=[{"kind": "person", "who": KNOTT, "name": "walter-corbitt"}])
+    assert other["code"] == "invalid_params" and other["details"]["field"] == "person.name"
+    stray = kernel.table_err("apply", call_id="t1-c3", effects=[
+        {"kind": "person", "who": "steven-knott", "name": "steven-knott", "label": "擦汗的房东"}])
+    assert stray["code"] == "invalid_params" and stray["details"]["fields"] == ["label"] and "goes in name" in stray["fix"]
+    # A table that already holds one names nobody by it: not the capsule, not the journal's packet, not the card.
+    path = campaign_dir(kernel.workspace) / "world.json"
+    state = read_json(path)
+    state.setdefault("person_labels", {})["steven-knott"] = {"name": "steven-knott"}
+    path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    knott = next(p for p in kernel.table("capsule")["present"] if p["name"] == KNOTT)
+    assert "called" not in knott and "label" not in knott["untold"], knott
+    narrate(kernel, "t1-c4", "房东擦了擦汗。")
+    packet = kernel.ok("journal.job", {"campaign": CAMPAIGN, "turn": 1, "mode": "referenced"})
+    assert packet["recordable"] == [{"alias": "person:0", "name": KNOTT}]
+    kernel.ok("journal.submit", {"campaign": CAMPAIGN, "job_id": packet["job_id"], "protocol": packet["protocol"],
+                                 "selection_binding": packet["selection_binding"],
+                                 "entries": [{"person": "person:0", "label": "擦汗的房东", "description": "满头大汗的男人。"}]})
+    [card] = kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"]
+    assert card["name"] == "擦汗的房东" and card["named"] is False
+
+
 def test_untold_starts_at_opening_without_a_journal(kernel):
     create_campaign(kernel)
     kernel.table("open")

@@ -43,7 +43,15 @@ export const sceneLabel = (graph: ModuleGraph, world: Row, scene: Row): string =
  * player establishes in play and every speaker at the table then owes. Both are recorded, never
  * inferred: nothing here reads a name to decide anything about the person who carries it.
  */
-export const personRecord = (world: Row, id: string): Row => row(row(world.person_labels)[id]);
+export const personRecord = (world: Row, id: string): Row => {
+    const record = row(row(world.person_labels)[id]);
+    // §103.7: a record whose name is the person's own handle names nobody. Installed App, table 16 (2026-10-03): the
+    // Keeper sent apply person {who: <handle>, name: <handle>, label: <the epithet>}; the handle then stood on the card and
+    // in the capsule as what the table calls them. `apply person` now refuses it; this keeps a table that already holds one.
+    if (string(record.name) !== id) return record;
+    const { name: _handle, ...rest } = record;
+    return rest;
+};
 /**
  * Whose name at this table `name` is (§79.2): every id whose record carries this word as `name`,
  * by the normalization every other name lookup uses. The table's word for a person is one of that
