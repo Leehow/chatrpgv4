@@ -424,11 +424,15 @@ test("§32.12: a clerk move the compile selected is admitted without the fast pa
 
 // ---- SL-21: the gate #7 shape -- the check carries the book's meeting, then binds ----------------------------------------
 
-/** Turn 1 walked into the morgue and closed; Arty is the book's gatekeeper there and not yet on stage. */
+/**
+ * Turn 1 walked into the morgue and closed; Arty is the book's gatekeeper there and not yet on stage. The journal lane
+ * labelled him after turn 1, as it does at a table: the clerk carries his meeting only under that label (§103.8 item 5).
+ */
 const movedIn = (workspace) => kernelSteps(workspace, [
 	["table.open", {}], ["table.player_input", { text: "我去《环球报》报馆" }],
 	["table.apply", { call_id: "t1-c1", effects: [{ kind: "move", to: MORGUE }] }],
 	["table.narrate", { call_id: "t1-c2", text: "报馆里油墨味很重。" }],
+	["journal.submit", { job_id: "journal:test-camp:t1", entries: [{ name: "Arty Wilmot", label: "城市版编辑" }] }],
 ]);
 /** The gate #7 compile: the demand at 0.91; Arty as the addressee at 0.51 (0.63 against unclear 0.35: the margin rule); social. */
 const gate7Compile = (question) => isAskRow(question) ? [askWords(question)?.demand ? "yes" : "no", 0.91]
