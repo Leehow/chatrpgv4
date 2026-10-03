@@ -44,9 +44,7 @@ import { bindWorkpadPatch, publishWorkpadPatch, takeWorkpadPatch, type WorkpadBi
 import { workpadStoreRoot } from '../table/workspace/workpad-store.ts';
 import { createHash, randomUUID } from "node:crypto";
 import { type CommitPayload, runVerifierLane } from "./verifier.ts";
-import { disableStepThinking, isFirstStepOfTurn } from "./first-step-thinking.ts";
-/** §172.1: the Keeper's reads; any other call writes. */
-const STEP_READS = new Set(["look", "lookup", "recall"]);
+import { disableStepThinking, isFirstStepOfTurn, STEP_READS } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { deliveryProse, isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";

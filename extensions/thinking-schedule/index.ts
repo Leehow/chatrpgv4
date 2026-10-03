@@ -1,14 +1,17 @@
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { cocMode } from "../lanes/host.ts";
+import { STEP_READS } from "../kernel/first-step-thinking.ts";
 
 const DELIVERY_TOOLS = new Set(["narrate", "ask"]);
 const FOLLOW_UP_LEVEL: ThinkingLevel = "off";
 
 /**
- * Keep the table's chosen thinking level for the first model request, then ask Pi for the
- * lowest supported level after a non-delivery tool batch. Pi owns capability clamping: requesting
- * `off` becomes `minimal` or `low` when a model's catalog exposes no true off level.
+ * Keep the table's chosen thinking level until the Keeper's first writing tool batch, then ask Pi
+ * for the lowest supported level. A batch of reads only (contract §172.1) buys no lower level: the
+ * step after it is usually the one that writes the epithets, the moods and the prose (§172). Pi owns
+ * capability clamping: requesting `off` becomes `minimal` or `low` when a model's catalog exposes no
+ * true off level.
  */
 export default function thinkingSchedule(pi: ExtensionAPI): void {
 	if (cocMode() !== "play") return;
@@ -40,6 +43,7 @@ export default function thinkingSchedule(pi: ExtensionAPI): void {
 			.filter((block) => block.type === "toolCall")
 			.map((block) => block.name);
 		if (toolNames.length === 0 || toolNames.some((name) => DELIVERY_TOOLS.has(name))) return;
+		if (toolNames.every((name) => STEP_READS.has(name))) return;
 
 		const current = pi.getThinkingLevel();
 		// Respect an explicit level change made while the first tool batch was running.
