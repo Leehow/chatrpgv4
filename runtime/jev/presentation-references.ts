@@ -186,10 +186,12 @@ export function validatePresentationReferenceShape(value:unknown, sources:readon
         }
         if (seen.length !== protectedTokens.length || new Set(seen).size !== seen.length || protectedTokens.some(alias => !seen.includes(alias)))
             throw new Error('Incomplete presentation reference artifact');
-        if (options.protectedSyntax && 'pieces' in source) {
+        if ('pieces' in source) {
             const values = new Map(source.pieces.flatMap(piece => 'token' in piece ? [[piece.token,piece.value] as const] : []));
             const materialized = operation.pieces.map((piece:Record<string,string>) => 'text' in piece ? piece.text : values.get(piece.token) ?? '').join('');
-            if (!sameBraces(materialized,sourceOriginal(source))) throw shapeError(`${source.alias}: ${BRACE_RULE}`);
+            // §23.3 decision 4: the host refuses an unchanged translation, so the run hears it here first.
+            if (materialized === sourceOriginal(source)) throw shapeError(`${source.alias}: the translation is its source unchanged: answer keep for it`);
+            if (options.protectedSyntax && !sameBraces(materialized,sourceOriginal(source))) throw shapeError(`${source.alias}: ${BRACE_RULE}`);
         }
     }
 }

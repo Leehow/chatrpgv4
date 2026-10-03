@@ -5219,6 +5219,17 @@ outside any placeholder, which no caption has today, keeps its count.
   row's error.
 - Catalogs issued without protected syntax (map, character, document) are unchanged: a brace there is text.
 
+**4. The run's checker refuses an unchanged translation, as the host does.** Found by the first live run of this
+section (decision 2, a tag with no seed): ask 13 held `{family} {transition}` (`extension.receipt_session`), a caption
+made only of placeholders. The model answered it `translate` with the source's own pieces in the source's order.
+`check.mjs` printed "Presentation valid", the host's acceptance refused the row ("Use keep when the source needs no
+change"), the second round was told only the alias and gave the same answer, and the projection failed with 391
+captions unprojected. The run's checker already refused an unchanged `text` translation; it did not compare a pieces
+translation with its source. Now it materializes every pieces translation and refuses one equal to its source, with the
+detail "`<alias>`: the translation is its source unchanged: answer keep for it", which `check.mjs` prints. What the host
+refuses for a shape the checker can see, the checker refuses first, so a run is never told "valid" for an answer that
+will cost it the round. The host's acceptance is unchanged: an unchanged translation is still not accepted as `keep`.
+
 *Tests* (each fails on the code before this change):
 
 - `tests/extension/ui-presentation.test.mjs`:
@@ -5233,6 +5244,8 @@ outside any placeholder, which no caption has today, keeps its count.
   - the checker refuses `{JSON}` (a notation token between generated braces), an invented `{n}` and a placeholder
     token between generated braces, naming the alias in the message, and accepts a translation with its source's
     braces; the host's acceptance refuses the same rows and leaves an unprotected catalog's braces alone.
+  - the checker refuses `{family} {transition}` answered `translate` with its own pieces, naming the alias and `keep`,
+    and accepts it answered `keep` or reordered.
 - `tests/extension/ui-presentation-context.test.mjs`: this build's zh-Hans seed with one `mechanics` key dropped is
   asked exactly that key's caption (it was asked every caption).
 

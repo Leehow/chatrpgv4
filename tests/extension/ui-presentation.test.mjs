@@ -439,3 +439,21 @@ test("UI source, seed and cache bypasses require no runner or attempt directory"
 	assert.equal(cached.texts.sheet.refresh, "<Refresh>");
 	assert.deepEqual(await readdir(join(home, ".coc/ui-words/attempts")), attempts);
 });
+
+test("the run's checker refuses an unchanged pieces translation, as the host does (§23.3, decision 4)", () => {
+	// Ask 13 of the first live run: a caption made only of placeholders, answered `translate` with its
+	// own pieces. check.mjs said valid, the host refused the row, and the projection failed twice over.
+	const catalog = issuePresentationReferences(["{family} {transition}"], { protectSyntax: true });
+	const [session] = catalog.sources;
+	const [family, transition] = session.pieces.filter(piece => "token" in piece).map(piece => piece.token);
+	const answer = row => ({ protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: [row] });
+	const unchanged = answer({ source: session.alias, action: "translate", pieces: [{ token: family }, { text: " " }, { token: transition }] });
+	assert.throws(() => validateUiPresentation(unchanged, catalog.sources), error => error.code === "preparation_failed"
+		&& error.message.includes(session.alias) && /\bkeep\b/.test(error.message));
+	assert.deepEqual(acceptedUiTexts(unchanged, catalog), {}, "the host refuses it too");
+	for (const row of [{ source: session.alias, action: "keep" },
+		{ source: session.alias, action: "translate", pieces: [{ token: transition }, { text: " / " }, { token: family }] }]) {
+		assert.doesNotThrow(() => validateUiPresentation(answer(row), catalog.sources));
+		assert.equal(Object.keys(acceptedUiTexts(answer(row), catalog)).length, 1);
+	}
+});
