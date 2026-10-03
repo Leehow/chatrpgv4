@@ -42,6 +42,56 @@ function mount(h, runJob, onError = async () => {}, backfillEnv = ENV) {
 	return createLaneQueue(h.pi, { backfillEnv, runJob, onError });
 }
 
+test("a queue cooldown defers work, resumes it, and shutdown cancels the wake", async t => {
+	budget(t, "0");
+	const h = host(), jobs = [];
+	const queue = mount(h, async job => {jobs.push(job.turn);});
+	h.publish(); await h.hook("session_start");
+	queue.pauseFor(25);
+	h.commit(1); await drain();
+	assert.deepEqual(jobs, []);
+	await new Promise(resolve => setTimeout(resolve, 40));
+	assert.deepEqual(jobs, [1]);
+	queue.pauseFor(25); h.commit(2);
+	await h.hook("session_shutdown");
+	await new Promise(resolve => setTimeout(resolve, 40));
+	assert.deepEqual(jobs, [1], "a cancelled queue cannot restart from an old timer");
+});
+test("deferred work keeps its ticket and resumes before later queued turns", async t => {
+	budget(t, "0");
+	const h = host(), jobs = []; let delayed = false;
+	const queue = mount(h, async job => {
+		jobs.push(job);
+		if (!delayed) {delayed = true; queue.pauseFor(25); return {deferred: true};}
+	});
+	h.publish(); await h.hook("session_start"); h.commit(1); h.commit(2);
+	await drain(); assert.deepEqual(jobs.map(j => j.turn), [1]);
+	await new Promise(resolve => setTimeout(resolve, 45));
+	assert.deepEqual(jobs.map(j => j.turn), [1, 1, 2]);
+	assert.equal(jobs[0], jobs[1], "recovery cannot mint a new retry allowance");
+	await h.hook("session_shutdown");
+});
+
+for (const first of ["bridge", "session"]) {
+	test(`initial current-campaign preparation runs once without backfill (${first} first)`, async t => {
+		budget(t, "0");
+		const h = host(), jobs = [];
+		createLaneQueue(h.pi, {initialJob: true, backfillEnv: ENV, runJob: async job => {jobs.push(job);}, onError: async () => {}});
+		if (first === "bridge") h.publish(); else await h.hook("session_start");
+		await drain();
+		assert.deepEqual(jobs, [], "both owner inputs must be ready");
+		if (first === "bridge") await h.hook("session_start"); else h.publish();
+		await drain();
+		assert.deepEqual(jobs, [{campaign: "camp"}], "initial preparation is not a whole-book backfill");
+		h.publish(); await h.hook("agent_settled"); await drain();
+		assert.equal(jobs.length, 1);
+		await h.hook("session_shutdown");
+		h.publish(); await h.hook("session_start"); await drain();
+		assert.equal(jobs.length, 2, "a new session gets its own initial preparation");
+		await h.hook("session_shutdown");
+	});
+}
+
 for (const first of ["bridge", "session"]) {
 	test(`backfill waits for both bridge and context (${first} first), then stops on an empty dispatch`, async (t) => {
 		budget(t, "5");

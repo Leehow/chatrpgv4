@@ -1,23 +1,18 @@
 # Active Plan — Chinese NPC Expression
 
-## Current status
+## Status and user outcome
+Implementation is complete in the correct owned scope. Status is **implementation and source regression complete, with limited literary-quality evidence**. The user-facing aim is contextual Chinese NPC speech that preserves source voice, knowledge, facts, and player agency without adding a second writer, semantic runtime classifier, or forced cadence. The evidence report is [npc-speech-repair-evidence.md](../specs/npc-speech-repair-evidence.md); its finite final-full and source-integration slots are not duplicated here.
 
-Implementation and testing are authorized. Current package is **mod 1.3.6 / family 7** (full 2122 UTF-8 bytes, brief 1090 bytes; cap 1200), with 6 habits + 13 interactions (19 cards). This is narrower pre-draft selection: the root was the sole one-utterance player, selected cards were verified in the serialized provider request before drafting, and existing voice ownership/state/cards remain unchanged. No release, deployment, App packaging, or acceptance claim.
+## Completed behavior and seams
+- Family 8 is bounded to one participation batch with independent activation and register-conflict Nouls. It may select none or at most one habit and one interaction per relevant person; source examples and their actual replies remain bounded state. Budgets remain 8 people, 24 cards, and 14,000 context bytes.
+- NarrationCraft owns encounter purpose, reactive emotion, source facts, and agency. `zh-optimize` owns Chinese realization and original references. Unconditional answer-first, repeat-to-anger, and occupation-to-fixed-reaction rules are removed; source-consistent wording remains permitted without fabricated canon, authority, resources, secrets, or choices.
+- `voice.job` supports exact-generation `exclude_jobs` validation (0–128 opaque nonempty strings, maximum 512 characters), with structural `invalid_params` on wrong type or overflow. Voice-only startup waits for both context and bridge, queues one current job, has no backfill, and protects source-authored/established voices. Cancellation, stale suppression, bounded pause/cooldown, retry retirement, and deferred unavailability retain their specified behavior.
+- Actual serialization and capsule-to-provider inclusion must preserve owner, version, and source identity. The public seams remain `voice.job`, `voice.submit`, capsule/provider request, and genuine driver dialogue. No migration, deployment, App packaging, release, or new runtime instrumentation is in scope.
 
-The authoritative evidence report is [`Chinese NPC Expression Selection — Evidence Report`](../specs/chinese-npc-expression-selection-evidence.md). Read its final result lines for the final same-code/current-content suite and source-integration result; do not duplicate their runtime status here or claim a result not recorded there.
+## Validation posture
+Kernel typecheck passed. The first full result was 4,377/4,379 with two explicit failures; the package fixture/version update and restoration of meaningful prose-guard examples and conditional-reaction assertions resolved those failures. The linked evidence report records final 4,379/4,379, later 20/56 focused evidence, and typecheck. Focused evidence includes the supplied structural/public, lifecycle, voice/language, mood-alignment, source-protection, family-8, provenance, and provider-inclusion gates.
 
-## Policy and evidence boundary
+## Quality and next gates
+Three real voices were reviewed and published: Steven Knott appeared in turn 2, and Arty Wilmot and Ruth Blake appeared in later capsules. The same-world restart preceded later-card publication. The goal-as-mask refinement prevents a current task goal becoming permanent phrasing. These observations do not erase repeated business information, an invented desk worker/documents, a repeated already-returned-key question, partly bookish dialogue, agency/details failures, reviews over 13 seconds, a missing key definition, or the incomplete ending effect. Do not claim perfection, stable quality, casual speed, statistical advantage, fresh-live acceptance of the exact current package, or App acceptance.
 
-The approved policy uses Flapcode GPT Luna and permits the first eligible exact writing-snapshot request to await up to 800 ms from that attempt start. Same-snapshot mandatory preparation spends the window; obsolete provisional snapshots do not; after the first eligible request spends it, there is no renewal. There are at most two attempts per input and a 1200 ms work allowance; stale/cancelled/missing advice falls back, with no extra prose model, judge, or rewrite.
-
-Current evidence is limited: live driver 1.3.5 delivered 7/7 turns; 1.3.6 delivered 2/3, with one HTTP 429 empty. The earlier 4361/4361 extension suite was at a prior content snapshot and is not an exact final-package suite. Preserve historical red results, failed screens, v5/v6 inconclusive blind trials, and undelivered records; none proves causal A/B quality improvement, statistical preference, deployment, or literary perfection.
-
-## Integration boundary
-
-Preserve the main checkout dirty `blood-road-jev-two-chapter-playtest.md` plan and the colliding untracked original proposal. Apply only the reviewed documentation/source integration; do not package or release the App. Do not mark every original proposed gate fulfilled: authorization supersedes only old approval status; quality, old-world, live, and release gates remain historical requirements and evidence limits.
-
-## Non-goals and locks
-
-Keep the producer/reader/consumer seam, source-materialized history, immutable world/version locks, read-only expression surface, single Keeper draft, existing voice ownership, NPC state, and owned-card state unchanged. No state/planner/voice migration, novel quotes/lore, semantic executable heuristic, or automatic rollout. Cards remain conditional advisory patterns; examples are not facts.
-
-The guide must explain immediate NPC purpose, shared knowledge, preserving stance, observable narration, and that formal or long answers remain permitted. The practical example repair uses original tool-Pi-authored Chinese content and changes only that example: it prevents volunteering irrelevant room logistics in response to a name introduction.
+Keep all historical evidence and old-world locks; do not invent quotes or lore, add a prose judge, use executable semantic heuristics, or broaden scope. Literary evidence remains limited: dialogue is partly bookish and observed agency/detail failures remain.

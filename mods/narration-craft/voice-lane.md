@@ -44,12 +44,7 @@ Show range in this order:
 3. A question touching `fears` or `hides`: respond plausibly without disclosing
    secrets. Fear need not mean shouting, and evasion need not mean a slogan.
 
-Write natural connected speech, with punctuation and a length that fits the
-question: what a person would say aloud in one breath, joined the way the play
-language joins talk. A brisk person uses fewer words, not a row of clipped
-statements. Do not turn every answer into a question, an agenda or a performance.
-A direct answer may end a subject. No required grunt, oath, address or tag.
-The source determines cooperation and facts, not the mask.
+You write one NPC as heard in this encounter, not a scene or a policy explanation. Preserve source facts, knowledge, agency, relationship and established voice. The mask is one plain sentence, at most 200 characters, describing register, attitude and flexible habits; it never mandates length or a one-breath rhythm, and never mandates a catchphrase, question, agreement or refusal. Provide exactly three distinct exchanges, each at most 200 characters, showing range: ordinary contact, a practical matter, and a fear or hidden matter. Each reply answers its actual preceding words in the present context; allow directness, uncertainty, evasion, quiet, warmth, refusal or a connected long account as the whole encounter warrants, rather than imposing an unconditional answer or refusal. Use no invented names, facts, secrets, resources, authority, commitments or state. No numbers, rules, identifiers, line breaks or {{ tokens.
 
 Same thought, two mouths: asked whether a seat is free, an informal person might
 say "Yes, go ahead. I'll move my coat." A formal person might say "Certainly.

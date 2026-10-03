@@ -114,7 +114,8 @@ function npcNode(graph: ModuleGraph, value: any): Row | null {
  *  the start scene's people before the first player turn -- on the real module the employer's first two
  *  answers came before his mask), then present in the latest committed record, then met, then (with
  *  backfill) everyone else the graph names. */
-export async function nextPerson(campaign: CampaignWriter, graph: ModuleGraph, world: Row, owner: VoiceOwner, backfill: boolean): Promise<Row | null> {
+export async function nextPerson(campaign: CampaignWriter, graph: ModuleGraph, world: Row, owner: VoiceOwner, backfill: boolean,
+    excluded: ReadonlySet<string> = new Set()): Promise<Row | null> {
     if (!packageState(owner))
         return null;
     const ordered: Row[] = [], seen = new Set<string>();
@@ -138,7 +139,8 @@ export async function nextPerson(campaign: CampaignWriter, graph: ModuleGraph, w
             if (node.node_kind === 'npc')
                 take(node);
     for (const node of ordered)
-        if (needsLines(graph, world, owner, node) && (await readJob(campaign, owner, graph.handle(node), generationOf(owner)))?.status !== 'done')
+        if (!excluded.has(jobId(campaign.id, graph.handle(node), generationOf(owner)))
+            && needsLines(graph, world, owner, node) && (await readJob(campaign, owner, graph.handle(node), generationOf(owner)))?.status !== 'done')
             return node;
     return null;
 }

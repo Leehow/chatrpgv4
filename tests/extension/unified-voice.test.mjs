@@ -61,6 +61,27 @@ async function open(t, id, {beforeCreate} = {}) {
 	return {home, call, id, campaign: join(home, ".coc", "campaigns", id)};
 }
 const rowOf = (list, id) => list.mods.find(row => row.id === id && (row.active?.version ? row.version === row.active.version : row.version === list.mods.filter(item => item.id === id).at(-1).version));
+test("a failed voice job excluded by the host cannot block the next eligible person", async t => {
+	const game = await open(t, "uv-excluded-voice");
+	await game.call("table.open");
+	const first = await game.call("voice.job", {backfill: true});
+	assert.equal(typeof first.job_id, "string");
+	await game.call("voice.fail", {job_id: first.job_id, reason: "model_error", detail: "Rejected fixture candidate"});
+	assert.equal((await game.call("voice.job", {backfill: true})).job_id, first.job_id,
+		"the default order and retry opportunity remain unchanged");
+	const next = await game.call("voice.job", {backfill: true, exclude_jobs: [first.job_id]});
+	assert.equal(typeof next.job_id, "string", "another source person is available");
+	assert.notEqual(next.job_id, first.job_id, "retirement is local to one exact generation job");
+});
+test("voice exclusions are bounded and an unrelated token cannot suppress a current job", async t => {
+	const game = await open(t, "uv-exclusion-shape");
+	await game.call("table.open");
+	const first = await game.call("voice.job", {backfill: true});
+	const unchanged = await game.call("voice.job", {backfill: true, exclude_jobs: ["voice:another-campaign:unknown-person"]});
+	assert.equal(unchanged.job_id, first.job_id);
+	for (const invalid of [null, "job", [42], [""], ["x".repeat(513)], Array(129).fill("job")])
+		await assert.rejects(game.call("voice.job", {exclude_jobs: invalid}), error => error.code === "invalid_params");
+});
 const lockOf = (list, id) => list.mods.find(row => row.id === id && row.active)?.active;
 async function installOld(game) {
 	const narration = join(game.home, "narration-1.6");
