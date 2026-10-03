@@ -39,8 +39,8 @@ const sameBraces = (value:string, original:string) =>
     braceCount(value,'{') === braceCount(original,'{') && braceCount(value,'}') === braceCount(original,'}');
 const sourceOriginal = (source:PresentationSource) =>
     'text' in source ? source.text : source.pieces.map(piece => 'text' in piece ? piece.text : piece.value).join('');
-/** The run's checker keeps one message for a refused artifact; `detail` says what to repair. */
-const shapeError = (detail?:string) => Object.assign(new Error('Incomplete presentation reference artifact'), detail ? {detail} : {});
+/** The run's checker keeps one message for a refused artifact; `detail` says what to repair (§23.3 decision 4). */
+const shapeError = (detail:string) => Object.assign(new Error('Incomplete presentation reference artifact'), {detail});
 
 function protectedPieces(text:string, nextToken:()=>string): {pieces:PresentationInputPiece[];tokens:Binding['tokens']} {
     const pieces:PresentationInputPiece[] = [], tokens:Binding['tokens'] = [];
@@ -150,45 +150,54 @@ export function acceptPresentationReferences(value:unknown, catalog:Presentation
  */
 export function validatePresentationReferenceShape(value:unknown, sources:readonly PresentationSource[], extraKeys:string[]=[], protocol:string=PRESENTATION_REFERENCE_PROTOCOL,
     options:{protectedSyntax?:boolean}={}):void {
+    // §23.3 decision 4: every refusal says what to repair, so a run fixes the row rather than reading this file.
     if (!record(value) || !exact(value,['protocol','texts',...extraKeys]) || value.protocol !== protocol || !Array.isArray(value.texts))
-        throw new Error('Incomplete presentation reference artifact');
+        throw shapeError(`the file must be one object with exactly the keys ${['protocol','texts',...extraKeys].join(', ')}, protocol "${protocol}" and texts an array of operations`);
     const aliases = sources.map(source => source.alias), rows = value.texts as unknown[];
     const named = rows.map(row => record(row) ? row.source : undefined);
-    if (rows.length !== aliases.length || named.some(alias => typeof alias !== 'string' || !aliases.includes(alias)) || new Set(named).size !== named.length)
-        throw new Error('Incomplete presentation reference artifact');
+    if (rows.length !== aliases.length || named.some(alias => typeof alias !== 'string' || !aliases.includes(alias)) || new Set(named).size !== named.length) {
+        const missing = aliases.filter(alias => !named.includes(alias));
+        const unknown = named.filter(alias => typeof alias !== 'string' || !aliases.includes(alias)).map(alias => typeof alias === 'string' ? alias : 'an operation without an issued source alias');
+        const twice = [...new Set(named.filter((alias,index) => typeof alias === 'string' && named.indexOf(alias) !== index))];
+        throw shapeError(`texts must hold exactly one operation for each issued source alias${missing.length ? `; missing ${missing.join(', ')}` : ''}${unknown.length ? `; not issued: ${unknown.join(', ')}` : ''}${twice.length ? `; answered more than once: ${twice.join(', ')}` : ''}`);
+    }
     for (const source of sources) {
         const operation = rows.find(row => record(row) && row.source === source.alias);
-        if (!record(operation)) throw new Error('Incomplete presentation reference artifact');
+        if (!record(operation)) throw shapeError(`${source.alias}: no operation answers this alias`);
         if (operation.action === 'keep') {
-            if (!exact(operation,['source','action'])) throw new Error('Incomplete presentation reference artifact');
+            if (!exact(operation,['source','action'])) throw shapeError(`${source.alias}: keep takes only source and action`);
             continue;
         }
         const protectedTokens = 'pieces' in source ? source.pieces.flatMap(piece => 'token' in piece ? [piece.token] : []) : [];
-        if (operation.action !== 'translate') throw new Error('Incomplete presentation reference artifact');
+        if (operation.action !== 'translate') throw shapeError(`${source.alias}: action must be keep or translate`);
         if (!protectedTokens.length) {
-            if (!exact(operation,['source','action','text']) || typeof operation.text !== 'string' || !operation.text.trim()
-                || 'text' in source && operation.text === source.text) throw new Error('Incomplete presentation reference artifact');
+            if (!exact(operation,['source','action','text']) || typeof operation.text !== 'string' || !operation.text.trim())
+                throw shapeError(`${source.alias}: translate takes source, action and a non-empty text`);
+            if ('text' in source && operation.text === source.text) throw shapeError(`${source.alias}: the translation is its source unchanged: answer keep for it`);
             if (options.protectedSyntax && !sameBraces(operation.text,sourceOriginal(source))) throw shapeError(`${source.alias}: ${BRACE_RULE}`);
             continue;
         }
         if (!exact(operation,['source','action','pieces']) || !Array.isArray(operation.pieces) || !operation.pieces.length)
-            throw new Error('Incomplete presentation reference artifact');
+            throw shapeError(`${source.alias}: this source has protected tokens, so translate takes source, action and pieces: generated text and every issued token alias`);
         const seen:string[] = [];
+        const values = 'pieces' in source ? source.pieces.flatMap(sourcePiece => 'token' in sourcePiece ? [sourcePiece.value] : []) : [];
         for (const piece of operation.pieces) {
-            if (!record(piece)) throw new Error('Incomplete presentation reference artifact');
-            if (exact(piece,['text']) && typeof piece.text === 'string') {
-                const values = 'pieces' in source ? source.pieces.flatMap(sourcePiece => 'token' in sourcePiece ? [sourcePiece.value] : []) : [];
-                if (values.some(value => piece.text.includes(value))) throw new Error('Incomplete presentation reference artifact');
+            if (record(piece) && exact(piece,['text']) && typeof piece.text === 'string') {
+                const copied = values.find(value => piece.text.includes(value));
+                if (copied !== undefined) throw shapeError(`${source.alias}: generated text copies the protected value ${JSON.stringify(copied)}; select its token alias instead`);
                 continue;
             }
-            if (exact(piece,['token']) && typeof piece.token === 'string' && protectedTokens.includes(piece.token)) {seen.push(piece.token);continue;}
-            throw new Error('Incomplete presentation reference artifact');
+            if (record(piece) && exact(piece,['token']) && typeof piece.token === 'string') {
+                if (!protectedTokens.includes(piece.token)) throw shapeError(`${source.alias}: ${piece.token} is not a token alias this source issued (${protectedTokens.join(', ')})`);
+                seen.push(piece.token); continue;
+            }
+            throw shapeError(`${source.alias}: each piece is either {"text": generated text} or {"token": an issued token alias}`);
         }
         if (seen.length !== protectedTokens.length || new Set(seen).size !== seen.length || protectedTokens.some(alias => !seen.includes(alias)))
-            throw new Error('Incomplete presentation reference artifact');
+            throw shapeError(`${source.alias}: select every issued token alias exactly once (${protectedTokens.join(', ')})`);
         if ('pieces' in source) {
-            const values = new Map(source.pieces.flatMap(piece => 'token' in piece ? [[piece.token,piece.value] as const] : []));
-            const materialized = operation.pieces.map((piece:Record<string,string>) => 'text' in piece ? piece.text : values.get(piece.token) ?? '').join('');
+            const tokenValues = new Map(source.pieces.flatMap(piece => 'token' in piece ? [[piece.token,piece.value] as const] : []));
+            const materialized = operation.pieces.map((piece:Record<string,string>) => 'text' in piece ? piece.text : tokenValues.get(piece.token) ?? '').join('');
             // §23.3 decision 4: the host refuses an unchanged translation, so the run hears it here first.
             if (materialized === sourceOriginal(source)) throw shapeError(`${source.alias}: the translation is its source unchanged: answer keep for it`);
             if (options.protectedSyntax && !sameBraces(materialized,sourceOriginal(source))) throw shapeError(`${source.alias}: ${BRACE_RULE}`);

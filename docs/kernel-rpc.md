@@ -5219,7 +5219,7 @@ outside any placeholder, which no caption has today, keeps its count.
   row's error.
 - Catalogs issued without protected syntax (map, character, document) are unchanged: a brace there is text.
 
-**4. The run's checker refuses an unchanged translation, as the host does.** Found by the first live run of this
+**4. The run's checker refuses what the host refuses, and says why.** Found by the first live run of this
 section (decision 2, a tag with no seed): ask 13 held `{family} {transition}` (`extension.receipt_session`), a caption
 made only of placeholders. The model answered it `translate` with the source's own pieces in the source's order.
 `check.mjs` printed "Presentation valid", the host's acceptance refused the row ("Use keep when the source needs no
@@ -5229,6 +5229,18 @@ translation with its source. Now it materializes every pieces translation and re
 detail "`<alias>`: the translation is its source unchanged: answer keep for it", which `check.mjs` prints. What the host
 refuses for a shape the checker can see, the checker refuses first, so a run is never told "valid" for an answer that
 will cost it the round. The host's acceptance is unchanged: an unchanged translation is still not accepted as `keep`.
+
+The second live run of the same tag failed in its first ask the other way. The model answered the source `…` with
+`translate` and the text `…`, which the checker already refused, but `check.mjs` printed only "Incomplete UI word
+projection"; the child spent about ten calls reading the lane's compiled source to find out why (as deepseek did on
+2026-10-03 against the whole-set ask) and was refused its seventeenth call. So every refusal of the run's checker
+(`validatePresentationReferenceShape`) now carries a `detail` naming what to repair, and the alias when there is one:
+the artifact's shape and protocol; the aliases missing, unknown or answered twice; `keep` with other keys; an action
+that is neither; an empty or unchanged `text`; a protected source answered without `pieces`; a piece that is neither
+`{text}` nor `{token}`; generated text that copies a protected value; a token alias the source did not issue; tokens not
+selected exactly once; an unchanged pieces translation; and the brace rule. The thrown message is unchanged
+(`Incomplete presentation reference artifact`), so the map, character and document lanes, which do not read `detail`,
+print what they printed before; `validateUiPresentation` prints the detail.
 
 *Tests* (each fails on the code before this change):
 
@@ -5246,6 +5258,9 @@ will cost it the round. The host's acceptance is unchanged: an unchanged transla
     braces; the host's acceptance refuses the same rows and leaves an unprotected catalog's braces alone.
   - the checker refuses `{family} {transition}` answered `translate` with its own pieces, naming the alias and `keep`,
     and accepts it answered `keep` or reordered.
+  - every refusal of the checker reaches `check.mjs`'s message with its own detail: one malformed answer per kind,
+    each refused with a message naming the alias it concerns (or the missing aliases); one kind says one thing (an
+    unchanged `text` and an unchanged `pieces` translation are one kind), and no two kinds say the same.
 - `tests/extension/ui-presentation-context.test.mjs`: this build's zh-Hans seed with one `mechanics` key dropped is
   asked exactly that key's caption (it was asked every caption).
 

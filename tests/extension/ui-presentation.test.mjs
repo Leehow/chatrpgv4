@@ -457,3 +457,45 @@ test("the run's checker refuses an unchanged pieces translation, as the host doe
 		assert.equal(Object.keys(acceptedUiTexts(answer(row), catalog)).length, 1);
 	}
 });
+
+test("every refusal of the run's checker reaches check.mjs with its own reason (§23.3, decision 4)", () => {
+	// The second live run lost an ask to "Incomplete UI word projection" alone: the child spent its
+	// action budget reading the lane's compiled source to learn which row was wrong, and why.
+	const catalog = issuePresentationReferences(["Roll", "Turn {n}"], { protectSyntax: true });
+	const [roll, turn] = catalog.sources;
+	const n = turn.pieces.find(piece => "token" in piece).token;
+	const good = { [roll.alias]: { source: roll.alias, action: "translate", text: "Tirada" },
+		[turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno " }, { token: n }] } };
+	const rows = changed => Object.values({ ...good, ...changed });
+	const answer = changed => ({ protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: rows(changed) });
+	assert.doesNotThrow(() => validateUiPresentation(answer({}), catalog.sources));
+	const cases = [
+		["the artifact's shape", "", { protocol: "presentation-reference-v0", texts: rows({}) }],
+		["a missing alias", roll.alias, { protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: [good[turn.alias]] }],
+		["an unknown alias", "text:99", { protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: [...rows({}), { source: "text:99", action: "keep" }] }],
+		["an alias answered twice", roll.alias, { protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: [...rows({}), good[roll.alias]] }],
+		["keep with other keys", roll.alias, answer({ [roll.alias]: { source: roll.alias, action: "keep", text: "Tirada" } })],
+		["an unknown action", roll.alias, answer({ [roll.alias]: { source: roll.alias, action: "rewrite", text: "Tirada" } })],
+		["an empty text", roll.alias, answer({ [roll.alias]: { source: roll.alias, action: "translate", text: " " } })],
+		["an unchanged translation", roll.alias, answer({ [roll.alias]: { source: roll.alias, action: "translate", text: "Roll" } })],
+		["a protected source answered with text", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", text: "Turno" } })],
+		["a piece of neither kind", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno ", note: "x" }, { token: n }] } })],
+		["a copied protected value", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno {n}" }, { token: n }] } })],
+		["a token the source did not issue", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno " }, { token: "token:99" }] } })],
+		["a token selected twice", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno " }, { token: n }, { token: n }] } })],
+		["an unchanged translation", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turn " }, { token: n }] } })],
+		["a brace generated text adds", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno {" }, { token: n }, { text: "}" }] } })],
+	];
+	const reasons = new Map();
+	for (const [kind, alias, value] of cases) {
+		let message;
+		assert.throws(() => validateUiPresentation(value, catalog.sources), error => {
+			message = error.message;
+			return error.code === "preparation_failed" && message.startsWith("Incomplete UI word projection: ") && message.includes(alias);
+		}, `${kind} is refused with its alias in the message`);
+		const reason = alias ? message.replaceAll(alias, "<alias>") : message;
+		assert.equal(reasons.get(kind) ?? reason, reason, `${kind} says the same thing for a text and a pieces answer`);
+		reasons.set(kind, reason);
+	}
+	assert.equal(new Set(reasons.values()).size, reasons.size, "each kind of refusal says something of its own");
+});
