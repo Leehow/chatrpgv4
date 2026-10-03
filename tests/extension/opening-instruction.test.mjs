@@ -30,7 +30,7 @@ test('after a setup meeting the visitor is not asked for again and the card is n
   assert.ok(text.includes('do not repeat its sentences'));
   // Turn 0 told the player 「这趟路上没有人交给你一项必须完成的差事」 while the card bound her to deliver to El Paso.
   assert.ok(text.includes("never state that either of them lacks something"));
-  assert.ok(text.endsWith('the only opening writes are ask and narrate.'));
+  assert.ok(text.endsWith('the only opening writes are ask, narrate and apply clock, when the capsule\'s clock asks for its opening datetime to be pinned.'));
   assert.ok(text.includes(JSON.stringify({...prologue, guide: 'Steven Knott'})));
 });
 
@@ -70,10 +70,14 @@ test('the opening is told the party as it is: a book written for a group is not 
   assert.ok(source.includes('party: Array.isArray(open.investigators)'), 'the kernel extension passes table.open\'s investigators');
 });
 
-test('the opening keeps the clock and the scene as the table opened them', () => {
-  // Blood Road, 2026-10-02: the Keeper tried twice to pin the book's start hour with apply clock, 20 s refused.
-  for (const text of [openingInstruction({prologue, playLanguage: 'zh-Hans'}), openingInstruction({playLanguage: 'en', modContext: {}})])
-    assert.ok(text.includes('the clock and the scene stay as the table opened them: the hour goes into the prose'), text);
+test('the opening may pin an opening datetime the book left open (§23), and nothing else changes the scene', () => {
+  // The kernel accepts a clock pin at the opening and the capsule's where.clock.pin asks for it; a fresh Blood Road table
+  // (2026-10-02) had it refused twice by the host before the prose, and a line here said the clock must not move.
+  for (const text of [openingInstruction({prologue, playLanguage: 'zh-Hans'}), openingInstruction({playLanguage: 'en', modContext: {}})]) {
+    assert.ok(text.includes('the scene stays as the table opened it'), text);
+    assert.ok(/apply clock/.test(text), text);
+    assert.equal(text.includes('the clock and the scene stay as the table opened them'), false);
+  }
 });
 
 test('every form of the opening says the investigator is addressed as you', () => {

@@ -6597,10 +6597,16 @@ export default function (pi: ExtensionAPI) {
 		// A session (combat, chase, sanity bout) is not a turn state: it leaves the turn in acting, so the
 		// ask that hands a pending defence back to the player takes the ordinary road and is not blocked here.
 		const openingNarrate = (name === "narrate" || name === "ask") && state.openingPending && state.state === "awaiting_player";
+		// §23 (2026-09-18): the Keeper pins an opening datetime the book left open, once, and the kernel accepts that `clock`
+		// in the opening (`allowOpening`). This door used to admit only the Mod kinds, so the pin the capsule's own
+		// `where.clock.pin` asks for was refused at the opening every time -- twice running on a fresh Blood Road table
+		// (2026-10-02), 30 s before the prose. A batch of clocks alone needs no Mod layer.
+		const openingClockOnly = state.openingPending && state.state === "awaiting_player" && name === "apply"
+			&& Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => e?.kind === "clock");
 		const openingModShape = state.openingPending && state.state === "awaiting_player" && (
 			(name === "resolve" && typeof (input.action as any)?.decision === "string") ||
-			(name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability"].includes(e?.kind))));
-		const openingMod = openingModShape && (mods ? true : await modsBridgeWait(modsBridgeWaitMs()));
+			(name === "apply" && Array.isArray(input.effects) && input.effects.length > 0 && input.effects.every((e:any) => ["define","object","ability","clock"].includes(e?.kind))));
+		const openingMod = openingModShape && (openingClockOnly || mods ? true : await modsBridgeWait(modsBridgeWaitMs()));
 		// §86: what is left here is the *opening*, and only the opening. Every state with no door was
 		// answered by the one gate above, so reaching this line means `awaiting_player` with the opening
 		// still owed: a write that is not the opening's own is refused, the reads named below really are
@@ -6612,7 +6618,7 @@ export default function (pi: ExtensionAPI) {
 				? "the Mod layer has not announced itself yet, so this opening Mod call cannot be judged: retry the same call; the opening's Mod checks become available as soon as it does"
 				// Only the opening reaches this line (§86). The generic "use only look, lookup and recall" had the installed App's
 				// Keeper (Blood Road, 2026-10-02) try to pin the book's start hour twice, 20 s of round trips before the prose.
-				: `the turn state is ${state.state} and this is the table's opening: until the player first speaks only narrate and ask (and the opening's Mod definitions) are accepted; the clock, the scene and everything else stay as the table opened them, so put the hour or whatever you meant to set into the prose and close with narrate`;
+				: `the turn state is ${state.state} and this is the table's opening: until the player first speaks only narrate, ask, apply clock (pinning an opening datetime the book left open) and the opening's Mod definitions are accepted; the scene and everything else stay as the table opened them, so put whatever you meant to change into the prose and close with narrate`;
 			await record({ tool: name, started_at: new Date().toISOString(), ok: false, code: "turn_state", reason, ...(bridgePending ? { cause: "mods_bridge_pending" } : {}) });
 			// A refusal the host issued is still a refusal (§67). Without this the
 			// Keeper could be told "wait for the player" forever inside its own turn.
