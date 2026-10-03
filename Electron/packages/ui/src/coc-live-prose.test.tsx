@@ -83,3 +83,17 @@ it('a delivery naming a draft that is not on screen arrives as it always did', (
   const next = applyStreamEvent([user], { type: 'presentation', sessionId: 's1', entry: delivered, replacesDraft: 'gone' } as never)
   expect(next.map(row => row.id)).toEqual(['u1', 'card-1'])
 })
+
+it('closes the call\'s own card where it was opened when the draft row already follows it', () => {
+  let rows = applyStreamEvent([user], { type: 'tool_call', sessionId: 's1', contentIndex: 0, segment: 3, toolCallId: 'content-0', name: 'tool', delta: '' } as never)
+  rows = applyStreamEvent(rows, { type: 'tool_call', sessionId: 's1', contentIndex: 0, segment: 3, toolCallId: 'content-0', name: 'tool', delta: '{"text":"土路' } as never)
+  rows = applyStreamEvent(rows, { type: 'presentation', sessionId: 's1', entry: draft(FIRST) } as never)
+  expect(rows.map(row => row.id).slice(-1)).toEqual(['coc-live-prose:s1:1'])
+  rows = applyStreamEvent(rows, { type: 'tool_call', sessionId: 's1', contentIndex: 0, segment: 3, toolCallId: 'call-narrate', name: 'narrate', delta: JSON.stringify({ text: FIRST }) } as never)
+  expect(rows).toHaveLength(3)
+  expect(rows[1].tools?.map(tool => [tool.id, tool.name])).toEqual([['call-narrate', 'narrate']])
+  expect(rows[2].id).toBe('coc-live-prose:s1:1')
+  // A call in a later message after the draft still opens a row of its own, after it.
+  rows = applyStreamEvent(rows, { type: 'tool_call', sessionId: 's1', contentIndex: 0, segment: 4, toolCallId: 'content-0', name: 'tool', delta: '' } as never)
+  expect(rows).toHaveLength(4)
+})

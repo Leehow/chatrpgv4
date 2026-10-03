@@ -731,11 +731,21 @@ export function applyStreamEvent(previous: ChatMessage[], event: Exclude<StreamE
   const matchingSegmentAssistantIndex = replacedSegment === undefined ? -1
     : previous.findLastIndex(item => item.role === 'assistant' && item.streaming === true && !item.presentation
       && Boolean(item.activities?.some(activity => activity.type === 'text' && activity.segment === replacedSegment)))
+  // §171.2: a call's end names its real id, but its card was opened under the provisional `content-<index>`.
+  // Once a live-prose draft row follows that card, the last row is the draft, so the card is found by its
+  // place in its message (content index within the segment) and is closed where it is.
+  const toolSegment = event.type === 'tool_call' ? event.segment : undefined
+  const toolContentIndex = event.type === 'tool_call' ? event.contentIndex : undefined
+  const matchingPlaceAssistantIndex = matchingToolAssistantIndex >= 0 || toolSegment === undefined || toolContentIndex === undefined ? -1
+    : previous.findLastIndex(item => item.role === 'assistant' && item.streaming === true && !item.presentation
+      && Boolean(item.activities?.some(activity => activity.type === 'tool' && activity.contentIndex === toolContentIndex && (activity.segment ?? 0) === toolSegment)))
   const lastAssistantIndex = previous.findLastIndex(item => item.role === 'assistant')
   const index = matchingToolAssistantIndex >= 0 ? matchingToolAssistantIndex
-    : matchingSegmentAssistantIndex >= 0 ? matchingSegmentAssistantIndex
-      : lastAssistantIndex
+    : matchingPlaceAssistantIndex >= 0 ? matchingPlaceAssistantIndex
+      : matchingSegmentAssistantIndex >= 0 ? matchingSegmentAssistantIndex
+        : lastAssistantIndex
   const mayCrossUserBoundary = matchingToolAssistantIndex >= 0
+    || matchingPlaceAssistantIndex >= 0
     || matchingSegmentAssistantIndex >= 0
     || event.type === 'citations'
     || event.type === 'input_file_sources'

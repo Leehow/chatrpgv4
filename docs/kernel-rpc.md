@@ -31960,6 +31960,8 @@ A draft that showed nothing yet is filled by whichever call reaches it first.
 
 **How the draft is drawn.** It is a `presentation` of a `coc-mechanics` entry with a host-made id (`coc-live-prose:<session>:…`). Its details are `{draft: true, mechanics: [], marked_text: <displayed prose>, play_language}`. The delivery card's own renderer draws it, so it reads in the delivery's face and paragraphs. Speaker colour arrives with the delivered card. A redraw with the same id replaces it where it sits.
 
+**The call's own card.** A call's card is opened under the provisional id `content-<index>`, and its end event names the real id. Once a draft row follows that card, the last row is the draft. So `applyStreamEvent` finds the card by its place in its message (content index within the segment) and closes it where it is. Without this, the installed App's first table (2026-10-03) showed a second card for the call below the draft and left the first one running until the history read.
+
 **Playback.** §167's playback follows it: `useNarrationTypewriter(…, growing)`. With `growing` set from `details.draft`, playback that caught up resumes when more prose arrives, instead of showing the new part at once. A delivery that is not a draft keeps §167's "complete stays complete".
 
 ### 171.3 The delivery takes the draft's place
@@ -31992,6 +31994,6 @@ Tests:
 
 - `Electron/packages/pi-backend/test/live-prose.test.ts`: the field read, token removal, and the stretch's state, including identical and different resends.
 - `Electron/packages/pi-backend/test/live-delivery-prose.test.ts`: through `rpcEvent`, narrate and `apply.narrate` drafts grow with no brace, a roll card does not replace a draft, setup draws nothing, `replacesDraft` lands on the delivered card, and `firstProseVia` is `draft`.
-- `Electron/packages/ui/src/coc-live-prose.test.tsx`: growing playback resumes, the delivery lands at the draft's index past a later row with the same playback, and an unknown draft id is ignored.
+- `Electron/packages/ui/src/coc-live-prose.test.tsx`: growing playback resumes, the delivery lands at the draft's index past a later row with the same playback, an unknown draft id is ignored, and a call's end closes its own card above the draft while a later message's call opens a row after it.
 
-Each of five mutations turns these tests red: no `replacesDraft`, `via` forced to `mechanics`, every resend live, no growing resume, and no in-place replacement.
+Each of six mutations turns these tests red: no `replacesDraft`, `via` forced to `mechanics`, every resend live, no growing resume, no in-place replacement, and no place match for a call's card.
