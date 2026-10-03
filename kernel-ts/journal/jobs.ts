@@ -10,11 +10,12 @@ import { occurs, nameWords, toldTurn } from './naming.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
 import { isStakesRoll } from '../npc/stakes-receipt.js';
+import { locateExcerpt } from '../read/excerpt.js';
 import {issueSourceRef,resolveSourceRef,type SourceSnapshot} from '../../runtime/jev/source-ref.ts';
 import type {SourceRef,ScopeBinding} from '../../runtime/jev/value-contracts.ts';
 export const JOURNAL_REFERENCE_PROTOCOL='journal-reference-v2';
-export const BUDGET = { max_entries: 6, max_description_chars: 300, max_exchange_chars: 200, max_label_chars: 60 };
-const FIELDS = ['name', 'description', 'exchange', 'label', 'named'];
+export const BUDGET = { max_entries: 6, max_description_chars: 300, max_exchange_chars: 200, max_label_chars: 60, max_named_quote_chars: 200 };
+const FIELDS = ['name', 'description', 'exchange', 'label', 'named', 'named_quote'];
 const MACHINE = ['commit', 'receipt', 'receipts', 'turn', 'id', 'job_id', 'episode_id', 'call_id', 'source'];
 export const jobId = (campaign: string, turn: number) => `journal:${campaign}:t${turn}`;
 const journalTurnBinding=(record:Row)=>jsonDigest({turn:record.turn,commit:record.commit,player_text:record.player_text??null,
@@ -29,9 +30,11 @@ const instruction = (language: string) => 'Write an entry only for someone who t
     'numbers, receipts or any machine key. Names listed under unnamed belong to people the player has not been told ' +
     'the name of: the prose has only described them. For such a person give label, a short phrase in the play language ' +
     'saying how the player would know them from what was shown (looks, role, where they were), carrying no part of the ' +
-    "name; the description and the exchange must not name them either. If this turn's narrative actually gave the " +
-    "player this person's name, in any spelling, give named: true instead of a label. Someone not listed under " +
-    'unnamed takes neither.';
+    "name; the description and the exchange must not name them either. If someone in this turn's narrative actually " +
+    "said or showed the player this person's name, in any spelling, give named: true with named_quote -- the exact " +
+    "words of the prose or the spoken line that gave it, copied character for character -- instead of a label. " +
+    'Having appeared, acted or been described is not being named: without such words, give a label. Someone not ' +
+    'listed under unnamed takes neither.';
 /** The ledger's naming rule: journal keys are graph node ids, never names. */
 function npcNode(graph: ModuleGraph, value: any): Row | null {
     if (typeof value !== 'string' || !value.trim())
@@ -195,8 +198,8 @@ export function materializeJournalEntries(job:Row,entries:any):{entries:Row[];id
     const access={scope:source.scope,mode:'active' as const,read:(resource:string,revision:string)=>source.resource===resource&&source.revision===revision?source:undefined,
         currentRevision:(resource:string)=>resource===source.resource?source.revision:undefined};
     for(const [i,entry] of entries.entries()) {
-        if(!isJsonObject(entry)||Object.keys(entry).some(key=>!['person','description','exchange','label','named'].includes(key))||typeof entry.person!=='string')
-            reject(i,'A referenced journal entry selects person and contains only generated journal fields','Use person, description, exchange, label and named; do not copy a name or identity',{field:'person'});
+        if(!isJsonObject(entry)||Object.keys(entry).some(key=>!['person','description','exchange','label','named','named_quote'].includes(key))||typeof entry.person!=='string')
+            reject(i,'A referenced journal entry selects person and contains only generated journal fields','Use person, description, exchange, label, named and named_quote; do not copy a name or identity',{field:'person'});
         const selected=people.find(value=>value.alias===entry.person);
         if(!selected||seen.has(entry.person)) reject(i,'The person alias is unknown, foreign or duplicated','Select each issued recordable person at most once',{field:'person'});
         let name:unknown,id:unknown;
@@ -228,6 +231,12 @@ export async function openJob(campaign: CampaignWriter, packet: Row): Promise<Ro
         await writeJob(campaign, { job_id: packet.job_id, turn: packet.turn, commit: packet.commit, status: 'open', opened_at: nowIso(), packet, named, told, words,
             ...(packet.protocol===JOURNAL_REFERENCE_PROTOCOL?{protocol:JOURNAL_REFERENCE_PROTOCOL,selection_binding:packet.selection_binding,people_source,people,turn_binding}:{}) });
     return packet;
+}
+/** §103.6: whether `quote` is words of the delivery the job was opened on -- its prose or one of its spoken lines. */
+function namedQuoteFound(job: Row, quote: string): boolean {
+    const packet = row(job.packet);
+    return [string(packet.keeper_text), ...array(packet.speech).map(line => string(row(line).text))]
+        .some(text => text !== '' && locateExcerpt(text, quote) !== null);
 }
 function reject(index: number, message: string, fix: string, details: Row = {}): never {
     throw new RpcError('invalid_params', message, { fix, details: { index, ...details } });
@@ -269,9 +278,25 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
             return reject(i, `entries[${i}].description must be 1–${BUDGET.max_description_chars} characters`, 'shorten it, or omit it to keep the stored one');
         if (exchange !== null && (typeof exchange !== 'string' || length(exchange.trim()) < 1 || length(exchange.trim()) > BUDGET.max_exchange_chars))
             return reject(i, `entries[${i}].exchange must be 1–${BUDGET.max_exchange_chars} characters`, 'one sentence on what passed between them and the player this turn');
-        const id = ids[0], label = entry.label ?? null, namedNow = entry.named ?? null;
+        const id = ids[0], label = entry.label ?? null, namedNow = entry.named ?? null, quote = entry.named_quote ?? null;
         if (namedNow !== null && namedNow !== true)
             return reject(i, `entries[${i}].named must be true or absent`, "give named: true only when this turn's narrative gave the player this person's name; otherwise leave it out", { field: 'named' });
+        if (quote !== null && namedNow !== true)
+            return reject(i, `entries[${i}].named_quote goes only with named: true`, 'leave named_quote out unless this entry gives named: true', { field: 'named_quote' });
+        // §103.6 (2026-10-03): a person becomes named on the lane's word only with the words that named them. On the
+        // installed App (Blood Road, table 14, turn 1) the lane gave named: true, beside a label, for all three men at the
+        // gas station; nobody had said a name and one of them never spoke. The journal recorded named_at for all three and
+        // the next turn's capsule handed the Keeper their book names. The quote must be in this turn's delivery, the text
+        // the lane was given (excerpt.ts: quotation marks are one class); the kernel checks that the words are there, not
+        // what they mean.
+        if (namedNow === true && !isNamed(id)) {
+            if (label !== null)
+                return reject(i, `entries[${i}] gives both named and label for ${repr(name)}`, 'give named: true with named_quote when this turn gave the player the name; otherwise give label; never both', { field: 'label', name });
+            if (typeof quote !== 'string' || length(quote.trim()) < 1 || length(quote.trim()) > BUDGET.max_named_quote_chars || !namedQuoteFound(job, quote.trim()))
+                return reject(i, `entries[${i}].named: true for ${repr(name)} needs named_quote: the exact words of this turn's delivery that gave the player the name`,
+                    `copy those words, up to ${BUDGET.max_named_quote_chars} characters, from the prose or the spoken line into named_quote; if nothing this turn said or showed the name, leave named out and give label (how the player would know them)`,
+                    { field: 'named_quote', name });
+        }
         if (label !== null) {
             if (typeof label !== 'string' || length(label.trim()) < 1 || length(label.trim()) > BUDGET.max_label_chars || label.includes('\n') || label.includes('{{'))
                 return reject(i, `entries[${i}].label must be a single line of 1–${BUDGET.max_label_chars} characters`, 'a short phrase saying how the player would know this person from what was shown', { field: 'label' });

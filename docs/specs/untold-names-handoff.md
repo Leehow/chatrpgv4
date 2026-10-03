@@ -1,6 +1,6 @@
 # Untold names: the Keeper still writes names the player was never told (handoff, 2026-10-03)
 
-Status: ready-for-agent (§5).
+Status: §5 implemented as contract §103.6 (2026-10-03, owner: 「那你直接把日志同步这一步修了吧」); live acceptance (§6) pending.
 
 Owner, 2026-10-03: 「你写个交接文档，看是什么问题，你推荐怎么解决，我让别的ai处理这个」.
 

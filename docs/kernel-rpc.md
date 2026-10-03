@@ -18126,6 +18126,50 @@ capsule the hook sends, a clerk note and a tool result renamed, the player's wor
 nothing, one by the book's name tells); `tests/extension/untold-view.test.mjs`; `Electron/packages/ui/src/
 coc-speech.test.tsx` (the hover).
 
+### 103.6 The journal names a person only with the words that named them (owner ruling 2026-10-03; amends §103.2)
+
+Owner: 「每次咱们出文之后不是都会记录npc信息到右侧栏么，应该有角色描述和不在ui上显示只在数据里的真实姓名，可以从那里取，如果真实姓名在剧情里被人说出来就同步，直接在生成前告诉kp，不要后验！」, then 「那你直接把日志同步这一步修了吧」.
+
+**Evidence.** Installed App, Blood Road, table 14 (campaign `game-99780158`), turn 1. The turn-1 journal job listed all
+three men at the gas station under `unnamed`; neither the prose nor the two spoken lines named anyone, and one of them
+never spoke. The lane (`opencode-go/deepseek-v4.1-flash`) submitted, for each, a `label` **and** `named: true`.
+`journal.submit` took `named: true` on the lane's word, `npc-journal.json` recorded `named_at: 1` for all three, and
+turn 2's capsule handed the Keeper 拉塞尔·威廉姆斯 and 内特·帕特森 as plain names. On turn 2 the Keeper wrote
+「拉塞尔看了你一眼……棚下的内特」. The lane's prompt had shown, as the shape of an answer, one entry carrying both
+`"label"` and `"named": true`.
+
+The journal record is the one source the Keeper's view of a person is built from before it writes (§103.3, §103.5): the
+description and label the player knows, the real name in the data, and `named_at`. Nothing reads or judges the
+Keeper's finished draft (§166). The step that must not be wrong is the sync that moves a person from unnamed to named.
+
+- **`named_quote`.** A journal entry may carry `named_quote`: the exact words of this turn's delivery (its prose or one
+  of its spoken lines) in which the player was given the name, 1–200 characters (`budget.max_named_quote_chars`).
+- **`named: true` for a person not yet named** is accepted only with a `named_quote` that is found in the delivery the
+  job was opened on: the packet's `keeper_text` or one of its `speech[].text`, by `locateExcerpt` (§139: quotation marks
+  are one class, everything else exact). Otherwise `invalid_params`, `details: {index, field: "named_quote", name}`, with
+  a fix that says to copy those words, or, if nothing this turn said or showed the name, to leave `named` out and give
+  a label. The check is that the cited words exist, not what they mean. A refusal changes nothing, so the person stays
+  unnamed and the Keeper keeps getting the label.
+- **`named: true` beside a `label`** for a person not yet named is a contradiction: `invalid_params`, `details: {index,
+  field: "label", name}`, fix "named with named_quote, or label, never both".
+- **`named_quote` without `named: true`** is refused (`field: "named_quote"`).
+- For a person already named (the journal's `named_at`, the record floor, or an earlier row of the batch), `named: true`
+  needs nothing and changes nothing, as before.
+- The quote is not stored on the journal entry. The job file's `submitted` keeps the lane's answer as given.
+- **The lane** (`extensions/npc-journal`). The fixed instruction and the field rules ask for `named_quote` with `named`
+  and say that appearing, acting or being described is not being named. The answer template no longer shows `named`.
+  The shape check passes `named_quote` through. The lane's one retry now carries the first attempt's refusal (the
+  kernel's message and fix) under "[Your previous answer was refused; answer again with this corrected]"; before, it asked
+  the identical question again, made the same mistake twice, and the turn's entries went to the backlog.
+
+*Tests.*
+- `tests/kernel/test_journal.py::test_named_needs_the_words_that_named_them`: the table-14 shape (label plus named) is
+  refused; `named` with no quote, with words the delivery lacks, and a stray quote are each refused; nothing lands, and
+  the person is still untold. A quote typed with ASCII marks for curly-quoted dialogue is found and sets `named_at`.
+- The existing journal tests carry the quotes their prose holds.
+- `tests/extension/npc-journal-lane.test.mjs`: the retry carries the refusal and its fix, and the first attempt does not.
+- Mutations of the quote check, the contradiction check and the retry text each fail their test.
+
 ## 104. Characteristic-driven combat weapons use the actor's authored characteristic (2026-09-17)
 
 H-SIDE turn 171 proved that entering the authored Corbitt encounter was necessary but not sufficient.
