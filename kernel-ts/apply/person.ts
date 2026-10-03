@@ -13,7 +13,7 @@
 import { RpcError } from '../errors.js';
 import type { DomainEvent } from '../transactions.js';
 import { calledPerson, personRecord } from '../read/capsule.js';
-import { normalize, repr, string, type Row } from '../read/values.js';
+import { normalize, repr, row, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
 import { passageOf } from '../read/table-people.js';
@@ -88,6 +88,20 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
             fix: 'set address for how they are spoken to; a name a player chose is not renamed at the table',
             details: { field: 'person.name', who: person.id },
         });
+    // §103.7 (owner, 2026-10-03: 「能不能给有特征的唯一外号？」): the word this table calls someone tells them from everyone
+    // else. Two people under one word cannot be told apart in prose, in a say token or on the card, and a later `who` that
+    // names it resolves to nobody (§87.8 refuses two owners). Refused only when it is the same words as another person's
+    // (normalized); whether a word is distinctive enough is the Keeper's, from the rule in this effect's description.
+    if (name != null && person.is_investigator !== true) {
+        const others = Object.entries(row(world.person_labels)).filter(([id, record]) => id !== string(person.id) && string(row(record).name).trim())
+            .map(([, record]) => string(row(record).name).trim());
+        const taken = others.find(other => normalize(other) === normalize(name));
+        if (taken)
+            throw new RpcError('invalid_params', `${repr(name)} is already what this table calls someone else`, {
+                fix: `give this person a word of their own: the one visible thing only they have here -- something they carry or wear, a mark, a habit, the job they are doing -- not age, height, build or sex alone. Words in use: ${others.map(word => repr(word)).join(', ')}`,
+                details: { field: 'person.name', name, taken, in_use: others },
+            });
+    }
     const before = personRecord(world, string(person.id));
     const record = { ...before, ...(name != null ? { name } : {}), ...(address != null ? { address } : {}) };
     (world.person_labels ??= {})[string(person.id)] = record;

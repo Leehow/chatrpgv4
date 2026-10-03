@@ -18170,6 +18170,64 @@ Keeper's finished draft (§166). The step that must not be wrong is the sync tha
 - `tests/extension/npc-journal-lane.test.mjs`: the retry carries the refusal and its fix, and the first attempt does not.
 - Mutations of the quote check, the contradiction check and the retry text each fail their test.
 
+### 103.7 One distinctive word for one person (owner request 2026-10-03; amends §79 and §103.2)
+
+Owner: 「能不能给有特征的唯一外号？高瘦中年男人这种太容易重叠了，你可以研究研究网上有没有小说文学作品之类的取外号的方法」.
+
+**Evidence (table 15, installed App).** The Keeper's epithets were job words (加油站老板, 退休卡车司机, 退伍老兵). The journal lane
+wrote its own labels from looks: 「棚下工装服整洁、口袋挂烟的高瘦中年男人」, 「棚下挺着啤酒肚……」. It put each one on the wrong man,
+because its packet named people only by their book names while the prose only described them. A turn later it gave the trucker's
+words to the veteran and merged the two into one label. Nothing stopped two people from carrying one word: `apply person` wrote
+whatever it was given.
+
+**The craft (where the rule comes from).**
+- Dwight V. Swain, *Techniques of the Selling Writer*: a tag is a distinctive, unmistakable trait, and no two characters share one.
+- Game-master practice for unnamed NPCs (Sly Flourish's tables: a scarred cheek, a pipe, gold teeth, a limp): one visible
+  trait the players can hold on to.
+- Chinese fiction names by the single striking feature. Lu Xun's 杨二嫂 becomes 「圆规」 after one image. *Water Margin*'s epithets
+  come from looks, skill, temper or weapon (青面兽, 浪里白条, 黑旋风, 大刀).
+- Age, height, build and sex alone are what everyone in a scene shares, so they tell nobody apart.
+
+**The rule, where epithets are written.** The `apply person` `name` description (extensions/kernel/tools.ts), the speech rule's
+epithet sentence, the journal lane's fixed instruction and field rules:
+- For someone untold, build the word from the one visible thing only this person has here: something they carry or wear, a mark, a
+  habit, the job they are doing.
+- Keep it as short as a nickname.
+- Never use age, height, build or sex alone.
+- Never use a word another person already carries.
+
+The examples are given in English and the writer writes in the play language. No word list is involved.
+
+**What the kernel enforces.** Exact strings only, never a judgement of meaning:
+- **`apply person`** refuses a `name` that is, normalized, the same words as another person's table word.
+  - Refusal: `invalid_params`, `details: {field: "person.name", name, taken, in_use}`.
+  - The fix restates the rule and lists the words in use.
+  - The same person keeping or re-applying their own word is fine.
+  - One word inside another is not refused: 老板 and 老板娘 are two people.
+  - A table that already holds a shared word (written before this) is still refused at every person entrance (§87.8).
+- **The journal's job packet** carries each recordable person's table word.
+  - `recordable[].epithet` in the referenced packet.
+  - The job keeps them as `epithets`, by journal id.
+  - The instruction says a person listed with an epithet is called that at this table, so the lane tells who is who in the prose
+    by it and gives them no label.
+- **`journal.submit`** labels an unnamed person who has a table word with that word, whatever the lane wrote, and a first row for
+  them needs no label.
+  - The word is not used when it carries one of the person's name words.
+  - For anyone else, a lane label that is the same words as another person's word or stored label, or one given earlier in the
+    batch, is refused: `details: {index, field: "label", name, taken}`.
+  - So the card, the capsule's `untold.label` and the prose carry one word for one person.
+
+*Tests.*
+- `tests/kernel/test_journal.py::test_one_word_for_one_person`:
+  - `apply person` refuses a second person's same words and lists the words in use; the same person re-applying their word is fine.
+  - A lane label equal to another person's word is refused.
+  - A first row with no lane label is labelled with the table's word, and a later lane label is replaced by it.
+  - The sidebar shows it.
+- `::test_the_lane_is_told_what_the_table_calls_each_person`: the referenced packet's `recordable[].epithet` and its instruction
+  line.
+- The §87.8 tests now build their shared word as a pre-§103.7 table's record.
+- Mutations of the refusal, the mirror, the label refusal and the packet field each fail a test.
+
 ## 104. Characteristic-driven combat weapons use the actor's authored characteristic (2026-09-17)
 
 H-SIDE turn 171 proved that entering the authored Corbitt encounter was necessary but not sufficient.

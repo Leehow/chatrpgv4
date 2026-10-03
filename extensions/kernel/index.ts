@@ -890,7 +890,7 @@ export function besideSteer(kinds: readonly string[]): string {
 const SPEECH_RULE =
 	"Every line anyone says aloud goes inside {{say:Name}}\u2026{{/say}}, with the quotation marks it is written in kept " +
 	"inside the token, Name exactly as present[].name or called.name gives it (the investigator too, when you render " +
-	"the player's words as theirs). For an untold person, first establish an appearance-based epithet with apply person " +
+	"the player's words as theirs). For an untold person, first establish an epithet with apply person, built from the one visible thing only they have here, " +
 	"if called.name is absent, and use that epithet until the fiction introduces the name; never reveal the book's name " +
 	"through a speaker title. A person not in present[] takes the label the prose uses for them.";
 /** The one host steer of §40 (user ruling 2026-09-15): people are on stage and the draft wraps no spoken line. */

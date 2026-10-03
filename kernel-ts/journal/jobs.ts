@@ -28,9 +28,12 @@ const instruction = (language: string) => 'Write an entry only for someone who t
     'already holds a description and this turn added nothing new about who they are, give only the exchange; do not ' +
     `restate the description. Write every word in the campaign's play language (${language}). Never write ids, turn ` +
     'numbers, receipts or any machine key. Names listed under unnamed belong to people the player has not been told ' +
-    'the name of: the prose has only described them. For such a person give label, a short phrase in the play language ' +
-    'saying how the player would know them from what was shown (looks, role, where they were), carrying no part of the ' +
-    "name; the description and the exchange must not name them either. If someone in this turn's narrative actually " +
+    'the name of: the prose has only described them. A recordable person listed with an epithet is called that at this ' +
+    'table: tell who is who in the prose by it, and give them no label, because the epithet is their label. For anyone ' +
+    'else unnamed give label, a short phrase in the play language saying how the player would know them, built from ' +
+    'the one visible thing only this person has here (something they carry or wear, a mark, a habit, the job they are ' +
+    'doing), never age, height, build or sex alone, carrying no part of the name and no label another person already ' +
+    "has; the description and the exchange must not name them either. If someone in this turn's narrative actually " +
     "said or showed the player this person's name, in any spelling, give named: true with named_quote -- the exact " +
     "words of the prose or the spoken line that gave it, copied character for character -- instead of a label. " +
     'Having appeared, acted or been described is not being named: without such words, give a label. Someone not ' +
@@ -135,6 +138,13 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     }
     const isNamed = (id: string) => integer(row(journal.entries[id]).named_at) || told[id] !== undefined;
     const unnamed = sorted(new Set(named.filter(([, id]) => !isNamed(id)).map(([name]) => name)));
+    // §103.7: what this table calls each person (`apply person`, §79), by journal id. The prose calls them that, so the lane
+    // tells who is who by it, and the person's label is that word.
+    const epithets: Row = {};
+    for (const [, id] of named) {
+        const node = graph.nodes.get(id), word = node ? string(personRecord(world, graph.handle(node)).name || '').trim() : '';
+        if (word) epithets[id] = word;
+    }
     const prior: Row[] = [], namedPrior = new Set<string>();
     for (const [name, id] of named) {
         if (namedPrior.has(name) || !isJsonObject(journal.entries[id]))
@@ -151,7 +161,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         investigators: party.map(sheet => ({ id: string(sheet.id), name: string(sheet.name) })),
         player_text: record.player_text ?? null, keeper_text: proseOf(record.rendered_text),
         speech: array(record.speech).flatMap(line => npcNode(graph, row(row(line).who).npc) ? [{ name: string(row(row(line).who).name), text: string(row(line).text) }] : []),
-        recordable, unnamed, prior, budget: { ...BUDGET }, instruction: instruction(language), _named: named, _told: told, _words: words };
+        recordable, unnamed, prior, budget: { ...BUDGET }, instruction: instruction(language), _named: named, _told: told, _words: words, _epithets: epithets };
     if(!options.referenced) return packet;
     const meta=await campaign.readCampaign(),worldline=string(meta.active_worldline||'main'),scope:ScopeBinding={owner:`journal:${campaign.id}`,campaign:campaign.id,worldline,
         loop:number(row(row(meta.worldlines)[worldline]).loop),audience:'keeper'};
@@ -166,7 +176,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
         const node=graph.nodes.get(person.id),label=string((node?personRecord(world,graph.handle(node)).name:'')||stored.label||'').trim();
         return [{person:aliasFor(person.id),...(label&&!isNamed(person.id)?{label}:{}),description:string(stored.description),last_seen_turn:number(stored.last_seen_turn)}];
     });
-    Object.assign(packet,{protocol:JOURNAL_REFERENCE_PROTOCOL,recordable:people.map((person,i)=>({alias:selectors[i].alias,name:person.name})),
+    Object.assign(packet,{protocol:JOURNAL_REFERENCE_PROTOCOL,recordable:people.map((person,i)=>({alias:selectors[i].alias,name:person.name,...(epithets[person.id]?{epithet:epithets[person.id]}:{})})),
         present:present.map(node=>aliasFor(string(node.node_id))).filter(Boolean),unnamed:people.filter(person=>!isNamed(person.id)).map(person=>aliasFor(person.id)),prior:priorV2,
         speech:array(record.speech).flatMap(line=>{const node=npcNode(graph,row(row(line).who).npc),person=node&&aliasFor(string(node.node_id));return person?[{person,text:string(row(line).text)}]:[]}),
         investigators:party.map(sheet=>({name:string(sheet.name)})),
@@ -212,11 +222,12 @@ export function materializeJournalEntries(job:Row,entries:any):{entries:Row[];id
     return {entries:result,ids};
 }
 export async function openJob(campaign: CampaignWriter, packet: Row): Promise<Row> {
-    const named = packet._named, told = packet._told, words = packet._words,people_source=packet._people_source,people=packet._people,turn_binding=packet._turn_binding;
+    const named = packet._named, told = packet._told, words = packet._words, epithets = packet._epithets ?? {},people_source=packet._people_source,people=packet._people,turn_binding=packet._turn_binding;
     delete packet._people_source;delete packet._people;delete packet._turn_binding;
     delete packet._named;
     delete packet._told;
     delete packet._words;
+    delete packet._epithets;
     const existing = await readJob(campaign, packet.job_id);
     if(packet.protocol===JOURNAL_REFERENCE_PROTOCOL&&!existing&&await campaign.context.snapshots.pathExists(campaign.path(join('npc-journal/jobs',packet.job_id+'.json'))))
         throw new RpcError('invalid_params','The retained journal job is unreadable; preserve it for inspection',{details:{reason:'journal_reference_stale'}});
@@ -228,7 +239,7 @@ export async function openJob(campaign: CampaignWriter, packet: Row): Promise<Ro
         return clone(row(existing.packet));
     }
     if (!existing || !['done', 'failed'].includes(existing.status))
-        await writeJob(campaign, { job_id: packet.job_id, turn: packet.turn, commit: packet.commit, status: 'open', opened_at: nowIso(), packet, named, told, words,
+        await writeJob(campaign, { job_id: packet.job_id, turn: packet.turn, commit: packet.commit, status: 'open', opened_at: nowIso(), packet, named, told, words, epithets,
             ...(packet.protocol===JOURNAL_REFERENCE_PROTOCOL?{protocol:JOURNAL_REFERENCE_PROTOCOL,selection_binding:packet.selection_binding,people_source,people,turn_binding}:{}) });
     return packet;
 }
@@ -253,9 +264,20 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
     // §103: named to the player by the journal's own record or by the records the job scanned; the closed `unnamed` list is the rest.
     // A batch is read in order: a row that named or labelled a person answers for the rows after it.
     const told = row(job.told), words = row(job.words), namedInBatch = new Set<string>(), rowsInBatch = new Set<string>();
+    // §103.7: the table's epithet for each person, taken when the job was opened, and the labels this batch gives.
+    const epithets = row(job.epithets), labelsInBatch = new Map<string, string>();
+    const epithetOf = (id: string): string => { const word = string(epithets[id] || '').trim(); return word && !carries(word, id) ? word : ''; };
     const isNamed = (id: string) => integer(row(stored[id]).named_at) || told[id] !== undefined || namedInBatch.has(id);
     const unnamed = sorted(new Set(named.filter(([, id]) => !isNamed(id)).map(([name]) => name)));
     const carries = (text: string, id: string) => array(words[id]).map(string).some(word => word && occurs(normalize(text), word));
+    /** §103.7: another person's epithet or label that is the same words as `label` (normalized). */
+    const takenBy = (label: string, id: string): string => {
+        const mine = normalize(label);
+        const others = [...Object.keys(epithets).filter(other => other !== id).map(other => string(epithets[other])),
+            ...Object.entries(stored).filter(([other, entry]) => other !== id && isJsonObject(entry) && !integer(row(entry).named_at)).map(([, entry]) => string(row(entry).label)),
+            ...[...labelsInBatch].filter(([other]) => other !== id).map(([, word]) => word)];
+        return others.find(other => !!normalize(other) && normalize(other) === mine) ?? '';
+    };
     return entries.map((entry, i) => {
         if (!isJsonObject(entry))
             return reject(i, `entries[${i}] must be an object`, 'give a name from recordable, with a description and/or an exchange');
@@ -304,18 +326,31 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
                 return reject(i, `entries[${i}].label: ${repr(name)} has been named to the player already`, `give label only for a name listed under unnamed: ${unnamed.join(', ') || '(none)'}`, { field: 'label', name, unnamed });
             if (carries(label, id))
                 return reject(i, `entries[${i}].label carries the name ${repr(name)}`, 'a label says how the player would know them and never names them', { field: 'label', name });
+            // §103.7: a label tells one person from everyone else. On the installed App (table 15) the lane's labels were
+            // 「……高瘦中年男人」-style phrases any of the three men could wear. The kernel refuses only the same words held by
+            // someone else (normalized): one label inside another is often two people (老板 and 老板娘), and whether a label is
+            // distinctive enough is the writer's to get right, from the rule in the instruction.
+            const taken = epithetOf(id) ? '' : takenBy(label.trim(), id);
+            if (taken)
+                return reject(i, `entries[${i}].label ${repr(label.trim())} is already how the table knows someone else (${repr(taken)})`,
+                    'build the label from the one visible thing only this person has here -- something they carry or wear, a mark, a habit, the job they are doing -- never age, height, build or sex alone, and never a label another person already has',
+                    { field: 'label', name, taken });
         }
         if (!isNamed(id) && namedNow !== true) {
             for (const [field, text] of [['description', description], ['exchange', exchange]] as Array<[string, any]>)
                 if (typeof text === 'string' && carries(text, id))
                     return reject(i, `entries[${i}].${field} names ${repr(name)}, whom the player has not been told the name of`, "write it without the name, or give named: true if this turn's narrative gave the player the name", { field, name, unnamed });
-            if (label === null && !isJsonObject(stored[id]) && !rowsInBatch.has(id))
+            if (label === null && !epithetOf(id) && !isJsonObject(stored[id]) && !rowsInBatch.has(id))
                 return reject(i, `entries[${i}]: ${repr(name)} has not been named to the player and has no label`, "give label (how the player would know them, carrying no part of the name), or named: true if this turn's narrative gave the player the name", { field: 'label', name, unnamed });
         }
         rowsInBatch.add(id);
         if (namedNow === true)
             namedInBatch.add(id);
-        return { id, name, description: description === null ? null : string(description).trim(), exchange: exchange === null ? null : string(exchange).trim(), label: label === null ? null : string(label).trim(), named: namedNow === true };
+        // §103.7: one word for one person -- an unnamed person the table has an epithet for is labelled with it, whatever
+        // the lane wrote; the card, the capsule and the prose then agree.
+        const kept = !isNamed(id) && epithetOf(id) ? epithetOf(id) : label === null ? null : string(label).trim();
+        if (kept !== null) labelsInBatch.set(id, kept);
+        return { id, name, description: description === null ? null : string(description).trim(), exchange: exchange === null ? null : string(exchange).trim(), label: kept, named: namedNow === true };
     });
 }
 export async function appendBacklog(campaign: CampaignWriter, id: string, turn: number, reason: string, detail: any): Promise<Row> {
