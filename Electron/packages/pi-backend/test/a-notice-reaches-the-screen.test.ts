@@ -42,7 +42,7 @@ async function eventually(check: () => boolean | Promise<boolean>, timeoutMs = 2
   }
 }
 
-async function fixture() {
+async function fixture(childEnv: (sessionPath: string) => Record<string, string> = () => ({})) {
   root = await mkdtemp(join(tmpdir(), "pipi-live-delivery-"));
   const agentDir = join(root, "agent");
   const sessionsRoot = join(root, "sessions");
@@ -62,7 +62,8 @@ async function fixture() {
     runtimeRoot: root,
     piPath: process.execPath,
     spawn: (_bin, _args, spawnOptions) =>
-      spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname], spawnOptions) as any,
+      spawn(process.execPath, [new URL("./fake-pi.mjs", import.meta.url).pathname],
+        { ...spawnOptions, env: { ...spawnOptions?.env, ...childEnv(sessionPath) } }) as any,
   });
   const presentations: any[] = [];
   const off = backend.subscribe(event => {
@@ -124,25 +125,47 @@ describe("a notice the host places reaches the screen when it is placed", () => 
     await backend.close();
   });
 
-  it("projects the launcher's notice the kernel extension places at session start, as a service notice (§135.27.1.3)", async () => {
-    const { backend, sessionPath, presentations, off } = await fixture();
+  it("a notice the extension places during session start reaches the screen by the startup catch-up (§135.27.1.3)", async () => {
+    // The launcher's notices are placed while the kernel extension handles `session_start`, and Pi's RPC mode emits
+    // nothing from then: it subscribes to session events after `bindExtensions` (pinned below). So the row is in the
+    // transcript and no event announces it; only the host's startup catch-up of the transcript can project it.
+    const message = hostNoticeMessage({ notice: "models_json_unparsable", path: "/agent/models.json",
+      error: "Unexpected token '/', \"/* my relay\"... is not valid JSON" }, undefined, 0);
+    const row = { type: "custom_message", customType: message.customType, content: message.content, display: message.display,
+      details: message.details, id: "host-notice-startup", parentId: null, timestamp: "2026-10-03T00:00:00.000Z" };
+    const { backend, presentations, off } = await fixture(path => ({ FAKE_PI_STARTUP_ROWS: JSON.stringify({ path, rows: [row] }) }));
     try {
       await backend.handle("sendPrompt", ["s1", "hello"]);
-      // The message exactly as the extension builds it -- imported, not re-typed, so the two cannot drift apart.
-      const message = hostNoticeMessage({ notice: "models_json_unparsable", path: "/agent/models.json",
-        error: "Unexpected token '/', \"/* my relay\"... is not valid JSON" }, undefined, 0);
-      await deliverLikePi(backend, sessionPath, { id: "host-notice-1", ...message });
-      await eventually(() => presentations.some(entry => entry.id === "host-notice-1"));
-      const projected = presentations.filter(entry => entry.id === "host-notice-1");
+      await eventually(() => presentations.some(entry => entry.id === "host-notice-startup"));
+      const projected = presentations.filter(entry => entry.id === "host-notice-startup");
       expect(projected).toHaveLength(1);
       expect(projected[0].role).toBe("assistant");
       expect(projected[0].content).toBe(message.content);
       // Told from the turn's prose by its subject flag (first-prose.ts), never by its words.
-      expect(isServiceNoticeRow({ type: "custom_message", customType: message.customType, details: message.details })).toBe(true);
+      expect(isServiceNoticeRow(row)).toBe(true);
     } finally {
       off();
       await backend.close();
     }
+  });
+
+  it("pins why: Pi's RPC mode binds extensions, and so runs session_start, before it subscribes to session events", async () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const candidates = [
+      dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))),
+      join(here, "..", "..", "..", "..", "node_modules", "@earendil-works", "pi-coding-agent", "dist"),
+    ];
+    let checked = 0;
+    for (const dist of candidates) {
+      const source = await readFile(join(dist, "modes", "rpc", "rpc-mode.js"), "utf8").catch(() => undefined);
+      if (source === undefined) continue;
+      checked += 1;
+      const bind = source.indexOf("session.bindExtensions(");
+      const subscribe = source.indexOf("session.subscribe(");
+      expect(bind, dist).toBeGreaterThan(0);
+      expect(subscribe, dist).toBeGreaterThan(bind);
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 
   it("covers every channel the host is registered to deliver through, not just the one that broke", async () => {

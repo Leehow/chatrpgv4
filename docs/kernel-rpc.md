@@ -23178,7 +23178,17 @@ person is still looking for the table.
      makes any uppercase run a `notation` token, and the model wrote the token back wrapped in braces, giving
      `{JSON}`, which `fill` would have shown as an unfilled placeholder. It now reads "Beyond plain data, the file
      accepts only // comments and trailing commas". Its only protected tokens are its placeholders.
-5. **Never the model's.** The kernel extension registers a `context` handler, in setup and in play alike, that removes
+5. **How it reaches the screen: the startup catch-up, not the live stream.** Pi's RPC mode runs `bindExtensions`,
+   and with it `session_start`, before it subscribes to session events (`dist/modes/rpc/rpc-mode.js`). So a message
+   placed during `session_start` is written to the transcript and emits nothing on stdout. The App projects it
+   through pi-backend's startup catch-up: after a COC session's process initializes, `projectHostDeliveries` reads
+   the transcript from the size it had at spawn and projects every host-delivered row (§55's registry). Pi appends
+   the row at once only because the transcript already exists when it starts: pi-backend writes the file and its COC
+   binding first, and Pi's `SessionManager` holds a missing file in memory until the first user message. Probed
+   2026-10-03 with the real launcher (`bin/pi-coc setup --mode rpc --session <existing file>`, a `/* */`
+   `models.json` in the source agent home). The transcript gained the `coc-delivery` row with `host_notice`, in the
+   default play language's projected words, and stdout carried no event for it.
+6. **Never the model's.** The kernel extension registers a `context` handler, in setup and in play alike, that removes
    every `coc-delivery` whose `details.host_notice` is set. In play the table's projection already drops it as closed
    noise, so this handler matters where that projection does not run: in setup mode, where no table policy is
    installed, and on a degraded request with no capsule, which keeps a bounded tail. A notice to the operator is
@@ -23202,10 +23212,14 @@ person is still looking for the table.
 - `tests/extension/context-policy.test.mjs`: on a healthy binding, the notice as `hostNoticeMessage` builds it, placed
   after turn 1 and before turn 2, is not in the request, is not counted as unknown material, does not veto the fold,
   and its text is not carried into the fold summary.
-- `Electron/packages/pi-backend/test/a-notice-reaches-the-screen.test.ts`: the message the extension builds
-  (`hostNoticeMessage`, imported, not re-typed), delivered the way Pi delivers it, becomes one `presentation` on the
-  Keeper's side, and `isServiceNoticeRow` counts it as a service notice, not prose. `turn-telemetry-first-prose.test.ts`
-  lists `host_notice` with the other notice flags.
+- `Electron/packages/pi-backend/test/a-notice-reaches-the-screen.test.ts`:
+  - The message the extension builds (`hostNoticeMessage`, imported, not re-typed) is written to the transcript by
+    the fake Pi as it starts, before it answers any command and with no event (`FAKE_PI_STARTUP_ROWS`, the shape
+    the probe above showed). Through the real `ensure` startup, it becomes one `presentation` on the Keeper's side,
+    and `isServiceNoticeRow` counts it as a service notice, not prose.
+  - A second case pins the premise to the installed Pi: in `rpc-mode.js`, `session.bindExtensions(` comes before
+    `session.subscribe(`.
+  - `turn-telemetry-first-prose.test.ts` lists `host_notice` with the other notice flags.
 
 Mutations (one at a time; restored by copy):
 
@@ -23220,6 +23234,7 @@ Mutations (one at a time; restored by copy):
   notice).
 - A malformed entry is accepted: the malformed-value case fails.
 - The turn is not an integer: the context-policy test fails (the notice is retained as unknown material).
+- pi-backend's startup catch-up is not run: the startup projection test fails.
 
 ### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
 
