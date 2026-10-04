@@ -4,6 +4,7 @@ import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
 import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection } from "./capsule.js";
+import { OWN_BUDGET, ownSection } from "./own.js";
 import { playedRecords, signals, directorSection } from "./director.js";
 import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promiseObligations, withPromiseFulfillment, canonicalMemoryReceipts } from "./memory.js";
 import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
@@ -51,6 +52,12 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "the motorcycle) instead of a name nobody has said; " +
     "known.investigator.conditions is what the rules currently hold true of the body, and cannot_act, when " +
     "present, means the kernel will refuse an action declared for them until it is gone; " +
+    // Contract §179.2: the interface; prompts/keeper.md says what a consulted record shows (§179.1).
+    "own is the investigator's own record: card is what their sheet says of why they came, what they carry and whom " +
+    "they hold to; said is the player's own words from earlier turns your history no longer carries, the earliest and " +
+    "the latest, and omitted names the turns between, which recall transcript reaches. What the player said there " +
+    "about the investigator and their errand stands where the card and the book are silent; what they said about the " +
+    "world is still their claim. " +
     "obligations of kind note are your own open continuity notes; only those names can be closed with apply note. " +
     "Promise reminders belong to memory: respond to their fictional meaning, not by writing or closing a note. " +
     "rulings are your earlier rulings that " +
@@ -451,6 +458,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         full = options.styleFull ?? true;
     const warningRecord = [...campaign.records].sort((a, b) => number(b.turn) - number(a.turn)).find(record => number(record.turn) < number(turn.turn) && record.closed_by === "narrate");
     const npcScope={worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)};
+    // The turns before this one that said or told anything; `recent` carries the last two, `own` the player's words of the rest.
+    const told = campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))),
+        shown = told.slice(-2);
     const sections: Row = clone({
         where,
         historical_setting: await historicalSetting(campaign, module),
@@ -473,7 +483,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         memory: capsuleMemory(memory, new EntityIndex(graph, party, row(world.scene_labels)), memoryAnchors),
         // Contract §137.3: language and register on every table; the craft lines only from the enabled provider.
         style: styleSection(craft, language, string(meta.register || "purist"), styleProvider(active), dg.beats, director.beat, full, legacy),
-        recent: campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))).slice(-2).map(record => ({
+        recent: shown.map(record => ({
             turn: record.turn,
             player: record.player_text ?? null,
             keeper: chars(record.rendered_text || "", 200),
@@ -481,6 +491,10 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
                 ? { closed: "stranded", receipts: array(record.receipts).length }
                 : record.closed_how ? { closed: record.closed_how, receipts: array(record.receipts).length } : {})
         })),
+        // §179.2: the card's own words and the player's, hung on the investigator rather than on who is present.
+        // `ownSection` keeps it within OWN_BUDGET itself (earliest and latest words), so no generic fit below touches
+        // it; a table without an investigator has no such section.
+        ...(party.length ? { own: ownSection(party[0], told, shown.map(record => number(record.turn)), OWN_BUDGET) } : {}),
         // §158.4: what the player was told and the ledger still lacks; the clerk lands it first, the Keeper never re-tells it.
         owed: capsuleOwed(graph, world, campaign.jsonFiles.get("owed.json"), party),
         warnings: capsuleWarnings(campaign.records, warningRecord, number(turn.turn)),
