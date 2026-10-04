@@ -32999,9 +32999,15 @@ so its `sections` and `removed` keep the kernel's order. The capsule that moves 
 an answered ask (§19.2's `answering`) that is the older exchange's, as the opening ends with it today. Measured on the
 faux replay of `tests/extension/single-loop-model-call-diet.test.mjs` (a 22.4 K-character sent capsule): after a turn
 that only delivered, the next turn's capsule shares 20,323 characters with the previous one (past `style`, into
-`present`); after a turn that revealed a clue the share ends inside `mods` at 8,332 characters, because `mods.thread`
-(about 2.7 K: the thread's `next` rows lose the clue's lock) and `known` changed. `mods` is fourth in the stable list,
-so on a clue turn the shared head stops there.
+`present`); after a turn that revealed a clue the share ended inside `mods` at 8,332 characters, because `mods.thread`
+(about 2.7 K: the thread's `next` rows lose the clue's lock) and `known` changed. So `stableFirst` also orders the keys
+of `mods` (`active`, `authority`, `providers`, `vocabulary`, `unregistered_equipment`, `relationships`, `pacing`, then
+any key not named, then `objects`, `pending_contacts`, `thread`) and of `known` (`investigator`, `flags`, then any key not
+named, then `clues_here`, `discovered_clues`): what play moves goes last; nothing else nested is reordered. Measured
+with it, the clue turn shares 8,974 characters, up to `mods.thread`. A prefix ends at its first difference and both
+sections still sit inside the stable span, so the sub-order does not carry a discovery turn past them to `where`
+(16,144); placing `mods` and `known` after `style` would share 12,031 on the same two capsules, and reaching `where`
+would need the moving keys outside those sections.
 
 ### 179.3 The context lane fingerprints its request (amends the rows of §19.2)
 

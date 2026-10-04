@@ -46,13 +46,29 @@ export function capsuleUpdate(first: Row, current: Row): Row | undefined {
 export const CAPSULE_STABLE_SECTIONS: readonly string[] = ['head', 'historical_setting', 'worldlines', 'mods', 'reading', 'pressures',
     'obligations', 'situations', 'rulings', 'owed', 'unrecorded', 'untold', 'warnings', 'known', 'voices', 'style'];
 export const CAPSULE_VOLATILE_SECTIONS: readonly string[] = ['where', 'present', 'director', 'memory', 'recent', 'turn'];
+/**
+ * Two stable sections carry parts that move with play (a discovered clue changes `mods.thread` and `known.clues_here`), so
+ * their own keys are ordered the same way: what play moves goes last. Only these two; nothing else nested is reordered.
+ */
+export const CAPSULE_NESTED_ORDER: Readonly<Record<string, readonly [readonly string[], readonly string[]]>> = {
+    mods: [['active', 'authority', 'providers', 'vocabulary', 'unregistered_equipment', 'relationships', 'pacing'],
+        ['objects', 'pending_contacts', 'thread']],
+    known: [['investigator', 'flags'], ['clues_here', 'discovered_clues']],
+};
+/** The row's keys: `first` in that order, then any key neither list names in the order given, then `last`. Values untouched. */
+function orderedKeys(row: Row, first: readonly string[], last: readonly string[], value = (key: string): unknown => row[key]): Row {
+    const named = new Set([...first, ...last]), result: Row = {};
+    for (const key of first) if (Object.hasOwn(row, key)) result[key] = value(key);
+    for (const key of Object.keys(row)) if (!named.has(key)) result[key] = value(key);
+    for (const key of last) if (Object.hasOwn(row, key)) result[key] = value(key);
+    return result;
+}
 /** The same sections, the stable ones first, then any section neither list names in the order given, then the volatile ones. */
 export function stableFirst(capsule: Row): Row {
-    const named = new Set([...CAPSULE_STABLE_SECTIONS, ...CAPSULE_VOLATILE_SECTIONS]), result: Row = {};
-    for (const key of CAPSULE_STABLE_SECTIONS) if (Object.hasOwn(capsule, key)) result[key] = capsule[key];
-    for (const [key, value] of Object.entries(capsule)) if (!named.has(key)) result[key] = value;
-    for (const key of CAPSULE_VOLATILE_SECTIONS) if (Object.hasOwn(capsule, key)) result[key] = capsule[key];
-    return result;
+    return orderedKeys(capsule, CAPSULE_STABLE_SECTIONS, CAPSULE_VOLATILE_SECTIONS, key => {
+        const value = capsule[key], nested = Object.hasOwn(CAPSULE_NESTED_ORDER, key) ? CAPSULE_NESTED_ORDER[key] : undefined;
+        return nested && value && typeof value === 'object' && !Array.isArray(value) ? orderedKeys(value, ...nested) : value;
+    });
 }
 export const POLICY_VERSION = 2;
 export type Row = Record<string, any>;

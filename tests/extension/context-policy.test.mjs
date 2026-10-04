@@ -229,16 +229,34 @@ test('§179.2: stableFirst puts the stable sections first, then sections it does
         first_sight: {place: 'x'}, present: [{name: 'Arty'}], voices: [], known: {clues_here: []}, pressures: [{name: 'clock'}],
         obligations: [], director: {beat: 'b'}, situations: [], worldlines: {active: 'main'}, rulings: [], memory: [], style: {floor: ['f']},
         recent: [{turn: 2}], owed: [], warnings: [], unrecorded: [], untold: [], reading: {sections: []}, resume: {kind: 'r'},
-        truncated: ['present'], mods: {thread: {next: []}}};
+        truncated: ['present'],
+        // The kernel's own order of these two (read off a capsule), with one key neither list names in each.
+        mods: {active: [], authority: 'a', expression_reference: {enabled: false}, pending_contacts: [], relationships: [], objects: [],
+            providers: {}, vocabulary: {}, unregistered_equipment: [], thread: {next: [{scene: 's', locked: 'l'}]}, pacing: {}},
+        known: {discovered_clues: [], clues_here: [{name: 'c'}], flags: [], investigator: {}, hunch: 'h'}};
+    kernel.style.mods = 'not a section';
     const before = structuredClone(kernel), sent = api.stableFirst(kernel);
     assert.deepEqual(Object.keys(sent), ['head', 'historical_setting', 'worldlines', 'mods', 'reading', 'pressures', 'obligations', 'situations',
         'rulings', 'owed', 'unrecorded', 'untold', 'warnings', 'known', 'voices', 'style',
         'first_sight', 'resume', 'truncated',
         'where', 'present', 'director', 'memory', 'recent', 'turn']);
+    // Inside mods and known, what play moves goes last; a key neither list names keeps its place between.
+    assert.deepEqual(Object.keys(sent.mods), ['active', 'authority', 'providers', 'vocabulary', 'unregistered_equipment', 'relationships', 'pacing',
+        'expression_reference', 'objects', 'pending_contacts', 'thread']);
+    assert.deepEqual(Object.keys(sent.known), ['investigator', 'flags', 'hunch', 'clues_here', 'discovered_clues']);
     assert.deepEqual(sent, kernel, 'every key and value is kept');
-    for (const key of Object.keys(kernel)) assert.equal(sent[key], kernel[key], `${key} is the same value, not a copy`);
+    for (const key of Object.keys(kernel)) {
+        if (key === 'mods' || key === 'known') for (const inner of Object.keys(kernel[key])) assert.equal(sent[key][inner], kernel[key][inner], `${key}.${inner} is the same value`);
+        else assert.equal(sent[key], kernel[key], `${key} is the same value, not a copy`);
+    }
+    assert.deepEqual(Object.keys(sent.style), ['floor', 'mods'], 'nothing else nested is reordered');
     assert.deepEqual(kernel, before, 'the input is not mutated');
     assert.deepEqual(Object.keys(kernel), Object.keys(before), 'nor reordered');
+    assert.deepEqual(Object.keys(kernel.mods), Object.keys(before.mods));
+    // A mods or known that is not an object is passed through as it is.
+    const odd = {known: ['clue'], mods: null};
+    assert.equal(api.stableFirst(odd).known, odd.known);
+    assert.equal(api.stableFirst(odd).mods, null);
     // A section the input lacks is absent, not null; an input of unnamed sections keeps its own order.
     assert.deepEqual(Object.keys(api.stableFirst({turn: {}, zeta: 1, alpha: 2, head: 'h'})), ['head', 'zeta', 'alpha', 'turn']);
     assert.deepEqual(api.stableFirst({}), {});

@@ -286,11 +286,18 @@ test("§135.23: on the single-loop engine a run's second call reads the first ca
 	const previous = messageText(requests[1].messages[index + 1]), next = messageText(requests[2].messages[index + 1]);
 	const before = JSON.parse(previous), after = JSON.parse(next);
 	assert.deepEqual(Object.keys(after), Object.keys(stableFirst(after)), "its sections are in the stable-first order");
-	// This turn's write (a clue) changed sections; the two capsules share every section ahead of the first one it changed.
+	// This turn's write (a clue) changed sections; the two capsules share every section ahead of the first one it changed,
+	// and inside that section (mods and known are ordered too) every key ahead of the first one it changed.
 	const changed = Object.keys(after).find((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
 	const shared = sharedPrefix(previous, next);
 	assert.ok(changed && Object.keys(after).indexOf(changed) > 0, `a section after the head changed: ${changed}`);
 	assert.ok(shared >= sectionOffset(after, changed), `the capsules share ${shared} characters, through every section before ${changed}`);
+	const inner = after[changed] && typeof after[changed] === "object" && !Array.isArray(after[changed])
+		? Object.keys(after[changed]).find((key) => JSON.stringify(before[changed]?.[key]) !== JSON.stringify(after[changed][key])) : undefined;
+	const innerAt = inner === undefined ? sectionOffset(after, changed)
+		: sectionOffset(after, changed) + JSON.stringify(changed).length + 1 + sectionOffset(after[changed], inner);
+	assert.ok(shared >= innerAt, `and through ${changed} up to ${changed}.${inner} (${innerAt})`);
+	t.diagnostic(`clue turn: capsule ${next.length} chars; shared ${shared} (~${Math.ceil(shared / 4)} tokens); first change ${changed}.${inner} at ${innerAt}; where at ${sectionOffset(after, "where")}; cacheRead ${nextTurn.cacheRead}`);
 	assert.ok(nextTurn.cacheRead >= Math.ceil(`${promptText(requests[2].messages.slice(0, index + 1))}\n\nuser:${next.slice(0, shared)}`.length / 4),
 		`the next turn's first call reads the brief and the capsule's shared head from cache (${nextTurn.cacheRead})`);
 });
