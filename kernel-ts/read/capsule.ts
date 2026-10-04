@@ -106,6 +106,24 @@ export function npcNode(graph: ModuleGraph, world: Row, name: string): Row {
         throw error;
     }
 }
+/**
+ * Contract §180.5: the junction of an entrance a creature fills too -- the NPC act's reads (`npc.situation`,
+ * `npc.act.options`, `npc.stakes`). A person first, exactly as `npcNode` reads one; on a miss, a creature that states a
+ * stat block (an actor, §136.12); else the person refusal unchanged, whose candidates are still the next step.
+ */
+export function actorNode(graph: ModuleGraph, world: Row, name: string): Row {
+    try {
+        return npcNode(graph, world, name);
+    }
+    catch (error) {
+        if (!(error instanceof RpcError) || error.code !== "unknown_entity")
+            throw error;
+        const creature = graph.find(name, ["creature"]);
+        if (creature && graph.isActor(creature))
+            return creature;
+        throw error;
+    }
+}
 /** The table's name for a person, and the sheet's or the book's only until one exists (§79). */
 export const personLabel = (world: Row, id: string, authored: string): string => string(personRecord(world, id).name || authored);
 /**
@@ -131,6 +149,9 @@ export function calledBlock(world: Row, id: string, authored: string): Row | nul
 /** The reminder starts before the first delivery, not after the asynchronous journal writes a label.
  * Committed deliveries and the lane's `named_at` ground disclosure; a table epithet is not disclosure. */
 export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: Row, records: Row[] = []): Row | null {
+    // §180.3: a creature has no name to learn, so it is never untold and never carries `say_name`.
+    if (!graph.isPerson(node))
+        return null;
     const entry = row(row(journal.entries)[string(node.node_id)]);
     if (integer(entry.named_at) || toldTurn(graph, node, records) !== null)
         return null;
@@ -539,6 +560,8 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const ledgerRow = row(ledger[node.node_id]), now = state || truth(ledgerRow.dead) ? null : moodNow(ledgerRow);
     const entry: Row = {
         name: graph.displayName(node),
+        // §180.4: the row says what it is, so the host can tell a person from a creature (the expression roster reads it).
+        kind: "npc",
         ...(graph.sourceNeeds(node,true).length?{runtime_inputs:graph.sourceNeeds(node,true)}:{}),
         // What this table calls them (§79), before the dossier for the same reason `state` is: the
         // Keeper writes a name into every line about this person, and the record that decides it has
@@ -585,13 +608,9 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     }));
     if (ties.length)
         entry.ties = ties;
-    const saved = row(ledger[node.node_id]),
-        stance = row(saved.stance);
-    if (truth(stance.value))
-        entry.toward_party = {
-            stance: stance.value,
-            because: array(stance.because).slice(-3).map(cause => cause.how === "keeper" ? `turn ${string(cause.turn)}: keeper set ${string(cause.stance)}${cause.why ? `: ${cause.why}` : ""}` : cause.how === "combat" ? `turn ${string(cause.turn)}: fought` : `turn ${string(cause.turn)}: ${string(cause.approach)} ${string(cause.level)}`)
-        };
+    const saved = row(ledger[node.node_id]), toward = towardParty(saved);
+    if (toward)
+        entry.toward_party = toward;
     const history = npcHistory(saved, memories);
     if (history)
         entry.history = history;
@@ -610,6 +629,41 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
         entry.from_other_lines = elsewhere;
     return entry;
 }
+/** How a present being stands toward the party, from the stance ledger's committed fold, or null when nothing was folded. */
+function towardParty(saved: Row): Row | null {
+    const stance = row(saved.stance);
+    if (!truth(stance.value))
+        return null;
+    return {
+        stance: stance.value,
+        because: array(stance.because).slice(-3).map(cause => cause.how === "keeper" ? `turn ${string(cause.turn)}: keeper set ${string(cause.stance)}${cause.why ? `: ${cause.why}` : ""}` : cause.how === "combat" ? `turn ${string(cause.turn)}: fought` : `turn ${string(cause.turn)}: ${string(cause.approach)} ${string(cause.level)}`)
+    };
+}
+/** §180.4: what the book says a creature is, one line of at most 160 characters, or "" when it says nothing. */
+export const CREATURE_WHAT_CHARS = 160;
+export function creatureWhat(node: Row): string {
+    return typeof node.summary === "string" ? chars(words(node.summary), CREATURE_WHAT_CHARS) : "";
+}
+/**
+ * Contract §180.4: a creature present, as a body. It carries what it is, the state of its body, the Keeper's note and how
+ * it stands toward the party -- each only when there is a value -- and none of a person's fields (`called`, `untold`,
+ * `now`, `personality`, `knows`, `believes`, `would_lie_about`, `ties`, `history`, `relationships`, `recent_speech`,
+ * `commitments`, `reunion`, `from_other_lines`): no person feature reads a creature.
+ */
+export function creatureEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row): Row {
+    const state = npcState(graph, world, node), what = creatureWhat(node), note = recordOf(node).keeper_note;
+    const toward = towardParty(row(ledger[node.node_id]));
+    return {
+        name: graph.displayName(node),
+        kind: "creature",
+        ...(what && normalize(what) !== normalize(graph.displayName(node)) ? { what } : {}),
+        ...(state ? { state } : {}),
+        // §180.8–§180.9 (ticket CK-D): `habits`, `weaknesses` and `false_leads` join the row here, in this order, between
+        // the body's state and the Keeper's note.
+        ...(truth(note) ? { keeper_note: note } : {}),
+        ...(toward ? { toward_party: toward } : {}),
+    };
+}
 /** `options.voices` true is the capsule's form (contract §40.7): the lines-shaped words leave the rows for `voices`. */
 export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row; records?: Row[]; currentReceipts?: Row[]; campaign?:string; scope?:Row } = {}): Row[] {
     const projected=withPromiseFulfillment(memory,{campaign:options.campaign,receipts:canonicalMemoryReceipts(options.records??[],options.currentReceipts??[]),world});
@@ -621,7 +675,12 @@ export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledge
     }
     // §142.3: someone with an intention under way owes the table a result this turn, as a promise does.
     const rank = (entry: Row) => truth(row(entry.history).promises) || array(row(entry.history).intents).some(item => row(item).status === "attempted") ? 0 : truth(row(entry.history).met_turns) || truth(entry.toward_party) ? 1 : truth(entry.wants) ? 2 : 3;
-    return npcsPresent(graph, world, scene).map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records,options.scope)).sort((a, b) => rank(a) - rank(b));
+    // §180.4: persons first, ranked; the creatures after them, so present[]'s budget (cut from the end) cuts them first.
+    const present = npcsPresent(graph, world, scene), people = present.filter(node => graph.isPerson(node));
+    return [
+        ...people.map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records,options.scope)).sort((a, b) => rank(a) - rank(b)),
+        ...present.filter(node => !graph.isPerson(node)).map(node => creatureEntry(graph, world, node, ledger)),
+    ];
 }
 export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = [], memory:Row[] = [], scope:Row = {}, combat: Row | null = null, dispositions: Row | null = null): Row {
     const untold = untoldBlock(graph, world, journal, node, records), handle = graph.handle(node),
@@ -888,6 +947,8 @@ export function moduleSection(graph: ModuleGraph, size = 120): Row {
         factions: roster(["faction", "organization"]),
         places: roster(["location"]),
         people: roster(["npc"]),
+        // §180.4: the book's creatures, in the same roster form as its people.
+        creatures: roster(["creature"]),
         endings: graph.kind("ending").map(n => graph.displayName(n)),
         conclusions: graph.kind("conclusion").map(n => graph.displayName(n)),
         structure_type: structureType(graph)

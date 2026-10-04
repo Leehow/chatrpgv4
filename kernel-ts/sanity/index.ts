@@ -97,7 +97,9 @@ export const executeSanity: SettlementExecutor = async (context, args, plan) => 
                 involuntaryKind: involuntary, involuntarySummary: string(payload.involuntary_summary || ''), alone: truth(payload.alone),
                 creatureType: typeof payload.creature_type === 'string' ? payload.creature_type : null });
             if (event.type === 'sanity_check_skipped') turnState(string(row(event.payload).summary || 'SAN check skipped'));
-            const perceived = typeof context.action.target === 'string' ? context.graph.find(context.action.target, ['npc']) : null;
+            // §180.3: what is perceived is any actor -- a creature's sight is the usual one -- so its once-only exposure is
+            // recorded against it as against a person.
+            const perceived = typeof context.action.target === 'string' ? context.graph.actor(context.action.target) : null;
             const ids = recordSanityRolls(context, session, { source: string(payload.source || ''),
                 ...(perceived ? {npc_exposure: context.graph.handle(perceived)} : {}) }), result = row(event.payload);
             const sanRoll = ids.length ? row(context.receipts.find(receipt => receipt.id === ids[0])) : {};

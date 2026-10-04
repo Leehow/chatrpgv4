@@ -112,7 +112,8 @@ export async function resolveBeforeMain(kernel: KernelContext, runtime: ModRunti
         catch {
             throw enrichActorRefusal(error, action.actor, graph);
         }
-        if (!graph.actor(string(action.actor))) throw enrichActorRefusal(error, action.actor, graph);
+        // §180.3: the named "actor" must be a person -- a first impression is never made on a creature.
+        if (!graph.find(string(action.actor), ['npc'])) throw enrichActorRefusal(error, action.actor, graph);
         context = swapped;
         orientedFrom = {actor: action.actor, target: targetName};
         targetName = action.actor;
@@ -123,7 +124,8 @@ export async function resolveBeforeMain(kernel: KernelContext, runtime: ModRunti
     // impressions for three different people, issued in one message before any of them answered,
     // collapsed into one refusal class and shut `resolve` for the turn. On an imported module the
     // people are staged in the very turn they are met, so that was every first contact in the book.
-    const scene = graph.scene(world.active_scene), present = npcsPresent(graph, world, scene);
+    // §180.3: the people of this meeting, never a creature present (`details.present` is the Keeper's list to roll against).
+    const scene = graph.scene(world.active_scene), present = npcsPresent(graph, world, scene).filter(node => graph.isPerson(node));
     if (!present.some(node => node.node_id === target.node_id))
         throw new RpcError('not_here', `${graph.displayName(target)} is not in ${graph.displayName(scene)}, so there is no meeting to leave an impression`, {
             fix: `stage them first with apply {kind: "npc", name: ${repr(graph.displayName(target))}, to: "here", why: "<what puts them in this room>"}, then resolve this impression; or roll against one of details.present`,

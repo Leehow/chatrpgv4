@@ -794,7 +794,18 @@ export class ModuleGraph {
         const profile = node.node_kind === "creature" ? this.mechanicsOf(node).profile : null;
         return node.node_kind === "npc" || !!profile;
     }
-    /** The actor of that name: the `npc` first, so a creature never shadows a person of the same handle. */
+    /**
+     * Contract §180.3: a being the Keeper plays as a person -- an `npc` node, the book's or the table's. Every person
+     * feature (an epithet, the untold block, a voice, the journal, social offers, a personality) selects by this, never
+     * by `isActor`: a creature with a stat block is an actor and no person. Read from `node_kind` alone (§180.2).
+     */
+    isPerson(node: Row | null | undefined): boolean {
+        return !!node && node.node_kind === "npc";
+    }
+    /**
+     * The actor of that name: the `npc` first, so a creature never shadows a person of the same handle. Since §180.7 the
+     * npc-first order is only the tie-break for a compile snapshot that carries one being as both kinds.
+     */
     actor(name: string): Row | null {
         const person = this.find(name, ["npc"]);
         if (person)

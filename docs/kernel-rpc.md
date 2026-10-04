@@ -33097,7 +33097,9 @@ The reader decides, from how the book treats the being (180.13). The kernel read
 | cash counterparty, promise payer, obligation `who` and `people` guards | person (unchanged) |
 | Sanity-on-sight once-only dedupe, combat label, First Aid patient | actor (was npc-only) |
 
-`resolve/projection.ts` (the receipt's `npc` tag) and `mods/effects.ts` (resource effects) are settled in the implementation. Each is recorded here as actor or person, with its reason, before merge.
+`resolve/projection.ts`'s `npc` tag on a roll receipt selects the **actor**. It names the body a roll was made against, and the resolve target it falls back from (`npcTarget`, the combat defence's `outcome.target`) is already an actor. The consumers of the tag that are a person's (the journal, the stance ledger's social deltas) select persons themselves. `mods/effects.ts`'s resource-effect target (`effectTarget`, an object's use and an NPC's cast) selects the **actor**: the effect lands on hit points, magic points and conditions, which a creature with a stat block has; a name that is neither keeps the person refusal and its candidates.
+
+The stance ledger's fold (`foldNpcTurn`) keys an actor for what is a body's: the Keeper's stance, a fight, death, a pinned skill and an intention. A creature row's `toward_party` and `stanceNow` read these. Its social deltas, disclosures, exchanges, speech and meetings stay a person's.
 
 ### 180.4 The creature row and the brief's roster
 
@@ -33111,7 +33113,7 @@ A creature in `present[]`:
 
 - **Fields.** `kind` is always present; every other field appears only when there is a value. `state` and `toward_party` are read exactly as for a person. `habits`, `weaknesses` and `false_leads` come from 180.8–180.9.
 - **What it never carries.** A creature row carries no `called`, `untold`, `now`, `personality`, `knows`, `believes`, `would_lie_about`, `ties`, `history`, `relationships`, `recent_speech`, `commitments`, `reunion` or `from_other_lines`. A person row gains `kind: "npc"` so the host can tell them apart.
-- **Order.** Creature rows follow person rows and are cut first under the budget.
+- **Order.** Creature rows follow person rows and are cut first under the budget. `kind` rides outside the budget, as §176.8's name path does, and a cut row's stub keeps it.
 - **The brief's roster.** `moduleSection` gains `creatures`, the same roster form as `people`, over `node_kind === "creature"`.
 
 ### 180.5 `apply npc` on a creature; acts; offers
@@ -33119,6 +33121,7 @@ A creature in `present[]`:
 - **Accepted on a creature:** `to`, `stance`, `dead`, `conditions`, `defense`, `action`, `disposition`, `intends`/`outcome`, `spend_turn`, `skill`, and `creature` (180.6).
 - **Refused on a creature:** `mood`, `reunion`, `archetype` (person tiers), `apply person`, and `walk_on` without `creature`. The refusal is `invalid_params` with `details.reason: "not_a_person"`, and its `fix` names the body-side way. For example, how it fights is `disposition`; how it behaves belongs in prose; a stat block is `creature: "<catalog creature>"`.
 - **Act ways (amends §143.3).** A creature's options are `attack`, `flee`, `first_blow`, `pursue`, `check`, `clock`, `stance`, `leave` and `intention_only`. `coercion` and `walk_on` are never offered to it. The host strips `_draws`/`_produces` from a creature's act.
+- **The act's reads.** `npc.situation`, `npc.act.options` and `npc.stakes` take a creature that states a stat block by name (`actorNode`: a person first, then that creature). Their `npc` carries `kind` (`npc` or `creature`). The host reads it and takes the stakes die's surprise away from a creature's situation, so nothing is brought out. A creature's `who` is its `what` and `keeper_note`.
 
 ### 180.6 Table creatures and the beasts catalog (amends §87.7)
 

@@ -333,9 +333,13 @@ export function fitPresent(rows: Row[], budget: number): boolean {
     // its token, a stub as its name -- and the tokens and the stubs' blocks are put back after. Counted, they cost the
     // nine-person bench its fourth dossier.
     const tokens = new Map<Row, unknown>();
+    // §180.4: `kind`, the host's one way to tell a person from a creature, rides outside it the same way, after `name`.
+    // Counted, it too cost the nine-person bench its fourth dossier.
+    const kinds = new Map<Row, unknown>();
     for (const entry of all) {
         const untold = entry.untold;
         if (untold && typeof untold === "object" && "say_name" in untold) { tokens.set(entry, untold.say_name); delete untold.say_name; }
+        if (Object.hasOwn(entry, "kind")) { kinds.set(entry, entry.kind); delete entry.kind; }
     }
     const cut = fitBudget(rows, budget);
     const stubbed: Row[] = cut ? all.slice(rows.length) : [];
@@ -343,7 +347,12 @@ export function fitPresent(rows: Row[], budget: number): boolean {
     while (cut && rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubbed.map(bare)])).length > budget)
         stubbed.unshift(rows.pop()!);
     for (const [entry, token] of tokens) entry.untold.say_name = token;
-    rows.push(...stubbed.map(presentStub));
+    const kindBack = (entry: Row): Row => {
+        if (!kinds.has(entry)) return entry;
+        const { name, ...rest } = entry;
+        return { name, kind: kinds.get(entry), ...rest };
+    };
+    rows.splice(0, rows.length, ...rows.map(kindBack), ...stubbed.map(entry => presentStub(kindBack(entry))));
     return cut;
 }
 /**
@@ -353,7 +362,8 @@ export function fitPresent(rows: Row[], budget: number): boolean {
  */
 function presentStub(entry: Row): Row {
     const { use: _line, ...untold } = row(entry.untold);
-    return { name: string(entry.name), truncated: true, ...(Object.keys(untold).length ? { untold } : {}) };
+    // §180.4: a stub keeps what the row was, a person or a creature, so a cut creature never reads to the host as a person.
+    return { name: string(entry.name), ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}), truncated: true, ...(Object.keys(untold).length ? { untold } : {}) };
 }
 export function evidenceAnchors(graph: ModuleGraph, world: Row, records: Row[], limit = 4): string[] {
     return [...graph.kind("clue"), ...graph.kind("handout")]

@@ -62,7 +62,7 @@ test('§176.8: a person the budget cuts keeps the name path, through the Keeper\
   for (const stub of stubs) {
     const word = words.get(handleOf(stub.name));
     assert.ok(word, stub.name);
-    assert.deepEqual(stub, {name: stub.name, truncated: true, untold: {label: word, id: handleOf(stub.name), say_name: `{{name:${word}}}`}},
+    assert.deepEqual(stub, {name: stub.name, kind: 'npc', truncated: true, untold: {label: word, id: handleOf(stub.name), say_name: `{{name:${word}}}`}},
       'a stub keeps who is untold and the token that says their name, without the line');
   }
   for (const person of present.filter(person => !person.truncated))
@@ -87,7 +87,7 @@ test('§176.8: a person the budget cuts keeps the name path, through the Keeper\
   assert.deepEqual(result.content.at(-1), {type: 'text', text: api.untoldNote([word])}, 'the result says a name was there, and the token');
   const capsule = JSON.parse(sent.find(message => message.customType === 'coc-capsule').content);
   const shown = capsule.present.find(person => person.name === word);
-  assert.deepEqual(shown, {name: word, truncated: true, untold: {label: word, say_name: `{{name:${word}}}`, use: api.UNTOLD_VIEW_USE}},
+  assert.deepEqual(shown, {name: word, kind: 'npc', truncated: true, untold: {label: word, say_name: `{{name:${word}}}`, use: api.UNTOLD_VIEW_USE}},
     JSON.stringify(capsule.present));
   assert.ok(!JSON.stringify(sent).includes(cut.name), `${cut.name} reaches the Keeper`);
 
@@ -110,7 +110,7 @@ test('§176.8: a stub of someone told stays bare', async t => {
   const input = await call('table.player_input', {text: '我找个空位坐下。'});
   const stubs = input.capsule.present.filter(person => person.truncated);
   assert.ok(stubs.length, JSON.stringify(input.capsule.present.map(person => person.name)));
-  for (const stub of stubs) assert.deepEqual(stub, {name: stub.name, truncated: true}, 'nobody untold, nothing to keep');
+  for (const stub of stubs) assert.deepEqual(stub, {name: stub.name, kind: 'npc', truncated: true}, 'nobody untold, nothing to keep; §180.4: a stub keeps its kind');
 });
 
 test('§176.8: the people cut are found by position, so two people the book gives one name both keep a row', () => {
