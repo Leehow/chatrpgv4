@@ -1,7 +1,9 @@
 # Provider traffic: the book is read once, and the Keeper's request keeps its prefix (2026-10-04)
 
 Status: decided 2026-10-04 (owner: 「按照你的建议来优化吧」 on the three recommendations below); contract §179.
-Implementation on `claude/cache-traffic-20261004` (tickets: `cache-traffic-tickets.md`).
+Implemented 2026-10-04 on `claude/cache-traffic-20261004` (CT-01 806eda7f5, CT-02/03 b0f8aee75 + 746bf8e9b; the §179.1
+implementation decisions and the §179.2 order decision are in the contract). Tickets: `cache-traffic-tickets.md`.
+Live acceptance (§3) is still to run after packaging.
 
 Owner, 2026-10-04: 「我发现现在pipicoc用的大模型流量跑的特别快，grok的缓存命中极低，你看看怎么回事」, then 「按照你的建议来优化吧」.
 

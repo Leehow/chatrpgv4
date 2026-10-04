@@ -4,7 +4,7 @@ Spec: `cache-traffic.md`. Contract: §179.
 
 ## CT-01 The library follows the leading fork
 
-Status: ready-for-agent
+Status: landed 2026-10-04 (806eda7f5, afe201be6 on `claude/cache-traffic-reading-20261004`; merged 357c423a0)
 
 Kernel (`kernel-ts/modules/campaign-scope.ts`, `reading.ts`, `reference.ts`), host (`extensions/module/reading-service.ts`),
 tests (`tests/extension/campaign-module-isolation.test.mjs`, `fork-read-ahead.test.mjs`, a new case).
@@ -21,7 +21,7 @@ tests (`tests/extension/campaign-module-isolation.test.mjs`, `fork-read-ahead.te
 
 ## CT-02 The Keeper's request keeps its prefix across turns
 
-Status: ready-for-agent
+Status: landed 2026-10-04 (b0f8aee75, 746bf8e9b on `claude/cache-traffic-context-20261004`)
 
 `extensions/table/context-policy.ts` (`projectedMessages`, a `stableFirst` capsule render with the closed section order
 of §179.2), `extensions/table/context-runtime.ts` (render the sent capsule through it on the single-loop engine),
@@ -29,9 +29,14 @@ of §179.2), `extensions/table/context-runtime.ts` (render the sent capsule thro
 
 ## CT-03 The context lane fingerprints its request
 
-Status: ready-for-agent
+Status: landed 2026-10-04 (b0f8aee75)
 
 `extensions/table/context-runtime.ts` `record({lane: 'context', event: 'request', …})` gains `at`, `segments`,
 `system_digest` (§179.3); a test asserts the shape. Same worker as CT-02.
 
 ## Comments
+
+- 2026-10-04 (lead): CT-02's follow-up ordered the keys of `mods` and `known`; moving the two sections after `style`
+  was measured on the faux table and rejected on the live tables' change frequencies (§179.2, decision).
+- 2026-10-04 (lead): CT-01's lineage test is stricter than the first wording (the library generation the fork last
+  published must still be the head); the contract was aligned (20237b4ef).
