@@ -94,6 +94,16 @@ export async function investigatorCombatParticipant(tables: RuleTables, sheet: R
         weapons: weapon ? [weapon] : [{ weapon_id: 'unarmed' }], conditions: array(sheet.conditions).map(string), mov: number(derived.MOV ?? 8) };
 }
 /**
+ * Contract §180.6 (CK-F2): what `profileHitPoints` reads and the block lacks -- nothing when it states `derived.HP`,
+ * else the CON and SIZ the rulebook's formula reads. A patient's body (§66) is settled only on a block that lacks none.
+ */
+export function hitPointGaps(profile: Row): string[] {
+    if (row(profile.derived).HP != null)
+        return [];
+    const characteristics = row(profile.characteristics);
+    return ['CON', 'SIZ'].filter(key => !integer(characteristics[key])).map(key => `characteristics.${key}`);
+}
+/**
  * An NPC's maximum hit points from whatever numbers the table has for them: the profile's own
  * derived HP when the book printed one, otherwise CoC 7e's `(CON + SIZ) / 10`, rounded down.
  *
@@ -123,8 +133,26 @@ export function npcDefenceSkills(profile: Row): { combat_skill: number; dodge_sk
 export function defaultDefense(combatSkill: number, dodgeSkill: number): 'fight_back' | 'dodge' {
     return combatSkill >= dodgeSkill ? 'fight_back' : 'dodge';
 }
+/** The characteristics every NPC participant is built from (`npcCombatParticipant`); none of them is assumed. */
+export const PARTICIPANT_CHARACTERISTICS: readonly string[] = Object.freeze(['STR', 'SIZ', 'DEX', 'CON']);
+/**
+ * Contract §180.6 (CK-F2): what a stat block lacks of what the engine builds a participant from, as paths
+ * (`characteristics.STR`). A fight, a pursuer and a resource effect read these; none missing means it can fight.
+ */
+export function participantGaps(profile: Row): string[] {
+    const characteristics = row(profile.characteristics);
+    return PARTICIPANT_CHARACTERISTICS.filter(key => !integer(characteristics[key])).map(key => `characteristics.${key}`);
+}
+/**
+ * Contract §143.12 and §180.6 (CK-F2): what a block lacks of what any engine reads of it -- the participant's
+ * characteristics and `derived.MOV`, which a chase's quarry reads and nothing assumes. A block that lacks none of these is
+ * complete: a catalog creature or an archetype completes only a block that lacks one, and never replaces a number it states.
+ */
+export function statBlockGaps(profile: Row): string[] {
+    return [...participantGaps(profile), ...(integer(row(profile.derived).MOV) ? [] : ['derived.MOV'])];
+}
 export async function npcCombatParticipant(tables: RuleTables, handle: string, profile: Row, side = 'npc'): Promise<Row> {
-    const characteristics = intMap(profile.characteristics), missing = ['STR', 'SIZ', 'DEX', 'CON'].filter(key => !Object.hasOwn(characteristics, key));
+    const characteristics = intMap(profile.characteristics), missing = PARTICIPANT_CHARACTERISTICS.filter(key => !Object.hasOwn(characteristics, key));
     if (missing.length)
         throw new NpcProfileError(`${handle}: profile lacks characteristics ${missing.join(', ')}`);
     const skills = intMap(profile.skills), derived = row(profile.derived), damage = await tables.damageBonusBuild(characteristics.STR, characteristics.SIZ);

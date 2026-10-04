@@ -26,6 +26,7 @@ import { RuleTables } from "../rules/tables.js";
 import { validateSanLossExpression } from "../sanity/expression.js";
 import { nowIso } from "../write/store.js";
 import { movement } from "./archetype.js";
+import { completeBlock, statedCharacteristics } from "./completion.js";
 import type { ApplyContext } from "./index.js";
 
 /** What an effect's `creature` declares: a catalog entry (and whether it prints a stat block), or `true` for none yet. */
@@ -171,8 +172,13 @@ function sanityLoss(value: unknown): Row | null {
     return { ...(success !== null ? { success } : { success_unstated: true }), ...(failure !== null ? { failure } : { failure_unstated: true }) };
 }
 
-/** Build the stat block of a catalog entry that prints one; the result has everything `npcCombatParticipant` reads. */
-export async function rollCreatureProfile(kernel: KernelContext, creature: CreatureDeclaration, why: string | null, turn: number): Promise<Row> {
+/**
+ * Build the stat block of a catalog entry that prints one; the result has everything `npcCombatParticipant` reads.
+ * With `authored` (CK-F2: a creature's own block that lacks what the engine reads), the entry's block completes it:
+ * every characteristic is rolled as for a fresh pin, the ones the authored block states stand in for the rolled ones
+ * before anything is derived, and every value the authored block states wins (`completeBlock`).
+ */
+export async function rollCreatureProfile(kernel: KernelContext, creature: CreatureDeclaration, why: string | null, turn: number, authored: Row | null = null): Promise<Row> {
     const tables = new RuleTables(kernel), entry = creature.entry, rolls = row(entry.rolls);
     const characteristics: Row = {}, rolled: string[] = [];
     for (const key of Object.keys(CHARACTERISTICS)) {
@@ -193,6 +199,7 @@ export async function rollCreatureProfile(kernel: KernelContext, creature: Creat
         if (value !== null)
             characteristics[key] = value;
     }
+    Object.assign(characteristics, statedCharacteristics(authored));
     const known = (...keys: string[]): boolean => keys.every(key => integer(characteristics[key]));
     const rules = row(await tables.load("derived-attributes")), hp = row(rules.hit_points), mp = row(rules.magic_points);
     const derived: Row = {};
@@ -238,7 +245,7 @@ export async function rollCreatureProfile(kernel: KernelContext, creature: Creat
     // A weapon with damage first: the engine swings an NPC's first weapon when nobody names one.
     weapons.sort((a, b) => Number(!truth(a.damage)) - Number(!truth(b.damage)));
     const sanity = sanityLoss(entry.san_loss);
-    return {
+    const block: Row = {
         profile_kind: "actor", characteristic_scale: "percentile", authority: "table_pinned", catalog: creature.name,
         source: { table: creature.table, ...(integer(entry.source_page) ? { page: number(entry.source_page) } : {}) },
         characteristics, ...(rolled.length ? { rolled } : {}), derived, skills, weapons,
@@ -246,4 +253,5 @@ export async function rollCreatureProfile(kernel: KernelContext, creature: Creat
         ...(sanity ? { sanity_loss: sanity } : {}),
         ...(truth(why) ? { why } : {}), pinned_turn: turn
     };
+    return authored ? completeBlock(block, authored, string(creature.name)) : block;
 }
