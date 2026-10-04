@@ -36,7 +36,7 @@ Status: landed 2026-10-04 (b0f8aee75)
 
 ## CT-04 Reading follows the book's chapters
 
-Status: ready-for-agent
+Status: landed 2026-10-04 (fdd41995b, e9bdb7510 on `claude/cache-traffic-chapters-20261004`)
 
 Contract §182. Kernel (`kernel-ts/modules/reading.ts` `queueAheadReading` and `bind`, a new `module.source.outline`
 handler registered beside the other private `module.*` methods, `kernel-ts/handlers.ts` method list), host
@@ -49,3 +49,8 @@ handler registered beside the other private `module.*` methods, `kernel-ts/handl
   was measured on the faux table and rejected on the live tables' change frequencies (§179.2, decision).
 - 2026-10-04 (lead): CT-01's lineage test is stricter than the first wording (the library generation the fork last
   published must still be the head); the contract was aligned (20237b4ef).
+- 2026-10-04 (lead): CT-04's two calls are accepted. A short book keeps its index job (its units come from the index);
+  "has chapters, skip the index" applies to long books only, so a long non-reference book with bookmarks and no Jev
+  key reads in the background only its window's needs, identity, map scopes and adjacent scenes. A `carried` need is
+  checked once more after its carrying units finish (§151.4), as before.
+
