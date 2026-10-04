@@ -32806,7 +32806,7 @@ The evidence is the spec's §1. On table 21 (flapcode gpt-6-luna, then grok-buil
 
 ### 176.2 Every tool resolves the word
 
-`calledOwners` (`kernel-ts/read/capsule.ts`) matches a word against `person_labels` names and, for people with no such name, against their epithet. Every junction that takes a person already goes through it (`calledPerson`, `personNode`, `npcNode`: about forty entrances, including `apply person`, `apply npc`, say tokens, resolve targets and `{{name:}}`). So the word the Keeper is shown resolves everywhere, the same way. Two people answering to one word are still refused, never picked (§87.8).
+`calledOwners` (`kernel-ts/read/capsule.ts`) matches a word against `person_labels` names and against epithets. An epithet keeps answering after the fiction gives the person another word. Table 22, turn 1 (grok-4.5): one apply renamed the three men and then wrote their moods under the epithets they had been shown; the epithets had stopped answering, the batch fell, and the turn went round four `unknown_entity` refusals. Every junction that takes a person already goes through it (`calledPerson`, `personNode`, `npcNode`: about forty entrances, including `apply person`, `apply npc`, say tokens, resolve targets and `{{name:}}`). So the word the Keeper is shown resolves everywhere, the same way. Two people answering to one word are still refused, never picked (§87.8).
 
 ### 176.3 The lane: `epithets.job` and `epithets.submit`
 
@@ -32834,6 +32834,10 @@ The evidence is the spec's §1. On table 21 (flapcode gpt-6-luna, then grok-buil
 - `table.untold` (`untoldRoster`) adds two rows per untold person whose shown word is not their handle: the handle and the node id, each renamed to the shown word. The request-wide rename (§103.5) then removes the handle from everything the host and the kernel wrote into the request. The rename runs longest first, so the node id goes before the handle it contains.
 - Each untold row in the Keeper's copy carries `say_name: "{{name:<shown word>}}"`. The untold line now says to put `say_name`, exactly, where the fiction has the name said. Neither model wrote `{{name:}}` on table 21 when it had to compose the token.
 - A person with no word keeps the handle as their shown word, a known residual (176.7).
+
+### 176.5.1 The Keeper is told to keep the word, not to make one
+
+The speech rule the §40 steers restate (`SPEECH_RULE`), the person effect's `name` field, the untold line and `prompts/keeper.md` all used to tell the Keeper to establish an epithet with `apply person` at the first meeting. On table 22's first turn it did exactly that, on top of the words the lane had given. Now each says the untold person already has this table's word (the name `present[]` gives), that `apply person` gives another only when the fiction does (a nickname the player or the people there use), and that the name reaches the prose only as their `say_name`.
 
 ### 176.6 Writers, readers, actor (§31)
 

@@ -57,10 +57,11 @@ export function calledOwners(world: Row, name: string): string[] {
     if (!key) return [];
     const labels = row(world.person_labels);
     const named = entries(labels).filter(([, record]) => normalize(string(row(record).name)) === key).map(([id]) => id);
-    // §176.2: a person with no word from the fiction answers to their epithet, the word the Keeper is shown for them.
+    // §176.2: a person answers to their epithet too, even after the fiction gave them another word. Table 22 (turn 1): a
+    // batch renamed three people and then named them by the epithets they were shown; the epithets had stopped answering,
+    // and the turn went round four refusals.
     const word = (value: unknown): string => typeof value === "string" ? value.trim() : "";
-    const epithets = entries(row(world.person_epithets)).filter(([id, record]) => !word(row(labels[id]).name)
-        && normalize(word(row(record).word)) === key).map(([id]) => id);
+    const epithets = entries(row(world.person_epithets)).filter(([, record]) => normalize(word(row(record).word)) === key).map(([id]) => id);
     return [...new Set([...named, ...epithets])];
 }
 /**

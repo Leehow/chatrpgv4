@@ -128,3 +128,18 @@ test('§176.4 (spec Q3): the journal\'s label for someone without a word is fold
 	await call('table.player_input', {text: 'I buy a paper.'});
 	assert.deepEqual([(await world()).person_epithets[dooley].word, (await world()).person_epithets[dooley].by], ['the paper seller', 'graph']);
 });
+
+test('§176.2: an epithet keeps answering after the fiction gives another word, in the same batch as well', async t => {
+	// Table 22, turn 1 (the installed App, grok-4.5): one apply renamed the three men and then wrote their moods under the
+	// epithets they had been shown; the epithets had stopped answering, the batch fell, and the turn went round four refusals.
+	const {call, world, knott} = await haunting(t);
+	await call('epithets.submit', {entries: [{id: knott, word: 'the ink-stained clerk'}]});
+	const input = await call('table.player_input', {text: 'I look at the man at the desk.'});
+	await call('table.apply', {call_id: `t${input._context.turn}-c1`, effects: [
+		{kind: 'person', who: 'the ink-stained clerk', name: 'the clerk with the ledger'},
+		{kind: 'npc', name: 'the ink-stained clerk', mood: 'tired of waiting'},
+	]});
+	assert.equal((await world()).person_labels[knott].name, 'the clerk with the ledger');
+	await call('table.apply', {call_id: `t${input._context.turn}-c2`, effects: [{kind: 'npc', name: 'the clerk with the ledger', mood: 'impatient'}]});
+	await call('table.apply', {call_id: `t${input._context.turn}-c3`, effects: [{kind: 'npc', name: 'the ink-stained clerk', mood: 'resigned'}]});
+});

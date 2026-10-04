@@ -138,7 +138,9 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
     if (name != null && person.is_investigator !== true) {
         // §176.1: another person's epithet is that person's word too.
         const others = [...new Set([...Object.keys(row(world.person_labels)), ...Object.keys(row(world.person_epithets))])]
-            .filter(id => id !== string(person.id)).map(id => tableWord(world, id)).filter(Boolean);
+            .filter(id => id !== string(person.id))
+            .flatMap(id => [tableWord(world, id), typeof row(row(world.person_epithets)[id]).word === 'string' ? string(row(row(world.person_epithets)[id]).word).trim() : ''])
+            .filter((word, at, all) => word && all.indexOf(word) === at);
         const taken = others.find(other => normalize(other) === normalize(name));
         if (taken)
             throw new RpcError('invalid_params', `${repr(name)} is already what this table calls someone else`, {

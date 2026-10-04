@@ -22,7 +22,7 @@ const object = (value: unknown): Row => value && typeof value === "object" && !A
 const text = (value: unknown): string => typeof value === "string" ? value.trim() : "";
 
 export const UNTOLD_VIEW_USE = "Nobody has said this person's name to the investigator, and you do not have it: in prose they are who they look like. "
-	+ "`name` is this table's word for them, for tool calls and say tokens. When the fiction has their name said (they give it, "
+	+ "`name` is this table's word for them, for tool calls and say tokens; keep it, apply person gives another only when the fiction does. When the fiction has their name said (they give it, "
 	+ "someone calls them by it, a paper shows it), put `say_name` there exactly: the delivery puts in the name the book gives them.";
 
 /**

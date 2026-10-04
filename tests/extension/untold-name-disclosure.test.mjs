@@ -27,12 +27,17 @@ test('the base Keeper prompt keeps untold speaker titles in the player perspecti
   assert.ok(!prompt.includes('with `Name` exactly as `present[].name` gives it'));
   assert.ok(prompt.includes('`present[].name` or this table\'s `called.name`'));
   assert.ok(prompt.includes('For a person marked `untold`'));
-  assert.ok(prompt.includes('establish a stable epithet with `apply person`'));
-  assert.ok(prompt.includes('until the fiction introduces their name'));
+  // §176: the untold person already has the table's word (the epithet lane's); the prompt says to keep it, not to make one,
+  // and that their name reaches the prose only through say_name.
+  assert.ok(prompt.includes('already this table\'s word for them'));
+  assert.ok(prompt.includes('only when the fiction does'));
+  assert.ok(prompt.includes('`say_name`'));
+  assert.ok(!prompt.includes('establish a stable epithet'));
   const host = await readFile(new URL('../../extensions/kernel/index.ts', import.meta.url), 'utf8');
   const steer = host.slice(host.indexOf('const SPEECH_RULE ='), host.indexOf('let table: TableState'));
   assert.ok(steer.includes('present[].name or called.name'));
-  assert.ok(steer.includes('For an untold person'));
-  assert.ok(steer.includes('apply person'));
-  assert.ok(steer.includes('until the fiction introduces the name'));
+  assert.ok(steer.includes('An untold person already has this table\'s word'));
+  assert.ok(steer.includes('only when the fiction does'));
+  assert.ok(steer.includes('say_name'));
+  assert.ok(!steer.includes('establish an epithet'));
 });
