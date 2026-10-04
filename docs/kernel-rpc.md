@@ -32377,14 +32377,14 @@ Creating a character on every test run is slow and spends a model conversation, 
 
 **Off by default, everywhere** (owner ruling, 2026-10-03): the product, test boxes and drivers alike. Character creation still surfaces many bugs, and ordinary runs must keep walking through it so those bugs are found and fixed; a default that skipped it would hide them. A tester turns it on by hand on the start screen when a run is about play, and that choice is stored so it persists for the app.
 
-### 173.1 Templates are shipped content
+### 174.1 Templates are shipped content
 
 - `content/investigator-templates/<id>/character.json`: one fixed, complete sheet per folder, in the schema of the starter pregens (`content/starters/<id>/pregens/<id>/character.json`: `schema_version`, `name`, `occupation`, `era`, `age`, `sex`, `characteristics`, `derived`, `skills`, `weapons`, `equipment`, `backstory`, `credit_rating`, `cash`, …). `<id>` is a slug (`[a-z0-9][a-z0-9-]{0,63}`); a folder whose file is not a JSON object with a string `name` is not a template.
 - Templates are fixed sheets, not seeds generated per era (owner ruling). An era that differs from the module's is accepted and recorded exactly as `investigator.load` records it (§21.3: `campaign.json.era_mismatch: {sheet, module}`); there is no converter.
 - A template belongs to no book. A sheet copied from a starter's pregen drops `backstory.scenario_id` and `backstory.scenario_bound.description` (which names that book's hook); the personal fields that rode inside `scenario_bound` (`significant_people`, `meaningful_locations`) move up to `backstory` unchanged. No sentence is rewritten. A template made fresh is a kernel chargen result -- `setup.draft` then `setup.confirm` on a scratch campaign with no difficulty setting (rulebook standard) -- frozen into the file with its `creation` trace and seed; its numbers are never hand-written. Shipped: `eleanor-reed` and `thomas-hayes` (from The Haunting's pregens) and `margaret-winslow` (kernel-generated).
 - Names and occupations are authored content, like the pregens'. No language table, no per-language name list.
 
-### 173.2 Two kernel methods
+### 174.2 Two kernel methods
 
 - `setup.templates {}` → `{templates: [{id, name, occupation, era, age, sex}], unreadable?: [<id>]}`, ordered by `id`. The first row is the default template.
 - `setup.template {campaign, template}` → `{receipt, investigator, sheet, template, era_mismatch, replayed?}`.
@@ -32394,18 +32394,18 @@ Creating a character on every test run is slow and spends a model conversation, 
   - A party that already holds a card from another lane (a draft confirmed, a library load) → `invalid_params`, `code_detail: "party_not_empty"`. A template never stacks onto a card the player made.
   - Effect: the sheet is copied whole into `<campaign>/party/<id>.json`; only `id` is minted (`defaultInvestigatorId(name, party size + 1)`, made unique), `current_hp/san/mp/luck` are filled from `derived`/`characteristics` when the sheet carries none, and `origin: {template: <id>}` is written. No `origin.library_id`, so §21.4's write-back never mirrors a template into the library. `campaign.json.investigators` is rewritten, `era_mismatch` recorded, and one setup receipt appended: `{id: "investigator:<id>", kind: "investigator", investigator, name, occupation, source: "template", template: <id>, at}`.
 
-### 173.3 What the receipt source changes in setup
+### 174.3 What the receipt source changes in setup
 
 - `setup.complete`: a campaign whose investigator receipts are all `library` or `template` skips the completeness check and the draft-confirm check (as `library` alone did, §21). The opening gate is unchanged: when the opening is not ready, `waiting_for_opening` is set and `campaign_not_ready` / `opening_preparing` is thrown with the card retained.
 - `setup.steps`: a `template` receipt books the load-an-existing-sheet lane (`browse-library`, `load-investigator`), so the setup extension sees an investigator seated and `complete` reachable.
 
-### 173.4 The setting
+### 174.4 The setting
 
 - Key `ext.coc-keeper.autoInvestigator` in the host's app-scope extension settings document, value `{enabled: boolean, template?: string}`. Declared in `pipiui-extension.json`'s schema; written by the start screen through the host's ordinary `updateExtensionSettings` (the same path the settings sections use).
 - Read by the host only. It is on only when the stored value says `enabled: true`; with nothing stored it is **off**. No environment variable, launcher flag or renderer field turns it on: only the player's own toggle does.
 - The renderer is not trusted for on/off: the host drops any `auto_investigator` the renderer put on a request and injects its own. The renderer may name `template` on `converse`; it reaches the kernel only as a template id, and the kernel refuses any id that is not shipped (`unknown_entity`). With no template named anywhere, the first listed template is used.
 
-### 173.5 Host and worker flow
+### 174.5 Host and worker flow
 
 - `onboarding {action: "catalog"}` answers, beside `presets`/`modules`/`occupations`, `templates` (from `setup.templates`) and `auto_investigator: {enabled, template}` (the host's reading of §174.4; `template` is the stored choice or `null`).
 - `onboarding {action: "converse"}` with the setting on carries `auto_investigator: {template}` into the worker input (never into the import job file). After `campaign.create` (or on a campaign that already exists and is still `setting_up`), the worker calls `setup.template` and then `setup.complete`. `campaign_not_ready` with `details.reason: "opening_preparing"` is not a failure: `waiting_for_opening` stays set and the existing handoff polling finishes setup when the opening is ready. Any other refusal fails the converse the way any worker refusal does.
@@ -32414,19 +32414,19 @@ Creating a character on every test run is slow and spends a model conversation, 
 - `CocOnboardingHost.snapshot()` reports `character.state: "confirmed"` when `confirmed_revision` or `handoff` is set (unchanged) **or** when the campaign's investigator receipts are non-empty and all `source: "template"`. That is what lets `canHandoff` fire for a template card waiting on its opening.
 - With the setting off, `converse` carries no `auto_investigator`, the worker never calls `setup.template`, and the campaign stays `setting_up` with an empty party: the setup conversation is the one it was.
 
-### 173.6 Start screen
+### 174.6 Start screen
 
 - Near the play-language field, a checkbox "auto-create investigator" whose state is the catalog's `auto_investigator.enabled`. Toggling writes the setting (§174.4) with the current template.
 - When on, the template cards are listed under it (name, occupation, era, age). The selected card is the stored `template` when it is still listed, else the first. Clicking a card selects it and writes the setting. Clicking a source card and choosing a scenario then starts as before; the `converse` request names the selected `template`.
 - Captions come from `content/ui/en/onboarding.json` (`autoInvestigator.*`); other languages are projected by the ui-words lane (§23), never hand-written.
 
-### 173.7 Three ends (§31)
+### 174.7 Three ends (§31)
 
 - **`setup.template` receipt** — *writer:* the onboarding worker's converse (`setup.template`). *Readers:* `setup.complete` (skips draft confirm), `setup.steps` (books the existing-sheet lane), `CocOnboardingHost.snapshot()` (`character: confirmed`). *Actor:* the preparation panel's handoff, which needs `canHandoff`, and the kernel's `setup:handoff` receipt that follows.
 - **`ext.coc-keeper.autoInvestigator`** — *writer:* the start screen's checkbox and template cards. *Reader:* the host's onboarding handler (catalog answer, converse injection). *Actor:* the worker's converse, whose `setup.template` / `setup.complete` calls land as the receipts above.
 - **`origin.template` on the sheet** — *writer:* `setup.template`. *Reader:* none in play; it is provenance for evidence and the reason §21.4's write-back skips the card (it reads only `origin.library_id`).
 
-### 173.8 Implementation decisions
+### 174.8 Implementation decisions
 
 - The template is loaded by a new `setup.template`, not a `template` source on `investigator.load`: `investigator.load` reads library rows under the home, has a `turn_state` gate for mid-play joins and mints library forks; a content template has none of that, and a second reading lane inside that method would have to switch on its parameters.
 - `setup.steps` books the `library` lane for a template rather than adding a third investigator source to `content/setup/steps.json`: the setup guide never walks a template (the host does it before the session exists), and a third lane would add steps nobody can take.
