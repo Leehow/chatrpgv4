@@ -1,11 +1,11 @@
 /**
- * Contract §177 (owner ruling 2026-10-04, 「按你推荐的做」 on docs/specs/module-cast.md): the book's cast, one row for every
- * person the book names.
+ * Contract §177 (owner ruling 2026-10-04 on docs/specs/module-cast.md, Q1-Q5 as recommended): the book's cast, one row for
+ * every person the book names.
  *
  * Every check that keeps names apart used to read the graph, and a PDF read on demand has in its graph only the people the
  * reader has reached: Blood Road's had 54 at table 23's turn 9. A newcomer could take the name of someone on a page not yet
  * read, and could take a name of someone already read too, because `walk_on` compared whole names only (the probe of
- * 2026-10-04 minted 史蒂夫, 拉塞尔 and 爱丽丝 beside 史蒂夫·布朗, the told 拉塞尔·威廉姆斯 and 爱丽丝·杜威特).
+ * 2026-10-04 minted the bare first names of three book people, one of them told, as seven new people; §177 lists them).
  *
  * The cast is the graph's people (never a table person), each with every name the book gives them, plus, for a PDF book,
  * the rows the cast reader wrote (`cast.json`, §177.2), each with the names the book prints and their play-language
