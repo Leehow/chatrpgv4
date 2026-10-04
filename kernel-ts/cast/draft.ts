@@ -150,18 +150,21 @@ export function checkCastDraft(draft: unknown, pages: ReadonlyMap<number, string
 }
 
 /**
- * Fold a range's accepted rows into the rows earlier ranges kept (§177.2). A row joins the one stored row that carries one of
- * its printed forms when no other stored row carries that form too, and keeps that row's id, so a word the epithet lane gave
- * under it stays theirs. A row whose forms are shared, or name two stored rows, is a person of its own: a bare first name two
- * people share is no evidence they are one. Nothing joins by meaning.
+ * Fold a range's accepted rows into the rows earlier ranges kept (§177.2), by a whole identity only: a kept row's fullest
+ * printed form is one of the new row's forms, or the new row's fullest form is one of the kept row's, and exactly one kept
+ * row answers. The joined row keeps the kept row's id, so a word the epithet lane gave under it stays theirs. Rows of the same
+ * range never join each other (the reader wrote one row per individual), and a shared short form joins nobody: table 24's
+ * reader gave the bar owner and the doctor one bare first name. Nothing joins by meaning.
  */
 export function mergeCastRows(stored: readonly CastRowStored[], incoming: readonly CastRowStored[]): CastRowStored[] {
-    const out = stored.map(row => ({ ...row, book: [...row.book], play: [...row.play], pages: [...row.pages] }));
-    const holders = (key: string) => out.filter(row => row.book.some(name => passageKey(name) === key));
+    const kept = stored.map(row => ({ ...row, book: [...row.book], play: [...row.play], pages: [...row.pages] }));
+    const out = [...kept];
+    const fullest = (row: CastRowStored) => [...row.book].sort((a, b) => [...b].length - [...a].length)[0] ?? '';
+    const carries = (row: CastRowStored, name: string) => row.book.some(other => passageKey(other) === passageKey(name));
     const ids = new Set(out.map(row => row.id));
     for (const row of incoming) {
-        const owners = new Set(row.book.map(name => holders(passageKey(name))).filter(found => found.length === 1).map(found => found[0]!));
-        const into = owners.size === 1 ? [...owners][0]! : null;
+        const answers = kept.filter(other => carries(row, fullest(other)) || carries(other, fullest(row)));
+        const into = answers.length === 1 ? answers[0]! : null;
         if (!into) {
             let id = row.id;
             for (let n = 2; ids.has(id); n++) id = `${row.id}-${n}`;
@@ -169,7 +172,7 @@ export function mergeCastRows(stored: readonly CastRowStored[], incoming: readon
             out.push({ ...row, id, book: [...row.book], play: [...row.play], pages: [...row.pages] });
             continue;
         }
-        for (const name of row.book) if (into.book.length + into.play.length < CAST_NAMES_PER_PERSON && !into.book.some(other => passageKey(other) === passageKey(name))) into.book.push(name);
+        for (const name of row.book) if (into.book.length + into.play.length < CAST_NAMES_PER_PERSON && !carries(into, name)) into.book.push(name);
         for (const name of row.play) if (into.book.length + into.play.length < CAST_NAMES_PER_PERSON && !into.play.some(other => normalize(other) === normalize(name))) into.play.push(name);
         into.pages = [...new Set([...into.pages, ...row.pages])].sort((a, b) => a - b);
         if (row.first && (!into.first || row.first.page < into.first.page)) into.first = row.first;

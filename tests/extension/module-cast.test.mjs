@@ -179,12 +179,20 @@ test('§177.2: a row is one person as the reader wrote it, though two rows share
 		{id: 'cast-dddddddddd', book: ['Robert Brenner', 'Doc'], play: ['Robert Brenner', 'Doc'], pages: [51]}]);
 	assert.deepEqual(merged.map(row => [row.id, row.book]), [['cast-aaaaaaaaaa', ['Robert Taylor', 'Robert']], ['cast-bbbbbbbbbb', ['Robert Brenner', 'Robert', 'Doc']],
 		['cast-cccccccccc', ['Robert']]], 'the shared first name joins nobody; the doctor\'s full name joins him under his id');
+	// A first name only one kept row carries is still no identity: the bar owner's row has it, the doctor is someone else.
+	const onlyOne = api.mergeCastRows([{id: 'cast-aaaaaaaaaa', book: ['Robert Taylor', 'Robert'], play: ['Robert Taylor', 'Robert'], pages: [15]}],
+		[{id: 'cast-eeeeeeeeee', book: ['Robert L. Brenner', 'Robert'], play: ['Robert L. Brenner', 'Robert'], pages: [52]}]);
+	assert.deepEqual(onlyOne.map(row => row.id), ['cast-aaaaaaaaaa', 'cast-eeeeeeeeee']);
+	// Rows of one range never join each other, though the second shares a form with the first.
+	const sameRange = api.mergeCastRows([], [{id: 'cast-1111111111', book: ['Robert Taylor', 'Robert'], play: ['Robert Taylor'], pages: [15]},
+		{id: 'cast-2222222222', book: ['Robert L. Brenner', 'Robert'], play: ['Robert L. Brenner'], pages: [32]}]);
+	assert.equal(sameRange.length, 2);
 });
 
 test('§177.1/§177.4: a row joins a graph person by a whole identity; a name two untold people share is hidden as both their words', () => {
 	const raw = {nodes: [{node_id: 'npc-robert-taylor', node_kind: 'npc', name: 'Robert Taylor', aliases: ['Robert'], source_refs: [{page: 15}]}], relations: []};
 	const graph = new api.ModuleGraph('road', raw, 'digest', {});
-	graph.castStore = {version: 2, source_sha256: 'x', state: 'complete', people: [
+	graph.castStore = {version: 3, source_sha256: 'x', state: 'complete', people: [
 		{id: 'cast-aaaaaaaaaa', book: ['Robert L. Brenner', 'Robert'], play: ['Robert L. Brenner', 'Robert'], pages: [32]},
 		{id: 'cast-bbbbbbbbbb', book: ['Robert Benson', 'Robert'], play: ['Robert Benson', 'Robert'], pages: [36]},
 		{id: 'cast-cccccccccc', book: ['Robert Taylor', 'Robert'], play: ['Robert Taylor', 'Robert'], pages: [41]}]};
@@ -202,7 +210,7 @@ test('§177.5: a word that carries a name learned later is withdrawn; a word giv
 	const raw = {nodes: [{node_id: 'npc-old-mae', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 1}]},
 		{node_id: 'npc-jonah', node_kind: 'npc', name: 'Jonah', source_refs: [{page: 3}]}], relations: []};
 	const graph = new api.ModuleGraph('harbor', raw, 'digest', {});
-	graph.castStore = {version: 2, source_sha256: 'x', state: 'complete', people: [
+	graph.castStore = {version: 3, source_sha256: 'x', state: 'complete', people: [
 		{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}, {id: 'cast-9876543210', book: ['Silas'], play: ['Silas'], pages: [2]}]};
 	const file = {people: {'old-mae': {word: "Silas's sister at the nets"}, 'cast-0123456789': {word: 'the drowned boy'}}};
 	let written = null;
@@ -315,7 +323,7 @@ test('§177.6/§177.7: lookup finds a person by the table\'s word; an unread per
 test('§177.6: once the reader publishes the person, the landed entry is replaced by the cast row\'s id, though its word is no book name', () => {
 	const raw = {nodes: [{node_id: 'npc-jonah', node_kind: 'npc', name: 'Jonah', source_refs: [{page: 3}]}], relations: []};
 	const graph = new api.ModuleGraph('harbor', raw, 'digest', {});
-	graph.castStore = {version: 2, source_sha256: 'x', state: 'complete', people: [{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}]};
+	graph.castStore = {version: 3, source_sha256: 'x', state: 'complete', people: [{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}]};
 	assert.deepEqual(api.bookCast(graph).map(person => [person.id, person.castIds]), [['jonah', ['cast-0123456789']]]);
 	const world = {table_people: [{name: 'the drowned boy', from_passage: {page: 3, sentence: 'Jonah drowned.'}, cast_id: 'cast-0123456789'}],
 		npc_stances: {'the drowned boy': 'wary'}};
@@ -327,7 +335,7 @@ test('§177.1/§177.2: a partial cast is used as it stands; a cast of another st
 	const raw = {nodes: [{node_id: 'npc-old-mae', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 1}]}], relations: []};
 	const people = state => {
 		const graph = new api.ModuleGraph('harbor', raw, 'digest', {});
-		graph.castStore = {version: 2, source_sha256: 'x', state, people: [{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}]};
+		graph.castStore = {version: 3, source_sha256: 'x', state, people: [{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}]};
 		return api.bookCast(graph).map(person => person.id);
 	};
 	assert.deepEqual(people('partial'), ['old-mae', 'cast-0123456789'], 'the ranges read so far are true already');

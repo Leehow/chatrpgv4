@@ -26,8 +26,8 @@ const text = (value: unknown): string => typeof value === 'string' ? value.trim(
 export const CAST_FILE = 'cast.json';
 /** The native text the cast reader was handed, kept by the kernel so `cast.submit` checks against its own copy. */
 export const CAST_SOURCE_FILE = 'cast-source.json';
-/** 2 since table 24: version 1 folded rows that shared a bare first name into one person, so its files are read again. */
-export const CAST_VERSION = 2;
+/** 3 since table 24: versions 1 and 2 folded rows that shared a bare first name into one person, so their files are read again. */
+export const CAST_VERSION = 3;
 
 /** One person of the book (§177.1). */
 export interface CastPerson {
