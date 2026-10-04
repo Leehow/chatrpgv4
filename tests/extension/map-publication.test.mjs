@@ -343,14 +343,20 @@ test("published player assets keep source identity and normalized boxes and cont
 	assert.ok(privatePixels.yellow > 0);
 });
 
-test("contract §179.1: a completed publication the library followed writes one library_sync row; a publication without the field writes none", async t => {
+test("contract §179.1 and §179.5: a completed publication the library followed or merged writes one library_sync row; a publication without the field writes none", async t => {
 	const followed = await runMapJob(t, { librarySync: { state: "published", library_generation: 7 } });
 	const rows = followed.records.filter(row => row.event === "library_sync");
 	assert.equal(rows.length, 1, JSON.stringify(rows));
 	assert.deepEqual({ lane: rows[0].lane, module_id: rows[0].module_id, job_id: rows[0].job_id, state: rows[0].state, library_generation: rows[0].library_generation },
 		{ lane: "reading", module_id: "book", job_id: "read-2", state: "published", library_generation: 7 });
-	const skipped = await runMapJob(t, { librarySync: { state: "skipped", reason: "library_advanced" } });
-	assert.deepEqual(skipped.records.filter(row => row.event === "library_sync").map(row => [row.state, row.reason]), [["skipped", "library_advanced"]]);
+	const skipped = await runMapJob(t, { librarySync: { state: "skipped", reason: "already_present" } });
+	assert.deepEqual(skipped.records.filter(row => row.event === "library_sync").map(row => [row.state, row.reason]), [["skipped", "already_present"]]);
+	// §179.5: a merge's outcome rides on the row as the kernel gave it, its per-reading reasons included.
+	const merge = { state: "merged", merged: 2, skipped: [{ key: "k-1", reason: "refused", detail: "the new reading contradicts a published value" }], library_generation: 9 };
+	const merged = (await runMapJob(t, { librarySync: merge })).records.filter(row => row.event === "library_sync");
+	assert.equal(merged.length, 1, JSON.stringify(merged));
+	assert.deepEqual({ state: merged[0].state, merged: merged[0].merged, skipped: merged[0].skipped, library_generation: merged[0].library_generation, job_id: merged[0].job_id },
+		{ ...merge, job_id: "read-2" });
 	const library = await runMapJob(t, {});
 	assert.equal(library.records.some(row => row.event === "library_sync"), false);
 });

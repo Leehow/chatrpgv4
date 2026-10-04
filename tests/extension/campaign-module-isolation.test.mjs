@@ -388,17 +388,26 @@ test('two kernel processes isolate one source module per campaign in the same ho
   assert.deepEqual(await treeDigest(store(A)), privateBytes);
   assert.deepEqual(await treeDigest(store(B)), otherBytes);
   assert.deepEqual(await treeDigest(store()), rootBytes);
-  // §179.1 / §179.4: B forked from the same library generation as A. A published first, so the library follows A, and
-  // B's publications stay B's own: the library is unchanged and B's graph has its reading.
+  // §179.1 / §179.4: B forked from the same library generation as A. A published first, so the library follows A and B is
+  // another lineage. §179.5: B's reading the library lacks is replayed through the library's own finish, as one library
+  // job and one library generation; the library keeps the value A published for the field B read differently (§22.3.2's
+  // preserved value under the module-logic review), and B's graph keeps B's reading.
   const ledgerB = await claim(second, B, { purpose: 'detail', focus: 'Cellar', question: 'Read the ledger for this table.' });
   const publishedB = await finish(second, B, ledgerB, shard([{ ...scene('Cellar'), summary: 'Cellar contains a ledger, read for the tower table.' }], ['scene-cellar']));
-  assert.deepEqual(publishedB.library_sync, { state: 'skipped', reason: 'library_advanced' });
-  assert.deepEqual(await treeDigest(store()), rootBytes, 'another lineage never writes the library');
+  assert.deepEqual(publishedB.library_sync, { state: 'merged', merged: 1, skipped: [], library_generation: followed.meta.generation + 1 });
+  const merged = await inspect(second);
+  assert.equal(merged.meta.generation, followed.meta.generation + 1);
+  assert.ok(merged.meta.reading.materials.some(material => material.key === ledgerB.key), "the library holds B's reading");
+  assert.equal(node(merged.graph, 'scene-cellar').summary, 'Cellar contains a ledger.');
+  assert.equal(merged.meta.synced_from.campaign, A, 'a merge is not a fast-forward');
+  const replay = (await queue()).find(job => job.merged_from?.job_id === ledgerB.job_id);
+  assert.deepEqual({ state: replay.state, campaign: replay.merged_from.campaign, key: replay.key }, { state: 'completed', campaign: B, key: ledgerB.key });
+  assert.equal(relative(store(), replay.work_dir), join('work', 'merged', B, ledgerB.job_id));
   const ownB = await inspect(second, B);
   assert.ok(ownB.meta.reading.materials.some(material => material.key === ledgerB.key));
   assert.equal(node(ownB.graph, 'scene-cellar').summary, 'Cellar contains a ledger, read for the tower table.');
   assert.equal(ownB.meta.library_sync, undefined);
-  assert.equal(node((await inspect(second)).graph, 'scene-cellar').summary, 'Cellar contains a ledger.');
+  rootBytes = await treeDigest(store());
   otherBytes = await treeDigest(store(B));
   for (const campaign of ['../escape', '/absolute', 'nested/scope', '..', '', null])
     await assert.rejects(call(first, 'module.status', campaign), invalid);
@@ -442,7 +451,7 @@ test('two kernel processes isolate one source module per campaign in the same ho
     } finally { await rename(held, path); }
   }
   // Without the published graph a fork must refuse and leave no private directory behind.
-  const sourceGraph = join(store(), followed.meta.graph_file);
+  const sourceGraph = join(store(), merged.meta.graph_file);
   const heldGraph = sourceGraph + '.held';
   await rename(sourceGraph, heldGraph);
   try {

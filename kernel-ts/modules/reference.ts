@@ -79,6 +79,10 @@ export async function referenceReady(store:ModuleStore,mid:string,focus=''):Prom
   return packet.entries.some(entry=>{const bound=row(row(ref.entry_bindings)[entry.id]);return [entry.id,entry.id.replace(/^scene-/,''),entry.name,bound.node_id,string(bound.node_id??'').replace(/^scene-/,''),bound.name].some(value=>typeof value==='string'&&value.trim()&&normalize(value)===normalize(wanted));});
  }catch{return false;}
 }
+/** The scene a source place names in `graph`: by its name, an alias or its own id. §179.5's merge asks it of the library. */
+export function placeScene(graph:Row|null,place:{id:string;name:string}):Row|undefined{
+ return array(graph?.nodes).find(node=>node.node_kind==='scene'&&[node.node_id,node.name,...array(node.aliases)].some(value=>normalize(value)===normalize(place.name)||value===place.id));
+}
 /** Publish a requested source place's minimum typed identity, leaving enrichment asynchronous. */
 export async function publishReferencePlace(store:ModuleStore,meta:Row,params:Row):Promise<Row>{
  if(meta.source!=='pdf')fail('Direct reference materialization requires a bound original PDF');
@@ -91,7 +95,7 @@ export async function publishReferencePlace(store:ModuleStore,meta:Row,params:Ro
  const packet=validateReferencePacket(JSON.parse(await readFile(packetPath,'utf8')),number(meta.page_count),string(meta.file_sha256));
  if(!packet.places?.length)return {state:'unavailable'};
  const graph=await store.readGraph(mid);if(!graph)fail('The source graph is unavailable');
- const place=packet.places[0],old=array(graph!.nodes).find(node=>node.node_kind==='scene'&&[node.node_id,node.name,...array(node.aliases)].some(value=>normalize(value)===normalize(place.name)||value===place.id));
+ const place=packet.places[0],old=placeScene(graph,place);
  if(old&&array(row(meta.reading).materials).some(material=>array(material.node_ids).includes(old.node_id)))return {state:'ready',scene:old.node_id,name:old.name,reused:true};
  const identity=old?.node_id??place.id;
  const node={node_id:place.id,node_kind:'scene',name:place.name,visibility:'keeper-only',summary:packet.excerpts.filter(span=>span.page===place.page).map(span=>span.text).join(''),source_refs:[{page:place.page}],properties:{source_reference_anchor:true}};

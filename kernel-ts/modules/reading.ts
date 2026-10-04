@@ -36,6 +36,7 @@ import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
 import {syncLibraryFromCampaign} from './campaign-scope.js';
+import {MERGE_INTERRUPTED,mergeForkReadings,ownAsks,refusedMerge} from './library-merge.js';
 import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,visualCandidates,type VisualScan} from './visual-discovery.js';
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
@@ -280,15 +281,18 @@ export class Reading {
         const mid=validateModuleId(params.module_id);return this.mutex(mid,async()=>{const meta=await this.store.module(mid);await this.source(meta);
             const result=await publishReferencePlace(this.store,meta,params);
             // §179.1: a materialization that published is a publication the library follows; a reused place published nothing.
-            return result.state==='ready'&&!truth(result.reused)?this.libraryFollows(mid,result):result;});
+            return result.state==='ready'&&!truth(result.reused)?this.libraryFollows(mid,result,'source-place:'+string(result.scene)):result;});
     }
     /**
      * §179.1: a campaign fork's publication is offered to the library it was seeded from, inside this call and after the
      * fork's own writes are durable. Runs under this module's metadata lock (the fork's); `syncLibraryFromCampaign` takes
      * the library's second. Its outcome rides on the result as `library_sync` and never fails the publication. A
      * library-scoped publication gets no field: the library follows no one.
+     *
+     * §179.5: when the lineage test fails (`library_advanced`), the fork's readings the library lacks are merged one by one
+     * through the library's own publication instead; `key` is the reading this publication wrote, when it wrote one.
      */
-    private async libraryFollows(mid: string, result: Row): Promise<Row> {
+    private async libraryFollows(mid: string, result: Row, key?: string): Promise<Row> {
         let campaign: unknown;
         try { campaign = (await this.store.module(mid)).campaign_scope; }
         catch (error) { return { ...result, library_sync: { state: 'failed', detail: (error instanceof Error ? error.message : String(error)).slice(0, 1000) } }; }
@@ -299,7 +303,33 @@ export class Reading {
         let library_sync: Row;
         try { library_sync = await syncLibraryFromCampaign(this.store.context, campaign, mid); }
         catch (error) { library_sync = { state: 'failed', detail: (error instanceof Error ? error.message : String(error)).slice(0, 1000) }; }
+        if (library_sync.state === 'skipped' && library_sync.reason === 'library_advanced')
+            library_sync = await this.mergeIntoLibrary(campaign, mid, key);
         return { ...result, library_sync };
+    }
+    /**
+     * §179.5: the library's own Reading over the library store replays each reading. It is a second instance in this process:
+     * the library module's `.metadata.lock` (a descriptor lock, which two descriptors of one process contend for like two
+     * processes) serializes it with the kernel's library Reading and every other kernel. The fork's metadata lock is held by
+     * the caller; the merge takes the library's and never a fork's.
+     */
+    private async mergeIntoLibrary(campaign: string, mid: string, key?: string): Promise<Row> {
+        const library = new Reading(new ModuleStore({ ...this.store.context, moduleRoot: join(this.store.context.stateRoot, 'modules') }));
+        try {
+            return await mergeForkReadings(this.store.context, campaign, mid, {
+                finish: params => library.finish(params), publishReferencePlace: params => library.publishReferencePlace(params), identity: Reading.replayIdentity,
+            }, key);
+        }
+        finally { await library.close(); }
+    }
+    /**
+     * §179.5: what a library job replaying a fork job's reading carries -- its identity (`key`, `purpose`, `focus`, `question`,
+     * `pages`), its JOB_MARKERS, and the two fields the finish reads beside them (`material`, `opening_scope`).
+     */
+    static replayIdentity(job: Row): Row {
+        return { key: job.key, purpose: job.purpose, ...(job.material ? { material: job.material } : {}), focus: job.focus ?? '', question: job.question ?? '',
+            pages: clone(job.pages ?? []), ...(job.opening_scope ? { opening_scope: job.opening_scope } : {}),
+            ...Object.fromEntries(JOB_MARKERS.filter(field => job[field] !== undefined).map(field => [field, clone(job[field])])) };
     }
     async referenceReady(mid:string,focus=''):Promise<boolean>{
         if(!await sourceReferenceReady(this.store,mid,focus))return false;
@@ -852,7 +882,7 @@ export class Reading {
     }
     /** §151.4: the retained needs' background reads (`needsToAsk`), asked after this pass's streamed units, two per pass. */
     private async queueNeedReads(mid: string, graph: ModuleGraph, ask: (request: Row) => Promise<Row | null>, window: ReadingWindow): Promise<void> {
-        const meta = await this.store.module(mid), queue = await this.store.queue(mid);
+        const meta = await this.store.module(mid), queue = ownAsks(await this.store.queue(mid));
         for (const need of (await this.needsToAsk(mid, meta, graph.raw, queue, window)).slice(0, 2)) {
             const node = graph.nodes.get(string(need.node_id));
             if (node) await ask({ purpose: 'detail', focus: graph.handle(node), question: need.question, source_need: sourceNeedKey(need) });
@@ -864,7 +894,7 @@ export class Reading {
      * whose request queues nothing gives way to the next. §182.3: only the maps with a page inside the reading window.
      */
     private async queueMapScope(mid: string, ask: (request: Row) => Promise<Row | null>, window: ReadingWindow): Promise<void> {
-        const queue = await this.store.queue(mid);
+        const queue = ownAsks(await this.store.queue(mid));
         if (queue.some(job => job.map_scope && ['queued', 'running'].includes(job.state))) return;
         for (const map of mapsLackingScope(await this.store.readGraph(mid), mid).filter(map => map.pages.some(page => pageInside(window, page)))) {
             const asked = queue.filter(job => row(job.map_scope).node === map.node);
@@ -896,7 +926,7 @@ export class Reading {
     private async buildPending(mid: string, meta: Row): Promise<string | null> {
         const units = await this.streamedUnits(mid, meta);
         if (!units.length) return 'not_streamed';
-        const queue = await this.store.queue(mid), reading = row(meta.reading), pageCount = number(meta.page_count);
+        const queue = ownAsks(await this.store.queue(mid)), reading = row(meta.reading), pageCount = number(meta.page_count);
         if (queue.some(job => ['queued', 'running'].includes(job.state) && STREAMED_MARKERS.some(marker => job[marker] !== undefined))) return 'active';
         const terminal = (job: Row | undefined): boolean => job?.state === 'completed' || job?.state === 'failed';
         const latest = (match: (job: Row) => boolean): Row | undefined => [...queue].reverse().find(job => job.state !== 'cancelled' && match(job));
@@ -989,7 +1019,7 @@ export class Reading {
         // §152.4: published pairs that collide and have no verdict are asked, one page at a time, in the background; a
         // page whose job failed `IDENTITY_FAILURES` times is not asked again by the read-ahead. §182.3: pages in the window.
         {
-            const queue = await this.store.queue(mid);
+            const queue = ownAsks(await this.store.queue(mid));
             if (!queue.some(job => job.visual_identity && ['queued', 'running'].includes(job.state))) {
                 const pairs = publishedIdentityPairs(graph.raw, await this.store.module(mid));
                 for (const page of [...new Set(pairs.map(pair => pair.page))].filter(inside)) {
@@ -1004,7 +1034,7 @@ export class Reading {
         }
         await this.queueMapScope(mid, ask, window);
         const queueVisual = async () => {
-            const visualJobs=(await this.store.queue(mid)).filter(job=>job.visual_scan);
+            const visualJobs=ownAsks(await this.store.queue(mid)).filter(job=>job.visual_scan);
             if(!visualJobs.some(job=>['queued','running'].includes(job.state))){
                 const seen=new Set(visualJobs.filter(job=>job.state!=='cancelled').map(job=>visualScanKey(job.visual_scan)));
                 for(const value of Object.values(row(reading.visual_scans))){
@@ -1018,7 +1048,7 @@ export class Reading {
                     retry:visualJobs.some(job=>job.state==='cancelled'&&visualScanKey(job.visual_scan)===visualScanKey(next)),
                     question:'Inspect the assigned contact sheet and nominate candidate pages only. Submit visual_candidates with page, kind and a short navigation label. Do not crop, transcribe, segment, or read scene dossiers; independent asset tasks will reopen the originals.'});
             }
-            const assetJobs=(await this.store.queue(mid)).filter(job=>job.visual_asset);
+            const assetJobs=ownAsks(await this.store.queue(mid)).filter(job=>job.visual_asset);
             const active=assetJobs.filter(job=>['queued','running'].includes(job.state)).length;
             const done=new Set(assetJobs.filter(job=>job.state!=='cancelled').map(job=>job.visual_asset.page));
             for(const material of array(reading.materials))if(integer(row(material.visual_asset).page))done.add(material.visual_asset.page);
@@ -1039,7 +1069,7 @@ export class Reading {
             return { window: { ...window, complete: built !== null }, ...(built?.library_sync ? { library_sync: built.library_sync } : {}) };
         };
         if(meta.source_reference){
-            const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit),active=work.filter(job=>['queued','running'].includes(job.state)).length;
+            const queue=ownAsks(await this.store.queue(mid)),work=queue.filter(job=>job.source_unit),active=work.filter(job=>['queued','running'].includes(job.state)).length;
             // §151.4: a unit is seen when its job is in this queue or its reading has a material row (read here, or in the library before this fork).
             const seen=unitJobs(queue,unitRows(meta,referenceSourceUnits(pageCount)));
             let anchor=truth(params.focus)?graph.find(string(params.focus)):null;
@@ -1056,7 +1086,7 @@ export class Reading {
             return {queued:[...new Set(queued)],reference_context:true,graph_complete:false,...await outcome(),...recovery};
         }
         if(reading.opening_scope==='first_interaction'&&truth(reading.index_complete)&&Object.values(row(meta.prepared_openings)).some(value=>truth(row(value).opening_ready))){
-            const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit);
+            const queue=ownAsks(await this.store.queue(mid)),work=queue.filter(job=>job.source_unit);
             if(work.filter(job=>['queued','running'].includes(job.state)).length<2){
                 let anchorNode=truth(params.focus)?graph.find(string(params.focus)):null;
                 if(!anchorNode)try{anchorNode=graph.startScene();}catch{}
@@ -1465,7 +1495,8 @@ export class Reading {
             }
             else if (prepared)
                 return { ...result, state: 'ready' };
-            const queue = await this.store.queue(mid), existing = [...queue].reverse().find(job => job.key === key);
+            // §179.5: a merge the library refused is not one of its own readings of this key.
+            const queue = await this.store.queue(mid), existing = [...queue].reverse().find(job => job.key === key && !refusedMerge(job));
             // §22.4.6.1 addendum (SL-55): the same question asked again while its job is parked or still reading under an older
             // generation attaches to that job; it is claimed (or finishes) under the current generation, so no second reading.
             if (purpose === 'answer' && !preparation && !(existing && ['queued', 'running'].includes(existing.state))) {
@@ -1521,7 +1552,7 @@ export class Reading {
                 // again; any other request (a waiting player or Keeper) queues a fresh read, which reads as today.
                 const settled = settledNeed(existing);
                 if (settled && needMarker && needGraph
-                    && !needEligible(row(reading.source_need_dispositions), needGraph.raw, retainedNeed(needGraph.raw, needMarker.key)!, queue, mid, unitRows(meta, await this.streamedUnits(mid, meta))))
+                    && !needEligible(row(reading.source_need_dispositions), needGraph.raw, retainedNeed(needGraph.raw, needMarker.key)!, ownAsks(queue), mid, unitRows(meta, await this.streamedUnits(mid, meta))))
                     return { ...result, state: 'settled', job_id: existing.job_id, disposition: row(row(existing.result).source_need).disposition };
                 if (existing.state === 'completed' && !settled) {
                     if (purpose === 'answer') throw new RpcError('needs', 'the completed source answer has no accepted evidence', { details: { reason: 'source_answer_integrity' } });
@@ -1648,6 +1679,13 @@ export class Reading {
                         continue;
                     }
                     await probe.release();
+                    // §179.5: a library job a fork's merge wrote is a replay, never a reading to claim. Unheld, its merge stopped
+                    // before the finish answered; the next merge of that reading replays it again.
+                    if (isJsonObject(stale.merged_from)) {
+                        Object.assign(stale, { state: 'failed', detail: 'the merge that replayed this reading was interrupted',
+                            refusal: { message: 'the merge that replayed this reading was interrupted', rule: MERGE_INTERRUPTED }, finished_at: nowIso() });
+                        continue;
+                    }
                     stale.state = 'queued';
                 }
                 if (stale.state === 'queued' && (stale.purpose === 'index' && truth(meta.reading.index_complete) ||
@@ -1661,7 +1699,7 @@ export class Reading {
                     Object.assign(stale, { state: 'cancelled', detail: 'the background does not read the whole-book index of this book (§182.4)', finished_at: nowIso() });
             }
             const purposePriority = (job: Row): number => job.purpose === 'opening' ? 0 : job.reference_fragment ? 1 : job.source_unit ? 3 : job.purpose === 'index' ? 2 : 1;
-            const pending = queue.filter(job => job.state === 'queued').sort((a, b) =>
+            const pending = queue.filter(job => job.state === 'queued' && !isJsonObject(job.merged_from)).sort((a, b) =>
                 Number(!truth(a.foreground)) - Number(!truth(b.foreground)) ||
                 purposePriority(a) - purposePriority(b) || compareUnicode(a.at, b.at));
             const identity = pending.length && active.length ? await this.focusIdentity(mid) : () => new Set<string>();
@@ -1745,7 +1783,7 @@ export class Reading {
                     const {task_preparation:_privatePreparation,source_need:needMarker,...visibleJob}=job;
                     // §151.4: a background need read carries what its disposition is decided on; a unit carries the needs riding on it.
                     const units = needMarker || job.source_unit ? await this.streamedUnits(mid, meta) : [];
-                    const needTask = needMarker && !truth(job.foreground) ? needPacket(row(needMarker), graph, mid, unreadUnits(units, queue, unitRows(meta, units))) : undefined;
+                    const needTask = needMarker && !truth(job.foreground) ? needPacket(row(needMarker), graph, mid, unreadUnits(units, ownAsks(queue), unitRows(meta, units))) : undefined;
                     const carried = job.source_unit ? carriedNeeds(row(row(meta.reading).source_need_dispositions), graph, job.source_unit as SourceUnit) : [];
                     // §152.4: an identity job is claimed with its page's pairs as they stand now, both crops of each.
                     const identityTask: Row = job.visual_identity ? { visual_identity: { page: job.visual_identity.page,
@@ -1783,7 +1821,7 @@ export class Reading {
             // the library. Source consultations stay private to their campaign (§179.4): their answers are never adopted.
             if (params.outcome !== 'completed' || truth(result.replayed) || result.state === 'queued') return result;
             const job = (await this.store.queue(mid)).find(job => job.job_id === params.job_id);
-            return job && job.purpose !== 'answer' && job.state === 'completed' ? this.libraryFollows(mid, result) : result;
+            return job && job.purpose !== 'answer' && job.state === 'completed' ? this.libraryFollows(mid, result, string(job.key)) : result;
         });
     }
     /** `finish` under this module's metadata lock. */
