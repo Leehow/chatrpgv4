@@ -247,6 +247,40 @@ export async function syncLibraryFromCampaign(context: KernelContext, campaign: 
     catch (error) { return { state: 'failed', detail: (error instanceof Error ? error.message : String(error)).slice(0, 1000) }; }
 }
 
+/**
+ * §179.1's lineage test on the two module records, or the reason it fails: `not_a_fork`, `starter`, `source_mismatch`,
+ * `library_advanced`; null when the library's head is this fork's lineage.
+ */
+function lineageRefusal(campaign: string, id: string, forkMeta: Row, libraryMeta: Row): string | null {
+    if (forkMeta.id !== id || forkMeta.campaign_scope !== campaign) return 'not_a_fork';
+    if (!playsFromReading(libraryMeta)) return 'starter';
+    const sha = row(libraryMeta.source_document).file_sha256;
+    if (libraryMeta.id !== id || typeof sha !== 'string' || !sha || sha !== row(forkMeta.source_document).file_sha256) return 'source_mismatch';
+    const head = row(libraryMeta.synced_from), generation = libraryMeta.generation ?? 0;
+    // The library's head is this fork's lineage when the fork was seeded from that very generation (nothing was
+    // published since, by any fork or by the library itself), or when that generation is the one this campaign last
+    // published there. Which campaign the library followed before does not matter: a campaign created after another
+    // one's publication forks the deeper library and leads from it. A head anyone else wrote after the fork's base ends
+    // the lineage (§179.4).
+    const lineage = equal(generation, forkMeta.source_generation ?? null)
+        || head.campaign === campaign && equal(head.library_generation, generation);
+    return lineage ? null : 'library_advanced';
+}
+
+/**
+ * §179.5 (bounded per call): whether this campaign's fork is the library's lineage, decided as a publication decides it,
+ * without publishing: `lineage`, or the reason it is not (`not_a_fork`, `library_missing`, `starter`, `source_mismatch`,
+ * `library_advanced`). The campaign's read-ahead continues a merge backlog only on `library_advanced`.
+ */
+export async function libraryLineage(context: KernelContext, campaign: string, moduleId: string): Promise<string> {
+    const id = validateModuleId(moduleId), fork = new ModuleStore(moduleContext(context, campaign));
+    const library = new ModuleStore({ ...context, moduleRoot: join(context.stateRoot, 'modules') });
+    if (!await fork.exists(id) || (await fork.module(id)).campaign_scope !== campaign) return 'not_a_fork';
+    if (!await library.exists(id)) return 'library_missing';
+    return withOptionalExclusiveLock(context.locks, join(library.moduleDir(id), '.metadata.lock'),
+        async () => lineageRefusal(campaign, id, await fork.module(id), await library.module(id)) ?? 'lineage');
+}
+
 async function followFork(context: KernelContext, campaign: string, moduleId: string): Promise<Row> {
     const skipped = (reason: string): Row => ({ state: 'skipped', reason });
     const id = validateModuleId(moduleId), fork = new ModuleStore(moduleContext(context, campaign));
@@ -256,19 +290,9 @@ async function followFork(context: KernelContext, campaign: string, moduleId: st
     const outcome = await withOptionalExclusiveLock(context.locks, join(library.moduleDir(id), '.metadata.lock'), async (): Promise<Row> => {
         // Eligibility is decided on what is current inside the lock (§179.1, "the lineage test").
         const forkMeta = await fork.module(id), libraryMeta = await library.module(id);
-        if (forkMeta.id !== id || forkMeta.campaign_scope !== campaign) return skipped('not_a_fork');
-        if (!playsFromReading(libraryMeta)) return skipped('starter');
-        const sha = row(libraryMeta.source_document).file_sha256;
-        if (libraryMeta.id !== id || typeof sha !== 'string' || !sha || sha !== row(forkMeta.source_document).file_sha256) return skipped('source_mismatch');
-        const head = row(libraryMeta.synced_from), generation = libraryMeta.generation ?? 0;
-        // The library's head is this fork's lineage when the fork was seeded from that very generation (nothing was
-        // published since, by any fork or by the library itself), or when that generation is the one this campaign last
-        // published there. Which campaign the library followed before does not matter: a campaign created after another
-        // one's publication forks the deeper library and leads from it. A head anyone else wrote after the fork's base ends
-        // the lineage (§179.4).
-        const lineage = equal(generation, forkMeta.source_generation ?? null)
-            || head.campaign === campaign && equal(head.library_generation, generation);
-        if (!lineage) return skipped('library_advanced');
+        const refusal = lineageRefusal(campaign, id, forkMeta, libraryMeta);
+        if (refusal !== null) return skipped(refusal);
+        const generation = libraryMeta.generation ?? 0;
         const forkGraph = await fork.readGraph(id), libraryGraph = await library.readGraph(id);
         if (!forkGraph) return skipped('nothing_new');
 

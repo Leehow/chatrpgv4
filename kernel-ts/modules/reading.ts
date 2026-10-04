@@ -35,7 +35,7 @@ import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needDone,needElig
 import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy.js';
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
-import {syncLibraryFromCampaign} from './campaign-scope.js';
+import {libraryLineage,syncLibraryFromCampaign} from './campaign-scope.js';
 import {MERGE_INTERRUPTED,mergeForkReadings,ownAsks,refusedMerge} from './library-merge.js';
 import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,visualCandidates,type VisualScan} from './visual-discovery.js';
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
@@ -321,6 +321,22 @@ export class Reading {
             }, key);
         }
         finally { await library.close(); }
+    }
+    /**
+     * §179.5 (bounded per call): the campaign's read-ahead continues the merge backlog a publication's budget left, one batch
+     * per call, under this fork's metadata lock as a publication does. Only a campaign fork whose lineage test answers
+     * `library_advanced`; null for the library itself, a lineage fork, and a batch with nothing to merge.
+     */
+    async mergeBacklog(mid: string): Promise<Row | null> {
+        const id = validateModuleId(mid);
+        if (!await this.store.exists(id)) return null;
+        const campaign = (await this.store.module(id)).campaign_scope;
+        if (typeof campaign !== 'string' || this.store.root !== join(this.store.context.stateRoot, 'module-campaigns', campaign, 'modules')) return null;
+        return this.mutex(id, async () => {
+            if (await libraryLineage(this.store.context, campaign, id) !== 'library_advanced') return null;
+            const sync = await this.mergeIntoLibrary(campaign, id);
+            return sync.state === 'skipped' ? null : sync;
+        });
     }
     /**
      * §179.5: what a library job replaying a fork job's reading carries -- its identity (`key`, `purpose`, `focus`, `question`,

@@ -17,6 +17,7 @@ import { array, number, row, string, truth, type Row } from '../read/values.js';
 import { nowIso } from '../write/store.js';
 import { playsFromReading } from './bound-source.js';
 import { moduleContext } from './campaign-scope.js';
+import { readingBudget } from './chapters.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 import { placeScene } from './reference.js';
 import { validateReferencePacket } from './reference-contract.js';
@@ -62,11 +63,13 @@ type Candidate = Reading | Place;
 /**
  * §179.5: publish into the library, one at a time and in the order the fork published them, the fork's readings whose key
  * the library's `reading.materials` lacks. Called by the fork's publication when §179.1's lineage test answered
- * `library_advanced`, under the fork's metadata lock; the merge takes the library's metadata lock per step and never holds
- * it across the library's own finish, which takes it itself. Returns `{state: "merged", merged, skipped, library_generation}`,
- * `{state: "skipped", reason}` (`nothing_new`, or `already_present` when this publication's own reading is one the library
- * already holds) or `{state: "failed", detail}`; it never throws, because a merge failure never fails the fork's publication.
- * `published` is the key of the reading this publication wrote, when it wrote one.
+ * `library_advanced`, and by the campaign's read-ahead to continue a backlog, under the fork's metadata lock; the merge
+ * takes the library's metadata lock per step and never holds it across the library's own finish, which takes it itself.
+ * Bounded per call: a replay starts only while the call has run less than `reading.merge_budget_ms`, and the first always
+ * starts. Returns `{state: "merged", merged, skipped, library_generation, remaining, partial?}`, `{state: "skipped", reason}`
+ * (`nothing_new`, or `already_present` when this publication's own reading is one the library already holds) or
+ * `{state: "failed", detail}`; it never throws, because a merge failure never fails the fork's publication. `published` is
+ * the key of the reading this publication wrote, when it wrote one.
  */
 export async function mergeForkReadings(context: KernelContext, campaign: string, moduleId: string, library: LibraryPublication,
     published?: string): Promise<Row> {
@@ -75,7 +78,7 @@ export async function mergeForkReadings(context: KernelContext, campaign: string
 }
 
 async function merge(context: KernelContext, campaign: string, moduleId: string, library: LibraryPublication, published?: string): Promise<Row> {
-    const skipped = (reason: string): Row => ({ state: 'skipped', reason });
+    const began = Date.now(), skipped = (reason: string): Row => ({ state: 'skipped', reason });
     const id = validateModuleId(moduleId), fork = new ModuleStore(moduleContext(context, campaign));
     const store = new ModuleStore({ ...context, moduleRoot: join(context.stateRoot, 'modules') });
     if (!await fork.exists(id)) return skipped('not_a_fork');
@@ -91,7 +94,7 @@ async function merge(context: KernelContext, campaign: string, moduleId: string,
         if (!playsFromReading(meta)) return skipped('starter');
         const sha = row(meta.source_document).file_sha256;
         if (meta.id !== id || typeof sha !== 'string' || !sha || sha !== row(forkMeta.source_document).file_sha256) return skipped('source_mismatch');
-        const held = heldKeys(meta), graph = await store.readGraph(id), ready = readyNodes(meta);
+        const held = heldKeys(meta), graph = await store.readGraph(id), ready = readyNodes(meta), queue = await store.queue(id);
         const candidates: Candidate[] = [], skips: Skip[] = [];
         for (const material of own) {
             if (held.has(material.key)) continue;
@@ -102,6 +105,11 @@ async function merge(context: KernelContext, campaign: string, moduleId: string,
                 const scene = placeScene(graph, { id: string(found.place.id), name: string(found.place.name) });
                 if (scene && ready.has(scene.node_id)) continue;
             }
+            // A reading the library refused before is reported, never started again: with the per-call budget, a refusal at
+            // the head of the backlog would otherwise take every call's one replay and stall the rest.
+            const refused = await priorRefusal(context, await mergedDir({ store, id, campaign }, found.kind === 'reading' ? found.job.job_id : basename(found.work)),
+                found.kind === 'reading' ? queue.filter(job => row(job.merged_from).campaign === campaign && row(job.merged_from).job_id === found.job.job_id) : null);
+            if (refused !== null) { skips.push({ key: found.key, reason: 'refused', detail: refused }); continue; }
             candidates.push(found);
         }
         return { candidates, skips, present: typeof published === 'string' && held.has(published) && own.some(material => material.key === published) };
@@ -110,15 +118,34 @@ async function merge(context: KernelContext, campaign: string, moduleId: string,
     const { candidates, skips, present } = plan;
     if (!candidates.length && !skips.length) return skipped(present ? 'already_present' : 'nothing_new');
     const out: Skip[] = present ? [{ key: published!, reason: 'already_present' }] : [];
-    let merged = 0;
+    let merged = 0, started = 0;
     const forkGraph = await fork.readGraph(id), env = { context, campaign, id, store, library, lock, forkDir, forkGraph };
+    const budget = (await readingBudget(context)).mergeBudgetMs;
     for (const candidate of candidates) {
+        // Bounded per call: the first replay always starts, a later one only while the call is inside its budget.
+        if (started > 0 && Date.now() - began >= budget) break;
+        started++;
         const skip = candidate.kind === 'reading' ? await replayReading(env, candidate) : await replayPlace(env, candidate);
         if (skip) out.push(skip); else merged++;
     }
     out.push(...skips);
+    const remaining = candidates.length - started;
     return { state: 'merged', merged, skipped: out.slice(0, SKIPPED_LIMIT), ...(out.length > SKIPPED_LIMIT ? { skipped_truncated: out.length - SKIPPED_LIMIT } : {}),
-        library_generation: (await store.module(id)).generation ?? 0 };
+        library_generation: (await store.module(id)).generation ?? 0, remaining, ...(remaining > 0 ? { partial: true } : {}) };
+}
+
+/**
+ * Why a reading's earlier merge is final, or null: a merged library job of it that the library refused (a failure whose rule
+ * is not `merge_interrupted`), or a place's refusal written in its copy. `jobs` are the library's merged jobs of the fork
+ * job, or null for a place.
+ */
+async function priorRefusal(context: KernelContext, target: string, jobs: Row[] | null): Promise<string | null> {
+    if (jobs) {
+        const refused = [...jobs].reverse().find(job => job.state === 'failed' && row(job.refusal).rule !== MERGE_INTERRUPTED);
+        return refused ? string(refused.detail ?? '').slice(0, 500) : null;
+    }
+    const file = join(target, PLACE_REFUSAL);
+    return await context.snapshots.isFile(file) ? string(row(await context.snapshots.readJson(file)).message ?? '').slice(0, 500) : null;
 }
 
 const heldKeys = (meta: Row): Set<unknown> => new Set(array(row(meta.reading).materials).map(material => row(material).key));
@@ -215,7 +242,7 @@ type Env = { context: KernelContext; campaign: string; id: string; store: Module
     forkDir: string; forkGraph: Row | null };
 
 /** The directory a fork artifact is copied to in the library, contained in `work/merged/<campaign>/`. */
-async function mergedDir(env: Env, name: string): Promise<string> {
+async function mergedDir(env: Pick<Env, 'store' | 'id' | 'campaign'>, name: string): Promise<string> {
     const root = await resolvedPath(join(env.store.moduleDir(env.id), MERGED_ROOT, env.campaign)), target = join(root, name);
     if (!SEGMENT.test(name) || !inside(root, await resolvedPath(target)))
         throw new RpcError('invalid_params', 'a merged reading escapes the library work directory', { details: { artifact: name } });
@@ -282,8 +309,8 @@ async function replayReading(env: Env, candidate: Reading): Promise<Skip | null>
         if (heldKeys(meta).has(key)) return { key, reason: 'already_present' };
         const queue = await store.queue(id), earlier = queue.filter(job => row(job.merged_from).campaign === campaign && row(job.merged_from).job_id === forkJob.job_id);
         if (earlier.some(job => job.state === 'completed')) return { key, reason: 'already_present' };
-        const refused = [...earlier].reverse().find(job => job.state === 'failed' && row(job.refusal).rule !== MERGE_INTERRUPTED);
-        if (refused) return { key, reason: 'refused', detail: string(refused.detail ?? '').slice(0, 500) };
+        const refused = await priorRefusal(context, target, earlier);
+        if (refused !== null) return { key, reason: 'refused', detail: refused };
         // The fork's metadata lock is held, so no other merge of this campaign runs: a running replay of it was interrupted.
         for (const job of earlier.filter(job => job.state === 'running'))
             Object.assign(job, { state: 'failed', detail: 'the merge that replayed this reading was interrupted', refusal: { message: 'the merge that replayed this reading was interrupted', rule: MERGE_INTERRUPTED }, finished_at: nowIso() });
@@ -344,8 +371,8 @@ async function replayPlace(env: Env, candidate: Place): Promise<Skip | null> {
         if (heldKeys(meta).has(key)) return { key, reason: 'already_present' };
         const scene = placeScene(await store.readGraph(id), { id: string(place.id), name: string(place.name) });
         if (scene && readyNodes(meta).has(scene.node_id)) return { key, reason: 'already_present' };
-        if (await context.snapshots.isFile(refusalFile))
-            return { key, reason: 'refused', detail: string(row(await context.snapshots.readJson(refusalFile)).message ?? '').slice(0, 500) };
+        const refused = await priorRefusal(context, target, null);
+        if (refused !== null) return { key, reason: 'refused', detail: refused };
         await copyTree(work, target);
         return null;
     });

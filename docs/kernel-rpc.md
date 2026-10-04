@@ -33044,6 +33044,19 @@ readiness, and the single atomic generation write. No model is called; it costs 
   library_generation}` (or `nothing_new` when the library already holds every reading). The fork's `library_sync` record
   is not written: the fork is still not the library's lineage, and every later publication of it merges again, idempotent
   by `key`.
+- **Bounded per call** (lead, 2026-10-04, after measuring the first implementation). One merge call starts a replay only
+  while it has run less than `reading.merge_budget_ms` (`content/rulesets/coc7/host-budgets.json`, shipped 2000; the
+  kernel accepts 0 to 60000 and falls back to 2000), and always starts the first one. The result gains `remaining`, the
+  readings it selected and did not start (0 when done), and `partial: true` when `remaining` is above 0; `state` stays
+  `merged`. The backlog continues from the campaign's `module.read.ahead`: for a campaign whose fork exists and whose
+  lineage test answers `library_advanced`, the read-ahead first runs one merge batch, with the same budget and locks as a
+  publication (the fork's metadata lock for the selection, never the library's lock across a library finish), and returns
+  its outcome as `library_sync`, which the host records as it records a publication's. A read-ahead whose fork is the
+  lineage or has nothing to merge, and a library-scoped read-ahead, add no field. Measured (lead, the App's own data
+  cloned into a scratch home, the `24bb66cb` fork with 100 readings the library lacked, `mergeForkReadings` called
+  directly): 100 merged, 0 refused, 111.6 s in one call; per library finish median 1008 ms, p90 1587 ms, max 3486 ms,
+  growing with the graph. Unbounded, that ran inside one `module.read.finish` request (the host's timeout is 30 s,
+  `extensions/kernel/client.ts`) and held the table's kernel the whole time.
 - **What it does not do.** The running fork does not take the library's newer readings (§179.4 unchanged). Two forks that
   read the same unit keep the first one's in the library; the second is `already_present`.
 - **Three ends (§31).** Writer: the fork's publication. Reader: `ensureCampaignModule` for the next campaign and the
@@ -33102,8 +33115,9 @@ the reading the publication wrote (`job.key`; `source-place:<scene>` for a mater
   `publishReferencePlace`) is not a candidate. A refused place writes `merge-refusal.json` in its copy and is final.
 - **Result.** `{state: "skipped", reason: "already_present"}` when no reading of the fork is missing from the library and
   the reading this publication wrote is one the library holds; `nothing_new` otherwise. Any missing row gives `{state:
-  "merged", merged, skipped, library_generation}` (`merged` may be 0), the publication's own `already_present` first in
-  `skipped`; at most 64 rows are listed, the rest counted in `skipped_truncated`. Before the selection the merge
+  "merged", merged, skipped, library_generation, remaining, partial?}` (`merged` may be 0), the publication's own
+  `already_present` first in `skipped`; at most 64 rows are listed, the rest counted in `skipped_truncated`. A reading not
+  started for the budget is counted in `remaining`, not listed. Before the selection the merge
   re-checks `not_a_fork`, `library_missing`, `starter` and `source_mismatch`. The fork's `library_sync` is not written.
 - **A merge ends the lineage it did not follow.** A merge is a library publication of its own: it advances the
   library's generation and leaves `synced_from` as it was, so the fork the library last followed is no longer its
@@ -33112,13 +33126,33 @@ the reading the publication wrote (`job.key`; `source-place:<scene>` for a mater
 - **What a merge does not carry.** Only material rows travel: visual scans (contact sheets), the whole-book index and
   its map candidates, identity verdicts of identity jobs and `build_complete` reach the library only by §179.1's
   fast-forward. A later fork reads those again unless the library has them.
-- **Not measured.** A fork that diverged long ago merges every reading it has that the library lacks in the one
-  publication that first finds them, each a library publication (one immutable generation directory with the whole
-  graph). The host's kernel request timeout is 30 s (`extensions/kernel/client.ts`); the cost per replay on a large
-  book was not measured.
+- **Not measured** (first implementation; *superseded*: the lead measured it on the App's data, see "Bounded per call"
+  above). A fork that diverged long ago merged every reading the library lacked in the one publication that first found
+  them, each a library publication (one immutable generation directory with the whole graph).
+- **Bounded per call: the budget.** `readingBudget(context).mergeBudgetMs` (`kernel-ts/modules/chapters.ts`, beside the
+  §182 page budgets), read from the content on every call. Elapsed time counts from the start of the merge call, its
+  selection included. A reading started counts against the budget whatever its staging finds (a race that made it
+  `already_present`, a refusal written meanwhile).
+- **Bounded per call: refusals are decided in the selection.** A reading the library refused before (its merged library
+  job failed with a rule other than `merge_interrupted`, or a place's `merge-refusal.json`) is reported `refused` by the
+  selection and is no candidate; otherwise a refusal at the head of the backlog would take every call's one replay and
+  the rest would never start. The staging keeps the same check as a race guard.
+- **Bounded per call: the read-ahead's batch.** `Reading.mergeBacklog`, called by `modules/index.ts` `ahead(params,
+  true)` for the `module.read.ahead` request alone, after the campaign's fork exists and before the read-ahead's own
+  asks; the kernel's own read-aheads (a table opening, setup's way-on repair, through `source.ahead`) run no batch, so a
+  table opening does not wait on one. It takes the fork's metadata lock (the fork Reading's mutex) and asks
+  `libraryLineage` (`campaign-scope.ts`): §179.1's test (`lineageRefusal`, shared with `followFork`) read under the
+  library's metadata lock without publishing. Only `library_advanced` runs a batch; a batch that answers `merged` or
+  `failed` rides on the result, one that answers `skipped` adds nothing. A library-scoped read-ahead never calls it, and
+  it answers null for a store that is not a campaign fork. When the same pass completes a short book's build (§182.2),
+  that completion's own, later `library_sync` is the one returned.
 - Tests: `tests/extension/library-follows-fork.test.mjs` (two §179.5 cases; the §179.1 case's other-lineage publications
-  now answer `already_present`), `campaign-module-isolation.test.mjs` (two kernel processes: the other lineage's reading
-  is merged, the published summary is kept under §147.8), `map-publication.test.mjs` (the host row of a merge).
+  now answer `already_present`; two bounded cases with `merge_budget_ms` 0 through a content-root overlay: one reading per
+  call across a publication and two read-ahead passes, `remaining` 2, 1, 0, no field on a lineage read-ahead, on one
+  with nothing left and on a library-scoped one; a refused reading at the head of the backlog does not stall it),
+  `campaign-module-isolation.test.mjs` (two kernel processes: the other lineage's reading is merged, the published
+  summary is kept under §147.8), `map-publication.test.mjs` (the host row of a publication's merge),
+  `read-window.test.mjs` (the host row of a read-ahead's batch).
 
 ### 179.2 The Keeper's request keeps its prefix across turns (amends §135.23)
 

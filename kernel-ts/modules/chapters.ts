@@ -12,11 +12,13 @@ import { array, chars, integer, number, row, type Row } from '../read/values.js'
 export const OUTLINE_ENTRIES = 200, OUTLINE_NAME = 200;
 /** The shipped `reading` budgets of `content/rulesets/coc7/host-budgets.json`, used when the data names none. */
 export const WHOLE_BOOK_MAX_PAGES = 60, FALLBACK_WINDOW_PAGES = 24;
+/** §179.5: the shipped `reading.merge_budget_ms`, and the most the data may give one merge call. */
+export const MERGE_BUDGET_MS = 2000, MERGE_BUDGET_MAX_MS = 60_000;
 
 export type OutlineEntry = { name: string; page: number };
 export type Chapter = { name: string; first: number; last: number };
 export type ReadingWindow = { mode: 'whole' | 'chapters' | 'pages'; first: number; last: number; chapters: string[]; complete?: boolean };
-export type ReadingBudget = { wholeBookMaxPages: number; fallbackWindowPages: number };
+export type ReadingBudget = { wholeBookMaxPages: number; fallbackWindowPages: number; mergeBudgetMs: number };
 
 /**
  * §182.1: the top-level bookmarks that carry a page, as `{name, page}`: sorted by page (ties keep the book's order), at
@@ -87,11 +89,16 @@ function pages(value: unknown, fallback: number, least: number): number {
     return integer(value) && number(value) >= least && number(value) <= 100_000 ? number(value) : fallback;
 }
 
-/** §182.2-§182.3: `reading.whole_book_max_pages` and `reading.fallback_window_pages`, read from the content's host budgets. */
+/**
+ * §182.2-§182.3: `reading.whole_book_max_pages` and `reading.fallback_window_pages`; §179.5: `reading.merge_budget_ms`, the
+ * time after which one merge call starts no further replay (0 to 60000). Read from the content's host budgets.
+ */
 export async function readingBudget(context: KernelContext): Promise<ReadingBudget> {
     let reading: Row = {};
     try { reading = row(row(await context.snapshots.readJson(join(context.content, 'rulesets', 'coc7', 'host-budgets.json'))).reading); }
     catch { /* the coded fallbacks are the shipped values */ }
+    const merge = reading.merge_budget_ms;
     return { wholeBookMaxPages: pages(reading.whole_book_max_pages, WHOLE_BOOK_MAX_PAGES, 0),
-        fallbackWindowPages: pages(reading.fallback_window_pages, FALLBACK_WINDOW_PAGES, 1) };
+        fallbackWindowPages: pages(reading.fallback_window_pages, FALLBACK_WINDOW_PAGES, 1),
+        mergeBudgetMs: integer(merge) && number(merge) >= 0 && number(merge) <= MERGE_BUDGET_MAX_MS ? number(merge) : MERGE_BUDGET_MS };
 }

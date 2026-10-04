@@ -12,7 +12,7 @@ import {playtestScratch} from './playtest-scratch.mjs';
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdir, mkdtemp, readFile, readdir, realpath, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, readdir, realpath, rename, symlink, writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {join, relative, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -50,12 +50,29 @@ async function treeDigest(path, prefix = '') {
 }
 
 /**
+ * A content root that is the real one except for `host-budgets.json`'s `reading` entry, which gains `reading` (the SL-93
+ * overlay pattern of admission-typed-settle.test.mjs).
+ */
+async function contentWith(name, reading) {
+	const overlay = await mkdtemp(join(directory, `${name}-content-`)), coc7 = join(CONTENT, 'rulesets', 'coc7');
+	for (const entry of await readdir(CONTENT)) if (entry !== 'rulesets') await symlink(join(CONTENT, entry), join(overlay, entry));
+	await mkdir(join(overlay, 'rulesets', 'coc7'), {recursive: true});
+	for (const entry of await readdir(join(CONTENT, 'rulesets'))) if (entry !== 'coc7') await symlink(join(CONTENT, 'rulesets', entry), join(overlay, 'rulesets', entry));
+	for (const entry of await readdir(coc7)) if (entry !== 'host-budgets.json') await symlink(join(coc7, entry), join(overlay, 'rulesets', 'coc7', entry));
+	const budgets = JSON.parse(await readFile(join(coc7, 'host-budgets.json'), 'utf8'));
+	await writeFile(join(overlay, 'rulesets', 'coc7', 'host-budgets.json'), JSON.stringify({...budgets, reading: {...budgets.reading, ...reading}}));
+	return overlay;
+}
+
+/**
  * A six-page PDF bound in the shared library with the fast reference path published there (§151.4): guidance and one
  * original-context entrance on page 3, a library graph of one generation, and no reading queued in the library.
+ * `reading` overrides the content's reading budgets.
  */
-async function library(name) {
+async function library(name, {reading} = {}) {
 	const workspace = await mkdtemp(join(directory, `${name}-`));
-	const context = await api.createKernelContext({workspace, content: CONTENT, seed: name, locks: api.nativeAdvisoryLocks(),
+	const content = reading ? await contentWith(name, reading) : CONTENT;
+	const context = await api.createKernelContext({workspace, content, seed: name, locks: api.nativeAdvisoryLocks(),
 		env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
 	const runtime = api.createKernelRuntime(context);
 	closers.push(() => runtime.close());
@@ -72,6 +89,15 @@ async function library(name) {
 	b.call = (method, params = {}, campaign) => kernel(method, {module_id: mid, ...params, ...(campaign ? {campaign} : {})});
 	b.dir = campaign => campaign ? join(workspace, '.coc/module-campaigns', campaign, 'modules', mid) : join(workspace, '.coc/modules', mid);
 	b.meta = async campaign => JSON.parse(await readFile(join(b.dir(campaign), 'module.json'), 'utf8'));
+	/**
+	 * `action` runs while the library's binding is set aside, so a fork's publications reach no library (`library_missing`):
+	 * the state of a fork whose readings predate §179, as the lead measured it on the App's own data.
+	 */
+	b.aside = async action => {
+		const binding = join(b.dir(), 'module.json');
+		await rename(binding, `${binding}.aside`);
+		try { return await action(); } finally { await rename(`${binding}.aside`, binding); }
+	};
 	b.queue = async campaign => JSON.parse(await readFile(join(b.dir(campaign), 'deepen-queue.json'), 'utf8'));
 	b.graph = async campaign => JSON.parse(await readFile(join(b.dir(campaign), (await b.meta(campaign)).graph_file), 'utf8'));
 	/** The next claim in this scope that is `wanted`; a reading claimed before it gives its slot back unread. */
@@ -287,7 +313,7 @@ test('§179.5: a fork that is not the library\'s lineage gives back its readings
 	await mkdir(join(readC5.work_dir, 'assets'), {recursive: true});
 	await writeFile(rendered, PNG);
 	const mergedC5 = await b.publish('table-c', readC5, delta([keeper, chart]), [{node_id: 'handout-chart', path: rendered, sha256: sha(PNG)}]);
-	assert.deepEqual(mergedC5.library_sync, {state: 'merged', merged: 1, skipped: [], library_generation: beforeC5.generation + 1});
+	assert.deepEqual(mergedC5.library_sync, {state: 'merged', merged: 1, skipped: [], library_generation: beforeC5.generation + 1, remaining: 0});
 	const afterC5 = await b.meta(), row5 = afterC5.reading.materials.find(row => row.key === unit5.key);
 	assert.ok(row5, "the library holds C's unit 5");
 	assert.deepEqual({node_ids: row5.node_ids, generation: row5.generation}, {node_ids: ['npc-keeper', 'handout-chart'], generation: afterC5.generation});
@@ -405,4 +431,85 @@ test('§179.5: a replay whose merge was interrupted is never claimed by a librar
 		[['read-1', 'failed']]);
 	assert.deepEqual((await b.queue()).filter(job => job.merged_from?.job_id === readC5.job_id).map(job => job.state), ['failed', 'completed']);
 	assert.ok((await b.meta()).reading.materials.some(row => row.key === unit.key));
+});
+
+/** Merged rows of a fork's reading in the library queue, by fork job id. */
+const replaysOf = async (b, jobId) => (await b.queue()).filter(job => job.merged_from?.job_id === jobId);
+
+test('§179.5 bounded per call: with merge_budget_ms 0 a backlog merges one reading per call, a publication first and the read-ahead after', async () => {
+	const b = await library('budget', {reading: {merge_budget_ms: 0}});
+	for (const id of ['table-a', 'table-c']) await b.kernel('campaign.create', {id, module: b.mid, play_language: 'en', start_scene: 'Harbor'});
+	await b.units('table-a');
+	await b.units('table-c');
+	assert.deepEqual((await b.publish('table-a', await b.claimWhere('table-a', job => job.source_unit?.first === 3), delta())).library_sync.state, 'published');
+	// A is the library's lineage: its read-ahead carries no merge.
+	assert.equal(Object.hasOwn(await b.kernel('module.read.ahead', {module_id: b.mid, campaign: 'table-a'}), 'library_sync'), false);
+
+	// C reads three readings the library never sees: units 5 and 1 and a source place.
+	const readC3 = await b.claimWhere('table-c', job => job.source_unit?.first === 3);
+	const readC5 = await b.claimWhere('table-c', job => job.source_unit?.first === 5);
+	await b.aside(async () => {
+		// A, still the lineage, materializes a place the library never sees.
+		assert.equal((await b.place('table-a', 1, 'Lighthouse')).library_sync.reason, 'library_missing');
+		assert.deepEqual((await b.publish('table-c', readC5, delta([keeper]))).library_sync, {state: 'skipped', reason: 'library_missing'});
+		assert.ok((await b.units('table-c')).some(([first, state]) => first === 1 && state === 'queued'));
+		assert.deepEqual((await b.publish('table-c', await b.claimWhere('table-c', job => job.source_unit?.first === 1), delta())).library_sync,
+			{state: 'skipped', reason: 'library_missing'});
+		assert.equal((await b.place('table-c', 5, 'Cellar')).library_sync.reason, 'library_missing');
+	});
+	// A is still the lineage: its read-ahead merges nothing, though its place is missing; its next publication fast-forwards.
+	const libraryBytes = await treeDigest(b.dir());
+	assert.equal(Object.hasOwn(await b.kernel('module.read.ahead', {module_id: b.mid, campaign: 'table-a'}), 'library_sync'), false);
+	assert.deepEqual(await treeDigest(b.dir()), libraryBytes, 'the library is unchanged');
+	const forkC = await b.meta('table-c'), own = forkC.reading.materials.filter(row => row.generation > forkC.source_generation).map(row => row.key);
+	assert.equal(own.length, 3);
+	/** C's readings the library holds, in the library's order. */
+	const held = async () => (await b.meta()).reading.materials.filter(row => own.includes(row.key)).map(row => row.key);
+	// A library-scoped read-ahead merges nothing.
+	const libraryRows = (await b.meta()).reading.materials.length;
+	assert.equal(Object.hasOwn(await b.kernel('module.read.ahead', {module_id: b.mid}), 'library_sync'), false);
+	assert.equal((await b.meta()).reading.materials.length, libraryRows);
+
+	// C's next publication is a unit the library holds: its merge batch starts one replay and stops.
+	const first = await b.publish('table-c', readC3, delta());
+	const {skipped, ...shape} = first.library_sync, generation = (await b.meta()).generation;
+	assert.deepEqual(shape, {state: 'merged', merged: 1, library_generation: generation, remaining: 2, partial: true});
+	assert.deepEqual(skipped.map(({reason}) => reason), ['already_present']);
+	assert.deepEqual(await held(), [own[0]]);
+	// The campaign's read-ahead continues the backlog, one batch per pass.
+	const second = (await b.kernel('module.read.ahead', {module_id: b.mid, campaign: 'table-c'})).library_sync;
+	assert.deepEqual({merged: second.merged, remaining: second.remaining, partial: second.partial}, {merged: 1, remaining: 1, partial: true});
+	const third = (await b.kernel('module.read.ahead', {module_id: b.mid, campaign: 'table-c'})).library_sync;
+	assert.deepEqual({merged: third.merged, remaining: third.remaining, partial: third.partial ?? false}, {merged: 1, remaining: 0, partial: false});
+	assert.deepEqual((await held()).sort(), [...own].sort(), 'the library ends with all three');
+	// Nothing left: the read-ahead adds no field.
+	assert.equal(Object.hasOwn(await b.kernel('module.read.ahead', {module_id: b.mid, campaign: 'table-c'}), 'library_sync'), false);
+});
+
+test('§179.5 bounded per call: a reading the library refused does not take every call\'s one replay', async () => {
+	const b = await library('budget-refused', {reading: {merge_budget_ms: 0}});
+	for (const id of ['table-a', 'table-c']) await b.kernel('campaign.create', {id, module: b.mid, play_language: 'en', start_scene: 'Harbor'});
+	await b.units('table-a');
+	await b.units('table-c');
+	assert.equal((await b.publish('table-a', await b.claimWhere('table-a', job => job.source_unit?.first === 3),
+		delta([ferryman('The ferryman rows at dawn.', 3)], [], []))).library_sync.state, 'published');
+	const readC3 = await b.claimWhere('table-c', job => job.source_unit?.first === 3);
+	const readC5 = await b.claimWhere('table-c', job => job.source_unit?.first === 5);
+	let unit1;
+	await b.aside(async () => {
+		// C's first reading contradicts the library; its second does not.
+		await b.publish('table-c', readC5, delta([ferryman('The ferryman never rows.', 5)], [], []));
+		await b.units('table-c');
+		const readC1 = await b.claimWhere('table-c', job => job.source_unit?.first === 1);
+		unit1 = (await b.queue('table-c')).find(job => job.job_id === readC1.job_id);
+		await b.publish('table-c', readC1, delta([keeper]));
+	});
+	const first = (await b.publish('table-c', readC3, delta())).library_sync;
+	assert.deepEqual({merged: first.merged, remaining: first.remaining, reasons: first.skipped.map(({reason}) => reason)},
+		{merged: 0, remaining: 1, reasons: ['already_present', 'refused']});
+	const second = (await b.kernel('module.read.ahead', {module_id: b.mid, campaign: 'table-c'})).library_sync;
+	assert.deepEqual({merged: second.merged, remaining: second.remaining, reasons: second.skipped.map(({reason}) => reason)},
+		{merged: 1, remaining: 0, reasons: ['refused']});
+	assert.equal((await replaysOf(b, readC5.job_id)).length, 1, 'the refused reading was started once');
+	assert.ok((await b.meta()).reading.materials.some(row => row.key === unit1.key));
 });

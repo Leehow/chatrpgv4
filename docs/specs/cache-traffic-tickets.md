@@ -45,7 +45,8 @@ handler registered beside the other private `module.*` methods, `kernel-ts/handl
 
 ## CT-05 A fork that is not the library's lineage gives back its readings one by one
 
-Status: landed 2026-10-04 (cb0226b3b on `claude/cache-traffic-lineage-20261004`; decisions in the contract)
+Status: landed 2026-10-04 (cb0226b3b, bounded per call in the follow-up commit below, on
+`claude/cache-traffic-lineage-20261004`; decisions in the contract)
 
 Contract §179.5 (implementation decisions CT-05). Kernel (`kernel-ts/modules/library-merge.ts` new: selection,
 classification, replay through the library's own `finish` / `module.reference.materialize`; `reading.ts`
@@ -55,8 +56,11 @@ replay is not one of the library's own asks; `reference.ts` `placeScene`), tests
 `campaign-module-isolation.test.mjs` amended, `map-publication.test.mjs` the merged host row). The host's
 `recordLibrarySync` already passes the merged shape through unchanged.
 
-- Not measured: the cost of one replay on a large book. A fork that diverged long ago merges every reading the library
-  lacks in its next publication, inside one kernel request (host timeout 30 s).
+- Measured by the lead on the App's data (the `24bb66cb` fork, 100 readings the library lacked): 111.6 s in one call,
+  per library finish median 1008 ms, p90 1587 ms, max 3486 ms. Follow-up, bounded per call: `reading.merge_budget_ms`
+  (`content/rulesets/coc7/host-budgets.json`, shipped 2000) stops a batch after its first replay once spent; the result
+  gains `remaining` and `partial`; the campaign's `module.read.ahead` continues the backlog one batch per pass and
+  carries it as `library_sync` (`Reading.mergeBacklog`, `campaign-scope.ts` `libraryLineage`, `modules/index.ts`).
 - Not carried by a merge: readings that write no material row (visual scans, the whole-book index, identity jobs' verdicts,
   `build_complete`) and road bands (`travel` is not replayed).
 

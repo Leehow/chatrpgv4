@@ -394,7 +394,7 @@ test('two kernel processes isolate one source module per campaign in the same ho
   // later reading preserves an accepted value and records the source mapping), and B's graph keeps B's reading.
   const ledgerB = await claim(second, B, { purpose: 'detail', focus: 'Cellar', question: 'Read the ledger for this table.' });
   const publishedB = await finish(second, B, ledgerB, shard([{ ...scene('Cellar'), summary: 'Cellar contains a ledger, read for the tower table.' }], ['scene-cellar']));
-  assert.deepEqual(publishedB.library_sync, { state: 'merged', merged: 1, skipped: [], library_generation: followed.meta.generation + 1 });
+  assert.deepEqual(publishedB.library_sync, { state: 'merged', merged: 1, skipped: [], library_generation: followed.meta.generation + 1, remaining: 0 });
   const merged = await inspect(second);
   assert.equal(merged.meta.generation, followed.meta.generation + 1);
   assert.ok(merged.meta.reading.materials.some(material => material.key === ledgerB.key), "the library holds B's reading");

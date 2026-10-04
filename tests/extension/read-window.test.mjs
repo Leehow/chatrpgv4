@@ -280,6 +280,20 @@ test('§182.4 host: a read_window row is written when the window changes, never 
 		{lane: 'reading', event: 'read_window', module_id: 'book-1', campaign: 'table', mode: 'chapters', first: 91, last: 120, chapters: ['Finale']}]);
 });
 
+test('§179.5 host: a read-ahead that continued a merge backlog writes its library_sync row as the kernel gave it; one without the field writes none', async () => {
+	const rows = [], batch = {state: 'merged', merged: 1, skipped: [{key: 'k-1', reason: 'refused', detail: 'contradicts'}], library_generation: 6, remaining: 2, partial: true};
+	const answers = [{queued: [], library_sync: batch}, {queued: []}];
+	let pass = 0;
+	const {reading} = service({'module.read.ahead': () => answers[pass++]}, rows);
+	await reading['readAhead']({module_id: 'book-1'}, 'table');
+	await reading['readAhead']({module_id: 'book-1'}, 'table');
+	const synced = rows.filter(row => row.event === 'library_sync');
+	assert.equal(synced.length, 1, JSON.stringify(synced));
+	const {lane, event, module_id, campaign, ...fields} = synced[0];
+	assert.deepEqual({lane, event, module_id, campaign}, {lane: 'reading', event: 'library_sync', module_id: 'book-1', campaign: 'table'});
+	assert.deepEqual(fields, batch);
+});
+
 test('§182.1 host: a table opening on a book without an outline hands the PDF\'s bookmarks to module.source.outline; a recorded outline is left alone', async () => {
 	const rows = [];
 	const {reading, calls} = service({'module.status': {source: 'pdf', outline: null}, 'module.source.snapshot': {pdf: '/books/one.pdf', file_sha256: 'a'.repeat(64)},

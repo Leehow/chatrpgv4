@@ -139,19 +139,27 @@ export function createModuleRuntime(context: KernelContext) {
         }
         return await scopedModuleRoot(context, campaign, id) !== null ? value : library;
     };
-    const ahead = async (params: Row): Promise<Row> => {
+    /**
+     * `merge` is set for the `module.read.ahead` request alone (§179.5, bounded per call): a campaign's read-ahead first runs
+     * one batch of its fork's merge backlog. The kernel's own read-aheads (a table opening, setup's way-on repair) do not
+     * wait on one. A library-scoped read-ahead never merges.
+     */
+    const ahead = async (params: Row, merge = false): Promise<Row> => {
         const id = required(params, 'module_id');
         let value = await owner(params.campaign, id);
         if (!await value.store.exists(id) || !playsFromReading(await value.store.module(id))) return { queued: [] };
-        let focus = params.focus;
+        let focus = params.focus, librarySync: Row | null = null;
         if (params.campaign !== undefined) {
             const path = join(context.campaignsRoot, params.campaign, 'world.json');
             const world = await context.snapshots.pathExists(path) ? row(await context.snapshots.readJson(path)) : {};
             if (truth(row(world.adaptation).source)) return { queued: [] };
             focus = world.active_scene || focus;
             value = await owner(params.campaign, id, true);
+            if (merge) librarySync = await value.reading.mergeBacklog(id);
         }
-        return value.reading.queueAheadReading({ ...params, focus });
+        const result = await value.reading.queueAheadReading({ ...params, focus });
+        // A short book's completion in this pass carries its own, later answer (§182.2); otherwise the batch's.
+        return librarySync && !result.library_sync ? { ...result, library_sync: librarySync } : result;
     };
     const libraryOnly = new Set(['module.register', 'module.list']);
     // A scoped request or opening choice is the campaign's first private write and forks it.
@@ -183,7 +191,7 @@ export function createModuleRuntime(context: KernelContext) {
         return result;
     };
     const dispatch = async (method: string, params: Row): Promise<Row> => {
-        if (method === 'module.read.ahead') return ahead(params);
+        if (method === 'module.read.ahead') return ahead(params, true);
         if (method === 'module.source.outline') return outline(params);
         if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')
             return library.handlers[method](params);
@@ -243,7 +251,7 @@ export function createModuleRuntime(context: KernelContext) {
         openingReady: async (moduleId: string, focus = '', campaign?: string) => {const reader=(await owner(campaign,moduleId)).reading;return await reader.referenceReady(moduleId,focus)||reader.openingReady(moduleId,focus);},
         request: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(params),
         // Campaign maintenance is a private write, just like an explicit source request.
-        ahead,
+        ahead: (params: Row) => ahead(params),
         requestFollowing: async (params: Row) => (await owner(params.campaign, required(params, 'module_id'), true)).reading.request(params),
         // Before a campaign forks it follows the shared library, so it enqueues nothing there:
         // a table's prefetch may never write into the shared queue on another table's behalf.
