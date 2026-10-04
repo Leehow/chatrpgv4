@@ -32945,9 +32945,12 @@ never changes a forked campaign's graph -- and gains the reverse one:
   `{state: "skipped", reason}` or `{state: "failed", detail}`. A sync failure never fails the publication.
 - **Eligibility (the lineage test).** The library module exists, names the same `id` and the same
   `source_document.file_sha256`, is not a starter (`playsFromReading`), and its current head is this fork's lineage:
-  either `library.synced_from.campaign` is this campaign and `synced_from.library_generation` is the library's
-  current `generation` (a publication of the library's own since then ends the lineage, §179.4), or the library has
-  never been synced (`synced_from` absent) and `library.generation` equals the fork's `source_generation`. Anything else is skipped
+  either `library.generation` equals the fork's `source_generation` (the fork was seeded from the head and nobody,
+  fork or library, has published since), or `library.synced_from.campaign` is this campaign and
+  `synced_from.library_generation` is the library's current `generation` (this fork wrote the head). Which campaign
+  the library followed before does not matter: a campaign created after another's publication forks the deeper library
+  and leads from it. *Amended 2026-10-04: the first wording let only the first campaign that ever published lead, so a
+  later campaign that read further could never give it back.* Anything else is skipped
   with its reason: `not_a_fork`, `starter`, `library_missing`, `source_mismatch`, `library_advanced` (another
   campaign's lineage, or the library read on its own after the fork), `nothing_new`.
 - **What the library adopts.** The fork's current graph, published through `ModuleStore.writeGraph` as a new library
@@ -32988,7 +32991,9 @@ library's lock waits on a fork's, so there is no cycle).
   (§179.4). `settled` and `held` are not publications here; what they wrote travels with the fork's next one. A
   library-scoped publication carries no `library_sync` field.
 - The lineage test also requires `synced_from.library_generation` to equal the library's generation, so a library
-  publication of its own after a sync ends the lineage, as §179.4 says. `nothing_new` is decided on content: the adopted
+  publication of its own after a sync ends the lineage, as §179.4 says. A fork seeded from the current head is eligible
+  whoever the library followed before (fixed 2026-10-04 with a case in `library-follows-fork.test.mjs`: a campaign
+  created after the first one's publications reads a unit beyond it and the library adopts it). `nothing_new` is decided on content: the adopted
   graph and fields equal the library's current ones.
 - Every adoption writes a new library generation, even when the graph bytes are unchanged (a visual scan, an empty
   unit), so each material row new to the library gets that generation as its `generation`; a row the library already

@@ -216,18 +216,34 @@ test('§179.1: the library follows the leading fork; a campaign forked after it 
 	assert.equal(forkC.generation, seeded.generation + 1);
 	assert.equal(forkC.library_sync, undefined);
 
+	// B forked the library's head after A's publications, so B leads now although the library last followed A: what B
+	// reads beyond A goes back to the library (2026-10-04: a campaign created after the first sync could never publish).
+	const readB = await b.claimWhere('table-b', job => job.source_unit?.first === 5);
+	const unitB = (await b.queue('table-b')).find(job => job.job_id === readB.job_id);
+	const publishedB = await b.publish('table-b', readB, delta());
+	assert.deepEqual(publishedB.library_sync, {state: 'published', library_generation: seeded.generation + 3});
+	const afterB = await b.meta();
+	assert.equal(afterB.synced_from.campaign, 'table-b', 'the library follows B now');
+	assert.ok(afterB.reading.materials.some(row => row.key === unitB.key), 'the library holds the unit B read beyond A');
+	assert.ok(afterB.reading.materials.some(row => row.key === unit.key), "and keeps the unit A read");
+	// A's base is behind the head B wrote: A's next reading stays A's own.
+	const afterBBytes = await treeDigest(b.dir());
+	const readA5 = await b.claimWhere('table-a', job => job.source_unit?.first === 5);
+	assert.deepEqual((await b.publish('table-a', readA5, delta())).library_sync, {state: 'skipped', reason: 'library_advanced'});
+	assert.deepEqual(await treeDigest(b.dir()), afterBBytes);
+
 	// A library-scoped reading is not a fork's publication: it carries no sync, and it moves the library's head, which
-	// ends A's lineage (§179.4): A's next publication stays A's own.
-	const libraryUnit = (await b.queue('table-a')).find(job => job.source_unit?.first === 5);
+	// ends B's lineage (§179.4): B's next publication stays B's own.
+	const libraryUnit = (await b.queue('table-b')).find(job => job.source_unit?.first === 1);
 	await b.call('module.read.request', {purpose: 'detail', focus: libraryUnit.focus, question: libraryUnit.question, source_unit: libraryUnit.source_unit});
-	const readLibrary = await b.claimWhere(undefined, job => job.source_unit?.first === 5);
+	const readLibrary = await b.claimWhere(undefined, job => job.source_unit?.first === 1);
 	const publishedLibrary = await b.publish(undefined, readLibrary, delta());
 	assert.equal(publishedLibrary.library_sync, undefined, 'the library follows no one');
 	const head = await b.meta();
-	assert.equal(head.generation, seeded.generation + 3);
-	assert.equal(head.synced_from.campaign, 'table-a', 'the record says which fork the library last followed');
+	assert.equal(head.generation, seeded.generation + 4);
+	assert.equal(head.synced_from.campaign, 'table-b', 'the record says which fork the library last followed');
 	const afterLibrary = await treeDigest(b.dir());
-	const readA5 = await b.claimWhere('table-a', job => job.source_unit?.first === 5);
-	assert.deepEqual((await b.publish('table-a', readA5, delta())).library_sync, {state: 'skipped', reason: 'library_advanced'});
+	const readB1 = await b.claimWhere('table-b', job => job.source_unit?.first === 1);
+	assert.deepEqual((await b.publish('table-b', readB1, delta())).library_sync, {state: 'skipped', reason: 'library_advanced'});
 	assert.deepEqual(await treeDigest(b.dir()), afterLibrary);
 });

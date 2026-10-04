@@ -261,10 +261,13 @@ async function followFork(context: KernelContext, campaign: string, moduleId: st
         const sha = row(libraryMeta.source_document).file_sha256;
         if (libraryMeta.id !== id || typeof sha !== 'string' || !sha || sha !== row(forkMeta.source_document).file_sha256) return skipped('source_mismatch');
         const head = row(libraryMeta.synced_from), generation = libraryMeta.generation ?? 0;
-        // The library's head is this fork's lineage: the generation this campaign last published there, or, never synced,
-        // the generation the fork was seeded from. A head the library wrote on its own after that ends the lineage (§179.4).
-        const lineage = Object.keys(head).length ? head.campaign === campaign && equal(head.library_generation, generation)
-            : equal(generation, forkMeta.source_generation ?? null);
+        // The library's head is this fork's lineage when the fork was seeded from that very generation (nothing was
+        // published since, by any fork or by the library itself), or when that generation is the one this campaign last
+        // published there. Which campaign the library followed before does not matter: a campaign created after another
+        // one's publication forks the deeper library and leads from it. A head anyone else wrote after the fork's base ends
+        // the lineage (§179.4).
+        const lineage = equal(generation, forkMeta.source_generation ?? null)
+            || head.campaign === campaign && equal(head.library_generation, generation);
         if (!lineage) return skipped('library_advanced');
         const forkGraph = await fork.readGraph(id), libraryGraph = await library.readGraph(id);
         if (!forkGraph) return skipped('nothing_new');
