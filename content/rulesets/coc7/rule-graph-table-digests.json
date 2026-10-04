@@ -115,6 +115,7 @@
   "unbound_tables": [
     "age-adjustments.json",
     "artifacts.json",
+    "beasts.json",
     "bout-tables.json",
     "build-scale.json",
     "cash-assets.json",
