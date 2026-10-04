@@ -767,9 +767,11 @@ export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active
             checks.set(check.name, check);
     const contacts: Row[] = [],
         relationships: Row[] = [];
+    // §180.3: a first impression is made on a person; a creature present is no contact for these checks.
+    const persons = people.filter(node => graph.isPerson(node));
     for (const [name, check] of checks)
         for (const actor of party)
-            for (const npc of people) {
+            for (const npc of persons) {
                 const pair = jsonDigest([name, actor.id, npc.node_id]),
                     known = values(row(row(world.mods).state)).map(state => row(state.checks)[pair]).filter(Boolean).sort((a, b) => number(a.turn) - number(b.turn))[0];
                 // SL-83: `target` is the table's display name for the person (what the Keeper says); `handle` is the

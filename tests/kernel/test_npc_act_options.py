@@ -62,7 +62,7 @@ def knotts_turn(client):
 def test_outside_a_fight_there_is_no_attack_and_no_flight_the_first_blow_is_how_one_opens(knott):
     pinned(knott)
     result = options(knott)
-    assert result["npc"] == {"handle": KNOTT, "name": "Steven Knott"}
+    assert result["npc"] == {"handle": KNOTT, "name": "Steven Knott", "kind": "npc"}
     assert result["in_session"] is False and result["my_turn"] is False
     found = ways(result)
     assert "attack" not in found and "flee" not in found, found.keys()

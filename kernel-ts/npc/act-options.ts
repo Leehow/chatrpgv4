@@ -29,7 +29,7 @@ import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
 import {fleeBlockers} from '../combat/flee-footing.js';
-import {npcNode, npcsPresent, personLabel} from '../read/capsule.js';
+import {actorNode, npcsPresent, personLabel} from '../read/capsule.js';
 import {readCampaign} from '../read/handlers.js';
 import {playLanguageOf} from '../read/languages.js';
 import {moduleDeclaration, type ModuleGraph} from '../read/module-graph.js';
@@ -136,9 +136,10 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
             if (params.produce != null && typeof params.produce !== 'boolean')
                 throw new RpcError('invalid_params', 'params.produce is true, false or absent', {details: {field: 'produce'}});
             const {campaign, module} = await readCampaign(context, params, false, false, {}, true);
-            // §87.8: the person's name through the junction, as `npc.situation` reads it.
-            const {graph} = module, {world, turn, party} = campaign, node = npcNode(graph, world, params.name);
-            const me = personOf(graph, world, node), handle = me.handle;
+            // §87.8: the person's name through the junction, as `npc.situation` reads it; §180.5: a creature with a stat
+            // block acts too, by the ways a body has.
+            const {graph} = module, {world, turn, party} = campaign, node = actorNode(graph, world, params.name);
+            const me = personOf(graph, world, node), handle = me.handle, person = graph.isPerson(node);
             const place = typeof row(world.npc_presence)[handle] === 'string' ? string(row(world.npc_presence)[handle]) : null;
             const here = place !== null && place === world.active_scene;
             const view = new SessionView(campaign, graph, party, world);
@@ -183,7 +184,8 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
             }
             const skills = skillOptions(graph, world, node, handle, ledger, records);
             if (skills.length) way('check', {skill: skills});
-            if (investigators.length) way('coercion', {skill: COERCION_SKILLS.map(skill => option(skill, skill)), investigator: investigators});
+            // §180.5: pressing someone with Charm, Fast Talk, Intimidate or Persuade is a person's way, never a creature's.
+            if (person && investigators.length) way('coercion', {skill: COERCION_SKILLS.map(skill => option(skill, skill)), investigator: investigators});
             if (place) {
                 const scene = graph.find(place, ['scene']);
                 const clocks = scene ? threatSymptoms(graph, world, scene, npcsPresent(graph, world, scene)).filter(entry => truth(entry.next)).map(entry => entry.minted === true
@@ -191,7 +193,8 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
                     : option(`${string(entry.threat)}:${string(entry.clock)}`, `${string(entry.threat)} ${string(entry.clock)} (${string(entry.state)})`, {write: {name: string(entry.threat), clock: string(entry.clock)}})) : [];
                 if (clocks.length) way('clock', {clock: once(clocks)});
             }
-            if (!inSession && place) {
+            // §180.5: a creature's act never brings someone in.
+            if (person && !inSession && place) {
                 // §87: someone the table knows who is not here comes in -- a person in a scene this one opens onto, or a
                 // person this table established who stands nowhere now. Their name is a known one: nobody is invented.
                 const scene = graph.find(place, ['scene']);
@@ -219,7 +222,8 @@ export function createActOptionsHandlers(context: KernelContext): HandlerGroup {
             if (!inSession && place) way('leave');
             way('intention_only');
             return {
-                npc: {handle, name: graph.displayName(node)},
+                // §180.5: `kind` says whether this is a person or a creature; the host strips what a creature cannot bring out.
+                npc: {handle, name: graph.displayName(node), kind: person ? 'npc' : 'creature'},
                 // The act is written in the campaign's play language (§143.2); the host reads it here with the options.
                 play_language: await playLanguageOf(context, campaign.meta),
                 place, in_session: inSession, my_turn: myTurn,

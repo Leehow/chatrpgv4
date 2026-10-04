@@ -22,7 +22,7 @@ def test_the_bench_opens_on_nine_people_and_the_capsule_keeps_every_name(kernel)
     # has been named yet, so each keeps the untold block with the token that says their name.
     full = [p for p in present if not p.get("truncated")]
     stubs = [p for p in present if p.get("truncated")]
-    assert len(full) >= 4 and stubs and all(set(p) == {"name", "truncated", "untold"} for p in stubs)
+    assert len(full) >= 4 and stubs and all(set(p) == {"name", "kind", "truncated", "untold"} and p["kind"] == "npc" for p in stubs)
     assert all(p["untold"]["say_name"].startswith("{{name:") and "use" not in p["untold"] for p in stubs)
     assert "present" in capsule["truncated"]
     assert capsule["voices"] == []

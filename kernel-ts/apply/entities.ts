@@ -201,6 +201,23 @@ async function ownTurn(context:ApplyContext,node:Row,handle:string,field:string)
     if(fight.turn_of!==handle)throw new RpcError('turn_state',`it is ${string(fight.turn_of)}'s turn, not ${who}'s`,{fix:`record it without spend_turn, or wait until it is ${who}'s turn`,details:{field,turn_of:fight.turn_of}});
     return {combat_id:fight.combat_id,round:fight.round};
 }
+/**
+ * Contract §180.5: what `apply npc` refuses on a creature -- the person tiers. Each `fix` names the body-side way, because a
+ * fix is executed literally: how it fights is `disposition`, how it behaves belongs in prose, and its numbers are a stat
+ * block. Every other variant (`to`, `stance`, `dead`, `conditions`, `defense`, `action`, `disposition`, an intention,
+ * `spend_turn`, `skill`) is a body's and stages as it does for a person.
+ */
+const NOT_A_PERSON:Readonly<Record<string,string>>=Object.freeze({
+    mood:'drop mood: a creature has no line of feeling. How it fights is disposition (apply npc {name, disposition}); how it behaves belongs in your prose',
+    reunion:'drop reunion: a creature is never met again as someone. Where it is is to; how it behaves belongs in your prose',
+    archetype:'drop archetype: the archetypes are person tiers. A creature\'s numbers are its stat block (the book\'s, or one pinned from the rules catalog with creature: "<catalog creature>"); resolve against the one it has',
+});
+function refuseNotAPerson(graph:ApplyContext['graph'],node:Row,effect:Row):void{
+    const field=Object.keys(NOT_A_PERSON).find(key=>effect[key]!=null);
+    if(!field)return;
+    throw new RpcError('invalid_params',`${graph.displayName(node)} is a creature, not a person: npc.${field} is a person's`,{
+        fix:NOT_A_PERSON[field],details:{reason:'not_a_person',field:`npc.${field}`,name:graph.displayName(node)}});
+}
 export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const {graph,world}=context;
     const why=typeof effect.why==='string'&&effect.why.trim()?effect.why:null;
@@ -210,6 +227,8 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // the model never sends it, and it never changes who the effect is about, only what the receipt says about it.
     const resolvedFrom=typeof effect._resolved_from==='string'&&effect._resolved_from.trim()?effect._resolved_from.trim():undefined;
     const handle=graph.handle(node),{to,stance,dead}=effect;
+    // §180.5: a creature takes the body's variants; a person's tier is refused before any of them stages.
+    if(!graph.isPerson(node))refuseNotAPerson(graph,node,effect);
     // Contract §161.1: what this person feels right now. Its own variant, like the intention: one line in the play
     // language, an ordinary keeper-only receipt, no world value. `previous` is the line the committed ledger holds --
     // the one this replaces when the turn closes (§161.2: within a turn the newest wins) -- or null.

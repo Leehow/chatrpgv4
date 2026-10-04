@@ -31,7 +31,7 @@ import {isJsonObject} from '../json.js';
 import {archetypeIds} from '../apply/archetype.js';
 import {DISPOSITION_WORDS, dispositionOf, stanceNow} from '../combat/standing.js';
 import type {CampaignSnapshot} from '../read/campaign.js';
-import {npcNode} from '../read/capsule.js';
+import {actorNode} from '../read/capsule.js';
 import {readCampaign} from '../read/handlers.js';
 import {recordOf, type ModuleGraph} from '../read/module-graph.js';
 import {clockSegment, tableThreats, tableThreatSegment} from '../read/pressures.js';
@@ -282,8 +282,8 @@ export function createStakesHandlers(context: KernelContext, writer: ReturnType<
             if (typeof params.name !== 'string' || !params.name.trim())
                 throw new RpcError('invalid_params', 'params.name must be a non-empty string', {details: {field: 'name'}});
             const {campaign, module} = await readCampaign(context, params, false, false, {}, true);
-            // §87.8: the person's name through the junction, as `npc.situation` reads it.
-            const {graph} = module, {world, turn} = campaign, node = npcNode(graph, world, params.name);
+            // §87.8: the person's name through the junction, as `npc.situation` reads it (§180.5: a creature actor too).
+            const {graph} = module, {world, turn} = campaign, node = actorNode(graph, world, params.name);
             if (!OPEN_STATES.includes(string(turn.state)))
                 throw turnStateError(turn, 'npc.stakes', 'roll the stakes during an open turn: after player_input, before the Keeper delivers');
             const me = personOf(graph, world, node);

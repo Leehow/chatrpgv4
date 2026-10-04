@@ -195,7 +195,9 @@ export function tagNpcReceipts(context: SettleContext, family: string, npc: Row 
     // settled against him makes him hostile" never folded for a fight whose defence is its own resolve (§11.5).
     const subject = typeof outcome.npc === 'string' ? outcome.npc : family === 'combat' && typeof outcome.target === 'string' ? outcome.target : null;
     if (!against && subject) {
-        const node = context.graph.find(subject, ['npc']);
+        // §180.3: the tag names the body a roll was made against, an actor like the resolve target above, so a creature
+        // defending its own resolve is tagged as a person is; the person consumers of the tag select persons themselves.
+        const node = context.graph.actor(subject);
         if (node)
             against = context.graph.handle(node);
     }

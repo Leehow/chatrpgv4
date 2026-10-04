@@ -48,8 +48,9 @@ const instruction = (language: string) => 'Write an entry only for someone who t
 function npcNode(graph: ModuleGraph, value: any): Row | null {
     if (typeof value !== 'string' || !value.trim())
         return null;
+    // §180.3: a person's (a voice, a journal entry); a creature is never one.
     const node = graph.nodes.get(value) || graph.find(value, ['npc']);
-    return node?.node_kind === 'npc' ? node : null;
+    return graph.isPerson(node) ? node! : null;
 }
 export async function readJournal(campaign: CampaignWriter): Promise<Row> {
     try {
