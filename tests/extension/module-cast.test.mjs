@@ -405,3 +405,23 @@ test('§177.11: a module without a cast has no names to refuse: a graph\'s names
 	const group = await k.attempt('table.narrate', {campaign: 'c1', call_id: 't1-c1', text: 'Down the street the kids are kicking a can past the newsstand.'});
 	assert.equal(group.ok, true, `"the kids" is the Macario boys' alias, an ordinary phrase: ${group.error?.message}`);
 });
+
+test('§177.12: the journal tells a person only with words that say one of their names; a made-up name tells nothing', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}]});
+	await h.call('table.player_input', {text: 'I ask the net mender her name.'});
+	// Table 26 (turn 8): asked his name, the toothless trucker said "call me Earl", a name the Keeper made up; the lane gave
+	// named: true on that line and the book's name stopped being hidden.
+	await h.call('table.narrate', {call_id: 't1-c1', text: 'She shrugs. {{say:the net mender}}"Folk call me Granny Nets."{{/say}}'});
+	const job = await h.call('journal.job', {turn: 1});
+	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, entries: [{name: 'Old Mae', named: true, named_quote: 'Folk call me Granny Nets.'}]}),
+		error => error?.details?.reason === 'not_their_name', 'a name nobody in the book has is no telling');
+	await h.call('journal.submit', {job_id: job.job_id, entries: [{name: 'Old Mae', label: 'the woman with tar on her hands'}]});
+	assert.ok((await h.call('table.untold')).people.some(row => row.name === 'Old Mae'), 'she stays untold, her book name still hidden');
+	await h.call('table.player_input', {text: 'And your real name?'});
+	await h.call('table.narrate', {call_id: 't2-c1', text: 'She sighs. {{say:the net mender}}"It is {{name:the net mender}}, if you must."{{/say}}'});
+	const second = await h.call('journal.job', {turn: 2});
+	if (second.job_id) await h.call('journal.submit', {job_id: second.job_id, entries: [{name: 'Old Mae', named: true, named_quote: 'It is Old Mae, if you must.'}]});
+	assert.ok(!(await h.call('table.untold')).people.some(row => row.name === 'Old Mae'), 'her book name said, she is told');
+});

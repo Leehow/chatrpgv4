@@ -247,6 +247,15 @@ export async function openJob(campaign: CampaignWriter, packet: Row): Promise<Ro
             ...(packet.protocol===JOURNAL_REFERENCE_PROTOCOL?{protocol:JOURNAL_REFERENCE_PROTOCOL,selection_binding:packet.selection_binding,people_source,people,turn_binding}:{}) });
     return packet;
 }
+/** §177.12: whether `quote` says a name, or a punctuation piece of one, that the book or the cast gives the person `id`. */
+function quoteNamesPerson(graph: ModuleGraph, id: string, quote: string): boolean {
+    const person = bookCast(graph).find(entry => entry.node && string(entry.node.node_id) === id);
+    const node = graph.nodes.get(id);
+    const names = person ? person.names : node ? bookNames(graph, node) : [];
+    const said = normalize(quote);
+    return namePieces(names).map(normalize).some(piece => !!piece && occurs(said, piece));
+}
+
 /** §103.6: whether `quote` is words of the delivery the job was opened on -- its prose or one of its spoken lines. */
 function namedQuoteFound(job: Row, quote: string): boolean {
     const packet = row(job.packet);
@@ -340,6 +349,14 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
                 return reject(i, `entries[${i}].named: true for ${repr(name)} needs named_quote: the exact words of this turn's delivery that gave the player the name`,
                     `copy those words, up to ${BUDGET.max_named_quote_chars} characters, from the prose or the spoken line into named_quote; if nothing this turn said or showed the name, leave named out and give label (how the player would know them)`,
                     { field: 'named_quote', name });
+            // §177.12 (table 26, turn 8): the words must say one of the names the book or the cast gives this person, as the
+            // strings stand. Asked his name, the toothless trucker said "call me Earl", a name the Keeper made up; the lane
+            // gave named: true on that line, the book's name stopped being hidden, and the next turn the Keeper wrote it into
+            // a tool call. A name nobody has is no telling; the person stays untold and gets a label.
+            if (graph && !quoteNamesPerson(graph, id, quote.trim()))
+                return reject(i, `entries[${i}].named_quote for ${repr(name)} says none of the names the book gives this person`,
+                    'if the words gave them a name of their own making, that is not their name: leave named out and give label (how the player would know them)',
+                    { field: 'named_quote', name, reason: 'not_their_name' });
         }
         if (label !== null) {
             if (typeof label !== 'string' || length(label.trim()) < 1 || length(label.trim()) > BUDGET.max_label_chars || label.includes('\n') || label.includes('{{'))

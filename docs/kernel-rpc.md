@@ -33014,6 +33014,14 @@ Tests: `tests/extension/module-cast.test.mjs`:
 
 `tests/extension/first-sight-kernel.test.mjs`: a fixture's prose no longer names the untold.
 
+### 177.12 A made-up name tells nobody (table 26; amends §103.6)
+
+**Evidence.** Table 26 (App `c7c73b52e`, Blood Road), turn 8. Asked his name, the toothless trucker said 「叫我厄尔就行」 ("call me Earl"), a name the Keeper made up; his book name is 内特·帕特森 (Nate Patterson). The journal lane gave `named: true` with that line as `named_quote`. §103.6 checked only that the words were in the delivery, so `named_at` was set. From then on he counted as told: the roster stopped renaming his book name, and on turn 9 the Keeper wrote 「内特·帕特森」 into an `apply npc` call. Table 25's 「厄尼」 at the same moment was the same kind of invention; it collided with another man of the book, which §177.11 now refuses.
+
+**The rule** (`quoteNamesPerson`, `kernel-ts/journal/jobs.ts`). A `named: true` entry's `named_quote` must, besides standing in the delivery, say one of the names the book or the cast gives that person: their graph names and the cast's printed forms and renderings, or a punctuation piece of one, compared as strings (`occurs`). Otherwise it is refused with `details.reason: "not_their_name"`, and the fix says to give a label. A rendering the cast does not list also leaves the person untold, which is the safe direction: the name stays hidden.
+
+Tests: `tests/extension/module-cast.test.mjs`: a made-up name refused as telling and the person kept untold; the book's name said through the token telling them.
+
 ### 177.9 Writers, readers, actor (§31)
 
 - **Writers:** the cast readers (`cast.json`, range by range through `cast.submit`), the host (`cast-source.json`, through `cast.source`), the epithet lane (row-id words), the gate's landing (`cast_id`).
