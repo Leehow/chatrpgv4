@@ -65,6 +65,16 @@ export function indexChapters(sections: Row[], pageCount: number): Chapter[] {
 }
 
 /**
+ * §182.3: the page a scene anchors its window on -- the median of the distinct pages it cites, the upper one of an even
+ * count. Not the first page: a book's overview chapter names its places in passing, and the first page alone anchored a
+ * scene to that overview instead of the chapter that describes it (2026-10-04, the Blood Road book: its diner cites pages 15, 28 and 29).
+ */
+export function anchorPage(pages: number[]): number | undefined {
+    const distinct = [...new Set(pages.filter(page => Number.isSafeInteger(page) && page >= 1))].sort((a, b) => a - b);
+    return distinct.length ? distinct[Math.floor(distinct.length / 2)] : undefined;
+}
+
+/**
  * §182.3: a long book's reading window -- the chapter that holds the anchor page and the chapter after it, or, without
  * chapters, the anchor page through `fallbackPages` pages after it. An anchor in the front matter before the first
  * chapter reads from the anchor through the first chapter.
