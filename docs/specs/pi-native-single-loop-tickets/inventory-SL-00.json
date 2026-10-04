@@ -1195,6 +1195,21 @@
       ]
     },
     {
+      "file": "extensions/npc-epithets/index.ts",
+      "symbol": "attempt",
+      "kind": "lane",
+      "callee": "runLane",
+      "count": 1,
+      "owner": "npc-epithets ext",
+      "path": "app-play",
+      "role": "leaf",
+      "trace": "contract \u00a7176.3; tests/extension/npc-epithets-lane.test.mjs",
+      "note": "Epithet lane: one zero-tool word round per job, at session start (setup and play) and after each commit.",
+      "lines_at_0b729e8fb": [
+        106
+      ]
+    },
+    {
       "file": "extensions/npc-voice/index.ts",
       "symbol": "attempt",
       "kind": "lane",

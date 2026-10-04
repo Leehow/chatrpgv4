@@ -179,6 +179,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | `extensions/mods/index.ts` | `warm` | 738 | `presentDocument` | mods ext: document presentation warmup | app-play | not observed | Background warmup when a paper is acquired; outlives the tool call; not awaited. |
 | `extensions/mods/index.ts` | `warm.runner` | 739 | `owner.runTask` | mods ext: document presentation warmup | app-play | not observed | Runner handed to presentDocument (child kind mod). |
 | `extensions/npc-journal/index.ts` | `attempt` | 240 | `runLane` | npc-journal ext | app-play | observed: 4 journal rows | Background journal lane after commit. |
+| `extensions/npc-epithets/index.ts` | `attempt` | 106 | `runLane` | npc-epithets ext | app-play | contract §176.3; npc-epithets-lane test | Epithet lane: one zero-tool word round per job, at session start (setup and play) and after each commit. |
 | `extensions/npc-voice/index.ts` | `attempt` | 303 | `runLane` | npc-voice ext: voice check | app-play | observed: 3 voice lane-calls | Voice mask check lane; background. |
 | `extensions/npc-voice/index.ts` | `attempt` | 296 | `createDecisionAdapter` | source-bound background NPC voice-card reviewer | app-play-gated | leaf | An existing voice preparation job and captured Jev availability; not a foreground prose reviewer. |
 | `extensions/npc-voice/writer.ts` | `writeVoice` | 25 | `runtime.runTask` | npc-voice ext: voice mask author | app-play | observed: voice job rows | Background tool-enabled author child; not awaited by the turn. |
