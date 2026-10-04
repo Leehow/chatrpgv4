@@ -26,6 +26,7 @@ import { DECLARED_CLERKS, DEFAULT_ADMISSION_TIMEOUT_MS, REVIEW_PENDING, REVIEW_T
 import { admissionBindings, createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { BIND_FAMILY, CLERK_AUTHORITY } from "../../runtime/jev/step-policy.ts";
 import { COMPILE_FAMILY, COMPILE_PREDICATES, FEATURE_FAMILIES, interpretCompile } from "../../runtime/jev/route-compile.ts";
+import { nameSpanBatch } from "../../runtime/jev/untold-name-spans.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const MORGUE = "newspaper-morgue", ACCESS = "globe-clippings-access";
@@ -304,16 +305,25 @@ const askArty = (addressee) => (question) => isAskRow(question) ? [askWords(ques
 const clearedArty = (alias) => [alias, 0.9];
 const arty047 = (alias) => [alias, 0.47, { [alias]: 0.47, unclear: 0.45, none: 0.08 }];
 
+/**
+ * §177.15's untold-name places, by the product's own batch: its purpose and its `names_s<n>` keys. They ask the same endpoint
+ * whether a place in a tool result or a delivery is a person's name; that is no admission review. Captured on fd073fc4f: every
+ * request the two compile-selected cases counted was one of these (38 and 39 places of The Haunting's names), and none was
+ * an admission request.
+ */
+const NAME_SPANS_PURPOSE = nameSpanBatch([{ name: "x", text: "\u27e6x\u27e7" }]).state.purpose;
+const isNameSpansRequest = (body) => body?.state?.purpose === NAME_SPANS_PURPOSE
+	&& Object.keys(body.questions ?? {}).length > 0 && Object.keys(body.questions).every((key) => /^names_s\d+$/.test(key));
 /** Admission's own typed endpoint, counted: every request is a typed review this table asked for. */
 function countTyped(t) {
 	const original = globalThis.fetch, requests = [];
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== "https://api.typesafe.ai/v1/systemone") return original(url, init);
 		const body = JSON.parse(init.body);
-		// Time reading and expression references are independent advisory families, not admission reviews.
-		// Their issued question keys identify the family; all still receive the same unavailable endpoint.
+		// Time reading, expression references and the untold-name places are independent advisory families, not admission
+		// reviews. Their issued question keys identify the family; all still receive the same unavailable endpoint.
 		const expression=body.questions?.participates_0&&body.questions?.fit_0_0&&body.questions?.conflict_0_0;
-		if (!body.questions?.cut&&!expression) requests.push(body);
+		if (!body.questions?.cut&&!expression&&!isNameSpansRequest(body)) requests.push(body);
 		return new Response(JSON.stringify({ error: { message: "the test counts typed requests and answers none" } }), { status: 503 });
 	};
 	t.after(() => { globalThis.fetch = original; });
@@ -331,6 +341,15 @@ async function hybrid(t, { prepare, compile, responses, env = {}, engine: engine
 	return table;
 }
 const narrateOnly = (text) => [fauxAssistantMessage([fauxToolCall("narrate", { text })], { stopReason: "toolUse" })];
+
+test("§177.15: the typed-call count leaves out only the untold-name places, never an admission review", () => {
+	const names = nameSpanBatch([{ name: "Ruth Blake", text: "\u27e6Ruth Blake\u27e7 at the desk" }, { name: "Arty Wilmot", text: "ask \u27e6Arty Wilmot\u27e7" }]);
+	const wire = (batch) => ({ model: batch.model, state: batch.state, questions: Object.fromEntries(batch.questions.map((question) => [question.key, { type: question.type, instructions: question.instructions }])) });
+	assert.equal(isNameSpansRequest(wire(names)), true, "the product's own name batch");
+	assert.equal(isNameSpansRequest({ state: { purpose: "admission" }, questions: { role_0: {}, choice_0: {}, result_0: {} } }), false, "an admission-roles review is counted");
+	assert.equal(isNameSpansRequest({ ...wire(names), questions: { ...wire(names).questions, role_0: {} } }), false, "a batch that also asks anything else is counted");
+	assert.equal(isNameSpansRequest({ state: { purpose: "something else" }, questions: wire(names).questions }), false, "names keys under another purpose are counted");
+});
 
 test("§32.12 (b): the clerk's obligation check the compile selected is admitted on its evidence -- path compile, no lane call and no typed call, even with Jev as reviewer", async (t) => {
 	const typed = countTyped(t);
