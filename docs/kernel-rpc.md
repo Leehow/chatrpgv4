@@ -32877,6 +32877,7 @@ The token rode one projection: the extension's `untoldView`, on the capsule rows
   - where the fiction has one of those names said, the Keeper writes that person's `say_name`, listed there.
 
   The line rides as its own text part after the result's own parts, or after a blank line when the content is a string. Host messages (`custom`) are JSON whose people already carry the token, and are only renamed. A result that named nobody untold is unchanged.
+- **The rename runs before the request is fitted to its ceiling** (`context-runtime.ts`), as well as on the way out, where it now changes nothing. Renamed after the fit, the note and the words (often longer than the names they replace) went out unmeasured: a busy turn in `long-campaign-context` went 553 B over its 200 KiB ceiling.
 
 ### 176.9 The journal names a person only by their own name (2026-10-04; amends §103.6)
 

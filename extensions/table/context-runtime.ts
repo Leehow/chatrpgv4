@@ -427,7 +427,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!snapshot) {
             // No capsule means no projection, never an unbounded request: a long campaign's whole
             // stored branch is exactly what must not reach the provider on a degraded turn.
-            const rest = (requestMessages as unknown as Row[]).filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType)));
+            // §176.8: renamed before the cut, so the ceiling measures the names and notes that go out.
+            const rest = renameUntold((requestMessages as unknown as Row[]).filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType))), untoldRoster);
             const notice = diagnostic(lastReason);
             const cut = boundedTail(rest, Math.max(0, budget - requestSize([notice])));
             const outgoing = renameUntold([notice, ...cut.messages], untoldRoster);
@@ -474,6 +475,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             // The workspace is transport-only: at most one current message, injected below for this
             // request. A persisted copy from anywhere is dropped here, not projected onward.
             .filter(message => !(message.role === 'custom' && [WORKSPACE_TYPE, PRESCREEN_TYPE, CAPSULE_UPDATE_TYPE].includes(message.customType)));
+        // §176.8: the request's rename runs before the projection fits the budget, not after it. A renamed tool result
+        // ends with the untold note, and a word is often longer than the name it replaces: renamed after the fit, a busy
+        // turn went out 553 B over its ceiling (long-campaign-context). The rename on the way out stays; it changes nothing twice.
+        selected.splice(0, selected.length, ...renameUntold(selected, untoldRoster));
         if (!seen && !messages.some(message => message.role === 'custom' && message.customType === 'coc-capsule')) {
             // A new opening/recovery may have only a host prompt; this ephemeral capsule is not persisted.
             selected.push({...customMessage('coc-capsule', capsuleSent), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
