@@ -49,3 +49,23 @@ export function untoldNamesSaid(text: string, speakers: SpeakerResolver, graph: 
     const said = normalize(own);
     return names.filter(name => occurs(said, normalize(name)));
 }
+
+/** `text` with each word replaced by its shown word, in prose only: a marker's own text is left as it is. */
+export function replaceInProse(text: string, replacements: ReadonlyMap<string, string>): string {
+    const latin = (char: string | undefined) => !!char && /^[A-Za-z0-9]$/.test(char);
+    const words = [...replacements.keys()].sort((a, b) => b.length - a.length);
+    return text.split(/(\{\{[^{}\n]*\}\})/).map((part, index) => {
+        if (index % 2) return part;
+        let out = part;
+        for (const word of words) {
+            let result = '', from = 0;
+            for (let at = out.indexOf(word); at >= 0; at = out.indexOf(word, at + 1)) {
+                if (at < from || (latin(word[0]) && latin(out[at - 1])) || (latin(word[word.length - 1]) && latin(out[at + word.length]))) continue;
+                result += out.slice(from, at) + replacements.get(word)!;
+                from = at + word.length;
+            }
+            out = result + out.slice(from);
+        }
+        return out;
+    }).join('');
+}

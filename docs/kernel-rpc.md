@@ -32990,6 +32990,30 @@ The material gate (§22.4.7.1) treats a word in a person's seat that names an un
 
 Every reader packet except the index and identity jobs carries `cast_names: [{book, play}]` (`Reading.castNames`). `content/setup/visual-reader.md` asks a person listed there to take a printed form as `name` and the others as `aliases`, so the same individual keeps one identity across readings and joins their cast row.
 
+### 177.11 A delivery may not say an untold person's name in its own words (owner ruling 2026-10-04, after table 25; amends §103.8 item 3 and the spec's Q5)
+
+**Evidence.** Table 25 (App `a7f5cbe57`, Blood Road), turn 8. Asked his name, the toothless trucker said 「叫我厄尼就行」. 厄尼 (Ernie Peters) is another man of the book, the postmaster, whom the investigator had not met; the cast held him, and the roster renamed him. Whether the Keeper saw his name in an unrenamed page or made a name up that happened to be his could not be told apart: a failed roster read was silent, and the outbound request is not kept (`untold_rows`/`untold_failed` on the prepared-context row since). Either way, the delivery would also have counted the real Ernie as told from then on. The owner chose to refuse such a delivery, by whole printed names only.
+
+**The rule** (`untoldNamesGate`, `kernel-ts/write/index.ts`; `untoldWholeNames`, `kernel-ts/read/person-words.ts`; `untoldNamesSaid`, `kernel-ts/write/names.ts`):
+- **Which words.** The Keeper's own words of a `table.narrate` or `table.ask` text. A resolved `{{name:}}` token is taken out, because the delivery puts the book's name there on purpose. An unresolved one is left as the word it carries. Every other marker is stripped as machine text: a say token's or a map's handle normalizes to the name it was made from.
+- **Which names.** Every printed form of everyone untold, graph people and the unread, minus any name a told person also carries.
+  - A person with cast rows is named by what the cast reader printed, since it lists individuals' names and never a group's description.
+  - A graph person without cast rows is named by their own name and display name, not their aliases: a group's aliases are often ordinary words ("the kids", 「沙痞」).
+  - A one-character name is no name here.
+  - Comparison is `occurs`, with Latin word boundaries.
+- **First time.** The first delivery of the turn that says such names is refused `invalid_params`, `details.reason: "untold_name"`, naming the words found (the Keeper wrote them). The fix: put the person's `say_name` where the fiction has the name said, otherwise use the word `present[]` shows, and give a newcomer a word that carries nobody's name. The turn keeps `untold_gate: {words}`.
+- **Second time.** A delivery saying the same names again in the turn goes out with each name replaced in the prose by the word this table calls that person, through the roster's shown words (a shared name shows as all its owners' words). Telemetry records `outcome: "replaced"`. So the name is never delivered, and a draft the Keeper could not repair never strands the turn.
+- **Implicit narrate.** The host resends a refused implicit draft once (`RESENT_ON_SECOND_DELIVERY`, `untold_name` → `untold_name_resent`), as for §143.11's gates.
+
+Tests: `tests/extension/module-cast.test.mjs`:
+- an unread person's and an untold graph person's printed names refused;
+- the same names the second time delivered with the table's word in their place;
+- the name token delivered;
+- the name the Keeper's to write once told;
+- in an authored module, a group's alias let through and an untold person's own name refused.
+
+`tests/extension/untold-request.test.mjs`: the bare name refused, the token delivered.
+
 ### 177.9 Writers, readers, actor (§31)
 
 - **Writers:** the cast readers (`cast.json`, range by range through `cast.submit`), the host (`cast-source.json`, through `cast.source`), the epithet lane (row-id words), the gate's landing (`cast_id`).

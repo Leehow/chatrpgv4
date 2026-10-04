@@ -879,6 +879,9 @@ const RESENT_ON_SECOND_DELIVERY: ReadonlyMap<string, string> = new Map([
 	// §143.24: a person's lines read as saying again what they set out to do and never carried out -- refused once a turn,
 	// and the same draft sent again carries the same reading (no second batch), which the spent gate delivers with a finding.
 	["purpose_repeated", "purpose_repeated_resent"],
+	// §177.11: an untold person's printed name in the Keeper's own words -- refused once a turn for those names; the same draft
+	// sent again is delivered with each name replaced by the word this table calls that person, never with the name.
+	["untold_name", "untold_name_resent"],
 ]);
 /** The one host steer of the turn floor (docs/specs/turn-floor.md D4), sent when a turn is about to close on prose alone. */
 const FLOOR_STEER =

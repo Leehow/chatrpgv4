@@ -19,7 +19,7 @@ import { mechanics } from '../read/mechanics.js';
 import { SessionView } from '../read/session-view.js';
 import { standingStates } from '../read/standing.js';
 import { authoredMapWords, presentPublishedArrivalMaps } from '../read/maps.js';
-import { clockSection, sceneLabel, untoldBlock } from '../read/capsule.js';
+import { clockSection, sceneLabel, untoldBlock, untoldRoster } from '../read/capsule.js';
 import { tableSnapshot, playerGlossary, unsupported, type ReadContributions } from '../read/handlers.js';
 import { playLanguages, playLanguageOf, declaredPlayLanguage } from '../read/languages.js';
 import { modContext, kernelGaps, readModCatalog } from '../read/mods.js';
@@ -40,7 +40,7 @@ import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { foldPersonWords, untoldWholeNames } from '../read/person-words.js';
-import { untoldNamesSaid, withNames } from './names.js';
+import { replaceInProse, untoldNamesSaid, withNames } from './names.js';
 import type { SpeakerResolver } from './speech-pass.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
@@ -160,17 +160,31 @@ function timeRow(gap: Row, turn: Row, callId: string, params: Row): Row {
 /** §103.5: who is untold at this delivery, for the say token's `shown` (write/speech.ts). Table-established people never are. */
 /**
  * §177.11 (owner ruling 2026-10-04): a narrate or ask whose own words say the printed name of someone the investigator has
- * not been told about is refused; the name reaches the prose through that person's `{{name:}}` token, when the fiction has it
- * said. The words found are named back: the Keeper wrote them.
+ * not been told about is refused once a turn for those names, naming the words found (the Keeper wrote them); the name reaches
+ * the prose through that person's `{{name:}}` token, when the fiction has it said. The same names a second time are
+ * delivered with each replaced by the word this table calls that person, with a finding: never the name, and never a turn
+ * stranded by a draft the Keeper could not repair (the host resends a refused implicit draft once, like §143.11's gates).
  */
-async function refuseUntoldNames(snapshot: CampaignSnapshot, graph: ModuleGraph, text: string, speakers: SpeakerResolver): Promise<void> {
+async function untoldNamesGate(snapshot: CampaignSnapshot, campaign: CampaignWriter, turn: Row, graph: ModuleGraph, text: string,
+    speakers: SpeakerResolver, callId: string, implicit: boolean): Promise<{ text: string; replaced: string[] }> {
     const journal = row(await snapshot.optional('npc-journal.json')), records = snapshot.records.length ? snapshot.records : await snapshot.files('turns');
     const said = untoldNamesSaid(text, speakers, graph, untoldWholeNames(graph, journal, records));
-    if (!said.length) return;
-    throw new RpcError('invalid_params', `the text says ${said.map(word => repr(word)).join(', ')}: a name the book gives someone the investigator has not been told about`, {
-        fix: 'where the fiction has that person\'s name said, write their say_name from present[] there instead; otherwise call them by the word present[] shows, and give a newcomer a word that carries nobody\'s name. Change only those words and deliver again',
-        details: { reason: 'untold_name', field: 'text', words: said },
-    });
+    if (!said.length) return { text, replaced: [] };
+    const key = [...said].sort().join('\n');
+    if (string(row(turn.untold_gate).words) !== key) {
+        await campaign.writeTurn({ ...turn, untold_gate: { words: key, call_id: callId } });
+        await campaign.telemetry({ lane: 'delivery', turn: number(turn.turn), ok: false, reason: 'untold_name', outcome: 'refused', call_id: callId, implicit,
+            words: said.length }).catch(() => undefined);
+        throw new RpcError('invalid_params', `the text says ${said.map(word => repr(word)).join(', ')}: a name the book gives someone the investigator has not been told about`, {
+            fix: 'where the fiction has that person\'s name said, write their say_name from present[] there instead; otherwise call them by the word present[] shows, and give a newcomer a word that carries nobody\'s name. Change only those words and deliver again',
+            details: { reason: 'untold_name', field: 'text', words: said },
+        });
+    }
+    const shown = new Map(untoldRoster(graph, snapshot.world, journal, records).map(entry => [string(entry.name), string(entry.shown)] as [string, string]));
+    const replacements = new Map(said.flatMap(word => shown.get(word) ? [[word, shown.get(word)!] as [string, string]] : []));
+    await campaign.telemetry({ lane: 'delivery', turn: number(turn.turn), ok: true, reason: 'untold_name', outcome: 'replaced', call_id: callId, implicit,
+        words: said.length }).catch(() => undefined);
+    return { text: replaceInProse(text, replacements), replaced: said };
 }
 async function untoldAt(snapshot: CampaignSnapshot, graph: ModuleGraph): Promise<(node: Row) => boolean> {
     const journal = row(await snapshot.optional('npc-journal.json')), records = snapshot.records.length ? snapshot.records : await snapshot.files('turns');
@@ -1056,8 +1070,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const receipts = [...array(turn.receipts)];
         const askSpeakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
         // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
-        if (text) await refuseUntoldNames(snapshot, module.graph, text, askSpeakers);
-        const asked = text ? withNames(text, askSpeakers, module.graph) : null;
+        const gated = text ? await untoldNamesGate(snapshot, campaign, turn, module.graph, text, askSpeakers, started.callId, false) : null;
+        const asked = gated ? withNames(gated.text, askSpeakers, module.graph) : null;
         const { placed, ...delivery } = deliveryText(asked ? asked.text : text, receipts, askSpeakers);
         await refuseRepeatedLine(snapshot, campaign, delivery.speech);
         const language = await playLanguageOf(context, snapshot.meta);
@@ -1133,8 +1147,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const receipts = [...array(turn.receipts)], speakers = speakerResolver(module.graph, snapshot.world, snapshot.party, untold);
         // `let`: §143.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
         // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
-        await refuseUntoldNames(snapshot, module.graph, required(params, 'text')!, speakers);
-        const naming = withNames(required(params, 'text')!, speakers, module.graph);
+        const gated = await untoldNamesGate(snapshot, campaign, turn, module.graph, required(params, 'text')!, speakers, started.callId, truth(params.implicit));
+        const naming = withNames(gated.text, speakers, module.graph);
         let text = naming.text;
         // §103.8: someone untold is named in this delivery, so from now on the table calls them by the book's name -- the sync
         // the Keeper's own `apply person` used to make at an introduction, which it can no longer make without the name.

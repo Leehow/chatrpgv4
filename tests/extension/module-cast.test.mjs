@@ -371,18 +371,24 @@ test('§177.1: an authored module has no cast job; its cast is its graph, and an
 test('§177.11: a delivery that says an untold printed name in its own words is refused; the name token says it; once told it is the Keeper\'s', async t => {
 	const h = await harbor(t);
 	await readCast(h);
-	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}]});
+	const jonahId = (await h.call('table.untold')).people.find(row => row.name === 'Jonah')?.id;
+	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: jonahId, word: 'the drowned boy'}]});
 	await h.call('table.player_input', {text: 'I ask the net mender about her family.'});
 	// Table 25 (turn 8): the toothless trucker said 「叫我厄尼就行」, the name of another man of the book nobody had met.
 	const unread = await h.attempt('table.narrate', {call_id: 't1-c1', text: 'She sighs. "My boy Jonah went down to the cellar."'});
 	assert.equal(unread.ok, false);
 	assert.deepEqual([unread.error.details?.reason, unread.error.details?.words], ['untold_name', ['Jonah']], 'someone the reader has not reached');
-	const graphPerson = await h.attempt('table.narrate', {call_id: 't1-c1', text: 'She says, "Call me Mae."'});
+	// The same names again in the turn: delivered, the name replaced by the word this table calls him -- never the name, never a stuck turn.
+	const again = await h.call('table.narrate', {call_id: 't1-c1', text: 'She sighs. "My boy Jonah went down to the cellar."'});
+	assert.match(again.rendered_text, /My boy the drowned boy went down/);
+	assert.ok(!again.rendered_text.includes('Jonah'));
+	await h.call('table.player_input', {text: 'And what do people call you?'});
+	const graphPerson = await h.attempt('table.narrate', {call_id: 't2-c1', text: 'She says, "Call me Mae."'});
 	assert.deepEqual(graphPerson.error?.details?.words, ['Mae'], 'a printed form of an untold graph person');
-	const token = await h.call('table.narrate', {call_id: 't1-c1', text: 'She wipes her hands. {{say:the net mender}}"Everyone calls me {{name:the net mender}}."{{/say}}'});
+	const token = await h.call('table.narrate', {call_id: 't2-c1', text: 'She wipes her hands. {{say:the net mender}}"Everyone calls me {{name:the net mender}}."{{/say}}'});
 	assert.match(token.rendered_text, /Old Mae/, 'the token puts the book\'s name in on purpose');
 	await h.call('table.player_input', {text: 'And your boy?'});
-	const told = await h.attempt('table.narrate', {call_id: 't2-c1', text: 'Old Mae looks away.'});
+	const told = await h.attempt('table.narrate', {call_id: 't3-c1', text: 'Old Mae looks away.'});
 	assert.equal(told.ok, true, `told, her name is the Keeper's to write: ${told.error?.message}`);
 });
 
