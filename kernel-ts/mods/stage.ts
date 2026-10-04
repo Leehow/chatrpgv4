@@ -18,6 +18,7 @@ import { divideObject, validateDivision } from './object-division.js';
 import { clearRegistration, queueAdoption, queueRegistration, queuedDefinition } from './queue.js';
 import type { ModJobs } from './jobs.js';
 import {registerUsage, validateUsage, validateUsageRequest} from './usages.js';
+import {stageDossier} from './dossier-door.js';
 
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
 export async function objectOwner(campaign: CampaignWritePort, graph: ModuleGraph, world: Row, name: any): Promise<Row> {
@@ -83,65 +84,9 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 ...(replaced ? {replaced_placeholder: true} : {})},
             event: {type: 'definition-created', data: {name: value.name, category: value.category}}};
     }
-    if (kind === 'dossier') {
-        // Contract 28.7. A word a book never gave has nowhere to live: the graph is the book's and no
-        // package may write it, and the ledger is the kernel's and would outlive the package that filled
-        // it. This writes into the package's own namespace instead, so turning the package off takes the
-        // word with it and the book is left exactly as it was found.
-        const node = graph.npc(required(effect, 'name')!), handle = graph.handle(node);
-        const values = effect.values;
-        if (!isJsonObject(values) || !entries(values).length)
-            throw new RpcError('invalid_params', 'a dossier effect needs `values`, one or more contributed keys',
-                {fix: 'name the keys this package contributes and what the table established for each', details: {field: 'dossier.values'}});
-        const active = await jobs.runtime.active(world);
-        const owners = new Map<string, Row>();
-        for (const mod of active) {
-            if (!array(mod.requires).includes('graph.vocabulary.table.v1'))
-                continue;
-            for (const entry of array(row(row(mod.contributes).vocabulary).actor_profile_keys))
-                if (!owners.has(string(entry.key)))
-                    owners.set(string(entry.key), mod);
-        }
-        const written: string[] = [];
-        for (const [key, value] of entries(values)) {
-            const mod = owners.get(key);
-            if (!mod)
-                throw new RpcError('invalid_params', `no active package establishes ${repr(key)} at the table`,
-                    {fix: `use a key contributed by a package requiring graph.vocabulary.table.v1${owners.size ? `: ${[...owners.keys()].join(', ')}` : ''}`,
-                     details: {field: 'dossier.values', key, available: [...owners.keys()]}});
-            // The book outranks the table on its own material: a word the source gave is not the
-            // Keeper's to overwrite, and silently keeping the losing value would leave two answers on record.
-            const authored = graph.npcProfile(node)[key];
-            if (truth(authored))
-                throw new RpcError('invalid_params', `the source already gives ${graph.displayName(node)} ${key} ${repr(authored)}`,
-                    {fix: 'the book\'s own word stands; establish this only for someone the source leaves silent',
-                     details: {field: 'dossier.values', actor: handle, key, authored_value: authored}});
-            const shape = array(row(row(mod.contributes).vocabulary).actor_profile_keys).find(entry => string(entry.key) === key);
-            if (row(shape).shape === 'lines')
-                throw new RpcError('invalid_params', `${key} is written by the package's own lane, not at the table`,
-                    {fix: 'leave this word to the npc-voice lane; it fills it for anyone the source leaves silent', details: {field: 'dossier.values', key}});
-            if (typeof value !== 'string' || !value.trim() || value.length > 200)
-                throw new RpcError('invalid_params', `dossier.values.${key} must be one bounded line`,
-                    {fix: 'say what the table established, in a phrase', details: {field: `dossier.values.${key}`}});
-            const namespaces = world.mods.state;
-            const id = string(mod.id);
-            if (!Object.hasOwn(namespaces, id)) namespaces[id] = {};
-            if (!Object.hasOwn(namespaces[id], 'dossier')) namespaces[id].dossier = {};
-            const recorded = namespaces[id].dossier;
-            if (!Object.hasOwn(recorded, node.node_id)) recorded[node.node_id] = {};
-            // The record carries the word's Keeper-facing name with it. The label a module recorded at
-            // build is exactly what a table this feature exists for does not have, so reading one back
-            // through the build-time spine would leave the value written and unreadable.
-            const label = array(row(row(mod.contributes).vocabulary).actor_profile_keys)
-                .find(entry => string(entry.key) === key);
-            recorded[node.node_id][key] = {value: value.trim(), label: string(row(label).label) || key, turn, mod: id};
-            written.push(key);
-        }
-        return {receipt: {id: mint(`dossier:${handle}-t${turn}`), kind: 'dossier', call_id: callId, npc: node.node_id, handle,
-                          name: graph.displayName(node), keys: written, values: Object.fromEntries(written.map(key => [key, string(values[key]).trim()])),
-                          ...(truth(effect.why) ? {why: effect.why} : {}), visibility: 'keeper'},
-                event: {type: 'dossier-established', data: {npc: handle, keys: written}}};
-    }
+    // Contract 28.7, §180.8–§180.9: what an enabled package establishes at the table, in its own namespace.
+    if (kind === 'dossier')
+        return stageDossier(context, effect, await jobs.runtime.active(world));
     if (kind === 'object') {
         const name = effect.name;
         if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object needs a name');
