@@ -295,10 +295,10 @@ export interface RunView {
    */
   actsSettled?: string[];
   /**
-   * §135.30.10: the moves that carried the declaration's destination this run -- the clerk's declared moves it executed (family
-   * `move`, taken or refused) and the Keeper's own move effects the kernel took (not an owed one). Once one stands, no compile
-   * selects a move (the `move` predicate decides them all) and the route selects none (`moveGated`): one declaration, one
-   * destination.
+   * §135.30.10: the declaration's one selected move -- the declared move (family `move`) a compile or the route selected and
+   * the clerk executed this run, taken or refused. Once it stands, no compile selects a move (the `move` predicate decides them
+   * all) and the route selects none (`moveGated`): one declaration, one destination. Nothing else joins it: not an owed move,
+   * not a person's own movement, not the Keeper's own `apply move`.
    */
   moved?: string[];
   /**
@@ -1004,15 +1004,10 @@ function settleStagedClues(view: RunView, key: string, settled: boolean): void {
   }
 }
 
-/** §135.30.10: moves that carried the declaration's destination, added to the run's. */
+/** §135.30.10: the declaration's selected move, added to the run's. */
 function settleMoves(view: RunView, keys: readonly string[]): void {
   const fresh = keys.filter(key => key && !(view.moved ?? []).includes(key));
   if (fresh.length) view.moved = [...(view.moved ?? []), ...fresh];
-}
-/** §135.30.10: the Keeper's own move effects, by the key the builder mints for the same move (an owed row's is not one). */
-export function movedByEffects(effects: Row[] | undefined): string[] {
-  return (effects ?? []).filter(effect => effect?.kind === 'move' && !(typeof effect.owed === 'string' && effect.owed) && typeof effect.to === 'string' && effect.to)
-    .map(effect => `apply:move:${String(effect.to)}`);
 }
 /** §135.30.8 (SL-43): acts an obligation step settled, added to the run's. */
 function settleActs(view: RunView, acts: readonly string[]): void {
@@ -1422,8 +1417,6 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     if (executed.ok) for (const key of [...consumedByEffects(item.call.params.effects as Row[] | undefined), ...consumedByClaim(item.call.params.action as Row | undefined),
       ...consumedByResolve(item.call.method)])
       if (!view.consumed.includes(key)) view.consumed.push(key);
-    // §135.30.10: the Keeper's own move the kernel took carried the destination too (an owed one lands what was told).
-    if (executed.ok) settleMoves(view, movedByEffects(item.call.params.effects as Row[] | undefined));
   } else if (item.scan) {
     // §143.4: the scan followed every step that had landed; the acts it ran are the people's own, never a refusal of the
     // declaration, so nothing is handed to the Keeper for it.
@@ -1440,7 +1433,7 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     // §135.30.8 (SL-43): the act an obligation check was executed with is settled for the run, taken or refused.
     const act = obligationAct(item);
     if (act) settleActs(view, [act]);
-    // §135.30.10: a declared move the clerk executed carried the declaration's destination, taken or refused (§135.26: the
+    // §135.30.10: the declared move the clerk executed is the declaration's one selected move, taken or refused (§135.26: the
     // clerk does not route around its own refusal by moving somewhere else).
     if (item.candidate!.family === 'move') settleMoves(view, [item.candidate!.key]);
     // §135.11 addendum (SL-20): the declaration's own step (a compile selected it) that the kernel took and whose check did

@@ -134,7 +134,7 @@ export interface Fired {bound?: Record<string, Json>; from?: Record<string, Feat
 /**
  * What the run already settled, as the predicates read it (§135.30.8, SL-43): the acts the run's obligation steps settled,
  * and the act an obligation check fired on in this same compile. A declaration's act is settled once. §135.30.10: so is its
- * destination -- `moved`, the run's moves that carried it (`RunView.moved`).
+ * destination -- `moved`, the declaration's one selected move the clerk executed (`RunView.moved`).
  */
 export interface CompileRun {actsSettled: readonly string[]; moved: readonly string[]}
 export interface CompilePredicate {
@@ -221,9 +221,10 @@ export function actGated(candidate: Candidate, acts: readonly string[]): boolean
   return fightStep(candidate) && !acts.includes(String(candidate.bound.decision));
 }
 /**
- * §135.30.10: the declaration's moves the run executed (`RunView.moved`) settle its destination. After one, the route may select
- * no other move the read issues (a declared move, family `move`): its `need` question is asked and recorded, it selects nothing,
- * and after a complete route it is the Keeper's for the run. An owed move (§158.4, family `owed`) is not a move of the declaration.
+ * §135.30.10: the declaration's one selected move (`RunView.moved`) settles its destination. After it, the route may select no
+ * other party move the read issues (family `move`): its `need` question is asked and recorded, it selects nothing, and after a
+ * complete route it is the Keeper's for the run. An owed move (§158.4, family `owed`) and a person's own movement (an `npc`
+ * effect) are no party move of the declaration and are never gated.
  */
 export function moveGated(candidate: Candidate, moved: readonly string[]): boolean {
   return candidate.family === 'move' && moved.length > 0;
@@ -382,7 +383,7 @@ export function compileOnly(candidate: Candidate): boolean {
 export interface CompileView {runId: string; rawInput: string; context: TurnContext; materials: Material[]; candidates: Candidate[]; rows?: FeatureRows; observations: unknown[];
   /** §135.30.8 (SL-43): the acts the run's obligation steps settled. */
   actsSettled?: string[];
-  /** §135.30.10: the run's moves that carried the declaration's destination. */
+  /** §135.30.10: the declaration's one selected move the clerk executed. */
   moved?: string[]}
 
 /** The compile question: one choice per family with rows. Packing halves material previews until the Jev limits hold. */

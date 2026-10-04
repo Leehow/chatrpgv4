@@ -25032,13 +25032,19 @@ The player said "我接下委托，收好诺特给我的钥匙和地址，先去
 
 The player declared one place. Two clerk moves and an hour were written, and the next turn spent a move walking back.
 
-**The rule.** The run keeps the moves that carried the declaration's destination (`RunView.moved`, by the builder's key
-`apply:move:<to>`). A move joins it two ways:
-1. **The clerk's.** When the clerk executes a declared move (family `move`, selected by a compile, the route, or a staged unlock
-   of §135.30.5), it joins whether the kernel took the write or refused it. A refused move is still the declaration's attempt,
-   and the clerk does not route around its own refusal by moving somewhere else (§135.26).
-2. **The Keeper's.** A `move` effect of the Keeper's own `apply` that the kernel took joins too. A move with `owed` does not:
-   it lands what an earlier turn told (§158.5), not this declaration. A Keeper move the kernel refused moved nobody.
+**The rule: the declaration's one selected move.** The run keeps it as `RunView.moved`, by the builder's key `apply:move:<to>`.
+It is the declared party move (family `move`) that a compile, the route or a staged unlock of §135.30.5 selected, once the clerk
+executes it. It joins whether the kernel took the write or refused it. A refused move is still the declaration's attempt, and the
+clerk does not route around its own refusal by moving somewhere else (§135.26).
+
+Nothing else joins it:
+- the Keeper's own `apply move`, which also covers a rename of the place (a `move` to where the party stands) and a relocation
+  the Keeper rules;
+- an owed move (§158.4/§158.5, family `owed`), which lands what an earlier turn told;
+- a person's own movement (an `npc` effect, an `npc_act` step), which moves no party.
+
+A `move` effect moves the whole party: the kernel has no party subset. A run is one input's declaration, so another
+investigator's declaration in another run starts with nothing kept.
 
 Once one stands:
 - **The `move` predicate (§135.30) fires on nothing.** It **decides** every move it reaches, whatever `destination` cleared on
@@ -25055,10 +25061,8 @@ What a declared destination is stays the compile's and the route's own reading, 
 Nothing reads the player's words for direction or count. A declaration that names two places in turn moves once by the
 clerk, and the Keeper carries the rest.
 
-**What is not a move of the declaration:**
-- an owed move (§158.4, family `owed`), which the builder issues as forced and which never joins `moved`;
-- a chase's or a fight's steps (families `chase`, `combat`).
-An owed move still runs after the run moved.
+**Not gated:** an owed move (family `owed`), a person's movement, and a chase's or a fight's steps (families `chase`,
+`combat`). Only the family `move` is gated, and an owed move still runs after the run moved.
 
 **Telemetry:**
 - The compile row (`lane: "route"`, `purpose: "compile"`) gains `moved`, the run's moves before that compile, when there are
@@ -25067,7 +25071,7 @@ An owed move still runs after the run moved.
 - The engine re-reads both with the run's moves carried on the question (`moved`), so each row says what the policy did.
 
 **Three ends (§31):**
-- *Writer:* `settleExecute`, for the clerk's executed move and the Keeper's taken move effect (`movedByEffects`).
+- *Writer:* `settleExecute`, for the clerk's executed declared move, and only that.
 - *Reader:* the `move` predicate and `interpretCompile` (the guarded report), `interpretRoute` and `settleRoute`
   (`moveGated`).
 - *Actor:* the clerk, which moves the party once per declaration. The Keeper is told through `clerk_did` of the one move. The
@@ -25085,7 +25089,8 @@ An owed move still runs after the run moved.
 - a refused move settles it the same way, and with the destination unclear the moves are decided at the compile;
 - after a move the route selects no move, with need `now` up to 0.97, holds it for the Keeper and records `move_gated`, while
   the house's clue is still the clerk's;
-- a Keeper's taken move settles it, while an owed one or a refused one does not;
+- only the clerk's selected move joins: a Keeper's own move, an owed one and a person's movement do not, so after a Keeper's
+  move the declaration's own move is still the clerk's;
 - no guarded destination is reported after a move.
 
 On the emitted kernel over the haunting, through the hybrid engine with a stub Jev carrying the live turn's answers:
@@ -25095,7 +25100,7 @@ On the emitted kernel over the haunting, through the hybrid engine with a stub J
   and names it in `move_gated`.
 
 The same emitted case on `1e5d64e52` without this change lands `t2-c2` and `t2-c3` exactly as live, then reads the house back
-(0.86, cleared, nothing selected). Fifteen one-line mutations of the change each turn a case red.
+(0.86, cleared, nothing selected). Fourteen one-line mutations of the change each turn a case red.
 
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 

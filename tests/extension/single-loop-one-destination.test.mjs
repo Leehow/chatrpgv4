@@ -11,8 +11,8 @@
  *
  * - At the policy seam (pure, the kernel's row shapes): after a declared move the clerk executed, taken or refused, a later
  *   compile's `move` predicate selects nothing and decides every move, and the route selects no move whatever `need` answered;
- *   a Keeper's own move the kernel took settles it the same way, an owed one does not; a cleared held destination after the
- *   move is not reported as the player's. Controls: the same answers without a move select it.
+ *   only that selected clerk move counts (not the Keeper's own move, an owed one, or a person's movement); a cleared held
+ *   destination after the move is not reported as the player's. Controls: the same answers without a move select it.
  * - On the emitted kernel over the haunting through the hybrid engine (a stub Jev with the live turn's answers, the faux
  *   Keeper): one move, to the house. With the compile off (the route alone), a move the route's need says `now` to at the
  *   house selects nothing, and the engine's route row says so.
@@ -155,20 +155,20 @@ test("§135.30.10 policy: after the run moved, the route selects no move whateve
 	assert.ok(routeWith(alone, { [STREET]: ["now", 0.97] }).row.detail.selected.includes(STREET));
 });
 
-test("§135.30.10 policy: a Keeper's own move the kernel took carries the destination; an owed one, or one refused, does not", () => {
-	const keeper = (effects, ok) => {
+test("§135.30.10 policy: only the clerk's selected move joins -- not the Keeper's own move, an owed one, or a person's own movement", () => {
+	const keeper = (effects) => {
 		const view = viewAt(office());
 		view.pending = [{ kind: "direct", purpose: "execute", call: { method: "apply", params: { effects }, label: "apply" } }];
 		const run = next(view);
-		settleExecute(view, startStep(view, run), run.item, { ok, summary: {} }, fresh(house()), 3);
+		settleExecute(view, startStep(view, run), run.item, { ok: true, summary: {} }, fresh(house()), 3);
 		readOwed(view, house());
 		return view;
 	};
-	const took = keeper([{ kind: "move", to: "house" }], true);
-	assert.deepEqual(took.moved, [HOUSE]);
-	assert.deepEqual(compileWith(took, AT_HOUSE).detail.selected, [], "no clerk move after the Keeper's");
-	assert.equal(keeper([{ kind: "move", to: "house", owed: "t1-c2" }], true).moved, undefined, "an owed move lands what was told: not the declaration's");
-	assert.equal(keeper([{ kind: "move", to: "house" }], false).moved, undefined, "a refused Keeper move moved nobody");
+	assert.equal(keeper([{ kind: "move", to: "house" }]).moved, undefined, "the Keeper's own apply move is not the declaration's selected move");
+	assert.equal(keeper([{ kind: "move", to: "house", owed: "t1-c2" }]).moved, undefined, "an owed move lands what was told");
+	assert.equal(keeper([{ kind: "npc", name: "Steven Knott", to: "street" }]).moved, undefined, "a person's movement moves no party");
+	const after = keeper([{ kind: "move", to: "house" }]);
+	assert.deepEqual(compileWith(after, AT_HOUSE).detail.selected, [STREET], "so the declaration's own move is still the clerk's to select");
 });
 
 test("§135.30.10 policy: after the run moved, a cleared held destination is not reported as the player's", () => {
