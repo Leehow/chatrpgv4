@@ -33038,6 +33038,131 @@ A sandbox replay of `game-8e41c325` turns 3–6, from the `turn 2:` commit, with
 - **Blinding.** A and B1–B2 were scored blind; B3–B4, C and D were not.
 - **Evidence lost.** The C homes' sandbox campaign state was deleted while D's homes were being built: `make_home.sh` began with `rm -rf`, and now refuses an existing home. C's delivered prose and driver runs are kept.
 
+## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
+
+Owner, 2026-10-04, after the ten-hour measurement of §184 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
+
+**Evidence.** Four tables of the 111-page 血色公路 each added 174–707 nodes to their fork's graph through the background
+reading while their player played 5–10 turns in 2–4 scenes; at most 7–17% of those nodes ever appeared in a message the
+Keeper received. One fork queued 125 jobs, 34 of which failed; every fork had 4–17 completed readings that published no
+node. No fork ever finished: the background read-ahead streams every two-page unit of the whole book (§148.3,
+`referenceSourceUnits`), every 20-page contact sheet and every nominated picture page, then the source needs and a
+whole-book index job that yields to everything and never completed (the library's own index job failed). Nothing in the
+read-ahead looks at where the table is. Since §148 the Keeper reads original excerpts on demand and a material gate
+(`requireMaterial`) starts a foreground read when an operation needs typed material, so the background graph is a
+latency prefetch, not a precondition of play.
+
+### 182.1 The book's chapters come from the book
+
+- **Producer.** The host already reads the PDF's bookmarks (`sourceInfo`, `extensions/module/source.ts`) and passes them
+  in `module.source.bind`'s `source`; the kernel dropped them. The kernel now keeps the top-level bookmarks that carry a
+  page as `source_document.outline: [{name, page}]` (1-based physical pages, sorted by page, at most 200 entries, names
+  at most 200 characters, pages within `page_count`; malformed rows are dropped, not refused). A bound book that predates
+  this gets its outline from a new private host method `module.source.outline {module_id, file_sha256, outline, campaign?}`:
+  the file digest must equal the bound source's, the kernel writes the library's `module.json` and, when `campaign` names
+  a campaign whose fork exists, that fork's too (source metadata, not graph: §22.6's isolation is about generations).
+  Idempotent. The host calls it when a table opens on a visual module whose `module.status` reports no outline.
+- **Chapters.** Chapter *i* is the page range from top-level entry *i*'s page to the page before the next entry with a
+  greater page (the last chapter runs to `page_count`); entries sharing a page collapse to the last of them. A book whose
+  outline yields fewer than two chapters has none; it falls back to the model index's sections when
+  `reading.index_complete`, else to a page window (182.3).
+
+### 182.2 A short book is built once
+
+`page_count <= reading.whole_book_max_pages` (data, `content/rulesets/coc7/host-budgets.json`, shipped 60) is a short
+book. Its read-ahead streams the whole book as today. When every streamed unit, contact sheet, nominated picture page,
+identity check and need has a terminal state on the source (a material row, a terminal job, or a settled disposition),
+the module records `reading.build_complete: {source_sha256, at}` and the read-ahead queues nothing more for that source;
+§184.1 carries the record to the library, and every later fork starts complete. Only a foreground request (a material
+gate, a source consultation) reads after that.
+
+### 182.3 A long book reads the chapter in play and the next one
+
+A book above the threshold has a **reading window**: the chapter that holds the table's current scene and the chapter
+after it in book order. The current scene's page is the first page of its `source_refs` (the anchor the read-ahead already
+computes: `params.focus`, else the start scene); a scene with no page uses the start scene's. Without chapters the window
+is the anchor page through `reading.fallback_window_pages` (data, shipped 24) pages after it. Every background ask of the
+read-ahead is limited to the window: source units whose pages intersect it, contact-sheet ranges that intersect it,
+nominated picture pages, identity pages and map scopes inside it, and need reads whose entity cites a page inside it.
+The adjacent-scene reads of §22.4 (`queueAdjacentReading`) are unchanged: they are the scenes the player can reach next.
+When the player's scene moves into another chapter the next pass of the read-ahead works on the new window; the window
+it left is not read further. Foreground requests are never limited by the window.
+
+### 182.4 Nothing is read that publishes nothing
+
+- The read-ahead does not ask the whole-book `index` job of a book that reads by reference units (`source_reference`)
+  or that has chapters; the index stays available to a foreground request and to books that need its sections.
+- A unit, page or need whose reading completed or settled on the current source is never asked again by the read-ahead,
+  whatever it published; an `unlocated` need becomes eligible again only when a publication added a page or claim for
+  its entity *inside the reading window* (refines §151.4's eligibility).
+- With the window bounded, a table whose window is read has nothing queued and the pump stops; an idle table reads at most
+  the rest of its window.
+- **Telemetry.** The read-ahead's result gains `window: {mode: "whole" | "chapters" | "pages", first, last, chapters:
+  [names], complete?}` and the host writes one `lane: "reading", event: "read_window"` row when the window changes.
+
+### 182.5 Three ends (§31)
+
+Writer: `module.source.bind` and `module.source.outline` write the outline; the read-ahead writes `build_complete`.
+Reader: `queueAheadReading` reads both and the current scene. Actor: the reading pump, which claims only what the window
+queued. Limits: chapters are the book's own bookmarks or the model index; a book with neither reads by page window. The
+chapter that holds the Keeper's background and the endings is read by the opening and guidance reads as today.
+
+**Implementation decisions (2026-10-04, CT-04).** `kernel-ts/modules/chapters.ts` (outline cleaning, chapters, the window,
+the two `reading` budgets with coded fallbacks 60 and 24); `Reading.queueAheadReading`, `buildPending`, `completeBuild` and
+`writeOutline` in `reading.ts`; `needsToAsk`, `needDone` and the window-aware `needEligible` in `need-reads.ts`.
+
+- **Outline.** `source_document.outline` is written only when the host sent `bookmarks`; an empty list is kept (a PDF
+  without bookmarks), so the host does not backfill it again. `module.status` reports `outline`: the entry count, or `null`
+  when none was ever recorded. A replayed `module.source.bind` fills a missing outline. `module.source.outline` is dispatched
+  apart from the scoped methods: it writes the library, and the fork only when `scopedModuleRoot` finds one (never
+  `ensureCampaignModule`); its result is `{module_id, library: written | unchanged | missing, entries, campaign?: written |
+  unchanged | no_fork}`; a digest that is not the bound source's is `invalid_params` with `details.reason: source_mismatch`.
+  The outline is left out of `task_source_revision` and of `module.source.snapshot`'s `revision`, so the backfill at table
+  open neither stales a pending operation nor a navigation cache. The host backfills through
+  `ReadingService.backfillOutline` on `coc:table-open` and when its reader is ready, once per campaign and module per
+  session, and writes `lane: "reading", event: "outline_backfill"` with `state: written | failed`. `table.open`'s own
+  read-ahead runs before that backfill, so the first pass after an upgrade uses the page window and the next one chapters.
+- **Chapters.** An index section starts at the first page it names; an `unreadable` section is no chapter. The anchor is the
+  scene `focus` names (scenes only; a campaign's read-ahead passes its active scene), else the start scene, else page 1; an
+  anchor in the front matter before the first chapter reads from the anchor through the first chapter. The window's
+  `chapters` lists names; in `whole` mode it lists every chapter and carries `complete`.
+- **Which books skip the index (decision).** A short book streams "as today", and for a book that does not read by
+  reference units today includes the index, because its streamed units are cut from the index's sections. The skip for a
+  book with chapters therefore applies to long books. A long non-reference book with bookmarks streams no index units in the
+  background: its window limits needs, identity checks and map scopes, and the adjacent reads go on. Both index producers
+  obey the rule: the read-ahead's ask and `claim`'s `ensureIndexJob`. A background index already queued for such a book is
+  cancelled at the next claim (`state: cancelled`, its detail names §182.4); a foreground request still reads the index.
+- **`build_complete`.** Only a book that streams units (a reference book, or an indexed book under `first_interaction`)
+  can complete. Terminal means: a unit's row or its latest non-cancelled job completed or failed; a contact sheet overviewed
+  or its job terminal; a nominated page with its asset row or a terminal job; an identity page or a map scope with a
+  completed job or the failures after which the read-ahead stops asking; no need that `needsToAsk` would still ask over the
+  whole book; and no live job carrying a read-ahead marker. The record is written under the module's metadata lock, and a
+  fork offers it to the library at once through `syncLibraryFromCampaign` (no publication follows it), the outcome riding on
+  the read-ahead's result as `library_sync`. After it the read-ahead only recovers orphans: no index, no streamed ask, no
+  way-on repair and no adjacent read of its own; the kernel's adjacent reads on a move (§22.4) and foreground reads are
+  unchanged. A long book never records it.
+- **The window.** Units and contact sheets that meet it; nominated pages and identity pages inside it; map scopes with a page
+  inside it; needs whose entity (its node and the claims about it) cites a page inside it, and a deferred need waits for
+  the window's units only. Asks already queued from a window the table left are not cancelled; they drain (at most two per
+  kind) and nothing more is asked there.
+- **Never asked again.** `needDone` (a `read` disposition, or a marked job that completed without settling or failed) is
+  applied before the two-per-pass bound; before, such a need answered `ready` or `blocked` and still used up one of the two
+  asks. `carried` keeps §151.4's re-check once its units are read: it is a deferral to those units, not a settlement.
+  `unlocated` re-opens in the read-ahead only for a page inside the window that the decision did not accept, or a claim
+  citing a page inside it whose digest the decision did not hold (`claim_digests`, recorded at the settlement when the
+  material then is the material decided on, at most 256); a decision without them falls back to "the changed material
+  cites a page inside the window". A request keeps the digest rule. A reference unit whose only jobs were cancelled (a host
+  that stopped) is asked again with `retry`, as the indexed stream and the visual asks already did; before, it answered
+  `blocked` on every pass and used up its ask.
+- **Host.** Every read-ahead call of the reading service goes through `readAhead`, which writes `read_window` when the window
+  differs from the last one seen for the campaign and module, and a `library_sync` row when the result carries one. A failed
+  background ask of any read-ahead kind now calls the read-ahead (before, units only), so a short book whose last ask fails
+  completes without waiting for the next table open.
+- **Tests.** `tests/extension/read-window.test.mjs`; amended for the new `window` field in exact read-ahead results:
+  `tests/kernel/test_visual_reading.py::test_read_ahead_follows_authored_exits_not_index_page_order` and
+  `tests/kernel/test_fast_guidance.py::test_an_opening_published_ready_stays_ready_under_a_later_rule`;
+  `ts-kernel-foundation.test.mjs` lists the new method.
+
 ## 184. Provider traffic: the library follows the leading fork, and the Keeper's request keeps its prefix (owner ruling 2026-10-04, `docs/specs/cache-traffic.md`; amends §22.6, §151.4's fork note, §135.23 and the context rows of §19.2)
 
 *Numbered §179 on its work branch; renumbered §184 before it reached 0.9.6a, where §179 is "A turn serves what the act is after" and §183 is taken by the package-instructions branch.*
@@ -33346,128 +33471,3 @@ describe the recorded prompt, not the one sent (the `prompt` lane's `stale_promp
   detailed read of every page; a short book is built once and a long book reads the chapter in play and the next.*
 - Eviction on the provider's side is not ours. `thinking-schedule` is a no-op on grok-4.5 and grok-4.7, whose catalogs
   expose no `off`; on a model that does, it would cost a whole prompt per turn on an xAI endpoint (184's probes).
-
-## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
-
-Owner, 2026-10-04, after the ten-hour measurement of §184 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
-
-**Evidence.** Four tables of the 111-page 血色公路 each added 174–707 nodes to their fork's graph through the background
-reading while their player played 5–10 turns in 2–4 scenes; at most 7–17% of those nodes ever appeared in a message the
-Keeper received. One fork queued 125 jobs, 34 of which failed; every fork had 4–17 completed readings that published no
-node. No fork ever finished: the background read-ahead streams every two-page unit of the whole book (§148.3,
-`referenceSourceUnits`), every 20-page contact sheet and every nominated picture page, then the source needs and a
-whole-book index job that yields to everything and never completed (the library's own index job failed). Nothing in the
-read-ahead looks at where the table is. Since §148 the Keeper reads original excerpts on demand and a material gate
-(`requireMaterial`) starts a foreground read when an operation needs typed material, so the background graph is a
-latency prefetch, not a precondition of play.
-
-### 182.1 The book's chapters come from the book
-
-- **Producer.** The host already reads the PDF's bookmarks (`sourceInfo`, `extensions/module/source.ts`) and passes them
-  in `module.source.bind`'s `source`; the kernel dropped them. The kernel now keeps the top-level bookmarks that carry a
-  page as `source_document.outline: [{name, page}]` (1-based physical pages, sorted by page, at most 200 entries, names
-  at most 200 characters, pages within `page_count`; malformed rows are dropped, not refused). A bound book that predates
-  this gets its outline from a new private host method `module.source.outline {module_id, file_sha256, outline, campaign?}`:
-  the file digest must equal the bound source's, the kernel writes the library's `module.json` and, when `campaign` names
-  a campaign whose fork exists, that fork's too (source metadata, not graph: §22.6's isolation is about generations).
-  Idempotent. The host calls it when a table opens on a visual module whose `module.status` reports no outline.
-- **Chapters.** Chapter *i* is the page range from top-level entry *i*'s page to the page before the next entry with a
-  greater page (the last chapter runs to `page_count`); entries sharing a page collapse to the last of them. A book whose
-  outline yields fewer than two chapters has none; it falls back to the model index's sections when
-  `reading.index_complete`, else to a page window (182.3).
-
-### 182.2 A short book is built once
-
-`page_count <= reading.whole_book_max_pages` (data, `content/rulesets/coc7/host-budgets.json`, shipped 60) is a short
-book. Its read-ahead streams the whole book as today. When every streamed unit, contact sheet, nominated picture page,
-identity check and need has a terminal state on the source (a material row, a terminal job, or a settled disposition),
-the module records `reading.build_complete: {source_sha256, at}` and the read-ahead queues nothing more for that source;
-§184.1 carries the record to the library, and every later fork starts complete. Only a foreground request (a material
-gate, a source consultation) reads after that.
-
-### 182.3 A long book reads the chapter in play and the next one
-
-A book above the threshold has a **reading window**: the chapter that holds the table's current scene and the chapter
-after it in book order. The current scene's page is the first page of its `source_refs` (the anchor the read-ahead already
-computes: `params.focus`, else the start scene); a scene with no page uses the start scene's. Without chapters the window
-is the anchor page through `reading.fallback_window_pages` (data, shipped 24) pages after it. Every background ask of the
-read-ahead is limited to the window: source units whose pages intersect it, contact-sheet ranges that intersect it,
-nominated picture pages, identity pages and map scopes inside it, and need reads whose entity cites a page inside it.
-The adjacent-scene reads of §22.4 (`queueAdjacentReading`) are unchanged: they are the scenes the player can reach next.
-When the player's scene moves into another chapter the next pass of the read-ahead works on the new window; the window
-it left is not read further. Foreground requests are never limited by the window.
-
-### 182.4 Nothing is read that publishes nothing
-
-- The read-ahead does not ask the whole-book `index` job of a book that reads by reference units (`source_reference`)
-  or that has chapters; the index stays available to a foreground request and to books that need its sections.
-- A unit, page or need whose reading completed or settled on the current source is never asked again by the read-ahead,
-  whatever it published; an `unlocated` need becomes eligible again only when a publication added a page or claim for
-  its entity *inside the reading window* (refines §151.4's eligibility).
-- With the window bounded, a table whose window is read has nothing queued and the pump stops; an idle table reads at most
-  the rest of its window.
-- **Telemetry.** The read-ahead's result gains `window: {mode: "whole" | "chapters" | "pages", first, last, chapters:
-  [names], complete?}` and the host writes one `lane: "reading", event: "read_window"` row when the window changes.
-
-### 182.5 Three ends (§31)
-
-Writer: `module.source.bind` and `module.source.outline` write the outline; the read-ahead writes `build_complete`.
-Reader: `queueAheadReading` reads both and the current scene. Actor: the reading pump, which claims only what the window
-queued. Limits: chapters are the book's own bookmarks or the model index; a book with neither reads by page window. The
-chapter that holds the Keeper's background and the endings is read by the opening and guidance reads as today.
-
-**Implementation decisions (2026-10-04, CT-04).** `kernel-ts/modules/chapters.ts` (outline cleaning, chapters, the window,
-the two `reading` budgets with coded fallbacks 60 and 24); `Reading.queueAheadReading`, `buildPending`, `completeBuild` and
-`writeOutline` in `reading.ts`; `needsToAsk`, `needDone` and the window-aware `needEligible` in `need-reads.ts`.
-
-- **Outline.** `source_document.outline` is written only when the host sent `bookmarks`; an empty list is kept (a PDF
-  without bookmarks), so the host does not backfill it again. `module.status` reports `outline`: the entry count, or `null`
-  when none was ever recorded. A replayed `module.source.bind` fills a missing outline. `module.source.outline` is dispatched
-  apart from the scoped methods: it writes the library, and the fork only when `scopedModuleRoot` finds one (never
-  `ensureCampaignModule`); its result is `{module_id, library: written | unchanged | missing, entries, campaign?: written |
-  unchanged | no_fork}`; a digest that is not the bound source's is `invalid_params` with `details.reason: source_mismatch`.
-  The outline is left out of `task_source_revision` and of `module.source.snapshot`'s `revision`, so the backfill at table
-  open neither stales a pending operation nor a navigation cache. The host backfills through
-  `ReadingService.backfillOutline` on `coc:table-open` and when its reader is ready, once per campaign and module per
-  session, and writes `lane: "reading", event: "outline_backfill"` with `state: written | failed`. `table.open`'s own
-  read-ahead runs before that backfill, so the first pass after an upgrade uses the page window and the next one chapters.
-- **Chapters.** An index section starts at the first page it names; an `unreadable` section is no chapter. The anchor is the
-  scene `focus` names (scenes only; a campaign's read-ahead passes its active scene), else the start scene, else page 1; an
-  anchor in the front matter before the first chapter reads from the anchor through the first chapter. The window's
-  `chapters` lists names; in `whole` mode it lists every chapter and carries `complete`.
-- **Which books skip the index (decision).** A short book streams "as today", and for a book that does not read by
-  reference units today includes the index, because its streamed units are cut from the index's sections. The skip for a
-  book with chapters therefore applies to long books. A long non-reference book with bookmarks streams no index units in the
-  background: its window limits needs, identity checks and map scopes, and the adjacent reads go on. Both index producers
-  obey the rule: the read-ahead's ask and `claim`'s `ensureIndexJob`. A background index already queued for such a book is
-  cancelled at the next claim (`state: cancelled`, its detail names §182.4); a foreground request still reads the index.
-- **`build_complete`.** Only a book that streams units (a reference book, or an indexed book under `first_interaction`)
-  can complete. Terminal means: a unit's row or its latest non-cancelled job completed or failed; a contact sheet overviewed
-  or its job terminal; a nominated page with its asset row or a terminal job; an identity page or a map scope with a
-  completed job or the failures after which the read-ahead stops asking; no need that `needsToAsk` would still ask over the
-  whole book; and no live job carrying a read-ahead marker. The record is written under the module's metadata lock, and a
-  fork offers it to the library at once through `syncLibraryFromCampaign` (no publication follows it), the outcome riding on
-  the read-ahead's result as `library_sync`. After it the read-ahead only recovers orphans: no index, no streamed ask, no
-  way-on repair and no adjacent read of its own; the kernel's adjacent reads on a move (§22.4) and foreground reads are
-  unchanged. A long book never records it.
-- **The window.** Units and contact sheets that meet it; nominated pages and identity pages inside it; map scopes with a page
-  inside it; needs whose entity (its node and the claims about it) cites a page inside it, and a deferred need waits for
-  the window's units only. Asks already queued from a window the table left are not cancelled; they drain (at most two per
-  kind) and nothing more is asked there.
-- **Never asked again.** `needDone` (a `read` disposition, or a marked job that completed without settling or failed) is
-  applied before the two-per-pass bound; before, such a need answered `ready` or `blocked` and still used up one of the two
-  asks. `carried` keeps §151.4's re-check once its units are read: it is a deferral to those units, not a settlement.
-  `unlocated` re-opens in the read-ahead only for a page inside the window that the decision did not accept, or a claim
-  citing a page inside it whose digest the decision did not hold (`claim_digests`, recorded at the settlement when the
-  material then is the material decided on, at most 256); a decision without them falls back to "the changed material
-  cites a page inside the window". A request keeps the digest rule. A reference unit whose only jobs were cancelled (a host
-  that stopped) is asked again with `retry`, as the indexed stream and the visual asks already did; before, it answered
-  `blocked` on every pass and used up its ask.
-- **Host.** Every read-ahead call of the reading service goes through `readAhead`, which writes `read_window` when the window
-  differs from the last one seen for the campaign and module, and a `library_sync` row when the result carries one. A failed
-  background ask of any read-ahead kind now calls the read-ahead (before, units only), so a short book whose last ask fails
-  completes without waiting for the next table open.
-- **Tests.** `tests/extension/read-window.test.mjs`; amended for the new `window` field in exact read-ahead results:
-  `tests/kernel/test_visual_reading.py::test_read_ahead_follows_authored_exits_not_index_page_order` and
-  `tests/kernel/test_fast_guidance.py::test_an_opening_published_ready_stays_ready_under_a_later_rule`;
-  `ts-kernel-foundation.test.mjs` lists the new method.
