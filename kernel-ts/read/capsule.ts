@@ -5,7 +5,7 @@ import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionS
 import { entries, values, array, row, number, integer, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
-import { bookNames, toldTurn } from "../journal/naming.js";
+import { bookNames, namePieces, toldTurn } from "../journal/naming.js";
 import { tableWord } from "./person-words.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
@@ -162,13 +162,22 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
 export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Row[]): Row[] {
     const people = graph.kind("npc").map(node => ({ node, untold: graph.isTablePerson(node) ? null : untoldBlock(graph, world, journal, node, records) }));
     // A name someone the investigator already knows also goes by stays theirs: hiding it would hide them.
-    const known = new Set(people.filter(person => !person.untold).flatMap(person => bookNames(graph, person.node)).map(normalize));
+    const known = new Set(namePieces(people.filter(person => !person.untold).flatMap(person => bookNames(graph, person.node))).map(normalize));
+    // §176.5: the pieces a name separates with punctuation are renamed too. Table 23 (turn 5): the book's own scene summary
+    // said the three men under the awning were "Lars, Nate and Steve" by first name; the whole names and the aliases were
+    // renamed, the bare first names were not, and the Keeper wrote one of them. A piece two untold people share names
+    // neither of them for certain, so it is left alone.
+    const pieceOwners = new Map<string, number>();
+    for (const { node, untold } of people) if (untold)
+        for (const piece of new Set(namePieces(bookNames(graph, node)).map(normalize))) pieceOwners.set(piece, (pieceOwners.get(piece) ?? 0) + 1);
     return people.flatMap(({ node, untold }) => {
         if (!untold) return [];
         const id = graph.handle(node), shown = string(untold.label || "").trim() || id;
         // §176.5: a handle is the book's name as a slug, so the handle and the node id are renamed too, once there is a word.
         const slugs = shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
-        return [...bookNames(graph, node).filter(name => !known.has(normalize(name))), ...slugs].map(name => ({ name, id, shown }));
+        const names = bookNames(graph, node);
+        const pieces = namePieces(names).filter(piece => !names.includes(piece) && pieceOwners.get(normalize(piece)) === 1);
+        return [...names, ...pieces].filter(name => !known.has(normalize(name))).concat(slugs).map(name => ({ name, id, shown }));
     });
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {

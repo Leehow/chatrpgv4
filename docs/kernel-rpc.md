@@ -32831,7 +32831,7 @@ The evidence is the spec's §1. On table 21 (flapcode gpt-6-luna, then grok-buil
 
 ### 176.5 The Keeper's view hides the handle and carries the name token (spec Q2, Q4)
 
-- `table.untold` (`untoldRoster`) adds two rows per untold person whose shown word is not their handle: the handle and the node id, each renamed to the shown word. The request-wide rename (§103.5) then removes the handle from everything the host and the kernel wrote into the request. The rename runs longest first, so the node id goes before the handle it contains.
+- `table.untold` (`untoldRoster`) adds two rows per untold person whose shown word is not their handle: the handle and the node id, each renamed to the shown word. It also carries the pieces each name separates with punctuation (`namePieces`). Table 23, turn 5: the book's own scene summary named the three men under the awning by first name ("拉斯、内特、史蒂夫"); the whole names and aliases were renamed, the bare first names were not, and the Keeper wrote 「史蒂夫」. Two exclusions: a piece a told person also carries, and a piece two untold people share, which names neither of them for certain. The request-wide rename (§103.5) then removes the handle from everything the host and the kernel wrote into the request. The rename runs longest first, so the node id goes before the handle it contains.
 - Each untold row in the Keeper's copy carries `say_name: "{{name:<shown word>}}"`. The untold line now says to put `say_name`, exactly, where the fiction has the name said. Neither model wrote `{{name:}}` on table 21 when it had to compose the token.
 - A person with no word keeps the handle as their shown word, a known residual (176.7).
 

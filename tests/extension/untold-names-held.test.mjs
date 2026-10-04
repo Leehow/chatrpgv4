@@ -45,7 +45,8 @@ test('§103.8: every name the book gives a person, aliases too, and the pieces a
 test('§103.8: the roster carries every untold name, and leaves a name someone told also goes by with them', () => {
 	const graph = people();
 	const roster = api.untoldRoster(graph, {}, {entries: {'npc-mary': {named_at: 2}}}, []);
-	assert.deepEqual(roster.map(row => row.name), ['拉塞尔·威廉姆斯', '拉斯'], 'Mary is told, so 拉索, hers too, is not hidden');
+	// §176.5: the pieces too (table 23: the scene summary named the men by first name). 威廉姆斯 is Mary's as well, and she is told.
+	assert.deepEqual(roster.map(row => row.name), ['拉塞尔·威廉姆斯', '拉斯', '拉塞尔'], 'Mary is told, so 拉索 and 威廉姆斯, hers too, are not hidden');
 	assert.ok(roster.every(row => row.shown === row.id), 'with no epithet yet, the handle stands in');
 });
 
