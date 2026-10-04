@@ -143,12 +143,37 @@ async function oracle(operation, input) {
   return JSON.parse(text);
 }
 
+/**
+ * Contract §180.6 (ticket CK-E): the `creature` family reads `monsters.json` and then `beasts.json`, which the frozen
+ * Python reference never had. The reference still pins every monster record (count and digest of the records whose
+ * table is `monsters.json`); the beasts are the TS kernel's own and are pinned here against the file, one record per
+ * entry in its order, each citing its table.
+ */
+const BEAST_TABLE = 'beasts.json';
 test('every catalog kind retains the Python record count and canonical content digest', async () => {
   const expected = await oracle('records', { kinds: api.SUPPORTED_KINDS });
   const actual = {};
-  for (const kind of api.SUPPORTED_KINDS) { const records = await catalog.records([kind]); actual[kind] = { count: records.length, digest: api.jsonDigest(records.map(unnamed)) }; }
+  for (const kind of api.SUPPORTED_KINDS) {
+    const records = (await catalog.records([kind])).filter(record => kind !== 'creature' || record.source.table !== BEAST_TABLE);
+    actual[kind] = { count: records.length, digest: api.jsonDigest(records.map(unnamed)) };
+  }
   await writeFile(join(evidence, 'record-digests-actual.json'), JSON.stringify(actual, null, 2));
   assert.deepEqual(actual, expected);
+});
+
+test('§180.6: the creature family adds every beast after the monsters, citing beasts.json', async () => {
+  const beasts = JSON.parse(await readFile(join(ROOT, 'content/rulesets/coc7/rules-json', BEAST_TABLE), 'utf8')).beasts;
+  const records = await catalog.records(['creature']);
+  const tail = records.slice(records.length - Object.keys(beasts).length);
+  assert.equal(records.length, 37 + 14, 'the 37 monsters, then the 14 beasts the Beasts section prints');
+  assert.deepEqual(tail.map(record => record.name), Object.keys(beasts));
+  assert.ok(tail.every(record => record.source.table === BEAST_TABLE && record.kind === 'creature' && record.secret === true));
+  assert.ok(records.slice(0, 37).every(record => record.source.table === 'monsters.json'));
+  const dog = tail.find(record => record.name === 'Dog');
+  assert.deepEqual(dog.params, { hp: 8, mov: 12, source_page: 349 }, 'printed values only; an unstated armor is absent');
+  assert.deepEqual(tail.find(record => record.name === 'Wasp and Bee Swarms').params, { source_page: 352, no_stat_block: true });
+  const found = await catalog.resolveName('creature', 'dog');
+  assert.equal(found.canonical_name, 'Dog', 'the catalog\'s own name matching finds a beast');
 });
 
 test('catalog recall preserves price variants, scopes, family parameters and closed invalid requests', async t => {

@@ -234,6 +234,9 @@ export class SettleContext {
             if (typeof person?.name === 'string' && person.name.trim())
                 return person.name;
         }
+        // §180.6: a creature this table declared goes by the word the table gave it, as a table person does.
+        if (node && this.graph.isTableCreature(node))
+            return this.graph.displayName(node);
         return null;
     }
     addSessionReceipt(family: string, transition: string, options: Row = {}): string {

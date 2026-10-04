@@ -475,7 +475,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 const referenceSource=!!module.meta.source_reference||module.meta.source==='pdf'&&!!row(module.meta.source_document).file_sha256,sourceScope=referenceSource||row(module.meta.reading).opening_scope==='first_interaction';
                 const prepared=new Set(array(row(module.meta.reading).materials).flatMap(material=>array(material.node_ids)));
                 const entities = (searched.length ? searched : graph.handleList(query) ?? []).filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => ({...graph.entityView(node),
-                    ...(sourceScope?{material:graph.isTableEntity(node)||graph.isTablePerson(node)?'ready':graph.materialOverride?graph.materialOverride(node.node_id):prepared.has(node.node_id)?'ready':'unprepared',
+                    ...(sourceScope?{material:graph.isTableEntity(node)||graph.isTablePerson(node)||graph.isTableCreature(node)?'ready':graph.materialOverride?graph.materialOverride(node.node_id):prepared.has(node.node_id)?'ready':'unprepared',
                         original_pages:[...new Set(array(node.source_refs).filter(ref=>ref.source_id===`pdf:${graph.moduleId}`&&integer(ref.pdf_index)).map(ref=>number(ref.pdf_index)+1))]}:{})}));
                 const missingScene = !entities.length && expected === 'scene';
                 return {

@@ -6,6 +6,15 @@ import { RuleTables, tableSlug } from "./tables.js";
 import { caseFold } from "./casefold.js";
 export const SUPPORTED_KINDS = ["weapon", "item", "spell", "creature", "skill", "vehicle", "rule", "artifact", "tome", "poison", "occupation", "phobia", "mania", "hazard"] as const;
 const SECRET_KINDS = new Set(["spell", "creature", "artifact", "tome", "poison"]);
+/**
+ * Contract §180.6: the tables the catalog's `creature` family reads, in order -- the Keeper Rulebook's Mythos monsters,
+ * then its Beasts section (`beasts.json`, averages and roll expressions as printed). A record's `source.table` names the
+ * one it came from, and `apply npc creature` reads the entry back from there (`apply/creature.ts`).
+ */
+export const CREATURE_SOURCES: ReadonlyArray<{ readonly name: string; readonly key: string }> = Object.freeze([
+    Object.freeze({ name: "monsters", key: "monsters" }),
+    Object.freeze({ name: "beasts", key: "beasts" }),
+]);
 export const queryTokens = (query: any): string[] => (string(query).match(/[0-9A-Za-z]+/g) ?? []).map(caseFold);
 const normalized = (value: any): string => typeof value === "string" ? queryTokens(value).join(" ") : "";
 /** `{tag: label}` for every non-empty string label, in the data's own order; nothing names a tag here. */
@@ -194,7 +203,8 @@ export class Catalog {
                 name: "monsters",
                 key: "monsters",
                 summary: ["hp", "armor", "mov"],
-                params: ["hp", "armor", "mov", "san_loss", "source_page"],
+                // `no_stat_block` is a beast's alone (the wasp and bee swarm prints rules text and no block); no monster has it.
+                params: ["hp", "armor", "mov", "san_loss", "source_page", "no_stat_block"],
                 slug: true
             },
             artifact: {
@@ -246,17 +256,25 @@ export class Catalog {
         const spec = specification[kind];
         if (!spec)
             return [];
-        return entries(await this.tables.block(spec.name, spec.key)).filter(([, value]) => isJsonObject(value)).map(([name, value]) => catalogRecord({
-            kind,
-            entityId: spec.slug ? tableSlug(name) : name,
-            name: kind === "hazard" ? string(value.example || name) : name,
-            table: `${spec.name}.json`,
-            summary: pick(value, spec.summary),
-            params: pick(value, spec.params),
-            ...(kind === "occupation" ? { tags: array(value.tags).filter(v => typeof v === "string") } : {}),
-            ...(["phobia", "mania"].includes(kind) ? { tags: array(value.trigger_tags).filter(v => typeof v === "string") } : {}),
-            ...(kind === "hazard" ? { category: string(value.category || "") || null } : {}),
-        }));
+        // Contract §180.6: the creature family reads the Mythos monsters and then the beasts, each record citing its table.
+        const sources = kind === "creature" ? CREATURE_SOURCES.map(source => ({ ...spec, ...source })) : [spec];
+        const records: Row[] = [];
+        for (const [index, source] of sources.entries()) {
+            if (index > 0 && !await this.tables.exists(source.name))
+                continue;
+            records.push(...entries(await this.tables.block(source.name, source.key)).filter(([, value]) => isJsonObject(value)).map(([name, value]) => catalogRecord({
+                kind,
+                entityId: source.slug ? tableSlug(name) : name,
+                name: kind === "hazard" ? string(value.example || name) : name,
+                table: `${source.name}.json`,
+                summary: pick(value, source.summary),
+                params: pick(value, source.params),
+                ...(kind === "occupation" ? { tags: array(value.tags).filter(v => typeof v === "string") } : {}),
+                ...(["phobia", "mania"].includes(kind) ? { tags: array(value.trigger_tags).filter(v => typeof v === "string") } : {}),
+                ...(kind === "hazard" ? { category: string(value.category || "") || null } : {}),
+            })));
+        }
+        return records;
     }
     async records(kinds?: readonly string[] | null): Promise<Row[]> {
         const output: Row[] = [];

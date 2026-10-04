@@ -788,7 +788,8 @@ export class Reading {
                 continue;
             const node = graph.find(name);
             // §22.4.7.1 (SL-56): a person this table established is not book material; nothing is read for them (§87).
-            if (graph.isTablePerson(node) || graph.isTableEntity(node))
+            // Nor is a creature it declared (§180.6).
+            if (graph.isTablePerson(node) || graph.isTableCreature(node) || graph.isTableEntity(node))
                 continue;
             if (node === null && !indexed.has(normalize(name)))
                 continue;
