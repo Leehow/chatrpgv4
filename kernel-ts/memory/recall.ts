@@ -5,7 +5,7 @@ import { CampaignWriter, EVENT_TYPES } from '../write/store.js';
 import { ModuleGraph } from '../read/module-graph.js';
 import { EntityIndex, queryCandidates, withPromiseFulfillment, canonicalMemoryReceipts, memoryOccurrenceKey } from '../read/memory.js';
 import {lineFulfillmentEvidence} from '../read/worldline.js';
-import { npcsPresent } from '../read/capsule.js';
+import { npcsPresent, personNode } from '../read/capsule.js';
 import { array, row, number, integer, string, truth, sorted, chars, length, words, repr, type Row } from '../read/values.js';
 import { CANDIDATE_KINDS, logs, records, proseOf } from './jobs.js';
 import {RECALL_CHARS, pageOptions, detailOptions, position, publicRecall, recallBytes, recallSnapshot, textPage, rowsPage, rowDetail} from './pages.js';
@@ -173,7 +173,11 @@ export async function recallMemory(campaign: CampaignWriter, graph: ModuleGraph,
         if (!Array.isArray(params.about) || !params.about.every((value: any) => typeof value === 'string' && value.trim()))
             throw new RpcError('invalid_params', 'about must be a list of names');
         about = params.about.map((name: string) => {
-            const exact = index.matches(name), found = exact.length ? exact : index.looseMatches(name);
+            const exact = index.matches(name), loose = exact.length ? exact : index.looseMatches(name);
+            // §177.13: the word this table calls a person -- their epithet, the fiction's word -- finds them through the person
+            // junction (§87.8), as lookup does (§177.7). For someone untold it is the only name the Keeper holds; table 27
+            // (turn 5) asked recall about the toothless trucker by his epithet and was refused, and the batch's other calls with it.
+            const person = loose.length ? null : personNode(graph, world, name), found = person ? [`npc:${person.node_id}`] : loose;
             if (found.length !== 1) {
                 const names = found.length ? found.map(key => index.canonicalName(key)) : graph.candidates(name, ['npc', 'scene', 'clue']);
                 throw new RpcError('unknown_entity', `${repr(name)} is ${found.length ? 'ambiguous' : 'not a known name'}`, {

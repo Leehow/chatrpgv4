@@ -59,7 +59,8 @@ export function toldTurn(graph: ModuleGraph, node: Row, records: Iterable<Row>, 
             return string(who.npc) === handle && words.some(word => occurs(normalize(shown), word));
         }))
             return number(record.turn);
-        if (words.some(word => occurs(normalize(record.rendered_text ?? ''), word)))
+        // §177.15: `told_text` where the delivery had places the host cleared as part of another word, blanked there.
+        if (words.some(word => occurs(normalize(record.told_text ?? record.rendered_text ?? ''), word)))
             return number(record.turn);
     }
     return null;

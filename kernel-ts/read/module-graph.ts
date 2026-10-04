@@ -231,6 +231,8 @@ export class ModuleGraph {
     /** Only the campaign resolver installs this pinned material authority. */
     materialOverride?: (name: string) => string;
     assetOverride?: (name: string) => Promise<Row | null>;
+    /** Contract §177.2: the cast reader's `cast.json` for this book, when the module has one (`loadModule`); read by `bookCast`. */
+    castStore?: Row | null;
     readonly nodes = new Map<string, Row>();
     readonly byKind = new Map<string, Row[]>();
     readonly out = new Map<string, Row[]>();

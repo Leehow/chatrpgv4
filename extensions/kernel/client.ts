@@ -90,6 +90,14 @@ export interface KernelClientOptions {
 	onDiagnostic?: (message: string) => void;
 	/** The reopening to replay after a respawn (`kernel.hello` + `table.open`). */
 	onRestart?: () => Promise<void>;
+	/**
+	 * Contract §177.15: the host's last word on a call's params, run inside the serial queue just before the call is sent.
+	 * `direct` reaches the kernel past the queue (the hook is already in it). A hook that throws sends the caller's params
+	 * without `hostOnlyParams`: only the hook may put those in, so a failure never sends what the caller wrote under them.
+	 */
+	prepareCall?: (method: string, params: Record<string, unknown>, direct: (method: string, params: Record<string, unknown>) => Promise<unknown>) => Promise<Record<string, unknown>>;
+	/** Param keys only `prepareCall` may set (§177.15: `untold_cleared`); dropped from the caller's params when the hook fails. */
+	hostOnlyParams?: readonly string[];
 }
 
 interface Pending {
@@ -133,7 +141,18 @@ export class KernelClient {
 
 	/** Executed one at a time in arrival order: the extension serialises them. */
 	call<T = unknown>(method: string, params: Record<string, unknown> = {}, onProgress?: (frame: KernelProgressFrame) => void): Promise<T> {
-		const run = () => this.dispatch<T>(method, params, onProgress);
+		const prepare = this.options.prepareCall;
+		const run = async () => {
+			let sent = params;
+			if (prepare) {
+				try { sent = await prepare(method, params, (next, nextParams) => this.dispatch(next, nextParams)); }
+				catch {
+					const hostOnly = this.options.hostOnlyParams ?? [];
+					sent = Object.fromEntries(Object.entries(params).filter(([key]) => !hostOnly.includes(key)));
+				}
+			}
+			return this.dispatch<T>(method, sent, onProgress);
+		};
 		const result = this.queue.then(run, run);
 		this.queue = result.then(
 			() => undefined,

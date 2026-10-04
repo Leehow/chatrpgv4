@@ -12,6 +12,7 @@ import { array, clone, integer, normalize, number, repr, row, string, truth, typ
 import { playsFromReading } from '../modules/bound-source.js';
 import type { MaterialGate, TextLanding } from '../modules/reading.js';
 import { landPeople, landRequests } from '../apply/entities.js';
+import { castPersonNamed } from '../read/cast.js';
 import { RuleTables } from '../rules/tables.js';
 import { SkillResolver } from '../rules/skills.js';
 import { nowIso } from '../write/store.js';
@@ -259,7 +260,8 @@ export function createResolveRuntime(kernel: KernelContext, writer: ResolveWrite
                         entered: new Set(array(transaction.world.index_scenes).filter((value): value is string => typeof value === 'string')),
                         people: new Set([action.actor, action.target].filter(value => typeof value === 'string' && value)),
                         textPeople: new Set(array(transaction.world.index_people).filter((value): value is string => typeof value === 'string')),
-                        land: landRequests(params._land_on_text) }) ?? [];
+                        land: landRequests(params._land_on_text),
+                        cast: name => castPersonNamed(graph, transaction.world, name) }) ?? [];
                     // The landing is recorded where the gate lets it through, before any roll, like the reading it queues.
                     if (landPeople({ graph, world: transaction.world, turn: transaction.turn }, landed).length)
                         await transaction.campaign.writeWorld(transaction.world);

@@ -313,9 +313,10 @@ function dispositionInference(actor: string, name: string, fighter: Row, relatio
 }
 
 /**
- * The first blow (contract §135.30.2): the kernel's `context.first_blow` row -- the people present it can fight and the
- * investigator's weapons -- as one clerk candidate. A parameter the row issues one value for is stated; several are a
- * closed choice (the target from the compile, the weapon from Jev's bind); neither has a rules default (§135.28).
+ * The first blow (contract §§135.30.2/159.10.1): the kernel's `context.first_blow` row names present targets and held
+ * attack methods, with `preparation` identifying profiles/usages that are not ready yet. Keep the player's target and
+ * method choices; the host must finish required preparation before resolve. A parameter the row issues one value for is
+ * stated; several are a closed choice (the target from the compile, the weapon from Jev's bind); neither has a rules default (§135.28).
  */
 function firstBlowCandidate(row: Row, rawInput: string): Candidate | undefined {
   const targets = strings(row.targets), weapons = strings(row.weapons);

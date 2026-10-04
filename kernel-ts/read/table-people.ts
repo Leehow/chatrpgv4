@@ -51,6 +51,7 @@ import type { LoadedModule } from './campaign.js';
 import type { ModuleGraph } from './module-graph.js';
 import { isJsonObject } from '../json.js';
 import { array, integer, normalize, row, string, type Row } from './values.js';
+import { bookCast } from './cast.js';
 
 /** Minted by the kernel, never copied by the Keeper: the handle is the name they used. */
 export const tablePersonId = (name: string): string => `npc-table-${jsonDigest(normalize(name)).slice(0, 20)}`;
@@ -109,7 +110,10 @@ export function replacePassagePeople(graph: ModuleGraph, world: Row): void {
         if (!isJsonObject(person) || !isJsonObject(person.from_passage) || person.replaced_by) continue;
         const name = string(person.name).trim();
         if (!name) continue;
-        const node = graph.find(name, ['npc']);
+        // §177.6: landed under the word this table calls them, a person the cast names is found by the cast row's id, which
+        // the book's person absorbs when the reader publishes them; the word itself is none of the book's names.
+        const castId = typeof person.cast_id === 'string' ? person.cast_id : '';
+        const node = (castId ? bookCast(graph).find(entry => entry.node && entry.castIds.includes(castId))?.node : null) ?? graph.find(name, ['npc']);
         if (!node || graph.isTablePerson(node)) continue;
         const handle = graph.handle(node);
         for (const [from, to] of [[name, handle], [tablePersonId(name), string(node.node_id)]]) {
