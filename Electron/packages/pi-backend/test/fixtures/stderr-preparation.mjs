@@ -5,7 +5,16 @@
  */
 import { spawn } from 'node:child_process';
 
-export const NOISE = 'TypeError: cannot read x of undefined\n    at /Users/someone/secret/reader.ts:41:9';
+/**
+ * What the test looks for in the player's answer. Every onboarding answer carries the play
+ * language's caption keys and words (`ui.words`), so a marker that is an English word -- `secret`
+ * was -- matches a key like `secretClear` the moment a surface adds one, and the test reports a leak
+ * that is not there. No caption key or word contains this. It is in both lines, so a fragment of
+ * either is caught.
+ */
+export const MARKER = '7f3a9c-stderr-only';
+
+export const NOISE = `TypeError: cannot read ${MARKER} of undefined\n    at /Users/someone/${MARKER}/reader.ts:41:9`;
 
 export function createPreparationHost(home) {
   return {
