@@ -28,4 +28,3 @@ for (const [i, c] of cases.entries()) {
   console.log(c.id.padEnd(3), c.expect.padEnd(3), ps.map(p => p?.toFixed(2)).join(' '), ok ? '' : '  <-- WRONG', '|', c.name, '|', c.text.slice(0, 40));
 }
 console.log('runs', runs.map(r => r.ms + 'ms').join(' '), 'usage', JSON.stringify(runs[0].usage), 'wrong', wrong);
-
