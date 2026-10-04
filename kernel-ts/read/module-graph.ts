@@ -28,8 +28,8 @@ export function dossierLabels(dossier: Row): Array<[string, string]> {
 /** The module's own recorded vocabulary merged onto the current contract. A package can only add
  *  a word, never rename or take away a core one, and a key the module was not built with stays
  *  absent -- the same absence as a book that does not say (contract 28.2). */
-export function dossierWith(dossier: Row, recorded: Row | null | undefined): Row {
-    const core = new Set(array(dossier.profile_keys).map(key => string(key))),
+export function dossierWith(dossier: Row, recorded: Row | null | undefined, creature: Row | null = null): Row {
+    const core = new Set([...array(dossier.profile_keys), ...array(row(creature).profile_keys)].map(key => string(key))),
         seen = new Set<string>(),
         contributed = array(row(recorded).actor_profile_keys).flatMap(entry => {
             const key = string(row(entry).key);
@@ -38,8 +38,26 @@ export function dossierWith(dossier: Row, recorded: Row | null | undefined): Row
             seen.add(key);
             // A `shape: "lines"` word (contract §40.7) is carried so the capsule can seat it in `voices`.
             return [{ key, label: string(row(entry).label) || key, ...(row(entry).shape === "lines" ? { shape: "lines" } : {}) }];
+        }),
+        // §180.8: the creature's words, through the same rule. One key belongs to one spine, so a key the actor spine
+        // already carries (or either spine's core names) is not a creature word as well.
+        creatureWords = array(row(recorded).creature_profile_keys).flatMap(entry => {
+            const key = string(row(entry).key);
+            if (!key || core.has(key) || seen.has(key))
+                return [];
+            seen.add(key);
+            return [{ key, label: string(row(entry).label) || key }];
         });
-    return contributed.length ? { ...dossier, contributed } : dossier;
+    if (!contributed.length && !(creature && creatureWords.length) && !truth(row(recorded).actor_weaknesses))
+        return dossier;
+    return {
+        ...dossier,
+        ...(contributed.length ? { contributed } : {}),
+        // Carried beside the actor spine, so every graph built from a module's provenance has both and no constructor changes.
+        ...(creature && creatureWords.length ? { creature_dossier: { ...creature, contributed: creatureWords } } : {}),
+        // §180.9: the module was built with the weakness shape bound; its authored `weaknesses` reach the table (§28.5).
+        ...(truth(row(recorded).actor_weaknesses) ? { actor_weaknesses: true } : {}),
+    };
 }
 const lines = (value: any): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 4 && value.every(line => typeof line === "string" && line.trim());
 export function recordOf(node: Row | null | undefined): Row {
@@ -882,6 +900,52 @@ export class ModuleGraph {
                 profile[key] = value.map((line: string) => line.trim());
         }
         return profile;
+    }
+    /** Contract §180.8: the creature's spine, the counterpart of `dossier` -- empty when the module bound no creature word. */
+    creatureDossier(): Row {
+        return row(this.dossier.creature_dossier);
+    }
+    /** Contract §180.8: what the book says of a creature under the words its module was built with, read as `npcProfile`
+     *  reads a person's: the authored property, else the record's, one line each. A key the module never bound is absent. */
+    creatureProfile(node: Row): Row {
+        const profile: Row = {};
+        for (const key of dossierKeys(this.creatureDossier())) {
+            let value = row(node.properties)[key];
+            if (!(typeof value === "string" && value.trim()))
+                value = recordOf(node)[key];
+            if (typeof value === "string" && value.trim())
+                profile[key] = value.trim();
+        }
+        return profile;
+    }
+    /** Contract §180.9: whether this module was built with `actor.weaknesses.v1` bound (its provenance says so). */
+    weaknessesBound(): boolean {
+        return this.dossier.actor_weaknesses === true;
+    }
+    /** Contract §180.9: the stated weakness entries of an npc or creature, as authored (`properties.weaknesses`, else the
+     *  record's), only when the module bound the shape; each an object with a `book` line. */
+    authoredWeaknesses(node: Row): Row[] {
+        if (!this.weaknessesBound() || !["npc", "creature"].includes(string(node.node_kind)))
+            return [];
+        const value = Array.isArray(row(node.properties).weaknesses) ? node.properties.weaknesses : recordOf(node).weaknesses;
+        return array(value).filter(entry => isJsonObject(entry) && typeof entry.book === "string" && entry.book.trim()).map(row);
+    }
+    /** Contract §180.9: the clues whose belief about this being is false (`clue --misleads--> npc|creature`). */
+    misleadingClues(node: Row): Row[] {
+        const seen = new Set<string>();
+        return (this.incoming.get(node.node_id) ?? []).flatMap(rel => {
+            const clue = this.nodes.get(rel.from_node_id);
+            if (rel.relation_kind !== "misleads" || clue?.node_kind !== "clue" || seen.has(clue.node_id))
+                return [];
+            seen.add(clue.node_id);
+            return [clue];
+        });
+    }
+    /** The clues that support a conclusion (`clue --supports--> conclusion`), the reading `thread.ts` counts. */
+    supportingClues(conclusion: Row): Row[] {
+        return (this.incoming.get(conclusion.node_id) ?? [])
+            .filter(rel => rel.relation_kind === "supports" && this.nodes.get(rel.from_node_id)?.node_kind === "clue")
+            .map(rel => this.nodes.get(rel.from_node_id)!);
     }
     npcClaims(node: Row, predicate: string): Row[] {
         return (this.claimsBySubject.get(node.node_id) ?? []).filter(c => c.predicate === predicate);

@@ -33111,7 +33111,10 @@ The reader decides, from how the book treats the being (180.13). The kernel read
 | act ways `coercion`, `walk_on`; the stakes die's `_draws`/`_produces` | person |
 | the act author's material: personality for a person, `habits` (180.8) for a creature | split |
 | the expression-card roster (`extensions/table`) | person; the host reads `kind` on the present row |
+| the speech-attribution lane's present roster (`state.roster`, `extensions/kernel/speech-roster.ts`; §128.3) | person; the host reads `kind`, so a creature row, a stub included, is not a speaker (CK-D) |
 | say-span speaker resolution | person; a span naming a creature stays a label, as one naming nobody does |
+| `npc.perspectives` without a name (the present roster of perspectives) | person (CK-D); with a name it was already the person junction |
+| `table.look focus=npc name=<being>` | split (CK-D): a person by `npcNode` gets the person card; else any creature, stat block or not, gets the creature card (`creatureView`), with its words and its whole chain |
 | cash counterparty, promise payer, obligation `who` and `people` guards | person (unchanged) |
 | Sanity-on-sight once-only dedupe, combat label, First Aid patient | actor (was npc-only) |
 
@@ -33320,6 +33323,30 @@ The two new names join `KERNEL_GATES` (`kernel-ts/read/sections.ts`). Like every
    - Corbitt's chain moves as the clues and the dagger move.
    - Using the dagger settles through ordinary receipts.
 
+### 180.16 The implementation's decisions (CK-D, 2026-10-04, `claude/creature-kind-20261004-mod`)
+
+**Binding and provenance (180.8, 180.9).**
+- `buildVocabulary` returns `creature_profile_keys` beside `actor_profile_keys`, collected with one claim map across both spines in load order (a key a later package contributes to either spine is `displaced`), and `actor_weaknesses: {mod, version}`, the first enabled package in load order that requires `actor.weaknesses.v1` (now in `MOD_CAPABILITIES`).
+- The build records both in the module's provenance as it records actor words: `meta.vocabulary` gains `creature_profile_keys` (the union of every creature word the module was asked) and `actor_weaknesses` (kept once any build bound it).
+- The read side carries both on the graph's dossier (`dossierWith`): `creature_dossier` (the contract's spine with the bound words as `contributed`) and `actor_weaknesses: true`. A creature word must not equal a core key of either spine or a bound actor word. `ModuleGraph.creatureProfile` reads a creature's words as `npcProfile` reads a person's; `authoredWeaknesses` reads `properties.weaknesses` (else the record's) only while `actor_weaknesses` is bound.
+- A creature word is `key`, `label` and `ask`; `shape` (a person's voice words, §40.5) is refused on it. One key appears once in a package across both spines.
+- `vocabularyContext` (§28.6) reports a creature word in the same row shape as an actor word.
+
+**The chain (180.9).**
+- `held_by`: the root owner (`rootObjectOwner`, moved to `kernel-ts/read/object-owner.ts`) of the most recently changed object instance whose name or definition name is one of the need's names; else the investigator whose sheet equipment names it (legacy `apply item`), as the check catalog finds a tome at hand. Absent when nothing at the table holds it. The book's own placement (`located-in`) is not projected: the contract names the ownership reads only.
+- `known_by` and `taught_by` are lists of names: the investigators whose magic state (`knownSpells`) knows the spell, and the book's tomes (`bookSpellSources`) that teach it. `known_by` reads the investigators only. The capsule preloads each investigator's magic state (`CampaignSnapshot.magic`, `chainReads`).
+- `learned_by.conclusion` is the conclusion's handle, the name its story-thread line carries; `found`/`of` count `ModuleGraph.supportingClues`, which `thread.ts` now shares.
+- `false_leads` reads `clue --misleads--> being` whatever was bound: it is a relation, read by the base like `contradicts`. A present row carries at most three false leads too.
+- The present rows (person and creature) carry the budgeted chain; `look focus=npc` carries it whole, and the person card's `properties` drops the raw `weaknesses` (node ids) when the chain carries them by name.
+
+**The table door (180.8, 180.9).** `kernel-ts/mods/dossier-door.ts`. `apply dossier` resolves a person (`graph.npc`), else any creature. A person takes person words, a creature creature words; the wrong spine is refused naming the words that fit. `weaknesses` belongs to the first active package requiring both `graph.vocabulary.table.v1` and `actor.weaknesses.v1`; its entries are `{book, needs?}` (`book` one line of at most 200 characters, `needs` names resolved to nodes of the contract's `needs` kinds and stored as node ids, `learned_by` refused) and append to `world.mods.state[<id>].weaknesses[<node_id>]`. Every value of the effect is checked before any is written.
+
+**The act author (180.5).** A creature's `who` is `{what, <its words under their labels>, keeper_note}`; `content/setup/npc-act.md` names the habits.
+
+**Open points handed back.**
+- *Starters.* `registerStarter` records no `meta.vocabulary`, so a starter binds no word and no weakness shape today: 180.12's Corbitt weaknesses and rat habits would not reach the table. 180.12 says the starter's provenance records the bound words "as a built module's does" but names no mechanism (bind the registering kernel's `buildVocabulary`, or a vocabulary the starter's own data declares). Undecided here; CK-F needs it.
+- *The Keeper's tool.* The `apply` tool schema (`extensions/kernel/tools.ts`) has no `dossier` effect, so the door of §28.7 and of 180.8–180.9 is not offered to the Keeper's typed tool. CK-E owns that file.
+
 ## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
 
 Owner, 2026-10-04, after the ten-hour measurement of §184 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
@@ -33468,7 +33495,7 @@ A package declares its instruction's sections with `contributes.sections`, a pac
 - `kind` is `resident` (on every turn the package is indexed) or `situational`. A resident entry carries nothing else.
 - A situational entry has `topics`, `triggers` or both:
   - `topics`: ids of the topic list (§183.2), or `"*"` alone (any turn whose gates hold);
-  - `gates`: all must hold for a topic to load the section; they qualify topics and need them. Kernel gates: `opening`, `people_present`, `present_without_history`, `unregistered_equipment`, `registered_instances`, `threat_clock`, `stall`, `recover`, `clue_here`, `handed_clue_here`, `reentry`. Host gate: `no_topic` (no topic of the list scored 0.5 or more this turn);
+  - `gates`: all must hold for a topic to load the section; they qualify topics and need them. Kernel gates: `opening`, `people_present`, `present_without_history`, `unregistered_equipment`, `registered_instances`, `threat_clock`, `stall`, `recover`, `clue_here`, `handed_clue_here`, `reentry`, and (amended by §180.10) `creature_present`, `weakness_here`. Host gate: `no_topic` (no topic of the list scored 0.5 or more this turn);
   - `triggers`: `state:<kernel gate>` loads the section whenever that gate holds; `before_apply:<effect kind>` (a kind `table.apply` accepts, `kernel-ts/apply/kinds.ts`) and `before_resolve:<decision family>` (`chase`, `combat`, `core-check`, `development`, `healing`, `magic`, `objects`, `psychology`, `push-luck`, `sanity`, `social`: the ruleset's `decision:coc7:<family>:` prefixes and the kernel's `objects:` decisions) load it once the Keeper has made such a call this turn;
   - `topic_threshold` (0 < t < 1, default 0.5): the section's own bar; it qualifies topics and needs them.
 - Refusals are `invalid_params` with `details.field: "contributes.sections"` and the offending entry: invalid JSON; an unknown topic (checked where the catalog loads and at install, against `content/mods/topics.json`), gate, trigger kind or name; a heading not in `agent.md`; a `## ` heading with no entry or two, or appearing twice in `agent.md`; preamble text with no `null` entry; a resident entry with topics, gates, triggers or a threshold; a situational entry with neither topics nor triggers; gates or a threshold without topics; `"*"` beside another topic; a threshold outside (0, 1); the contribution without the capability or without `contributes.instructions`; the file missing from `package_files`. Requiring the capability without contributing is allowed (the package goes whole): what the pairing protects is a kernel that lacks the capability meeting an unknown field.
@@ -33489,7 +33516,8 @@ Rows of `capsule.mods.instructions`:
 - `indexed`: `{mod, version, settings, form: "indexed", instruction, sections}`. `instruction` is "Further sections of this package arrive in coc-mod-sections when a turn needs them." and the resident sections' text, joined by blank lines. `sections[]` lists the situational sections, `{key, heading, topics, gates, triggers, topic_threshold, bytes, gates_open, due}`, where `key` is `<mod>@<version>#<ordinal>` (the ordinal counts every entry of `sections.json`), `gates_open` says every kernel gate of the section holds this turn and `due` says a `state:` trigger holds. Only the capsule evaluates gates: `mods.context` and the package jobs read the same rows without `gates_open` and `due`.
 
 When any row is indexed, `capsule.mods.topics` carries the definitions of the topics those rows name (all of them when one names `"*"`). The kernel evaluates its gates while it assembles the capsule, from the turn as assembled, before any section budget cuts it (`kernel-ts/read/sections.ts`):
-- `opening`: turn 0. `people_present`: `present` is not empty. `present_without_history`: a present person whose `history.last_spoke_turn` is absent;
+- `opening`: turn 0. `people_present`: `present` holds a person row, one without `kind` (amended by §180.10; a creature row does not count). `present_without_history`: a present person row whose `history.last_spoke_turn` is absent (amended by §180.10: creature rows are not considered);
+- `creature_present` (§180.10): a present row has `kind: "creature"`. `weakness_here` (§180.10): a present row, person or creature, carries `weaknesses` or `false_leads`;
 - `unregistered_equipment`, `registered_instances`: `mods.unregistered_equipment`, `mods.objects.instances` are not empty;
 - `threat_clock`: a threat clock is related to this scene or scoped to the scenario, or the table minted one (the rows `mods.pacing.threat_clocks` shows);
 - `stall`: the Director's `stalled_turns` has reached the package's own integer `stall_turns` setting when it has one, else the Director's `pressure-stalled-turns` threshold;

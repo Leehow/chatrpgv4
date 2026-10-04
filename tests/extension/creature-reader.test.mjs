@@ -263,9 +263,11 @@ test('the real reading path: the opening task carries creature_dossier, and modu
     await call('module.read.request', {purpose: 'opening'});
     const job = await claimJob();
     const packetPath = join(job.work_dir, 'packet.json'), packet = JSON.parse(await readFile(packetPath, 'utf8'));
-    assert.deepEqual(packet.vocabulary.creature_dossier, contract.graph.creature_dossier, 'the reader is handed the creature words');
+    // The shipped Hostile Creatures package (§180.11, on by default) contributes `habits` and binds actor.weaknesses.v1.
+    const habits = JSON.parse(await readFile(join(root, 'mods', 'hostile-creatures', 'mod.json'), 'utf8')).contributes.vocabulary.creature_profile_keys;
+    assert.deepEqual(packet.vocabulary.creature_dossier, {...contract.graph.creature_dossier, contributed: habits}, 'the reader is handed the creature words');
     assert.deepEqual(packet.vocabulary.relation_endpoints, contract.graph.relation_endpoints);
-    assert.equal(packet.vocabulary.actor_weaknesses, undefined, 'no installed package binds actor.weaknesses.v1 yet');
+    assert.deepEqual(packet.vocabulary.actor_weaknesses, contract.graph.actor_weaknesses, 'the build bound actor.weaknesses.v1');
 
     const opening = (extraNodes, extraClaims = [], ready = []) => ({nodes: [
         {node_id: 'scene-hall', node_kind: 'scene', name: 'Hall', source_refs: REFS, properties: {is_entrance: true}},

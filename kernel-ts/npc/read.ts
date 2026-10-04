@@ -12,7 +12,9 @@ export async function npcViews(input:{campaign:string;graph:ModuleGraph;world:Ro
     name?:string}):Promise<Row[]> {
     const {graph,world,turn,records,ledger}=input,worldline=string(input.meta.active_worldline||'main');
     const scope={worldline,loop:number(row(row(input.meta.worldlines)[worldline]).loop)};
-    const nodes=input.name?[npcNode(graph,world,input.name)]:npcsPresent(graph,world,graph.scene(world.active_scene));
+    // §180.3: a perspective (personality, goals, fears, knowledge reports, commitments) is a person's. Unnamed, the
+    // present actors less the creatures among them; named, the person junction, which never answers a creature.
+    const nodes=input.name?[npcNode(graph,world,input.name)]:npcsPresent(graph,world,graph.scene(world.active_scene)).filter(node=>graph.isPerson(node));
     const memory=withPromiseFulfillment(input.memory,{campaign:input.campaign,world,receipts:canonicalMemoryReceipts(records,array(turn.receipts))});
     const contextRevision=jsonDigest({campaign:input.campaign,world,turn});
     return Promise.all(nodes.map(async node=>{

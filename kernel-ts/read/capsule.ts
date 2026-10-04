@@ -17,6 +17,7 @@ import {reunionView} from '../npc/reunion.js';
 import {cardAction,cardTactic} from '../combat/standing.js';
 import {mechRow} from './mech-line.js';
 import { MASK_KEY } from '../voice/fields.js';
+import { weaknessChain, type ChainReads } from "./weaknesses.js";
 export const jsonSize = (value: any): number => Buffer.byteLength(pythonJsonDumps(value), "utf8");
 /**
  * The one name this table uses for a place, by its handle: the campaign label the Keeper gave it,
@@ -487,6 +488,24 @@ function tableWords(world: Row, node: Row): Row {
     }
     return result;
 }
+/**
+ * Contract §180.8: a creature's words under their labels -- what the book says under the words its module bound (the
+ * creature spine), then what an enabled package established at the table where the book is silent (§28.7), exactly as a
+ * person's dossier reads. A creature has no person word.
+ */
+export function creatureWords(graph: ModuleGraph, world: Row, node: Row): Row {
+    const profile = graph.creatureProfile(node), established = tableWords(world, node), spine = new Set<string>(), result: Row = {};
+    for (const [key, label] of dossierLabels(graph.creatureDossier())) {
+        spine.add(key);
+        const value = truth(profile[key]) ? profile[key] : row(established[key]).value;
+        if (truth(value))
+            result[label] = value;
+    }
+    for (const [key, entry] of entries(established))
+        if (!spine.has(key) && truth(row(entry).value))
+            result[string(row(entry).label) || key] = row(entry).value;
+    return result;
+}
 function npcHistory(ledger: Row, memories: Map<string, Row>): Row | null {
     const result: Row = {},
         seen = row(ledger.turns_present),
@@ -553,7 +572,7 @@ function npcState(graph: ModuleGraph, world: Row, node: Row): Row | null {
             : `${who} is ${state} and takes no action of their own -- no answer, no help, no lie. Say the state in the fiction, and say what is being done about it. CoC 7e ends ${state === "unconscious" ? "it" : "unconsciousness"} when a hit point comes back: someone present succeeding at First Aid or Medicine on them -- resolve with the rescuer as actor and ${who} as target${conditions.includes("major_wound") ? ". Rest returns no hit point while the major wound is ticked; the weekly recovery roll is the next one the rules run themselves" : " -- or rest, apply time, until natural healing returns one"}. First Aid stabilizes a dying one first.`,
     };
 }
-export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep", journal: Row = {}, records: Row[] = [], scope:Row = {}): Row {
+export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, memories: Map<string, Row>, across: (node: Row) => Row[] = () => [], seat: LinesSeat = "keep", journal: Row = {}, records: Row[] = [], scope:Row = {}, reads: ChainReads = {}): Row {
     const state = npcState(graph, world, node), untold = untoldBlock(graph, world, journal, node, records);
     // Contract §161.3: what this person feels right now, from the committed ledger -- not for one who cannot act (the
     // body's `state`, or a death the ledger records), and absent when no mood was ever written.
@@ -589,6 +608,8 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const knowledge = graph.authoredLines(node, "knowledge");
     if (knowledge.length)
         entry.knowledge = knowledge.slice(0, 3);
+    // §180.9: what ends them, where its means stand, how far the route is; then the beliefs about them that are false.
+    Object.assign(entry, weaknessChain(graph, world, node, reads, true));
     if (truth(recordOf(node).keeper_note))
         entry.keeper_note = recordOf(node).keeper_note;
     const beliefs = graph.npcBeliefs(node);
@@ -648,7 +669,7 @@ export function creatureWhat(node: Row): string {
  * `now`, `personality`, `knows`, `believes`, `would_lie_about`, `ties`, `history`, `relationships`, `recent_speech`,
  * `commitments`, `reunion`, `from_other_lines`): no person feature reads a creature.
  */
-export function creatureEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row): Row {
+export function creatureEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row, reads: ChainReads = {}): Row {
     const state = npcState(graph, world, node), what = creatureWhat(node), note = recordOf(node).keeper_note;
     const toward = towardParty(row(ledger[node.node_id]));
     return {
@@ -656,14 +677,17 @@ export function creatureEntry(graph: ModuleGraph, world: Row, node: Row, ledger:
         kind: "creature",
         ...(what && normalize(what) !== normalize(graph.displayName(node)) ? { what } : {}),
         ...(state ? { state } : {}),
-        // §180.8–§180.9 (ticket CK-D): `habits`, `weaknesses` and `false_leads` join the row here, in this order, between
-        // the body's state and the Keeper's note.
+        // §180.8: its words (`habits`) under their labels; §180.9: the weakness chain, budgeted as a present row.
+        ...creatureWords(graph, world, node),
+        ...weaknessChain(graph, world, node, reads, true),
         ...(truth(note) ? { keeper_note: note } : {}),
         ...(toward ? { toward_party: toward } : {}),
     };
 }
 /** `options.voices` true is the capsule's form (contract §40.7): the lines-shaped words leave the rows for `voices`. */
-export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row; records?: Row[]; currentReceipts?: Row[]; campaign?:string; scope?:Row } = {}): Row[] {
+/** `options.chain` is what §180.9's chain reads beyond the world (the investigators and their spells); without it a need
+ *  still names itself, and an object placed as an instance still says who holds it. */
+export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledger: Row = {}, memory: Row[] = [], across: (node: Row) => Row[] = () => [], options: { voices?: boolean; journal?: Row; records?: Row[]; currentReceipts?: Row[]; campaign?:string; scope?:Row; chain?: ChainReads } = {}): Row[] {
     const projected=withPromiseFulfillment(memory,{campaign:options.campaign,receipts:canonicalMemoryReceipts(options.records??[],options.currentReceipts??[]),world});
     const memories=new Map<string,Row>();
     for(const value of projected.filter(m=>truth(m.id))) {
@@ -676,11 +700,11 @@ export function presentSection(graph: ModuleGraph, world: Row, scene: Row, ledge
     // §180.4: persons first, ranked; the creatures after them, so present[]'s budget (cut from the end) cuts them first.
     const present = npcsPresent(graph, world, scene), people = present.filter(node => graph.isPerson(node));
     return [
-        ...people.map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records,options.scope)).sort((a, b) => rank(a) - rank(b)),
-        ...present.filter(node => !graph.isPerson(node)).map(node => creatureEntry(graph, world, node, ledger)),
+        ...people.map(node => npcEntry(graph, world, node, ledger, memories, across, options.voices ? "drop" : "keep", row(options.journal), options.records,options.scope, options.chain)).sort((a, b) => rank(a) - rank(b)),
+        ...present.filter(node => !graph.isPerson(node)).map(node => creatureEntry(graph, world, node, ledger, options.chain)),
     ];
 }
-export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = [], memory:Row[] = [], scope:Row = {}, combat: Row | null = null, dispositions: Row | null = null): Row {
+export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, journal: Row = {}, records: Row[] = [], memory:Row[] = [], scope:Row = {}, combat: Row | null = null, dispositions: Row | null = null, reads: ChainReads = {}): Row {
     const untold = untoldBlock(graph, world, journal, node, records), handle = graph.handle(node),
         view: Row = {
         kind: "npc",
@@ -710,6 +734,9 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     for (const [field, values] of [["knowledge", graph.authoredLines(node, "knowledge")], ["believes", graph.npcBeliefs(node)], ["hides_claims", graph.npcClaimLines(node, "hides")], ["would_lie_about", graph.npcWouldSay(node)]] as const)
         if (values.length)
             view[field] = values;
+    // §180.9: the single-person read carries the whole chain, every entry and every `book` uncut.
+    const chain = weaknessChain(graph, world, node, reads);
+    Object.assign(view, chain);
     const ties = graph.npcTies(node);
     if (ties.length)
         view.ties = ties.map(tie => ({
@@ -734,7 +761,7 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     // table reads the rest in the fight itself. `combat` is the saved fight, so a Keeper's hold shows only in its round.
     // With the disposition table, a person without a disposition also carries what one is inferred from.
     Object.assign(view, cardAction(graph, world, node, combat, dispositions));
-    const authored = graph.entityView(node).properties;
+    const authored = withoutChainIds(graph.entityView(node).properties, chain);
     if (truth(authored))
         view.properties = authored;
     const relationships=npcRelationships(graph,node,memory,scope),recent=npcRecentSpeech(graph,node,records,scope);
@@ -744,6 +771,49 @@ export function npcView(graph: ModuleGraph, world: Row, node: Row, ledger: Row =
     if(commitments.length)view.commitments=commitments;
     const reunion=reunionView(graph,world,node,records,scope);
     if(reunion)view.reunion=reunion;
+    return view;
+}
+/** The authored properties a single read dumps, less the raw `weaknesses` (node ids) when the chain carries them by name. */
+function withoutChainIds(properties: Row, chain: Row): Row {
+    if (!truth(chain.weaknesses) || !Object.hasOwn(row(properties), "weaknesses"))
+        return properties;
+    const { weaknesses: _ids, ...rest } = properties;
+    return rest;
+}
+/**
+ * Contract §180.4/§180.9: the single read of a creature (`look focus=npc name=<creature>`). The present row's body
+ * fields -- what it is, its state, its words, how it stands toward the party -- with the whole weakness chain, and the
+ * Keeper's card: the ledger, its mechanics and, for one that states a stat block, how it defends and acts in a fight.
+ * None of a person's fields.
+ */
+export function creatureView(graph: ModuleGraph, world: Row, node: Row, ledger: Row = {}, combat: Row | null = null, dispositions: Row | null = null, reads: ChainReads = {}): Row {
+    const handle = graph.handle(node), state = npcState(graph, world, node), record = recordOf(node);
+    const toward = towardParty(row(ledger[node.node_id])), chain = weaknessChain(graph, world, node, reads);
+    const view: Row = {
+        kind: "creature",
+        ...(graph.adaptationOrigin(node.campaign_origin) ? {origin: graph.adaptationOrigin(node.campaign_origin)} : {}),
+        name: graph.displayName(node),
+        id: handle,
+        node_id: node.node_id,
+        scene: row(world.npc_presence)[handle] ?? null,
+        summary: node.summary ?? null,
+        visibility: node.visibility ?? null,
+        ...(state ? {state} : {}),
+        ...creatureWords(graph, world, node),
+        ...chain,
+        ...(truth(record.keeper_note) ? {keeper_note: record.keeper_note} : {}),
+        ...(toward ? {toward_party: toward} : {}),
+        ledger: ledger[node.node_id] ?? null,
+        mechanics: truth(graph.mechanicsOf(node)) ? graph.mechanicsOf(node) : null,
+    };
+    // A body the engine fights with (§136.12): how it defends and what it does in a fight, as a person's card says.
+    if (graph.isActor(node)) {
+        view.combat_tactic = cardTactic(graph, world, node);
+        Object.assign(view, cardAction(graph, world, node, combat, dispositions));
+    }
+    const authored = withoutChainIds(graph.entityView(node).properties, chain);
+    if (truth(authored))
+        view.properties = authored;
     return view;
 }
 export function investigatorView(sheet: Row): Row {

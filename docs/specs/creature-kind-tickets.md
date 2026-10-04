@@ -56,7 +56,7 @@ Status: done（`4e168ce3b`，合入 `d00f4f2ee`）。弱点闸门的输入是 `t
 
 ## CK-D Mod 能力与 hostile-creatures 包（§180.8–180.11）
 
-Status: ready-for-agent（2026-10-04 按 §183 重写后恢复）
+Status: done（分支 `claude/creature-kind-20261004-mod`，待 lead 合入；实现决定见契约 §180.16）
 
 - `graph.vocabulary.v1` 接受 `creature_profile_keys`：creature 词进入 spine、读者询问和 creature 行。
 - `graph.vocabulary.table.v1` 的门接受 creature 词。
@@ -129,3 +129,8 @@ CK-A 交回时留下的未决点，接手时一并处理：
 - 不带名字的 `npc.perspectives`、台词归属车道的在场名册（`extensions/kernel/index.ts` 的 `state.roster`）仍会列出 creature；§180.3 的表里没有这两项，要补进表并定下归属。
 - 0 HP 时的死亡折叠现在也会记到 creature 身上，但还没有任何地方读 creature 账本里的 `dead`。
 - CK-B 发现 `monsters.json` 的 `source_page` 有几处和 PDF 页码对不上（Byakhee 差一页；Werewolf、Zombie 记 330，实际在 347），它的 `source_note` 把页码说成印刷页也不对。这些不在本切片范围。
+
+**CK-D 交回（2026-10-04）。** CK-A 的前两个未决点已处理：`table.look focus=npc name=<creature>` 返回 creature 卡（`creatureView`，带习性和完整弱点链）；不带名字的 `npc.perspectives` 与台词归属车道的名册只列人，已补进 §180.3 的表。新的未决点：
+
+- 起始包的来源记录没有机制：`registerStarter` 不写 `meta.vocabulary`，起始包不绑定任何词，也不绑定弱点形状。§180.12 要 Corbitt 的弱点、老鼠的习性到达桌面，需要先定机制（注册时取当时的 `buildVocabulary`，还是由起始包数据自己声明），CK-F 开工前要定。
+- KP 的 `apply` 工具 schema（`extensions/kernel/tools.ts`）里没有 `dossier` 效果，§28.7 的门和 §180.8–180.9 的门都不在守秘人的类型化工具里。该文件归 CK-E。
