@@ -26,7 +26,8 @@ const text = (value: unknown): string => typeof value === 'string' ? value.trim(
 export const CAST_FILE = 'cast.json';
 /** The native text the cast reader was handed, kept by the kernel so `cast.submit` checks against its own copy. */
 export const CAST_SOURCE_FILE = 'cast-source.json';
-export const CAST_VERSION = 1;
+/** 2 since table 24: version 1 folded rows that shared a bare first name into one person, so its files are read again. */
+export const CAST_VERSION = 2;
 
 /** One person of the book (§177.1). */
 export interface CastPerson {
@@ -62,16 +63,21 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
     if (cached) return cached;
     const people: CastPerson[] = graph.kind('npc').filter(node => !graph.isTablePerson(node))
         .map(node => ({ id: graph.handle(node), names: bookNames(graph, node), pages: pagesOf(graph, node), node, castIds: [] }));
-    const owners = new Map<string, Set<number>>();
-    people.forEach((person, index) => { for (const name of person.names) owners.set(normalize(name), (owners.get(normalize(name)) ?? new Set()).add(index)); });
     // A partial cast (some ranges read, §177.2) is as true as a complete one, only shorter.
     const stored = graph.castStore && ['complete', 'partial'].includes(string(graph.castStore.state)) ? array(graph.castStore.people) : [];
+    // A row joins a graph person by a whole identity, never by a shared short form: the person's own name is one of the row's
+    // forms, or the row's fullest form is one of the person's names. Table 24: the reader gave the bar owner and the doctor
+    // one bare first name, which the bar owner's node also carries as an alias; the doctor's row must not join him by it.
+    const fullName = (node: Row) => [node.name, graph.displayName(node)].filter((value): value is string => typeof value === 'string' && !!value.trim()).map(normalize);
     for (const raw of stored) {
         const entry = row(raw), id = text(entry.id);
         const names = [...new Set([...array(entry.book), ...array(entry.play)].map(text).filter(Boolean))];
         if (!id || !names.length) continue;
         const pages = array(entry.pages).filter(page => Number.isSafeInteger(page) && page >= 1);
-        const hits = new Set(names.flatMap(name => [...(owners.get(normalize(name)) ?? [])]));
+        const forms = new Set(names.map(normalize));
+        const fullest = [...array(entry.book).map(text).filter(Boolean)].sort((a, b) => [...b].length - [...a].length)[0];
+        const hits = new Set(people.flatMap((person, index) => person.node && (fullName(person.node).some(name => forms.has(name))
+            || (fullest && person.names.some(name => normalize(name) === normalize(fullest)))) ? [index] : []));
         if (hits.size === 1) {
             const person = people[[...hits][0]!]!;
             for (const name of names) if (!person.names.some(other => normalize(other) === normalize(name))) person.names.push(name);
@@ -79,9 +85,9 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
             person.castIds.push(id);
             continue;
         }
-        // A row two graph people both answer is neither of them for certain; what is left of it is a person nobody carries.
-        const own = names.filter(name => !owners.has(normalize(name)));
-        if (!own.length) continue;
+        // A row no graph person answers by a whole identity (or two do) is someone else, with every name the row gives them:
+        // a first name they share with a graph person is shared, and the roster shows it as both their words (§177.4).
+        const own = names;
         const first = isJsonObject(entry.first) && Number.isSafeInteger(entry.first.page) && typeof entry.first.sentence === 'string'
             ? { page: Number(entry.first.page), sentence: entry.first.sentence } : undefined;
         people.push({ id, names: own, pages, node: null, castIds: [id], ...(first ? { first } : {}) });

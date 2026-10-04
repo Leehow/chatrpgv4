@@ -16,7 +16,7 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { npcsPresent } from '../read/capsule.js';
 import { EPITHETS_PER_JOB, WORD_LIMIT, readEpithets, submitEpithets, tableWord, untoldBookPeople, wordsInUse } from '../read/person-words.js';
 import { personDescribed } from '../first-sight/index.js';
-import { bookCast, untoldUnread } from '../read/cast.js';
+import { untoldUnread } from '../read/cast.js';
 import { array, repr, row, string, type Row } from '../read/values.js';
 
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
@@ -55,10 +55,7 @@ export function createEpithetHandlers(context: KernelContext, writer: ReturnType
             if (!graph) return { job_id: null, waiting: 'graph' };
             const stored = await readEpithets(campaign);
             const has = (id: string) => !!tableWord(world, id) || !!text(row(row(stored.people)[id]).word);
-            const castOf = new Map(bookCast(graph).filter(person => person.node).map(person => [person.node, person]));
-            // §177.5: a word the lane gave someone while the graph did not have them yet counts as theirs.
-            const wanting = untoldBookPeople(graph, journal, records)
-                .filter(node => !has(graph.handle(node)) && !(castOf.get(node)?.castIds ?? []).some(has));
+            const wanting = untoldBookPeople(graph, journal, records).filter(node => !has(graph.handle(node)));
             // §177.5: the people the book names whom the reader has not reached are given a word too, after the graph's people,
             // so the request's rename can show them by it rather than by the cast row's id.
             const unread = untoldUnread(graph, records).filter(person => !has(person.id));

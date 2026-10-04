@@ -32879,7 +32879,11 @@ The cast is one row per individual the book names (`bookCast`, `kernel-ts/read/c
 - **The graph's people.** Every `npc` node that is not a table person, with every name the book gives them (`bookNames`).
 - **The cast reader's rows** for a PDF book (§177.2), each with the forms the book prints and their play-language renderings.
 
-A stored row joins the graph person who carries one of its names exactly (normalized). The person then carries every name of both, and the row's id rides along as one of their `castIds`. A row that two graph people answer is neither of them; what is left of its names stands alone. A row nobody carries is an *unread* person: the book names them and the reader has not reached them.
+A stored row joins a graph person only by a whole identity (normalized): the person's own name or display name is one of the row's forms, or the row's fullest printed form is one of the person's names. The person then carries every name of both, and the row's id rides along as one of their `castIds`.
+
+A row that no graph person answers this way, or that two answer, is an *unread* person: the book names them and the reader has not reached them. They keep every name the row gives them, including a first name they share with a graph person.
+
+Table 24 is why a shared short form never joins: the reader gave the bar owner and the doctor one bare first name, and the bar owner's node also carries it as an alias.
 
 - **Told.** An unread person is untold until a committed delivery shows one of their names (`castToldTurn`).
 - **Id.** An unread person's id is the row's opaque `cast-<hex>`, a digest of the printed forms, never a slug of a name (§176.5).
@@ -32924,7 +32928,8 @@ A module that plays from reading (`playsFromReading`) gets its cast once per bou
 - Every `book` form must stand on one of the row's pages under `passageKey`, the same comparison as §11.5.4.
 - A form an earlier range already printed (`known_cast`) needs no page here, so one individual joins up across ranges. A row of known forms only must still stand on one of its pages.
 - A failing row is refused alone, with reason `shape` or `not_on_page` and a fix naming what to add (§90.3). The other rows stand.
-- Rows that share a printed form are one person. A row folded into a kept row keeps that row's id, so a word the epithet lane gave under it stays theirs.
+- A row is one person as the reader wrote it, even when two rows share a form. Version 1 folded rows on any shared form, and on table 24 it made the bar owner and the doctor one person by their common first name. `CAST_VERSION` is 2, so version-1 files are read again.
+- Across ranges, a row joins the kept row that carries one of its forms only when no other kept row carries that form, and it keeps that row's id, so a word the epithet lane gave under it stays theirs. A row whose forms are shared, or that names two kept rows, is a person of its own.
 - Each row keeps `first`, the sentence of its first mention, cut by machine as §11.5.4 cuts one.
 
 **The reader** reads under `content/setup/module-cast.md` with `read,write,edit,bash`, at background priority, about ten pages per tool call. Its own check is `coc-read-check --kind module-cast --draft draft.json`, which runs the same function against the page files and `known_cast` it was handed.
@@ -32954,7 +32959,8 @@ A space is not punctuation, so "Silas Marsh" gives no piece. A short form the bo
 
 ### 177.4 The rename and the refusals cover the whole cast
 
-- **The rename.** `untoldRoster` (§103.5/§103.8) renames, for every untold person of the cast, every name the cast gives them, plus pieces unique to one untold person. An unread person is shown by the word the lane gave them, else by their row id. A page carried for a scene can name someone the graph does not have; their name no longer reaches the Keeper as printed.
+- **The rename.** `untoldRoster` (§103.5/§103.8) renames, for every untold person of the cast, every name the cast gives them and every punctuation piece of those names. An unread person is shown by the word the lane gave them, else by their row id. A page carried for a scene can name someone the graph does not have; their name no longer reaches the Keeper as printed.
+- **Shared names.** A name or piece that several untold people share is shown as all their words, joined by " / ". §176.5 left such a piece alone, as naming neither person for certain. On table 24 the bar owner's first name was shared that way and reached the Keeper as printed; a shared name is still a name.
 - **Pieces.** `untoldPieces` reads the whole cast, so the epithet lane's words and `apply person` names refuse a name or piece of an unread person too.
 - **Journal labels.** The journal lane's label is refused `untold_name` when it carries a name or piece of anyone else untold, graph or unread, besides the person's own (§103.8 item 5).
 
@@ -32962,7 +32968,8 @@ A space is not punctuation, so "Silas Marsh" gives no piece. A short form the bo
 
 - **The job.** `epithets.job` lists unread untold people after the graph's people, with `looks` their first-mention sentence. A person whose cast row already has a word is not asked again.
 - **Submit and fold.** `epithets.submit` accepts their row id. The fold writes their word under the row id in `world.person_epithets`.
-- **When the graph gets them.** Once the graph has the person, the fold carries the row's word to their handle.
+- **When the graph gets them.** Once the graph has the person, the row's word stays with the row and the lane words the person again from their record. The row's word was made from the sentence that first names them, which on table 24 was often what happens to them ("the father hung in the slaughterhouse cold room"); as the table's word for a person met it would show that to the player.
+- **Withdrawal.** At every fold, a stored word that now carries a name or piece of someone untold is withdrawn from `epithets.json` and from the world, and the lane is asked again. On table 24 the lane called a gang "Brenner's dim thugs" before the cast had read that the doctor is printed as plain "Brenner"; a word once written was never checked again.
 - **Waking the lane.** The lane queues a job on `coc:cast-published` for its own campaign (`wakeOn`, `extensions/lanes/queue.ts`).
 
 ### 177.6 A write naming an unread person lands on the cast's pages
@@ -33008,6 +33015,6 @@ Tests:
   - the replacement by cast id;
   - no text layer;
   - an authored module, and the abbreviation.
-- `tests/extension/module-cast.test.mjs` also: the library's cast read by a campaign's fork; a 45-page book in two ranges, the second joining a known person by a known form under the first range's id, refusing a page outside its range, and resuming from the kept text.
+- `tests/extension/module-cast.test.mjs` also: two rows sharing a form kept as two people, and across ranges a shared first name joining nobody; a row joining a graph person by a whole identity and not by an alias first name; a shared name shown as all owners' words; a word withdrawn once it carries a name learned later; an unread word not following the person into the graph; the library's cast read by a campaign's fork; a 45-page book in two ranges, the second joining a known person by a known form under the first range's id, refusing a page outside its range, and resuming from the kept text.
 - `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, one background child per range under `module-cast.md`, each range's submit, record and announcement, all in the library scope, resuming at the first range not read, the second run after a refusal, no child without text, one run at a time, a preparation queueing the cast, a campaign-only module read in its scope, and a table opened before the session started still asking for the cast, in either order.
 - `tests/extension/npc-epithets-lane.test.mjs`: a published cast asks again, and another campaign's does not.

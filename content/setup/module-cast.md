@@ -29,7 +29,8 @@ Write `draft.json`:
 - `book`: every form of the name your pages print, copied character for character from the page files. Each form must stand on at least one page listed in `pages`.
 - `play`: how the play language (`task.play_language`) writes each form. When the book is written in that language, repeat the printed forms. Otherwise give the rendering a translator of this book would use for that name, one for each printed form that differs.
 - `pages`: the pages of your range where you saw them named: at least one page for each form in `book` that is new, and every page in your range you noticed them on. Cite only pages of your range.
-- Someone already in `known_cast`: write the row with one of their known `book` forms copied exactly, plus the forms your pages print. A known form needs no page in your range; the new forms do. This is how one individual stays one person across ranges, so do it whenever your pages make clear it is the same individual.
+- Someone already in `known_cast`: write the row with their fullest known `book` form copied exactly (one that nobody else in `known_cast` carries), plus the forms your pages print. A known form needs no page in your range; the new forms do. This is how one individual stays one person across ranges, so do it whenever your pages make clear it is the same individual. A bare first name that two people share joins nobody.
+- Two individuals may share a form (two people with the same first name). List it in both rows; each row is still one individual, kept apart by its other forms.
 
 ## How to work
 

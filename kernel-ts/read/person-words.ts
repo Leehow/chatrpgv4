@@ -109,8 +109,21 @@ export { readStored as readEpithets };
 export async function foldPersonWords(campaign: CampaignWriter, graph: ModuleGraph, world: Row, journal: Row, records: Row[]): Promise<boolean> {
     const stored = await readStored(campaign);
     const storedWord = (id: string): string => text(row(row(stored.people)[id]).word).trim();
-    const cast = bookCast(graph);
     let changed = false;
+    // §177.5 (table 24): a word that carries a name of someone still untold is withdrawn, though it was accepted when written:
+    // the cast can learn a form (a bare surname) after the lane used it, and a word once written was never checked again.
+    // The lane is asked for a new one; the world's copy goes with it.
+    const pieces = untoldPieces(graph, journal, records);
+    let withdrawn = false;
+    for (const [id, entry] of entries(row(stored.people))) {
+        const word = text(row(entry).word).trim();
+        if (!word || !pieces.some(piece => occurs(normalize(word), piece))) continue;
+        delete (stored.people as Row)[id];
+        withdrawn = true;
+        const folded = epithetRecord(world, id);
+        if (text(folded.word).trim() === word) { delete (world.person_epithets as Row)[id]; changed = true; }
+    }
+    if (withdrawn) await campaign.write(EPITHETS_FILE, stored);
     const fold = (handle: string, next: { word: string; by: string } | null) => {
         const current = epithetRecord(world, handle);
         if (!next || (text(current.word) === next.word && text(current.by) === next.by)) return;
@@ -120,9 +133,9 @@ export async function foldPersonWords(campaign: CampaignWriter, graph: ModuleGra
     for (const node of untoldBookPeople(graph, journal, records)) {
         const handle = graph.handle(node);
         if (labelOf(world, handle)) continue;
-        // §177.5: a word the lane gave the person while the book named them and the graph did not have them yet follows them.
-        const carried = cast.find(person => person.node === node)?.castIds.map(storedWord).find(Boolean) ?? '';
-        const graphWord = storedWord(handle) || carried;
+        // §177.5: a word the lane gave someone while the graph did not have them yet stays with the row: it was made from the
+        // sentence that first names them, which is often what happens to them, and the person is worded again from their record.
+        const graphWord = storedWord(handle);
         const journalWord = text(row(row(journal.entries)[string(node.node_id)]).label).trim();
         fold(handle, graphWord ? { word: graphWord, by: 'graph' } : journalWord && text(epithetRecord(world, handle).by) !== 'graph' ? { word: journalWord, by: 'journal' } : null);
     }

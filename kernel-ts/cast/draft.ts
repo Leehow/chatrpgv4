@@ -137,33 +137,38 @@ export function checkCastDraft(draft: unknown, pages: ReadonlyMap<number, string
         }
         accepted.push({ book: names, play: renderings, pages: sorted, first: firstSeen });
     });
-    // One person per shared book name: a later row that shares a book name with an earlier one is folded into it.
-    const merged: typeof accepted = [];
-    for (const row of accepted) {
-        const keys = new Set(row.book.map(name => passageKey(name)));
-        const into = merged.find(other => other.book.some(name => keys.has(passageKey(name))));
-        if (!into) { merged.push({ ...row, book: [...row.book], play: [...row.play], pages: [...row.pages] }); continue; }
-        for (const name of row.book) if (!into.book.some(other => passageKey(other) === passageKey(name))) into.book.push(name);
-        for (const name of row.play) if (!into.play.some(other => normalize(other) === normalize(name))) into.play.push(name);
-        into.pages = [...new Set([...into.pages, ...row.pages])].sort((a, b) => a - b);
-        if (row.first && (!into.first || row.first.page < into.first.page)) into.first = row.first;
-    }
-    const people = merged.map(row => ({ id: castRowId(row.book), book: row.book.slice(0, CAST_NAMES_PER_PERSON), play: row.play.slice(0, CAST_NAMES_PER_PERSON),
-        pages: row.pages, ...(row.first ? { first: row.first } : {}) }));
+    // One row is one person, as the reader wrote it: two rows that share a printed form are two people who share it (table
+    // 24: the reader gave a bare first name to the bar owner and to the doctor, and folding on it made them one person).
+    const ids = new Set<string>();
+    const people = accepted.map(row => {
+        let id = castRowId(row.book);
+        for (let n = 2; ids.has(id); n++) id = `${castRowId(row.book)}-${n}`;
+        ids.add(id);
+        return { id, book: row.book.slice(0, CAST_NAMES_PER_PERSON), play: row.play.slice(0, CAST_NAMES_PER_PERSON), pages: row.pages, ...(row.first ? { first: row.first } : {}) };
+    });
     return { people, refused };
 }
 
 /**
- * Fold a range's accepted rows into the rows earlier ranges kept (§177.2). A row joins the stored row that shares one of its
- * printed forms and keeps that row's id, so a word the epithet lane gave under it stays theirs; a row two stored rows answer
- * joins the first. Nothing joins by meaning.
+ * Fold a range's accepted rows into the rows earlier ranges kept (§177.2). A row joins the one stored row that carries one of
+ * its printed forms when no other stored row carries that form too, and keeps that row's id, so a word the epithet lane gave
+ * under it stays theirs. A row whose forms are shared, or name two stored rows, is a person of its own: a bare first name two
+ * people share is no evidence they are one. Nothing joins by meaning.
  */
 export function mergeCastRows(stored: readonly CastRowStored[], incoming: readonly CastRowStored[]): CastRowStored[] {
     const out = stored.map(row => ({ ...row, book: [...row.book], play: [...row.play], pages: [...row.pages] }));
+    const holders = (key: string) => out.filter(row => row.book.some(name => passageKey(name) === key));
+    const ids = new Set(out.map(row => row.id));
     for (const row of incoming) {
-        const keys = new Set(row.book.map(name => passageKey(name)));
-        const into = out.find(other => other.book.some(name => keys.has(passageKey(name))));
-        if (!into) { out.push({ ...row, book: [...row.book], play: [...row.play], pages: [...row.pages] }); continue; }
+        const owners = new Set(row.book.map(name => holders(passageKey(name))).filter(found => found.length === 1).map(found => found[0]!));
+        const into = owners.size === 1 ? [...owners][0]! : null;
+        if (!into) {
+            let id = row.id;
+            for (let n = 2; ids.has(id); n++) id = `${row.id}-${n}`;
+            ids.add(id);
+            out.push({ ...row, id, book: [...row.book], play: [...row.play], pages: [...row.pages] });
+            continue;
+        }
         for (const name of row.book) if (into.book.length + into.play.length < CAST_NAMES_PER_PERSON && !into.book.some(other => passageKey(other) === passageKey(name))) into.book.push(name);
         for (const name of row.play) if (into.book.length + into.play.length < CAST_NAMES_PER_PERSON && !into.play.some(other => normalize(other) === normalize(name))) into.play.push(name);
         into.pages = [...new Set([...into.pages, ...row.pages])].sort((a, b) => a - b);

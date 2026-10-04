@@ -28,7 +28,9 @@ export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {ModuleGraph} from './kernel-ts/read/module-graph.ts';
 export {replacePassagePeople} from './kernel-ts/read/table-people.ts';
 export {bookCast, newcomerRefusal} from './kernel-ts/read/cast.ts';
-export {checkCastDraft} from './kernel-ts/cast/draft.ts';
+export {checkCastDraft, mergeCastRows} from './kernel-ts/cast/draft.ts';
+export {untoldRoster} from './kernel-ts/read/capsule.ts';
+export {foldPersonWords} from './kernel-ts/read/person-words.ts';
 export {checkModuleCast} from './kernel-ts/check.ts';`, resolveDir: root},
   outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(temporary, 'api.mjs')).href);
@@ -162,13 +164,54 @@ test('§177.2: a long book is read in ranges; a later range joins a known person
 		'one person across both ranges, under the id the first range gave (a word the lane gave under it stays theirs)');
 });
 
-test('§177.2: rows sharing a printed name are one person; the shape is closed', () => {
+test('§177.2: a row is one person as the reader wrote it, though two rows share a form; across ranges only a form one row carries joins', () => {
 	const pages = new Map(PAGES.map((text, index) => [index + 1, text]));
-	const merged = api.checkCastDraft({people: [{book: ['Old Mae'], play: ['Old Mae'], pages: [1]}, {book: ['Mae', 'Old Mae'], play: ['Mae'], pages: [1, 3]}]}, pages, 3);
-	assert.deepEqual(merged.people.map(row => [row.book, row.pages]), [[['Old Mae', 'Mae'], [1, 3]]]);
+	// Table 24: the reader gave a bare first name to the bar owner and to the doctor; folding on it made them one person.
+	const two = api.checkCastDraft({people: [{book: ['Old Mae', 'Mae'], play: ['Old Mae', 'Mae'], pages: [1]}, {book: ['Mae'], play: ['Mae'], pages: [3]}]}, pages, 3);
+	assert.deepEqual(two.people.map(row => row.book), [['Old Mae', 'Mae'], ['Mae']], 'two rows, two people');
+	assert.notEqual(two.people[0].id, two.people[1].id);
 	assert.equal(api.checkCastDraft({people: [], extra: 1}, pages, 3).error.length > 0, true);
 	const shapes = api.checkCastDraft({people: [{book: ['Jonah'], pages: [3]}, {book: ['Jonah'], play: ['Jonah'], pages: [9]}, {book: ['J'], play: ['J'], pages: [3]}]}, pages, 3);
 	assert.deepEqual(shapes.refused.map(row => row.reason), ['shape', 'shape', 'shape']);
+	const stored = [{id: 'cast-aaaaaaaaaa', book: ['Robert Taylor', 'Robert'], play: ['Robert Taylor', 'Robert'], pages: [15]},
+		{id: 'cast-bbbbbbbbbb', book: ['Robert Brenner', 'Robert'], play: ['Robert Brenner', 'Robert'], pages: [32]}];
+	const merged = api.mergeCastRows(stored, [{id: 'cast-cccccccccc', book: ['Robert'], play: ['Robert'], pages: [50]},
+		{id: 'cast-dddddddddd', book: ['Robert Brenner', 'Doc'], play: ['Robert Brenner', 'Doc'], pages: [51]}]);
+	assert.deepEqual(merged.map(row => [row.id, row.book]), [['cast-aaaaaaaaaa', ['Robert Taylor', 'Robert']], ['cast-bbbbbbbbbb', ['Robert Brenner', 'Robert', 'Doc']],
+		['cast-cccccccccc', ['Robert']]], 'the shared first name joins nobody; the doctor\'s full name joins him under his id');
+});
+
+test('§177.1/§177.4: a row joins a graph person by a whole identity; a name two untold people share is hidden as both their words', () => {
+	const raw = {nodes: [{node_id: 'npc-robert-taylor', node_kind: 'npc', name: 'Robert Taylor', aliases: ['Robert'], source_refs: [{page: 15}]}], relations: []};
+	const graph = new api.ModuleGraph('road', raw, 'digest', {});
+	graph.castStore = {version: 2, source_sha256: 'x', state: 'complete', people: [
+		{id: 'cast-aaaaaaaaaa', book: ['Robert L. Brenner', 'Robert'], play: ['Robert L. Brenner', 'Robert'], pages: [32]},
+		{id: 'cast-bbbbbbbbbb', book: ['Robert Benson', 'Robert'], play: ['Robert Benson', 'Robert'], pages: [36]},
+		{id: 'cast-cccccccccc', book: ['Robert Taylor', 'Robert'], play: ['Robert Taylor', 'Robert'], pages: [41]}]};
+	const cast = api.bookCast(graph);
+	assert.deepEqual(cast.map(person => [person.id, person.castIds]), [['robert-taylor', ['cast-cccccccccc']], ['cast-aaaaaaaaaa', ['cast-aaaaaaaaaa']], ['cast-bbbbbbbbbb', ['cast-bbbbbbbbbb']]],
+		'the doctor\'s and the hardware man\'s rows do not join the bar owner by the first name his node carries');
+	const world = {person_epithets: {'robert-taylor': {word: 'the bar owner', by: 'graph'}, 'cast-aaaaaaaaaa': {word: 'the doctor', by: 'graph'}, 'cast-bbbbbbbbbb': {word: 'the hardware man', by: 'graph'}}};
+	const roster = api.untoldRoster(graph, world, {}, []);
+	const shown = name => roster.filter(row => row.name === name).map(row => row.shown);
+	assert.deepEqual(shown('Robert'), ['the bar owner / the doctor / the hardware man'], 'hidden, and blamed on nobody');
+	assert.deepEqual(shown('Robert L. Brenner'), ['the doctor']);
+});
+
+test('§177.5: a word that carries a name learned later is withdrawn; a word given while unread does not follow the person into the graph', async () => {
+	const raw = {nodes: [{node_id: 'npc-old-mae', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 1}]},
+		{node_id: 'npc-jonah', node_kind: 'npc', name: 'Jonah', source_refs: [{page: 3}]}], relations: []};
+	const graph = new api.ModuleGraph('harbor', raw, 'digest', {});
+	graph.castStore = {version: 2, source_sha256: 'x', state: 'complete', people: [
+		{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}, {id: 'cast-9876543210', book: ['Silas'], play: ['Silas'], pages: [2]}]};
+	const file = {people: {'old-mae': {word: "Silas's sister at the nets"}, 'cast-0123456789': {word: 'the drowned boy'}}};
+	let written = null;
+	const campaign = {path: name => name, context: {snapshots: {pathExists: async () => true}}, read: async () => structuredClone(file), write: async (name, value) => { written = value; }};
+	const world = {person_epithets: {'old-mae': {word: "Silas's sister at the nets", by: 'graph'}}};
+	await api.foldPersonWords(campaign, graph, world, {}, []);
+	assert.ok(written && !written.people['old-mae'], 'withdrawn from the lane\'s file, so the lane is asked again');
+	assert.equal(world.person_epithets['old-mae'], undefined, 'and from the world');
+	assert.equal(world.person_epithets.jonah, undefined, 'the unread word was made from the sentence that first names him; he is worded again from his record');
 });
 
 test('§177.2: the cast is the book\'s, read in the shared library; the campaign\'s fork reads it', async t => {
@@ -272,7 +315,7 @@ test('§177.6/§177.7: lookup finds a person by the table\'s word; an unread per
 test('§177.6: once the reader publishes the person, the landed entry is replaced by the cast row\'s id, though its word is no book name', () => {
 	const raw = {nodes: [{node_id: 'npc-jonah', node_kind: 'npc', name: 'Jonah', source_refs: [{page: 3}]}], relations: []};
 	const graph = new api.ModuleGraph('harbor', raw, 'digest', {});
-	graph.castStore = {version: 1, source_sha256: 'x', state: 'complete', people: [{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}]};
+	graph.castStore = {version: 2, source_sha256: 'x', state: 'complete', people: [{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}]};
 	assert.deepEqual(api.bookCast(graph).map(person => [person.id, person.castIds]), [['jonah', ['cast-0123456789']]]);
 	const world = {table_people: [{name: 'the drowned boy', from_passage: {page: 3, sentence: 'Jonah drowned.'}, cast_id: 'cast-0123456789'}],
 		npc_stances: {'the drowned boy': 'wary'}};
@@ -284,7 +327,7 @@ test('§177.1/§177.2: a partial cast is used as it stands; a cast of another st
 	const raw = {nodes: [{node_id: 'npc-old-mae', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 1}]}], relations: []};
 	const people = state => {
 		const graph = new api.ModuleGraph('harbor', raw, 'digest', {});
-		graph.castStore = {version: 1, source_sha256: 'x', state, people: [{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}]};
+		graph.castStore = {version: 2, source_sha256: 'x', state, people: [{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}]};
 		return api.bookCast(graph).map(person => person.id);
 	};
 	assert.deepEqual(people('partial'), ['old-mae', 'cast-0123456789'], 'the ranges read so far are true already');

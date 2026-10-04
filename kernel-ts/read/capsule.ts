@@ -170,22 +170,28 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
     const known = new Set(namePieces(people.filter(entry => !entry.untold).flatMap(entry => entry.person.names)).map(normalize));
     // §176.5: the pieces a name separates with punctuation are renamed too. Table 23 (turn 5): the book's own scene summary
     // said the three men under the awning were "Lars, Nate and Steve" by first name; the whole names and the aliases were
-    // renamed, the bare first names were not, and the Keeper wrote one of them. A piece two untold people share names
-    // neither of them for certain, so it is left alone.
-    const pieceOwners = new Map<string, number>();
-    for (const { person, untold } of people) if (untold)
-        for (const piece of new Set(namePieces(person.names).map(normalize))) pieceOwners.set(piece, (pieceOwners.get(piece) ?? 0) + 1);
-    return people.flatMap(({ person, untold }) => {
-        if (!untold) return [];
+    // renamed, the bare first names were not, and the Keeper wrote one of them.
+    // §177.4 (table 24): a name or piece two untold people share was left alone, as naming neither for certain; with the
+    // whole cast read, the bar owner and the doctor shared a first name, and it reached the Keeper as printed. A name two
+    // untold people share is still a name: it is shown as both their words, "A / B", which hides it and blames nobody.
+    const owners = new Map<string, { name: string; shown: string[]; id: string }>();
+    for (const { person, untold } of people) {
+        if (!untold) continue;
         const node = person.node, id = person.id;
         // §177.4: an unread person is shown by the word the lane gave them, else by the row's id, which is opaque (no slug).
         const shown = node ? string(untold.label || "").trim() || id : tableWord(world, id) || id;
         // §176.5: a handle is the book's name as a slug, so the handle and the node id are renamed too, once there is a word.
         const slugs = !node || shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
         const names = person.names;
-        const pieces = namePieces(names).filter(piece => !names.includes(piece) && pieceOwners.get(normalize(piece)) === 1);
-        return [...names, ...pieces].filter(name => !known.has(normalize(name))).concat(slugs).map(name => ({ name, id, shown }));
-    });
+        for (const name of [...names, ...namePieces(names).filter(piece => !names.includes(piece)), ...slugs]) {
+            const key = normalize(name);
+            if (!key || known.has(key)) continue;
+            const entry = owners.get(key) ?? { name, shown: [], id };
+            if (!entry.shown.includes(shown)) entry.shown.push(shown);
+            owners.set(key, entry);
+        }
+    }
+    return [...owners.values()].map(entry => ({ name: entry.name, id: entry.id, shown: entry.shown.join(" / ") }));
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
     const label = row(world.clue_labels)[handle];
