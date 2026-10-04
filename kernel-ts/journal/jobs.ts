@@ -5,7 +5,8 @@ import { isJsonObject, jsonDigest, compareUnicode } from '../json.js';
 import { appendJsonl } from '../fileio.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
 import { ModuleGraph } from '../read/module-graph.js';
-import { personRecord, sceneLabel } from '../read/capsule.js';
+import { sceneLabel } from '../read/capsule.js';
+import { tableWord } from '../read/person-words.js';
 import { bookNames, namePieces, occurs, nameWords, toldTurn } from './naming.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
@@ -139,11 +140,11 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     }
     const isNamed = (id: string) => integer(row(journal.entries[id]).named_at) || told[id] !== undefined;
     const unnamed = sorted(new Set(named.filter(([, id]) => !isNamed(id)).map(([name]) => name)));
-    // §103.7: what this table calls each person (`apply person`, §79), by journal id. The prose calls them that, so the lane
-    // tells who is who by it, and the person's label is that word.
+    // §103.7: what this table calls each person (`apply person`, §79, and since §176 their epithet), by journal id. The prose
+    // calls them that, so the lane tells who is who by it, and the person's label is that word.
     const epithets: Row = {};
     for (const [, id] of named) {
-        const node = graph.nodes.get(id), word = node ? string(personRecord(world, graph.handle(node)).name || '').trim() : '';
+        const node = graph.nodes.get(id), word = node ? tableWord(world, graph.handle(node)) : '';
         // A book person's handle written as their word (table 16, before apply person refused it) is not an epithet.
         if (word && (word !== graph.handle(node!) || graph.isTablePerson(node))) epithets[id] = word;
     }
@@ -153,7 +154,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
             continue;
         namedPrior.add(name);
         const stored = row(journal.entries[id]), node = graph.nodes.get(id);
-        const label = string((node ? personRecord(world, graph.handle(node)).name : '') || stored.label || '').trim();
+        const label = string((node ? tableWord(world, graph.handle(node)) : '') || stored.label || '').trim();
         prior.push({ name, ...(label && !isNamed(id) ? { label } : {}), description: string(stored.description), last_seen_turn: number(stored.last_seen_turn) });
     }
     const present = array(snapshot.present).map(name => npcNode(graph, name)).filter(truth) as Row[];
@@ -175,7 +176,7 @@ export async function buildJob(campaign: CampaignWriter, graph: ModuleGraph, lan
     const aliasFor=(id:string)=>selectors[people.findIndex(person=>person.id===id)]?.alias;
     const priorV2=people.flatMap(person=>{
         const stored=row(journal.entries[person.id]);if(!isJsonObject(journal.entries[person.id])) return [];
-        const node=graph.nodes.get(person.id),label=string((node?personRecord(world,graph.handle(node)).name:'')||stored.label||'').trim();
+        const node=graph.nodes.get(person.id),label=string((node?tableWord(world,graph.handle(node)):'')||stored.label||'').trim();
         return [{person:aliasFor(person.id),...(label&&!isNamed(person.id)?{label}:{}),description:string(stored.description),last_seen_turn:number(stored.last_seen_turn)}];
     });
     Object.assign(packet,{protocol:JOURNAL_REFERENCE_PROTOCOL,recordable:people.map((person,i)=>({alias:selectors[i].alias,name:person.name,...(epithets[person.id]?{epithet:epithets[person.id]}:{})})),

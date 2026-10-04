@@ -22,8 +22,14 @@ const object = (value: unknown): Row => value && typeof value === "object" && !A
 const text = (value: unknown): string => typeof value === "string" ? value.trim() : "";
 
 export const UNTOLD_VIEW_USE = "Nobody has said this person's name to the investigator, and you do not have it: in prose they are who they look like. "
-	+ "`name` is their handle or this table's epithet, for tool calls and say tokens. When the fiction has their name said (they give it, "
-	+ "someone calls them by it, a paper shows it), write {{name:<their name field>}} there: the delivery puts in the name the book gives them.";
+	+ "`name` is this table's word for them, for tool calls and say tokens. When the fiction has their name said (they give it, "
+	+ "someone calls them by it, a paper shows it), put `say_name` there exactly: the delivery puts in the name the book gives them.";
+
+/**
+ * §176.5 (spec Q4): the token that says an untold person's name, ready to copy. Neither model on table 21 wrote
+ * `{{name:<who>}}` when it had to compose it; each made up a name from the handle instead.
+ */
+export const sayName = (shown: string): string => `{{name:${shown}}}`;
 
 /** What each untold person is shown as in the Keeper's copy, by handle and by the book's name. */
 export interface UntoldNames { byId: Map<string, string>; byName: Map<string, string> }
@@ -41,7 +47,7 @@ export function untoldView<T>(capsule: T): { capsule: T; names: UntoldNames } {
 		names.byName.set(name, shown);
 		if (id) names.byId.set(id, shown);
 		const { name: _book, untold: _untold, ...rest } = row;
-		return { name: shown, ...rest, untold: { ...(text(untold.label) ? { label: text(untold.label) } : {}), use: UNTOLD_VIEW_USE } };
+		return { name: shown, ...rest, untold: { ...(text(untold.label) ? { label: text(untold.label) } : {}), say_name: sayName(shown), use: UNTOLD_VIEW_USE } };
 	});
 	if (!names.byName.size) return { capsule, names };
 	const view: Row = { ...source, present };

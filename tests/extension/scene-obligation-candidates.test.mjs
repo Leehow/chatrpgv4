@@ -556,7 +556,8 @@ async function arrival({ fact, compile, responses, firstExit = "finish", bind = 
 		realKernel: true, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS },
 		prepareWorkspace: (workspace) => kernelSteps(workspace, [["table.open", {}], ["table.player_input", { text: "我去《环球报》报馆" }],
 			["table.apply", { call_id: "t1-c1", effects: [{ kind: "move", to: MORGUE }] }], ["table.narrate", { call_id: "t1-c2", text: "你到了报馆。" }],
-			...(label ? [["journal.submit", { job_id: "journal:test-camp:t1", entries: [{ name: "Arty Wilmot", label: EDITOR }] }]] : [])]),
+			...(label === "graph" ? [["epithets.submit", { entries: [{ id: "arty-wilmot", word: EDITOR }] }]]
+				: label ? [["journal.submit", { job_id: "journal:test-camp:t1", entries: [{ name: "Arty Wilmot", label: EDITOR }] }]] : [])]),
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }, probe],
 		responses: responses.map((response) => (context) => { requests.push(context); return response; }),
 	});
@@ -582,6 +583,16 @@ test("the compile's ask at arrival: the meeting is carried directly under the ta
 	const firstCompile = decisions.findIndex((batch) => batch.family === COMPILE_FAMILY), firstRoute = decisions.findIndex((batch) => batch.family === ROUTE_FAMILY);
 	assert.ok(firstCompile >= 0 && (firstRoute < 0 || firstCompile < firstRoute), "the compile came before any route");
 	assert.ok(decisions.some((batch) => batch.family === BIND_FAMILY && batch.questions.some((question) => question.key === "skill")), "the check's approach was a Jev bind");
+});
+
+test("§176: with the epithet lane's word for Arty the compile's ask carries his meeting under it directly again, and no LLM step is spent", async (t) => {
+	const { table, calls } = await arrival({ fact: "seeks", compile: "demand", label: "graph", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
+	const clerk = calls.filter((value) => value.id.startsWith("clerk:"));
+	assert.deepEqual(clerk[0]?.input.effects?.map((effect) => [effect.who, effect.name]), [["Arty Wilmot", EDITOR]], "the meeting, under the graph epithet");
+	assert.equal(clerk[1]?.input.action?.obligation, ACCESS, "then the claimed check");
+	assert.ok(!table.telemetry("test-camp").some((row) => row.event === "llm_bound"), "no LLM bind");
 });
 
 test("§103.8: with no label for Arty the compile's ask stages nobody -- no meeting under his book name, no check, no refused clerk step", async (t) => {

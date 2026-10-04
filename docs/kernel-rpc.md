@@ -32849,6 +32849,7 @@ The evidence is the spec's §1. On table 21 (flapcode gpt-6-luna, then grok-buil
 
 Tests:
 - `tests/extension/graph-epithets.test.mjs`, on the real kernel with The Haunting: the job's people and taken words; every refusal reason; another person's name piece refused; the fold at `table.player_input`; `apply person` and a say token resolving an epithet; the journal label folded and resolved; the roster's handle rows.
-- `tests/extension/untold-view.test.mjs`: `say_name`, and no handle in the Keeper's request.
+- `tests/extension/untold-view.test.mjs`: `say_name` on each untold row and in the untold line.
+- `tests/extension/untold-request.test.mjs`: with the lane's word, the request carries neither the book name, the handle nor the node id (the clerk's note and a tool result renamed), and the copied `say_name` delivers the book's name.
 - `tests/extension/npc-epithets-lane.test.mjs`: the prompt names the play language; the shape is closed; refusals are retried once.
 - `tests/extension/scene-obligation-candidates.test.mjs`: the clerk's meeting carried under a graph epithet.

@@ -12,9 +12,10 @@
  */
 import { RpcError } from '../errors.js';
 import type { DomainEvent } from '../transactions.js';
-import { calledPerson, personRecord, untoldBlock } from '../read/capsule.js';
+import { calledPerson, personRecord } from '../read/capsule.js';
 import { CampaignSnapshot } from '../read/campaign.js';
-import { bookNames, namePieces, occurs } from '../journal/naming.js';
+import { occurs } from '../journal/naming.js';
+import { tableWord, untoldPieces } from '../read/person-words.js';
 import { normalize, repr, row, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
@@ -73,15 +74,18 @@ function word(effect: Row, field: string): string | null {
     return trimmed;
 }
 
-/** §103.8: refuse a book name, or a piece of one, as the word for a book person nobody has named to the investigator. */
+/**
+ * §103.8: refuse a book name, or a piece of one, as the word for a person. §176.3 widened it: the word may carry no name
+ * of anyone still untold, not only this person's. Table 21's journal lane wrote biographies that name the neighbours, and
+ * a word like "Steve's neighbour" tells Steve's name. A piece a told person also carries does not count.
+ */
 async function refuseUntoldName(context: ApplyContext, handle: string, name: string): Promise<void> {
-    const { graph, world } = context, node = graph.find(handle, ['npc']);
+    const { graph } = context, node = graph.find(handle, ['npc']);
     if (!node || graph.isTablePerson(node)) return;
-    const said = normalize(name), pieces = namePieces(bookNames(graph, node)).map(normalize).filter(Boolean);
-    if (!pieces.some(piece => occurs(said, piece))) return;
     const snapshot = new CampaignSnapshot(context.kernel, context.campaign.id);
     const journal = row(await snapshot.optional('npc-journal.json')), records = await snapshot.files('turns');
-    if (untoldBlock(graph, world, journal, node, records) === null) return;
+    const said = normalize(name);
+    if (!untoldPieces(graph, journal, records).some(piece => occurs(said, piece))) return;
     throw new RpcError('invalid_params', `${repr(name)} uses the name the book gives this person, and nobody has said it to the investigator`, {
         fix: "name is their epithet until the fiction names them: build it from the one visible thing only they have here -- something they carry or wear, a mark, a habit, the job they are doing. Their name reaches the prose only as {{name:<their name field>}}, written where someone in the scene says it",
         details: { field: 'person.name', reason: 'untold_name', name },
@@ -132,8 +136,9 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
     // names it resolves to nobody (§87.8 refuses two owners). Refused only when it is the same words as another person's
     // (normalized); whether a word is distinctive enough is the Keeper's, from the rule in this effect's description.
     if (name != null && person.is_investigator !== true) {
-        const others = Object.entries(row(world.person_labels)).filter(([id, record]) => id !== string(person.id) && string(row(record).name).trim())
-            .map(([, record]) => string(row(record).name).trim());
+        // §176.1: another person's epithet is that person's word too.
+        const others = [...new Set([...Object.keys(row(world.person_labels)), ...Object.keys(row(world.person_epithets))])]
+            .filter(id => id !== string(person.id)).map(id => tableWord(world, id)).filter(Boolean);
         const taken = others.find(other => normalize(other) === normalize(name));
         if (taken)
             throw new RpcError('invalid_params', `${repr(name)} is already what this table calls someone else`, {

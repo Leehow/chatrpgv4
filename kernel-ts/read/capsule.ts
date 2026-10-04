@@ -6,6 +6,7 @@ import { entries, values, array, row, number, integer, truth, string, normalize,
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
 import { bookNames, toldTurn } from "../journal/naming.js";
+import { tableWord } from "./person-words.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
 import { intentsView } from '../npc/intents.js';
@@ -53,7 +54,14 @@ export const personRecord = (world: Row, id: string): Row => row(row(world.perso
  */
 export function calledOwners(world: Row, name: string): string[] {
     const key = normalize(name);
-    return key ? entries(row(world.person_labels)).filter(([, record]) => normalize(string(row(record).name)) === key).map(([id]) => id) : [];
+    if (!key) return [];
+    const labels = row(world.person_labels);
+    const named = entries(labels).filter(([, record]) => normalize(string(row(record).name)) === key).map(([id]) => id);
+    // §176.2: a person with no word from the fiction answers to their epithet, the word the Keeper is shown for them.
+    const word = (value: unknown): string => typeof value === "string" ? value.trim() : "";
+    const epithets = entries(row(world.person_epithets)).filter(([id, record]) => !word(row(labels[id]).name)
+        && normalize(word(row(record).word)) === key).map(([id]) => id);
+    return [...new Set([...named, ...epithets])];
 }
 /**
  * The one person this table calls `name`, as the graph's npc node, or `null` when nobody carries the
@@ -124,7 +132,8 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
     const entry = row(row(journal.entries)[string(node.node_id)]);
     if (integer(entry.named_at) || toldTurn(graph, node, records) !== null)
         return null;
-    const label = string(personRecord(world, graph.handle(node)).name || entry.label || "").trim();
+    // §176.1/§176.4: the table's word (what the fiction established, else the epithet), else the journal's label.
+    const label = (tableWord(world, graph.handle(node)) || string(entry.label || "")).trim();
     return {
         ...(label ? { label } : {}),
         // Contract §103.5 (2026-10-03): the handle, so the Keeper-facing view can name this person by it instead of by the
@@ -136,7 +145,8 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
         // §115: every untold row of a crowded room carries this line and the handle, so together they stay near the first
         // line's length (the nine-person bench keeps four full dossiers only while they do). The Keeper's own copy replaces
         // this line with the fuller one in extensions/kernel/untold-view.ts (§103.5).
-        use: "Untold: by look; apply person an epithet; called.name and say token use it.",
+        // §176: the label is this table's word for them from before the meeting (the epithet lane's), so there is nothing to apply.
+        use: "Untold: by look; label is the table's word for them; say token and who use it.",
     };
 }
 /**
@@ -155,7 +165,9 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
     return people.flatMap(({ node, untold }) => {
         if (!untold) return [];
         const id = graph.handle(node), shown = string(untold.label || "").trim() || id;
-        return bookNames(graph, node).filter(name => !known.has(normalize(name))).map(name => ({ name, id, shown }));
+        // §176.5: a handle is the book's name as a slug, so the handle and the node id are renamed too, once there is a word.
+        const slugs = shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
+        return [...bookNames(graph, node).filter(name => !known.has(normalize(name))), ...slugs].map(name => ({ name, id, shown }));
     });
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {

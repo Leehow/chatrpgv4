@@ -38,7 +38,8 @@ export const PI_ENTRIES = Object.freeze({ pi: `${PI_PACKAGE_ROOT}/dist/cli.js`, 
 // The COC extensions every Keeper session mounts, in load order (kernel first: it puts the RPC bridge on the bus).
 // `thinking-schedule` is the host contract's §3.7 request-level schedule (kernel contract §135.27); it registers no
 // tool and installs nothing in setup mode, but it must be here or it never runs at a table.
-export const COC_EXTENSIONS = Object.freeze(['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'speech-edit', 'thinking-schedule']);
+// `npc-epithets` (§176.3) runs in both modes: it words the cast during character creation, before the opening.
+export const COC_EXTENSIONS = Object.freeze(['kernel', 'mods', 'onboarding', 'module', 'memory', 'npc', 'table', 'npc-journal', 'npc-voice', 'npc-epithets', 'speech-edit', 'thinking-schedule']);
 /**
  * The extensions that register a model provider, read from the manifests that already declare it.
  *

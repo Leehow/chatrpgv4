@@ -39,6 +39,7 @@ import { deliveryText, deliveryRecord, keeperReads } from './delivery.js';
 import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from './markup.js';
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
+import { foldPersonWords } from '../read/person-words.js';
 import { withNames } from './names.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
@@ -728,6 +729,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
                 throw new RpcError('campaign_not_ready', `campaign ${repr(campaign.id)} has no turn.json and no checkpoint to rebuild it from`);
             rebuilt = true;
         }
+        // §176.1: the same fold at the table's opening, so the opening already calls people by their words. Only when no turn
+        // is open: a turn in flight read its world already.
+        if (!['open', 'acting'].includes(turn.state) && await foldPersonWords(campaign, module.graph, snapshot.world,
+            row(await snapshot.optional('npc-journal.json')), snapshot.records.length ? snapshot.records : await snapshot.files('turns')))
+            await campaign.writeWorld(snapshot.world);
         const ordinals = Object.keys(row(turn.calls)).flatMap(key => { const part = key.split('-c').at(-1)!; return key.includes('-c') && /^\d+$/.test(part) ? [Number(part)] : []; });
         const pending = ['open', 'acting'].includes(turn.state) ? {
             player_text: turn.player_text ?? null,
@@ -913,7 +919,11 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             mint(base: string) { let id = base, n = 2; while (minted.has(id)) id = `${base}-${n++}`; minted.add(id); return id; }
         }, (id, name) => contributions.asset!(id, name), focus => array(row(module.meta.reading).materials).some(material =>
             material.material === 'map' && material.status === 'unusable' && normalize(string(material.focus ?? '')) === normalize(focus))) : [];
-        if (lateMaps.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
+        // §176.1: the epithet lane's words, and the journal's labels for anyone still without one, reach the world here, before
+        // this turn's capsule is built: never while a turn is open, which a lane write would stale.
+        const folded = await foldPersonWords(campaign, module.graph, snapshot.world, row(await snapshot.optional('npc-journal.json')),
+            snapshot.records.length ? snapshot.records : await snapshot.files('turns'));
+        if (folded || lateMaps.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
         cursor.receipts = [...array(cursor.receipts), ...lateMaps.map(item => item.receipt)];
         seedTurn(context, snapshot.meta, next);
         await campaign.writeTurn(cursor);

@@ -1,6 +1,6 @@
 # Epithets from the graph: every book person has the table's word before the table meets them (2026-10-03)
 
-Status: needs-triage (draft for the owner; nothing implemented). Owner, 2026-10-03:
+Status: decided 2026-10-04 (owner: 「按你推荐的做」, Q1–Q4 as recommended); contract §176. Implementation on `claude/graph-epithets-20261004`; the real-table acceptance (§4) is GE-05. Owner, 2026-10-03:
 - 「对了，我发现这个外号是不是应该是图谱解析的时候就应该填的内容，解析图谱的时候能知道这个角色的很多信息，除非是一个图谱里没有的角色才现创建外号吧」
 - Asked whether to build it: 「先写 spec 给我看」
 

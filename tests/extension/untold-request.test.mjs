@@ -69,3 +69,37 @@ test('§103.1: the request names an untold person by handle everywhere the host 
   assert.deepEqual(byName.speech?.[0]?.who, {npc: 'steven-knott', name: 'Steven Knott'}, 'the book\'s name in a token is shown as it always was');
   assert.ok(!(await call('table.untold')).people.some(person => person.id === 'steven-knott'), 'and once shown it is told');
 });
+
+test('§176.5: with the epithet lane\'s word, the request carries neither his book name nor his handle, and the row carries the name token', async t => {
+  const home = await mkdtemp(join(temporary, 'real-'));
+  const kernel = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed: 'untold-request-epithet',
+    locks: api.nativeAdvisoryLocks(), env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
+  const runtime = api.createKernelRuntime(kernel); t.after(() => runtime.close());
+  const call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
+  await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+  await call('table.open');
+  await call('epithets.submit', {entries: [{id: 'steven-knott', word: 'the ink-stained clerk'}]});
+  const input = await call('table.player_input', {text: 'I ask the clerk what he wants.'});
+  const rows = [], hooks = new Map(), bus = new Map();
+  api.installContextPolicy({on: (name, fn) => hooks.set(name, fn), events: {on: (name, fn) => bus.set(name, fn)}},
+    row => rows.push(row), () => api.workpadStoreRoot(home));
+  bus.get('coc:kernel-bridge')({campaign: 'c1', call});
+  bus.get('coc:capsule')({capsule: input.capsule, context: input._context});
+  const messages = [
+    {role: 'user', content: 'I ask the clerk what he wants.'},
+    {role: 'custom', customType: 'coc-clerk', content: JSON.stringify({clerk_did: [{label: 'Initialize the authored presence of steven-knott (npc-steven-knott)'}]}), display: false},
+    {role: 'assistant', content: [{type: 'toolCall', id: 'look-1', name: 'look', arguments: {focus: 'npc', name: 'the ink-stained clerk'}}]},
+    {role: 'toolResult', toolCallId: 'look-1', toolName: 'look', content: [{type: 'text', text: JSON.stringify({id: 'steven-knott', name: 'Steven Knott'})}]},
+  ];
+  const {messages: sent} = await hooks.get('context')({messages}, {model: {contextWindow: 1000000}});
+  const written = sent.filter(message => message.role !== 'user').map(message => JSON.stringify(message.content)).join('\n');
+  for (const leak of ['Steven Knott', 'steven-knott', 'npc-steven-knott']) assert.ok(!written.includes(leak), `${leak} reaches the Keeper`);
+  assert.match(written, /presence of the ink-stained clerk \(the ink-stained clerk\)/, 'the handle and the node id are renamed to his word');
+  assert.match(sent.find(message => message.role === 'toolResult').content[0].text, /"id":"the ink-stained clerk"/, 'and in a tool result');
+  const capsule = JSON.parse(sent.find(message => message.customType === 'coc-capsule').content);
+  const row = capsule.present.find(person => person.untold && person.name === 'the ink-stained clerk');
+  assert.ok(row, JSON.stringify(capsule.present));
+  assert.equal(row.untold.say_name, '{{name:the ink-stained clerk}}');
+  const said = await call('table.narrate', {call_id: `t${input._context.turn}-c1`, text: `He looks up. {{say:the ink-stained clerk}}"I am ${row.untold.say_name}."{{/say}}`});
+  assert.match(said.rendered_text, /I am Steven Knott\./, 'the copied token says his book name');
+});

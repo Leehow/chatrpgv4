@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
-import {firstSightPeople, renameUntold, untoldPeople, untoldView, UNTOLD_VIEW_USE} from '../../extensions/kernel/untold-view.ts';
+import {firstSightPeople, renameUntold, sayName, untoldPeople, untoldView, UNTOLD_VIEW_USE} from '../../extensions/kernel/untold-view.ts';
 
 const capsule = () => ({
   turn: {number: 2},
@@ -24,9 +24,11 @@ test('an untold person is named by epithet, else by handle; the book\'s name is 
   const {capsule: view, names} = untoldView(raw);
   assert.equal(JSON.stringify(raw), before, 'the raw capsule is never changed');
   assert.deepEqual(view.present[0], {name: 'book-4-lars-williams', role: '加油站老板', wants: '外地人早点走',
-    untold: {use: UNTOLD_VIEW_USE}});
+    untold: {say_name: '{{name:book-4-lars-williams}}', use: UNTOLD_VIEW_USE}});
   assert.equal(view.present[1].name, '棚下的灰发退伍兵');
-  assert.deepEqual(view.present[1].untold, {label: '棚下的灰发退伍兵', use: UNTOLD_VIEW_USE});
+  // §176.5: the name token is ready to copy, built from the word the row shows.
+  assert.deepEqual(view.present[1].untold, {label: '棚下的灰发退伍兵', say_name: '{{name:棚下的灰发退伍兵}}', use: UNTOLD_VIEW_USE});
+  assert.equal(sayName('the clerk'), '{{name:the clerk}}');
   assert.ok(!JSON.stringify(view.present.slice(0, 2)).includes('拉塞尔') && !JSON.stringify(view.present.slice(0, 2)).includes('史蒂夫'), 'no book name in an untold row');
   assert.deepEqual(view.present[2], {name: '内特·帕特森', role: '退休卡车司机'}, 'a person already told keeps the name');
   assert.deepEqual(view.present[3], {name: '内特·帕特森2', truncated: true}, 'a stub has no untold block and stays');
@@ -34,7 +36,7 @@ test('an untold person is named by epithet, else by handle; the book\'s name is 
   assert.deepEqual([...names.byId], [['book-4-lars-williams', 'book-4-lars-williams'], ['book-4-steve-brown', '棚下的灰发退伍兵']]);
   assert.deepEqual(firstSightPeople([{id: 'book-4-steve-brown', name: '史蒂夫·布朗'}], names), [{id: 'book-4-steve-brown', name: '棚下的灰发退伍兵'}]);
   assert.match(UNTOLD_VIEW_USE, /in prose they are who they look like/);
-  assert.match(UNTOLD_VIEW_USE, /\{\{name:/, 'the line says how the name is said');
+  assert.match(UNTOLD_VIEW_USE, /put `say_name` there exactly/, 'the line says how the name is said: copy the token');
 });
 
 test('a capsule with nobody untold is handed over as it is', () => {

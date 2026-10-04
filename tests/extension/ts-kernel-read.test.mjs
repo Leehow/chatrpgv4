@@ -520,9 +520,9 @@ test('NPC dossiers and public object views preserve their different secrecy boun
   const dossier = value => {
     assert.ok(value.untold);
     assert.equal(value.untold.label, undefined);
-    assert.match(value.untold.use, /apply person/);
-    // §115: the word applied is an epithet; without saying so the installed App's Keeper applied and wrote the book's names.
-    assert.match(value.untold.use, /apply person an epithet/);
+    // §176: the word is the table's from before the meeting (the epithet lane's), so the line says what label is, not to apply one.
+    assert.match(value.untold.use, /label is the table's word/);
+    assert.doesNotMatch(value.untold.use, /apply person/);
     // §11.5.2 (SL-07) gave the Keeper's card of one person its standing defence; the oracle predates it. This doctor
     // has no numbers, so the rule has nothing to compare and the card names no word.
     if (Object.hasOwn(value, 'combat_tactic')) assert.deepEqual(value.combat_tactic, {defense: null, basis: 'rule-default'});
