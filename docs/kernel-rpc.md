@@ -26285,6 +26285,14 @@ Version 2.2.1. This version-frozen package is authored by the craft writer. The 
 The primary precedents already read by root are Ursula K. Le Guin’s authorized chapter on rhythm as physical movement (https://lithub.com/a-writing-lesson-from-ursula-k-leguin/) and Delatorre et al.’s experiment (https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2018.01392/full). They support avoiding rigid metre and treating suspense as more than concealed outcomes; they do not validate this Mod or prove sentence-length causality. No novel quotation is copied into runtime instructions.
 
 
+
+### 137.11 A whole environment passage from the current task (2026-10-04)
+
+Writer: package author. Reader: kernel/style projection and host context. Actor: Keeper. This is an ordinary adoption of the environment-only Craft 2.2.4 wording; it uses the same schema, capabilities, settings, and locks, with no new state or API.
+
+The view guidance is conditional: distinguish a source/book or narrator identity from an observer's recognition. Where recognition is unestablished, use only supplied source evidence, material form, and relations; do not turn attribution into perception. This contract makes no claim of universal source fidelity, novel matching, or proven speed. Evidence is limited to the supplied source-selected observations and study contexts, and live quality remains unmeasured.
+
+
 ## 138. Band then roll: a rules row named instead of a number, rolled by the kernel (2026-09-26, BR-01 of `docs/specs/band-then-roll.md`; amends §135.28 and §136.22, extends §5's `table.apply` `time` and `damage`)
 
 §136.22 lets the Keeper name the book's amount instead of writing its own. Where the book prints only a scale — how
@@ -31853,6 +31861,46 @@ The other exclusions of §158.7 stand: a failed, aborted, truncated, already del
 
 **Rule.** The kernel extension registers the first `message_end` handler (`extensions/kernel/textual-tool-calls.ts`). A text block is checked when it holds `to=functions.<name>`, `<name>` is a tool active in this session (`getActiveTools`), and the header is followed by exactly one JSON object that parses, after at most a channel word and a colon on its own line. Such a call is restored as a `toolCall` block where it stood, with an id `textcall_<24 hex>`. The prose around it stays; a text block left empty is dropped; `stop` becomes `toolUse`. Pi replaces the finalized message in place before the loop reads its tool calls, so a restored call runs like a native one and the player never reads the raw line. Anything else is left as it was: an unknown tool, unbalanced or unparsable JSON, a non-object, or words between header and object. It is structural parsing of the chat format's recipient line, never a reading of the prose. Telemetry: `lane: "model-output", event: "textual_tool_calls", restored, provider, model, stop_reason`.
 
+### 160.4 An implicit close whose whole body is a serialized tool-call list is routed as those calls, or, when it cannot be, is never delivered (2026-10-04; amends §160.2)
+
+**Evidence.** Playtest `un-V3-20261004` (branch `claude/untold-name-reveal-20261004` @ `02300049e`, campaign `game-24bb66cb`, kernel turn 7, driver `turn-6.json`). The turn's first model message, before any tool result, was grok-build/grok-4.5 (thinking low), stop reason `stop`, one thinking block and one text block, verbatim in `tests/extension/fixtures/text-tool-call-list-20261004.json`:
+
+`mon_calls:[{"name":"lookup","parameters":{"kind":"source","source_mode":"answer",…}},{"name":"lookup","parameters":{"kind":"catalog","kinds":["item"],…}}]`
+
+The host closed the turn on it as an implicit narrate (`{tool: "narrate", implicit: true, ok: true}`), and the player read the JSON (`turns/0007.json` `rendered_text`). Neither lookup ran. §160.2 did not route it on three counts, each a matter of form, not of content: a label stands before the JSON, the envelopes sit in a JSON array, and the arguments key is `parameters`. Both envelopes name an offered tool and both argument objects validate unchanged against `lookup`'s closed schema, so the calls were complete and well-formed. A structural survey of every retained log on 2026-10-04 (1,045 session and playtest event logs, 36,036 assistant messages; 7,129 turn records) for a JSON object naming a Keeper tool in an assistant text without a native call finds this message and its turn record, and one older sibling outside play (`gc-11`, 2026-09-11, setup: two fenced `{name, arguments}` envelopes for `setup` shown to the player as the wizard's reply); nothing else.
+
+**Why it reached the player.** The text-call reader recognised only the exact shapes already recorded. Everything else, however plainly a call, fell through to the implicit close, which treats any text as the Keeper's prose (§166.1). A body that was recognised as envelopes but failed validation (an unknown tool, an argument of the wrong type, an extra key) took the same road: §158.7 and §160.2 route nothing then, and "the text goes the way it did before", which is to the player. So the failure is not this dialect; it is that an unread or unroutable call serialization fails open into delivery.
+
+**The rule.** `readTextToolCalls` (`extensions/kernel/text-tool-call.ts`; `textToolCalls` remains as its routed calls) reads the complete assistant text body in the same place and under the same conditions as §160.2 (a play turn, or the opening, not yet delivered or closed; not a failed, aborted or truncated message; no native call).
+
+1. **The form.** The trimmed body may open with one label: an identifier (`[A-Za-z_][A-Za-z0-9_.-]*`) immediately followed by `:`. The label and the whitespace after it are set aside. What remains is §160.2's: one bare JSON value, or one or more fenced blocks each holding one JSON value, with nothing but whitespace outside them. Each value is an envelope or a non-empty JSON array of envelopes; an array's envelopes are calls in their written order, exactly as consecutive fences are. An envelope is `{"<tool>": {…}}` (exactly one key, its value an object), `{"name": "<tool>", "arguments": …}` or `{"name": "<tool>", "parameters": …}` (exactly these two keys, `name` a string). A body of this form is a serialized call list, whatever it names.
+2. **Routed.** When every envelope names an offered tool and its arguments validate unchanged against that tool's closed schema, the calls replace the text exactly as §160.2 routes them (host-minted ids, `prepareArguments`, hooks, admission, dispatcher, delivery). Each routed call's row gains the form it came in: `{lane: "delivery", reason: "text_tool_call_routed", tool, tool_call_id, label, array, key}` (`label` the label or `null`, `array` whether it came from a JSON array, `key` one of `tool`, `arguments`, `parameters`).
+3. **Not routable, not delivered.** When any envelope names a tool that is not offered, or its arguments do not validate unchanged, nothing is routed, as before, and the text is not delivered either: it leaves the message with one row, `{lane: "delivery", ok: false, reason: "text_tool_call_unroutable", dropped, calls: [{tool, error}]}`, and the turn's one turn-close steer (§135.11, on both engines) carries a delivery fix of kind `text-tool-call` naming each envelope and why it did not run (the closed-schema validator's own message, or that the name is not one of the offered table tools, which are the only tools a call written as text is routed to; another active tool such as `image_gen` is named the same way). With the steer already spent, the turn ends with nothing delivered, like any turn without a draft (§166.2); a driven run names the unsent fix on its `turn_close` row.
+
+**Why this is not a delivery gate.** §166 forbids judging or regenerating the Keeper's completed draft. A body whose whole text is a serialization of tool calls is not a draft: it is the call channel written into the text channel, and §166.2 keeps transport decoding authoritative. Nothing here reads prose. A message with any text outside the label, the fences and the JSON is not this form and is delivered exactly as before.
+
+**Why this is structure, not a reading of the prose.** The label is identifier syntax followed by a colon, never a list of known labels: the evidence's `mon_calls` is not named anywhere in the code. The rest is the JSON grammar and the offered tools' closed schemas. No word, script or language is read.
+
+**Known boundaries** (tested as such). Prose before or between the JSON, or a label that is not an identifier, leaves the body as prose (§160.2's exclusion stands). A two-key object other than `{name, arguments|parameters}`, an object with a third key (`id`, `type`), an OpenAI `function` wrapper and markup around the JSON are not read; the evidence has none. A one-key object whose value is not an object is not an envelope. An empty array is not a call list. Setup has no table (§14.4), so its replies never reach this routing; §160.4.1 is setup's rule. Turns delivered before this section keep their text (§158).
+
+**Three ends (§31).** *Writer:* the model, in its text channel. *Reader:* `readTextToolCalls` in the kernel extension's `message_end` handler (`extensions/kernel/index.ts`). *Actor:* for a routed list, Pi runs the calls and the Keeper continues from their results; for an unroutable one, the Keeper reads the fix on its turn-close steer. The rows above count both.
+
+**Tests.** `tests/extension/text-tool-call.test.mjs`: the recorded body routes as two `lookup` calls in order with their arguments unchanged; a label, an array and `parameters` each route alone and together, bare and fenced; an array inside a fence; the boundaries above route nothing and are not read as a call list; an unknown tool, a wrong type, an extra key and a string `arguments` are read as unroutable, with each envelope's error. Through a real `message_end` on both engines: the recorded message runs both lookups before the Keeper's next message delivers, and no turn record holds `mon_calls`; an unroutable list is dropped, its fix reaches the Keeper on the steer, and the turn is delivered from the next message with no JSON on the player's side; with the steer spent, nothing is delivered. Mutations (a copy of the file, never `git checkout --`), each turning tests red: the label not set aside; arrays not read; `parameters` not read; an unroutable list left to the implicit close; the fix not set; the label accepted with a space in it.
+
+### 160.4.1 In setup, a whole-body call list is restored as the calls it names (2026-10-04, owner request; extends §160.4 and §160.3)
+
+**Evidence.** Playtest `gc-11` (2026-09-11, character setup, xai/grok-4.5, stop reason `stop`): two consecutive setup replies were each one fenced `{"name": "setup", "arguments": {…}}` envelope, the first `step: start`, the second `step: create-investigator` with the whole profile. Neither ran, and the player read both as the wizard's reply (verbatim in the `setup` part of `tests/extension/fixtures/text-tool-call-list-20261004.json`). Setup has no table, so §160.2 and §160.4 never read its replies, and §160.3 restores only `to=functions.<name>`. On 0.9.6a this shape still reaches the player.
+
+**The rule.** The kernel extension's first `message_end` handler (§160.3's) reads, in setup only, the complete text body of an assistant message that has no tool call (native or restored by §160.3) and did not fail, abort or truncate. When the body is a serialized call list in §160.4's form (one identifier label at most; one bare JSON value or fenced values only; each an envelope or a non-empty array of envelopes) and every envelope names a tool active in this session (`getActiveTools`, as §160.3 asks), every envelope is restored as a `toolCall` block in written order with an id `textcall_<24 hex>`, the text leaves the message, and `stop` becomes `toolUse`, exactly as §160.3 restores its calls. Arguments that are not a JSON object are restored as `{}`. Pi then answers each call as it answers a native one: arguments that fail the tool's schema get the validator's error, and a call that passes runs. One row per message: `{lane: "model-output", event: "text_call_list", restored, forms, provider, model, stop_reason}`.
+
+**Why setup differs from play.** At the table a routed call goes through admission and changes the world, and §158.7 routes only arguments that validate unchanged, all or nothing, with the turn's one steer for the rest. Setup has no table, no turn-close steer and one tool whose refusals (`rejected`, `needs`) the guide already reads from its results; §160.3 already restores setup calls written as text without validating them. So in setup the tool result is the channel that says a call did not run, and nothing of the list is ever shown as the guide's reply.
+
+**Known boundaries.** §160.4's: prose around the JSON, a label that is not an identifier, and the unread object shapes leave the body as written. A list naming any tool that is not active is left as written, as §160.3 leaves it: a bare arguments object is that shape (`{"profile": {…}}` reads as an envelope for a tool named `profile`), and the driven setup engine's bind step already refuses such a reply explicitly and keeps it as evidence (`setup_bind_missing_call`, `coc-setup-output-rejected`), which a restored call to an unknown tool would replace with Pi's "not found". The first version of this section restored inactive names too; `setup-driven-engine.test.mjs`'s bare-bind test found it on the full suite. A play process before its table opens is not setup and is not read here.
+
+**Three ends (§31).** *Writer:* the model, in its text channel. *Reader:* the first `message_end` handler (`extensions/kernel/index.ts`) through `restoreTextCallList` (`extensions/kernel/text-tool-call.ts`). *Actor:* Pi runs the restored calls; the guide reads their results. The row counts it.
+
+**Tests.** `tests/extension/text-tool-call.test.mjs`: both recorded setup replies are restored as one `setup` call each with their arguments unchanged and no text left; a labelled array restores in order; string arguments are restored as `{}` for Pi to answer; a list naming a tool that is not active (one envelope among active ones, and a bare `{"profile": …}`), prose around the JSON, a message that already has a call, and an errored message are left as they were. `tests/extension/setup-driven-engine.test.mjs`'s bare-bind test still holds. Through a real setup process: the first recorded reply runs `setup` `step: start` and the player never reads the fence. Mutations (a copy of the file, never `git checkout --`), each turning tests red: the setup branch removed; the text left in the message; `stop` left as `stop`; inactive names restored.
+
 ## 161. What a person feels right now is a ledger row the Keeper writes and reads before they speak (2026-09-30; amends §17.3, §17.4, §17.5, §17.8; follows §142's shape)
 
 **Evidence.** The owner, 2026-09-30, after reading the 40-turn table `blood-road-jev-20260930` (grok-4.5, narration-craft
@@ -32918,6 +32966,77 @@ Tests:
 - `tests/kernel/test_voice_bench.py`: the nine-person bench still keeps four full dossiers; its stubs are `{name, truncated}` plus the untold block.
 - `tests/kernel/test_journal.py`: a made-up name refused with `not_a_book_name` and the narrow question; `named_as` that is not words of the quote, or without `named`, refused; the person left untold until the book's name is delivered; 诺特 taken with `named_as`; the instruction asks for their own name.
 - `tests/extension/npc-journal-lane.test.mjs`: the field rule asks for their own name and allows `named_as` only on request; the refusal reaches the retry and the retry's `named_as` reaches the kernel.
+
+## 179. A turn serves what the act is after; the investigator's own record (owner rulings 2026-10-04: "A 和 B 一起做，落 0.9.6a", then "翻看物品这个应该属于基础系统里，npc对于玩家意图分析应该属于自然npc行为mod里的增强项"; the capsule half of #20's premise)
+
+**Evidence.** App table `game-8e41c325` (Blood Road; Keeper `grok-build/grok-4.5` low; narration-craft 2.2.1), 2026-10-04.
+- **Turn 6, 「我慢慢吃完汉堡，坐在吧台边翻翻自己的笔记。」** The Keeper wrote the gesture of leafing through the notes, then the room: who sat where, the plates, the boar's head. Nothing that is in the notes. It had nothing to write from:
+  - The card lists 「寻人笔记与地图」 by name only. Setup recorded the trade and the motive. The book's hook for this kind of investigator names nobody.
+  - The particulars (a nineteen-year-old blonde, a blue Beetle) were the player's own words on turns 2 and 3. Extraction kept turn 2's as a `player_assertion` with subject `player` and the station owner as entity, and turn 3's question as a `world_event`.
+  - `capsuleMemory` ranks by overlap with who is present and puts `player_assertion` last (#20: "the Keeper has already read it"). At the bar its four rows were all turns 4–5, the two turns `recent` already carried.
+  - The compile read the act as investigate 0.45 / idle 0.39; the route chose only `apply:time:declared`. The Keeper spent no reasoning tokens and one call.
+- **Turn 3, 「镇上哪里能吃饭、住一晚？」** The prescreen supplied the book's description of the Last Stop, which the Keeper used word for word on turn 4. The Keeper had set the trucker's mood as eager to talk about the road. Both men gave a name and 「往前开一点」; nobody said where it stands or what it looks like. Narration Craft said "People are not information desks … give only what they feel like giving", and nothing said an answer should be complete enough to use.
+- **The owner, same day:** any question, not only the way somewhere, is read for the answer the player wants. A willing person then gives it clearly, and a person with a reason to hide something hides exactly that.
+
+### 179.1 Who carries what
+
+The owner placed each half where it belongs. **Consulting what the investigator carries or knows is the base's. Reading what an asker wants is the Natural NPC package's.** Narration Craft is untouched; it stays at 2.2.3.
+
+- **Base (`prompts/keeper.md`).** When the investigator reads, checks or calls to mind what they carry or already know, the turn shows what is there, not only the gesture of looking: the particulars themselves, not a list of the kinds of things the page holds (arm C of §179.4 named headings). `own` (§179.2) holds the card and the player's earlier words; `memory` and earlier turns hold what the table has turned up; `recall transcript` reaches what `own` leaves out. What no record holds is filled in keeping with them, never against what the player said. The capsule head names the `own` interface.
+- **Natural NPC 1.4.5.** `agent.md` gains "What the asker is after". Before a person answers, know the answer the investigator is after, the one they would need to act on: the way somewhere and how to know it on arrival, a price, who someone is to this person, what they saw. Someone willing gives it the way a local who knows would say it, complete enough to use. Someone with a reason to hide it (agenda, fear, loyalty, `hides`, `would_lie_about`) hides exactly that point: they steer around it, offer something beside it, refuse or lie, and the turn shows what they gave instead. Nobody gives what they do not know.
+- **Natural NPC's brief** gains "Give or hide the answer." (25 bytes). The active briefs had 26 bytes left under the shared ceiling, which `tests/kernel/test_mod_director_text.py` holds strictly under 5000 (§30.7, §40.6); it is now at 4999. No other package's sentence was cut, and the ceiling was not raised.
+- Existing locks keep their version (§137.10). A new campaign takes natural-npc 1.4.5.
+- **Coordination.** `chatrpgv4-wt-presence-impression` (uncommitted when this landed) carries natural-npc 1.5.0 and its own §178. Whichever lands second carries the other's natural-npc text forward.
+
+### 179.2 The capsule's `own`: the investigator's own record
+
+A capsule section for the card's first investigator (`party[0]`, as `known.investigator`), budget 2048 B (SLICE2). `kernel-ts/read/own.ts` fits it itself.
+
+```json
+"own": {
+  "card": {"scenario_bound": "...", "treasured_possessions": "...", "significant_people": "...", "key_connection": "..."},
+  "said": [{"turn": 1, "player": "..."}, {"turn": 27, "player": "...", "cut": true}, {"turn": 28, "player": "..."}],
+  "omitted": [2, 26]
+}
+```
+
+- **`card`** is the sheet's backstory as setup wrote it: every category except `personal_description` (already `known.investigator.appearance`), and `key_connection.summary` as `key_connection`. A list of strings is joined. A category nested one level down (a pregen's `scenario_bound: {description, ...}`) keeps its path (`scenario_bound.description`). Each is at most 100 characters. Absent when the sheet has none. No category is named in code beyond that exclusion. If the card alone is over the budget, its longest category gives up characters, never a whole category.
+- **`said`** is the player's own words (`player_text` of turn records) from turns before the two `recent` carries, each at most 160 characters; a cut line carries `cut: true`. The earliest words fill up to half of what `card` leaves of the budget, and the latest outside the window fill the rest. **`omitted`** is `[from, to]` of the turns between when any are left out, and absent otherwise. `recall transcript` reaches them.
+- **Why the words, not extracted memory.** The lane kept turn 2's particular as a `player_assertion` and turn 3's as a `world_event`. A reader that depends on the kind the lane chose loses half of what the player established. The words are the record. Nothing reads them for meaning.
+- **Head (interface only).** own is the investigator's own record. card is what their sheet says of why they came, what they carry and whom they hold to. said is the player's own words from earlier turns the history no longer carries, the earliest and the latest; omitted names the turns between, which `recall transcript` reaches. What the player said there about the investigator and their errand stands where the card and the book are silent; what they said about the world is still their claim.
+- **The request.** The context hook sends the capsule whole, less `module` and `mods.instructions` (§135.23); the untold view (§103.5) only rewrites `present` and `first_sight`.
+
+§31's three ends:
+- **Who writes it.** Setup writes `card` (§98). Every turn writes `player_text`.
+- **Who reads it.** `ownSection`, into every capsule.
+- **Who acts on it.** The Keeper, when the act draws on what the investigator carries or knows (§179.1 names `own`). Nothing counts that use; the replay in §179.4 is the measure.
+
+### 179.3 Limits
+
+- **`said` is chosen by position, not relevance.** In a long table a particular the player set in the middle lies in `omitted`, and the Keeper reaches it only with `recall transcript`.
+- **`own` is a record, not a judgment.** The player's claims about the world in `said` stay claims; the Keeper weighs them.
+- **The model decides whether the purpose sentences take.** That is the replay's to show (§179.4), not a test's.
+- **The capsule's `memory` ranking (#20) is unchanged.** It still anchors on who is present and puts `player_assertion` last.
+- **The tableau closer is untouched.** "who is here and how they stand" pulls a room recap into quiet turns (`claude/tableau-closer-20261004`).
+
+### 179.4 Acceptance
+
+A sandbox replay of `game-8e41c325` turns 3–6, from the `turn 2:` commit, with the table's own player lines and the same Keeper (`grok-build/grok-4.5` low). Evidence is in the branch worktree's `.coc/playtests/player-purpose-20261004/` (`preregistration.md` with two addenda, `results.md`, `out/`), with the driver runs beside it (`pp-*-20261004`). Pre-registered:
+- **The notes (turn 6) pass** when the prose gives contents of the notes that agree with the player's turn-2/3 particulars, and invents none that contradict them.
+- **The way (turn 3) passes** when a willing speaker's answer says where the place is or how to know it.
+- **A withholding speaker** (an NPC with a source reason to hide) steering around the asked point is a pass, not a failure.
+
+| arm | what ran | the notes | the way |
+| --- | --- | --- | --- |
+| A1–A2 | 0.9.6a@60d5afc55, narration-craft 2.2.3 | 0/2: what the notes hold (「名字、公路节点」), none of it | 1/2 |
+| B1–B4 | first placement: `own` + both rules in narration-craft (withdrawn) | 4/4 | 4/4 |
+| C1–C4 | the owner's placement: `own` + base sentence + natural-npc 1.4.5 | 4/4 by the letter; 3/4 only named headings with 「十九岁金发女孩」 inside them | 4/4 |
+| D1–D4 | C, and the base sentence asks for the particulars, not the headings (this section's final form) | 3/4 with contents; D2 delivered the word `narrate` (§166.4's open defect) | 4/4 |
+
+- **Guards held** in every arm. Turn 4's first visit kept the book's seven visible features. No particular contradicted turns 2–3. Lengths stayed level (medians 420–440 characters). No turn ended on a menu.
+- **The path.** B1's repository reset to its `turn 5:` commit, with `table.capsule` on this kernel. On turn 6, `recent` held turns 4–5 and `own.said` turns 1–3 with both particulars. The driver runs Pi with `--no-session`, so the request itself is not kept.
+- **Blinding.** A and B1–B2 were scored blind; B3–B4, C and D were not.
+- **Evidence lost.** The C homes' sandbox campaign state was deleted while D's homes were being built: `make_home.sh` began with `rm -rf`, and now refuses an existing home. C's delivered prose and driver runs are kept.
 
 ## 184. Provider traffic: the library follows the leading fork, and the Keeper's request keeps its prefix (owner ruling 2026-10-04, `docs/specs/cache-traffic.md`; amends §22.6, §151.4's fork note, §135.23 and the context rows of §19.2)
 

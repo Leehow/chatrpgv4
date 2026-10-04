@@ -9,7 +9,7 @@ import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts'
  * docs/kernel-rpc.md §8.
  */
 
-import { textToolCalls } from "./text-tool-call.ts";
+import { readTextToolCalls, restoreTextCallList, textToolCallFix } from "./text-tool-call.ts";
 import {narrationTransport} from './narration-transport.ts';
 import {HistoricalReference, historyEnabled, historyContext, historyBindingMatches, type HistoryInput, type HistoryResult} from '../../runtime/historical-reference.ts';
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -1365,8 +1365,15 @@ export default function (pi: ExtensionAPI) {
 		let active: string[] = [];
 		try { active = typeof pi.getActiveTools === "function" ? pi.getActiveTools() : []; } catch { active = []; }
 		const restored = restoreTextualToolCalls(event.message as any, name => active.includes(name));
-		if (!restored) return undefined;
 		const message = event.message as any;
+		if (!restored) {
+			// §160.4.1: setup has no table, so a reply whose whole text is a call list is restored here, and Pi answers each call.
+			const list = cocMode() === "setup" ? restoreTextCallList(message, name => active.includes(name)) : undefined;
+			if (!list) return undefined;
+			void record({ lane: "model-output", event: "text_call_list", restored: list.restored, forms: list.forms,
+				provider: message?.provider ?? null, model: message?.model ?? null, stop_reason: message?.stopReason ?? null });
+			return { message: list.message };
+		}
 		void record({ lane: "model-output", event: "textual_tool_calls", restored: restored.restored,
 			provider: message?.provider ?? null, model: message?.model ?? null, stop_reason: message?.stopReason ?? null });
 		return { message: restored.message };
@@ -6794,19 +6801,29 @@ export default function (pi: ExtensionAPI) {
 		let hasToolCalls = blocks.some((b) => b.type === "toolCall");
 		let routedMessage: typeof event.message | undefined;
 		// §158.7: Pi executes the recovered call through all normal hooks and admission. §160.2: a body of several fenced
-		// envelopes is the calls in their written order, and `{name, arguments}` is an envelope too.
+		// envelopes is the calls in their written order, and `{name, arguments}` is an envelope too. §160.4: a label, an
+		// array and `parameters` are forms of the same list, and a list that cannot be routed is not delivered either.
 		if (!hasToolCalls && !state.closedThisRun && state.renderedText === undefined
 			&& (state.state === "open" || state.state === "acting" || state.openingPending)
 			&& !["error", "aborted", "length"].includes(String((event.message as {stopReason?: string}).stopReason))) {
 			const body = blocks.filter(b => b.type === "text").map(b => String(b.text ?? "")).join("");
-			const recovered = textToolCalls(body, offeredTools(COC_TOOLS, process.env));
-			if (recovered) {
-				const routed = recovered.map((call) => ({type: "toolCall", id: randomUUID(), ...call}));
-				for (const call of routed)
-					await record({lane: "delivery", turn: state.turn, ok: true, reason: "text_tool_call_routed", tool: call.name, tool_call_id: call.id});
+			const reading = readTextToolCalls(body, offeredTools(COC_TOOLS, process.env));
+			if (reading?.kind === "calls") {
+				const routed = reading.calls.map((call) => ({type: "toolCall", id: randomUUID(), ...call}));
+				for (const [index, call] of routed.entries())
+					await record({lane: "delivery", turn: state.turn, ok: true, reason: "text_tool_call_routed", tool: call.name, tool_call_id: call.id,
+						...reading.forms[index]});
 				blocks = [...blocks.filter(b => b.type !== "text"), ...routed];
 				hasToolCalls = true;
 				routedMessage = {...event.message, stopReason: "toolUse", content: blocks} as typeof event.message;
+			} else if (reading?.kind === "unroutable") {
+				// The calls are the call channel written into the text channel, not a draft (§166.2): the player never reads
+				// them, and the turn-close steer tells the Keeper which did not run and why.
+				state.deliveryFix = {kind: "text-tool-call", text: textToolCallFix(reading.envelopes)};
+				const kept = blocks.filter((block) => block.type !== "text");
+				void record({lane: "delivery", turn: state.turn, ok: false, reason: "text_tool_call_unroutable",
+					dropped: blocks.length - kept.length, calls: reading.envelopes});
+				return {message: {...event.message, content: kept}};
 			}
 		}
 		// Contract §34.17. One message, two `narrate` calls: the first closes the turn and every later
