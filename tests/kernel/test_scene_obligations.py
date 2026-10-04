@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CAMPAIGN, RpcClient, campaign_dir, read_json
+from conftest import CAMPAIGN, RpcClient, campaign_dir, read_json, written
 
 MORGUE = "newspaper-morgue"
 ACCESS, ARCHIVIST = "globe-clippings-access", "globe-archivist"
@@ -290,9 +290,9 @@ def test_a_claim_is_refused_by_name_when_it_does_not_fit(morgue):
     assert refusal(persuade(client, "t1-c11", intent="idle")) == ("invalid_params", "obligation_intent")
     client.table("apply", call_id="t1-c12", effects=[{"kind": "move", "to": "central-library"}])
     assert refusal(persuade(client, "t1-c13")) == ("not_here", "obligation_not_here")
-    # None of it wrote the flag or a roll.
+    # None of it wrote the flag or a roll (the first impressions of the people met are the kernel's, §178.3).
     assert FLAG not in world(client).get("flags", {})
-    assert not [r for r in turn_receipts(client) if r["kind"] == "roll"]
+    assert not [r for r in written(turn_receipts(client)) if r["kind"] == "roll"]
 
 
 # ---- the offer ledger ----------------------------------------------------------------------------
@@ -366,7 +366,7 @@ def test_the_accept_settlement_files_its_yields_in_one_apply_and_crosses_nothing
         settle = rows(client)[COMMISSION]["next"]["settle"]
         result = client.table("apply", call_id="t1-c1", effects=settle)
         assert "obligation_open" not in result, "the flag comes first: the guarded clues cross nothing"
-        receipts = turn_receipts(client)
+        receipts = written(turn_receipts(client))  # §178.3: without Knott's first impression, rolled as the turn opened on him
         assert [receipt["kind"] for receipt in receipts] == ["flag", "clue", "clue", "item", "cash"]
         assert {receipt.get("clue") for receipt in receipts if receipt["kind"] == "clue"} == {"knott-research-leads", "knott-keys"}
         cash = next(receipt for receipt in receipts if receipt["kind"] == "cash")

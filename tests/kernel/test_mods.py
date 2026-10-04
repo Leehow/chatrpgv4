@@ -3,9 +3,17 @@ import json
 import hashlib
 from pathlib import Path
 
-from conftest import CAMPAIGN, RpcClient, campaign_dir, create_campaign, narrate, open_turn, read_json
+from conftest import CAMPAIGN, RpcClient, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, pin_contact_impression, read_json
 from test_rules_families import walk_to_confrontation
 
+
+
+def open_contact_turn(kernel, text="我仔细观察诺特。"):
+    """A table locked to natural-npc 1.4.4 (§178.5): the first impression is a `contact` check the Keeper resolves."""
+    create_campaign(kernel)
+    pin_contact_impression(kernel)
+    narrate_opening(kernel)
+    return kernel.table("player_input", text=text)
 
 def weapon(name="Workshop launcher"):
     return {"name":name, "category":"weapon", "description":"An improvised single-shot launcher.",
@@ -420,7 +428,7 @@ def test_first_impression_refusal_names_who_is_here_and_how_to_stage_the_target(
 
 def test_first_impression_uses_higher_value_and_reuses_pair(seeded_kernel):
     kernel = seeded_kernel
-    open_turn(kernel)
+    open_contact_turn(kernel)
     action = {"intent":"social", "decision":"natural-npc:first-impression", "target":"Steven Knott", "goal":"Introduce myself"}
     first = kernel.table("resolve", call_id="t1-c1", action=action)
     values = first["outcome"]["attribute_snapshot"]
@@ -444,7 +452,7 @@ def test_pending_contact_carries_the_handle_the_first_impression_receipt_carries
     receipt (the single loop's shadow route, `keeperDidFor`) compares `handle` to `npc`; before SL-83 the row had no
     handle and the pairing compared the display name to it, which never matched on a real table (SL-77)."""
     kernel = seeded_kernel
-    open_turn(kernel)
+    open_contact_turn(kernel)
     pending = [row for row in kernel.table("capsule")["mods"]["pending_contacts"] if row["decision"] == "natural-npc:first-impression"]
     knott = next(row for row in pending if row["target"] == "Steven Knott")
     assert knott["handle"] == "steven-knott", knott
@@ -606,7 +614,9 @@ def test_restart_and_disabled_generator_keep_existing_items_usable(kernel):
 
 
 def test_legacy_hidden_first_impression_is_reused_without_disclosing_or_rerolling(kernel):
-    open_turn(kernel)
+    # An old save carries the impression before the table opens; the meeting at the opening adopts it (§178.3) and
+    # rolls nothing, and a Keeper's resolve later reuses it.
+    create_campaign(kernel)
     receipt = {"schema_version":1,"receipt_id":"legacy-first-impression","campaign_id":CAMPAIGN,
                "investigator_id":"thomas-hayes","npc_id":"npc-steven-knott","app":60,"credit_rating":30,
                "governing_value":60,"disposition":"helpful","concealed_roll":7,"rule_ref":"legacy"}
@@ -614,6 +624,10 @@ def test_legacy_hidden_first_impression_is_reused_without_disclosing_or_rerollin
     path = campaign_dir(kernel.workspace) / "save/npc-first-impressions.json"
     path.parent.mkdir(exist_ok=True)
     path.write_text(json.dumps({"receipts":{"pair":receipt}}))
+    narrate_opening(kernel)
+    assert not [r for r in read_json(campaign_dir(kernel.workspace) / "turns/0000.json")["receipts"] if r.get("kind") == "roll"], \
+        "the opening met Knott and adopted the old impression: no die"
+    kernel.table("player_input", text="我仔细观察诺特。")
     result = kernel.table("resolve",call_id="t1-c1",action={"intent":"social","decision":"natural-npc:first-impression","target":"Steven Knott"})
     assert result["reused"] is True
     assert result["outcome"]["impression"]["disposition"] == "helpful"

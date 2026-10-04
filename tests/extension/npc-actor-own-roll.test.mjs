@@ -17,6 +17,7 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 
 const root = resolve(import.meta.dirname, '../..');
+import { pinContactImpression } from './natural-npc-contact.mjs';
 const temporary = await mkdtemp(join(tmpdir(), 'npc-actor-'));
 after(() => rm(temporary, { recursive: true, force: true }));
 await symlink(join(root, 'node_modules'), join(temporary, 'node_modules'), 'dir');
@@ -33,8 +34,9 @@ const GUARD = 'Fabius Okonkwo';
 /** A second table person, for the shape where neither `actor` nor `target` is an investigator. */
 const OTHER = 'Cassius Vane';
 
-/** One real campaign on the product kernel, opened and past its first delivery. */
-async function table(t) {
+/** One real campaign on the product kernel, opened and past its first delivery. `contact`: locked to natural-npc 1.4.4
+ *  (§178.5), so placing someone rolls nothing and their first impression waits for the Keeper's resolve. */
+async function table(t, { contact = false } = {}) {
 	const home = await mkdtemp(join(temporary, 'home-'));
 	const context = await api.createKernelContext({
 		workspace: home, content: join(root, 'content'), seed: 'npc-actor-own-roll',
@@ -45,6 +47,7 @@ async function table(t) {
 	t.after(() => runtime.close());
 	const call = (method, params = {}) => runtime.handlers[method]({ campaign: 'c1', ...params });
 	await call('campaign.create', { id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en' });
+	if (contact) for (const [method, params] of pinContactImpression()) await call(method, params);
 	await call('table.open');
 	const partyDir = join(home, '.coc/campaigns/c1/party');
 	const file = join(partyDir, (await readdir(partyDir)).find((name) => name.endsWith('.json')));
@@ -157,7 +160,8 @@ test('an actor nobody at the table or in the book knows is refused, naming inves
  * investigator named Steven Knott); it now settles as the investigator's own roll and says so.
  */
 test('a first-impression written with the NPC as actor and the investigator as target settles oriented, not refused', async (t) => {
-	const game = await table(t);
+	// The Keeper's own resolve rolls only where meeting did not (a 1.4.4 table, or a person the book preordains).
+	const game = await table(t, { contact: true });
 	const handle = await place(game);
 	const investigator = await game.investigator();
 	const before = await game.investigatorRaw();

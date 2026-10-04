@@ -213,11 +213,14 @@ test("SL-23: a proposal the clerk's move staled is told to the Keeper once, on t
 	const telemetry = table.table.telemetry(campaign);
 	assert.ok(telemetry.some((entry) => entry.lane === "adaptation" && entry.status === "stale" && entry.proposal === "harbor-flat"),
 		"the clerk's move staled the held proposal, and the next boundary read it");
-	const clerkMoves = table.calls.filter((call) => call.phase === "call" && call.tool === "apply" && call.id.startsWith("clerk:"));
+	// The stub answers `now` to every candidate naming Knott, so back in his office the clerk also reveals what the book
+	// puts there; the moves are the subject, and no clerk write is refused.
+	const clerkWrites = table.calls.filter((call) => call.phase === "call" && call.tool === "apply" && call.id.startsWith("clerk:"));
+	const clerkMoves = clerkWrites.filter((call) => call.input.effects[0].kind === "move");
 	assert.deepEqual(clerkMoves.map((call) => call.input.effects[0].to), ["newspaper-morgue", "commission-briefing"]);
-	for (const move of clerkMoves) {
-		const result = table.calls.find((call) => call.phase === "result" && call.id === move.id);
-		assert.equal(result?.isError, false, `the clerk's move to ${move.input.effects[0].to} landed: ${result?.text}`);
+	for (const write of clerkWrites) {
+		const result = table.calls.find((call) => call.phase === "result" && call.id === write.id);
+		assert.equal(result?.isError, false, `the clerk's ${write.input.effects[0].kind} landed: ${result?.text}`);
 	}
 	const notice = telemetry.filter((entry) => entry.code === "blocked" && entry.reason === "adaptation_stale");
 	assert.equal(notice.length, 1, "said once");

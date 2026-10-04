@@ -95,6 +95,10 @@ export function mechanicsOf(receipt: Row, texts: ReadonlyMap<string, string> = n
             labeled(out, 'actor_label', receipt.public_actor_label);
             labeled(out, 'target_label', receipt.public_target_label);
         }
+        // §178.4: a roll about someone else (a first impression at a meeting) names them in the table's word, so three
+        // people met at once are three cards that say whom each is about. A hidden die names nobody.
+        else if (!dieHidden(receipt.visibility))
+            labeled(out, 'target_label', receipt.public_target_label);
         // The engine's stable name for a die it rolled itself (§23): the card looks the play-language
         // word up by this and keeps the English `label` as what it draws when there is none.
         if (receipt.form === "dice")

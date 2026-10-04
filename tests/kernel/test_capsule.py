@@ -57,7 +57,8 @@ def test_player_input_capsule_has_all_sections(kernel):
     assert "appearance" not in investigator, "this pregen writes no description and the capsule invents none"
     assert {"name": "Spot Hidden", "value": 55} in investigator["skills_of_note"]
 
-    assert capsule["recent"] == [{"turn": 0, "player": None, "keeper": "开场。\n\n诺特把钥匙拍在桌上。", "closed": "explicit", "receipts": 0}]
+    # §178.3: the opening carries Knott's first impression, rolled as the table opened on him.
+    assert capsule["recent"] == [{"turn": 0, "player": None, "keeper": "开场。\n\n诺特把钥匙拍在桌上。", "closed": "explicit", "receipts": 1}]
     # §14.16: the Haunting reads its built-in window, so the capsule carries the book's navigation. The
     # index is its authored scenes, each prepared; twelve rows do not fit 512 bytes, so the tail is cut.
     reading = capsule["reading"]

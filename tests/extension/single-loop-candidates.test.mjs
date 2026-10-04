@@ -15,6 +15,7 @@ import { createInterface } from "node:readline";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createRealCampaign } from "./harness.mjs";
+import { pinContactImpression } from "./natural-npc-contact.mjs";
 import { buildCandidates, keeperCall, obligationCandidates } from "../../runtime/jev/candidates.ts";
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { actGated, compileBatch, compileReaches, fightStep } from "../../runtime/jev/route-compile.ts";
@@ -69,6 +70,8 @@ const allText = (value) => JSON.stringify(value);
 
 test("candidates come from the kernel's own reads: each carries its clerk authority and kernel row, and nothing internal reaches Jev", async (t) => {
 	const { call } = kernel(t);
+	// The table is locked to natural-npc 1.4.4 (§178.5), so meeting Knott is still a pending `contact` check for the clerk.
+	for (const [method, params] of pinContactImpression()) await call(method, params);
 	await call("table.open");
 	await call("table.player_input", { text: "我先看看这间办公室" });
 	const state = await reads(call);
@@ -99,7 +102,7 @@ test("candidates come from the kernel's own reads: each carries its clerk author
 		new Set(state.resolveOptions.selection.options.filter(option => !['combat', 'chase'].includes(option.family) || option.action.decision === 'chase:start').map(option => option.action.decision)));
 	assert.ok(checkGroups.every(candidate => candidate.checkOwner === 'jev'));
 	assert.equal(candidates.some(candidate => candidate.family === 'check_selection'), false, 'no second global selector before compose');
-	// The active natural-npc Mod declares a first-impression check for meeting him: the clerk's by authority (b).
+	// natural-npc 1.4.4 declares a first-impression `contact` check for meeting him: the clerk's by authority (b).
 	const contact = candidates.find((candidate) => candidate.family === "mod_check");
 	assert.equal(contact?.clerk, "mod_contact");
 	assert.equal(contact?.bound.target, "Steven Knott");
@@ -370,9 +373,13 @@ test("SL-08: an NPC's turn without a disposition is a forced closed bind that in
 	assert.equal(bindingOf(inference), "closed");
 	assert.deepEqual(inference.unbound[0].options, ["fights_to_the_end", "fights_then_flees", "avoids_fighting", "surrenders"]);
 	assert.deepEqual(inference.unbound[0].descriptions, fighter.combat_disposition.options, "the criteria are the kernel's table descriptions");
-	// The material is his own parameters as the card issued them, and the basis names which were read.
-	assert.deepEqual(inference.detail.person, fighter.combat_disposition.material);
-	assert.deepEqual(inference.basis.row.read, Object.keys(fighter.combat_disposition.material));
+	// The material is his own parameters as the card issued them, plus the first impression natural-npc settled when the
+	// party met him (§178.3: rolled at the turn's start), and the basis names which were read.
+	const settled = state.capsule.mods.relationships.find((row) => row.target === fighter.name)?.impression;
+	assert.ok(settled, "he was met, so his first impression is settled");
+	const material = { ...fighter.combat_disposition.material, first_impression: settled };
+	assert.deepEqual(inference.detail.person, material);
+	assert.deepEqual(inference.basis.row.read, Object.keys(material));
 	const view = initialView({ runId: "r", rawInput: "我揍他", context, candidates: [], readFirst: false });
 	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
 	assert.deepEqual([view.pending[0].kind, view.pending[0].purpose, view.pending[0].candidate.key], ["decide", "bind", inference.key]);

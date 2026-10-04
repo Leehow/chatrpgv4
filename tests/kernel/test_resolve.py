@@ -40,7 +40,8 @@ def test_ordinary_check_is_seeded_and_consistent(seeded_kernel, tmp_path):
     assert status["state"] == "acting"
     assert [r["id"] for r in status["receipts"]] == ["roll:spot-hidden-t1-c1"]
     events = read_jsonl(campaign_dir(seeded_kernel.workspace) / "events.jsonl")
-    rolled = [e for e in events if e["type"] == "roll-resolved"]
+    # §178.3: the opening's first impression of Knott is a roll-resolved event of its own; the check's is this turn's.
+    rolled = [e for e in events if e["type"] == "roll-resolved" and e["turn"] == 1]
     assert rolled[0]["receipt"] == "roll:spot-hidden-t1-c1" and rolled[0]["data"]["roll"] == outcome["roll"]
 
     # Same seed, fresh process, same first roll.
