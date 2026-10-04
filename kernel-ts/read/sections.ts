@@ -20,7 +20,9 @@ export const SECTIONS_CAPABILITY = "instructions.sections.v1";
 export const INSTRUCTION_BUDGET = 65536;
 /** Gates the kernel evaluates on the turn's state (§183.3); `no_topic` is the host's (§183.5). */
 export const KERNEL_GATES: readonly string[] = ["opening", "people_present", "present_without_history", "unregistered_equipment",
-    "registered_instances", "threat_clock", "stall", "recover", "clue_here", "handed_clue_here", "reentry"];
+    "registered_instances", "threat_clock", "stall", "recover", "clue_here", "handed_clue_here", "reentry",
+    // §180.10: a creature present, and a present being whose row carries a weakness chain.
+    "creature_present", "weakness_here"];
 export const HOST_GATES: readonly string[] = ["no_topic"];
 /** The decision families a `resolve` settles: the ruleset's `decision:coc7:<family>:` prefixes and the kernel's own
  *  `objects:` decisions. A test holds this to the ruleset. */
@@ -228,7 +230,7 @@ export function residentText(sections: readonly Section[]): string {
 /** The turn's state the kernel gates read, gathered while the capsule assembles and before any budget cuts it. */
 export type TurnFacts = {
     readonly opening: boolean;
-    /** `present[]` rows as assembled (with `history`). */
+    /** `present[]` rows as assembled (with `history`); a creature's row carries `kind: "creature"`, a person's no `kind`. */
     readonly present: readonly Row[];
     /** Undiscovered clues of this scene a present person or the scene itself hands over (delivery obvious, or
      *  npc_dialogue with a speaker present). */
@@ -259,13 +261,18 @@ export function sceneFacts(graph: ModuleGraph, world: Row, scene: Row, present: 
     return { undiscovered, handed };
 }
 
+/** A present row is a person's when it carries no `kind` (§180.4: a creature's says `creature`). */
+const isPersonRow = (entry: Row): boolean => !Object.hasOwn(row(entry), "kind");
 /** Every kernel gate for one package (`settings` carries its own stall threshold, if it has one). */
 export function kernelGates(facts: TurnFacts, mods: Row, settings: Row): Record<string, boolean> {
     const own = row(settings).stall_turns, threshold = integer(own) && number(own) > 0 ? number(own) : facts.stall_threshold;
     return {
         opening: facts.opening,
-        people_present: facts.present.length > 0,
-        present_without_history: facts.present.some(person => row(row(person).history).last_spoke_turn == null),
+        // §180.10: the people gates count person rows only, which carry no `kind`; a creature has no history to lack.
+        people_present: facts.present.some(isPersonRow),
+        present_without_history: facts.present.filter(isPersonRow).some(person => row(row(person).history).last_spoke_turn == null),
+        creature_present: facts.present.some(entry => row(entry).kind === "creature"),
+        weakness_here: facts.present.some(entry => row(entry).weaknesses != null || row(entry).false_leads != null),
         unregistered_equipment: array(mods.unregistered_equipment).length > 0,
         registered_instances: array(row(mods.objects).instances).length > 0,
         threat_clock: facts.threat_clocks > 0,
