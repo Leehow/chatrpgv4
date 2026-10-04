@@ -204,7 +204,7 @@ export async function ensureCampaignModule(context: KernelContext, campaign: str
 }
 
 /**
- * §179.1: the `module.json` fields the library adopts from the fork it follows. The index (`index_file` with
+ * §184.1: the `module.json` fields the library adopts from the fork it follows. The index (`index_file` with
  * `reading.index_complete`) travels as a pair, below. `reading.map_candidates` is the index's own output, read beside
  * `index_file` by the map gate and by every assembly, so it travels with the index rows it came from. §182.2: a short
  * book's `build_complete` travels too, so every later fork starts complete.
@@ -213,7 +213,7 @@ const ADOPTED_READING = ['materials', 'scene_index', 'visual_scans', 'visual_can
     'resolved_source_needs', 'source_need_dispositions', 'viewed_pages', 'map_candidates', 'build_complete'];
 const ADOPTED_MODULE = ['prepared_openings', 'character_guidance', 'source_reference', 'vocabulary', 'languages'];
 /**
- * §179.1: where a fork's artifact lands in the library when the library has no file of its own at that path. Work
+ * §184.1: where a fork's artifact lands in the library when the library has no file of its own at that path. Work
  * directories are named by ordinal job id (`work/read-N/attempt-M`), and those ordinals collide between the library and
  * every fork, so a fork's file is never written into a library work directory.
  */
@@ -231,7 +231,7 @@ const withoutGeneration = (material: Row): string => {
 };
 
 /**
- * §179.1: the library follows the leading fork. A campaign fork's accepted reading is source material, so after the
+ * §184.1: the library follows the leading fork. A campaign fork's accepted reading is source material, so after the
  * fork publishes, the library adopts it as one new library publication -- when the library's head is this fork's lineage.
  * Returns `{state: "published", library_generation}`, `{state: "skipped", reason}` or `{state: "failed", detail}`; it
  * never throws, because a sync failure never fails the fork's publication.
@@ -248,7 +248,7 @@ export async function syncLibraryFromCampaign(context: KernelContext, campaign: 
 }
 
 /**
- * §179.1's lineage test on the two module records, or the reason it fails: `not_a_fork`, `starter`, `source_mismatch`,
+ * §184.1's lineage test on the two module records, or the reason it fails: `not_a_fork`, `starter`, `source_mismatch`,
  * `library_advanced`; null when the library's head is this fork's lineage.
  */
 function lineageRefusal(campaign: string, id: string, forkMeta: Row, libraryMeta: Row): string | null {
@@ -261,14 +261,14 @@ function lineageRefusal(campaign: string, id: string, forkMeta: Row, libraryMeta
     // published since, by any fork or by the library itself), or when that generation is the one this campaign last
     // published there. Which campaign the library followed before does not matter: a campaign created after another
     // one's publication forks the deeper library and leads from it. A head anyone else wrote after the fork's base ends
-    // the lineage (§179.4).
+    // the lineage (§184.4).
     const lineage = equal(generation, forkMeta.source_generation ?? null)
         || head.campaign === campaign && equal(head.library_generation, generation);
     return lineage ? null : 'library_advanced';
 }
 
 /**
- * §179.5 (bounded per call): whether this campaign's fork is the library's lineage, decided as a publication decides it,
+ * §184.5 (bounded per call): whether this campaign's fork is the library's lineage, decided as a publication decides it,
  * without publishing: `lineage`, or the reason it is not (`not_a_fork`, `library_missing`, `starter`, `source_mismatch`,
  * `library_advanced`). The campaign's read-ahead continues a merge backlog only on `library_advanced`.
  */
@@ -288,7 +288,7 @@ async function followFork(context: KernelContext, campaign: string, moduleId: st
     if (!await fork.exists(id) || (await fork.module(id)).campaign_scope !== campaign) return skipped('not_a_fork');
     if (!await library.exists(id)) return skipped('library_missing');
     const outcome = await withOptionalExclusiveLock(context.locks, join(library.moduleDir(id), '.metadata.lock'), async (): Promise<Row> => {
-        // Eligibility is decided on what is current inside the lock (§179.1, "the lineage test").
+        // Eligibility is decided on what is current inside the lock (§184.1, "the lineage test").
         const forkMeta = await fork.module(id), libraryMeta = await library.module(id);
         const refusal = lineageRefusal(campaign, id, forkMeta, libraryMeta);
         if (refusal !== null) return skipped(refusal);
@@ -358,7 +358,7 @@ async function followFork(context: KernelContext, campaign: string, moduleId: st
         // Anything adopted is one new library generation, so every row new to the library is numbered at or below its head.
         const graphChanged = !equal(graph, libraryGraph), target = number(generation) + 1;
 
-        // module.json: the reading state, never the campaign's private fields (§179.1, "what stays private").
+        // module.json: the reading state, never the campaign's private fields (§184.1, "what stays private").
         const next = clone(libraryMeta), forkReading = row(forkMeta.reading), libraryReading = row(libraryMeta.reading);
         next.reading = isJsonObject(next.reading) ? next.reading : {};
         for (const field of ADOPTED_READING)

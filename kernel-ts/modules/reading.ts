@@ -280,16 +280,16 @@ export class Reading {
     async publishReferencePlace(params:Row):Promise<Row>{
         const mid=validateModuleId(params.module_id);return this.mutex(mid,async()=>{const meta=await this.store.module(mid);await this.source(meta);
             const result=await publishReferencePlace(this.store,meta,params);
-            // §179.1: a materialization that published is a publication the library follows; a reused place published nothing.
+            // §184.1: a materialization that published is a publication the library follows; a reused place published nothing.
             return result.state==='ready'&&!truth(result.reused)?this.libraryFollows(mid,result,'source-place:'+string(result.scene)):result;});
     }
     /**
-     * §179.1: a campaign fork's publication is offered to the library it was seeded from, inside this call and after the
+     * §184.1: a campaign fork's publication is offered to the library it was seeded from, inside this call and after the
      * fork's own writes are durable. Runs under this module's metadata lock (the fork's); `syncLibraryFromCampaign` takes
      * the library's second. Its outcome rides on the result as `library_sync` and never fails the publication. A
      * library-scoped publication gets no field: the library follows no one.
      *
-     * §179.5: when the lineage test fails (`library_advanced`), the fork's readings the library lacks are merged one by one
+     * §184.5: when the lineage test fails (`library_advanced`), the fork's readings the library lacks are merged one by one
      * through the library's own publication instead; `key` is the reading this publication wrote, when it wrote one.
      */
     private async libraryFollows(mid: string, result: Row, key?: string): Promise<Row> {
@@ -308,7 +308,7 @@ export class Reading {
         return { ...result, library_sync };
     }
     /**
-     * §179.5: the library's own Reading over the library store replays each reading. It is a second instance in this process:
+     * §184.5: the library's own Reading over the library store replays each reading. It is a second instance in this process:
      * the library module's `.metadata.lock` (a descriptor lock, which two descriptors of one process contend for like two
      * processes) serializes it with the kernel's library Reading and every other kernel. The fork's metadata lock is held by
      * the caller; the merge takes the library's and never a fork's.
@@ -323,7 +323,7 @@ export class Reading {
         finally { await library.close(); }
     }
     /**
-     * §179.5 (bounded per call): the campaign's read-ahead continues the merge backlog a publication's budget left, one batch
+     * §184.5 (bounded per call): the campaign's read-ahead continues the merge backlog a publication's budget left, one batch
      * per call, under this fork's metadata lock as a publication does. Only a campaign fork whose lineage test answers
      * `library_advanced`; null for the library itself, a lineage fork, and a batch with nothing to merge.
      */
@@ -339,7 +339,7 @@ export class Reading {
         });
     }
     /**
-     * §179.5: what a library job replaying a fork job's reading carries -- its identity (`key`, `purpose`, `focus`, `question`,
+     * §184.5: what a library job replaying a fork job's reading carries -- its identity (`key`, `purpose`, `focus`, `question`,
      * `pages`), its JOB_MARKERS, and the two fields the finish reads beside them (`material`, `opening_scope`).
      */
     static replayIdentity(job: Row): Row {
@@ -981,7 +981,7 @@ export class Reading {
     /**
      * §182.2: a short book's build completes when nothing the whole-book read-ahead streams is left to ask or to finish on
      * this source (`buildPending`). The record is written once, under this module's metadata lock; a fork offers it to the
-     * library at once (§179.1), since no publication follows it. Null while the build is not complete.
+     * library at once (§184.1), since no publication follows it. Null while the build is not complete.
      */
     private async completeBuild(mid: string): Promise<Row | null> {
         return this.mutex(mid, async () => {
@@ -1078,7 +1078,7 @@ export class Reading {
                     question:'Prepare the visual assets on this nominated original page and their necessary identity links. Use safe crops and existing map regions; leave unresolved geometry explicit. Do not prepare unrelated pages or story dossiers.'});
         };
         // §182.2: the read-ahead's own outcome -- the window, and on a short book whether its build completed (a fork's
-        // completion carries the library's answer, §179.1).
+        // completion carries the library's answer, §184.1).
         const outcome = async (): Promise<Row> => {
             if (!short) return { window };
             const built = await this.completeBuild(mid);
@@ -1511,7 +1511,7 @@ export class Reading {
             }
             else if (prepared)
                 return { ...result, state: 'ready' };
-            // §179.5: a merge the library refused is not one of its own readings of this key.
+            // §184.5: a merge the library refused is not one of its own readings of this key.
             const queue = await this.store.queue(mid), existing = [...queue].reverse().find(job => job.key === key && !refusedMerge(job));
             // §22.4.6.1 addendum (SL-55): the same question asked again while its job is parked or still reading under an older
             // generation attaches to that job; it is claimed (or finishes) under the current generation, so no second reading.
@@ -1695,7 +1695,7 @@ export class Reading {
                         continue;
                     }
                     await probe.release();
-                    // §179.5: a library job a fork's merge wrote is a replay, never a reading to claim. Unheld, its merge stopped
+                    // §184.5: a library job a fork's merge wrote is a replay, never a reading to claim. Unheld, its merge stopped
                     // before the finish answered; the next merge of that reading replays it again.
                     if (isJsonObject(stale.merged_from)) {
                         Object.assign(stale, { state: 'failed', detail: 'the merge that replayed this reading was interrupted',
@@ -1833,8 +1833,8 @@ export class Reading {
         const mid = validateModuleId(params.module_id);
         return this.mutex(mid, async () => {
             const result = await this.finishHeld(mid, params);
-            // §179.1: a completed reading that published (not a replay, not an answer put back in the queue) is followed by
-            // the library. Source consultations stay private to their campaign (§179.4): their answers are never adopted.
+            // §184.1: a completed reading that published (not a replay, not an answer put back in the queue) is followed by
+            // the library. Source consultations stay private to their campaign (§184.4): their answers are never adopted.
             if (params.outcome !== 'completed' || truth(result.replayed) || result.state === 'queued') return result;
             const job = (await this.store.queue(mid)).find(job => job.job_id === params.job_id);
             return job && job.purpose !== 'answer' && job.state === 'completed' ? this.libraryFollows(mid, result, string(job.key)) : result;

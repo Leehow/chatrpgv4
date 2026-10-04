@@ -39,7 +39,7 @@ export function capsuleUpdate(first: Row, current: Row): Row | undefined {
     return {kind: 'capsule_update', head: CAPSULE_UPDATE_HEAD, sections: changed, ...(removed.length ? {removed} : {})};
 }
 /**
- * Contract §179.2: the capsule the Keeper is sent on the single-loop engine carries its sections in one fixed order, the
+ * Contract §184.2: the capsule the Keeper is sent on the single-loop engine carries its sections in one fixed order, the
  * ones stable across turns first and the ones that change every turn last, so the next turn's first request shares the
  * capsule's stable head with this turn's as a token prefix. A closed enumeration of the capsule's own section names.
  */
@@ -259,7 +259,7 @@ export interface Projection {
 export function projectedMessages(input: {
     messages: Row[]; binding: ContextBinding; history: Row; brief?: Row; answering?: string[]; budget?: number;
     workspace?: Row; prescreen?: Row;
-    /** Contract §179.2 (single-loop engine): the turn's capsule leads the fixed part after the brief, ahead of `coc-history`. */
+    /** Contract §184.2 (single-loop engine): the turn's capsule leads the fixed part after the brief, ahead of `coc-history`. */
     capsuleFirst?: boolean;
 }): Projection {
     const {messages, binding} = input, budget = input.budget ?? requestBudget();
@@ -282,7 +282,7 @@ export function projectedMessages(input: {
     // the turn has since accumulated is, and the kernel stays authoritative for what it drops.
     const capsule = tail.findIndex(message => message.role === 'custom' && message.customType === 'coc-capsule');
     const opening = tail.slice(0, capsule < 0 ? 1 : capsule + 1), working = tail.slice(opening.length);
-    // §179.2: on the single-loop engine the capsule moves ahead of the history, which is rebuilt every turn, so the
+    // §184.2: on the single-loop engine the capsule moves ahead of the history, which is rebuilt every turn, so the
     // capsule's stable head stays in the prefix the next turn's first request shares; the rest of the opening keeps its order.
     const lead = input.capsuleFirst && capsule >= 0 ? opening.slice(-1) : [];
     const rest = lead.length ? opening.slice(0, -1) : opening;

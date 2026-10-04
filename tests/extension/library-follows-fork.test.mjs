@@ -1,7 +1,7 @@
 import {playtestScratch} from './playtest-scratch.mjs';
 /**
- * Contract §179.1 (amends §22.6 and §151.4's fork note): the library follows the leading fork. §179.5 (amends §179.1 and
- * §179.4): a fork that is not the library's lineage gives back its readings one by one, through the library's own finish. A campaign's fork of a book
+ * Contract §184.1 (amends §22.6 and §151.4's fork note): the library follows the leading fork. §184.5 (amends §184.1 and
+ * §184.4): a fork that is not the library's lineage gives back its readings one by one, through the library's own finish. A campaign's fork of a book
  * accumulates accepted readings; before this rule none of them flowed back to the shared library, so every new campaign
  * read the whole book again (2026-10-04: five tables of one 111-page book, 96.6% of the uncached tokens in the reading lane).
  *
@@ -91,7 +91,7 @@ async function library(name, {reading} = {}) {
 	b.meta = async campaign => JSON.parse(await readFile(join(b.dir(campaign), 'module.json'), 'utf8'));
 	/**
 	 * `action` runs while the library's binding is set aside, so a fork's publications reach no library (`library_missing`):
-	 * the state of a fork whose readings predate §179, as the lead measured it on the App's own data.
+	 * the state of a fork whose readings predate §184, as the lead measured it on the App's own data.
 	 */
 	b.aside = async action => {
 		const binding = join(b.dir(), 'module.json');
@@ -168,7 +168,7 @@ async function library(name, {reading} = {}) {
 	return b;
 }
 
-test('§179.1: the library follows the leading fork; a campaign forked after it reads nothing the first read, and other lineages stay private', async () => {
+test('§184.1: the library follows the leading fork; a campaign forked after it reads nothing the first read, and other lineages stay private', async () => {
 	const b = await library('lead');
 	const seeded = await b.meta(), seededGraph = await b.graph();
 	for (const id of ['table-a', 'table-c']) await b.kernel('campaign.create', {id, module: b.mid, play_language: 'en', start_scene: 'Harbor'});
@@ -208,7 +208,7 @@ test('§179.1: the library follows the leading fork; a campaign forked after it 
 	assert.equal(sha(await readFile(join(b.dir(), placeRow.packet_file))), placeRow.packet_sha256);
 	assert.ok((await b.graph()).nodes.some(node => node.node_id === placed.scene));
 
-	// A source consultation stays private to its campaign (§179.4): its finish is no publication the library follows.
+	// A source consultation stays private to its campaign (§184.4): its finish is no publication the library follows.
 	const beforeAnswer = await treeDigest(b.dir());
 	const asked = await b.call('module.read.request', {purpose: 'answer', focus: 'Harbor', question: 'What year is the harbor scene set in?', foreground: true}, 'table-a');
 	assert.equal(asked.state, 'queued');
@@ -232,7 +232,7 @@ test('§179.1: the library follows the leading fork; a campaign forked after it 
 	assert.equal(requested.job_id, undefined, 'a detail request for a unit A read queues nothing');
 	assert.ok(!(await b.queue('table-b')).some(job => job.key === unit.key));
 
-	// C forked from the generation before A's sync: another lineage. §179.5: its readings the library lacks are merged one by
+	// C forked from the generation before A's sync: another lineage. §184.5: its readings the library lacks are merged one by
 	// one, and the unit C read is one A gave the library first, so the library is unchanged.
 	const before = await treeDigest(b.dir());
 	const readC = await b.claimWhere('table-c', job => job.source_unit?.first === 3);
@@ -261,7 +261,7 @@ test('§179.1: the library follows the leading fork; a campaign forked after it 
 	assert.deepEqual(await treeDigest(b.dir()), afterBBytes);
 
 	// A library-scoped reading is not a fork's publication: it carries no sync, and it moves the library's head, which
-	// ends B's lineage (§179.4): B's next publication is merged, and the unit it read is the library's own already.
+	// ends B's lineage (§184.4): B's next publication is merged, and the unit it read is the library's own already.
 	const libraryUnit = (await b.queue('table-b')).find(job => job.source_unit?.first === 1);
 	await b.call('module.read.request', {purpose: 'detail', focus: libraryUnit.focus, question: libraryUnit.question, source_unit: libraryUnit.source_unit});
 	const readLibrary = await b.claimWhere(undefined, job => job.source_unit?.first === 1);
@@ -283,7 +283,7 @@ const keeper = {node_id: 'npc-keeper', node_kind: 'npc', name: 'Lighthouse Keepe
 const chart = {node_id: 'handout-chart', node_kind: 'handout', name: 'Tide Chart', visibility: 'player-safe', source_refs: [{page: 5}], properties: {image_sources: [{page: 5}]}};
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGk0AAAAASUVORK5CYII=', 'base64');
 
-test('§179.5: a fork that is not the library\'s lineage gives back its readings one by one, through the library\'s own publication', async () => {
+test('§184.5: a fork that is not the library\'s lineage gives back its readings one by one, through the library\'s own publication', async () => {
 	const b = await library('merge');
 	for (const id of ['table-a', 'table-c']) await b.kernel('campaign.create', {id, module: b.mid, play_language: 'en', start_scene: 'Harbor'});
 	// A and C fork the same library head.
@@ -291,7 +291,7 @@ test('§179.5: a fork that is not the library\'s lineage gives back its readings
 	assert.deepEqual(await b.units('table-c'), [[3, 'queued'], [5, 'queued']]);
 	assert.equal((await b.meta('table-a')).source_generation, (await b.meta('table-c')).source_generation);
 
-	// A publishes first: the library fast-forwards to A (§179.1). Its unit names a person it does not make ready.
+	// A publishes first: the library fast-forwards to A (§184.1). Its unit names a person it does not make ready.
 	const readA3 = await b.claimWhere('table-a', job => job.source_unit?.first === 3);
 	const libraryHead = await b.meta();
 	assert.deepEqual((await b.publish('table-a', readA3, delta([ferryman('The ferryman rows at dawn.', 3)], [], []))).library_sync,
@@ -345,7 +345,7 @@ test('§179.5: a fork that is not the library\'s lineage gives back its readings
 	assert.deepEqual(await treeDigest(b.dir()), bytes, "A's reading of the unit stays the library's");
 	assert.ok((await b.meta('table-c')).reading.materials.some(row => row.key === unit3.key), "C's reading stays in C's own workspace");
 
-	// A consultation C answers stays C's (§179.4): its finish offers the library nothing.
+	// A consultation C answers stays C's (§184.4): its finish offers the library nothing.
 	const asked = await b.call('module.read.request', {purpose: 'answer', focus: 'Harbor', question: 'What year is the harbor scene set in?', foreground: true}, 'table-c');
 	const answered = await b.answer('table-c', await b.claimWhere('table-c', job => job.job_id === asked.job_id),
 		{status: 'answered', answer: 'The harbor scene is set in 1925.', source_refs: [{page: 3}], limitations: 'Only the opening page is cited.'});
@@ -401,7 +401,7 @@ test('§179.5: a fork that is not the library\'s lineage gives back its readings
 	assert.equal(libraryAsk.state, 'queued', JSON.stringify(libraryAsk));
 });
 
-test('§179.5: a replay whose merge was interrupted is never claimed by a library reader, and the next merge replays it', async () => {
+test('§184.5: a replay whose merge was interrupted is never claimed by a library reader, and the next merge replays it', async () => {
 	const b = await library('interrupted');
 	for (const id of ['table-a', 'table-c']) await b.kernel('campaign.create', {id, module: b.mid, play_language: 'en', start_scene: 'Harbor'});
 	await b.units('table-a');
@@ -436,7 +436,7 @@ test('§179.5: a replay whose merge was interrupted is never claimed by a librar
 /** Merged rows of a fork's reading in the library queue, by fork job id. */
 const replaysOf = async (b, jobId) => (await b.queue()).filter(job => job.merged_from?.job_id === jobId);
 
-test('§179.5 bounded per call: with merge_budget_ms 0 a backlog merges one reading per call, a publication first and the read-ahead after', async () => {
+test('§184.5 bounded per call: with merge_budget_ms 0 a backlog merges one reading per call, a publication first and the read-ahead after', async () => {
 	const b = await library('budget', {reading: {merge_budget_ms: 0}});
 	for (const id of ['table-a', 'table-c']) await b.kernel('campaign.create', {id, module: b.mid, play_language: 'en', start_scene: 'Harbor'});
 	await b.units('table-a');
@@ -486,7 +486,7 @@ test('§179.5 bounded per call: with merge_budget_ms 0 a backlog merges one read
 	assert.equal(Object.hasOwn(await b.kernel('module.read.ahead', {module_id: b.mid, campaign: 'table-c'}), 'library_sync'), false);
 });
 
-test('§179.5 bounded per call: a reading the library refused does not take every call\'s one replay', async () => {
+test('§184.5 bounded per call: a reading the library refused does not take every call\'s one replay', async () => {
 	const b = await library('budget-refused', {reading: {merge_budget_ms: 0}});
 	for (const id of ['table-a', 'table-c']) await b.kernel('campaign.create', {id, module: b.mid, play_language: 'en', start_scene: 'Harbor'});
 	await b.units('table-a');

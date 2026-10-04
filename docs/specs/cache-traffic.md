@@ -1,8 +1,8 @@
 # Provider traffic: the book is read once, and the Keeper's request keeps its prefix (2026-10-04)
 
-Status: decided 2026-10-04 (owner: 「按照你的建议来优化吧」 on the three recommendations below); contract §179.
-Implemented 2026-10-04 on `claude/cache-traffic-20261004` (CT-01 806eda7f5, CT-02/03 b0f8aee75 + 746bf8e9b; the §179.1
-implementation decisions and the §179.2 order decision are in the contract). Tickets: `cache-traffic-tickets.md`.
+Status: decided 2026-10-04 (owner: 「按照你的建议来优化吧」 on the three recommendations below); contract §184.
+Implemented 2026-10-04 on `claude/cache-traffic-20261004` (CT-01 806eda7f5, CT-02/03 b0f8aee75 + 746bf8e9b; the §184.1
+implementation decisions and the §184.2 order decision are in the contract). Tickets: `cache-traffic-tickets.md`.
 Live acceptance (§3) is still to run after packaging.
 
 Owner, 2026-10-04: 「我发现现在pipicoc用的大模型流量跑的特别快，grok的缓存命中极低，你看看怎么回事」, then 「按照你的建议来优化吧」.
@@ -61,9 +61,9 @@ Against the four tables' calls and the context lane's rows (`system_bytes`, `bri
 - `thinking-schedule` is a no-op on grok-4.5: the catalog exposes no `off`, so Pi clamps the request back to `low`. On a
   model with an `off` level the same schedule would pay the whole prompt again on every turn's second call.
 
-## 2. What changes (contract §179)
+## 2. What changes (contract §184)
 
-### 2.1 The library follows the leading fork (§179.1)
+### 2.1 The library follows the leading fork (§184.1)
 
 A fork's accepted reading is source material, not campaign canon. When a fork publishes (a `module.read.finish` that
 wrote a graph, a scene row, visual scan or identity state, or a reference materialization) and the library's current
@@ -85,7 +85,7 @@ design record (`coc-module-parsing-redesign`, 2026-08-03): 9 of 11 surveyed modu
 location edge reaches, which is why the whole book is read. With the library deepening, the whole-book read is paid once
 per book, not once per table.
 
-### 2.2 The Keeper's request keeps its prefix across turns (§179.2)
+### 2.2 The Keeper's request keeps its prefix across turns (§184.2)
 
 On the single-loop engine the outgoing order after the brief becomes: the turn's capsule, then `coc-history`, then the
 player's words and the rest of the opening, then the optional packets, then the turn's traffic. The capsule is rendered
@@ -94,7 +94,7 @@ lists, `known`, `voices`, `style`) and the ones that change every turn last (`wh
 `recent`, `turn`). xAI matches the token prefix inside a message, so the next turn's first call shares the system prompt,
 the brief and the capsule's stable head. Nothing is removed from the request; the legacy engine is unchanged.
 
-### 2.3 The context lane can attribute a miss (§179.3)
+### 2.3 The context lane can attribute a miss (§184.3)
 
 The context lane's `request` row gains `at` and `segments`: one `{kind, bytes, digest}` per outgoing message in order,
 plus `system_digest`. A cache miss in the token ledger can then be joined by time and attributed to the first segment

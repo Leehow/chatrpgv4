@@ -32919,7 +32919,9 @@ Tests:
 - `tests/kernel/test_journal.py`: a made-up name refused with `not_a_book_name` and the narrow question; `named_as` that is not words of the quote, or without `named`, refused; the person left untold until the book's name is delivered; 诺特 taken with `named_as`; the instruction asks for their own name.
 - `tests/extension/npc-journal-lane.test.mjs`: the field rule asks for their own name and allows `named_as` only on request; the refusal reaches the retry and the retry's `named_as` reaches the kernel.
 
-## 179. Provider traffic: the library follows the leading fork, and the Keeper's request keeps its prefix (owner ruling 2026-10-04, `docs/specs/cache-traffic.md`; amends §22.6, §151.4's fork note, §135.23 and the context rows of §19.2)
+## 184. Provider traffic: the library follows the leading fork, and the Keeper's request keeps its prefix (owner ruling 2026-10-04, `docs/specs/cache-traffic.md`; amends §22.6, §151.4's fork note, §135.23 and the context rows of §19.2)
+
+*Numbered §179 on its work branch; renumbered §184 before it reached 0.9.6a, where §179 is "A turn serves what the act is after" and §183 is taken by the package-instructions branch.*
 
 **Evidence (2026-10-04, installed App, five tables of one 111-page PDF book, Keeper grok-4.5 low, ten hours).** The
 module reading lane spent 27.4 M uncached input tokens in its `read` children (82% of their input cached) and 24.8 M in
@@ -32933,7 +32935,7 @@ of `api.x.ai` with the App's credential: the cache matches a token prefix in 128
 well as across messages; 384 cached tokens is xAI's own preamble and means nothing of ours matched; a different
 `reasoning.effort` is a different cache; tool declarations are outside the cached prefix.
 
-### 179.1 The library follows the leading fork (amends §22.6)
+### 184.1 The library follows the leading fork (amends §22.6)
 
 A fork's accepted reading is source material, never campaign canon. §22.6 keeps its direction -- a library publication
 never changes a forked campaign's graph -- and gains the reverse one:
@@ -32988,10 +32990,10 @@ metadata, then library metadata; a seeding holds the campaign's seed lock, then 
 library's lock waits on a fork's, so there is no cycle).
 
 - Which finishes: outcome `completed`, not a replay, not an answer put back in the queue, and not `purpose: answer`
-  (§179.4). `settled` and `held` are not publications here; what they wrote travels with the fork's next one. A
+  (§184.4). `settled` and `held` are not publications here; what they wrote travels with the fork's next one. A
   library-scoped publication carries no `library_sync` field.
 - The lineage test also requires `synced_from.library_generation` to equal the library's generation, so a library
-  publication of its own after a sync ends the lineage, as §179.4 says. A fork seeded from the current head is eligible
+  publication of its own after a sync ends the lineage, as §184.4 says. A fork seeded from the current head is eligible
   whoever the library followed before (fixed 2026-10-04 with a case in `library-follows-fork.test.mjs`: a campaign
   created after the first one's publications reads a unit beyond it and the library adopts it). `nothing_new` is decided on content: the adopted
   graph and fields equal the library's current ones.
@@ -33015,10 +33017,10 @@ library's lock waits on a fork's, so there is no cycle).
 - Tests: `tests/extension/library-follows-fork.test.mjs`, `campaign-module-isolation.test.mjs` (amended),
   `map-publication.test.mjs` (the host row).
 
-### 179.5 A fork that is not the library's lineage gives back its readings one by one (owner ruling 2026-10-04, 「点头」; amends §179.1 and §179.4)
+### 184.5 A fork that is not the library's lineage gives back its readings one by one (owner ruling 2026-10-04, 「点头」; amends §184.1 and §184.4)
 
 Owner, 2026-10-04: 「如果重开的话应该能做到复制一份共享图谱，如果有比共享图谱解析更多的内容可以回去添加共享图谱对吧？」, and after the
-lead described the reading-level merge, 「点头」. §179.1's fast-forward stays the first choice. When the lineage test fails
+lead described the reading-level merge, 「点头」. §184.1's fast-forward stays the first choice. When the lineage test fails
 (`library_advanced`: two campaigns forked the same head and the other one published first, or the library moved after
 this fork's base), the fork's readings the library lacks are published into the library **one at a time, through the
 library's own reading publication** -- the same `module.read.finish` (or `module.reference.materialize`) checks a library
@@ -33031,7 +33033,7 @@ readiness, and the single atomic generation write. No model is called; it costs 
   finish read (`packet.json`, `draft.json`, `review.json`, `observations.json`, and the identity review and rendered
   assets when its finish had them), in the order the fork finished them. Source places (`module.reference.materialize`,
   key `source-place:<scene>`) replay through `module.reference.materialize`. Not merged: source consultations
-  (`purpose: answer`, §179.4), guidance, identity-review jobs and settled needs; they are counted as skipped with their
+  (`purpose: answer`, §184.4), guidance, identity-review jobs and settled needs; they are counted as skipped with their
   reason.
 - **How.** For each reading, under the library module's metadata lock: the fork's attempt directory is copied to
   `work/merged/<campaign>/<fork job id>/` in the library (never a `work/read-N` ordinal, which collide), a library queue
@@ -33057,7 +33059,7 @@ readiness, and the single atomic generation write. No model is called; it costs 
   directly): 100 merged, 0 refused, 111.6 s in one call; per library finish median 1008 ms, p90 1587 ms, max 3486 ms,
   growing with the graph. Unbounded, that ran inside one `module.read.finish` request (the host's timeout is 30 s,
   `extensions/kernel/client.ts`) and held the table's kernel the whole time.
-- **What it does not do.** The running fork does not take the library's newer readings (§179.4 unchanged). Two forks that
+- **What it does not do.** The running fork does not take the library's newer readings (§184.4 unchanged). Two forks that
   read the same unit keep the first one's in the library; the second is `already_present`.
 - **Three ends (§31).** Writer: the fork's publication. Reader: `ensureCampaignModule` for the next campaign and the
   campaigns that still follow the library. Actor: the next campaign's read-ahead, which asks no unit either fork read.
@@ -33124,7 +33126,7 @@ the reading the publication wrote (`job.key`; `source-place:<scene>` for a mater
   lineage and from then on merges too. Keeping that lineage would let its next fast-forward replace the library's
   materials and graph with its own and drop what was merged (`library-follows-fork.test.mjs` checks it).
 - **What a merge does not carry.** Only material rows travel: visual scans (contact sheets), the whole-book index and
-  its map candidates, identity verdicts of identity jobs and `build_complete` reach the library only by §179.1's
+  its map candidates, identity verdicts of identity jobs and `build_complete` reach the library only by §184.1's
   fast-forward. A later fork reads those again unless the library has them.
 - **Not measured** (first implementation; *superseded*: the lead measured it on the App's data, see "Bounded per call"
   above). A fork that diverged long ago merged every reading the library lacked in the one publication that first found
@@ -33141,12 +33143,12 @@ the reading the publication wrote (`job.key`; `source-place:<scene>` for a mater
   true)` for the `module.read.ahead` request alone, after the campaign's fork exists and before the read-ahead's own
   asks; the kernel's own read-aheads (a table opening, setup's way-on repair, through `source.ahead`) run no batch, so a
   table opening does not wait on one. It takes the fork's metadata lock (the fork Reading's mutex) and asks
-  `libraryLineage` (`campaign-scope.ts`): §179.1's test (`lineageRefusal`, shared with `followFork`) read under the
+  `libraryLineage` (`campaign-scope.ts`): §184.1's test (`lineageRefusal`, shared with `followFork`) read under the
   library's metadata lock without publishing. Only `library_advanced` runs a batch; a batch that answers `merged` or
   `failed` rides on the result, one that answers `skipped` adds nothing. A library-scoped read-ahead never calls it, and
   it answers null for a store that is not a campaign fork. When the same pass completes a short book's build (§182.2),
   that completion's own, later `library_sync` is the one returned.
-- Tests: `tests/extension/library-follows-fork.test.mjs` (two §179.5 cases; the §179.1 case's other-lineage publications
+- Tests: `tests/extension/library-follows-fork.test.mjs` (two §184.5 cases; the §184.1 case's other-lineage publications
   now answer `already_present`; two bounded cases with `merge_budget_ms` 0 through a content-root overlay: one reading per
   call across a publication and two read-ahead passes, `remaining` 2, 1, 0, no field on a lineage read-ahead, on one
   with nothing left and on a library-scoped one; a refused reading at the head of the backlog does not stall it),
@@ -33154,7 +33156,7 @@ the reading the publication wrote (`job.key`; `source-place:<scene>` for a mater
   summary is kept under §147.8), `map-publication.test.mjs` (the host row of a publication's merge),
   `read-window.test.mjs` (the host row of a read-ahead's batch).
 
-### 179.2 The Keeper's request keeps its prefix across turns (amends §135.23)
+### 184.2 The Keeper's request keeps its prefix across turns (amends §135.23)
 
 On the single-loop engine the projection's fixed part after the brief is, in order: the turn's capsule, then
 `coc-history`, then the player's words and the rest of the opening, then the optional packets, then the turn's
@@ -33193,7 +33195,7 @@ most live turns. `head` stays first by convention although its first-sight sente
 turns; moving that sentence into a section of its own next to `present` is a change to the kernel's capsule
 composition (§168) and needs a live table before it is made.
 
-### 179.3 The context lane fingerprints its request (amends the rows of §19.2)
+### 184.3 The context lane fingerprints its request (amends the rows of §19.2)
 
 The `lane: "context", event: "request"` row gains `at` (ISO time), `system_digest` and `segments`: one
 `{kind, bytes, digest}` per outgoing message in request order, `kind` the custom type or the role, `digest` the first
@@ -33210,13 +33212,13 @@ before it. The system message is the transcript's: on a host-started run whose t
 §128.1's `context_with_system` swaps the head after this hook, so that request's `system_digest` and `system_bytes`
 describe the recorded prompt, not the one sent (the `prompt` lane's `stale_prompt_replaced` row marks such a request).
 
-### 179.4 Limits
+### 184.4 Limits
 
 - Two campaigns forked from the same library generation are two lineages; the one that publishes first is the one the
-  library follows. *Amended by §179.5: the other one's readings the library lacks are merged one by one through the
+  library follows. *Amended by §184.5: the other one's readings the library lacks are merged one by one through the
   library's own publication.* Adopting a deeper library into a running fork is not done.
 - A library that reads on its own after a fork (setup guidance, a library-scoped opening read) moves its head and
-  ends the forks' lineage; those forks publish nothing to it. *Amended by §179.5: they give back their readings one by
+  ends the forks' lineage; those forks publish nothing to it. *Amended by §184.5: they give back their readings one by
   one; a merge is such a library publication and ends the lineage of the fork the library last followed.*
 - Source consultations (`purpose: answer`) stay private to their campaign.
 - The first reading of a book still reads the whole book (`coc-module-parsing-redesign`, 2026-08-03: nine of eleven
@@ -33224,11 +33226,11 @@ describe the recorded prompt, not the one sent (the `prompt` lane's `stale_promp
   reach. *Superseded by §182 (owner ruling the same day): that 2026-08-03 reason asks for a whole-book index, not a
   detailed read of every page; a short book is built once and a long book reads the chapter in play and the next.*
 - Eviction on the provider's side is not ours. `thinking-schedule` is a no-op on grok-4.5 and grok-4.7, whose catalogs
-  expose no `off`; on a model that does, it would cost a whole prompt per turn on an xAI endpoint (179's probes).
+  expose no `off`; on a model that does, it would cost a whole prompt per turn on an xAI endpoint (184's probes).
 
-## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §179.4)
+## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
 
-Owner, 2026-10-04, after the ten-hour measurement of §179 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
+Owner, 2026-10-04, after the ten-hour measurement of §184 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
 
 **Evidence.** Four tables of the 111-page 血色公路 each added 174–707 nodes to their fork's graph through the background
 reading while their player played 5–10 turns in 2–4 scenes; at most 7–17% of those nodes ever appeared in a message the
@@ -33261,7 +33263,7 @@ latency prefetch, not a precondition of play.
 book. Its read-ahead streams the whole book as today. When every streamed unit, contact sheet, nominated picture page,
 identity check and need has a terminal state on the source (a material row, a terminal job, or a settled disposition),
 the module records `reading.build_complete: {source_sha256, at}` and the read-ahead queues nothing more for that source;
-§179.1 carries the record to the library, and every later fork starts complete. Only a foreground request (a material
+§184.1 carries the record to the library, and every later fork starts complete. Only a foreground request (a material
 gate, a source consultation) reads after that.
 
 ### 182.3 A long book reads the chapter in play and the next one

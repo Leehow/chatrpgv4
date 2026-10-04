@@ -224,7 +224,7 @@ test('the optional workspace rides after the current capsule and yields before a
     assert.equal(broken.messages.some(message => message.customType === 'coc-workspace'), false);
 });
 
-test('§179.2: stableFirst puts the stable sections first, then sections it does not name, then the volatile ones; nothing else changes', () => {
+test('§184.2: stableFirst puts the stable sections first, then sections it does not name, then the volatile ones; nothing else changes', () => {
     const kernel = {head: 'h', turn: {number: 3, player_text: 'Input'}, where: {scene: 'office'}, historical_setting: {era: '1920s'},
         first_sight: {place: 'x'}, present: [{name: 'Arty'}], voices: [], known: {clues_here: []}, pressures: [{name: 'clock'}],
         obligations: [], director: {beat: 'b'}, situations: [], worldlines: {active: 'main'}, rulings: [], memory: [], style: {floor: ['f']},
@@ -262,7 +262,7 @@ test('§179.2: stableFirst puts the stable sections first, then sections it does
     assert.deepEqual(api.stableFirst({}), {});
 });
 
-test('§179.2: capsuleFirst puts the turn\'s capsule right after the brief, then the history, then the player\'s words; without it the order is today\'s', () => {
+test('§184.2: capsuleFirst puts the turn\'s capsule right after the brief, then the history, then the player\'s words; without it the order is today\'s', () => {
     const history = api.historyView(binding(2), []), brief = {kind: 'context_brief', module: {title: 'Book'}};
     const host = {role: 'custom', customType: 'coc-host', content: 'Turn note', details: {}};
     const base = [...group(1), ...group(2)];
@@ -340,7 +340,7 @@ function runtimeFixture(turn = 0, branch = [], records = []) {
     return {hooks, bus, rows, state, messages, ctx, cap};
 }
 
-test('§179.2 and §179.3 on the hook: the single-loop engine sends the capsule after the brief with its stable sections first; every request row is fingerprinted', async () => {
+test('§184.2 and §184.3 on the hook: the single-loop engine sends the capsule after the brief with its stable sections first; every request row is fingerprinted', async () => {
     const short = value => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 12);
     for (const engine of ['legacy', 'hybrid-v1']) {
         const t = runtimeFixture(2);
@@ -468,7 +468,7 @@ test('unavailable binding cancels compaction rather than falling back to a model
     const projected = await t.hooks.get('context')({messages: t.messages}, t.ctx);
     assert.equal(projected.messages[0].customType, api.DIAGNOSTIC_TYPE);
     assert.ok(api.sizeOf(projected.messages[0]) < 1024);
-    // §179.3: the degraded request row is fingerprinted like any other.
+    // §184.3: the degraded request row is fingerprinted like any other.
     const degraded = t.rows.findLast(row => row.lane === 'context' && row.event === 'request');
     assert.equal(degraded.reason, 'context_binding_unavailable');
     assert.ok(!Number.isNaN(Date.parse(degraded.at)) && degraded.at === new Date(degraded.at).toISOString());
@@ -550,8 +550,8 @@ test('actual Pi outbound context has bounded canonical history and a stable brie
         assert.ok(!JSON.stringify(request.context).includes('"_snapshot"'));
         assert.ok(!JSON.stringify(request.context).includes('"source_revision"'));
     }
-    // §179.3: every request row carries its time and its fingerprints. This table runs the legacy engine, so a prepared
-    // request leads with the brief and the history, as before §179.2.
+    // §184.3: every request row carries its time and its fingerprints. This table runs the legacy engine, so a prepared
+    // request leads with the brief and the history, as before §184.2.
     await waitFor(() => table.telemetry().filter(row => row.lane === 'context' && row.event === 'request' && row.turn === 4).length >= 2,
         {label: 'the turn 4 request rows'});
     const rows = table.telemetry().filter(row => row.lane === 'context' && row.event === 'request');

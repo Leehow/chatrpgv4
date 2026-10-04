@@ -1,5 +1,5 @@
 /**
- * §179.5: a fork that is not the library's lineage gives back its readings one by one. Each reading the library lacks is
+ * §184.5: a fork that is not the library's lineage gives back its readings one by one. Each reading the library lacks is
  * replayed through the library's own publication -- `module.read.finish` on a library job that carries the fork job's
  * identity, or `module.reference.materialize` for a source place -- so every check a library reading passes applies to it.
  * No model is called.
@@ -50,7 +50,7 @@ const SKIPPED_LIMIT = 64;
 const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error)).slice(0, 1000);
-/** §179.5: a merged library job (`merged_from`) that the library refused; it is evidence, not one of the library's own asks. */
+/** §184.5: a merged library job (`merged_from`) that the library refused; it is evidence, not one of the library's own asks. */
 export function refusedMerge(job: Row): boolean { return isJsonObject(job.merged_from) && job.state === 'failed'; }
 /** The queue as the module's own read-ahead, build and requests judge it: without the merges the library refused. */
 export function ownAsks(queue: Row[]): Row[] { return queue.filter(job => !refusedMerge(job)); }
@@ -61,8 +61,8 @@ type Skip = { key: string; reason: string; detail?: string };
 type Candidate = Reading | Place;
 
 /**
- * §179.5: publish into the library, one at a time and in the order the fork published them, the fork's readings whose key
- * the library's `reading.materials` lacks. Called by the fork's publication when §179.1's lineage test answered
+ * §184.5: publish into the library, one at a time and in the order the fork published them, the fork's readings whose key
+ * the library's `reading.materials` lacks. Called by the fork's publication when §184.1's lineage test answered
  * `library_advanced`, and by the campaign's read-ahead to continue a backlog, under the fork's metadata lock; the merge
  * takes the library's metadata lock per step and never holds it across the library's own finish, which takes it itself.
  * Bounded per call: a replay starts only while the call has run less than `reading.merge_budget_ms`, and the first always

@@ -177,7 +177,7 @@ test('§182.3: a long book without bookmarks reads a page window from the scene\
 	await noIndex(b);
 });
 
-test('§182.2 × §179.1: a short book is streamed whole once; when every ask has finished the build completes, the library adopts it, and a later fork asks nothing', async () => {
+test('§182.2 × §184.1: a short book is streamed whole once; when every ask has finished the build completes, the library adopts it, and a later fork asks nothing', async () => {
 	const b = await book('short-build', 20, {entries: [{id: 'scene-source-entry-3', name: 'Harbor', page: 3}]});
 	await b.kernel('campaign.create', {id: 'first-table', module: b.mid, play_language: 'en', start_scene: 'Harbor'});
 	const first = await b.ahead({}, 'first-table');
@@ -280,7 +280,7 @@ test('§182.4 host: a read_window row is written when the window changes, never 
 		{lane: 'reading', event: 'read_window', module_id: 'book-1', campaign: 'table', mode: 'chapters', first: 91, last: 120, chapters: ['Finale']}]);
 });
 
-test('§179.5 host: a read-ahead that continued a merge backlog writes its library_sync row as the kernel gave it; one without the field writes none', async () => {
+test('§184.5 host: a read-ahead that continued a merge backlog writes its library_sync row as the kernel gave it; one without the field writes none', async () => {
 	const rows = [], batch = {state: 'merged', merged: 1, skipped: [{key: 'k-1', reason: 'refused', detail: 'contradicts'}], library_generation: 6, remaining: 2, partial: true};
 	const answers = [{queued: [], library_sync: batch}, {queued: []}];
 	let pass = 0;

@@ -317,7 +317,7 @@ test('two kernel processes isolate one source module per campaign in the same ho
   const result = await finish(ownerA, A, jobA, mapDraft, [{ node_id: 'asset-plate', path: plate, sha256: sha(png) }]);
   assert.equal(result.generation, dock.generation + 1);
   assert.deepEqual(await treeDigest(store(B)), beforeB);
-  // §179.1 (amends §22.6): the library follows the leading fork. A forked from the library's head and publishes first, so
+  // §184.1 (amends §22.6): the library follows the leading fork. A forked from the library's head and publishes first, so
   // the library adopts A's reading as one new library generation -- never A's opening choice, completions or answers.
   assert.deepEqual(result.library_sync, { state: 'published', library_generation: root.meta.generation + 1 });
   assert.notDeepEqual(await treeDigest(store()), rootBytes, 'the library adopted the leading fork');
@@ -388,8 +388,8 @@ test('two kernel processes isolate one source module per campaign in the same ho
   assert.deepEqual(await treeDigest(store(A)), privateBytes);
   assert.deepEqual(await treeDigest(store(B)), otherBytes);
   assert.deepEqual(await treeDigest(store()), rootBytes);
-  // §179.1 / §179.4: B forked from the same library generation as A. A published first, so the library follows A and B is
-  // another lineage. §179.5: B's reading the library lacks is replayed through the library's own finish, as one library
+  // §184.1 / §184.4: B forked from the same library generation as A. A published first, so the library follows A and B is
+  // another lineage. §184.5: B's reading the library lacks is replayed through the library's own finish, as one library
   // job and one library generation; the library keeps the value A published for the field B read differently (§147.8: a
   // later reading preserves an accepted value and records the source mapping), and B's graph keeps B's reading.
   const ledgerB = await claim(second, B, { purpose: 'detail', focus: 'Cellar', question: 'Read the ledger for this table.' });

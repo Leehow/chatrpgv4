@@ -8,7 +8,7 @@
  * - §135.23: on the single-loop engine a turn's request is append-only, so a run's second model call reads its first
  *   call's whole prompt from cache (the faux provider's own accounting: the common prefix with the previous prompt),
  *   and the next turn's first call reads the brief.
- * - §179.2: the turn's capsule follows the brief, its stable sections first, so the next turn's first call also reads the
+ * - §184.2: the turn's capsule follows the brief, its stable sections first, so the next turn's first call also reads the
  *   capsule's head up to the first section that changed.
  */
 import { strict as assert } from "node:assert";
@@ -278,7 +278,7 @@ test("§135.23: on the single-loop engine a run's second call reads the first ca
 	assert.ok(index > 0 && index === briefAt(requests[1]));
 	assert.deepEqual(requests[2].messages.slice(0, index + 1).map(messageText), requests[1].messages.slice(0, index + 1).map(messageText));
 	assert.ok(nextTurn.cacheRead >= Math.ceil(requests[2].messages.slice(0, index + 1).map((message) => `${message.role}:${messageText(message)}`).join("\n\n").length / 4));
-	// §179.2: right after the brief comes the turn's capsule, then the history, on the turn's calls and on the next turn's first.
+	// §184.2: right after the brief comes the turn's capsule, then the history, on the turn's calls and on the next turn's first.
 	for (const context of requests) {
 		assert.match(messageText(context.messages[index + 1]), CAPSULE_HEAD, "the capsule follows the brief");
 		assert.match(messageText(context.messages[index + 2]), /"kind":"historical_quotations"/, "the history follows the capsule");
@@ -302,7 +302,7 @@ test("§135.23: on the single-loop engine a run's second call reads the first ca
 		`the next turn's first call reads the brief and the capsule's shared head from cache (${nextTurn.cacheRead})`);
 });
 
-test("§179.2: when a turn wrote nothing to a stable section, the next turn's first call shares the capsule past style, and every request row is fingerprinted (§179.3)", async (t) => {
+test("§184.2: when a turn wrote nothing to a stable section, the next turn's first call shares the capsule past style, and every request row is fingerprinted (§184.3)", async (t) => {
 	const campaign = "test-camp", requests = [];
 	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [["table.open", {}], ["table.player_input", { text: "我坐下" }],
 		["table.narrate", { call_id: "t1-c1", text: "诺特把帽子搁在椅背上。" }]]);
@@ -339,7 +339,7 @@ test("§179.2: when a turn wrote nothing to a stable section, the next turn's fi
 		`the next turn's first call reads the system prompt, the brief and the capsule's head from cache (${nextTurn.cacheRead} >= ${Math.ceil(cached.length / 4)})`);
 	t.diagnostic(`capsule ${next.length} chars; shared with the previous turn's ${shared} chars (~${Math.ceil(shared / 4)} tokens); cacheRead ${nextTurn.cacheRead}`);
 
-	// §179.3: the context lane's request rows carry the time and the request's fingerprints.
+	// §184.3: the context lane's request rows carry the time and the request's fingerprints.
 	await waitFor(() => table.telemetry().filter((row) => row.lane === "context" && row.event === "request").length >= 2, { label: "two request rows" });
 	const rows = table.telemetry().filter((row) => row.lane === "context" && row.event === "request");
 	for (const row of rows) {

@@ -1,6 +1,6 @@
 # cache-traffic tickets
 
-Spec: `cache-traffic.md`. Contract: §179.
+Spec: `cache-traffic.md`. Contract: §184.
 
 ## CT-01 The library follows the leading fork
 
@@ -10,7 +10,7 @@ Kernel (`kernel-ts/modules/campaign-scope.ts`, `reading.ts`, `reference.ts`), ho
 tests (`tests/extension/campaign-module-isolation.test.mjs`, `fork-read-ahead.test.mjs`, a new case).
 
 - `syncLibraryFromCampaign(context, campaign, moduleId)` in `campaign-scope.ts`: eligibility, the copy, the library
-  `writeGraph`, the private-field exclusions and the lineage record, exactly as §179.1 states. Under the library module's
+  `writeGraph`, the private-field exclusions and the lineage record, exactly as §184.1 states. Under the library module's
   `.metadata.lock`; re-check inside the lock.
 - Called at the end of `Reading.finish` for a `completed` outcome and after `publishReferencePlace`, only when
   `meta.campaign_scope` names the store's campaign. Its failure never fails the publication: the result carries
@@ -24,7 +24,7 @@ tests (`tests/extension/campaign-module-isolation.test.mjs`, `fork-read-ahead.te
 Status: landed 2026-10-04 (b0f8aee75, 746bf8e9b on `claude/cache-traffic-context-20261004`)
 
 `extensions/table/context-policy.ts` (`projectedMessages`, a `stableFirst` capsule render with the closed section order
-of §179.2), `extensions/table/context-runtime.ts` (render the sent capsule through it on the single-loop engine),
+of §184.2), `extensions/table/context-runtime.ts` (render the sent capsule through it on the single-loop engine),
 `tests/extension/single-loop-model-call-diet.test.mjs`, `tests/extension/context-policy.test.mjs`.
 
 ## CT-03 The context lane fingerprints its request
@@ -32,7 +32,7 @@ of §179.2), `extensions/table/context-runtime.ts` (render the sent capsule thro
 Status: landed 2026-10-04 (b0f8aee75)
 
 `extensions/table/context-runtime.ts` `record({lane: 'context', event: 'request', …})` gains `at`, `segments`,
-`system_digest` (§179.3); a test asserts the shape. Same worker as CT-02.
+`system_digest` (§184.3); a test asserts the shape. Same worker as CT-02.
 
 ## CT-04 Reading follows the book's chapters
 
@@ -48,7 +48,7 @@ handler registered beside the other private `module.*` methods, `kernel-ts/handl
 Status: landed 2026-10-04 (cb0226b3b; bounded per call 30ff83ee7; on `claude/cache-traffic-lineage-20261004`; decisions
 in the contract)
 
-Contract §179.5 (implementation decisions CT-05). Kernel (`kernel-ts/modules/library-merge.ts` new: selection,
+Contract §184.5 (implementation decisions CT-05). Kernel (`kernel-ts/modules/library-merge.ts` new: selection,
 classification, replay through the library's own `finish` / `module.reference.materialize`; `reading.ts`
 `libraryFollows` merges on `library_advanced`, the claim fails an interrupted replay and never offers one, a refused
 replay is not one of the library's own asks; `reference.ts` `placeScene`), tests
@@ -67,7 +67,7 @@ replay is not one of the library's own asks; `reference.ts` `placeScene`), tests
 ## Comments
 
 - 2026-10-04 (lead): CT-02's follow-up ordered the keys of `mods` and `known`; moving the two sections after `style`
-  was measured on the faux table and rejected on the live tables' change frequencies (§179.2, decision).
+  was measured on the faux table and rejected on the live tables' change frequencies (§184.2, decision).
 - 2026-10-04 (lead): CT-01's lineage test is stricter than the first wording (the library generation the fork last
   published must still be the head); the contract was aligned (20237b4ef).
 - 2026-10-04 (lead): CT-04's two calls are accepted. A short book keeps its index job (its units come from the index);

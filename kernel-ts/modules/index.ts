@@ -140,7 +140,7 @@ export function createModuleRuntime(context: KernelContext) {
         return await scopedModuleRoot(context, campaign, id) !== null ? value : library;
     };
     /**
-     * `merge` is set for the `module.read.ahead` request alone (§179.5, bounded per call): a campaign's read-ahead first runs
+     * `merge` is set for the `module.read.ahead` request alone (§184.5, bounded per call): a campaign's read-ahead first runs
      * one batch of its fork's merge backlog. The kernel's own read-aheads (a table opening, setup's way-on repair) do not
      * wait on one. A library-scoped read-ahead never merges.
      */

@@ -79,7 +79,7 @@ export async function referenceReady(store:ModuleStore,mid:string,focus=''):Prom
   return packet.entries.some(entry=>{const bound=row(row(ref.entry_bindings)[entry.id]);return [entry.id,entry.id.replace(/^scene-/,''),entry.name,bound.node_id,string(bound.node_id??'').replace(/^scene-/,''),bound.name].some(value=>typeof value==='string'&&value.trim()&&normalize(value)===normalize(wanted));});
  }catch{return false;}
 }
-/** The scene a source place names in `graph`: by its name, an alias or its own id. §179.5's merge asks it of the library. */
+/** The scene a source place names in `graph`: by its name, an alias or its own id. §184.5's merge asks it of the library. */
 export function placeScene(graph:Row|null,place:{id:string;name:string}):Row|undefined{
  return array(graph?.nodes).find(node=>node.node_kind==='scene'&&[node.node_id,node.name,...array(node.aliases)].some(value=>normalize(value)===normalize(place.name)||value===place.id));
 }

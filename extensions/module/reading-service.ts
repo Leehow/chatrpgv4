@@ -689,7 +689,7 @@ export class ReadingService implements ReadingBridge {
 	/**
 	 * The read-ahead (§22.4, §182), as every caller in this service asks it. A `window` that differs from the last one this
 	 * host saw for the campaign and module is one `read_window` row; a short book's completion in a fork carries the library's
-	 * answer, which is its `library_sync` row (§179.1).
+	 * answer, which is its `library_sync` row (§184.1).
 	 */
 	private async readAhead(params: Row, campaign: string | undefined): Promise<Row | undefined> {
 		const result = await this.call("module.read.ahead", params, campaign);
@@ -729,7 +729,7 @@ export class ReadingService implements ReadingBridge {
 	}
 
 	/**
-	 * Contract §179.1: one `library_sync` row per campaign publication, with the library's answer to it as the kernel gave
+	 * Contract §184.1: one `library_sync` row per campaign publication, with the library's answer to it as the kernel gave
 	 * it (`state`, and `reason`, `library_generation` or `detail`). A library-scoped publication carries none and writes none.
 	 */
 	private recordLibrarySync(published: Row | undefined, fields: Row): void {

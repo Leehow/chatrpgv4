@@ -26,11 +26,11 @@ type KernelCall = (method: string, params: Row) => Promise<unknown>;
 type Prepared = {binding: ContextBinding; capsule: Row; history: Row; brief: Row; key: string; answering?: string[];
     workspace?: Row; workspaceMode: WorkspaceMode};
 const fingerprint = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-/** Contract §179.3: the first 12 hex characters of a SHA-256, enough to tell two requests' segments apart. */
+/** Contract §184.3: the first 12 hex characters of a SHA-256, enough to tell two requests' segments apart. */
 const shortDigest = (value: unknown): string => fingerprint(value).slice(0, 12);
 const SEGMENT_LIMIT = 64;
 /**
- * Contract §179.3: one `{kind, bytes, digest}` per outgoing message, in request order, so a cache miss in the token ledger
+ * Contract §184.3: one `{kind, bytes, digest}` per outgoing message, in request order, so a cache miss in the token ledger
  * can be attributed to the first segment whose digest changed. `kind` is the custom type, else the role.
  */
 function requestSegments(messages: readonly Row[]): Row {
@@ -75,7 +75,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // hands over the packet it prepared for the current turn; this hook then injects that packet and runs none of its own.
     let runOwnsPrescreen=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
     // Contract §135.23: the turn's first capsule and first run packet, as the first request of the input sent them.
-    // §179.2: `sent` is that capsule as the Keeper is sent it (stable sections first); `capsule` keeps the kernel's own copy.
+    // §184.2: `sent` is that capsule as the Keeper is sent it (stable sections first); `capsule` keeps the kernel's own copy.
     let turnMaterial:{epoch:string;capsule:Row;sent:Row;packet?:Row}|undefined;
     pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';});
     pi.events.on('coc:run-prescreen',value=>{const packet=object(value);
@@ -434,7 +434,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (typeof ctx.sessionManager?.buildSessionProjection === 'function') {
             const system = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
             systemBytes = system ? sizeOf(system) + 1 : 0;
-            // §179.3: the prompt text and the tool declarations the provider sees; the transcript timestamp is not sent.
+            // §184.3: the prompt text and the tool declarations the provider sees; the transcript timestamp is not sent.
             systemDigest = system ? shortDigest({content: system.content, sections: system.sections ?? null, tools: system.toolsAdded ?? []}) : null;
         } else {
             const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
@@ -469,7 +469,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // (stable across turns, not the residue of this turn's capsule); the capsule and the run's packet stay as the
         // turn's first request sent them; what changed since rides at the end (`coc-capsule-update`, a later run packet),
         // so every model call of a turn, and the next turn's first call, can read the earlier prefix from cache.
-        // §179.2: on this engine the capsule the Keeper is sent has its stable sections first (`stableFirst`); the update
+        // §184.2: on this engine the capsule the Keeper is sent has its stable sections first (`stableFirst`); the update
         // compares section values against the kernel's own copy, so its sections and `removed` keep the kernel's order.
         const turnTail:Row[]=[];
         let capsuleSent=view,runPacket:Row|undefined;
@@ -505,7 +505,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             selected.push({...customMessage('coc-capsule', capsuleSent), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
         }
         let workspace=snapshot.workspaceMode==='on'?snapshot.workspace:undefined,prescreen:Row|undefined;
-        // §179.2: the single-loop engine's order puts the turn's capsule ahead of the history; the legacy engine's is unchanged.
+        // §184.2: the single-loop engine's order puts the turn's capsule ahead of the history; the legacy engine's is unchanged.
         const project=(budget:number,optional:{workspace?:Row;prescreen?:Row}={})=>projectedMessages({messages:selected,binding:snapshot.binding,
             history:snapshot.history,brief:briefSent,answering:snapshot.answering,budget,...optional,...(runOwnsPrescreen?{capsuleFirst:true}:{})});
         let messageBudget=room,baseline=project(room,{workspace});

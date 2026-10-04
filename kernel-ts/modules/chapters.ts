@@ -12,7 +12,7 @@ import { array, chars, integer, number, row, type Row } from '../read/values.js'
 export const OUTLINE_ENTRIES = 200, OUTLINE_NAME = 200;
 /** The shipped `reading` budgets of `content/rulesets/coc7/host-budgets.json`, used when the data names none. */
 export const WHOLE_BOOK_MAX_PAGES = 60, FALLBACK_WINDOW_PAGES = 24;
-/** §179.5: the shipped `reading.merge_budget_ms`, and the most the data may give one merge call. */
+/** §184.5: the shipped `reading.merge_budget_ms`, and the most the data may give one merge call. */
 export const MERGE_BUDGET_MS = 2000, MERGE_BUDGET_MAX_MS = 60_000;
 
 export type OutlineEntry = { name: string; page: number };
@@ -90,7 +90,7 @@ function pages(value: unknown, fallback: number, least: number): number {
 }
 
 /**
- * §182.2-§182.3: `reading.whole_book_max_pages` and `reading.fallback_window_pages`; §179.5: `reading.merge_budget_ms`, the
+ * §182.2-§182.3: `reading.whole_book_max_pages` and `reading.fallback_window_pages`; §184.5: `reading.merge_budget_ms`, the
  * time after which one merge call starts no further replay (0 to 60000). Read from the content's host budgets.
  */
 export async function readingBudget(context: KernelContext): Promise<ReadingBudget> {
