@@ -1,7 +1,7 @@
 """Section 150 transaction regressions, not Keeper play acceptance."""
 from contextlib import closing
 import json
-from conftest import RpcClient, campaign_dir, narrate, open_turn, read_json
+from conftest import RpcClient, campaign_dir, narrate, open_turn, read_json, written
 
 SHOP = "Riverside photographic shop"
 CLUE = "The shopkeeper's delivery address"
@@ -106,7 +106,8 @@ def test_known_memory_reference_is_not_a_note_and_cannot_block_a_legal_move(tmp_
                    {"kind": "note", "closes": "mem:t1-3", "name": "service-done", "text": "The service is complete."}]
         result = client.table("apply", call_id="t1-c1", effects=effects)
         assert result["world"]["active_scene"] == "newspaper-morgue"
-        assert len(result["receipts"]) == 1
+        assert [receipt for receipt in result["receipts"] if not receipt.startswith("roll:mod-natural-npc-")] == ["move:newspaper-morgue-t1-c1"], \
+            "the move alone landed (beside the first impression of the person met there, §178.3)"
         assert result["not_landed"][0]["details"]["reason"] == "note_reference_owner"
         assert memory.read_text() == original
         assert not (campaign_dir(client.workspace) / "notes.jsonl").exists()

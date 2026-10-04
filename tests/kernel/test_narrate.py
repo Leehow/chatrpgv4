@@ -35,6 +35,9 @@ def test_labels_ride_on_the_projection_and_the_text_is_verbatim(kernel):
     ])
     result = kernel.table("narrate", call_id="t1-c2", text="你出了门。")
     assert result["rendered_text"] == "你出了门。"
+    # §178.3: arriving, the party meets the records clerk; his first impression is the card after the move's.
+    meeting = result["mechanics"].pop()
+    assert meeting["kind"] == "roll" and meeting["receipt"] == "roll:mod-natural-npc-t1-c1"
     assert result["mechanics"] == [
         {"kind": "clue", "marker": "clue:knott-research-leads", "receipt": "clue:knott-research-leads-t1", "clue": "knott-research-leads", "label": "诺特给的查证方向",
          "call": "t1-c1"},
@@ -49,7 +52,8 @@ def test_every_receipt_is_projected_and_the_turn_closes(kernel):
     text = f"第一段：你掷出 {roll['roll']}，侦查 {roll['target']}。\n\n第二段：十分钟（10）过去了。\n\n第三段。"
     result = kernel.table("narrate", call_id="t1-c3", text=text)
     assert result["rendered_text"] == text
-    assert [m["kind"] for m in result["mechanics"]] == ["roll", "clue", "time", "scene"]
+    # §178.3: the last card is the records clerk's first impression, met on arrival.
+    assert [m["kind"] for m in result["mechanics"]] == ["roll", "clue", "time", "scene", "roll"]
     assert result["mechanics"][0] == {"kind": "roll", "marker": "check:spot-hidden", "receipt": "roll:spot-hidden-t1-c1", "actor": "thomas-hayes",
                                       "actor_label": "托马斯·海斯", "actor_is_investigator": True,
                                       "skill": "Spot Hidden", "roll": roll["roll"], "target": 55, "threshold": 55,
@@ -68,7 +72,7 @@ def test_every_receipt_is_projected_and_the_turn_closes(kernel):
     record = read_json(campaign_dir(kernel.workspace) / "turns" / "0001.json")
     assert record["player_text"] == "我仔细观察诺特。"
     assert [r["id"] for r in record["receipts"]] == ["roll:spot-hidden-t1-c1", "clue:knott-research-leads-t1",
-                                                    "time:t1-c2", "move:hall-of-records-t1-c2"]
+                                                    "time:t1-c2", "move:hall-of-records-t1-c2", "roll:mod-natural-npc-t1-c2"]
     assert record["rendered_text"] == text and record["mechanics"] == result["mechanics"]
     assert "placement" not in record
     assert record["commit"] == result["commit"]

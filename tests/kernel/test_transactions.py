@@ -96,8 +96,9 @@ def test_ask_closes_turn_and_pending_choice_carries_over(kernel):
     kernel.table("apply", call_id="t2-c2", effects=[{"kind": "move", "to": "newspaper-morgue"}])
     narrated = kernel.table("narrate", call_id="t2-c3", text="你们出发去报社。")
     assert narrated["rendered_text"] == "你们出发去报社。"
+    # §178.3: arriving, the party meets Ruth Blake (Arty's reaction is the book's), whose first impression is the last card.
     assert [(m["kind"], m.get("option"), m.get("to")) for m in narrated["mechanics"]] == [
-        ("choice", "报社档案", None), ("scene", None, "newspaper-morgue")]
+        ("choice", "报社档案", None), ("scene", None, "newspaper-morgue"), ("roll", None, None)]
 
 
 def test_pending_turn_survives_a_crash(tmp_path):

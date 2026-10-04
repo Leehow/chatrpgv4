@@ -23,6 +23,7 @@
  * `label` the book's name, `category`, and `weapon` -- its `weapons.json` profile -- when the record is a weapon). It
  * replaces D9's weapons-only `draw` list (ticket 20): what a person brings out is anything the book prices.
  */
+import { isImpressionRoll } from '../mods/impression-receipt.js';
 import {join} from 'node:path';
 import type {KernelContext} from '../context.js';
 import type {HandlerGroup} from '../handlers.js';
@@ -63,7 +64,7 @@ export function actedOn(me: Person, turn: Row, party: Row[], here: boolean): Row
         if (me.is(row(receipt.intent).npc) || me.is(receipt.actor)) continue;
         // An impression observes this meeting; it is not an action performed against the NPC.
         // Its typed result guides the Keeper's ordinary reply without starting another author.
-        if (receipt.roll_kind === 'mod_check' && isJsonObject(receipt.impression)) continue;
+        if (isImpressionRoll(receipt)) continue;
         let kind: string | null = null;
         if (receipt.kind === 'roll' && me.is(receipt.npc)) kind = 'roll_against';
         else if (receipt.kind === 'delta' && me.is(receipt.subject)) kind = 'delta';

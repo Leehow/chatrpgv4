@@ -3,7 +3,7 @@ all through the RPC seam."""
 
 import json
 
-from conftest import RpcClient, campaign_dir, narrate, open_turn, read_json, read_jsonl
+from conftest import RpcClient, campaign_dir, narrate, open_turn, read_json, read_jsonl, written
 
 CONFRONTATION_PATH = ["corbitt-house-ground", "basement-rites", "corbitt-confrontation"]
 
@@ -88,7 +88,8 @@ def test_opposed_check_rolls_both_parties(seeded_kernel, tmp_path):
     assert npc_roll["actor_is_investigator"] is False and npc_roll["actor_label"] == "Walter Corbitt"
     assert result["continuations"] == []  # opposed checks are never pushed
 
-    rolls = [m for m in narrate(seeded_kernel, f"t1-c{n + 1}", "他的手像石头。")["mechanics"] if m["kind"] == "roll"]
+    # The opposed check's two cards (§178.3: meeting Corbitt also rolled his first impression, a card of its own).
+    rolls = [m for m in narrate(seeded_kernel, f"t1-c{n + 1}", "他的手像石头。")["mechanics"] if m["kind"] == "roll" and m["receipt"] in result["receipts"]]
     assert len(rolls) == 2
     # §23: the investigator is named on the card too, not left as the kernel's `inv`-style id.
     assert rolls[0]["skill"] == "STR" and rolls[0]["actor"] == "thomas-hayes"
@@ -550,14 +551,15 @@ def test_replay_and_needs_fixes(seeded_kernel):
     seeded_kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "newspaper-morgue"}])
     action = {"intent": "social", "goal": "让阿蒂放我们进剪报室", "method": "跟他聊聊", "target": "Arty Wilmot"}
     assert seeded_kernel.table_err("resolve", call_id="t1-c2", action=action)["code"] == "needs"
-    assert len(seeded_kernel.table("status")["receipts"]) == 1
+    assert len(written(seeded_kernel.table("status")["receipts"])) == 1, "the move alone (and Ruth Blake's first impression, §178.3)"
     fixed = {**action, "skill": "Charm"}
     first = seeded_kernel.table("resolve", call_id="t1-c2", action=fixed)
     assert first["outcome"]["approach"] == "charm"
     replay = seeded_kernel.table("resolve", call_id="t1-c2", action=fixed)
     assert replay == {**first, "replayed": True}
-    assert len([r for r in seeded_kernel.table("status")["receipts"] if r["kind"] == "roll"]) == 1
+    assert len([r for r in written(seeded_kernel.table("status")["receipts"]) if r["kind"] == "roll"]) == 1
     conflict = seeded_kernel.table_err("resolve", call_id="t1-c2", action={**fixed, "skill": "Persuade"})
     assert conflict["code"] == "idempotency_conflict"
-    events = [e for e in read_jsonl(campaign_dir(seeded_kernel.workspace) / "events.jsonl") if e["type"] == "decision-settled"]
+    events = [e for e in read_jsonl(campaign_dir(seeded_kernel.workspace) / "events.jsonl") if e["type"] == "decision-settled"
+              and e["data"]["decision"] != "natural-npc:first-impression"]
     assert len(events) == 1 and events[0]["data"]["decision"] == "social:adjudicate-difficulty"
