@@ -33150,7 +33150,9 @@ apply {"kind": "npc", "name": "the yard dog", "walk_on": true, "creature": "Dog"
 
 ### 180.7 One being, one node
 
-- **The reader's checker** refuses a draft in which an npc and a creature share a normalized name or handle (`details.reason: "one_being_two_nodes"`). Its `fix` is to keep one node of the kind 180.2 decides.
+- **The reader's checker** refuses a draft in which an npc and a creature share a normalized name or handle. The refusal's `rule` and `details.reason` are both `one_being_two_nodes`, with `details.pairs[]`. Its `fix` is to keep one node of the kind 180.2 decides.
+- **What it refuses.** It refuses only what the draft introduces, including a new node that pairs with a published one. A pair already published is a compile snapshot's matter (below) and is not refused.
+- **Limit.** A draft cannot delete a published node. When the published half is the wrong kind by 180.2, the reader can only add the facts to it; correcting its kind needs a module rebuild.
 - **The starter test** asserts that no shipped starter carries such a pair.
 - **Loading a graph does not refuse a pair.** A campaign is a compile snapshot, and an old haunting campaign carries the twin. `actor`'s npc-first order (§136.12) is kept only as the tie-break for such snapshots.
 
@@ -33180,9 +33182,11 @@ A package requiring `actor.weaknesses.v1` binds, at build, the actor property `w
 - `learned_by`: the `conclusion` the investigators can reach that states it. It is absent when the book gives no route. Such a weakness is the Keeper's alone and is found in play.
 - The accounting law holds: what the book does not give is absent, never invented.
 
-**The checker.** It refuses a missing `book`, an id that does not resolve, and a kind outside the list (`shape_unresolved`, with the path).
+**The checker.** It refuses a missing `book`, an id that does not resolve, and a kind outside the list (`shape_unresolved`, with the path). A value that is not a list, an entry that is not an object, or an unknown key in an entry gets the mechanics refusals `shape_prose` and `shape_unknown_key`.
+- **When it applies.** Only when the build bound `actor.weaknesses.v1`: `task.vocabulary.actor_weaknesses` is present (`kernel-ts/modules/being-shape.ts`, `weaknessesBound`). The rules are always read from the contract JSON's `actor_weaknesses` block, never from the packet's copy.
+- **Review.** Entries are reviewed through the reader's verify instructions and the coverage unit. They are not added to `required_review`.
 
-**False leads.** `clue --misleads--> npc|creature` (an existing relation kind, until now without readers) marks a clue whose belief about the being is false. The checker refuses any other endpoints. A false lead against a true weakness is the existing `clue --contradicts--> conclusion`.
+**False leads.** `clue --misleads--> npc|creature` (an existing relation kind, until now without readers) marks a clue whose belief about the being is false. The checker refuses any other endpoints under rule `relation_endpoints`, the contract JSON block of that name. This check is base: it applies whether or not weaknesses are bound. A false lead against a true weakness is the existing `clue --contradicts--> conclusion`.
 
 **The chain** (§31: the reader end). An actor row carries `weaknesses` in this form:
 
