@@ -266,6 +266,18 @@ test('§177.6: once the reader publishes the person, the landed entry is replace
 	assert.equal(world.table_people[0].replaced_by, 'jonah');
 });
 
+test('§177.1/§177.2: a partial cast is used as it stands; a cast of another state or version is not', () => {
+	const raw = {nodes: [{node_id: 'npc-old-mae', node_kind: 'npc', name: 'Old Mae', source_refs: [{page: 1}]}], relations: []};
+	const people = state => {
+		const graph = new api.ModuleGraph('harbor', raw, 'digest', {});
+		graph.castStore = {version: 1, source_sha256: 'x', state, people: [{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}]};
+		return api.bookCast(graph).map(person => person.id);
+	};
+	assert.deepEqual(people('partial'), ['old-mae', 'cast-0123456789'], 'the ranges read so far are true already');
+	assert.deepEqual(people('complete'), ['old-mae', 'cast-0123456789']);
+	assert.deepEqual(people('unavailable'), ['old-mae']);
+});
+
 test('§177.2 (owner Q2): a book with no text layer has no cast, and the checks read the graph', async t => {
 	const h = await harbor(t);
 	const job = await h.call('cast.job', {module_id: h.mid});
