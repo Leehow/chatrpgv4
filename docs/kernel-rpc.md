@@ -26393,6 +26393,8 @@ The view guidance is conditional: distinguish a source/book or narrator identity
 
 ### 137.12 Sensory passage closure after sectioned instructions (2026-10-04)
 
+**Containment candidate 2.2.7.** The coordinator's source-chain audit found added investigative absence, weather cause and visibility claims in the 2.2.6 look sample. This does not establish causal regression by the sentence. The existing environment duty is tightened so supplied material qualifies every relation and the closing relation; unestablished absence, cause and identification remain unknown. Source omission is not evidence of absence. No new source truth, state, selector, NPC rule or online review is created. 2.2.6's played package bytes stay frozen; final exact-package natural play is pending and this containment is not declared behaviorally accepted.
+
 **Writer (package author):** The author of this Narration Craft package writes only the approved environment refinement: the body of **Scene and detail**, plus the existing `place-the-eye` full and brief style values if changed. The writer preserves every other section, directive, beat, floor, voice lane, setting, capability, state, section definition, delivery mode, and one-pass policy. The writer does not repair or certify runtime state, receipts, NPC placement, source content, or host behavior.
 
 **Reader:** The reader is the CURRENT whole or indexed instruction projection together with the host context supplied for the turn. The reader treats this addendum as an instruction to be applied in that projection, not as a replacement for omitted sections or a license to infer facts. Source visibility, knowledge, agency, route, settled results, and actual receipts remain authoritative.

@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.2.7
+- Qualifies the entire sensory-relation list and its closing relation by supplied material. Unestablished absence, cause or identification stays unknown; omission from source material does not establish absence. This is a coordinator-approved containment candidate, not an empirically verified fix. 2.2.6's played bytes and locks remain frozen. No NPC, style, section, state, host or review changes; final exact-package play is pending.
+
 ## 2.2.6
 - Centers the existing environment passage on looking, chosen movement or listening. Supplied physical and sensory relations carry detail and complete the observation. All original first-visible, source, return and quiet-scene duties remain; NPC prose, voice lane, sections, style, state, settings and capabilities are unchanged. No new selector, online review/rewrite or runtime repair. Contract137.12.
 
