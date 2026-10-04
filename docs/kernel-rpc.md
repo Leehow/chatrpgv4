@@ -33139,6 +33139,14 @@ The branch first refused such a quote outright (`not_their_name`). §176.9, whic
 
 Tests: `tests/extension/module-cast.test.mjs`: a made-up name refused with `not_a_book_name` and the person kept untold; a form only the cast prints taken as their name; the book's name said through the token telling them.
 
+### 177.13 Recall by the table's word (table 27; amends §127.1's recall)
+
+**Evidence.** Table 27 (App `e634c3eb0`, Blood Road), turn 5. The Keeper asked `recall {what: "memory", about: ["烂牙的退休卡车司机"]}`, the toothless trucker's epithet. `recallMemory` resolved `about` through `EntityIndex` alone, by the graph's names, and answered `unknown_entity`; the `lookup` and `look` in the same batch did not run. For an untold person the table's word is the only name the Keeper holds.
+
+**The rule** (`kernel-ts/memory/recall.ts`). A name in `about` that neither the index nor its loose match finds goes through the person junction (`personNode`, §87.8): the graph's actor, then the word this table calls someone (§79, §176.2). Found, it stands for that person's npc key, so memory rows (which name people by the book's name) match it. Two owners of one word are refused as the junction refuses them; a word nobody carries is refused as before.
+
+Tests: `tests/extension/module-cast.test.mjs`: recall by an epithet resolves to the person; an unknown word is still refused.
+
 ### 177.9 Writers, readers, actor (§31)
 
 - **Writers:** the cast readers (`cast.json`, range by range through `cast.submit`), the host (`cast-source.json`, through `cast.source`), the epithet lane (row-id words), the gate's landing (`cast_id`).

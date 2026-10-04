@@ -406,6 +406,19 @@ test('§177.11: a module without a cast has no names to refuse: a graph\'s names
 	assert.equal(group.ok, true, `"the kids" is the Macario boys' alias, an ordinary phrase: ${group.error?.message}`);
 });
 
+test('§177.13: recall finds a person by the word this table calls them; a word nobody carries is still refused', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}]});
+	await h.call('table.player_input', {text: 'What do I remember about the net mender?'});
+	// Table 27 (turn 5): recall about the toothless trucker by his epithet was refused unknown_entity, and the lookup and look
+	// in the same batch never ran. For someone untold the epithet is the only name the Keeper holds.
+	const recalled = await h.call('table.recall', {what: 'memory', about: ['the net mender']});
+	assert.deepEqual(recalled.about, ['Old Mae'], 'the epithet resolves to the person the memory rows name');
+	await assert.rejects(h.call('table.recall', {what: 'memory', about: ['the lighthouse keeper']}),
+		error => error?.code === 'unknown_entity' || /not a known name/.test(error?.message ?? ''), 'a word nobody carries is refused as before');
+});
+
 test('§177.12 with §176.9: a made-up name tells nobody; a form only the cast prints is her name in a label', async t => {
 	const h = await harbor(t);
 	await readCast(h);
