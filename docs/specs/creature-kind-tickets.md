@@ -30,7 +30,7 @@ Status: done（`168d7e719`，合入 `00e5f9819`）
 
 ## CK-B 野兽目录数据（§180.6 后半）
 
-Status: done（`45b5b0b50`，合入 `5bbc670ae`）。代码还没读它，所以 `tests/kernel/test_rules_tables_register.py` 暂把 `beasts` 列为未读表，CK-E 接上时删掉那一行
+Status: done（`45b5b0b50`，合入 `5bbc670ae`）。CK-E 的目录 creature 族已读它，`test_rules_tables_register.py` 的未读登记已删除
 
 - 把规则书第 14 章「野兽」一节（PDF 第 347 页起）照录成 `content/rulesets/coc7/rules-json/beasts.json`。
 - 只做数据，不改代码。每条逐页对照 PDF 图像，标 `source_page`；书里没印的写 `_unstated`，不从常识补。
