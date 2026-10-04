@@ -33734,12 +33734,17 @@ apply {"kind": "npc", "name": "the yard dog", "walk_on": true, "creature": "Dog"
 1. **A first attack on an incomplete block is prepared, not lost.**
    - **The finding.** `firstBlow` (`kernel-ts/runtime/resolve-operation.ts`) listed in `preparation.targets` only the actors with no profile at all. An actor with a partial profile was offered as fightable, so the selected first attack went straight to combat dispatch and failed there with `stat_block_incomplete`. `check_preparation` was never raised, `preparingAttacks` never held the attack, and it was not replayed.
    - **The rule.** `preparation.targets` lists every present actor the fight cannot read: one with no profile, or one whose profile lacks any of STR, SIZ, DEX or CON. A fight does not read MOV, so a block complete in those four is never listed and never refused for MOV.
-   - **What the row says.** The row says, for each listed target, which completion it takes: a creature takes `creature` (a rules-catalog creature, from `lookup kind=catalog kinds=["creature"]`), a person takes `archetype`. The host's preparation need (`runtime/jev/attack-preparation.ts`) names that call. It never names a person tier for a creature, and never supplies a number.
+   - **What the row says.** The row says, for each listed target, which completion it takes, as `preparation.completions: {<target's display name>: "creature" | "archetype"}`: a creature takes `creature` (a rules-catalog creature, from `lookup kind=catalog kinds=["creature"]`), a person takes `archetype`. The host's preparation need (`runtime/jev/attack-preparation.ts`) names that call. It never names a person tier for a creature, and never supplies a number.
    - **What then happens.** The existing chain then runs unchanged: `check_preparation`, then retention in `preparingAttacks` with the chosen target, method and weapon, then the refreshed row, then the attack replayed through `resolve`.
 2. **A foot pursuer's MOV** (amends §143.12's pursuer-default note).
    - **Before.** A chase's pursuers and roster checked only the fight's characteristics (`requireParticipantBlock`), and `npcCombatParticipant` then read a missing MOV as 8.
    - **Now.** Every chase path that reads an actor's own MOV — a pursuer or a quarry on foot — refuses a block without MOV with `needs`, whose `field` is the completion (`creature` or `archetype`, with its options) and whose fix is that call. The quarry's refusal (`quarry_numbers_missing`) keeps its shape.
    - **What stays.** A roster driver's speed is the vehicle's MOV from the rules, and a passenger follows the driver; neither is asked for a body MOV. Investigators, combat, the vehicle sources and the frozen oracle are unchanged.
+   - **Implementation** (`d51d23156`). The check is `requireRunnerBlock` (`kernel-ts/combat/stat-block.ts`): the four characteristics plus `derived.MOV`. It applies to an investigator's pursuers and to a roster member whose role is `foot`; a roster's driver and passenger keep `requireParticipantBlock`.
+   - **Out of this follow-up, recorded:**
+     - The chase roster's own selection reads `profile_available` (any profile counts), so an incomplete runner is refused at the start with its completion rather than prepared beforehand.
+     - An NPC's own act options still offer `first_blow` to an NPC whose block is incomplete; it is refused at `startCombat` with its completion.
+     - A roster with a passenger fails at start for a reason older than this slice (the passenger's `movement_actions` against the snapshot check), whatever its block. This is filed separately.
 
 ### 180.7 One being, one node
 

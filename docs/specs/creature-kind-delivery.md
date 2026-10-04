@@ -32,6 +32,7 @@ Status: ready-for-review（集成分支已兼容公共头 `66aedd44a`；按协�
 | 世界线合并时，桌上生物取并集，目录数据卡随建立它的那条线带过来 | `b92323a95` | `table-creature-merge.test.mjs` |
 | 起始包：删掉 the-haunting 的老鼠双胞胎；老鼠数据卡和习性照书；Corbitt 的匕首与日光两条弱点；rulebook 版和 mystery-house 的种类修正；起始包词汇按数据推出绑定 | CK-F `d7e5528a3`、`dbe2d5e2c` → 集成合并 | `starter-creatures.test.mjs`；验收：Corbitt 链 0/4 → 1/4 → 显示持有人 |
 | 不完整数据卡：战斗、追逐、伤害给出可执行的拒绝；`creature`/`archetype` 补全时作者写明的值优先 | CK-F2 `359a3be32` → 集成合并 | `partial-stat-block.test.mjs` |
+| CK-F2 审查跟进（Jev owner 的两个 P2）：(1) 先手攻击打向缺 STR/SIZ/DEX/CON 的数据卡时，走「准备 → 保留所选攻击 → 刷新 → 重放」，creature 的补全指向规则目录，不用人物 archetype，也不造数值；(2) 徒步追逐者和名册里的步行者缺 MOV 时给出补全拒绝，驾驶者和乘客不要求身体 MOV | 契约 `9ba223c16`；修复 `d51d23156` → `c4ba0872c` | `partial-stat-block.test.mjs`：真实路径的保留与重放跟踪；测试盒 pytest 7 个文件 181 通过，日志在 `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-ck-partial/remote-py.log` |
 | 与 §178 初遇的交界：初见接触的待处理和已掷结果都不含 creature | `19745b326` | `creature-kind.test.mjs`；验收 basement |
 | 与名字 v5 / §177 的交界：名表只取书里的 `npc`；按外号查找时 creature 被种类过滤挡住；walk-on 拒绝用本桌叫法 | 合并 `930a3a36f` | 名字相关测试文件全过（见下） |
 
@@ -95,6 +96,11 @@ Status: ready-for-review（集成分支已兼容公共头 `66aedd44a`；按协�
 - **Corbitt 的人物字段 `fear` 里还有一句书里没有的话。** 人物字段不在本切片范围，没改。
 - **mystery-house 的鼠群**：沿用旧的 agenda/fear 文本，creature 不读这些字段，处于惰性状态。`npc-agendas.json` 保留两条旧记录，因为冻结的投影器靠它们排序，测试已改为按名字钉住差异。
 - **CK-A 留下的点已全部处理**：单生物读数、perspectives、台词名册（CK-D）。0 HP 的死亡记录现在由 creature 行的 `state` 读到。
+
+- **CK-F2 跟进刻意没做的三件事**（契约 §180.6 已记录）：
+  - 追逐名册在选择阶段仍把任何数据卡都算「可用」，不完整的步行者要到开追时才拿到补全拒绝；
+  - NPC 自己的行动选项仍会给数据卡不完整的 NPC 提供先手攻击，执行时拿到补全拒绝；
+  - 带乘客的追逐名册开追时必然出内部错误，这是本切片之前就有的缺陷，已单独开任务卡。
 
 ## 事故记录
 
