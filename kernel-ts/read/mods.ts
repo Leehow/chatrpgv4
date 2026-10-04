@@ -24,7 +24,7 @@ import { SPEECH_EDIT_LANE_CAPABILITY, validateSpeechEditLaneDeclaration } from "
 import {HISTORY_CAPABILITY, validHostSettings} from '../mods/host-settings.js';
 import {MOOD_CAPABILITY} from '../npc/mood.js';
 import {EXPRESSION_REFERENCE_CAPABILITY,expressionCards,expressionCatalogRevision} from './expression-reference.js';
-export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
+export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "checks.presence.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
 // Contract §158.2: a continuity reviewer that also names what the ledger owes.
@@ -320,6 +320,9 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
             invalid("Invalid contributed percentile decision");
         // Contract §134.3: the declaration form is shared with a module's stated obligations, and so is its validator.
         const refused = checkDeclarationRefusals(check, { kind: "mod" });
+        // §178.2: the kernel rolls a `presence` check on its own, so the package says it relies on that.
+        if (check.trigger === "presence" && !array(manifest.requires).includes("checks.presence.v1"))
+            refused.push({ rule: "check_trigger", path: "trigger", message: "a presence check requires checks.presence.v1" });
         if (refused.length)
             throw new RpcError("invalid_params", `${packageLabel(manifest)}: contributed check ${check.name}: ${refused[0].message}`, {
                 details: { mod: string(manifest.id ?? "?"), version: string(manifest.version ?? "?"), check: check.name, refusals: refused },
@@ -785,7 +788,8 @@ export function contactRows(graph: ModuleGraph, world: Row, party: Row[], active
                         impression: row(row(known.result).outcome).impression ?? null,
                         since_turn: known.turn
                     });
-                else
+                // §178.4: a `presence` check is the kernel's to roll when the people meet, so it is never pending for anyone else.
+                else if (check.trigger !== "presence")
                     contacts.push({
                         actor: actor.name,
                         target: graph.displayName(npc),

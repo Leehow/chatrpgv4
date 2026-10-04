@@ -40,6 +40,10 @@ import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
 import { foldPersonWords } from '../read/person-words.js';
+import { presenceRolls, type PresenceRolled } from '../mods/presence.js';
+import { CheckArithmetic } from '../resolve/arithmetic.js';
+import { RuleTables } from '../rules/tables.js';
+import { modResolveEvents } from '../resolve/projection.js';
 import { withNames } from './names.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
@@ -63,12 +67,31 @@ const mainLine = (campaign: string): Row => ({
     last_commit: null,
     created_at: nowIso()
 });
+/** The seed a turn's dice start from: the active line's seed and the turn. */
+export function turnSeed(meta: Row, turn: number): string {
+    const line = row(row(meta.worldlines)[meta.active_worldline || 'main']);
+    return `${string(line.seed || lineSeed(string(meta.id || ''), meta.active_worldline || 'main'))}:${turn}`;
+}
 function seedTurn(context: KernelContext, meta: Row, turn: number): void {
     if (context.seedLocked)
         return;
-    const line = row(row(meta.worldlines)[meta.active_worldline || 'main']);
-    context.rng.seed(`${string(line.seed || lineSeed(string(meta.id || ''), meta.active_worldline || 'main'))}:${turn}`);
+    context.rng.seed(turnSeed(meta, turn));
 }
+/**
+ * §178.3: the presence checks owed at a turn's start (`table.player_input`) or before the opening (`table.open`), on the
+ * turn's seeded stream, recorded in `world`. The caller writes the world and the turn; `taken` keeps the ids distinct.
+ */
+async function meetAtTurnStart(context: KernelContext, campaign: CampaignWriter, graph: ModuleGraph, world: Row, party: Row[], turn: number,
+    callId: string, taken: Set<string>, meta: Row): Promise<PresenceRolled> {
+    const met = await presenceRolls({ kernel: context, graph, world, party, turn, callId, directory: campaign.directory, seed: turnSeed(meta, turn),
+        arithmetic: await CheckArithmetic.create(new RuleTables(context)),
+        mint(base: string) { let id = base, n = 2; while (taken.has(id)) id = `${base}-${n++}`; taken.add(id); return id; } });
+    if (met.skipped.length)
+        await campaign.telemetry({ lane: 'presence', event: 'skipped', turn, call: callId, skipped: met.skipped });
+    return met;
+}
+/** The events a presence roll writes: the same as a resolved Mod check's (§178.3). */
+const presenceEvents = (receipt: Row) => modResolveEvents({}, { decision: receipt.decision, family: 'mod', outcome: { kind: 'check' } }, [receipt]);
 function startScene(graph: ModuleGraph): Row {
     const starts = graph.kind('scene').filter(scene => recordOf(scene).is_start === true);
     if (starts.length === 1)
@@ -744,6 +767,19 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         } : null;
         const opening = number(turn.turn) === 0 && turn.state === 'awaiting_player', resume = opening ? null : resumeView(checkpoint, rebuilt);
         seedTurn(context, snapshot.meta, number(turn.turn));
+        // §178.3: before the opening is written, the start scene's people meet the party.
+        if (opening) {
+            const met = await meetAtTurnStart(context, campaign, module.graph, snapshot.world, array(snapshot.party).length ? snapshot.party : initialParty, 0, 't0-open',
+                new Set(array(turn.receipts).map(receipt => string(receipt.id))), snapshot.meta);
+            if (met.changed) await campaign.writeWorld(snapshot.world);
+            if (met.receipts.length) {
+                turn.receipts = [...array(turn.receipts), ...met.receipts];
+                await campaign.writeTurn(turn);
+                for (const receipt of met.receipts)
+                    for (const event of presenceEvents(receipt))
+                        await campaign.appendEvent(0, event);
+            }
+        }
         if (resume)
             resumes.set(campaign.id, resume);
         else
@@ -923,9 +959,12 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         // this turn's capsule is built: never while a turn is open, which a lane write would stale.
         const folded = await foldPersonWords(campaign, module.graph, snapshot.world, row(await snapshot.optional('npc-journal.json')),
             snapshot.records.length ? snapshot.records : await snapshot.files('turns'));
-        if (folded || lateMaps.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
-        cursor.receipts = [...array(cursor.receipts), ...lateMaps.map(item => item.receipt)];
+        // §178.3: anyone present the party has no first impression of meets them now: after the fold (the card's word for
+        // them), before the capsule.
+        const met = await meetAtTurnStart(context, campaign, module.graph, snapshot.world, snapshot.party, next, `t${next}-input`, minted, snapshot.meta);
         seedTurn(context, snapshot.meta, next);
+        if (folded || met.changed || lateMaps.length || JSON.stringify(array(snapshot.world.map_arrivals_pending)) !== awaited) await campaign.writeWorld(snapshot.world);
+        cursor.receipts = [...array(cursor.receipts), ...lateMaps.map(item => item.receipt), ...met.receipts];
         await campaign.writeTurn(cursor);
         await campaign.appendTranscript(next, 'player', text);
         await campaign.appendEvent(next, {
@@ -942,6 +981,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         });
         for (const item of lateMaps)
             await campaign.appendEvent(next, { type: 'map-revealed', data: row(item.event.data), receipt: string(item.receipt.id) });
+        for (const receipt of met.receipts)
+            for (const event of presenceEvents(receipt))
+                await campaign.appendEvent(next, event);
         snapshot.turn = cursor;
         snapshot.jsonFiles.set('turn.json', cursor);
         snapshot.records = await campaign.records();

@@ -1,13 +1,24 @@
 # Natural NPC
 
-The kernel rolls each person's first impression itself, the moment they first share a scene with an
-investigator: the higher of Appearance and Credit Rating, Regular difficulty, once per investigator and
-person. It happens inside whatever brought them together -- a move into the room, an `apply npc` that
-puts someone here, the start of a turn, the opening -- so never resolve natural-npc:first-impression
-yourself and never pre-roll anyone. The result reaches you three ways: the receipt of the call that
-brought them together, that call's `first_impressions` rows, and `mods.relationships`, where a row whose
-`since_turn` is this turn is new and should already show in how they meet the investigator. A person the
-book says reacts without a roll is not rolled; play them as the book says.
+On an investigator's first meaningful contact with an NPC, call resolve with
+decision natural-npc:first-impression, intent social, actor and target names, and
+the interaction's goal. Use the pending contact list only when contact actually
+happens. Do not pre-roll people the party has not met. The kernel picks the higher
+of Appearance and Credit Rating and rolls once. Repeated encounters reuse it.
+
+**The person has to be in the room before you can roll how they land.** An
+impression is made of a meeting, so the kernel refuses one for anybody who is not
+present in the active scene. The book's own staging is what puts most people there;
+someone who walks in during play you stage yourself, in its own call, before the
+roll: `apply {kind: "npc", name: "<person>", to: "here", why: "<what puts them in
+this room>"}`. Rolling for three people who are not there yet is three refusals of
+one kind, and that is the budget for a whole turn.
+
+The opening turn is the exception, and it is the one place this is tempting: nothing
+may change state before the player has spoken, so `apply` is refused and you cannot
+stage anybody. Whoever the book seated is already there and can be rolled for.
+Whoever is not, is not: play them in the fiction without a die and take the
+impression the first time the party meets them under an ordinary turn.
 
 Let the frozen result change this NPC's observable manner and the opportunity or
 friction they offer this investigator. Combine it with their agenda, fears, loyalties,

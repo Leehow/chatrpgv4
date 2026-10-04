@@ -1,9 +1,5 @@
 # Natural NPC
 
-## 1.5.0
-- The first impression is rolled by the kernel the moment a person first shares a scene with an investigator (contract §178): the check's trigger is `presence`, and the package requires `checks.presence.v1`. On two Blood Road tables of 2026-10-04 the Keeper called `resolve` for it zero times, and the single loop's clerk asked whether the player had declared it, which a player never does; of the App's 17 tables of 10-02..10-04 with three or more turns, 3 rolled any. Nothing about a meeting needs judging: the higher of Appearance and Credit Rating is rolled when the ledger puts the people together.
-- `agent.md`'s first section and the brief's first sentence say the kernel rolls and the Keeper never resolves it; the frozen-result, pair-specific, asking and language rules keep their words, and the brief's language paragraph is 1.4.4's byte for byte. A campaign locked to 1.4.4 or earlier keeps the Keeper-called `contact` check until it is upgraded.
-
 ## 1.4.4
 - Restores the language paragraph of the brief word for word from 1.4.2. The 1.4.3 compression reworded the language-barrier rules (it dropped "bound or not", "never rewrite the book", "Read the sheet with `look` if needed: Language values limit both directions", "keep the intent", "never in documents"), which were not this change's to shorten; `tests/kernel/test_language_barrier.py` caught one of them. The asking rule is one shorter sentence; the full rule stays in `agent.md`.
 

@@ -1291,7 +1291,10 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
     if (ok) for (const name of namedPeople(candidate)) if (!run.named.includes(name)) run.named.push(name);
     run.clerkDid.push({step: invocation.stepId, operation: tool, label: candidate.label, clerk: candidate.clerk, call_id: callId, status: packet.status,
       receipts: packet.receipts, ...(candidate.basis !== undefined ? {basis: candidate.basis} : {}),
-      result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})} : {effects: args.effects}) as Json,
+      // §178.3: a write that brought people together carries the first impressions the kernel rolled for them, so the
+      // Keeper's next step can let them show; the receipt ids alone say only that a die was cast.
+      result: (tool === 'resolve' ? {action: shown, outcome: result.outcome ?? null, ...(result.obligation ? {obligation: result.obligation} : {})}
+        : {effects: args.effects, ...(Array.isArray(result.first_impressions) ? {first_impressions: result.first_impressions, first_impressions_note: result.first_impressions_note ?? null} : {})}) as Json,
       ...(obligation ? {obligation} : {}), ...(crossed ? {obligation_open: crossed} : {}), ...(binding ? {binding} : {})});
     // SL-85: an executed consequence candidate's own receipt ids, so the turn-close pairing (`pairConsequences`)
     // can exclude them and ask "did the Keeper *also* file this, independently" -- never "does the clerk's own
