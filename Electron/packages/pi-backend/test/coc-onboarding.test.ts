@@ -684,23 +684,25 @@ it('tells the player the host\'s own sentence and keeps the diagnostic in the lo
 it('never shows a crashed worker\'s stderr, and keeps it in the event log',async()=>{
   const home=await mkdtemp(join(tmpdir(),'coc-onboarding-'));
   const repo=resolve(import.meta.dirname,'../../../..');
-  const {NOISE}=await import('./fixtures/stderr-preparation.mjs');
+  const {MARKER}=await import('./fixtures/stderr-preparation.mjs');
   const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),env:{...process.env},
     preparationEntrypoint:join(import.meta.dirname,'fixtures/stderr-preparation.mjs')});
   services.push(host);
   const job=await host.invoke({action:'begin',name:'book.pdf',size:9},'one',model);
+  // The marker convicts a leak only while the host's own words never contain it. This answer has
+  // seen no stderr and carries the same `ui.words` block, so a hit here is a caption colliding with
+  // the marker, not a leak: change the marker, not the assertion below.
+  expect(JSON.stringify(job)).not.toContain(MARKER);
   await host.invoke({action:'chunk',id:job.id,offset:0,data:Buffer.from('%PDF-test').toString('base64')},'one',model);
   const failed=await host.invoke({action:'finish',id:job.id},'one',model);
 
   expect(failed.state).toBe('failed');
   expect(failed.error.message).toBe(PREPARATION_STOPPED);
-  // Nothing of the crash reaches the player: not the stack, not the path, not a fragment.
-  expect(JSON.stringify(failed)).not.toContain('secret');
-  expect(JSON.stringify(failed)).not.toContain('TypeError');
+  // Nothing of the crash reaches the player: not the stack, not the path, not a fragment of either.
+  expect(JSON.stringify(failed)).not.toContain(MARKER);
   // ...and it is kept, because a boundary that drops a diagnostic has lost it, not moved it.
   const events=await readFile(join(home,'.coc/imports',job.id,'events.jsonl'),'utf8');
-  expect(events).toContain('secret/reader.ts');
-  expect(NOISE.length).toBeGreaterThan(0);
+  expect(events).toContain(`${MARKER}/reader.ts`);
 });
 
 // SL-35 (contract §98 addendum 6, §20 addendum 2).
