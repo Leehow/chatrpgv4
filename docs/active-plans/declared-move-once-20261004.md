@@ -1,7 +1,21 @@
 # Environment acceptance turn 2/4 state findings (§135.30.10): handoff
 
-Status: ready for the coordinator's review, on branch `claude/declared-move-once-20261004` based on `1e5d64e52` (the 0.9.6a
-head accepted at 19:01 UTC). Not merged, not packaged, not pushed.
+Status: final candidate for the coordinator's review.
+- Branch `claude/declared-move-once-20261004`, a clean tree. Its head is the commit carrying this document, on top of
+  **`fe0bab7ad`**: code, data and tests are exactly `fe0bab7ad`'s, which is what the validation below ran on.
+- It contains the coordination head `1b17590e8` (merge `b3a9a486b`, no conflicts).
+- Over `1b17590e8` it changes nine files, all of this slice's.
+- Not merged into the mainline, not packaged, not pushed.
+
+Commits:
+
+| commit | what |
+| --- | --- |
+| `a9936a4fa` | §135.30.10 |
+| `b1b7bd99d` | narrowed to the one selected move |
+| `e40ef183a` | §138.10.1, `momentary` |
+| `b3a9a486b` | merge of `1b17590e8` |
+| `fe0bab7ad` | `momentary` moved to the table's last row |
 
 **Coordinator decisions (2026-10-04):**
 - The clerk selects one destination per declaration; the Keeper's own `apply` carries a compound second place.
@@ -123,14 +137,46 @@ loses this cue. A campaign locked to ≤1.4.6 keeps it.
 | b | A closed Jev question in the time bind asking whether the player stated a duration, as a rung of a fixed ladder mapped to minutes, used instead of the roll | any stated duration | A new question and a §138.10 amendment. Wider. |
 | c | No change | — | A momentary act can still cost up to 5 minutes. |
 
-**Built (option a).** `time-costs.categories` gains `momentary` `{min 0, default 0, max 1}` as its first row.
-- It reaches Jev through the existing declared-time band choice (`rules.bands` → the candidate's closed options). There is no
-  new question, no keyword and no inferred seconds.
+**Built (option a).** `time-costs.categories` gains `momentary` `{min 0, default 0, max 1}` as its **last** row (`fe0bab7ad`).
+`e40ef183a` had put it first, which shifted every existing row by one.
+- **The old bands:**
+  - Checked against `1b17590e8`'s file, the 16 existing rows keep the same handles, the same order and the same min, default
+    and max. `momentary` is the only new row, at index 16.
+  - No product code names a band; the only two data files that do are this table and the director graph. Every reader
+    resolves a band by handle: the kernel's `bandRows`, the clerk's closed options, the Keeper's `apply time {band}`, and the
+    road fill's `local_travel`/`long_travel`.
+- **On Jev's actual closed menu.** Kernel-seam evidence from `fe0bab7ad` and its box build, with a stub Jev and no paid call:
+  - `time-band-momentary`, through the hybrid engine: the clerk's bind batch is built from the emitted kernel's `rules.bands`,
+    and its `band` question carries `momentary` among the other rows. Naming it lands one `time` receipt with `basis: banded`,
+    `band_roll` 0–1, and 0 or 1 minute.
+  - `band-shadow` "over the real kernel": the shadow question's options are the shipped rows in order, ending with `momentary`.
+  - On the emitted kernel, `rules.bands` lists `{handle: "momentary", min: 0, max: 1, default: 0}`, and `apply time {band}`
+    rolls both 0 and 1 across eight seeds.
 - **Integer approximation:** the kernel rolls 0 or 1 whole minute. "半分钟" is never 30 seconds.
 - The route's fact question is unchanged; its `none` already covers a glance that costs no clock time.
-- Not touched:
-  - `director-graph.json`'s unread `time-cost-category` nodes (no `momentary` node; §13.10, digest-guarded);
-  - `rule-index.json`'s unread `category_count`.
+
+**How the time-cost data relate, and what is still out of step:**
+
+| source | what it holds | who reads it | state after this slice |
+| --- | --- | --- | --- |
+| `content/rulesets/coc7/rules-json/time-costs.json` `categories` | the bands: handle → min, default, max | the kernel's band registry (`kernel-ts/rules/bands.ts`) → `rules.bands`, `apply time {band}`, the clerk's band choice, the road fill | **authoritative**; 17 rows |
+| `content/director/director-graph.json`, nodes `time-cost-category:*` | a vocabulary copy, name plus `ordinal` (the row's position), no values | **nobody in the TS kernel** (§13.10 lists them among the node kinds left in the file and not read). The manifest digest guards the file's bytes, not this agreement. The historical Python oracle in `ts-kernel-read.test.mjs` reads the graph as is. | 16 nodes; each name and ordinal still equals the table's row at that index. **Missing: `momentary` (would be ordinal 16).** |
+| `content/rulesets/coc7/rules-json/rule-index.json`, rule `core.time.cost_categories` | `numeric.category_count`, `source_note` | **`lookup kind=rule`** (`kernel-ts/rules/catalog.ts:177`) returns them to the Keeper | already stale before this slice: it said 15 against 16, and now against 17. Its `source_note` describes the Python-era use. |
+
+No round trip checks the two copies against the table: the build the graph contract mentions ("an added or removed record
+fails the build") was the Python-era compiler, and nothing in the current tree runs it.
+
+**Narrow suggestions, none touching a frozen authority (yours to decide; not done):**
+1. `rule-index.json`: set `core.time.cost_categories.numeric.category_count` to 17. It is a table outside the digest manifest
+   (`rule-graph-table-digests.json` lists it as unbound), and it is the one place the Keeper can read a count. Optionally also
+   reword its `source_note` to the band-table description in `time-costs.json`. One data line, plus a test that the count
+   equals the table's rows, so it cannot go stale again.
+2. The director graph: leave it. If you want the vocabulary complete, add `time-cost-category:momentary`, ordinal 16, and
+   regenerate the manifest's `graph_content_digest` and `node_counts` (`time-cost-category` 16 → 17).
+   - That is the guarded file, but nothing reads the node.
+   - Check `ts-kernel-read.test.mjs`'s oracle path before doing it.
+3. If neither copy is wanted as a second record, a later cleanup can drop the graph's `time-cost-category` nodes and the
+   rule-index count. That is outside this slice.
 
 Tests:
 - `tests/extension/time-band-momentary.test.mjs`. On the emitted kernel, `rules.bands` lists the row, and a banded time rolls
@@ -139,7 +185,7 @@ Tests:
 - `band-shadow.test.mjs`'s pinned shipped rows were updated.
 - Three data mutations (row dropped, `max` 5, `default` 1) each turn a case red.
 
-## Reproduction and verification (no model call)
+## Reproduction and verification (no model call; each run listed with the exact source it covers)
 
 **The original failure, deterministically.** `tests/extension/single-loop-one-destination.test.mjs`, "on the emitted kernel".
 - Setup: the haunting, through the hybrid engine, on the emitted kernel built at `1e5d64e52`. That kernel was built on the box
@@ -157,41 +203,35 @@ Tests:
 - A route-only engine case, with the compile off.
 - 14 one-line mutations, each made by copy and restored by copy, all turn a case red.
 
-**Related files, run one file at a time on the Mac:**
-
-| file | result |
-| --- | --- |
-| single-loop-compile | 17/17 |
-| one-check | 6/6 |
-| guard-unlock | 7/7 |
-| ask-fanout | 18/18 |
-| destination-rows | 6/6 |
-| candidates | 18/18 |
-
-**Box suites.** Both ran on leehow-pc WSL, on source `a9936a4fa`, against the emitted kernel built on the box from that tree.
-They cover only `a9936a4fa`.
+**Full suites: old, covering `a9936a4fa` only.** They ran on leehow-pc WSL, against the emitted kernel built on the box from
+that tree. They do **not** cover:
+- the narrowing (`b1b7bd99d`);
+- the `momentary` row (`e40ef183a`, `fe0bab7ad`);
+- the merge of `1b17590e8`.
 
 | suite | result | wall | task | log |
 | --- | --- | --- | --- | --- |
 | loop | 306/306, exit 0 | 243 s | `bh3v20srm` | `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-declared-move/remote-loop.log` |
 | ext | 4560/4560, exit 0 | 649 s | `brvem6xuq` | `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-declared-move/remote-ext.log` |
 
-**Not covered by any full suite:**
-- the narrowing (`b1b7bd99d`);
-- the `momentary` row (the commit after it).
+**Narrow validation on the final candidate `fe0bab7ad`:**
+- The build was `build-fetch` from leehow-pc at `fe0bab7ad`. `build/kernel/rpc.mjs` sha256 begins `bbc851b645b0ad3e`, and it
+  contains `1b17590e8`'s new `kernel-ts/read/cast.ts`.
+- No full suite was started.
 
-By the coordinator's rule, no further full suite was started. Those two were verified by their own files and the related single
-files.
+| what | where | result |
+| --- | --- | --- |
+| `single-loop-one-destination` 7, `time-band-momentary` 2, band-shadow 7, single-loop-band-clerk 6, jev-band-shadow-domain 9, single-loop-compile 17, one-check 6, guard-unlock 7, ask-fanout 18, destination-rows 6, candidates 18, owed-state 12, travel-fill 8, admission-effect-signature 9 | Mac, `node --test`, one file at a time | all pass, 0 fail |
+| `tests/kernel/test_rules_bands.py`, `test_band_operations.py`, `test_route_travel.py` | **leehow-pc** (probe pick), `remote-test.sh run … py <files>` | 29 passed, exit 0, wall 7 s, log `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-declared-move/remote-py.log` |
+| 14 one-line mutations of the move guard | Mac, `single-loop-one-destination`, by copy, restored by copy (`cmp`) | 14/14 killed |
+| 3 mutations of the `momentary` row (dropped, `max` 5, `default` 1) | Mac, `time-band-momentary`, by copy, restored by copy | 3/3 killed |
 
-Narrowing:
-- `single-loop-one-destination` 7/7;
-- compile 17, one-check 6, guard-unlock 7, ask-fanout 18, destination-rows 6, candidates 18;
-- 14/14 mutations killed.
+**Earlier narrow runs (kept for attribution):**
+- On `b1b7bd99d`: the same move files and the 14 mutations, on the Mac, with the 1e5 build.
+- On `e40ef183a`: the time files and the 3 data mutations, on the Mac, with the 1e5 build. `momentary` was the first row then.
+- **Diagnostic only, not acceptance.** On `e40ef183a`, I ran the three pytest files on the Mac, which the rule routes to the
+  LAN box: 6, 12 and 11 passed. The original output is kept unedited at
+  `.coc/playtests/declared-move-once-20261004/mac-pytest-diagnostic.txt` in this worktree (gitignored). The box run above
+  supersedes it, and no further pytest runs on the Mac.
 
-Momentary:
-- `time-band-momentary` 2/2;
-- band-shadow 7, single-loop-band-clerk 6, jev-band-shadow-domain 9, owed-state 12, travel-fill 8,
-  admission-effect-signature 9;
-- pytest, single files on the Mac (`uv run --frozen`): `test_rules_bands.py` 6, `test_band_operations.py` 12,
-  `test_route_travel.py` 11;
-- 3/3 data mutations killed.
+**Formal LAN acceptance** (ext / loop / py full) on the common head is the coordinator's to queue.
