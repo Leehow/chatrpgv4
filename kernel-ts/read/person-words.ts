@@ -17,7 +17,8 @@ import { array, entries, integer, length, normalize, repr, row, string, type Row
 
 /** A string field, or '' when absent: `values.string` renders absence as "None". */
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
-import { bookNames, namePieces, occurs, toldTurn } from '../journal/naming.js';
+import { namePieces, occurs, toldTurn } from '../journal/naming.js';
+import { bookCast, untoldUnread, type CastPerson } from './cast.js';
 import type { CampaignWriter } from '../write/store.js';
 import { nowIso } from '../write/store.js';
 
@@ -56,10 +57,14 @@ export function untoldBookPeople(graph: ModuleGraph, journal: Row, records: Row[
  * roster's rule, §103.8): saying a told person's surname tells nothing. Read from the names alone, never from meaning.
  */
 export function untoldPieces(graph: ModuleGraph, journal: Row, records: Row[]): string[] {
+    // §177.4: over the whole cast -- the graph's people with every name the cast gives them, and the people the book names
+    // whom the reader has not reached yet, who are untold until a delivery shows one of their names.
     const untold = new Set(untoldBookPeople(graph, journal, records).map(node => string(node.node_id)));
-    const told = graph.kind('npc').filter(node => !graph.isTablePerson(node) && !untold.has(string(node.node_id)));
-    const known = new Set(namePieces(told.flatMap(node => bookNames(graph, node))).map(normalize));
-    return [...new Set(namePieces(graph.kind('npc').filter(node => untold.has(string(node.node_id))).flatMap(node => bookNames(graph, node)))
+    const unread = new Set(untoldUnread(graph, records).map(person => person.id));
+    const isUntold = (person: CastPerson) => person.node ? untold.has(string(person.node.node_id)) : unread.has(person.id);
+    const cast = bookCast(graph);
+    const known = new Set(namePieces(cast.filter(person => !isUntold(person)).flatMap(person => person.names)).map(normalize));
+    return [...new Set(namePieces(cast.filter(isUntold).flatMap(person => person.names))
         .map(normalize).filter(piece => piece && !known.has(piece)))];
 }
 
@@ -103,16 +108,28 @@ export { readStored as readEpithets };
  */
 export async function foldPersonWords(campaign: CampaignWriter, graph: ModuleGraph, world: Row, journal: Row, records: Row[]): Promise<boolean> {
     const stored = await readStored(campaign);
+    const storedWord = (id: string): string => text(row(row(stored.people)[id]).word).trim();
+    const cast = bookCast(graph);
     let changed = false;
+    const fold = (handle: string, next: { word: string; by: string } | null) => {
+        const current = epithetRecord(world, handle);
+        if (!next || (text(current.word) === next.word && text(current.by) === next.by)) return;
+        (world.person_epithets ??= {})[handle] = { ...next, at: nowIso() };
+        changed = true;
+    };
     for (const node of untoldBookPeople(graph, journal, records)) {
         const handle = graph.handle(node);
         if (labelOf(world, handle)) continue;
-        const current = epithetRecord(world, handle), graphWord = text(row(row(stored.people)[handle]).word).trim();
+        // §177.5: a word the lane gave the person while the book named them and the graph did not have them yet follows them.
+        const carried = cast.find(person => person.node === node)?.castIds.map(storedWord).find(Boolean) ?? '';
+        const graphWord = storedWord(handle) || carried;
         const journalWord = text(row(row(journal.entries)[string(node.node_id)]).label).trim();
-        const next = graphWord ? { word: graphWord, by: 'graph' } : journalWord && text(current.by) !== 'graph' ? { word: journalWord, by: 'journal' } : null;
-        if (!next || (text(current.word) === next.word && text(current.by) === next.by)) continue;
-        (world.person_epithets ??= {})[handle] = { ...next, at: nowIso() };
-        changed = true;
+        fold(handle, graphWord ? { word: graphWord, by: 'graph' } : journalWord && text(epithetRecord(world, handle).by) !== 'graph' ? { word: journalWord, by: 'journal' } : null);
+    }
+    // §177.5: an unread person's word is folded under the row's id, which is what the request's rename shows for them.
+    for (const person of untoldUnread(graph, records)) {
+        const word = storedWord(person.id);
+        fold(person.id, word ? { word, by: 'graph' } : null);
     }
     return changed;
 }
@@ -121,13 +138,16 @@ export async function foldPersonWords(campaign: CampaignWriter, graph: ModuleGra
 export async function submitEpithets(campaign: CampaignWriter, graph: ModuleGraph, world: Row, journal: Row, records: Row[], entriesIn: unknown): Promise<Row> {
     const stored = await readStored(campaign), pieces = untoldPieces(graph, journal, records);
     const untold = new Set(untoldBookPeople(graph, journal, records).map(node => graph.handle(node)));
+    // §177.5: the people the book names whom the reader has not reached are given a word too, under the row's id.
+    for (const person of untoldUnread(graph, records)) untold.add(person.id);
     const written: Row[] = [], refused: Row[] = [], batch: string[] = [];
     for (const raw of array(entriesIn)) {
         const entry = row(raw), id = text(entry.id).trim(), word = entry.word;
         const node = id ? graph.find(id, ['npc']) : null;
+        const unread = !node && untold.has(id);
         const refuse = (reason: string, message: string) => refused.push({ id, word: typeof word === 'string' ? word : null, reason, message });
-        if (!node || graph.isTablePerson(node)) { refuse('unknown_entity', `${repr(id)} is no book person of this campaign's graph`); continue; }
-        const handle = graph.handle(node);
+        if ((!node || graph.isTablePerson(node)) && !unread) { refuse('unknown_entity', `${repr(id)} is no book person of this campaign's graph`); continue; }
+        const handle = node ? graph.handle(node) : id;
         if (!untold.has(handle) || labelOf(world, handle) || text(row(row(stored.people)[handle]).word)) { refuse('settled', `${repr(id)} is told or already has a word`); continue; }
         const why = wordRefusal(graph, word, pieces, [...wordsInUse(world, journal, stored, graph, handle), ...batch]);
         if (why) { refuse(why.reason, why.message); continue; }

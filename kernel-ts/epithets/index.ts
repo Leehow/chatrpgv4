@@ -16,6 +16,7 @@ import type { ModuleGraph } from '../read/module-graph.js';
 import { npcsPresent } from '../read/capsule.js';
 import { EPITHETS_PER_JOB, WORD_LIMIT, readEpithets, submitEpithets, tableWord, untoldBookPeople, wordsInUse } from '../read/person-words.js';
 import { personDescribed } from '../first-sight/index.js';
+import { bookCast, untoldUnread } from '../read/cast.js';
 import { array, repr, row, string, type Row } from '../read/values.js';
 
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
@@ -53,9 +54,15 @@ export function createEpithetHandlers(context: KernelContext, writer: ReturnType
             // A module still being read has no graph yet; the next ask finds it.
             if (!graph) return { job_id: null, waiting: 'graph' };
             const stored = await readEpithets(campaign);
+            const has = (id: string) => !!tableWord(world, id) || !!text(row(row(stored.people)[id]).word);
+            const castOf = new Map(bookCast(graph).filter(person => person.node).map(person => [person.node, person]));
+            // §177.5: a word the lane gave someone while the graph did not have them yet counts as theirs.
             const wanting = untoldBookPeople(graph, journal, records)
-                .filter(node => !tableWord(world, graph.handle(node)) && !text(row(row(stored.people)[graph.handle(node)]).word));
-            if (!wanting.length) return { job_id: null };
+                .filter(node => !has(graph.handle(node)) && !(castOf.get(node)?.castIds ?? []).some(has));
+            // §177.5: the people the book names whom the reader has not reached are given a word too, after the graph's people,
+            // so the request's rename can show them by it rather than by the cast row's id.
+            const unread = untoldUnread(graph, records).filter(person => !has(person.id));
+            if (!wanting.length && !unread.length) return { job_id: null };
             // Who is in the room first: the active scene's people, else the opening scene's, then the book's order.
             const sceneId = text(world.active_scene || meta.opening_scene || '');
             let first = new Set<string>();
@@ -63,11 +70,14 @@ export function createEpithetHandlers(context: KernelContext, writer: ReturnType
             catch { first = new Set(); }
             const ordered = [...wanting.filter(node => first.has(graph.handle(node))), ...wanting.filter(node => !first.has(graph.handle(node)))]
                 .slice(0, EPITHETS_PER_JOB);
-            const people = ordered.map(node => {
+            const people: Row[] = ordered.map(node => {
                 const looks = personDescribed(graph, node) || text(node.summary).trim();
                 const role = text(graph.npcProfile(node).relationship_to_investigators).trim();
                 return { id: graph.handle(node), ...(role ? { role } : {}), ...(looks ? { looks } : {}) };
             });
+            // An unread person has no record yet; what the lane sees of them is the sentence the book first names them in.
+            for (const person of unread.slice(0, Math.max(0, EPITHETS_PER_JOB - people.length)))
+                people.push({ id: person.id, ...(person.first ? { looks: person.first.sentence } : {}) });
             const language = await playLanguageOf(context, meta);
             const job_id = `epithets:${campaign.id}:${createHash('sha256').update(people.map(person => person.id).join('\n')).digest('hex').slice(0, 12)}`;
             return { job_id, play_language: language, people, taken: wordsInUse(world, journal, stored, graph), budget: { max_chars: WORD_LIMIT },

@@ -1,8 +1,13 @@
 # The book's cast: one list of every person the book names, from when the book is read (2026-10-04)
 
-Status: needs-info (owner to decide Q1–Q5). Branch `claude/module-cast-20261004`. Owner, 2026-10-04:
+Status: decided 2026-10-04 (owner: 「按你推荐的做」, Q1–Q5 as recommended); contract §177. Implementation on branch `claude/module-cast-20261004`; the real-table acceptance (§4) is CAST-06. Owner, 2026-10-04:
 - 「对了，创建模组图谱的时候是不是应该建立一个模组npc名表，这样索引名称也方便，而且临时刷出来的新npc也可以避开模组已有角色名称」
 - Asked whether to build it: 「先写 spec 给我看」
+- On this spec: 「按你推荐的做」
+
+Two departures from the text below, both recorded in §177:
+- Creature nodes are not in the cast (§177.1). A creature node is as often a kind (a deep one) as someone.
+- The newcomer refusal skips a piece the name writes with a period after it (§177.3). Otherwise "Mr" of "Mr. Dooley" refused every "Mr" newcomer.
 
 Related contract: §79 (what the table calls a person), §87.7 (a newcomer is declared with `walk_on`), §87.8 (one junction for a person's name), §103.8 (the Keeper holds no untold name; pieces), §176 (epithets from the graph), §22.1 (the index), §22.4.7.1 (a person not yet read lands on the book's text), §11.5.4 (a person the carried text names), §127.1 (lookup).
 

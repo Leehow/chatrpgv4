@@ -33,6 +33,11 @@ export default function (pi: ExtensionAPI) {
         if (setupMode || stopped || !visualModule || !moduleId || !reading) return;
         void reading.prefetch(moduleId,reason).catch(()=>undefined);
     }
+    /** §177.2: the book's cast, in the background; the kernel answers no job for an authored module or a book that has one. */
+    function readCast(id: string | undefined) {
+        if (stopped || !reading || !id) return;
+        void reading.cast(id).catch(() => undefined);
+    }
     function shareReader() {
         if (!ctx || !bridge) return;
         retireReader();
@@ -66,6 +71,8 @@ export default function (pi: ExtensionAPI) {
             // outage notice of contract §32.2: out of fiction, once per session, with the fix. Its reader
             // is the person running the table, not the run analysis -- the telemetry row already says the
             // same thing to kpi.py, and the player is never asked to resend words that were not the problem.
+            // §177.2: the book's cast landed; the epithet lane gives its unread people a word (extensions/npc-epithets).
+            published: row => pi.events.emit("coc:cast-published", row),
             status: row => {
                 const line = { at: new Date().toISOString(), ...row };
                 try { pi.appendEntry("coc-reading-status", line); } catch { /* a closed session cannot accept entries */ }
@@ -91,6 +98,7 @@ export default function (pi: ExtensionAPI) {
         moduleId = typeof open.campaign?.module_id === "string" ? open.campaign.module_id : undefined;
         visualModule = open.module_reading === true;
         wake("table-open");
+        if (visualModule) readCast(moduleId);
     });
     pi.events.on("coc:turn-committed", data => {if(record(data).campaign === campaign)wake("turn-committed");});
     pi.events.on("coc:source-work-queued", data => {
@@ -104,7 +112,10 @@ export default function (pi: ExtensionAPI) {
             return;
         }
         void reading.prepare({ pdf: row.pdf, module_id: row.module_id, start_scene: row.start_scene, retry: row.retry })
-            .then(result => pi.events.emit("coc:module-ingest-done", { pdf: row.pdf, ...result }))
+            .then(result => {
+                pi.events.emit("coc:module-ingest-done", { pdf: row.pdf, ...result });
+                readCast(typeof result?.module_id === "string" ? result.module_id : row.module_id);
+            })
             .catch(error => pi.events.emit("coc:module-ingest-failed", { pdf: row.pdf,
                 reason: isKernelError(error) ? error.details?.reason ?? error.code : "reading_failed",
                 detail: error instanceof Error ? error.message : String(error),

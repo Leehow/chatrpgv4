@@ -1,0 +1,259 @@
+/**
+ * Contract §177 (owner ruling 2026-10-04, 「按你推荐的做」 on docs/specs/module-cast.md): the book's cast.
+ *
+ * Probe of 2026-10-04 (a scratch copy of table 23's campaign, Blood Road at turn 9): seven `walk_on` names carrying book names
+ * -- 史蒂夫, 老史蒂夫, 史蒂夫大叔, 拉塞尔, 卡车司机拉塞尔, 爱丽丝, 金发的爱丽丝 -- were all minted as new people, beside 史蒂夫·布朗,
+ * the told 拉塞尔·威廉姆斯 and 爱丽丝·杜威特; and the graph, read on demand, had only the 54 people the reader had reached.
+ *
+ * Here, on the real kernel over a bound three-page PDF whose graph has only Old Mae: the cast reader's job, its source and its
+ * submit (refusing a row whose name no cited page prints); the stored rows joining the graph's person or standing as people
+ * not read yet; the newcomer refusal; the Keeper's rename and the epithet lane over the whole cast; lookup by the table's
+ * word; a write naming an unread person landing on the cast's pages; the replacement by cast id; a book with no text layer;
+ * and an authored module, whose cast is its graph.
+ */
+import assert from 'node:assert/strict';
+import {after, test} from 'node:test';
+import {createHash} from 'node:crypto';
+import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {dirname, join, resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {build} from 'esbuild';
+const root = resolve(import.meta.dirname, '../..');
+await mkdir(join(root, '.coc'), {recursive: true});
+const temporary = await mkdtemp(join(root, '.coc', 'module-cast-'));
+after(() => rm(temporary, {recursive: true, force: true}));
+await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts';
+export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
+export {createKernelRuntime} from './kernel-ts/registry.ts';
+export {ModuleGraph} from './kernel-ts/read/module-graph.ts';
+export {replacePassagePeople} from './kernel-ts/read/table-people.ts';
+export {bookCast, newcomerRefusal} from './kernel-ts/read/cast.ts';
+export {checkCastDraft} from './kernel-ts/cast/draft.ts';
+export {checkModuleCast} from './kernel-ts/check.ts';`, resolveDir: root},
+  outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
+const api = await import(pathToFileURL(join(temporary, 'api.mjs')).href);
+
+const PAGES = ['The harbor dock smells of tar. Old Mae mends nets by the water.',
+	'The old tower stands beyond the harbor. Its keeper, Silas Marsh, trims the lamp.',
+	"Below the tower a cellar floods at high tide. Mae's boy Jonah drowned there last spring."];
+const REFS = [{page: 1}];
+const CAMPAIGN = 'harbor-camp';
+
+async function kernel(t, seed) {
+	const home = await mkdtemp(join(temporary, 'home-'));
+	const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed,
+		locks: api.nativeAdvisoryLocks(), env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
+	const runtime = api.createKernelRuntime(context); t.after(() => runtime.close());
+	const raw = (method, params = {}) => runtime.handlers[method](params);
+	const attempt = async (method, params = {}) => { try { return {ok: true, result: await raw(method, params)}; } catch (error) { return {ok: false, error}; } };
+	return {home, raw, attempt};
+}
+
+/** A bound PDF read as far as its opening: the graph has the Dock, the Tower and Old Mae; the index lists Silas Marsh. */
+async function harbor(t) {
+	const k = await kernel(t, 'module-cast');
+	const pdf = join(k.home, 'harbor.pdf');
+	await writeFile(pdf, `%PDF-1.7\n% ${PAGES.join(' | ')}\n%%EOF\n`);
+	const sha = createHash('sha256').update(await readFile(pdf)).digest('hex');
+	const {module_id: mid} = await k.raw('module.source.bind', {source: {path: pdf, page_count: PAGES.length, file_sha256: sha}});
+	const read = async (purpose, draft, paths) => {
+		await k.raw('module.read.request', {module_id: mid, purpose});
+		const job = await k.raw('module.read.claim', {module_id: mid, owner: 'test-host'});
+		await writeFile(join(job.work_dir, 'observations.json'), JSON.stringify({file_sha256: sha, read_pages: [1, 2, 3], full_pages: [1, 2, 3], review_pages: [1, 2, 3]}));
+		await writeFile(join(job.work_dir, 'draft.json'), JSON.stringify(draft));
+		await writeFile(join(job.work_dir, 'review.json'), JSON.stringify({checked: [{paths, verdict: 'supported', source_refs: REFS, reason: 'fixture support'}], missing: []}));
+		return k.raw('module.read.finish', {module_id: mid, job_id: job.job_id, lease: job.lease, outcome: 'completed',
+			draft_path: join(job.work_dir, 'draft.json'), review_path: join(job.work_dir, 'review.json')});
+	};
+	await read('index', {title: 'The Harbor', language: 'en', sections: [{name: 'Harbor and tower', pages: [[1, 3]], source_refs: [{page: 1}],
+		entities: ['Dock', 'Tower', 'Silas Marsh']}]}, []);
+	await read('opening', {nodes: [
+		{node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', source_refs: REFS, properties: {is_entrance: true}},
+		{node_id: 'scene-tower', node_kind: 'scene', name: 'Tower', source_refs: [{page: 2}], summary: 'An old tower beyond the harbor.'},
+		{node_id: 'npc-old-mae', node_kind: 'npc', name: 'Old Mae', source_refs: REFS, summary: 'A net mender on the dock.'}],
+		claims: [{subject_id: 'scene-dock', predicate: 'route-to', object: {node_id: 'scene-tower'}, truth_status: 'authored-fact', source_refs: REFS}],
+		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['scene-dock']}, ['/nodes/0', '/claims/0', '/coverage']);
+	await k.raw('campaign.create', {id: 'card-source', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+	const saved = await k.raw('investigator.save', {campaign: 'card-source'});
+	await k.raw('campaign.create', {id: CAMPAIGN, module: mid, play_language: 'en'});
+	await k.raw('investigator.load', {campaign: CAMPAIGN, library_id: saved.library_id});
+	await k.raw('setup.complete', {campaign: CAMPAIGN});
+	await k.raw('table.open', {campaign: CAMPAIGN});
+	await k.raw('table.narrate', {campaign: CAMPAIGN, call_id: 't0-c1', text: 'The harbor is quiet.'});
+	const call = (method, params = {}) => k.raw(method, {campaign: CAMPAIGN, ...params});
+	const attempt = (method, params = {}) => k.attempt(method, {campaign: CAMPAIGN, ...params});
+	const world = async () => JSON.parse(await readFile(join(k.home, '.coc', 'campaigns', CAMPAIGN, 'world.json'), 'utf8'));
+	return {...k, mid, sha, call, attempt, world};
+}
+
+const DRAFT = {people: [
+	{book: ['Old Mae', 'Mae'], play: ['Old Mae', 'Mae'], pages: [1, 3]},
+	{book: ['Silas Marsh'], play: ['Silas Marsh'], pages: [2]},
+	{book: ['Jonah'], play: ['Jonah'], pages: [3]},
+	{book: ['Harbormaster Quill'], play: ['Harbormaster Quill'], pages: [1]},
+]};
+
+/** The host's three calls (extensions/module/reading-service.ts `readCast`), with the reader child's draft written by hand. */
+async function readCast(h, draft = DRAFT) {
+	const job = await h.call('cast.job', {module_id: h.mid});
+	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, play_language: job.play_language, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	await writeFile(join(staged.cwd, 'draft.json'), JSON.stringify(draft));
+	return {job, staged, submitted: await h.call('cast.submit', {module_id: h.mid, job_id: job.job_id})};
+}
+
+test('§177.2: the cast reader works on the book\'s own text; a row no cited page prints is refused alone; the reader\'s check agrees', async t => {
+	const h = await harbor(t);
+	const job = await h.call('cast.job', {module_id: h.mid});
+	assert.match(job.job_id, /^cast:/);
+	assert.deepEqual([job.page_count, job.play_language], [3, 'en']);
+	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, play_language: 'en', pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	assert.deepEqual([staged.state, staged.pages_with_text], ['ready', 3]);
+	assert.equal(await readFile(join(staged.cwd, 'pages', 'page-0002.txt'), 'utf8'), PAGES[1], 'one file per physical page, as the text layer has it');
+	assert.equal(JSON.parse(await readFile(join(staged.cwd, 'task.json'), 'utf8')).purpose, 'cast');
+
+	await writeFile(join(staged.cwd, 'draft.json'), JSON.stringify(DRAFT));
+	const checked = await api.checkModuleCast(join(staged.cwd, 'draft.json'));
+	assert.equal(checked.ok, false);
+	assert.deepEqual(checked.refused.map(row => [row.index, row.reason]), [[3, 'not_on_page']], 'the reader\'s own check names the row it refuses');
+	assert.match(checked.refused[0].fix, /add the page/);
+
+	const submitted = await h.call('cast.submit', {module_id: h.mid, job_id: job.job_id});
+	assert.deepEqual([submitted.state, submitted.people, submitted.refused.map(row => row.index)], ['complete', 3, [3]], 'the other rows stand');
+	const stored = JSON.parse(await readFile(join(dirname(dirname(staged.cwd)), 'cast.json'), 'utf8'));
+	assert.equal(stored.source_sha256, h.sha);
+	const jonah = stored.people.find(row => row.book.includes('Jonah'));
+	assert.match(jonah.id, /^cast-[0-9a-f]{10}$/, 'an opaque id: no slug of the name');
+	assert.deepEqual(jonah.first, {page: 3, sentence: "Mae's boy Jonah drowned there last spring."}, 'the first mention, cut by machine');
+	assert.deepEqual(await h.call('cast.job', {module_id: h.mid}), {job_id: null, state: 'complete'}, 'a book reads its cast once');
+	const wrong = await h.attempt('cast.submit', {module_id: h.mid, job_id: 'cast:000000000000'});
+	assert.equal(wrong.ok, false);
+});
+
+test('§177.2: rows sharing a printed name are one person; the shape is closed', () => {
+	const pages = new Map(PAGES.map((text, index) => [index + 1, text]));
+	const merged = api.checkCastDraft({people: [{book: ['Old Mae'], play: ['Old Mae'], pages: [1]}, {book: ['Mae', 'Old Mae'], play: ['Mae'], pages: [1, 3]}]}, pages, 3);
+	assert.deepEqual(merged.people.map(row => [row.book, row.pages]), [[['Old Mae', 'Mae'], [1, 3]]]);
+	assert.equal(api.checkCastDraft({people: [], extra: 1}, pages, 3).error.length > 0, true);
+	const shapes = api.checkCastDraft({people: [{book: ['Jonah'], pages: [3]}, {book: ['Jonah'], play: ['Jonah'], pages: [9]}, {book: ['J'], play: ['J'], pages: [3]}]}, pages, 3);
+	assert.deepEqual(shapes.refused.map(row => row.reason), ['shape', 'shape', 'shape']);
+});
+
+test('§177.1/§177.4/§177.5: stored rows join the graph\'s person or stand unread; the rename and the epithet lane cover the whole cast', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	const roster = (await h.call('table.untold')).people;
+	const shownOf = name => roster.find(row => row.name === name)?.shown;
+	assert.equal(roster.find(row => row.name === 'Mae')?.id, 'old-mae', 'a printed short form joins the graph person who carries the row\'s other name');
+	const silasId = roster.find(row => row.name === 'Silas Marsh')?.id, jonahId = roster.find(row => row.name === 'Jonah')?.id;
+	assert.match(silasId, /^cast-/, 'someone the book names and the graph does not have yet is renamed too');
+	assert.equal(shownOf('Jonah'), jonahId, 'shown by the opaque row id until the lane gives a word');
+
+	const job = await h.call('epithets.job');
+	const ids = job.people.map(person => person.id);
+	assert.ok(ids.includes('old-mae') && ids.includes(silasId) && ids.includes(jonahId), JSON.stringify(ids));
+	assert.ok(ids.indexOf('old-mae') < ids.indexOf(jonahId), 'the graph\'s people first');
+	assert.equal(job.people.find(person => person.id === jonahId).looks, "Mae's boy Jonah drowned there last spring.");
+	const refused = await h.call('epithets.submit', {entries: [{id: jonahId, word: "Mae's drowned boy"}]});
+	assert.equal(refused.refused[0]?.reason, 'untold_name', 'a word may not carry the name of anyone untold in the cast');
+	const written = await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: silasId, word: 'the lamp keeper'}, {id: jonahId, word: 'the drowned boy'}]});
+	assert.equal(written.written.length, 3, JSON.stringify(written.refused));
+
+	await h.call('table.player_input', {text: 'I look along the dock.'});
+	assert.deepEqual((await h.world()).person_epithets[jonahId]?.word, 'the drowned boy', 'folded under the row id at the turn\'s start');
+	assert.equal((await h.call('table.untold')).people.find(row => row.name === 'Jonah')?.shown, 'the drowned boy');
+	const person = await h.attempt('table.apply', {call_id: 't1-c1', effects: [{kind: 'person', who: 'old-mae', name: "Jonah's mother", why: 'the fiction'}]});
+	assert.equal(person.ok, false);
+	assert.equal(person.error.details?.reason, 'untold_name', 'apply person refuses a name of anyone untold in the cast');
+	// The journal lane's label is refused for carrying the name of someone else untold in the cast, not only the person's own.
+	await h.call('table.narrate', {call_id: 't1-c5', text: 'The net mender looks up. {{say:old-mae}}"Mind the cellar."{{/say}}'});
+	const journal = await h.call('journal.job', {turn: 1});
+	assert.ok(journal.recordable.includes('Old Mae'), JSON.stringify(journal.recordable));
+	await assert.rejects(h.call('journal.submit', {job_id: journal.job_id, entries: [{name: 'Old Mae', label: "Jonah's mother at the nets"}]}),
+		error => error?.details?.reason === 'untold_name' && !/Jonah drowned/.test(error.message), 'the drowned boy\'s name, though he is not in the graph');
+	await h.call('journal.submit', {job_id: journal.job_id, entries: [{name: 'Old Mae', label: 'the woman with tar on her hands'}]});
+});
+
+test('§177.3: a newcomer may not take or carry a name of anyone the book names, nor a word the table already uses; the refusal names nobody', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	const roster = (await h.call('table.untold')).people, silasId = roster.find(row => row.name === 'Silas Marsh')?.id;
+	await h.call('epithets.submit', {entries: [{id: silasId, word: 'the lamp keeper'}]});
+	await h.call('table.player_input', {text: 'Someone comes down the pier.'});
+	let ordinal = 1;
+	const walkOn = name => h.attempt('table.apply', {call_id: `t1-c${ordinal++}`, effects: [{kind: 'npc', name, to: 'here', walk_on: true, why: 'a stranger walks up'}]});
+	for (const name of ['Jonah', 'old Jonah', "Mae's cousin", 'Silas Marsh', 'the lamp keeper']) {
+		const answer = await walkOn(name);
+		assert.equal(answer.ok, false, `${name} is refused`);
+		assert.equal(answer.error.details?.reason, 'book_name', `${name}: ${answer.error.message}`);
+		assert.ok(!/Silas Marsh|Old Mae|Jonah drowned/.test(answer.error.message.replace(JSON.stringify(name), '')), `the refusal names nobody: ${answer.error.message}`);
+	}
+	// A space is not punctuation (§103.8): the book prints only "Silas Marsh", so "Silas" alone is no name it gives anyone.
+	assert.equal((await walkOn('Silas the boatwright')).ok, true);
+	const stranger = await walkOn('the ferryman');
+	assert.equal(stranger.ok, true, JSON.stringify(stranger.error?.message));
+	assert.ok((await h.world()).table_people.some(row => row.name === 'the ferryman'));
+	// The table's own newcomer is still theirs on a later write.
+	assert.equal((await walkOn('the ferryman')).ok, true);
+});
+
+test('§177.6/§177.7: lookup finds a person by the table\'s word; an unread person answers as unread and a write naming them lands on the cast\'s pages', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	const roster = (await h.call('table.untold')).people, jonahId = roster.find(row => row.name === 'Jonah')?.id;
+	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: jonahId, word: 'the drowned boy'}]});
+	await h.call('table.player_input', {text: 'I ask about the cellar.'});
+	const mae = await h.call('table.lookup', {kind: 'module', query: 'the net mender'});
+	assert.equal(mae.entities[0]?.name, 'old-mae', 'the epithet finds her through the person junction');
+	const boy = await h.call('table.lookup', {kind: 'module', query: 'the drowned boy'});
+	assert.deepEqual([boy.entities[0]?.name, boy.entities[0]?.material, boy.entities[0]?.original_pages], ['the drowned boy', 'unread', [3]]);
+	assert.equal(boy.status, undefined, 'not not_found');
+
+	const place = extra => h.attempt('table.apply', {call_id: 't1-c1', ...extra, effects: [{kind: 'npc', name: 'the drowned boy', to: 'here', why: 'the story calls him up'}]});
+	const held = await place({});
+	assert.equal(held.ok, false);
+	assert.equal(held.error.details?.reason, 'material_pending');
+	assert.deepEqual(held.error.details.person, {key: 'the drowned boy', name: 'the drowned boy', names: ['Jonah'], book: false});
+	assert.deepEqual(held.error.details.index, {pages: [3]}, 'the cast\'s pages, though no index row lists him');
+	const passage = {scene: null, page: 3, label: null, sentence: "Mae's boy Jonah drowned there last spring."};
+	const landed = await place({_land_on_text: [{key: 'the drowned boy', passage}]});
+	assert.equal(landed.ok, true, JSON.stringify(landed.error?.message));
+	assert.deepEqual(landed.result.person_text, [{person: 'the drowned boy', focus: 'Jonah', pages: [3], passage}]);
+	const entry = (await h.world()).table_people.find(row => row.name === 'the drowned boy');
+	assert.equal(entry?.cast_id, jonahId, 'registered under the table\'s word, with the row it came from');
+});
+
+test('§177.6: once the reader publishes the person, the landed entry is replaced by the cast row\'s id, though its word is no book name', () => {
+	const raw = {nodes: [{node_id: 'npc-jonah', node_kind: 'npc', name: 'Jonah', source_refs: [{page: 3}]}], relations: []};
+	const graph = new api.ModuleGraph('harbor', raw, 'digest', {});
+	graph.castStore = {version: 1, source_sha256: 'x', state: 'complete', people: [{id: 'cast-0123456789', book: ['Jonah'], play: ['Jonah'], pages: [3]}]};
+	assert.deepEqual(api.bookCast(graph).map(person => [person.id, person.castIds]), [['jonah', ['cast-0123456789']]]);
+	const world = {table_people: [{name: 'the drowned boy', from_passage: {page: 3, sentence: 'Jonah drowned.'}, cast_id: 'cast-0123456789'}],
+		npc_stances: {'the drowned boy': 'wary'}};
+	api.replacePassagePeople(graph, world);
+	assert.equal(world.table_people[0].replaced_by, 'jonah');
+});
+
+test('§177.2 (owner Q2): a book with no text layer has no cast, and the checks read the graph', async t => {
+	const h = await harbor(t);
+	const job = await h.call('cast.job', {module_id: h.mid});
+	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, pages: PAGES.map((_, index) => ({page: index + 1, text: '  '}))});
+	assert.deepEqual(staged, {state: 'unavailable', reason: 'no_text_layer'});
+	assert.deepEqual(await h.call('cast.job', {module_id: h.mid}), {job_id: null, state: 'unavailable'});
+	await h.call('table.player_input', {text: 'A man walks up.'});
+	const answer = await h.attempt('table.apply', {call_id: 't1-c1', effects: [{kind: 'npc', name: 'Old Mae', to: 'here', walk_on: true, why: 'x'}]});
+	assert.equal(answer.ok, false, 'the graph\'s own person still refuses a newcomer under her name');
+});
+
+test('§177.1: an authored module has no cast job; its cast is its graph, and an abbreviation is no name piece', async t => {
+	const k = await kernel(t, 'module-cast-authored');
+	const call = (method, params = {}) => k.raw(method, {campaign: 'c1', ...params});
+	await call('campaign.create', {id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+	await call('table.open');
+	assert.deepEqual(await call('cast.job', {module_id: 'the-haunting'}), {job_id: null, reason: 'authored'});
+	await call('table.player_input', {text: 'Someone knocks.'});
+	const walkOn = async (name, n) => k.attempt('table.apply', {campaign: 'c1', call_id: `t1-c${n}`, effects: [{kind: 'npc', name, to: 'here', walk_on: true, why: 'a visitor'}]});
+	const dooley = await walkOn('Dooley the younger', 1);
+	assert.equal(dooley.error?.details?.reason, 'book_name', 'the alias the book gives Mr. Dooley');
+	const mister = await walkOn('Mr Smith', 2);
+	assert.equal(mister.ok, true, `"Mr" is written as an abbreviation in "Mr. Dooley", not as his name: ${mister.error?.message}`);
+});

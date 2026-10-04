@@ -29,6 +29,8 @@ import { effectIntent } from './intent.js';
 import { armDrawn } from './draw.js';
 import type {MaterialGate,TextLanding} from '../modules/reading.js';
 import {stagePerson} from './person.js';
+import {personNode} from '../read/capsule.js';
+import {castPersonNamed, newcomerRefusal} from '../read/cast.js';
 import {presentArrivalMaps,revealMap} from '../read/maps.js';
 import {stageItem,stageCash,commitInventorySheets} from './inventory.js';
 import type {createWorldlineRuntime} from '../worldline/index.js';
@@ -145,12 +147,25 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 moves.set(node?.node_id ?? effect.to, { effect: index, land: effect._land_on_index === true });
             }
             const entered = new Set(array(transaction.world.index_scenes).filter((value): value is string => typeof value === 'string'));
+            // §177.3: a newcomer (`walk_on: true`) may not take, or carry, a name of anyone the book names -- read or not, told or
+            // not -- nor the word this table calls one of them. Asked before the material gate, which would otherwise read a
+            // newcomer's borrowed name as the book's person waiting to be read. A word that is already one of this table's own
+            // people is theirs (`personOfEffect`), and a book person's word keeps its own refusal there.
+            for (const [index, effect] of effects.entries()) {
+                if (!isJsonObject(effect) || effect.kind !== 'npc' || effect.walk_on !== true || typeof effect.name !== 'string') continue;
+                let existing: Row | null = null;
+                try { existing = personNode(graph, transaction.world, effect.name); } catch { existing = null; }
+                if (existing) continue;
+                const refusal = newcomerRefusal(graph, transaction.world, effect.name);
+                if (refusal) throw atIndex(new RpcError('invalid_params', refusal.message, { fix: refusal.fix, details: { field: 'npc.name', reason: 'book_name', query: effect.name } }), index);
+            }
             // §22.4.7.1 (SL-56): an `npc` effect's name stands in a person's seat; the host may ask to land it on the book's text.
             const people = new Set(seated.flatMap((effect, index) => effect.kind === 'npc' ? [names[index]] : []));
             const textPeople = new Set(array(transaction.world.index_people).filter((value): value is string => typeof value === 'string'));
             let textLanded: TextLanding[] = [];
             if (contributions.requireMaterial)
-                textLanded = (await contributions.requireMaterial(graph, names, { sceneUse: 'play', moves, entered, people, textPeople, land: landRequests(params._land_on_text) })) ?? [];
+                textLanded = (await contributions.requireMaterial(graph, names, { sceneUse: 'play', moves, entered, people, textPeople, land: landRequests(params._land_on_text),
+                    cast: name => castPersonNamed(graph, transaction.world, name) })) ?? [];
             else if (playsFromReading(module.meta))
                 throw new RpcError('not_implemented', 'The source material gate is not implemented in the TypeScript apply runtime');
             const indexLanded = textLanded.filter(entry => entry.kind === 'scene');

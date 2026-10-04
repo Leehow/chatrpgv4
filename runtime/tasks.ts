@@ -96,11 +96,13 @@ export async function runCheck(context: RuntimeContext, request: RuntimeCheck, s
 /** Called in the selected Node helper; this is the same pure publication validator. */
 export async function evaluateCheck(context: RuntimeContext, request: RuntimeCheck, signal: AbortSignal): Promise<{ ok: boolean; [key: string]: unknown }> {
   ensureActive(signal);
-  if (request.kind === "source-draft" || request.kind === "mod-definition" || request.kind === "object-usage") {
+  if (request.kind === "source-draft" || request.kind === "mod-definition" || request.kind === "object-usage" || request.kind === "module-cast") {
     const checks = await import(pathToFileURL(context.entrypoints.kernelCheck).href);
     const result = request.kind === "source-draft"
       ? await checks.checkSourceDraft(context.contentRoot, resolve(context.home, request.packet), resolve(context.home, request.draft))
       : request.kind === "object-usage" ? await checks.checkObjectUsage(resolve(context.home, request.draft))
+      // §177.2: the cast reader's draft, against the page files beside it.
+      : request.kind === "module-cast" ? await checks.checkModuleCast(resolve(context.home, request.draft))
       : await checks.checkModDefinition(resolve(context.home, request.draft));
     ensureActive(signal);
     return result;

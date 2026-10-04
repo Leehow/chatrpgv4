@@ -32857,3 +32857,135 @@ Tests:
 - `tests/extension/untold-request.test.mjs`: with the lane's word, the request carries neither the book name, the handle nor the node id (the clerk's note and a tool result renamed), and the copied `say_name` delivers the book's name.
 - `tests/extension/npc-epithets-lane.test.mjs`: the prompt names the play language; the shape is closed; refusals are retried once.
 - `tests/extension/scene-obligation-candidates.test.mjs`: the clerk's meeting carried under a graph epithet.
+
+## 177. The book's cast (owner ruling 2026-10-04, 「按你推荐的做」 on `docs/specs/module-cast.md` Q1–Q5; amends §22.4.7.1, §87.7, §103.8, §127.1 and §176)
+
+**Evidence.** The owner asked for a name list built when the module's graph is made, so names are easy to look up and a stranger the Keeper invents does not take the name of someone in the book (「创建模组图谱的时候是不是应该建立一个模组npc名表…临时刷出来的新npc也可以避开模组已有角色名称」). A probe on a scratch copy of table 23's campaign (Blood Road, `game-24bb66cb`, open turn 9, TS kernel at 0.9.6a `d0df51d2d`) sent seven `walk_on` names through `table.apply`:
+
+| newcomer's name | book person whose name it carries |
+| --- | --- |
+| 史蒂夫, 老史蒂夫, 史蒂夫大叔 | 史蒂夫·布朗 (Steve Brown) |
+| 拉塞尔, 卡车司机拉塞尔 | 拉塞尔·威廉姆斯, told, whom this table calls by that name |
+| 爱丽丝, 金发的爱丽丝 | 爱丽丝·杜威特, not met |
+
+All seven were minted as new table people:
+- `walk_on` compared whole names only, through `graph.npc` and `personNode`, and the graph answers "no npc named" for 史蒂夫, 拉塞尔 and 爱丽丝.
+- §103.8's piece refusal guarded only `apply person`.
+- Blood Road is a PDF read on demand: at that turn its graph held the 54 people the reader had reached. Every check that keeps names apart read the graph, so a person on a page not yet read was unknown to all of them.
+
+### 177.1 The cast
+
+The cast is one row per individual the book names (`bookCast`, `kernel-ts/read/cast.ts`):
+- **The graph's people.** Every `npc` node that is not a table person, with every name the book gives them (`bookNames`).
+- **The cast reader's rows** for a PDF book (§177.2), each with the forms the book prints and their play-language renderings.
+
+A stored row joins the graph person who carries one of its names exactly (normalized). The person then carries every name of both, and the row's id rides along as one of their `castIds`. A row that two graph people answer is neither of them; what is left of its names stands alone. A row nobody carries is an *unread* person: the book names them and the reader has not reached them.
+
+- **Told.** An unread person is untold until a committed delivery shows one of their names (`castToldTurn`).
+- **Id.** An unread person's id is the row's opaque `cast-<hex>`, a digest of the printed forms, never a slug of a name (§176.5).
+- **Creatures.** Creature nodes are not in the cast. A creature node is as often a kind (a deep one) as someone, and §136.12 already makes a stated creature the book's body.
+- **Authored modules.** An authored module, including a starter with a PDF bound beside it, has no cast job (owner's Q4). Its cast is its graph's people.
+
+Nothing reads what a name means. Rows join on equal strings, and the only judgment that a string is a name is the reader's.
+
+### 177.2 The cast reader (`cast.job`, `cast.source`, `cast.submit`)
+
+A module that plays from reading (`playsFromReading`) gets its cast once per bound file, in the background, from a reader child over the native text layer (owner's Q1). The text is a few hundred kilobytes and the output is names and page numbers, so it runs as a Pi agent with tools, not a lane completion.
+
+- **`cast.job {module_id, campaign?}`** returns one of:
+  - `{job_id: null, reason: "no_module" | "authored"}`;
+  - `{job_id: null, state}` once `cast.json` for this file exists;
+  - `{job_id: "cast:<sha12>", module_id, page_count, play_language, cwd}`.
+
+  The module directory is the campaign's private one when it has forked, else the shared library's, which is the root `loadModule` reads.
+- **`cast.source {module_id, campaign?, job_id, play_language?, pages: [{page, text}]}`** keeps the host-extracted text as the kernel's own copy, in `cast-source.json`, and writes the reader's `task.json` and `pages/page-NNNN.txt`.
+  - It answers `{state: "ready", cwd, pages_with_text}`.
+  - A book with no text on any page gets `cast.json` `{state: "unavailable", reason: "no_text_layer"}`, and every check falls back to the graph's people (owner's Q2).
+- **`cast.submit {module_id, campaign?, job_id}`** checks the reader's `draft.json` against the kernel's copy (`checkCastDraft`, `kernel-ts/cast/draft.ts`) and writes `cast.json` `{version: 1, source_sha256, state: "complete", people: [{id, book, play, pages, first?}]}`. It answers `{state, people, refused}`.
+
+**The draft.** It is `{people: [{book, play, pages}]}`, with no other keys.
+- `book` and `play` are each a non-empty list of names of 2–60 characters on one line, with no `{{`, at most 16 together.
+- `pages` are distinct physical pages.
+
+**The check.**
+- Every `book` form must stand on one of the row's pages under `passageKey`, the same comparison as §11.5.4.
+- A failing row is refused alone, with reason `shape` or `not_on_page` and a fix naming what to add (§90.3). The other rows stand.
+- Rows that share a printed form are one person.
+- Each accepted row keeps `first`, the sentence of its first mention, cut by machine as §11.5.4 cuts one.
+
+**The reader** reads under `content/setup/module-cast.md` with `read,write,edit,bash`, at background priority.
+- Its own check is `coc-read-check --kind module-cast --draft draft.json`, which runs the same function against the page files it was handed.
+- The host (`ReadingService.cast`, `extensions/module/reading-service.ts`) extracts text 32 pages a call. It runs the child once, plus once more with the refusal when a submit is refused. It records `lane: "cast"` rows (`published`, `refused`, `unavailable`, `failed`) and emits `coc:cast-published`.
+- The module extension asks after a PDF's ingest completes and at every `table-open` of a reading module. One run per scope and module at a time.
+
+### 177.3 A newcomer may not take a name the book gives anyone
+
+Before the material gate, each `npc` effect with `walk_on: true` whose name is not already one of this table's people is checked by `newcomerRefusal`. It is refused with `invalid_params`, `details.reason: "book_name"`, when it:
+- is or carries any cast name, of anyone, told or not, read or not;
+- is or carries a punctuation piece of a cast name (§103.8's pieces), except a piece the name writes with a period after it, which is written as an abbreviation ("Mr" of "Mr. Dooley");
+- is the word this table already calls one of the book's people.
+
+The refusal names nobody. For someone untold, saying whose name it was would hand the Keeper the name; for someone told, the Keeper already has it.
+
+`personOfEffect`'s refusal for a `walk_on` that resolves to a book person now names them by this table's word (`tableWord`), their epithet while untold. Before, it used the display name, which only the request's rename kept out of the Keeper's copy.
+
+A space is not punctuation, so "Silas Marsh" gives no piece. A short form the book prints on its own is a cast name because the reader lists it.
+
+### 177.4 The rename and the refusals cover the whole cast
+
+- **The rename.** `untoldRoster` (§103.5/§103.8) renames, for every untold person of the cast, every name the cast gives them, plus pieces unique to one untold person. An unread person is shown by the word the lane gave them, else by their row id. A page carried for a scene can name someone the graph does not have; their name no longer reaches the Keeper as printed.
+- **Pieces.** `untoldPieces` reads the whole cast, so the epithet lane's words and `apply person` names refuse a name or piece of an unread person too.
+- **Journal labels.** The journal lane's label is refused `untold_name` when it carries a name or piece of anyone else untold, graph or unread, besides the person's own (§103.8 item 5).
+
+### 177.5 Epithets for unread people (owner's Q3)
+
+- **The job.** `epithets.job` lists unread untold people after the graph's people, with `looks` their first-mention sentence. A person whose cast row already has a word is not asked again.
+- **Submit and fold.** `epithets.submit` accepts their row id. The fold writes their word under the row id in `world.person_epithets`.
+- **When the graph gets them.** Once the graph has the person, the fold carries the row's word to their handle.
+- **Waking the lane.** The lane queues a job on `coc:cast-published` for its own campaign (`wakeOn`, `extensions/lanes/queue.ts`).
+
+### 177.6 A write naming an unread person lands on the cast's pages
+
+The material gate (§22.4.7.1) treats a word in a person's seat that names an unread person as a book person not yet read. The word can be one of their names, this table's word for them, or their row id; the caller answers it with the world (`MaterialGate.cast`).
+
+- **The refusal.** `material_pending` with `person {key, name: <the word>, names: <their printed forms>, book: false}`, and `index.pages` the row's pages followed by any index rows. The detail read's focus is their first printed form.
+- **The landing.** It registers them under the word, as §11.5.4 registers a passage person, with `cast_id`.
+- **The replacement.** `replacePassagePeople` replaces the entry with the book's person whose `castIds` include it, once the reader publishes them, though the word is none of the book's names.
+
+### 177.7 Lookup
+
+`lookup kind=module` (§127.1):
+- tries the person junction (§87.8) after the graph's search, so this table's word finds the person;
+- answers an unread person as `{name: <the word>, kind: "npc", material: "unread", original_pages, note}` instead of `not_found`.
+
+### 177.8 The reader keeps one identity
+
+Every reader packet except the index and identity jobs carries `cast_names: [{book, play}]` (`Reading.castNames`). `content/setup/visual-reader.md` asks a person listed there to take a printed form as `name` and the others as `aliases`, so the same individual keeps one identity across readings and joins their cast row.
+
+### 177.9 Writers, readers, actor (§31)
+
+- **Writers:** the cast reader (`cast.json`, through `cast.submit`), the host (`cast-source.json`, through `cast.source`), the epithet lane (row-id words), the gate's landing (`cast_id`).
+- **Readers:** `bookCast` and everything above: `newcomerRefusal`, `untoldRoster`, `untoldPieces`, the journal check, `epithets.job`, `foldPersonWords`, the material gate, `replacePassagePeople`, lookup, the reader packets.
+- **Actor:** the Keeper, whose newcomers take words of their own, who meets unread people by a word, and whose writes on them land on the book's text.
+
+### 177.10 Limits
+
+- The cast is navigation, not permission to play. A row gives no facts about a person, only that the book names them and where.
+- A starter's names that appear only in prose are not in its cast (owner's Q4).
+- A newcomer named only in prose, with no `apply npc`, is not gated (owner's Q5). Delivery refuses nothing for names (§103.8 item 3), and the journal label check above still holds.
+- An unread person is not in `present[]` and has no record. `apply person` cannot give them a word until the graph has them; the lane can.
+
+Tests:
+- `tests/extension/module-cast.test.mjs`, on the real kernel over a bound three-page PDF:
+  - the job, source and submit, with a row refused alone and the reader's own check agreeing;
+  - rows merged on a shared form, and the closed shape;
+  - a printed short form joining the graph person;
+  - the rename and the epithet job over unread people, the fold under the row id, and the `apply person` and journal refusals;
+  - the newcomer refusals naming nobody;
+  - lookup by the table's word, and unread;
+  - a write landing on the cast's pages with `cast_id`;
+  - the replacement by cast id;
+  - no text layer;
+  - an authored module, and the abbreviation.
+- `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, the one background child under `module-cast.md`, the submit, record and announcement, the second run after a refusal, no child without text, one run at a time.
+- `tests/extension/npc-epithets-lane.test.mjs`: a published cast asks again, and another campaign's does not.
