@@ -36,6 +36,40 @@ def test_improvised_place_person_and_clue_survive_return_and_restart(tmp_path):
         assert client.table("lookup", kind="module", query=CLUE)["entities"][0]["summary"] == "The delivery went to the north warehouse."
 
 
+def test_a_new_kernel_process_opens_and_plays_from_an_improvised_active_scene(tmp_path):
+    """2026-09-29: a turn settled `apply move ... establish` onto a place that exists only in
+    world.table_entities, and the table was then reopened by another process. That process must
+    project the record on load (section 150) -- not answer `no scene named ... in the module graph`
+    to every call, which is what a kernel without the projection does. The first client stands
+    for the long-running App process; the second is a real new process, not the pooled kernel."""
+    bench = "Street park bench"
+    workspace = tmp_path / "ws"
+    with closing(RpcClient(workspace)) as client:
+        open_turn(client, "I sit on a bench in the little park by the street.")
+        origin = client.table("capsule")["where"]["scene"]
+        client.table("apply", call_id="t1-c1", effects=[
+            {"kind": "move", "to": bench, "via": "Walk to the green beside the street",
+             "establish": {"summary": "A strip of public green with a gravel path and two benches."}}])
+        narrate(client, "t1-c2", "You sit on the bench and sort the photographs.")
+    world = read_json(campaign_dir(workspace) / "world.json")
+    assert world["active_scene"] == bench
+    assert [entity["name"] for entity in world["table_entities"]] == [bench]
+    with closing(RpcClient(workspace, fresh=True)) as client:
+        assert not client.pooled
+        opened = client.table("open")
+        assert opened["scene"]["name"] == bench
+        assert opened["turn"]["state"] == "awaiting_player"
+        where = client.table("look", focus="scene")["where"]
+        assert where["scene"] == bench and where["origin"]["kind"] == "table"
+        assert client.table("capsule")["where"]["scene"] == bench
+        client.table("player_input", text="I get up, walk back, and then return to the bench.")
+        client.table("apply", call_id="t2-c1", effects=[{"kind": "move", "to": origin},
+                                                         {"kind": "move", "to": bench, "via": "Back along the street"}])
+        narrate(client, "t2-c2", "You walk back and settle on the same bench.")
+        assert read_json(campaign_dir(workspace) / "world.json")["active_scene"] == bench
+        assert len(read_json(campaign_dir(workspace) / "world.json")["table_entities"]) == 1
+
+
 def test_undeclared_location_and_failed_batch_create_nothing(tmp_path):
     with closing(RpcClient(tmp_path / "ws")) as client:
         open_turn(client)
