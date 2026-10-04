@@ -17,6 +17,7 @@ import {USAGE_CAPABILITY, executableUsages, usageViews} from '../mods/usages.js'
 import {WEAPON_PRESET_CAPABILITY} from '../mods/preset.js';
 import {publicOffer} from '../mods/object-offer.js';
 import { checkDeclarationRefusals } from "../modules/obligation-shape.js";
+import { rootObjectOwner } from "./object-owner.js";
 import {VOICE_CONSOLIDATION_CAPABILITY, EXPRESSION_MOD, LEGACY_VOICE_MOD, newModDefault} from '../mods/voice-consolidation.js';
 import { STYLE_CAPABILITY, validateStyleDeclaration, validateStyleContribution, providesStyle, secondProvider } from "./style.js";
 import { LANGUAGE_ADDENDUM_CAPABILITY, LANGUAGE_BRIEF_BUDGET_CAPABILITY, validateLanguageDeclaration } from "./mod-language.js";
@@ -50,6 +51,12 @@ MOD_CAPABILITIES.add(HISTORY_CAPABILITY);
 MOD_CAPABILITIES.add(MOOD_CAPABILITY);
 /** Contract §183.1: a package declares the sections of its instruction, so a table over the instruction budget can index it. */
 MOD_CAPABILITIES.add(SECTIONS_CAPABILITY);
+/** Contract §180.9: a build where an enabled package requires this binds the actor property `weaknesses` (the reader is
+ *  asked for it, the checker holds it, the module's provenance records it), and the table door accepts `weaknesses`. */
+export const WEAKNESSES_CAPABILITY = "actor.weaknesses.v1";
+MOD_CAPABILITIES.add(WEAKNESSES_CAPABILITY);
+/** Contract 28.3 and §180.8: the two dossier spines a package may add words to, a person's and a creature's. */
+export const VOCABULARY_SPINES = ["actor_profile_keys", "creature_profile_keys"] as const;
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -93,15 +100,21 @@ export async function buildVocabulary(context: KernelContext): Promise<Row> {
     const enabled = [...latest.values()]
         .filter(mod => truth(newModDefault(mod, defaults, latest)))
         .sort((a, b) => order.indexOf(string(a.id)) - order.indexOf(string(b.id)));
-    const keys: Row[] = [], displaced: Row[] = [], claimed = new Map<string, string>();
+    // §180.8: one claim per key across both spines, in load order -- a word is a person's or a creature's, never both.
+    const keys: Row[] = [], creature: Row[] = [], displaced: Row[] = [], claimed = new Map<string, string>();
     for (const mod of enabled)
-        for (const entry of array(row(row(mod.contributes).vocabulary).actor_profile_keys)) {
-            const name = string(entry.key), owner = claimed.get(name);
-            if (owner != null) { displaced.push({ key: name, mod: string(mod.id), kept_by: owner }); continue; }
-            claimed.set(name, string(mod.id));
-            keys.push({ key: name, label: string(entry.label), ask: string(entry.ask), ...(entry.shape === "lines" ? { shape: "lines" } : {}), mod: string(mod.id), version: string(mod.version) });
-        }
-    return { actor_profile_keys: keys, ...(displaced.length ? { displaced } : {}) };
+        for (const [spine, into] of [["actor_profile_keys", keys], ["creature_profile_keys", creature]] as const)
+            for (const entry of array(row(row(mod.contributes).vocabulary)[spine])) {
+                const name = string(entry.key), owner = claimed.get(name);
+                if (owner != null) { displaced.push({ key: name, mod: string(mod.id), kept_by: owner }); continue; }
+                claimed.set(name, string(mod.id));
+                into.push({ key: name, label: string(entry.label), ask: string(entry.ask), ...(entry.shape === "lines" ? { shape: "lines" } : {}), mod: string(mod.id), version: string(mod.version) });
+            }
+    // §180.9: the first enabled package in load order that requires the weakness shape binds it, and is named for it.
+    const weaknesses = enabled.find(mod => array(mod.requires).includes(WEAKNESSES_CAPABILITY));
+    return { actor_profile_keys: keys, ...(creature.length ? { creature_profile_keys: creature } : {}),
+        ...(weaknesses ? { actor_weaknesses: { mod: string(weaknesses.id), version: string(weaknesses.version) } } : {}),
+        ...(displaced.length ? { displaced } : {}) };
 }
 /** The field names a contributed profile key may carry in THIS kernel build (contract §28.3, §40.5).
  *  The kernel is a build artifact and `mods/` is read live from disk, so this list is also the only
@@ -156,23 +169,33 @@ export function validateVocabulary(manifest: Row): void {
         && !array(manifest.requires).includes("graph.vocabulary.v1"))
         invalid(`${where}: a package requiring graph.vocabulary.table.v1 must also require graph.vocabulary.v1`);
     if (!plain(contributed))
-        invalid(`${where}: contributes.vocabulary must be an object holding actor_profile_keys`);
+        invalid(`${where}: contributes.vocabulary must be an object holding ${VOCABULARY_SPINES.join(" or ")}`);
     {
-        const unknown = Object.keys(contributed).filter(key => key !== "actor_profile_keys");
+        const unknown = Object.keys(contributed).filter(key => !VOCABULARY_SPINES.includes(key as typeof VOCABULARY_SPINES[number]));
         if (unknown.length)
             throw new KernelPredatesPackage({
                 package: string(manifest.id ?? "?"), version: string(manifest.version ?? "?"),
-                field: "contributes.vocabulary", unknown, accepts: ["actor_profile_keys"],
+                field: "contributes.vocabulary", unknown, accepts: [...VOCABULARY_SPINES],
                 message: `${where} contributes vocabulary ${unknown.map(name => repr(name)).join(", ")}, `
-                    + "which this kernel build does not know; it reads only actor_profile_keys",
+                    + `which this kernel build does not know; it reads only ${VOCABULARY_SPINES.join(" and ")}`,
             });
     }
     if (!array(manifest.requires).includes("graph.vocabulary.v1"))
         invalid(`${where}: a package contributing vocabulary must require graph.vocabulary.v1`);
-    const keys = contributed.actor_profile_keys;
-    if (!Array.isArray(keys) || !keys.length || keys.length > 8)
-        invalid(`${where}: contributed actor profile keys must be a list of one to eight`);
+    if (!VOCABULARY_SPINES.some(spine => Object.hasOwn(contributed, spine)))
+        invalid(`${where}: contributes.vocabulary must hold ${VOCABULARY_SPINES.join(" or ")}`);
+    // One key once per package, across both spines (§180.8): the same word cannot be a person's and a creature's.
     const seen = new Set<string>();
+    for (const spine of VOCABULARY_SPINES)
+        if (Object.hasOwn(contributed, spine))
+            validateSpine(manifest, spine, contributed[spine], seen);
+}
+/** One spine's contributed keys (contract 28.3, §180.8). A creature word is `key`, `label` and `ask` only: `shape` is a
+ *  person's voice words' (§40.5), and a creature has no voice. */
+function validateSpine(manifest: Row, spine: typeof VOCABULARY_SPINES[number], keys: any, seen: Set<string>): void {
+    const where = packageLabel(manifest), creature = spine === "creature_profile_keys";
+    if (!Array.isArray(keys) || !keys.length || keys.length > 8)
+        invalid(`${where}: contributed ${creature ? "creature" : "actor"} profile keys must be a list of one to eight`);
     for (const [index, entry] of keys.entries()) {
         // The key's own name if it has a usable one, so a refusal points at a line of the manifest.
         const named = plain(entry) && typeof entry.key === "string" && entry.key ? repr(entry.key) : `#${index + 1}`;
@@ -185,7 +208,7 @@ export function validateVocabulary(manifest: Row): void {
         if (unknown.length)
             throw new KernelPredatesPackage({
                 package: string(manifest.id ?? "?"), version: string(manifest.version ?? "?"), key: named,
-                field: `contributes.vocabulary.actor_profile_keys[${index}]`, unknown,
+                field: `contributes.vocabulary.${spine}[${index}]`, unknown,
                 accepts: [...PROFILE_KEY_SHAPES],
                 message: `${where} contributes profile key ${named} with ${unknown.map(name => repr(name)).join(", ")}, `
                     + `which this kernel build does not know; it accepts ${PROFILE_KEY_SHAPES.join(" or ")}`,
@@ -193,6 +216,8 @@ export function validateVocabulary(manifest: Row): void {
         if (!PROFILE_KEY_SHAPES.includes(fields.join(",") as typeof PROFILE_KEY_SHAPES[number]))
             invalid(`${where}: contributed profile key ${named} carries ${fields.join(",") || "nothing"}; `
                 + `this kernel build accepts ${PROFILE_KEY_SHAPES.join(" or ")}`);
+        if (creature && Object.hasOwn(entry, "shape"))
+            invalid(`${where}: contributed creature key ${named} carries shape; a creature word is a key, a label and an ask`);
         // Contract §40.5/§40.7: `shape: "lines"` makes the value a short list of bounded strings, written by a lane and seated in the capsule's `voices`.
         if (Object.hasOwn(entry, "shape") && !["line", "lines"].includes(entry.shape))
             invalid(`${where}: contributed profile key ${named} has shape ${repr(string(entry.shape))}; this kernel build accepts line or lines`);
@@ -567,17 +592,20 @@ export function modProviders(active: Row[]): Row {
  *  readable after the package that asked for it is gone, so a bound key with no active claimant is
  *  reported as bound and unowned rather than left out. */
 export function vocabularyContext(graph: ModuleGraph, active: Row[]): Row[] {
-    const bound = new Map(array(graph.dossier.contributed).map(entry => [string(row(entry).key), string(row(entry).label)])),
+    // §180.8: a creature word is reported exactly as a person's; its key is unique across both spines.
+    const bound = new Map([...array(graph.dossier.contributed), ...array(graph.creatureDossier().contributed)]
+            .map(entry => [string(row(entry).key), string(row(entry).label)])),
         words: Row[] = [],
         seen = new Set<string>();
     for (const mod of active)
-        for (const entry of array(row(row(mod.contributes).vocabulary).actor_profile_keys)) {
-            const key = string(entry.key);
-            if (!key || seen.has(key))
-                continue;
-            seen.add(key);
-            words.push({ key, label: bound.get(key) ?? string(entry.label), mod: string(mod.id), bound: bound.has(key) });
-        }
+        for (const spine of VOCABULARY_SPINES)
+            for (const entry of array(row(row(mod.contributes).vocabulary)[spine])) {
+                const key = string(entry.key);
+                if (!key || seen.has(key))
+                    continue;
+                seen.add(key);
+                words.push({ key, label: bound.get(key) ?? string(entry.label), mod: string(mod.id), bound: bound.has(key) });
+            }
     for (const [key, label] of bound)
         if (!seen.has(key))
             words.push({ key, label, mod: null, bound: true });
@@ -664,15 +692,8 @@ export function unregisteredEquipment(party: Row[], claimed: ReadonlySet<string>
         });
     });
 }
-export function rootObjectOwner(world: Row, item: Row): Row {
-    const instances = row(row(world.objects).instances), seen = new Set<string>();
-    let owner = item.owner;
-    while (owner.kind === 'object') {
-        if (seen.has(owner.id) || !instances[owner.id]) invalid('Document ownership is cyclic or incomplete');
-        seen.add(owner.id); owner = instances[owner.id].owner;
-    }
-    return owner;
-}
+/** Moved to a leaf module so a read projection can follow ownership without importing the package runtime (§180.9). */
+export { rootObjectOwner };
 export function objectContext(world: Row): Row {
     const data = row(world.objects),
         definitions = row(data.definitions);

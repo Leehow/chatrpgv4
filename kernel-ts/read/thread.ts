@@ -31,9 +31,8 @@ export function threadSection(graph: ModuleGraph, world: Row, scene: Row, presen
     }
     const lines: Row[] = [];
     for (const conclusion of graph.kind("conclusion")) {
-        const clues = (graph.incoming.get(conclusion.node_id) ?? [])
-            .filter(r => r.relation_kind === "supports" && graph.nodes.get(r.from_node_id)?.node_kind === "clue")
-            .map(r => graph.nodes.get(r.from_node_id)!);
+        // The one reading of a conclusion's clues; §180.9's weakness chain counts `found`/`of` through it too.
+        const clues = graph.supportingClues(conclusion);
         if (!clues.length)
             continue;
         const missing = clues.filter(node => !discovered.has(graph.handle(node)));

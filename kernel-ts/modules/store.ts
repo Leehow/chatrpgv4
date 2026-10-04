@@ -82,7 +82,7 @@ export class ModuleStore {
             throw new RpcError('campaign_not_ready', `module ${repr(id)} has no graph yet`, { fix: 'prepare the original PDF with the visual reading service' });
         const loaded = await readPublishedGraph(this.context, path, meta, id);
         if (cached?.generation === generation && cached.graph.digest === loaded.digest) return cached.graph;
-        const dossier = dossierWith(row((await this.contract()).graph.actor_dossier), row(meta.vocabulary));
+        const contract = (await this.contract()).graph, dossier = dossierWith(row(contract.actor_dossier), row(meta.vocabulary), row(contract.creature_dossier));
         const graph = new ModuleGraph(id, clone(loaded.raw), loaded.digest, dossier);
         this.graphs.set(id, { generation, graph });
         return graph;

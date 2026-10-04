@@ -476,7 +476,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         historical_setting: await historicalSetting(campaign, module),
         // §168.5: before present, so the material for a first sight is read before the dossiers.
         ...(firstSight ? { first_sight: firstSight } : {}),
-        present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records, scope:npcScope }),
+        present: presentSection(graph, world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), memory, across, { voices: true, campaign:campaign.id, currentReceipts:array(turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: campaign.records, scope:npcScope, chain: campaign.chainReads() }),
         voices: voicesSection(graph, world, scene),
         known: knownSection(graph, world, scene, party, campaign.records),
         // The body that cannot act goes first: `fitBudget(..., "last")` trims this section from the

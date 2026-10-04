@@ -14,6 +14,7 @@ import { withTableEntities } from './table-entities.js';
 import { standingTables, type StandingTables } from '../combat/standing.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 import { playsFromReading } from "../modules/bound-source.js";
+import type { ChainReads } from "./weaknesses.js";
 export class CampaignSnapshot {
     readonly dir: string;
     readonly jsonFiles = new Map<string, any>();
@@ -57,6 +58,14 @@ export class CampaignSnapshot {
     sanity(id: string): Row | null {
         return this.saved(join("sanity-state", `${id}.json`));
     }
+    /** The investigator's magic state (`save/magic-state/<id>.json`), loaded by `preload`; §180.9's chain reads who knows a spell. */
+    magic(id: string): Row | null {
+        return this.saved(join("magic-state", `${id}.json`));
+    }
+    /** What §180.9's weakness chain reads beyond the world: the investigators and their spells (after `preload`). */
+    chainReads(): ChainReads {
+        return { party: this.party, magic: id => this.magic(id) };
+    }
     async preload(mode: "all" | "view" | "people" = "all"): Promise<void> {
         this.party = await this.files("party");
         if (mode === "all")
@@ -67,6 +76,9 @@ export class CampaignSnapshot {
             if (mode === "all")
                 saves.push(`healing-state/${sheet.id}.json`, `sanity-gain-pending/${sheet.id}.json`);
         }
+        // §180.9: who knows a spell a weakness needs is read on every projection of a present row, `people` included.
+        if (mode !== "view")
+            await Promise.all(this.party.map(sheet => this.optional(join("save", "magic-state", `${sheet.id}.json`))));
         if (mode !== "people") {
             await Promise.all(saves.map(path => this.optional(join("save", path))));
             // §11.5.3: during a fight the session view reads an NPC's standing action off the stance ledger and two
@@ -206,7 +218,7 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
     }
     const {raw, digest} = await readPublishedGraph(context, path, meta, id),
         contract = row(await context.snapshots.readJson(join(context.content, "modules", "module-graph-contract-v3.json")));
-    const graph = new ModuleGraph(id, raw, digest, dossierWith(row(contract.actor_dossier), row(meta.vocabulary)));
+    const graph = new ModuleGraph(id, raw, digest, dossierWith(row(contract.actor_dossier), row(meta.vocabulary), row(contract.creature_dossier)));
     graph.sourceCampaign = inScope ? campaign : undefined;
     const store = inScope ? new ModuleStore(context) : undefined;
     const asset = store ? (name: string) => store.asset(id, name) : undefined;
