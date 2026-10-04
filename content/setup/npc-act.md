@@ -15,8 +15,8 @@ does.
 `npc` names the person. `who` is what the book and the table have established
 about them: personality, goals, fears, commitments and relationships. When
 `npc.kind` is `creature`, this is a creature the book presents only as a body:
-`who` is what the book says it is and the Keeper's note, and its act is
-something its body does, never words it says. `happened`
+`who` is what the book says it is, its habits and the Keeper's note, and its
+act is something its body does, never words it says. `happened`
 is what was done or said to them this turn and the turn before, in short
 sentences. `state` is their condition: hit points, conditions, stance, whether a
 fight is running and whether it is their turn in it. `at_hand` is what they hold,

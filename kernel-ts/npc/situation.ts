@@ -17,7 +17,7 @@ import type {CampaignSnapshot} from '../read/campaign.js';
 import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
-import {actorNode, creatureWhat, jsonSize, npcsPresent, personLabel, sceneLabel} from '../read/capsule.js';
+import {actorNode, creatureWhat, creatureWords, jsonSize, npcsPresent, personLabel, sceneLabel} from '../read/capsule.js';
 import {readCampaign} from '../read/handlers.js';
 import {canonicalMemoryReceipts, withPromiseFulfillment} from '../read/memory.js';
 import {committedOnLine, stillWhereItClosed} from '../read/exchange.js';
@@ -439,10 +439,12 @@ async function situationBudget(context: KernelContext): Promise<number> {
     }
 }
 
-/** §180.3: what the act author reads of a creature -- what the book says it is and the Keeper's note, each when stated. */
-function creatureMaterial(node: Row): Row {
+/** §180.3, §180.5: what the act author reads of a creature -- what the book says it is, its words (`habits`, §180.8:
+ *  the book's under the words its module bound, else what an enabled package established at the table) and the Keeper's
+ *  note, each when stated. Its personality is never read: a creature has none. */
+function creatureMaterial(graph: ModuleGraph, world: Row, node: Row): Row {
     const what = creatureWhat(node), note = recordOf(node).keeper_note;
-    return {...(what ? {what} : {}), ...(typeof note === 'string' && note.trim() ? {keeper_note: note} : {})};
+    return {...(what ? {what} : {}), ...creatureWords(graph, world, node), ...(typeof note === 'string' && note.trim() ? {keeper_note: note} : {})};
 }
 
 export function createSituationHandlers(context: KernelContext): HandlerGroup {
@@ -488,9 +490,9 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
                     player_declaration: string(row(turn.player_input).text ?? turn.player_text ?? ''),
                 },
                 // §180.3: the act author's material -- a person's personality and the rest of their perspective; for a
-                // creature, what the book says it is and the Keeper's note (ticket CK-D adds its `habits`).
+                // creature, what the book says it is, its habits and the Keeper's note.
                 who: person ? {personality: view.personality ?? null, goals: view.goals ?? null, fears: view.fears ?? null,
-                    commitments: view.commitments ?? [], relationships: view.relationships ?? []} : creatureMaterial(node),
+                    commitments: view.commitments ?? [], relationships: view.relationships ?? []} : creatureMaterial(graph, world, node),
                 happened,
                 state: stateOf(graph, world, me, session, stanceNow(graph, ledger, table, turn, me.handle)),
                 at_hand: {...atHand(graph, world, party, me, place), ...(brought.length ? {brought_out: brought} : {})},
