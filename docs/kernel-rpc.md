@@ -26285,6 +26285,14 @@ Version 2.2.1. This version-frozen package is authored by the craft writer. The 
 The primary precedents already read by root are Ursula K. Le Guin’s authorized chapter on rhythm as physical movement (https://lithub.com/a-writing-lesson-from-ursula-k-leguin/) and Delatorre et al.’s experiment (https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2018.01392/full). They support avoiding rigid metre and treating suspense as more than concealed outcomes; they do not validate this Mod or prove sentence-length causality. No novel quotation is copied into runtime instructions.
 
 
+
+### 137.11 A whole environment passage from the current task (2026-10-04)
+
+Writer: package author. Reader: kernel/style projection and host context. Actor: Keeper. This is an ordinary adoption of the environment-only Craft 2.2.4 wording; it uses the same schema, capabilities, settings, and locks, with no new state or API.
+
+The view guidance is conditional: distinguish a source/book or narrator identity from an observer's recognition. Where recognition is unestablished, use only supplied source evidence, material form, and relations; do not turn attribution into perception. This contract makes no claim of universal source fidelity, novel matching, or proven speed. Evidence is limited to the supplied source-selected observations and study contexts, and live quality remains unmeasured.
+
+
 ## 138. Band then roll: a rules row named instead of a number, rolled by the kernel (2026-09-26, BR-01 of `docs/specs/band-then-roll.md`; amends §135.28 and §136.22, extends §5's `table.apply` `time` and `damage`)
 
 §136.22 lets the Keeper name the book's amount instead of writing its own. Where the book prints only a scale — how
