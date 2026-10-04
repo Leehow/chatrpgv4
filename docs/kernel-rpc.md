@@ -18515,6 +18515,64 @@ The Keeper's own epithets that turn (白衬衫老板, 啤酒肚卡车司机, 海
 - The §87.8 tests now build their shared word as a pre-§103.7 table's record.
 - Mutations of the refusal, the mirror, the label refusal and the packet field each fail a test.
 
+### 103.8 The Keeper does not hold an untold person's name (owner ruling 2026-10-03; amends §103.5 and §103.7)
+
+**Evidence.** Table 20 of the installed App (Blood Road, `game-48858a0b`, §175) leaked on its first turn. The owner's words: 「除了烂牙司机其他名字还是全漏出来了」.
+
+- The Keeper's first step looked at the trucker. His biography mentions his neighbour 史蒂夫·布朗 and says he pretends to help 拉斯 with the cars. 拉斯 is an alias the graph records for the owner (`aliases: ["拉斯", "拉索"]`), and the request's rename (§103.5) replaced only each person's display name.
+- §103.5 also kept each untold person's book name in the Keeper's copy as `untold.name`, "for the moment someone says it".
+- The next step ran without thinking (§175.1). It wrote "史蒂夫·布朗" and "拉斯·威廉姆斯" as epithets, the sidebar showed them, the prose said 「年近七十的史蒂夫」, and the next turn 「拉斯看了眼油泵」. Only the trucker got a real epithet, 烂牙司机.
+
+The owner had asked for this order in the first place: the name stays in the data, and the Keeper gets it once it has been said (「真实姓名在剧情里被人说出来就同步，直接在生成前告诉kp」).
+
+**1. Every book name is renamed.**
+
+- `bookNames(graph, node)` (`kernel-ts/journal/naming.ts`) is a person's `name`, display name and `aliases`, never a handle or node id. The id comparison is exact, because normalized, a handle and the name it was made from are the same string.
+- `table.untold` (`untoldRoster`) carries one row per book name of each untold person.
+- A name that someone the investigator already knows also goes by is left out of the rename, so that person is not hidden with it.
+- A short alias can also occur inside an unrelated word, which then reaches the Keeper renamed. That costs the Keeper some reading, and it never leaks a name.
+
+**2. The Keeper's copy carries no book name.** `untoldView` (`extensions/kernel/untold-view.ts`) no longer writes `untold.name`, and the request's rename keeps no seat for it. The untold line tells the Keeper it does not have the name, and that when the fiction has it said (they give it, someone calls them by it, a paper shows it) it writes `{{name:<who>}}` there. The narrate `text` field says the same.
+
+**3. `{{name:<who>}}` puts the name in at delivery** (`kernel-ts/write/names.ts`, on `table.narrate` and `table.ask` before `deliveryText`):
+
+- `who` resolves exactly as a say token's name does: the handle, the table's word, or any key of the person.
+- The token becomes the book's display name. The rendered text then shows that name, so `toldTurn` counts the person as told from this delivery on, and the next capsule shows their name.
+- A token naming nobody is left as the word written and reported in `unresolved_names`. Nothing is refused (§34.14).
+- A narrate that names someone still untold also makes the book's name the table's word for them: `world.person_labels[handle].name` becomes the display name, so `called.name`, the say tokens and the sidebar follow. That is the sync the Keeper's own `apply person` used to make at an introduction, which it cannot make without the name. The labels before the delivery ride the narrate journal, and a failed or interrupted commit restores them (§141). An `ask` that carries the token puts the name in, but `toldTurn` counts only narrate deliveries.
+- A §171 draft drops the token by its braces, so while the delivery streams the name is a gap on the screen until the delivery replaces the draft.
+
+**4. An epithet may not carry a book name** (`refuseUntoldName`, `kernel-ts/apply/person.ts`). For a book person who is still untold (`untoldBlock`), an `apply person` name is refused `invalid_params` with `details.reason: "untold_name"` when it contains any of their book names, or a piece of one.
+
+- A piece is what the name itself separates with punctuation: 拉塞尔·威廉姆斯 gives 拉塞尔 and 威廉姆斯, and Mr. Dooley gives Dooley. Pieces of one character are not pieces. A space is not punctuation, so Steven Knott gives no piece.
+- The refusal repeats the Keeper's own word and names no book name.
+- Once the person is told, their name may be the table's word for them.
+
+This sits beside §103.7's handle refusal and is just as deterministic: the kernel compares the word with the names it holds, never with what the word means.
+
+**5. The other two writers of that word follow the same rule.**
+
+- *The journal lane's label* (`kernel-ts/journal/jobs.ts`) is what the capsule's `untold.label` and the sidebar show for someone the Keeper gave no epithet; on table 21 the lane's labels stood for all three men at the gas station. `journal.submit` already refused a label carrying the person's name or display name; it now also refuses one carrying an alias or a piece (`invalid_params`, `details.reason: "untold_name"`). The lane holds the book's names, so its refusal may name the person by the name the lane wrote.
+- *The clerk's stated meeting* (`runtime/jev/obligation-candidates.ts`, §135.26). The owner ruling of 2026-09-23 staged an obligation's meeting under the table's label, else under the book's name, so no LLM step wrote it. The fallback is gone: without the table's label the meeting is not the clerk's, nor is the check it leads to, exactly as the roster candidate is not issued without one (§135.28). The Keeper stages the person with an epithet, and the check is offered to the clerk on the next run. Before this, the kernel refused the clerk's meeting and the step was dropped for the run (`tests/extension/scene-obligation-candidates.test.mjs` on the box, 2026-10-03).
+
+Writer: the Keeper's narrate, ask and `apply person`; the journal lane's labels; the clerk's stated meeting. Reader: the request's rename, `untoldView`, `withNames`, `refuseUntoldName`, `journal.submit`, `obligationCandidates`. Actor: the player, who meets a name only when the fiction says it.
+
+Tests (`tests/extension/untold-names-held.test.mjs`):
+
+- book names, aliases and pieces;
+- the roster with a shared alias;
+- on the real kernel with The Haunting:
+  - no book name anywhere the host wrote into the request, `untold` included;
+  - "Steven Knott's clerk" and "old Dooley" are refused, and an epithet built from a visible thing is accepted;
+  - `{{say:the ink-stained clerk}}"I am {{name:the ink-stained clerk}}…"` delivers "I am Steven Knott", after which he is told;
+  - the table's word becomes his name (`called.name` in the next capsule), the assertion a mutation that drops the sync turns red;
+  - an unknown `{{name:}}` is reported;
+  - once told, his name is accepted as his word.
+
+The same file submits the journal lane's label "Dooley's boy at the stand" for Mr. Dooley, who spoke that turn, and it is refused; a label from a visible thing is accepted. `tests/extension/scene-obligation-candidates.test.mjs`: without the table's label neither Arty Wilmot's meeting nor the check is the clerk's, and an arrival run stages nobody and refuses nothing; with the label the journal lane wrote, the meeting is carried under it.
+
+`tests/extension/untold-request.test.mjs` now finds the row by its handle and asserts that `untold` has no `name`. `tests/kernel/test_journal.py`'s epithet test now refuses the book name as his word while untold and introduces him through `{{name:}}`.
+
 ## 104. Characteristic-driven combat weapons use the actor's authored characteristic (2026-09-17)
 
 H-SIDE turn 171 proved that entering the authored Corbitt encounter was necessary but not sufficient.
@@ -23173,7 +23231,7 @@ ticket, not a retirement). So it is mounted:
 
 **What changes at a table.** On the default Keeper model (`grok-build/grok-4.7-build-fast`) nothing: the follow-up
 `off` is clamped to `low`, the level the table already runs at (§135.24). On a model whose catalog exposes a lower
-level, the requests after the first non-delivery tool batch of an input run at that level and the table's own level
+level, the requests after the first non-delivery tool batch of an input (since §175.1, the first that writes) run at that level and the table's own level
 returns for the next input, exactly as §3.7 states. The turn's first request, the lanes and the §32 review keep their
 own levels.
 
@@ -23743,8 +23801,8 @@ code-point boundary and ending with `...` when it would pass the ceiling (the le
 passes it is shortened and carries no quote). The clerk fits its own sentence, so the kernel never refuses it for its
 length. Composed today, and marked on the candidate (`Candidate.composed`):
 
-- a stated meeting's `why`: `The book puts <person> here for "<demand>", under the book's name` (or `named by the table's
-  own label`), with the player's words;
+- a stated meeting's `why`: `The book puts <person> here for "<demand>", named by the table's own label`, with the
+  player's words (the `under the book's name` form is gone with that fallback, §103.8 item 5);
 - a roster person's `why`: `The table's own label for <person> in this scene, staged for the player's declared action`,
   with the player's words;
 - a combat disposition's `why` (the parameters it was read from, §11.5.3), shortened to the ceiling;
@@ -31835,7 +31893,7 @@ was ever written, so a card with none is byte-identical to before. `look` on the
 (`mood`, `mood_earlier`). The capsule `head` gains one line: `present[].now` is what that person feels right now and
 carries their next line more than any fact does; when it is missing or no longer true, write it with `apply npc mood`
 (one short line in the play language) before they speak, in the same turn; its own `apply` is fine and it need not ride with
-their words (amended 2026-10-01, see 161.10). The projection reads the committed
+their words (amended 2026-10-01, see 161.10; amended again 2026-10-03: the same response as the narrate, apply first, §175). The projection reads the committed
 ledger, so a mood written this turn shows from the next turn; within the turn the Keeper has just written it.
 
 **161.4 Visibility.** Keeper only. §16.2's `mechanics` has no `npc` row, so no card is drawn; the transcript, the
@@ -32454,7 +32512,7 @@ This addendum is read with §§40.5, 40.7, 169, and 166; it does not replace the
 
 ### 171.1 What is read
 
-A delivering call's prose is one string argument: `narrate.text`, `ask.text` and `apply.narrate` (`DELIVERY_PROSE_FIELDS`, `Electron/packages/pi-backend/src/live-prose.ts`; the schemas are in `extensions/kernel/tools.ts`). Pi's RPC `toolcall_start` names the tool (`toolName`), and its deltas carry raw JSON. The host follows a delivering call only in a bound session whose mode is `play`; setup never draws one.
+A delivering call's prose is one string argument: `narrate.text`, `ask.text` and `apply.narrate` (`DELIVERY_PROSE_FIELDS`, `Electron/packages/pi-backend/src/live-prose.ts`; the schemas are in `extensions/kernel/tools.ts`). Pi's RPC `toolcall_start` names the tool (`toolName`), and its deltas carry raw JSON. The host follows a delivering call only in a bound session whose mode is `play`; setup never draws one. Setup hands off to play inside the same child and records a new `coc-session` row. The host takes that row as the session's binding when it is appended (`cocBindingOfRow`). Before this, the binding read at spawn stayed `setup` until the next spawn, and table 20 (2026-10-03), the App's first new table under §171, drew no live prose on its first turn.
 
 - **The field.** `streamingStringField` reads the field at the top level of the JSON received so far, by the JSON grammar alone. It steps over earlier fields of any kind, such as `apply.effects`. It decodes escapes and holds back a half-received escape or half a surrogate pair. At `toolcall_end`, the parsed arguments settle the text (`finishedProseField`). An `apply.narrate` written as an object is read from its `text`.
 - **The tokens.** `displayedProse` removes every complete `{{…}}` token by its braces, the §16.6 markers and the §40.1 say wrapper alike. It holds back an unclosed tail (`{{` and up to 64 characters, or a lone `{`), so no brace reaches the screen. Nothing reads the words.
@@ -32677,3 +32735,55 @@ Creating a character on every test run is slow and spends a model conversation, 
 - The template is loaded by a new `setup.template`, not a `template` source on `investigator.load`: `investigator.load` reads library rows under the home, has a `turn_state` gate for mid-play joins and mints library forks; a content template has none of that, and a second reading lane inside that method would have to switch on its parameters.
 - `setup.steps` books the `library` lane for a template rather than adding a third investigator source to `content/setup/steps.json`: the setup guide never walks a template (the host does it before the session exists), and a third lane would add steps nobody can take.
 - The auto path records no prologue of its own. When setup completes inside the converse (the opening was already ready), the setup session finds `complete` booked and shows nothing, so `handoff.prologue` is `null` and the play opening treats it as "no setup meeting" (as for `--pregen`) -- the truth. When the opening is still preparing, the setup session's ordinary autostart shows the prologue and records it through `setup.prologue`, so the handoff carries a prologue the player really saw. Recording one the player never read would make the Keeper skip words nobody was shown.
+
+## 175. What needs no result rides with the narrate (owner ruling, 2026-10-03; amends §161.3, §161.7, §161.10's wording note and §103.7)
+
+*Numbering.* Written as §172 on `claude/first-sight-20261002`, where narration-craft's own 2.1.17 cited it under that number (2.1.19 cites §175). While the branch waited, 0.9.6a landed §172 (the Codex image route), §173 (speech recovery) and §174 (auto-created investigators), so this section is §175 from the merge on (§ numbers are stable once landed).
+
+**Why.** The owner asked why a turn takes so long, and then for the recommendation: 「按你推荐的做」. The installed App ran with `flapcode/gpt-6-luna` as Keeper, and each model step there costs 7–12 s before its first token (§171). Of 51 delivered turns across 34 sessions (2026-10-02 noon to 2026-10-03), 28 opened with a step that held only writes whose landing their own arguments fix, and the prose followed in a second step:
+
+| What the first step wrote | Turns |
+| --- | --- |
+| a mood, with or without other effects | 13 (10 the mood alone, 12 s median) |
+| an epithet, at a first meeting | 9 |
+| a move, a cash quote or settle, an object | 9 |
+
+The base had said since §135.5 that such an apply goes in the same response as its narrate, writes first (`SILENT_WRITES`). Three nearer lines told the Keeper otherwise for the mood: §161.3's head line, the `mood` field and narration-craft's instruction all said "its own apply is fine; it need not ride with their words". They said it because of §162: grok double-serialized prose written in `apply.narrate` beside structured effects. A separate `narrate` call in the same response does not have that problem.
+
+**What changed.**
+- The capsule head, the `mood` field (`extensions/kernel/tools.ts`) and narration-craft 2.1.17 now say the mood needs no result, so its apply goes in the same response as the narrate carrying the person's words, apply first. The field adds "never a step of its own".
+- The person `name` field (§103.7's epithet) and the speech rule the §40 steers restate say the same for an epithet: it is written in the same response as the narrate that first describes the person, apply first.
+
+**The person marker.** A `person` receipt is keeper-only and `markersFor` names no marker for it (§16.6). On table 18 the Keeper waited for its apply only to copy the receipt id into the prose as `{{person:<receipt id>}}`. That marker names nothing, and the delivery drops it (§34.14), so a first meeting has no reason to wait either.
+
+**Owner rulings recorded with this.** The owner asked whether Jev could choose the mood from an enumerated table instead. Two offline rounds on 33 real moments answered no:
+
+- *Round one* asked from the persona first. The primary feeling matched the Keeper's line in 55%. 13 of 33 came out as suspicion, and every answer said the person was hiding it.
+- *Round two* asked for the reaction to what just happened, with the persona as background only, per the owner's correction 「情绪要根据环境变化的啊」. Again 55%, with a single-choice control at 70%. Suspicion still dominated (15, or 18 by single choice), and 14 of 16 openly shown feelings were still judged hidden.
+
+The feeling a person has is an author's choice that the input does not determine, so a selector collapses to the genre's prior. The mood stays the Keeper's. Evidence is in `.coc/playtests/speech-replay-20260930/mood-jev-20261003/`.
+
+**What it saves.** Folding the steps saves the second step's start-up and the host's preparation between the two steps, about 8–15 s on luna. It does not save the writes' own tokens or the first step's thinking.
+
+**Acceptance.** Read off a fresh real table on the installed App: the share of delivered turns whose first step holds only writes that need no result, against the 28 of 51 above, and the first visible prose per turn (§135.11.5). Nothing here is enforced by the host. If the Keeper still splits, that is evidence for a host-side change, not a reason to repeat the wording.
+
+Tests: `tests/extension/npc-mood.test.mjs` and `tests/extension/jev-pacing-mod-alignment.test.mjs` move their narration-craft pin to 2.1.17. The wording itself has no test, because a test that pinned it would only pin a string.
+
+### 175.1 A step before the turn's first write keeps its thinking (owner ruling 2026-10-03, with §103.8)
+
+Two mechanisms lower thinking after a turn's first Keeper call, and both did it after a batch of reads alike:
+
+- `extensions/thinking-schedule` (§135.27), mounted at every table: the installed App's. After the first tool batch of an input that does not deliver, it asks Pi for the lowest level, which runs the rest of the input.
+- `COC_FIRST_STEP_THINKING=1` (§38.7.1): an env-gated experiment that rewrites each provider request after the first. No launch sets it; the App does not.
+
+Once §175 put what needs no result into the narrate's response, the step that wrote the epithets, the moods and the prose was often the second: on table 20 a look came first, and the step after it, its request at `none`, wrote the book's names (§103.8).
+
+The rule is now this, in both. A call keeps thinking until a Keeper call of this turn has written. Any call but `look`, `lookup` or `recall` counts as writing; the one set is `STEP_READS` in `extensions/kernel/first-step-thinking.ts`.
+
+- `thinking-schedule` skips a batch whose calls are all reads. A batch with one write among reads is a writing batch.
+- The env-gated path counts on `tool_call`. The host's own operations raise the same event; they are recognized by `dispatcher.hostOrigin` and do not count (the clerk's move before the first call is not the Keeper's writing). The counter resets on player input, with `roundTrips`. The provider-request row's `first_step_thinking` is `true` for every call before the first write.
+
+This costs a few seconds of thinking on a step that follows only reads, which is still one model step fewer than before §175. Tests:
+
+- `tests/extension/thinking-schedule.test.mjs`: reads keep the table's level, a read beside a write lowers it, and the earlier cases now lower on a write.
+- `tests/extension/first-step-thinking.test.mjs`: the step after a look keeps thinking, the step after a write is rewritten off, the reset still holds, and the unsupported-format case now follows a write.

@@ -10,8 +10,9 @@
  * - a `meet` step the book puts before that check is carried by it (owner ruling 2026-09-23): the check is offered while
  *   the meeting is still owed, and `now` on it runs the meeting directly first, then binds and rolls the check;
  * - a `meet`-only obligation (the archivist) is the stated person candidate, routed like any person. A stated meeting
- *   is data, not an open name (owner ruling 2026-09-23): the person is staged under the table's own label if the kernel
- *   issued one, else under the book's name for them. Either way it replaces the roster candidate for that person;
+ *   is data, not an open name (owner ruling 2026-09-23): the person is staged under the table's own label the kernel
+ *   issued. It replaces the roster candidate for that person. Without that label there is no meeting for the clerk
+ *   (§103.8: the book's name is refused as the word for someone untold), and neither is the check it leads to;
  * - `blocked`, `settled` and `waived` obligations issue nothing;
  * - what an unsettled obligation guards is withheld from the clerk (the `guarded_by` rows, and the same clues, exits
  *   and people however else they would be offered), the hygiene of an exit whose `unlock_when.met` is false;
@@ -143,8 +144,10 @@ const basisOf = (row: Row, index: number, step: 'meet' | 'check' | 'accept'): Js
 
 /**
  * The stated meeting: the roster candidate for the person the book puts here, marked as the book's (spec D6). Its name
- * is the table's own label when the kernel issued one, else the book's name for the person (the record's `name`): the
- * book names who stands there, so no LLM step writes it (owner ruling 2026-09-23; §135.2's open name does not apply).
+ * is the table's own label the kernel issued, so no LLM step writes it (owner ruling 2026-09-23; §135.2's open name does
+ * not apply). Without one there is no meeting for the clerk. It used to fall back to the book's name for the person, and
+ * §103.8 (owner, 2026-10-03) refuses that word for someone untold: the epithet is the Keeper's, as for the roster
+ * candidate (§135.28).
  */
 function meeting(reads: ObligationReads, row: Row, index: number, rawInput = ''): Candidate | undefined {
   const next = object(row.next), name = text(next.person);
@@ -153,13 +156,14 @@ function meeting(reads: ObligationReads, row: Row, index: number, rawInput = '')
   // Only someone on the roster and not yet introduced: anyone else is the Keeper's to stage.
   if (at < 0 || text(object(present[at].called).name)) return undefined;
   const person = present[at], label = text(object(person.untold).label), role = text(person.role);
+  if (!label) return undefined;
   const {words, detail} = guarded(reads, row), after = afterName(reads, row);
   const where = words.length ? `in the way of "${text(row.name)}": whoever is after ${listed(words, 'or')} meets ${name} first`
     : after ? `for "${text(row.name)}" once "${after}" is settled: ${name} is met next` : `for "${text(row.name)}": ${name} is met first`;
   return {key: `apply:person:${name}`, verb: 'apply', family: 'person', source: 'table.apply.options',
-    label: `The book puts ${name}${role ? ` (${role})` : ''} here ${where}; put them on stage as "${label || name}"`,
-    bound: {kind: 'person', who: name, name: label || name,
-      why: composeSentence(`The book puts ${name} here for "${text(row.name)}"${label ? ', named by the table\'s own label' : ', under the book\'s name'}`, rawInput)},
+    label: `The book puts ${name}${role ? ` (${role})` : ''} here ${where}; put them on stage as "${label}"`,
+    bound: {kind: 'person', who: name, name: label,
+      why: composeSentence(`The book puts ${name} here for "${text(row.name)}", named by the table's own label`, rawInput)},
     unbound: [], composed: ['why'],
     detail: {demand: text(row.name), stated_by: 'the module', ...(detail.length ? {guards: detail} : {})} as Json,
     clerk: 'stated_obligation', basis: basisOf(row, index, 'meet'), ...withFact(routeFact(reads, row))};

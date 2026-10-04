@@ -6,7 +6,7 @@ import { appendJsonl } from '../fileio.js';
 import { CampaignWriter, nowIso } from '../write/store.js';
 import { ModuleGraph } from '../read/module-graph.js';
 import { personRecord, sceneLabel } from '../read/capsule.js';
-import { occurs, nameWords, toldTurn } from './naming.js';
+import { bookNames, namePieces, occurs, nameWords, toldTurn } from './naming.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
 import { isStakesRoll } from '../npc/stakes-receipt.js';
@@ -255,8 +255,12 @@ function reject(index: number, message: string, fix: string, details: Row = {}):
     throw new RpcError('invalid_params', message, { fix, details: { index, ...details } });
 }
 type Validated = { id: string; name: string; description: string | null; exchange: string | null; label: string | null; named: boolean };
-/** `stored` is the journal's entries: whether a person already has a row decides whether a label is owed (§103). */
-function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:string[]): Validated[] {
+/**
+ * `stored` is the journal's entries: whether a person already has a row decides whether a label is owed (§103). `graph`,
+ * when given, refuses a label carrying any name the book gives the person or a piece of one (§103.8), as `apply person`
+ * refuses that word: a label is what the table shows for someone untold.
+ */
+function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:string[], graph?: ModuleGraph): Validated[] {
     if (!Array.isArray(entries))
         throw new RpcError('invalid_params', 'params.entries must be a list');
     if (entries.length > BUDGET.max_entries)
@@ -272,6 +276,10 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
     const isNamed = (id: string) => integer(row(stored[id]).named_at) || told[id] !== undefined || namedInBatch.has(id);
     const unnamed = sorted(new Set(named.filter(([, id]) => !isNamed(id)).map(([name]) => name)));
     const carries = (text: string, id: string) => array(words[id]).map(string).some(word => word && occurs(normalize(text), word));
+    const carriesBookName = (text: string, id: string) => {
+        const node = graph?.nodes.get(id);
+        return !!node && namePieces(bookNames(graph!, node)).map(normalize).some(piece => !!piece && occurs(normalize(text), piece));
+    };
     /** §103.7: another person's epithet or label that is the same words as `label` (normalized). */
     const takenBy = (label: string, id: string): string => {
         const mine = normalize(label);
@@ -328,6 +336,10 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
                 return reject(i, `entries[${i}].label: ${repr(name)} has been named to the player already`, `give label only for a name listed under unnamed: ${unnamed.join(', ') || '(none)'}`, { field: 'label', name, unnamed });
             if (carries(label, id))
                 return reject(i, `entries[${i}].label carries the name ${repr(name)}`, 'a label says how the player would know them and never names them', { field: 'label', name });
+            // §103.8: table 21 (2026-10-03) showed the lane's labels in the sidebar for everyone the Keeper gave no epithet.
+            // The refusal names the person by the name the lane wrote, never by the alias or piece it matched.
+            if (carriesBookName(label, id))
+                return reject(i, `entries[${i}].label carries a name the book gives ${repr(name)}, or a piece of one`, 'a label says how the player would know them -- the one visible thing only they have here -- and carries no name, nickname or part of one', { field: 'label', name, reason: 'untold_name' });
             // §103.7: a label tells one person from everyone else. On the installed App (table 15) the lane's labels were
             // "tall, lean, middle-aged man"-style phrases any of the three men could wear. The kernel refuses only the same words
             // held by someone else (normalized): one label inside another is often two people (the owner and the owner's wife), and whether a label is
@@ -372,7 +384,7 @@ async function recoverBacklog(campaign: CampaignWriter, id: string): Promise<voi
     if (changed)
         await writeLines(campaign, 'npc-journal/backlog.jsonl', rows);
 }
-export async function submit(campaign: CampaignWriter, job: Row, entries: any): Promise<[
+export async function submit(campaign: CampaignWriter, job: Row, entries: any, graph?: ModuleGraph): Promise<[
     Row,
     boolean
 ]> {
@@ -393,7 +405,7 @@ export async function submit(campaign: CampaignWriter, job: Row, entries: any): 
     let validated: Validated[],canonical:Row[]|undefined;
     try {
         const materialized=referenced?materializeJournalEntries(job,entries):undefined;canonical=materialized?.entries;
-        validated = validateEntries(job, canonical??entries, journal.entries,materialized?.ids);
+        validated = validateEntries(job, canonical??entries, journal.entries,materialized?.ids, graph);
     }
     catch (error) {
         if (error instanceof RpcError && error.code === 'invalid_params')

@@ -24,6 +24,10 @@ function binding(value:any): CocBinding | undefined {
   return value && typeof value.campaign === 'string' && typeof value.home === 'string'
     && typeof value.play_language === 'string' && !!value.play_language ? value : undefined;
 }
+/** The binding one `coc-session` row records, or undefined: the same reading `readCocBinding` gives the last such row. */
+export function cocBindingOfRow(row:any): CocBinding | undefined {
+  return row?.type==='custom'&&row.customType==='coc-session'?binding(row.data):undefined;
+}
 export async function readCocBinding(sessionPath:string): Promise<CocBinding | undefined> {
   let found:CocBinding|undefined;
   const lines=createInterface({input:createReadStream(sessionPath),crlfDelay:Infinity});

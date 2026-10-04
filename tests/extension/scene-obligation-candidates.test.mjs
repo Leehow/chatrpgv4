@@ -97,6 +97,13 @@ function seeksAt(offered, index, choice = "seeks") {
 		answers: { ...Object.fromEntries(offered.map((_, i) => [`need_${i + 1}`, i === index ? { ...now, choice } : later])), exit: { ...now, choice: "continue" } } };
 }
 const ofObligation = (candidates, handle) => candidates.filter((candidate) => candidate.basis?.obligation === handle);
+/** The table's own label for Arty, the city editor, as the journal lane's would be in the capsule (§103.8: never his name). */
+const EDITOR = "城市版编辑";
+/** The kernel's reads with the table's own label on `person` (`untold.label`), as the journal lane leaves it. */
+function labelled(state, person = "Arty Wilmot", label = EDITOR) {
+	return { ...state, capsule: { ...state.capsule, present: state.capsule.present.map((value) =>
+		value.name === person ? { ...value, untold: { ...value.untold, label } } : value) } };
+}
 /** The kernel's morgue reads with the gate's `next` (or the whole row) changed: a variant the haunting does not state. */
 function variant(state, change) {
 	const applyOptions = structuredClone(state.applyOptions);
@@ -108,7 +115,13 @@ function variant(state, change) {
 test("at the morgue the gate's check carries its meeting in place of the roster candidate, the archivist issues nothing, the guarded clues and Arty's Mod check are withheld", async (t) => {
 	const { call } = kernel(t);
 	await atMorgue(call);
-	const state = await reads(call);
+	const bare = await reads(call);
+	// §103.8 (owner, 2026-10-03): without the table's own label, no word for Arty is the clerk's -- the book's name is refused
+	// as the word for someone untold -- so neither his meeting nor the check it leads to is issued: both are the Keeper's.
+	const unlabelled = buildCandidates(bare, INPUT);
+	assert.deepEqual(unlabelled.filter((candidate) => candidate.family === "obligation_check" || candidate.bound?.who === "Arty Wilmot"), [],
+		"no meeting under the book's name, and no check carrying one");
+	const state = labelled(bare);
 	assert.deepEqual(state.applyOptions.obligations.map((row) => [row.handle, row.state]), [[ACCESS, "open"], [ARCHIVIST, "blocked"]]);
 	const gate = state.applyOptions.obligations[0];
 	assert.deepEqual(gate.next, { kind: "meet", person: "Arty Wilmot" });
@@ -130,15 +143,11 @@ test("at the morgue the gate's check carries its meeting in place of the roster 
 	assert.ok(CLERK_AUTHORITY.includes("stated_obligation"));
 	assert.deepEqual([arty.basis.read, arty.basis.path, arty.basis.obligation, arty.basis.step], ["table.apply.options", "obligations[0]", ACCESS, "meet"]);
 	assert.match(arty.label, /^The book puts Arty Wilmot \(gatekeeper\) here in the way of "Access to the Globe clippings": whoever is after clue globe-unpublished-story or clue macario-tragedy meets Arty Wilmot first; /);
-	// A stated meeting is data: without the table's own label it is staged under the book's name, with no LLM step.
-	assert.equal(arty.bound.name, "Arty Wilmot");
+	// A stated meeting is data: it is staged under the table's own label, with no LLM step.
+	assert.equal(arty.bound.name, EDITOR);
 	assert.equal(bindingOf(arty), "none");
 	assert.deepEqual(arty.detail.guards.map((guard) => guard.clue), ["globe-unpublished-story", "macario-tragedy"]);
 	assert.ok(arty.detail.guards.every((guard) => guard.summary), "Jev reads what the gate guards");
-	// The table's own label, when the kernel issued one, is the name instead.
-	const labelled = buildCandidates({ ...state, capsule: { ...state.capsule, present: state.capsule.present.map((person) =>
-		person.name === "Arty Wilmot" ? { ...person, untold: { ...person.untold, label: "城市版编辑" } } : person) } }, INPUT);
-	assert.equal(labelled.find((candidate) => candidate.family === "obligation_check").before.bound.name, "城市版编辑");
 	assert.deepEqual(ofObligation(candidates, ARCHIVIST), [], "a blocked obligation issues nothing");
 	// Ruth is on the roster without the table's own label and her obligation is blocked: no data source names her here, so
 	// staging her is the Keeper's to propose, not the clerk's to issue (§135.28).
@@ -166,10 +175,10 @@ test("at the morgue the gate's check carries its meeting in place of the roster 
 		assert.ok(!shown.includes(hidden), `Jev never sees ${hidden}`);
 });
 
-test("the compile's ask on the gate's check carries its meeting directly first, under the book's name and with no LLM step, then binds and rolls the check; the route's seeks selects nothing", async (t) => {
+test("the compile's ask on the gate's check carries its meeting directly first, under the table's label and with no LLM step, then binds and rolls the check; the route's seeks selects nothing", async (t) => {
 	const { call } = kernel(t);
 	const turn = await atMorgue(call);
-	const state = await reads(call);
+	const state = labelled(await reads(call));
 	const candidates = buildCandidates(state, INPUT);
 	const check = candidates.find((candidate) => candidate.family === "obligation_check");
 	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
@@ -190,9 +199,9 @@ test("the compile's ask on the gate's check carries its meeting directly first, 
 	assert.equal(meeting.then, check.key);
 	const { tool, args } = keeperCall(meeting);
 	assert.equal(tool, "apply");
-	assert.deepEqual(args.effects, [{ kind: "person", who: "Arty Wilmot", name: "Arty Wilmot",
-		why: `The book puts Arty Wilmot here for "Access to the Globe clippings", under the book's name; player: "${INPUT}"` }],
-	"the book's name, and a why composed from the demand and the player's words (§135.28): no open parameter");
+	assert.deepEqual(args.effects, [{ kind: "person", who: "Arty Wilmot", name: EDITOR,
+		why: `The book puts Arty Wilmot here for "Access to the Globe clippings", named by the table's own label; player: "${INPUT}"` }],
+	"the table's label, and a why composed from the demand and the player's words (§135.28): no open parameter");
 	assert.deepEqual(meeting.composed, ["why"]);
 	assert.equal(next(view).kind, "direct");
 	// Past the run's time budget (§135.25) the carried meeting still runs: structure, no model, like a forced step.
@@ -289,10 +298,12 @@ test("after the meeting the gatekeeper's check is an obligation_check with the c
 	const after = buildCandidates(await reads(call), INPUT);
 	for (const key of GUARDED) assert.ok(keys(after).includes(key), `${key} returns once the gate settles`);
 	assert.equal(after.filter((candidate) => candidate.family === "obligation_check").length, 0, "a settled obligation issues nothing");
-	const ruth = after.filter((candidate) => candidate.family === "person" && candidate.bound.who === "Ruth Blake");
+	assert.equal(after.filter((candidate) => candidate.family === "person" && candidate.bound.who === "Ruth Blake").length, 0,
+		"§103.8: without the table's own label the archivist's meeting is the Keeper's, never staged under her book name");
+	const ruth = buildCandidates(labelled(await reads(call), "Ruth Blake", "档案室女职员"), INPUT).filter((candidate) => candidate.family === "person" && candidate.bound.who === "Ruth Blake");
 	assert.equal(ruth.length, 1);
 	assert.deepEqual([ruth[0].clerk, ruth[0].basis.obligation, ruth[0].basis.step], ["stated_obligation", ARCHIVIST, "meet"], "the archivist, open now, states her meeting");
-	assert.deepEqual([ruth[0].bound.name, bindingOf(ruth[0])], ["Ruth Blake", "none"], "a meeting-only obligation is routed, under the book's name");
+	assert.deepEqual([ruth[0].bound.name, bindingOf(ruth[0])], ["档案室女职员", "none"], "a meeting-only obligation is routed, under the table's label");
 	// The archivist guards nothing of her own: her route question names what the gate she follows guards.
 	assert.match(ruth[0].routeFact.target, /is the player's declared action after any of: clue globe-unpublished-story .*clue macario-tragedy/);
 	assert.deepEqual(Object.keys(ruth[0].routeFact.criteria), ["seeks", "not", "unknown"]);
@@ -353,7 +364,7 @@ test("no candidate for a step the Mod serves, a step the page leaves unstated, o
 test("an obligation's route question is a fact about the input -- is the declaration after what it guards -- naming the guarded things", async (t) => {
 	const { call } = kernel(t);
 	await atMorgue(call);
-	const candidates = buildCandidates(await reads(call), INPUT);
+	const candidates = buildCandidates(labelled(await reads(call)), INPUT);
 	const view = initialView({ runId: "r", rawInput: INPUT, context, candidates: [], readFirst: false });
 	settleRead(view, 1, { materials: [], summary: {} }, { context, candidates }, 0);
 	const { batch, offered } = routeBatch(view, scope, []);
@@ -526,8 +537,12 @@ test("a clerk step that crossed an open obligation is one obligation_open line b
 	assert.equal(note.clerk_did[1].obligation, `obligation ${ACCESS}: Charm (regular) failed, still open (book: Arty refuses.); receipt roll-1; pdf p.448`);
 });
 
-/** The run on a real Pi session over the emitted kernel, arriving at the morgue with Arty not yet met; Jev is a stub. */
-async function arrival({ fact, compile, responses, firstExit = "finish", bind = { skill: "Persuade", bonus: "none", penalty: "none", intent: "social" }, bindConfidence = 0.9 }) {
+/**
+ * The run on a real Pi session over the emitted kernel, arriving at the morgue with Arty not yet met; Jev is a stub.
+ * `label`: the journal lane recorded the table's label for him after turn 1, as it does at a table (§103.8: the clerk
+ * carries his meeting only under that label, never under his book name).
+ */
+async function arrival({ fact, compile, responses, firstExit = "finish", bind = { skill: "Persuade", bonus: "none", penalty: "none", intent: "social" }, bindConfidence = 0.9, label = true }) {
 	const decisions = [], requests = [], calls = [];
 	let routes = 0;
 	const probe = { name: "so04-call-probe", factory(pi) { pi.on("tool_call", (event) => { calls.push({ id: event.toolCallId, tool: event.toolName, input: structuredClone(event.input) }); }); } };
@@ -540,7 +555,8 @@ async function arrival({ fact, compile, responses, firstExit = "finish", bind = 
 	const table = await openTable({
 		realKernel: true, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", COC_KERNEL_SEED: PASS },
 		prepareWorkspace: (workspace) => kernelSteps(workspace, [["table.open", {}], ["table.player_input", { text: "我去《环球报》报馆" }],
-			["table.apply", { call_id: "t1-c1", effects: [{ kind: "move", to: MORGUE }] }], ["table.narrate", { call_id: "t1-c2", text: "你到了报馆。" }]]),
+			["table.apply", { call_id: "t1-c1", effects: [{ kind: "move", to: MORGUE }] }], ["table.narrate", { call_id: "t1-c2", text: "你到了报馆。" }],
+			...(label ? [["journal.submit", { job_id: "journal:test-camp:t1", entries: [{ name: "Arty Wilmot", label: EDITOR }] }]] : [])]),
 		runDriver: engine.runDriver, extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }, probe],
 		responses: responses.map((response) => (context) => { requests.push(context); return response; }),
 	});
@@ -548,14 +564,14 @@ async function arrival({ fact, compile, responses, firstExit = "finish", bind = 
 }
 const factQuestions = (decisions) => decisions.filter((batch) => batch.family === ROUTE_FAMILY).flatMap((batch) => batch.questions.filter((question) => question.criteria.seeks));
 
-test("the compile's ask at arrival: the meeting is carried directly under the book's name, the check is bound and rolled with its claim, and no LLM step is spent on them", async (t) => {
+test("the compile's ask at arrival: the meeting is carried directly under the table's label, the check is bound and rolled with its claim, and no LLM step is spent on them", async (t) => {
 	const { table, decisions, calls } = await arrival({ fact: "seeks", compile: "demand", responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑松口了。" })], { stopReason: "toolUse" })] });
 	t.after(() => table.dispose());
 	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
 	const clerk = calls.filter((value) => value.id.startsWith("clerk:"));
 	assert.deepEqual(clerk.slice(0, 2).map((value) => value.tool === "apply" ? value.input.effects : value.input.action.obligation),
-		[[{ kind: "person", who: "Arty Wilmot", name: "Arty Wilmot",
-			why: 'The book puts Arty Wilmot here for "Access to the Globe clippings", under the book\'s name; player: "我想请人帮我翻出科比特宅的旧剪报"' }], ACCESS],
+		[[{ kind: "person", who: "Arty Wilmot", name: EDITOR,
+			why: 'The book puts Arty Wilmot here for "Access to the Globe clippings", named by the table\'s own label; player: "我想请人帮我翻出科比特宅的旧剪报"' }], ACCESS],
 		"the meeting (its why composed), then the claimed check");
 	const telemetry = table.telemetry("test-camp");
 	assert.ok(telemetry.some((row) => row.tool === "resolve" && row.origin === "policy" && row.ok && row.basis?.obligation === ACCESS));
@@ -566,6 +582,16 @@ test("the compile's ask at arrival: the meeting is carried directly under the bo
 	const firstCompile = decisions.findIndex((batch) => batch.family === COMPILE_FAMILY), firstRoute = decisions.findIndex((batch) => batch.family === ROUTE_FAMILY);
 	assert.ok(firstCompile >= 0 && (firstRoute < 0 || firstCompile < firstRoute), "the compile came before any route");
 	assert.ok(decisions.some((batch) => batch.family === BIND_FAMILY && batch.questions.some((question) => question.key === "skill")), "the check's approach was a Jev bind");
+});
+
+test("§103.8: with no label for Arty the compile's ask stages nobody -- no meeting under his book name, no check, no refused clerk step", async (t) => {
+	const { table, calls } = await arrival({ fact: "seeks", compile: "demand", label: false, responses: [fauxAssistantMessage([fauxToolCall("narrate", { text: "编辑抬了抬眼。" })], { stopReason: "toolUse" })] });
+	t.after(() => table.dispose());
+	await table.session.prompt("我想请人帮我翻出科比特宅的旧剪报");
+	assert.deepEqual(calls.filter((value) => value.id.startsWith("clerk:") && (value.input.action?.obligation || value.input.effects?.some((effect) => effect.who === "Arty Wilmot"))), [],
+		"the meeting and the check are the Keeper's");
+	assert.ok(!table.telemetry("test-camp").some((row) => row.origin === "policy" && row.ok === false), "no clerk step was refused");
+	assert.ok(table.session.messages.some((message) => message.role === "toolResult" && message.toolName === "narrate"), "the Keeper's prose delivered the turn");
 });
 
 test("§135.30 addendum: seeks at arrival without the compile's ask -- the fact question is asked and recorded, selects nothing, and the check is the Keeper's", async (t) => {

@@ -1,6 +1,6 @@
 {
   "id": "narration-craft",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "game_api": "pipicoc.game.v1",
   "state_version": 2,
   "migrations": [

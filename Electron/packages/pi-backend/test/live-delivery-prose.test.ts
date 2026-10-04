@@ -190,6 +190,20 @@ describe("PiHostBackend live delivery prose (§171)", () => {
     }
   });
 
+  it("draws a new table's delivery once setup hands off to play in the same child", async () => {
+    const { backend, drawn, rpc, open, close, call } = await fixture("setup");
+    try {
+      await open("handoff-turn");
+      rpc({ type: "entry_appended", entry: { type: "custom", customType: "coc-session", id: "rebind",
+        data: { campaign: "campaign-1", home: root, play_language: "zh-Hans", mode: "play" } } });
+      await call("narrate", { text: prose });
+      expect(drawn.filter(item => item.draft).at(-1)?.marked).toBe(shown);
+      await close("handoff-turn");
+    } finally {
+      await backend.close();
+    }
+  });
+
   it("draws nothing in a setup session", async () => {
     const { backend, drawn, open, close, call } = await fixture("setup");
     try {

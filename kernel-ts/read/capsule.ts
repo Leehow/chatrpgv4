@@ -5,7 +5,7 @@ import { ModuleGraph, recordOf, moduleDeclaration, describeCondition, conditionS
 import { entries, values, array, row, number, integer, truth, string, normalize, chars, length, words, clone, repr, type Row } from "./values.js";
 import { clueGate, structureType } from "./director.js";
 import { incapacitatedBy } from "../healing/conditions.js";
-import { toldTurn } from "../journal/naming.js";
+import { bookNames, toldTurn } from "../journal/naming.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
 import { intentsView } from '../npc/intents.js';
@@ -145,13 +145,17 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
  * shows instead -- this table's word for them, else the handle. Campaign-wide, not the scene's: a run that moves after
  * its capsule was read meets the next scene's people in host messages and tool results the capsule never covered.
  * A person the table itself established is left out; the name the table gave them is the only one there is.
+ * §103.8: one row for each name the book gives them, aliases too. Table 20 (2026-10-03): the trucker's biography said he
+ * fakes helping the owner with the cars, calling him by an alias the graph records, and only the display name was renamed.
  */
 export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, records: Row[]): Row[] {
-    return graph.kind("npc").flatMap(node => {
-        if (graph.isTablePerson(node)) return [];
-        const untold = untoldBlock(graph, world, journal, node, records), name = graph.displayName(node), id = graph.handle(node);
-        if (!untold || !name.trim() || name === id) return [];
-        return [{ name, id, shown: string(untold.label || "").trim() || id }];
+    const people = graph.kind("npc").map(node => ({ node, untold: graph.isTablePerson(node) ? null : untoldBlock(graph, world, journal, node, records) }));
+    // A name someone the investigator already knows also goes by stays theirs: hiding it would hide them.
+    const known = new Set(people.filter(person => !person.untold).flatMap(person => bookNames(graph, person.node)).map(normalize));
+    return people.flatMap(({ node, untold }) => {
+        if (!untold) return [];
+        const id = graph.handle(node), shown = string(untold.label || "").trim() || id;
+        return bookNames(graph, node).filter(name => !known.has(normalize(name))).map(name => ({ name, id, shown }));
     });
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {

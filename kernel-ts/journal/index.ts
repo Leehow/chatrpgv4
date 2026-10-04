@@ -63,7 +63,7 @@ export function createJournalHandlers(context: KernelContext, writer: ReturnType
                 ? params.protocol!==JOURNAL_REFERENCE_PROTOCOL||params.selection_binding!==job.selection_binding
                 : params.protocol!==undefined||params.selection_binding!==undefined)
                 throw new RpcError('invalid_params','The submission protocol or identity binding differs from its pinned journal job');
-            const [result, replayed] = await submit(loaded.campaign, job, params.entries);
+            const [result, replayed] = await submit(loaded.campaign, job, params.entries, loaded.module.graph);
             if (replayed)
                 return { ...result, replayed: true };
             await loaded.campaign.appendEvent(turn, { type: 'journal-written', data: { job_id: result.job_id, turn, entries: result.entries } });

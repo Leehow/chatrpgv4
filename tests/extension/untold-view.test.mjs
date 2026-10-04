@@ -19,20 +19,22 @@ const capsule = () => ({
   first_sight: {head: 'h', people: [{id: 'book-4-lars-williams', name: '拉塞尔·威廉姆斯', described: '高瘦'}, {id: 'book-4-nate-patterson', name: '内特·帕特森', described: '啤酒肚'}]},
 });
 
-test('an untold person is named by epithet, else by handle; the book\'s name waits in untold.name; told people are untouched', () => {
+test('an untold person is named by epithet, else by handle; the book\'s name is not in the view (§103.8); told people are untouched', () => {
   const raw = capsule(), before = JSON.stringify(raw);
   const {capsule: view, names} = untoldView(raw);
   assert.equal(JSON.stringify(raw), before, 'the raw capsule is never changed');
   assert.deepEqual(view.present[0], {name: 'book-4-lars-williams', role: '加油站老板', wants: '外地人早点走',
-    untold: {name: '拉塞尔·威廉姆斯', use: UNTOLD_VIEW_USE}});
+    untold: {use: UNTOLD_VIEW_USE}});
   assert.equal(view.present[1].name, '棚下的灰发退伍兵');
-  assert.deepEqual(view.present[1].untold, {name: '史蒂夫·布朗', label: '棚下的灰发退伍兵', use: UNTOLD_VIEW_USE});
+  assert.deepEqual(view.present[1].untold, {label: '棚下的灰发退伍兵', use: UNTOLD_VIEW_USE});
+  assert.ok(!JSON.stringify(view.present.slice(0, 2)).includes('拉塞尔') && !JSON.stringify(view.present.slice(0, 2)).includes('史蒂夫'), 'no book name in an untold row');
   assert.deepEqual(view.present[2], {name: '内特·帕特森', role: '退休卡车司机'}, 'a person already told keeps the name');
   assert.deepEqual(view.present[3], {name: '内特·帕特森2', truncated: true}, 'a stub has no untold block and stays');
   assert.deepEqual(view.first_sight.people.map(person => person.name), ['book-4-lars-williams', '内特·帕特森']);
   assert.deepEqual([...names.byId], [['book-4-lars-williams', 'book-4-lars-williams'], ['book-4-steve-brown', '棚下的灰发退伍兵']]);
   assert.deepEqual(firstSightPeople([{id: 'book-4-steve-brown', name: '史蒂夫·布朗'}], names), [{id: 'book-4-steve-brown', name: '棚下的灰发退伍兵'}]);
   assert.match(UNTOLD_VIEW_USE, /in prose they are who they look like/);
+  assert.match(UNTOLD_VIEW_USE, /\{\{name:/, 'the line says how the name is said');
 });
 
 test('a capsule with nobody untold is handed over as it is', () => {
@@ -49,7 +51,7 @@ test('the kernel extension hands the Keeper this view and keeps the bus copy as 
   assert.ok(source.includes('firstSightPeople(sight!.people as unknown[], state.untoldNames)'), 'a mid-run first sight follows the same names');
 });
 
-test("§103.5 renameUntold: every host message and tool result names an untold person as the Keeper's copy does; the player, the Keeper and untold.name keep theirs", () => {
+test("§103.5 renameUntold: every host message and tool result names an untold person as the Keeper's copy does; the player and the Keeper keep theirs", () => {
   const people = untoldPeople({ people: [{ name: "拉塞尔·威廉姆斯", id: "book-4-lars-williams", shown: "book-4-lars-williams" },
     { name: "Arty", id: "arty", shown: "the bartender" }, { name: "", shown: "x" }, { name: "same", shown: "same" }] });
   assert.deepEqual(people.map((person) => person.name), ["拉塞尔·威廉姆斯", "Arty"], "rows without two different names are dropped");
@@ -67,7 +69,7 @@ test("§103.5 renameUntold: every host message and tool result names an untold p
   assert.equal(out[1], messages[1], "the Keeper's own prose stays");
   assert.deepEqual(JSON.parse(out[2].content), { present: [{ name: "book-4-lars-williams" }],
     note: "Initialize the authored presence of book-4-lars-williams at 埃索加油站; the Party of the bartender" }, "Arty inside Party is a different word");
-  assert.equal(JSON.parse(out[3].content).present[0].untold.name, "拉塞尔·威廉姆斯", "untold.name is the one seat the book's name keeps");
+  assert.equal(JSON.parse(out[3].content).present[0].untold.name, "book-4-lars-williams", "§103.8: no seat keeps the book's name");
   assert.equal(out[4].content[0].text, "{\"name\":\"book-4-lars-williams\"}");
   assert.equal(out[4].content[1], messages[4].content[1]);
   assert.deepEqual(renameUntold(messages, []), messages);

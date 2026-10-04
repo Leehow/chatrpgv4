@@ -62,15 +62,15 @@ async function toolBatch(runtime, names) {
 	});
 }
 
-test("the first complete non-delivery tool batch lowers later model requests and settled restores the table level", async () => {
+test("the first complete writing tool batch lowers later model requests and settled restores the table level", async () => {
 	const runtime = fixture({ initial: "high", minimum: "minimal" });
 	await runtime.emit("before_agent_start");
 
 	assert.equal(runtime.level(), "high", "the level remains unchanged while a tool batch is executing");
-	await toolBatch(runtime, ["look", "lookup"]);
+	await toolBatch(runtime, ["resolve"]);
 	assert.equal(runtime.level(), "minimal");
 
-	await toolBatch(runtime, ["resolve"]);
+	await toolBatch(runtime, ["apply"]);
 	assert.deepEqual(runtime.changes, [{ requested: "off", effective: "minimal" }], "later tools do not append repeated changes");
 
 	await runtime.emit("agent_settled");
@@ -92,23 +92,40 @@ test("the requested minimum is clamped by Pi and delivery-only batches do not ch
 	assert.equal(runtime.level(), "high", "a batch that closes delivery buys no lower-effort follow-up");
 	assert.deepEqual(runtime.changes, []);
 
-	await toolBatch(runtime, ["look"]);
+	await toolBatch(runtime, ["apply"]);
 	assert.equal(runtime.level(), "low", "Pi's effective minimum is read back after requesting off");
 	await runtime.emit("agent_settled");
 	assert.equal(runtime.level(), "high");
 });
 
+// Contract §175.1 (owner ruling 2026-10-03): on table 20 a look came first, and the step after it, run without
+// thinking, wrote the book's names as epithets. A step keeps the table's level until the Keeper has written.
+test("a batch of reads only keeps the table level for the next step; a batch that writes anything lowers it", async () => {
+	const runtime = fixture({ initial: "low", minimum: "minimal" });
+	await runtime.emit("before_agent_start");
+	await toolBatch(runtime, ["look", "lookup"]);
+	await toolBatch(runtime, ["recall"]);
+	assert.equal(runtime.level(), "low", "the step after reads writes the epithets, moods and prose: it keeps its thinking");
+	assert.deepEqual(runtime.changes, []);
+
+	await toolBatch(runtime, ["look", "apply"]);
+	assert.equal(runtime.level(), "minimal", "a read beside a write is a writing batch");
+	await runtime.emit("agent_settled");
+	assert.equal(runtime.level(), "low");
+});
+
 test("off is never raised and an external in-run level change is not overwritten", async () => {
 	const off = fixture({ initial: "off", minimum: "low" });
 	await off.emit("before_agent_start");
-	await toolBatch(off, ["look"]);
+	await toolBatch(off, ["resolve"]);
 	await off.emit("agent_settled");
 	assert.equal(off.level(), "off");
 	assert.deepEqual(off.changes, []);
 
 	const changed = fixture({ initial: "high", minimum: "minimal" });
 	await changed.emit("before_agent_start");
-	await toolBatch(changed, ["look"]);
+	await toolBatch(changed, ["resolve"]);
+	assert.equal(changed.level(), "minimal");
 	changed.externalLevel("medium");
 	await changed.emit("agent_settled");
 	assert.equal(changed.level(), "medium");

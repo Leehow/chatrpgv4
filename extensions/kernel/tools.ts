@@ -414,7 +414,7 @@ const NpcEffect = Type.Object({
 	})),
 	mood: Type.Optional(Type.String({
 		maxLength: MOOD_MAX,
-		description: `what this person feels right now, in the fiction, as you would put it: one short line in play_language, at most ${MOOD_MAX} characters, no line break (the heat, the hour, what just happened, what was just said or done to them, what is on their mind besides you). Their card's present[].now shows it from the next turn; write it when it is missing or no longer true, before they speak in the same turn (its own apply is fine; it need not ride with their words). A new line replaces the old. This variant stands alone in one npc effect: moving or re-standing them is a second effect of the same batch`,
+		description: `what this person feels right now, in the fiction, as you would put it: one short line in play_language, at most ${MOOD_MAX} characters, no line break (the heat, the hour, what just happened, what was just said or done to them, what is on their mind besides you). Their card's present[].now shows it from the next turn; write it when it is missing or no longer true, before they speak: it needs no result, so this apply goes in the same response as the narrate that carries their words, apply first and narrate last, never a step of its own. A new line replaces the old. This variant stands alone in one npc effect: moving or re-standing them is a second effect of the same batch`,
 	})),
 	why: Type.Optional(Sentence("why they moved, why they now stand there, how they died, what changed how they defend, or why they attack, hold back or fight the way they do")),
 	owed: OwedRef,
@@ -429,7 +429,7 @@ const PersonEffect = Type.Object({
 	...IntentResult,
 	kind: StringEnum(["person"] as const, { description: "record what this table calls someone: the name it uses for them, or what they are called to their face" }),
 	who: Type.String({ description: "the person this is about: an investigator at the table or an NPC, by the name you already use for them" }),
-	name: Type.Optional(Type.String({ description: "what this table calls this NPC in the player's language \u2014 the transliteration or rendering you have been writing. Say it once, the first turn you write it, and every card, capsule and later turn uses that same word instead of re-inventing it; refused for an investigator, whose name is the player's own and already on the sheet. For someone the player has not been told the name of, it is the epithet they are known by until the fiction names them: build it from the one visible thing only this person has here \u2014 something they carry or wear, a mark, a habit, the job they are doing (the oily-rag owner, the bad-teeth trucker, the tattooed sailor) \u2014 as short as a nickname, never age, height, build or sex alone; a word someone else already carries is refused" })),
+	name: Type.Optional(Type.String({ description: "what this table calls this NPC in the player's language \u2014 the transliteration or rendering you have been writing. Say it once, the first turn you write it, and every card, capsule and later turn uses that same word instead of re-inventing it; refused for an investigator, whose name is the player's own and already on the sheet. For someone the player has not been told the name of, it is the epithet they are known by until the fiction names them: build it from the one visible thing only this person has here \u2014 something they carry or wear, a mark, a habit, the job they are doing (the oily-rag owner, the bad-teeth trucker, the tattooed sailor) \u2014 as short as a nickname, never age, height, build or sex alone; a word someone else already carries is refused. It needs no result: write it in the same response as the narrate that first describes them, apply first" })),
 	address: Type.Optional(Type.String({ description: "what this person is called to their face, when the table has established one \u2014 the player corrected a form of address and you accepted it in the fiction, or someone earned a title in play. Record what was said and accepted, not your reading of what suits them. Everyone at the table then owes it, including someone who walks in later and has never been corrected" })),
 	why: Type.Optional(Sentence("where this word came from \u2014 who said it, and on what turn it was accepted")),
 });
@@ -854,7 +854,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		promptSnippet: "Deliver this turn's narration and close the turn",
 		parameters: Type.Object({
 			using_skill: UsingSkill,
-			text: Type.String({ description: withPlainProse("this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened and every spoken line inside {{say:Name}}…{{/say}}") }),
+			text: Type.String({ description: withPlainProse("this turn's narration, delivered to the player verbatim, with each mechanic's {{marker}} at the point it happened, every spoken line inside {{say:Name}}…{{/say}}, and {{name:<who>}} where the fiction says the name of someone untold (the delivery puts in the book's name)") }),
 			quotes: QuotationDrafts,
 			workpad_patch: WorkpadPatch,
 		}),

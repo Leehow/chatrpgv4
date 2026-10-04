@@ -12,7 +12,9 @@
  */
 import { RpcError } from '../errors.js';
 import type { DomainEvent } from '../transactions.js';
-import { calledPerson, personRecord } from '../read/capsule.js';
+import { calledPerson, personRecord, untoldBlock } from '../read/capsule.js';
+import { CampaignSnapshot } from '../read/campaign.js';
+import { bookNames, namePieces, occurs } from '../journal/naming.js';
 import { normalize, repr, row, string, type Row } from '../read/values.js';
 import { nowIso, required } from '../write/store.js';
 import type { ApplyContext } from './index.js';
@@ -71,6 +73,21 @@ function word(effect: Row, field: string): string | null {
     return trimmed;
 }
 
+/** §103.8: refuse a book name, or a piece of one, as the word for a book person nobody has named to the investigator. */
+async function refuseUntoldName(context: ApplyContext, handle: string, name: string): Promise<void> {
+    const { graph, world } = context, node = graph.find(handle, ['npc']);
+    if (!node || graph.isTablePerson(node)) return;
+    const said = normalize(name), pieces = namePieces(bookNames(graph, node)).map(normalize).filter(Boolean);
+    if (!pieces.some(piece => occurs(said, piece))) return;
+    const snapshot = new CampaignSnapshot(context.kernel, context.campaign.id);
+    const journal = row(await snapshot.optional('npc-journal.json')), records = await snapshot.files('turns');
+    if (untoldBlock(graph, world, journal, node, records) === null) return;
+    throw new RpcError('invalid_params', `${repr(name)} uses the name the book gives this person, and nobody has said it to the investigator`, {
+        fix: "name is their epithet until the fiction names them: build it from the one visible thing only they have here -- something they carry or wear, a mark, a habit, the job they are doing. Their name reaches the prose only as {{name:<their name field>}}, written where someone in the scene says it",
+        details: { field: 'person.name', reason: 'untold_name', name },
+    });
+}
+
 /** The fields a person effect carries (extensions/kernel/tools.ts `PersonEffect`, plus `owed` on any effect); `_` keys are the host's. */
 const PERSON_FIELDS = ['kind', 'who', 'name', 'address', 'why', 'intent_ref', 'intent_outcome', 'owed'];
 
@@ -101,6 +118,10 @@ export async function stagePerson(context: ApplyContext, effect: Row): Promise<{
             fix: "name is the word the prose calls them, in the play language: for someone untold, an epithet built from the one visible thing only they have here",
             details: { field: 'person.name', name },
         });
+    // §103.8 (owner, 2026-10-03: every name but the trucker's leaked): table 20's Keeper wrote the veteran's book name and the
+    // owner's nickname as their epithets, and the prose then used them. While a book person is untold, the word the table
+    // calls them carries none of the book's names for them, nor a piece of one. The refusal names no name: it would tell it.
+    if (name != null && person.is_investigator !== true) await refuseUntoldName(context, string(person.id), name);
     if (name != null && person.is_investigator === true)
         throw new RpcError('invalid_params', `${person.name} carries their own name on their sheet`, {
             fix: 'set address for how they are spoken to; a name a player chose is not renamed at the table',

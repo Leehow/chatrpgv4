@@ -2,7 +2,7 @@ import { CocOnboardingHost, CocOnboardingRegistry, type CocOnboardingOptions } f
 import { timelineAnchors, transcriptPrefix } from './coc-timeline.js';
 import {readDefensePreference, writeDefensePreference, isDefenseChoice} from './coc-defense.js';
 export { CocOnboardingRegistry } from './coc-onboarding.js';
-import { readCocBinding, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, laneWords, laneProjection, laneLabels,
+import { readCocBinding, cocBindingOfRow, readColdSheet, callColdKernel, mechanicsEntry, draftPresentations, currentDraft, laneWords, laneProjection, laneLabels,
   laneLabelsLoaded, reloadLaneLabels, deliveryWords, handoutTitles, CocCardLedger, type CocCardPatch,
   cocContentRoot, cocForgetUiWords, cocPlayLanguage, cocUiWords, cocUiWordsLoaded, SHEET_LANES, type SheetLane, type CocBinding,
   type CocHistoryWords, type CocUiWords } from "./coc-view.js";
@@ -6510,6 +6510,10 @@ export class PiHostBackend implements HostBackend {
     if (e.type === "entry_appended") {
       if (e.entry?.customType === "coc-delivery") this.cocWatchdogPresentationOffsets.delete(live.path);
       if(e.entry?.customType==='coc-setup-exit')live.cocSetupHandoffPending=true;
+      // §171.1: setup hands off to play inside the same child, recording a new `coc-session` row; the binding read at
+      // spawn would otherwise stay `setup` until the next spawn, and a new table would draw no live prose.
+      const rebound=cocBindingOfRow(e.entry);
+      if(rebound&&this.cocSessionBindings.has(live.session.id))this.cocSessionBindings.set(live.session.id,rebound);
       if(e.entry?.customType==='coc-character-draft'&&e.entry?.data?.sheet)this.startDraftPresentation(live.session.id,e.entry.data);
       if(e.entry?.customType==='coc-mechanics')this.startDeliveryPresentation(live.session.id,e.entry,live);
       if(['coc-mechanics','coc-card-patch','coc-object-details'].includes(e.entry?.customType))this.noteCardRow(live,e.entry);

@@ -23,6 +23,8 @@ import { openTable } from "./harness.mjs";
 import { disableStepThinking, firstStepCallCapMs, firstStepThinkingEnabled, isFirstStepOfTurn } from "../../extensions/kernel/first-step-thinking.ts";
 
 const call = (name, args) => fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
+/** A Keeper write the harness kernel accepts. */
+const write = () => call("apply", { effects: [{ kind: "time", minutes: 15, why: "search" }] });
 
 test("isFirstStepOfTurn: the first provider call of a turn observes roundTrips === 1, not 0", () => {
 	// table.roundTrips resets to 0 on player input, but pi's agent loop (agent-loop.ts,
@@ -169,7 +171,7 @@ test("disableStepThinking: no known thinking field, or a non-object payload, is 
  * hook, not by asking pi for a different level per call). */
 const enabledDeepseekPayload = () => ({ model: "opencode-go/deepseek-v4.1-flash", thinking: { type: "enabled" } });
 
-test("with the flag: the turn's first call keeps thinking, the second is rewritten disabled, and the telemetry row carries step/first_step_thinking", async (t) => {
+test("with the flag: a call before the turn's first write keeps thinking, a call after it is rewritten disabled, and the telemetry row carries step/first_step_thinking", async (t) => {
 	let table;
 	const results = [];
 	table = await openTable({
@@ -182,23 +184,22 @@ test("with the flag: the turn's first call keeps thinking, the second is rewritt
 				results.push(await table.session._extensionRunner.emitBeforeProviderRequest(enabledDeepseekPayload()));
 			});
 		}],
-		responses: [call("look", {}), fauxAssistantMessage("The room is still.")],
+		responses: [call("look", {}), write(), fauxAssistantMessage("The room is still.")],
 	});
 	t.after(() => table.dispose());
 
 	await table.session.prompt("I inspect the room.");
 
-	assert.equal(results.length, 2, "two provider rounds: the look call, then the implicit delivery");
+	assert.equal(results.length, 3, "three provider rounds: the look, the write, then the implicit delivery");
 	assert.equal(results[0].thinking.type, "enabled", "first call of the turn keeps thinking");
-	assert.equal(results[1].thinking.type, "disabled", "second call is rewritten off");
-	assert.equal("reasoning_effort" in results[1], false);
+	// §175.1: a read wrote nothing, so the step after it still decides what lands (table 20, 2026-10-03).
+	assert.equal(results[1].thinking.type, "enabled", "the call after a read keeps thinking");
+	assert.equal(results[2].thinking.type, "disabled", "the call after the turn's first write is rewritten off");
+	assert.equal("reasoning_effort" in results[2], false);
 
 	const rows = table.entries("coc-telemetry").filter((row) => row.lane === "provider-request");
-	assert.equal(rows.length, 2);
-	assert.equal(rows[0].step, 1);
-	assert.equal(rows[0].first_step_thinking, true);
-	assert.equal(rows[1].step, 2);
-	assert.equal(rows[1].first_step_thinking, false);
+	assert.deepEqual(rows.map((row) => row.step), [1, 2, 3]);
+	assert.deepEqual(rows.map((row) => row.first_step_thinking), [true, true, false]);
 });
 
 test("without the flag: every call keeps thinking, and the row gains neither field", async (t) => {
@@ -240,8 +241,8 @@ test("the counter resets on player input: a second player turn's first call keep
 			});
 		}],
 		responses: [
-			call("look", {}), fauxAssistantMessage("The room is still."),
-			call("look", {}), fauxAssistantMessage("Nothing new."),
+			write(), fauxAssistantMessage("The room is still."),
+			write(), fauxAssistantMessage("Nothing new."),
 		],
 	});
 	t.after(() => table.dispose());
@@ -272,7 +273,7 @@ test("an unmapped format is left untouched and reported unsupported_format", asy
 				results.push(await table.session._extensionRunner.emitBeforeProviderRequest({ model: "xai/grok-4.6", instructions: "be a keeper" }));
 			});
 		}],
-		responses: [call("look", {}), fauxAssistantMessage("The room is still.")],
+		responses: [write(), fauxAssistantMessage("The room is still.")],
 	});
 	t.after(() => table.dispose());
 
