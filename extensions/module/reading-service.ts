@@ -523,7 +523,18 @@ export class ReadingService implements ReadingBridge {
 	}
 
 	/** `options.providerBudget` is the stage lease the whole preparation pays from (contract §20 addendum 2). */
+	/**
+	 * §177.2: a book the table is preparing gets its cast in the background, whichever road prepared it -- a PDF's ingest, or
+	 * character creation choosing a book already read, which onboarding prepares directly -- so the cast can land before the
+	 * opening. The kernel answers no job for an authored module or a book that has its cast.
+	 */
 	async prepare(params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
+		const result = await this.prepareBook(params, signal, options);
+		const mid = typeof result?.module_id === 'string' ? result.module_id : typeof params.module_id === 'string' ? params.module_id : undefined;
+		if (mid && !this.stopped) void this.cast(mid, params).catch(() => undefined);
+		return result;
+	}
+	private async prepareBook(params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
 		const campaign = this.campaign(params);
 		let mid = params.module_id;
 		if (params.pdf) {
@@ -615,11 +626,16 @@ export class ReadingService implements ReadingBridge {
 		const campaign = this.campaign(params), key = JSON.stringify(['cast', campaign, mid]);
 		const running = this.casting.get(key);
 		if (running) return running;
-		const run = this.readCast(mid, campaign, key).finally(() => { this.casting.delete(key); this.controllers.delete(key); });
+		// A cast that failed this session is not read again until the next one: every preparation and table open asks, and a
+		// reader that cannot do it would otherwise be paid again each time.
+		if (this.castFailed.has(key)) return Promise.resolve({ state: 'failed', retry: 'next_session' });
+		const run = this.readCast(mid, campaign, key).then(result => { if (result?.state === 'failed') this.castFailed.add(key); return result; })
+			.finally(() => { this.casting.delete(key); this.controllers.delete(key); });
 		this.casting.set(key, run);
 		return run;
 	}
 	private casting = new Map<string, Promise<Row>>();
+	private castFailed = new Set<string>();
 	private async readCast(mid: string, campaign: string | undefined, key: string): Promise<Row> {
 		if (this.stopped) return { state: 'stopped' };
 		const job = await this.call('cast.job', { module_id: mid }, campaign);

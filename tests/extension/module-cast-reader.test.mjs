@@ -83,6 +83,8 @@ test('§177.2: a refused submit runs the child once more with the refusal; a sec
 	assert.match(h.runs[1].brief, /previous attempt was refused: the cast reader left no readable draft\.json/);
 	assert.deepEqual(h.rows.filter(row => row.lane === 'cast').map(row => row.event), ['refused', 'refused']);
 	assert.deepEqual(h.published, []);
+	assert.deepEqual(await h.reading.cast('book-4'), {state: 'failed', retry: 'next_session'}, 'not paid for again this session');
+	assert.equal(h.runs.length, 2);
 });
 
 test('§177.2 (owner Q2): no text layer, no child; one run per module at a time', async t => {
@@ -98,4 +100,15 @@ test('§177.2 (owner Q2): no text layer, no child; one run per module at a time'
 	assert.equal(first, second, 'the same run');
 	await first;
 	assert.equal(twice.runs.length, 1);
+});
+
+test('§177.2: preparing a book, by whichever road, queues its cast in the background', async t => {
+	const h = host(t);
+	await h.setup();
+	h.reading.prepareBook = async () => ({state: 'ready', module_id: 'book-4'});
+	assert.deepEqual(await h.reading.prepare({module_id: 'book-4', purpose: 'guidance'}), {state: 'ready', module_id: 'book-4'}, 'the preparation answers as before');
+	await new Promise(resolve => setTimeout(resolve, 20));
+	await Promise.all([...h.reading.casting.values()]);
+	assert.ok(h.calls.some(([name, params]) => name === 'cast.job' && params.module_id === 'book-4'), 'the cast was asked for');
+	assert.equal(h.runs.length, 1);
 });

@@ -32915,8 +32915,8 @@ A module that plays from reading (`playsFromReading`) gets its cast once per bou
 
 **The reader** reads under `content/setup/module-cast.md` with `read,write,edit,bash`, at background priority.
 - Its own check is `coc-read-check --kind module-cast --draft draft.json`, which runs the same function against the page files it was handed.
-- The host (`ReadingService.cast`, `extensions/module/reading-service.ts`) extracts text 32 pages a call. It runs the child once, plus once more with the refusal when a submit is refused. It records `lane: "cast"` rows (`published`, `refused`, `unavailable`, `failed`) and emits `coc:cast-published`.
-- The module extension asks after a PDF's ingest completes and at every `table-open` of a reading module. One run per scope and module at a time.
+- The host (`ReadingService.cast`, `extensions/module/reading-service.ts`) extracts text 32 pages a call. It runs the child once, plus once more with the refusal when a submit is refused; a cast that still failed is not read again until the next session. It records `lane: "cast"` rows (`published`, `refused`, `unavailable`, `failed`) and emits `coc:cast-published`.
+- It is asked after every preparation of a book (`ReadingService.prepare`), whether a PDF's ingest or character creation preparing a book already read, so the cast can land before the opening. The module extension asks again at every `table-open` of a reading module. One run per scope and module at a time.
 
 ### 177.3 A newcomer may not take a name the book gives anyone
 
@@ -32987,5 +32987,5 @@ Tests:
   - the replacement by cast id;
   - no text layer;
   - an authored module, and the abbreviation.
-- `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, the one background child under `module-cast.md`, the submit, record and announcement, the second run after a refusal, no child without text, one run at a time.
+- `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, the one background child under `module-cast.md`, the submit, record and announcement, the second run after a refusal, no child without text, one run at a time, and a preparation queueing the cast.
 - `tests/extension/npc-epithets-lane.test.mjs`: a published cast asks again, and another campaign's does not.

@@ -33,7 +33,11 @@ export default function (pi: ExtensionAPI) {
         if (setupMode || stopped || !visualModule || !moduleId || !reading) return;
         void reading.prefetch(moduleId,reason).catch(()=>undefined);
     }
-    /** §177.2: the book's cast, in the background; the kernel answers no job for an authored module or a book that has one. */
+    /**
+     * §177.2: the book's cast, in the background, at every table open of a reading module (a campaign made before the cast
+     * existed, or one that forked before it landed). `ReadingService.prepare` asks too, so a book being prepared gets it
+     * before the opening. The kernel answers no job for an authored module or a book that has its cast.
+     */
     function readCast(id: string | undefined) {
         if (stopped || !reading || !id) return;
         void reading.cast(id).catch(() => undefined);
@@ -112,10 +116,7 @@ export default function (pi: ExtensionAPI) {
             return;
         }
         void reading.prepare({ pdf: row.pdf, module_id: row.module_id, start_scene: row.start_scene, retry: row.retry })
-            .then(result => {
-                pi.events.emit("coc:module-ingest-done", { pdf: row.pdf, ...result });
-                readCast(typeof result?.module_id === "string" ? result.module_id : row.module_id);
-            })
+            .then(result => pi.events.emit("coc:module-ingest-done", { pdf: row.pdf, ...result }))
             .catch(error => pi.events.emit("coc:module-ingest-failed", { pdf: row.pdf,
                 reason: isKernelError(error) ? error.details?.reason ?? error.code : "reading_failed",
                 detail: error instanceof Error ? error.message : String(error),
