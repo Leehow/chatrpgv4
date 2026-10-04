@@ -56,7 +56,7 @@ Status: done（`4e168ce3b`，合入 `d00f4f2ee`）。弱点闸门的输入是 `t
 
 ## CK-D Mod 能力与 hostile-creatures 包（§180.8–180.11）
 
-Status: done（分支 `claude/creature-kind-20261004-mod`，待 lead 合入；实现决定见契约 §180.16）
+Status: done（`d54a7e636`…`48aaf75f2`，合入 `1e4f694db`）
 
 - `graph.vocabulary.v1` 接受 `creature_profile_keys`：creature 词进入 spine、读者询问和 creature 行。
 - `graph.vocabulary.table.v1` 的门接受 creature 词。
@@ -73,7 +73,7 @@ Status: done（分支 `claude/creature-kind-20261004-mod`，待 lead 合入；�
 
 ## CK-E 临场生物（§180.6 前半）
 
-Status: ready-for-agent（2026-10-04 恢复）
+Status: done（`bf4678b88`、`71298389e`；另补世界线并集 `b92323a95`）
 
 - `apply npc` 新增 `creature` 字段：walk-on 铸造与之后补钉。
 - `world.table_creatures`、`ModuleGraph.addTableCreature`，加载时重装。
@@ -83,7 +83,7 @@ Status: ready-for-agent（2026-10-04 恢复）
 
 ## CK-F 起始包数据（§180.12）
 
-Status: done（分支 `claude/creature-kind-20261004-starters`，待 lead 合入；实现决定与交回的未决点见契约 §180.17）
+Status: done（`d7e5528a3`、`dbe2d5e2c`；不完整数据卡的跟进 CK-F2 `359a3be32`）
 
 - the-haunting、the-haunting-rulebook、mystery-house 三个起始包；
 - 更新钉住 `npc-rat-pack` 的测试；
@@ -93,7 +93,7 @@ Status: done（分支 `claude/creature-kind-20261004-starters`，待 lead 合入
 
 ## CK-G 验收（§180.15）
 
-Status: ready-for-agent（等 CK-F）
+Status: 部分完成：本地生产内核路径验收 12/12（默认与强制索引）；全量由协调方在最终公共头统一跑；真桌与成品复测等打包信号和预算。见 [交付记录](creature-kind-delivery.md)
 
 1. 盒子上跑全量；
 2. 真产品路径：新开一局，读三次胶囊，再声明一条看门狗；
