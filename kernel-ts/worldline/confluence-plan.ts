@@ -145,6 +145,24 @@ function mergeWorld(graph: ModuleGraph, states: readonly ConfluenceState[], scen
                 established.set(normalize(person.name), person);
     if (established.size)
         world.table_people = sorted([...established.keys()]).map(key => established.get(key)!);
+    // §180.6: a creature this table declared joins the union the same way, and its pinned catalog block travels with it
+    // from the line that declared it, so a merge never leaves a creature that could fight with no numbers to fight with.
+    const creatures = new Map<string, {record: Row; state: ConfluenceState}>();
+    for (const state of states)
+        for (const creature of array(state.world.table_creatures).map(row))
+            if (string(creature.name).trim() && !creatures.has(normalize(creature.name)))
+                creatures.set(normalize(creature.name), {record: creature, state});
+    if (creatures.size) {
+        world.table_creatures = sorted([...creatures.keys()]).map(key => creatures.get(key)!.record);
+        const profiles = row(world.npc_profiles);
+        for (const {record, state} of creatures.values()) {
+            const name = string(record.name), pinned = row(state.world.npc_profiles)[name];
+            if (!Object.hasOwn(profiles, name) && row(pinned).catalog != null)
+                profiles[name] = clone(pinned);
+        }
+        if (Object.keys(profiles).length)
+            world.npc_profiles = profiles;
+    }
     world.clock = {
         minutes: Math.max(...states.map(state => Math.trunc(number(row(state.world.clock).minutes || 0))))
     };

@@ -33172,6 +33172,19 @@ apply {"kind": "npc", "name": "the yard dog", "walk_on": true, "creature": "Dog"
 - Each entry carries its averages and roll expressions, HP, damage bonus, build, Move, attacks, skills, armor, habitat and `source_page`. The catalog's `creature` family reads both `monsters.json` and `beasts.json`.
 - Nothing is filled from habit. A value the page does not print is `_unstated`.
 
+**The kernel's decisions on 180.6** (CK-E, `bf4678b88`, `71298389e`; integration 2026-10-04):
+- **Rolled and printed values.** A rolled characteristic varies only that characteristic. HP, damage bonus, build, Move and armor stay as printed, as the entry states them, even where the rolled STR+SIZ would read differently on the table. The Bear's printed values disagree with the table in the book itself.
+- **MP and SAN.** MP comes from POW/5 by the derived-attributes table. No SAN is made for a creature.
+- **Monster entries.** A monster entry's damage string is read by the dice grammar with the `DB` mark. A weapon that cannot be read keeps only `damage_printed`. A missing skill percentage takes the engine's default. The catalog's non-name spell values are not carried.
+- **Refusals.**
+  - `creature` on a person is refused with `details.reason: "not_a_creature"`.
+  - `walk_on` without `creature` on an existing creature is refused with `not_a_person`.
+- **Records.**
+  - `table_creatures[].catalog` records the entry named at declaration, a no-block entry included; a later pin leaves it.
+  - On reload, `world.npc_profiles` entries that carry `catalog` are re-pinned onto the creature of that name. Only `apply npc creature` writes such an entry.
+- **The dossier effect.** The `apply` tool now carries the dossier effect, which §28.7 specified but no tool offered. Natural NPC's `speaks` and this package's words become writable by the Keeper for the first time.
+- **Worldline merges** (amends §87.1). A merge unions `table_creatures` by name, the way it unions `table_people`, and the first line to declare a name keeps its record. A creature's catalog block (`npc_profiles[name]` with `catalog`) comes from the line that declared it unless the merged line already holds one. A person's pins are not carried by this rule.
+
 ### 180.7 One being, one node
 
 - **The reader's checker** refuses a draft in which an npc and a creature share a normalized name or handle. The refusal's `rule` and `details.reason` are both `one_being_two_nodes`, with `details.pairs[]`. Its `fix` is to keep one node of the kind 180.2 decides.

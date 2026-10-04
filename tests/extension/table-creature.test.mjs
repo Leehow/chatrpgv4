@@ -550,3 +550,24 @@ test('§28.7: the apply tool carries the dossier effect, bounded as the kernel b
   assert.deepEqual([receipt.kind, receipt.keys, receipt.values], ['dossier', ['language'], {language: speaks.values.language}]);
   assert.equal((await game.world()).mods.state['natural-npc'].dossier['npc-old-warden'].language.value, speaks.values.language);
 });
+
+// The two halves together (CK-E's walk-on and tool, CK-D's door): what the Keeper's own animal is like reaches the table
+// only through `apply dossier`, which the apply tool did not carry before §180 (§28.7's door had no tool path).
+test('§180.6 with §180.8–180.9: a walk-on dog\'s habits and a table weakness, sent through the apply tool, reach its row', async t => {
+  const game = await table(t, 'walkon-dossier');
+  await game.apply({kind: 'npc', name: DOG, walk_on: true, creature: 'Dog', to: 'here', why: 'the landlord keeps a dog in the yard'});
+  const habits = {kind: 'dossier', name: DOG, values: {habits: 'Guards the yard gate; barks at strangers and goes for the legs of anyone who runs.'},
+    why: 'the landlord said so when he let them in'};
+  const weakness = {kind: 'dossier', name: DOG, values: {weaknesses: [{book: 'A thrown scrap of meat draws it off for a round.'}]},
+    why: 'the cook tossed it a bone and it let them pass'};
+  const tool = COC_TOOLS.find(definition => definition.name === 'apply');
+  assert.doesNotThrow(() => validateToolArguments(tool, {type: 'toolCall', id: 'x', name: 'apply', arguments: {effects: [habits, weakness]}}),
+    'the tool admits both writes');
+  await game.apply(habits);
+  await game.apply(weakness);
+  const row = (await nextCapsule(game)).present.find(entry => entry.name === DOG);
+  assert.equal(row?.kind, 'creature', JSON.stringify(row));
+  assert.equal(row.habits, habits.values.habits, 'the table\'s habits line reaches the creature row');
+  assert.deepEqual(row.weaknesses?.map(entry => entry.book), [weakness.values.weaknesses[0].book], 'the table weakness reaches it too');
+  for (const field of PERSON_FIELDS) assert.ok(!(field in row), field);
+});
