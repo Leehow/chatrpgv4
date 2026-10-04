@@ -213,7 +213,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     expression.observe(view,{...object(_context),campaign:owner,turn:observedTurn??0},inputLifetime.signal);
                 }
                 // §103.5: read with the snapshot, so a turn's every request renames by the same roster; a failed read keeps the last.
-                try { untoldRoster = untoldPeople(await rpc('table.untold', {})); } catch { /* the last roster stands */ }
+                // §177.4 (table 25): a failed read was silent, so a name the Keeper wrote could not be told apart from a rename
+                // that never ran; the failure and the roster's size are recorded with the turn.
+                let untoldFailed: string | undefined;
+                try { untoldRoster = untoldPeople(await rpc('table.untold', {})); }
+                catch (error) { untoldFailed = error instanceof Error ? error.message.slice(0, 160) : 'untold read failed'; }
                 if (ticket !== generation || signal.aborted) return undefined;
                 const source = briefingKey(binding, current);
                 if (!brief || briefKey !== source) {
@@ -387,8 +391,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 prepared = {binding, capsule: current, history, brief: brief!, key: epochOf(binding), answering, workspace, workspaceMode};
                 record({lane: 'context', event: 'prepared', version: POLICY_VERSION, turn: binding.turn,
                     history_bytes: sizeOf(history), briefing_bytes: sizeOf(brief), source_revision: binding.source_revision,
-                    read_calls: reads, read_bytes: readBytes, rehydrated, ms: Date.now() - began,
-                    ...(unavailable ? {history_unavailable: true} : {})});
+                    read_calls: reads, read_bytes: readBytes, rehydrated, ms: Date.now() - began, untold_rows: untoldRoster.length,
+                    ...(untoldFailed ? {untold_failed: untoldFailed} : {}), ...(unavailable ? {history_unavailable: true} : {})});
                 return prepared;
             } catch (error) {
                 if (ticket === generation) record({lane: 'context', event: 'prepare_failed', detail: error instanceof Error ? error.message.slice(0, 160) : 'Unknown context preparation error'});
