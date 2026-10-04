@@ -21,7 +21,8 @@ export async function archetypes(kernel: KernelContext): Promise<Archetype[]> {
     }));
 }
 export const archetypeIds = async (kernel: KernelContext): Promise<string[]> => (await archetypes(kernel)).map(a => a.id);
-async function movement(tables: RuleTables, characteristics: Row): Promise<number> {
+/** MOV from the rulebook's `movement-rate` rules (STR and DEX against SIZ); a table creature's block reads it too (§180.6). */
+export async function movement(tables: RuleTables, characteristics: Row): Promise<number> {
     const table = row(await tables.load("movement-rate")), siz = number(characteristics.SIZ);
     const relation = (value: number): string => value < siz ? "less_than" : value > siz ? "greater_than" : "equal";
     for (const item of array(table.rules))

@@ -38,9 +38,6 @@ KERNEL = WORKTREE / "kernel-ts"
 UNREAD_TABLES = {
     "metadata": "Ruleset source metadata; the old Python scan mistook a combat event field "
                 "with the same name for a reader of this file.",
-    "beasts": "The Keeper Rulebook's Beasts section (contract §180.6). Its reader is the table "
-              "creature's stat block (ticket CK-E), deferred until the mod system is rebuilt; "
-              "drop this line when the catalog's creature family opens the file.",
     "build-scale": "Comparative-build reference data. The retired Python helper had no "
                    "reachable RPC or graph decision; active maneuver arithmetic reads combat-rule.",
     "npc-core-tags": "Extracted for the NPC layer; §17 ships stance, ties and claims off the "

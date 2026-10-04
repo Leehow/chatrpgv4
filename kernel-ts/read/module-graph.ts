@@ -239,6 +239,10 @@ export class ModuleGraph {
     readonly names = new Map<string, Set<string>>();
     /** Handles for the people this table established; see `addTablePerson`. */
     readonly tableNames = new Map<string, string>();
+    /** Handles for the creatures this table declared (contract §180.6); see `addTableCreature`. Never a person's. */
+    readonly tableCreatureNames = new Map<string, string>();
+    /** Creatures whose stat block this table pinned from the rules catalog (contract §180.6); see `pinBody`. */
+    readonly pinnedBodies = new Set<string>();
     readonly tableEntityNames = new Map<string, string>();
     readonly sourcePlaceNames = new Map<string, string>();
     readonly moduleNode: Row | null;
@@ -348,6 +352,7 @@ export class ModuleGraph {
         if (this.sourcePlaceNames.has(node.node_id)) return this.sourcePlaceNames.get(node.node_id)!;
         if (this.tableEntityNames.has(node.node_id)) return this.tableEntityNames.get(node.node_id)!;
         if (this.tableNames.has(node.node_id)) return this.tableNames.get(node.node_id)!;
+        if (this.tableCreatureNames.has(node.node_id)) return this.tableCreatureNames.get(node.node_id)!;
         if (this.semanticNames.has(node.node_id)) return this.semanticNames.get(node.node_id)!;
         return node.node_kind === "scene" && typeof recordOf(node).scene_id === "string" ? recordOf(node).scene_id : stripPrefix(node.node_id, node.node_kind);
     }
@@ -425,6 +430,43 @@ export class ModuleGraph {
     /** True for a person `apply npc` established at the table rather than the book or a reviewed adaptation. */
     isTablePerson(node: Row | null | undefined): boolean {
         return !!node && this.tableNames.has(string(node.node_id));
+    }
+    /**
+     * Contract §180.6: an animal or monster this table has and the book does not -- the Keeper's yard dog, a mule, a swarm
+     * in the cellar. The record is `world.table_creatures`, written by `apply npc` with `walk_on` and `creature` and
+     * reinstalled on every load (`read/table-creatures.ts`); this is its projection, exactly as `addTablePerson` is a table
+     * person's, except that the node is a `creature`, so no person consumer (`isPerson`, `kind("npc")`) ever meets it.
+     * `id` is kernel-minted (`creature-table-<digest>`); the handle is the word the Keeper used.
+     */
+    addTableCreature(id: string, name: string, origin: Row = {}): Row {
+        const existing = this.nodes.get(id);
+        if (existing) return existing;
+        const node: Row = {
+            node_id: id, node_kind: "creature", name, aliases: [], summary: null, visibility: "keeper-only",
+            properties: { name, semantic_name: name, facts: [] },
+            campaign_origin: { ...origin, kind: "table" }
+        };
+        this.nodes.set(id, node);
+        this.tableCreatureNames.set(id, name);
+        this.byKind.set("creature", [...this.kind("creature"), node]);
+        for (const key of this.nameKeys(node)) {
+            const normalized = normalize(key);
+            this.names.set(normalized, new Set([...(this.names.get(normalized) ?? []), id]));
+        }
+        return node;
+    }
+    /** True for a creature `apply npc` declared at the table (contract §180.6). */
+    isTableCreature(node: Row | null | undefined): boolean {
+        return !!node && this.tableCreatureNames.has(string(node.node_id));
+    }
+    /**
+     * Contract §180.6: this creature's stat block is the one the table pinned from the rules catalog
+     * (`world.npc_profiles[<handle>]`), so it is an actor (`isActor`) although its node states none. Called where the
+     * pin is written (`apply npc creature`) and on every load for a pin already written (`read/table-creatures.ts`).
+     */
+    pinBody(node: Row | null | undefined): void {
+        if (node && node.node_kind === "creature")
+            this.pinnedBodies.add(string(node.node_id));
     }
     /**
      * §11.5.8 (SL-67): every person this campaign has established -- table-invented and `from_passage` alike,
@@ -810,7 +852,8 @@ export class ModuleGraph {
         if (!node)
             return false;
         const profile = node.node_kind === "creature" ? this.mechanicsOf(node).profile : null;
-        return node.node_kind === "npc" || !!profile;
+        // §180.6: a creature whose stat block this table pinned from the rules catalog is one too.
+        return node.node_kind === "npc" || !!profile || this.pinnedBodies.has(string(node.node_id));
     }
     /**
      * Contract §180.3: a being the Keeper plays as a person -- an `npc` node, the book's or the table's. Every person
