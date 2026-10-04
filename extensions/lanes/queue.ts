@@ -25,6 +25,11 @@ interface QueueOptions {
 	 * every one. The speech edit lane takes only a delivery with a line not the investigator's in its `speech` (§165.3).
 	 */
 	accept?: (payload: Record<string, unknown>) => boolean;
+	/**
+	 * Bus events that queue a job for the bridged campaign, beside committed turns: the epithet lane asks again when the
+	 * book's cast lands (`coc:cast-published`, §177.5). A payload naming another campaign is not this table's.
+	 */
+	wakeOn?: readonly string[];
 	runJob: (job: LaneJob) => Promise<void | {deferred: true}>;
 	onError: (job: LaneJob, error: unknown) => Promise<void>;
 }
@@ -113,6 +118,13 @@ export function createLaneQueue(pi: ExtensionAPI, options: QueueOptions) {
 		prepareInitial();
 		// Either the bridge or session_start may arrive first. Only the second can start backfill.
 		if (bridge && ctx && !stopped) wake();
+	});
+
+	for (const name of options.wakeOn ?? []) pi.events.on(name, (data) => {
+		const payload = (data ?? {}) as { campaign?: string };
+		if (stopped || !bridge || (payload.campaign && payload.campaign !== bridge.campaign)) return;
+		if (!queue.some(job => job.campaign === bridge!.campaign && job.turn === undefined && !job.backfill)) queue.push({ campaign: bridge.campaign });
+		wake();
 	});
 
 	pi.events.on("coc:turn-committed", (data) => {

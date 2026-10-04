@@ -97,6 +97,8 @@ export default function (pi: ExtensionAPI) {
 
 	const scheduler = createLaneQueue(pi, {
 		initialJob: true,
+		// §177.5: the book's cast landed; its unread people want a word before the request's rename shows them by row id.
+		wakeOn: ["coc:cast-published"],
 		runJob,
 		onError: (job, error) => record(job.campaign, { turn: job.turn, ok: false, reason: "lane_error", detail: errorText(error) }),
 	});

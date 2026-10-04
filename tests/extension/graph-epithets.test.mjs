@@ -144,7 +144,7 @@ test('§176.2: an epithet keeps answering after the fiction gives another word, 
 	await call('table.apply', {call_id: `t${input._context.turn}-c3`, effects: [{kind: 'npc', name: 'the ink-stained clerk', mood: 'resigned'}]});
 });
 
-test('§176.5: a first name alone in the book\'s own text is renamed too; a piece two untold people share is left alone', async t => {
+test('§176.5/§177.4: a first name alone in the book\'s own text is renamed too; a piece two untold people share is shown as both their words', async t => {
 	// Table 23, turn 5: the scene summary said "棚下拉斯、内特、史蒂夫抽烟喝啤酒"; the whole names and the aliases were renamed,
 	// the bare first names were not, and the Keeper wrote 「史蒂夫」 before the fiction had him give it.
 	const {ModuleGraph} = await import(pathToFileURL(join(temporary, 'api-graph.mjs')).href).catch(async () => {
@@ -163,5 +163,6 @@ test('§176.5: a first name alone in the book\'s own text is renamed too; a piec
 	const shownFor = name => rows.filter(row => row.name === name).map(row => row.shown);
 	assert.deepEqual(shownFor('史蒂夫'), ['有海军纹身的退伍老兵']);
 	assert.deepEqual(shownFor('内特'), ['露烂牙的退休卡车司机']);
-	assert.deepEqual(shownFor('布朗'), [], 'Steve and Ann are both Brown: the surname names neither for certain');
+	// §177.4 (table 24): left alone, a shared piece reached the Keeper as printed; it is hidden as both their words.
+	assert.deepEqual(shownFor('布朗'), ['有海军纹身的退伍老兵 / ann'], 'Steve and Ann are both Brown: hidden, and blamed on neither');
 });

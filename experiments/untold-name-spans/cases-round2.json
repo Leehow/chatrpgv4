@@ -1,0 +1,18 @@
+[
+ {"id":"HN1","expect":"no","text":"这批货是从比利时运来的。","name":"比利"},
+ {"id":"HN2","expect":"no","text":"他去过圣彼得堡，还在那儿冻掉了两个脚趾。","name":"彼得"},
+ {"id":"HN3","expect":"no","text":"May I come in? It's hot out there.","name":"May"},
+ {"id":"HN4","expect":"no","text":"Mark the spot on the map before you leave.","name":"Mark"},
+ {"id":"HN5","expect":"no","text":"Bill the county for the damages and send the receipt to Austin.","name":"Bill"},
+ {"id":"HN6","expect":"no","text":"她从口袋里掏出一张拉斯维加斯赌场的筹码。","name":"拉斯"},
+ {"id":"HN7","expect":"no","text":"他把车开进大卫营附近的检查站，哨兵挥手让他停下。","name":"大卫"},
+ {"id":"HN8","expect":"no","text":"Grace under pressure, that was the sheriff's motto.","name":"Grace"},
+ {"id":"HP1","expect":"yes","text":"比利把十字架往桌上一放，盯着你看。","name":"比利"},
+ {"id":"HP2","expect":"yes","text":"May said she'd be back by sundown.","name":"May"},
+ {"id":"HP3","expect":"yes","text":"彼得在圣诞聚会上喝醉了，却坚持要开车。","name":"彼得"},
+ {"id":"HP4","expect":"yes","text":"「汉克，你那台收音机还响吗？」","name":"汉克"},
+ {"id":"HP5","expect":"yes","text":"Ask Bill about the truck; he towed it in last week.","name":"Bill"},
+ {"id":"HP6","expect":"yes","text":"拉索擦了擦手，朝加油机走过去。","name":"拉索"},
+ {"id":"HP7","expect":"yes","text":"Mark Harris was last seen at the motel.","name":"Mark"},
+ {"id":"HP8","expect":"yes","text":"她叫海伦，在杂货店后头算账。","name":"海伦"}
+]
