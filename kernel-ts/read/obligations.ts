@@ -222,7 +222,8 @@ export function sceneObligations(graph: ModuleGraph, world: Row, scene: Row | nu
         }
         if (ob.reaction === "preordained") {
             result.reaction = "preordained";
-            const contact = modChecks.filter(({ check }) => check.trigger === "contact" && check.scope === "actor-target")
+            // §178.4: a `presence` check is withheld for this person too -- the kernel does not roll what the book preordains.
+            const contact = modChecks.filter(({ check }) => (check.trigger === "contact" || check.trigger === "presence") && check.scope === "actor-target")
                 .map(({ mod, check }) => ({ mod, check: check.name, clerk: false }));
             if (contact.length)
                 result.mod_contact = contact;

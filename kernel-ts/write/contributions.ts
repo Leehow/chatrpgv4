@@ -13,6 +13,7 @@ import { CampaignWriter, missingContribution, nowIso } from './store.js';
 import { foldIntent, receiptGenerated } from '../npc/intents.js';
 import { foldMood } from '../npc/mood.js';
 import { isStakesRoll } from '../npc/stakes-receipt.js';
+import { isImpressionRoll } from '../mods/impression-receipt.js';
 function topological(preferred: string[], active: Row[]): string[] {
     const todo = [...preferred], done: string[] = [];
     while (todo.length) {
@@ -204,8 +205,10 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
             if (id)
                 foldIntent(entry(ledger, id), intent, turn, receipt.id, receiptGenerated(receipt));
         }
-        // §143.8: the stakes die names its person as `actor` but is no interaction with anyone.
-        if (kind === 'roll' && !isStakesRoll(receipt)) {
+        // §143.8: the stakes die names its person as `actor` but is no interaction with anyone. §178.4: nor is a first
+        // impression -- it observes the meeting, and with one on every meeting it would say "tried social" of everyone met.
+        // §180.3: the ledger keys an actor, so a creature's fight and death are recorded; its social deltas are gated below.
+        if (kind === 'roll' && !isStakesRoll(receipt) && !isImpressionRoll(receipt)) {
             const against = actorId(graph, receipt.npc), actor = actorId(graph, receipt.actor);
             const family = ['social', 'combat', 'chase', 'psychology'].includes(receipt.family || receipt.roll_kind) ? receipt.family || receipt.roll_kind : null;
             for (const [id, target] of [[against, true], [actor, false]] as const) {

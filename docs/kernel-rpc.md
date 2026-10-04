@@ -32973,6 +32973,90 @@ Tests:
 - `tests/kernel/test_journal.py`: a made-up name refused with `not_a_book_name` and the narrow question; `named_as` that is not words of the quote, or without `named`, refused; the person left untold until the book's name is delivered; 诺特 taken with `named_as`; the instruction asks for their own name.
 - `tests/extension/npc-journal-lane.test.mjs`: the field rule asks for their own name and allows `named_as` only on request; the refusal reaches the retry and the retry's `named_as` reaches the kernel.
 
+## 178. A first impression is rolled when the people meet (owner ruling, 2026-10-04; amends §26's contributed checks, §134.3's trigger enum and §16.5's roll card)
+
+### 178.1 The ruling and the evidence
+
+The owner asked why the first NPC meeting on a Blood Road table showed no Appearance or Credit Rating roll, read the diagnosis below, and ruled:
+- on hooking the roll after the graph is read: 「或者有没有可能就在图谱按需解析结束之后挂个钩子，如果图谱里有新角色自动投出然后直接跟随npc角色写回第一印象参数，到了剧情的时候只要直接调参数并且ui显示就行？」
+- on the recommendation to roll at the first shared scene instead, in the kernel: 「确实，按照你的推荐吧，这个不需要语义判断用什么检定，就是2个参数哪个多投哪个，投骰子也是随机数，其实挺机械的吧」
+
+**Evidence** (installed App `a7f5cbe57`, grok-build/grok-4.5 low as Keeper):
+- Blood Road `game-45cd3976`, 9 turns: the capsule carried `mods.pending_contacts` (the three men at the station, the bartender and the cook, a passing driver) and natural-npc 1.4.4's brief on every turn. The Keeper called `resolve` 0 times. No first impression was rolled.
+- The single loop offered each pending contact as a `mod_check` candidate under the route's generic `need` question ("does the declared action include this operation"). A player never declares an impression, so Jev answered `later`: at most 0.48 when the player asked the station owner to fill the tank and about the missing girl, 0.00 for 「加满吧」 on another table. It answered `now` only when the player traded names (0.60–0.76).
+- `game-24bb66cb`: its 3 rolls were all clerk-selected; the Keeper's own count was 0 there too. Of the 17 App tables of 10-02..10-04 with three or more turns, 3 rolled any.
+- SL-76's `npc_reaction` class, which asks the right question, stayed shadow. Its gate measured agreement with the Keeper's own receipts, and the Keeper never rolls, so a right answer counted as a false positive.
+
+**Why not when the graph is read.** The roll is the investigator's Appearance or Credit Rating. A book's first graph exists before the card does, and a party of two rolls twice. A person the Keeper puts on stage never passes through a reading. A roll made early still has to be shown when the people meet, which is the same question again. And a first impression is this table's state, not the book's.
+
+### 178.2 `trigger: "presence"`
+
+§134.3's closed trigger enum for a Mod gains `presence` beside `contact`:
+- `contact` is unchanged. The pair is listed in `mods.pending_contacts`, and the roll happens when the Keeper or the clerk resolves the decision.
+- `presence` is rolled by the kernel (§178.3). A package declaring it must require `checks.presence.v1` (new in `MOD_CAPABILITIES`); otherwise the manifest is refused (`check_trigger`). An older kernel refuses the trigger itself, so the package is disabled there rather than half-honoured (§28.9).
+
+Everything else about the declaration is unchanged: scope `actor-target`, selection `maximum`, the values, the difficulty, the results table, `reusable` and `legacy`.
+
+### 178.3 When the kernel rolls
+
+`presenceRolls` (`kernel-ts/mods/presence.ts`) takes the world as it stands and rolls every pair still owed:
+- **The pairs.** Each active package's `presence` check, each investigator in the party, and each `npc` node the ledger has in the active scene (`npcsPresent`). Creatures are not people. Excluded:
+  - a pair with a recorded result (`recordedCheck`, or the legacy file when the check declares `legacy`, which is adopted into the state as `resolve` adopts it);
+  - a person who is the `who` of an obligation anywhere in the graph with `reaction: "preordained"` (§134.5: the book says that person's reaction roll is not used). The Keeper may still resolve it.
+- **The roll.** The same arithmetic as `resolveBeforeMain`, through one shared function (`rollModCheck`): the higher of the declared values, the declared difficulty, the result recorded under the pair in `world.mods.state.<mod>.checks`.
+  - Each pair rolls on its own stream, seeded from the turn's seed (`turnSeed`: the active line's seed and the turn) and the pair (`<seed>:presence:<pair>`), never the turn's shared stream. Meeting someone does not move the dice the Keeper rolls next, and an impression does not depend on who else was met or in which order. (Rolled on the shared stream, the first build shifted every seeded die after a meeting; the suite's seeded expectations caught it.)
+  - The receipt is today's `roll` receipt (`roll_kind: "mod_check"`, `family: "mod"`, `impression`) plus `trigger: "presence"` and, when the table has a word for the person, `public_target_label` (§178.4).
+  - Ids are minted from `roll:mod-<mod>-<call id>`, so several in one call stay distinct.
+
+It runs at three moments. Each is idempotent: a recorded pair never rolls twice.
+
+1. **`table.apply`, after a batch lands.** It runs over the staged world, before it is written; a refused batch, or one carrying a worldline transition, rolls nothing. The receipts follow the batch's own and join `result.receipts`. The result also gains `first_impressions: [{actor, target, handle, skill, level, impression}]` and a `first_impressions_note` asking the Keeper to realise them. A move into a room, `apply npc … to: "here"` and the clerk's source presence all reach this point, whoever wrote them.
+2. **`table.player_input`, after the person-word fold (§176.1) and before the capsule.** The receipts join the new turn's receipts, as late maps do (§107.1), under call id `t<N>-input`. This covers anyone present without a record: a table upgraded to a `presence` package mid-play, a presence written by a path that is not `apply`.
+3. **`table.open` while turn 0 awaits its opening** (`turn 0`, `awaiting_player`). The start scene's seated people are rolled before the opening is written, under call id `t0-open`. The opening may resolve contributed checks already (§26); this rolls them without being asked.
+
+### 178.4 Who reads it
+
+- **The capsule.** `mods.pending_contacts` lists `contact` checks only. A `presence` pair is never pending. Once rolled, it is a `mods.relationships` row whose `since_turn` is the turn it was rolled on; the shape is unchanged. `npc.situation`'s constraints read the same rows (`contactRows`).
+- **The clerk.** Its contact candidates (`mod_contact`, and SL-76's `npc_reaction`) read `pending_contacts`, so a `presence` check is never offered to the route or the compile.
+- **A confluence (§15.6).** The lines' check records join by union, pair by pair, a pair's earliest record standing, as the table's people do; the rest of the Mods' state is still a `mod_state` choice when it differs (`unionModChecks`, `kernel-ts/worldline/confluence-plan.ts`). Without it two lines that met different people made the whole Mods' state a choice the Keeper had to settle, and settling it dropped one line's impressions.
+- **The NPC ledger.** A first impression is no interaction with the person: the fold (`foldNpcTurn`) skips it as it skips the stakes die (§143.8), and their act options already did (`isImpressionRoll`, `kernel-ts/mods/impression-receipt.ts`: a Mod check's roll carrying an `impression`, the kernel's or a Keeper's). It changed no stance either way. With one on every meeting, every person met carried `tried: ["turn N: social …"]`, and the nine-person bench lost a full dossier from `present[]` to those lines. The situation packet's `happened` still says it: what the people met make of the investigator is part of what just happened to them.
+- **A preordained obligation's row.** `mod_contact` (§134.9) lists `presence` checks beside `contact` ones, still `clerk: false`: the kernel does not roll them for that person either.
+- **The Keeper.** `first_impressions` on the apply result, the receipt itself, and the relationships row. When the write was the clerk's (the single loop usually makes the move), its `clerk_did` row carries `result.first_impressions` and `first_impressions_note` beside `effects` (`runtime/jev/hybrid-engine.ts`); the receipt ids alone said only that a die was cast. natural-npc 1.5.0 says the kernel rolls, that the Keeper never resolves it, and that a row from this turn is new and shapes the person's manner now.
+- **The player.** The roll card.
+  - `public_target_label` is the table's word for the person: `tableWord` (§176.1), else a table person's own name. Without a word it is absent. It is never the book's name of someone untold.
+  - `mechanicsOf` projects it as `target_label` for a roll the player may see that is not a public combat roll.
+  - `pipicoc/mechanics.js` draws `<investigator> → <person>` before the skill. Three people met at once are three cards that say whom each is about.
+
+### 178.5 natural-npc 1.5.0
+
+- The check's trigger becomes `presence`, and the package requires `checks.presence.v1`.
+- Only `agent.md`'s "First impression" section changes: the kernel rolls, the Keeper never resolves it, and where the result arrives. Its `sections.json` entry (§183.1: situational, `speaks_to_person` gated by `present_without_history`, the moment the result has to show) and every other section keep 1.4.6's bytes, 1.4.5's intent reading included. There is no brief (§183).
+- A campaign locked to 1.4.6 or earlier keeps the Keeper-called `contact` check until it is upgraded. `mods.install` never moves a lock (§26).
+
+### 178.6 Limits
+
+- **A Keeper's own apply with an embedded narrate** (SL-92) wrote its prose before the kernel rolled. The card is on that turn; the impression shows from the Keeper's next words. A clerk move, the turn's start and the opening all roll before the Keeper writes.
+- **The graph's kind decides who is a person.** The Haunting holds its rat pack as an `npc` node as well as a `creature`, so a ledger handle that finds the `npc` is rolled. Fixing that is the reader's (§177.8's one-identity rule), not a list here.
+- **Tables locked to natural-npc 1.4.6 or earlier** keep the `contact` check and its gap until the owner upgrades them in the Mod panel.
+
+### 178.7 Tests
+
+- `tests/extension/presence-impression.test.mjs`, on the real kernel with the built-in natural-npc:
+  - a move into the newspaper morgue rolls Ruth Blake in the same `apply`, with `first_impressions`, and not Arty Wilmot (preordained); a second apply rolls nothing;
+  - `apply npc … to: "here"` for a walk-on rolls that person, and the cards carry the table's words (an epithet, a walk-on's own name), never an untold book name;
+  - `player_input` rolls a person present without a record;
+  - the opening rolls the start scene's people;
+  - a creature with a stat block at the start scene is not rolled;
+  - `pending_contacts` carries no `presence` pair;
+  - a 1.4.4-style `contact` check still pends and rolls nothing by itself.
+- The manifest validator refuses `presence` without `checks.presence.v1`.
+- `mechanicsOf` projects `target_label` for an impression roll and not for a hidden one; `Electron/packages/ui/src/coc-mechanics.test.tsx` draws `investigator → person` for it, and the investigator alone without a word.
+- `tests/extension/presence-impression-clerk.test.mjs`: a clerk move answered with `first_impressions` carries them into the Keeper's `clerk_did` row; a write that met nobody keeps `{effects}` alone.
+- `presence-impression.test.mjs` also: a confluence joins two lines' impressions without a `mod_state` conflict, keeps a shared pair's earliest record, and still asks when the Mod set differs.
+- The pytest fixture opens the table before the opening is written (`narrate_opening`), as the product does, so Knott's first impression lands on the opening; tests that move into a room with people count that room's first impression (`met`/`written` in `tests/kernel/conftest.py`).
+- Tests of the `contact` path (the clerk's `mod_contact` candidate, admission's contact rule, a served step with no frozen result, an oriented first impression, a spent budget's unjudged check) pin their table to natural-npc 1.4.4 from `tests/extension/fixtures/natural-npc-1.4.4` (1.4.4's own bytes; `tests/extension/natural-npc-contact.mjs`), the state of every table played before 1.5.0. Tests whose subject is not the impression count the turn-start receipts the kernel now puts on a turn instead of assuming none.
+- Every change above was mutated (copy, one line, restore) and each mutation fails at least one of these tests.
+
 ## 179. A turn serves what the act is after; the investigator's own record (owner rulings 2026-10-04: "A 和 B 一起做，落 0.9.6a", then "翻看物品这个应该属于基础系统里，npc对于玩家意图分析应该属于自然npc行为mod里的增强项"; the capsule half of #20's premise)
 
 **Evidence.** App table `game-8e41c325` (Blood Road; Keeper `grok-build/grok-4.5` low; narration-craft 2.2.1), 2026-10-04.

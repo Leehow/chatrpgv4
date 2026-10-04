@@ -106,9 +106,11 @@ def test_history_timeline_events_and_diff(kernel):
     assert result["what"] == "history" and result["turns"] == [0, 3]
     assert result["timeline"] == [
         {"turn": 0, "commit": result["timeline"][0]["commit"], "scene": OPENING_SCENE, "clock": 0, "closed_by": "narrate",
-         "receipts": {"roll": 0, "move": 0, "clue": 0, "delta": 0, "session": 0, "time": 0, "clock": 0}, "head": "开场。 诺特把钥匙拍在桌上。"},
+         # §178.3: the opening's one roll is Knott's first impression, rolled as the table opened on him.
+         "receipts": {"roll": 1, "move": 0, "clue": 0, "delta": 0, "session": 0, "time": 0, "clock": 0}, "head": "开场。 诺特把钥匙拍在桌上。"},
+        # Turn 1's second roll is the records clerk's first impression, met on arrival.
         {"turn": 1, "commit": first["commit"], "scene": "hall-of-records", "clock": 20, "closed_by": "narrate",
-         "receipts": {"roll": 1, "move": 1, "clue": 1, "delta": 0, "session": 0, "time": 0, "clock": 0}, "head": head_of(first)},
+         "receipts": {"roll": 2, "move": 1, "clue": 1, "delta": 0, "session": 0, "time": 0, "clock": 0}, "head": head_of(first)},
         {"turn": 2, "commit": second["commit"], "scene": "hall-of-records", "clock": 20, "closed_by": "narrate",
          "receipts": {"roll": 1, "move": 0, "clue": 0, "delta": 1, "session": 0, "time": 0, "clock": 0}, "head": head_of(second)},
     ]

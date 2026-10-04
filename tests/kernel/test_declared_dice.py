@@ -56,7 +56,7 @@ def test_a_declared_bonus_die_reaches_an_unresisted_attack(seeded_kernel):
                      target="Walter Corbitt", weapon=".38 Revolver", defense="none",
                      modifiers={"bonus_dice": 1})
     attack = next(r for r in receipts(seeded_kernel).values()
-                  if r.get("kind") == "roll" and r.get("actor") == INVESTIGATOR)
+                  if r.get("kind") == "roll" and r.get("actor") == INVESTIGATOR and r.get("combat_action") == "attack")
     assert attack["skill"] == "Firearms (Handgun)" and result["outcome"]["kind"] == "combat"
     assert attack["bonus"] == 1 and attack["penalty"] == 0
     assert rolled_extra_tens(attack)

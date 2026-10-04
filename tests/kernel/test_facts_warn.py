@@ -3,7 +3,7 @@ and the capsule's memory / warnings sections with their budgets."""
 
 import json
 
-from conftest import CAMPAIGN, campaign_dir, create_campaign, narrate_opening, open_turn, read_json, read_jsonl
+from conftest import CAMPAIGN, campaign_dir, create_campaign, met, narrate_opening, open_turn, read_json, read_jsonl, written
 
 INV = "托马斯·海斯"
 
@@ -17,7 +17,10 @@ def size(payload):
 def test_narrate_facts_are_sentences_from_receipts_and_world(kernel):
     create_campaign(kernel)
     opening = narrate_opening(kernel)
-    assert opening["facts"]["committed"] == ["Location: Knott's Office", "Present: Steven Knott"]
+    # §178.3: the table opened on Knott, so the opening also commits his first impression, as a check sentence.
+    committed = opening["facts"]["committed"]
+    assert committed[-2:] == ["Location: Knott's Office", "Present: Steven Knott"]
+    assert len(committed) == 3 and committed[0].startswith(f"{INV}'s ") and " check " in committed[0]
     assert any(line.startswith("Undiscovered clue: knott-keys -- ") for line in opening["facts"]["keeper_only"])
     assert opening["extraction"] == {"job_id": "extract:c1:t0"}
 
@@ -30,7 +33,9 @@ def test_narrate_facts_are_sentences_from_receipts_and_world(kernel):
         {"kind": "damage", "dice": "1D3", "why": "被抽屉夹了"},
         {"kind": "move", "to": "hall-of-records", "travel_minutes": 20},
     ])
-    roll, _, _, dice, delta, _ = kernel.table("status")["receipts"]
+    receipts = kernel.table("status")["receipts"]
+    roll, _, _, dice, delta, _ = written(receipts)
+    [impression] = met(receipts)  # §178.3: the records clerk, met on arrival
     text = f"你出了门：掷出 {roll['roll']}（侦查 {roll['target']}），伤害 {dice['total']}，生命值 12 到 {delta['after']}，过了 15 分钟。"
     result = kernel.table("narrate", call_id="t1-c3", text=text)
     verdict = "passed" if roll["passed"] else "failed"
@@ -43,6 +48,7 @@ def test_narrate_facts_are_sentences_from_receipts_and_world(kernel):
         f"{INV} rolls damage 1D3: {dice['total']}",
         f"hp: {INV} 12 -> {delta['after']}",
         "Scene: Knott's Office -> Hall of Records (20 min)",
+        f"{INV}'s {impression['skill']} check {'passed' if impression['passed'] else 'failed'} ({impression['level']})",
         "Location: Hall of Records",
         "Present: the Hall of Records clerk",
     ]

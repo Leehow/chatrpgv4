@@ -14,7 +14,7 @@ import json
 import re
 from pathlib import Path
 
-from conftest import CAMPAIGN, MODULE, PREGEN, WORKTREE, open_turn
+from conftest import CAMPAIGN, MODULE, PREGEN, WORKTREE, open_turn, written
 
 GUARDED_DIRS = ("kernel-ts", "content/setup", "content/compat")
 # Contract §137: the craft lines a table's `style` carries are package system content, English like every instruction.
@@ -82,9 +82,10 @@ def test_a_zh_hans_turn_is_delivered_verbatim_with_every_receipt_projected(kerne
         {"kind": "move", "to": "hall-of-records", "travel_minutes": 20, "label": "档案馆"},
     ])
     status = kernel.table("status")
-    receipts = {r["kind"] + ("-dice" if r.get("form") == "dice" else ""): r for r in status["receipts"]}
+    receipts = {r["kind"] + ("-dice" if r.get("form") == "dice" else ""): r for r in written(status["receipts"])}
     roll, dice, delta = receipts["roll"], receipts["roll-dice"], receipts["delta"]
-    assert [m["kind"] for m in status["mechanics"]] == ["roll", "clue", "time", "item", "dice", "change", "scene"]
+    # §178.3: the last card is the records clerk's first impression, met on arrival.
+    assert [m["kind"] for m in status["mechanics"]] == ["roll", "clue", "time", "item", "dice", "change", "scene", "roll"]
 
     text = (f"你翻了翻文件，掷出 {roll['roll']}，侦查 {roll['target']}。抽屉夹了你的手，伤害 {dice['total']}，"
             f"生命值从 {delta['before']} 掉到 {delta['after']}。一刻钟（15 分钟）后你带着钥匙和一把霰弹枪去了档案馆。")

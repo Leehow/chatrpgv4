@@ -84,6 +84,31 @@ function mergePresence(graph: ModuleGraph, states: readonly ConfluenceState[], c
     }
     return orderedObject(merged);
 }
+/**
+ * §178.3: the Mod check records each line made (`world.mods.state.<mod>.checks`, one per actor and person) are what happened
+ * on that line, like the names and the table's people: they join by union, a pair's earliest record standing. Two lines
+ * that met different people therefore never make the Mods' state a choice; anything else in that state still is.
+ */
+function unionModChecks(states: readonly ConfluenceState[]): Map<string, Row> {
+    const merged = new Map<string, Row>();
+    for (const state of states)
+        for (const [mod, namespace] of entries(row(row(state.world.mods).state))) {
+            const checks = row(row(namespace).checks);
+            if (!Object.keys(checks).length) continue;
+            const into = merged.get(mod) ?? {};
+            for (const [pair, record] of entries(checks))
+                if (!Object.hasOwn(into, pair) || number(row(record).turn) < number(row(into[pair]).turn)) into[pair] = clone(record);
+            merged.set(mod, into);
+        }
+    return merged;
+}
+function withModChecks(mods: any, merged: ReadonlyMap<string, Row>): any {
+    if (!isJsonObject(mods) || !merged.size) return clone(mods ?? null);
+    const out = clone(mods), state = isJsonObject(out.state) ? out.state : (out.state = {});
+    for (const [mod, checks] of merged)
+        state[mod] = {...row(state[mod]), checks: orderedObject(entries(checks).sort(([a], [b]) => compareUnicode(a, b)))};
+    return out;
+}
 function mergeWorld(graph: ModuleGraph, states: readonly ConfluenceState[], scene: string, conflicts: Row[]): Row {
     if (new Set(states.map(state => canonicalJson(state.world.table_entities ?? []))).size > 1)
         throw new RpcError('needs', 'These worldlines have different campaign-created places or evidence; reconcile them before merging', {
@@ -168,7 +193,10 @@ function mergeWorld(graph: ModuleGraph, states: readonly ConfluenceState[], scen
     };
     world.flags = mergeFlags(states, conflicts);
     world.npc_presence = mergePresence(graph, states, conflicts);
-    const choices = orderedObject(states.map(state => [state.line, orderedObject(['mods', 'objects', 'npc_resources'].map(key => [key, clone(state.world[key] ?? null)]))]));
+    const checks = unionModChecks(states);
+    if (checks.size) world.mods = withModChecks(world.mods, checks);
+    const choices = orderedObject(states.map(state => [state.line, orderedObject(['mods', 'objects', 'npc_resources']
+        .map(key => [key, key === 'mods' ? withModChecks(state.world.mods, checks) : clone(state.world[key] ?? null)]))]));
     if (differs(values(choices)))
         conflicts.push(conflict('mod_state', 'game-mods', 'snapshot', choices));
     return world;

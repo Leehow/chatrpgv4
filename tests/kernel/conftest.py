@@ -130,7 +130,30 @@ def create_campaign(client: RpcClient, campaign_id: str = CAMPAIGN) -> dict[str,
                                          "play_language": "zh-Hans"})
 
 
+# Contract §178.5: natural-npc 1.4.4's own bytes, the `contact` first impression every table played before 1.5.0 is
+# locked to. A test of the `contact` path pins its campaign to it before the table opens.
+NATURAL_NPC_1_4_4 = WORKTREE / "tests" / "extension" / "fixtures" / "natural-npc-1.4.4"
+
+
+def pin_contact_impression(client: RpcClient, campaign_id: str = CAMPAIGN) -> None:
+    client.ok("mods.install", {"path": str(NATURAL_NPC_1_4_4)})
+    client.ok("mods.configure", {"campaign": campaign_id, "id": "natural-npc", "version": "1.4.4"})
+
+
+def met(receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """§178.3: the first impressions the kernel rolled because people met (not anything a test wrote)."""
+    return [receipt for receipt in receipts if receipt.get("trigger") == "presence"]
+
+
+def written(receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The receipts of a turn without the kernel's own meeting rolls: what the test's writes landed."""
+    return [receipt for receipt in receipts if receipt.get("trigger") != "presence"]
+
+
 def narrate_opening(client: RpcClient, text: str = "开场。\n\n诺特把钥匙拍在桌上。") -> dict[str, Any]:
+    # The product opens the table before the opening is written (§178.3: the start scene's people meet the party there, so
+    # Knott's first impression lands on the opening, not on the first player turn).
+    client.table("open")
     return client.table("narrate", call_id="t0-c1", text=text)
 
 

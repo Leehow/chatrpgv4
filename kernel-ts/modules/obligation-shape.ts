@@ -30,8 +30,9 @@ const SELECTIONS = { mod: ["maximum"], obligation: ["maximum", "approach"], rule
 const SCOPES = { mod: ["actor-target"], obligation: ["actor-target", "actor"], rule: ["actor", "actor-target", "opposed"] } as const;
 /** §136.6 shape 1: the closed keys of a check the module states as a mechanical shape. */
 export const RULE_CHECK_KEYS = ["approaches_unstated", "book", "difficulty", "difficulty_unstated", "opposing", "push", "results", "scope", "selection", "target", "values"];
-/** §134.3: the closed trigger enum per owner. A Mod's check carries its trigger; an obligation carries it on itself. */
-export const TRIGGERS = { mod: ["contact"], obligation: ["attempt", "after"] } as const;
+/** §134.3: the closed trigger enum per owner. A Mod's check carries its trigger; an obligation carries it on itself.
+ *  §178.2: a Mod's `presence` check is rolled by the kernel when the people first share a scene; `contact` waits to be resolved. */
+export const TRIGGERS = { mod: ["contact", "presence"], obligation: ["attempt", "after"] } as const;
 /** The graph contract's semantic id law; world flags are stored under exactly this form (`stageFlag`). */
 const SEMANTIC_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const OBLIGATION_KEYS = ["demand", "reaction", "scene", "settles", "trigger", "who", "yields"];

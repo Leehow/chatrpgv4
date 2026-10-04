@@ -45,6 +45,14 @@ it('keeps noncombat NPC anonymous and strips concealed combat labels, links and 
   expect(container.textContent).not.toContain('Unintroduced identity')
   expect(container.textContent).not.toContain('Alice')
 })
+it('a meeting roll outside a fight names the investigator and the person, in the word the kernel gave for them (§178.4)',()=>{
+  const meeting={kind:'roll',receipt:'m1',call:'t1-c1',family:'mod',visibility:'public',actor_is_investigator:true,actor:'thomas',actor_label:'Thomas Hayes',
+    target_label:'the archivist',skill:'Appearance',roll:12,target:50,threshold:50,difficulty:'regular',level:'hard',passed:true}
+  expect(draw([meeting]).querySelector('[data-kind="roll"] .coc-mech-who')?.textContent).toBe('Thomas Hayes → the archivist ')
+  cleanup()
+  const lone=draw([{...meeting,target_label:undefined}])
+  expect(lone.querySelector('[data-kind="roll"] .coc-mech-who')?.textContent).toBe('Thomas Hayes ')
+})
 it('a missing safe name never changes a remaining name from recipient into roller or source into HP owner',()=>{
   const container=draw([
     {...roll,actor_label:undefined},

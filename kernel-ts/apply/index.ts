@@ -15,8 +15,9 @@ import { RuleObservations } from '../read/rule-facts.js';
 import { CheckArithmetic } from '../resolve/arithmetic.js';
 import { SettleContext } from '../resolve/context.js';
 import { npcPatient } from '../healing/patient.js';
-import { markersOf } from '../resolve/projection.js';
-import { createWriteRuntime } from '../write/index.js';
+import { markersOf, modResolveEvents } from '../resolve/projection.js';
+import { FIRST_IMPRESSIONS_NOTE, presenceRolls } from '../mods/presence.js';
+import { createWriteRuntime, turnSeed } from '../write/index.js';
 import { nowIso } from '../write/store.js';
 import { advanceClock, stageClock } from './clock.js';
 import { stageMove } from './move.js';
@@ -410,6 +411,17 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 && landedHere.some(entry => entry.focus === graph.handle(graph.scene(string(receipt.to))))) receipt.material = 'index';
             if (landedHere.length)
                 staged.index_scenes = [...new Set([...array(staged.index_scenes).filter(value => typeof value === 'string'), ...landedHere.map(entry => entry.focus)])];
+            // §178.3: the people this batch brought together meet now; a presence check rolls before the world is written.
+            const met = stagedWorldline ? null : await presenceRolls({ kernel, graph, world: staged, party: await campaign.party() as Row[], turn: number(turn.turn),
+                callId: started.callId, directory: campaign.directory, arithmetic: await CheckArithmetic.create(tables), mint: context.mint,
+                seed: turnSeed(await campaign.readCampaign(), number(turn.turn)) });
+            for (const receipt of met?.receipts ?? []) {
+                receipts.push(receipt);
+                ids.push(string(receipt.id));
+                events.push(...modResolveEvents({}, { decision: receipt.decision, family: 'mod', outcome: { kind: 'check' } }, [receipt]));
+            }
+            if (met?.skipped.length)
+                await appendJsonl(join(campaign.directory, 'telemetry.jsonl'), { at: nowIso(), lane: 'presence', event: 'skipped', turn: number(turn.turn), call: started.callId, skipped: met.skipped });
             await commitInventorySheets(context,stagedSheets);
             await campaign.writeWorld(staged);
             // §158.5: the rows this batch landed close, and so do the rows the ledger now agrees with, whoever landed them.
@@ -482,6 +494,7 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                 if(missing.length)result.note=`No card exists for ${missing.join(', ')}: the receipt landed, and the player has nothing to look at. Say what the document holds in your narration rather than handing it over.`;
             }
             if(mapViews.length)result.map_views=mapViews;
+            if (met?.impressions.length) { result.first_impressions = met.impressions; result.first_impressions_note = FIRST_IMPRESSIONS_NOTE; }
             if(already.length){result.already_discovered=already;if(!receipts.length)result.replayed=true;}
             if(stagedWorldline){turn.worldline=stagedWorldline;result.worldline={operation:stagedWorldline.operation,line:stagedWorldline.line,mode:stagedWorldline.mode??null,loop:number(stagedWorldline.loop),when:"after this turn's narrate commits"};}
             if (beforeTaskRevision !== undefined) {

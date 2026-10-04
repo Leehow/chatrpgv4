@@ -5,7 +5,10 @@ import {admissionRequest, registeredContactProposal, buildAdmissionInput} from '
 import {admissionRolesBatches} from '../../runtime/jev/admission-roles-domain.ts';
 import {admissionJevBatches} from '../../runtime/jev/admission-domain.ts';
 
-const mod = JSON.parse(readFileSync(new URL('../../mods/natural-npc/mod.json', import.meta.url)));
+// The `contact` declaration a campaign locked to natural-npc 1.4.4 reads (§178.5); 1.5.0's check is the kernel's to roll on
+// meeting (`presence`) and is never pending for the clerk, so it never reaches admission as contact evidence.
+const mod = JSON.parse(readFileSync(new URL('./fixtures/natural-npc-1.4.4/mod.json', import.meta.url)));
+const shipped = JSON.parse(readFileSync(new URL('../../mods/natural-npc/mod.json', import.meta.url))).contributes.checks[0];
 const check = mod.contributes.checks[0];
 // The emitted-kernel producer is verified in single-loop-candidates.test.mjs; this fixture tests its admission reader.
 const row = {actor: 'Jack', target: 'Bartender', decision: check.name,
@@ -32,11 +35,13 @@ test('kernel contact declaration reaches both admission reviewers with its actua
 });
 
 test('model claims, a different target or a non-contact rule cannot supply registered contact evidence', () => {
+  assert.equal(shipped.trigger, 'presence', 'natural-npc 1.5.0 rolls on meeting');
   const forged = {...payload, registered_contact_check: row};
   for (const [args, host] of [
     [forged, {...evidence, origin: 'model'}],
     [{action: {...payload.action, target: 'Other patron'}}, evidence],
     [payload, {...evidence, basis: {...evidence.basis, row: {...row, rule: {...row.rule, reusable: false}}}}],
     [payload, {...evidence, basis: {...evidence.basis, row: {...row, rule: {...row.rule, trigger: 'attack'}}}}],
+    [payload, {...evidence, basis: {...evidence.basis, row: {...row, rule: {...row.rule, trigger: shipped.trigger}}}}],
   ]) assert.equal(registeredContactProposal(proposal, args, host), proposal);
 });

@@ -23,6 +23,8 @@ await build({stdin:{contents:[
 ].join('\n'),sourcefile:'writer-test-api.ts',resolveDir:ROOT,loader:'ts'},outfile:join(output,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',target:'node22',logLevel:'silent'});
 const api=await import(pathToFileURL(join(output,'api.mjs')).href);
 const create={id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'};
+/** §178.3: the receipts the kernel itself put on the turn as it opened (Knott's first impression at the start scene), before any write here. */
+async function openedReceipts(home) {return JSON.parse(await readFile(join(home,'.coc/campaigns/c1/turn.json'),'utf8')).receipts;}
 test('worldline restoration skips directory links and preserves their external files',async()=>{
   const home=await mkdtemp(join(evidence,'restore-links-'));
   const kernel=await api.createKernelContext({workspace:home,content:CONTENT,env:environment()});
@@ -74,6 +76,7 @@ test('the turn transaction preserves receipt replay without advancing the owner 
   const runtime=api.createWriteRuntime(ctx);
   await runtime.handlers['campaign.create'](create);
   await runtime.handlers['table.player_input']({campaign:'c1',text:'I inspect the window.'});
+  const opened=await openedReceipts(home);
   const params={campaign:'c1',call_id:'t1-c1',action:{intent:'investigate',skill:'Listen'}};
   const transaction=await runtime.transaction(params),start=await transaction.beginWrite('table.resolve',params);
   assert.deepEqual(start,{kind:'new',callId:'t1-c1',ordinal:1});
@@ -87,7 +90,7 @@ test('the turn transaction preserves receipt replay without advancing the owner 
   assert.equal(ctx.rng.randint(1,100),expected.randint(1,100));
   await assert.rejects(fresh.beginWrite('table.resolve',{...params,action:{...params.action,skill:'Spot Hidden'}}),error=>error.code==='idempotency_conflict');
   const cursor=JSON.parse(await readFile(join(home,'.coc/campaigns/c1/turn.json'),'utf8'));
-  assert.equal(cursor.state,'acting');assert.equal(cursor.receipts.length,1);
+  assert.equal(cursor.state,'acting');assert.equal(cursor.receipts.length,opened.length+1);
 });
 
 test('ask and narrate share delivery formatting while retaining their distinct records and turn transitions',async t=>{
@@ -98,6 +101,7 @@ test('ask and narrate share delivery formatting while retaining their distinct r
       const runtime=api.createWriteRuntime(context);
       await runtime.handlers['campaign.create'](create);
       await runtime.handlers['table.player_input']({campaign:'c1',text:'I wait.'});
+      const opened=await openedReceipts(home);
       const action={campaign:'c1',call_id:'t1-c1'},transaction=await runtime.transaction(action);
       const receipt={kind:'time',id:'time:t1-c1',minutes:5};
       await transaction.commitResolve({callId:action.call_id,params:action,result:{receipts:[receipt]},receipts:[receipt],events:[]});
@@ -108,8 +112,7 @@ test('ask and narrate share delivery formatting while retaining their distinct r
       assert.equal(result.marked_text.match(/\{\{time\}\}/g).length,1);
       assert.deepEqual(result.dropped_markers.unknown,['unknown']);
       assert.deepEqual(result.dropped_markers.duplicate,['time']);
-      assert.equal(result.mechanics.length,1);
-      assert.equal(result.mechanics[0].receipt,receipt.id);
+      assert.deepEqual(result.mechanics.map(row=>row.receipt),[...opened.map(row=>row.id),receipt.id]);
       assert.equal(Object.hasOwn(result,'placed'),false,'internal marker bindings never enter the wire');
       const campaign=await runtime.campaign({campaign:'c1'}),record=await campaign.readTurnRecord(1),cursor=await campaign.readTurn();
       assert.equal(record.closed_by,method);
@@ -118,7 +121,7 @@ test('ask and narrate share delivery formatting while retaining their distinct r
       assert.equal(record.rendered_text,result.rendered_text);
       assert.deepEqual(record.mechanics,result.mechanics);
       assert.deepEqual(record.labels,result.labels);
-      assert.deepEqual(record.receipts,[receipt]);
+      assert.deepEqual(record.receipts,[...opened,receipt]);
       assert.equal(Object.hasOwn(record,'dropped_markers'),false);
       assert.equal(Object.hasOwn(record,'marked_text'),method==='narrate');
       assert.equal(cursor.state,method==='ask'?'asked':'awaiting_player');
@@ -142,6 +145,7 @@ test('an effect key ({{kind:handle}}) resolves to this turn\'s receipt without c
   const runtime=api.createWriteRuntime(context);
   await runtime.handlers['campaign.create'](create);
   await runtime.handlers['table.player_input']({campaign:'c1',text:'I go to the newspaper morgue and look through the clippings.'});
+  const opened=(await openedReceipts(home)).map(row=>row.id);
   const action={campaign:'c1',call_id:'t1-c1'},transaction=await runtime.transaction(action);
   // A move's ordinary placement marker is `scene:<to>` (markerName groups it under the card family it draws as),
   // never `move:<to>` -- the effect key is a second, independent way to a receipt's marker, not an alias for the first.
@@ -157,8 +161,8 @@ test('an effect key ({{kind:handle}}) resolves to this turn\'s receipt without c
   // The token stands in the delivered structure exactly as written -- never translated to the ordinary scheme's name.
   assert.ok(result.marked_text.includes('{{move:newspaper-morgue}}'));
   assert.ok(result.marked_text.includes('{{clue:globe-unpublished-story}}'));
-  assert.equal(result.mechanics.length,2,'both receipts still project a mechanics card');
-  assert.deepEqual(result.mechanics.map(m=>m.receipt).sort(),[clueReceipt.id,moveReceipt.id].sort());
+  assert.equal(result.mechanics.length,opened.length+2,'both receipts still project a mechanics card');
+  assert.deepEqual(result.mechanics.map(m=>m.receipt).sort(),[...opened,clueReceipt.id,moveReceipt.id].sort());
 });
 
 test('an effect key naming no receipt of this turn is dropped exactly like an unknown marker, and the prose still delivers',async t=>{
@@ -168,6 +172,7 @@ test('an effect key naming no receipt of this turn is dropped exactly like an un
   const runtime=api.createWriteRuntime(context);
   await runtime.handlers['campaign.create'](create);
   await runtime.handlers['table.player_input']({campaign:'c1',text:'I search the clippings for the story.'});
+  const opened=await openedReceipts(home);
   const action={campaign:'c1',call_id:'t1-c1'},transaction=await runtime.transaction(action);
   const clueReceipt={kind:'clue',id:'clue:t1-c1',clue:'globe-unpublished-story'};
   await transaction.commitResolve({callId:action.call_id,params:action,result:{receipts:[clueReceipt]},receipts:[clueReceipt],events:[]});
@@ -178,7 +183,7 @@ test('an effect key naming no receipt of this turn is dropped exactly like an un
   assert.equal(Object.hasOwn(result.dropped_markers,'duplicate'),false);
   assert.ok(!result.rendered_text.includes('{{')&&!result.rendered_text.includes('}}'));
   assert.ok(result.rendered_text.includes('You find the story')&&result.rendered_text.includes('never turns up'));
-  assert.equal(result.mechanics.length,1,'the mechanic that did land still projects; the dropped key cost nothing else');
+  assert.equal(result.mechanics.length,opened.length+1,'the mechanic that did land still projects; the dropped key cost nothing else');
 });
 
 test('a mechanics-only ask still allows no story text and keeps an empty delivery',async t=>{
