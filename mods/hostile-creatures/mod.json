@@ -1,0 +1,43 @@
+{
+  "id": "hostile-creatures",
+  "version": "1.0.0",
+  "game_api": "pipicoc.game.v1",
+  "state_version": 1,
+  "author": "PipiCOC",
+  "name": {
+    "zh-Hans": "敌对生物",
+    "en": "Hostile Creatures"
+  },
+  "description": {
+    "zh-Hans": "动物与怪物按身体来演，按书里写的习性行动；书里写的弱点连同它的手段与线索链交给守秘人，调查员可以查到弱点、拿到对付它的东西。",
+    "en": "Animals and monsters played as bodies, by the habits the book gives them; the weaknesses the book states reach the Keeper with their means and the clues that teach them, so the investigators can learn what ends a being and get hold of it."
+  },
+  "default_enabled": true,
+  "requires": [
+    "graph.vocabulary.v1",
+    "graph.vocabulary.table.v1",
+    "actor.weaknesses.v1",
+    "instructions.sections.v1",
+    "mods.package-files.v1"
+  ],
+  "package_files": [
+    "agent.md",
+    "sections.json"
+  ],
+  "dependencies": {},
+  "conflicts": [],
+  "settings": {},
+  "contributes": {
+    "instructions": "agent.md",
+    "sections": "sections.json",
+    "vocabulary": {
+      "creature_profile_keys": [
+        {
+          "key": "habits",
+          "label": "habits",
+          "ask": "how this creature lives and acts as the book states: where it lairs, how it hunts or attacks, what draws it, when it breaks off or flees"
+        }
+      ]
+    }
+  }
+}

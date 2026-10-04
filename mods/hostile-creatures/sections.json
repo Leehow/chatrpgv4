@@ -1,0 +1,5 @@
+{"schema_version": 1, "sections": [
+  {"heading": null, "kind": "resident"},
+  {"heading": "Playing a creature", "kind": "situational", "triggers": ["state:creature_present"]},
+  {"heading": "Weaknesses", "kind": "situational", "triggers": ["state:weakness_here", "before_resolve:combat"]}
+]}
