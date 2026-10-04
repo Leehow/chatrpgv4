@@ -1,6 +1,10 @@
 # 人与生物分开：`npc` 是人，`creature` 是身体
 
-Status: ready-for-agent（用户 2026-10-04「按照你的推荐来做吧，做一个敌对生物优化mod」）
+Status: 部分落地，其余等 Mod 系统重构（用户 2026-10-04「你这边尽快收尾，我们的mod系统要进行重构，到时候再根据重构后的系统来实现」）。
+
+- 已落地：基础层 CK-A、CK-B、CK-C，在分支 `claude/creature-kind-20261004`，未合入主线。
+- 等重构后再做：CK-D、CK-E、CK-F、CK-G。
+- 现状见 [工单](creature-kind-tickets.md) 与契约 §180 开头的 Status。
 
 契约落点：`docs/kernel-rpc.md` §180（本切片新开；§178 已被进行中的 presence-impression 切片占用，§179 是 cache-traffic）。工单见 [creature-kind-tickets.md](creature-kind-tickets.md)，模组库调查见 [creature-kind-survey.md](creature-kind-survey.md)。
 

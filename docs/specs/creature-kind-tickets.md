@@ -13,7 +13,7 @@ Spec：[creature-kind.md](creature-kind.md)；依据：[creature-kind-survey.md]
 
 ## CK-A 内核：人和身体按功能分开（§180.3–180.5）
 
-Status: ready-for-agent
+Status: done（`168d7e719`，合入 `00e5f9819`）
 
 - `ModuleGraph.isPerson`。
 - §180.3 表里的每一个消费端，含：
@@ -30,7 +30,7 @@ Status: ready-for-agent
 
 ## CK-B 野兽目录数据（§180.6 后半）
 
-Status: ready-for-agent
+Status: done（`45b5b0b50`，合入 `5bbc670ae`）。代码还没读它，所以 `tests/kernel/test_rules_tables_register.py` 暂把 `beasts` 列为未读表，CK-E 接上时删掉那一行
 
 - 把规则书第 14 章「野兽」一节（PDF 第 347 页起）照录成 `content/rulesets/coc7/rules-json/beasts.json`。
 - 只做数据，不改代码。每条逐页对照 PDF 图像，标 `source_page`；书里没印的写 `_unstated`，不从常识补。
@@ -38,7 +38,7 @@ Status: ready-for-agent
 
 ## CK-C 读者、校验器、图谱契约 JSON（§180.2、180.7、180.8 的契约部分、180.9 的校验部分、180.13）
 
-Status: ready-for-agent
+Status: done（`4e168ce3b`，合入 `d00f4f2ee`）。弱点闸门的输入是 `task.vocabulary.actor_weaknesses`，由 CK-D 接上
 
 - `module-graph-contract-v3.json`：
   - 新增 `creature_dossier`；
@@ -56,7 +56,7 @@ Status: ready-for-agent
 
 ## CK-D Mod 能力与 hostile-creatures 包（§180.8–180.11）
 
-Status: ready-for-agent（等第 1 期合入）
+Status: needs-triage（等 Mod 系统重构；先按重构后的系统重写 §180.8–180.11 的形状）
 
 - `graph.vocabulary.v1` 接受 `creature_profile_keys`；creature 词进入 spine、读者询问、creature 行。
 - `graph.vocabulary.table.v1` 的门接受 creature 词。
@@ -70,7 +70,7 @@ Status: ready-for-agent（等第 1 期合入）
 
 ## CK-E 临场生物（§180.6 前半）
 
-Status: ready-for-agent（等第 1 期合入）
+Status: needs-triage（随 Mod 重构一起排期）
 
 - `apply npc` 新增 `creature` 字段：walk-on 铸造与之后补钉。
 - `world.table_creatures`、`ModuleGraph.addTableCreature`，加载时重装。
@@ -80,7 +80,7 @@ Status: ready-for-agent（等第 1 期合入）
 
 ## CK-F 起始包数据（§180.12）
 
-Status: needs-triage（等第 2 期合入）
+Status: needs-triage（等 CK-D、CK-E）
 
 - the-haunting、the-haunting-rulebook、mystery-house 三个起始包；
 - 更新钉住 `npc-rat-pack` 的测试；
@@ -99,3 +99,12 @@ Status: needs-triage
 真桌发现的缺陷归类后一批修完，再决定要不要开下一桌。
 
 ## Comments
+
+**2026-10-04 收尾。** 用户要求尽快收尾，Mod 系统要重构，之后按重构后的系统实现剩下的部分。
+
+CK-A 交回时留下的未决点，接手时一并处理：
+
+- `table.look focus=npc name=<creature>` 仍走只认人的查找，会拒绝 creature。留给 CK-D 的单生物读数。
+- 不带名字的 `npc.perspectives`、台词归属车道的在场名册（`extensions/kernel/index.ts` 的 `state.roster`）仍会列出 creature；§180.3 的表里没有这两项，要补进表并定下归属。
+- 0 HP 时的死亡折叠现在也会记到 creature 身上，但还没有任何地方读 creature 账本里的 `dead`。
+- CK-B 发现 `monsters.json` 的 `source_page` 有几处和 PDF 页码对不上（Byakhee 差一页；Werewolf、Zombie 记 330，实际在 347），它的 `source_note` 把页码说成印刷页也不对。这些不在本切片范围。

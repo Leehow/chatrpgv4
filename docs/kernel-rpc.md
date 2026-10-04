@@ -33040,6 +33040,19 @@ A sandbox replay of `game-8e41c325` turns 3–6, from the `turn 2:` commit, with
 
 ## 180. Persons and creatures; the Hostile Creatures package (owner rulings 2026-10-04: animals and monsters are separated from npcs "以免各类npc优化误用到怪物身上"; "creature加上这个习性吧，毕竟很多怪物应该都有弱点，玩家有任务可以获取弱点"; "按照你的推荐来做吧，做一个敌对生物优化mod"; the Keeper's walk-on animal joins the slice; amends §136.12, §17.2, §28.3, §28.7, §87.7, §143.3)
 
+**Status (2026-10-04, owner: "你这边尽快收尾，我们的mod系统要进行重构，到时候再根据重构后的系统来实现").**
+- **Landed** on `claude/creature-kind-20261004`, which is not merged into the mainline:
+  - 180.2–180.5, the base boundary and consumers (CK-A);
+  - 180.7, 180.9's checker and 180.13, the reader (CK-C);
+  - the beasts data of 180.6 (CK-B).
+- **Deferred** until the mod system is rebuilt:
+  - 180.6's table creatures (CK-E);
+  - 180.8–180.11, the package and its capabilities (CK-D);
+  - 180.12, the starter data (CK-F);
+  - 180.15, acceptance (CK-G).
+- **Re-specify 180.8–180.11 against the rebuilt mod system before building them.** The shapes there are written against §28 and §153 as they stand today.
+- Until then, the reader's weakness ask and checker stay off, because nothing binds `actor.weaknesses.v1`.
+
 **Evidence.**
 - **The twin.** The haunting carries the rat swarm twice: `npc-rat-pack` (stat block, agenda, fear, secret, voice) and `creature-rat-pack` (`present-in scene-basement-rites`, no stat block). `ModuleGraph.actor` takes the npc first (§136.12), so the swarm is found as a person.
 - **The person layer reached it.** Its epithet, `untold`/`say_name`, voice job, social and Psychology offers, coercion act and personality job (`npc.job`, which `npc.submit` then refuses for a non-npc) all fire. Some of these select `node_kind === "npc"` and some ride `npcsPresent`, which is `actor`.
