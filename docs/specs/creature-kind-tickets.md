@@ -56,21 +56,24 @@ Status: done（`4e168ce3b`，合入 `d00f4f2ee`）。弱点闸门的输入是 `t
 
 ## CK-D Mod 能力与 hostile-creatures 包（§180.8–180.11）
 
-Status: needs-triage（等 Mod 系统重构；先按重构后的系统重写 §180.8–180.11 的形状）
+Status: ready-for-agent（2026-10-04 按 §183 重写后恢复）
 
-- `graph.vocabulary.v1` 接受 `creature_profile_keys`；creature 词进入 spine、读者询问、creature 行。
+- `graph.vocabulary.v1` 接受 `creature_profile_keys`：creature 词进入 spine、读者询问和 creature 行。
 - `graph.vocabulary.table.v1` 的门接受 creature 词。
 - `actor.weaknesses.v1`：
-  - 构建时绑定，并写进来源记录；
-  - 弱点链投影（`held_by`、`known_by`、`taught_by`、`found`/`of`），用现有读数；
+  - 构建时绑定，接上 CK-C 的闸门输入 `task.vocabulary.actor_weaknesses`，并写进来源记录；
+  - 弱点链投影：`held_by`、`known_by`、`taught_by`、`found`/`of`，用现有读数；
   - `false_leads`；
   - 桌上补记门。
-- `context.creature.v1`：限定范围的指令与 400 字节预算（`creature_brief_over_budget`），并更新两个上限测试。
-- `mods/hostile-creatures` 1.0.0：`mod.json`、`agent.md`、`brief.md`、`CHANGELOG.md`，全部英文。
+- §183 的状态门：
+  - `people_present`、`present_without_history` 只数人；
+  - 新增 `creature_present`、`weakness_here`。
+- `mods/hostile-creatures` 1.0.0：`mod.json`、`agent.md`（不超过 4 KB）、`sections.json`、`CHANGELOG.md`，全英文，不带 brief。
+- `docs/mods-catalogue.md` 加一条。
 
 ## CK-E 临场生物（§180.6 前半）
 
-Status: needs-triage（随 Mod 重构一起排期）
+Status: ready-for-agent（2026-10-04 恢复）
 
 - `apply npc` 新增 `creature` 字段：walk-on 铸造与之后补钉。
 - `world.table_creatures`、`ModuleGraph.addTableCreature`，加载时重装。
@@ -80,7 +83,7 @@ Status: needs-triage（随 Mod 重构一起排期）
 
 ## CK-F 起始包数据（§180.12）
 
-Status: needs-triage（等 CK-D、CK-E）
+Status: ready-for-agent（等 CK-D、CK-E 合入）
 
 - the-haunting、the-haunting-rulebook、mystery-house 三个起始包；
 - 更新钉住 `npc-rat-pack` 的测试；
@@ -90,7 +93,7 @@ Status: needs-triage（等 CK-D、CK-E）
 
 ## CK-G 验收（§180.15）
 
-Status: needs-triage
+Status: ready-for-agent（等 CK-F）
 
 1. 盒子上跑全量；
 2. 真产品路径：新开一局，读三次胶囊，再声明一条看门狗；
@@ -99,6 +102,8 @@ Status: needs-triage
 真桌发现的缺陷归类后一批修完，再决定要不要开下一桌。
 
 ## Comments
+
+**2026-10-04 恢复。** Mod 重构（§183）合入 0.9.6a@7b83acc22 后恢复：分支已同步，§180.10–180.11 已按 §183 重写；合入主线仍需用户明说。
 
 **2026-10-04 收尾。** 用户要求尽快收尾，Mod 系统要重构，之后按重构后的系统实现剩下的部分。
 

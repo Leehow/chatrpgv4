@@ -1,9 +1,9 @@
 # 人与生物分开：`npc` 是人，`creature` 是身体
 
-Status: 部分落地，其余等 Mod 系统重构（用户 2026-10-04「你这边尽快收尾，我们的mod系统要进行重构，到时候再根据重构后的系统来实现」）。
+Status: 2026-10-04 Mod 系统重构（§183，0.9.6a@7b83acc22）完成后恢复，接着做 CK-D/E/F/G。此前因重构暂停（用户「你这边尽快收尾，我们的mod系统要进行重构，到时候再根据重构后的系统来实现」）。
 
 - 已落地：基础层 CK-A、CK-B、CK-C，在分支 `claude/creature-kind-20261004`，未合入主线。
-- 等重构后再做：CK-D、CK-E、CK-F、CK-G。
+- 已恢复：CK-D、CK-E、CK-F、CK-G。分支已同步到 0.9.6a@7b83acc22，§180.10–180.11 已按 §183 重写。
 - 现状见 [工单](creature-kind-tickets.md) 与契约 §180 开头的 Status。
 
 契约落点：`docs/kernel-rpc.md` §180（本切片新开；§178 已被进行中的 presence-impression 切片占用，§179 是 cache-traffic）。工单见 [creature-kind-tickets.md](creature-kind-tickets.md)，模组库调查见 [creature-kind-survey.md](creature-kind-survey.md)。
@@ -292,10 +292,15 @@ creature 照样能行动。可用方式：`attack`、`flee`、`first_blow`、`pu
 - **数据卡**：从目录条目来。书给了掷骰式（`2D6×5`）就用回合的种子骰掷，否则用平均值；钉在 `world.npc_profiles`，于是它能战斗。之后也可以给没有数据卡的生物补钉。
 - **野兽目录**：现有规则目录只有 37 种神话生物，没有狗、马、狼。规则书第 14 章「野兽」一节（PDF 第 347 页起）有带掷骰式的数据卡，照录成 `beasts.json`，逐项标页码，书里没印的写 `_unstated`。
 
-### D20 Mod 的提醒只在有生物时出现（§180.10）
+### D20 Mod 指令按 §183 的章节声明投递（§180.10，2026-10-04 Mod 重构后重写）
 
-- **为什么**：每回合所有 Mod 的提醒共用 5000 字节上限，现在已用到 4999，新加一句就超。
-- **怎么做**：照 §153.4 限定语言 Mod 的先例，新能力 `context.creature.v1` 让 Mod 的指令只在场上有生物的回合出现。第一次出现带全文，之后带提醒；提醒按自己的 400 字节单独计，不计入共享上限。没有生物的回合一个字节都不占。
+- **原设计已作废。** 初稿为绕开每回合 brief 的 5000 字节共享上限，设计了「只在有生物时出现的提醒」（`context.creature.v1`）。§183 已经取消了 brief 和这个上限：指令在 64 KiB 总预算内整份发出，超出预算时按章节建索引。所以那套设计作废，从未实现。
+- **新做法。** Mod 声明 `contributes.sections`：
+  - 前言常驻，内含临场引入动物的那一句；
+  - 「Playing a creature」挂 `state:creature_present`；
+  - 「Weaknesses」挂 `state:weakness_here` 和 `before_resolve:combat`。
+- **基础层顺带修正 §183 的两个门。** `people_present` 和 `present_without_history` 原来按 present[] 的长度算，CK-A 之后会把 creature 行也算进去：只有老鼠在场时也加载「人在场」的章节，而 creature 行没有交谈记录，后一个门对它永远成立。改为只数人。另外新增两个门：`creature_present`、`weakness_here`。
+- **体量。** 今天所有默认开启的包约 52 KB，加上本包约 4 KB 仍在预算内，所以它在每张桌上都整份发出，这是 §183 的既定规则。
 
 ## 验收
 

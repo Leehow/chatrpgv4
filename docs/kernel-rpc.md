@@ -33046,18 +33046,17 @@ A sandbox replay of `game-8e41c325` turns 3–6, from the `turn 2:` commit, with
 
 ## 180. Persons and creatures; the Hostile Creatures package (owner rulings 2026-10-04: animals and monsters are separated from npcs "以免各类npc优化误用到怪物身上"; "creature加上这个习性吧，毕竟很多怪物应该都有弱点，玩家有任务可以获取弱点"; "按照你的推荐来做吧，做一个敌对生物优化mod"; the Keeper's walk-on animal joins the slice; amends §136.12, §17.2, §28.3, §28.7, §87.7, §143.3)
 
-**Status (2026-10-04, owner: "你这边尽快收尾，我们的mod系统要进行重构，到时候再根据重构后的系统来实现").**
-- **Landed** on `claude/creature-kind-20261004`, which is not merged into the mainline:
-  - 180.2–180.5, the base boundary and consumers (CK-A);
-  - 180.7, 180.9's checker and 180.13, the reader (CK-C);
+**Status.**
+- **Paused on 2026-10-04.** The owner said: "你这边尽快收尾，我们的mod系统要进行重构，到时候再根据重构后的系统来实现". By then the base was landed on `claude/creature-kind-20261004`:
+  - 180.2–180.5 (CK-A);
+  - 180.7, 180.9's checker and 180.13 (CK-C);
   - the beasts data of 180.6 (CK-B).
-- **Deferred** until the mod system is rebuilt:
-  - 180.6's table creatures (CK-E);
-  - 180.8–180.11, the package and its capabilities (CK-D);
-  - 180.12, the starter data (CK-F);
-  - 180.15, acceptance (CK-G).
-- **Re-specify 180.8–180.11 against the rebuilt mod system before building them.** The shapes there are written against §28 and §153 as they stand today.
-- Until then, the reader's weakness ask and checker stay off, because nothing binds `actor.weaknesses.v1`.
+- **Resumed on 2026-10-04,** after §183 merged into 0.9.6a@7b83acc22.
+  - The branch was synced to that head.
+  - 180.10 and 180.11 were rewritten for §183.
+  - 180.8 and 180.9 stand as written, since §28's vocabulary binding is unchanged.
+  - CK-D, CK-E, CK-F and CK-G proceed.
+- **Merge boundary:** the branch merges into the mainline only on the owner's word.
 
 **Evidence.**
 - **The twin.** The haunting carries the rat swarm twice: `npc-rat-pack` (stat block, agenda, fear, secret, voice) and `creature-rat-pack` (`present-in scene-basement-rites`, no stat block). `ModuleGraph.actor` takes the npc first (§136.12), so the swarm is found as a person.
@@ -33082,7 +33081,7 @@ The split follows §179.1. **What a being is, and which machinery may treat it a
 | the boundary (180.2), `isPerson`/`isActor` and every consumer (180.3) | `habits`, a creature word (180.8) |
 | the creature row and the brief's `creatures` roster (180.4) | `weaknesses`, an actor shape with its chain (180.9) |
 | `apply npc` on a creature, NPC acts, offers (180.5) | the table door for both words (180.8, 180.9) |
-| table creatures and the beasts catalog (180.6) | instructions that ride only where a creature is (180.10, 180.11) |
+| table creatures and the beasts catalog (180.6); the persons-only and creature gates of §183 (180.10) | instructions sectioned on those gates (180.10, 180.11) |
 | one being, one node (180.7); the starters' kinds (180.12) | Corbitt's weakness in the haunting starter (180.12) |
 
 ### 180.2 The boundary
@@ -33226,28 +33225,42 @@ A package requiring `actor.weaknesses.v1` binds, at build, the actor property `w
 
 **The table door.** With `graph.vocabulary.table.v1`, `apply dossier {"name", "values": {"weaknesses": [{"book", "needs"?}]}}` appends table-established entries after the authored ones, and only while the package is enabled. It never edits an authored entry, and it carries no `learned_by`: a conclusion is book material.
 
-### 180.10 `context.creature.v1`: instructions that ride where a creature is
+### 180.10 Creature instructions under §183 (rewritten 2026-10-04 after §183 merged; replaces the creature-scoped brief and `context.creature.v1`, which were never built)
 
-A package requiring `context.creature.v1` is creature-scoped. Its instructions ride only on turns whose active scene has a creature among `npcsPresent`:
+§183 retired the brief and the shared 5000-byte ceiling. A package's instruction now rides whole while the table's instructions fit 64 KiB, and beyond that a sectioned package sends its resident sections and loads the rest by gate, topic or call. The first draft of this section invented a creature-scoped brief to get around the old ceiling. There is no ceiling to get around now, so there is no new capability. The package declares `contributes.sections` (§183.1) and requires `instructions.sections.v1`.
 
-- the full `instructions` on the first such turn this kernel process opens for the campaign;
-- its `brief` on the turns after.
+The base gains what §183's gates need to tell persons from creatures (amends §183.1's kernel-gate list and §183.3):
 
-A turn with no creature present carries nothing from it. Its brief is held to its own budget, 400 UTF-8 bytes checked at load (`details.reason: "creature_brief_over_budget"`). It is left out of the shared 5000-byte ceiling (§30.7, §40.6), exactly as §153.4 does for a language-scoped package. The ceiling tests hold it to its own 400.
+- **`people_present`** holds when a present row is a person, meaning it carries no `kind`. A creature row does not count. Before this, rats alone in a room loaded every "people here" section.
+- **`present_without_history`** considers only person rows. A creature row has no `history`, so it would otherwise always hold.
+- **`creature_present`** (new) holds when a present row has `kind: "creature"`.
+- **`weakness_here`** (new) holds when a present row, person or creature, carries `weaknesses` or `false_leads`.
 
-### 180.11 The Hostile Creatures package 1.0.0
+The two new names join `KERNEL_GATES` (`kernel-ts/read/sections.ts`). Like every kernel gate, they serve as a `gates` entry or a `state:` trigger.
+
+### 180.11 The Hostile Creatures package 1.0.0 (rewritten 2026-10-04 for §183)
 
 `mods/hostile-creatures`: id `hostile-creatures`, `default_enabled: true`, name 「敌对生物」 / "Hostile Creatures".
 
-- **Manifest.** It requires `graph.vocabulary.v1`, `graph.vocabulary.table.v1`, `actor.weaknesses.v1`, `context.creature.v1` and `mods.package-files.v1`. It contributes `instructions` (`agent.md`), `brief` (`brief.md`) and `vocabulary.creature_profile_keys: [{"key": "habits", "label": "habits", "ask": "how this creature lives and acts as the book states: where it lairs, how it hunts or attacks, what draws it, when it breaks off or flees"}]`.
-- **`agent.md`** (English) tells the Keeper how to play a creature:
+**Manifest.**
+- **Requires:** `graph.vocabulary.v1`, `graph.vocabulary.table.v1`, `actor.weaknesses.v1`, `instructions.sections.v1` and `mods.package-files.v1`.
+- **Contributes:** `instructions` (`agent.md`), `sections` (`sections.json`), and `vocabulary.creature_profile_keys: [{"key": "habits", "label": "habits", "ask": "how this creature lives and acts as the book states: where it lairs, how it hunts or attacks, what draws it, when it breaks off or flees"}]`.
+- No `brief`. All package text is in English.
+
+**`agent.md` and its sections.** The text is at most 4 KB.
+- **The preamble** (resident) says what the package serves: creature rows, actors' weakness chains, and the habits word. It also carries the walk-on line. An animal the Keeper brings in is declared with `apply npc walk_on` and `creature` (180.6), and its habits are written with `apply dossier` when nothing authored says. That line is needed before the first such call, so it cannot wait for a `before_apply` trigger.
+- **`## Playing a creature`** (situational, `triggers: ["state:creature_present"]`):
   - Play it as a body, by its `habits`: sound, motion and behaviour, never dialogue or a name to learn.
+  - Its `disposition` decides how it fights and when it breaks.
+- **`## Weaknesses`** (situational, `triggers: ["state:weakness_here", "before_resolve:combat"]`):
   - A weakness without `learned_by` is found in play. Show what happens when the investigators try (a bullet that does not bite, a swarm that parts before the torch). Never announce the rule.
-  - A learnable weakness's chain shows what is missing. Deliver its clues the ordinary way.
+  - A learnable weakness's chain shows what is still missing. Deliver its clues the ordinary way.
   - A false lead is believed until it is tested.
   - Exploiting a weakness settles through ordinary receipts: bonus or penalty dice, `disposition`, `action`, `conditions`, damage, objects changing hands.
-  - An animal the Keeper brings in is declared with `apply npc walk_on` and `creature` (180.6). Its habits are written at the table with `apply dossier` when nothing authored says.
-- **`brief.md`** fits within 400 bytes.
+
+**Size.** The default-on packages total about 52 KB (§183.6), so this one stays within the budget and rides whole on every table today. That is the owner's §183 rule while it fits. The sections decide what loads only on a table that indexes.
+
+**The catalogue.** `docs/mods-catalogue.md` gains its entry in the same form as the others.
 
 ### 180.12 Starter data
 
