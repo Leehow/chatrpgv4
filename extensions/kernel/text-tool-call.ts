@@ -60,7 +60,7 @@ function envelopes(source: string, label: string | null): Envelope[] | undefined
 /** The arguments an envelope routes with, or why it cannot be routed. */
 function route(found: Envelope, tools: typeof COC_TOOLS): {call: Call} | {error: string} {
     const spec = tools.find(tool => tool.name === found.name);
-    if (!spec) return {error: `${found.name} is not a tool offered here`};
+    if (!spec) return {error: `${found.name} is not one of the table tools a call written as text can run as`};
     if (!isObject(found.args)) return {error: `its arguments are not a JSON object`};
     try {
         // Pi's validator may coerce. A dialect repair must not broaden the supplied JSON value.

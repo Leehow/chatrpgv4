@@ -166,7 +166,7 @@ test('§160.4: a list naming a tool not offered, a wrong type, an extra key or s
     }
     const fix=textToolCallFix(readTextToolCalls(cases[0][0],COC_TOOLS).envelopes);
     assert.match(fix,/- look: valid, but not run/);
-    assert.match(fix,/- setup: setup is not a tool offered here/);
+    assert.match(fix,/- setup: setup is not one of the table tools a call written as text can run as/);
     assert.match(fix,/real tool call/);
     assert.match(textToolCallFix(readTextToolCalls(cases[1][0],COC_TOOLS).envelopes),/- lookup: Validation failed for tool "lookup"/);
 });
