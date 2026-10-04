@@ -1,6 +1,6 @@
 # Mod instructions as an index: resident lines, retrieved sections
 
-Status: needs-decision (design and offline measurement done 2026-10-04; no product code yet)
+Status: needs-decision (design and offline measurement done 2026-10-04, three rounds; the recommended shape is §7.4–§8; no product code yet)
 Owner ruling, 2026-10-04: "我希望是类似 skill 一样索引，然后找到哪些需要的 mod，把上下文加进来 … 用 jev 来检索决定 … 未来可能会有成百上千个 mod … 限制那么小的话可能会描述不全。" Then: "你先设计怎么做，然后做一些测试看看效果，然后调试好最佳方案".
 
 ## 1. The problem
@@ -114,9 +114,39 @@ The tuning numbers were optimistic by about 0.1 of recall; the held-out knee is 
 
 **Verdict: feasible, with two triggers on some cards.** A card may be both `host` (or `state`) and `jev`: the code trigger catches what the words cannot carry, Jev catches what the player starts. With that, the pre-registered bar holds on the held-out sample (recall 0.89 at 0.5, 0.86 at 0.35 for Jev alone; top-3 0.95; decoys 1.5%; p50 316–371 ms).
 
+### 7.4 Round 3: a closed topic list, not a `when` line per section (owner, 2026-10-04)
+
+The owner's correction after §7.3: Jev should not be asked whether gear is registered; it should be asked whether the turn involves gear, and the package's sections on gear load when it does, with code applying the state gate. The register card's "false positives" in §7.2–§7.3 were mostly this: Jev answered the question it can answer, and the label was on a question it cannot.
+
+So the index is a **closed topic list the product owns** (`topics.json`: 13 topics drawn from what the built-in sections are about, each with `what`, `not_for`, `examples` written from the rules, none copied from a labelled turn), and a section declares which topics it belongs to plus its gate. Jev judges the topics; the catalogue of sections never reaches Jev. Measured on the held-out 110 only:
+
+| selector | P / R vs the rule labels (7 gate-free sections) | sections loaded per turn |
+| --- | --- | --- |
+| topic fired at ≥ 0.5 | 0.77 / 0.92 | 0.67 |
+| topic fired at ≥ 0.35, then Jev verifies the section with its own 400 chars at ≥ 0.6 | 0.86 / 0.89 | 0.58 |
+| round 2's per-section cards at ≥ 0.5 (§7.3) | 0.81 / 0.87 | 0.61 |
+
+Topics are as good as per-section cards on the words-only sections and better on recall, with three structural gains: Jev's work no longer grows with the number of packages (a thousand packages share thirteen questions); authors tag topics instead of writing a `when` line that may never fire; the topic criteria are calibrated once, by the product. The verify stage buys 0.09 of precision for one more serial Jev call (p50 283 ms); precision here is bytes, not errors, so a single topic round is the default and verification is an option for a large catalogue. (Topic-level accuracy against topic labels: §7.5.)
+
+### 7.5 Topic accuracy on its own
+
+Topic labels on the held-out 110 by four fresh judges, given only the words, the scene and who is present (what Jev sees); a second judge on 28 turns agreed on 97.8% of pairs; 299 gold pairs, 2.7 topics per turn.
+
+| threshold | P / R / F1 over (turn, topic) pairs |
+| --- | --- |
+| 0.35 | 0.84 / 0.90 / 0.87 |
+| **0.5** | **0.92 / 0.87 / 0.89** |
+| 0.6 | 0.95 / 0.83 / 0.88 |
+
+Per topic at 0.5, recall: asks_question 0.98, carried_item 1.00, speaks_to_person 0.94, money 0.91, out_of_character 0.88, asks_favour 0.87, readable 0.82, new_thing 0.81; clue_search 0.55 (the judges read "looks for evidence" widely, Jev narrowly; its section is state-gated on a clue being here, which decides most of those turns anyway); conclusion 0/2. False positives at 0.5: 22 in 1430 pairs, 8 of them carried_item.
+
+Latency p50 334 ms, 3.5K input tokens ($0.00015) per turn for 13 topics; the count of topics, not of packages, sets this cost.
+
 ## 8. The design the measurement points to
 
-Conditional on §7.3 holding on the held-out sample.
+Conditional on §7.4–§7.5. Two levels: Jev answers a closed topic list from the player's words; a section says which topics it is about and what state gate it needs; the host loads the sections whose topic fired and whose gate holds. Where this section says "card" below, read "topic".
+
+**Topics.** `content/mods/topics.json`, product-owned: `{id, what, not_for, examples}` per topic, system language. Adding a topic is a product change with its own measurement; a package may still carry one custom `when` card for a situation no topic covers (the escape hatch, judged the round-2 way).
 
 **Package format.** A package that opts in declares `"contributes": {"sections": "agent.md"}` and requires `instructions.sections.v1`. Its `agent.md` is cut at `## ` headings; a heading's first paragraph may be a fenced front matter:
 
@@ -129,7 +159,7 @@ not_for: A question the player asks the Keeper out of character; a request to be
 examples: ["镇上哪儿能吃饭、住一晚？", "你这店开了多少年了？"] -->
 ```
 
-`trigger` is one or more of `always`, `state`, `host`, `jev` (a card may carry a code trigger and a Jev judgment both: prices, register). A `jev` section needs `when` and `what`; `not_for` and `examples` are strongly advised (round 1 → round 2 was mostly them). A `state` or `host` section names its condition from a closed list the kernel owns (`present_without_history`, `clues_here`, `handed_clue_here`, `threat_clock`, `stall`, `recover`, `opening`, `reentry`, `historical_materials`, `workspace`, `before_apply:<kind>`, `before_resolve:<decision>`, `host_refusal`, `retrieval_closed`). The kernel validates at install: unknown trigger or condition, a `jev` section without `what`, or an `always` section over its ceiling is `invalid_params` with the section named. Bytes stay frozen per version (§26).
+A section's front matter names `topics: [...]` from the list, and optionally a `gate` from the closed list below and/or `trigger: host|state` conditions; a section with no topics and no trigger is resident (`always`). A `jev` section needs `when` and `what`; `not_for` and `examples` are strongly advised (round 1 → round 2 was mostly them). A `state` or `host` section names its condition from a closed list the kernel owns (`present_without_history`, `clues_here`, `handed_clue_here`, `threat_clock`, `stall`, `recover`, `opening`, `reentry`, `historical_materials`, `workspace`, `before_apply:<kind>`, `before_resolve:<decision>`, `host_refusal`, `retrieval_closed`). The kernel validates at install: unknown trigger or condition, a `jev` section without `what`, or an `always` section over its ceiling is `invalid_params` with the section named. Bytes stay frozen per version (§26).
 
 **Resident ceiling.** `always` sections of a package together ≤ 2048 bytes; no shared ceiling across packages. Narration Craft's "The people here" (7 KB) does not fit and is not meant to: it is the one prose package, and prose-mod §6 already makes it the base's partner; it keeps today's full/brief lifecycle until it is sectioned on its own terms.
 

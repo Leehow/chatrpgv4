@@ -1,0 +1,506 @@
+[
+ {
+  "sid": "b029",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "yes",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b030",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "yes",
+   "readable": "yes",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "yes",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b031",
+  "labels": {
+   "carried_item": "yes",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "yes",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b032",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b033",
+  "labels": {
+   "carried_item": "yes",
+   "new_thing": "no",
+   "readable": "yes",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "yes",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "yes",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b034",
+  "labels": {
+   "carried_item": "yes",
+   "new_thing": "yes",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b035",
+  "labels": {
+   "carried_item": "yes",
+   "new_thing": "no",
+   "readable": "yes",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "yes",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b036",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "yes",
+   "readable": "no",
+   "force_object": "yes",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "yes",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b037",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "yes",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "yes",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b038",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "yes",
+   "readable": "no",
+   "force_object": "no",
+   "money": "yes",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b039",
+  "labels": {
+   "carried_item": "yes",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b040",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "yes",
+   "readable": "no",
+   "force_object": "no",
+   "money": "yes",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b041",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "yes",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b042",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b043",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "yes",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "yes",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b044",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "yes",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b045",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b046",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "yes",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b047",
+  "labels": {
+   "carried_item": "yes",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b048",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "yes",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b049",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "yes",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "yes",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b050",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b051",
+  "labels": {
+   "carried_item": "yes",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "yes",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b052",
+  "labels": {
+   "carried_item": "yes",
+   "new_thing": "no",
+   "readable": "yes",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b053",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "yes",
+   "price_dispute": "no",
+   "asks_question": "yes",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "yes"
+  }
+ },
+ {
+  "sid": "b054",
+  "labels": {
+   "carried_item": "yes",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "yes",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "yes",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b055",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "yes",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "yes",
+   "speaks_to_person": "no"
+  }
+ },
+ {
+  "sid": "b056",
+  "labels": {
+   "carried_item": "no",
+   "new_thing": "no",
+   "readable": "no",
+   "force_object": "no",
+   "money": "no",
+   "price_dispute": "no",
+   "asks_question": "no",
+   "asks_favour": "no",
+   "lethal_risk": "no",
+   "out_of_character": "no",
+   "conclusion": "no",
+   "clue_search": "no",
+   "speaks_to_person": "no"
+  }
+ }
+]

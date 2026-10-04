@@ -34,7 +34,7 @@ const POLICY = 'Each card is one rule section of a game package the Keeper may n
 
 function cardView(card, alias) {
   const when = config.lang === 'zh' && card.when_zh ? card.when_zh : card.when;
-  const view = {alias, package: card.mod, applies_when: when};
+  const view = {alias, ...(card.mod ? {package: card.mod} : {topic: card.id}), ...(when ? {applies_when: when} : {})};
   // Round 2: the structured form (official criteria fields), when the card has it.
   if (config.card === 'structured' && card.what) view.applies_when = {what: card.what, ...(card.not_for ? {not_for: card.not_for} : {}), ...(card.examples ? {examples: card.examples} : {})};
   if (config.card === 'excerpt' && card.text) view.excerpt = card.text.replace(/\s+/g, ' ').slice(0, 240);
