@@ -19,13 +19,28 @@ import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-pr
 import {createExpressionPreparation,EXPRESSION_MESSAGE,removeExpressionPayload} from './expression-reference.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
-    capsuleUpdate, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE,
+    capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE,
     type ContextBinding, type Quote, type Row} from './context-policy.ts';
 
 type KernelCall = (method: string, params: Row) => Promise<unknown>;
 type Prepared = {binding: ContextBinding; capsule: Row; history: Row; brief: Row; key: string; answering?: string[];
     workspace?: Row; workspaceMode: WorkspaceMode};
 const fingerprint = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** Contract §179.3: the first 12 hex characters of a SHA-256, enough to tell two requests' segments apart. */
+const shortDigest = (value: unknown): string => fingerprint(value).slice(0, 12);
+const SEGMENT_LIMIT = 64;
+/**
+ * Contract §179.3: one `{kind, bytes, digest}` per outgoing message, in request order, so a cache miss in the token ledger
+ * can be attributed to the first segment whose digest changed. `kind` is the custom type, else the role.
+ */
+function requestSegments(messages: readonly Row[]): Row {
+    const segments = messages.slice(0, SEGMENT_LIMIT).map(message => ({
+        kind: message.role === 'custom' && typeof message.customType === 'string' ? message.customType : message.role,
+        bytes: requestSize([message]),
+        digest: shortDigest({role: message.role, customType: message.customType, content: message.content}),
+    }));
+    return {segments, ...(messages.length > SEGMENT_LIMIT ? {segments_truncated: messages.length - SEGMENT_LIMIT} : {})};
+}
 const briefingKey = (binding: ContextBinding, capsule: Row): string => {
     const instructions = object(capsule.mods).instructions;
     // Frozen package versions bind their bytes. Ignore full/brief wording so ordinary turns reuse
@@ -60,7 +75,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // hands over the packet it prepared for the current turn; this hook then injects that packet and runs none of its own.
     let runOwnsPrescreen=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
     // Contract §135.23: the turn's first capsule and first run packet, as the first request of the input sent them.
-    let turnMaterial:{epoch:string;capsule:Row;packet?:Row}|undefined;
+    // §179.2: `sent` is that capsule as the Keeper is sent it (stable sections first); `capsule` keeps the kernel's own copy.
+    let turnMaterial:{epoch:string;capsule:Row;sent:Row;packet?:Row}|undefined;
     pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';});
     pi.events.on('coc:run-prescreen',value=>{const packet=object(value);
         runPrescreen=typeof packet.campaign==='string'&&Number.isSafeInteger(packet.turn)&&packet.message?{campaign:packet.campaign,turn:packet.turn,message:object(packet.message)}:undefined;});
@@ -414,14 +430,17 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!snapshot && ticket !== generation && !inputPending) snapshot = await prepare();
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
-        let systemBytes = 0;
+        let systemBytes = 0, systemDigest: string | null = null;
         if (typeof ctx.sessionManager?.buildSessionProjection === 'function') {
             const system = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
             systemBytes = system ? sizeOf(system) + 1 : 0;
+            // §179.3: the prompt text and the tool declarations the provider sees; the transcript timestamp is not sent.
+            systemDigest = system ? shortDigest({content: system.content, sections: system.sections ?? null, tools: system.toolsAdded ?? []}) : null;
         } else {
             const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
             const tools = typeof pi.getAllTools === 'function' ? pi.getAllTools().filter(tool => !active || active.has(tool.name)) : [];
-            systemBytes = sizeOf({system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools});
+            const material = {system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools};
+            systemBytes = sizeOf(material); systemDigest = shortDigest(material);
         }
         const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - systemBytes);
         if (!snapshot) {
@@ -432,8 +451,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             const notice = diagnostic(lastReason);
             const cut = boundedTail(rest, Math.max(0, budget - requestSize([notice])));
             const outgoing = renameUntold([notice, ...cut.messages], untoldRoster);
-            record({lane: 'context', event: 'request', version: POLICY_VERSION, reason: lastReason,
-                request_bytes: requestSize(outgoing) + systemBytes, system_bytes: systemBytes,
+            record({lane: 'context', event: 'request', at: new Date().toISOString(), version: POLICY_VERSION, reason: lastReason,
+                request_bytes: requestSize(outgoing) + systemBytes, system_bytes: systemBytes, system_digest: systemDigest, ...requestSegments(outgoing),
                 local_token_estimate: Math.ceil((requestSize(outgoing) + systemBytes) / BYTES_PER_TOKEN),
                 ceiling_bytes: ceiling, dropped_tail: cut.dropped, context_window: ctx.model?.contextWindow ?? null,
                 ...(cut.over ? {capacity: 'request_ceiling_exceeded'} : {})});
@@ -450,12 +469,14 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // (stable across turns, not the residue of this turn's capsule); the capsule and the run's packet stay as the
         // turn's first request sent them; what changed since rides at the end (`coc-capsule-update`, a later run packet),
         // so every model call of a turn, and the next turn's first call, can read the earlier prefix from cache.
+        // §179.2: on this engine the capsule the Keeper is sent has its stable sections first (`stableFirst`); the update
+        // compares section values against the kernel's own copy, so its sections and `removed` keep the kernel's order.
         const turnTail:Row[]=[];
         let capsuleSent=view,runPacket:Row|undefined;
         if(runOwnsPrescreen){
             const epoch=inputEpoch??snapshot.key;
-            if(turnMaterial?.epoch!==epoch)turnMaterial={epoch,capsule:view};
-            capsuleSent=turnMaterial.capsule;
+            if(turnMaterial?.epoch!==epoch)turnMaterial={epoch,capsule:view,sent:stableFirst(view)};
+            capsuleSent=turnMaterial.sent;
             const update=capsuleUpdate(turnMaterial.capsule,view);
             if(update)turnTail.push(customMessage(CAPSULE_UPDATE_TYPE,update));
             const current=runPrescreen&&runPrescreen.campaign===campaign&&runPrescreen.turn===snapshot.binding.turn?runPrescreen.message:undefined;
@@ -484,21 +505,21 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             selected.push({...customMessage('coc-capsule', capsuleSent), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
         }
         let workspace=snapshot.workspaceMode==='on'?snapshot.workspace:undefined,prescreen:Row|undefined;
-        let messageBudget=room,baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-            brief:briefSent,answering:snapshot.answering,budget:room,workspace});
+        // §179.2: the single-loop engine's order puts the turn's capsule ahead of the history; the legacy engine's is unchanged.
+        const project=(budget:number,optional:{workspace?:Row;prescreen?:Row}={})=>projectedMessages({messages:selected,binding:snapshot.binding,
+            history:snapshot.history,brief:briefSent,answering:snapshot.answering,budget,...optional,...(runOwnsPrescreen?{capsuleFirst:true}:{})});
+        let messageBudget=room,baseline=project(room,{workspace});
         // Compute the actual baseline only after system/tool/output reserves are known. Material
         // missing from this projection is not "already supplied" to the Keeper.
         try {
             const reserve=Math.min(16384,Math.floor((ctx.model?.contextWindow??65536)/4))*BYTES_PER_TOKEN;
             const totalLimit=Math.min(ceiling,(ctx.model?.contextWindow??Infinity)*BYTES_PER_TOKEN-reserve);
             messageBudget=Math.max(0,Math.min(room,totalLimit-systemBytes-(budget-room)));
-            baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-                brief:briefSent,answering:snapshot.answering,budget:messageBudget,workspace});
+            baseline=project(messageBudget,{workspace});
             if(!baseline.workspaceKept)workspace=undefined;
         } catch {
             workspace=undefined;
-            baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-                brief:briefSent,answering:snapshot.answering,budget:messageBudget});
+            baseline=project(messageBudget);
         }
         const supplementBudget=Math.max(0,messageBudget-requestSize(baseline.messages));
         const preparationSignal=optionalWork.signal,preparationCall=call,preparationCampaign=campaign;
@@ -539,15 +560,12 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             if(prescreen)reusablePrescreen=prescreen;
         }
         if(ticket!==generation||preparationSignal.aborted)return {messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
-        let result=prescreen?projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-            brief:briefSent,answering:snapshot.answering,budget:messageBudget,workspace,prescreen}):baseline;
+        let result=prescreen?project(messageBudget,{workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
         const reason = result.degraded ?? (Math.ceil((requestSize(result.messages) + systemBytes) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
         // Reserve a diagnostic only when one is needed. An optional workspace must not be
         // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
-        if (reason) result = projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-            brief:briefSent,answering:snapshot.answering,
-            budget:Math.max(0,messageBudget-requestSize([diagnostic(reason)])),workspace,prescreen});
+        if (reason) result = project(Math.max(0,messageBudget-requestSize([diagnostic(reason)])),{workspace,prescreen});
         const outgoing = renameUntold([...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail]
             .filter(message=>!(message.role==='custom'&&message.customType===EXPRESSION_MESSAGE)), untoldRoster);
         pendingExpression=undefined;
@@ -567,10 +585,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;
         if(pendingExpression)pendingExpression.details.expression.request_id=requestId;
         pendingProvider=prescreen?{requestId,prepared:renameUntold([prescreen],untoldRoster)[0],outgoingDigest:fingerprint(outgoing)}:undefined;
-        record({lane: 'context', event: 'request', version: POLICY_VERSION, turn: snapshot.binding.turn,request_id:requestId,
+        record({lane: 'context', event: 'request', at: new Date().toISOString(), version: POLICY_VERSION, turn: snapshot.binding.turn,request_id:requestId,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             ...(pendingExpression?{expression_injected:true,expression_bytes:requestSize([pendingExpression])}:{}),
-            request_bytes: bytes, system_bytes: systemBytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
+            request_bytes: bytes, system_bytes: systemBytes, system_digest: systemDigest, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
             ...(result.prescreenKept && prescreen ? {prescreen_bytes: requestSize([prescreen]), prescreen_injected: true} : {}),
             ...(turnTail.length ? {tail_bytes: requestSize(turnTail), tail: turnTail.map(message => message.customType)} : {}),
             ...(result.workspaceKept && workspace ? {workspace_bytes: requestSize([workspace])} : {}),
@@ -579,7 +597,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             ...(result.droppedUnknown ? {dropped_unknown: result.droppedUnknown} : {}),
             ...(result.degraded ? {reason: result.degraded} : {}),
             ...(result.overCeiling ? {capacity: 'request_ceiling_exceeded'}
-                : estimatedTokens > available ? {capacity: 'request_window_estimate'} : {})});
+                : estimatedTokens > available ? {capacity: 'request_window_estimate'} : {}),
+            ...requestSegments(outgoing)});
         return {messages: outgoing as typeof requestMessages};
     });
     // Public Pi seam after provider conversion. Observe only whether the exact prepared packet

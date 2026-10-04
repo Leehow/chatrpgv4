@@ -38,6 +38,22 @@ export function capsuleUpdate(first: Row, current: Row): Row | undefined {
     if (!Object.keys(changed).length && !removed.length) return undefined;
     return {kind: 'capsule_update', head: CAPSULE_UPDATE_HEAD, sections: changed, ...(removed.length ? {removed} : {})};
 }
+/**
+ * Contract §179.2: the capsule the Keeper is sent on the single-loop engine carries its sections in one fixed order, the
+ * ones stable across turns first and the ones that change every turn last, so the next turn's first request shares the
+ * capsule's stable head with this turn's as a token prefix. A closed enumeration of the capsule's own section names.
+ */
+export const CAPSULE_STABLE_SECTIONS: readonly string[] = ['head', 'historical_setting', 'worldlines', 'mods', 'reading', 'pressures',
+    'obligations', 'situations', 'rulings', 'owed', 'unrecorded', 'untold', 'warnings', 'known', 'voices', 'style'];
+export const CAPSULE_VOLATILE_SECTIONS: readonly string[] = ['where', 'present', 'director', 'memory', 'recent', 'turn'];
+/** The same sections, the stable ones first, then any section neither list names in the order given, then the volatile ones. */
+export function stableFirst(capsule: Row): Row {
+    const named = new Set([...CAPSULE_STABLE_SECTIONS, ...CAPSULE_VOLATILE_SECTIONS]), result: Row = {};
+    for (const key of CAPSULE_STABLE_SECTIONS) if (Object.hasOwn(capsule, key)) result[key] = capsule[key];
+    for (const [key, value] of Object.entries(capsule)) if (!named.has(key)) result[key] = value;
+    for (const key of CAPSULE_VOLATILE_SECTIONS) if (Object.hasOwn(capsule, key)) result[key] = capsule[key];
+    return result;
+}
 export const POLICY_VERSION = 2;
 export type Row = Record<string, any>;
 export interface ContextBinding {
@@ -227,6 +243,8 @@ export interface Projection {
 export function projectedMessages(input: {
     messages: Row[]; binding: ContextBinding; history: Row; brief?: Row; answering?: string[]; budget?: number;
     workspace?: Row; prescreen?: Row;
+    /** Contract §179.2 (single-loop engine): the turn's capsule leads the fixed part after the brief, ahead of `coc-history`. */
+    capsuleFirst?: boolean;
 }): Projection {
     const {messages, binding} = input, budget = input.budget ?? requestBudget();
     const fallback = (degraded: string): Projection => {
@@ -248,9 +266,13 @@ export function projectedMessages(input: {
     // the turn has since accumulated is, and the kernel stays authoritative for what it drops.
     const capsule = tail.findIndex(message => message.role === 'custom' && message.customType === 'coc-capsule');
     const opening = tail.slice(0, capsule < 0 ? 1 : capsule + 1), working = tail.slice(opening.length);
+    // §179.2: on the single-loop engine the capsule moves ahead of the history, which is rebuilt every turn, so the
+    // capsule's stable head stays in the prefix the next turn's first request shares; the rest of the opening keeps its order.
+    const lead = input.capsuleFirst && capsule >= 0 ? opening.slice(-1) : [];
+    const rest = lead.length ? opening.slice(0, -1) : opening;
     // Retained pre-boundary material is unclassified, not authoritative: the ceiling takes it first.
     let droppedUnknown = 0;
-    const fixed = (extra: Row[]): Row[] => [...unknown, ...brief, history, ...opening, ...extra];
+    const fixed = (extra: Row[]): Row[] => [...unknown, ...brief, ...lead, history, ...rest, ...extra];
     const room = (extra: Row[]): number => Math.max(0, budget - requestSize(fixed(extra)));
     while (unknown.length && requestSize(unknown) > Math.min(UNCLASSIFIED_BYTES, budget)) {unknown = unknown.slice(1); droppedUnknown++;}
     let cut = boundedTail(working, room([]));

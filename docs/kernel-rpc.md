@@ -32991,6 +32991,18 @@ persisted `coc-capsule` entry, the `coc-capsule-update` tail and the legacy engi
 four tables, the stable head is about 9 KB of a 16–26 KB sent capsule; the next turn's first call therefore shares the
 system prompt, the brief and that head, instead of ending at the brief.
 
+*Implementation (CT-02, 2026-10-04).* `stableFirst` and `projectedMessages({capsuleFirst})` in
+`extensions/table/context-policy.ts`; `context-runtime.ts` passes `capsuleFirst` when the run owns the prescreen (the
+`coc:loop-engine` announcement, so the single-loop engine only) and renders the turn's first capsule through
+`stableFirst` once per input epoch. The `coc-capsule-update` is still computed against the kernel-ordered first copy,
+so its `sections` and `removed` keep the kernel's order. The capsule that moves is the one that ends the opening; with
+an answered ask (§19.2's `answering`) that is the older exchange's, as the opening ends with it today. Measured on the
+faux replay of `tests/extension/single-loop-model-call-diet.test.mjs` (a 22.4 K-character sent capsule): after a turn
+that only delivered, the next turn's capsule shares 20,323 characters with the previous one (past `style`, into
+`present`); after a turn that revealed a clue the share ends inside `mods` at 8,332 characters, because `mods.thread`
+(about 2.7 K: the thread's `next` rows lose the clue's lock) and `known` changed. `mods` is fourth in the stable list,
+so on a clue turn the shared head stops there.
+
 ### 179.3 The context lane fingerprints its request (amends the rows of §19.2)
 
 The `lane: "context", event: "request"` row gains `at` (ISO time), `system_digest` and `segments`: one
@@ -32998,6 +33010,15 @@ The `lane: "context", event: "request"` row gains `at` (ISO time), `system_diges
 12 hex characters of the SHA-256 of the message's `role`, `customType` and `content`. At most 64 segments are listed,
 the rest counted in `segments_truncated`. A cache miss in the token ledger is joined to its request by time and
 attributed to the first segment whose digest differs from the previous request's.
+
+*Implementation (CT-03, 2026-10-04).* `system_digest` covers the current system message's `content`, `sections` and
+`toolsAdded` (its transcript timestamp is never sent and is left out); without a session projection it covers the
+`{system, tools}` that `system_bytes` measures. A segment's `bytes` is `requestSize([message])`, so the segments plus
+`system_bytes` exceed `request_bytes` by `segments.length - 1`, the list's separators. The degraded `request` row carries
+the same three fields. The segments are this hook's output; the kernel extension's host-notice filter (§135.27.1.3) runs
+before it. The system message is the transcript's: on a host-started run whose transcript still records another prompt,
+§128.1's `context_with_system` swaps the head after this hook, so that request's `system_digest` and `system_bytes`
+describe the recorded prompt, not the one sent (the `prompt` lane's `stale_prompt_replaced` row marks such a request).
 
 ### 179.4 Limits
 
