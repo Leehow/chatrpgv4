@@ -28352,7 +28352,9 @@ anything is rolled or filed:
   `reason`, message and `missing` are unchanged.*
 
 A person pursuing still gets the reader's MOV 8 when their stat block omits it; that is the existing pursuer shape and
-this ticket does not change it (reported to the lead, not fixed here).
+this ticket does not change it (reported to the lead, not fixed here). *Amended by §180.6 (CK-F2 review follow-up, 2026-10-04):
+a pursuer who runs on foot now needs their own MOV, completed as a fight's missing numbers are. A driver's speed is the
+vehicle's, and a passenger follows the driver; neither needs a body MOV.*
 
 **Intents.** The rule graph's `chase:start` carries one intent condition, `flee`, while every other chase decision
 answers `flee`, `move` and `combat`, the three `restrict` admits while a chase runs (§11.5, `CHASE_INTENTS`). The
@@ -33726,6 +33728,18 @@ apply {"kind": "npc", "name": "the yard dog", "walk_on": true, "creature": "Dog"
 - **Pinning and provenance.** The completed block is pinned like any table pin: `world.npc_profiles[<handle>]`, `authority: "table_pinned"`, `why`, `pinned_turn`, and `catalog: <entry>` (creature) or `archetype: <id>` (person). It records `completed_from: <entry or id>` and `filled: [<paths the source supplied>]` (`characteristics.STR`, `derived.MOV`, `skills.Fighting`, `weapons.<id>`; also a whole key such as `armor` or `sanity_loss`); every other value in it is the authored block's. A characteristic the authored block states is not listed in `rolled`. The `npc` receipt's `profile` carries `completed_from` and `filled`. Because a pinned block wins over the authored one (§147.8), every reader -- combat, chase, the patient, `look` -- reads the completed block.
 - **Data.** Of the shipped starters only Mystery House's chapel familiar is partial (skills only); the haunting's and Mystery House's other blocks are complete.
 - **Limits.** A catalog entry that prints no STR, SIZ or DEX (Azathoth, Yog-Sothoth) completes a block that stays partial, and a fight against it is still refused; its pin is made once, as before.
+
+**CK-F2 review follow-up** (2026-10-04, from the Jev owner's read-only review of the first-blow and profile junction). Both items close CK-F2's own scope.
+
+1. **A first attack on an incomplete block is prepared, not lost.**
+   - **The finding.** `firstBlow` (`kernel-ts/runtime/resolve-operation.ts`) listed in `preparation.targets` only the actors with no profile at all. An actor with a partial profile was offered as fightable, so the selected first attack went straight to combat dispatch and failed there with `stat_block_incomplete`. `check_preparation` was never raised, `preparingAttacks` never held the attack, and it was not replayed.
+   - **The rule.** `preparation.targets` lists every present actor the fight cannot read: one with no profile, or one whose profile lacks any of STR, SIZ, DEX or CON. A fight does not read MOV, so a block complete in those four is never listed and never refused for MOV.
+   - **What the row says.** The row says, for each listed target, which completion it takes: a creature takes `creature` (a rules-catalog creature, from `lookup kind=catalog kinds=["creature"]`), a person takes `archetype`. The host's preparation need (`runtime/jev/attack-preparation.ts`) names that call. It never names a person tier for a creature, and never supplies a number.
+   - **What then happens.** The existing chain then runs unchanged: `check_preparation`, then retention in `preparingAttacks` with the chosen target, method and weapon, then the refreshed row, then the attack replayed through `resolve`.
+2. **A foot pursuer's MOV** (amends §143.12's pursuer-default note).
+   - **Before.** A chase's pursuers and roster checked only the fight's characteristics (`requireParticipantBlock`), and `npcCombatParticipant` then read a missing MOV as 8.
+   - **Now.** Every chase path that reads an actor's own MOV — a pursuer or a quarry on foot — refuses a block without MOV with `needs`, whose `field` is the completion (`creature` or `archetype`, with its options) and whose fix is that call. The quarry's refusal (`quarry_numbers_missing`) keeps its shape.
+   - **What stays.** A roster driver's speed is the vehicle's MOV from the rules, and a passenger follows the driver; neither is asked for a body MOV. Investigators, combat, the vehicle sources and the frozen oracle are unchanged.
 
 ### 180.7 One being, one node
 
