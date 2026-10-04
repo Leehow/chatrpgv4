@@ -25016,6 +25016,96 @@ still runs last.
 
 The fan-out file's emitted cases now use the office's remaining clue rows.
 
+#### 135.30.10 Addendum (2026-10-04, environment acceptance): one declaration, one destination -- the run's move settles where it goes
+
+It applies §135.30.8's rule ("a declaration's act is settled once") to the place the declaration goes. It amends §135.30's
+`move` predicate, §135.30.1 (what a later compile can select), §135.30.4 (the guarded report) and §135.26's route, for
+`PI_COC_LOOP_ENGINE=hybrid-v1` only.
+
+**Evidence.** The environment acceptance table `environment-v225-baseline-20261004` (flapcode/gpt-6-luna low, source
+`7b83acc22`; `.coc/evaluations/environment-after-mod-refactor-20261004/`), turn 2, run `run-01a10820-dbd4-770b-b073-4d405953d9a7`.
+The player said "我接下委托，收好诺特给我的钥匙和地址，先去那栋住宅，站在街边查看外观。"
+1. The first two compiles at the office (s3, s6) left `destination` split, the house 0.52 against the neighbourhood 0.46, then
+   0.37 against 0.62, so neither cleared.
+2. The route moved the party to the house: `apply:move:corbitt-house-ground`, need `now` 0.84 (`t2-c2`, 30 minutes).
+3. The read there issued a new exit, so a compile was owed (§135.30.1).
+4. That compile (s10) read the same sentence from the house, where the house is no row. It cleared `destination` on the
+   neighbourhood at 0.92 ("站在街边"), and the clerk moved the party a second time (`t2-c3`, another 30 minutes).
+5. The next compile, at the neighbourhood (s13), read the house back at 0.84 (cleared). Only the house's move key, already
+   consumed, kept a third move from landing.
+
+The player declared one place. Two clerk moves and an hour were written, and the next turn spent a move walking back.
+
+**The rule: the declaration's one selected move.** The run keeps it as `RunView.moved`, by the builder's key `apply:move:<to>`.
+It is the declared party move (family `move`) that a compile, the route or a staged unlock of §135.30.5 selected, once the clerk
+executes it. It joins whether the kernel took the write or refused it. A refused move is still the declaration's attempt, and the
+clerk does not route around its own refusal by moving somewhere else (§135.26).
+
+Nothing else joins it:
+- the Keeper's own `apply move`, which also covers a rename of the place (a `move` to where the party stands) and a relocation
+  the Keeper rules;
+- an owed move (§158.4/§158.5, family `owed`), which lands what an earlier turn told;
+- a person's own movement (an `npc` effect, an `npc_act` step), which moves no party.
+
+A `move` effect moves the whole party: the kernel has no party subset. A run is one input's declaration, so another
+investigator's declaration in another run starts with nothing kept.
+
+Once one stands:
+- **The `move` predicate (§135.30) fires on nothing.** It **decides** every move it reaches, whatever `destination` cleared on
+  or whether it cleared. The moves are consumed for the run and stay the Keeper's: a Keeper's own `apply move` still takes one.
+  The compile itself is still owed and asked as §135.30.1 says. The new scene's clues, checks and obligations reach their own
+  predicates as before. Only the destination is read as settled.
+- **The route selects no move.** A `move` candidate the route is offered after one is gated, the same way §143.16 gates a
+  fight step: its `need` question is still asked and recorded, it selects nothing whatever it answers, and after a complete
+  route it is the Keeper's for the run.
+- **No guarded destination is reported** (§135.30.4), and none is staged to unlock (§135.30.5). A later read of a held place is
+  the stale sentence, not the player's declaration of that place.
+
+What a declared destination is stays the compile's and the route's own reading, the closed Jev questions they already ask.
+Nothing reads the player's words for direction or count. A declaration that names two places in turn moves once by the
+clerk, and the Keeper carries the rest.
+
+**Not gated:** an owed move (family `owed`), a person's movement, and a chase's or a fight's steps (families `chase`,
+`combat`). Only the family `move` is gated, and an owed move still runs after the run moved.
+
+**Telemetry:**
+- The compile row (`lane: "route"`, `purpose: "compile"`) gains `moved`, the run's moves before that compile, when there are
+  any. The moves it decided are in `decided`.
+- The route row gains `move_gated`, the moves offered after one, which selected nothing.
+- The engine re-reads both with the run's moves carried on the question (`moved`), so each row says what the policy did.
+
+**Three ends (§31):**
+- *Writer:* `settleExecute`, for the clerk's executed declared move, and only that.
+- *Reader:* the `move` predicate and `interpretCompile` (the guarded report), `interpretRoute` and `settleRoute`
+  (`moveGated`).
+- *Actor:* the clerk, which moves the party once per declaration. The Keeper is told through `clerk_did` of the one move. The
+  operator sees it through the compile and route rows.
+
+**Not changed:**
+- the gates, and §32 admission;
+- which candidates the builders issue, and the destination rows;
+- when a compile is owed;
+- time (§138.10).
+
+*Tests.* `tests/extension/single-loop-one-destination.test.mjs`. At the policy seam over the kernel's row shapes:
+- after the route's move to the house, the compile at the house that reads the neighbourhood (0.92) selects nothing, decides
+  both exits and names `moved`; the same answer with no move this run selects the neighbourhood;
+- a refused move settles it the same way, and with the destination unclear the moves are decided at the compile;
+- after a move the route selects no move, with need `now` up to 0.97, holds it for the Keeper and records `move_gated`, while
+  the house's clue is still the clerk's;
+- only the clerk's selected move joins: a Keeper's own move, an owed one and a person's movement do not, so after a Keeper's
+  move the declaration's own move is still the clerk's;
+- no guarded destination is reported after a move.
+
+On the emitted kernel over the haunting, through the hybrid engine with a stub Jev carrying the live turn's answers:
+- turn 2 lands one move, `commission-briefing → corbitt-house-ground`. The compile at the house reads the neighbourhood and
+  selects nothing, and the party stands at the house.
+- With the compile off, the route at the house says `now` to the neighbourhood, and the engine's route row selects nothing
+  and names it in `move_gated`.
+
+The same emitted case on `1e5d64e52` without this change lands `t2-c2` and `t2-c3` exactly as live, then reads the house back
+(0.86, cleared, nothing selected). Fourteen one-line mutations of the change each turn a case red.
+
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 
 SL-15 takes §135.31 (§135.30 is SL-13's; §-numbers are stable ids). The
@@ -26879,6 +26969,52 @@ clerk's `apply time {band}`, `unknown` to the Keeper, a declaration judged `none
 once, the roll on the bind row, the note's line); `tests/extension/single-loop-binding.test.mjs` (the structural test
 over both band shapes); `tests/extension/single-loop-run-driver.test.mjs` (the fake kernel's opening turn now routes the
 time band's fact beside the exit).
+
+#### 138.10.1 Addendum (2026-10-04, environment acceptance): the `momentary` row -- an act of a moment costs 0 or 1 whole minute
+
+The coordinator chose option a of the environment acceptance's turn-4 finding: a data row, with no new question and no
+schema change.
+
+**Evidence.** On the table `environment-v225-baseline-20261004`, at turn 4, the player said
+"我在街边安静停留半分钟，只听听周围的声音，不碰门窗。" (stay half a minute and listen). The clerk's band question named
+`quick_observation` (0.99), and the kernel rolled 3 minutes inside its `[0, 5]` (`time:t4-c1`, `basis: banded`). That is
+within this section as written. No row was shorter than speaking briefly (`[0, 3]`), and time is charged once a turn, so the
+Keeper could not settle it lower afterwards.
+
+**The rule.** `time-costs.categories` gains `momentary` `{min 0, default 0, max 1}` as its **last** row. The sixteen rows before it keep
+their handles, values and positions: each position still equals that row's `time-cost-category` ordinal in the director graph.
+The table order is otherwise only the order of the band question's options; the choice is by row, not by position. It reaches the
+clerk the way every row does:
+- `rules.bands` lists it;
+- the declared-time candidate offers it in its closed band choice, labelled by the row's own handle and range;
+- the Keeper may name it on `apply time {band}`;
+- the kernel rolls 0 or 1 with its seeded dice and records `basis: banded`.
+
+**What it is not:**
+- **Seconds.** Clock minutes stay whole: a half-minute act is charged 0 or 1 minute, an integer approximation, never 30
+  seconds. Seconds would be a clock schema change, and none is made.
+- **A reading of the player's words.** No duration is parsed out of the declaration; Jev's existing band choice picks the row.
+- **A change to the route's fact.** The time candidate's fact question still decides whether the declaration costs table
+  time at all. Its `none` already covers a glance or a word that takes no time worth the clock.
+
+**Not changed:**
+- the other rows, the gates, and when the clerk lands a band;
+- the road rows (§138.9), whose fill reads only `local_travel` and `long_travel`;
+- `content/director/director-graph.json`, whose `time-cost-category` vocabulary nodes the TS kernel never reads (§13.10), so
+  `momentary` has no node there; the graph is digest-guarded by its manifest, and the sixteen nodes it has still match the
+  table's first sixteen rows by name and ordinal;
+- `rule-index.json`'s `core.time.cost_categories` row. `lookup kind=rule` returns its `numeric.category_count` (15, stale before
+  this row since the table already had 16) and its `source_note`, an older description. Correcting them is a separate data
+  edit, not made here.
+
+**Tests.** `tests/extension/time-band-momentary.test.mjs`:
+- **On the emitted kernel.** `rules.bands` lists the row with its range and default. `apply time {band: "momentary"}` rolls 0
+  or 1, both across eight seeds, with the receipt's `band_roll`.
+- **Through the hybrid engine over the haunting with a stub Jev.** The band question offers `momentary` beside the kernel's
+  other rows. Naming it charges one time receipt of 0 or 1 minute.
+
+`tests/extension/band-shadow.test.mjs` pins the shipped rows, and now pins `momentary` last. Three mutations of the data row
+(dropped, `max` 5, `default` 1) each turn a case red.
 
 ## 139. An excerpt a model copied out of delivered text is located with quotation marks as one class (2026-09-26; amends §12.5's `table.warn` anchoring and the continuity-review rows)
 
