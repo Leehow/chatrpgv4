@@ -10,6 +10,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { openTable, toolResultTexts, waitForIdle } from "./harness.mjs";
+import { typedAdmissionRequest } from "./typed-admission-endpoint.mjs";
 
 const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 const KNOTT = "Steven Knott";
@@ -37,6 +38,7 @@ function installJev(t, answer) {
 	globalThis.fetch = async (url, init) => {
 		if (String(url) !== JEV_URL) return original(url, init);
 		const body = JSON.parse(init.body);
+		if (typedAdmissionRequest(body)) return new Response("unavailable", { status: 503 });
 		// §145.2: since keeper-time-skip was gathered, a delivery's time skip is read from the same endpoint. That family is
 		// not the band recovery's: it falls back (503) and is not counted with this file's requests.
 		if (body.questions?.cut) return new Response("unavailable", { status: 503 });

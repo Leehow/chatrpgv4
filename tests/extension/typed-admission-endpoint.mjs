@@ -15,6 +15,23 @@
 
 const ADMITTING = new Set(["authorized", "entailed", "not_player_action"]);
 
+/** The question families of the two typed designs this endpoint answers (the role-first design's and §32.10's v1). */
+const ADMISSION_FAMILIES = new Set(["role", "choice", "result", "span", "target", "gate", "order", "missing", "basis", "verdict"]);
+
+/**
+ * Whether a request to the Jev endpoint is the typed admission review's own: every question keyed `<family>_<line>` over
+ * the families above (the designs' key grammar, not a reading of the text). The other Jev families the extension asks on
+ * the same endpoint -- the §138.6 band recovery (`tier`, `family`, `profile_<i>`), the §138.8 band shadow (`time_cost`,
+ * `severity`) -- are not, so a test counting typed admission calls counts only these.
+ */
+export function typedAdmissionRequest(body) {
+	const keys = Object.keys(body?.questions ?? {});
+	return keys.length > 0 && keys.every((key) => {
+		const cut = key.lastIndexOf("_");
+		return cut > 0 && /^\d+$/.test(key.slice(cut + 1)) && ADMISSION_FAMILIES.has(key.slice(0, cut));
+	});
+}
+
 /** An exact distribution over a question's issued options: `given` where named, 0 elsewhere. */
 function over(keys, given) {
 	return Object.fromEntries(keys.map((key) => [key, given[key] ?? 0]));
@@ -78,7 +95,7 @@ export function installTypedEndpoint(t, lines, { delayMs = 0, clock, status } = 
 		// Since 0.9.5a's band shadow (§138.8) was gathered beside this line, a Keeper's time or damage write also asks the
 		// same endpoint for its band after it lands. That report-only question is not an admission review: it is answered as
 		// unavailable (the shadow records a failed row and nothing else changes) and it is not counted here.
-		if (!Object.keys(body.questions ?? {}).some((key) => /_\d+$/.test(key))) return new Response("not the admission family", { status: 503 });
+		if (!typedAdmissionRequest(body)) return new Response("not the admission family", { status: 503 });
 		requests.push(body);
 		if (delayMs) await (clock ? clock.sleep(delayMs) : new Promise((resolve) => setTimeout(resolve, delayMs)));
 		if (status) return new Response("unavailable", { status });
