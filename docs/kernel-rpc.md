@@ -33015,6 +33015,40 @@ library's lock waits on a fork's, so there is no cycle).
 - Tests: `tests/extension/library-follows-fork.test.mjs`, `campaign-module-isolation.test.mjs` (amended),
   `map-publication.test.mjs` (the host row).
 
+### 179.5 A fork that is not the library's lineage gives back its readings one by one (owner ruling 2026-10-04, 「点头」; amends §179.1 and §179.4)
+
+Owner, 2026-10-04: 「如果重开的话应该能做到复制一份共享图谱，如果有比共享图谱解析更多的内容可以回去添加共享图谱对吧？」, and after the
+lead described the reading-level merge, 「点头」. §179.1's fast-forward stays the first choice. When the lineage test fails
+(`library_advanced`: two campaigns forked the same head and the other one published first, or the library moved after
+this fork's base), the fork's readings the library lacks are published into the library **one at a time, through the
+library's own reading publication** -- the same `module.read.finish` (or `module.reference.materialize`) checks a library
+reading passes: the draft against the contract, the independent review, the merge into the current library graph
+(`assembleVisual`: a re-transcription of a published span is recorded, a conflicting value refuses), identity, opening
+readiness, and the single atomic generation write. No model is called; it costs no tokens.
+
+- **Which readings.** Every material row of the fork whose `key` the library's `reading.materials` does not hold, whose
+  fork job completed (not settled, not failed, not cancelled) with its attempt directory still holding the artifacts its
+  finish read (`packet.json`, `draft.json`, `review.json`, `observations.json`, and the identity review and rendered
+  assets when its finish had them), in the order the fork finished them. Source places (`module.reference.materialize`,
+  key `source-place:<scene>`) replay through `module.reference.materialize`. Not merged: source consultations
+  (`purpose: answer`, §179.4), guidance, identity-review jobs and settled needs; they are counted as skipped with their
+  reason.
+- **How.** For each reading, under the library module's metadata lock: the fork's attempt directory is copied to
+  `work/merged/<campaign>/<fork job id>/` in the library (never a `work/read-N` ordinal, which collide), a library queue
+  job is written with the fork job's identity (`key`, `purpose`, `focus`, `question`, `pages` and its JOB_MARKERS), state
+  `running`, a fresh lease and that work directory, and the library's own finish runs on it with the fork's draft, review,
+  identity review and assets (the rendered PNGs named by the fork graph's `asset_ref` for the draft's nodes, copied into
+  the merged directory with their digests). A refusal ends that reading's merge only: its library job is marked failed
+  with the refusal, and the next reading goes on (a later reading that needs an earlier refused one is refused too).
+- **Result.** The fork's publication result carries `library_sync: {state: "merged", merged: n, skipped: [{key, reason}],
+  library_generation}` (or `nothing_new` when the library already holds every reading). The fork's `library_sync` record
+  is not written: the fork is still not the library's lineage, and every later publication of it merges again, idempotent
+  by `key`.
+- **What it does not do.** The running fork does not take the library's newer readings (§179.4 unchanged). Two forks that
+  read the same unit keep the first one's in the library; the second is `already_present`.
+- **Three ends (§31).** Writer: the fork's publication. Reader: `ensureCampaignModule` for the next campaign and the
+  campaigns that still follow the library. Actor: the next campaign's read-ahead, which asks no unit either fork read.
+
 ### 179.2 The Keeper's request keeps its prefix across turns (amends §135.23)
 
 On the single-loop engine the projection's fixed part after the brief is, in order: the turn's capsule, then
@@ -33074,8 +33108,8 @@ describe the recorded prompt, not the one sent (the `prompt` lane's `stale_promp
 ### 179.4 Limits
 
 - Two campaigns forked from the same library generation are two lineages; the one that publishes first is the one the
-  library follows, and the other reads privately and publishes nothing to the library (counted as
-  `library_advanced`). Adopting a deeper library into a running fork is not done.
+  library follows. *Amended by §179.5: the other one's readings the library lacks are merged one by one through the
+  library's own publication.* Adopting a deeper library into a running fork is not done.
 - A library that reads on its own after a fork (setup guidance, a library-scoped opening read) moves its head and
   ends the forks' lineage; those forks publish nothing to it.
 - Source consultations (`purpose: answer`) stay private to their campaign.
