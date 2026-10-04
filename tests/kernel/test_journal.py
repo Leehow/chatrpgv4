@@ -392,6 +392,9 @@ def test_the_lane_is_told_what_the_table_calls_each_person(kernel):
     packet = kernel.ok("journal.job", {"campaign": CAMPAIGN, "turn": 1, "mode": "referenced"})
     assert packet["recordable"] == [{"alias": "person:0", "name": KNOTT, "epithet": "擦汗的房东"}]
     assert "listed with an epithet" in packet["instruction"]
+    # §176.9: named means their own name, the one recordable gives, in any script; "call me Walter" does not name them.
+    assert "this person's own name -- the name recordable gives them, in any spelling, script or transliteration" in packet["instruction"]
+    assert "A different name -- one they go by, a nickname, any name that is not that one -- does not name them" in packet["instruction"]
 
 
 def test_a_handle_is_not_what_the_table_calls_anyone(kernel):

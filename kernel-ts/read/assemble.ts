@@ -315,22 +315,30 @@ export function untoldReceipts(records: Row[], turn: number): Row[] {
             }] : [];
         });
 }
-/** present[] under its budget with every name kept: full rows are cut from the end as `fitBudget` cuts
- *  them, and each person cut comes back as `{name, truncated: true}`; if the stubs themselves do not fit,
- *  more full rows give way to stubs until they do. Returns whether anything was cut. */
-function fitPresent(rows: Row[], budget: number): boolean {
-    const names = rows.map(entry => string(entry.name));
+/** present[] under its budget with every person kept: full rows are cut from the end as `fitBudget` cuts
+ *  them, and each person cut comes back as a stub; if the stubs themselves do not fit, more full rows give
+ *  way to stubs until they do. Returns whether anything was cut. */
+export function fitPresent(rows: Row[], budget: number): boolean {
+    // `fitBudget` takes whole rows only from the end, so the people cut are the ones past what is left. By position:
+    // two people the book gives one name (book-4's two 罗伯特·泰勒 nodes) made a cut one look kept by name, and it vanished.
+    const all = [...rows];
     const cut = fitBudget(rows, budget);
     if (!cut)
         return false;
-    const kept = new Set(rows.map(entry => string(entry.name)));
-    const stubs: Row[] = names.filter(name => !kept.has(name)).map(name => ({ name, truncated: true }));
-    while (rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubs])).length > budget) {
-        const dropped = rows.pop()!;
-        stubs.unshift({ name: string(dropped.name), truncated: true });
-    }
+    const stubs: Row[] = all.slice(rows.length).map(presentStub);
+    while (rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubs])).length > budget)
+        stubs.unshift(presentStub(rows.pop()!));
     rows.push(...stubs);
     return true;
+}
+/**
+ * §176.8: a person cut to their name keeps their untold block, without its line. Whether they are untold, and the
+ * token that has their name said, is the next step for them, not payload: the replay of game-24bb66cb (2026-10-04)
+ * cut the navy veteran to `{name, truncated}` on every turn, and asked his name, three of four Keepers made one up.
+ */
+function presentStub(entry: Row): Row {
+    const { use: _line, ...untold } = row(entry.untold);
+    return { name: string(entry.name), truncated: true, ...(Object.keys(untold).length ? { untold } : {}) };
 }
 export function evidenceAnchors(graph: ModuleGraph, world: Row, records: Row[], limit = 4): string[] {
     return [...graph.kind("clue"), ...graph.kind("handout")]

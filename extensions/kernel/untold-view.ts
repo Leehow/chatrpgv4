@@ -27,7 +27,8 @@ export const UNTOLD_VIEW_USE = "Nobody has said this person's name to the invest
 
 /**
  * §176.5 (spec Q4): the token that says an untold person's name, ready to copy. Neither model on table 21 wrote
- * `{{name:<who>}}` when it had to compose it; each made up a name from the handle instead.
+ * `{{name:<who>}}` when it had to compose it; each made up a name from the handle instead. Since §176.8 the kernel's
+ * untold block carries it (`nameToken`); this builds the same token for a block written before that.
  */
 export const sayName = (shown: string): string => `{{name:${shown}}}`;
 
@@ -47,7 +48,9 @@ export function untoldView<T>(capsule: T): { capsule: T; names: UntoldNames } {
 		names.byName.set(name, shown);
 		if (id) names.byId.set(id, shown);
 		const { name: _book, untold: _untold, ...rest } = row;
-		return { name: shown, ...rest, untold: { ...(text(untold.label) ? { label: text(untold.label) } : {}), say_name: sayName(shown), use: UNTOLD_VIEW_USE } };
+		// §176.8: the kernel's block carries the token on every projection, a budget stub included; the view keeps it.
+		const token = text(untold.say_name) || sayName(shown);
+		return { name: shown, ...rest, untold: { ...(text(untold.label) ? { label: text(untold.label) } : {}), say_name: token, use: UNTOLD_VIEW_USE } };
 	});
 	if (!names.byName.size) return { capsule, names };
 	const view: Row = { ...source, present };

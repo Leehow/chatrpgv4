@@ -36,8 +36,12 @@ const instruction = (language: string) => 'Write an entry only for someone who t
     "'the oily-rag owner' or 'the bad-teeth trucker' -- one thing, not a list and not a sentence; never age, height, " +
     'build or sex alone, no part of the name and no label another person already has. The description says the rest. ' +
     "The description and the exchange must not name them either. If someone in this turn's narrative actually " +
-    "said or showed the player this person's name, in any spelling, give named: true with named_quote -- the exact " +
+    "said or showed the player this person's own name -- the name recordable gives them, in any spelling, script or " +
+    "transliteration, whole or in part -- give named: true with named_quote -- the exact " +
     "words of the prose or the spoken line that gave it, copied character for character -- instead of a label. " +
+    // §176.9: on a replay of game-24bb66cb (2026-10-04) the veteran said "call me Walter"; the lane journaled that as
+    // his name, he became told, the next turn's request no longer hid the book's name, and on turn 8 the Keeper wrote it.
+    'A different name -- one they go by, a nickname, any name that is not that one -- does not name them: leave named out. ' +
     'Having appeared, acted or been described is not being named: without such words, give a label. Someone not ' +
     'listed under unnamed takes neither.';
 /** The ledger's naming rule: journal keys are graph node ids, never names. */

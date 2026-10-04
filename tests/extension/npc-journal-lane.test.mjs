@@ -207,6 +207,9 @@ test("§103.6: the retry is told why the kernel refused the first answer, in the
 	assert.match(inputText(seen[1]), /needs named_quote/);
 	assert.match(inputText(seen[1]), /Fix: copy those words into named_quote/);
 	assert.match(promptOf(seen[0]), /named_quote, the exact words of the prose or spoken line that gave it/);
+	// §176.9: a made-up name ("call me Walter") was journaled as the veteran's name; the rule asks for their own name.
+	assert.match(promptOf(seen[0]), /that person's own name, the name recordable gives them, in any spelling, script or transliteration/);
+	assert.match(promptOf(seen[0]), /A different name \(one they go by, a nickname, any name that is not that one\) does not name them: leave named out/);
 	assert.equal(table.calls("journal.submit").length, 2);
 	assert.equal(table.calls("journal.fail").length, 0);
 });
