@@ -24322,19 +24322,20 @@ the Keeper (13.6 s, with a refused `resolve` and an `apply` first). At gate #6 t
 **What the builders issued outside a session (found, SL-19).** Nothing for a fight: `table.resolve.options` listed the
 combat decisions by name only (`decisions[]`, no targets, no weapons), and `buildCandidates` offers the specialised
 families only as a running session's steps, so the one resolve candidate outside a session was the ordinary check. A
-first blow needs a kernel row, because its parameters are the kernel's: who can be fought and what the investigator
-can hit with.
+first blow needs a kernel row because the kernel owns the available targets and methods, plus any profile or usage
+preparation they still require.
 
 **The kernel's row.** `table.resolve.options.context.first_blow` is `null` or `{decision: "combat:attack", intent:
-"combat", actor, targets, weapons}`: issued when no combat and no chase is active and the party is one investigator
-(`actor`, the sheet's name: the actor a resolve without `actor` defaults to); `targets` are the people present
-(`capsule.present`'s identities: the record's display name) that the combat engine can fight -- a stat block (the
-book's `mechanics.profile`, or one the table pinned from an archetype, §34.10) and not incapacitated
-(`incapacitatedBy` of their conditions); `weapons` are the investigator's own (`weaponOptions`, `unarmed` always
-among them). No target, no row. A person with no stat block is not a target: the engine refuses an attack on them
-(`needs` `archetype`), and pinning an archetype -- "chosen from who this person is" -- is the Keeper's. The row is a read
-and names nothing the resolve does not already accept; the kernel still opens the session, settles the attack and its
-pending defence, and issues every later step, exactly as for the Keeper's own `resolve`.
+"combat", actor, targets, weapons, preparation}`: issued when no combat and no chase is active and the party is one
+investigator (`actor`, the sheet's name: the actor a resolve without `actor` defaults to). `targets` names people
+present (`capsule.present`'s identities: the record's display name) who are not incapacitated; a combat profile is not
+required to name them. `preparation.targets` lists named people who still need a source-backed or Keeper-pinned profile
+before resolve. `weapons` combines ready weapons (`weaponOptions`, with `unarmed` always among them) and the
+investigator's held, owned, or inventory methods. `preparation.weapons` lists methods that still need an applicable
+attack usage. This metadata names work to prepare; it neither supplies missing profile/usage data nor makes an
+unprepared attack executable. Existing preparation and admission must finish before the canonical resolve can settle
+the attack. A read-only row still leaves the kernel to open the session, settle the attack and its pending defence, and
+issue every later step.
 
 **The candidate** (`runtime/jev/candidates.ts`): outside a live combat or chase, the row is one clerk candidate, key
 `resolve:combat:first-blow`, family `combat`, clerk authority **`first_blow`** (§135.3's list gains it: the
@@ -24360,21 +24361,24 @@ confidence gate.
 `act` cleared on another act, or on `combat` with `target` cleared; fires when `act` cleared on `combat` (the row's own
 `intent`, a resolve intent, since outside a session the `act` rows are the resolve intents) and `target` cleared on one
 of the candidate's issued targets, binding `target` (its `event: "bind"` record is path `jev` with the compile's
-confidence and distribution, as for the in-session attack). `target` cleared on a person present the kernel cannot
-fight (no stat block) decides it without firing: the Keeper's for the run. The in-session `attack` predicate now reads
+confidence and distribution, as for the in-session attack). A target with a missing profile remains a valid named
+target; `preparation.targets` keeps the selected attack from reaching resolve until that profile is ready. Likewise,
+an inventory method may be selected while `preparation.weapons` marks its missing usage. The in-session `attack` predicate now reads
 only the session's own attack (clerk `session_step`). The first blow is **compile-only**, like an obligation step
 (§135.30.1): the route's `need` question about it is asked and recorded but never selects it, because starting a fight
 is what the player does, which is the compile's to read, never whether a candidate is due. The compile is owed
-whenever the read issues it (it is reachable), so the first read in a scene with someone fightable present asks one.
+whenever the read issues it (it is reachable), so the first read in a scene with an issued target row asks one.
 
-**Knott at gates #5 and #6.** His book prints no numbers and the table had pinned none before turn 3, so the first-blow
-row issued no target there: the Keeper pins the archetype and throws the punch, as it did live. Once a stat block
-exists (the Keeper's pin, a book that prints one), the compile selects the first blow.
+**Knott at gates #5 and #6.** The live gate evidence predates §159.10.1: the earlier row had no target while Knott had no
+profile. Under the current contract, Knott is named and `preparation.targets` records the missing profile; inventory
+methods likewise remain named with missing usages in `preparation.weapons`. The Keeper may use an authored profile or a
+rulebook archetype only when justified; neither the row nor Jev invents combat numbers. The host must prepare the chosen
+target and method before resolve.
 
 *Tests.* `tests/extension/single-loop-compile.test.mjs`: the `target` rows outside a session only with a first-blow row
-and equal to the addressee rows; the predicate fires on `combat` + a fightable person, not below the gate, not on
-another act, not on a person without a stat block; the first blow compile-only at the route. `tests/kernel/test_jev_resolve.py`
-(the row on the emitted kernel: none for Knott without numbers, then his name after an archetype pin; none in a fight).
+and equal to the addressee rows; the predicate fires on `combat` + a named present person, not below the gate or on
+another act; the first blow compile-only at the route. `tests/kernel/test_jev_resolve.py` checks the named target and
+profile/usage preparations before and after a justified archetype pin, then no first-blow row in a fight.
 `tests/extension/single-loop-domain-policy.test.mjs`: the clerk's first blow at the seam on the emitted kernel opens the
 fight. The replays are in the SL-19 ticket's Comments.
 
