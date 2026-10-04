@@ -8,6 +8,7 @@ import { incapacitatedBy } from "../healing/conditions.js";
 import { namePieces, toldTurn } from "../journal/naming.js";
 import { tableWord } from "./person-words.js";
 import { bookCast, untoldUnread } from "./cast.js";
+import { nameToken } from "../write/names.js";
 import {memoryEvidenceView,withPromiseFulfillment,canonicalMemoryReceipts,memoryOccurrenceKey} from './memory.js';
 import {personalityView} from '../npc/material.js';
 import { intentsView } from '../npc/intents.js';
@@ -141,6 +142,10 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
         // Contract §103.5 (2026-10-03): the handle, so the Keeper-facing view can name this person by it instead of by the
         // book's name until the name is said (extensions/kernel/untold-view.ts).
         id: graph.handle(node),
+        // §176.8: the token that has their name said, on every projection of this block. Replay of game-24bb66cb
+        // (2026-10-04, turn 5): the budget had cut the veteran to a stub, the view's token never reached him, and three
+        // of four Keepers asked his name made one up.
+        say_name: nameToken(label || graph.handle(node)),
         // §115 asked this line to say `apply person` gives an epithet; compressed to "apply person, then called.name", the
         // Keeper of the installed App's Blood Road table (2026-10-02, turn 5) applied the book's names and wrote them; told
         // "never this name", the next table's Keeper applied the station owner's nickname instead, the short name the book gives him.

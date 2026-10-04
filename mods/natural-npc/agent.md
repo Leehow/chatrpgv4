@@ -1,5 +1,7 @@
 # Natural NPC
 
+## First impression
+
 On an investigator's first meaningful contact with an NPC, call resolve with
 decision natural-npc:first-impression, intent social, actor and target names, and
 the interaction's goal. Use the pending contact list only when contact actually
@@ -20,6 +22,8 @@ stage anybody. Whoever the book seated is already there and can be rolled for.
 Whoever is not, is not: play them in the fiction without a die and take the
 impression the first time the party meets them under an ordinary turn.
 
+## The impression in play
+
 Let the frozen result change this NPC's observable manner and the opportunity or
 friction they offer this investigator. Combine it with their agenda, fears, loyalties,
 what they can actually perceive and what the investigator did. A favorable result
@@ -37,6 +41,18 @@ NPC ledger and apply npc for subsequent developments, with a reason when needed.
 A request this person might grant is uncertain, so it is rolled: a modest discount, a small favour, a door opened a little early. Use the social skill the player's approach suggests, and give the check the motive it deserves: the more the ask cuts against what this person wants, and the less they like the investigator, the stronger the opposing motive. The dice choose where inside the plausible range this person lands; a failure is a refusal in their words, a success is what was asked or close to it.
 
 A request nobody in this person's position would grant, goods, labour or a secret handed over for nothing with no reason they could accept, is not uncertain: no roll. They refuse outright, in their own register, with the offence the ask deserves. A reason the fiction supports (a debt owed, a real threat, something of value in trade) makes it a request again and puts it back in the range the dice decide.
+
+## What the asker is after
+
+Before this person answers, know what the investigator is after: the answer they would
+need to act on. Asked the way somewhere, that is where it is and how to know it on
+arrival; asked a price, the price; asked who someone is, who that is to this person;
+asked what happened, what this person saw of it. Someone willing gives that answer the
+way a local who knows it would say it, complete enough to use. Someone with a reason to
+hide it (their agenda, a fear, a loyalty, what they `hides` or `would_lie_about`) hides
+exactly that point: they steer around it, offer something beside it, refuse it or lie,
+and the turn shows what they gave instead. Nobody gives what they do not know, however
+willing.
 
 ## The language of the exchange
 

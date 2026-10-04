@@ -8,6 +8,8 @@
  * - §135.23: on the single-loop engine a turn's request is append-only, so a run's second model call reads its first
  *   call's whole prompt from cache (the faux provider's own accounting: the common prefix with the previous prompt),
  *   and the next turn's first call reads the brief.
+ * - §184.2: the turn's capsule follows the brief, its stable sections first, so the next turn's first call also reads the
+ *   capsule's head up to the first section that changed.
  */
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
@@ -16,13 +18,13 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { openTable } from "./harness.mjs";
+import { openTable, waitFor } from "./harness.mjs";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { operationCapability } from "../../extensions/kernel/canonical-operation-dispatcher.ts";
 import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { CANDIDATE_BODIES_BYTES, CANDIDATE_BODY_BYTES, fitBody, readCandidateBodies } from "../../runtime/jev/candidate-bodies.ts";
 import { argumentLimitRefusal, COC_TOOLS, SENTENCE_MAX } from "../../extensions/kernel/tools.ts";
-import { capsuleUpdate, CAPSULE_UPDATE_TYPE } from "../../extensions/table/context-policy.ts";
+import { capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, CAPSULE_VOLATILE_SECTIONS } from "../../extensions/table/context-policy.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const size = (value) => Buffer.byteLength(JSON.stringify(value), "utf8");
@@ -226,6 +228,16 @@ function kernelSteps(workspace, campaign, requests) {
 }
 const messageText = (message) => typeof message.content === "string" ? message.content
 	: (message.content ?? []).map((block) => block.text ?? (block.type === "toolCall" ? `${block.name}:${JSON.stringify(block.arguments)}` : "")).join("\n");
+/** The faux provider's prompt text, `role:text` per message; without the system message's tool lines, so a lower bound. */
+const promptText = (messages) => messages.map((message) => `${message.role}:${messageText(message)}`).join("\n\n");
+const CAPSULE_HEAD = /^\{"head":"Everything at the start of this turn/;
+/** How many leading characters two strings share. */
+const sharedPrefix = (a, b) => { let at = 0; while (at < a.length && at < b.length && a[at] === b[at]) at++; return at; };
+/** Where a top-level section's key starts in a capsule serialized in its own key order. */
+const sectionOffset = (capsule, key) => {
+	const keys = Object.keys(capsule), before = keys.slice(0, keys.indexOf(key));
+	return before.length ? JSON.stringify(Object.fromEntries(before.map((name) => [name, capsule[name]]))).length : 1;
+};
 
 test("§135.23: on the single-loop engine a run's second call reads the first call's whole prompt from cache, and the next turn's first call reads the brief", async (t) => {
 	const campaign = "test-camp", requests = [];
@@ -266,6 +278,83 @@ test("§135.23: on the single-loop engine a run's second call reads the first ca
 	assert.ok(index > 0 && index === briefAt(requests[1]));
 	assert.deepEqual(requests[2].messages.slice(0, index + 1).map(messageText), requests[1].messages.slice(0, index + 1).map(messageText));
 	assert.ok(nextTurn.cacheRead >= Math.ceil(requests[2].messages.slice(0, index + 1).map((message) => `${message.role}:${messageText(message)}`).join("\n\n").length / 4));
+	// §184.2: right after the brief comes the turn's capsule, then the history, on the turn's calls and on the next turn's first.
+	for (const context of requests) {
+		assert.match(messageText(context.messages[index + 1]), CAPSULE_HEAD, "the capsule follows the brief");
+		assert.match(messageText(context.messages[index + 2]), /"kind":"historical_quotations"/, "the history follows the capsule");
+	}
+	const previous = messageText(requests[1].messages[index + 1]), next = messageText(requests[2].messages[index + 1]);
+	const before = JSON.parse(previous), after = JSON.parse(next);
+	assert.deepEqual(Object.keys(after), Object.keys(stableFirst(after)), "its sections are in the stable-first order");
+	// This turn's write (a clue) changed sections; the two capsules share every section ahead of the first one it changed,
+	// and inside that section (mods and known are ordered too) every key ahead of the first one it changed.
+	const changed = Object.keys(after).find((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+	const shared = sharedPrefix(previous, next);
+	assert.ok(changed && Object.keys(after).indexOf(changed) > 0, `a section after the head changed: ${changed}`);
+	assert.ok(shared >= sectionOffset(after, changed), `the capsules share ${shared} characters, through every section before ${changed}`);
+	const inner = after[changed] && typeof after[changed] === "object" && !Array.isArray(after[changed])
+		? Object.keys(after[changed]).find((key) => JSON.stringify(before[changed]?.[key]) !== JSON.stringify(after[changed][key])) : undefined;
+	const innerAt = inner === undefined ? sectionOffset(after, changed)
+		: sectionOffset(after, changed) + JSON.stringify(changed).length + 1 + sectionOffset(after[changed], inner);
+	assert.ok(shared >= innerAt, `and through ${changed} up to ${changed}.${inner} (${innerAt})`);
+	t.diagnostic(`clue turn: capsule ${next.length} chars; shared ${shared} (~${Math.ceil(shared / 4)} tokens); first change ${changed}.${inner} at ${innerAt}; where at ${sectionOffset(after, "where")}; cacheRead ${nextTurn.cacheRead}`);
+	assert.ok(nextTurn.cacheRead >= Math.ceil(`${promptText(requests[2].messages.slice(0, index + 1))}\n\nuser:${next.slice(0, shared)}`.length / 4),
+		`the next turn's first call reads the brief and the capsule's shared head from cache (${nextTurn.cacheRead})`);
+});
+
+test("§184.2: when a turn wrote nothing to a stable section, the next turn's first call shares the capsule past style, and every request row is fingerprinted (§184.3)", async (t) => {
+	const campaign = "test-camp", requests = [];
+	const prepareWorkspace = (workspace) => kernelSteps(workspace, campaign, [["table.open", {}], ["table.player_input", { text: "我坐下" }],
+		["table.narrate", { call_id: "t1-c1", text: "诺特把帽子搁在椅背上。" }]]);
+	const hybrid = createHybridEngine({ env: process.env, decision: null });
+	const reply = (message) => (context) => { requests.push(context); return message; };
+	const table = await openTable({
+		realKernel: true, prepareWorkspace, runDriver: hybrid.runDriver, env: { PI_COC_LOOP_ENGINE: "hybrid-v1", PI_COC_JEV_PRESELECT: "1", EXT_JEV_APIKEY: "test-key" },
+		extraExtensions: [{ name: "coc-hybrid-engine", factory: hybrid.extension }],
+		// Two turns that only deliver: nothing but the turn's own record changes between them.
+		responses: [reply(fauxAssistantMessage([fauxToolCall("narrate", { text: "他说先去报馆。" })], { stopReason: "toolUse" })),
+			reply(fauxAssistantMessage([fauxToolCall("narrate", { text: "你点头。" })], { stopReason: "toolUse" }))],
+	});
+	t.after(() => table.dispose());
+	await table.session.prompt("该去哪儿查？");
+	await table.session.prompt("我点头。");
+	assert.equal(requests.length, 2);
+	const [, nextTurn] = table.session.messages.filter((message) => message.role === "assistant" && message.usage).map((message) => message.usage);
+	const briefAt = (context) => context.messages.findIndex((message) => messageText(message).includes('"kind":"context_brief"'));
+	const index = briefAt(requests[1]);
+	assert.ok(index > 0 && index === briefAt(requests[0]));
+	for (const [context, player] of [[requests[0], "该去哪儿查？"], [requests[1], "我点头。"]]) {
+		assert.match(messageText(context.messages[index + 1]), CAPSULE_HEAD, "the capsule follows the brief");
+		assert.match(messageText(context.messages[index + 2]), /"kind":"historical_quotations"/, "then the history");
+		assert.equal(messageText(context.messages[index + 3]), player, "then the player's words");
+	}
+	const previous = messageText(requests[0].messages[index + 1]), next = messageText(requests[1].messages[index + 1]);
+	const after = JSON.parse(next), shared = sharedPrefix(previous, next);
+	const volatile = Object.keys(after).find((key) => CAPSULE_VOLATILE_SECTIONS.includes(key));
+	assert.ok(sectionOffset(after, volatile) > sectionOffset(after, "style"), "style sits ahead of the volatile sections");
+	assert.ok(shared >= sectionOffset(after, volatile),
+		`the capsules share ${shared} characters, past style and up to the first volatile section (${volatile} at ${sectionOffset(after, volatile)})`);
+	const cached = `${promptText(requests[1].messages.slice(0, index + 1))}\n\nuser:${next.slice(0, shared)}`;
+	assert.ok(nextTurn.cacheRead >= Math.ceil(cached.length / 4),
+		`the next turn's first call reads the system prompt, the brief and the capsule's head from cache (${nextTurn.cacheRead} >= ${Math.ceil(cached.length / 4)})`);
+	t.diagnostic(`capsule ${next.length} chars; shared with the previous turn's ${shared} chars (~${Math.ceil(shared / 4)} tokens); cacheRead ${nextTurn.cacheRead}`);
+
+	// §184.3: the context lane's request rows carry the time and the request's fingerprints.
+	await waitFor(() => table.telemetry().filter((row) => row.lane === "context" && row.event === "request").length >= 2, { label: "two request rows" });
+	const rows = table.telemetry().filter((row) => row.lane === "context" && row.event === "request");
+	for (const row of rows) {
+		assert.equal(row.at, new Date(row.at).toISOString());
+		assert.match(row.system_digest, /^[a-f0-9]{12}$/);
+		assert.deepEqual(row.segments.slice(0, 4).map((segment) => segment.kind), ["coc-context-brief", "coc-capsule", "coc-history", "user"]);
+		assert.ok(row.segments.every((segment) => Number.isSafeInteger(segment.bytes) && segment.bytes > 0 && /^[a-f0-9]{12}$/.test(segment.digest)));
+		const total = row.segments.reduce((sum, segment) => sum + segment.bytes, 0) + row.system_bytes;
+		assert.equal(total - row.request_bytes, row.segments.length - 1, "the segments and the system message make up the request");
+	}
+	const [one, two] = rows.slice(-2);
+	assert.equal(two.system_digest, one.system_digest, "the system prompt did not change");
+	assert.equal(two.segments[0].digest, one.segments[0].digest, "nor did the brief");
+	assert.notEqual(two.segments[1].digest, one.segments[1].digest, "the capsule did: the first segment that differs");
+	assert.ok(Date.parse(two.at) >= Date.parse(one.at));
 });
 
 for (const engine of ["hybrid-v1", "legacy"]) {

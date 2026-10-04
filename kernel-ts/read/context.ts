@@ -1,7 +1,7 @@
 /** Host-only context identity and bounded extraction coverage; never persisted as game state. */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { jsonDigest, pythonJsonDumps, utf8Bytes } from '../json.js';
+import { isJsonObject, jsonDigest, pythonJsonDumps, utf8Bytes } from '../json.js';
 import type { CampaignSnapshot, LoadedModule } from './campaign.js';
 import { array, number, row, string, truth, chars, type Row } from './values.js';
 import {taskViews} from './task-views.js';
@@ -148,7 +148,14 @@ export async function sourceRevision(campaign: CampaignSnapshot, module: LoadedM
             register: campaign.meta.register ?? null,
             play_language: campaign.meta.play_language ?? null
         };
-        const {reading: _readerBookkeeping, updated_at: _bookkeepingClock, ...taskMeta} = module.meta;
+        // §184.1: `library_sync` is the fork's record of what the library adopted from it, written after the fork's own
+        // publication (and after that publication's exact source advance was measured); it is no source a task reads.
+        const {reading: _readerBookkeeping, updated_at: _bookkeepingClock, library_sync: _librarySync, ...taskMeta} = module.meta;
+        // §182.1: the bookmarks a host backfills into `source_document` steer the read-ahead's window; no task reads them.
+        if (isJsonObject(taskMeta.source_document) && Object.hasOwn(taskMeta.source_document, 'outline')) {
+            const {outline: _outline, ...sourceDocument} = taskMeta.source_document;
+            taskMeta.source_document = sourceDocument;
+        }
         return { source_revision: jsonDigest({...common, meta: module.meta}), task_source_revision: jsonDigest({...common, meta: taskMeta}) };
     }
     catch (error) {

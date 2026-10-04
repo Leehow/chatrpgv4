@@ -1,0 +1,397 @@
+{
+  "_": "Round 2 (2026-10-04, after the round-1 misses and false positives were read). Cards whose due-ness is a fact of the table (a present person never met, a clue the book hands over here, gear not yet registered, a clock running, a stall counter) move to `state` or `host` triggers: code decides them, Jev is not asked. The `jev` cards keep the one-line `when` for the human index and gain the structured form Jev reads: `what`, `not_for`, `examples` (official criteria fields).",
+  "cards": [
+    {
+      "id": "ei/documents",
+      "mod": "enhanced-items",
+      "blocks": [
+        1,
+        1
+      ],
+      "trigger": "host",
+      "when": "The Keeper is about to write a readable carrier: an apply with `document`, a handout, or an item named as paper, letter, note, book, map, photograph; or the player writes in fiction.",
+      "host_rule": "before an apply whose effects name document/handout, or an item whose definition is readable; and when the player's declaration uses a carried readable item (compile `item` row of a readable definition)."
+    },
+    {
+      "id": "ei/register",
+      "mod": "enhanced-items",
+      "blocks": [
+        2,
+        2
+      ],
+      "trigger": "jev",
+      "when": "A carried thing is drawn, raised, used, shown, handed over, damaged or lost: a camera lifted, a flashlight switched on, a gun drawn, a notebook opened, a helmet hung up.",
+      "what": "The investigator handles a thing they carry: draws, raises, aims, switches on, opens, hangs up, hands over, uses, breaks or loses it. Taking a photograph, lighting a lamp, writing in a notebook, drawing a weapon all count.",
+      "not_for": "Money changing hands; a thing only mentioned, worn or kept in a pocket; buying or receiving a new thing from someone else.",
+      "examples": [
+        "下车端起相机拍了一张",
+        "我把头盔挂在车把上",
+        "用手电筒查看十字架",
+        "掏出左轮"
+      ],
+      "state_rule": "only while mods.unregistered_equipment is non-empty; Jev then judges whether a carried thing is handled."
+    },
+    {
+      "id": "ei/define",
+      "mod": "enhanced-items",
+      "blocks": [
+        3,
+        3
+      ],
+      "trigger": "host",
+      "when": "The Keeper is about to place a new item, weapon or spell: an apply with `define`, `object` or `item`.",
+      "host_rule": "before an apply whose effects carry define/object/item; and when the scene's authored material lists things to be handed over here."
+    },
+    {
+      "id": "ei/manage",
+      "mod": "enhanced-items",
+      "blocks": [
+        4,
+        4
+      ],
+      "trigger": "host",
+      "when": "The Keeper is about to transfer, consume, repair, damage or cast with a registered instance: an apply `object` or a resolve `objects:*` / `magic:*`.",
+      "host_rule": "before an apply object, resolve objects:use / objects:repair / magic:cast-spell / magic:learn-spell; and when the compile's `item` row names a registered instance."
+    },
+    {
+      "id": "ei/usage",
+      "mod": "enhanced-items",
+      "blocks": [
+        5,
+        5
+      ],
+      "trigger": "jev",
+      "when": "The investigator attacks or uses force with a carried object or a scene object: swings, stabs, shoots, throws, rams, pries, breaks with it.",
+      "what": "An attack or a forceful use of a thing: a carried weapon or tool, an improvised weapon (a bottle, a chair, a wrench), a scene object, or a vehicle used as force.",
+      "not_for": "Using a tool in its ordinary way (a flashlight, a camera, a key); threatening without striking; a fight with bare hands.",
+      "examples": [
+        "我抡起扳手砸他的手",
+        "开枪打轮胎",
+        "用撬棍撬开门板",
+        "一脚踹开"
+      ]
+    },
+    {
+      "id": "ei/refusal",
+      "mod": "enhanced-items",
+      "blocks": [
+        6,
+        6
+      ],
+      "trigger": "host",
+      "when": "The host refused a narration for an undeclared mechanical object."
+    },
+    {
+      "id": "kp/carry",
+      "mod": "keeper-pacing",
+      "blocks": [
+        1,
+        2
+      ],
+      "trigger": "always",
+      "when": "Every turn."
+    },
+    {
+      "id": "kp/lethal",
+      "mod": "keeper-pacing",
+      "blocks": [
+        3,
+        3
+      ],
+      "trigger": "jev",
+      "when": "An outcome about to land could kill or gravely wound an investigator.",
+      "what": "The declared action, or what it walks into, could kill or gravely wound the investigator this turn: fighting someone armed or a creature, falling, a trap, a vehicle at speed, fire, drowning.",
+      "not_for": "Ordinary danger that costs nothing yet: a dark room, a bad feeling, a threat spoken but not acted on.",
+      "examples": [
+        "我冲过去抢他的枪",
+        "从二楼窗户跳下去",
+        "踩油门撞开路障"
+      ]
+    },
+    {
+      "id": "kp/clocks",
+      "mod": "keeper-pacing",
+      "blocks": [
+        4,
+        4
+      ],
+      "trigger": "state",
+      "when": "mods.pacing.threat_clocks is non-empty.",
+      "state_rule": "mods.pacing.threat_clocks has a row"
+    },
+    {
+      "id": "kp/stuck",
+      "mod": "keeper-pacing",
+      "blocks": [
+        5,
+        5
+      ],
+      "trigger": "state",
+      "when": "director.because.stalled_turns has reached stall_turns, or the Director reads RECOVER.",
+      "state_rule": "stalled_turns >= settings.stall_turns, or director signal RECOVER"
+    },
+    {
+      "id": "kp/ooc",
+      "mod": "keeper-pacing",
+      "blocks": [
+        6,
+        6
+      ],
+      "trigger": "jev",
+      "when": "The player speaks out of character, is stuck or confused, asks what to do, what their investigator knows, to see a map, or complains about pacing or continuity.",
+      "what": "The words are the player's, not the investigator's act: a bare prompt (\"then what?\", \"?\", \"go on\"), a question about what the investigator knows or can do, a request to see a map or a recap, a remark on pacing, a complaint that the scene or place is wrong, text in parentheses or marked ooc.",
+      "not_for": "An investigator's action or line of dialogue, however short; an in-fiction question put to a person present.",
+      "examples": [
+        "然后呢",
+        "？",
+        "（ooc：能不能加快节奏）",
+        "请给我看我目前能知道的农场地图",
+        "等等，我刚才明明到了波街公墓，怎么变成教堂公墓了",
+        "我已经到了码头，先把眼前发生的事说清楚"
+      ]
+    },
+    {
+      "id": "kp/recover",
+      "mod": "keeper-pacing",
+      "blocks": [
+        7,
+        7
+      ],
+      "trigger": "state",
+      "when": "The Director reads RECOVER."
+    },
+    {
+      "id": "kp/no-ladder",
+      "mod": "keeper-pacing",
+      "blocks": [
+        8,
+        8
+      ],
+      "trigger": "always",
+      "when": "Every turn."
+    },
+    {
+      "id": "nn/impression",
+      "mod": "natural-npc",
+      "heading": "start",
+      "trigger": "state",
+      "when": "A person present has no history with this investigator (natural-npc 1.5.0: the kernel rolls it at first shared scene).",
+      "state_rule": "present[] has a row whose history/relationships with the investigator are empty"
+    },
+    {
+      "id": "nn/asking",
+      "mod": "natural-npc",
+      "heading": "Asking for something",
+      "trigger": "jev",
+      "when": "The investigator asks a person to grant something at that person's discretion: a favour, a discount, a free thing, work, access, a loan, a secret, a bend of the rules.",
+      "what": "A request only this person can grant or refuse, that costs them something or bends their rules: do me a favour, give me a better price, let me in, lend me, check my tyre for free, tell me the secret, relay a message to someone above you.",
+      "not_for": "Buying or ordering at the price asked (a meal, fuel, a room, cigarettes); a question seeking information; a greeting; stating one's business.",
+      "examples": [
+        "能不能顺手给我查查左后轮、补一下",
+        "要不多给我点？",
+        "麻烦你转告负责的警探，我想见他一面",
+        "能便宜点吗"
+      ]
+    },
+    {
+      "id": "nn/asker",
+      "mod": "natural-npc",
+      "heading": "What the asker is after",
+      "trigger": "jev",
+      "when": "The investigator asks a person present a question or seeks information from them.",
+      "what": "A question put to a person present, or an attempt to learn something from them: where a place is, what something costs, who someone is, what happened, whether they saw something, what is for sale, how long they have been here.",
+      "not_for": "A question the player asks the Keeper out of character; a request to be given a thing or a favour; a statement with no question in it.",
+      "examples": [
+        "镇上哪儿能吃饭、住一晚？",
+        "最近有没有一辆蓝色甲壳虫进过镇子？",
+        "你这店开了多少年了？",
+        "那边那个大家伙是什么？"
+      ]
+    },
+    {
+      "id": "nn/language",
+      "mod": "natural-npc",
+      "heading": "The language of the exchange",
+      "trigger": "state",
+      "when": "A person present speaks a language the investigator's sheet does not hold at 50 or above, or their `speaks` is unknown.",
+      "state_rule": "present[].speaks absent, or not covered by the investigator's Language skills"
+    },
+    {
+      "id": "st/clues",
+      "mod": "story-thread",
+      "blocks": [
+        1,
+        2
+      ],
+      "trigger": "state",
+      "when": "known.clues_here lists an undiscovered clue, or mods.thread has a line with `here` or `next`.",
+      "state_rule": "clues_here has an undiscovered row, or thread lines are present"
+    },
+    {
+      "id": "st/reentry",
+      "mod": "story-thread",
+      "blocks": [
+        3,
+        7
+      ],
+      "trigger": "state",
+      "when": "mods.thread.reentry is present."
+    },
+    {
+      "id": "st/handed",
+      "mod": "story-thread",
+      "blocks": [
+        8,
+        8
+      ],
+      "trigger": "state",
+      "when": "A clue here is `handed` (plainly in the room, or what a present person says when asked).",
+      "state_rule": "clues_here has a row whose delivery is handed, or thread `here` names one"
+    },
+    {
+      "id": "st/conclude",
+      "mod": "story-thread",
+      "blocks": [
+        9,
+        10
+      ],
+      "trigger": "jev",
+      "when": "The player connects evidence, draws a conclusion, asks what the clues mean, or states as fact what a clue only hinted.",
+      "what": "The player reasons over what they have found: links two clues, names a culprit or cause, asks what it all means, asks a person to confirm a theory, or turns an abbreviated clue into a claim.",
+      "not_for": "Finding or examining a clue; asking a person a plain factual question; deciding where to go next.",
+      "examples": [
+        "这么说，大火和那份保险理赔是一回事？",
+        "我怀疑这事和我在雅典见过的拜占庭符号有关",
+        "所以凶手就是神父？"
+      ]
+    },
+    {
+      "id": "nc/this-turn",
+      "mod": "narration-craft",
+      "heading": "This turn",
+      "trigger": "always",
+      "when": "Every turn."
+    },
+    {
+      "id": "nc/sentences",
+      "mod": "narration-craft",
+      "heading": "Sentences and paragraphs",
+      "trigger": "always",
+      "when": "Every turn."
+    },
+    {
+      "id": "nc/people",
+      "mod": "narration-craft",
+      "heading": "The people here",
+      "trigger": "always",
+      "when": "Every turn with a person present."
+    },
+    {
+      "id": "nc/scene",
+      "mod": "narration-craft",
+      "heading": "Scene and detail",
+      "trigger": "always",
+      "when": "Every turn."
+    },
+    {
+      "id": "nc/opening",
+      "mod": "narration-craft",
+      "heading": "Opening the table",
+      "trigger": "state",
+      "when": "The opening turn."
+    },
+    {
+      "id": "nc/settings",
+      "mod": "narration-craft",
+      "heading": "Settings",
+      "trigger": "always",
+      "when": "Every turn."
+    },
+    {
+      "id": "hr/lookup",
+      "mod": "historical-reference",
+      "blocks": [
+        0,
+        1
+      ],
+      "trigger": "state",
+      "when": "historical_reference_materials were handed to this step."
+    },
+    {
+      "id": "hr/bounds",
+      "mod": "historical-reference",
+      "blocks": [
+        2,
+        3
+      ],
+      "trigger": "always",
+      "when": "Every turn."
+    },
+    {
+      "id": "hr/prices",
+      "mod": "historical-reference",
+      "blocks": [
+        4,
+        4
+      ],
+      "trigger": "jev",
+      "when": "A price, wage, fare, rent or menu comes up: buying, paying, ordering, filling a tank, renting a room, hiring, being paid or quoted a sum.",
+      "what": "Money will be named this turn: the investigator buys, orders, pays, fills the tank, rents a room, books a passage, asks what something costs, asks for pay, or is quoted or paid a sum.",
+      "not_for": "A thing received for nothing; money only mentioned as already spent; a theft.",
+      "examples": [
+        "加满。",
+        "来份午饭，再来杯冰水",
+        "我要订去希腊的船票",
+        "要不多给我点？我要多吃点才有力气干活",
+        "住一晚多少钱"
+      ],
+      "host_rule": "also before an apply whose effects carry cash (quote or settle): the held-out check found 10 of 12 misses were turns where the Keeper itself wrote the money."
+    },
+    {
+      "id": "hr/dispute",
+      "mod": "historical-reference",
+      "blocks": [
+        5,
+        5
+      ],
+      "trigger": "jev",
+      "when": "The player disputes a quoted price as wrong for the period or place.",
+      "what": "The player objects to a sum the table quoted: says it is too much, not what things cost then, or asks the Keeper to check the price.",
+      "not_for": "Haggling in character for a better price; asking what something costs; paying.",
+      "examples": [
+        "1925 年一份汉堡不可能要两块五吧",
+        "这房钱太离谱了，你查一下当年的价"
+      ]
+    },
+    {
+      "id": "hr/closure",
+      "mod": "historical-reference",
+      "blocks": [
+        6,
+        6
+      ],
+      "trigger": "host",
+      "when": "Historical retrieval is closed for this input."
+    },
+    {
+      "id": "kc/workspace",
+      "mod": "keeper-context",
+      "blocks": [
+        1,
+        4
+      ],
+      "trigger": "state",
+      "when": "A workspace was provided."
+    },
+    {
+      "id": "zh/speech",
+      "mod": "zh-optimize",
+      "blocks": [
+        1,
+        1
+      ],
+      "trigger": "always",
+      "when": "Every turn on a table played in Chinese."
+    }
+  ]
+}

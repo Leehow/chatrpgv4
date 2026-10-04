@@ -15,6 +15,9 @@ import type { SpeakerResolver } from './speech-pass.js';
 
 const NAME_TOKEN = /\{\{name:([^{}\n]{1,80})\}\}/g;
 
+/** §176.8: the token that has `who`'s name said, as every untold block carries it (`say_name`). */
+export const nameToken = (who: string): string => `{{name:${who}}}`;
+
 export interface NamedText { text: string; named: string[]; unresolved: string[] }
 
 /** `text` with every `{{name:<who>}}` replaced by the book's name for that person; the handles named, and the words that named nobody. */

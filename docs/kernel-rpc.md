@@ -7951,6 +7951,8 @@ attack, before any close call and before the basement.
 
 ### 30.7 `contributes.brief`: the first turn long, the turns after short (2026-09-10 user decision)
 
+**Retired by §183 (2026-10-04).** The brief only ever reached the capsule; the Keeper's requests carried the full instruction on every turn. No row is `brief` any more; a package's `contributes.brief` is accepted and never read.
+
 **Approved 2026-09-15 amendment (implementation/integration pending):** the ordinary first-turn
 lifecycle below is retained, but host-only `table.capsule {rehydrate:true}` also forces `full` using
 these same builders without consuming the first-turn marker. See the capsule amendment and §19.2.
@@ -11623,6 +11625,8 @@ Nothing semantic is checked in code: no "generic" detector, no language detector
 **The host speech steer (§40, 2026-09-15).** On an implicit delivery with people in the capsule's `present[]` and no `{{say:` in the draft, the host drops the draft once and asks for the same turn with its lines wrapped (`coc-host` kind `speech`, telemetry `{lane: "speech", steered: true, present}`); the second leg is honoured however it comes and a second leg that brings nothing falls back to the dropped draft, exactly as the turn-floor steer of §34. The opening is exempt (§128.2 adds a second form, not exempt at the opening: a draft that wraps some lines and leaves passages in the same quotation marks outside every token), and `PI_COC_SPEECH_STEER=0` disables the steer for an experiment's control arm. Nothing reads the prose: a machine token is searched for. Reason: on `deepseek-flash` the Keeper wrapped 29% of lines and closed 17 of 20 turns implicitly; the token was a suggestion it forgot after the opening.
 
 ### 40.6 Prompt bytes
+
+**The 5000-byte shared ceiling over the active briefs is retired by §183.3 (2026-10-04)**; what bounds package instructions is §183's instruction budget.
 
 `prompts/keeper.md` Law 4 names two machine tokens; the Writing paragraph states the say rule beside the marker rule; the floor's voice clause names the token. `content/craft/beat-directives.json` `floor_lines[voice]` is unchanged — the `style` section's 1536-byte budget (`kernel-ts/read/assemble.ts`) has no room, and a longer voice line pushed a first-turn directive out (`test_capsule_nine`); the token rule lives in the base prompt and the tool descriptions; `narration-craft` 1.2.1's brief names it (a byte changed is a version bumped, §26). The `narrate` and `ask` tool descriptions gain one sentence. **The §30.7 per-turn brief ceiling rises from 4000 to 5000 bytes for all active briefs** (`tests/kernel/test_mod_director_text.py` pins it); §34.8's "4000" reads as this section's 5000. Old package versions keep their bytes and locks (§26).
 
@@ -26285,6 +26289,14 @@ Version 2.2.1. This version-frozen package is authored by the craft writer. The 
 The primary precedents already read by root are Ursula K. Le Guin’s authorized chapter on rhythm as physical movement (https://lithub.com/a-writing-lesson-from-ursula-k-leguin/) and Delatorre et al.’s experiment (https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2018.01392/full). They support avoiding rigid metre and treating suspense as more than concealed outcomes; they do not validate this Mod or prove sentence-length causality. No novel quotation is copied into runtime instructions.
 
 
+
+### 137.11 A whole environment passage from the current task (2026-10-04)
+
+Writer: package author. Reader: kernel/style projection and host context. Actor: Keeper. This is an ordinary adoption of the environment-only Craft 2.2.4 wording; it uses the same schema, capabilities, settings, and locks, with no new state or API.
+
+The view guidance is conditional: distinguish a source/book or narrator identity from an observer's recognition. Where recognition is unestablished, use only supplied source evidence, material form, and relations; do not turn attribution into perception. This contract makes no claim of universal source fidelity, novel matching, or proven speed. Evidence is limited to the supplied source-selected observations and study contexts, and live quality remains unmeasured.
+
+
 ## 138. Band then roll: a rules row named instead of a number, rolled by the kernel (2026-09-26, BR-01 of `docs/specs/band-then-roll.md`; amends §135.28 and §136.22, extends §5's `table.apply` `time` and `damage`)
 
 §136.22 lets the Keeper name the book's amount instead of writing its own. Where the book prints only a scale — how
@@ -30601,6 +30613,8 @@ which are written against a current owner's words.
 
 ### 153.4 Budgets
 
+**Retired by §183.3 (2026-10-04)**: the ceiling measured the brief, which no request carried. `brief_budget_bytes` keeps its shape check (frozen versions declare it) and is neither measured nor listed.
+
 A scoped package's per-turn instruction (its `brief`, or its `instructions` when it has no brief: the form every later
 turn carries, §30.7) is at most 400 UTF-8 bytes, checked at load: `details.reason: "language_brief_over_budget"` with
 `path`, `bytes` and `limit: 400`. Its first-turn full instruction is not bounded here. Scoped briefs are left out of the
@@ -31853,6 +31867,46 @@ The other exclusions of §158.7 stand: a failed, aborted, truncated, already del
 
 **Rule.** The kernel extension registers the first `message_end` handler (`extensions/kernel/textual-tool-calls.ts`). A text block is checked when it holds `to=functions.<name>`, `<name>` is a tool active in this session (`getActiveTools`), and the header is followed by exactly one JSON object that parses, after at most a channel word and a colon on its own line. Such a call is restored as a `toolCall` block where it stood, with an id `textcall_<24 hex>`. The prose around it stays; a text block left empty is dropped; `stop` becomes `toolUse`. Pi replaces the finalized message in place before the loop reads its tool calls, so a restored call runs like a native one and the player never reads the raw line. Anything else is left as it was: an unknown tool, unbalanced or unparsable JSON, a non-object, or words between header and object. It is structural parsing of the chat format's recipient line, never a reading of the prose. Telemetry: `lane: "model-output", event: "textual_tool_calls", restored, provider, model, stop_reason`.
 
+### 160.4 An implicit close whose whole body is a serialized tool-call list is routed as those calls, or, when it cannot be, is never delivered (2026-10-04; amends §160.2)
+
+**Evidence.** Playtest `un-V3-20261004` (branch `claude/untold-name-reveal-20261004` @ `02300049e`, campaign `game-24bb66cb`, kernel turn 7, driver `turn-6.json`). The turn's first model message, before any tool result, was grok-build/grok-4.5 (thinking low), stop reason `stop`, one thinking block and one text block, verbatim in `tests/extension/fixtures/text-tool-call-list-20261004.json`:
+
+`mon_calls:[{"name":"lookup","parameters":{"kind":"source","source_mode":"answer",…}},{"name":"lookup","parameters":{"kind":"catalog","kinds":["item"],…}}]`
+
+The host closed the turn on it as an implicit narrate (`{tool: "narrate", implicit: true, ok: true}`), and the player read the JSON (`turns/0007.json` `rendered_text`). Neither lookup ran. §160.2 did not route it on three counts, each a matter of form, not of content: a label stands before the JSON, the envelopes sit in a JSON array, and the arguments key is `parameters`. Both envelopes name an offered tool and both argument objects validate unchanged against `lookup`'s closed schema, so the calls were complete and well-formed. A structural survey of every retained log on 2026-10-04 (1,045 session and playtest event logs, 36,036 assistant messages; 7,129 turn records) for a JSON object naming a Keeper tool in an assistant text without a native call finds this message and its turn record, and one older sibling outside play (`gc-11`, 2026-09-11, setup: two fenced `{name, arguments}` envelopes for `setup` shown to the player as the wizard's reply); nothing else.
+
+**Why it reached the player.** The text-call reader recognised only the exact shapes already recorded. Everything else, however plainly a call, fell through to the implicit close, which treats any text as the Keeper's prose (§166.1). A body that was recognised as envelopes but failed validation (an unknown tool, an argument of the wrong type, an extra key) took the same road: §158.7 and §160.2 route nothing then, and "the text goes the way it did before", which is to the player. So the failure is not this dialect; it is that an unread or unroutable call serialization fails open into delivery.
+
+**The rule.** `readTextToolCalls` (`extensions/kernel/text-tool-call.ts`; `textToolCalls` remains as its routed calls) reads the complete assistant text body in the same place and under the same conditions as §160.2 (a play turn, or the opening, not yet delivered or closed; not a failed, aborted or truncated message; no native call).
+
+1. **The form.** The trimmed body may open with one label: an identifier (`[A-Za-z_][A-Za-z0-9_.-]*`) immediately followed by `:`. The label and the whitespace after it are set aside. What remains is §160.2's: one bare JSON value, or one or more fenced blocks each holding one JSON value, with nothing but whitespace outside them. Each value is an envelope or a non-empty JSON array of envelopes; an array's envelopes are calls in their written order, exactly as consecutive fences are. An envelope is `{"<tool>": {…}}` (exactly one key, its value an object), `{"name": "<tool>", "arguments": …}` or `{"name": "<tool>", "parameters": …}` (exactly these two keys, `name` a string). A body of this form is a serialized call list, whatever it names.
+2. **Routed.** When every envelope names an offered tool and its arguments validate unchanged against that tool's closed schema, the calls replace the text exactly as §160.2 routes them (host-minted ids, `prepareArguments`, hooks, admission, dispatcher, delivery). Each routed call's row gains the form it came in: `{lane: "delivery", reason: "text_tool_call_routed", tool, tool_call_id, label, array, key}` (`label` the label or `null`, `array` whether it came from a JSON array, `key` one of `tool`, `arguments`, `parameters`).
+3. **Not routable, not delivered.** When any envelope names a tool that is not offered, or its arguments do not validate unchanged, nothing is routed, as before, and the text is not delivered either: it leaves the message with one row, `{lane: "delivery", ok: false, reason: "text_tool_call_unroutable", dropped, calls: [{tool, error}]}`, and the turn's one turn-close steer (§135.11, on both engines) carries a delivery fix of kind `text-tool-call` naming each envelope and why it did not run (the closed-schema validator's own message, or that the name is not one of the offered table tools, which are the only tools a call written as text is routed to; another active tool such as `image_gen` is named the same way). With the steer already spent, the turn ends with nothing delivered, like any turn without a draft (§166.2); a driven run names the unsent fix on its `turn_close` row.
+
+**Why this is not a delivery gate.** §166 forbids judging or regenerating the Keeper's completed draft. A body whose whole text is a serialization of tool calls is not a draft: it is the call channel written into the text channel, and §166.2 keeps transport decoding authoritative. Nothing here reads prose. A message with any text outside the label, the fences and the JSON is not this form and is delivered exactly as before.
+
+**Why this is structure, not a reading of the prose.** The label is identifier syntax followed by a colon, never a list of known labels: the evidence's `mon_calls` is not named anywhere in the code. The rest is the JSON grammar and the offered tools' closed schemas. No word, script or language is read.
+
+**Known boundaries** (tested as such). Prose before or between the JSON, or a label that is not an identifier, leaves the body as prose (§160.2's exclusion stands). A two-key object other than `{name, arguments|parameters}`, an object with a third key (`id`, `type`), an OpenAI `function` wrapper and markup around the JSON are not read; the evidence has none. A one-key object whose value is not an object is not an envelope. An empty array is not a call list. Setup has no table (§14.4), so its replies never reach this routing; §160.4.1 is setup's rule. Turns delivered before this section keep their text (§158).
+
+**Three ends (§31).** *Writer:* the model, in its text channel. *Reader:* `readTextToolCalls` in the kernel extension's `message_end` handler (`extensions/kernel/index.ts`). *Actor:* for a routed list, Pi runs the calls and the Keeper continues from their results; for an unroutable one, the Keeper reads the fix on its turn-close steer. The rows above count both.
+
+**Tests.** `tests/extension/text-tool-call.test.mjs`: the recorded body routes as two `lookup` calls in order with their arguments unchanged; a label, an array and `parameters` each route alone and together, bare and fenced; an array inside a fence; the boundaries above route nothing and are not read as a call list; an unknown tool, a wrong type, an extra key and a string `arguments` are read as unroutable, with each envelope's error. Through a real `message_end` on both engines: the recorded message runs both lookups before the Keeper's next message delivers, and no turn record holds `mon_calls`; an unroutable list is dropped, its fix reaches the Keeper on the steer, and the turn is delivered from the next message with no JSON on the player's side; with the steer spent, nothing is delivered. Mutations (a copy of the file, never `git checkout --`), each turning tests red: the label not set aside; arrays not read; `parameters` not read; an unroutable list left to the implicit close; the fix not set; the label accepted with a space in it.
+
+### 160.4.1 In setup, a whole-body call list is restored as the calls it names (2026-10-04, owner request; extends §160.4 and §160.3)
+
+**Evidence.** Playtest `gc-11` (2026-09-11, character setup, xai/grok-4.5, stop reason `stop`): two consecutive setup replies were each one fenced `{"name": "setup", "arguments": {…}}` envelope, the first `step: start`, the second `step: create-investigator` with the whole profile. Neither ran, and the player read both as the wizard's reply (verbatim in the `setup` part of `tests/extension/fixtures/text-tool-call-list-20261004.json`). Setup has no table, so §160.2 and §160.4 never read its replies, and §160.3 restores only `to=functions.<name>`. On 0.9.6a this shape still reaches the player.
+
+**The rule.** The kernel extension's first `message_end` handler (§160.3's) reads, in setup only, the complete text body of an assistant message that has no tool call (native or restored by §160.3) and did not fail, abort or truncate. When the body is a serialized call list in §160.4's form (one identifier label at most; one bare JSON value or fenced values only; each an envelope or a non-empty array of envelopes) and every envelope names a tool active in this session (`getActiveTools`, as §160.3 asks), every envelope is restored as a `toolCall` block in written order with an id `textcall_<24 hex>`, the text leaves the message, and `stop` becomes `toolUse`, exactly as §160.3 restores its calls. Arguments that are not a JSON object are restored as `{}`. Pi then answers each call as it answers a native one: arguments that fail the tool's schema get the validator's error, and a call that passes runs. One row per message: `{lane: "model-output", event: "text_call_list", restored, forms, provider, model, stop_reason}`.
+
+**Why setup differs from play.** At the table a routed call goes through admission and changes the world, and §158.7 routes only arguments that validate unchanged, all or nothing, with the turn's one steer for the rest. Setup has no table, no turn-close steer and one tool whose refusals (`rejected`, `needs`) the guide already reads from its results; §160.3 already restores setup calls written as text without validating them. So in setup the tool result is the channel that says a call did not run, and nothing of the list is ever shown as the guide's reply.
+
+**Known boundaries.** §160.4's: prose around the JSON, a label that is not an identifier, and the unread object shapes leave the body as written. A list naming any tool that is not active is left as written, as §160.3 leaves it: a bare arguments object is that shape (`{"profile": {…}}` reads as an envelope for a tool named `profile`), and the driven setup engine's bind step already refuses such a reply explicitly and keeps it as evidence (`setup_bind_missing_call`, `coc-setup-output-rejected`), which a restored call to an unknown tool would replace with Pi's "not found". The first version of this section restored inactive names too; `setup-driven-engine.test.mjs`'s bare-bind test found it on the full suite. A play process before its table opens is not setup and is not read here.
+
+**Three ends (§31).** *Writer:* the model, in its text channel. *Reader:* the first `message_end` handler (`extensions/kernel/index.ts`) through `restoreTextCallList` (`extensions/kernel/text-tool-call.ts`). *Actor:* Pi runs the restored calls; the guide reads their results. The row counts it.
+
+**Tests.** `tests/extension/text-tool-call.test.mjs`: both recorded setup replies are restored as one `setup` call each with their arguments unchanged and no text left; a labelled array restores in order; string arguments are restored as `{}` for Pi to answer; a list naming a tool that is not active (one envelope among active ones, and a bare `{"profile": …}`), prose around the JSON, a message that already has a call, and an errored message are left as they were. `tests/extension/setup-driven-engine.test.mjs`'s bare-bind test still holds. Through a real setup process: the first recorded reply runs `setup` `step: start` and the player never reads the fence. Mutations (a copy of the file, never `git checkout --`), each turning tests red: the setup branch removed; the text left in the message; `stop` left as `stop`; inactive names restored.
+
 ## 161. What a person feels right now is a ledger row the Keeper writes and reads before they speak (2026-09-30; amends §17.3, §17.4, §17.5, §17.8; follows §142's shape)
 
 **Evidence.** The owner, 2026-09-30, after reading the 40-turn table `blood-road-jev-20260930` (grok-4.5, narration-craft
@@ -32858,6 +32912,67 @@ Tests:
 - `tests/extension/npc-epithets-lane.test.mjs`: the prompt names the play language; the shape is closed; refusals are retried once.
 - `tests/extension/scene-obligation-candidates.test.mjs`: the clerk's meeting carried under a graph epithet.
 
+### 176.8 Every untold row carries the name path, a stub included (2026-10-04; amends §176.5 and §40.7's stubs)
+
+**Evidence.** A sandbox replay of the App table `game-24bb66cb` (Blood Road), turns 2–8 with the table's own player lines, live Keeper grok-build/grok-4.5 low, four sequences (`chatrpgv4-wt-tableau-closer/.coc/playtests/tc-{A1,A2,B1,B2}-20261004`). On turn 5 the player asks the navy veteran his name.
+- In all four sequences, and on the original table, `present[]`'s 3 KB budget cut the veteran, the third of three people under the awning, to `{name, truncated: true}` (§40.7). The stub had no `untold`, so the Keeper's view gave him no `say_name` and no untold line, while the request rename (§103.5) still replaced his book name with his epithet. The Keeper had his word and nothing to say his name with. Three sequences made one up (厄尔, 哈珀, 沃尔特; one applied it with `apply person`), one deflected (「人叫我老兵就行」).
+- On turn 7 the bartender's row was whole and carried `say_name`. Three of four sequences copied it, and the delivery wrote 罗伯特·泰勒.
+- The original App table's 「史蒂夫」 on turn 5 was not the path working. That turn ran before the App was repackaged with §176.5's name pieces, and the scene summary's bare first name reached the Keeper.
+
+The token rode one projection: the extension's `untoldView`, on the capsule rows that still had their untold block. Now the block itself carries it.
+
+- **`untoldBlock`** (`kernel-ts/read/capsule.ts`) carries `say_name: "{{name:<w>}}"`, where `<w>` is the person's table word (§176.1) or, with none, their handle: the word the Keeper is shown for them. Every projection that carries the block carries the token: `present[]` rows and stubs, `look focus=npc`, the people of `look focus=scene`, and the clerk's notes that quote them. `nameToken` (`kernel-ts/write/names.ts`) is the one place the token's shape is written.
+- **A present stub keeps its person's block.** A person the budget cuts arrives as `{name, truncated: true, untold: {label?, id, say_name}}`. The block keeps no `use` line; the Keeper's view adds its own. A person who is told stays `{name, truncated: true}`. Who is untold, and how their name is said, is the next step for that person, not payload the budget may drop.
+- **The name path rides outside `present[]`'s budget.** `fitPresent` fits the rows as they were before this section: each untold block without its token, each stub as `{name, truncated}`. Then it puts the tokens and the stubs' blocks back. Counted against the 3 KB, they cost the nine-person bench its fourth full dossier (§40.7's floor is four). So the section can run over its budget by those bytes alone, about 40 B for each untold person and 55 B for each untold stub. The bench measured 3,540 B: four dossiers and five stubs. The request ceiling still binds, because it measures the renamed request (below).
+- **Stubs are cut by position, not by name.** `fitPresent` used to find the cut people by display name. Two people the book gives one name (book-4 holds two nodes named 罗伯特·泰勒) made the cut one look kept, and they vanished from `present[]`.
+- **The Keeper's view** (`untoldView`) keeps the kernel's `say_name` and replaces only `use`. A stub with an untold block is shown like any untold row: its word as `name`, the token and the line.
+- **A renamed tool result says a name was there.** The first replay of this change (`untold-name-20261004`, round 1) carried the token on the veteran's stub in all three sequences. One Keeper still made a name up (「叫我哈尔就行」, U3 turn 5). It had looked the name up in the book: `lookup kind=source` came back with his name renamed to his word (§103.5), which reads as a book that never names him. Now, when the request's rename replaces a name in a tool result, that result ends with a line (`untoldNote`, `extensions/kernel/untold-view.ts`):
+  - the people it shows by this table's word are people the investigator has not been told the name of;
+  - the book does name them, and the Keeper does not have the name;
+  - where the fiction has one of those names said, the Keeper writes that person's `say_name`, listed there.
+
+  The line rides as its own text part after the result's own parts, or after a blank line when the content is a string. Host messages (`custom`) are JSON whose people already carry the token, and are only renamed. A result that named nobody untold is unchanged.
+- **The rename runs before the request is fitted to its ceiling** (`context-runtime.ts`), as well as on the way out, where it now changes nothing. Renamed after the fit, the note and the words (often longer than the names they replace) went out unmeasured: a busy turn in `long-campaign-context` went 553 B over its 200 KiB ceiling.
+
+### 176.9 The journal names a person only by their own name (2026-10-04; amends §103.6)
+
+**Evidence.** The same replay, turn 5. The journal lane (`opencode-go/deepseek-v4.1-flash`, thinking off) gave `named: true` for the veteran with `named_quote` 「人叫我沃尔特就行。」 (B2), and likewise for 哈珀 (B1) and 厄尔 (A2). The words were in the delivery, so §103.6 took them.
+- `named_at: 5` made him told, and `table.untold` dropped him. From turn 6 the rename no longer hid 史蒂夫·布朗.
+- On turn 8 the Keeper of B2 wrote 「跟老史蒂夫隔壁」, three turns after the man had introduced himself as 沃尔特.
+- The bartender's made-up 埃德 on B2's turn 7 was journaled the same way.
+
+Whether words give a person's name is not a string test. The Haunting is played in Chinese, and its landlord "Steven Knott" is told as 诺特. So the judgment stays with the lane. What changes is the question it is asked, and when.
+
+A probe on the lane's own model and prompts, three runs per packet, settled this (`untold-name-20261004`, 2026-10-04):
+
+| case | asked once, in the instruction | asked as a refusal |
+| --- | --- | --- |
+| a made-up name taken as his (the three turn-5 packets) | 9/9 before the change, 6/9 after | 0/9 |
+| 诺特 for "Steven Knott" | 3/3 | 3/3 |
+
+The lane cannot tell the two cases apart while it also writes the turn's entries. Asked the narrow question alone, it can.
+
+- **The kernel asks once.** `named: true` for a person not yet named is taken, as before, when `named_quote` stands in the delivery. When graph names are known and the quote carries none of the person's book names, aliases or punctuation pieces as written (`carriesBookName`, the same string test the label refusal uses), it is taken only with **`named_as`**. That is 1–`max_label_chars` characters of the quote: the words the lane says are that name. Otherwise the answer is `invalid_params`, with `details: {index, field: "named_as", name, reason: "not_a_book_name"}` and this fix: if these words give that same name in another spelling, script or transliteration, send the entry again with `named_as`; if they give a different name (one they go by, a nickname, a name that is not theirs), leave `named` out. The lane's one retry carries that refusal verbatim (§103.6).
+- **What the kernel checks.** Only that `named_as` is words of the quote, never what they mean. `named_as` without `named: true` is refused (`field: "named_as"`). A quote that carries a book name needs nothing more: the record would have seen it anyway (`toldTurn`).
+- **The instruction and the lane's field rule** now also ask for this person's own name, the name `recordable` lists for them, and say that a different name does not name them. The field rule allows `named_as` only when a refusal asks for it. Asked in the first answer, the lane would fill it with the made-up name.
+- A person left unnamed this way stays untold. They keep their epithet or take a label, the rename keeps hiding the book's name, and their `say_name` still says it.
+
+### 176.10 Limits
+
+- The Keeper can still make up a name with the token in front of it: B2's bartender said 「叫我埃德就行」 on turn 7 with his row whole, and in round 1 (U3, turn 7) the bartender called the cook 「阿方索」 with the cook's row whole and carrying his token. On B1's turn 6, the turn the clerk moved the table into the bar, the same name was given to the cook; whether his token had reached that request was not established. Nothing reads the prose for names (§103.8 item 3, §166).
+- `lookup kind=module` does not resolve this table's word, and its entity rows carry no untold block. A query by the epithet answers `not_found`, with a note that a person the book never had is made with `walk_on`. §177.7 makes lookup try the person junction.
+- The narrow question uses the lane's one retry (§103.6). In round 2 one job (V3, turn 6) was refused first for `named` beside a label and then for a quote without his name (「好嘞。热的有，冰水也有。稍等。」). The bartender stayed untold, as he should, but the job went to the backlog and that turn's entries were not written.
+- Round 2 (build 02300049e, three sequences) asked or had someone asked an untold person's name eleven times. No name was made up, and every name given went through the token. The veteran on turn 5 said 史蒂夫·布朗 in 3/3. Evidence: `chatrpgv4-wt-untold-reveal-live/.coc/playtests/untold-name-20261004/` (`results-round1.md`, `results-round2.md`, `lane-probe/`).
+- The book holding one bartender as two nodes (`book-4-robert-taylor`, `book-4-r-taylor`, each with its own epithet) is the reader's. §177.8 asks readers to keep one identity.
+
+Tests:
+- `tests/extension/untold-name-path.test.mjs`, on the real kernel with a crowded room: a cut person's stub keeps `untold` with `say_name`, a told stub stays bare, two people with one name both keep a row, `look focus=npc` carries the same block, and the Keeper's view shows the stub by their word with the token. Copying the stub's token delivers the book's name and makes them told.
+- `tests/extension/untold-view.test.mjs`: the view keeps the kernel's token and shows a stub that has a block; a renamed tool result ends with the note and the token, a host message and a result naming nobody untold do not.
+- `tests/extension/untold-name-path.test.mjs` also: a source excerpt naming the cut person, through the installed context hook, comes back renamed with the note carrying his token.
+- `tests/kernel/test_voice_bench.py`: the nine-person bench still keeps four full dossiers; its stubs are `{name, truncated}` plus the untold block.
+- `tests/kernel/test_journal.py`: a made-up name refused with `not_a_book_name` and the narrow question; `named_as` that is not words of the quote, or without `named`, refused; the person left untold until the book's name is delivered; 诺特 taken with `named_as`; the instruction asks for their own name.
+- `tests/extension/npc-journal-lane.test.mjs`: the field rule asks for their own name and allows `named_as` only on request; the refusal reaches the retry and the retry's `named_as` reaches the kernel.
+
 ## 177. The book's cast (owner ruling 2026-10-04, 「按你推荐的做」 on `docs/specs/module-cast.md` Q1–Q5; amends §22.4.7.1, §87.7, §103.8, §127.1 and §176)
 
 **Evidence.** The owner asked for a name list built when the module's graph is made, so names are easy to look up and a stranger the Keeper invents does not take the name of someone in the book (「创建模组图谱的时候是不是应该建立一个模组npc名表…临时刷出来的新npc也可以避开模组已有角色名称」). A probe on a scratch copy of table 23's campaign (Blood Road, `game-24bb66cb`, open turn 9, TS kernel at 0.9.6a `d0df51d2d`) sent seven `walk_on` names through `table.apply`:
@@ -33014,15 +33129,15 @@ Tests: `tests/extension/module-cast.test.mjs`:
 
 `tests/extension/first-sight-kernel.test.mjs`: a fixture's prose no longer names the untold.
 
-### 177.12 A made-up name tells nobody (table 26; amends §103.6)
+### 177.12 A made-up name tells nobody (table 26; superseded by §176.9 on 0.9.6a)
 
-**Evidence.** Table 26 (App `c7c73b52e`, Blood Road), turn 8. Asked his name, the toothless trucker said 「叫我厄尔就行」 ("call me Earl"), a name the Keeper made up; his book name is 内特·帕特森 (Nate Patterson). The journal lane gave `named: true` with that line as `named_quote`. §103.6 checked only that the words were in the delivery, so `named_at` was set. From then on he counted as told: the roster stopped renaming his book name, and on turn 9 the Keeper wrote 「内特·帕特森」 into an `apply npc` call. Table 25's 「厄尼」 at the same moment was the same kind of invention; it collided with another man of the book, which §177.11 now refuses.
+**Evidence.** Table 26 (App `c7c73b52e`, Blood Road), turn 8. Asked his name, the toothless trucker said 「叫我厄尔就行」 ("call me Earl"), a name the Keeper made up; his book name is 内特·帕特森 (Nate Patterson). The journal lane gave `named: true` with that line as `named_quote`, so `named_at` was set; on turn 9 the Keeper wrote 「内特·帕特森」 into an `apply npc` call. Table 27 (App `e634c3eb0`, turn 6): the same man said 「叫我老卡也行」 and stayed untold.
 
-**The rule** (`quoteNamesPerson`, `kernel-ts/journal/jobs.ts`). For a person the cast has rows for, a `named: true` entry's `named_quote` must, besides standing in the delivery, say one of that person's names: their graph names and the cast's printed forms and renderings, or a punctuation piece of one, compared as strings (`occurs`). Otherwise it is refused with `details.reason: "not_their_name"`, and the fix says to give a label. A rendering the cast does not list also leaves the person untold, which is the safe direction: the name stays hidden.
+The branch first refused such a quote outright (`not_their_name`). §176.9, which reached 0.9.6a from another branch the same day, asks the lane the narrow question instead: a quote carrying none of the person's names as written is taken only with `named_as`. That rule stands; this section adds only the cast to its names.
 
-Without cast rows (an authored module, often played in another language than it is written), a name may be said in any spelling, and §103.6 keeps the lane's word. The kernel test 「诺特自报了姓名」 for Steven Knott is that case.
+**The rule.** `carriesBookName` (`kernel-ts/journal/jobs.ts`), for §176.9's quote check and for the label refusal, compares the person's cast names: their graph names and aliases, the cast's printed forms and renderings of their row (§177.1), and the punctuation pieces of all of them. A quote saying a form the book prints only in the cast (book-4's station owner is 「拉塞尔·威廉姆斯」 in the graph and also 「拉斯」 alone in the book) counts as their name without `named_as`. A label carrying such a form is refused as a book name.
 
-Tests: `tests/extension/module-cast.test.mjs`: a made-up name refused as telling and the person kept untold; the book's name said through the token telling them.
+Tests: `tests/extension/module-cast.test.mjs`: a made-up name refused with `not_a_book_name` and the person kept untold; a form only the cast prints taken as their name; the book's name said through the token telling them.
 
 ### 177.9 Writers, readers, actor (§31)
 
@@ -33034,7 +33149,7 @@ Tests: `tests/extension/module-cast.test.mjs`: a made-up name refused as telling
 
 - The cast is navigation, not permission to play. A row gives no facts about a person, only that the book names them and where.
 - A starter's names that appear only in prose are not in its cast (owner's Q4).
-- A newcomer named only in prose, with no `apply npc`, is not gated (owner's Q5). Delivery refuses nothing for names (§103.8 item 3), and the journal label check above still holds.
+- A newcomer named only in prose, with no `apply npc`, was first left ungated (owner's Q5). After table 25 the owner ruled to refuse a whole printed name in prose (§177.11), and the journal label check above still holds.
 - An unread person is not in `present[]` and has no record. `apply person` cannot give them a word until the graph has them; the lane can.
 
 Tests:
@@ -33052,3 +33167,599 @@ Tests:
 - `tests/extension/module-cast.test.mjs` also: two rows sharing a form kept as two people; across ranges a first name joining nobody, even one only one kept row carries, and rows of one range never joining each other; a row joining a graph person by a whole identity and not by an alias first name; a shared name shown as all owners' words; a word withdrawn once it carries a name learned later; an unread word not following the person into the graph; the library's cast read by a campaign's fork; a 45-page book in two ranges, the second joining a known person by a known form under the first range's id, refusing a page outside its range, and resuming from the kept text.
 - `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, one background child per range under `module-cast.md`, each range's submit, record and announcement, all in the library scope, resuming at the first range not read, the second run after a refusal, no child without text, one run at a time, a preparation queueing the cast, a campaign-only module read in its scope, and a table opened before the session started still asking for the cast, in either order.
 - `tests/extension/npc-epithets-lane.test.mjs`: a published cast asks again, and another campaign's does not.
+
+## 179. A turn serves what the act is after; the investigator's own record (owner rulings 2026-10-04: "A 和 B 一起做，落 0.9.6a", then "翻看物品这个应该属于基础系统里，npc对于玩家意图分析应该属于自然npc行为mod里的增强项"; the capsule half of #20's premise)
+
+**Evidence.** App table `game-8e41c325` (Blood Road; Keeper `grok-build/grok-4.5` low; narration-craft 2.2.1), 2026-10-04.
+- **Turn 6, 「我慢慢吃完汉堡，坐在吧台边翻翻自己的笔记。」** The Keeper wrote the gesture of leafing through the notes, then the room: who sat where, the plates, the boar's head. Nothing that is in the notes. It had nothing to write from:
+  - The card lists 「寻人笔记与地图」 by name only. Setup recorded the trade and the motive. The book's hook for this kind of investigator names nobody.
+  - The particulars (a nineteen-year-old blonde, a blue Beetle) were the player's own words on turns 2 and 3. Extraction kept turn 2's as a `player_assertion` with subject `player` and the station owner as entity, and turn 3's question as a `world_event`.
+  - `capsuleMemory` ranks by overlap with who is present and puts `player_assertion` last (#20: "the Keeper has already read it"). At the bar its four rows were all turns 4–5, the two turns `recent` already carried.
+  - The compile read the act as investigate 0.45 / idle 0.39; the route chose only `apply:time:declared`. The Keeper spent no reasoning tokens and one call.
+- **Turn 3, 「镇上哪里能吃饭、住一晚？」** The prescreen supplied the book's description of the Last Stop, which the Keeper used word for word on turn 4. The Keeper had set the trucker's mood as eager to talk about the road. Both men gave a name and 「往前开一点」; nobody said where it stands or what it looks like. Narration Craft said "People are not information desks … give only what they feel like giving", and nothing said an answer should be complete enough to use.
+- **The owner, same day:** any question, not only the way somewhere, is read for the answer the player wants. A willing person then gives it clearly, and a person with a reason to hide something hides exactly that.
+
+### 179.1 Who carries what
+
+The owner placed each half where it belongs. **Consulting what the investigator carries or knows is the base's. Reading what an asker wants is the Natural NPC package's.** Narration Craft is untouched; it stays at 2.2.3.
+
+- **Base (`prompts/keeper.md`).** When the investigator reads, checks or calls to mind what they carry or already know, the turn shows what is there, not only the gesture of looking: the particulars themselves, not a list of the kinds of things the page holds (arm C of §179.4 named headings). `own` (§179.2) holds the card and the player's earlier words; `memory` and earlier turns hold what the table has turned up; `recall transcript` reaches what `own` leaves out. What no record holds is filled in keeping with them, never against what the player said. The capsule head names the `own` interface.
+- **Natural NPC 1.4.5.** `agent.md` gains "What the asker is after". Before a person answers, know the answer the investigator is after, the one they would need to act on: the way somewhere and how to know it on arrival, a price, who someone is to this person, what they saw. Someone willing gives it the way a local who knows would say it, complete enough to use. Someone with a reason to hide it (agenda, fear, loyalty, `hides`, `would_lie_about`) hides exactly that point: they steer around it, offer something beside it, refuse or lie, and the turn shows what they gave instead. Nobody gives what they do not know.
+- **Natural NPC's brief** gains "Give or hide the answer." (25 bytes). The active briefs had 26 bytes left under the shared ceiling, which `tests/kernel/test_mod_director_text.py` holds strictly under 5000 (§30.7, §40.6); it is now at 4999. No other package's sentence was cut, and the ceiling was not raised.
+- Existing locks keep their version (§137.10). A new campaign takes natural-npc 1.4.5.
+- **Coordination.** `chatrpgv4-wt-presence-impression` (uncommitted when this landed) carries natural-npc 1.5.0 and its own §178. Whichever lands second carries the other's natural-npc text forward.
+
+### 179.2 The capsule's `own`: the investigator's own record
+
+A capsule section for the card's first investigator (`party[0]`, as `known.investigator`), budget 2048 B (SLICE2). `kernel-ts/read/own.ts` fits it itself.
+
+```json
+"own": {
+  "card": {"scenario_bound": "...", "treasured_possessions": "...", "significant_people": "...", "key_connection": "..."},
+  "said": [{"turn": 1, "player": "..."}, {"turn": 27, "player": "...", "cut": true}, {"turn": 28, "player": "..."}],
+  "omitted": [2, 26]
+}
+```
+
+- **`card`** is the sheet's backstory as setup wrote it: every category except `personal_description` (already `known.investigator.appearance`), and `key_connection.summary` as `key_connection`. A list of strings is joined. A category nested one level down (a pregen's `scenario_bound: {description, ...}`) keeps its path (`scenario_bound.description`). Each is at most 100 characters. Absent when the sheet has none. No category is named in code beyond that exclusion. If the card alone is over the budget, its longest category gives up characters, never a whole category.
+- **`said`** is the player's own words (`player_text` of turn records) from turns before the two `recent` carries, each at most 160 characters; a cut line carries `cut: true`. The earliest words fill up to half of what `card` leaves of the budget, and the latest outside the window fill the rest. **`omitted`** is `[from, to]` of the turns between when any are left out, and absent otherwise. `recall transcript` reaches them.
+- **Why the words, not extracted memory.** The lane kept turn 2's particular as a `player_assertion` and turn 3's as a `world_event`. A reader that depends on the kind the lane chose loses half of what the player established. The words are the record. Nothing reads them for meaning.
+- **Head (interface only).** own is the investigator's own record. card is what their sheet says of why they came, what they carry and whom they hold to. said is the player's own words from earlier turns the history no longer carries, the earliest and the latest; omitted names the turns between, which `recall transcript` reaches. What the player said there about the investigator and their errand stands where the card and the book are silent; what they said about the world is still their claim.
+- **The request.** The context hook sends the capsule whole, less `module` and `mods.instructions` (§135.23); the untold view (§103.5) only rewrites `present` and `first_sight`.
+
+§31's three ends:
+- **Who writes it.** Setup writes `card` (§98). Every turn writes `player_text`.
+- **Who reads it.** `ownSection`, into every capsule.
+- **Who acts on it.** The Keeper, when the act draws on what the investigator carries or knows (§179.1 names `own`). Nothing counts that use; the replay in §179.4 is the measure.
+
+### 179.3 Limits
+
+- **`said` is chosen by position, not relevance.** In a long table a particular the player set in the middle lies in `omitted`, and the Keeper reaches it only with `recall transcript`.
+- **`own` is a record, not a judgment.** The player's claims about the world in `said` stay claims; the Keeper weighs them.
+- **The model decides whether the purpose sentences take.** That is the replay's to show (§179.4), not a test's.
+- **The capsule's `memory` ranking (#20) is unchanged.** It still anchors on who is present and puts `player_assertion` last.
+- **The tableau closer is untouched.** "who is here and how they stand" pulls a room recap into quiet turns (`claude/tableau-closer-20261004`).
+
+### 179.4 Acceptance
+
+A sandbox replay of `game-8e41c325` turns 3–6, from the `turn 2:` commit, with the table's own player lines and the same Keeper (`grok-build/grok-4.5` low). Evidence is in the branch worktree's `.coc/playtests/player-purpose-20261004/` (`preregistration.md` with two addenda, `results.md`, `out/`), with the driver runs beside it (`pp-*-20261004`). Pre-registered:
+- **The notes (turn 6) pass** when the prose gives contents of the notes that agree with the player's turn-2/3 particulars, and invents none that contradict them.
+- **The way (turn 3) passes** when a willing speaker's answer says where the place is or how to know it.
+- **A withholding speaker** (an NPC with a source reason to hide) steering around the asked point is a pass, not a failure.
+
+| arm | what ran | the notes | the way |
+| --- | --- | --- | --- |
+| A1–A2 | 0.9.6a@60d5afc55, narration-craft 2.2.3 | 0/2: what the notes hold (「名字、公路节点」), none of it | 1/2 |
+| B1–B4 | first placement: `own` + both rules in narration-craft (withdrawn) | 4/4 | 4/4 |
+| C1–C4 | the owner's placement: `own` + base sentence + natural-npc 1.4.5 | 4/4 by the letter; 3/4 only named headings with 「十九岁金发女孩」 inside them | 4/4 |
+| D1–D4 | C, and the base sentence asks for the particulars, not the headings (this section's final form) | 3/4 with contents; D2 delivered the word `narrate` (§166.4's open defect) | 4/4 |
+
+- **Guards held** in every arm. Turn 4's first visit kept the book's seven visible features. No particular contradicted turns 2–3. Lengths stayed level (medians 420–440 characters). No turn ended on a menu.
+- **The path.** B1's repository reset to its `turn 5:` commit, with `table.capsule` on this kernel. On turn 6, `recent` held turns 4–5 and `own.said` turns 1–3 with both particulars. The driver runs Pi with `--no-session`, so the request itself is not kept.
+- **Blinding.** A and B1–B2 were scored blind; B3–B4, C and D were not.
+- **Evidence lost.** The C homes' sandbox campaign state was deleted while D's homes were being built: `make_home.sh` began with `rm -rf`, and now refuses an existing home. C's delivered prose and driver runs are kept.
+
+## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
+
+Owner, 2026-10-04, after the ten-hour measurement of §184 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
+
+**Evidence.** Four tables of the 111-page 血色公路 each added 174–707 nodes to their fork's graph through the background
+reading while their player played 5–10 turns in 2–4 scenes; at most 7–17% of those nodes ever appeared in a message the
+Keeper received. One fork queued 125 jobs, 34 of which failed; every fork had 4–17 completed readings that published no
+node. No fork ever finished: the background read-ahead streams every two-page unit of the whole book (§148.3,
+`referenceSourceUnits`), every 20-page contact sheet and every nominated picture page, then the source needs and a
+whole-book index job that yields to everything and never completed (the library's own index job failed). Nothing in the
+read-ahead looks at where the table is. Since §148 the Keeper reads original excerpts on demand and a material gate
+(`requireMaterial`) starts a foreground read when an operation needs typed material, so the background graph is a
+latency prefetch, not a precondition of play.
+
+### 182.1 The book's chapters come from the book
+
+- **Producer.** The host already reads the PDF's bookmarks (`sourceInfo`, `extensions/module/source.ts`) and passes them
+  in `module.source.bind`'s `source`; the kernel dropped them. The kernel now keeps the top-level bookmarks that carry a
+  page as `source_document.outline: [{name, page}]` (1-based physical pages, sorted by page, at most 200 entries, names
+  at most 200 characters, pages within `page_count`; malformed rows are dropped, not refused). A bound book that predates
+  this gets its outline from a new private host method `module.source.outline {module_id, file_sha256, outline, campaign?}`:
+  the file digest must equal the bound source's, the kernel writes the library's `module.json` and, when `campaign` names
+  a campaign whose fork exists, that fork's too (source metadata, not graph: §22.6's isolation is about generations).
+  Idempotent. The host calls it when a table opens on a visual module whose `module.status` reports no outline.
+- **Chapters.** Chapter *i* is the page range from top-level entry *i*'s page to the page before the next entry with a
+  greater page (the last chapter runs to `page_count`); entries sharing a page collapse to the last of them. A book whose
+  outline yields fewer than two chapters has none; it falls back to the model index's sections when
+  `reading.index_complete`, else to a page window (182.3).
+
+### 182.2 A short book is built once
+
+`page_count <= reading.whole_book_max_pages` (data, `content/rulesets/coc7/host-budgets.json`, shipped 60) is a short
+book. Its read-ahead streams the whole book as today. When every streamed unit, contact sheet, nominated picture page,
+identity check and need has a terminal state on the source (a material row, a terminal job, or a settled disposition),
+the module records `reading.build_complete: {source_sha256, at}` and the read-ahead queues nothing more for that source;
+§184.1 carries the record to the library, and every later fork starts complete. Only a foreground request (a material
+gate, a source consultation) reads after that.
+
+### 182.3 A long book reads the chapter in play and the next one
+
+A book above the threshold has a **reading window**: the chapter that holds the table's current scene and the chapter
+after it in book order. The current scene's page is the first page of its `source_refs` (the anchor the read-ahead already
+computes: `params.focus`, else the start scene); a scene with no page uses the start scene's. Without chapters the window
+is the anchor page through `reading.fallback_window_pages` (data, shipped 24) pages after it. Every background ask of the
+read-ahead is limited to the window: source units whose pages intersect it, contact-sheet ranges that intersect it,
+nominated picture pages, identity pages and map scopes inside it, and need reads whose entity cites a page inside it.
+The adjacent-scene reads of §22.4 (`queueAdjacentReading`) are unchanged: they are the scenes the player can reach next.
+When the player's scene moves into another chapter the next pass of the read-ahead works on the new window; the window
+it left is not read further. Foreground requests are never limited by the window.
+
+### 182.4 Nothing is read that publishes nothing
+
+- The read-ahead does not ask the whole-book `index` job of a book that reads by reference units (`source_reference`)
+  or that has chapters; the index stays available to a foreground request and to books that need its sections.
+- A unit, page or need whose reading completed or settled on the current source is never asked again by the read-ahead,
+  whatever it published; an `unlocated` need becomes eligible again only when a publication added a page or claim for
+  its entity *inside the reading window* (refines §151.4's eligibility).
+- With the window bounded, a table whose window is read has nothing queued and the pump stops; an idle table reads at most
+  the rest of its window.
+- **Telemetry.** The read-ahead's result gains `window: {mode: "whole" | "chapters" | "pages", first, last, chapters:
+  [names], complete?}` and the host writes one `lane: "reading", event: "read_window"` row when the window changes.
+
+### 182.5 Three ends (§31)
+
+Writer: `module.source.bind` and `module.source.outline` write the outline; the read-ahead writes `build_complete`.
+Reader: `queueAheadReading` reads both and the current scene. Actor: the reading pump, which claims only what the window
+queued. Limits: chapters are the book's own bookmarks or the model index; a book with neither reads by page window. The
+chapter that holds the Keeper's background and the endings is read by the opening and guidance reads as today.
+
+**Implementation decisions (2026-10-04, CT-04).** `kernel-ts/modules/chapters.ts` (outline cleaning, chapters, the window,
+the two `reading` budgets with coded fallbacks 60 and 24); `Reading.queueAheadReading`, `buildPending`, `completeBuild` and
+`writeOutline` in `reading.ts`; `needsToAsk`, `needDone` and the window-aware `needEligible` in `need-reads.ts`.
+
+- **Outline.** `source_document.outline` is written only when the host sent `bookmarks`; an empty list is kept (a PDF
+  without bookmarks), so the host does not backfill it again. `module.status` reports `outline`: the entry count, or `null`
+  when none was ever recorded. A replayed `module.source.bind` fills a missing outline. `module.source.outline` is dispatched
+  apart from the scoped methods: it writes the library, and the fork only when `scopedModuleRoot` finds one (never
+  `ensureCampaignModule`); its result is `{module_id, library: written | unchanged | missing, entries, campaign?: written |
+  unchanged | no_fork}`; a digest that is not the bound source's is `invalid_params` with `details.reason: source_mismatch`.
+  The outline is left out of `task_source_revision` and of `module.source.snapshot`'s `revision`, so the backfill at table
+  open neither stales a pending operation nor a navigation cache. The host backfills through
+  `ReadingService.backfillOutline` on `coc:table-open` and when its reader is ready, once per campaign and module per
+  session, and writes `lane: "reading", event: "outline_backfill"` with `state: written | failed`. `table.open`'s own
+  read-ahead runs before that backfill, so the first pass after an upgrade uses the page window and the next one chapters.
+- **Chapters.** An index section starts at the first page it names; an `unreadable` section is no chapter. The anchor is the
+  scene `focus` names (scenes only; a campaign's read-ahead passes its active scene), else the start scene, else page 1; an
+  anchor in the front matter before the first chapter reads from the anchor through the first chapter. The window's
+  `chapters` lists names; in `whole` mode it lists every chapter and carries `complete`.
+- **Which books skip the index (decision).** A short book streams "as today", and for a book that does not read by
+  reference units today includes the index, because its streamed units are cut from the index's sections. The skip for a
+  book with chapters therefore applies to long books. A long non-reference book with bookmarks streams no index units in the
+  background: its window limits needs, identity checks and map scopes, and the adjacent reads go on. Both index producers
+  obey the rule: the read-ahead's ask and `claim`'s `ensureIndexJob`. A background index already queued for such a book is
+  cancelled at the next claim (`state: cancelled`, its detail names §182.4); a foreground request still reads the index.
+- **`build_complete`.** Only a book that streams units (a reference book, or an indexed book under `first_interaction`)
+  can complete. Terminal means: a unit's row or its latest non-cancelled job completed or failed; a contact sheet overviewed
+  or its job terminal; a nominated page with its asset row or a terminal job; an identity page or a map scope with a
+  completed job or the failures after which the read-ahead stops asking; no need that `needsToAsk` would still ask over the
+  whole book; and no live job carrying a read-ahead marker. The record is written under the module's metadata lock, and a
+  fork offers it to the library at once through `syncLibraryFromCampaign` (no publication follows it), the outcome riding on
+  the read-ahead's result as `library_sync`. After it the read-ahead only recovers orphans: no index, no streamed ask, no
+  way-on repair and no adjacent read of its own; the kernel's adjacent reads on a move (§22.4) and foreground reads are
+  unchanged. A long book never records it.
+- **The window.** Units and contact sheets that meet it; nominated pages and identity pages inside it; map scopes with a page
+  inside it; needs whose entity (its node and the claims about it) cites a page inside it, and a deferred need waits for
+  the window's units only. Asks already queued from a window the table left are not cancelled; they drain (at most two per
+  kind) and nothing more is asked there.
+- **Never asked again.** `needDone` (a `read` disposition, or a marked job that completed without settling or failed) is
+  applied before the two-per-pass bound; before, such a need answered `ready` or `blocked` and still used up one of the two
+  asks. `carried` keeps §151.4's re-check once its units are read: it is a deferral to those units, not a settlement.
+  `unlocated` re-opens in the read-ahead only for a page inside the window that the decision did not accept, or a claim
+  citing a page inside it whose digest the decision did not hold (`claim_digests`, recorded at the settlement when the
+  material then is the material decided on, at most 256); a decision without them falls back to "the changed material
+  cites a page inside the window". A request keeps the digest rule. A reference unit whose only jobs were cancelled (a host
+  that stopped) is asked again with `retry`, as the indexed stream and the visual asks already did; before, it answered
+  `blocked` on every pass and used up its ask.
+- **Host.** Every read-ahead call of the reading service goes through `readAhead`, which writes `read_window` when the window
+  differs from the last one seen for the campaign and module, and a `library_sync` row when the result carries one. A failed
+  background ask of any read-ahead kind now calls the read-ahead (before, units only), so a short book whose last ask fails
+  completes without waiting for the next table open.
+- **Tests.** `tests/extension/read-window.test.mjs`; amended for the new `window` field in exact read-ahead results:
+  `tests/kernel/test_visual_reading.py::test_read_ahead_follows_authored_exits_not_index_page_order` and
+  `tests/kernel/test_fast_guidance.py::test_an_opening_published_ready_stays_ready_under_a_later_rule`;
+  `ts-kernel-foundation.test.mjs` lists the new method.
+
+## 183. Package instructions: whole within a budget, an index beyond it (owner ruling 2026-10-04, option "c" of `docs/specs/mod-section-index.md`; retires §30.7's brief and §40.6's shared brief ceiling)
+
+**Evidence.** A probe of `craft-mod-guidance`'s real provider requests (2026-10-04) found that on every turn after the first the Keeper received every package's **full** `agent.md`, in both engines; narration-craft 13 788 B, its brief 884 B. `context-runtime.ts` deletes `capsule.mods.instructions` before the request and sends the instructions in `coc-context-brief`, which it builds from a `table.capsule {rehydrate: true}` read and caches by package, version and settings. The brief form existed only in the capsule. The App's game-8e41c325 turn-6 request agrees: 107.7 KB protected, of which the capsule without instructions is 26 KB and the seven packages' full texts about 61 KB. So the brief and its 5000-byte ceiling constrained nothing the Keeper read.
+
+The owner's ruling keeps that behaviour while it fits and adds an index for when it does not: hundreds of packages cannot all ride every request whole. An index loads only what a turn needs; the measured cost of that is coverage (`docs/specs/mod-section-index.md` §8.1: recall 0.69 of needed sections on real capsules), so it is the overflow path, not the default.
+
+### 183.1 Sections
+
+A package declares its instruction's sections with `contributes.sections`, a package JSON file listed in `package_files`, and requires `instructions.sections.v1`; it needs `contributes.instructions`. The file:
+
+```json
+{"schema_version": 1, "sections": [
+  {"heading": null, "kind": "resident"},
+  {"heading": "What the asker is after", "kind": "situational", "topics": ["asks_question"]},
+  {"heading": "First impression", "kind": "situational", "topics": ["speaks_to_person"], "gates": ["present_without_history"]},
+  {"heading": "Opening the table", "kind": "situational", "triggers": ["state:opening"]}
+]}
+```
+
+- `heading` is the exact text of a `## ` line of `agent.md`; `null` is the text before the first `## ` (less a leading `# ` title line). Every `## ` heading has exactly one entry, every entry names a heading that exists, and non-empty preamble text needs the `null` entry. A section's text is its `## ` line and body; the preamble has no heading line.
+- `kind` is `resident` (on every turn the package is indexed) or `situational`. A resident entry carries nothing else.
+- A situational entry has `topics`, `triggers` or both:
+  - `topics`: ids of the topic list (§183.2), or `"*"` alone (any turn whose gates hold);
+  - `gates`: all must hold for a topic to load the section; they qualify topics and need them. Kernel gates: `opening`, `people_present`, `present_without_history`, `unregistered_equipment`, `registered_instances`, `threat_clock`, `stall`, `recover`, `clue_here`, `handed_clue_here`, `reentry`. Host gate: `no_topic` (no topic of the list scored 0.5 or more this turn);
+  - `triggers`: `state:<kernel gate>` loads the section whenever that gate holds; `before_apply:<effect kind>` (a kind `table.apply` accepts, `kernel-ts/apply/kinds.ts`) and `before_resolve:<decision family>` (`chase`, `combat`, `core-check`, `development`, `healing`, `magic`, `objects`, `psychology`, `push-luck`, `sanity`, `social`: the ruleset's `decision:coc7:<family>:` prefixes and the kernel's `objects:` decisions) load it once the Keeper has made such a call this turn;
+  - `topic_threshold` (0 < t < 1, default 0.5): the section's own bar; it qualifies topics and needs them.
+- Refusals are `invalid_params` with `details.field: "contributes.sections"` and the offending entry: invalid JSON; an unknown topic (checked where the catalog loads and at install, against `content/mods/topics.json`), gate, trigger kind or name; a heading not in `agent.md`; a `## ` heading with no entry or two, or appearing twice in `agent.md`; preamble text with no `null` entry; a resident entry with topics, gates, triggers or a threshold; a situational entry with neither topics nor triggers; gates or a threshold without topics; `"*"` beside another topic; a threshold outside (0, 1); the contribution without the capability or without `contributes.instructions`; the file missing from `package_files`. Requiring the capability without contributing is allowed (the package goes whole): what the pairing protects is a kernel that lacks the capability meeting an unknown field.
+- Bytes are frozen per version (§26) like every package file.
+
+### 183.2 The topic list
+
+`content/mods/topics.json` (`{"schema_version": 1, "topics": [{id, what, not_for, examples}]}`, system language) is the product's; a package names topics from it and never adds one. Fifteen topics on 2026-10-04: `carried_item`, `new_thing`, `readable`, `force_object`, `money`, `price_dispute`, `asks_question`, `asks_favour`, `lethal_risk`, `out_of_character`, `conclusion`, `clue_search`, `speaks_to_person`, `spell`, `time_passes` (measured in the spec, §7.4–§7.5). Adding a topic is a product change with its own measurement.
+
+### 183.3 Whole or indexed
+
+`modContext` decides per package, in the effective order:
+- a package without `contributes.sections` is `full`, always;
+- a sectioned package is `full` while the running total of the bytes the rows carry stays within the **instruction budget** (65 536 bytes; a positive integer `COC_INSTRUCTION_BUDGET` in the kernel's environment overrides it, for tests and operators), and `indexed` once it would not. An indexed row adds its resident text to the total; a later sectioned package that still fits goes whole (greedy).
+
+Rows of `capsule.mods.instructions`:
+- `full`: `{mod, version, settings, form: "full", instruction}` as before;
+- `indexed`: `{mod, version, settings, form: "indexed", instruction, sections}`. `instruction` is "Further sections of this package arrive in coc-mod-sections when a turn needs them." and the resident sections' text, joined by blank lines. `sections[]` lists the situational sections, `{key, heading, topics, gates, triggers, topic_threshold, bytes, gates_open, due}`, where `key` is `<mod>@<version>#<ordinal>` (the ordinal counts every entry of `sections.json`), `gates_open` says every kernel gate of the section holds this turn and `due` says a `state:` trigger holds. Only the capsule evaluates gates: `mods.context` and the package jobs read the same rows without `gates_open` and `due`.
+
+When any row is indexed, `capsule.mods.topics` carries the definitions of the topics those rows name (all of them when one names `"*"`). The kernel evaluates its gates while it assembles the capsule, from the turn as assembled, before any section budget cuts it (`kernel-ts/read/sections.ts`):
+- `opening`: turn 0. `people_present`: `present` is not empty. `present_without_history`: a present person whose `history.last_spoke_turn` is absent;
+- `unregistered_equipment`, `registered_instances`: `mods.unregistered_equipment`, `mods.objects.instances` are not empty;
+- `threat_clock`: a threat clock is related to this scene or scoped to the scenario, or the table minted one (the rows `mods.pacing.threat_clocks` shows);
+- `stall`: the Director's `stalled_turns` has reached the package's own integer `stall_turns` setting when it has one, else the Director's `pressure-stalled-turns` threshold;
+- `recover`: the Director's beat is RECOVER, or the player repeated the last turn's words;
+- `clue_here`: an undiscovered clue is in this scene. `handed_clue_here`: one the scene hands over (delivery `obvious`) or a present person gives (`npc_dialogue`, with its source or someone who knows it present), the thread's own rule;
+- `reentry`: `mods.thread.reentry` exists.
+
+**The brief is retired.** No row is `brief`; `contributes.brief` is still accepted on a package (frozen versions carry it) and never read. §40.6's 5000-byte shared ceiling and §153.4's language-scoped ceiling are gone; `brief_budget_bytes` keeps its shape check and is neither measured nor listed by `mods.list`.
+
+### 183.4 `mods.sections`
+
+`mods.sections {campaign, keys: [...]}` (1 to 256 keys) returns `{sections: [{key, mod, version, heading, text}]}` in the order asked, for keys of the campaign's active locked packages; `invalid_params` with `details.keys` for keys it does not know. Read-only; outside the turn state machine like `mods.expression`. A key names frozen bytes, so the host caches the text by key.
+
+### 183.5 The host lane
+
+`extensions/table/mod-sections.ts`, installed with the context policy. It does nothing unless the turn's capsule has an indexed row; on today's packages it never runs.
+- **Topics.** Once per input (the declaration, its turn, the topic list), from the capsule the input publishes, it asks Jev (`runtime/jev/mod-section-topics.ts`, family `mod-section-topics`, `jev-1.13.0`): a Noul per topic in `mods.topics`, state `{purpose, request: the player's words, current_context: {scene, present (up to 16 names)}, cards: [{alias, topic, applies_when: {what, not_for, examples}}], policy}`, the shape the spec measured. Jev has 6 s; the first request of the input waits for it up to 2.5 s from when it was asked; later requests of the turn use the scores once they land.
+- **Calls.** The turn's calls are what the Keeper made since the input: every `apply` effect kind (at `tool_call`), and every `resolve`'s decision family (the one it named at `tool_call`; the settled `family` at `tool_result`). A new input clears them.
+- **Selection.** A section loads when `due`; or when one of its topics scored at least its threshold (`"*"`: always) and `gates_open` holds and its host gates hold; or when one of its `before_apply` / `before_resolve` triggers names a call this turn.
+- **Unavailable or late Jev.** Every section with `gates_open` and a topic loads, its host gates aside, recorded `fallback` (`unconfigured`, the decision's failure code, or `late`). Coverage over economy.
+- **Delivery.** The selected sections' text is read with `mods.sections` and sent as one `coc-mod-sections` message at the end of the request: `{authority, sections: [{package, section, text}], omitted?}`, at most 16 KiB in package order; what does not fit is named in `omitted`. A trigger that fires mid-turn adds its section to the next request of the turn. A message that would carry the request past its ceiling is left out, recorded `omitted` with reason `request_ceiling`. The section text is package text and is not renamed for untold people.
+- **Telemetry.** `lane: "mod-sections"`: `event: "topics"` (scores, ms, usage) or `fallback` (reason); `event: "selected"` once per changed selection (keys and why: `due`, `topic:<id>`, `fallback`, `call:<trigger>`), `bytes`, `omitted`; `event: "delivered"` with whether the provider payload carried it. The context lane's `request` row adds `mod_sections_bytes`.
+- The brief message (`coc-context-brief`) carries each row's `{mod, version, settings, form, instruction}`: full text for full rows, resident text for indexed rows. Per-turn gate facts never enter it, so it stays cached; its key reads package, version, settings and form. The capsule the Keeper is sent drops `mods.topics` with `mods.instructions`.
+
+### 183.6 The packages
+
+Sectioned, with `brief.md` removed and no sentence changed: narration-craft 2.2.5 (only "Opening the table" is situational), natural-npc 1.4.6 (two headings: "First impression" over the opening paragraphs, "The impression in play" over the frozen result's use), enhanced-items 1.3.2 (six headings), keeper-pacing 1.3.1 (seven), story-thread 1.2.11 (four), historical-reference 1.0.10 (a title and five). Each package's `sections.json` follows `docs/mods-catalogue.md`; a section about a host event (the library lookup, a refused narration, a closed retrieval) is resident (§183.8). Not sectioned (full, as before; their `brief.md` is never read): zh-optimize, keeper-context, npc-voice. The default-on texts together are about 52 KB, within the budget: every table today stays whole.
+
+### 183.7 Writers, readers, actor (§31)
+
+- **Writes:** the package author (`sections.json`, the headings), the product (`topics.json`), the kernel (mode, gates), the host (topic scores, the selection).
+- **Reads:** `modContext` and the capsule; the host lane; `mods.sections`.
+- **Acts:** the Keeper, on the sections in `coc-mod-sections` and the resident text in the brief. Nothing counts its use; the measure is a replay with the budget forced low (§183.9).
+
+### 183.8 Limits
+
+- The first `apply` or `resolve` of a kind in a turn runs before the section its trigger loads; the section arrives for the next request.
+- No `host_event` triggers in v1: a section about a host event (historical materials, a refused narration, a closed retrieval) is resident.
+- Index mode loses coverage by design (spec §8.1); on today's packages it never runs. A table that installs enough packages to cross the budget starts indexing the later ones in the effective order.
+- No gate compares languages: the language section loads on any exchange with a person (its topics), because an unknown `speaks` is exactly when it matters and comparing language names would be a semantic table.
+
+### 183.9 Tests
+
+- `tests/extension/mod-section-index.test.mjs`: every refusal of §183.1 by field; the shipped sectioned packages parse against their own `agent.md` and cover it; the trigger lists against `table.apply`'s kinds and the ruleset's families; the form decision under a budget that splits the packages (greedy, unsectioned always whole, the topic list); gates on the opening turn and after it, equipment and people; `mods.sections` text, order and refusals; the kernel gates (a package's `stall_turns`, recover); the selection rule (bar, own threshold, `no_topic`, due, calls, fallback); the message ceiling and `omitted`; and the Keeper's actual provider requests with `COC_INSTRUCTION_BUDGET=1`: resident text in the brief without the section list, the section message last, a cash call this turn loading the price section for the next request, delivered telemetry; Jev unavailable loads by fallback. Nine mutations (no call triggers, the brief keeping the list, no call noting, never indexed, no due, no `no_topic`, no own threshold, unknown topics accepted, the stall setting ignored) each turn a case red.
+- Updated for the retired brief: `craft-mod-guidance` (the later request carries the whole instruction and no section message), `jev-pacing-mod-alignment`, `language-scoped-mods`, `keeper-prose-contract`, `npc-mood`, `context-policy`, `mod-package-boundary`, `tests/kernel/test_mod_director_text.py`, `test_language_barrier.py`, `test_language_mods.py`.
+
+## 184. Provider traffic: the library follows the leading fork, and the Keeper's request keeps its prefix (owner ruling 2026-10-04, `docs/specs/cache-traffic.md`; amends §22.6, §151.4's fork note, §135.23 and the context rows of §19.2)
+
+*Numbered §179 on its work branch; renumbered §184 before it reached 0.9.6a, where §179 is "A turn serves what the act is after" and §183 is taken by the package-instructions branch.*
+
+**Evidence (2026-10-04, installed App, five tables of one 111-page PDF book, Keeper grok-4.5 low, ten hours).** The
+module reading lane spent 27.4 M uncached input tokens in its `read` children (82% of their input cached) and 24.8 M in
+its `verify` units (58%); the Keeper's own channel spent 1.84 M (52%). The reading lane was 96.6% of the uncached
+tokens, because every campaign forked the shared library and read the whole book again in its private workspace:
+§22.6 sends every post-fork publication to the fork and none back, so the library kept the 8 material rows it had on
+2026-09-28 while each finished fork held 108. On the Keeper's side a turn's first call shared only the system prompt
+and tool declarations (25,728 tokens) on most turns, and the brief as well (40,064) on turns where no reading had
+published since the last; after the brief the rebuilt `coc-history` and the new capsule shared nothing. Direct probes
+of `api.x.ai` with the App's credential: the cache matches a token prefix in 128-token blocks, inside a message as
+well as across messages; 384 cached tokens is xAI's own preamble and means nothing of ours matched; a different
+`reasoning.effort` is a different cache; tool declarations are outside the cached prefix.
+
+### 184.1 The library follows the leading fork (amends §22.6)
+
+A fork's accepted reading is source material, never campaign canon. §22.6 keeps its direction -- a library publication
+never changes a forked campaign's graph -- and gains the reverse one:
+
+- **When.** After a campaign-scoped publication that changed the fork's reading state: a `module.read.finish` with
+  outcome `completed` (a graph write, a visual scan, an index, an identity verdict, a guidance acceptance) and a
+  `module.reference.materialize` that published. The kernel does it, inside the same call, after the fork's own
+  writes are durable; the result carries `library_sync: {state: "published", library_generation}` or
+  `{state: "skipped", reason}` or `{state: "failed", detail}`. A sync failure never fails the publication.
+- **Eligibility (the lineage test).** The library module exists, names the same `id` and the same
+  `source_document.file_sha256`, is not a starter (`playsFromReading`), and its current head is this fork's lineage:
+  either `library.generation` equals the fork's `source_generation` (the fork was seeded from the head and nobody,
+  fork or library, has published since), or `library.synced_from.campaign` is this campaign and
+  `synced_from.library_generation` is the library's current `generation` (this fork wrote the head). Which campaign
+  the library followed before does not matter: a campaign created after another's publication forks the deeper library
+  and leads from it. *Amended 2026-10-04: the first wording let only the first campaign that ever published lead, so a
+  later campaign that read further could never give it back.* Anything else is skipped
+  with its reason: `not_a_fork`, `starter`, `library_missing`, `source_mismatch`, `library_advanced` (another
+  campaign's lineage, or the library read on its own after the fork), `nothing_new`.
+- **What the library adopts.** The fork's current graph, published through `ModuleStore.writeGraph` as a new library
+  generation (so ordering, manifest, `assets.json` and digest come from the one writer), with the campaign's opening
+  choice removed: `entry_scene_ids` and every scene record's `is_start` keep the library's own current values, and a
+  scene the library did not have gets `is_start: false`. Asset bytes the graph references and the library lacks are
+  copied. From `module.json`: `reading.materials`, `scene_index`, `visual_scans`, `visual_candidates`,
+  `visual_identity`, `missing`, `retranscriptions`, `resolved_source_needs`, `source_need_dispositions`,
+  `viewed_pages`, `index_complete`, `index_file` (and the file), `prepared_openings`, `character_guidance` (and
+  `character-guidance/<key>/accepted.json`, `public.json`), `source_reference` (and its packet file), `vocabulary`,
+  `languages`, and `status`, `opening`, `opening_ready` recomputed from the adopted graph with `ModuleStore.opening`.
+  Every material `packet_file` named is copied. The library records `synced_from: {campaign, fork_generation,
+  library_generation, at}`.
+- **What stays private.** `opening_choice`, `campaign_scope`, `source_generation`, `library_sync`,
+  `reading.completed` (job ids are the workspace's), `reading.answers` and `answer_seed`, the fork's queue, leases and
+  work directories. The library's own `deepen-queue.json` is not touched.
+- **The fork's record.** After the library commit the fork's `module.json` gets `library_sync: {library_generation,
+  fork_generation, at}`. The lineage test reads `synced_from` on the library, so a crash between the two writes leaves
+  the lineage intact.
+- **Locks.** The library module's `.metadata.lock` (the lock `ensureCampaignModule` seeds under and the library's own
+  reading mutex), eligibility re-checked inside it; the generation directory and `module.json` are published the way
+  every library publication is (an immutable generation directory, one atomic metadata write).
+- **Effect on the next campaign.** `ensureCampaignModule` is unchanged: it copies the library's reading state, so the
+  next fork starts with the material rows, and §151.4's `unitRows` tells its read-ahead that those units are read; a
+  detail request for one of them answers `ready` from the row; the visual-asset pages in `materials` are done.
+- **Telemetry.** The host writes one `lane: "reading", event: "library_sync"` row per publication with the fields of
+  the result (`state`, `reason`, `library_generation`, `module_id`, `campaign`, `job_id`).
+- **Three ends (§31).** Writer: the fork's publication. Reader: `ensureCampaignModule` for the next campaign, and every
+  un-forked campaign that still follows the library (§22.6: "a book whose reading finishes after the campaign exists
+  still reaches it"). Actor: the next campaign's `module.read.ahead`, which queues no unit the rows already answer.
+
+**Implementation decisions (2026-10-04, CT-01).** `syncLibraryFromCampaign` in `kernel-ts/modules/campaign-scope.ts`,
+called from `Reading.finish` and `Reading.publishReferencePlace` under the fork's metadata lock (lock order: fork
+metadata, then library metadata; a seeding holds the campaign's seed lock, then library metadata; nothing that holds the
+library's lock waits on a fork's, so there is no cycle).
+
+- Which finishes: outcome `completed`, not a replay, not an answer put back in the queue, and not `purpose: answer`
+  (§184.4). `settled` and `held` are not publications here; what they wrote travels with the fork's next one. A
+  library-scoped publication carries no `library_sync` field.
+- The lineage test also requires `synced_from.library_generation` to equal the library's generation, so a library
+  publication of its own after a sync ends the lineage, as §184.4 says. A fork seeded from the current head is eligible
+  whoever the library followed before (fixed 2026-10-04 with a case in `library-follows-fork.test.mjs`: a campaign
+  created after the first one's publications reads a unit beyond it and the library adopts it). `nothing_new` is decided on content: the adopted
+  graph and fields equal the library's current ones.
+- Every adoption writes a new library generation, even when the graph bytes are unchanged (a visual scan, an empty
+  unit), so each material row new to the library gets that generation as its `generation`; a row the library already
+  holds (equal but for `generation`) keeps its own. `focusTouched` and the identity order compare rows with the module's
+  own generation, and a fork's numbering is not the library's.
+- Artifacts: a path the library references now is the library's own bytes (the fork copied them at its seed) and is
+  kept; every other artifact is copied to `synced/<campaign>/<the fork's relative path>` and the pointer (`asset_ref`,
+  `index_file`, `packet_file`) rewritten, because `work/read-N/attempt-M` ordinals collide between the library and every
+  fork. Guidance files are found by key and are replaced atomically in place.
+- `reading.map_candidates` travels with the index: it is the index finish's own output, read beside `index_file`.
+  `index_file`/`index_complete` are adopted only from a fork whose index is complete. A field the fork lacks never
+  unsets the library's.
+- `is_start` is restored on `properties.runtime_projection.record`, the only place `applyOpeningChoice`'s write
+  persists; the `is_entrance` it adds to every candidate is the book's declaration and stays.
+- `library_sync` is left out of `task_source_revision` (beside `reading` and `updated_at`): it is written after the
+  fork's publication, whose exact source advance (§22.4 ownership) was measured before it.
+- The host's row: `{lane: "reading", event: "library_sync", module_id, campaign, job_id, ...library_sync}` after both
+  completed-finish call sites, and after `module.reference.materialize` (no `job_id`).
+- Tests: `tests/extension/library-follows-fork.test.mjs`, `campaign-module-isolation.test.mjs` (amended),
+  `map-publication.test.mjs` (the host row).
+
+### 184.5 A fork that is not the library's lineage gives back its readings one by one (owner ruling 2026-10-04, 「点头」; amends §184.1 and §184.4)
+
+Owner, 2026-10-04: 「如果重开的话应该能做到复制一份共享图谱，如果有比共享图谱解析更多的内容可以回去添加共享图谱对吧？」, and after the
+lead described the reading-level merge, 「点头」. §184.1's fast-forward stays the first choice. When the lineage test fails
+(`library_advanced`: two campaigns forked the same head and the other one published first, or the library moved after
+this fork's base), the fork's readings the library lacks are published into the library **one at a time, through the
+library's own reading publication** -- the same `module.read.finish` (or `module.reference.materialize`) checks a library
+reading passes: the draft against the contract, the independent review, the merge into the current library graph
+(`assembleVisual`: a re-transcription of a published span is recorded, a conflicting value refuses), identity, opening
+readiness, and the single atomic generation write. No model is called; it costs no tokens.
+
+- **Which readings.** Every material row of the fork whose `key` the library's `reading.materials` does not hold, whose
+  fork job completed (not settled, not failed, not cancelled) with its attempt directory still holding the artifacts its
+  finish read (`packet.json`, `draft.json`, `review.json`, `observations.json`, and the identity review and rendered
+  assets when its finish had them), in the order the fork finished them. Source places (`module.reference.materialize`,
+  key `source-place:<scene>`) replay through `module.reference.materialize`. Not merged: source consultations
+  (`purpose: answer`, §184.4), guidance, identity-review jobs and settled needs; they are counted as skipped with their
+  reason.
+- **How.** For each reading, under the library module's metadata lock: the fork's attempt directory is copied to
+  `work/merged/<campaign>/<fork job id>/` in the library (never a `work/read-N` ordinal, which collide), a library queue
+  job is written with the fork job's identity (`key`, `purpose`, `focus`, `question`, `pages` and its JOB_MARKERS), state
+  `running`, a fresh lease and that work directory, and the library's own finish runs on it with the fork's draft, review,
+  identity review and assets (the rendered PNGs named by the fork graph's `asset_ref` for the draft's nodes, copied into
+  the merged directory with their digests). A refusal ends that reading's merge only: its library job is marked failed
+  with the refusal, and the next reading goes on (a later reading that needs an earlier refused one is refused too).
+- **Result.** The fork's publication result carries `library_sync: {state: "merged", merged: n, skipped: [{key, reason}],
+  library_generation}` (or `nothing_new` when the library already holds every reading). The fork's `library_sync` record
+  is not written: the fork is still not the library's lineage, and every later publication of it merges again, idempotent
+  by `key`.
+- **Bounded per call** (lead, 2026-10-04, after measuring the first implementation). One merge call starts a replay only
+  while it has run less than `reading.merge_budget_ms` (`content/rulesets/coc7/host-budgets.json`, shipped 2000; the
+  kernel accepts 0 to 60000 and falls back to 2000), and always starts the first one. The result gains `remaining`, the
+  readings it selected and did not start (0 when done), and `partial: true` when `remaining` is above 0; `state` stays
+  `merged`. The backlog continues from the campaign's `module.read.ahead`: for a campaign whose fork exists and whose
+  lineage test answers `library_advanced`, the read-ahead first runs one merge batch, with the same budget and locks as a
+  publication (the fork's metadata lock for the selection, never the library's lock across a library finish), and returns
+  its outcome as `library_sync`, which the host records as it records a publication's. A read-ahead whose fork is the
+  lineage or has nothing to merge, and a library-scoped read-ahead, add no field. Measured (lead, the App's own data
+  cloned into a scratch home, the `24bb66cb` fork with 100 readings the library lacked, `mergeForkReadings` called
+  directly): 100 merged, 0 refused, 111.6 s in one call; per library finish median 1008 ms, p90 1587 ms, max 3486 ms,
+  growing with the graph. Unbounded, that ran inside one `module.read.finish` request (the host's timeout is 30 s,
+  `extensions/kernel/client.ts`) and held the table's kernel the whole time.
+- **What it does not do.** The running fork does not take the library's newer readings (§184.4 unchanged). Two forks that
+  read the same unit keep the first one's in the library; the second is `already_present`.
+- **Three ends (§31).** Writer: the fork's publication. Reader: `ensureCampaignModule` for the next campaign and the
+  campaigns that still follow the library. Actor: the next campaign's read-ahead, which asks no unit either fork read.
+
+**Implementation decisions (2026-10-04, CT-05).** `mergeForkReadings` in `kernel-ts/modules/library-merge.ts`, called
+from `Reading.libraryFollows` (`reading.ts`) when `syncLibraryFromCampaign` answers `library_advanced`, with the key of
+the reading the publication wrote (`job.key`; `source-place:<scene>` for a materialization; none for a build completion).
+
+- **The library's own publication.** The replay runs through a second `Reading` over the library store in the fork's
+  kernel process. The library module's `.metadata.lock` is a descriptor lock polled non-blocking (`native-locks.ts`), so
+  two descriptors of one process contend for it as two processes do, and `withExclusiveLock` is not reentrant: the
+  merge takes the lock for its selection, for staging each reading and for marking a refusal, and never holds it across
+  the library's `finish` or `publishReferencePlace`, which take it themselves. Lock order: the fork's metadata (held by
+  the fork's publication), then the library's; nothing here takes a fork lock.
+- **Which rows are the fork's.** A material row is one of the fork's readings when the fork's queue has a job with its
+  key, or its `generation` is above `source_generation` (every row a fork publishes is numbered in the fork generation
+  its publication wrote). A row the fork was seeded with is the library's even after the library dropped it (a published
+  reading replaces an unusable settlement). One row per key, ordered by that generation: each publication writes one
+  fork generation under the fork's lock, so it is the finish order, which `finished_at` (one-second precision) cannot
+  always tell apart. Selection re-reads the library inside its lock; each reading's staging re-checks its key.
+- **Which job.** The fork's `completed` jobs of the key that published (no `reused_generation`, result not `settled`),
+  earliest first, whose attempt directory lies in the fork and still has `packet.json`, `draft.json`, `review.json` and
+  `observations.json`. Reasons a row is not replayed: `settled` (an unusable row, or only settled completions),
+  `consultation_private`, `guidance_private` (a guidance row, or a `reference-context` row that is not a place: the
+  reference guidance of `module.reference.publish`), `identity_review`, `artifacts_missing`; and, per reading,
+  `refused` (with `detail`) and `already_present`. Consultations never have material rows, so `consultation_private` is
+  defensive; identity, visual-scan and index jobs write no material row either.
+- **The library job.** `{job_id: "read-<n>", key, purpose, material?, focus, question, pages, opening_scope?, <JOB_MARKERS>,
+  foreground: false, state: "running", owner: "merge", attempts: 1, lease, lock_version: 2, work_dir, at, class_at,
+  claimed_at, merged_from: {campaign, job_id}}` (`Reading.replayIdentity`; `material` and `opening_scope` travel because
+  the finish reads them). `<n>` is the queue's next ordinal, skipping one the queue or `reading.completed` already holds.
+  The job's `.job-<id>.lock` is held from before the queue write until the finish answers, so a library claim's probe
+  counts it as a live attempt. The whole attempt directory (regular files; links are skipped) is copied with reflinks
+  where supported to `work/merged/<campaign>/<fork job id>/`; `work_dir` is that copy.
+- **The finish's inputs.** `draft.json` and `review.json` of the copy; the newest `identity/<round>/identity-review.json`
+  of the fork's attempt (by modification time, the last one its finish was given), mapped into the copy; `assets`: each
+  node of the draft whose node in the fork graph has `asset_ref` and `asset_digest`, at its copy when the PNG lies in
+  the attempt, else copied to `graph-assets/<node_id>.png` in the copy. `travel` is not passed: a road the replay
+  publishes stays unbanded in the library until a later publication fills it (§138.9).
+- **Refusal and interruption.** A finish that throws fails its library job (`detail`, `refusal: {message, path?, rule?,
+  reason?}`), kept as evidence; a finish that committed before it threw (its job is in `reading.completed`) counts as
+  merged. A refusal is final: a later merge reports `refused` with the stored detail and copies nothing. A `running`
+  merged job whose job lock nobody holds was left by a killed kernel: a library claim fails it with rule
+  `merge_interrupted` instead of re-queueing it, and never offers a merged job; the next merge of that reading (under the
+  fork's lock, a running replay of it can only be an interrupted one) fails it the same way and replays it again. Only
+  `merge_interrupted` is replayed again.
+- **The library's own asks.** A failed merged job is not the library's attempt at that reading: `ownAsks` leaves it out
+  of what the read-ahead (units, visual scans and assets, map scope, needs), the build's completion (§182.2) and a
+  claim's need packet count, and `request` does not answer a key from it, so a library request for that key queues a
+  reading instead of reporting it blocked.
+- **Places.** A `source-place:<scene>` row's attempt is the fork's `work/*` directory whose `materialize_place` task and
+  `excerpts` receipt name the digest in the row's `packet_file` (`source-references/<digest>/packet.json`); it is
+  copied to `work/merged/<campaign>/<that directory>/` and replayed through `module.reference.materialize`. A place the
+  library already has with material under its own scene (`placeScene`: name, alias or id, now shared with
+  `publishReferencePlace`) is not a candidate. A refused place writes `merge-refusal.json` in its copy and is final.
+- **Result.** `{state: "skipped", reason: "already_present"}` when no reading of the fork is missing from the library and
+  the reading this publication wrote is one the library holds; `nothing_new` otherwise. Any missing row gives `{state:
+  "merged", merged, skipped, library_generation, remaining, partial?}` (`merged` may be 0), the publication's own
+  `already_present` first in `skipped`; at most 64 rows are listed, the rest counted in `skipped_truncated`. A reading not
+  started for the budget is counted in `remaining`, not listed. Before the selection the merge
+  re-checks `not_a_fork`, `library_missing`, `starter` and `source_mismatch`. The fork's `library_sync` is not written.
+- **A merge ends the lineage it did not follow.** A merge is a library publication of its own: it advances the
+  library's generation and leaves `synced_from` as it was, so the fork the library last followed is no longer its
+  lineage and from then on merges too. Keeping that lineage would let its next fast-forward replace the library's
+  materials and graph with its own and drop what was merged (`library-follows-fork.test.mjs` checks it).
+- **What a merge does not carry.** Only material rows travel: visual scans (contact sheets), the whole-book index and
+  its map candidates, identity verdicts of identity jobs and `build_complete` reach the library only by §184.1's
+  fast-forward. A later fork reads those again unless the library has them.
+- **Not measured** (first implementation; *superseded*: the lead measured it on the App's data, see "Bounded per call"
+  above). A fork that diverged long ago merged every reading the library lacked in the one publication that first found
+  them, each a library publication (one immutable generation directory with the whole graph).
+- **Bounded per call: the budget.** `readingBudget(context).mergeBudgetMs` (`kernel-ts/modules/chapters.ts`, beside the
+  §182 page budgets), read from the content on every call. Elapsed time counts from the start of the merge call, its
+  selection included. A reading started counts against the budget whatever its staging finds (a race that made it
+  `already_present`, a refusal written meanwhile).
+- **Bounded per call: refusals are decided in the selection.** A reading the library refused before (its merged library
+  job failed with a rule other than `merge_interrupted`, or a place's `merge-refusal.json`) is reported `refused` by the
+  selection and is no candidate; otherwise a refusal at the head of the backlog would take every call's one replay and
+  the rest would never start. The staging keeps the same check as a race guard.
+- **Bounded per call: the read-ahead's batch.** `Reading.mergeBacklog`, called by `modules/index.ts` `ahead(params,
+  true)` for the `module.read.ahead` request alone, after the campaign's fork exists and before the read-ahead's own
+  asks; the kernel's own read-aheads (a table opening, setup's way-on repair, through `source.ahead`) run no batch, so a
+  table opening does not wait on one. It takes the fork's metadata lock (the fork Reading's mutex) and asks
+  `libraryLineage` (`campaign-scope.ts`): §184.1's test (`lineageRefusal`, shared with `followFork`) read under the
+  library's metadata lock without publishing. Only `library_advanced` runs a batch; a batch that answers `merged` or
+  `failed` rides on the result, one that answers `skipped` adds nothing. A library-scoped read-ahead never calls it, and
+  it answers null for a store that is not a campaign fork. When the same pass completes a short book's build (§182.2),
+  that completion's own, later `library_sync` is the one returned.
+- Tests: `tests/extension/library-follows-fork.test.mjs` (two §184.5 cases; the §184.1 case's other-lineage publications
+  now answer `already_present`; two bounded cases with `merge_budget_ms` 0 through a content-root overlay: one reading per
+  call across a publication and two read-ahead passes, `remaining` 2, 1, 0, no field on a lineage read-ahead, on one
+  with nothing left and on a library-scoped one; a refused reading at the head of the backlog does not stall it),
+  `campaign-module-isolation.test.mjs` (two kernel processes: the other lineage's reading is merged, the published
+  summary is kept under §147.8), `map-publication.test.mjs` (the host row of a publication's merge),
+  `read-window.test.mjs` (the host row of a read-ahead's batch).
+
+### 184.2 The Keeper's request keeps its prefix across turns (amends §135.23)
+
+On the single-loop engine the projection's fixed part after the brief is, in order: the turn's capsule, then
+`coc-history`, then the player's words and the rest of the opening, then the optional packets, then the turn's
+traffic. The capsule the Keeper is sent -- the turn's first copy of §135.23, and the ephemeral one of an opening -- is
+rendered with its sections in one fixed order, the stable ones first: `head`, `historical_setting`, `worldlines`,
+`mods`, `reading`, `pressures`, `obligations`, `situations`, `rulings`, `owed`, `unrecorded`, `untold`, `warnings`,
+`known`, `voices`, `style`; then any section not in this list, in the order the kernel gave it; then the ones that
+change every turn: `where`, `present`, `director`, `memory`, `recent`, `turn`. Nothing is dropped or rewritten; the
+persisted `coc-capsule` entry, the `coc-capsule-update` tail and the legacy engine are unchanged. Measured on the
+four tables, the stable head is about 9 KB of a 16–26 KB sent capsule; the next turn's first call therefore shares the
+system prompt, the brief and that head, instead of ending at the brief.
+
+*Implementation (CT-02, 2026-10-04).* `stableFirst` and `projectedMessages({capsuleFirst})` in
+`extensions/table/context-policy.ts`; `context-runtime.ts` passes `capsuleFirst` when the run owns the prescreen (the
+`coc:loop-engine` announcement, so the single-loop engine only) and renders the turn's first capsule through
+`stableFirst` once per input epoch. The `coc-capsule-update` is still computed against the kernel-ordered first copy,
+so its `sections` and `removed` keep the kernel's order. The capsule that moves is the one that ends the opening; with
+an answered ask (§19.2's `answering`) that is the older exchange's, as the opening ends with it today. Measured on the
+faux replay of `tests/extension/single-loop-model-call-diet.test.mjs` (a 22.4 K-character sent capsule): after a turn
+that only delivered, the next turn's capsule shares 20,323 characters with the previous one (past `style`, into
+`present`); after a turn that revealed a clue the share ended inside `mods` at 8,332 characters, because `mods.thread`
+(about 2.7 K: the thread's `next` rows lose the clue's lock) and `known` changed. So `stableFirst` also orders the keys
+of `mods` (`active`, `authority`, `providers`, `vocabulary`, `unregistered_equipment`, `relationships`, `pacing`, then
+any key not named, then `objects`, `pending_contacts`, `thread`) and of `known` (`investigator`, `flags`, then any key not
+named, then `clues_here`, `discovered_clues`): what play moves goes last; nothing else nested is reordered. Measured
+with it, the clue turn shares 8,974 characters, up to `mods.thread`. A prefix ends at its first difference and both
+sections still sit inside the stable span, so the sub-order does not carry a discovery turn past them to `where`
+(16,144); placing `mods` and `known` after `style` would share 12,031 on the same two capsules, and reaching `where`
+would need the moving keys outside those sections.
+
+*Decision (lead, 2026-10-04).* The section order stays as written. The faux table's style never changes, so there
+moving `mods` and `known` after `style` looks better; on the four live tables `style` changed on 86% of the turns,
+`voices` on 71%, `known` on 57%, `warnings` on 28% and `mods` on about 10% (a clue discovery), so the order above is the
+one by measured change frequency, and `mods` ahead of `known`, `voices` and `style` keeps about 2.3 KB in the prefix on
+most live turns. `head` stays first by convention although its first-sight sentence changed it on 29–67% of the live
+turns; moving that sentence into a section of its own next to `present` is a change to the kernel's capsule
+composition (§168) and needs a live table before it is made.
+
+### 184.3 The context lane fingerprints its request (amends the rows of §19.2)
+
+The `lane: "context", event: "request"` row gains `at` (ISO time), `system_digest` and `segments`: one
+`{kind, bytes, digest}` per outgoing message in request order, `kind` the custom type or the role, `digest` the first
+12 hex characters of the SHA-256 of the message's `role`, `customType` and `content`. At most 64 segments are listed,
+the rest counted in `segments_truncated`. A cache miss in the token ledger is joined to its request by time and
+attributed to the first segment whose digest differs from the previous request's.
+
+*Implementation (CT-03, 2026-10-04).* `system_digest` covers the current system message's `content`, `sections` and
+`toolsAdded` (its transcript timestamp is never sent and is left out); without a session projection it covers the
+`{system, tools}` that `system_bytes` measures. A segment's `bytes` is `requestSize([message])`, so the segments plus
+`system_bytes` exceed `request_bytes` by `segments.length - 1`, the list's separators. The degraded `request` row carries
+the same three fields. The segments are this hook's output; the kernel extension's host-notice filter (§135.27.1.3) runs
+before it. The system message is the transcript's: on a host-started run whose transcript still records another prompt,
+§128.1's `context_with_system` swaps the head after this hook, so that request's `system_digest` and `system_bytes`
+describe the recorded prompt, not the one sent (the `prompt` lane's `stale_prompt_replaced` row marks such a request).
+
+### 184.4 Limits
+
+- Two campaigns forked from the same library generation are two lineages; the one that publishes first is the one the
+  library follows. *Amended by §184.5: the other one's readings the library lacks are merged one by one through the
+  library's own publication.* Adopting a deeper library into a running fork is not done.
+- A library that reads on its own after a fork (setup guidance, a library-scoped opening read) moves its head and
+  ends the forks' lineage; those forks publish nothing to it. *Amended by §184.5: they give back their readings one by
+  one; a merge is such a library publication and ends the lineage of the fork the library last followed.*
+- Source consultations (`purpose: answer`) stay private to their campaign.
+- The first reading of a book still reads the whole book (`coc-module-parsing-redesign`, 2026-08-03: nine of eleven
+  surveyed modules keep NPC stat blocks where no location edge reaches). The read-ahead is not narrowed to the player's
+  reach. *Superseded by §182 (owner ruling the same day): that 2026-08-03 reason asks for a whole-book index, not a
+  detailed read of every page; a short book is built once and a long book reads the chapter in play and the next.*
+- Eviction on the provider's side is not ours. `thinking-schedule` is a no-op on grok-4.5 and grok-4.7, whose catalogs
+  expose no `off`; on a model that does, it would cost a whole prompt per turn on an xAI endpoint (184's probes).

@@ -33,19 +33,17 @@ test('compressed context supplies facts but never the player-facing sentence pat
   assert.ok(craft.includes("Keep each person's facts and position"));
   assert.ok(craft.includes('Repetition may test patience, persuade, clarify, or change nothing'));
   assert.ok(craft.includes('Sarcasm, contempt and insult may colour what they offer next, but do not force offence'));
-  // prose-mod-c (2026-09-26): two of fifteen turns narrated the investigator in the third person; both forms state the viewpoint.
-  const brief = await readFile(new URL('../../mods/narration-craft/brief.md', import.meta.url), 'utf8');
+  // prose-mod-c (2026-09-26): two of fifteen turns narrated the investigator in the third person; the instruction states the viewpoint
+  // (the brief that also said it is retired, §183).
   assert.ok(craft.includes('The investigator is always "you"'));
-  assert.ok(brief.includes('The investigator is “you”'));
-  assert.ok(brief.includes('never a name or he/she'));
-  // §40.9: full, brief, style axis, directive, floor and package description agree that people react to the whole
+  // §40.9: the instruction, style axis, directive, floor and package description agree that people react to the whole
   // encounter, and none keeps the unconditional answer-first priority under which a struck NPC still recited money and
   // keys (2.1.8 run, turn 2); the description was left behind until 2.1.13.
   // Each surface is found where it lives, so one that is renamed or dropped fails here instead of passing vacuously.
   const style = JSON.parse(await readFile(new URL('../../mods/narration-craft/style.json', import.meta.url), 'utf8'));
   const manifest = JSON.parse(await readFile(new URL('../../mods/narration-craft/mod.json', import.meta.url), 'utf8'));
   const speak = style.directives['speak-in-person'] ?? {};
-  const surfaces = {full: people, brief, axes: style.axes.join('\n'), 'directive full': speak.full, 'directive brief': speak.brief,
+  const surfaces = {full: people, axes: style.axes.join('\n'), 'directive full': speak.full, 'directive brief': speak.brief,
     floor: style.floor.find(line => line.startsWith('voice:')), description: manifest.description?.en};
   for (const [surface, text = ''] of Object.entries(surfaces)) {
     assert.match(text, /\breacts?\b/i, `§40.9: the ${surface} has people react to the whole encounter`);
@@ -154,4 +152,28 @@ test('§158.6: the Keeper is told the delivered turn is canon, the ledger follow
   assert.doesNotMatch(prompt, /say so plainly to the player as a service notice/);
   assert.doesNotMatch(prompt, /say that the table cannot settle actions/);
   assert.match(prompt, /keep the review, the service and its failure out of the fiction and the prose/);
+});
+
+test('§179.1: consulting what the investigator carries is the base\'s; the answer an asker wants is Natural NPC\'s', async () => {
+  // App table game-8e41c325 (2026-10-04): turn 6 opened the notes and wrote the room; turn 3 gave a place's name and no
+  // way to know it. Owner: consulting items belongs to the base system, reading an asker's intent to the NPC package.
+  const prompt = await readFile(new URL('../../prompts/keeper.md', import.meta.url), 'utf8');
+  assert.match(prompt, /When the investigator reads, checks or calls to mind what they carry or already know/);
+  assert.match(prompt, /the turn shows what is there, not only the gesture of looking/);
+  // Arm C of the replay: three of four named the notes' headings with a particular inside them, not the contents.
+  assert.match(prompt, /the particulars themselves, as written or remembered, not a list of the kinds of things the page holds/);
+  assert.match(prompt, /`own` holds what their card says and the player's own earlier words/);
+  assert.match(prompt, /never against what the player has said/);
+  const npc = await readFile(new URL('../../mods/natural-npc/agent.md', import.meta.url), 'utf8');
+  const at = npc.indexOf('\n## What the asker is after\n');
+  assert.ok(at >= 0, 'Natural NPC carries the section');
+  const section = npc.slice(at, npc.indexOf('\n## ', at + 1));
+  assert.match(section, /know what the investigator is after/);
+  assert.match(section, /where it is and how to know it on\s+arrival/);
+  assert.match(section, /complete enough to use/);
+  assert.match(section, /hides\s+exactly that point/);
+  // The prose package is not where either lives (owner, 2026-10-04): narration-craft stays as 0.9.6a shipped it.
+  const craft = await readFile(new URL('../../mods/narration-craft/agent.md', import.meta.url), 'utf8');
+  assert.equal(craft.includes('what the asker is after'), false);
+  assert.equal(craft.includes('`own`'), false);
 });

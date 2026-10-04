@@ -91,7 +91,7 @@ async function seePages(request, cache, fileSha, pages) {
 	await writeFile(request.eventLog + ".images.jsonl", JSON.stringify({ included: [call] }) + "\n");
 }
 
-async function runMapJob(t, { jobId = "read-2", focus = "farm", question = MAP_QUESTION, knownNodes, resumeFrom, whole = false, rejectReview = false, rejectFinish = false }) {
+async function runMapJob(t, { jobId = "read-2", focus = "farm", question = MAP_QUESTION, knownNodes, resumeFrom, whole = false, rejectReview = false, rejectFinish = false, librarySync }) {
 	const home = await mkdtemp(join(tmpdir(), "coc-map-pub-"));
 	t.after(() => rm(home, { recursive: true, force: true }));
 	const moduleDir = join(home, ".coc", "modules", "book");
@@ -103,7 +103,7 @@ async function runMapJob(t, { jobId = "read-2", focus = "farm", question = MAP_Q
 	const cache = join(moduleDir, "cache", "pages");
 	await mkdir(cwd, { recursive: true });
 	await mkdir(cache, { recursive: true });
-	const tasks = [], briefs = [], finishes = [];
+	const tasks = [], briefs = [], finishes = [], records = [];
 	const runtime = {
 		contentRoot: join(ROOT, "content"),
 		async runTask({ request }) {
@@ -129,12 +129,12 @@ async function runMapJob(t, { jobId = "read-2", focus = "farm", question = MAP_Q
 		async sourceInfo() { throw new Error("not a guidance job"); },
 	};
 	const service = new ReadingService({ home, runtime, model: () => ({ id: "fixture/vision", vision: true, thinking: "off" }),
-		progress() {}, record() {}, async call(method, params) {
+		progress() {}, record(row) { records.push(row); }, async call(method, params) {
 			assert.equal(method, "module.read.finish");
 			finishes.push(params);
 			if (params.outcome === "completed" && (rejectFinish || rejectReview))
 				throw new KernelError({ code: "invalid_params", message: `the independent review found missing or incorrect material: ${WHOLE_MAP_MISSING}` });
-			return { state: params.outcome === "completed" ? "ready" : params.outcome };
+			return { state: params.outcome === "completed" ? "ready" : params.outcome, ...(params.outcome === "completed" && librarySync ? { library_sync: librarySync } : {}) };
 		} });
 	t.after(() => service.close());
 	await service.runJob({
@@ -144,7 +144,7 @@ async function runMapJob(t, { jobId = "read-2", focus = "farm", question = MAP_Q
 		index: {}, known_nodes: knownNodes ?? [{ node_id: "scene-opening", node_kind: "scene", name: "Opening", ready: true }],
 		known_claims: [], vocabulary: {}, coverage_domains: [],
 	}, new AbortController().signal);
-	return { home, cwd, cache, pdfPath, fileSha, tasks, briefs, finishes };
+	return { home, cwd, cache, pdfPath, fileSha, tasks, briefs, finishes, records };
 }
 
 test("map region geometry, unique reveal boxes and private-source correspondence are checked before publication", () => {
@@ -341,4 +341,22 @@ test("published player assets keep source identity and normalized boxes and cont
 	const privatePixels = await countColors(keeper.path);
 	assert.ok(privatePixels.green > 0);
 	assert.ok(privatePixels.yellow > 0);
+});
+
+test("contract §184.1 and §184.5: a completed publication the library followed or merged writes one library_sync row; a publication without the field writes none", async t => {
+	const followed = await runMapJob(t, { librarySync: { state: "published", library_generation: 7 } });
+	const rows = followed.records.filter(row => row.event === "library_sync");
+	assert.equal(rows.length, 1, JSON.stringify(rows));
+	assert.deepEqual({ lane: rows[0].lane, module_id: rows[0].module_id, job_id: rows[0].job_id, state: rows[0].state, library_generation: rows[0].library_generation },
+		{ lane: "reading", module_id: "book", job_id: "read-2", state: "published", library_generation: 7 });
+	const skipped = await runMapJob(t, { librarySync: { state: "skipped", reason: "already_present" } });
+	assert.deepEqual(skipped.records.filter(row => row.event === "library_sync").map(row => [row.state, row.reason]), [["skipped", "already_present"]]);
+	// §184.5: a merge's outcome rides on the row as the kernel gave it, its per-reading reasons included.
+	const merge = { state: "merged", merged: 2, skipped: [{ key: "k-1", reason: "refused", detail: "the new reading contradicts a published value" }], library_generation: 9 };
+	const merged = (await runMapJob(t, { librarySync: merge })).records.filter(row => row.event === "library_sync");
+	assert.equal(merged.length, 1, JSON.stringify(merged));
+	assert.deepEqual({ state: merged[0].state, merged: merged[0].merged, skipped: merged[0].skipped, library_generation: merged[0].library_generation, job_id: merged[0].job_id },
+		{ ...merge, job_id: "read-2" });
+	const library = await runMapJob(t, {});
+	assert.equal(library.records.some(row => row.event === "library_sync"), false);
 });

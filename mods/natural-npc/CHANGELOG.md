@@ -1,5 +1,14 @@
 # Natural NPC
 
+## 1.4.6
+- Declares the sections of `agent.md` (`sections.json`, `instructions.sections.v1`, contract §183): which ride every turn and which a turn loads by its topics, the table's state or the Keeper's calls, for a table whose instructions exceed the instruction budget. Under the budget, as every table is today, the whole text goes as before.
+- `brief.md` is gone. A 2026-10-04 probe of real provider requests found the Keeper received the full `agent.md` every turn; the brief existed only in the capsule (§183, evidence).
+- `agent.md` gains two headings, "First impression" over the opening paragraphs and "The impression in play" before "Let the frozen result change"; no sentence changes.
+
+## 1.4.5
+- What the asker is after (contract §179.1): before a person answers, the Keeper knows the answer the investigator would need to act on. Someone willing gives it complete enough to use; someone with a reason to hide it hides exactly that point. App table `game-8e41c325` (Blood Road, 2026-10-04), turn 3: asked where to eat and sleep, two willing men gave a place's name and 「往前开一点」, though the Keeper held the book's description of the place and had set one of them as eager to talk about the road. Owner, same day: any question is read for the answer the player wants, so a willing person gives it clearly and a person who wants to hide something hides exactly that; this belongs to this package, not to the prose package.
+- The brief gains "Give or hide the answer." (25 bytes; the shared ceiling is under 5000 bytes, 26 were left). The language paragraph and every other sentence keep their bytes.
+
 ## 1.4.4
 - Restores the language paragraph of the brief word for word from 1.4.2. The 1.4.3 compression reworded the language-barrier rules (it dropped "bound or not", "never rewrite the book", "Read the sheet with `look` if needed: Language values limit both directions", "keep the intent", "never in documents"), which were not this change's to shorten; `tests/kernel/test_language_barrier.py` caught one of them. The asking rule is one shorter sentence; the full rule stays in `agent.md`.
 

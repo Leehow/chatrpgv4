@@ -1,0 +1,7 @@
+{"schema_version": 1, "sections": [
+  {"heading": "The reference library", "kind": "resident"},
+  {"heading": "Setting and reference", "kind": "resident"},
+  {"heading": "Prices", "kind": "situational", "topics": ["money"], "triggers": ["before_apply:cash"]},
+  {"heading": "A disputed price", "kind": "situational", "topics": ["price_dispute"]},
+  {"heading": "When retrieval is closed", "kind": "resident"}
+]}

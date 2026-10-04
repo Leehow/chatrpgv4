@@ -406,17 +406,20 @@ test('§177.11: a module without a cast has no names to refuse: a graph\'s names
 	assert.equal(group.ok, true, `"the kids" is the Macario boys' alias, an ordinary phrase: ${group.error?.message}`);
 });
 
-test('§177.12: the journal tells a person only with words that say one of their names; a made-up name tells nothing', async t => {
+test('§177.12 with §176.9: a made-up name tells nobody; a form only the cast prints is her name in a label', async t => {
 	const h = await harbor(t);
 	await readCast(h);
 	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}]});
 	await h.call('table.player_input', {text: 'I ask the net mender her name.'});
 	// Table 26 (turn 8): asked his name, the toothless trucker said "call me Earl", a name the Keeper made up; the lane gave
-	// named: true on that line and the book's name stopped being hidden.
+	// named: true on that line and the book's name stopped being hidden. §176.9 asks the lane the narrow question.
 	await h.call('table.narrate', {call_id: 't1-c1', text: 'She shrugs. {{say:the net mender}}"Folk call me Granny Nets."{{/say}}'});
 	const job = await h.call('journal.job', {turn: 1});
 	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, entries: [{name: 'Old Mae', named: true, named_quote: 'Folk call me Granny Nets.'}]}),
-		error => error?.details?.reason === 'not_their_name', 'a name nobody in the book has is no telling');
+		error => error?.details?.reason === 'not_a_book_name', 'a name nobody in the book has needs the narrow question');
+	// The graph has only "Old Mae"; the book also prints "Mae" alone, which only the cast holds. A label carrying it names her.
+	await assert.rejects(h.call('journal.submit', {job_id: job.job_id, entries: [{name: 'Old Mae', label: 'Mae of the nets'}]}),
+		error => error?.details?.field === 'label' && /the book gives .Old Mae/.test(error?.message ?? ''), 'a form only the cast prints is her own book name in a label');
 	await h.call('journal.submit', {job_id: job.job_id, entries: [{name: 'Old Mae', label: 'the woman with tar on her hands'}]});
 	assert.ok((await h.call('table.untold')).people.some(row => row.name === 'Old Mae'), 'she stays untold, her book name still hidden');
 	await h.call('table.player_input', {text: 'And your real name?'});

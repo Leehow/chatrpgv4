@@ -49,7 +49,7 @@ async function variant(game, name, edit = manifest => manifest, files = {}) {
 const lockOf = async (game, campaign, id) => (await game.call("mods.list", {campaign})).mods.find(row => row.id === id && row.active)?.active ?? null;
 const readJson = async path => JSON.parse(await readFile(path, "utf8"));
 const byMod = capsule => new Map(capsule.mods.instructions.map(row => [row.mod, row]));
-/** The first turn carries full instructions; the next one, after a delivery, carries briefs (§30.7). */
+/** The first turn and the next one, after a delivery: both carry whole instructions (§183 retired the brief). */
 async function briefTurn(game, campaign) {
 	await game.call("table.open", {campaign});
 	const first = await game.call("table.player_input", {campaign, text: "I look around the office."});
@@ -142,7 +142,7 @@ test("the write runtime's own fresh-world plan, without the Mod runtime, applies
 	await assert.rejects(create("zh", "zh-Hans"), error => error.code === "not_implemented" && /active Mod language-zh/.test(error.message));
 });
 
-test("the language brief rides the capsule of the matching campaign only", async t => {
+test("the language package's instruction rides the capsule of the matching campaign only, whole on every turn", async t => {
 	const game = await kernel(t, "language-brief");
 	await game.call("mods.install", {path: FIXTURE});
 	await game.create("zh", "zh-Hans");
@@ -150,8 +150,8 @@ test("the language brief rides the capsule of the matching campaign only", async
 	const zh = await briefTurn(game, "zh"), en = await briefTurn(game, "en");
 	assert.equal(zh.first.get(ID)?.form, "full");
 	assert.equal(zh.first.get(ID).instruction, await text("agent.md"));
-	assert.equal(zh.next.get(ID)?.form, "brief");
-	assert.equal(zh.next.get(ID).instruction, await text("brief.md"));
+	assert.equal(zh.next.get(ID)?.form, "full");
+	assert.equal(zh.next.get(ID).instruction, await text("agent.md"), "its brief is never read (§183.3)");
 	assert.equal(en.first.has(ID), false);
 	assert.equal(en.next.has(ID), false);
 	assert.ok(en.next.has("narration-craft") && zh.next.has("narration-craft"), "the other packages are unaffected");
@@ -201,7 +201,7 @@ test("an owner that predates voice_lane keeps its frozen instruction, addendum o
 	assert.equal(job.instruction, frozen);
 });
 
-test("manifest validation: play_languages shape, the addendum's capability and text, and the 400-byte language ceiling", async t => {
+test("manifest validation: play_languages shape, the addendum's capability and text; no language ceiling (§183.3)", async t => {
 	const game = await kernel(t, "language-manifest");
 	const refused = async (name, edit, files, reason, field) => {
 		const path = await variant(game, name, edit, files);
@@ -220,22 +220,13 @@ test("manifest validation: play_languages shape, the addendum's capability and t
 		"voice_lane_addendum_capability", "contributes.voice_lane_addendum");
 	await refused("blank-addendum", manifest => manifest, {"voice-addendum.md": " \n"}, "voice_lane_addendum_text", "contributes.voice_lane_addendum");
 
-	// The ceiling is UTF-8 bytes, not characters: 201 two-byte characters are 402 bytes.
-	const over = "é".repeat(201);
-	await refused("brief-over", manifest => manifest, {"brief.md": over}, "language_brief_over_budget", "contributes.brief");
-	await assert.rejects(game.call("mods.install", {path: await variant(game, "brief-over-details", manifest => ({...manifest, id: "language-zh-over"}), {"brief.md": over})}),
-		error => error.details.bytes === 402 && error.details.limit === 400 && /402 UTF-8 bytes/.test(error.message));
-	// Without a brief, the full instruction is what rides every later turn, so it is what is measured.
-	await refused("no-brief", manifest => ({...manifest, package_files: ["agent.md", "voice-addendum.md"], contributes: {instructions: "agent.md", voice_lane_addendum: "voice-addendum.md"}}),
-		{"agent.md": "x".repeat(401)}, "language_brief_over_budget", "contributes.instructions");
-
-	// Exactly at the ceiling installs; the same brief on a package that declares no play_languages is not measured here.
-	assert.equal((await game.call("mods.install", {path: await variant(game, "at-ceiling", manifest => ({...manifest, id: "language-zh-at"}), {"brief.md": "x".repeat(400)})})).id, "language-zh-at");
-	const unscoped = await variant(game, "unscoped", manifest => {const {play_languages: _, ...rest} = manifest; return {...rest, id: "unscoped-long-brief"};}, {"brief.md": "x".repeat(1200)});
-	assert.equal((await game.call("mods.install", {path: unscoped})).id, "unscoped-long-brief");
+	// §153.4's ceiling measured the brief, which no request carried; it is retired. A long brief or instruction installs.
+	assert.equal((await game.call("mods.install", {path: await variant(game, "brief-long", manifest => ({...manifest, id: "language-zh-long"}), {"brief.md": "é".repeat(2000)})})).id, "language-zh-long");
+	assert.equal((await game.call("mods.install", {path: await variant(game, "no-brief", manifest => ({...manifest, id: "language-zh-whole", package_files: ["agent.md", "voice-addendum.md"],
+		contributes: {instructions: "agent.md", voice_lane_addendum: "voice-addendum.md"}}), {"agent.md": "x".repeat(4000)})})).id, "language-zh-whole");
 });
 
-test("the shipped zh-optimize package: on for a zh-Hans table, off for en, its brief each turn and its addendum after the owner's", async t => {
+test("the shipped zh-optimize package: on for a zh-Hans table, off for en, its instruction each turn and its addendum after the owner's", async t => {
 	const game = await kernel(t, "zh-optimize");
 	await game.create("zh", "zh-Hans");
 	await game.create("en", "en");
@@ -244,7 +235,7 @@ test("the shipped zh-optimize package: on for a zh-Hans table, off for en, its b
 	const shipped = name => readFile(join(ROOT, "mods", "zh-optimize", name), "utf8");
 	const zh = await briefTurn(game, "zh"), en = await briefTurn(game, "en");
 	assert.equal(zh.first.get("zh-optimize")?.instruction, await shipped("agent.md"));
-	assert.equal(zh.next.get("zh-optimize")?.instruction, await shipped("brief.md"));
+	assert.equal(zh.next.get("zh-optimize")?.instruction, await shipped("agent.md"));
 	assert.equal(en.next.has("zh-optimize"), false);
 	const owner = await ownerLane();
 	const job = await game.call("voice.job", {campaign: "zh", backfill: true});
@@ -253,18 +244,14 @@ test("the shipped zh-optimize package: on for a zh-Hans table, off for en, its b
 	assert.equal(english.instruction, owner);
 });
 
-test("a declared scoped budget admits 1200 UTF-8 bytes and rejects overflow without lifting the default", async t => {
+test("a declared scoped budget still installs and is no longer listed or measured (§183.3)", async t => {
 	const game = await kernel(t, "language-budget");
 	const capability = "mods.language-brief-budget.v1";
 	const declared = manifest => ({...manifest, id: "declared-budget", brief_budget_bytes: 1200, requires: [...manifest.requires, capability]});
-	await game.call("mods.install", {path: await variant(game, "declared", declared, {"brief.md": "é".repeat(600)})});
+	await game.call("mods.install", {path: await variant(game, "declared", declared, {"brief.md": "é".repeat(1500)})});
 	const listing = await game.call("mods.list");
-	assert.ok(listing.capabilities.includes(capability));
-	assert.equal(listing.mods.find(mod => mod.id === "declared-budget").brief_budget_bytes, 1200);
-	await assert.rejects(game.call("mods.install", {path: await variant(game, "declared-over", declared, {"brief.md": "é".repeat(601)})}),
-		error => error.details?.reason === "language_brief_over_budget" && error.details.limit === 1200 && error.details.bytes === 1202);
-	await assert.rejects(game.call("mods.install", {path: await variant(game, "unchanged-default", manifest => ({...manifest, id: "unchanged-default"}), {"brief.md": "x".repeat(401)})}),
-		error => error.details?.reason === "language_brief_over_budget" && error.details.limit === 400);
+	assert.ok(listing.capabilities.includes(capability), "frozen versions that require it still load");
+	assert.equal(listing.mods.find(mod => mod.id === "declared-budget").brief_budget_bytes, undefined);
 });
 
 test("a custom byte budget needs a scoped package, a bounded integer and the declared capability", async t => {

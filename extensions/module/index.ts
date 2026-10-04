@@ -42,6 +42,15 @@ export default function (pi: ExtensionAPI) {
         if (stopped || !reading || !id) return;
         void reading.cast(id).catch(() => undefined);
     }
+    /** §182.1: once per table and module, a bound book with no recorded outline is given its bookmarks. */
+    const outlined = new Set<string>();
+    function backfillOutline() {
+        if (setupMode || stopped || !visualModule || !moduleId || !reading) return;
+        const key = JSON.stringify([campaign, moduleId]);
+        if (outlined.has(key)) return;
+        outlined.add(key);
+        void reading.backfillOutline(moduleId).catch(() => undefined);
+    }
     function shareReader() {
         if (!ctx || !bridge) return;
         retireReader();
@@ -88,6 +97,7 @@ export default function (pi: ExtensionAPI) {
         // §177.2: the table may have opened before this session started (the kernel extension opens it in its own
         // session_start), when there was no reader to ask; the new reader asks, as the prefetch above does.
         if (!setupMode && visualModule) readCast(moduleId);
+        backfillOutline();
     }
 
     pi.events.on("coc:kernel-bridge", data => {
@@ -106,6 +116,7 @@ export default function (pi: ExtensionAPI) {
         visualModule = open.module_reading === true;
         wake("table-open");
         if (visualModule) readCast(moduleId);
+        backfillOutline();
     });
     pi.events.on("coc:turn-committed", data => {if(record(data).campaign === campaign)wake("turn-committed");});
     pi.events.on("coc:source-work-queued", data => {

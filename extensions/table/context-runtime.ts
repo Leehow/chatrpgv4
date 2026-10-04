@@ -17,22 +17,38 @@ import {rankWorkspaceCandidates} from './workspace/reranker.ts';
 import {preparePrescreen,prescreenEnabled,reusePrescreen} from './prescreen.ts';
 import type {PrescreenSourceRuntime} from '../../runtime/jev/prescreen-source-provider.ts';
 import {createExpressionPreparation,EXPRESSION_MESSAGE,removeExpressionPayload} from './expression-reference.ts';
+import {createModSections,emptyCalls,noteCall,MOD_SECTIONS_MESSAGE} from './mod-sections.ts';
 import {bindingOf, customMessage, epochOf, sourceOf, historyView, metadata, quoteView, briefForTurn, projectedMessages, foldPlan,
     boundedTail, requestBudget, BYTES_PER_TOKEN, HISTORY_BYTES, POLICY_VERSION, DIAGNOSTIC_TYPE, WORKSPACE_TYPE, PRESCREEN_TYPE, entryMessage, object, sizeOf, requestSize,
-    capsuleUpdate, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE,
+    capsuleUpdate, stableFirst, CAPSULE_UPDATE_TYPE, NPC_ADVICE_TYPE,
     type ContextBinding, type Quote, type Row} from './context-policy.ts';
 
 type KernelCall = (method: string, params: Row) => Promise<unknown>;
 type Prepared = {binding: ContextBinding; capsule: Row; history: Row; brief: Row; key: string; answering?: string[];
     workspace?: Row; workspaceMode: WorkspaceMode};
 const fingerprint = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+/** Contract §184.3: the first 12 hex characters of a SHA-256, enough to tell two requests' segments apart. */
+const shortDigest = (value: unknown): string => fingerprint(value).slice(0, 12);
+const SEGMENT_LIMIT = 64;
+/**
+ * Contract §184.3: one `{kind, bytes, digest}` per outgoing message, in request order, so a cache miss in the token ledger
+ * can be attributed to the first segment whose digest changed. `kind` is the custom type, else the role.
+ */
+function requestSegments(messages: readonly Row[]): Row {
+    const segments = messages.slice(0, SEGMENT_LIMIT).map(message => ({
+        kind: message.role === 'custom' && typeof message.customType === 'string' ? message.customType : message.role,
+        bytes: requestSize([message]),
+        digest: shortDigest({role: message.role, customType: message.customType, content: message.content}),
+    }));
+    return {segments, ...(messages.length > SEGMENT_LIMIT ? {segments_truncated: messages.length - SEGMENT_LIMIT} : {})};
+}
 const briefingKey = (binding: ContextBinding, capsule: Row): string => {
     const instructions = object(capsule.mods).instructions;
-    // Frozen package versions bind their bytes. Ignore full/brief wording so ordinary turns reuse
-    // the full briefing, but never reuse an old effective provider or its settings after activation.
+    // Frozen package versions bind their bytes, and a package's form (§183.3: full or indexed) follows from the set and
+    // its order; never reuse an old effective provider or its settings after activation.
     const providers = Array.isArray(instructions) ? instructions.map(value => {
         const row = object(value);
-        return {mod: row.mod, version: row.version, settings: row.settings};
+        return {mod: row.mod, version: row.version, settings: row.settings, form: row.form};
     }) : [];
     return fingerprint([sourceOf(binding), providers]);
 };
@@ -60,7 +76,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     // hands over the packet it prepared for the current turn; this hook then injects that packet and runs none of its own.
     let runOwnsPrescreen=false,runPrescreen:{campaign:string;turn:number;message:Row}|undefined;
     // Contract §135.23: the turn's first capsule and first run packet, as the first request of the input sent them.
-    let turnMaterial:{epoch:string;capsule:Row;packet?:Row}|undefined;
+    // §184.2: `sent` is that capsule as the Keeper is sent it (stable sections first); `capsule` keeps the kernel's own copy.
+    let turnMaterial:{epoch:string;capsule:Row;sent:Row;packet?:Row}|undefined;
     pi.events.on('coc:loop-engine',value=>{runOwnsPrescreen=object(value).prescreen==='run';});
     pi.events.on('coc:run-prescreen',value=>{const packet=object(value);
         runPrescreen=typeof packet.campaign==='string'&&Number.isSafeInteger(packet.turn)&&packet.message?{campaign:packet.campaign,turn:packet.turn,message:object(packet.message)}:undefined;});
@@ -73,6 +90,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     };
     const expression=createExpressionPreparation({read:async(method,params)=>call?call(method,params):undefined,decision,record});
     let pendingExpression:Row|undefined;
+    // Contract §183.5: the indexed packages' sections this turn needs; the calls so far this turn are what triggers read.
+    const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision,record});
+    let turnCalls=emptyCalls(),pendingSections:Row|undefined;
     const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;};
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
     // Contract §168.5: a capsule this hook reads itself is handed over through the kernel extension's first-sight view, as
@@ -104,7 +124,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const key = `${generation}:${reason}`;
         if (key !== lastDegraded) {lastDegraded = key; record({lane: 'context', event: 'degraded', reason});}
     };
-    pi.on('input', async () => {inputPending=true;invalidate();});
+    pi.on('input', async () => {inputPending=true;turnCalls=emptyCalls();invalidate();});
     pi.events.on('coc:kernel-bridge', data => {
         const value = object(data), nextCall = typeof value.call === 'function' ? value.call : undefined;
         const nextCampaign = typeof value.campaign === 'string' ? value.campaign : undefined;
@@ -134,6 +154,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         answering = Array.isArray(value.answering) ? value.answering.filter((entry: unknown) => typeof entry === 'string') : undefined;
         sourceCalls.clear(); invalidate();
         if(capsule&&call&&campaign)expression.observe(capsule,{...object(rawBinding),campaign,turn:observedTurn??0},inputLifetime.signal);
+        if(previousEpoch!==nextEpoch)turnCalls=emptyCalls();
+        const sectionBinding=bindingOf(rawBinding);
+        if(capsule&&call&&sectionBinding)modSections.observe(capsule,sectionBinding,inputLifetime.signal);
     });
     // Contract §41.1: the input was refused, so no turn opened and no capsule is coming to clear the latch
     // this input set. Nothing at the table moved either, so the held capsule and binding are still the last
@@ -151,6 +174,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                 name: typeof input.name === 'string' ? input.name : undefined,
                 query: typeof input.query === 'string' ? input.query : undefined});
         if (['apply', 'resolve', 'narrate', 'ask'].includes(event.toolName)) stateCalls.add(event.toolCallId);
+        noteCall(turnCalls, event.toolName, input);
         if (event.toolName === 'lookup' && input.kind === 'source'
             || event.toolName === 'apply' && Array.isArray(input.effects) && input.effects.some((effect: Row) => effect.kind === 'adaptation'))
             sourceCalls.add(event.toolCallId);
@@ -169,6 +193,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             for (const rule of Array.isArray(result.rules) ? result.rules : []) remember(ruleNames, object(rule).name);
             if (read.kind === 'npc' || read.kind === 'module') remember(evidenceNames, read.name ?? read.query);
         }
+        if (event.toolName === 'resolve' && !event.isError) noteCall(turnCalls, 'resolve', object(event.input), object(event.details));
         const stateChanged = stateCalls.delete(event.toolCallId);
         const sourceChanged = sourceCalls.delete(event.toolCallId);
         const deliveredTurn=stateChanged&&(['narrate','ask'].includes(event.toolName)||object(event.details).narrate_in_apply===true);
@@ -179,10 +204,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled() || expressionRefresh))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
-    pi.on('session_start', async () => {expression.clear();pendingExpression=undefined;resetPreparation();untoldRoster=[];turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+    pi.on('session_start', async () => {expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=[];turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
-    pi.on('session_shutdown', async () => {expression.clear();pendingExpression=undefined;resetPreparation();untoldRoster=[];sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+    pi.on('session_shutdown', async () => {expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=[];sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
@@ -235,7 +260,9 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                         expression.observe(view,{...object(_context),campaign:owner,turn:observedTurn??0},inputLifetime.signal);
                     }
                     brief = {kind: 'context_brief', head: 'Keeper-only current book, full craft context and active package instructions. Use with the current turn capsule; this is not player input.',
-                        module: full.module ?? null, style: full.style ?? null, instructions: object(full.mods).instructions ?? [],
+                        // §183.5: the rows' text only. An indexed row's section list and its per-turn gates stay out, so this stays cached.
+                        module: full.module ?? null, style: full.style ?? null, instructions: (Array.isArray(object(full.mods).instructions) ? object(full.mods).instructions : [])
+                            .map((value: Row) => ({mod: value.mod, version: value.version, settings: value.settings, form: value.form, instruction: value.instruction})),
                         truncated: Array.isArray(full.truncated) ? full.truncated.filter((section: string) => ['module', 'style'].includes(section)) : []};
                     briefKey = briefingKey(binding, full);
                 }
@@ -418,25 +445,29 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!snapshot && ticket !== generation && !inputPending) snapshot = await prepare();
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
-        let systemBytes = 0;
+        let systemBytes = 0, systemDigest: string | null = null;
         if (typeof ctx.sessionManager?.buildSessionProjection === 'function') {
             const system = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
             systemBytes = system ? sizeOf(system) + 1 : 0;
+            // §184.3: the prompt text and the tool declarations the provider sees; the transcript timestamp is not sent.
+            systemDigest = system ? shortDigest({content: system.content, sections: system.sections ?? null, tools: system.toolsAdded ?? []}) : null;
         } else {
             const active = typeof pi.getActiveTools === 'function' ? new Set(pi.getActiveTools()) : undefined;
             const tools = typeof pi.getAllTools === 'function' ? pi.getAllTools().filter(tool => !active || active.has(tool.name)) : [];
-            systemBytes = sizeOf({system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools});
+            const material = {system: typeof ctx.getSystemPrompt === 'function' ? ctx.getSystemPrompt() : '', tools};
+            systemBytes = sizeOf(material); systemDigest = shortDigest(material);
         }
         const ceiling = requestBudget(ctx.model?.contextWindow), budget = Math.max(0, ceiling - systemBytes);
         if (!snapshot) {
             // No capsule means no projection, never an unbounded request: a long campaign's whole
             // stored branch is exactly what must not reach the provider on a degraded turn.
-            const rest = (requestMessages as unknown as Row[]).filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType)));
+            // §176.8: renamed before the cut, so the ceiling measures the names and notes that go out.
+            const rest = renameUntold((requestMessages as unknown as Row[]).filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType))), untoldRoster);
             const notice = diagnostic(lastReason);
             const cut = boundedTail(rest, Math.max(0, budget - requestSize([notice])));
             const outgoing = renameUntold([notice, ...cut.messages], untoldRoster);
-            record({lane: 'context', event: 'request', version: POLICY_VERSION, reason: lastReason,
-                request_bytes: requestSize(outgoing) + systemBytes, system_bytes: systemBytes,
+            record({lane: 'context', event: 'request', at: new Date().toISOString(), version: POLICY_VERSION, reason: lastReason,
+                request_bytes: requestSize(outgoing) + systemBytes, system_bytes: systemBytes, system_digest: systemDigest, ...requestSegments(outgoing),
                 local_token_estimate: Math.ceil((requestSize(outgoing) + systemBytes) / BYTES_PER_TOKEN),
                 ceiling_bytes: ceiling, dropped_tail: cut.dropped, context_window: ctx.model?.contextWindow ?? null,
                 ...(cut.over ? {capacity: 'request_ceiling_exceeded'} : {})});
@@ -448,17 +479,19 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const view = untoldView(structuredClone(snapshot.capsule)).capsule;
         // The immutable full briefing already has these fields; retain the turn-specific craft selection.
         delete view.module;
-        if (view.mods) {view.mods = {...view.mods}; delete view.mods.instructions;}
+        if (view.mods) {view.mods = {...view.mods}; delete view.mods.instructions; delete view.mods.topics;}
         // Contract §135.23 (single-loop engine only): a turn's request is append-only. The brief is the source's own
         // (stable across turns, not the residue of this turn's capsule); the capsule and the run's packet stay as the
         // turn's first request sent them; what changed since rides at the end (`coc-capsule-update`, a later run packet),
         // so every model call of a turn, and the next turn's first call, can read the earlier prefix from cache.
+        // §184.2: on this engine the capsule the Keeper is sent has its stable sections first (`stableFirst`); the update
+        // compares section values against the kernel's own copy, so its sections and `removed` keep the kernel's order.
         const turnTail:Row[]=[];
         let capsuleSent=view,runPacket:Row|undefined;
         if(runOwnsPrescreen){
             const epoch=inputEpoch??snapshot.key;
-            if(turnMaterial?.epoch!==epoch)turnMaterial={epoch,capsule:view};
-            capsuleSent=turnMaterial.capsule;
+            if(turnMaterial?.epoch!==epoch)turnMaterial={epoch,capsule:view,sent:stableFirst(view)};
+            capsuleSent=turnMaterial.sent;
             const update=capsuleUpdate(turnMaterial.capsule,view);
             if(update)turnTail.push(customMessage(CAPSULE_UPDATE_TYPE,update));
             const current=runPrescreen&&runPrescreen.campaign===campaign&&runPrescreen.turn===snapshot.binding.turn?runPrescreen.message:undefined;
@@ -478,26 +511,30 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             // The workspace is transport-only: at most one current message, injected below for this
             // request. A persisted copy from anywhere is dropped here, not projected onward.
             .filter(message => !(message.role === 'custom' && [WORKSPACE_TYPE, PRESCREEN_TYPE, CAPSULE_UPDATE_TYPE].includes(message.customType)));
+        // §176.8: the request's rename runs before the projection fits the budget, not after it. A renamed tool result
+        // ends with the untold note, and a word is often longer than the name it replaces: renamed after the fit, a busy
+        // turn went out 553 B over its ceiling (long-campaign-context). The rename on the way out stays; it changes nothing twice.
+        selected.splice(0, selected.length, ...renameUntold(selected, untoldRoster));
         if (!seen && !messages.some(message => message.role === 'custom' && message.customType === 'coc-capsule')) {
             // A new opening/recovery may have only a host prompt; this ephemeral capsule is not persisted.
             selected.push({...customMessage('coc-capsule', capsuleSent), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
         }
         let workspace=snapshot.workspaceMode==='on'?snapshot.workspace:undefined,prescreen:Row|undefined;
-        let messageBudget=room,baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-            brief:briefSent,answering:snapshot.answering,budget:room,workspace});
+        // §184.2: the single-loop engine's order puts the turn's capsule ahead of the history; the legacy engine's is unchanged.
+        const project=(budget:number,optional:{workspace?:Row;prescreen?:Row}={})=>projectedMessages({messages:selected,binding:snapshot.binding,
+            history:snapshot.history,brief:briefSent,answering:snapshot.answering,budget,...optional,...(runOwnsPrescreen?{capsuleFirst:true}:{})});
+        let messageBudget=room,baseline=project(room,{workspace});
         // Compute the actual baseline only after system/tool/output reserves are known. Material
         // missing from this projection is not "already supplied" to the Keeper.
         try {
             const reserve=Math.min(16384,Math.floor((ctx.model?.contextWindow??65536)/4))*BYTES_PER_TOKEN;
             const totalLimit=Math.min(ceiling,(ctx.model?.contextWindow??Infinity)*BYTES_PER_TOKEN-reserve);
             messageBudget=Math.max(0,Math.min(room,totalLimit-systemBytes-(budget-room)));
-            baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-                brief:briefSent,answering:snapshot.answering,budget:messageBudget,workspace});
+            baseline=project(messageBudget,{workspace});
             if(!baseline.workspaceKept)workspace=undefined;
         } catch {
             workspace=undefined;
-            baseline=projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-                brief:briefSent,answering:snapshot.answering,budget:messageBudget});
+            baseline=project(messageBudget);
         }
         const supplementBudget=Math.max(0,messageBudget-requestSize(baseline.messages));
         const preparationSignal=optionalWork.signal,preparationCall=call,preparationCampaign=campaign;
@@ -538,17 +575,25 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             if(prescreen)reusablePrescreen=prescreen;
         }
         if(ticket!==generation||preparationSignal.aborted)return {messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
-        let result=prescreen?projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-            brief:briefSent,answering:snapshot.answering,budget:messageBudget,workspace,prescreen}):baseline;
+        let result=prescreen?project(messageBudget,{workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
         const reason = result.degraded ?? (Math.ceil((requestSize(result.messages) + systemBytes) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
         // Reserve a diagnostic only when one is needed. An optional workspace must not be
         // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
-        if (reason) result = projectedMessages({messages:selected,binding:snapshot.binding,history:snapshot.history,
-            brief:briefSent,answering:snapshot.answering,
-            budget:Math.max(0,messageBudget-requestSize([diagnostic(reason)])),workspace,prescreen});
+        if (reason) result = project(Math.max(0,messageBudget-requestSize([diagnostic(reason)])),{workspace,prescreen});
         const outgoing = renameUntold([...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail]
-            .filter(message=>!(message.role==='custom'&&message.customType===EXPRESSION_MESSAGE)), untoldRoster);
+            .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE].includes(message.customType))), untoldRoster);
+        // Contract §183.5: package sections this turn needs, at the end; nothing on a table whose instructions all go whole.
+        pendingSections=undefined;
+        modSections.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal);
+        await modSections.waitForFirst(preparationSignal);
+        if(ticket!==generation||preparationSignal.aborted)return{messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
+        const sectionsMessage=await modSections.message(snapshot.capsule,snapshot.binding,turnCalls);
+        if(ticket!==generation||preparationSignal.aborted)return{messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
+        if(sectionsMessage&&requestSize([...outgoing,sectionsMessage])+systemBytes<=ceiling
+            &&Math.ceil((requestSize([...outgoing,sectionsMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
+            outgoing.push(sectionsMessage);pendingSections=sectionsMessage;
+        }else if(sectionsMessage)record({lane:'mod-sections',event:'omitted',turn:snapshot.binding.turn,reason:'request_ceiling',bytes:requestSize([sectionsMessage])});
         pendingExpression=undefined;
         const expressionView={...snapshot.capsule,expression_exchange:snapshot.history};
         expression.observe(expressionView,snapshot.binding,inputLifetime.signal);
@@ -566,10 +611,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;
         if(pendingExpression)pendingExpression.details.expression.request_id=requestId;
         pendingProvider=prescreen?{requestId,prepared:renameUntold([prescreen],untoldRoster)[0],outgoingDigest:fingerprint(outgoing)}:undefined;
-        record({lane: 'context', event: 'request', version: POLICY_VERSION, turn: snapshot.binding.turn,request_id:requestId,
+        record({lane: 'context', event: 'request', at: new Date().toISOString(), version: POLICY_VERSION, turn: snapshot.binding.turn,request_id:requestId,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             ...(pendingExpression?{expression_injected:true,expression_bytes:requestSize([pendingExpression])}:{}),
-            request_bytes: bytes, system_bytes: systemBytes, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
+            ...(pendingSections?{mod_sections_bytes:requestSize([pendingSections])}:{}),
+            request_bytes: bytes, system_bytes: systemBytes, system_digest: systemDigest, local_token_estimate: estimatedTokens, context_window: window ?? null, ceiling_bytes: ceiling,
             ...(result.prescreenKept && prescreen ? {prescreen_bytes: requestSize([prescreen]), prescreen_injected: true} : {}),
             ...(turnTail.length ? {tail_bytes: requestSize(turnTail), tail: turnTail.map(message => message.customType)} : {}),
             ...(result.workspaceKept && workspace ? {workspace_bytes: requestSize([workspace])} : {}),
@@ -578,12 +624,15 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             ...(result.droppedUnknown ? {dropped_unknown: result.droppedUnknown} : {}),
             ...(result.degraded ? {reason: result.degraded} : {}),
             ...(result.overCeiling ? {capacity: 'request_ceiling_exceeded'}
-                : estimatedTokens > available ? {capacity: 'request_window_estimate'} : {})});
+                : estimatedTokens > available ? {capacity: 'request_window_estimate'} : {}),
+            ...requestSegments(outgoing)});
         return {messages: outgoing as typeof requestMessages};
     });
     // Public Pi seam after provider conversion. Observe only whether the exact prepared packet
     // survived serialization; never record headers, secrets or the private payload.
     pi.on('before_provider_request', event => {
+        const sectionsSent=pendingSections;pendingSections=undefined;
+        if(sectionsSent)modSections.delivered(sectionsSent,(event as unknown as Row).payload,payloadContains);
         const advice=pendingExpression;pendingExpression=undefined;
         let replacement:unknown;
         if(advice&&!expression.delivered(advice,(event as unknown as Row).payload,payloadContains))

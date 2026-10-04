@@ -1,0 +1,2 @@
+/** The effect kinds `table.apply` accepts. Shared with the read side, which names them in package section triggers (§183.1). */
+export const APPLY_KINDS: readonly string[] = ['ability', 'adaptation', 'cash', 'clock', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'person', 'ruling', 'switch', 'threat', 'time', 'usage'];

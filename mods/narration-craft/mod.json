@@ -1,6 +1,6 @@
 {
   "id": "narration-craft",
-  "version": "2.2.3",
+  "version": "2.2.5",
   "game_api": "pipicoc.game.v1",
   "state_version": 2,
   "migrations": [
@@ -34,11 +34,12 @@
     "graph.vocabulary.v1",
     "graph.vocabulary.table.v1",
     "context.npc.v1",
-    "npc.mood.v1"
+    "npc.mood.v1",
+    "instructions.sections.v1"
   ],
   "package_files": [
     "agent.md",
-    "brief.md",
+    "sections.json",
     "style.json",
     "voice-lane.md"
   ],
@@ -82,7 +83,7 @@
       ]
     },
     "instructions": "agent.md",
-    "brief": "brief.md",
+    "sections": "sections.json",
     "style": "style.json",
     "voice_lane": "voice-lane.md"
   }

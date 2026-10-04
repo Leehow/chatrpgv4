@@ -43,7 +43,8 @@ import {bindBand} from './band.js';
 import { bindUntil } from './until.js';
 import { readOwed } from '../owed/index.js';
 import { owedRowFor, settleOwed } from '../owed/land.js';
-const KINDS = ['ability', 'adaptation', 'cash', 'clock', 'clue', 'damage', 'define', 'dossier', 'ending', 'flag', 'fork', 'handout', 'item', 'map', 'merge', 'move', 'note', 'npc', 'object', 'person', 'ruling', 'switch', 'threat', 'time', 'usage'];
+import { APPLY_KINDS } from './kinds.js';
+const KINDS = [...APPLY_KINDS];
 export interface ApplyContext {
     readonly kernel: KernelContext;
     readonly transaction: TurnTransaction;

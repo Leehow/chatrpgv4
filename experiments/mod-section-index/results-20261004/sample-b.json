@@ -1,0 +1,5577 @@
+[
+ {
+  "campaign": "game-5779d0fd-7dac-41de-b1f5-1a0f05132e2a",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 3,
+  "player": "侧门那三道闩我从外面弄不动。用诺特给的钥匙开正门，进去。",
+  "scene": "corbitt-house-ground",
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [
+   "clue"
+  ],
+  "keeper_head": "锁转得很顺。诺特没说错，这是新上的锁，锁孔里那点油还在；门往里开，铰链只轻轻响了一声。\n\n门厅很窄。左边是通起居室的门洞，往里依次是餐厅和厨房，楼梯在靠里那头往上拐。地板上一层薄灰，灰上有几串脚印，都堆在门口一带——像是有人进来干活时留下的。门边的挂钩上还挂着一件男式外套和一顶软帽，扣子没扣，像随手挂上去之后，再没人回来取。\n\n起居室的门框上钉着一只小十字架，正对沙发那面墙上挂着一幅圣母像，壁炉台上排开一列蜡烛，全烧到了头。\n\n不止这一间。椅子背上搭着念珠，窗闩上、柜门把手上也系着；十字架的钉子高低不一，有几颗敲歪了——像是分了好几回、越钉越急，一次一次补上去的。\n\n一把椅子倒在地上，桌上还摊",
+  "sid": "b001"
+ },
+ {
+  "campaign": "game-e8e9249b-ad9b-453f-8223-b4ae53b46340",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 3,
+  "player": "我把车往前挪了挪，然后走到棚下，给那个手臂上有海军纹身的老人递了根烟：“您以前在海军哪条船上？”",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_3",
+    "row": "史蒂夫·布朗",
+    "confidence": 0.84
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.95
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.84
+   }
+  },
+  "receipt_kinds": [
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你把车往前挪开，走进棚下的阴影，把烟递给那名老兵。他看了看烟，又看了看你，接过去时只点了一下头，手臂上的海军纹身在阳光边缘显出褪色的蓝黑色。\n\n他没有立刻点烟，只用拇指慢慢转着那根烟，像是在回忆什么。过了一会儿，他才抬起那双布满血丝的眼睛。\n\n“驱逐舰。服役挺久，换过几条。名字你不会听过。”\n\n他说得平平的，话到这里便停了，仿佛这已经是足够完整的回答。棚外，加油站老板还站在油泵旁，手搭着软管，目光从你的皮卡移回老兵身上。老兵终于划亮火柴，把烟点着，烟雾在棚顶下慢慢散开。",
+  "sid": "b002"
+ },
+ {
+  "campaign": "game-4ca26bef-b1be-4014-9c80-ee58a552e4a9",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 5,
+  "player": "我带着霍兰德的签字条回到威尔莫特面前，请他放我进剪报室。我从科比特宅和马卡里奥两个名字开始查，先找最早的事故或诉讼报道。",
+  "scene": "newspaper-morgue",
+  "present": [
+   "Arty Wilmot",
+   "Ruth Blake"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "clue",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你把还没干透的签字条按到威尔莫特桌沿。他读完霍兰德的名字，嘴角一撇，却侧身让开。\n\n「布莱克，带下去。限今天。」\n\n铁梯更热。地下室灯罩积灰。掷出55，对照70。一个把袖子卷到肘的女人点了点头，把抽屉柜的过道让给你，并不多问。\n\n你从「科比特」和「马卡里奥」两格抽起，往最早的事故、诉讼里翻。纸边脆得掉渣。掷出79，对照50。年份往回跳，忽然断了——再早的格子是空的，或者被焦痕标过。\n\n布莱克从旁边抽屉里抽出一张焦边索引，声音很轻：「一八七八年大火。再早的，这库里没有。别把灰吸进肺里。」这一翻用了40分钟。最早的事故报道，你没抓住。",
+  "sid": "b003"
+ },
+ {
+  "campaign": "game-4ca26bef-b1be-4014-9c80-ee58a552e4a9",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 2,
+  "player": "我接。请把钥匙、预付和你能给的准确地址给我；我今天先去报社和图书馆查马卡里奥一家与这栋房子的旧记录。",
+  "scene": "newspaper-morgue",
+  "present": [
+   "Arty Wilmot",
+   "Ruth Blake"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "cash",
+   "clue",
+   "definition",
+   "handout",
+   "item",
+   "move",
+   "time"
+  ],
+  "keeper_head": "诺特拉开抽屉，钥匙圈磕在桌面上，黄铜发闷响。纸签用墨水写着地址，夹在钥匙环上。他数出两张十元钞票，按到你手边。手头从9美元变成29美元。这交接只用了10分钟。\n\n「西区。签上写着。先去翻纸，别空手闯空房。」他已经在看表。\n\n你出了楼，秋雾贴着街石。环球报地下资料库的铁梯往下，油墨和热气一齐扑上来。城讯部的门半开着，打字机哒哒响。一个戴袖箍的男人挡在剪报室门口，下巴抬得很高，像专门等人来求他放行。",
+  "sid": "b004"
+ },
+ {
+  "campaign": "game-e3fdb775-c61d-4f52-a974-1480fdfd658c",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 1,
+  "player": "我接",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "cash",
+   "clue",
+   "definition",
+   "item",
+   "time"
+  ],
+  "keeper_head": "诺特点点头，把钥匙、地址条和二十美元推到桌边。\n\n「白天的活。弄清楚就行。」\n\n他把钥匙交给你，钱也一起收好。",
+  "sid": "b005"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 24,
+  "player": "我把两分钱递给摊主，买下今天的新报纸，当场读有关盗墓案的那一则报道。",
+  "scene": "arkham-street-newsstand",
+  "present": [
+   "报摊摊主"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "arkham-police-station",
+     "destination_2": "arkham-street-park-bench",
+     "destination_3": "arkham-photo-shop",
+     "destination_4": "arkham-church-cemetery",
+     "destination_5": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "报摊摊主"
+    },
+    "choice": "addressee_1",
+    "row": "报摊摊主",
+    "confidence": 0.9
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.79
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣",
+     "item_9": "诺拉的照相馆取件凭条",
+     "item_10": "墓园现场冲洗照片"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.89
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "definition",
+   "handout",
+   "item",
+   "time"
+  ],
+  "keeper_head": "摊主接过两枚铜币，从铁丝夹里抽出当日的《消息人》，对折递过来。「拿好。」\n\n晨光里你就在摊边展开。铅字比昨夜的旧条更密：阿卡姆那一桩的次夜，马丁滩坡街公墓又遭了手——弗吉尼娅·费尔德的遗体被盗。汉密尔顿·法布瑞博士悬赏一千美元。欧文·塔布勒与阿萨·尼克尔森把两案并提；塔布勒拒谈是否与马丁滩那个「徘徊者」有关。\n\n摊主已经去招呼下一位。报页还在你手里，油墨未干。",
+  "sid": "b006"
+ },
+ {
+  "campaign": "game-e8e9249b-ad9b-453f-8223-b4ae53b46340",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 5,
+  "player": "我走回油泵旁，对高瘦的老板笑了笑：“聊了半天，还没请教您怎么称呼？我叫琼。”",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_1",
+    "row": "拉塞尔·威廉姆斯",
+    "confidence": 0.9
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.98
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.9
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "person",
+   "roll"
+  ],
+  "keeper_head": "你走回油泵旁，朝那名高瘦的老板报上名字。他把软管从油泵上挂回去，抬眼看了你一会儿，随后点了点头。“拉斯。拉塞尔也行，镇上都叫我拉斯。”他用拇指朝自己的胸口点了点，又望向你那辆皮卡。棚下的啤酒罐还在慢慢倾斜，车库里的扳手没有人去碰，只有那台生锈的汽水机继续嗡嗡作响。拉斯把话接得很自然，却已经把目光带回了车和镇外的公路。",
+  "sid": "b007"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 2,
+  "player": "我现在离开警局，步行前往阿卡姆教堂公墓。",
+  "scene": "investigator-briefing",
+  "present": [],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "helverson-dawn-phone"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:arkham-police-grave-details",
+     "ask_2": "clue:martins-beach-wanderer-mention",
+     "ask_3": "clue:series-grave-robberies",
+     "ask_4": "clue:virginia-felder-body-stolen",
+     "ask_5": "handout:小卡片#2 盗墓贼又光顾马丁滩啦！"
+    },
+    "answers": {
+     "ask_1": "no",
+     "ask_2": "no",
+     "ask_3": "no",
+     "ask_4": "no",
+     "ask_5": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.96
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   }
+  },
+  "receipt_kinds": [],
+  "keeper_head": "你把剪报收进衣袋，转身走出警局。八月末的晨光已经铺满石板路，空气里带着淡淡的潮气。\n\n教堂街那头，铁栅与榆树的轮廓渐渐近了。公墓的方向就在前头——铁栏、石碑，以及昨夜被撬开的那一处，此刻还隔着一段步行的路程。\n\n路上行人不多。你朝教堂公墓走去。",
+  "sid": "b008"
+ },
+ {
+  "campaign": "game-717a9e4b-27e0-4cd4-b178-97d96535cf4f",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 3,
+  "player": "行，加满。趁他加油，我站在阴凉里四处看看，棚子底下还坐着什么人？",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯"
+    },
+    "choice": "addressee_1",
+    "row": "拉塞尔·威廉姆斯",
+    "confidence": 0.53
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.98
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你答应加满油，拉塞尔这才拿起油枪，金属接头咔哒一声扣上油箱口。汽油在泵里哗哗流着，他低头看着刻度，偶尔用油布擦一下枪柄。 你退到棚下的阴影里，顺着站里的东西看过去：脏窗外那块“OPEN”纸板被风吹得轻轻晃着，两台旧油泵还能用；敞开的车库里，一辆一九七四年的雪佛兰诺瓦停在升降机上，没人动它，前墙的油罐下方留着一片发黑的漏油痕。左边那台生锈的可乐机一直嗡嗡响，旁边的香烟机上却手写着“故障”。办公室墙上还挂着一支装岩盐弹的旧猎枪，枪身积着久未动过的灰。\n\n棚下坐着三个人。拉塞尔身形高瘦，皮肤晒得发黑，穿着白色系扣衬衫和干净的工装服，油污破布旁露出一包卷烟；他站在油泵边，眼睛仍在你和公路之间来回。内特",
+  "sid": "b009"
+ },
+ {
+  "campaign": "game-ef4f5f3b-6445-423b-bae1-f95f4601a698",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 11,
+  "player": "我对刚才普通雨伞一美元到两块半的估价有点怀疑，这真符合一九二〇年的美国价格吗？请核对当年的雨伞广告或商品目录。仍是桌外核查，角色没有购物。",
+  "scene": "central-library",
+  "present": [
+   "查阅台的馆员"
+  ],
+  "compile": null,
+  "receipt_kinds": [],
+  "keeper_head": "这次没对上目录价。桌外说明，角色没因此多知道什么，也没去买东西。\n\n按你的质疑去对了一遍一九二〇年前后的雨伞广告和邮购目录。检索结果里有蒙哥马利·沃德一九二〇年的目录页，但抽出来的摘录里没有能读清的雨伞标价；劳工统计局那几份已存公报也没有雨伞这一项。所以一美元到两块半仍然只是按一九二〇年物价高峰、从食品和成衣的量级估出来的常见价，不是目录上的条目，也不能当成已经核对过的标价。",
+  "sid": "b010"
+ },
+ {
+  "campaign": "game-4ca26bef-b1be-4014-9c80-ee58a552e4a9",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 28,
+  "player": "我去罗克斯伯里疯人院，出示记者证和霍兰德的签字条，请接待人员查马卡里奥夫妻是否仍在、何时入院；若不能见人，也请允许我核对他们登记的症状、住址与任何关于科比特宅的陈述。",
+  "scene": "previous-tenants",
+  "present": [
+   "Gabriela Macario",
+   "Vittorio Macario"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "clue",
+   "move",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "罗克斯伯里的走廊刷着绿漆，气味是石炭酸。你把过期记者证和霍兰德那张剪报室条子一起递上。掷出1，对照50。接待员盯着那张过期证，却还是翻了名册，把你领进会客隔间。\n\n加布里埃拉坐在窗边。掷出97，对照70。她看见生人就把毯子拉高，目光躲开。护士只给了几分钟。\n\n名册上写着：维托里奥·马卡里奥仍住院，一九一八年入院；加布里埃拉随后收治。住址一栏是科比特宅。症状栏只有「夜间惊恐、妄语」。她声音发干：「夜里有东西俯下来。怒气冲着他。」说到这儿她摇头，不再讲。护士在门口补了一句：「两个男孩说梦见眼睛发亮的人。亲戚接到巴尔的摩去了。」路上加上这一见，用了50分钟。\n\n维托里奥在另一间。门还关着。加布里埃拉",
+  "sid": "b011"
+ },
+ {
+  "campaign": "game-01250e5e-276b-4d54-8fbb-3f2c5e85e750",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 6,
+  "player": "我谢了他，掉头把车开出加油站，可没上公路——开出半里我就把车停在路肩，拿上相机，顺着篱笆外那片沙蒿往南走回来。",
+  "scene": "book-4-prologue",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你冲拉斯抬了下手，隔着太阳喊了一声。\n\n“谢了。”\n\n他也抬手，很省力，然后就低头去收那截皮管了。你把车头调过来出了站，拐上柏油路。开出半里，车轮压上路肩的碎石，你熄了火。引擎盖烫得能煎东西，热气在车头上一层一层地翻。你从副驾那侧下去，拎上相机，跨过路沟，钻进篱笆外那片沙蒿。\n\n沙蒿齐腰，枝子一碰就掉白灰，粘在裤腿上。你压着步子往南走，不离开那道锈铁丝篱笆太远——站里的铁皮棚和水塔，隔着蒿子还留着一个斜角。\n\n脚下渐渐有了别的东西。不是路，是人踩出来的。两三行鞋印并在一起，从篱笆底下钻出来，笔直往南；沙土被踩得发实，两侧的蒿子让开一道窄口，断口还新。你蹲下去看，鞋印边缘发硬，底下的沙是干的。有",
+  "sid": "b012"
+ },
+ {
+  "campaign": "game-535f37d7-c0ca-41f1-a23f-0bf3d3b904b7",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 4,
+  "player": "我开车去最后一站吃饭。",
+  "scene": "book-4-last-stop",
+  "present": [
+   "卡洛斯·加尔萨",
+   "罗伯特·泰勒"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "卡洛斯·加尔萨",
+     "addressee_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.87
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.9
+   },
+   "target": {
+    "rows": {
+     "target_1": "卡洛斯·加尔萨",
+     "target_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "person"
+  ],
+  "keeper_head": "你沿着主路把车开进镇中心，最后一站的木头门面在热浪后面显出轮廓。宽阔的木板路前立着栓马柱和饮水槽，狭窄的双扇门旁还站着一个叼雪茄的印第安木头人；大窗上贴满新旧标志，门敞着，里面传出厨房和酒吧混在一起的声响。\n\n左边的长吧台摆着十几张高脚凳，桌椅随意散在支撑柱之间，内侧墙上的自动点唱机挨着古董农具和旧黑白照片。吧台后挂着一面全身镜，镜前摆满酒瓶，镜子上方钉着从1908年一直排到近年的车牌，有的已经锈透，有的还很新；正中央那颗巨大的野猪头张着嘴，黑洞洞地对着门。酒吧左侧另有四间简易汽车旅馆房，每间都有自己的门和小窗，床头柜上放着电话，旁边连着浴室。\n\n吧台后站着一个四十多岁的高瘦男人，深色眼睛，蓬",
+  "sid": "b013"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 1,
+  "player": "我带着剪报去阿卡姆警局，向值班警员出示记者证，说明马丁是我父亲的老朋友，询问能否找负责这起盗墓案的人谈谈。",
+  "scene": "investigator-briefing",
+  "present": [],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "helverson-dawn-phone"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.99
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:arkham-police-grave-details",
+     "ask_2": "clue:martins-beach-wanderer-mention",
+     "ask_3": "clue:series-grave-robberies",
+     "ask_4": "clue:virginia-felder-body-stolen",
+     "ask_5": "handout:小卡片#2 盗墓贼又光顾马丁滩啦！"
+    },
+    "answers": {
+     "ask_1": "yes",
+     "ask_2": "no",
+     "ask_3": "no",
+     "ask_4": "no",
+     "ask_5": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.99
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣"
+    },
+    "choice": "item_4",
+    "row": "诺拉的记者证",
+    "confidence": 0.92
+   }
+  },
+  "receipt_kinds": [
+   "definition",
+   "flag",
+   "note",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "阿卡姆警局的前台并不热闹。晨光斜照在擦得发亮的木柜上，空气里有烟叶和陈墨水的味道。\n\n值班的警员接过你的记者证，又扫了一眼剪报，听你说马丁·海沃森是你父亲的老朋友。他点头，却没有起身去叫谁。\n\n「报上写的那些，就是能对外说的。现场还在查，没有正式通报。你要是记者，等官方消息就行。」\n\n他没有点名负责的人，也没有让你进里间。剪报被推回台面，语气客气，却没有松口。",
+  "sid": "b014"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 15,
+  "player": "我向赫尔曼道别，沿街找一座小公园，在长椅上坐下，把照片放在膝上整理好。",
+  "scene": "arkham-street-park-bench",
+  "present": [],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "arkham-church-cemetery",
+     "destination_2": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "照相馆店员"
+    },
+    "choice": "addressee_1",
+    "row": "照相馆店员",
+    "confidence": 0.96
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.46
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣",
+     "item_9": "诺拉的照相馆取件凭条",
+     "item_10": "墓园现场冲洗照片"
+    },
+    "choice": "item_10",
+    "row": "墓园现场冲洗照片",
+    "confidence": 0.77
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "店铃在身后轻轻一晃，定影剂的气味被街风截断。\n\n赫尔曼只抬了抬下巴，算是应了道别，目光已经回到那一摞样片上。\n\n沿街再走几段，树荫与石子径在楼影之间露出来。长椅木条被晒得温热，你坐下，把牛皮纸封套搁在膝上。\n\n纸边仍带着一点潮。几张接触印的现场照在膝上摊开：掘开的墓穴口、翻乱的新土、铁栅栏的一段弧线，灰调清楚，没有修饰。西斜的光贴着相纸表面，街边偶有车轮声远去，长椅旁再无别人。",
+  "sid": "b015"
+ },
+ {
+  "campaign": "game-4ca26bef-b1be-4014-9c80-ee58a552e4a9",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 10,
+  "player": "我不急着开门，转到对街那扇刚动过窗帘的窗下，出示名片，自报是调查科比特宅租客问题的记者，问近来有没有人进出这栋房子。",
+  "scene": "neighborhood-gossip",
+  "present": [
+   "Mr. Dooley"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "clue",
+   "move",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你转到对街。窗台下是卖烟与晚报的摊口，帘布刚合上。你把名片举到玻璃上。掷出54，对照70。里头一个男人掀开帘角，目光在你脸上停了停，没立刻赶走。\n\n「环球报。科比特宅的租客。」你把话放轻。掷出4，对照50。他哼笑一声，把帘子拉得更开。\n\n「杜利。烟、报，街坊闲事。」他朝那栋空屋努嘴。「近来没人进。门钉着，侧门锁成那样。上一户马卡里奥——夜里闹，人疯了，一家子跑了。打那以后，连收租的都少来。」他把报纸拍在窗台：「要报另说。房子，你自己看着办。」这一问用了10分钟。\n\n科比特宅仍在街对面，门关着。",
+  "sid": "b016"
+ },
+ {
+  "campaign": "game-201359ce-180e-49e0-b809-82b06cb33dae",
+  "title": "Dust to Dust 归于尘埃",
+  "module": "book-5",
+  "turn": 1,
+  "player": "我把报道折起来塞进外套口袋，去阿卡姆警局，找负责这桩案子的警官打听情况。",
+  "scene": "阿卡姆警局",
+  "present": [
+   "值班警官"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "helverson-dawn-phone"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.99
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:arkham-police-grave-details",
+     "ask_2": "clue:helverson-body-stolen",
+     "ask_3": "clue:martins-beach-wanderer-rumor",
+     "ask_4": "clue:series-grave-robberies",
+     "ask_5": "clue:virginia-felder-body-stolen",
+     "ask_6": "handout:小卡片#1 又一桩盗墓案！",
+     "ask_7": "handout:小卡片#2 盗墓贼又光顾马丁滩啦！"
+    },
+    "answers": {
+     "ask_1": "yes",
+     "ask_2": "yes",
+     "ask_3": "no",
+     "ask_4": "no",
+     "ask_5": "no",
+     "ask_6": "no",
+     "ask_7": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.85
+   }
+  },
+  "receipt_kinds": [
+   "clock",
+   "clue",
+   "move",
+   "npc"
+  ],
+  "keeper_head": "你把报道折好，塞进外套口袋，沿着街道走到阿卡姆警局。警局临街而立，门厅里有一股旧木头、煤烟和湿呢料混在一起的味道，墙边的长凳已经磨得发亮；柜台后摆着登记簿，通往后面办公室的门半掩着，里面传来纸张翻动和低声交谈的声音。\n\n一个穿深色制服的值班警官抬起头。他看见你递出的记者证，又看了看你外套口袋露出的报纸一角，便把登记簿往旁边推了推。\n\n“是来问海沃森那桩盗墓案的吧？能说的，报纸上已经说了。你要是想听警局手里的细节，就得告诉我，你是替哪家报纸来，还是以私人身份问。”",
+  "sid": "b017"
+ },
+ {
+  "campaign": "game-24bb66cb-df6e-4ebb-a0c8-aa22b59e7eb7",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 5,
+  "player": "我冲烂牙老兄点点头道谢，转身朝坐得笔直、胳膊上全是海军纹身的老人欠了欠身：“老先生，您在海军待过吧？怎么称呼您？”",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_3",
+    "row": "史蒂夫·布朗",
+    "confidence": 0.85
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 1
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.87
+   }
+  },
+  "receipt_kinds": [
+   "npc"
+  ],
+  "keeper_head": "你冲露着烂牙的那位点了点头，他扬了扬啤酒罐算是回礼，话头还停在长途车的颜色上，却没再往下扯。\n\n你转身朝棚荫深处那张木凳走过去。坐得笔直的老人近七十，短灰发，鼻子略歪，满脸皱纹，小臂上海军纹身一层叠一层，在热影里发暗。他抬眼看了你一下，目光在你白衬衫和肩上的勒痕上掠过，并不起身，也不让凳。\n\n「待过。」他应了一声，嗓子干，像很久没跟人多说。「史蒂夫。山脊路上住。」\n\n说完便把视线收回脚前的阴影里，手指在膝上并着，像这事到此为止。旁边可乐机还在嗡嗡响，热风把机油味从泵岛那边吹过来；拉塞尔仍在擦手，没有插话。",
+  "sid": "b018"
+ },
+ {
+  "campaign": "game-26d5a671-85a2-4732-876b-1521aa04d869",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 12,
+  "player": "重新建立人物角色",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [],
+  "keeper_head": "诺特下巴上的血还在往衬衫上滴，拳头没放下。你要重新立一个人物，这张桌上做不到：人已经是你，二十出头，圆脸、深褐色短发，浅灰西装领，肩上搭着深色外套。职业写的是靠家里过日子的人，你自己说是学生。性别栏还空着，上一句说自己是女的，也没写进这张表。\n\n他盯着你，呼吸又粗了一下。\n\n「还站在这儿干什么？打，还是把话说完？」",
+  "sid": "b019"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 27,
+  "player": "我下车走进栏内，蹲在敞开的墓穴旁，仔细查看边沿的新土、脚印和被翻出来的痕迹。",
+  "scene": "arkham-church-cemetery",
+  "present": [
+   "戈波·潘德"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "arkham-police-station",
+     "destination_2": "arkham-street-park-bench",
+     "destination_3": "arkham-photo-shop",
+     "destination_4": "arkham-church-cemetery",
+     "destination_5": "investigator-briefing"
+    },
+    "choice": "destination_4",
+    "row": "arkham-church-cemetery",
+    "confidence": 0.92
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "报摊摊主"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 1
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣",
+     "item_9": "诺拉的照相馆取件凭条",
+     "item_10": "墓园现场冲洗照片"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.86
+   }
+  },
+  "receipt_kinds": [
+   "clue",
+   "move",
+   "time"
+  ],
+  "keeper_head": "沙土在晨光里发白。你蹲在穴沿，指尖与目光顺着边沿走：新翻的湿土松软，旧土压得发硬，两处脚印叠在翻乱带上——一深一浅，鞋底花纹不同，都还新。\n\n铁栅栏内侧，几处锈皮被蹭开，像有人从外把梯子架上来、再翻进来。穴底空着，棺椁轮廓只剩土壁上的压痕；碑前的花环已经萎了。\n\n海风从崖下灌上来，带着盐腥。栏外停着你的车。墓园里暂时只有你蹲在这一口空穴旁——昨夜盗走的，是马丁·海沃森的遗体。",
+  "sid": "b020"
+ },
+ {
+  "campaign": "game-e0877a4e-fde9-430b-b0d0-d22c8868ce5c",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 2,
+  "player": "我报上报社的名字，说明正在调查这幢房子的旧闻，请他让我进剪报室查档。",
+  "scene": "newspaper-morgue",
+  "present": [
+   "Arty Wilmot",
+   "Ruth Blake"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "roll"
+  ],
+  "keeper_head": "林启明报了报馆的名号——西边那家日报，社会新闻版——又把这趟的来意说明白：一栋房子，几任旧房客，想翻翻旧报上的记载。\n\n威尔莫特起初还点了一下头，等那家报馆的名字落了地，他把钢笔帽拧上，靠回椅背。\n\n「同行。」他重复这个词，「同行就更不能进去了。你今天在我这儿翻出点东西，明天登在你们版上，署名是你的。」他拿起那叠分好的稿子，在桌角上磕齐，「社会新闻版要的旧闻，我这儿的夹子里多的是：投河的、烧死的、进疯人院的。你们那条街上的房子，我不想替你们跑腿。」\n\n他把稿子放下，手指在桌上敲了一下。\n\n「剪报室的规矩不是我定的。想下去，让你们总编写张条子来。今天没有条子，就没有门。」\n\n他重新低下头去，笔尖",
+  "sid": "b021"
+ },
+ {
+  "campaign": "game-1866c02a-32eb-4b8d-b00f-8f705d2b6318",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 2,
+  "player": "那他是中邪了吗？碰到什么大仙了？",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "npc"
+  ],
+  "keeper_head": "诺特把笔搁下，拿指背蹭了蹭鼻子，像是被你这句话问得有点好笑，又不太笑得出来。\n\n「中邪这词儿，我姑母活到最后一年都不许人在她跟前说。」他往后一靠，椅子腿在地板上刮了一声，「疗养院那边登记的是精神失常，报纸一个字没登。街坊传的和这个不一样：说他半夜里对着空屋子嚷，说床底下、墙里头有东西；说他在屋里撞见人形的影子，灯泡自己亮自己灭，家具自己挪。他太太后来也进了同一个地方，两个孩子跟着亲戚搬走了，我听说是夜夜哭醒，说梦见一个眼睛着火的怪人。」\n\n他停了一下，看着你的脸。\n\n「我信哪一样？我一样都不信，我也一样都得认。」他用指节敲了敲那张便笺，「要是真有东西，你就有东西可写；要是没东西，那更好，我明天",
+  "sid": "b022"
+ },
+ {
+  "campaign": "game-22948326-cbe6-4c38-a27a-564c6437a2cb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 1,
+  "player": "我一愣：“你怎么知道我的名字？”顺手把车开到油泵边，让他加满。",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.9
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_1",
+    "row": "拉塞尔·威廉姆斯",
+    "confidence": 0.4
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.71
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.84
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "move",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你把车开到油泵旁，柏油地上的热气从车门缝里往上涌。拉塞尔慢了一拍，才拿起油枪；他先看了看车，又看回你，手上的动作停在半空。\n\n“你说这个啊，太太？刚才你们进镇的时候，车里有人叫过你。玛丽·艾伦——我耳朵还没坏到听不见自己的名字。”\n\n他把油枪挂在车身旁，却没有立刻扳下开关。加油站的老式计价器在阳光下泛着灰，柜台里摆着几排糖果和汽水，像是多年没人动过；不远处，生锈的可乐机低声嗡着。\n\n拉塞尔抹了抹油枪上的黑渍，目光又朝镇里飘了一下。\n\n“加满是六块五，太太。你点个头，我就给你灌进去。”",
+  "sid": "b023"
+ },
+ {
+  "campaign": "game-21ac44b7-5f91-41a5-8ea7-9faf5b801a29",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 2,
+  "player": "我把钥匙、纸条和钱收进口袋。“报纸和档案你指给我吧，先去哪儿查？”",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "cash",
+   "clue",
+   "handout"
+  ],
+  "keeper_head": "你把钥匙串、写着地址的纸条和那叠现钱一起收进口袋。纸条上是那栋空宅的地址，钱是今天的预付。桌上另留下一张短笺，字不多：一天二十块，把房子为什么留不住人查明白，把名声洗干净。\n\n你问他报纸和档案先去哪儿。史蒂文·诺特用指节在租约上点了两下，声音仍短。先去波士顿环球报。剪报室里有这房子的旧闻，马卡里奥一家的事也能对上。纸上的名字对完了，再去中央图书馆和档案厅，查建造、产权、诉讼。别一拿到钥匙就往门里闯。\n\n他把帽子从椅背上摘下来，没有再加期限。钥匙在你口袋里，报社、图书馆和档案厅三条路都开着。",
+  "sid": "b024"
+ },
+ {
+  "campaign": "game-91d04b3a-fad7-4f7b-b516-492102e8eab6",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 1,
+  "player": "顺着土路开进镇子，看见加油站就把车停到油泵边。",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "destination_3",
+    "row": "book-4-town-center",
+    "confidence": 0.51
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.93
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   }
+  },
+  "receipt_kinds": [
+   "definition",
+   "move",
+   "npc"
+  ],
+  "keeper_head": "你沿着白尘翻卷的土路驶进阿巴托尔，最后把二手皮卡停在油泵旁。车窗外，埃索的旧招牌还认得出字，脏玻璃后立着一块“营业中”的纸板；两台老式加油机靠在棚下，油管和金属外壳都晒得发白。车库门敞着，一辆七四年的雪佛兰诺瓦架在升降机上，没人动它，前墙的油罐下方拖着一片黑色油渍。棚里的阴影中坐着三个男人，烟雾和啤酒味混在热气里，目光一齐落到你身上。左边一台生锈的可乐机嗡嗡作响，旁边的香烟机贴着手写纸条：“故障”。\n\n一个四十多岁的高瘦男人先站起来。他晒得黝黑，头发已经灰白，白色系扣衬衫和工装服却收拾得出奇干净；口袋里卷着一包烟，烟包压在一块沾满油污的破布上。他反应有些慢，只抬手指了指油泵，又看向你的车。旁边",
+  "sid": "b025"
+ },
+ {
+  "campaign": "game-45cd3976-d028-4c94-a6ed-c2326527f727",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 4,
+  "player": "“罗伯特，镇上有没有常跑这条公路、认得过路车的人？我想找个人帮我打听打听。”",
+  "scene": "book-4-last-stop",
+  "present": [
+   "罗伯特·泰勒",
+   "卡洛斯·加尔萨"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.84
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "罗伯特·泰勒",
+     "addressee_2": "卡洛斯·加尔萨"
+    },
+    "choice": "addressee_1",
+    "row": "罗伯特·泰勒",
+    "confidence": 0.98
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.98
+   },
+   "target": {
+    "rows": {
+     "target_1": "罗伯特·泰勒",
+     "target_2": "卡洛斯·加尔萨"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.87
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你坐在吧台边，朝镜子那头的高瘦男人点了点名，把话说明白：镇上有没有常跑这条公路、认得过路车的人，想找个能帮忙打听的。\n\n罗伯特把抹布从肩上扯下来，在杯子口上又擦了一圈，指节在吧台边轻轻敲了两下，像是把你刚才那句「罗伯特」和「打听」一块咽下去。厨房那边煎盘还在嘶嘶响，白围裙的矮胖子没探头，只听见铲子刮铁的声音。\n\n「常跑公路的？镇上这鬼地方，真天天在路上晃的没几个。加油站棚底下那个一口烂牙的、爱捏啤酒罐的——以前跑长途，闲了就蹲那儿装修车，过路的牌他爱瞅。你要打听车，去那儿晃一圈比在我这儿空喊强。」\n\n他抬了抬下巴，朝门外土路的方向示了一下，又把目光收回来，落在你面前空着的吧台面上。\n\n「汉堡还",
+  "sid": "b026"
+ },
+ {
+  "campaign": "game-4e3a742f-6a1c-4b23-80de-39bb83c8ef2d",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 4,
+  "player": "我把诺特写的委托和那把钥匙搁在柜台上，说我是替房东查产权出的事，不是写稿的；查完了要给保险公司交份说明，报馆的名字一个字都不会出现。",
+  "scene": "newspaper-morgue",
+  "present": [
+   "Arty Wilmot",
+   "Ruth Blake"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "flag",
+   "npc",
+   "roll"
+  ],
+  "keeper_head": "你把那张对折的委托书和钥匙并排搁在柜台上，纸角压着钥匙齿。\n\n「不是来写稿的，先生。替房东查产权，出了点事，查完得给保险公司交份说明。报馆的名字，一个字都不会出现。」\n\n阿蒂的铅笔停住，笔尖还杵在别人稿子上的一个字里。他先看钥匙，再看那张纸，最后才把眼睛挪到你脸上——那一眼停得比审稿的时候长。他把铅笔横搁下，在桌沿敲了两下，肩膀松了半分。\n\n他把委托书抽过去展开，念得很慢，像在校样上点数。\n\n「科比特宅，霍尔街。」\n\n念完，他抬起眼。\n\n「这位读者，查产权上契约登记处去，不在报馆的地下室。这上头写的是雇人去看一栋空宅。保险公司——哪一家保险公司，要派个会计到我这儿来翻旧报？您说呢？」\n\n他笑了",
+  "sid": "b027"
+ },
+ {
+  "campaign": "game-3a9734c5-e19d-4f70-8391-928f1afd7742",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 7,
+  "player": "麻烦你打开吧，我看看那栋房子建宅和转过几次手的卡片。顺便问一句，这几年还有别人来查过这个地址吗？",
+  "scene": "central-library",
+  "present": [
+   "值班馆员"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "newspaper-morgue",
+     "destination_2": "hall-of-records",
+     "destination_3": "neighborhood-gossip",
+     "destination_4": "previous-tenants",
+     "destination_5": "corbitt-house-ground",
+     "destination_6": "commission-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "值班馆员"
+    },
+    "choice": "addressee_1",
+    "row": "值班馆员",
+    "confidence": 1
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:neighbor-lawsuit-1852",
+     "ask_2": "clue:basement-burial-lawsuit",
+     "ask_3": "clue:second-lawsuit-outcome-unrecorded",
+     "ask_4": "handout:Handout 4: Neighbors Sue Corbitt (1852)",
+     "ask_5": "handout:Handout 5: Corbitt's Obituary and Burial Lawsuit",
+     "ask_6": "handout:Handout 6: No Recorded Outcome"
+    },
+    "answers": {
+     "ask_1": "no",
+     "ask_2": "no",
+     "ask_3": "no",
+     "ask_4": "no",
+     "ask_5": "no",
+     "ask_6": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.96
+   },
+   "target": {
+    "rows": {
+     "target_1": "值班馆员"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.94
+   },
+   "item": {
+    "rows": {
+     "item_1": "皮面笔记本",
+     "item_2": "Corbitt House key",
+     "item_3": "私家侦探执照"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95
+   }
+  },
+  "receipt_kinds": [
+   "handout",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "她点点头，从参考台侧拉开一只木匣抽屉，指尖在标着地址的隔条间拨过去，抽出几张发黄的目录卡，平摊在台沿灯下。\n\n卡片字迹是馆里惯用的钢笔体，一条接一条：一八三五年，一位生意兴隆的商人在此建宅；动工后不久他便病倒，随即把产业卖给了沃尔特·科比特先生（Walter Corbitt, Esquire）。其后几年的转让栏几乎空白，只零星注着同一地址仍挂在科比特名下，没有再记别人的接手。\n\n你问起这几年有没有别人来查过这个地址，她想了想，摇头。\n\n「我这儿不记谁来翻过哪张卡，也没人专门来问我这栋。您要是还往下翻邻居纠纷、遗嘱那一类，就得再按年份往抽屉里抠——卡片上怎么写，我就照样念给您听，别的我可不敢编。",
+  "sid": "b028"
+ },
+ {
+  "campaign": "game-4ca26bef-b1be-4014-9c80-ee58a552e4a9",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 18,
+  "player": "我仍站在中间房门外，按刚才听到的“一下、停、两下”节奏轻敲墙面回应，然后贴近圣像背后的墙，寻找空响或能打开的暗格。",
+  "scene": "upper-floor-bedroom",
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你隔着门缝，按那节奏敲墙：一下，停，两下。墙里没有立刻回。你侧身探进半个肩，手电照到圣像背后的灰泥。掷出69，对照53。指节敲下去是实的，没有空响，没有缝，像钉死在砖上。圣像边角积灰，揭不开暗格。\n\n敲声改从左面那间恶臭房的方向传来，隔着平台，闷闷的。这一敲一探，用了5分钟。\n\n你大半个身子还在门外。中间这间，墙是实的。",
+  "sid": "b029"
+ },
+ {
+  "campaign": "game-5779d0fd-7dac-41de-b1f5-1a0f05132e2a",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 1,
+  "player": "接。钥匙我先收着，但不急着进屋——先回中央图书馆，把科比特宅的地契和历任住户翻出来。",
+  "scene": "central-library",
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [
+   "cash",
+   "clue",
+   "definition",
+   "handout",
+   "item",
+   "move",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "诺特没起身握手。他从抽屉角里捻出那枚黄铜钥匙，连着绳上那片硬纸牌推到桌子这边，又压上一张写好的纸，最后推过来一小沓钱。\n\n「钥匙你收好。」他点了点那张纸，「门牌、价钱，都写在上头。嫌我开得低，等你把报告交来再说。丢一把钥匙，配锁的钱从你工钱里扣。」\n\n钥匙柄在她掌心里是凉的，绳上那片纸牌被铅笔写过一个门牌号。 钱他没数，手指一推就完事。\n\n从租务办公室到中央图书馆，电车走了一小段城。她推门进大厅时，铜栏杆上的潮气还没干透。\n\n她把外套搭在椅背上，先站在卡片柜中间那条走道里停了一下——这一层是她每天待的地方，抽屉拉开的那声轻响、哪一格发涩，她比谁都清楚。\n\n然后就是拉索引。街道册、区界图、旧年《",
+  "sid": "b030"
+ },
+ {
+  "campaign": "game-bcb91de6-1d44-44e2-b867-f129a8cd58b0",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 2,
+  "player": "“加满。”我下了车，把墙镜推到额头上，笑着问：“这儿一直这么热吗？三位这是在等什么人？”",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.85
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.76
+   }
+  },
+  "receipt_kinds": [
+   "npc"
+  ],
+  "keeper_head": "你下了车，把墙镜推到额头上，带着笑意问起这里的天气，又问棚下的三个人是在等谁。拉斯扫了一眼你的车，转身拿起油枪；他没有急着回答，只先把油管拖到车旁。棚下那两个男人仍坐着，一个咬着啤酒罐，另一个把目光从你脸上移到车库里的雪佛兰诺瓦。\n\n拉斯把油枪插好，手指在扳机上停了一下，才抬眼看你。“热？这地方夏天就这个德性，早上也不饶人。至于他们俩？他们不是在等谁，纯粹是没别的地方可去。”\n\n他朝棚下努了努嘴，又把视线落回车上。“我是拉塞尔，大家叫我拉斯。左边那个是内特，里面那个是史蒂夫。油加满，行；你要是还打算修车，趁早跟我说。”\n\n油泵开始发出低沉的嗡声，老式刻度窗里的数字缓慢往上跳。拉斯站在车旁等着，",
+  "sid": "b031"
+ },
+ {
+  "campaign": "game-7aa4b9e5-f414-41c4-9ce5-59ec6215e52f",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 7,
+  "player": "我回到车上，顺着红土路往南开，开得不快，一边留意路两边。",
+  "scene": "南方红土路",
+  "present": [],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "旧水塔岔路",
+     "destination_2": "book-4-esso-station",
+     "destination_3": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.75
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.83
+   }
+  },
+  "receipt_kinds": [
+   "move"
+  ],
+  "keeper_head": "你重新发动旧雪佛兰，车头压上南去的红土路，车身随着一道道浅沟慢慢起伏。两边的低矮灌木擦过车门，热浪贴着挡风玻璃往上拱，远处灰白的荒地在阳光下晃个不停。路旁偶尔露出几块风化的石灰岩，车轮碾过碎石，底盘传来闷响。\n\n再往南，旧水塔已经看不见了，车辙却还在前方交错着，向灌木更深处伸去。没有路牌，也没有房屋，只有一股干热的风从半开的车窗里灌进来。",
+  "sid": "b032"
+ },
+ {
+  "campaign": "game-4ca26bef-b1be-4014-9c80-ee58a552e4a9",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 3,
+  "player": "我向那位戴袖箍的男人出示记者证和名片，请他帮我找科比特宅与马卡里奥一家近十年的剪报；我会把有用的日期和名字记进记事本。",
+  "scene": "newspaper-morgue",
+  "present": [
+   "Arty Wilmot",
+   "Ruth Blake"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "npc",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你把记者证和名片递到袖箍男人眼前。掷出31，对照70。他扫过你的脸，口气比对待闲人软半寸，却仍把下巴抬着。\n\n「城讯部，威尔莫特。」他捏着那张证，拇指在边角磨损处停住。掷出31，对照50，门槛25。「过期了。霍兰德的自由撰稿人不是通行证。剪报室不对公众开放。」他把证和名片推回你手里，却又用笔杆敲了敲桌沿：「要进库，拿编辑签字条来。别挡路。」这来回花了5分钟。\n\n打字机还在响。剪报室的门仍关着。你的记事本还是空白。",
+  "sid": "b033"
+ },
+ {
+  "campaign": "game-fa5a025b-1c69-4f8f-a7ff-db2df8b02f55",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 1,
+  "player": "我把点三八从腋下皮套里抽出来，掰开转轮看了一眼子弹，再合上插回去；袖口那支单发的也摸了一下，确认在。然后拿起桌上的租约收进大衣内袋，跟诺特说：我这就去科比特街看看那栋房子。",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "clue",
+   "definition",
+   "roll"
+  ],
+  "keeper_head": "你把左轮掰开，转轮里六发子弹都在，合上，插回腋下的皮套；右袖里那支单发的小枪也隔着布按了按。桌上的那叠纸被你抽走一张，边角还翘在大衣外头。\n\n诺特的手比你先到一步。他两根指头把那张纸拎回去，抖平了，塞回纸堆底下。\n\n「那是我别处的租约，沈先生。」他打量你的大衣，又看了看你左腋下那块鼓起的地方，眉头没动，也没有笑，「枪收好，我这儿用不上那个。」\n\n他往椅背上一靠，指节在桌面上敲了两下。\n\n「科比特街那栋宅子是我继承来的。上一户姓马卡里奥，住了半年，搬得连夜。房东的名声坏了，房子租不出去，也卖不上价。我要的东西很实在——白天的功夫，一张干净的底子。街坊肯开口的、报上印过的、档案厅里躺着的，都算。」",
+  "sid": "b034"
+ },
+ {
+  "campaign": "game-7aa4b9e5-f414-41c4-9ce5-59ec6215e52f",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 4,
+  "player": "“那敢情好。”我从副驾驶座摸出地图和笔，走到棚下递给他，顺手把地图摊在他膝盖旁的木箱上：“水塔在哪儿，给我画个大概。”",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.1
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.68
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.91
+   }
+  },
+  "receipt_kinds": [
+   "time"
+  ],
+  "keeper_head": "你把地图和笔递过去，内特接住后，先用啤酒罐压住地图的一角，免得热风把纸吹起来。他俯身在木箱上摊平纸面，笔尖沿着公路往西划了一道，又在一处看不出名字的岔路旁画了个方框。\n\n他把那道线描粗了些，抬眼看你一眼，随即又低头补上几笔：一座水塔，塔旁还有一条往南的路。\n\n“就这儿。水塔离主路不远，认不出来才怪，铁架子高得很。到了地方往南拐，别管路牌有没有，也别顺着柏油路继续走。那条红土路能把你们带回西边去，就是颠得厉害。”\n\n他把地图转过来推回你手边，笔尖还在那座水塔上点了点。\n\n“要是车况没问题，今天能省不少路。要是车况有问题，走这条就是自己找麻烦。”",
+  "sid": "b035"
+ },
+ {
+  "campaign": "game-5779d0fd-7dac-41de-b1f5-1a0f05132e2a",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 5,
+  "player": "钉板就撬。我在厨房和存藏室翻一遍，找铁炉钩、撞钉器、门闩——什么能当撞棍就拿什么。",
+  "scene": "corbitt-house-ground",
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [
+   "definition",
+   "item",
+   "roll",
+   "threat",
+   "time"
+  ],
+  "keeper_head": "厨房的抽屉一拉到底：一把钝了口的小刀、开瓶器、几根发黑的绳头、半袋结块的面粉。炉子早凉了，煤灰盘上却搁着一根拨火的铁钩——短，一头弯成钩，一头是扁扁的握柄。她连那摞旧报也翻过，没有别的家伙。\n\n然后她回到短廊，对着地窖门上那四块板子下手。\n\n铁钩的扁柄正好塞进板子和门框之间的缝。第一颗钉子出来时叫了一声——铁从干木头里拔出来的那种尖响，一直传到楼上。她把钩子挪到下一颗，一颗一颗往上拔。第三块板子裂了，裂口里的钉子照样退出来。四块板子先后落在地上，弯掉的钉子在地上堆了一小撮。\n\n门一推就开。\n\n后面是往下的台阶，黑得看不见底。一股又冷又湿的土味涌上来，比隔着板子闻到时浓得多，里头还混着一点旧机器",
+  "sid": "b036"
+ },
+ {
+  "campaign": "game-4e3a742f-6a1c-4b23-80de-39bb83c8ef2d",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 3,
+  "player": "我先去报馆翻旧报，要一八年秋到一九年冬这一段，重点找科比特宅和马卡里奥这两个词。",
+  "scene": "newspaper-morgue",
+  "present": [
+   "Arty Wilmot",
+   "Ruth Blake"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "clue",
+   "definition",
+   "move"
+  ],
+  "keeper_head": "出门前，诺特把钥匙和那张对折的纸按进你手里——房子在霍尔街，钥匙就这一把齿。你把它揣进大衣内袋，沿华盛顿街往城里走。\n\n环球报馆比诺特那间办公室吵得多。铅字的气味、油墨和暖气管道烘出的灰一起扑在脸上，打字机响成一片，隔着半堵隔板有人喊版面的字数。你按着走廊上的漆字牌子找到市政新闻台。\n\n柜台后面坐着个瘦高个儿，马甲扣到最上面一颗，正拿铅笔在别人的稿子边上划道子。听见你开口，他没抬头。\n\n「找旧报？」他划完最后一道杠才把铅笔搁下，「诸位先生，报纸是给公众看的，报馆的旧报不是。地下那一间——」笔杆朝地板点了两下，「按规矩，不对外。」\n\n你报上姓名和来意。他眼皮抬起来一点，把你的帽子和鞋面扫了一遍。",
+  "sid": "b037"
+ },
+ {
+  "campaign": "game-33170a20-b06f-4e06-b488-d5182d62c22c",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 5,
+  "player": "我付了汉堡钱，又问：“我那辆车发动机有点响，镇上谁会修车？叫什么名字，在哪儿能找到他？”",
+  "scene": "book-4-last-stop",
+  "present": [
+   "罗伯特·泰勒",
+   "卡洛斯·加尔萨"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-abattoir",
+     "destination_3": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.73
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "罗伯特·泰勒",
+     "addressee_2": "卡洛斯·加尔萨"
+    },
+    "choice": "addressee_1",
+    "row": "罗伯特·泰勒",
+    "confidence": 0.78
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.89
+   },
+   "target": {
+    "rows": {
+     "target_1": "罗伯特·泰勒",
+     "target_2": "卡洛斯·加尔萨"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.85
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "note",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你把一块两毛五按在吧台上。罗伯特点一下头，钱收进柜里，抹布又搭回杯沿。\n\n你说发动机有点响，问镇上谁会修车、叫什么、上哪儿找。\n\n他朝镇口那边抬了抬下巴，话还是那副把账算清的样子：\n\n「修车啊。埃索加油站，棚底下那个白头发的——高瘦个儿，白衬衫、工装还挺干净。站里车库门开着，工具都齐，油、修他都接。名字你问他本人就行，镇上的人多半就叫他油站老板。」\n\n厨房那边锅铲还在响，扎马尾的厨师没抬头。一块两毛五的账清了，他等你是接着点别的，还是先顾发动机那头。",
+  "sid": "b038"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 16,
+  "player": "我把照片重新装回信封，收进包里，在长a椅上安静地休息一会儿。",
+  "scene": "arkham-street-park-bench",
+  "present": [],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "arkham-photo-shop",
+     "destination_2": "arkham-church-cemetery",
+     "destination_3": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_7",
+    "row": "idle",
+    "confidence": 0.85
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣",
+     "item_9": "诺拉的照相馆取件凭条",
+     "item_10": "墓园现场冲洗照片"
+    },
+    "choice": "item_10",
+    "row": "墓园现场冲洗照片",
+    "confidence": 0.6
+   }
+  },
+  "receipt_kinds": [
+   "time"
+  ],
+  "keeper_head": "照片归回封套，封套再进包侧。膝上腾空，木条仍留一点日晒的余温。\n\n你在长椅上歇着。街风偶尔带过树叶声，远处车轮渐疏。光从西斜收成傍晚的灰蓝，楼影拉长，石子径凉下来。包里的相纸边不再那么潮。\n\n身边仍空着。天色已近入夜。",
+  "sid": "b039"
+ },
+ {
+  "campaign": "game-8e41c325-5c5c-420e-bae8-0c2f7c7a167c",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 4,
+  "player": "我开车去“最后一站”，点一份热饭，问吧台后面的老板这几天有没有别的外地人在店里住过。",
+  "scene": "book-4-last-stop",
+  "present": [
+   "罗伯特·泰勒",
+   "卡洛斯·加尔萨",
+   "布伦纳医生"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.99
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.85
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "map",
+   "move",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你从埃索那头把车开进镇中心，热风裹着柏油味从敞开的窗灌进来。\n\n「最后一站」立在路边，像一座旧时西部沙龙：木制门面，宽阔木板路，栓马柱和饮水槽还在。叼着雪茄的印第安木头人竖在狭窄双扇门旁，大窗上贴满新旧标志，门开着。左边一排四间简易汽车旅馆房，门、小窗、单人床那一档。\n\n你走进去。左墙是长吧台和十几张凳，桌椅随意摆着，支撑柱把空间隔开。内侧墙有自动点唱机，周围挂着古董农具和旧黑白照片。吧台后是全身镜和一排酒瓶；镜子上方墙上钉满一九〇八到如今的车牌，有锈有新；正中一只巨大野猪头张着大口。\n\n吧台后站着个四十多岁的高瘦男人，深色眼睛，蓬松黑发，一撮铅笔胡子，正擦着杯子。厨房那边能看见个矮胖的墨西哥",
+  "sid": "b040"
+ },
+ {
+  "campaign": "game-5779d0fd-7dac-41de-b1f5-1a0f05132e2a",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 10,
+  "player": "我扶着栏杆坐起来，先看伤，再听屋里还有没有动静。",
+  "scene": "upper-floor-bedroom",
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [
+   "note"
+  ],
+  "keeper_head": "她再睁开眼时，平台上已经黑了。\n\n左边那扇门没了——门板连着门框从墙上撕下来，斜挂在一颗铰链上，门洞里是黑的。地板上散着床的残骸：断成两截的床架、扯开的褥子、木条和崩出来的干草，一直甩到她脚边，铁炉钩躺在两步开外。\n\n她扶着栏杆坐起来。左肩不听使唤，抬到一个角度就往下坠；胯上那一处，隔着毛呢也摸得出肿起来的棱。外套肩头一片硬邦邦的深色，按下去指腹是潮的；扶栏杆的那只手，掌心黏。\n\n平台上原来那摊血已经干了，发黑，边上有一圈被鞋底抹开的痕迹——她自己的鞋印也在里头。\n\n她停下来听。\n\n楼下没有声音，这一层也没有。木板缝里透进来的是街上那点活气：木轮车压过石板、有人说话、远处一口钟。侧门外的脚步响",
+  "sid": "b041"
+ },
+ {
+  "campaign": "game-22948326-cbe6-4c38-a27a-564c6437a2cb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 4,
+  "player": "我笑了笑：“我不是来惹麻烦的，就是路过。镇上哪儿能吃顿午饭？”",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "unclear",
+    "row": null,
+    "confidence": 0.4
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_1",
+    "row": "拉塞尔·威廉姆斯",
+    "confidence": 0.45
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.98
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.96
+   }
+  },
+  "receipt_kinds": [],
+  "keeper_head": "你笑着解释自己只是路过，拉斯看了你一眼，紧绷的嘴角稍微松了些。他用拇指朝镇里比了比，棚下那几个人的目光却没有跟着移开。\n\n“吃饭啊，往前走，过了岔口就是最后一站，酒吧和小餐馆在一块儿，午饭有得吃。卡洛斯在后头掌勺，手艺还不错。”\n\n他把抹布搭回油泵旁，又补了一句，语气里还是带着劝你别久留的意思。\n\n“你们要是还赶路，那里垫一口就行，别在镇上耽搁太久。”",
+  "sid": "b042"
+ },
+ {
+  "campaign": "game-3a9734c5-e19d-4f70-8391-928f1afd7742",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 10,
+  "player": "我谢过她，不再打扰。先回去睡几个钟头，上午坐车去罗克斯伯里疗养院，跟前台说我受科比特宅房东委托，想见维托里奥·马卡里奥或者他太太，就问几句，不会待太久。",
+  "scene": "previous-tenants",
+  "present": [
+   "Gabriela Macario",
+   "Vittorio Macario"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "newspaper-morgue",
+     "destination_2": "central-library",
+     "destination_3": "hall-of-records",
+     "destination_4": "neighborhood-gossip",
+     "destination_5": "corbitt-house-ground",
+     "destination_6": "commission-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "Gabriela Macario",
+     "addressee_2": "Vittorio Macario"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.59
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:vittorio-bible-weapon",
+     "ask_2": "clue:gabriela-night-visitor",
+     "ask_3": "clue:boys-burning-eyes"
+    },
+    "answers": {
+     "ask_1": "yes",
+     "ask_2": "yes",
+     "ask_3": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.35
+   },
+   "target": {
+    "rows": {
+     "target_1": "Gabriela Macario",
+     "target_2": "Vittorio Macario"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.94
+   },
+   "item": {
+    "rows": {
+     "item_1": "皮面笔记本",
+     "item_2": "Corbitt House key",
+     "item_3": "私家侦探执照"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.77
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "person",
+   "time"
+  ],
+  "keeper_head": "你谢过邻居，转身离开，没有再敲那扇门。回到住处后，你睡了几个钟头，醒来时天已经亮透，便乘车赶往罗克斯伯里疗养院。\n\n疗养院的前台设在一间光线发白的门厅里。值班人员听完你的来意，先看了看你，又低头翻登记簿。她没有马上答应，只把笔停在纸面上。\n\n“你说是科比特宅房东派来的？要见马卡里奥先生，或者他太太？我可以去问问，不过他们现在的状况不一样。你只问几句，别把人逼得太紧；尤其是马卡里奥太太。”\n\n她合上登记簿，朝里面那条安静的走廊看了一眼，又把视线转回来，等你决定先见谁。",
+  "sid": "b043"
+ },
+ {
+  "campaign": "game-26d5a671-85a2-4732-876b-1521aa04d869",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 4,
+  "player": "我要把钱抢过来",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "cash",
+   "delta",
+   "roll",
+   "session"
+  ],
+  "keeper_head": "手伸出去之前，诺特先动了。他一手死死攥着那叠钞票，另一手把你往桌边推。你侧身让开，肩膀擦过椅背，人还站在他面前。\n\n你的手跟着到了。他抬臂来格，没格住。这一下打在他已经肿起来的颧骨上，他的手指松开，那一天工钱从掌心里滑出来。你抓住了。\n\n他捂着脸，用肩膀想把你顶到门口去。你站住了。他退到抽屉边上，血从嘴角滴到衬衫上，另一只手里还攥着那串钥匙。\n\n钱你抢去了。钥匙没有。你给我滚。",
+  "sid": "b044"
+ },
+ {
+  "campaign": "game-22948326-cbe6-4c38-a27a-564c6437a2cb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 8,
+  "player": "我放下杯子，也压低声音：“天黑以前？天黑以后会怎么样？”",
+  "scene": "book-4-last-stop",
+  "present": [
+   "卡洛斯·加尔萨",
+   "罗伯特·泰勒"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "卡洛斯·加尔萨",
+     "addressee_2": "罗伯特·泰勒"
+    },
+    "choice": "addressee_2",
+    "row": "罗伯特·泰勒",
+    "confidence": 0.97
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.97
+   },
+   "target": {
+    "rows": {
+     "target_1": "卡洛斯·加尔萨",
+     "target_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.9
+   }
+  },
+  "receipt_kinds": [
+   "npc"
+  ],
+  "keeper_head": "你把杯子放回吧台，声音压得很低。罗伯特手里的抹布停在半空，过了片刻，他才把它搭回柜台边，朝厨房和门口各看了一眼。自动点唱机还在放歌，外头的热风却把门边那块旧招牌吹得吱呀作响。\n\n“天黑以后，路上就没人走了。不是规矩，是大家都知道别在那时候往外晃。”\n\n他俯身靠近些，声音低得几乎要被冰块碰杯的响声盖住。“有时候会有人来找住处，也有人来找车。可他们从来不进店里坐，问话也不多。您要是还打算走，吃完就走；要是留下，就把门锁好，别听见外头有人叫也开门。”\n\n厨房里的锅铲碰了一下铁锅，卡洛斯没有探头出来。罗伯特直起身，把视线落在你面前那杯水上。“我能告诉您的就这些。别逼我把剩下的话说出来。”",
+  "sid": "b045"
+ },
+ {
+  "campaign": "game-3a9734c5-e19d-4f70-8391-928f1afd7742",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 1,
+  "player": "二十块一天，行，我接。不过接之前我得问清楚：上一户人家姓什么，现在人在哪？他们在那房子里到底碰上了什么事？",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "chapel-of-contemplation-ruins",
+     "destination_2": "newspaper-morgue",
+     "destination_3": "central-library",
+     "destination_4": "hall-of-records",
+     "destination_5": "neighborhood-gossip",
+     "destination_6": "previous-tenants",
+     "destination_7": "corbitt-house-ground"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.82
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "Steven Knott"
+    },
+    "choice": "addressee_1",
+    "row": "Steven Knott",
+    "confidence": 0.99
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "handout:Handout 1: Mr. Knott's Commission"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.94
+   },
+   "target": {
+    "rows": {
+     "target_1": "Steven Knott"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.89
+   },
+   "item": {
+    "rows": {
+     "item_1": "皮面笔记本"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.87
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "clue",
+   "definition",
+   "flag",
+   "item",
+   "npc",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你应了一声，说这活儿你接，接着又问上一户姓什么、人现在在哪、在那房子里到底碰上了什么。诺特听完，手指在那叠租约上停了一停，从抽屉里摸出一串钥匙，连同一张折好的纸条和二十块现钞，一起推到你面前。\n\n「一天二十块，先付一天。」他点了点那张纸条，「地址在上面。钥匙你拿着，别弄丢了，我这串是备用的。」\n\n说到上一户，他眉头皱了皱，语气也硬了些。「姓麦克里奥。一九一八年租进去的，没住几天就走了，走得很急，听说是吓的，家里人闹出一场大乱子。男人现在还在罗克斯伯里疗养院，没出来。具体怎么回事，报上登过一点，我也说不清，你要是想听鬼故事，我这儿没有。」\n\n他往后一靠，看了看你。「报馆、中央图书馆、档案厅，这些",
+  "sid": "b046"
+ },
+ {
+  "campaign": "game-201359ce-180e-49e0-b809-82b06cb33dae",
+  "title": "Dust to Dust 归于尘埃",
+  "module": "book-5",
+  "turn": 2,
+  "player": "“以私人身份。”我把记者证收回去，压低声音，“海沃森先生是我父亲的老朋友。我只想知道，墓是怎么被打开的？”",
+  "scene": "阿卡姆警局",
+  "present": [
+   "值班警官"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.88
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "值班警官"
+    },
+    "choice": "addressee_1",
+    "row": "值班警官",
+    "confidence": 0.98
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.96
+   },
+   "target": {
+    "rows": {
+     "target_1": "值班警官"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.91
+   }
+  },
+  "receipt_kinds": [
+   "time"
+  ],
+  "keeper_head": "你把记者证收回外套，俯身靠近柜台，声音压了下来。值班警官看了看你，又扫了一眼登记簿上那行关于海沃森的记录，手指在纸边轻轻敲了一下。\n\n他没有马上回答，只把椅子往后挪了些，像是在掂量这件事该不该落到正式记录里。门外驶过一辆电车，震得窗玻璃轻轻作响，后面办公室的交谈声也低了下去。\n\n“你是海沃森先生家里的朋友，我明白。可墓园那边的事还在查，现场细节不能随便往外传。你要是想听警局掌握的情况，就得按规矩问；要不然，我只能告诉你报上已经登过的那些。”\n\n他把手掌压在登记簿上，等你决定是否把这个问题正式交给警局。",
+  "sid": "b047"
+ },
+ {
+  "campaign": "game-32bc9a85-ebd9-42e1-90b8-26c4a48694bb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 6,
+  "player": "（OOC）",
+  "scene": null,
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [],
+  "keeper_head": "",
+  "sid": "b048"
+ },
+ {
+  "campaign": "game-abbdde48-5e44-44c8-867f-347624b36e88",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 2,
+  "player": "我蹲下去看左后轮，摸摸胎面，再看看有没有扎钉子。看完付了油钱，顺口问他：“这一路过来都是空镇子，你们这儿平时就这么冷清？”",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯"
+    },
+    "choice": "addressee_1",
+    "row": "拉塞尔·威廉姆斯",
+    "confidence": 0.95
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.92
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你蹲下检查左后轮，沿着胎面摸了一圈，又俯身看过轮胎沟槽和侧壁，没发现钉子或明显的破损。你站起来付了油钱，拉塞尔把钱收进油污斑驳的柜台抽屉里。棚下那几个男人仍在看着你们，远处旧加油站的招牌在热气里晃动。你问起镇子的冷清，拉塞尔没有马上回答，先朝那几个人瞥了一眼。“平时就这样，过路车少，年轻人也都走了。这里靠老公路撑着，公路一改道，镇子就慢慢空了。你要吃饭、睡一觉，最后一站还开着；吃完就走，别在这儿耽搁太久。”",
+  "sid": "b049"
+ },
+ {
+  "campaign": "game-22948326-cbe6-4c38-a27a-564c6437a2cb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 12,
+  "player": "我开出镇子，一边开一边留意油表和车况，顺手把收音机调小。",
+  "scene": "book-4-last-stop",
+  "present": [
+   "卡洛斯·加尔萨",
+   "罗伯特·泰勒"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.6
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "卡洛斯·加尔萨",
+     "addressee_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.94
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.46
+   },
+   "target": {
+    "rows": {
+     "target_1": "卡洛斯·加尔萨",
+     "target_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   }
+  },
+  "receipt_kinds": [],
+  "keeper_head": "你把收音机的声音调低，车里只剩引擎的闷响和轮胎碾过路面的沙声。你继续向西开，油表的指针在半箱以下轻轻颤着，车况暂时没有新的异样。\n\n前方的路把镇子甩在身后，埃索加油站的棚顶从侧窗外掠过。棚下那几个男人仍在看着你，没人走出来拦车。",
+  "sid": "b050"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 8,
+  "player": "我改主意，先沿街找一家照相馆，把刚在墓园拍摄的干板拿给店员，问冲洗需要多久、多少钱。",
+  "scene": "arkham-photo-shop",
+  "present": [
+   "照相馆店员"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.89
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "戈波·潘德"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.91
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:arkham-police-grave-details",
+     "ask_2": "clue:cemetery-two-footprints"
+    },
+    "answers": {
+     "ask_1": "no",
+     "ask_2": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.52
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣"
+    },
+    "choice": "item_2",
+    "row": "诺拉的摄影干板与胶卷袋",
+    "confidence": 0.93
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "npc",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "石径与铁栅落在身后。潘仍在岗哨小屋旁，扁着嘴，目光跟着你拐上通往城里的路，直到你走远。\n\n晨气里土腥味散尽。你沿街找了几家铺面，橱窗里挂着装框肖像与风景样片，门口写着冲洗加印。推门进去，铃轻响一声。柜台后站着个戴袖套的中年店员，袖口沾着显影液的淡味，抬头看你肩上的相机带和手里的干板袋。\n\n「冲洗啊。干板几块？」\n\n他接过袋口略瞥一眼，用拇指掂了掂厚度，又抬眼：\n\n「普通加印的话，今天下午四点前能取；要赶急，加一成，中午前后。一块板连接触印，两毛五；要放大另算。你这几块——全做普通冲洗加印，大概一块两毛五上下，看你具体要几张印片。现结，还是取的时候付？」\n\n柜台玻璃下压着价目单，字迹工整。店里只",
+  "sid": "b051"
+ },
+ {
+  "campaign": "game-8e41c325-5c5c-420e-bae8-0c2f7c7a167c",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 6,
+  "player": "我慢慢吃完汉堡，坐在吧台边翻翻自己的笔记。",
+  "scene": "book-4-last-stop",
+  "present": [
+   "罗伯特·泰勒",
+   "卡洛斯·加尔萨",
+   "布伦纳医生"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "罗伯特·泰勒",
+     "addressee_2": "卡洛斯·加尔萨",
+     "addressee_3": "布伦纳医生"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.4
+   },
+   "target": {
+    "rows": {
+     "target_1": "罗伯特·泰勒",
+     "target_2": "卡洛斯·加尔萨",
+     "target_3": "布伦纳医生"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你慢慢把汉堡吃完，油纸叠好，推到一边。吧台边坐下，从口袋里掏出寻人笔记，一页页翻过去，纸角在指腹下轻轻响。\n\n店里这会儿没别的外乡人。罗伯特擦着杯子，偶尔抬眼扫过吧台，并不催你。厨房那边马尾围裙的人把锅刷了，在灶边歇着，没再过来。靠里桌旁，衣服干净的中等身材男人报纸摊着，装出只顾填字，其实你一动他报纸角就微微一抖。\n\n镜上方钉着一排一九〇八到如今的车牌，有锈有新，正中那只野猪头仍张着大口。外头的热风从开着的门缝里一股一股往里灌。",
+  "sid": "b052"
+ },
+ {
+  "campaign": "game-78163ec8-0dbb-4ec4-bfd7-af5ee183163b",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 2,
+  "player": "我朝那位老板点点头：“加满吧。顺便问一句，镇上有地方能吃顿热饭吗？”",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.9
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_1",
+    "row": "拉塞尔·威廉姆斯",
+    "confidence": 0.99
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.98
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.94
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你朝加油站老板点了点头，把话说得很清楚。老板听见你要把油箱加满，便从椅边站起来，朝两台旧油泵走了两步；他手里那块擦油布还攥着，最后却没有马上拧开油箱盖。“吃热饭啊？有是有，往前走一段就是最后一站，能吃，也能住。不过先说好，加油得按泵上的价算，你要普通油还是高标号？我给你看看价。”他抬手指了指油泵旁褪色的标牌，棚外的热气正从水泥地面往上冒。",
+  "sid": "b053"
+ },
+ {
+  "campaign": "game-5779d0fd-7dac-41de-b1f5-1a0f05132e2a",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 9,
+  "player": "血是从洞里渗出来的。我不退，把铁炉钩伸进那个洞，探一探里面到底是什么。",
+  "scene": null,
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [
+   "condition",
+   "delta",
+   "flag",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "",
+  "sid": "b054"
+ },
+ {
+  "campaign": "game-4e3a742f-6a1c-4b23-80de-39bb83c8ef2d",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 2,
+  "player": "我先翻纸。把剪报一张张摊开，从日期最早的看起，主要找前一户人家姓什么、什么时候搬进去、出的什么事。",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "clue",
+   "definition",
+   "time"
+  ],
+  "keeper_head": "剪报在桌上摊平，一共六张，剪口毛糙，纸色深浅不一，最早的一张黄得发脆。你把它挪到最上面，从日期最早的那张看起。\n\n头一张只有三行字，是招租启事：科比特宅出租，租金那栏写着\"低廉\"。往下几张是同年冬天和第二年秋天的短讯——有一则说住户半夜搬走，街坊被响动吵醒，巡警到过门口；名字只印了姓，马卡里奥，连全名都没写。最末一张的边角还留着半行被裁掉的分类广告，说同一处宅子重新招租，租金又降了一次。\n\n诺特的手指在那处停了停。\n\n「人还活着，先生在罗克斯伯里。」他把那几张报纸往你手边推了推。\n\n「一八年秋天搬进去的，没住满就走了。再多的报纸上没登——我一个房东，也不好去问人家屋里到底出过什么事，问了他家也",
+  "sid": "b055"
+ },
+ {
+  "campaign": "game-22948326-cbe6-4c38-a27a-564c6437a2cb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 13,
+  "player": "我继续往西开，时不时矟一眼后视镜，看有没有车跟上来。",
+  "scene": "book-4-last-stop",
+  "present": [
+   "卡洛斯·加尔萨",
+   "罗伯特·泰勒"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.79
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "卡洛斯·加尔萨",
+     "addressee_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.43
+   },
+   "target": {
+    "rows": {
+     "target_1": "卡洛斯·加尔萨",
+     "target_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.94
+   }
+  },
+  "receipt_kinds": [
+   "definition"
+  ],
+  "keeper_head": "你把车头稳在向西的公路上，隔一阵便抬眼看后视镜。路面在车后一直铺开，热浪把远处的景物揉得发颤，暂时看不出有车跟上来。车里的收音机只剩低低的伴奏声，轮胎压过粗糙路面，发出持续的沙响。",
+  "sid": "b056"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 5,
+  "player": "我不再纠缠他，沿着半开的门进入墓园，寻找写着马丁·海沃森名字的墓碑，观察墓穴周围有没有明显被翻动或踩踏的地方，并拍几张现场照片。",
+  "scene": null,
+  "present": [],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "戈波·潘德"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.62
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:arkham-police-grave-details",
+     "ask_2": "clue:cemetery-two-footprints"
+    },
+    "answers": {
+     "ask_1": "yes",
+     "ask_2": "yes"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.99
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣"
+    },
+    "choice": "item_1",
+    "row": "诺拉的折合式相机",
+    "confidence": 0.6
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "roll"
+  ],
+  "keeper_head": "",
+  "sid": "b057"
+ },
+ {
+  "campaign": "game-570b0f06-f212-41f5-8e5f-254f7dc94df1",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 2,
+  "player": "我从夹克内侧抽出一张钙票拍在价牌上，多的不要找了。然后我走向凉棚后面那家“最后一站”，进门前先在门口停一步，听听里面有没有人说话。",
+  "scene": "book-4-prologue",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "definition"
+  ],
+  "keeper_head": "你从夹克内侧抽出一张百元钞，拍在油泵边的价牌上。纸边压住价牌，热风差点把它掀起来。\n\n拉塞尔低头看了一眼那张票子，又看了看价牌，没伸手去拿。他用靴尖点了点牌上的数字，像是在等人把话说清楚。\n\n“伙计，油钱没那么多。你这张我找不开。”\n\n凉棚底下那个牙口不好的人又朝这边瞥了一眼，还是没开口。旁边那个坐得笔直的老人目光落在价牌上那张票子，随即收回去。哈雷还停在油泵旁，头盔还夹在你胳肢窝里。",
+  "sid": "b058"
+ },
+ {
+  "campaign": "game-c67942b2-a423-45fd-bd2c-4007582517bb",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 4,
+  "player": "那我先留在警局，问巡佐：前几起失窃的都是刚下葬的人，还是也有埋了多年的遗体？这些案子之间除了盗墓还有什么共同点？",
+  "scene": "investigator-briefing",
+  "present": [
+   "艾瑞克·海沃森"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "helverson-phone-call"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "艾瑞克·海沃森"
+    },
+    "choice": "addressee_1",
+    "row": "艾瑞克·海沃森",
+    "confidence": 0.69
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "handout:小卡片#2 盗墓贼又光顾马丁滩啦！"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.74
+   },
+   "item": {
+    "rows": {
+     "item_1": "便携折盒相机",
+     "item_2": "笔记本与铅笔",
+     "item_3": "记者证",
+     "item_4": "手电筒",
+     "item_5": "厚外套",
+     "item_6": "底片匣"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.96
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "person",
+   "roll"
+  ],
+  "keeper_head": "前台边，卷袖子的年轻人听完你的追问，眉心微微一紧。\n\n「刚下葬的，还是埋了多年的——我答不上。局里没把各镇的尸检单摊给我看。共同点，除了墓被挖开、人没了，他们只肯说：沿岸几起、阿卡姆这一起，像同一伙干的。脚印、梯子、守夜人睡大觉，也就这些。」\n\n他抬了抬下巴，声音仍压着，却多了一点急。\n\n「我是艾瑞克·海沃森。马丁是我父亲。报上那点、局里那点，我都听过了。你若还要细账，得自己去挖——公墓、图书馆、别的镇子，随你。」\n\n里间没有人再出来。八月的阳光已经爬上门外的台阶。",
+  "sid": "b059"
+ },
+ {
+  "campaign": "game-24bb66cb-df6e-4ebb-a0c8-aa22b59e7eb7",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 6,
+  "player": "我跟三位道了别，开车顺着土路进镇，找那家叫“最后一站”的店，进门找个靠窗的位子坐下，点一份热饭和一杯冰水。",
+  "scene": "book-4-last-stop",
+  "present": [
+   "卡洛斯·加尔萨",
+   "罗伯特·泰勒"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.47
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "npc",
+   "person",
+   "time"
+  ],
+  "keeper_head": "你跟棚下三人打了个招呼，皮卡驶离埃索，土路颠着往镇里去。热风灌进车窗，路旁是稀疏的房子和空旷的主街，很快就看见那块旧招牌——「最后一站」。\n\n店面像老西部沙龙：木板门脸、宽木板路，门前还立着栓马柱和饮水槽。狭窄双扇门旁竖着一尊叼雪茄的印第安木头人，大窗上贴满新旧广告与告示，门敞着。你把车停到路边，走进去。\n\n里面凉快些，却仍带着油烟和陈啤酒味。左墙是长吧台和十来张高凳，桌椅随意摆着，支撑柱把空间隔开。内侧墙有台自动点唱机，周围挂着旧农具和发黄的黑白照片。吧台后是全身镜和一排酒瓶，镜上方墙上钉着从一九〇八年到如今的车牌，有的锈透了，有的还新。房间正中钉着一颗巨大的野猪头，嘴巴张得老大。酒吧左侧一",
+  "sid": "b060"
+ },
+ {
+  "campaign": "game-f4d8e72b-1f59-49a6-8ff7-f57abeef7eb5",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 2,
+  "player": "我朝那个高瘦的男人点点头：“加满吧。顺便问一句，镇上有地方能吃顿热饭吗？”",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_1",
+    "row": "拉塞尔·威廉姆斯",
+    "confidence": 0.89
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.98
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.92
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "time"
+  ],
+  "keeper_head": "你朝高瘦男人点点头，让他把车加满，又问镇上哪儿能吃顿热饭。老人慢吞吞地从油布旁取下香烟，朝镇里偏了偏头。“最后一站能吃上热饭，先生。就在镇里，进门就看得见。普通汽油每加仑五角七分，车要加满吗？”",
+  "sid": "b061"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 29,
+  "player": "我在路边停下，把马丁滩村的地图摊开看看，找找渔民区在哪边。",
+  "scene": "martins-beach",
+  "present": [
+   "马丁滩路人"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "arkham-church-cemetery",
+     "destination_2": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "马丁滩路人"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:mcdougall-boat-wreck-lost-at-sea"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.99
+   },
+   "target": {
+    "rows": {
+     "target_1": "马丁滩路人"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣",
+     "item_9": "诺拉的照相馆取件凭条",
+     "item_10": "墓园现场冲洗照片"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.69
+   }
+  },
+  "receipt_kinds": [
+   "handout",
+   "map"
+  ],
+  "keeper_head": "车停在主街边沿。你把折页摊开，压住被风掀起的一角。\n\n图题写着马丁滩村：岸线、海滩、通往阿卡姆与金斯波特的公路都标得清楚。图例把镇区分成若干色块与字母；编号 1 到 5 点出几处地名。\n\n你眼下这条铺面街，正落在图上的 A——主要商业区：加油站、杂货、渔具与季节性铺面挤在一起。紧挨商业街靠海一侧、图上涂得更深的整片街区，便是渔户聚居的那一带——矮屋连片，通向码头与滩头。海滩沿水线展开；镇公园与治安官办公室挨着绿地；波街公墓在编号 4；再往高处、别墅出租那片能指到费尔德家，标在 5，沿滨海路偏西南。\n\n海风还带着鱼腥。街角卸箱的汉子仍在忙，并不看你这边。",
+  "sid": "b062"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 23,
+  "player": "我把两分钱递给摊主，买下今天的新报纸，当场读有关盗墓案的那一则报道。",
+  "scene": "arkham-street-newsstand",
+  "present": [
+   "报摊摊主"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "arkham-police-station",
+     "destination_2": "arkham-street-park-bench",
+     "destination_3": "arkham-photo-shop",
+     "destination_4": "arkham-church-cemetery",
+     "destination_5": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "报摊摊主"
+    },
+    "choice": "addressee_1",
+    "row": "报摊摊主",
+    "confidence": 0.95
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.7
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣",
+     "item_9": "诺拉的照相馆取件凭条",
+     "item_10": "墓园现场冲洗照片"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.87
+   }
+  },
+  "receipt_kinds": [],
+  "keeper_head": "桌边这边暂时接不上账目与收付——桌上的动作没法在这一轮落定。不是你的事，也不是摊主不卖。\n\n晨光里，木板摊面、铁丝夹上的当日刊仍在，摊主站在后头，等着你把两分钱递过去、点报，或先扫一眼标题。你说的那一步，下一回输入可以再试。",
+  "sid": "b063"
+ },
+ {
+  "campaign": "game-45cd3976-d028-4c94-a6ed-c2326527f727",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 7,
+  "player": "我谢过戴夫，吃完汉堡开回加油站，在棚底下找那个一口烂牙的老司机，递上一罐冰啤酒，问他最近有没有见过一辆蓝色甲壳虫。",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.68
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_2",
+    "row": "内特·帕特森",
+    "confidence": 0.9
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.98
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.81
+   }
+  },
+  "receipt_kinds": [
+   "map",
+   "move",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你谢过戴夫，把剩下的汉堡吃完，便开车离开最后一站，沿土路折回镇口。\n\n埃索的旧招牌还挂在那儿，脏玻璃后面那块OPEN纸板没动；两台加油机在正午的日头下发烫，车库门敞着，升降机上仍停着那辆没人修的七四年雪佛兰诺瓦，前墙油罐底下渗着一圈黑渍。棚子底下阴凉里，三个晒成深褐色的男人还在：穿干净工装的高瘦汉子靠着柱子，小臂带海军纹身的老人掐着烟不说话，啤酒肚、一口烂牙的那个捏着空罐子，正把椅子往后一仰。\n\n你把车停到棚边，走过去，递上一罐还带着凉意的啤酒，问他最近有没有见过一辆蓝色甲壳虫。\n\n烂牙接过罐子，牙缝里先漏出一声笑，嗓子粗，话也密：\n\n「哟，老弟还知道带酒啊。蓝色甲壳虫？甲壳虫这车我见得多了，",
+  "sid": "b064"
+ },
+ {
+  "campaign": "game-22948326-cbe6-4c38-a27a-564c6437a2cb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 11,
+  "player": "我谢过他，起身出门，回到车上发动引擎，准备照他说的继续往西赶路。",
+  "scene": "book-4-last-stop",
+  "present": [
+   "卡洛斯·加尔萨",
+   "罗伯特·泰勒"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.74
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "卡洛斯·加尔萨",
+     "addressee_2": "罗伯特·泰勒"
+    },
+    "choice": "addressee_2",
+    "row": "罗伯特·泰勒",
+    "confidence": 0.96
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.5
+   },
+   "target": {
+    "rows": {
+     "target_1": "卡洛斯·加尔萨",
+     "target_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   }
+  },
+  "receipt_kinds": [
+   "definition"
+  ],
+  "keeper_head": "你向罗伯特道了谢，推门走出最后一站，踩过发烫的木板路，回到停在街边的旧福特旅行车里。引擎咳了两声才稳住，车内很快又闷了起来。\n\n你把车头调向西边。酒吧的招牌、加油站的棚顶和镇中心那些晒白的门面，从后视镜里慢慢缩小，前方只剩一条被热浪揉皱的公路。",
+  "sid": "b065"
+ },
+ {
+  "campaign": "game-ef4f5f3b-6445-423b-bae1-f95f4601a698",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 8,
+  "player": "我收好笔记，去附近的小餐馆点一份普通三明治和一杯咖啡，顺便看看菜单上这顿便餐大概是多少钱。",
+  "scene": "central-library",
+  "present": [
+   "查阅台的馆员"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "newspaper-morgue",
+     "destination_2": "hall-of-records",
+     "destination_3": "neighborhood-gossip",
+     "destination_4": "previous-tenants",
+     "destination_5": "corbitt-house-ground",
+     "destination_6": "commission-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.99
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "查阅台的馆员"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.96
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:neighbor-lawsuit-1852",
+     "ask_2": "clue:basement-burial-lawsuit",
+     "ask_3": "clue:second-lawsuit-outcome-unrecorded",
+     "ask_4": "handout:Handout 4: Neighbors Sue Corbitt (1852)",
+     "ask_5": "handout:Handout 5: Corbitt's Obituary and Burial Lawsuit",
+     "ask_6": "handout:Handout 6: No Recorded Outcome"
+    },
+    "answers": {
+     "ask_1": "no",
+     "ask_2": "no",
+     "ask_3": "no",
+     "ask_4": "no",
+     "ask_5": "no",
+     "ask_6": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.24
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本",
+     "item_2": "钢笔",
+     "item_3": "怀表",
+     "item_4": "私人侦探执照"
+    },
+    "choice": "item_1",
+    "row": "笔记本",
+    "confidence": 0.7
+   }
+  },
+  "receipt_kinds": [
+   "definition"
+  ],
+  "keeper_head": "你把笔记收进大衣口袋，出了图书馆，走到街角一家小餐馆。柜台后站着个系围裙的人，油布菜单钉在墙上，普通三明治十五分，咖啡五分，这一顿便餐一共两毛。\n\n他用铅笔在订单本上点了点，等你开口。「三明治加咖啡，两毛。要现在做吗？」",
+  "sid": "b066"
+ },
+ {
+  "campaign": "game-32bc9a85-ebd9-42e1-90b8-26c4a48694bb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 10,
+  "player": "我不是说了吗？我去酒馆！你怎么老重复上一回合的内容呢？",
+  "scene": null,
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [
+   "move"
+  ],
+  "keeper_head": "哈雷从镇口土路冲进主干道，热风把柏油吹得发白。木门面、木板人行道、拴马桩和水槽一下子顶到眼前——旧西部沙龙那一套，脏，门上就几个字：最后一站。\n\n车停在水槽边，引擎一熄，蝉鸣和远处加油站的嗡声都远了。推门进去：一条长吧台，几张散开的桌子，墙上钉着车牌，角落里立着点唱机。左边一扇门通向四间简陋汽车旅馆客房。吧台后面空着，没有人应声。\n\n桌面有没擦干净的水渍。钟还早，厨房该开着——菜单贴在吧台边，字迹发黄。外头阳光从缝里切进来。你可以在吧台前等，可以敲客房那扇门，也可以再出去看看街对面。",
+  "sid": "b067"
+ },
+ {
+  "campaign": "game-021abb5c-cca7-4363-8a02-98d39e472241",
+  "title": "Call of Cthulhu - Masks of Nyarlathotep (Larry DiTillio, Lynn Willis, Mike Mason etc.).pdf",
+  "module": "book-1",
+  "turn": 1,
+  "player": "我先看拉金先生带来的东西。我把记事本摊在膝上，请他把地图、样本或照片逐样放到桌面上，说清它们从哪里来、是谁交给他的；我会先记录明显的地名和日期。",
+  "scene": "start-lima",
+  "present": [
+   "Augustus Larkin",
+   "Jackson Elias",
+   "Luis de Mendoza"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "definition",
+   "item",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "拉金从膝边的小皮包里摸出两件东西，布巾一揭，金光压住烛火。一只小金杯，几何纹与圆圈，松石嵌得发冷。旁边是一枚吊坠：一个小人双手各握一根杖，身上满是方块纹饰。\n\n“地图？照片？没有。”他摊手，像在抱歉。“这两件是我从一个养羊驼的农人手里买的。埃内斯托·莫洛。高原上的人。他说附近有座被忘掉的金字塔，金器就是从那儿出来的。”他说普诺一带，却给不出月份，也给不出村子的名字。手指在杯沿上停了一停，又很快移开。\n\n烟斗那边的民俗学者探身看了一眼吊坠，没插话。瘦削的随从仍旧坐直，目光不在金器上。\n\n你膝上的本子落下：金杯、吊坠、莫洛、普诺——日期一栏空着。菜上来了，热气盖过金器上的凉意。拉金把布巾重新盖上，",
+  "sid": "b068"
+ },
+ {
+  "campaign": "game-26d5a671-85a2-4732-876b-1521aa04d869",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 8,
+  "player": "捂住他的嘴，然后继续打",
+  "scene": null,
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [
+   "roll"
+  ],
+  "keeper_head": "你伸手去捂他的嘴，掌心还没按实，肩头就先撞上椅背。这一下完全落空。诺特侧过脸躲开你的手，他自己那一拳也没打中，拳头擦过你的袖子。\n\n他的嘴还是空着的。血从下巴滴到衬衫上，攥钥匙的那只手仍缩在胸前。另一只拳头已经抬起来，朝你脸上砸过来。\n\n「来人——」",
+  "sid": "b069"
+ },
+ {
+  "campaign": "game-abbdde48-5e44-44c8-867f-347624b36e88",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 13,
+  "player": "天快黑了，我开车回最后一站，进门找个靠窗的位子坐下，跟罗伯特要一份晚饭和一杯啤酒，顺便看看今晚店里都有些什么人、点唱机在放什么歌。",
+  "scene": "book-4-last-stop",
+  "present": [
+   "卡洛斯·加尔萨",
+   "罗伯特·泰勒"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-town-center",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-esso-station",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.55
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "卡洛斯·加尔萨",
+     "addressee_2": "罗伯特·泰勒"
+    },
+    "choice": "addressee_2",
+    "row": "罗伯特·泰勒",
+    "confidence": 0.99
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.8
+   },
+   "target": {
+    "rows": {
+     "target_1": "卡洛斯·加尔萨",
+     "target_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.96
+   },
+   "item": {
+    "rows": {
+     "item_1": "1969年道奇挑战者",
+     "item_2": "一套扳手和汽车修理工具",
+     "item_3": "手电筒",
+     "item_4": "汽油",
+     "item_5": "公路地图",
+     "item_6": "备用轮胎"
+    },
+    "choice": "item_1",
+    "row": "1969年道奇挑战者",
+    "confidence": 0.84
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "time"
+  ],
+  "keeper_head": "你把车停回最后一站门外，推门进去，挑了张靠窗的桌子坐下。屋里比街上暗，吧台沿左墙一直伸到后面，墙上的旧车牌在镜子上方排成一片，中央那颗张着大嘴的野猪头正对着门。点唱机靠里墙立着，唱针落在一首乡村歌上，低沉的吉他声压过了杯子碰桌的声音。\n\n店里没有坐满。吧台边有两个本地男人隔着酒杯说话，靠墙的位置坐着一名穿浅色西装的中年人，桌上只放着一杯水；还有个戴宽边帽的老人独自占着角落，目光不时扫向窗外。卡洛斯在厨房门口端着一只铁盘，瞥了你一眼，又转身回到炉边。\n\n罗伯特从吧台后走过来，抹布搭在肩上。他认出你，伸手把窗边另一张椅子往旁边挪了挪。“坐吧，哥们儿。晚饭还做，啤酒也有。汉堡、香肠和辣肉酱都能点，啤",
+  "sid": "b070"
+ },
+ {
+  "campaign": "game-33170a20-b06f-4e06-b488-d5182d62c22c",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 3,
+  "player": "我付了油钱，开车去镇上那家“最后一站”，坐到吧台边点一份汉堡，顺口问吧台后面的老板怎么称呼。",
+  "scene": "book-4-last-stop",
+  "present": [
+   "罗伯特·泰勒",
+   "卡洛斯·加尔萨"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-abattoir",
+     "destination_3": "book-4-prologue"
+    },
+    "choice": "destination_2",
+    "row": "book-4-abattoir",
+    "confidence": 0.65
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.9
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "map",
+   "move",
+   "npc",
+   "person",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你在埃索把九块半油钱递过去，表针停稳，泵头拔出来。热风一卷，你重新坐进驾驶座，沿着干道往镇心里开。土路扬起的灰还粘在车身上，不多一会儿，那家挂着「最后一站」字样的门面就顶进视野。\n\n木制门脸、宽阔木板路，栓马柱和饮水槽还立着，像从旧西部片里搬过来的。狭窄双扇门旁立着一尊叼雪茄的印第安木头人，大窗上贴满新旧标志，门敞着。你把车停到近处，踩着木板路走进去。\n\n里头比外头暗些，凉一点。左墙是长吧台和十几张凳，桌椅随意摆着，支撑柱把空间隔开。内侧墙上有台自动点唱机，周围挂着古董农具和旧黑白照片。吧台后是全身镜和一排酒瓶；镜上方的墙从一九〇八挂到近来的车牌，有的锈透了，有的还新。正中一颗巨大的野猪头张着",
+  "sid": "b071"
+ },
+ {
+  "campaign": "game-32bc9a85-ebd9-42e1-90b8-26c4a48694bb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 2,
+  "player": "你这儿还卖啤酒或者饮料么？最好是冰镇的！骑车骑的我好累，跟老哥几个聊聊天～我展示出热情少女的一面，跟老板和那两个坐着的人拉一拉关系，聊聊天",
+  "scene": "book-4-prologue",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你把头盔往胳膊上一挂，朝泵旁荫里扬了扬下巴。\n\n「这儿还卖啤酒不？最好冰镇的。骑得我嗓子冒烟，跟老哥几个凉快凉快。」\n\n拉塞尔抹布往裤腿上一抹，没马上应，先往店里那台嗡嗡响的冰柜偏了偏头。玻璃门上结着一层白霜。\n\n「卖是卖，伙计。可乐、啤酒都有，冰的。你要是真渴，拿一瓶走人是吧。这鬼地方待不住。」\n\n荫里那张折椅吱呀一声。一口烂牙的中年人把草帽往脑门上一推，目光在你夹克和哈雷之间转了一圈，咧开嘴。\n\n「冰啤酒啊兄弟，俺懂。热成这样谁不渴嗯哼。你一个人骑过来的？路上一辈子了，看见过不少这样的。」\n\n军靴尖仍冲着你。年近七十的那个没起身，只把下巴往冰柜方向点了一下，像是听完了。\n\n「少废话。渴就去",
+  "sid": "b072"
+ },
+ {
+  "campaign": "game-45cd3976-d028-4c94-a6ed-c2326527f727",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 6,
+  "player": "门口刚停下一辆皮卡，下来一个穿格子衫的过路司机进了店。我举杯跟他搭话，问他做什么的、怎么称呼，有没有在路上见过一个金发女孩。",
+  "scene": "book-4-last-stop",
+  "present": [
+   "罗伯特·泰勒",
+   "卡洛斯·加尔萨",
+   "穿格子衫的过路司机"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.96
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "罗伯特·泰勒",
+     "addressee_2": "卡洛斯·加尔萨"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.76
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 1
+   },
+   "target": {
+    "rows": {
+     "target_1": "罗伯特·泰勒",
+     "target_2": "卡洛斯·加尔萨"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.9
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "time"
+  ],
+  "keeper_head": "门口土路上果真停下一辆皮卡，引擎还热着，一个穿格子衫的男人推门进来，靴子在木地板上磕了两下，把帽子往边上一挪，朝吧台走。罗伯特抬眼扫了他一下，没多话，只把抹布搭回肩上。\n\n你举杯跟他招呼，问他做什么的、怎么称呼，有没有在路上见过一个金发女孩。\n\n那人在你旁边的凳子上落了座，冲罗伯特比了个要啤酒的手势，才转过脸来。晒得发红的脸上有一层公路灰，格子衫袖口卷到小臂。\n\n「开长途的，自家跑货。叫我戴夫就行。」\n\n他接过冰凉的罐装啤酒，抿了一口，听你说到金发女孩，眉头皱了一下，像在脑子里翻最近几段路。\n\n「金发的？我从佩科斯那边开过来，顺路歇脚的加油站、饭馆见过几个过路的，真对得上号的女孩……没印象。这",
+  "sid": "b073"
+ },
+ {
+  "campaign": "game-3782bd90-d588-46ec-b03b-4ff4477c9f1c",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 4,
+  "player": "行，拿上就走",
+  "scene": "corbitt-house-ground",
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [
+   "cash",
+   "clue",
+   "definition",
+   "handout",
+   "item",
+   "move",
+   "time"
+  ],
+  "keeper_head": "伊迪丝伸手。钥匙环进了掌心，那张折过的纸跟着抽走，诺特压着纸角的手指松开。\n\n纸上写着每日二十块、查清科比特宅、把名声洗干净，底下是街址。他从抽屉里数出两张十元票，拍在桌沿。\n\n「白天进、白天出。」他说，「晚上别在里头过夜。有事打电话到这儿。」\n\n十月的风从楼梯口灌上来。电车颠过两条街，再走一段铺了碎石的人行道，科比特宅就立在那儿：两层砖房，窗板钉死，门廊上的油漆成片剥落，两侧是低矮的办公楼，房子像缩进了阴影里。\n\n钥匙进锁，转动。门开了一条缝，里头是潮冷的空气，混着陈蜡和旧木头的味道。厅里没人。客厅那头，墙上钉着十字架、圣母像，念珠挂成一串；地上还散着几截蜡烛。楼上什么地方轻轻响了一下，像家",
+  "sid": "b074"
+ },
+ {
+  "campaign": "game-8e41c325-5c5c-420e-bae8-0c2f7c7a167c",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 1,
+  "player": "我右转开上土路去阿巴托尔。进了镇子先找个能加油的地方停下，顺便看看那里都有些什么人。",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "destination_3",
+    "row": "book-4-town-center",
+    "confidence": 0.85
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.82
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.86
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.94
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "npc",
+   "person"
+  ],
+  "keeper_head": "你把方向盘往右打，轮胎轧上未铺沥青的土路，扬起一股白灰。三英里的土路在矮丘和白晃晃的热浪里伸过去，车身颠得仪表盘轻颤，直到镇口那块陈旧的埃索标志映进挡风玻璃——漆面褪了色，字母还认得清。\n\n脏玻璃窗里贴着一块写着 OPEN 的硬纸板。两台旧加油机立在棚下，泵头还挂着。车库门敞着，升降机上停着一辆没人修的七四年雪佛兰诺瓦，前墙油罐渗出一道道发黑的油渍。棚左侧一台锈可乐机嗡嗡响，旁边香烟贩卖机上用记号笔写了“故障”。棚下阴凉里坐着三个晒成深褐色的中年男人，目光都落在你的车上。\n\n靠前的那个高瘦，灰白头发往后梳，白衬衫外面套着意外干净的工装，口袋外挂着一卷烟和一块油污破布，神情有点迟钝，像是习惯了不",
+  "sid": "b075"
+ },
+ {
+  "campaign": "game-8e41c325-5c5c-420e-bae8-0c2f7c7a167c",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 3,
+  "player": "我付了油钱，又问棚下那几位：镇上哪里能吃饭、住一晚？也顺便问问最近有没有一辆蓝色甲壳虫开进过镇子。",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.91
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_1",
+    "row": "拉塞尔·威廉姆斯",
+    "confidence": 0.43
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.95
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.92
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你把油钱付清，泵管抽走，汽油味还在热风里飘。\n\n你朝棚下那几位开口，问镇上哪儿能吃饭、住一晚，又顺口提最近有没有一辆蓝色甲壳虫进过镇。\n\n高瘦那个点了点头，把破布塞回工装口袋，嗓门仍旧不高：\n\n「吃住啊……往前开一点，有家叫最后一站的，能吃饭，也有几间房。不过哥们儿，真要舒服，还是继续往前开马拉松，那边餐馆多。甲壳虫？蓝的？我这棚底下没印象。卡车有时停，小轿车少，没细看。」\n\n旁边啤酒肚、发际后撤、一口烂牙的那位已经挪近半步，像等这话等了很久：\n\n「最后一站就行，老哥，我从前跑车常停那儿，床板硬点，总比睡车里强。热水、吃的都有。蓝甲壳虫我可没盯着记，这路冷清，过路的多半加个油就走，谁记得颜色。",
+  "sid": "b076"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 19,
+  "player": "我谢过警员，带好自己的照片离开，去附近街角找个还开着的报摊，问摊主有没有近日报道这些盗墓案的旧报纸。",
+  "scene": "arkham-street-newsstand",
+  "present": [
+   "报摊摊主"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "arkham-street-park-bench",
+     "destination_2": "arkham-photo-shop",
+     "destination_3": "arkham-church-cemetery",
+     "destination_4": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "警局前台值勤警员"
+    },
+    "choice": "addressee_1",
+    "row": "警局前台值勤警员",
+    "confidence": 0.57
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.46
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣",
+     "item_9": "诺拉的照相馆取件凭条",
+     "item_10": "墓园现场冲洗照片"
+    },
+    "choice": "item_10",
+    "row": "墓园现场冲洗照片",
+    "confidence": 0.76
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "note",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你道过谢，把牛皮纸封套重新塞稳。前台那人只抬了抬下巴，仍守在灯白的柜台后。\n\n砖石门面的灯落在身后。街角不远，一处报摊还亮着：木板摊面，铁丝夹着折叠的报纸，煤油灯把铅字标题照得发黄。摊后站着个穿旧外套的男人，袖口沾着油墨，正把一叠《消息人》理齐。\n\n你走近。他抬眼，声音发沙，却不冲。\n\n「还要报？今儿的、昨儿的都有。要哪份？」\n\n摊面上夹着近几日的本地报，边角有些卷。煤油灯芯轻轻跳了一下。",
+  "sid": "b077"
+ },
+ {
+  "campaign": "game-7e9db15c-adb6-4d71-ac38-194c80623394",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 4,
+  "player": "我咬了口汉堡，笑了笑：“我叫卡尔。老板总得有个名字吧？还有，镇上有没有常跑这条公路、认得过路车的人？我想找个人帮我打听打听。”",
+  "scene": "book-4-last-stop",
+  "present": [
+   "罗伯特·泰勒",
+   "卡洛斯·加尔萨",
+   "罗伯特·L·布伦纳医生"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.88
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "罗伯特·泰勒",
+     "addressee_2": "卡洛斯·加尔萨",
+     "addressee_3": "罗伯特·L·布伦纳医生"
+    },
+    "choice": "addressee_1",
+    "row": "罗伯特·泰勒",
+    "confidence": 0.9
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.96
+   },
+   "target": {
+    "rows": {
+     "target_1": "罗伯特·泰勒",
+     "target_2": "卡洛斯·加尔萨",
+     "target_3": "罗伯特·L·布伦纳医生"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.92
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你咬了口汉堡，笑着自报家门，又追着问老板的名字，还问起镇上有没有常跑公路、认车的人能帮忙打听。\n\n吧台后的高瘦男人抹布还在手里，铅笔胡子动了动，听你报出卡尔，点了点头，像把这名字记进了今天稀少的客人里。真名那一问，他只把下巴往镜子那边抬了抬，嗓子仍不紧不慢：\n\n「卡尔是吧。我这儿就叫老板，外头人也这么喊，真名没人用，叫出来也记不住。你汉堡还行吧？热乎的。」\n\n打听过路车的人，他擦杯子的手顿了一下，目光往门口土路的方向扫了一眼，像在掂量这话会不会惹麻烦，末了还是开了口，话里带着生意人的实用：\n\n「认得车的？你回头去镇口那埃索站。棚底下常坐着几个闲人，里头有个退休开卡车的，一口烂牙，成天待那儿吹牛",
+  "sid": "b078"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 12,
+  "player": "我在联系卡上写下姓名和自己的工作室地址，告诉他照片取到后会再来，然后告辞。",
+  "scene": "arkham-police-station",
+  "present": [
+   "警局前台值勤警员"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "arkham-photo-shop",
+     "destination_2": "arkham-church-cemetery",
+     "destination_3": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.94
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "警局前台值勤警员"
+    },
+    "choice": "addressee_1",
+    "row": "警局前台值勤警员",
+    "confidence": 0.96
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.97
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣",
+     "item_9": "诺拉的照相馆取件凭条"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.35
+   }
+  },
+  "receipt_kinds": [
+   "note",
+   "time"
+  ],
+  "keeper_head": "墨水沾上笔尖。姓名、工作室地址两行写完，字迹清楚。你把卡推回柜台，说照片取到后会再来。\n\n他扫一眼地址，点头，把卡片夹进案卷边。\n\n「知道了。路上当心。」\n\n推门出去。旧烟与地板蜡留在身后，街面的光与车马声又贴上来。门在身后合上。",
+  "sid": "b079"
+ },
+ {
+  "campaign": "game-01250e5e-276b-4d54-8fbb-3f2c5e85e750",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 5,
+  "player": "我装作没看那条小道，把水壶也灌满，然后问他：那条踩出来的路通哪儿？我小时候在乡下，这种道一般是有人天天走出来的。",
+  "scene": "book-4-prologue",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你把水壶嘴凑上水管，看它慢慢灌满，拧紧盖子——壶身已经被晒得温热。\n\n“站后头那条踩出来的道，通哪儿？”你问得很随意，像顺嘴带出来的。“我小时候在乡下，这种道一般是有人天天走出来的。”\n\n拉斯正低头按着管子接口，听见这句，手上先停了半拍，才把接口又往上拧了半圈，水花溅在他袖口上。\n\n「那条啊……」\n\n他直起腰，往南边抬了抬下巴，动作很省力。\n\n「我自个儿踩的，朋友。南头那片洼地，破铜烂铁堆着，隔三差五去趟；再就是有两条野狗，撵过两回就认了门，对吧。」\n\n话说完，他的眼睛并没跟着下巴转过去。那半句「野狗」越说越轻，视线反倒黏在篱笆外那片沙蒿上，停了一息，才收回来落到你脸上。\n\n「你问这个做什么？",
+  "sid": "b080"
+ },
+ {
+  "campaign": "game-abbdde48-5e44-44c8-867f-347624b36e88",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 14,
+  "player": "“来份汉堡，再来瓶啤酒。”我坐下，朝靠墙那个穿浅色西装、只喝水的人抬了抬下巴，压低声音问罗伯特：“那位是本地人？穿得可不像跑这条路的。”",
+  "scene": "book-4-last-stop",
+  "present": [
+   "卡洛斯·加尔萨",
+   "罗伯特·泰勒"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-town-center",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-esso-station",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "卡洛斯·加尔萨",
+     "addressee_2": "罗伯特·泰勒"
+    },
+    "choice": "addressee_2",
+    "row": "罗伯特·泰勒",
+    "confidence": 0.93
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.76
+   },
+   "target": {
+    "rows": {
+     "target_1": "卡洛斯·加尔萨",
+     "target_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.9
+   },
+   "item": {
+    "rows": {
+     "item_1": "1969年道奇挑战者",
+     "item_2": "一套扳手和汽车修理工具",
+     "item_3": "手电筒",
+     "item_4": "汽油",
+     "item_5": "公路地图",
+     "item_6": "备用轮胎"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.96
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你把点单告诉罗伯特，又朝靠墙那张桌子抬了抬下巴，声音压得很低。罗伯特把抹布搭回肩上，顺着你的目光瞥了一眼，随后俯身靠近些。\n\n“不是本地人，至少我没见过他在这儿落脚。穿成那样，倒像是专程来办事的，不过他没跟我多说。”\n\n他伸手在桌边轻轻点了两下，像是提醒你别让那人听见。\n\n“汉堡一块钱，啤酒五毛。先给你上，账等会儿结。你要是想问他，自己过去问，哥们儿。”",
+  "sid": "b081"
+ },
+ {
+  "campaign": "game-58cb53d7-bcd2-4942-afa1-f6f7d64b2e36",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 5,
+  "player": "“好啊，那麻烦你帮我看看车。”我把钥匙递给他，走到棚下的阴凉里等着，顺手给那两位各递了支烟。",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_1",
+    "row": "拉塞尔·威廉姆斯",
+    "confidence": 0.99
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.45
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.96
+   },
+   "item": {
+    "rows": {
+     "item_1": "罗莎的35毫米相机"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.73
+   }
+  },
+  "receipt_kinds": [
+   "person",
+   "time"
+  ],
+  "keeper_head": "你把车钥匙递过去，拉塞尔接住后走向车库里的旧福特皮卡，先绕着车看了一圈，又弯下腰去查看车底。你在棚下找了个阴凉处坐下，把香烟分别递给内特和那名灰发退伍兵。\n\n内特咧嘴接过烟，朝你点了点头，立刻把烟夹在耳后；那名灰发退伍兵看了看你递来的烟，又抬眼看你，随后收下了。他鼻梁有些歪，短短的灰发被风吹得微微发乱，皱纹铺在脸上，卷起的袖口下露出一直延伸到肘边的海军纹身。\n\n车库里传来金属碰撞声，拉塞尔把引擎盖撑起来，油污很快沾上了他的手指。棚外的热气贴着柏油路往上涌，左侧那台生锈的可乐机低低地嗡鸣着。",
+  "sid": "b082"
+ },
+ {
+  "campaign": "game-26d5a671-85a2-4732-876b-1521aa04d869",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 3,
+  "player": "打完你我出口气就接，我就是看你说话的方式不爽",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "cash",
+   "delta",
+   "item",
+   "npc",
+   "roll",
+   "session"
+  ],
+  "keeper_head": "拳头先到。你把话说完，手已经抬起来了。「打完你我出口气就接。我就是看你说话的方式不爽。」\n\n史蒂文·诺特往后一缩，想绕到椅背后面拉开距离。他那一下没躲开，你自己也没站稳，两个人在桌边撞了一下。\n\n下一拳结结实实打在他脸上。他抬手格，没格开，头歪到一边，嘴角渗出血。他没再还手，一手按着颧骨，另一手把桌上那串钥匙抓回去，连同预付的那一天工钱一起拢进掌心。\n\n「够了。我说过，动手这单就没了。钥匙、工钱，我收回。你给我滚出去。」\n\n他退到抽屉那边，血还在指缝里，眼睛盯着门。",
+  "sid": "b083"
+ },
+ {
+  "campaign": "game-4ca26bef-b1be-4014-9c80-ee58a552e4a9",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 4,
+  "player": "我去找霍兰德编辑，把诺特的委托、钥匙上的地址和威尔莫特的要求说清楚，请他给我一张能进剪报室的签字条。",
+  "scene": "newspaper-morgue",
+  "present": [
+   "Arty Wilmot",
+   "Ruth Blake"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "definition",
+   "item",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你沿油墨味上楼，社区版的门半开，纸篓堆到桌腿。霍兰德没抬头，只伸手接过你递来的钥匙纸签。\n\n你把诺特的委托、威尔莫特要签字条的话，一句一句说完。掷出29，对照50。他哼了一声，抽出一张内部便笺，笔尖刮纸。「限今天。别让威尔莫特再把我的名字咬一遍。」他把条按到你掌心。来回花了15分钟。\n\n楼下打字机还在响。戴袖箍的男人仍守在剪报室门口。签字条的墨还没干。",
+  "sid": "b084"
+ },
+ {
+  "campaign": "game-4ca26bef-b1be-4014-9c80-ee58a552e4a9",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 30,
+  "player": "我把维托里奥给的那句英文原样记下，离开疯人院去公共图书馆。请馆员帮我查它出自哪一节经文、原文上下文是什么，并查沉思教堂或托马斯牧师是否曾引用、保存或讲解过这段话。",
+  "scene": "central-library",
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [
+   "move",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "疯人院的石炭酸味甩在马车后。公共图书馆阅览室灯罩发黄。你把那句英文原样递给馆员。\n\n他抽出经文索引、对照钦定本。掷出56，对照50。页码对不上任何一节。地方教堂小册、布道目录里也没有托马斯牧师或沉思教堂引用这一句的条目。抽屉合上。路上加上这一查，用了40分钟。\n\n窗外已近傍晚。那句话仍只写在你的记事本里，图书馆给不出出处。",
+  "sid": "b085"
+ },
+ {
+  "campaign": "game-ef4f5f3b-6445-423b-bae1-f95f4601a698",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 1,
+  "player": "先暂停推进剧情，请用正常中文作历史核对：请查阅参考资料，说明1920年前后的美国报社资料室通常怎样布置，访客怎样查旧报纸；区分有依据的细节与仅供类比的部分。如果已有保存的参考资料，优先读取，不要重复上网。",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "chapel-of-contemplation-ruins",
+     "destination_2": "newspaper-morgue",
+     "destination_3": "central-library",
+     "destination_4": "hall-of-records",
+     "destination_5": "neighborhood-gossip",
+     "destination_6": "previous-tenants",
+     "destination_7": "corbitt-house-ground"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.4
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "Steven Knott"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.62
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "obligation:knott-accept-commission",
+     "ask_2": "clue:knott-commission",
+     "ask_3": "clue:knott-macario-summary",
+     "ask_4": "handout:Handout 1: Mr. Knott's Commission"
+    },
+    "answers": {
+     "ask_1": "no",
+     "ask_2": "no",
+     "ask_3": "no",
+     "ask_4": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.59
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.74
+   }
+  },
+  "receipt_kinds": [
+   "definition",
+   "time"
+  ],
+  "keeper_head": "资料库这边暂时调不出已保存的条目，下面按公开的报业史常识说，不是某家报纸的平面图。\n\n一九二〇年前后，美国大报的资料室一般叫 morgue，意思是“停尸房”，专放旧闻。它多半不在街面，而在编辑部附近的后房或楼上。进门是柜台或一张值班桌，里面才是架子。旧报通常装订成册，按日期上架，有的报社按年、按月分架。剪报则另做一套：从本报和别的报纸上剪下来，贴在纸上或卡上，放进文件夹、信封或抽屉，多半按人名、地名、机构名排，也有按题目排的。人名卡、主题卡是找东西的入口，不是把每天的报纸从头翻到尾。\n\n外来的人一般不能自己进架子。先在柜台说明要查谁、哪一天或哪件事，值班的人（常是资料员，不一定是记者）去取合订",
+  "sid": "b086"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 13,
+  "player": "我回工作室整理笔记，接近下午四点时再去刚才那家照相馆，出示已付款的凭条领取照片。",
+  "scene": "arkham-photo-shop",
+  "present": [
+   "照相馆店员"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "arkham-photo-shop",
+     "destination_2": "arkham-church-cemetery",
+     "destination_3": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.78
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "警局前台值勤警员"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.83
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.38
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣",
+     "item_9": "诺拉的照相馆取件凭条"
+    },
+    "choice": "item_9",
+    "row": "诺拉的照相馆取件凭条",
+    "confidence": 0.95
+   }
+  },
+  "receipt_kinds": [
+   "definition",
+   "item",
+   "move",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "工作室里纸页与铅笔味淡下去，街灯未亮，西斜的光已贴上沿街橱窗。\n\n铃一响。柜台后的人抬眼，认出你，从侧架抽出一只牛皮纸封套，翻开核对编号，又伸手要那张凭条。\n\n「诺拉——普通冲洗加印，齐了。凭条给我。」\n\n封套递过柜台。纸边仍微潮，里面是几张接触印的现场照：掘开的墓穴、乱土、铁栅栏一段，灰调清晰，没有多余修饰。\n\n他在本子上勾掉一行，点一点头，便去整理另一摞样片。店里仍是定影剂的气味，暗房门缝透着一点红。",
+  "sid": "b087"
+ },
+ {
+  "campaign": "game-32bc9a85-ebd9-42e1-90b8-26c4a48694bb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 12,
+  "player": "我问一下老板，有什么吃的吗？然后伸了一个懒腰（趁机露出丰满的胸部诱惑他）",
+  "scene": "Last Stop saloon and lodging",
+  "present": [
+   "卡洛斯"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "definition",
+   "roll"
+  ],
+  "keeper_head": "龙薇靠在吧台边，问有什么吃的，同时把胳膊往上抻，皮衣胸口跟着绷紧。\n\n卡洛斯的眼从围裙上抬起来，扫过她一下，又立刻落到台面上那圈水渍。他拿抹布胡乱抹了两下，像没看见似的。\n\n「吃的？朋友，老子这边有汉堡、煎蛋、牛排三明治，热的。听明白没。」\n\n他把下巴往菜单那头一抬。\n\n「纸上写着。他妈的这破天气，厨房热得要命，你先说要哪样。」\n\n抹布还搭在他肩上，人已经转半个身，等她开口。",
+  "sid": "b088"
+ },
+ {
+  "campaign": "game-a35d7c3f-5eb0-41b2-b667-d2501780e485",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 1,
+  "player": "拐上土路开进镇子，把车停在加油站的油泵边，下车伸个懒腰，打量一下棚子底下那几个人。",
+  "scene": "book-4-town-center",
+  "present": [],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-viland-residential",
+     "destination_5": "book-4-prologue"
+    },
+    "choice": "destination_3",
+    "row": "book-4-town-center",
+    "confidence": 0.68
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.83
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.45
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   }
+  },
+  "receipt_kinds": [
+   "map",
+   "move",
+   "npc"
+  ],
+  "keeper_head": "土路尽头的轮廓终于实了。埃索的旧招牌还挂在上头，字迹发糊，脏玻璃窗里贴着一块写 OPEN 的纸板。你把皮卡拐到两台旧加油机旁刹住，铁皮门一开，热浪立刻灌满衬衫。你伸了个懒腰，肩背在座位磨塌的那道线上咯吱一响。\n\n泵前的水泥地渗着油渍，前墙油罐底下一圈发黑的漏痕。车库门大敞着，升降机上架着一辆没人动过的七四雪佛兰诺瓦。棚子左边，生锈的可乐机嗡嗡地响；香烟贩卖机上用记号笔歪扭写着“故障”。\n\n棚阴里坐着三个晒成深铜色的汉子，手里都捏着啤酒罐，烟在指间慢慢燃。\n\n靠左的那个最高最瘦，白衬衫袖口外卷着一包烟，工装倒出奇地干净，只是后袋外挂着满是油污的破布。他看你的眼神慢半拍，像热得不想动，可目光已经钉",
+  "sid": "b089"
+ },
+ {
+  "campaign": "game-201359ce-180e-49e0-b809-82b06cb33dae",
+  "title": "Dust to Dust 归于尘埃",
+  "module": "book-5",
+  "turn": 9,
+  "player": "“我答应。”我跟着他走进墓园，到海沃森的墓前，仔细看墓穴和周围的痕迹。",
+  "scene": "arkham-church-cemetery",
+  "present": [
+   "值班警官",
+   "守夜人"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "阿卡姆警局",
+     "destination_2": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "守夜人",
+     "addressee_2": "值班警官"
+    },
+    "choice": "addressee_1",
+    "row": "守夜人",
+    "confidence": 0.89
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.99
+   },
+   "target": {
+    "rows": {
+     "target_1": "守夜人",
+     "target_2": "值班警官"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   }
+  },
+  "receipt_kinds": [
+   "time"
+  ],
+  "keeper_head": "守夜人把铁门在身后合上，带你沿着碎石路往墓园深处走。墓墙后的空气比街上凉些，工具房旁那只旧铸铁炉已经冷透，烟囱口没有一丝烟；墙边的铁锹和修枝钳收在原处，泥地上还留着前些日子踩过的浅痕。远处教堂的钟声隔着树传来，守夜人没有说话，只放慢脚步，让你看清脚下的路。\n\n海沃森的墓在一排旧墓碑之间。墓碑还立着，碑面上的字没有被碰过，墓前的土却被翻开了，棺木留下的位置空在那里，边缘的泥土松散，几处土块滚到了石板旁。你俯身查看墓穴和周围的地面，能看见被踩乱的痕迹，但眼前没有一件东西能单独说明是谁来过、又把遗体带去了哪里。\n\n守夜人站在石板外，短棍垂在手边。他看着你检查那片翻开的土，才低声说：“就是这儿了。那晚",
+  "sid": "b090"
+ },
+ {
+  "campaign": "game-5d82fd23-6c33-4efc-b8ef-bb65ccadf046",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 3,
+  "player": "我继续步行到阿卡姆教堂公墓门口，找负责看守墓园的人，说明自己是马丁家里的朋友，想问问昨夜的情况。",
+  "scene": "arkham-church-cemetery",
+  "present": [
+   "戈波·潘德"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "investigator-briefing"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:arkham-police-grave-details",
+     "ask_2": "clue:cemetery-two-footprints"
+    },
+    "answers": {
+     "ask_1": "no",
+     "ask_2": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.98
+   },
+   "item": {
+    "rows": {
+     "item_1": "诺拉的折合式相机",
+     "item_2": "诺拉的摄影干板与胶卷袋",
+     "item_3": "诺拉的皮质笔记本与铅笔",
+     "item_4": "诺拉的记者证",
+     "item_5": "诺拉的阿卡姆本地地图",
+     "item_6": "诺拉的手电筒",
+     "item_7": "诺拉的小型旅行袋",
+     "item_8": "诺拉的雨衣"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "npc",
+   "person",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "铁栅门半掩着。榆树影子落在石子路上，墓园里湿土与旧石碑的气味混在晨气里。\n\n门边小屋旁站着一个瘦高的男人，粗呢外套敞着，手里攥着钥匙串。帽檐压得低，眼睛先扫过你肩上的相机带，又停在脸上，并不主动让路。\n\n你说明自己是马丁·海沃森家的朋友，问起昨夜。他嘴角动了动，像要咽下什么。\n\n「夜里啥也没有。我在这儿守着，没听见动静，也没看见人。警局早上已经问过了。」\n\n他往铁门里侧挪了半步，钥匙串轻轻碰了一下门框。空着的海沃森那一穴还在深处树影里，他却没有抬手指路，只把下巴往门外偏了偏，意思很明白：话就这些。",
+  "sid": "b091"
+ },
+ {
+  "campaign": "game-32bc9a85-ebd9-42e1-90b8-26c4a48694bb",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 8,
+  "player": "我跨上摩托，，一口喝完，非常不淑女的打了一个嗝，然后感谢老板的饮料，之后骑车去镇子的酒馆",
+  "scene": null,
+  "present": [],
+  "compile": null,
+  "receipt_kinds": [],
+  "keeper_head": "",
+  "sid": "b092"
+ },
+ {
+  "campaign": "game-c67942b2-a423-45fd-bd2c-4007582517bb",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 3,
+  "player": "我谢过巡佐，前往教堂公墓找戈波·潘德，先表明自己是马丁家里的朋友，问他昨夜从几点开始值班、当时待在哪里。",
+  "scene": "investigator-briefing",
+  "present": [
+   "艾瑞克·海沃森"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "helverson-phone-call"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.99
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "艾瑞克·海沃森"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.58
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "handout:小卡片#2 盗墓贼又光顾马丁滩啦！"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.92
+   },
+   "item": {
+    "rows": {
+     "item_1": "便携折盒相机",
+     "item_2": "笔记本与铅笔",
+     "item_3": "记者证",
+     "item_4": "手电筒",
+     "item_5": "厚外套",
+     "item_6": "底片匣"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   }
+  },
+  "receipt_kinds": [
+   "time"
+  ],
+  "keeper_head": "你谢过巡佐，打算离开警局，去教堂公墓找守夜人戈波·潘德，表明自己是马丁家里的朋友，再问他昨夜从几点值班、人在哪里。\n\n（桌外说明：目的地「阿卡姆教堂公墓」尚在从模组原文接入并审阅，尚未就绪。在此之前不能当作已经抵达或已见到潘德。准备仍在后台进行；你下一句输入后会继续处理。此前已结算的极短交谈耗时仍有效。）",
+  "sid": "b093"
+ },
+ {
+  "campaign": "game-c67942b2-a423-45fd-bd2c-4007582517bb",
+  "title": "[COC模组翻译]归于尘埃 -Dust to Dust",
+  "module": "book-5",
+  "turn": 6,
+  "player": "我告诉艾瑞克，我已经在调查，请他先在警局等消息。现在我去教堂公墓，找戈波·潘德谈谈昨夜的情况。",
+  "scene": "investigator-briefing",
+  "present": [
+   "艾瑞克·海沃森"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "helverson-phone-call"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "艾瑞克·海沃森"
+    },
+    "choice": "addressee_1",
+    "row": "艾瑞克·海沃森",
+    "confidence": 0.95
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "handout:小卡片#2 盗墓贼又光顾马丁滩啦！"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.68
+   },
+   "item": {
+    "rows": {
+     "item_1": "便携折盒相机",
+     "item_2": "笔记本与铅笔",
+     "item_3": "记者证",
+     "item_4": "手电筒",
+     "item_5": "厚外套",
+     "item_6": "底片匣"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.92
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "roll"
+  ],
+  "keeper_head": "前台边，艾瑞克听完，短促地点了下头，把袖口又往上推了推。\n\n「去吧。我在这儿等你带回的话。」\n\n你转身往外走。八月的阳光已经铺满门外台阶，警局门廊里的凉意一下子被甩在身后。去教堂公墓的路你认得——可眼下那片墓园的门径与守夜人的下落，还没从城里的通行消息里理清；这一步还不能当真迈到铁栅栏跟前，也见不到潘德。\n\n艾瑞克仍留在前台内侧。",
+  "sid": "b094"
+ },
+ {
+  "campaign": "game-4ca26bef-b1be-4014-9c80-ee58a552e4a9",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 8,
+  "player": "我请馆员查沉思教堂一九一二年关闭时的地址与保管人，再查迈克尔·托马斯牧师是否留下遗产、住址或与科比特宅有关的后续记录。",
+  "scene": "hall-of-records",
+  "present": [
+   "the Hall of Records clerk"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你把「沉思教堂」和「迈克尔·托马斯」写给馆员。他再拖出教堂名册和遗产索引，纸页发黄。掷出62，对照50。\n\n名册只重复关闭年份，没有门牌，也没有保管人签字。托马斯名下，这几柜里抽不出住址，也抽不出与科比特宅有关的后续过户。馆员把空索引推回来，声音发干：「执行人那一栏到此为止。街址不在本市民事档。」这一查用了20分钟。\n\n窗外已是正午。柜面上的蜡还在发亮。",
+  "sid": "b095"
+ },
+ {
+  "campaign": "game-dab0f988-1145-4f89-a4ba-72fbeb89e73a",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 1,
+  "player": "钱。活我接了，把钥匙和地址给我；我现在就去科比特宅，到了先站在门口观察，再进入一层门厅。",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "definition"
+  ],
+  "keeper_head": "诺特点了一下头，像是终于把心里搁着的一件东西放稳了。\n\n「钱好。价钱我写在纸上，一天一算，钥匙和地址都在里头。」他把手按在抽屉把手上，「你先看纸，再看房——房子不会跑，但也不会自己变干净。」\n\n**服务提示**：这一回合的手续没能在这张桌子上结清——委托书、钥匙、地址和预付的钱都还没有真正交到你手里，科比特宅那边也还没有动身。这是我这边的问题，不是林默的处境，你刚才说的那句随时可以再说一遍，下一次就能办下来。",
+  "sid": "b096"
+ },
+ {
+  "campaign": "game-24bb66cb-df6e-4ebb-a0c8-aa22b59e7eb7",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 7,
+  "player": "“炖肉配土豆，再加冰水。”我把一块二搁在桌上，冲他笑笑，“您是这儿的老板吧？怎么称呼？”",
+  "scene": "book-4-last-stop",
+  "present": [
+   "卡洛斯·加尔萨",
+   "罗伯特·泰勒"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "卡洛斯·加尔萨",
+     "addressee_2": "罗伯特·泰勒"
+    },
+    "choice": "addressee_2",
+    "row": "罗伯特·泰勒",
+    "confidence": 0.97
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.98
+   },
+   "target": {
+    "rows": {
+     "target_1": "卡洛斯·加尔萨",
+     "target_2": "罗伯特·泰勒"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "npc",
+   "roll",
+   "time"
+  ],
+  "keeper_head": "你把一块二搁在靠窗桌面上，冲吧台后那人笑了笑。他擦杯子的手一顿，点点头，把钱收进柜里的小铁盒，又从冰柜里倒出一杯凉透的水，推到你手边。\n\n目光在你白衬衫上停了一停，眉心却松了。他下巴朝厨房方向抬了抬，嗓子里带着生意人的热络：\n\n「对，这店是我的。罗伯特就行——住店、喝酒、吃饭，找我。炖肉土豆让厨子给你盛，热乎的。」\n\n灶台那边，系着白围裙的矮胖厨子应了一声，长马尾一晃，舀勺在锅里搅了搅，肉香和土豆的热气跟着油烟一道飘出来。野猪头仍挂在房梁下，外头土路空着，店里只剩杯壁上凝的水珠，和吧台后那人继续擦杯的细响。",
+  "sid": "b097"
+ },
+ {
+  "campaign": "game-45cd3976-d028-4c94-a6ed-c2326527f727",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 5,
+  "player": "我付了汉堡钱，又问：“我那辆车发动机有点响，镇上谁会修车？叫什么名字，在哪儿能找到他？”",
+  "scene": "book-4-last-stop",
+  "present": [
+   "罗伯特·泰勒",
+   "卡洛斯·加尔萨"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-esso-station",
+     "destination_2": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.69
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "罗伯特·泰勒",
+     "addressee_2": "卡洛斯·加尔萨"
+    },
+    "choice": "addressee_1",
+    "row": "罗伯特·泰勒",
+    "confidence": 0.86
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-last-stop-plates"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.92
+   },
+   "target": {
+    "rows": {
+     "target_1": "罗伯特·泰勒",
+     "target_2": "卡洛斯·加尔萨"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.83
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你把一块五毛推过吧台。罗伯特伸手把钱拨进抽屉，指节在柜面敲了一下，像是把账结了。\n\n你又说发动机有点响，问镇上谁会修车、叫什么、在哪儿找。\n\n他朝门外土路的方向抬了抬下巴，语气还是那副不紧不慢：\n\n「修车？还是加油站棚底下那个一口烂牙的。以前跑长途，闲了就蹲那儿装模作样拧螺丝，过路车他爱瞅，扳手也摸得熟。名字？我们都叫他烂牙，正经名没人常提。你要找人，回镇口埃索那棚子底下就行，他多半还捏着啤酒罐坐那儿。」\n\n厨房里煎盘还在响。他把抹布搭回肩上，目光落在你面前空着的吧台面上，等你是接着点什么、还是起身走人。",
+  "sid": "b098"
+ },
+ {
+  "campaign": "game-7e9db15c-adb6-4d71-ac38-194c80623394",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 1,
+  "player": "我右转开上土路去阿巴托尔。进了镇子先找个能加油的地方停下，顺便看看那里都有些什么人。",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "destination_3",
+    "row": "book-4-town-center",
+    "confidence": 0.83
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.81
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.86
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.95
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "npc",
+   "person"
+  ],
+  "keeper_head": "土路颠了三英里，尘土贴着挡风玻璃往上扑。你先看见那块褪色的埃索标志，字迹旧得发白，脏玻璃窗里还斜插着一块手写的 OPEN 纸板。两台老加油机立在棚下，都能用；车库门敞着，升降机上停着一辆没人修的七四年雪佛兰诺瓦，前墙油罐底下渗出一道道黑渍。左侧生锈的可乐机嗡嗡响着，旁边香烟贩卖机上用记号笔写着「故障」。\n\n棚荫里坐着三个晒成深色的中年男人，都朝你的车看过来。\n\n靠外那人又高又瘦，灰白头发，白衬衫配一身意外干净的工装，口袋外挂着卷烟，下面塞着一块油污破布。他动作有点慢，从折叠椅上撑起来，朝加油机这边挪了两步，像是站里管事的。\n\n他旁边中等个，发际线往后撤，啤酒肚，一口烂牙，衣服不太干净却不怎么臭",
+  "sid": "b099"
+ },
+ {
+  "campaign": "game-be2f1103-aa10-41fe-8582-a50b0ebcd465",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 1,
+  "player": "「诺特先生，我接。」我坐下，「先说清楚：上一户人家姓什么，出事那天怎么回事？」",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "clue",
+   "definition"
+  ],
+  "keeper_head": "「我接。丑话说在前头——上一户人家姓什么，出事那天到底怎么回事？」你把大衣下摆一撩坐下去，手搭在桌沿上，没去碰那几张纸。\n\n诺特把玻璃镇纸挪到一边，指节在桌沿上磕了两下，先答你的前半句——他觉得那半句最要紧。\n\n「一天二十块，先生，钱一天一结，干到你说不用干了为止。我就问这一句：我要的不是吓人的故事，是这宅子能住人的名头。」他把一串钥匙连着一块木牌从抽屉里拿出来，搁在桌子正中，牌子上的门牌号朝上；一叠钞票压在钥匙底下。他没往你手边推，就那么摆着。\n\n「马卡里奥。」这个姓他咬得很清楚，「当家的叫维托里奥，带着老婆孩子住进去，前后不到两个月。」\n\n他拿起那几张纸又放下，纸角在指头底下翘了翘。\n\n「",
+  "sid": "b100"
+ },
+ {
+  "campaign": "game-535f37d7-c0ca-41f1-a23f-0bf3d3b904b7",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 2,
+  "player": "行，加满吧。我把十二美元递给他。",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.98
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_1",
+    "row": "拉塞尔·威廉姆斯",
+    "confidence": 1
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.57
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.97
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "time"
+  ],
+  "keeper_head": "你把十二美元递给拉塞尔，他接过去数了数，塞进腰间的钱夹，随后把油枪插进油箱。汽油沿着管道哗哗流下去，没过多久，油泵的数字停住了。\n\n加油站的全貌也在这片短暂的忙碌里显露出来：褪色的埃索招牌还挂在高处，脏窗后那块写着“营业中”的纸板被风吹得轻轻晃动，两台旧油泵都还能用。车库门敞着，一辆一九七四年的雪佛兰诺瓦停在升降机上，车底没人，前墙的油罐边留着一片发黑的油渍。\n\n棚下坐着三个晒得肤色发深的男人。左边的可乐机已经锈了，仍在低声嗡鸣；香烟机上贴着手写的“故障”二字。办公室墙上挂着一杆旧猎枪，枪里装的是打郊狼用的岩盐弹，木托和金属件都蒙着久未擦拭的灰。\n\n拉塞尔拔出油枪，盖好油箱，抬手指了指棚下的空",
+  "sid": "b101"
+ },
+ {
+  "campaign": "game-e8e9249b-ad9b-453f-8223-b4ae53b46340",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 4,
+  "player": "我转向那个挺着啤酒肚的大叔：“您刚才说起咖啡，听口气您跑过不少路？以前都跑哪些线？”",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.93
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "拉塞尔·威廉姆斯",
+     "addressee_2": "内特·帕特森",
+     "addressee_3": "史蒂夫·布朗"
+    },
+    "choice": "addressee_2",
+    "row": "内特·帕特森",
+    "confidence": 0.3
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_2",
+    "row": "social",
+    "confidence": 0.99
+   },
+   "target": {
+    "rows": {
+     "target_1": "拉塞尔·威廉姆斯",
+     "target_2": "内特·帕特森",
+     "target_3": "史蒂夫·布朗"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.65
+   }
+  },
+  "receipt_kinds": [
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你转过身，朝棚下那个挺着啤酒肚的男人问起他从前跑过的线路。他把啤酒罐搁在膝盖上，原本搭在工具箱边的手也跟着抬了起来，整个人来了精神。加油站里那台生锈的汽水机嗡嗡响着，车库里的扳手和皮带散在工作台上，像是有人随时会回来接着干活。\n\n他咧嘴一笑，露出一排参差不齐的牙，往阴凉处让了让，给你腾出半截折叠椅。“以前？哪儿都跑过，姑娘。二十来年，我从德州这头跑到新墨西哥，又往北拐，去过俄克拉何马、科罗拉多，连阿肯色都跑过。那时候公路还没这么多绕路，镇子也比现在多，隔不了多远就有个加油站，能给你洗玻璃、查机油，水袋也得挂在车边上，沙漠里没水可不是闹着玩的。”\n\n他用手指敲了敲啤酒罐，目光越过你的肩膀，落到镇",
+  "sid": "b102"
+ },
+ {
+  "campaign": "game-717a9e4b-27e0-4cd4-b178-97d96535cf4f",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 1,
+  "player": "我把车开到油泵旁边，下车伸个懒腰，打量一下这个加油站和棚子底下的人。",
+  "scene": "book-4-esso-station",
+  "present": [],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-town-center",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.83
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.94
+   }
+  },
+  "receipt_kinds": [
+   "move"
+  ],
+  "keeper_head": "你从事什么职业？",
+  "sid": "b103"
+ },
+ {
+  "campaign": "game-abbdde48-5e44-44c8-867f-347624b36e88",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 11,
+  "player": "“行，一块七毛五就一块七毛五。”我照他说的把钱补齐，拿了东西出门。上车前往南边看了一眼，开车过去看看拉斯说的那个教堂尖顶，顺路瞧瞧红路的路口。",
+  "scene": "book-4-town-center",
+  "present": [
+   "丹尼尔·马瑟"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-last-stop",
+     "destination_2": "book-4-mather-store",
+     "destination_3": "book-4-esso-station",
+     "destination_4": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.84
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "clue:book-4-town-no-children"
+    },
+    "answers": {
+     "ask_1": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.46
+   },
+   "item": {
+    "rows": {
+     "item_1": "1969年道奇挑战者",
+     "item_2": "一套扳手和汽车修理工具",
+     "item_3": "手电筒",
+     "item_4": "汽油",
+     "item_5": "公路地图",
+     "item_6": "备用轮胎"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.35
+   }
+  },
+  "receipt_kinds": [
+   "cash",
+   "item",
+   "move",
+   "npc"
+  ],
+  "keeper_head": "你把补足的钱放在柜台上，拿起两罐水和那条烟，出了马瑟综合商店。丹尼尔没有送出来，只隔着门口的阴影看着你把车发动起来。\n\n你沿着镇中心的主路向南开了一小段，商店屋顶上方那座教堂尖顶终于露了出来。尖顶很窄，颜色在烈日下发白，下面的教堂被低矮的房屋挡住，只能看见一点石墙和屋脊。\n\n再往南的路口没有醒目的路牌，只有一条红土路从主路边分出去，车辙一直伸向镇外。远处看不清那条路通往哪里；你还没驶上去，镇中心的主路和两边空着的门面已经把去向摆在眼前。",
+  "sid": "b104"
+ },
+ {
+  "campaign": "game-bcb4241b-a282-4a9b-b8ae-4d8913592baf",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 1,
+  "player": "我伸手把钥匙拿过来，握在手里掂了掂，顺口问他：最近一次有人进那宅子，是什么时候？",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "cash",
+   "clue",
+   "definition",
+   "handout",
+   "item",
+   "note"
+  ],
+  "keeper_head": "钥匙落进马丁掌心：两把黄铜的，穿在一个铁环上，齿口磨得发亮，环上吊着一小块木牌，用墨笔写着街名和门牌号，末一笔的墨还发着黑。\n\n「最后一次进去的人是我。」诺特把抽屉推回去，「马卡里奥家跑了第三天，我带着管房的伙计进去了一趟——炉子熄了，窗户从里头钉上，他们丢下的家什归到里屋锁好。出来我就落锁，钥匙一直压在这个抽屉里；你没开口之前，没人跟我要过钥匙。街上的人绕着那栋房子走，大白天也绕。」\n\n他从抽屉里抽出一张自己写好的纸，压在桌角，又数出几张钞票推过来：纸上是门牌地址、起算的日子和一天二十块的条件。\n\n「先支你一天，今天就算起。白天进去，天黑前出来，别在那儿过夜——我把话说清楚，不是吓唬你，我不",
+  "sid": "b105"
+ },
+ {
+  "campaign": "game-ef4f5f3b-6445-423b-bae1-f95f4601a698",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 3,
+  "player": "暂不推进剧情。请通过历史参考核对1920年前后美国报社资料室的布置、接待人员和查旧报纸的方法，区分有依据的细节与仅供类比的部分。资料库为空就进行一次网上检索；已有保存材料就优先读取。",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "chapel-of-contemplation-ruins",
+     "destination_2": "newspaper-morgue",
+     "destination_3": "central-library",
+     "destination_4": "hall-of-records",
+     "destination_5": "neighborhood-gossip",
+     "destination_6": "previous-tenants",
+     "destination_7": "corbitt-house-ground"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.54
+   },
+   "addressee": {
+    "rows": {
+     "addressee_1": "Steven Knott"
+    },
+    "choice": "addressee_1",
+    "row": "Steven Knott",
+    "confidence": 0.5
+   },
+   "ask": {
+    "rows": {
+     "ask_1": "obligation:knott-accept-commission",
+     "ask_2": "clue:knott-commission",
+     "ask_3": "clue:knott-macario-summary",
+     "ask_4": "handout:Handout 1: Mr. Knott's Commission"
+    },
+    "answers": {
+     "ask_1": "no",
+     "ask_2": "no",
+     "ask_3": "no",
+     "ask_4": "no"
+    }
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_1",
+    "row": "investigate",
+    "confidence": 0.7
+   },
+   "item": {
+    "rows": {
+     "item_1": "笔记本"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.78
+   }
+  },
+  "receipt_kinds": [
+   "time"
+  ],
+  "keeper_head": "资料库原先是空的，这次按你的要求做了一次网上检索。下面只根据这次取回的摘录来说，摘录本身是扫描件，字有残缺，不能当成某一家报社的平面图，更不是这桌上那家报馆的规矩。\n\n有依据、而且年份对得上的，主要是一九二〇年《Special Libraries》里一篇讲《底特律新闻报》图书馆的文章。它把剪报部门叫做 scraparium，说大型报社的剪报、铜版和照片大体都这么收：从本国和外国主要报纸上剪下来，装进能平放杂志文章的大信封，按主题字母顺序归档，并做交叉参照；材料太多时，再订成能和别的卷宗一起放进档案柜的剪贴簿，每本开头有目录。同一篇文章还写到书库已经有近一万二千册，另有别家报纸的合订存档和年鉴；",
+  "sid": "b106"
+ },
+ {
+  "campaign": "game-e3fdb775-c61d-4f52-a974-1480fdfd658c",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 5,
+  "player": "不对吧，我没说用镐头，我也没有搞头",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [],
+  "keeper_head": "你没提镐头，也没拿它。\n\n你只是挥拳朝诺特打去。",
+  "sid": "b107"
+ },
+ {
+  "campaign": "game-33170a20-b06f-4e06-b488-d5182d62c22c",
+  "title": "血色公路",
+  "module": "book-4",
+  "turn": 1,
+  "player": "我右转开上土路去阿巴托尔。进了镇子先找个能加油的地方停下，顺便看看那里都有些什么人。",
+  "scene": "book-4-esso-station",
+  "present": [
+   "拉塞尔·威廉姆斯",
+   "内特·帕特森",
+   "史蒂夫·布朗"
+  ],
+  "compile": {
+   "destination": {
+    "rows": {
+     "destination_1": "book-4-prologue"
+    },
+    "choice": "none",
+    "row": null,
+    "confidence": 0.64
+   },
+   "act": {
+    "rows": {
+     "act_1": "investigate",
+     "act_2": "social",
+     "act_3": "move",
+     "act_4": "combat",
+     "act_5": "flee",
+     "act_6": "cast",
+     "act_7": "idle",
+     "act_8": "meta",
+     "act_9": "stuck",
+     "act_10": "ambiguous",
+     "act_11": "montage"
+    },
+    "choice": "act_3",
+    "row": "move",
+    "confidence": 0.83
+   }
+  },
+  "receipt_kinds": [
+   "move",
+   "npc",
+   "time"
+  ],
+  "keeper_head": "你把方向盘向右打，轮胎碾上那条没铺沥青的土路。尘土立刻扬起来，贴着挡风玻璃往上扑，路两边还是没完没了的枯草、电线杆，偶有塌了一角的棚屋。三英里开过去，热气始终贴着地皮晃。\n\n镇子从热浪里慢慢显形，近乎空荡：干道两侧几栋低矮的砖木房子，漆皮起泡，窗大多关着；再往里，能看见杂货铺的幌子，和更远一点像是酒馆的门面。正前方镇口位置，先顶进眼帘的是一座埃索加油站——招牌旧得发灰，埃索字样还勉强认得，脏玻璃窗里斜插着一块手写 OPEN 的纸板。两台老加油机立在水泥坪上，泵头油腻发亮；车库门敞着，升降机上搁着一辆没人修的七四年雪佛兰诺瓦，引擎盖掀开。前墙油罐底下渗出一摊发黑的油渍。左侧一台生锈的可乐机嗡嗡响",
+  "sid": "b108"
+ },
+ {
+  "campaign": "game-0c590ad2-f8fa-4530-af32-5180d8aa545c",
+  "title": "Call of Cthulhu - Masks of Nyarlathotep (Larry DiTillio, Lynn Willis, Mike Mason etc.)",
+  "module": "book-1",
+  "turn": 1,
+  "player": "我按住外套口袋里那把小手枪，点头答应下来，问拉金金杯是从哪儿来的。",
+  "scene": "start-lima",
+  "present": [
+   "Augustus Larkin",
+   "Jackson Elias",
+   "Luis de Mendoza"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "definition"
+  ],
+  "keeper_head": "惠特莫尔的右手在外套口袋里收拢，指尖贴着那把小金枪——凉的，比它搁在抽屉里一整天该有的温度还要凉一点。他点了头，把这件事应了下来。\n\n“金杯。”拉金把杯沿朝他推了半寸，金子蹭过桌布发出一声轻响，“利马城里买的。有位先生手里存着一批东西，说是从南边山里出来的，我在他那堆货里挑了这只杯子。多少人劝我说这是假货——劝的人没一个上去过。”\n\n“那吊坠呢？”休斯从旁插进来。\n\n“吊坠是后来才补上的，放羊的老乡让给了我。”拉金答得很快，很快地看了休斯一眼，又转回杯子上，“这一行的规矩，别问名字。我答应了不把他写进报纸，也不把他说给你们听。”\n\n他说这话时，眼睛一直落在杯子上，没落在问话的人身上。\n\n休斯在",
+  "sid": "b109"
+ },
+ {
+  "campaign": "game-26d5a671-85a2-4732-876b-1521aa04d869",
+  "title": "鬼屋",
+  "module": "the-haunting",
+  "turn": 5,
+  "player": "继续抢钥匙",
+  "scene": "commission-briefing",
+  "present": [
+   "Steven Knott"
+  ],
+  "compile": null,
+  "receipt_kinds": [
+   "roll"
+  ],
+  "keeper_head": "钥匙还在他手里。你伸过去抠他的手指，他侧身一让，拳头落空。他跟着用肩膀往门口顶你，这一下也没顶上，两个人都站不稳，谁也没把谁推开。\n\n他退到抽屉边上，血顺着下巴往衬衫上滴，攥钥匙的那只手缩在胸前。\n\n钥匙不给你。再伸手，我喊人。",
+  "sid": "b110"
+ }
+]

@@ -4,6 +4,7 @@ import { DirectorGraph, TextGraph, Ontology } from "./content.js";
 import { RuleObservations } from "./rule-facts.js";
 import { SessionView } from "./session-view.js";
 import { whereSection, clockSection, npcsPresent, cluesHere, presentSection, knownSection, fitBudget, fittedModuleSection, sceneLabel, voicesSection } from "./capsule.js";
+import { OWN_BUDGET, ownSection } from "./own.js";
 import { playedRecords, signals, directorSection } from "./director.js";
 import { EntityIndex, capsuleMemory, noteObligations, rulingsForCapsule, promiseObligations, withPromiseFulfillment, canonicalMemoryReceipts } from "./memory.js";
 import { clockPressures, threatPressures, unansweredContinuations, continuationRows, questObligations, choiceObligation, sessionObligation } from "./pressures.js";
@@ -11,7 +12,7 @@ import { incapacitationClocks } from "./incapacitation.js";
 import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { offerObligations } from "../mods/object-offer.js";
-import { modContext, activeMods } from "./mods.js";
+import { modContext, activeMods, type TurnState } from "./mods.js";
 import { STYLE_BUDGET, styleProvider, styleSection, legacyStyle, legacyStyleLock } from "./style.js";
 import { obligationNodes, sceneObligations, capsuleRow } from "./obligations.js";
 import { mechanicsOf } from "./mechanics.js";
@@ -51,6 +52,12 @@ export const HEAD = "Everything at the start of this turn: the clock, the undisc
     "the motorcycle) instead of a name nobody has said; " +
     "known.investigator.conditions is what the rules currently hold true of the body, and cannot_act, when " +
     "present, means the kernel will refuse an action declared for them until it is gone; " +
+    // Contract §179.2: the interface; prompts/keeper.md says what a consulted record shows (§179.1).
+    "own is the investigator's own record: card is what their sheet says of why they came, what they carry and whom " +
+    "they hold to; said is the player's own words from earlier turns your history no longer carries, the earliest and " +
+    "the latest, and omitted names the turns between, which recall transcript reaches. What the player said there " +
+    "about the investigator and their errand stands where the card and the book are silent; what they said about the " +
+    "world is still their claim. " +
     "obligations of kind note are your own open continuity notes; only those names can be closed with apply note. " +
     "Promise reminders belong to memory: respond to their fictional meaning, not by writing or closing a note. " +
     "rulings are your earlier rulings that " +
@@ -315,22 +322,38 @@ export function untoldReceipts(records: Row[], turn: number): Row[] {
             }] : [];
         });
 }
-/** present[] under its budget with every name kept: full rows are cut from the end as `fitBudget` cuts
- *  them, and each person cut comes back as `{name, truncated: true}`; if the stubs themselves do not fit,
- *  more full rows give way to stubs until they do. Returns whether anything was cut. */
-function fitPresent(rows: Row[], budget: number): boolean {
-    const names = rows.map(entry => string(entry.name));
-    const cut = fitBudget(rows, budget);
-    if (!cut)
-        return false;
-    const kept = new Set(rows.map(entry => string(entry.name)));
-    const stubs: Row[] = names.filter(name => !kept.has(name)).map(name => ({ name, truncated: true }));
-    while (rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubs])).length > budget) {
-        const dropped = rows.pop()!;
-        stubs.unshift({ name: string(dropped.name), truncated: true });
+/** present[] under its budget with every person kept: full rows are cut from the end as `fitBudget` cuts
+ *  them, and each person cut comes back as a stub; if the stubs themselves do not fit, more full rows give
+ *  way to stubs until they do. Returns whether anything was cut. */
+export function fitPresent(rows: Row[], budget: number): boolean {
+    // `fitBudget` takes whole rows only from the end, so the people cut are the ones past what is left. By position:
+    // two people the book gives one name (book-4's two Robert Taylor nodes) made a cut one look kept by name, and it vanished.
+    const all = [...rows];
+    // §176.8: the name path rides outside the budget. Rows are fitted as they were before it -- the untold block without
+    // its token, a stub as its name -- and the tokens and the stubs' blocks are put back after. Counted, they cost the
+    // nine-person bench its fourth dossier.
+    const tokens = new Map<Row, unknown>();
+    for (const entry of all) {
+        const untold = entry.untold;
+        if (untold && typeof untold === "object" && "say_name" in untold) { tokens.set(entry, untold.say_name); delete untold.say_name; }
     }
-    rows.push(...stubs);
-    return true;
+    const cut = fitBudget(rows, budget);
+    const stubbed: Row[] = cut ? all.slice(rows.length) : [];
+    const bare = (entry: Row): Row => ({ name: string(entry.name), truncated: true });
+    while (cut && rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubbed.map(bare)])).length > budget)
+        stubbed.unshift(rows.pop()!);
+    for (const [entry, token] of tokens) entry.untold.say_name = token;
+    rows.push(...stubbed.map(presentStub));
+    return cut;
+}
+/**
+ * §176.8: a person cut to their name keeps their untold block, without its line. Whether they are untold, and the
+ * token that has their name said, is the next step for them, not payload: the replay of game-24bb66cb (2026-10-04)
+ * cut the navy veteran to `{name, truncated}` on every turn, and asked his name, three of four Keepers made one up.
+ */
+function presentStub(entry: Row): Row {
+    const { use: _line, ...untold } = row(entry.untold);
+    return { name: string(entry.name), truncated: true, ...(Object.keys(untold).length ? { untold } : {}) };
 }
 export function evidenceAnchors(graph: ModuleGraph, world: Row, records: Row[], limit = 4): string[] {
     return [...graph.kind("clue"), ...graph.kind("handout")]
@@ -435,6 +458,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         full = options.styleFull ?? true;
     const warningRecord = [...campaign.records].sort((a, b) => number(b.turn) - number(a.turn)).find(record => number(record.turn) < number(turn.turn) && record.closed_by === "narrate");
     const npcScope={worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)};
+    // The turns before this one that said or told anything; `recent` carries the last two, `own` the player's words of the rest.
+    const told = campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))),
+        shown = told.slice(-2);
     const sections: Row = clone({
         where,
         historical_setting: await historicalSetting(campaign, module),
@@ -457,7 +483,7 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
         memory: capsuleMemory(memory, new EntityIndex(graph, party, row(world.scene_labels)), memoryAnchors),
         // Contract §137.3: language and register on every table; the craft lines only from the enabled provider.
         style: styleSection(craft, language, string(meta.register || "purist"), styleProvider(active), dg.beats, director.beat, full, legacy),
-        recent: campaign.records.filter(record => number(record.turn) < number(turn.turn) && (truth(record.player_text) || truth(record.rendered_text))).slice(-2).map(record => ({
+        recent: shown.map(record => ({
             turn: record.turn,
             player: record.player_text ?? null,
             keeper: chars(record.rendered_text || "", 200),
@@ -465,6 +491,10 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
                 ? { closed: "stranded", receipts: array(record.receipts).length }
                 : record.closed_how ? { closed: record.closed_how, receipts: array(record.receipts).length } : {})
         })),
+        // §179.2: the card's own words and the player's, hung on the investigator rather than on who is present.
+        // `ownSection` keeps it within OWN_BUDGET itself (earliest and latest words), so no generic fit below touches
+        // it; a table without an investigator has no such section.
+        ...(party.length ? { own: ownSection(party[0], told, shown.map(record => number(record.turn)), OWN_BUDGET) } : {}),
         // §158.4: what the player was told and the ledger still lacks; the clerk lands it first, the Keeper never re-tells it.
         owed: capsuleOwed(graph, world, campaign.jsonFiles.get("owed.json"), party),
         warnings: capsuleWarnings(campaign.records, warningRecord, number(turn.turn)),
@@ -475,6 +505,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             ...unrecordedTime(campaign.records, number(turn.turn), clockSection(graph, world))],
         untold: untoldReceipts(campaign.records, number(turn.turn))
     });
+    // Contract §183.3: the gates read the turn as assembled, before any section budget below cuts it.
+    const gateTurn: TurnState = { opening: number(turn.turn) === 0, present: clone(array(sections.present)), stalled_turns: number(sig.stalled_turns),
+        stall_threshold: number(dg.threshold("pressure-stalled-turns")), beat: string(director.beat), repeat_input: truth(sig.repeat_input) };
     const truncated: string[] = [];
     // §168.5: its own budget, fitted on its own; no other section's budget cuts it.
     if (sections.first_sight && fitFirstSight(sections.first_sight, FIRST_SIGHT_BUDGET))
@@ -542,8 +575,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     if (truncated.length)
         capsule.truncated = truncated;
     const activeLine = string(meta.active_worldline || 'main');
-    capsule.mods = await modContext(context, graph, world, party, campaign.records, full,
-        {memory, story, worldline: activeLine, loop: number(row(row(meta.worldlines)[activeLine]).loop),play_language:language});
+    capsule.mods = await modContext(context, graph, world, party, campaign.records,
+        {memory, story, worldline: activeLine, loop: number(row(row(meta.worldlines)[activeLine]).loop),play_language:language, turn: gateTurn});
     // The Director's offer (docs/specs/turn-floor.md D2) is drawn after the thread and pacing sections exist,
     // from material the capsule already carries, and the director section is refitted to its budget with it.
     row(capsule.director).offer = directorOffer(string(row(capsule.director).beat), {

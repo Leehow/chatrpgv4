@@ -105,12 +105,12 @@ def test_scoped_package_freezes_only_declared_runtime_files(kernel, tmp_path):
     root = package(tmp_path)
     manifest = read_json(root / "mod.json")
     manifest["requires"] = list(dict.fromkeys([*manifest["requires"], "mods.package-files.v1"]))
-    manifest["package_files"] = ["agent.md", "brief.md", "auditor.md"]
+    manifest["package_files"] = ["agent.md", "sections.json", "auditor.md"]
     (root / "mod.json").write_text(json.dumps(manifest))
 
     installed = kernel.ok("mods.install", {"path": str(root)})
     frozen = kernel.workspace / ".coc" / "mods" / "packages" / "natural-npc" / NEXT
-    assert sorted(path.name for path in frozen.iterdir()) == ["agent.md", "auditor.md", "brief.md", "mod.json"]
+    assert sorted(path.name for path in frozen.iterdir()) == ["agent.md", "auditor.md", "mod.json", "sections.json"]
     assert not (frozen / "CHANGELOG.md").exists()
 
     # The source notebook is outside the package identity: changing it cannot replace or fork the
@@ -144,13 +144,13 @@ def test_legacy_all_files_package_keeps_its_historical_digest_and_lock(kernel, t
 def test_scoped_package_refuses_an_incomplete_or_engineering_allowlist(kernel, tmp_path):
     root = package(tmp_path)
     manifest = read_json(root / "mod.json")
-    manifest["package_files"] = ["agent.md", "brief.md", "CHANGELOG.md"]
+    manifest["package_files"] = ["agent.md", "sections.json", "CHANGELOG.md"]
     (root / "mod.json").write_text(json.dumps(manifest))
     error = kernel.err("mods.install", {"path": str(root)})
     assert error["code"] == "invalid_params"
     assert "CHANGELOG.md" in error["message"]
 
-    manifest["package_files"] = ["agent.md", "brief.md"]  # referenced auditor.md is missing
+    manifest["package_files"] = ["agent.md", "sections.json"]  # referenced auditor.md is missing
     (root / "mod.json").write_text(json.dumps(manifest))
     error = kernel.err("mods.install", {"path": str(root)})
     assert error["code"] == "invalid_params"

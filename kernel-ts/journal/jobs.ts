@@ -17,7 +17,7 @@ import {issueSourceRef,resolveSourceRef,type SourceSnapshot} from '../../runtime
 import type {SourceRef,ScopeBinding} from '../../runtime/jev/value-contracts.ts';
 export const JOURNAL_REFERENCE_PROTOCOL='journal-reference-v2';
 export const BUDGET = { max_entries: 6, max_description_chars: 300, max_exchange_chars: 200, max_label_chars: 60, max_named_quote_chars: 200 };
-const FIELDS = ['name', 'description', 'exchange', 'label', 'named', 'named_quote'];
+const FIELDS = ['name', 'description', 'exchange', 'label', 'named', 'named_quote', 'named_as'];
 const MACHINE = ['commit', 'receipt', 'receipts', 'turn', 'id', 'job_id', 'episode_id', 'call_id', 'source'];
 export const jobId = (campaign: string, turn: number) => `journal:${campaign}:t${turn}`;
 const journalTurnBinding=(record:Row)=>jsonDigest({turn:record.turn,commit:record.commit,player_text:record.player_text??null,
@@ -37,8 +37,12 @@ const instruction = (language: string) => 'Write an entry only for someone who t
     "'the oily-rag owner' or 'the bad-teeth trucker' -- one thing, not a list and not a sentence; never age, height, " +
     'build or sex alone, no part of the name and no label another person already has. The description says the rest. ' +
     "The description and the exchange must not name them either. If someone in this turn's narrative actually " +
-    "said or showed the player this person's name, in any spelling, give named: true with named_quote -- the exact " +
+    "said or showed the player this person's own name -- the name recordable gives them, in any spelling, script or " +
+    "transliteration, whole or in part -- give named: true with named_quote -- the exact " +
     "words of the prose or the spoken line that gave it, copied character for character -- instead of a label. " +
+    // §176.9: on a replay of game-24bb66cb (2026-10-04) the veteran said "call me Walter"; the lane journaled that as
+    // his name, he became told, the next turn's request no longer hid the book's name, and on turn 8 the Keeper wrote it.
+    'A different name -- one they go by, a nickname, any name that is not that one -- does not name them: leave named out. ' +
     'Having appeared, acted or been described is not being named: without such words, give a label. Someone not ' +
     'listed under unnamed takes neither.';
 /** The ledger's naming rule: journal keys are graph node ids, never names. */
@@ -212,8 +216,8 @@ export function materializeJournalEntries(job:Row,entries:any):{entries:Row[];id
     const access={scope:source.scope,mode:'active' as const,read:(resource:string,revision:string)=>source.resource===resource&&source.revision===revision?source:undefined,
         currentRevision:(resource:string)=>resource===source.resource?source.revision:undefined};
     for(const [i,entry] of entries.entries()) {
-        if(!isJsonObject(entry)||Object.keys(entry).some(key=>!['person','description','exchange','label','named','named_quote'].includes(key))||typeof entry.person!=='string')
-            reject(i,'A referenced journal entry selects person and contains only generated journal fields','Use person, description, exchange, label, named and named_quote; do not copy a name or identity',{field:'person'});
+        if(!isJsonObject(entry)||Object.keys(entry).some(key=>!['person','description','exchange','label','named','named_quote','named_as'].includes(key))||typeof entry.person!=='string')
+            reject(i,'A referenced journal entry selects person and contains only generated journal fields','Use person, description, exchange, label, named, named_quote and named_as; do not copy a name or identity',{field:'person'});
         const selected=people.find(value=>value.alias===entry.person);
         if(!selected||seen.has(entry.person)) reject(i,'The person alias is unknown, foreign or duplicated','Select each issued recordable person at most once',{field:'person'});
         let name:unknown,id:unknown;
@@ -247,19 +251,6 @@ export async function openJob(campaign: CampaignWriter, packet: Row): Promise<Ro
             ...(packet.protocol===JOURNAL_REFERENCE_PROTOCOL?{protocol:JOURNAL_REFERENCE_PROTOCOL,selection_binding:packet.selection_binding,people_source,people,turn_binding}:{}) });
     return packet;
 }
-/**
- * §177.12: whether `quote` says a name, or a punctuation piece of one, that the book or the cast gives the person `id`.
- * Only a person the cast has rows for is checked: the cast carries the play-language renderings, so a name said in the
- * table's language can be found as a string. Without a cast (an authored module played in another language) the name may
- * stand in any spelling, and §103.6 keeps the lane's word (Steven Knott's surname transliterated in Chinese prose).
- */
-function quoteNamesPerson(graph: ModuleGraph, id: string, quote: string): boolean {
-    const person = bookCast(graph).find(entry => entry.node && string(entry.node.node_id) === id);
-    if (!person || !person.printed.length) return true;
-    const said = normalize(quote);
-    return namePieces(person.names).map(normalize).some(piece => !!piece && occurs(said, piece));
-}
-
 /** §103.6: whether `quote` is words of the delivery the job was opened on -- its prose or one of its spoken lines. */
 function namedQuoteFound(job: Row, quote: string): boolean {
     const packet = row(job.packet);
@@ -291,9 +282,13 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
     const isNamed = (id: string) => integer(row(stored[id]).named_at) || told[id] !== undefined || namedInBatch.has(id);
     const unnamed = sorted(new Set(named.filter(([, id]) => !isNamed(id)).map(([name]) => name)));
     const carries = (text: string, id: string) => array(words[id]).map(string).some(word => word && occurs(normalize(text), word));
+    // §177.12: the person's names are the cast's -- their graph names and the forms the book prints for their row -- so a
+    // nickname the book prints only in the cast (book-4's station owner, also printed as 「拉斯」 alone) is their name too.
     const carriesBookName = (text: string, id: string) => {
         const node = graph?.nodes.get(id);
-        return !!node && namePieces(bookNames(graph!, node)).map(normalize).some(piece => !!piece && occurs(normalize(text), piece));
+        if (!node) return false;
+        const person = bookCast(graph!).find(entry => entry.node && string(entry.node.node_id) === id);
+        return namePieces(person ? person.names : bookNames(graph!, node)).map(normalize).some(piece => !!piece && occurs(normalize(text), piece));
     };
     // §177.4: nor a name of anyone else the investigator has not been told about -- the other untold people of the graph and
     // the people the book names whom the reader has not reached -- minus what a told person also carries.
@@ -335,11 +330,13 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
             return reject(i, `entries[${i}].description must be 1–${BUDGET.max_description_chars} characters`, 'shorten it, or omit it to keep the stored one');
         if (exchange !== null && (typeof exchange !== 'string' || length(exchange.trim()) < 1 || length(exchange.trim()) > BUDGET.max_exchange_chars))
             return reject(i, `entries[${i}].exchange must be 1–${BUDGET.max_exchange_chars} characters`, 'one sentence on what passed between them and the player this turn');
-        const id = ids[0], label = entry.label ?? null, namedNow = entry.named ?? null, quote = entry.named_quote ?? null;
+        const id = ids[0], label = entry.label ?? null, namedNow = entry.named ?? null, quote = entry.named_quote ?? null, namedAs = entry.named_as ?? null;
         if (namedNow !== null && namedNow !== true)
             return reject(i, `entries[${i}].named must be true or absent`, "give named: true only when this turn's narrative gave the player this person's name; otherwise leave it out", { field: 'named' });
         if (quote !== null && namedNow !== true)
             return reject(i, `entries[${i}].named_quote goes only with named: true`, 'leave named_quote out unless this entry gives named: true', { field: 'named_quote' });
+        if (namedAs !== null && namedNow !== true)
+            return reject(i, `entries[${i}].named_as goes only with named: true`, 'leave named_as out unless this entry gives named: true', { field: 'named_as' });
         // §103.6 (2026-10-03): a person becomes named on the lane's word only with the words that named them. On the
         // installed App (Blood Road, table 14, turn 1) the lane gave named: true, beside a label, for all three men at the
         // gas station; nobody had said a name and one of them never spoke. The journal recorded named_at for all three and
@@ -353,14 +350,18 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
                 return reject(i, `entries[${i}].named: true for ${repr(name)} needs named_quote: the exact words of this turn's delivery that gave the player the name`,
                     `copy those words, up to ${BUDGET.max_named_quote_chars} characters, from the prose or the spoken line into named_quote; if nothing this turn said or showed the name, leave named out and give label (how the player would know them)`,
                     { field: 'named_quote', name });
-            // §177.12 (table 26, turn 8): the words must say one of the names the book or the cast gives this person, as the
-            // strings stand. Asked his name, the toothless trucker said "call me Earl", a name the Keeper made up; the lane
-            // gave named: true on that line, the book's name stopped being hidden, and the next turn the Keeper wrote it into
-            // a tool call. A name nobody has is no telling; the person stays untold and gets a label.
-            if (graph && !quoteNamesPerson(graph, id, quote.trim()))
-                return reject(i, `entries[${i}].named_quote for ${repr(name)} says none of the names the book gives this person`,
-                    'if the words gave them a name of their own making, that is not their name: leave named out and give label (how the player would know them)',
-                    { field: 'named_quote', name, reason: 'not_their_name' });
+            // §176.9 (2026-10-04): words that carry none of the names the book gives them, as written, are either their name
+            // in another script (The Haunting played in Chinese tells "Steven Knott" by a Chinese transliteration) or a different name. On a replay
+            // of game-24bb66cb the veteran said "call me Walter", the lane journaled it as his name, and the Keeper was then
+            // handed the book's name. Which of the two it is, is the lane's to say: the kernel only asks the narrow question,
+            // once, and takes `named_as` -- the words of the quote that are the name -- as the lane's answer.
+            if (graph && !carriesBookName(quote.trim(), id)
+                && (typeof namedAs !== 'string' || length(namedAs.trim()) < 1 || length(namedAs.trim()) > BUDGET.max_label_chars || locateExcerpt(quote.trim(), namedAs.trim()) === null))
+                return reject(i, `entries[${i}].named: true for ${repr(name)}: named_quote carries none of the names the book gives them as written`,
+                    "if these words give that same name in another spelling, script or transliteration, send the entry again with named: true, " +
+                    "the same named_quote, and named_as: the exact words of the quote that are that name; if they give a different name " +
+                    "(one they go by, a nickname, a name that is not theirs), leave named out",
+                    { field: 'named_as', name, reason: 'not_a_book_name' });
         }
         if (label !== null) {
             if (typeof label !== 'string' || length(label.trim()) < 1 || length(label.trim()) > BUDGET.max_label_chars || label.includes('\n') || label.includes('{{'))
