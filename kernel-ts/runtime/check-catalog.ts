@@ -17,6 +17,7 @@ import {ENDING_KINDS} from '../development/plan.js';
 import {loadChaseRules} from '../chase/model.js';
 import {magicLearningSources} from '../magic/facts.js';
 import {npcPatient} from '../healing/patient.js';
+import {hitPointGaps} from '../combat/profiles.js';
 import {healingStatePath} from '../healing/session.js';
 import {evaluateCondition, factsFromState, RuleObservations} from '../read/rule-facts.js';
 
@@ -140,7 +141,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     const patients: Row[] = [];
     const observations = await RuleObservations.load(campaign.context);
     const now = Number(row(campaign.world.clock).minutes ?? 0);
-    for (const patient of [...campaign.party, ...people.filter(person => person.profile !== null).map(person => npcPatient(graph, campaign.world, person.name)).filter((patient): patient is Row => patient !== null)]) {
+    for (const patient of [...campaign.party, ...people.filter(person => person.profile !== null && !hitPointGaps(person.profile).length).map(person => npcPatient(graph, campaign.world, person.name)).filter((patient): patient is Row => patient !== null)]) {
         const healing = row(await campaign.optional(`save/${healingStatePath(string(patient.id))}`));
         const conditions = Array.isArray(healing.conditions) ? healing.conditions : array(patient.conditions);
         const facts = factsFromState({...patient, investigator_id: patient.id, conditions,

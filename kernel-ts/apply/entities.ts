@@ -15,6 +15,7 @@ import {effectId,type StagedEffect} from './bookkeeping.js';
 import {archetypeIds,rollArchetypeProfile} from './archetype.js';
 import {creatureDeclaration,establishCreature,rollCreatureProfile,type CreatureDeclaration} from './creature.js';
 import {VALID_CONDITIONS} from '../combat/engine.js';
+import {statBlockGaps} from '../combat/profiles.js';
 import {DEFENSE_WORDS,DISPOSITION_WORDS,OVERRIDE_ACTION_WORDS,authoredDisposition} from '../combat/standing.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {npcProfileOf} from '../resolve/context.js';
@@ -408,19 +409,22 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
             if(existing.archetype!==archetype.trim())throw new RpcError('invalid_params',`${graph.displayName(node)} already has a pinned ${string(existing.archetype)} profile from turn ${string(existing.pinned_turn)}`,{fix:'resolve against it; a pin is made once for the campaign',details:{field:'npc.archetype',actor:handle,archetype:existing.archetype,pinned_turn:existing.pinned_turn??null}});
             profile=structuredClone(existing);
         }else{
-            if(isJsonObject(graph.mechanicsOf(node).profile))throw new RpcError('invalid_params',`the source prints ${graph.displayName(node)}'s numbers; an archetype cannot replace them`,{fix:'resolve against the printed profile; no pin is needed',details:{field:'npc.archetype',actor:handle,authority:'source_authored'}});
-            profile=await rollArchetypeProfile(context.kernel,archetype.trim(),why,number(context.turn.turn));
+            // §180.6 (CK-F2): a printed block that lacks what the engine reads is completed -- the archetype fills only the gaps.
+            const authored=graph.mechanicsOf(node).profile,partial=isJsonObject(authored)&&statBlockGaps(authored).length>0;
+            if(isJsonObject(authored)&&!partial)throw new RpcError('invalid_params',`the source prints ${graph.displayName(node)}'s numbers; an archetype cannot replace them`,{fix:'resolve against the printed profile; no pin is needed',details:{field:'npc.archetype',actor:handle,authority:'source_authored'}});
+            profile=await rollArchetypeProfile(context.kernel,archetype.trim(),why,number(context.turn.turn),partial?authored:null);
         }
     }
     // §180.6: a creature's stat block from the rules catalog, pinned once -- on the call that declares it, or later on a
     // creature (the table's, or a book creature the book gave no numbers) that has none. One with a block keeps it.
+    // §180.6 (CK-F2): a creature's own block that lacks what the engine reads is completed -- the entry fills only the gaps.
     if(declared?.block){
-        const existing=row(world.npc_profiles)[handle],authored=isJsonObject(graph.mechanicsOf(node).profile);
-        if(authored||isJsonObject(existing))throw new RpcError('invalid_params',`${graph.displayName(node)} already has a stat block; a catalog creature pins one only where there is none`,{
+        const existing=row(world.npc_profiles)[handle],own=graph.mechanicsOf(node).profile,authored=isJsonObject(own),partial=authored&&statBlockGaps(own).length>0;
+        if((authored&&!partial)||isJsonObject(existing))throw new RpcError('invalid_params',`${graph.displayName(node)} already has a stat block; a catalog creature pins one only where there is none, or completes one that lacks what the engine reads`,{
             fix:`leave creature out and resolve against the block ${graph.displayName(node)} has`,
-            details:{reason:'stat_block_exists',field:'npc.creature',name:graph.displayName(node),authority:authored?'source_authored':string(row(existing).authority||'table_pinned'),
+            details:{reason:'stat_block_exists',field:'npc.creature',name:graph.displayName(node),authority:isJsonObject(existing)?string(row(existing).authority||'table_pinned'):'source_authored',
                 ...(typeof row(existing).catalog==='string'?{catalog:row(existing).catalog}:{})}});
-        profile=await rollCreatureProfile(context.kernel,declared,why,number(context.turn.turn));
+        profile=await rollCreatureProfile(context.kernel,declared,why,number(context.turn.turn),partial?own:null);
     }
     // A creature this call declared is itself the change, with or without a block.
     const declaredHere=!!declared&&established==='table';
@@ -436,9 +440,11 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         // §180.6: with its catalog block pinned the creature is an actor for the rest of this batch, as on every load.
         if(typeof profile.catalog==='string')graph.pinBody(node);
     }
+    // A completed block (CK-F2) says what its source filled; everything else in it is the block's own.
+    const completion=profile&&typeof profile.completed_from==='string'?{completed_from:profile.completed_from,filled:profile.filled}:{};
     const pinnedProfile=!profile?null:typeof profile.catalog==='string'
-        ?{catalog:profile.catalog,characteristics:profile.characteristics,derived:profile.derived,skills:profile.skills,weapons:array(profile.weapons).map(weapon=>string(row(weapon).name||row(weapon).weapon_id))}
-        :{archetype:profile.archetype,characteristics:profile.characteristics,derived:profile.derived,skills:profile.skills};
+        ?{catalog:profile.catalog,characteristics:profile.characteristics,derived:profile.derived,skills:profile.skills,weapons:array(profile.weapons).map(weapon=>string(row(weapon).name||row(weapon).weapon_id)),...completion}
+        :{archetype:profile.archetype,characteristics:profile.characteristics,derived:profile.derived,skills:profile.skills,...completion};
     // What `creature` declared: the catalog entry, or true; an entry that prints no block says so.
     const creatureNote=declared?{creature:declared.name??true,...(declared.name&&!declared.block?{no_stat_block:true}:{})}:{};
     // `established` rides on the receipt and the event so that a person this table just invented is

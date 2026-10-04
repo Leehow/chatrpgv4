@@ -226,7 +226,10 @@ def test_a_quarry_missing_a_number_the_chase_reads_is_needs_never_a_default(tmp_
                               goal="run him down", method="after him")
         assert refused["code"] == "needs", refused
         assert refused["details"]["reason"] == "quarry_numbers_missing" and refused["details"]["npc"] == CORBITT
-        assert refused["details"]["missing"] == [f"{section}.{key}"] and refused["details"]["needs"]["field"] == f"{section}.{key}"
+        assert refused["details"]["missing"] == [f"{section}.{key}"]
+        # §180.6 (CK-F2): the refusal names the completion -- an archetype fills only what the printed block lacks.
+        assert refused["details"]["needs"]["field"] == "archetype" and "ordinary_adult" in refused["details"]["needs"]["options"]
+        assert "archetype" in refused["fix"] and "details.missing" in refused["fix"]
         assert f"{section}.{key}" in refused["message"] and "none is assumed" in refused["message"]
         assert len(client.table("status")["receipts"]) == receipts and not chase_file(client).exists(), "nothing was rolled or filed"
     finally:

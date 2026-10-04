@@ -7,6 +7,7 @@ import { array, integer, kebab, normalize, number, repr, row, string, truth, typ
 import { SkillResolver } from '../rules/skills.js';
 import { presentOpponents, type SettleContext } from '../resolve/context.js';
 import { investigatorCombatParticipant, npcCombatParticipant } from '../combat/profiles.js';
+import { incompleteStatBlock, requireParticipantBlock } from '../combat/stat-block.js';
 import { archetypeIds } from '../apply/archetype.js';
 import { CHASE_OUTCOMES, DEFAULT_GAP, DEFAULT_LOCATION_COUNT, generateLocationChain, get, int, or, participantFromCombatSpec, loadChaseRules, vehicleStats } from './model.js';
 export { presentOpponents } from '../resolve/context.js';
@@ -167,11 +168,9 @@ export async function quarryParticipant(context: SettleContext, handle: string, 
         ...['STR', 'CON', 'SIZ', 'DEX'].filter(key => !integer(characteristics[key])).map(key => `characteristics.${key}`),
         ...(integer(row(profile.derived).MOV) ? [] : ['derived.MOV'])
     ];
+    // §180.6 (CK-F2): the completion call, not a dead end -- a catalog creature or an archetype fills only what is missing.
     if (missing.length)
-        throw new RpcError('needs', `${name}'s stat block has no ${missing.join(', ')}: a chase of ${name} reads ${missing.length > 1 ? 'them' : 'it'}, and none is assumed`, {
-            fix: 'read the printed numbers with lookup kind=source when the module has a book; otherwise narrate the pursuit without dice. Nothing without a receipt has happened',
-            details: { reason: 'quarry_numbers_missing', npc: handle, missing, needs: { field: missing[0], options: [] } }
-        });
+        throw await incompleteStatBlock(context.kernel, context.graph, node, handle, missing, `a chase of ${name}`, 'quarry_numbers_missing');
     return participantFromCombatSpec(await npcCombatParticipant(context.tables, handle, profile), 'quarry', 0);
 }
 const locationRefs = (locations: Row[]): string[] => locations.map(location => `${location.kind === 'scene' ? 'scene' : 'location'}:${location.label}`);
@@ -288,7 +287,7 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
                 {details: {reason: 'chase_participant_unprepared', field: 'chase_roster'}});
             const id = acting ? context.actorId : opponent![0];
             const spec = acting ? await investigatorCombatParticipant(context.tables, context.actor, null)
-                : await npcCombatParticipant(context.tables, id, opponent![2]!);
+                : await npcCombatParticipant(context.tables, id, await requireParticipantBlock(context.kernel, context.graph, opponent![1], id, opponent![2]!, `a chase with ${context.graph.displayName(opponent![1])}`));
             const side = entry.role === 'passenger' ? 'passenger' : (string(action.intent) === 'flee') === acting ? 'quarry' : 'pursuer';
             const participant = participantFromCombatSpec(spec, side, 0);
             names.set(normalize(entry.actor), id);
@@ -377,8 +376,9 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
                 opponents = chosen;
         }
         const participants = [participantFromCombatSpec(await investigatorCombatParticipant(context.tables, context.actor, null), 'quarry', 0)];
-        for (const [handle, , profile] of opponents)
-            participants.push(participantFromCombatSpec(await npcCombatParticipant(context.tables, handle, profile), 'pursuer', 0));
+        for (const [handle, node, profile] of opponents)
+            participants.push(participantFromCombatSpec(await npcCombatParticipant(context.tables, handle,
+                await requireParticipantBlock(context.kernel, context.graph, node, handle, profile, `a chase by ${context.graph.displayName(node)}`)), 'pursuer', 0));
         const locations = chaseLocationChain(context);
         Object.assign(semantic, {
             pursuer_refs: opponents.map(([handle]) => `npc:${handle}`),
