@@ -32935,7 +32935,9 @@ A module that plays from reading (`playsFromReading`) gets its cast once per bou
 - stops at a range refused twice; that cast is not read again until the next session, which resumes there;
 - records `lane: "cast"` rows (`range`, `published`, `refused`, `unavailable`, `failed`) and emits `coc:cast-published` after every range.
 
-It is asked after every preparation of a book except a bare binding (`ReadingService.prepare`), whether a PDF's ingest or character creation preparing a book already read, so the cast can land before the opening. It is queued after that call returns, never inside it. The module extension asks again at every `table-open` of a reading module. One run per scope and module at a time.
+It is asked after every preparation of a book except a bare binding (`ReadingService.prepare`), whether a PDF's ingest or character creation preparing a book already read, so the cast can land before the opening. It is queued after that call returns, never inside it. The module extension asks again at every `table-open` of a reading module, and when its reader is made after the table opened. In the installed App the kernel extension opens the table inside its own `session_start`, before the module extension has a reader, and table 24's ask was dropped there. One run per book at a time.
+
+A run that the setup process started stops when setup hands over to the table. The table's session resumes at the first range not yet submitted, so that range is read again.
 
 ### 177.3 A newcomer may not take a name the book gives anyone
 
@@ -33007,5 +33009,5 @@ Tests:
   - no text layer;
   - an authored module, and the abbreviation.
 - `tests/extension/module-cast.test.mjs` also: the library's cast read by a campaign's fork; a 45-page book in two ranges, the second joining a known person by a known form under the first range's id, refusing a page outside its range, and resuming from the kept text.
-- `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, one background child per range under `module-cast.md`, each range's submit, record and announcement, all in the library scope, resuming at the first range not read, the second run after a refusal, no child without text, one run at a time, a preparation queueing the cast, and a campaign-only module read in its scope.
+- `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, one background child per range under `module-cast.md`, each range's submit, record and announcement, all in the library scope, resuming at the first range not read, the second run after a refusal, no child without text, one run at a time, a preparation queueing the cast, a campaign-only module read in its scope, and a table opened before the session started still asking for the cast, in either order.
 - `tests/extension/npc-epithets-lane.test.mjs`: a published cast asks again, and another campaign's does not.

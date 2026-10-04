@@ -642,9 +642,14 @@ export class ReadingService implements ReadingBridge {
 		if (this.stopped) return { state: 'stopped' };
 		// The cast belongs to the book: it is read once in the shared library, which every campaign's fork falls back to
 		// (`loadModule`); only a module that exists in a campaign's scope alone is read there.
-		let campaign: string | undefined = undefined;
-		let job = await this.call('cast.job', { module_id: mid }, undefined);
-		if (job?.reason === 'no_module' && bound !== undefined) { campaign = bound; job = await this.call('cast.job', { module_id: mid }, campaign); }
+		let campaign: string | undefined = undefined, job: Row;
+		try {
+			job = await this.call('cast.job', { module_id: mid }, undefined);
+			if (job?.reason === 'no_module' && bound !== undefined) { campaign = bound; job = await this.call('cast.job', { module_id: mid }, campaign); }
+		} catch (error) {
+			this.note({ lane: 'cast', module_id: mid, event: 'failed', stage: 'job', message: error instanceof Error ? error.message : String(error) });
+			return { state: 'failed' };
+		}
 		if (!job?.job_id) return job ?? {};
 		const controller = new AbortController(), signal = controller.signal, started = Date.now();
 		this.controllers.set(key, controller);

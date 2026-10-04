@@ -12,6 +12,8 @@ import {tmpdir} from 'node:os';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {ReadingService} from '../../extensions/module/reading-service.ts';
+import {EventEmitter} from 'node:events';
+import moduleExtension from '../../extensions/module/index.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PAGE_COUNT = 70;
@@ -146,4 +148,23 @@ test('§177.2: a module that exists only in a campaign\'s scope is read there', 
 	assert.equal((await h.reading.cast('book-4')).state, 'complete');
 	assert.equal(libraryAsked, 1);
 	assert.ok(h.calls.filter(([name]) => name.startsWith('cast.')).every(([, params]) => params.campaign === 'camp'), 'every later call names the campaign');
+});
+
+test('§177.2: a table that opened before the session started still gets its cast, in either startup order', async () => {
+	// The installed App (table 24): the kernel extension opens the table inside its own session_start, before the module
+	// extension's session_start has made a reader, so the table-open ask found no reader and was dropped.
+	for (const earlyTable of [true, false]) {
+		const events = new EventEmitter(), hooks = new Map(), asked = [];
+		moduleExtension({events, on(name, fn) { hooks.set(name, fn); }, appendEntry() {}, getThinkingLevel() { return 'low'; }});
+		const ctx = {model: {provider: 'fixture', id: 'reader'}, modelRegistry: {find() { return {input: ['image']}; }}};
+		const open = () => events.emit('coc:table-open', {campaign: 'camp', open: {module_reading: true, campaign: {module_id: 'book-4'}}});
+		events.emit('coc:kernel-bridge', {campaign: 'camp', runtime: {home: tmpdir(), readerModel: 'fixture/reader', contentRoot: join(ROOT, 'content')},
+			async call(method, params) { if (method === 'cast.job') asked.push(params.module_id); return {job_id: null, state: 'complete'}; }});
+		if (earlyTable) open();
+		await hooks.get('session_start')({}, ctx);
+		if (!earlyTable) open();
+		for (let i = 0; i < 100 && !asked.length; i++) await new Promise(resolve => setTimeout(resolve, 5));
+		assert.ok(asked.includes('book-4'), `the cast was asked for (${earlyTable ? 'table first' : 'session first'})`);
+		await hooks.get('session_shutdown')();
+	}
 });

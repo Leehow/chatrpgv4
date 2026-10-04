@@ -85,6 +85,9 @@ export default function (pi: ExtensionAPI) {
         });
         pi.events.emit("coc:reading-bridge", reading);
         wake("reader-ready");
+        // §177.2: the table may have opened before this session started (the kernel extension opens it in its own
+        // session_start), when there was no reader to ask; the new reader asks, as the prefetch above does.
+        if (!setupMode && visualModule) readCast(moduleId);
     }
 
     pi.events.on("coc:kernel-bridge", data => {
