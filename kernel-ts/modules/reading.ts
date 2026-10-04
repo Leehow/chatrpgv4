@@ -35,6 +35,7 @@ import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needEligible,need
 import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy.js';
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
+import {syncLibraryFromCampaign} from './campaign-scope.js';
 import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,visualCandidates,type VisualScan} from './visual-discovery.js';
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
@@ -251,7 +252,29 @@ export class Reading {
         return this.mutex(mid,async()=>{const meta=await this.store.module(mid);await this.source(meta);return publishReferenceContext(this.store,meta,params);});
     }
     async publishReferencePlace(params:Row):Promise<Row>{
-        const mid=validateModuleId(params.module_id);return this.mutex(mid,async()=>{const meta=await this.store.module(mid);await this.source(meta);return publishReferencePlace(this.store,meta,params);});
+        const mid=validateModuleId(params.module_id);return this.mutex(mid,async()=>{const meta=await this.store.module(mid);await this.source(meta);
+            const result=await publishReferencePlace(this.store,meta,params);
+            // §179.1: a materialization that published is a publication the library follows; a reused place published nothing.
+            return result.state==='ready'&&!truth(result.reused)?this.libraryFollows(mid,result):result;});
+    }
+    /**
+     * §179.1: a campaign fork's publication is offered to the library it was seeded from, inside this call and after the
+     * fork's own writes are durable. Runs under this module's metadata lock (the fork's); `syncLibraryFromCampaign` takes
+     * the library's second. Its outcome rides on the result as `library_sync` and never fails the publication. A
+     * library-scoped publication gets no field: the library follows no one.
+     */
+    private async libraryFollows(mid: string, result: Row): Promise<Row> {
+        let campaign: unknown;
+        try { campaign = (await this.store.module(mid)).campaign_scope; }
+        catch (error) { return { ...result, library_sync: { state: 'failed', detail: (error instanceof Error ? error.message : String(error)).slice(0, 1000) } }; }
+        if (typeof campaign !== 'string') return result;
+        // The store must be that campaign's own fork; a scope that names another campaign is not this workspace's lineage.
+        if (this.store.root !== join(this.store.context.stateRoot, 'module-campaigns', campaign, 'modules'))
+            return { ...result, library_sync: { state: 'skipped', reason: 'not_a_fork' } };
+        let library_sync: Row;
+        try { library_sync = await syncLibraryFromCampaign(this.store.context, campaign, mid); }
+        catch (error) { library_sync = { state: 'failed', detail: (error instanceof Error ? error.message : String(error)).slice(0, 1000) }; }
+        return { ...result, library_sync };
     }
     async referenceReady(mid:string,focus=''):Promise<boolean>{
         if(!await sourceReferenceReady(this.store,mid,focus))return false;
@@ -1581,6 +1604,17 @@ export class Reading {
     async finish(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id);
         return this.mutex(mid, async () => {
+            const result = await this.finishHeld(mid, params);
+            // §179.1: a completed reading that published (not a replay, not an answer put back in the queue) is followed by
+            // the library. Source consultations stay private to their campaign (§179.4): their answers are never adopted.
+            if (params.outcome !== 'completed' || truth(result.replayed) || result.state === 'queued') return result;
+            const job = (await this.store.queue(mid)).find(job => job.job_id === params.job_id);
+            return job && job.purpose !== 'answer' && job.state === 'completed' ? this.libraryFollows(mid, result) : result;
+        });
+    }
+    /** `finish` under this module's metadata lock. */
+    private async finishHeld(mid: string, params: Row): Promise<Row> {
+        {
             const meta = await this.store.module(mid), queue = await this.store.queue(mid), job = queue.find(job => job.job_id === params.job_id);
             if (!job)
                 throw new RpcError('invalid_params', 'unknown reading job');
@@ -1883,7 +1917,7 @@ export class Reading {
             await this.store.writeQueue(mid, queue);
             await this.release(mid, job.job_id);
             return result;
-        });
+        }
     }
     /**
      * §151.4: an attempt of a need-driven read that ended without an author. `answered` closes the need through the

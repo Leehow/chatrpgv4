@@ -32978,6 +32978,37 @@ never changes a forked campaign's graph -- and gains the reverse one:
   un-forked campaign that still follows the library (§22.6: "a book whose reading finishes after the campaign exists
   still reaches it"). Actor: the next campaign's `module.read.ahead`, which queues no unit the rows already answer.
 
+**Implementation decisions (2026-10-04, CT-01).** `syncLibraryFromCampaign` in `kernel-ts/modules/campaign-scope.ts`,
+called from `Reading.finish` and `Reading.publishReferencePlace` under the fork's metadata lock (lock order: fork
+metadata, then library metadata; a seeding holds the campaign's seed lock, then library metadata; nothing that holds the
+library's lock waits on a fork's, so there is no cycle).
+
+- Which finishes: outcome `completed`, not a replay, not an answer put back in the queue, and not `purpose: answer`
+  (§179.4). `settled` and `held` are not publications here; what they wrote travels with the fork's next one. A
+  library-scoped publication carries no `library_sync` field.
+- The lineage test also requires `synced_from.library_generation` to equal the library's generation, so a library
+  publication of its own after a sync ends the lineage, as §179.4 says. `nothing_new` is decided on content: the adopted
+  graph and fields equal the library's current ones.
+- Every adoption writes a new library generation, even when the graph bytes are unchanged (a visual scan, an empty
+  unit), so each material row new to the library gets that generation as its `generation`; a row the library already
+  holds (equal but for `generation`) keeps its own. `focusTouched` and the identity order compare rows with the module's
+  own generation, and a fork's numbering is not the library's.
+- Artifacts: a path the library references now is the library's own bytes (the fork copied them at its seed) and is
+  kept; every other artifact is copied to `synced/<campaign>/<the fork's relative path>` and the pointer (`asset_ref`,
+  `index_file`, `packet_file`) rewritten, because `work/read-N/attempt-M` ordinals collide between the library and every
+  fork. Guidance files are found by key and are replaced atomically in place.
+- `reading.map_candidates` travels with the index: it is the index finish's own output, read beside `index_file`.
+  `index_file`/`index_complete` are adopted only from a fork whose index is complete. A field the fork lacks never
+  unsets the library's.
+- `is_start` is restored on `properties.runtime_projection.record`, the only place `applyOpeningChoice`'s write
+  persists; the `is_entrance` it adds to every candidate is the book's declaration and stays.
+- `library_sync` is left out of `task_source_revision` (beside `reading` and `updated_at`): it is written after the
+  fork's publication, whose exact source advance (§22.4 ownership) was measured before it.
+- The host's row: `{lane: "reading", event: "library_sync", module_id, campaign, job_id, ...library_sync}` after both
+  completed-finish call sites, and after `module.reference.materialize` (no `job_id`).
+- Tests: `tests/extension/library-follows-fork.test.mjs`, `campaign-module-isolation.test.mjs` (amended),
+  `map-publication.test.mjs` (the host row).
+
 ### 179.2 The Keeper's request keeps its prefix across turns (amends §135.23)
 
 On the single-loop engine the projection's fixed part after the brief is, in order: the turn's capsule, then

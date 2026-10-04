@@ -6,9 +6,12 @@ import { randomUUID } from 'node:crypto';
 import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import { sha256File, writeJsonAtomic } from '../fileio.js';
-import { jsonDigest, parsePythonJson } from '../json.js';
+import { canonicalJson, isJsonObject, jsonDigest, parsePythonJson } from '../json.js';
 import { withOptionalExclusiveLock } from '../locks.js';
-import { array, clone, normalize, number, repr, row, type Row } from '../read/values.js';
+import { recordOf } from '../read/module-graph.js';
+import { array, clone, equal, normalize, number, repr, row, truth, type Row } from '../read/values.js';
+import { nowIso } from '../write/store.js';
+import { playsFromReading } from './bound-source.js';
 import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, sourceAnswerResult } from './source-answer.js';
 import { ModuleStore, validateModuleId } from './store.js';
 import { childPath, inside, resolvedPath } from './paths.js';
@@ -198,4 +201,207 @@ export async function ensureCampaignModule(context: KernelContext, campaign: str
             }
         });
     });
+}
+
+/**
+ * §179.1: the `module.json` fields the library adopts from the fork it follows. The index (`index_file` with
+ * `reading.index_complete`) travels as a pair, below. `reading.map_candidates` is the index's own output, read beside
+ * `index_file` by the map gate and by every assembly, so it travels with the index rows it came from.
+ */
+const ADOPTED_READING = ['materials', 'scene_index', 'visual_scans', 'visual_candidates', 'visual_identity', 'missing', 'retranscriptions',
+    'resolved_source_needs', 'source_need_dispositions', 'viewed_pages', 'map_candidates'];
+const ADOPTED_MODULE = ['prepared_openings', 'character_guidance', 'source_reference', 'vocabulary', 'languages'];
+/**
+ * §179.1: where a fork's artifact lands in the library when the library has no file of its own at that path. Work
+ * directories are named by ordinal job id (`work/read-N/attempt-M`), and those ordinals collide between the library and
+ * every fork, so a fork's file is never written into a library work directory.
+ */
+const SYNCED_ROOT = 'synced';
+
+async function copyAtomic(from: string, to: string): Promise<void> {
+    await mkdir(dirname(to), { recursive: true });
+    const temporary = `${to}.sync-${randomUUID()}`;
+    try { await copyFile(from, temporary, constants.COPYFILE_FICLONE); await rename(temporary, to); }
+    catch (error) { await rm(temporary, { force: true }).catch(() => undefined); throw error; }
+}
+const withoutGeneration = (material: Row): string => {
+    const { generation: _generation, ...rest } = row(material);
+    return canonicalJson(rest);
+};
+
+/**
+ * §179.1: the library follows the leading fork. A campaign fork's accepted reading is source material, so after the
+ * fork publishes, the library adopts it as one new library publication -- when the library's head is this fork's lineage.
+ * Returns `{state: "published", library_generation}`, `{state: "skipped", reason}` or `{state: "failed", detail}`; it
+ * never throws, because a sync failure never fails the fork's publication.
+ *
+ * The caller holds the fork's `.metadata.lock` (its Reading mutex): the fork's `library_sync` record is written under it.
+ * This takes the library module's `.metadata.lock` second. Lock order: a fork publication holds fork metadata, then
+ * library metadata; a fork seeding (`ensureCampaignModule`) holds the campaign's `.seed-<id>.lock`, then library
+ * metadata; a library publication holds only library metadata. No holder of the library's metadata lock waits on any
+ * fork's metadata or seed lock, so the order has no cycle.
+ */
+export async function syncLibraryFromCampaign(context: KernelContext, campaign: string, moduleId: string): Promise<Row> {
+    try { return await followFork(context, campaign, moduleId); }
+    catch (error) { return { state: 'failed', detail: (error instanceof Error ? error.message : String(error)).slice(0, 1000) }; }
+}
+
+async function followFork(context: KernelContext, campaign: string, moduleId: string): Promise<Row> {
+    const skipped = (reason: string): Row => ({ state: 'skipped', reason });
+    const id = validateModuleId(moduleId), fork = new ModuleStore(moduleContext(context, campaign));
+    const library = new ModuleStore({ ...context, moduleRoot: join(context.stateRoot, 'modules') });
+    if (!await fork.exists(id) || (await fork.module(id)).campaign_scope !== campaign) return skipped('not_a_fork');
+    if (!await library.exists(id)) return skipped('library_missing');
+    const outcome = await withOptionalExclusiveLock(context.locks, join(library.moduleDir(id), '.metadata.lock'), async (): Promise<Row> => {
+        // Eligibility is decided on what is current inside the lock (§179.1, "the lineage test").
+        const forkMeta = await fork.module(id), libraryMeta = await library.module(id);
+        if (forkMeta.id !== id || forkMeta.campaign_scope !== campaign) return skipped('not_a_fork');
+        if (!playsFromReading(libraryMeta)) return skipped('starter');
+        const sha = row(libraryMeta.source_document).file_sha256;
+        if (libraryMeta.id !== id || typeof sha !== 'string' || !sha || sha !== row(forkMeta.source_document).file_sha256) return skipped('source_mismatch');
+        const head = row(libraryMeta.synced_from), generation = libraryMeta.generation ?? 0;
+        // The library's head is this fork's lineage: the generation this campaign last published there, or, never synced,
+        // the generation the fork was seeded from. A head the library wrote on its own after that ends the lineage (§179.4).
+        const lineage = Object.keys(head).length ? head.campaign === campaign && equal(head.library_generation, generation)
+            : equal(generation, forkMeta.source_generation ?? null);
+        if (!lineage) return skipped('library_advanced');
+        const forkGraph = await fork.readGraph(id), libraryGraph = await library.readGraph(id);
+        if (!forkGraph) return skipped('nothing_new');
+
+        // Where each fork artifact lives in the library. A path the library references now holds the library's own bytes,
+        // which the fork copied when it was seeded (and, under the lineage test, nobody has replaced since); every other
+        // artifact is carried under `synced/<campaign>/`, the fork's relative path kept, and is never written over.
+        const forkDir = fork.moduleDir(id), libraryDir = library.moduleDir(id);
+        const forkRoot = await resolvedPath(forkDir), libraryRoot = await resolvedPath(libraryDir);
+        const local = async (root: string, resolvedRoot: string, name: string): Promise<string | null> => {
+            const path = await resolvedPath(childPath(root, name));
+            return inside(resolvedRoot, path) ? relative(resolvedRoot, path) : null;
+        };
+        const known = new Set<string>();
+        const remember = async (name: unknown): Promise<void> => {
+            if (typeof name !== 'string' || !name) return;
+            const tail = await local(libraryDir, libraryRoot, name);
+            if (tail !== null) known.add(tail);
+        };
+        for (const node of array(libraryGraph?.nodes)) await remember(row(row(node).properties).asset_ref);
+        for (const asset of await library.assets(id)) await remember(asset.path);
+        await remember(libraryMeta.index_file);
+        await remember(row(libraryMeta.source_reference).packet_file);
+        for (const material of array(row(libraryMeta.reading).materials)) await remember(row(material).packet_file);
+        const copies = new Map<string, string>(), placed = new Map<string, string>();
+        const place = async (name: any): Promise<any> => {
+            if (typeof name !== 'string' || !name) return name;
+            const tail = await local(forkDir, forkRoot, name);
+            if (tail === null) throw new RpcError('invalid_params', 'a campaign source artifact escapes its workspace', { details: { artifact: name } });
+            const hit = placed.get(tail);
+            if (hit !== undefined) return hit;
+            const from = join(forkRoot, tail);
+            // A reference to a file the fork does not have carries nothing; it stays as the fork wrote it.
+            if (!await context.snapshots.isFile(from)) return name;
+            let target = tail;
+            if (!known.has(tail) || !await context.snapshots.isFile(join(libraryRoot, tail))) {
+                target = join(SYNCED_ROOT, campaign, tail);
+                if (!inside(libraryRoot, await resolvedPath(join(libraryRoot, target))))
+                    throw new RpcError('invalid_params', 'a synced source artifact escapes the module library', { details: { artifact: target } });
+                if (!await context.snapshots.isFile(join(libraryRoot, target))) copies.set(target, from);
+            }
+            placed.set(tail, target);
+            return target;
+        };
+
+        // The graph, with the campaign's opening choice removed (§22.6: the library never stores a table's opening):
+        // `entry_scene_ids` and every scene record's `is_start` keep the library's own current values, and a scene the
+        // library did not have gets `is_start: false`. `applyOpeningChoice` writes nothing else that is the choice.
+        const graph = clone(forkGraph);
+        if (libraryGraph && Object.hasOwn(libraryGraph, 'entry_scene_ids')) graph.entry_scene_ids = clone(libraryGraph.entry_scene_ids);
+        else delete graph.entry_scene_ids;
+        const libraryNodes = new Map(array(libraryGraph?.nodes).map(node => [row(node).node_id, row(node)]));
+        for (const node of array(graph.nodes)) {
+            const properties = row(row(node).properties), record = row(properties.runtime_projection).record;
+            if (node.node_kind === 'scene' && isJsonObject(record) && truth(record)) {
+                const before = libraryNodes.get(node.node_id);
+                record.is_start = before ? recordOf(before).is_start === true : false;
+            }
+            if (typeof properties.asset_ref === 'string') properties.asset_ref = await place(properties.asset_ref);
+        }
+        // The fork's asset registry names no file the graph does not (writeGraph derives the library's registry from
+        // the graph); a legacy entry that does is carried all the same.
+        for (const asset of await fork.assets(id)) await place(asset.path);
+        // Anything adopted is one new library generation, so every row new to the library is numbered at or below its head.
+        const graphChanged = !equal(graph, libraryGraph), target = number(generation) + 1;
+
+        // module.json: the reading state, never the campaign's private fields (§179.1, "what stays private").
+        const next = clone(libraryMeta), forkReading = row(forkMeta.reading), libraryReading = row(libraryMeta.reading);
+        next.reading = isJsonObject(next.reading) ? next.reading : {};
+        for (const field of ADOPTED_READING)
+            if (Object.hasOwn(forkReading, field)) next.reading[field] = clone(forkReading[field]);
+        for (const field of ADOPTED_MODULE)
+            if (Object.hasOwn(forkMeta, field)) next[field] = clone(forkMeta[field]);
+        // A fork seeded without the library's index file (§22.6) has no index to give, and does not unset the library's.
+        if (truth(forkReading.index_complete) && typeof forkMeta.index_file === 'string' && forkMeta.index_file) {
+            next.index_file = await place(forkMeta.index_file);
+            next.reading.index_complete = true;
+        }
+        if (isJsonObject(next.source_reference) && typeof next.source_reference.packet_file === 'string')
+            next.source_reference.packet_file = await place(next.source_reference.packet_file);
+        for (const material of array(next.reading.materials))
+            if (isJsonObject(material) && typeof material.packet_file === 'string') material.packet_file = await place(material.packet_file);
+        // A row's `generation` is this module's own numbering, which the read-ahead and the focus check compare with the
+        // module's generation: a row the library already holds keeps its own, a row new to the library is published in
+        // the library generation this adoption writes.
+        const held = new Map<string, Row[]>();
+        for (const material of array(libraryReading.materials)) {
+            const key = withoutGeneration(material);
+            held.set(key, [...held.get(key) ?? [], material]);
+        }
+        next.reading.materials = array(next.reading.materials).map(material => {
+            const own = held.get(withoutGeneration(material))?.shift();
+            return own ? clone(own) : isJsonObject(material) && Object.hasOwn(material, 'generation') ? { ...material, generation: target } : material;
+        });
+        // Accepted guidance is found by its key (`character-guidance/<key>/`), not by a pointer: same path, newest bytes.
+        const guidance: Array<[string, string]> = [];
+        for (const key of Object.keys(row(forkMeta.character_guidance))) {
+            for (const file of ['accepted.json', 'public.json']) {
+                const name = join('character-guidance', key, file), tail = await local(forkDir, forkRoot, name);
+                if (tail === null || tail !== name || !inside(libraryRoot, await resolvedPath(join(libraryRoot, name))))
+                    throw new RpcError('invalid_params', 'a guidance artifact escapes its module', { details: { artifact: name } });
+                const from = join(forkRoot, name), to = join(libraryRoot, name);
+                if (!await context.snapshots.isFile(from)) continue;
+                if (await context.snapshots.isFile(to) && (await readFile(from)).equals(await readFile(to))) continue;
+                guidance.push([name, from]);
+            }
+        }
+        const metaChanged = ADOPTED_READING.some(field => !equal(next.reading[field], libraryReading[field]))
+            || ADOPTED_MODULE.some(field => !equal(next[field], libraryMeta[field]))
+            || !equal(next.index_file, libraryMeta.index_file) || !equal(next.reading.index_complete, libraryReading.index_complete);
+        if (!graphChanged && !metaChanged && !guidance.length) return skipped('nothing_new');
+
+        // Publication: the artifacts first (none is referenced yet, or each replaces an accepted file atomically), then
+        // the one graph writer for a new generation, then the one atomic metadata write that makes it the library's head.
+        for (const [to, from] of copies) await copyAtomic(from, join(libraryRoot, to));
+        for (const [to, from] of guidance) await copyAtomic(from, join(libraryRoot, to));
+        await library.writeGraph(next, graph);
+        // Readiness is recomputed on the adopted graph the way a reading's own finish does it (§22.2).
+        const prepared = new Set(array(next.reading.materials).flatMap(material => array(row(material).node_ids)));
+        const opening = await library.opening(graph);
+        opening.opening_ready = truth(opening.opening_ready) && prepared.has(opening.start_scene);
+        next.opening = opening;
+        next.opening_ready = opening.opening_ready;
+        next.status = opening.opening_ready ? 'installed' : 'assembled';
+        // The fork's `ready` may be its opening choice; without the choice the library is ready only on its own opening.
+        const state = forkReading.state;
+        next.reading.state = opening.opening_ready ? 'ready'
+            : state === undefined || state === 'ready' ? (next.source_reference ? 'preparing' : 'blocked') : state;
+        const at = nowIso(), forkGeneration = forkMeta.generation ?? 0;
+        next.synced_from = { campaign, fork_generation: forkGeneration, library_generation: next.generation ?? 0, at };
+        await library.writeModule(next);
+        return { state: 'published', library_generation: next.generation ?? 0, fork_generation: forkGeneration, at };
+    });
+    if (outcome.state !== 'published') return outcome;
+    // The fork's own record, after the library commit. The lineage test reads `synced_from` on the library, so a crash
+    // between the two writes leaves the lineage intact.
+    const forkMeta = await fork.module(id);
+    forkMeta.library_sync = { library_generation: outcome.library_generation, fork_generation: outcome.fork_generation, at: outcome.at };
+    await fork.writeModule(forkMeta);
+    return { state: 'published', library_generation: outcome.library_generation };
 }
