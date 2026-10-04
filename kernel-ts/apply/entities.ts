@@ -26,6 +26,7 @@ import {generatedOf,intentStamp,refuseRepeat,refuseSaidDone,refuseSettled,resolv
 import {stageDraw, stageProduce} from './draw.js';
 import {fightTurn} from '../combat/execution.js';
 import {establishTableEntity, validateEstablishment} from '../read/table-entities.js';
+import {tableWord} from '../read/person-words.js';
 /** §135.30.7 (SL-42): the scenes the party left during this turn, latest departure first, from the turn's own move receipts. */
 function departedThisTurn(context:ApplyContext):string[]{
     const moves=[...array(context.turn.receipts),...(context.staged?.()??[])].filter(receipt=>isJsonObject(receipt)&&receipt.kind==='move'&&receipt.renamed!==true&&typeof receipt.from==='string'&&receipt.from!==receipt.to);
@@ -121,7 +122,10 @@ async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:st
     // table gave someone, through the one junction every person entrance reads (§87.8), which refuses two owners.
     node??=personNode(graph,world,name);
     if(node){
-        if(walkOn===true&&!graph.isTablePerson(node))throw new RpcError('invalid_params',`${repr(name)} is ${graph.displayName(node)}, whom this table already has; walk_on brings in someone it does not`,{fix:`leave walk_on out to write to ${graph.displayName(node)}; call a newcomer by a word nobody here carries`,details:{field:'npc.walk_on',query:name,person:graph.displayName(node)}});
+        // §177.3: the person by this table's word for them -- their epithet while untold -- never by the book's name, which
+        // only the request's rename kept out of the Keeper's copy before.
+        const shown=tableWord(world,graph.handle(node))||graph.displayName(node);
+        if(walkOn===true&&!graph.isTablePerson(node))throw new RpcError('invalid_params',`${repr(name)} is ${shown}, whom this table already has; walk_on brings in someone it does not`,{fix:`leave walk_on out to write to ${shown}; call a newcomer by a word that carries nobody's name`,details:{field:'npc.walk_on',query:name,person:shown}});
         return{node,established:false};
     }
     // A word that already names more than one person -- by an exact key or as a run inside two names
@@ -180,11 +184,13 @@ export function leanOrigin(context:Pick<ApplyContext,'lean'>,passage:Row|null):s
  * §87's record of a person the table has and the book (so far) does not; with §11.5.4's `from_passage` when a passage the
  * source text carried this turn names them. Idempotent on the name.
  */
-export function establishPerson(context:Pick<ApplyContext,'graph'|'world'|'turn'>,name:string,why:string|null,passage:Row|null):Row{
+export function establishPerson(context:Pick<ApplyContext,'graph'|'world'|'turn'>,name:string,why:string|null,passage:Row|null,cast?:string):Row{
     const {graph,world}=context,trimmed=name.trim(),people=array(world.table_people??=[]);
     const node=graph.addTablePerson(tablePersonId(trimmed),trimmed,{reason:why,turn:context.turn.turn,...(passage?{from_passage:passage}:{})});
+    // §177.6: a person the cast names, landed under the word this table calls them, keeps the cast row's id, so the book's
+    // person replaces the entry when the reader publishes them although the word is not one of the book's names.
     if(!people.some(person=>normalize(string(row(person).name))===normalize(trimmed)&&!row(person).replaced_by))
-        people.push({name:trimmed,turn:context.turn.turn,why,established_at:nowIso(),...(passage?{from_passage:passage}:{})});
+        people.push({name:trimmed,turn:context.turn.turn,why,established_at:nowIso(),...(passage?{from_passage:passage}:{}),...(cast?{cast_id:cast}:{})});
     return node;
 }
 /** What a receipt says about where a person came from: nothing for the book's, `table` for §87's, `passage` for §11.5.4's.
@@ -444,11 +450,11 @@ const LANDED_WHY='the book\'s text names them; their record is still being read'
  * §11.5.4's shape, and the focus in `world.index_people` so the gate passes it until the record lands -- and the result's
  * `person_text` rows.
  */
-export function landPeople(context:Pick<ApplyContext,'graph'|'world'|'turn'>,landed:Array<{kind:string;name:string;focus:string;pages:number[];person?:string;book?:boolean;passage?:Row|null}>):Row[]{
+export function landPeople(context:Pick<ApplyContext,'graph'|'world'|'turn'>,landed:Array<{kind:string;name:string;focus:string;pages:number[];person?:string;book?:boolean;passage?:Row|null;cast?:string}>):Row[]{
     const out:Row[]=[];
     for(const entry of landed){
         if(entry.kind!=='person')continue;
-        if(!entry.book&&entry.passage)establishPerson(context,entry.name,LANDED_WHY,entry.passage);
+        if(!entry.book&&entry.passage)establishPerson(context,entry.name,LANDED_WHY,entry.passage,entry.cast);
         const people=array(context.world.index_people).filter((value):value is string=>typeof value==='string');
         if(!people.includes(entry.focus))context.world.index_people=[...people,entry.focus];
         out.push({person:entry.person??entry.name,focus:entry.focus,pages:entry.pages,...(entry.passage?{passage:entry.passage}:{})});

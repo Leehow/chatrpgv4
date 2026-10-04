@@ -14,6 +14,7 @@ import { withTableEntities } from './table-entities.js';
 import { standingTables, type StandingTables } from '../combat/standing.js';
 import { array, row, clone, normalize, stripPrefix, number, repr, type Row } from "./values.js";
 import { playsFromReading } from "../modules/bound-source.js";
+import { moduleSourceSha, readServedCast } from "./cast.js";
 export class CampaignSnapshot {
     readonly dir: string;
     readonly jsonFiles = new Map<string, any>();
@@ -211,6 +212,13 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
     const store = inScope ? new ModuleStore(context) : undefined;
     const asset = store ? (name: string) => store.asset(id, name) : undefined;
     if (asset) graph.assetOverride = asset;
+    // §177.2: the cast reader's rows for this very file; a cast of another file (a re-bound PDF) is not this book's.
+    // The cast belongs to the book and is read in the shared library; a campaign's fork reads the library's when its own
+    // copy has none (§177.2).
+    if (registered) {
+        // §177.16: the current table from either place first, then an older one of this file while a new one is read.
+        graph.castStore = await readServedCast(context.snapshots, [moduleRoot, ...(inScope ? [join(context.stateRoot, 'modules', id)] : [])], moduleSourceSha(meta));
+    }
     const material = (name: string) => {
         if (!registered || !playsFromReading(meta))
             return "ready";

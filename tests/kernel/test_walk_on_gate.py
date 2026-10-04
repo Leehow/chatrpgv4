@@ -96,7 +96,8 @@ def test_walk_on_for_someone_this_table_has_is_refused(tmp_path):
         client.table("apply", call_id="t1-c2", effects=[{"kind": "person", "who": KNOTT, "name": EPITHET}])
         by_word = client.table_err("apply", call_id="t1-c3", effects=[
             {"kind": "npc", "name": EPITHET, "stance": "wary", "walk_on": True, "why": "x"}])
-        assert by_word["code"] == "invalid_params" and by_word["details"]["person"] == KNOTT
+        # Contract §177.3: the refusal names the person by this table's word for them, never by the book's name.
+        assert by_word["code"] == "invalid_params" and by_word["details"]["person"] == EPITHET
         assert not world(client).get("table_people")
     finally:
         client.close()

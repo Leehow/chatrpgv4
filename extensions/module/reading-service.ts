@@ -132,6 +132,8 @@ interface Dependencies {
 	record(row: Row): void;
 	/** The operator's out-of-fiction surface for a lane that stopped working (contract §22, shaped after §32.2). */
 	status?(row: Row): void;
+	/** §177.2: the book's cast landed, so the lanes that name people can ask again (the module extension emits it). */
+	published?(row: Row): void;
 	/**
 	 * SL-87: schedules the end of a foreground wait (`ensure`'s allowance, or `PI_COC_READ_WAIT_MS`) and returns its cancel.
 	 * Absent: `setTimeout`, exactly as before. A test whose subject is what happens inside and past the allowance, not its
@@ -177,6 +179,11 @@ interface PendingReading {
  */
 const STALL_WINDOW_MS = 600_000;
 const STALL_SWEEP_MS = 30_000;
+/** §177.2: native text is extracted this many pages a call (`sourceText` takes at most 32). */
+const CAST_TEXT_BATCH = 32;
+/** §177.2: a range's reader run, and a second when the kernel refused the first's submit. */
+const CAST_ATTEMPTS = 2;
+const CAST_TIMEOUT_MS = 20 * 60_000;
 function stallWindow(): number {
 	const configured = Number(process.env.PI_COC_READ_STALL_MS);
 	return Number.isFinite(configured) && configured > 0 ? configured : STALL_WINDOW_MS;
@@ -398,7 +405,7 @@ export class ReadingService implements ReadingBridge {
 		}
 	}
 
-	async close(options: {handOff?: boolean} = {}) { this.dispose(options); try { await Promise.allSettled([...this.pumps.values()]); } finally { await closeSourceDocuments(); } }
+	async close(options: {handOff?: boolean} = {}) { this.dispose(options); try { await Promise.allSettled([...this.pumps.values(), ...this.casting.values()]); } finally { await closeSourceDocuments(); } }
 
 	/** The heartbeat of one claimed job. Called only where the reader reported something real. */
 	private beat(key: string) { if (this.heartbeats.has(key) || this.controllers.has(key)) this.heartbeats.set(key, Date.now()); }
@@ -518,7 +525,20 @@ export class ReadingService implements ReadingBridge {
 	}
 
 	/** `options.providerBudget` is the stage lease the whole preparation pays from (contract §20 addendum 2). */
+	/**
+	 * §177.2: a book the table is preparing gets its cast in the background, whichever road prepared it -- a PDF's ingest, or
+	 * character creation choosing a book already read, which onboarding prepares directly -- so the cast can land before the
+	 * opening. The kernel answers no job for an authored module or a book that has its cast.
+	 */
 	async prepare(params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
+		const result = await this.prepareBook(params, signal, options);
+		const mid = typeof result?.module_id === 'string' ? result.module_id : typeof params.module_id === 'string' ? params.module_id : undefined;
+		// Binding returns before any read (the guidance or opening preparation that follows asks); the cast is queued after
+		// this call has returned, never inside it.
+		if (mid && params.purpose !== 'bind') setImmediate(() => { if (!this.stopped) void this.cast(mid, params).catch(() => undefined); });
+		return result;
+	}
+	private async prepareBook(params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
 		const campaign = this.campaign(params);
 		let mid = params.module_id;
 		if (params.pdf) {
@@ -597,6 +617,91 @@ export class ReadingService implements ReadingBridge {
 		const bundle = await this.runtime().sourceText({ pdf: snapshot.pdf, pages, expected_file_sha256: snapshot.file_sha256 }, signal);
 		return (bundle.snapshots ?? []).map((row: Row) => ({ page: row.page, ...(typeof row.pdf_label === "string" && row.pdf_label ? { pdf_label: row.pdf_label } : {}),
 			text: typeof row.text === "string" ? row.text : "" }));
+	}
+
+	/**
+	 * Contract §177.2: the book's cast -- every person it names, with the pages that name them -- read once per bound file, in
+	 * the background, by a reader child over the native text layer. Blood Road's graph at table 23's turn 9 had 54 people, the
+	 * ones the reader had reached; a newcomer could take the name of anyone else, and a carried page could hand the Keeper an
+	 * untold name nobody renamed. Nothing waits on this: until it lands, every check reads the graph's people as before.
+	 * One run per scope and module at a time; the kernel answers `job_id: null` once the book has its cast.
+	 */
+	cast(mid: string, params: Row = {}): Promise<Row> {
+		const campaign = this.campaign(params), key = JSON.stringify(['cast', mid]);
+		const running = this.casting.get(key);
+		if (running) return running;
+		// A cast that failed this session is not read again until the next one: every preparation and table open asks, and a
+		// reader that cannot do it would otherwise be paid again each time.
+		if (this.castFailed.has(key)) return Promise.resolve({ state: 'failed', retry: 'next_session' });
+		const run = this.readCast(mid, campaign, key).then(result => { if (result?.state === 'failed') this.castFailed.add(key); return result; })
+			.finally(() => { this.casting.delete(key); this.controllers.delete(key); });
+		this.casting.set(key, run);
+		return run;
+	}
+	private casting = new Map<string, Promise<Row>>();
+	private castFailed = new Set<string>();
+	private async readCast(mid: string, bound: string | undefined, key: string): Promise<Row> {
+		if (this.stopped) return { state: 'stopped' };
+		// The cast belongs to the book: it is read once in the shared library, which every campaign's fork falls back to
+		// (`loadModule`); only a module that exists in a campaign's scope alone is read there.
+		let campaign: string | undefined = undefined, job: Row;
+		try {
+			job = await this.call('cast.job', { module_id: mid }, undefined);
+			if (job?.reason === 'no_module' && bound !== undefined) { campaign = bound; job = await this.call('cast.job', { module_id: mid }, campaign); }
+		} catch (error) {
+			this.note({ lane: 'cast', module_id: mid, event: 'failed', stage: 'job', message: error instanceof Error ? error.message : String(error) });
+			return { state: 'failed' };
+		}
+		if (!job?.job_id) return job ?? {};
+		const controller = new AbortController(), signal = controller.signal, started = Date.now();
+		this.controllers.set(key, controller);
+		const record = (row: Row) => this.note({ lane: 'cast', module_id: mid, ...(campaign ? { campaign } : {}), job_id: job.job_id, ...row });
+		try {
+			let ranges: Row[] = Array.isArray(job.ranges) ? job.ranges : [];
+			if (job.source !== 'kept') {
+				const pages: SourcePageText[] = [];
+				for (let first = 1; first <= job.page_count; first += CAST_TEXT_BATCH) {
+					const batch = Array.from({ length: Math.min(CAST_TEXT_BATCH, job.page_count - first + 1) }, (_, index) => first + index);
+					pages.push(...await this.sourcePages(mid, batch, campaign === undefined ? { campaign: null } : { campaign }, signal));
+				}
+				const staged = await this.call('cast.source', { module_id: mid, job_id: job.job_id, pages: pages.map(({ page, text }) => ({ page, text })) }, campaign);
+				if (staged.state !== 'ready') { record({ event: 'unavailable', reason: staged.reason, ms: Date.now() - started }); return staged; }
+				ranges = Array.isArray(staged.ranges) ? staged.ranges : [];
+			}
+			const systemPrompt = await readFile(join(this.runtime().contentRoot, 'setup', 'module-cast.md'), 'utf8');
+			const model = this.deps.model();
+			let result: Row = { state: 'partial' };
+			// One child per range, in the book's order; a range refused twice stops the run, and the next session resumes there.
+			for (const range of ranges.filter(value => value?.done !== true)) {
+				const place = await this.call('cast.range', { module_id: mid, job_id: job.job_id, index: range.index }, campaign);
+				let lastError: unknown, submitted: Row | undefined;
+				for (let attempt = 1; attempt <= CAST_ATTEMPTS && !submitted; attempt++) {
+					if (signal.aborted || this.stopped) return { state: 'stopped' };
+					const run = await this.runtime().runTask({ kind: 'reader', request: { cwd: place.cwd, model: model.id, thinking: model.thinking, priority: 'background',
+						systemPrompt, tools: 'read,write,edit,bash', timeoutMs: CAST_TIMEOUT_MS, eventLog: join(place.cwd, `cast-${attempt}.jsonl`),
+						brief: `${readerInput({ task: { job_id: job.job_id, purpose: 'cast', play_language: job.play_language, range: { first: place.first, last: place.last }, pages_with_text: place.pages_with_text, known_cast: place.known } })} `
+							+ `Read task.json, then every page file under pages/ (pages ${place.first}-${place.last}), and write draft.json as your instructions say. `
+							+ (attempt > 1 && lastError ? `The previous attempt was refused: ${lastError instanceof Error ? lastError.message : String(lastError)}. ` : '')
+							+ 'Run coc-read-check --kind module-cast --draft draft.json before you stop, and repair what it refuses.' } }, signal);
+					try {
+						submitted = await this.call('cast.submit', { module_id: mid, job_id: job.job_id, index: range.index }, campaign);
+						record({ event: submitted.state === 'complete' ? 'published' : 'range', range: range.index, people: submitted.people, accepted: submitted.accepted,
+							refused: Array.isArray(submitted.refused) ? submitted.refused.length : 0, attempt, ok: run.ok, ms: Date.now() - started });
+					} catch (error) {
+						lastError = error;
+						record({ event: 'refused', range: range.index, attempt, ok: run.ok, reason: isKernelError(error) ? error.details?.reason ?? error.code : 'error', message: error instanceof Error ? error.message : String(error) });
+					}
+				}
+				if (!submitted) return { state: 'failed', range: range.index };
+				result = submitted;
+				// Each range's rows are true already: the lanes that name people can use them before the book is done.
+				this.deps.published?.({ ...(campaign ? { campaign } : {}), module_id: mid, people: submitted.people, state: submitted.state });
+			}
+			return result;
+		} catch (error) {
+			if (!signal.aborted) record({ event: 'failed', message: error instanceof Error ? error.message : String(error), ms: Date.now() - started });
+			return { state: signal.aborted ? 'stopped' : 'failed' };
+		}
 	}
 
 	async ensure(mid: string, params: Row, signal?: AbortSignal, options:ReadingOptions={}): Promise<Row> {
@@ -997,7 +1102,7 @@ export class ReadingService implements ReadingBridge {
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
 			check: `coc-read-check --packet ${quote(join(cwd, "task.json"))} --draft ${quote(join(cwd, "draft.json"))}` };
 		const task: Row = { purpose: job.purpose,
-            ...Object.fromEntries(['review_policy','source_unit','visual_scan','visual_asset','map_scope','visual_hints','review_scope_pages','source_need','carried_needs'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
+            ...Object.fromEntries(['review_policy','source_unit','visual_scan','visual_asset','map_scope','visual_hints','review_scope_pages','source_need','carried_needs','cast_names'].filter(field=>job[field]!==undefined).map(field=>[field,job[field]])), ...(job.material ? { material: job.material } : {}), ...(job.purpose === "opening" ? {opening_batch:true,...(job.opening_scope?{opening_scope:job.opening_scope}:{})} : {}), module_id: job.module_id, focus: job.focus, question: job.question, pages: job.pages,
 			...(job.purpose === "guidance" ? {guidance_key:job.guidance_key,public_progress_required:job.public_progress===true,
 				play_language:job.play_language, occupations:job.occupations.map((row:Row)=>({name:row.name}))} : {}),
 			source: { page_count: job.source.page_count }, index: job.index, known_nodes: job.known_nodes, field_spans: job.field_spans ?? {},

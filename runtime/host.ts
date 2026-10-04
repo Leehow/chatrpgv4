@@ -33,7 +33,7 @@ export interface RuntimeHostOptions {
 
 export type RuntimeTask = { kind: "reader" | "mod"; request: Omit<ReaderRequest, "signal"> };
 export type RuntimeCheck = { kind: "source-draft"; packet: string; draft: string }
-	| { kind: "mod-definition" | "object-usage"; draft: string };
+	| { kind: "mod-definition" | "object-usage" | "module-cast"; draft: string };
 export type RuntimeSource = { pdf: string; cache: string };
 export type RuntimeSourceSearch = { pdf: string } & import('../extensions/module/source.ts').SourceSearchOptions;
 export type RuntimeSourceText = { pdf: string } & import('../extensions/module/source.ts').SourceTextOptions;
@@ -68,7 +68,7 @@ export interface RuntimeCapabilities {
 	sourceWindow?(context: RuntimeContext, request: RuntimeSourceWindow, signal: AbortSignal): Promise<SourceWindow>;
 }
 
-type ConnectionOptions = Pick<KernelClientOptions, "timeoutMs" | "onDiagnostic" | "onRestart">;
+type ConnectionOptions = Pick<KernelClientOptions, "timeoutMs" | "onDiagnostic" | "onRestart" | "prepareCall" | "hostOnlyParams">;
 
 export interface HostRuntime {
 	readonly sourceReferences?: boolean;

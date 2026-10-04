@@ -1,5 +1,8 @@
 /** Read-only host checks use publication validators without constructing a kernel. */
 import { dirname, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { castPageFile, checkCastDraft } from './cast/draft.js';
+import { passageKey } from './read/table-people.js';
 import { snapshots } from './snapshots.js';
 import { RpcError, internalError } from './errors.js';
 import { loadModuleContract } from './modules/contract.js';
@@ -12,6 +15,28 @@ import {gatePreset, presetOf} from './mods/preset.js';
 export { pythonJsonDumps as serializeCheckResult } from './json.js';
 export { parsePythonJson as parseCheckResult } from './json.js';
 export const checkModDefinition = (path: string) => checkObjectParameters(path,validateDefinition);
+/**
+ * Contract §177.2: the cast reader's own check of its draft, against the page files it was handed beside it (`task.json`
+ * names the page count). The kernel's `cast.submit` runs the same check against its own copy of the text.
+ */
+export async function checkModuleCast(path: string): Promise<{ok: boolean; [key: string]: unknown}> {
+    try {
+        const folder = dirname(path), task = row(await snapshots.readJson(join(folder, 'task.json'))), count = number(task.page_count);
+        const pages = new Map<number, string>();
+        for (const page of array(task.pages_with_text)) {
+            const file = join(folder, 'pages', castPageFile(number(page)));
+            if (await snapshots.pathExists(file)) pages.set(number(page), await readFile(file, 'utf8'));
+        }
+        const range = row(task.range), known = new Set(array(task.known_cast).flatMap(person => array(row(person).book).map(name => passageKey(name))));
+        const checked = checkCastDraft(await snapshots.readJson(path), pages, count,
+            Number.isSafeInteger(range.first) && Number.isSafeInteger(range.last) ? { range: { first: range.first, last: range.last }, known } : { known });
+        if (checked.error) return {ok: false, error: checked.error};
+        return {ok: !checked.refused.length, people: checked.people.length, refused: checked.refused as unknown as Row[],
+            ...(checked.refused.length ? {fix: 'repair each refused row as its fix says, keep every other row as it is, write draft.json again and run this check again'} : {})};
+    } catch (error) {
+        return {ok: false, error: error instanceof Error ? error.message : String(error)};
+    }
+}
 export const checkObjectUsage = (path: string) => checkObjectParameters(path,validateUsage);
 /**
  * Contract §138.7: a draft in a job directory whose packet carries a weapon preset passes the same preset gate the

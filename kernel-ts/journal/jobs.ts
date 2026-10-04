@@ -8,6 +8,7 @@ import { ModuleGraph } from '../read/module-graph.js';
 import { sceneLabel } from '../read/capsule.js';
 import { tableWord } from '../read/person-words.js';
 import { bookNames, namePieces, occurs, nameWords, toldTurn } from './naming.js';
+import { bookCast, type CastPerson } from '../read/cast.js';
 import { array, row, clone, string, number, integer, truth, repr, sorted, length, normalize, type Row } from '../read/values.js';
 import { FAILURE_REASONS, committedRecords, logs, proseOf, writeLines } from '../memory/jobs.js';
 import { isStakesRoll } from '../npc/stakes-receipt.js';
@@ -281,10 +282,24 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
     const isNamed = (id: string) => integer(row(stored[id]).named_at) || told[id] !== undefined || namedInBatch.has(id);
     const unnamed = sorted(new Set(named.filter(([, id]) => !isNamed(id)).map(([name]) => name)));
     const carries = (text: string, id: string) => array(words[id]).map(string).some(word => word && occurs(normalize(text), word));
+    // §177.12: the person's names are the cast's -- their graph names and the forms the book prints for their row -- so a
+    // nickname the book prints only in the cast (book-4's station owner, also printed by his nickname alone) is their name too.
     const carriesBookName = (text: string, id: string) => {
         const node = graph?.nodes.get(id);
-        return !!node && namePieces(bookNames(graph!, node)).map(normalize).some(piece => !!piece && occurs(normalize(text), piece));
+        if (!node) return false;
+        const person = bookCast(graph!).find(entry => entry.node && string(entry.node.node_id) === id);
+        return namePieces(person ? person.names : bookNames(graph!, node)).map(normalize).some(piece => !!piece && occurs(normalize(text), piece));
     };
+    // §177.4: nor a name of anyone else the investigator has not been told about -- the other untold people of the graph and
+    // the people the book names whom the reader has not reached -- minus what a told person also carries.
+    const otherUntold = (id: string): string[] => {
+        if (!graph) return [];
+        const cast = bookCast(graph), untold = (person: CastPerson) => person.node ? !isNamed(string(person.node.node_id)) : true;
+        const known = new Set(namePieces(cast.filter(person => !untold(person)).flatMap(person => person.names)).map(normalize));
+        return namePieces(cast.filter(person => untold(person) && (person.node ? string(person.node.node_id) !== id : true)).flatMap(person => person.names))
+            .map(normalize).filter(piece => !!piece && !known.has(piece));
+    };
+    const carriesOtherName = (text: string, id: string) => otherUntold(id).some(piece => occurs(normalize(text), piece));
     /** §103.7: another person's epithet or label that is the same words as `label` (normalized). */
     const takenBy = (label: string, id: string): string => {
         const mine = normalize(label);
@@ -359,6 +374,8 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
             // The refusal names the person by the name the lane wrote, never by the alias or piece it matched.
             if (carriesBookName(label, id))
                 return reject(i, `entries[${i}].label carries a name the book gives ${repr(name)}, or a piece of one`, 'a label says how the player would know them -- the one visible thing only they have here -- and carries no name, nickname or part of one', { field: 'label', name, reason: 'untold_name' });
+            if (carriesOtherName(label, id))
+                return reject(i, `entries[${i}].label carries a name the book gives someone the investigator has not been told about, or a piece of one`, 'a label says how the player would know them -- the one visible thing only they have here -- and carries no name, nickname or part of one of anybody', { field: 'label', name, reason: 'untold_name' });
             // §103.7: a label tells one person from everyone else. On the installed App (table 15) the lane's labels were
             // "tall, lean, middle-aged man"-style phrases any of the three men could wear. The kernel refuses only the same words
             // held by someone else (normalized): one label inside another is often two people (the owner and the owner's wife), and whether a label is

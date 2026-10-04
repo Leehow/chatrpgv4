@@ -1210,6 +1210,21 @@
       ]
     },
     {
+      "file": "extensions/module/reading-service.ts",
+      "symbol": "ReadingService.readCast",
+      "kind": "reader-task",
+      "callee": "runtime.runTask",
+      "count": 1,
+      "owner": "module ext: cast reader",
+      "path": "app-play",
+      "role": "driver",
+      "trace": "contract \u00a7177.2; tests/extension/module-cast-reader.test.mjs",
+      "note": "The book's cast: one background tool-enabled Pi agent (read,write,edit,bash) over the native text layer, once per bound file, after a book's preparation or at table open; a second run only when the kernel refused the first submit.",
+      "lines_at_0b729e8fb": [
+        660
+      ]
+    },
+    {
       "file": "extensions/npc-voice/index.ts",
       "symbol": "attempt",
       "kind": "lane",

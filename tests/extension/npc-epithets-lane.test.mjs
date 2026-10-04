@@ -1,7 +1,7 @@
 /**
  * Contract §176.3: the epithet lane, mounted in a real Pi session against a stubbed kernel and a faux provider (not a
- * playtest). It runs in both modes, asks once at start, retries refused people once with the kernel's reasons, and its
- * prompt names the play language the word is written in.
+ * playtest). It runs in both modes, asks once at start, retries refused people once with the kernel's reasons, asks again when
+ * the book's cast lands (§177.5), and its prompt names the play language the word is written in.
  */
 import { strict as assert } from "node:assert";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -61,6 +61,7 @@ async function openLane(t, { mode = "play", responses = [], rpc } = {}) {
 	return {
 		calls: (method) => requests.filter((row) => row.method === method),
 		commit: (turn) => api.events.emit("coc:turn-committed", { campaign: "camp", turn }),
+		emit: (name, payload) => api.events.emit(name, payload),
 	};
 }
 
@@ -104,4 +105,10 @@ for (const mode of ["setup", "play"]) test(`in ${mode} mode the lane asks once a
 	await waitFor(() => lane.calls("epithets.job").length === 2, { label: "second job" });
 	lane.commit(1);
 	await waitFor(() => lane.calls("epithets.job").length === 3, { label: "a committed turn asks again" });
+	// §177.5: the book's cast landed: its unread people want a word, so the lane asks again; another table's cast does not.
+	lane.emit("coc:cast-published", { campaign: "other", module_id: "book-4" });
+	lane.emit("coc:cast-published", { campaign: "camp", module_id: "book-4" });
+	await waitFor(() => lane.calls("epithets.job").length === 4, { label: "a published cast asks again" });
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	assert.equal(lane.calls("epithets.job").length, 4, "another campaign's cast queued nothing");
 });

@@ -34,7 +34,7 @@ await build({stdin: {contents: [
 	`export {createKernelRuntime} from './kernel-ts/registry.ts';`,
 	`export {checkSourceDraft} from './kernel-ts/check.ts';`,
 	`export {pythonJsonDumps} from './kernel-ts/json.ts';`,
-	`export {cleanOutline, outlineChapters, indexChapters, readingWindow} from './kernel-ts/modules/chapters.ts';`,
+	`export {anchorPage, cleanOutline, outlineChapters, indexChapters, readingWindow} from './kernel-ts/modules/chapters.ts';`,
 ].join('\n'), resolveDir: ROOT, sourcefile: 'read-window-api.ts', loader: 'ts'},
 	outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
@@ -144,6 +144,22 @@ test('§182.1: chapters run from one bookmark to the next; a page shared collaps
 	assert.deepEqual(api.readingWindow(120, [], 100, 24), {mode: 'pages', first: 100, last: 120, chapters: []}, 'a page window stops at the last page');
 	assert.deepEqual(api.indexChapters([{name: 'Harbor', pages: [[0, 9]]}, {name: 'Tower', pages: [[10, 19], [30, 31]]}, {name: 'Lost', pages: [[20, 29]], state: 'unreadable'}], 40),
 		[{name: 'Harbor', first: 1, last: 10}, {name: 'Tower', first: 11, last: 40}], 'the model index sections are the fallback chapters');
+});
+
+test('§182.3: a scene anchors its window on the median page it cites, so an overview chapter that names it in passing does not pull the window back', () => {
+	// 血色公路 (2026-10-04, the installed App's kernel on a clone of the real data): the overview names every place, the town
+	// chapter describes them; the first page anchored the diner to the overview and the prologue.
+	const outline = [{name: 'Running the module', page: 13}, {name: 'Abattoir', page: 14}, {name: 'Prologue', page: 16}, {name: 'Welcome', page: 17},
+		{name: 'The town', page: 17}, {name: 'The base', page: 43}, {name: 'The old mine', page: 57}];
+	const chapters = api.outlineChapters(outline, 111);
+	const window = pages => api.readingWindow(111, chapters, api.anchorPage(pages), 24).chapters;
+	assert.equal(api.anchorPage([15, 28, 29]), 28);
+	assert.deepEqual(window([15, 28, 29]), ['The town', 'The base'], 'the diner reads its town chapter, not the overview');
+	assert.deepEqual(window([13, 17, 18, 20]), ['The town', 'The base'], 'the gas station too (upper median of an even count)');
+	assert.deepEqual(window([13, 16, 17]), ['Prologue', 'The town'], 'the prologue reads its own chapter and the next');
+	assert.deepEqual(window([58]), ['The old mine'], 'a single page is its own anchor; the last chapter has no next');
+	assert.equal(api.anchorPage([]), undefined);
+	assert.equal(api.anchorPage([28, 15, 28, 29]), 28, 'pages are distinct and sorted first');
 });
 
 test('§182.3: a long book reads the chapter in play and the next; when the scene moves to another chapter the next pass reads the new window only', async () => {

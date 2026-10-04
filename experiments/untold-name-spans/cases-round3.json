@@ -1,0 +1,68 @@
+[
+ {
+  "id": "T1",
+  "expect": "yes",
+  "text": "说服拉斯谎称修车需从镇外订零件。短线可选：拉斯一小时内修好并推荐走红路离开。布伦纳医生可主动付最后一站住宿费并邀晚餐（拖延线）。",
+  "name": "布伦纳医生"
+ },
+ {
+  "id": "T2",
+  "expect": "no",
+  "text": "In 1935 290 had been routed to Austin instead of San Antonio. Pat's Chevron did good business.",
+  "name": "Austin"
+ },
+ {
+  "id": "T3",
+  "expect": "no",
+  "text": "He made sure I had a cold Dr. Pepper. At Cedar Hill I no more than",
+  "name": "Dr"
+ },
+ {
+  "id": "T4",
+  "expect": "no",
+  "text": "位于城镇中心的是埃索加油站、马瑟综合商店和最后一站食宿酒吧。",
+  "name": "马瑟"
+ },
+ {
+  "id": "T5",
+  "expect": "no",
+  "text": "{\"name\":\"丹尼尔·马瑟\",\"line\":\"马瑟综合商店第三代老板；粗犷红发、窄棕眼、灰围裙与黑框眼镜；门廊抽烟盯外来者。\"}",
+  "name": "马瑟"
+ },
+ {
+  "id": "H1",
+  "expect": "yes",
+  "text": "斯柯特牧师来到这里以后，镇上的人都去他的教堂。",
+  "name": "斯柯特牧师"
+ },
+ {
+  "id": "H2",
+  "expect": "yes",
+  "text": "Dr. Brenner offers to pay for the motel room and invites you to dinner.",
+  "name": "Brenner"
+ },
+ {
+  "id": "H3",
+  "expect": "yes",
+  "text": "「泰勒先生，再来一杯。」",
+  "name": "泰勒先生"
+ },
+ {
+  "id": "H4",
+  "expect": "no",
+  "text": "They drove past the Mather General Store without stopping.",
+  "name": "Mather"
+ },
+ {
+  "id": "H5",
+  "expect": "yes",
+  "text": "老布伦纳从诊所后门出来，手里拎着黑皮包。",
+  "name": "布伦纳"
+ },
+ {
+  "id": "H6",
+  "expect": "any",
+  "text": "收音机里放着一首猫王的老歌，滋滋啦啦的。",
+  "name": "猫王"
+ }
+]

@@ -24322,19 +24322,20 @@ the Keeper (13.6 s, with a refused `resolve` and an `apply` first). At gate #6 t
 **What the builders issued outside a session (found, SL-19).** Nothing for a fight: `table.resolve.options` listed the
 combat decisions by name only (`decisions[]`, no targets, no weapons), and `buildCandidates` offers the specialised
 families only as a running session's steps, so the one resolve candidate outside a session was the ordinary check. A
-first blow needs a kernel row, because its parameters are the kernel's: who can be fought and what the investigator
-can hit with.
+first blow needs a kernel row because the kernel owns the available targets and methods, plus any profile or usage
+preparation they still require.
 
 **The kernel's row.** `table.resolve.options.context.first_blow` is `null` or `{decision: "combat:attack", intent:
-"combat", actor, targets, weapons}`: issued when no combat and no chase is active and the party is one investigator
-(`actor`, the sheet's name: the actor a resolve without `actor` defaults to); `targets` are the people present
-(`capsule.present`'s identities: the record's display name) that the combat engine can fight -- a stat block (the
-book's `mechanics.profile`, or one the table pinned from an archetype, §34.10) and not incapacitated
-(`incapacitatedBy` of their conditions); `weapons` are the investigator's own (`weaponOptions`, `unarmed` always
-among them). No target, no row. A person with no stat block is not a target: the engine refuses an attack on them
-(`needs` `archetype`), and pinning an archetype -- "chosen from who this person is" -- is the Keeper's. The row is a read
-and names nothing the resolve does not already accept; the kernel still opens the session, settles the attack and its
-pending defence, and issues every later step, exactly as for the Keeper's own `resolve`.
+"combat", actor, targets, weapons, preparation}`: issued when no combat and no chase is active and the party is one
+investigator (`actor`, the sheet's name: the actor a resolve without `actor` defaults to). `targets` names people
+present (`capsule.present`'s identities: the record's display name) who are not incapacitated; a combat profile is not
+required to name them. `preparation.targets` lists named people who still need a source-backed or Keeper-pinned profile
+before resolve. `weapons` combines ready weapons (`weaponOptions`, with `unarmed` always among them) and the
+investigator's held, owned, or inventory methods. `preparation.weapons` lists methods that still need an applicable
+attack usage. This metadata names work to prepare; it neither supplies missing profile/usage data nor makes an
+unprepared attack executable. Existing preparation and admission must finish before the canonical resolve can settle
+the attack. A read-only row still leaves the kernel to open the session, settle the attack and its pending defence, and
+issue every later step.
 
 **The candidate** (`runtime/jev/candidates.ts`): outside a live combat or chase, the row is one clerk candidate, key
 `resolve:combat:first-blow`, family `combat`, clerk authority **`first_blow`** (§135.3's list gains it: the
@@ -24360,21 +24361,24 @@ confidence gate.
 `act` cleared on another act, or on `combat` with `target` cleared; fires when `act` cleared on `combat` (the row's own
 `intent`, a resolve intent, since outside a session the `act` rows are the resolve intents) and `target` cleared on one
 of the candidate's issued targets, binding `target` (its `event: "bind"` record is path `jev` with the compile's
-confidence and distribution, as for the in-session attack). `target` cleared on a person present the kernel cannot
-fight (no stat block) decides it without firing: the Keeper's for the run. The in-session `attack` predicate now reads
+confidence and distribution, as for the in-session attack). A target with a missing profile remains a valid named
+target; `preparation.targets` keeps the selected attack from reaching resolve until that profile is ready. Likewise,
+an inventory method may be selected while `preparation.weapons` marks its missing usage. The in-session `attack` predicate now reads
 only the session's own attack (clerk `session_step`). The first blow is **compile-only**, like an obligation step
 (§135.30.1): the route's `need` question about it is asked and recorded but never selects it, because starting a fight
 is what the player does, which is the compile's to read, never whether a candidate is due. The compile is owed
-whenever the read issues it (it is reachable), so the first read in a scene with someone fightable present asks one.
+whenever the read issues it (it is reachable), so the first read in a scene with an issued target row asks one.
 
-**Knott at gates #5 and #6.** His book prints no numbers and the table had pinned none before turn 3, so the first-blow
-row issued no target there: the Keeper pins the archetype and throws the punch, as it did live. Once a stat block
-exists (the Keeper's pin, a book that prints one), the compile selects the first blow.
+**Knott at gates #5 and #6.** The live gate evidence predates §159.10.1: the earlier row had no target while Knott had no
+profile. Under the current contract, Knott is named and `preparation.targets` records the missing profile; inventory
+methods likewise remain named with missing usages in `preparation.weapons`. The Keeper may use an authored profile or a
+rulebook archetype only when justified; neither the row nor Jev invents combat numbers. The host must prepare the chosen
+target and method before resolve.
 
 *Tests.* `tests/extension/single-loop-compile.test.mjs`: the `target` rows outside a session only with a first-blow row
-and equal to the addressee rows; the predicate fires on `combat` + a fightable person, not below the gate, not on
-another act, not on a person without a stat block; the first blow compile-only at the route. `tests/kernel/test_jev_resolve.py`
-(the row on the emitted kernel: none for Knott without numbers, then his name after an archetype pin; none in a fight).
+and equal to the addressee rows; the predicate fires on `combat` + a named present person, not below the gate or on
+another act; the first blow compile-only at the route. `tests/kernel/test_jev_resolve.py` checks the named target and
+profile/usage preparations before and after a justified archetype pin, then no first-blow row in a fight.
 `tests/extension/single-loop-domain-policy.test.mjs`: the clerk's first blow at the seam on the emitted kernel opens the
 fight. The replays are in the SL-19 ticket's Comments.
 
@@ -32971,7 +32975,7 @@ The lane cannot tell the two cases apart while it also writes the turn's entries
 ### 176.10 Limits
 
 - The Keeper can still make up a name with the token in front of it: B2's bartender said 「叫我埃德就行」 on turn 7 with his row whole, and in round 1 (U3, turn 7) the bartender called the cook 「阿方索」 with the cook's row whole and carrying his token. On B1's turn 6, the turn the clerk moved the table into the bar, the same name was given to the cook; whether his token had reached that request was not established. Nothing reads the prose for names (§103.8 item 3, §166).
-- `lookup kind=module` does not resolve this table's word, and its entity rows carry no untold block. A query by the epithet answers `not_found`, with a note that a person the book never had is made with `walk_on`. That is §177.7's (`claude/module-cast-20261004`, not on this line yet), which makes lookup try the person junction.
+- `lookup kind=module` does not resolve this table's word, and its entity rows carry no untold block. A query by the epithet answers `not_found`, with a note that a person the book never had is made with `walk_on`. §177.7 makes lookup try the person junction.
 - The narrow question uses the lane's one retry (§103.6). In round 2 one job (V3, turn 6) was refused first for `named` beside a label and then for a quote without his name (「好嘞。热的有，冰水也有。稍等。」). The bartender stayed untold, as he should, but the job went to the backlog and that turn's entries were not written.
 - Round 2 (build 02300049e, three sequences) asked or had someone asked an untold person's name eleven times. No name was made up, and every name given went through the token. The veteran on turn 5 said 史蒂夫·布朗 in 3/3. Evidence: `chatrpgv4-wt-untold-reveal-live/.coc/playtests/untold-name-20261004/` (`results-round1.md`, `results-round2.md`, `lane-probe/`).
 - The book holding one bartender as two nodes (`book-4-robert-taylor`, `book-4-r-taylor`, each with its own epithet) is the reader's. §177.8 asks readers to keep one identity.
@@ -32983,6 +32987,308 @@ Tests:
 - `tests/kernel/test_voice_bench.py`: the nine-person bench still keeps four full dossiers; its stubs are `{name, truncated}` plus the untold block.
 - `tests/kernel/test_journal.py`: a made-up name refused with `not_a_book_name` and the narrow question; `named_as` that is not words of the quote, or without `named`, refused; the person left untold until the book's name is delivered; 诺特 taken with `named_as`; the instruction asks for their own name.
 - `tests/extension/npc-journal-lane.test.mjs`: the field rule asks for their own name and allows `named_as` only on request; the refusal reaches the retry and the retry's `named_as` reaches the kernel.
+
+## 177. The book's cast (owner ruling 2026-10-04, 「按你推荐的做」 on `docs/specs/module-cast.md` Q1–Q5; amends §22.4.7.1, §87.7, §103.8, §127.1 and §176)
+
+**Evidence.** The owner asked for a name list built when the module's graph is made, so names are easy to look up and a stranger the Keeper invents does not take the name of someone in the book (「创建模组图谱的时候是不是应该建立一个模组npc名表…临时刷出来的新npc也可以避开模组已有角色名称」). A probe on a scratch copy of table 23's campaign (Blood Road, `game-24bb66cb`, open turn 9, TS kernel at 0.9.6a `d0df51d2d`) sent seven `walk_on` names through `table.apply`:
+
+| newcomer's name | book person whose name it carries |
+| --- | --- |
+| 史蒂夫, 老史蒂夫, 史蒂夫大叔 | 史蒂夫·布朗 (Steve Brown) |
+| 拉塞尔, 卡车司机拉塞尔 | 拉塞尔·威廉姆斯, told, whom this table calls by that name |
+| 爱丽丝, 金发的爱丽丝 | 爱丽丝·杜威特, not met |
+
+All seven were minted as new table people:
+- `walk_on` compared whole names only, through `graph.npc` and `personNode`, and the graph answers "no npc named" for 史蒂夫, 拉塞尔 and 爱丽丝.
+- §103.8's piece refusal guarded only `apply person`.
+- Blood Road is a PDF read on demand: at that turn its graph held the 54 people the reader had reached. Every check that keeps names apart read the graph, so a person on a page not yet read was unknown to all of them.
+
+### 177.1 The cast
+
+The cast is one row per individual the book names (`bookCast`, `kernel-ts/read/cast.ts`):
+- **The graph's people.** Every `npc` node that is not a table person, with every name the book gives them (`bookNames`).
+- **The cast reader's rows** for a PDF book (§177.2), each with the forms the book prints, their play-language renderings and their notes renderings (§177.14).
+
+A stored row joins a graph person only by a whole identity (normalized): the person's own name or display name is one of the row's forms, or the row's fullest printed form is one of the person's names. The person then carries every name of both, and the row's id rides along as one of their `castIds`.
+
+A row that no graph person answers this way, or that two answer, is an *unread* person: the book names them and the reader has not reached them. They keep every name the row gives them, including a first name they share with a graph person.
+
+Table 24 is why a shared short form never joins: the reader gave the bar owner and the doctor one bare first name, and the bar owner's node also carries it as an alias.
+
+- **Told.** An unread person is untold until a committed delivery shows one of their names (`castToldTurn`).
+- **Id.** An unread person's id is the row's opaque `cast-<hex>`, a digest of the printed forms, never a slug of a name (§176.5).
+- **Creatures.** Creature nodes are not in the cast. A creature node is as often a kind (a deep one) as someone, and §136.12 already makes a stated creature the book's body.
+- **Authored modules.** An authored module, including a starter with a PDF bound beside it, has no cast job (owner's Q4). Its cast is its graph's people.
+
+Nothing reads what a name means. Rows join on equal strings, and the only judgment that a string is a name is the reader's.
+
+### 177.2 The cast reader (`cast.job`, `cast.source`, `cast.range`, `cast.submit`)
+
+A module that plays from reading (`playsFromReading`) gets its cast once per bound file, in the background, from reader children over the native text layer (owner's Q1).
+
+**Pages and runs.** The text is read in ranges of 40 pages (`CAST_PAGES_PER_RUN`), one child per range.
+- An agent re-sends its whole context every round. A 669-page book (the library holds one) read by a single child would outgrow any context window long before the end.
+- Book-4's 111 Chinese pages are already about 150,000 tokens.
+- The work is text in, names out, so each range runs as a Pi agent with tools, not a lane completion.
+
+**The four methods.**
+- **`cast.job {module_id, campaign?}`** returns one of:
+  - `{job_id: null, reason: "no_module" | "authored"}`;
+  - `{job_id: null, state}` once `cast.json` for this file is `complete` or `unavailable`;
+  - `{job_id: "cast:<sha12>", module_id, page_count, play_language, source: "needed"}`;
+  - `{job_id, ..., source: "kept", ranges: [{index, first, last, done}]}` when the kernel already keeps the text. A run that stopped resumes at the first range not done.
+
+  The cast belongs to the book. The host reads it in the shared library's module directory, and `loadModule` and the reader packets fall back to the library's `cast.json` when a campaign's forked copy has none. Only a module that exists in a campaign's scope alone is read there.
+- **`cast.source {module_id, campaign?, job_id, pages: [{page, text}]}`** keeps the host-extracted text as the kernel's own copy, in `cast-source.json`, and answers `{state: "ready", ranges}`. A book with no text on any page gets `cast.json` `{state: "unavailable", reason: "no_text_layer"}`, and every check falls back to the graph's people (owner's Q2).
+- **`cast.range {module_id, campaign?, job_id, index}`** writes that range's working directory:
+  - `pages/page-NNNN.txt`, the range's pages that have text;
+  - `task.json`, with `range`, `pages_with_text`, `play_language`, and `known_cast` (the rows earlier ranges kept, `{book, play, notes}`).
+
+  It answers `{cwd, index, first, last, pages_with_text, known}`.
+- **`cast.submit {module_id, campaign?, job_id, index}`** checks that range's `draft.json` against the kernel's copy (`checkCastDraft`, `kernel-ts/cast/draft.ts`) and folds the accepted rows into `cast.json` (`mergeCastRows`).
+  - The file is `{version: 1, source_sha256, state: "partial" | "complete", people: [{id, book, play, notes, pages, first?}], ranges_done, ranges_total}` (`version` is `CAST_VERSION`, 4 since §177.14).
+  - It answers `{state, people, accepted, refused, ranges_done, ranges_total}`.
+  - A partial cast is as true as a complete one, only shorter: `bookCast` and the reader packets use it.
+
+**The draft.** It is `{people: [{book, play, notes, pages}]}`, with no other keys.
+- `book`, `play` and `notes` are each a non-empty list of names of 2–60 characters on one line, with no `{{`, at most 24 together (16 for `book` and `play` before §177.14).
+- `pages` are distinct pages of the range.
+
+**The check.**
+- Every `book` form must stand on one of the row's pages under `passageKey`, the same comparison as §11.5.4.
+- A form an earlier range already printed (`known_cast`) needs no page here, so one individual joins up across ranges. A row of known forms only must still stand on one of its pages.
+- A failing row is refused alone, with reason `shape` or `not_on_page` and a fix naming what to add (§90.3). The other rows stand.
+- A row is one person as the reader wrote it, even when two rows share a form. Version 1 folded rows on any shared form, and on table 24 it made the bar owner and the doctor one person by their common first name. Version 2 still let one range's rows join each other through the fold. `CAST_VERSION` is 3, so files of either version are read again.
+- Across ranges, a row joins a kept row only by a whole identity: the kept row's fullest printed form is one of the row's forms, or the row's fullest form is one of the kept row's, and exactly one kept row answers. The joined row keeps the kept row's id, so a word the epithet lane gave under it stays theirs. A first name, even one only one kept row carries, joins nobody, and rows of the same range never join each other.
+- Each row keeps `first`, the sentence of its first mention, cut by machine as §11.5.4 cuts one.
+
+**The reader** reads under `content/setup/module-cast.md` with `read,write,edit,bash`, at background priority, about ten pages per tool call. Its own check is `coc-read-check --kind module-cast --draft draft.json`, which runs the same function against the page files and `known_cast` it was handed.
+
+**The host** (`ReadingService.cast`, `extensions/module/reading-service.ts`):
+- extracts text 32 pages a call, only when the kernel keeps none;
+- runs the ranges in the book's order, and runs a range's child once more with the refusal when its submit is refused;
+- stops at a range refused twice; that cast is not read again until the next session, which resumes there;
+- records `lane: "cast"` rows (`range`, `published`, `refused`, `unavailable`, `failed`) and emits `coc:cast-published` after every range.
+
+It is asked after every preparation of a book except a bare binding (`ReadingService.prepare`), whether a PDF's ingest or character creation preparing a book already read, so the cast can land before the opening. It is queued after that call returns, never inside it. The module extension asks again at every `table-open` of a reading module, and when its reader is made after the table opened. In the installed App the kernel extension opens the table inside its own `session_start`, before the module extension has a reader, and table 24's ask was dropped there. One run per book at a time.
+
+A run that the setup process started stops when setup hands over to the table. The table's session resumes at the first range not yet submitted, so that range is read again.
+
+### 177.3 A newcomer may not take a name the book gives anyone
+
+Before the material gate, each `npc` effect with `walk_on: true` whose name is not already one of this table's people is checked by `newcomerRefusal`. It is refused with `invalid_params`, `details.reason: "book_name"`, when it:
+- is or carries any cast name, of anyone, told or not, read or not;
+- is or carries a punctuation piece of a cast name (§103.8's pieces), except a piece the name writes with a period after it, which is written as an abbreviation ("Mr" of "Mr. Dooley");
+- is the word this table already calls one of the book's people.
+
+The refusal names nobody. For someone untold, saying whose name it was would hand the Keeper the name; for someone told, the Keeper already has it.
+
+`personOfEffect`'s refusal for a `walk_on` that resolves to a book person now names them by this table's word (`tableWord`), their epithet while untold. Before, it used the display name, which only the request's rename kept out of the Keeper's copy.
+
+A space is not punctuation, so "Silas Marsh" gives no piece. A short form the book prints on its own is a cast name because the reader lists it.
+
+### 177.4 The rename and the refusals cover the whole cast
+
+- **The rename.** `untoldRoster` (§103.5/§103.8) renames, for every untold person of the cast, every name the cast gives them and every punctuation piece of those names. An unread person is shown by the word the lane gave them, else by their row id. A page carried for a scene can name someone the graph does not have; their name no longer reaches the Keeper as printed.
+- **Shared names.** A name or piece that several untold people share is shown as all their words, joined by " / ". §176.5 left such a piece alone, as naming neither person for certain. On table 24 the bar owner's first name was shared that way and reached the Keeper as printed; a shared name is still a name.
+- **Pieces.** `untoldPieces` reads the whole cast, so the epithet lane's words and `apply person` names refuse a name or piece of an unread person too.
+- **Journal labels.** The journal lane's label is refused `untold_name` when it carries a name or piece of anyone else untold, graph or unread, besides the person's own (§103.8 item 5).
+
+### 177.5 Epithets for unread people (owner's Q3)
+
+- **The job.** `epithets.job` lists unread untold people after the graph's people, with `looks` their first-mention sentence. A person whose cast row already has a word is not asked again.
+- **Submit and fold.** `epithets.submit` accepts their row id. The fold writes their word under the row id in `world.person_epithets`.
+- **When the graph gets them.** Once the graph has the person, the row's word stays with the row and the lane words the person again from their record. The row's word was made from the sentence that first names them, which on table 24 was often what happens to them ("the father hung in the slaughterhouse cold room"); as the table's word for a person met it would show that to the player.
+- **Withdrawal.** At every fold, a stored word that now carries a name or piece of someone untold is withdrawn from `epithets.json` and from the world, and the lane is asked again. On table 24 the lane called a gang "Brenner's dim thugs" before the cast had read that the doctor is printed as plain "Brenner"; a word once written was never checked again.
+- **Waking the lane.** The lane queues a job on `coc:cast-published` for its own campaign (`wakeOn`, `extensions/lanes/queue.ts`).
+
+### 177.6 A write naming an unread person lands on the cast's pages
+
+The material gate (§22.4.7.1) treats a word in a person's seat that names an unread person as a book person not yet read. The word can be one of their names, this table's word for them, or their row id; the caller answers it with the world (`MaterialGate.cast`).
+
+- **The refusal.** `material_pending` with `person {key, name: <the word>, names: <their printed forms>, book: false}`, and `index.pages` the row's pages followed by any index rows. The detail read's focus is their first printed form.
+- **The landing.** It registers them under the word, as §11.5.4 registers a passage person, with `cast_id`.
+- **The replacement.** `replacePassagePeople` replaces the entry with the book's person whose `castIds` include it, once the reader publishes them, though the word is none of the book's names.
+
+### 177.7 Lookup
+
+`lookup kind=module` (§127.1):
+- tries the person junction (§87.8) after the graph's search, so this table's word finds the person;
+- answers an unread person as `{name: <the word>, kind: "npc", material: "unread", original_pages, note}` instead of `not_found`.
+
+### 177.8 The reader keeps one identity
+
+Every reader packet except the index and identity jobs carries `cast_names: [{book, play}]` (`Reading.castNames`). `content/setup/visual-reader.md` asks a person listed there to take a printed form as `name` and the others as `aliases`, so the same individual keeps one identity across readings and joins their cast row.
+
+### 177.11 A delivery may not say an untold person's name in its own words (owner ruling 2026-10-04, after table 25; amends §103.8 item 3 and the spec's Q5)
+
+**Evidence.** Table 25 (App `a7f5cbe57`, Blood Road), turn 8. Asked his name, the toothless trucker said 「叫我厄尼就行」. 厄尼 (Ernie Peters) is another man of the book, the postmaster, whom the investigator had not met; the cast held him, and the roster renamed him. Whether the Keeper saw his name in an unrenamed page or made a name up that happened to be his could not be told apart: a failed roster read was silent, and the outbound request is not kept (`untold_rows`/`untold_failed` on the prepared-context row since). Either way, the delivery would also have counted the real Ernie as told from then on. The owner chose to refuse such a delivery, by whole printed names only.
+
+**The rule** (`untoldNamesGate`, `kernel-ts/write/index.ts`; `untoldWholeNames`, `kernel-ts/read/person-words.ts`; `untoldNamesSaid`, `kernel-ts/write/names.ts`):
+- **Which words.** The Keeper's own words of a `table.narrate` or `table.ask` text. A resolved `{{name:}}` token is taken out, because the delivery puts the book's name there on purpose. An unresolved one is left as the word it carries. Every other marker is stripped as machine text: a say token's or a map's handle normalizes to the name it was made from.
+- **Which names.** Every form the cast reader printed for someone untold, graph people and the unread alike, minus any name a told person also carries.
+  - Only the cast says which strings are names; that is the reader's judgment. A graph's own names and aliases are as often roles and groups: the test modules have people called "Tenant", "Harbor clerk" and "the kids". So a module without a cast (an authored starter, owner's Q4) refuses nothing here.
+  - A person this campaign's adaptation added (`campaign_origin`) is the table's, not the book's.
+  - A one-character name is no name here.
+  - Comparison is `occurs`, with Latin word boundaries.
+- **First time.** The first delivery of the turn that says such names is refused `invalid_params`, `details.reason: "untold_name"`, naming the words found (the Keeper wrote them). The fix: put the person's `say_name` where the fiction has the name said, otherwise use the word `present[]` shows, and give a newcomer a word that carries nobody's name. The turn keeps `untold_gate: {words}`.
+- **Second time.** A delivery saying the same names again in the turn goes out with each name replaced in the prose by the word this table calls that person, through the roster's shown words (a shared name shows as all its owners' words). Telemetry records `outcome: "replaced"`. So the name is never delivered, and a draft the Keeper could not repair never strands the turn.
+- **Implicit narrate.** The host resends a refused implicit draft once (`RESENT_ON_SECOND_DELIVERY`, `untold_name` → `untold_name_resent`), as for §143.11's gates.
+
+Tests: `tests/extension/module-cast.test.mjs`:
+- an unread person's and an untold graph person's printed names refused;
+- the same names the second time delivered with the table's word in their place;
+- the name token delivered;
+- the name the Keeper's to write once told;
+- a module without a cast refusing nothing.
+
+`tests/extension/first-sight-kernel.test.mjs`: a fixture's prose no longer names the untold.
+
+### 177.12 A made-up name tells nobody (table 26; superseded by §176.9 on 0.9.6a)
+
+**Evidence.** Table 26 (App `c7c73b52e`, Blood Road), turn 8. Asked his name, the toothless trucker said 「叫我厄尔就行」 ("call me Earl"), a name the Keeper made up; his book name is 内特·帕特森 (Nate Patterson). The journal lane gave `named: true` with that line as `named_quote`, so `named_at` was set; on turn 9 the Keeper wrote 「内特·帕特森」 into an `apply npc` call. Table 27 (App `e634c3eb0`, turn 6): the same man said 「叫我老卡也行」 and stayed untold.
+
+The branch first refused such a quote outright (`not_their_name`). §176.9, which reached 0.9.6a from another branch the same day, asks the lane the narrow question instead: a quote carrying none of the person's names as written is taken only with `named_as`. That rule stands; this section adds only the cast to its names.
+
+**The rule.** `carriesBookName` (`kernel-ts/journal/jobs.ts`), for §176.9's quote check and for the label refusal, compares the person's cast names: their graph names and aliases, the cast's printed forms and renderings of their row (§177.1), and the punctuation pieces of all of them. A quote saying a form the book prints only in the cast (book-4's station owner is 「拉塞尔·威廉姆斯」 in the graph and also 「拉斯」 alone in the book) counts as their name without `named_as`. A label carrying such a form is refused as a book name.
+
+Tests: `tests/extension/module-cast.test.mjs`: a made-up name refused with `not_a_book_name` and the person kept untold; a form only the cast prints taken as their name; the book's name said through the token telling them.
+
+### 177.13 Recall by the table's word (table 27; amends §127.1's recall)
+
+**Evidence.** Table 27 (App `e634c3eb0`, Blood Road), turn 5. The Keeper asked `recall {what: "memory", about: ["烂牙的退休卡车司机"]}`, the toothless trucker's epithet. `recallMemory` resolved `about` through `EntityIndex` alone, by the graph's names, and answered `unknown_entity`; the `lookup` and `look` in the same batch did not run. For an untold person the table's word is the only name the Keeper holds.
+
+**The rule** (`kernel-ts/memory/recall.ts`). A name in `about` that neither the index nor its loose match finds goes through the person junction (`personNode`, §87.8): the graph's actor, then the word this table calls someone (§79, §176.2). Found, it stands for that person's npc key, so memory rows (which name people by the book's name) match it. Two owners of one word are refused as the junction refuses them; a word nobody carries is refused as before.
+
+Tests: `tests/extension/module-cast.test.mjs`: recall by an epithet resolves to the person; an unknown word is still refused.
+
+### 177.14 The names the game's own notes use (table 27; `CAST_VERSION` 4)
+
+**Evidence.** Table 27 (App `e634c3eb0`, Blood Road), turn 6. The reader writes some of the graph's fields in the system language (`source_needs[].question` and `trigger`; also its drafts and the character guidance), and there it called the station owner "Lars": "Playable numeric profile … for Lars if a roll or fight occurs at the station". The book is the Chinese edition and the cast held only its forms (拉斯, 拉斯·威廉姆斯), so the request's rename (§103.5) left "Lars" in place. The Keeper reasoned that the owner "is likely named Lars". Nothing reached a delivery.
+
+**The rule.**
+- Each cast row carries **`notes`**: every form as the language of the reader's instructions writes it. The game keeps its own notes about the book in that language. For a book written in it, `notes` repeats the printed forms; otherwise it is the rendering a translator into that language would use, for a translated book the original edition's names when the reader knows them. `content/setup/module-cast.md` asks for it; the draft refuses a row without it (`shape`), and `mergeCastRows` keeps it like `play`.
+- `bookCast` adds the notes renderings to the person's `names`: the request's rename, the newcomer refusal, the journal's label and named checks, and the epithet withdrawal all read them. They are never `printed`: §177.11's delivery check reads only the book's forms and the play language's renderings, and a stored row joins a graph person only by those.
+- `CAST_VERSION` is 4. A version-3 file has no `notes`, so `storedCast` reads it as absent and the book's cast is read again once, in the background (§177.2).
+- **A rendering's words** (table 28). A printed form that the punctuation splits into parts (a given name and a surname joined by a middle dot) makes each notes rendering with the same number of words contribute those words as names too (`notesNames`, `kernel-ts/read/cast.ts`). A note said "Russell" alone; the row had only "Russell Williams". A book printed in the notes language splits nothing by spaces: "Silas Marsh" still gives no "Silas".
+- **The producer** (`content/setup/visual-reader.md`, `source_needs`). The question, reason and trigger are English, and a person is named there exactly as the book prints the name, never a translation or a transliteration.
+- **Measured on table 28** (campaign `game-d78dd9ec`, App `a0ff7f0f6`, every host message and tool result replayed through the rename with the campaign's own roster):
+  - Raw, those messages carried 15 notes renderings (Nate Patterson, Steve Brown, Robert Taylor, Carlos Garza, Billy and others). After the rename none was left; before §177.14 every one reached the Keeper.
+  - With the words rule, "Russell" (6 times) and "Mather" (2) are renamed too.
+  - "Lars" (16 times, in `source_needs` the reader wrote before this instruction) is a rendering no cast row holds and stays until the graph is read again.
+
+Tests: `tests/extension/module-cast.test.mjs`: a row's notes rendering joins the person's names, is renamed by the roster and refused for a newcomer, and is not printed; a draft row without `notes` is refused.
+
+### 177.15 A name inside another word (table 27; amends §177.11 and §103.5)
+
+**Evidence.** Table 27 (App `e634c3eb0`, Blood Road, `grok-4.5` low), turn 8. The player mailed a letter to Dallas; the Keeper wrote 「达拉斯」. Its last two characters are 「拉斯」, a nickname the book prints alone for the station owner, so a whole printed name of an untold person by the string test. Three things followed:
+- §177.11 refused the delivery, quoting 「拉斯」.
+- The request's rename (§103.5) turned the quote into the owner's word, so the Keeper read that it had written 「油布口袋的加油站老板」, which it had not.
+- The second delivery replaced the name as §177.11 designed, and the player read 「你把要寄到达油布口袋的加油站老板的信递过去」.
+
+Book-4 prints 「达拉斯」 five times and 「拉斯维加斯」 once, and the cast has 74 printed forms of two or three characters. Whether a place is a person's name or part of another word is a semantic question: no boundary rule or word list answers it in Chinese.
+
+**Measured** (`experiments/untold-name-spans/`, 2026-10-04): one Jev Noul per place over the product's own batch, from the book's text and the tables.
+- Rounds 1–2 (38 cases) set the bar at 0.75: names 0.87–0.98, other words 0.03–0.68.
+- Table 28 (App `a0ff7f0f6`, turn 1) then showed the leak direction: the request kept 「布伦纳医生」 (Dr. Brenner, surname and title) at 0.73. That was a name shown to the Keeper as written.
+- The question now says a name may come "with a title", and the bar is **0.5**, low because keeping a name is a leak while renaming another word only reads oddly. Round 3 adds that place, the table's other kept places and titled names: 49 cases, names 0.88–0.98, none kept.
+- Three other words score above 0.5 and are renamed, the safe direction: the modal "Will" 0.60, Camp David in Chinese 0.50, and 「马瑟」 inside 「马瑟综合商店第三代老板」 in a person's line 0.91.
+- One request takes 0.3–1.3 s.
+
+**The rule.**
+- **Places** (`prosePlaces`, `kernel-ts/write/names.ts`). Where a text writes a name, outside every marker: longer names first, a Latin name only between non-letters. `nth` counts each name's places in order. A name inside a longer name's place goes with that place.
+- **`table.untold_spans {campaign, text}`**, read-only, returns `{spans: [{name, nth, start, end}]}`: the places of the untold printed names §177.11 would find.
+- **The host asks** (`extensions/kernel/untold-spans.ts`, `KernelClientOptions.prepareCall`):
+  - Before every `table.narrate` and `table.ask` reaches the kernel, it asks for the places, then asks Jev about each (family `untold-name-spans`, `runtime/jev/untold-name-spans.ts`; the text ±40 characters with the place marked ⟦…⟧).
+  - It sends the places below 0.5 as **`untold_cleared: [{name, nth}]`**. The field is the host's: a value in the Keeper's arguments is dropped first.
+  - Every failure falls back to the params with that field dropped. A decision getter, a lease or a malformed answer that throws inside the hook returns them, and so does telemetry. A hook that throws anyway makes the client drop `KernelClientOptions.hostOnlyParams` (`UNTOLD_HOST_PARAMS`) from the caller's params, instead of sending them as written. This is an invariant from review (2026-10-04); no table has shown a forged list reaching the kernel.
+  - Jev unconfigured, failed or later than 2.5 s clears nothing.
+  - Places go to Jev in requests of at most 40 (`NAME_SPANS_PER_BATCH`), in parallel under the one wait; a request the packer still refuses is split in halves. Past 400 places in one call (`NAME_SPANS_PER_CALL`), and wherever a request failed, a place is not judged and is treated as the name. Table 28 (turn 2): one source excerpt brought 393 places, a single request of 120 was refused by the packer, and none was judged.
+  - Telemetry: `lane: "untold-spans"`, `event: "judged"` (places, cleared, scores, ms) or `"fallback"` (reason).
+- **The gate holds the rest.** A cleared place is neither refused nor replaced. A refusal never quotes a name: it gives `details.places` and up to three `excerpts`, the words around each place with the name blanked (▢), so the request has nothing to rename in it. The second delivery replaces only the places not cleared. A name said only where no prose stands (inside an unresolved name token) is gated as before. Telemetry adds `cleared`, and `outcome: "cleared"` when every place was.
+- **A cleared place tells nobody.** The narrate record carries **`told_text`** when a place was cleared: the delivery rendered with those places blanked. `toldTurn` and `castToldTurn` read `told_text` before `rendered_text`, so Dallas never makes the station owner told.
+- **The request's rename asks too** (`extensions/table/untold-rename-judge.ts`):
+  - Before a request is renamed, every place in a host message or tool result not decided yet is asked, under the same bar and wait.
+  - A place judged another word is kept as written; every other place, and every place Jev did not answer in time, is renamed.
+  - A decision is kept for the session, so a request's prefix does not change under the provider's cache (§184.2).
+  - Handle rows (`table.untold` rows with `handle: true`, the person's handle and node id) are machine text, renamed wherever they stand and never asked about: an answer of "not a name" there would hand the Keeper the book's name as a slug.
+  - `untoldNote` (§176.8) is added only when something was renamed.
+
+Tests:
+- `tests/extension/module-cast.test.mjs`, on the real kernel: `table.untold_spans`; a cleared place neither refused nor replaced, the refusal blanking the name and counting the rest; the second delivery replacing only the place not cleared; a cleared place of an unread person and of a graph person's whole name telling nobody; the shape of `untold_cleared`.
+- `tests/extension/untold-name-spans.test.mjs`:
+  - the batch's question and bar;
+  - the host hook clearing only the places under the bar, dropping the Keeper's own list, and falling back unconfigured;
+  - the request keeping a judged place, renaming the name and the handle without asking about the handle, deciding each place once, adding no note when nothing was renamed, and renaming everything without an answer;
+  - the client running the hook inside its queue with a direct call to a real kernel;
+  - a getter, a malformed place or a lease that throws returning the dropped params, telemetry that throws deciding nothing, and a client whose hook throws dropping the host-only params (an echoing fake kernel).
+
+### 177.16 One upgrade: no window, no public figures, the renderings already in use (owner ruling 2026-10-04 after table 28; `CAST_VERSION` 5)
+
+**Evidence.** Table 28 (App `a0ff7f0f6`):
+- The v3-to-v4 upgrade re-read Blood Road's cast in the background for about five minutes. In that time no unread person was in the rename.
+- The v4 table lists real public figures the book only mentions (a president's portrait, singers on records), whose names need no hiding and only cause false hits.
+- The page reader's English `source_needs` called the station owner "Lars", a rendering no cast row held (the reader wrote "Russ").
+
+The owner ruled to fix all three in one upgrade. The paid re-read itself runs with the final package's acceptance.
+
+**The rule.**
+- **Staging.** A read in progress keeps its ranges in `cast.next.json` (`CAST_NEXT_FILE`). The complete table replaces `cast.json` atomically, and the staging file is removed. `cast.job`, `cast.source`, `cast.range` and `cast.submit` resume from the staging file, or from a current-version `cast.json` still partial (written before staging existed).
+- **What the checks read** (`readServedCast`, `kernel-ts/read/cast.ts`; `loadModule`, `Reading.castNames`), over the campaign's fork and then the library, in this order:
+  1. a current-version `cast.json`;
+  2. else an older version's table of the same file (`olderCast`: version 3 or later, same `source_sha256`, complete or partial), which keeps serving while the new one is read;
+  3. else the staging table, which is all a first read has.
+
+  A table of another file never serves.
+- **Public figures.** The reader leaves out real people the book mentions only as public figures of the world outside the story (`content/setup/module-cast.md`). It lists them when the scenario has them take part. This is the reader's judgement; there is no list of names.
+- **Renderings in use.** `cast.range` puts `notes_in_use` in the task: the graph's `question`, `reason`, `trigger` and `book` strings (the fields the page reader writes in the instructions' language) whose nearest `source_refs` cite a page of the range. They come once each, in page order, within 16 000 bytes (`notesInUse`, `kernel-ts/cast/draft.ts`). The reader adds a form those sentences use for an individual of its pages to that person's `notes`, and takes no book form or page from them.
+
+**Versions.**
+- v5 code serves a v3 or v4 `cast.json` of the same file until the v5 table is complete. v3 rows have no `notes`.
+- `cast-source.json` is kept across versions, so the re-read extracts no text again.
+- Code older than v5 reads a v5 `cast.json` as absent and would read v4 again, writing each range straight into `cast.json`. Going back to an older App therefore replaces the v5 table.
+
+**Not measured here.** Whether the reader leaves out the public figures and takes "Lars" into the station owner's `notes` is model behaviour. It is measured on the final package's re-read, not by these tests.
+
+Tests: `tests/extension/module-cast.test.mjs`:
+- a long book's ranges in `cast.next.json`, and `cast.json` written once, complete;
+- a v4 table serving through a half-done v5 read and replaced when complete, a v3 table serving, and another file's table never serving;
+- `notesInUse` by page range, once each and within the byte limit;
+- the range task carrying a note the library's graph wrote about its pages.
+
+Five mutations each turn a case red: no older pass, partial written to `cast.json`, no range filter, no `notes_in_use` in the task, and an older table of another file accepted.
+
+### 177.9 Writers, readers, actor (§31)
+
+- **Writers:** the cast readers (`cast.json`, range by range through `cast.submit`), the host (`cast-source.json`, through `cast.source`), the epithet lane (row-id words), the gate's landing (`cast_id`).
+- **Readers:** `bookCast` and everything above: `newcomerRefusal`, `untoldRoster`, `untoldPieces`, the journal check, `epithets.job`, `foldPersonWords`, the material gate, `replacePassagePeople`, lookup, the reader packets.
+- **Actor:** the Keeper, whose newcomers take words of their own, who meets unread people by a word, and whose writes on them land on the book's text.
+
+### 177.10 Limits
+
+- The cast is navigation, not permission to play. A row gives no facts about a person, only that the book names them and where.
+- A starter's names that appear only in prose are not in its cast (owner's Q4).
+- A newcomer named only in prose, with no `apply npc`, was first left ungated (owner's Q5). After table 25 the owner ruled to refuse a whole printed name in prose (§177.11), and the journal label check above still holds.
+- An unread person is not in `present[]` and has no record. `apply person` cannot give them a word until the graph has them; the lane can.
+- §177.15's judgement has a direction. A name Jev scores under 0.5 is kept as written: in the request, the Keeper reads it; in a delivery, the player does, and the person stays untold (`told_text`). On 49 cases the lowest name scored 0.88. A name with a title scored 0.73 before the question named titles. Chinese is a weaker language for Jev than English.
+- §177.15 asks at most 400 places in one call, 40 to a request; the rest are renamed. The rename's decisions last the session: after a restart the first request asks the history's places again, and an answer that differs from before changes that request's prefix once.
+- The told check of a graph person reads the graph's names (`toldTurn`), not the cast's: a form only the cast prints ("Mae" for Old Mae), said in a delivery, does not tell her. §177.11 refuses such a form in the Keeper's own words, so it reaches a delivery only through a cleared place.
+
+Tests:
+- `tests/extension/module-cast.test.mjs`, on the real kernel over a bound three-page PDF:
+  - the job, source and submit, with a row refused alone and the reader's own check agreeing;
+  - rows merged on a shared form, and the closed shape;
+  - a printed short form joining the graph person;
+  - the rename and the epithet job over unread people, the fold under the row id, and the `apply person` and journal refusals;
+  - the newcomer refusals naming nobody;
+  - lookup by the table's word, and unread;
+  - a write landing on the cast's pages with `cast_id`;
+  - the replacement by cast id;
+  - no text layer;
+  - an authored module, and the abbreviation.
+- `tests/extension/module-cast.test.mjs` also: two rows sharing a form kept as two people; across ranges a first name joining nobody, even one only one kept row carries, and rows of one range never joining each other; a row joining a graph person by a whole identity and not by an alias first name; a shared name shown as all owners' words; a word withdrawn once it carries a name learned later; an unread word not following the person into the graph; the library's cast read by a campaign's fork; a 45-page book in two ranges, the second joining a known person by a known form under the first range's id, refusing a page outside its range, and resuming from the kept text.
+- `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, one background child per range under `module-cast.md`, each range's submit, record and announcement, all in the library scope, resuming at the first range not read, the second run after a refusal, no child without text, one run at a time, a preparation queueing the cast, a campaign-only module read in its scope, and a table opened before the session started still asking for the cast, in either order.
+- `tests/extension/npc-epithets-lane.test.mjs`: a published cast asks again, and another campaign's does not.
 
 ## 178. A first impression is rolled when the people meet (owner ruling, 2026-10-04; amends §26's contributed checks, §134.3's trigger enum and §16.5's roll card)
 
@@ -33180,8 +33486,12 @@ gate, a source consultation) reads after that.
 ### 182.3 A long book reads the chapter in play and the next one
 
 A book above the threshold has a **reading window**: the chapter that holds the table's current scene and the chapter
-after it in book order. The current scene's page is the first page of its `source_refs` (the anchor the read-ahead already
-computes: `params.focus`, else the start scene); a scene with no page uses the start scene's. Without chapters the window
+after it in book order. The current scene's page is the median of the distinct pages its `source_refs` cite, the upper one of an
+even count (`params.focus`, else the start scene); a scene with no page uses the start scene's. *Amended 2026-10-04 after
+the installed App's kernel ran on a clone of the 血色公路 data: the first page anchored the diner (pages 15, 28, 29) to the
+book's overview chapter, which names every place in passing, so the window was the overview and the prologue instead of
+the town chapter that describes it; the median puts the diner, the gas station (13, 17, 18, 20) and the prologue
+(13, 16, 17) in their own chapters.* Without chapters the window
 is the anchor page through `reading.fallback_window_pages` (data, shipped 24) pages after it. Every background ask of the
 read-ahead is limited to the window: source units whose pages intersect it, contact-sheet ranges that intersect it,
 nominated picture pages, identity pages and map scopes inside it, and need reads whose entity cites a page inside it.

@@ -25,6 +25,7 @@ import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, ch
 import { CLAIM_SUPPORT_FILE, JEV_REVIEWER } from './claim-support.js';
 import { pageSpans } from './transcription.js';
 import { passageKey } from '../read/table-people.js';
+import { castPersonNamed, moduleSourceSha, readServedCast, type CastPerson } from '../read/cast.js';
 const object = (value: any): boolean => isJsonObject(value);
 import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, checkSourceAnswerReview, sourceAnswerResult } from './source-answer.js';
 import { ROUTE_TRAVEL_FIELD, applyTravelFill, type TravelRow } from './route-travel.js';
@@ -41,7 +42,7 @@ import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,vis
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
 import {MAP_SCOPE_FAILURES,MAP_SCOPE_QUESTION,mapScopeFocus,mapsLackingScope} from './map-scope.js';
-import {cleanOutline,indexChapters,outlineChapters,pageInside,rangeMeets,readingBudget,readingWindow,wholeWindow,type Chapter,type ReadingWindow} from './chapters.js';
+import {anchorPage,cleanOutline,indexChapters,outlineChapters,pageInside,rangeMeets,readingBudget,readingWindow,wholeWindow,type Chapter,type ReadingWindow} from './chapters.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
  * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
@@ -167,6 +168,11 @@ export interface MaterialGate {
     textPeople?: ReadonlySet<string>;
     /** §22.4.7.1: the host's `_land_on_text`: the people it asks to land on the book's text, by the gate's key, with the passage it found. */
     land?: ReadonlyMap<string, Row | null>;
+    /**
+     * §177.6: the unread person of the cast a word in a person's seat names -- by a name, by the word this table calls them,
+     * or by the row's id. The caller answers it with the world; without one the gate asks the cast by name and id only.
+     */
+    cast?: (name: string) => CastPerson | null;
 }
 /** §22.4.7 and §22.4.7.1: what the material gate let through on the book's text. */
 export interface TextLanding {
@@ -178,6 +184,8 @@ export interface TextLanding {
     person?: string;
     book?: boolean;
     passage?: Row | null;
+    /** §177.6: the cast row of an unread person the book names. */
+    cast?: string;
 }
 /** §22.4.7.1: the names a person's text may use (the node's name and aliases, or the given name), at most this many. */
 const PERSON_NAMES = 6;
@@ -761,6 +769,13 @@ export class Reading {
         }
         return pages;
     }
+    /** §177.8: the cast reader's rows for this file, as the reader's packet carries them: what the book prints and the renderings. */
+    async castNames(mid: string, meta: Row): Promise<Row[]> {
+        // A campaign's fork reads the library's cast when its own copy has none (§177.2).
+        const stored = await readServedCast(this.store.context.snapshots, [this.store.moduleDir(mid), join(this.store.context.stateRoot, 'modules', mid)], moduleSourceSha(meta));
+        if (!stored || !['complete', 'partial'].includes(string(stored.state))) return [];
+        return array(stored.people).map(person => ({ book: array(row(person).book), play: array(row(person).play) }));
+    }
     /** §22.3.3 (SL-57): the unusable settlement of a text focus (not a map), if any. */
     static textSettlement(meta: Row, focus: string): Row | undefined {
         return array(row(meta.reading).materials).find(material => material.status === 'unusable' && material.material === undefined
@@ -790,21 +805,25 @@ export class Reading {
             // §22.4.7.1 (SL-56): a person this table established is not book material; nothing is read for them (§87).
             if (graph.isTablePerson(node) || graph.isTableEntity(node))
                 continue;
-            if (node === null && !indexed.has(normalize(name)))
+            // §177.6: a word in a person's seat that names someone the book names and the graph does not have yet is such a
+            // person too, though no index row lists them: the cast has their names and the pages they stand on.
+            const unread = node === null && gate.people?.has(name) ? (gate.cast ? gate.cast(name) : castPersonNamed(graph, {}, name)) : null;
+            if (node === null && !unread && !indexed.has(normalize(name)))
                 continue;
-            const focus = node ? graph.handle(node) : name, settled = !!Reading.textSettlement(meta, focus);
+            const focus = node ? graph.handle(node) : unread ? unread.names[0]! : name, settled = !!Reading.textSettlement(meta, focus);
             const person = !!gate.people?.has(name) && (node === null || ['npc', 'creature'].includes(string(node.node_kind)));
             if (person) {
                 if (gate.textPeople?.has(focus)) continue;
-                const pages = await this.personIndexPages(graph, node, focus);
+                const indexPages = await this.personIndexPages(graph, node, focus);
+                const pages = unread ? [...new Set([...unread.pages, ...indexPages])].slice(0, SCENE_INDEX_PAGES) : indexPages;
                 // §22.3.3 (SL-57): a settled focus is not read again; it still lands on the text when it has some.
                 if (settled && !pages.length) continue;
-                const spelled = node ? [graph.displayName(node), string(node.name), ...array(node.aliases)] : [name];
+                const spelled = node ? [graph.displayName(node), string(node.name), ...array(node.aliases)] : unread ? unread.names : [name];
                 const personNames = [...new Set(spelled.filter(value => typeof value === 'string' && value.trim()).map(value => value.trim()))].slice(0, PERSON_NAMES);
                 if (gate.land?.has(name)) {
                     const passage = Reading.passageNaming(gate.land.get(name), personNames);
                     if (node ? pages.length || passage : passage) {
-                        landed.push({ kind: 'person', name, focus, pages, person: node ? graph.displayName(node) : name, book: !!node, passage });
+                        landed.push({ kind: 'person', name, focus, pages, person: node ? graph.displayName(node) : name, book: !!node, passage, ...(unread ? { cast: unread.id } : {}) });
                         continue;
                     }
                 }
@@ -925,10 +944,9 @@ export class Reading {
      * campaign's read-ahead sets to its active scene), else the start scene's, else the book's first page.
      */
     private static anchorPage(graph: ModuleGraph, focus: unknown, pageCount: number): number {
-        const first = (node: Row | null): number | undefined => {
-            const pages = array(node?.source_refs).filter(ref => integer(row(ref).pdf_index)).map(ref => number(ref.pdf_index) + 1).filter(page => page >= 1 && page <= pageCount);
-            return pages.length ? Math.min(...pages) : undefined;
-        };
+        // §182.3: the median of the pages the scene cites (`anchorPage`), not the first one.
+        const first = (node: Row | null): number | undefined =>
+            anchorPage(array(node?.source_refs).filter(ref => integer(row(ref).pdf_index)).map(ref => number(ref.pdf_index) + 1).filter(page => page >= 1 && page <= pageCount));
         const scene = truth(focus) ? graph.find(string(focus), ['scene']) : null;
         let start: Row | null = null;
         try { start = graph.startScene(); } catch (error) { if (!(error instanceof RpcError)) throw error; }
@@ -1804,7 +1822,10 @@ export class Reading {
                     // §152.4: an identity job is claimed with its page's pairs as they stand now, both crops of each.
                     const identityTask: Row = job.visual_identity ? { visual_identity: { page: job.visual_identity.page,
                         pairs: publishedIdentityPairs(graph, meta).filter(pair => pair.page === job.visual_identity.page) } } : {};
-                    const packet = { ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
+                    // §177.8: the book's cast, so a person read in two fragments keeps the one printed form as their name.
+                    const castNames = job.purpose === 'index' || job.visual_identity ? [] : await this.castNames(mid, meta);
+                    const packet = { ...visibleJob, ...identityTask, ...(needTask ? { source_need: needTask } : {}), ...(carried.length ? { carried_needs: carried } : {}),
+                        ...(castNames.length ? { cast_names: castNames } : {}),...(meta.source_reference?{reference_stream:true}:{}),...(meta.source==='pdf'&&['guidance','opening','detail','answer'].includes(job.purpose)?{review_policy:MODULE_LOGIC_REVIEW}:{}), module_id: mid, source, concurrency: READING_SLOTS, index: job.purpose === 'index' ? [] : await this.store.sections(mid), known_nodes: known, known_claims: graph.claims ?? [], field_spans: pageSpans(graph.field_spans), vocabulary: vocabulary(contract, contributed), coverage_domains: [...array(contract.graph.coverage_domains)] };
                     await writeJsonAtomic(join(work, 'packet.json'), packet);
                     this.owned();
                     return packet;

@@ -16,7 +16,9 @@ import { buildCapsule } from "./assemble.js";
 import { lastExchange, lastInteraction } from "./exchange.js";
 import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
-import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
+import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, personNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
+import { castPersonNamed } from './cast.js';
+import { tableWord } from './person-words.js';
 import { incapacitatedBy } from "../healing/conditions.js";
 import { crossLineReader } from "./worldline.js";
 import { mechanics } from "./mechanics.js";
@@ -474,9 +476,22 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 const searched = graph.search(query, expected ? 64 : 8);
                 const referenceSource=!!module.meta.source_reference||module.meta.source==='pdf'&&!!row(module.meta.source_document).file_sha256,sourceScope=referenceSource||row(module.meta.reading).opening_scope==='first_interaction';
                 const prepared=new Set(array(row(module.meta.reading).materials).flatMap(material=>array(material.node_ids)));
-                const entities = (searched.length ? searched : graph.handleList(query) ?? []).filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => ({...graph.entityView(node),
+                let found = searched.length ? searched : graph.handleList(query) ?? [];
+                // §177.7: the word this table calls a person -- their epithet, the fiction's word -- finds them through the person
+                // junction every write already uses (§87.8). Table 23 asked lookup by an epithet and got not_found.
+                if (!found.length && (!expected || expected === 'npc')) {
+                    let person: Row | null = null;
+                    try { person = personNode(graph, world, query); } catch { person = null; }
+                    if (person) found = [person];
+                }
+                const entities: Row[] = found.filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => ({...graph.entityView(node),
                     ...(sourceScope?{material:graph.isTableEntity(node)||graph.isTablePerson(node)?'ready':graph.materialOverride?graph.materialOverride(node.node_id):prepared.has(node.node_id)?'ready':'unprepared',
                         original_pages:[...new Set(array(node.source_refs).filter(ref=>ref.source_id===`pdf:${graph.moduleId}`&&integer(ref.pdf_index)).map(ref=>number(ref.pdf_index)+1))]}:{})}));
+                // §177.7: someone the book names whom the reader has not reached answers as such, by the word this table calls
+                // them, with the pages that name them, instead of not_found: a write naming them lands on those pages (§22.4.7.1).
+                const unread = !entities.length && (!expected || expected === 'npc') ? castPersonNamed(graph, world, query) : null;
+                if (unread) entities.push({ name: tableWord(world, unread.id) || unread.id, kind: 'npc', material: 'unread', original_pages: unread.pages,
+                    note: 'The book names this person and their record is not read yet. A write that names them by this name lands on the book\'s text and their record is read.' });
                 const missingScene = !entities.length && expected === 'scene';
                 return {
                     query,

@@ -65,7 +65,7 @@ test('§103.1: the request names an untold person by handle everywhere the host 
   assert.ok((await call('table.untold')).people.some(person => person.id === 'steven-knott'), 'a token by handle shows nothing and tells nothing');
 
   const next = await call('table.player_input', {text: 'Who are you?'});
-  const byName = await call('table.narrate', {call_id: `t${next._context.turn}-c1`, text: '{{say:Steven Knott}}"Steven Knott, of the commission."{{/say}}'});
+  const byName = await call('table.narrate', {call_id: `t${next._context.turn}-c1`, text: '{{say:Steven Knott}}"{{name:Steven Knott}}, of the commission."{{/say}}'});
   assert.deepEqual(byName.speech?.[0]?.who, {npc: 'steven-knott', name: 'Steven Knott'}, 'the book\'s name in a token is shown as it always was');
   assert.ok(!(await call('table.untold')).people.some(person => person.id === 'steven-knott'), 'and once shown it is told');
 });
@@ -100,6 +100,9 @@ test('§176.5: with the epithet lane\'s word, the request carries neither his bo
   const row = capsule.present.find(person => person.untold && person.name === 'the ink-stained clerk');
   assert.ok(row, JSON.stringify(capsule.present));
   assert.equal(row.untold.say_name, '{{name:the ink-stained clerk}}');
+  // §177.4 (table 25): the roster the request was renamed by is on the turn's record, and a failed read would be too.
+  const prepared = rows.find(entry => entry.lane === 'context' && entry.event === 'prepared');
+  assert.ok(prepared?.untold_rows > 0 && !prepared.untold_failed, JSON.stringify(prepared));
   const said = await call('table.narrate', {call_id: `t${input._context.turn}-c1`, text: `He looks up. {{say:the ink-stained clerk}}"I am ${row.untold.say_name}."{{/say}}`});
   assert.match(said.rendered_text, /I am Steven Knott\./, 'the copied token says his book name');
 });
