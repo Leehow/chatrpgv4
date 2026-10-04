@@ -33135,7 +33135,7 @@ A creature in `present[]`:
 - **Fields.** `kind` is always present; every other field appears only when there is a value. `state` and `toward_party` are read exactly as for a person. `habits`, `weaknesses` and `false_leads` come from 180.8–180.9.
 - **What it never carries.** A creature row carries no `called`, `untold`, `now`, `personality`, `knows`, `believes`, `would_lie_about`, `ties`, `history`, `relationships`, `recent_speech`, `commitments`, `reunion` or `from_other_lines`. A person row carries no `kind`: its absence means a person, so no existing person row changes shape, and the host tells the two apart by `kind === "creature"`.
 - **Order.** Creature rows follow person rows and are cut first under the budget. `kind` rides outside the budget, as §176.8's name path does, and a cut row's stub keeps it.
-- **The brief's roster.** `fittedModuleSection` gains `creatures`, the same roster form as `people`, over `node_kind === "creature"`. It rides only on the budget the existing fit leaves, so every other field is cut exactly as before (the Python parity test still holds for them), and it is absent when the book has no creature or none fits. A book that fills the brief's 2048 bytes, the haunting among them, therefore shows no creature roster; the creature rows of `present[]` are what reach the Keeper at the encounter.
+- **The brief's roster.** `fittedModuleSection` gains `creatures`, the same roster form as `people`, over `node_kind === "creature"`. It rides only on the budget the existing fit leaves, so every other field is cut exactly as before (the Python parity test still holds for them), and it is absent when the book has no creature or none fits. A book that fills the brief's 2048 bytes therefore shows no creature roster; the creature rows of `present[]` are what reach the Keeper at the encounter. (The haunting filled it until 180.12 retired its npc twin; its brief at 2048 now lists the rats.)
 
 ### 180.5 `apply npc` on a creature; acts; offers
 
@@ -33349,6 +33349,27 @@ The two new names join `KERNEL_GATES` (`kernel-ts/read/sections.ts`). Like every
 **Open points handed back.**
 - *Starters.* `registerStarter` records no `meta.vocabulary`, so a starter binds no word and no weakness shape today: 180.12's Corbitt weaknesses and rat habits would not reach the table. 180.12 says the starter's provenance records the bound words "as a built module's does" but names no mechanism (bind the registering kernel's `buildVocabulary`, or a vocabulary the starter's own data declares). Undecided here; CK-F needs it.
 - *The Keeper's tool.* The `apply` tool schema (`extensions/kernel/tools.ts`) has no `dossier` effect, so the door of §28.7 and of 180.8–180.9 is not offered to the Keeper's typed tool. CK-E owns that file.
+
+### 180.17 The implementation's decisions (CK-F, 2026-10-04, `claude/creature-kind-20261004-starters`)
+
+**How a starter binds (180.12).**
+- `registerStarter` derives the binding when it writes a generation, as it writes the rest of `meta` (`starterVocabulary`, `kernel-ts/write/source.ts`). Nothing is declared in the starter.
+- **The words offered.** `installedVocabulary` (`kernel-ts/read/mods.ts`) makes the same claims as `buildVocabulary` (one key, one spine, load order) over every compatible installed package: the default-enabled ones first, then the rest. A package the defaults leave off still names the words it contributes, because the binding is the data's, not the defaults'.
+- **The words bound.** A word is carried when the table's own read returns it: `npcProfile` on an npc for a person's word, `creatureProfile` on a creature for a creature's word, from the property or the record. A creature's word on a person, a person's word on a creature, and a key no installed package contributes bind nothing.
+- **The weakness shape** is bound when any node of the contract's `on_kinds` has the `weaknesses` property at all, in either seat, so a malformed value is checked rather than left unbound. Its value is the first such package's `{mod, version}`, else `true`.
+- **The entry** is `buildVocabulary`'s (`key`, `label`, `ask`, `shape?`, `mod`, `version`). The label falls back to the key when a package gives none; the manifest check requires a label, so no current package reaches that branch.
+- **The check.** `starterBeingRefusals` holds the starter to the reader's checker as a draft is held: one being, one node, and `relation_endpoints` always (they are the base's), and the weakness entries when the shape is bound. It runs after the obligation and mechanics refusals and before any byte of the generation is written. The refusal is `invalid_params` with `details.reason: "beings_invalid"` and `details.refusals[]` of `{node, rule, path, message, claim?}`; a pair is `rule: "one_being_two_nodes"`, `node` the creature, `path: "node_id"`.
+
+**The data.**
+- **The haunting.** `creature-rat-pack` carries RD-04's typed weapons from the retired npc record, verbatim, and cites `span-page-455-anchor-2`, RD-04's span for the rat pack (no span of the starter is on page 457), with source refs on PDF indices 456 and 457. The npc record's `keeper_note` is not carried: its content is the Overwhelm weapon's `book` line and the habits.
+- **Corbitt's route.** `conclusion-own-dagger-ends-corbitt` has four supporting clues, not three: two are on PDF p. 456 (the rusted dagger, and that it is his). The chain reads `of: 4`.
+- **Mystery House.** Its `npc-agendas.json` keeps the two records it was projected from, because the retired projector makes an npc of every npc-agendas record and writes no creature node. The shipped graph differs from that projection by exactly the renamed beings, the rows that name them and the projection listing (`CKF_PROJECTION_CHANGES`, `tests/kernel/test_starters.py`); `story-graph.json` names the familiar by its new id.
+  - The rat swarm keeps its legacy mechanics container (the mystery-house allowance, §136.1) and its note. Its agenda, fear, secret and voice were the haunting twin's lines under `origin: "source"`, which the book does not state, and are dropped.
+  - The familiar (`origin: "authored-gym"`): its agenda became `habits`, its fear a `book`-only weakness, its skills a typed profile.
+
+**Open points handed back.**
+- **The familiar is not fightable.** The gym authored its skills and no characteristics. With a stat block it is an actor and present at the chapel, but combat and the chase refuse it: `npcCombatParticipant` throws `NpcProfileError` on the missing STR, SIZ, DEX and CON, and nothing turns that into a refusal. An archetype is a person's, and the catalog pin refuses a creature that has a block (`stat_block_exists`). A partial authored profile has no completion path.
+- **Corbitt's `fear`** still says "being reduced below the point where Flesh Ward and Dominate can buy rounds", which the book does not state. Person fields were outside this ticket.
 
 ## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
 
