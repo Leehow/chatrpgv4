@@ -51,6 +51,8 @@ interface Entry {
 	named?: true;
 	/** §103.6: the exact words of this turn's delivery that gave the name; the kernel refuses `named` without them. */
 	named_quote?: string;
+	/** §176.9: the words of the quote that are the name, given when the kernel asks because the quote carries none of the book's names as written. */
+	named_as?: string;
 }
 
 /** The job packet from `journal.job`; only the fields it lists are read, and nothing else reaches the prompt. */
@@ -114,7 +116,7 @@ export function journalSystemPrompt(packet: JobPacket): string {
 		`- label, only for a name listed under not yet named who has no epithet: a nickname of at most ${maxLabel} characters, the one visible thing only they have here (something they carry or wear, a mark, a habit, the job they are doing) and at most a word for who they are, like 'the oily-rag owner' or 'the bad-teeth trucker'; one thing, not a list and not a sentence; never age, height, build or sex alone, no part of the name and no label someone else has. The description says the rest, and neither it nor the exchange names them.`,
 		"- a recordable person with an epithet is called that at this table: use it to tell who is who in the prose, and give them no label.",
 		`- named: true, only for a name listed under not yet named, when someone in this turn's prose actually said or showed the player that person's own name, the name recordable gives them, in any spelling, script or transliteration, whole or in part; then also give named_quote, the exact words of the prose or spoken line that gave it (at most ${maxQuote} characters, copied character for character), and give no label. A different name (one they go by, a nickname, any name that is not that one) does not name them: leave named out. Having appeared, acted or been described is not being named.`,
-		`- write no key other than ${referenced ? "person" : "name"}, description, exchange, label, named and named_quote, and in particular no turn number, commit, receipt id or entry id.`,
+		`- write no key other than ${referenced ? "person" : "name"}, description, exchange, label, named and named_quote (and named_as, only when a refusal asks for it), and in particular no turn number, commit, receipt id or entry id.`,
 		`- at most ${maxEntries} rows; with nobody new to record, answer {"entries":[]}.`,
 	].join("\n");
 }
@@ -161,11 +163,11 @@ export function shapeJournalEntries(parsed: unknown, packet: JobPacket): Entry[]
         if(!parsed||Array.isArray(parsed)||Object.keys(parsed).some(key=>key!=="entries")||raw.length>limit) return undefined;
         const allowed=new Set((packet.recordable??[]).flatMap(value=>value&&typeof value==="object"&&typeof (value as any).alias==="string"?[(value as any).alias]:[])),seen=new Set<string>(),entries:Entry[]=[];
         for(const value of raw) {
-            if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!["person","description","exchange","label","named","named_quote"].includes(key))) return undefined;
+            if(!value||typeof value!=="object"||Array.isArray(value)||Object.keys(value).some(key=>!["person","description","exchange","label","named","named_quote","named_as"].includes(key))) return undefined;
             const row=value as Record<string,unknown>;
             if(typeof row.person!=="string"||!allowed.has(row.person)||seen.has(row.person)) return undefined;
             seen.add(row.person);const entry:Entry={person:row.person};
-            for(const [key,maximum] of [["description",maxDescription],["exchange",maxExchange],["label",maxLabel],["named_quote",maxQuote]] as const) {
+            for(const [key,maximum] of [["description",maxDescription],["exchange",maxExchange],["label",maxLabel],["named_quote",maxQuote],["named_as",maxLabel]] as const) {
                 if(row[key]===undefined||row[key]===null) continue;
                 if(typeof row[key]!=="string"||!(row[key] as string).trim()||(row[key] as string).trim().length>maximum) return undefined;
                 entry[key]=(row[key] as string).trim();
@@ -201,6 +203,8 @@ export function shapeJournalEntries(parsed: unknown, packet: JobPacket): Entry[]
 		if (record.named === true) entry.named = true;
 		if (typeof record.named_quote === "string" && record.named_quote.trim().length >= 1 && record.named_quote.trim().length <= maxQuote)
 			entry.named_quote = record.named_quote.trim();
+		if (typeof record.named_as === "string" && record.named_as.trim().length >= 1 && record.named_as.trim().length <= maxLabel)
+			entry.named_as = record.named_as.trim();
 		if (!entry.description && !entry.exchange && !entry.label && !entry.named) continue;
 		entries.push(entry);
 		if (entries.length >= limit) break;

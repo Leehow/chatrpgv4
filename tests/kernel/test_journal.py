@@ -108,7 +108,7 @@ def test_submit_merges_entries_and_counts_a_turn_once(kernel):
     first_turn(kernel)
     # Two rows for the same person in one job: seen_count still moves at most once per turn.
     result = submit(kernel, "journal:c1:t1", [
-        {"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "description": "房东先生，有些心不在焉。", "exchange": "他把钥匙推过来。"},
+        {"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "named_as": "诺特", "description": "房东先生，有些心不在焉。", "exchange": "他把钥匙推过来。"},
         {"name": KNOTT, "exchange": "他叹了口气。"},
     ])
     assert result == {"job_id": "journal:c1:t1", "turn": 1, "entries": 2}
@@ -139,7 +139,7 @@ def test_submit_merges_entries_and_counts_a_turn_once(kernel):
 def test_each_rejection_points_at_the_entry_and_nothing_lands(kernel):
     first_turn(kernel)
     job_id = job(kernel)["job_id"]
-    ok = {"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "exchange": "点头。"}
+    ok = {"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "named_as": "诺特", "exchange": "点头。"}
     cases = [
         ("unknown field", [{**ok, "mood": "happy"}], 0, "mood"),
         ("machine key", [{**ok, "turn": 1}], 0, "turn"),
@@ -173,7 +173,7 @@ def test_each_rejection_points_at_the_entry_and_nothing_lands(kernel):
 
 def test_replay_is_idempotent_and_divergence_conflicts(kernel):
     first_turn(kernel)
-    entries = [{"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "description": "房东。", "exchange": "给了钥匙。"}]
+    entries = [{"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "named_as": "诺特", "description": "房东。", "exchange": "给了钥匙。"}]
     first = submit(kernel, "journal:c1:t1", entries)
     again = submit(kernel, "journal:c1:t1", entries)
     assert again == {**first, "replayed": True}
@@ -214,7 +214,7 @@ def test_fail_backlogs_the_job_and_the_default_does_not_redispatch_it(kernel):
 
 def test_table_view_projects_the_journal_for_the_player(kernel):
     first_turn(kernel)
-    submit(kernel, "journal:c1:t1", [{"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "description": "房东先生。", "exchange": "他把钥匙推过来。"}])
+    submit(kernel, "journal:c1:t1", [{"name": KNOTT, "named": True, "named_quote": "诺特叹了口气。", "named_as": "诺特", "description": "房东先生。", "exchange": "他把钥匙推过来。"}])
     # Grow the file by hand: a second person and an exchange history longer than the projection gives.
     path = journal_path(kernel.workspace)
     data = read_json(path)
@@ -312,7 +312,7 @@ def test_the_lane_can_name_a_person_the_scan_cannot_see(kernel):
     assert packet["prior"] == [{"name": KNOTT, "label": "办公桌后的男人", "description": "戴着遮阳帽舌的男子。", "last_seen_turn": 1}]
     wrong = submit_err(kernel, packet["job_id"], [{"name": KNOTT, "named": "yes"}])
     assert wrong["code"] == "invalid_params" and wrong["details"] == {"index": 0, "field": "named"}
-    submit(kernel, packet["job_id"], [{"name": KNOTT, "named": True, "named_quote": "诺特自报了姓名。", "exchange": "他说了自己的名字。"}])
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "named": True, "named_quote": "诺特自报了姓名。", "named_as": "诺特", "exchange": "他说了自己的名字。"}])
     stored = read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]
     assert stored["named_at"] == 2
     [knott] = kernel.ok("table.view", {"campaign": CAMPAIGN})["npcs"]["journal"]
@@ -348,8 +348,45 @@ def test_named_needs_the_words_that_named_them(kernel):
     close_turn(kernel, 2, "他抬起头：“叫我诺特就行。”")
     submit(kernel, job_id, [{"name": KNOTT, "label": "办公桌后的男人", "description": "戴着遮阳帽舌的男子。"}])
     packet = job(kernel, turn=2)
-    submit(kernel, packet["job_id"], [{"name": KNOTT, "named": True, "named_quote": '"叫我诺特就行。"'}])
+    submit(kernel, packet["job_id"], [{"name": KNOTT, "named": True, "named_quote": '"叫我诺特就行。"', "named_as": "诺特"}])
     assert read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]["named_at"] == 2
+
+
+def test_a_name_the_book_does_not_give_them_is_asked_about_once(kernel):
+    """§176.9. Replay of the App table game-24bb66cb (Blood Road, 2026-10-04): asked his name, the veteran said
+    「人叫我沃尔特就行。」, a name the book does not give him. The lane journaled it as his name, he became told, the rename
+    stopped hiding the book's name, and on turn 8 the Keeper wrote it. Words that carry none of the person's book names as
+    written are either their name in another script or a different name; which, is the lane's to say. The kernel takes them
+    only with `named_as`, the words the lane says are that name, and its refusal asks that one question."""
+    open_turn(kernel, "我问他怎么称呼。")
+    narrate(kernel, "t1-c1", "他擦了擦眼镜：“叫我沃尔特就行。”")
+    job_id = job(kernel)["job_id"]
+    other = submit_err(kernel, job_id, [{"name": KNOTT, "named": True, "named_quote": "“叫我沃尔特就行。”"}])
+    assert other["code"] == "invalid_params"
+    assert other["details"] == {"index": 0, "field": "named_as", "name": KNOTT, "reason": "not_a_book_name"}
+    assert "another spelling, script or transliteration" in other["fix"] and "a different name" in other["fix"] and "leave named out" in other["fix"]
+    stray = submit_err(kernel, job_id, [{"name": KNOTT, "named": True, "named_quote": "“叫我沃尔特就行。”", "named_as": "诺特"}])
+    assert stray["details"]["field"] == "named_as", "named_as must be words of the quote"
+    lone = submit_err(kernel, job_id, [{"name": KNOTT, "label": "擦眼镜的房东", "named_as": "沃尔特"}])
+    assert lone["details"] == {"index": 0, "field": "named_as"}, "named_as goes only with named"
+    # Leaving named out, as the refusal says: he stays untold, under the word the lane gives.
+    submit(kernel, job_id, [{"name": KNOTT, "label": "擦眼镜的房东", "exchange": "他说可以叫他沃尔特。"}])
+    assert "named_at" not in read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]
+    assert "untold" in kernel.table("look", focus="npc", name=KNOTT), "the Keeper is still not handed the book's name"
+    # Words that carry the book's name as written need nothing more; the record would have seen them anyway.
+    close_turn(kernel, 2, "他点点头：“我是Steven Knott。”")
+    assert "untold" not in kernel.table("look", focus="npc", name=KNOTT)
+
+
+def test_a_name_in_another_script_is_taken_with_its_words(kernel):
+    """§176.9: the same refusal leaves a transliteration through: 诺特 for "Steven Knott", with named_as."""
+    open_turn(kernel, "我问他怎么称呼。")
+    narrate(kernel, "t1-c1", "他擦了擦眼镜：“叫我诺特就行。”")
+    job_id = job(kernel)["job_id"]
+    assert submit_err(kernel, job_id, [{"name": KNOTT, "named": True, "named_quote": "“叫我诺特就行。”"}])["details"]["reason"] == "not_a_book_name"
+    submit(kernel, job_id, [{"name": KNOTT, "named": True, "named_quote": "“叫我诺特就行。”", "named_as": "诺特"}])
+    assert read_json(journal_path(kernel.workspace))["entries"][KNOTT_ID]["named_at"] == 1
+    assert "untold" not in kernel.table("look", focus="npc", name=KNOTT)
 
 
 def test_one_word_for_one_person(kernel):

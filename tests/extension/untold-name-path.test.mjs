@@ -22,7 +22,7 @@ await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/c
 export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {fitPresent} from './kernel-ts/read/assemble.ts';
-export {UNTOLD_VIEW_USE} from './extensions/kernel/untold-view.ts';
+export {UNTOLD_VIEW_USE, untoldNote} from './extensions/kernel/untold-view.ts';
 export * from './extensions/table/context-runtime.ts';
 export * from './extensions/table/workspace/workpad-store.ts';`, resolveDir: root},
   outfile: join(temporary, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
@@ -76,8 +76,15 @@ test('§176.8: a person the budget cuts keeps the name path, through the Keeper\
     () => {}, () => api.workpadStoreRoot(home));
   bus.get('coc:kernel-bridge')({campaign: 'c1', call});
   bus.get('coc:capsule')({capsule: input.capsule, context: input._context});
-  const {messages: sent} = await hooks.get('context')({messages: [{role: 'user', content: '我找个空位坐下，先看看屋里都有谁。'}]},
+  // U3, turn 5: the Keeper looked the name up in the book; the excerpt came back with it renamed and nothing else.
+  const excerpt = `[Original page 3] ${cut.name}坐在窗边，一言不发。`;
+  const {messages: sent} = await hooks.get('context')({messages: [{role: 'user', content: '我找个空位坐下，先看看屋里都有谁。'},
+    {role: 'assistant', content: [{type: 'toolCall', id: 'lookup-1', name: 'lookup', arguments: {kind: 'source', query: word}}]},
+    {role: 'toolResult', toolCallId: 'lookup-1', toolName: 'lookup', content: [{type: 'text', text: JSON.stringify({answer: excerpt})}]}]},
     {model: {contextWindow: 1000000}});
+  const result = sent.find(message => message.role === 'toolResult');
+  assert.ok(result.content[0].text.includes(`${word}坐在窗边`), result.content[0].text);
+  assert.deepEqual(result.content.at(-1), {type: 'text', text: api.untoldNote([word])}, 'the result says a name was there, and the token');
   const capsule = JSON.parse(sent.find(message => message.customType === 'coc-capsule').content);
   const shown = capsule.present.find(person => person.name === word);
   assert.deepEqual(shown, {name: word, truncated: true, untold: {label: word, say_name: `{{name:${word}}}`, use: api.UNTOLD_VIEW_USE}},

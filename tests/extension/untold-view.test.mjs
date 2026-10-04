@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
-import {firstSightPeople, renameUntold, sayName, untoldPeople, untoldView, UNTOLD_VIEW_USE} from '../../extensions/kernel/untold-view.ts';
+import {firstSightPeople, renameUntold, sayName, untoldNote, untoldPeople, untoldView, UNTOLD_VIEW_USE} from '../../extensions/kernel/untold-view.ts';
 
 const capsule = () => ({
   turn: {number: 2},
@@ -79,6 +79,16 @@ test("§103.5 renameUntold: every host message and tool result names an untold p
   assert.equal(JSON.parse(out[3].content).present[0].untold.name, "book-4-lars-williams", "§103.8: no seat keeps the book's name");
   assert.equal(out[4].content[0].text, "{\"name\":\"book-4-lars-williams\"}");
   assert.equal(out[4].content[1], messages[4].content[1]);
+  // §176.8: a tool result that had a name renamed says a name was there and gives the token that says it; host messages,
+  // JSON whose people already carry the token, are renamed only.
+  assert.deepEqual(out[4].content[2], { type: "text", text: untoldNote(["book-4-lars-williams"]) });
+  assert.match(out[4].content[2].text, /the book does name them/);
+  assert.match(out[4].content[2].text, /\{\{name:book-4-lars-williams\}\}/);
+  assert.equal(out[2].content.includes("[untold names]") || out[3].content.includes("[untold names]"), false);
+  const plain = { role: "toolResult", content: "Arty waits by the door." };
+  assert.equal(renameUntold([plain], people)[0].content, `the bartender waits by the door.\n\n${untoldNote(["the bartender"])}`);
+  const nobody = { role: "toolResult", content: [{ type: "text", text: "The door is locked." }] };
+  assert.equal(renameUntold([nobody], people)[0], nobody, "a result naming nobody untold is handed over as it is");
   assert.deepEqual(renameUntold(messages, []), messages);
   const longest = renameUntold([{ role: "custom", content: "Steve Brown and Steve" }], untoldPeople({ people: [{ name: "Steve", shown: "s1" }, { name: "Steve Brown", shown: "s2" }] }));
   assert.equal(longest[0].content, "s2 and s1", "the longer name is renamed first");

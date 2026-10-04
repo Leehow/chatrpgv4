@@ -320,7 +320,7 @@ export function untoldReceipts(records: Row[], turn: number): Row[] {
  *  way to stubs until they do. Returns whether anything was cut. */
 export function fitPresent(rows: Row[], budget: number): boolean {
     // `fitBudget` takes whole rows only from the end, so the people cut are the ones past what is left. By position:
-    // two people the book gives one name (book-4's two 罗伯特·泰勒 nodes) made a cut one look kept by name, and it vanished.
+    // two people the book gives one name (book-4's two Robert Taylor nodes) made a cut one look kept by name, and it vanished.
     const all = [...rows];
     const cut = fitBudget(rows, budget);
     if (!cut)
