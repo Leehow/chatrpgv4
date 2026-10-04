@@ -32905,6 +32905,8 @@ The lane cannot tell the two cases apart while it also writes the turn's entries
 
 - The Keeper can still make up a name with the token in front of it: B2's bartender said 「叫我埃德就行」 on turn 7 with his row whole, and in round 1 (U3, turn 7) the bartender called the cook 「阿方索」 with the cook's row whole and carrying his token. On B1's turn 6, the turn the clerk moved the table into the bar, the same name was given to the cook; whether his token had reached that request was not established. Nothing reads the prose for names (§103.8 item 3, §166).
 - `lookup kind=module` does not resolve this table's word, and its entity rows carry no untold block. A query by the epithet answers `not_found`, with a note that a person the book never had is made with `walk_on`. That is §177.7's (`claude/module-cast-20261004`, not on this line yet), which makes lookup try the person junction.
+- The narrow question uses the lane's one retry (§103.6). In round 2 one job (V3, turn 6) was refused first for `named` beside a label and then for a quote without his name (「好嘞。热的有，冰水也有。稍等。」). The bartender stayed untold, as he should, but the job went to the backlog and that turn's entries were not written.
+- Round 2 (build 02300049e, three sequences) asked or had someone asked an untold person's name eleven times. No name was made up, and every name given went through the token. The veteran on turn 5 said 史蒂夫·布朗 in 3/3. Evidence: `chatrpgv4-wt-untold-reveal-live/.coc/playtests/untold-name-20261004/` (`results-round1.md`, `results-round2.md`, `lane-probe/`).
 - The book holding one bartender as two nodes (`book-4-robert-taylor`, `book-4-r-taylor`, each with its own epithet) is the reader's. §177.8 asks readers to keep one identity.
 
 Tests:
