@@ -91,6 +91,54 @@ Status: ready-for-review（集成分支已兼容公共头 `66aedd44a`；按协�
 - single-loop 通过；
 - pytest 2083 通过，只有当时 `test_jev_resolve` 的两条主线基线失败。
 
+## 成品包上的 CK-G 验收（`/Applications/PipiCOC.app` = `0eabe8f4150ac04b48d23c0d1d0f004595f896a5`，2026-10-04）
+
+**性质：无模型的标准协议机制验证。** 不是自然游玩，也不能代替协调方用模型跑的自然遭遇。
+
+**怎么跑的：**
+- 用 App 自带的 Node v24.19.0，按 App 宿主 `compiledEnvironment` 的同一组环境变量（App 自带的 git、`PI_OFFLINE=1`、只含 App 运行时的 PATH），启动 App 自带的内核 `Contents/Resources/pi-coc/build/kernel/rpc.mjs`，content 和 mods 也是 App 的。
+- 宿主部分：离线加载 App 打包的扩展（`build/extensions/kernel/index.mjs`），拿到它注册给 KP 的工具定义，用 App 自带的 pi-ai 1.0.0 校验参数。
+- 战役全部建在证据目录里的隔离工作区，没有写 App、源码或书库的任何文件。
+- mystery-house 本身没有预设调查员，所以那一局用一个隔离的内容镜像：全部符号链接到 App 的 content，只额外放进 App 自带的 the-haunting 预设调查员卡，模组数据和 App 一字节不差。
+
+**结果**（证据在 `.coc/playtests/creature-kind-app-0eabe8f4/`，脚本 `accept-app.mjs`，包收据副本 `pipicoc-package.json`）：
+- `default`（默认全文）25/25；`indexed`（`COC_INSTRUCTION_BUDGET=1`）28/28。
+- 第一次运行有两处是脚本问题：战斗参与者按 `label` 匹配，钉住的数据卡按句柄作键。那份输出原样保留在 `default-attempt1/`、`default-attempt2/`。
+- **宿主**：
+  - 7 个 KP 工具都在；
+  - `apply` 工具接受 `walk_on` 加 `creature`（目录条目或 `true`），也接受 `dossier` 的 `habits` 和 `weaknesses`；
+  - 没写名字的 `dossier` 会被拒。
+- **人与生物分界**：
+  - 简报里老鼠群列在生物名册，不在人物名册；
+  - 地下室里老鼠群是 creature 行，带习性，没有任何人物字段；
+  - 待处理或已掷的初见结果、以及 `mod_check` 收据里，都没有老鼠。
+- **索引模式下的门**：
+  - 只有老鼠在场时，「Playing a creature」加载、「Weaknesses」不加载，natural-npc 的「First impression」门关闭；
+  - 有弱点的人在场时，「Weaknesses」加载。
+- **弱点链**（人物身上那条可习得的弱点）：
+  - 知识：支持线索的计数从 0 到 1；
+  - 持有：手段一栏显示持有它的调查员；
+  - 在场行：带着这条链，并且是人物行。
+  - 首战供给：先手行列出这个目标，持有物出现在武器里。用它攻击返回可执行的 `needs`：这件物品要先经已有的物品用法流程 `apply usage`（§26 `objects.usages.v1`，由带模型的创建任务完成）准备，或者换用一件可用的武器。无模型的机制验证到此为止。
+- **作者写全与写了一部分**：
+  - 写全的数据卡（老鼠群）不需要准备，战斗直接读书上的数值，HP 9；
+  - 只写了技能的使魔：先手行把它列为待准备，`completions` 为 `creature`；补全前开打会被拒，`reason: stat_block_incomplete`，`needs.field: creature`；用目录条目补全后，作者写的技能全部保留（闪避 40 盖过目录的 42），并记录了 `completed_from` 和 `filled`；补全后战斗能开打。
+- **临场的狗**：
+  - 钉住的是规则书的 Dog，`beasts.json` 第 349 页，`table_pinned`；
+  - 只进 `table_creatures`，不进 `table_people`；
+  - 经 `dossier` 写的习性和桌上弱点出现在它那一行；
+  - 战斗读的是钉住的数据卡。
+- **Mod 锁**：hostile-creatures 1.0.0、natural-npc 1.5.0、narration-craft 2.2.7，其余见各自的 `summary.json`。
+
+**不在本次范围、刻意保持不变的：**
+- CK-F2 的三项遗留：
+  - 追逐名册在选择阶段不认不完整的数据卡；
+  - NPC 自己用不完整数据卡发起先手攻击时，执行阶段才被拒；
+  - 带乘客的名册开追时出内部错误。
+- 先手攻击的保留与重放、徒步追逐的 MOV，由 Jev owner 在这个包上核验。
+
+**可能的窄修候选，由协调方决定是否排期**：the-haunting 起始包里那件弱点手段（artifact）没有类型化的武器数据（`mechanics.weapon`），书上其实印了它的伤害。所以调查员拿到它后，要当武器用，必须先走 `apply usage`。
+
 ## 实际 build 与 Mod 锁（最终头新开的战役）
 
 - 内核 `kernel_version` 2.0.0a0。
