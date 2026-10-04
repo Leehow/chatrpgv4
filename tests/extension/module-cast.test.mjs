@@ -217,6 +217,14 @@ test('§177.14: the notes rendering is a name to hide and to refuse, never a for
 	const cast = api.bookCast(graph), [owner] = cast;
 	assert.deepEqual(cast.map(person => [person.id, person.castIds]), [['lars-williams', ['cast-aaaaaaaaaa']]], 'the row joins the graph person by the whole printed name');
 	assert.ok(owner.names.includes('Lars'), 'the notes rendering is one of his names');
+	// Table 28: a note said "Russell" alone; the book's form is in two parts, so the two-word rendering's words are names too.
+	const two = new api.ModuleGraph('road', {nodes: [{node_id: 'npc-x', node_kind: 'npc', name: '\u62c9\u585e\u5c14\u00b7\u5a01\u5ec9\u59c6\u65af', source_refs: [{page: 17}]}], relations: []}, 'digest', {});
+	two.castStore = {version: 4, source_sha256: 'x', state: 'complete', people: [
+		{id: 'cast-cccccccccc', book: ['\u62c9\u585e\u5c14\u00b7\u5a01\u5ec9\u59c6\u65af'], play: ['\u62c9\u585e\u5c14\u00b7\u5a01\u5ec9\u59c6\u65af'], notes: ['Russell Williams'], pages: [17]},
+		{id: 'cast-dddddddddd', book: ['Silas Marsh'], play: ['Silas Marsh'], notes: ['Silas Marsh'], pages: [2]}]};
+	const [russell, silas] = api.bookCast(two);
+	assert.ok(russell.names.includes('Russell') && russell.names.includes('Williams'), `the rendering's words: ${russell.names}`);
+	assert.ok(!silas.names.includes('Silas'), 'a book printed in the notes language splits nothing by spaces');
 	assert.ok(!owner.printed.includes('Lars') && owner.printed.includes('拉斯'), 'the delivery gate checks only what the book prints and the play language writes');
 	const world = {person_epithets: {'lars-williams': {word: '油布口袋的加油站老板', by: 'graph'}}};
 	const roster = api.untoldRoster(graph, world, {}, []);

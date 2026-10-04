@@ -58,6 +58,21 @@ export function storedCast(value: unknown, sourceSha: string): Row | null {
     return value as Row;
 }
 
+/**
+ * §177.14 (table 28): a row's notes renderings, and their words where the book's own form is in parts. A printed form the
+ * punctuation splits (a given name and a surname joined by a middle dot) has its parts as names (`namePieces`), and a
+ * rendering with as many words is split the same way: "Russell Williams" for the station owner's two-part Chinese name, so a
+ * note that says "Russell" alone is renamed too. A book printed in the notes language splits nothing by spaces ("Silas Marsh"
+ * gives no "Silas": the book never printed it alone).
+ */
+function notesNames(book: readonly string[], notes: readonly string[]): string[] {
+    const parts = new Set(book.filter(Boolean).map(form => namePieces([form]).filter(piece => piece !== form).length).filter(count => count > 1));
+    return notes.filter(Boolean).flatMap(rendering => {
+        const words = rendering.split(/\s+/u).filter(word => [...word].length >= 2);
+        return parts.has(words.length) ? [rendering, ...words] : [rendering];
+    });
+}
+
 const memo = new WeakMap<ModuleGraph, CastPerson[]>();
 const pagesOf = (graph: ModuleGraph, node: Row): number[] => [...new Set(array(node.source_refs)
     .filter(ref => ref?.source_id === `pdf:${graph.moduleId}` && integer(ref.pdf_index)).map(ref => number(ref.pdf_index) + 1))].sort((a, b) => a - b);
@@ -78,7 +93,7 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         const entry = row(raw), id = text(entry.id);
         // §177.14: the notes renderings are names to hide and to refuse, never forms a delivery is checked for (`printed`).
         const shown = [...new Set([...array(entry.book), ...array(entry.play)].map(text).filter(Boolean))];
-        const names = [...new Set([...shown, ...array(entry.notes).map(text).filter(Boolean)])];
+        const names = [...new Set([...shown, ...notesNames(array(entry.book).map(text), array(entry.notes).map(text))])];
         if (!id || !names.length) continue;
         const pages = array(entry.pages).filter(page => Number.isSafeInteger(page) && page >= 1);
         const forms = new Set(shown.map(normalize));
