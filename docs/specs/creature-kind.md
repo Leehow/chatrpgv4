@@ -2,19 +2,28 @@
 
 Status: draft（等用户评审；评审过改 `ready-for-agent`）
 
-契约落点：`docs/kernel-rpc.md` §180（本切片新开；§178 已被进行中的 presence-impression 切片占用，§179 是 cache-traffic）。工单见 [creature-kind-tickets.md](creature-kind-tickets.md)。
+契约落点：`docs/kernel-rpc.md` §180（本切片新开；§178 已被进行中的 presence-impression 切片占用，§179 是 cache-traffic）。工单见 [creature-kind-tickets.md](creature-kind-tickets.md)，模组库调查见 [creature-kind-survey.md](creature-kind-survey.md)。
+
+修订记录：
+
+- 2026-10-04 初稿。
+- 同日，按用户要求通读全部模组后改写 D1、D3–D6、D15、D17：弱点从「一条线索揭示生物」改为「一条带手段的弱点，由一个结论承载获取途径」。
 
 ## 意图检查
 
-- **用户想达成**：动物和怪物不再被各类 NPC 功能当成人处理。这些功能包括声线、外号、揭名记号、社交检定、性格、日志、记忆和初见。怪物要有书里写的习性和弱点，玩家能通过线索或任务查到弱点。
+- **用户想达成**：动物和怪物不再被各类 NPC 功能当成人处理。这些功能包括声线、外号、揭名记号、社交检定、性格、日志、记忆和初见。怪物要有书里写的习性和弱点，玩家能在游戏里查到弱点、拿到对付它的手段。
 - **成功是**：
-  - 新开一局 the-haunting 进地下室，老鼠以 creature 身份出现在 KP 面前，带着书里写的习性，没有外号、揭名记号、社交检定、性格工单或声线。
-  - 能和它们打，它们按书里写的习性溃散。
-  - 一个写了弱点线索的模组里，KP 面前那一行能看到这条链：弱点、从哪条线索得知、调查员知道了没有。玩家拿到那条线索后标为已知，任务照现有方式计进度。
+  - 新开一局 the-haunting 进地下室，老鼠以 creature 身份出现在 KP 面前，带着书里写的习性，没有外号、揭名记号、社交检定、性格工单或声线。能和它们打，它们按书里写的习性溃散。
+  - KP 面前 Corbitt 那一行能看到这条链：
+    - 他的弱点（他自己的匕首）；
+    - 要什么手段（那把匕首现在在哪、在谁手里）；
+    - 从哪个结论得知（三条支持线索找到了几条，还缺的在哪）。
+  - 玩家找到线索、拿到匕首后，这条链跟着变。
 - **空心交付是**：
   - 只迁数据。老鼠反而会在建战役时带着人类字段提前入场，见下文「只迁数据会更糟」。
   - 在提示词里叫 KP 别给老鼠起名。
   - 给 creature 加了字段，却没有投影到 KP 面前。
+  - 弱点只是 KP 面前一行字，玩家没有任何途径查到。
   - 测试全绿，却没新开一局去读真实胶囊。
 
 ## 问题
@@ -40,11 +49,17 @@ Status: draft（等用户评审；评审过改 `ready-for-agent`）
    - 反过来，几个身体功能只认 npc，会漏掉 creature：理智目击去重（`kernel-ts/sanity/index.ts:100`）、战斗标签（`kernel-ts/read/session-view.ts:32`）、急救对象（`kernel-ts/healing/patient.ts:43`）。
    - KP 模组简报只列 `people: roster(["npc"])`（`kernel-ts/read/capsule.ts:890`），没有 creature 名册。
 
+### 弱点今天到不了玩家
+
+调查细节见 [survey](creature-kind-survey.md)。
+
+- 读者读出来的弱点被塞进 `keeper_note`，和其他规则混在一起（Masks 第 8 代的木乃伊、幼虫）。没有任何线索或结论指向它们，所以弱点只是 KP 的私人笔记。
+- PDF 导入的模组里没有一个任务节点。
+
 ### 书里写了什么
 
-the-haunting 原文第 445 页写了老鼠两点：一是用 Overwhelm 围攻单个调查员；二是「Once one rat has been killed, those remaining will flee」，以及「a successful attack … usually chases away the rest of that pack」。
-
-起始包 npc 记录里的 `fear: "Fire and open flame…"`、`agenda`、`secret` 书里都没有，记录却标着 `origin: "source"`。迁移时这些编造的内容不能带过去。
+- **老鼠**：the-haunting 原文第 445 页只写了用 Overwhelm 围攻单个调查员、死一只其余就逃。起始包 npc 记录里的 `fear: "Fire and open flame…"`、`agenda`、`secret` 书里都没有，记录却标着 `origin: "source"`。
+- **Corbitt**：原文写了他的弱点和获取途径：Vittorio 的经文谜语（第 451 页），地下室的匕首（第 456–457 页），用他自己的匕首能让他化灰（第 461 页）。起始包已经把这些建成了结论和三条线索，只是没连到 Corbitt 身上。
 
 ### 只迁数据会更糟
 
@@ -60,20 +75,23 @@ the-haunting 原文第 445 页写了老鼠两点：一是用 Overwhelm 围攻单
 2. creature 加上习性；很多怪物有弱点，玩家能通过任务获取弱点。
 3. 按推荐的顺序做：先写 spec，再改内核，最后迁数据。
 4. `npc-chapel-familiar` 归 creature。
+5. 「我有那么多模组，你去看看」：弱点的设计以模组库调查为准。
 
 ## 设计决定
 
-### D1 界线
+### D1 界线：按这次遭遇怎么写来分，不按物种分
 
-- **`npc`** 是 KP 要当「一个人」来演的对象：调查员能和它打交道，它有名字可以打听到，它有自己的动机。
-- **`creature`** 是只有身体和习性的对象：动物、群体、无心智的怪物，那些会行动、却不能当人来打交道的东西。
+- **`npc`** 是 KP 要当「一个人」来演的对象：书给了调查员把它当人打交道的途径（交谈、讲价、说服、把它劝住、叫出它的名字），它有名字可以打听到，它有自己的动机。哪怕它是怪物，也算 npc。
+  - 例子：Fenalik、Jigsaw Prince、Fynche 的幽灵、Danforth、被俘的米·戈、Kakakatak。
+- **`creature`** 是只以身体出现的对象：动物、群体、无心智的怪物，以及有心智却从不打交道的东西。
+  - 例子：从不谈判的 Lloigor，成群狩猎的 Tehihan。
+- **同一个种族在同一本书里可以两种都有。** de Mendoza 是 npc，野化的 kharisiri 是 creature。所以分的是书里的这一次遭遇，不是物种。
+- **三种特殊情况**：
+  - 不同生命阶段若各有数据，就是各自的节点；
+  - 宿主是人，寄生体有自己的身体和数据时是另一个 creature 节点；
+  - 人形与怪形交替的是一个 npc。
 
-判断归读者（模型）。读者按书怎样对待它来定 `node_kind`；内核只读 `node_kind`，不写物种表，不做关键词判断（Agents.md「语义问题不许硬编码」）。
-
-两个边界情况：
-
-- 有心智的怪物（Corbitt、来交涉的深潜者）是 npc，带数据卡。人类功能用在它们身上是对的。
-- 不说话的人仍是 npc，靠已有的 `does_not_speak` 处理（§40）。
+判断归读者（模型）。内核只读 `node_kind`，不写物种表，不做关键词判断（Agents.md「语义问题不许硬编码」）。不说话的人仍是 npc，靠已有的 `does_not_speak` 处理（§40）。
 
 ### D2 两个判断，每个消费端按功能选
 
@@ -82,44 +100,72 @@ the-haunting 原文第 445 页写了老鼠两点：一是用 Overwhelm 围攻单
 
 `npcsPresent` 继续列出在场的 actor，因为 KP 必须知道老鼠在场。人类功能在它之后按 `isPerson` 过滤。逐个消费端的归属见工单 CK-02 的表。
 
-### D3 creature 的档案：`habits` 与 `weaknesses`
+### D3 creature 的习性：`habits`
 
-契约 JSON 新增 `creature_dossier` 块，与 `actor_dossier` 并列，同样只用已有词汇：
+契约 JSON 新增 `creature_dossier` 块，与 `actor_dossier` 并列，只用已有词汇。
 
-- **`habits`**：书里写的它怎么活动。住在哪、怎么捕猎或攻击、什么时候逃。一行或几行。
-- **`weaknesses`**：书里写的什么能伤它、驱退它、束缚它或消灭它。若干行。
+`habits` 写书里描述的它怎么活动：住在哪、怎么捕猎或攻击、什么时候逃、被什么吸引。一行或几行。
 
-书里没写就缺席，绝不编造（记账律，同 `actor_dossier.law`）。缺这两项的 creature 用 `creatures_without_material` 量度报出来，不判失败。
+书里没写就缺席，绝不编造（记账律）。缺材料的 creature 用 `creatures_without_material` 量度报出来，不判失败。
 
-### D4 `weaknesses` 两种 actor 都能有
+### D4 弱点：带手段的条目，两种 actor 都能有
 
-有心智的怪物也有弱点。如果只给 creature 开这个字段，读者为了记下弱点，会把有心智的怪物错归成 creature，激励方向就反了。所以 `weaknesses` 同时加进 `actor_dossier.profile_keys`；`habits` 只属于 creature，人有 `agenda`。
-
-### D5 弱点通过现有线索链获取，不造平行机制
-
-- **怎么表示一条可获取的弱点**：一个 `clue` 节点，它的命题陈述这条弱点；再加一条关系 `clue --reveals--> actor`。`reveals` 已在 `relation_kinds` 里，内核目前零消费者，不新增词汇。
-- **怎么被发现**：完全走现有线索路径，即 `discoverable-at`、`knows`、`delivery_kind`，结果写入 `world.discovered_clues`。
-- **任务怎么接**：照现有方式，`quest --supports/may-lead-to--> clue`，由 `questObligations` 计进度（`kernel-ts/read/pressures.ts:165`）。
-
-KP 面前的那一行（creature 行，以及带弱点的 npc 行）多一个 `learned_from`：
+有心智的怪物也有弱点（Corbitt、Fenalik），所以 `weaknesses` 同时进 `actor_dossier` 和 `creature_dossier`。它不是一行字，而是一组条目：
 
 ```json
-"learned_from": [{"clue": "<handle>", "discovered": false, "at": "<scene display name>", "from": "<who knows it>"}]
+"weaknesses": [{
+  "book": "Struck with his own ritual dagger, his wards fail and he turns to ash and dust.",
+  "needs": ["artifact-corbitt-ritual-dagger"],
+  "learned_by": "conclusion-own-dagger-ends-corbitt"
+}]
 ```
 
-这是「给 KP 链条，不是更多面板」：弱点、从哪条线索得知、在哪拿、谁知道、调查员拿到没有，全在同一行。
+- **`book`**（必有）：书里怎么说的，一行英文。写清什么能伤它、驱退它、束缚它、放逐它或终结它，连同条件和程度。
+  - 程度的例子：「日光每小时一颗惩罚骰，三小时后溶解；刚转化的不受影响」。
+  - 抗性也写在这里：「只有火、魔法、电能伤它；枪械与普通近战无效」。
+- **`needs`**（可缺）：书里点名的手段，以节点 id 列出。种类可以是：
+  - 物件、宝物、法术、典籍；
+  - 地点或场景；
+  - 必须到场的人，比如 Cael 必须亲自主持仪式；
+  - 控制者，比如 Unwen 一死，它就死。
+  - 同一样手段可以出现在许多生物的条目里（逆转法术对付九具复活尸）。
+- **`learned_by`**（可缺）：调查员能推出这条弱点的那个**结论**节点，见 D5。书里没安排获取途径就不写。这种弱点只有 KP 知道，调查员只能在遭遇中试出来。调查显示这是最常见的一种，属于玩法，不是缺陷。
 
-**为什么不让弱点条目直接引用线索 id**：属性里引用列表中的某一条，就成了读者要编写、校验器要验证的身份（义务句柄那次的教训）。线索自己的命题已经说清是哪条弱点，KP 读得懂。
+这是属性里引用节点 id 的类型形状，与义务形状（`properties.obligation` 里的 `scene`、`who`、`guards`）同一先例：校验器检查每个 id 存在、种类在允许集合内。书里没写就缺席，绝不编造。
 
-### D6 KP 怎么据它行动（契约 §31 的第三端）
+### D5 可获取的弱点由一个结论承载：复用整套调查机制
 
-利用弱点由 KP 裁定，走已有路径：
+`learned_by` 指向的结论就是普通的 `conclusion` 节点，由线索 `supports` 支持，现有机制全部照用：
 
-- 规则内的奖励骰或惩罚骰；
-- `apply npc` 的 `disposition`、`action`（比如溃逃），或 `conditions`；
-- 伤害。
+- **KP 的线索脉络**（`kernel-ts/read/thread.ts:33`）会列出还缺哪条支持线索、在这里还是在邻近场景。
+- **故事评估**（`kernel-ts/read/story.ts:20`）可以把它当作未结的线索链。
+- **任务**照现有方式 `may-lead-to` 线索或结论。
+- **假线索**用已有的 `clue --contradicts--> conclusion`，故事评估已经读它。如果一条假弱点没有对应的真结论（民俗说银能对付食尸鬼，其实没用），用已有的 `clue --misleads--> actor`，KP 那一行列为 `false_leads`。
 
-本切片不新增免疫或易伤的引擎机制。只有真桌证明确实需要时，才另开带类型的形状。offer 账把 creature 行和 present 行一样计数，只计数，不催促。
+选结论而不是新造关系，因为调查显示书里安排的获取途径几乎都是「几条证词、手卡、检定合起来推出一件事」。这正是结论加支持线索的形状，三线索原则的工具已经在那里。the-haunting 起始包就是这样建 Corbitt 的匕首的。
+
+**已有缺陷，不在本切片修**：`mainLineComplete`（`kernel-ts/read/director.ts:77`）把「任何一个结论的支持线索全部找到」当成主线完成。the-haunting 本来就有 6 个结论，弱点结论会让它更容易误报。需要按结论重要性或主线标记收窄。已另开工单。
+
+### D6 KP 面前的链，以及他怎么据它行动（契约 §31 的三端）
+
+- **谁写它**：读者从书里写。起始包手写。
+- **谁读它**：actor 那一行的 `weaknesses` 投影成一条链：
+
+  ```json
+  "weaknesses": [{"book": "…",
+    "needs": [{"name": "the ritual dagger", "kind": "artifact", "held_by": "the investigators"}],
+    "learned_by": {"conclusion": "…", "found": 1, "of": 3}}]
+  ```
+
+  - 手段的当前状态用现有读数：物件归属用 `objectOwner`、`rootObjectOwner`；法术看谁已学会、哪本典籍能学；地点和人只给名字。
+  - 结论的进度用已发现的线索数，与线索脉络同一读法。
+  - present[] 有预算，条目要短；完整内容在 `npc.read` 一类的单人读数里。
+- **谁据它行动**：KP 裁定利用弱点，走已有路径：
+  - 规则内的奖励骰或惩罚骰；
+  - `apply npc` 的 `disposition`、`action`、`conditions`；
+  - 伤害；
+  - 交付线索与物件。
+- 本切片不新增免疫或易伤的引擎机制，见 D17。offer 账把 creature 行和 present 行一样计数，只计数，不催促。
 
 ### D7 `apply npc` 用在 creature 上
 
@@ -170,10 +216,13 @@ creature 照样能行动。可用方式：`attack`、`flee`、`first_blow`、`pu
 
 ### D13 读者
 
-- `visual-reader.md` 写入 D1 的界线、D3/D4 的档案键、D5 的 `reveals` 写法，以及记账律。
+- `visual-reader.md` 写入 D1 的界线（按遭遇分）、`habits`、`weaknesses` 的形状与记账律、`learned_by` 结论的写法，以及 `contradicts`/`misleads` 怎么写假线索。
+  - 明确要求：数据卡上的抗性写进 `weaknesses` 的 `book`，不再塞进 `keeper_note`。
 - `task.vocabulary` 带上 `creature_dossier`。
-- 校验器只接受从 `clue` 指向 `npc` 或 `creature` 的 `reveals`。
-- 复核的 coverage 把书里写明的习性和弱点算作应覆盖的材料。
+- 校验器：
+  - `needs` 和 `learned_by` 的 id 必须存在，且种类在允许集合内；
+  - `misleads` 的两端必须是 `clue` → `npc`/`creature`。
+- 复核的 coverage 把书里写明的习性、弱点及其获取途径算作应覆盖的材料。
 - `reading.ts:671` 按需补读对 creature 照读，读书本身不分人和身体，保持不变。
 
 ### D14 与并发切片的协调
@@ -186,16 +235,18 @@ creature 照样能行动。可用方式：`attack`、`flee`、`first_blow`、`pu
 - **the-haunting**：
   - 删除 `npc-rat-pack` 及其 claims、relations 和 npc-agendas 投影记录；
   - 数据卡和武器挪到 `creature-rat-pack` 的 `mechanics.profile`；
-  - 加 `combat.disposition: fights_then_flees`（书上写了，死一只就逃）；
-  - `habits` 只写书里的原句；
-  - `weaknesses` 不写，书里没有；
+  - 加 `combat.disposition: fights_then_flees`；
+  - `habits` 只写书里的原意（藏在墙板后的爬行空间，用 Overwhelm 围攻一人，死一只其余就逃）；
   - 编造的 fear、secret、agenda、voice 全部丢弃；
-  - `present-in scene-basement-rites` 保留；习性里写明它们藏在墙板后的爬行空间；
+  - `present-in scene-basement-rites` 保留；
+  - **Corbitt 加 `weaknesses`**，这是真书里的垂直样例，内容全部来自原书：
+    1. `book` 写「用他自己的仪式匕首刺中，护盾失效，化为灰烬」，`needs: [artifact-corbitt-ritual-dagger]`，`learned_by: conclusion-own-dagger-ends-corbitt`；
+    2. 日光会伤他、也许致命，原书说由 KP 决定，只写 `book`。
   - 重新盖 guidance 包的 `graph_sha256`。
 - **the-haunting-rulebook**：`creature-rat-pack` 的平铺数值改成带类型的 `mechanics.profile`，加 `combat` 和 `habits`。
 - **mystery-house**：
   - `npc-rat-swarm` 改为 `creature-rat-swarm`，`npc-chapel-familiar` 改为 `creature-chapel-familiar`。id 前缀必须跟种类一致（`node_id_law`）；handle 不变。
-  - 使魔是作者手写的规则练习模组（`origin: authored-gym`），可以带一条标明的薄样例：作者写的 `fear` 转成 `weaknesses`，再配一条 `reveals` 它的线索和一个指向该线索的任务。这条样例用来跑通 D5 的整条链。按 Agents.md「修补先看全局」第 4 条，只在系统路径通了之后才加。
+  - 不再给使魔加薄样例，D5 的整条链由 the-haunting 的真书样例覆盖。
 - 改测试中钉住 `npc-rat-pack` 的几处：`tests/kernel/test_starters.py`、`tests/extension/mechanics-readers.test.mjs:190`、`mechanics-shape.test.mjs`、`haunting-shapes.test.mjs`。
 
 ### D16 已有战役
@@ -204,20 +255,26 @@ creature 照样能行动。可用方式：`attack`、`flee`、`first_blow`、`pu
 
 ### D17 本切片不做，另开工单（needs-triage）
 
-- **KP 临场引入的动物会被铸成「桌上的人」。** `apply npc walk_on` 走的是 `establishPerson`，比如一条看门狗会吃到所有人类功能。修法可能是 walk-on 带上 creature 种类，并从规则目录的生物条目继承数据卡（`runtime_rule_ref: "coc7 rat pack"` 已经指向那里）。开不开要用户拍板。
-- **带类型的弱点机制**：免疫、易伤、只能被某物伤害。
-- **规则目录生物条目的继承**（`extends`）。
+- **读者不产出任务，要拍板。** 调查里书写成「追求目标」的弱点手段约 30 处（修护符、毁 Fez、封坑道、拿斧头……），但 PDF 导入的模组里一个任务节点都没有。本切片让弱点、手段、结论到达 KP，任务框架靠 KP 在故事里提出。要不要让读者产出任务节点，属于「导入模组没有导演信号」那个更大的缺口。
+- **带类型的抗性与弱点机制。** 免疫、减半、贯穿最小伤害、只算头部伤害、只被某物伤害。调查里这类约 40 个生物，数量最多，现在只能由 KP 手动裁定伤害。规则当数据（§136）的下一块。
+- **KP 临场引入的动物会被铸成「桌上的人」。** `apply npc walk_on` 走的是 `establishPerson`。修法可能是 walk-on 带上 creature 种类，并从规则目录的生物条目继承数据卡。
+- **`mainLineComplete` 的误报**，见 D5。
+- 规则目录生物条目的继承（`extends`）。
 
 ## 验收
 
-1. **盒子上跑全量**：`test:ext` 与 pytest，按 leehow-pc-tests skill 优先用 amax。新增用例要能被变异测试杀死，夹具用自造的图（带数据卡的 creature 在场），不靠发货的起始包。
-2. **真产品路径**：新开一局 the-haunting 战役，读地下室的真实胶囊，检查 present[] 里的老鼠行和简报的 creature 名册。新开一局 mystery-house，让线索被发现，前后各读一次 `learned_from` 与任务进度。
-3. **真桌**：按 Agents.md 的方法，用 `tests/play/driver.py` 起当期默认的 KP 模型，我当唯一玩家，进地下室和老鼠打一场，15 到 20 回合。开桌前把结局预先写死：
+1. **盒子上跑全量**：`test:ext` 与 pytest，按 leehow-pc-tests skill 优先用 amax。新增用例要能被变异测试杀死，夹具用自造的图（带数据卡的 creature 在场，一个带 `weaknesses` 的人），不靠发货的起始包。
+2. **真产品路径**：新开一局 the-haunting 战役，读三次真实胶囊，核对 present[] 的老鼠行、简报的 creature 名册、Corbitt 行的弱点链：
+   - 开局；
+   - 发现一条匕首线索之后；
+   - 调查员拿到匕首之后。
+3. **真桌**：按 Agents.md 的方法，用 `tests/play/driver.py` 起当期默认的 KP 模型，我当唯一玩家，从开局跑到地下室：找线索、拿匕首、和老鼠打一场、对上 Corbitt。开桌前把结局预先写死：
    - present[] 的老鼠行是 `kind: creature`，没有 `untold`、`say_name`、`called`、`now`、`personality`；
    - 外号、声线、性格作者的工单从不列出 rat-pack；
    - 检定选项里没有针对老鼠的社交或心理学检定；
    - 战斗用的是老鼠的数据卡（Overwhelm 2D6），死一只后它们按 disposition 逃散；
    - 日志里没有老鼠条目；
+   - Corbitt 行的弱点链随线索和匕首的获取而变化；KP 用匕首结算时走已有路径并留下收据；
    - §178 已合入的话，照面时不对老鼠掷初见。
 
 ## Comments
