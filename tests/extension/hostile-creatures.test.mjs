@@ -384,10 +384,12 @@ test('§180.8–§180.9: the table door takes a creature word on a creature and 
   await rejects(dossier(RATS, {weaknesses: [{book: 'Fire.', needs: ['a flamethrower']}]}), error => assert.equal(error.code, 'unknown_entity'));
   assert.equal((await dossier(RATS, {weaknesses: [{book: 'A lantern thrust at them drives the swarm back.', needs: ['Iron key']}]})).receipts.length, 1);
   await dossier(WARDEN, {weaknesses: [{book: 'Iron filings in his path slow him.'}]});
+  await dossier(WARDEN, {weaknesses: [{book: 'Cold iron chains hold him while they stay shut.'}]});
   const capsule = await table.next('I raise the lantern.');
   assert.deepEqual(table.row(capsule, RATS).weaknesses, [{book: 'A lantern thrust at them drives the swarm back.', needs: [{name: 'Iron key', kind: 'artifact'}]}]);
   const warden = await table.call('table.look', {focus: 'npc', name: WARDEN});
-  assert.deepEqual(warden.weaknesses.map(entry => entry.book), [W_KEY, W_SALT, W_SUN, W_BELL, 'Iron filings in his path slow him.'], 'appended after the book\'s');
+  assert.deepEqual(warden.weaknesses.map(entry => entry.book), [W_KEY, W_SALT, W_SUN, W_BELL, 'Iron filings in his path slow him.',
+    'Cold iron chains hold him while they stay shut.'], 'appended after the book\'s, a later write after an earlier one');
   assert.equal((await table.call('table.look', {focus: 'npc', name: MOTHS})).habits, 'They circle the lamp and scatter at a draught.');
   // The act author reads a creature's habits (§180.5).
   assert.equal((await table.call('npc.situation', {name: RATS})).who.habits, HABITS);
