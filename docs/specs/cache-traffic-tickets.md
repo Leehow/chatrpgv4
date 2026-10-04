@@ -45,8 +45,8 @@ handler registered beside the other private `module.*` methods, `kernel-ts/handl
 
 ## CT-05 A fork that is not the library's lineage gives back its readings one by one
 
-Status: landed 2026-10-04 (cb0226b3b, bounded per call in the follow-up commit below, on
-`claude/cache-traffic-lineage-20261004`; decisions in the contract)
+Status: landed 2026-10-04 (cb0226b3b; bounded per call 30ff83ee7; on `claude/cache-traffic-lineage-20261004`; decisions
+in the contract)
 
 Contract §179.5 (implementation decisions CT-05). Kernel (`kernel-ts/modules/library-merge.ts` new: selection,
 classification, replay through the library's own `finish` / `module.reference.materialize`; `reading.ts`
