@@ -33037,3 +33037,246 @@ A sandbox replay of `game-8e41c325` turns 3–6, from the `turn 2:` commit, with
 - **The path.** B1's repository reset to its `turn 5:` commit, with `table.capsule` on this kernel. On turn 6, `recent` held turns 4–5 and `own.said` turns 1–3 with both particulars. The driver runs Pi with `--no-session`, so the request itself is not kept.
 - **Blinding.** A and B1–B2 were scored blind; B3–B4, C and D were not.
 - **Evidence lost.** The C homes' sandbox campaign state was deleted while D's homes were being built: `make_home.sh` began with `rm -rf`, and now refuses an existing home. C's delivered prose and driver runs are kept.
+
+## 180. Persons and creatures; the Hostile Creatures package (owner rulings 2026-10-04: animals and monsters are separated from npcs "以免各类npc优化误用到怪物身上"; "creature加上这个习性吧，毕竟很多怪物应该都有弱点，玩家有任务可以获取弱点"; "按照你的推荐来做吧，做一个敌对生物优化mod"; the Keeper's walk-on animal joins the slice; amends §136.12, §17.2, §28.3, §28.7, §87.7, §143.3)
+
+**Evidence.**
+- **The twin.** The haunting carries the rat swarm twice: `npc-rat-pack` (stat block, agenda, fear, secret, voice) and `creature-rat-pack` (`present-in scene-basement-rites`, no stat block). `ModuleGraph.actor` takes the npc first (§136.12), so the swarm is found as a person.
+- **The person layer reached it.** Its epithet, `untold`/`say_name`, voice job, social and Psychology offers, coercion act and personality job (`npc.job`, which `npc.submit` then refuses for a non-npc) all fire. Some of these select `node_kind === "npc"` and some ride `npcsPresent`, which is `actor`.
+- **The book does not say what the starter says.** The book states only the Overwhelm attack and that the rest flee once one rat dies (Keeper Rulebook, PDF p. 457–458). The starter's `fear: "Fire and open flame"`, `agenda` and `secret` are not in the book, though the record says `origin: "source"`.
+- **The owner's library.** `docs/specs/creature-kind-survey.md` reads the whole library: eleven translated modules, Masks, Horror on the Orient Express, A Time to Harvest and two rulebook scenarios, about 230 beings in all.
+  - Most stated weaknesses are stat-line resistances with no in-fiction route.
+  - An authored route almost always pairs knowledge with a means: an object, spell, ritual, place or controller. One means often serves many beings.
+  - The books author false leads on purpose.
+  - Books classify a being by the encounter, not the species.
+- **What reaches the table today.**
+  - No module built from a PDF has a single `quest` node.
+  - The Masks reader put its creatures' weaknesses into `keeper_note` prose.
+  - No clue or conclusion points at any creature.
+
+### 180.1 Who carries what
+
+The split follows §179.1. **What a being is, and which machinery may treat it as a person, is the base's.** It is a correctness rule, and disabling a package must not give a rat an epithet again. **How a hostile creature is played is the Hostile Creatures package's (`mods/hostile-creatures`).** That covers its habits and weaknesses as words the reader is asked for, the chain that carries a weakness to the table, and the Keeper's instructions.
+
+| base (kernel, always on) | package (`hostile-creatures` 1.0.0, default enabled) |
+| --- | --- |
+| the boundary (180.2), `isPerson`/`isActor` and every consumer (180.3) | `habits`, a creature word (180.8) |
+| the creature row and the brief's `creatures` roster (180.4) | `weaknesses`, an actor shape with its chain (180.9) |
+| `apply npc` on a creature, NPC acts, offers (180.5) | the table door for both words (180.8, 180.9) |
+| table creatures and the beasts catalog (180.6) | instructions that ride only where a creature is (180.10, 180.11) |
+| one being, one node (180.7); the starters' kinds (180.12) | Corbitt's weakness in the haunting starter (180.12) |
+
+### 180.2 The boundary
+
+`npc` is a being the Keeper plays as a person. The book gives the investigators a way to deal with it as someone: talk, bargain, persuade, argue it down, call its name. It has a name to learn and motives of its own. It is a person even when it is a monster: Fenalik, the Jigsaw Prince, Fynche's ghost, Corbitt, a captive mi-go that answers questions.
+
+`creature` is a being the book presents only as a body. That covers animals, swarms, mindless monsters, and minds that never deal with anyone: a lloigor, a Tehihan hunting party.
+
+The rule is applied per node and per encounter, never per species. De Mendoza is an npc and the feral kharisiri are a creature. A life stage the book gives separate numbers is its own node. A parasite with its own body and numbers is a creature node beside its host. A being with a human and a monstrous form is one npc.
+
+The reader decides, from how the book treats the being (180.13). The kernel reads `node_kind` and nothing else: no species table, no keyword (Agents.md, semantic questions). A person who does not speak stays an npc (§40, `does_not_speak`).
+
+### 180.3 `isPerson` and `isActor`
+
+`ModuleGraph.isPerson(node)` is `node_kind === "npc"`, book or table. `isActor` is unchanged: an npc, or a creature that states a stat block. `npcsPresent` still lists the actors present, since the Keeper must know the rats are in the room. A person feature filters it by `isPerson`. The table is the authority; a consumer not listed keeps its selection.
+
+| consumer | selects |
+| --- | --- |
+| `npcsPresent`, `sceneNpcIds` presence seeding, combat and chase opponents, `npcProfileOf`, standing defence, disposition and action, resolve target and acting NPC | actor (unchanged) |
+| `presentSection`: a person gets `npcEntry`, a creature the creature row (180.4) | split |
+| `untoldBlock`, `untoldRoster`, `say_name`, epithets (`epithets.job`, person words) | person |
+| voice (`voice.job`), journal, memory knowers and entities, the stance ledger's social deltas | person |
+| first sight, the first impression (§26 checks with trigger `contact`, and §178's `presence` once landed) | person |
+| `social:adjudicate-difficulty`, `psychology:observe-concealed` offers | person |
+| `core-check:opposed-check` offers | actor (unchanged) |
+| `npc.job` enumeration (it now matches `npc.submit`) | person |
+| act ways `coercion`, `walk_on`; the stakes die's `_draws`/`_produces` | person |
+| the act author's material: personality for a person, `habits` (180.8) for a creature | split |
+| the expression-card roster (`extensions/table`) | person; the host reads `kind` on the present row |
+| say-span speaker resolution | person; a span naming a creature stays a label, as one naming nobody does |
+| cash counterparty, promise payer, obligation `who` and `people` guards | person (unchanged) |
+| Sanity-on-sight once-only dedupe, combat label, First Aid patient | actor (was npc-only) |
+
+`resolve/projection.ts` (the receipt's `npc` tag) and `mods/effects.ts` (resource effects) are settled in the implementation. Each is recorded here as actor or person, with its reason, before merge.
+
+### 180.4 The creature row and the brief's roster
+
+A creature in `present[]`:
+
+```json
+{"name": "Rat Pack", "kind": "creature", "what": "<summary, at most 160 characters>",
+ "state": "...", "habits": "...", "weaknesses": [...], "false_leads": [...],
+ "keeper_note": "...", "toward_party": {...}}
+```
+
+- **Fields.** `kind` is always present; every other field appears only when there is a value. `state` and `toward_party` are read exactly as for a person. `habits`, `weaknesses` and `false_leads` come from 180.8–180.9.
+- **What it never carries.** A creature row carries no `called`, `untold`, `now`, `personality`, `knows`, `believes`, `would_lie_about`, `ties`, `history`, `relationships`, `recent_speech`, `commitments`, `reunion` or `from_other_lines`. A person row gains `kind: "npc"` so the host can tell them apart.
+- **Order.** Creature rows follow person rows and are cut first under the budget.
+- **The brief's roster.** `moduleSection` gains `creatures`, the same roster form as `people`, over `node_kind === "creature"`.
+
+### 180.5 `apply npc` on a creature; acts; offers
+
+- **Accepted on a creature:** `to`, `stance`, `dead`, `conditions`, `defense`, `action`, `disposition`, `intends`/`outcome`, `spend_turn`, `skill`, and `creature` (180.6).
+- **Refused on a creature:** `mood`, `reunion`, `archetype` (person tiers), `apply person`, and `walk_on` without `creature`. The refusal is `invalid_params` with `details.reason: "not_a_person"`, and its `fix` names the body-side way. For example, how it fights is `disposition`; how it behaves belongs in prose; a stat block is `creature: "<catalog creature>"`.
+- **Act ways (amends §143.3).** A creature's options are `attack`, `flee`, `first_blow`, `pursue`, `check`, `clock`, `stance`, `leave` and `intention_only`. `coercion` and `walk_on` are never offered to it. The host strips `_draws`/`_produces` from a creature's act.
+
+### 180.6 Table creatures and the beasts catalog (amends §87.7)
+
+The Keeper's own animal, such as a yard dog, a mule, a swarm in the cellar, is declared as a creature:
+
+```
+apply {"kind": "npc", "name": "the yard dog", "walk_on": true, "creature": "Dog", "why": "..."}
+```
+
+**Declaring one.**
+- `creature` is the name of a rules-catalog creature (`table.lookup kind=catalog kinds=["creature"]`), or `true` for a creature with no stat block yet. Which entry fits is the Keeper's judgement; the kernel never maps a word to an entry.
+- An unknown name is refused, with `details.options` listing the catalog's creature names.
+- The creature is recorded in `world.table_creatures[]` as `{name, turn, why, established_at, catalog?}`. It never enters `world.table_people`, so no person consumer meets it.
+- The graph gains it through `ModuleGraph.addTableCreature`: `node_kind: "creature"`, a kernel-minted id `creature-table-<digest>`, and `campaign_origin.kind: "table"`. It is reinstalled on load exactly as table persons are.
+
+**Its stat block.**
+- The kernel builds it from the catalog entry and pins it in `world.npc_profiles[handle]` (§147.8) with `authority: "table_pinned"` and `catalog: <entry>`.
+- A characteristic the entry gives as a roll expression (the beasts' `2D6×5`) is rolled with the turn's seeded dice. Otherwise the entry's average is used.
+- Derived values come from the same tables as §34.10 archetypes, except that a value the entry states (HP, armor, Move) is kept as stated.
+- The entry's attacks become weapons through `engineWeapon`. Its `san_loss` becomes `sanity_loss`.
+- With the block pinned, the creature is an actor and can fight.
+
+**Pinning later.** `apply npc {"name": <a creature without a stat block>, "creature": "<entry>"}` pins one later. This works for a table creature and for a book creature the book gave no numbers. A creature that has a block is refused (`details.reason: "stat_block_exists"`).
+
+**The beasts catalog.**
+- `content/rulesets/coc7/rules-json/beasts.json` transcribes the Keeper Rulebook's Beasts section (Chapter 14, PDF p. 347 onward): bear, crocodile, dog, horse, lion, rat pack, shark, snake, wolf, and every other beast the section prints.
+- Each entry carries its averages and roll expressions, HP, damage bonus, build, Move, attacks, skills, armor, habitat and `source_page`. The catalog's `creature` family reads both `monsters.json` and `beasts.json`.
+- Nothing is filled from habit. A value the page does not print is `_unstated`.
+
+### 180.7 One being, one node
+
+- **The reader's checker** refuses a draft in which an npc and a creature share a normalized name or handle (`details.reason: "one_being_two_nodes"`). Its `fix` is to keep one node of the kind 180.2 decides.
+- **The starter test** asserts that no shipped starter carries such a pair.
+- **Loading a graph does not refuse a pair.** A campaign is a compile snapshot, and an old haunting campaign carries the twin. `actor`'s npc-first order (§136.12) is kept only as the tie-break for such snapshots.
+
+### 180.8 Creature words (amends §28.3, §28.7)
+
+`content/modules/module-graph-contract-v3.json` gains `creature_dossier`. It mirrors `actor_dossier` and has no core keys: `profile_keys: []`, plus `profile_labels`, `why` and `law`.
+
+- **The contribution.** A package requiring `graph.vocabulary.v1` may contribute `vocabulary.creature_profile_keys`, in the same shape as `actor_profile_keys` (`key`, `label`, `ask`). The same collision rule applies across both spines.
+- **Where the word goes.** The key enters `creature_dossier.profile_keys`. The reader asks it of creature nodes, it binds at build (§28.2), and the creature row reads it through the spine (§28.4).
+- **The table door.** `graph.vocabulary.table.v1`'s door (§28.7) accepts a contributed creature word on a creature node. The Keeper may establish `habits` for the yard dog where nothing authored says. That write dies with the package, as §28.7 says.
+
+### 180.9 `actor.weaknesses.v1`: the weakness shape
+
+A package requiring `actor.weaknesses.v1` binds, at build, the actor property `weaknesses` on npc and creature nodes:
+
+```json
+"weaknesses": [{
+  "book": "Struck with his own ritual dagger, his wards fail and he turns to ash and dust.",
+  "needs": ["artifact-corbitt-ritual-dagger"],
+  "learned_by": "conclusion-own-dagger-ends-corbitt"
+}]
+```
+
+**The entry.**
+- `book` (required): one English line in the book's terms, saying what harms, repels, binds, banishes or ends the being, with its conditions and degree. Stat-line resistances belong here too ("only fire, magic and electricity harm it; firearms do nothing"), not in `keeper_note`.
+- `needs`: the means the book names, as node ids of kind `object`, `artifact`, `spell`, `tome`, `location`, `scene`, `npc`, `creature`, `hazard`, `rule` or `procedure`. A controller whose end ends the being is an npc here. One means may appear on many beings.
+- `learned_by`: the `conclusion` the investigators can reach that states it. It is absent when the book gives no route. Such a weakness is the Keeper's alone and is found in play.
+- The accounting law holds: what the book does not give is absent, never invented.
+
+**The checker.** It refuses a missing `book`, an id that does not resolve, and a kind outside the list (`shape_unresolved`, with the path).
+
+**False leads.** `clue --misleads--> npc|creature` (an existing relation kind, until now without readers) marks a clue whose belief about the being is false. The checker refuses any other endpoints. A false lead against a true weakness is the existing `clue --contradicts--> conclusion`.
+
+**The chain** (§31: the reader end). An actor row carries `weaknesses` in this form:
+
+```json
+"weaknesses": [{"book": "...",
+  "needs": [{"name": "the ritual dagger", "kind": "artifact", "held_by": "the investigators"}],
+  "learned_by": {"conclusion": "...", "found": 1, "of": 3}}],
+"false_leads": [{"clue": "...", "discovered": false}]
+```
+
+- **`held_by`** comes from the existing ownership reads (`objectOwner`/`rootObjectOwner`). A spell need says `known_by` (who at the table knows it) and `taught_by` (a tome that teaches it). A place or person need gives the name only.
+- **`found`/`of`** counts the conclusion's `supports` clues in `world.discovered_clues`, the same reading as `thread.ts`. The thread lines already tell the Keeper where the missing clues are.
+- **Budget.** The present row carries at most three entries, the `book` cut to 160 characters. The single-person and creature reads carry them all.
+- **Words bound at build.** These reach the table whether the package is enabled or not (§28.5).
+
+**The table door.** With `graph.vocabulary.table.v1`, `apply dossier {"name", "values": {"weaknesses": [{"book", "needs"?}]}}` appends table-established entries after the authored ones, and only while the package is enabled. It never edits an authored entry, and it carries no `learned_by`: a conclusion is book material.
+
+### 180.10 `context.creature.v1`: instructions that ride where a creature is
+
+A package requiring `context.creature.v1` is creature-scoped. Its instructions ride only on turns whose active scene has a creature among `npcsPresent`:
+
+- the full `instructions` on the first such turn this kernel process opens for the campaign;
+- its `brief` on the turns after.
+
+A turn with no creature present carries nothing from it. Its brief is held to its own budget, 400 UTF-8 bytes checked at load (`details.reason: "creature_brief_over_budget"`). It is left out of the shared 5000-byte ceiling (§30.7, §40.6), exactly as §153.4 does for a language-scoped package. The ceiling tests hold it to its own 400.
+
+### 180.11 The Hostile Creatures package 1.0.0
+
+`mods/hostile-creatures`: id `hostile-creatures`, `default_enabled: true`, name 「敌对生物」 / "Hostile Creatures".
+
+- **Manifest.** It requires `graph.vocabulary.v1`, `graph.vocabulary.table.v1`, `actor.weaknesses.v1`, `context.creature.v1` and `mods.package-files.v1`. It contributes `instructions` (`agent.md`), `brief` (`brief.md`) and `vocabulary.creature_profile_keys: [{"key": "habits", "label": "habits", "ask": "how this creature lives and acts as the book states: where it lairs, how it hunts or attacks, what draws it, when it breaks off or flees"}]`.
+- **`agent.md`** (English) tells the Keeper how to play a creature:
+  - Play it as a body, by its `habits`: sound, motion and behaviour, never dialogue or a name to learn.
+  - A weakness without `learned_by` is found in play. Show what happens when the investigators try (a bullet that does not bite, a swarm that parts before the torch). Never announce the rule.
+  - A learnable weakness's chain shows what is missing. Deliver its clues the ordinary way.
+  - A false lead is believed until it is tested.
+  - Exploiting a weakness settles through ordinary receipts: bonus or penalty dice, `disposition`, `action`, `conditions`, damage, objects changing hands.
+  - An animal the Keeper brings in is declared with `apply npc walk_on` and `creature` (180.6). Its habits are written at the table with `apply dossier` when nothing authored says.
+- **`brief.md`** fits within 400 bytes.
+
+### 180.12 Starter data
+
+**The haunting.**
+- `npc-rat-pack` is removed: the node, its claims, its relations and its npc-agendas projection record.
+- `creature-rat-pack` takes the stat block and weapons as `mechanics.profile`, `combat.disposition: "fights_then_flees"`, and `habits` from the book. The habits are: lair in the crawl space behind the cellar boards, Overwhelm one investigator, the rest flee once one is killed.
+- The invented fear, secret, agenda and voice are not carried over.
+- `npc-walter-corbitt` gains `weaknesses`. The first entry names his own dagger, with `needs: ["artifact-corbitt-ritual-dagger"]` and `learned_by: "conclusion-own-dagger-ends-corbitt"`, whose three supporting clues already exist (book PDF p. 451, 456–457, 461). The second is sunlight hurting him and perhaps destroying him, which the book leaves to the Keeper; it is `book` only.
+- The starter's provenance records the bound words, as a built module's does.
+- The guidance bundles are re-stamped.
+
+**The haunting rulebook twin.** `creature-rat-pack`'s flat numbers become a typed `mechanics.profile`, and it gains `combat` and `habits`.
+
+**Mystery House.** `npc-rat-swarm` becomes `creature-rat-swarm`, and `npc-chapel-familiar` becomes `creature-chapel-familiar`. The prefix follows the kind (`node_id_law`); the handles are unchanged. The person-only fields are dropped.
+
+### 180.13 The reader
+
+**`content/setup/visual-reader.md` gains:**
+- the boundary of 180.2, applied per node and per encounter;
+- the creature ask for bound creature words;
+- the `weaknesses` entry, when bound, with the accounting law and the instruction that stat-line resistances go into `book`, not `keeper_note`;
+- `learned_by` as a conclusion supported by the clues that teach it;
+- `misleads` and `contradicts` for false leads.
+
+`task.vocabulary` carries `creature_dossier` and, when bound, the weakness shape. The review's coverage counts a stated habit, weakness and route as material. On-demand reading (`reading.ts`, persons and creatures alike) is unchanged.
+
+### 180.14 Three ends, limits, out of scope
+
+**§31's three ends.**
+- **Writers:** the reader, from the book; the starters; the Keeper, through `apply npc creature` and the table door.
+- **Readers:** the creature row, the brief's roster, the chain on actor rows, and the single-actor reads.
+- **Actors:** the Keeper, through ordinary receipts. `lane: "offers"` counts creature rows as it counts present rows. It counts and never urges.
+
+**Limits.**
+- Whether the Keeper plays a creature as a body and lets a weakness be found rather than announced is the model's. Only the table shows it.
+- A weakness's `book` line is prose for the Keeper. The engine applies no immunity or vulnerability from it.
+
+**Out of scope (needs-triage).**
+- **Reader-produced quests.** The survey counts about thirty means that books frame as pursued goals, and no built module has a quest. This belongs to the wider gap of imported modules having no director signals.
+- **Typed resistances.** Immunity, halving, minimum damage from impales, head-only damage and "only X harms it" cover about forty beings in the survey. This is the next rules-as-data shape.
+- **`mainLineComplete`** counts any fully supported conclusion as the main line. Learnable weaknesses add conclusions; the defect is filed separately.
+
+**Coordination.**
+- §178 (presence impression, uncommitted): its presence roll selects persons. Whichever lands second carries the filter.
+- §177 (module cast): its roster selects persons.
+
+### 180.15 Acceptance
+
+1. **Suites.** The suites run on the LAN box. Every new case must be killable by mutation, over a fixture graph with a stat-block creature present beside a person who has `weaknesses`. They must not depend on the shipped starters or on a helper that fills input.
+2. **The product path.** Open a new haunting campaign and read the real capsule three times: at the opening, after a dagger clue is found, and after the investigators hold the dagger. Then declare a yard dog with `creature: "Dog"` and read its row and pinned block.
+3. **A real table.** `tests/play/driver.py`, with the current default Keeper and this session as the only player, from the opening to the cellar: clues, the dagger, the rats, Corbitt. Pre-registered:
+   - The rats' row is `kind: "creature"` with no person fields.
+   - No epithet, voice or personality job ever lists them.
+   - No social or Psychology offer targets them.
+   - The fight uses their block, and they break after one dies.
+   - The journal has no rat entry.
+   - Corbitt's chain moves as the clues and the dagger move.
+   - Using the dagger settles through ordinary receipts.

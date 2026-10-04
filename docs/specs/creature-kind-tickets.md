@@ -1,106 +1,100 @@
-# 人与生物分开：工单
+# 人与生物分开 + 敌对生物 Mod：工单
 
-Spec：[creature-kind.md](creature-kind.md)；依据：[creature-kind-survey.md](creature-kind-survey.md)。契约：`docs/kernel-rpc.md` §180。分支：`claude/creature-kind-20261004`（worktree `~/leehow/code/chatrpgv4-wt-creature-kind`）。
+Spec：[creature-kind.md](creature-kind.md)；依据：[creature-kind-survey.md](creature-kind-survey.md)；**形状以契约 §180 为准**（`docs/kernel-rpc.md`）。集成分支：`claude/creature-kind-20261004`（worktree `~/leehow/code/chatrpgv4-wt-creature-kind`），由 lead 合并、提交、跑全量与验收。
 
-顺序：CK-01 → CK-02 → CK-03 → CK-04 → CK-05。CK-02 和 CK-03 都只依赖 CK-01，可以并行；CK-04 必须等 CK-02 合入（见 spec「只迁数据会更糟」）。
+分三期：
 
-## CK-01 契约 §180 与图谱契约 JSON
+- 第 1 期并行：CK-A、CK-B、CK-C；
+- 第 2 期并行：CK-D、CK-E，依赖第 1 期合入；
+- 第 3 期：CK-F；
+- 最后 CK-G 验收。
 
-Status: needs-triage
+每个 worker 用自己的 worktree 和分支 `claude/creature-kind-20261004-<topic>`，可以在自己分支上提交，交回时报提交号。
 
-- `docs/kernel-rpc.md` 新开 §180，写入 spec 的 D1–D14 形状，并标注它修订了哪些旧节：
-  - amends §136.12：`actor()` 的 npc 优先只用于旧快照的裁决；
-  - amends §17.2：档案分出 `creature_dossier`，两种 actor 都有 `weaknesses`；
-  - 另外点名 §143.3 的行动方式和 §26 的 Mod 检定。
-- §180 里放 CK-02 那张逐消费端的归属表，作为唯一规范。
-- `weaknesses` 条目的形状（`book`、`needs`、`learned_by`）、允许的 `needs` 种类、`learned_by` 必须是 `conclusion`、`misleads` 的两端，都写成契约。
-- `content/modules/module-graph-contract-v3.json`：
-  - 新增 `creature_dossier`（`habits`，带 labels、why、law）；
-  - 写明 `weaknesses` 的形状律与记账律，它同时属于两种 actor；
-  - 写明 `misleads` 的定律：只从 `clue` 指向 `npc` 或 `creature`；
-  - 给 `npc` 和 `creature` 写上释义（按遭遇分，不按物种分）。
-- 先查这份 JSON 的字节会被哪些摘要或指纹盖章（guidance 指纹、contract digest），改了要一并重盖。
+## CK-A 内核：人和身体按功能分开（§180.3–180.5）
 
-## CK-02 内核：人和身体按功能分开
+Status: ready-for-agent
 
-Status: needs-triage
+- `ModuleGraph.isPerson`。
+- §180.3 表里的每一个消费端，含：
+  - `npc.job` 与 `npc.submit` 一致；
+  - act ways；
+  - 检定选项；
+  - 台词说话人；
+  - 表情卡名册；
+  - 理智去重、战斗标签、急救改认 actor；
+  - `resolve/projection.ts` 与 `mods/effects.ts` 的归属定下来，写回 §180.3。
+- §180.4 creature 行、person 行的 `kind`、简报 `creatures` 名册。这一期 creature 行只含基础字段；`habits`、`weaknesses`、`false_leads` 由 CK-D 接上。
+- §180.5 `apply npc` 在 creature 上的接受与拒绝（`not_a_person`）。`creature` 字段留给 CK-E。
+- 每处改动一条能被变异测试杀死的用例。夹具用自造的图：带数据卡的 creature 和一个人同场。
 
-**新增**
+## CK-B 野兽目录数据（§180.6 后半）
 
-- `ModuleGraph.isPerson(node)`。
-- `creatureEntry`：present[] 里 creature 的一行，字段为 `name`、`kind: "creature"`，以及有值才出现的 `state`、`habits`、`weaknesses`、`false_leads`、`combat`、`keeper_note`、`toward_party`。
-- `moduleSection` 加 `creatures` 名册。
-- 弱点链（spec D6）：`needs` 里每个节点的当前状态（物件归属用 `objectOwner`/`rootObjectOwner`，法术看谁已学会、哪本典籍能学）；`learned_by` 结论的进度（支持线索已发现几条，与 `thread.ts` 同一读法）；`false_leads` 由 `misleads` 推出。npc 行有 `weaknesses` 时同样带上。present[] 里条目要短，完整内容放进单人读数。
+Status: ready-for-agent
 
-**逐个消费端**（行号以 `fcb8655e1` 为准）：
+- 把规则书第 14 章「野兽」一节（PDF 第 347 页起）照录成 `content/rulesets/coc7/rules-json/beasts.json`。
+- 只做数据，不改代码。每条逐页对照 PDF 图像，标 `source_page`；书里没印的写 `_unstated`，不从常识补。
+- 条目形状对齐 `monsters.json`，并加上掷骰式、技能、栖息地。
 
-| 位置 | 功能 | 归属 | 改动 |
-| --- | --- | --- | --- |
-| `read/capsule.ts:384` `npcsPresent` | 谁在场 | actor | 不变 |
-| `read/capsule.ts:624` `presentSection` | present[] | 人用 `npcEntry`，creature 用 `creatureEntry` | 分流 |
-| `read/capsule.ts:133` `untoldBlock`、`:167` `untoldRoster` | 未告知块与揭名 | 人 | 只对人 |
-| `read/capsule.ts:890` `moduleSection` | 简报名册 | 两份 | 加 `creatures` |
-| `runtime/check-catalog.ts:199-206` | 社交、心理学选项 | 人 | 过滤 |
-| 同上，`opposed-check` | 对抗检定 | actor | 不变 |
-| `npc/index.ts:72` `npc.job` | 性格作者 | 人 | 列人时过滤，与 `npc.submit` 一致 |
-| `npc/act-options.ts:186,203` | `coercion`、`walk_on` 方式 | 人 | creature 不提供 |
-| `npc/act-options.ts`、`apply/draw.ts`、`apply/entities.ts` 的 `_draws`/`_produces` | 拿出物件 | 人 | creature 不提供 |
-| `runtime/jev/npc-act-step.ts`（作者输入） | 行动作者读什么 | 人读性格，creature 读 `habits` | 分流 |
-| `apply/entities.ts:204` `stageNpc` | mood、reunion、walk_on | 人 | creature 上拒绝，带 `fix` |
-| `apply/person.ts` | `apply person` | 人 | creature 上拒绝 |
-| `epithets/index.ts:56`、`read/person-words.ts` | 外号 | 人 | 已只认 npc；补用例 |
-| `voice/jobs.ts:107` | 声线 | 人 | 已只认 npc；补用例 |
-| `journal/jobs.ts:104-116` | 日志 | 人 | 已只认 npc；补用例 |
-| `memory/jobs.ts:256`、`write/contributions.ts:198-228` | 记忆、立场账 | 人 | 已只认 npc；补用例 |
-| `mods/resolve.ts:120` | 初见（含 §178 照面） | 人 | 见 D14 |
-| `extensions/table/expression-reference.ts:12-31` | 表情卡名册 | 人 | 过滤，需要宿主知道种类 |
-| `write/speech.ts:60`、`speech/index.ts:100` | 台词说话人 | 人 | creature 当标签处理 |
-| `sanity/index.ts:100-102` | 理智目击去重 | actor | 改为 actor |
-| `read/session-view.ts:32` | 战斗标签 | actor | 改为 actor |
-| `healing/patient.ts:43` | 急救对象 | actor | 改为 actor |
-| `resolve/projection.ts:198`、`mods/effects.ts:18` | 收据标记、资源效果 | 实现时逐一定 | 写进 §180 |
-| `apply/inventory.ts:151`、`runtime/fulfillment-options.ts:90` | 现金对方、承诺付款方 | 人 | 不变 |
+## CK-C 读者、校验器、图谱契约 JSON（§180.2、180.7、180.8 的契约部分、180.9 的校验部分、180.13）
 
-**测试**：每处改动配一条能被变异测试杀死的用例。夹具用自造的图：带数据卡的 creature 在场，另有一个同场的人做对照。不靠发货的起始包，也不靠会补齐输入的测试辅助（「测试辅助会把缺陷藏起来」那条教训）。
+Status: ready-for-agent
 
-## CK-03 读者与校验器
-
-Status: needs-triage
-
-- `content/setup/visual-reader.md`：写入 D1 的界线（按遭遇分）、`habits`、`weaknesses` 条目的形状与记账律、`learned_by` 结论的写法，以及假线索的 `contradicts`/`misleads`。全文英文。
-  - 明确要求：数据卡上的抗性写进 `weaknesses.book`，不再塞进 `keeper_note`。
-- 读者任务的 `task.vocabulary` 带上 `creature_dossier` 和 `weaknesses` 的形状。
+- `module-graph-contract-v3.json`：
+  - 新增 `creature_dossier`；
+  - 写入 `npc`、`creature` 的释义；
+  - `weaknesses` 形状律；
+  - `misleads` 端点律。
+  - 先查这份 JSON 被哪些摘要或指纹盖章，一并重盖。
+- `content/setup/visual-reader.md` 按 §180.13 增补，全文英文。
 - 校验器：
-  - `weaknesses` 条目必须有 `book`；`needs` 的 id 存在、种类在允许集合内；`learned_by` 存在且是 `conclusion`；
-  - `misleads` 的两端必须是 `clue` → `npc`/`creature`；
-  - 同一份草稿里 npc 与 creature 同名或同 handle 时拒绝，错误码要可行动，`fix` 写明合成一个节点。
-- 复核的 coverage：书里写明的习性、弱点及其获取途径是应覆盖的材料。
-- 量度：`creatures_without_material`，与 `npcs_without_material` 同法，只报不拒。
-- 验证用真实读书，不只用夹具：在 Masks 秘鲁章，或一本中文模组里有弱点的章节，跑一次读者，核对它把弱点写成了条目，而不是写进 `keeper_note`。
+  - `one_being_two_nodes`；
+  - `weaknesses` 条目（`book` 必有，`needs` 与 `learned_by` 的解析和种类，`shape_unresolved` 带路径）；
+  - `misleads` 端点。
+  - weaknesses 只在绑定了 `actor.weaknesses.v1` 时才询问和校验。这一期先按契约预留开关，用夹具打开；正式的绑定在 CK-D。
+- `task.vocabulary` 携带 `creature_dossier`。
 
-## CK-04 数据迁移
+## CK-D Mod 能力与 hostile-creatures 包（§180.8–180.11）
 
-Status: needs-triage（阻塞于 CK-02 合入）
+Status: ready-for-agent（等第 1 期合入）
 
-按 spec D15：
+- `graph.vocabulary.v1` 接受 `creature_profile_keys`；creature 词进入 spine、读者询问、creature 行。
+- `graph.vocabulary.table.v1` 的门接受 creature 词。
+- `actor.weaknesses.v1`：
+  - 构建时绑定，并写进来源记录；
+  - 弱点链投影（`held_by`、`known_by`、`taught_by`、`found`/`of`），用现有读数；
+  - `false_leads`；
+  - 桌上补记门。
+- `context.creature.v1`：限定范围的指令与 400 字节预算（`creature_brief_over_budget`），并更新两个上限测试。
+- `mods/hostile-creatures` 1.0.0：`mod.json`、`agent.md`、`brief.md`、`CHANGELOG.md`，全部英文。
+
+## CK-E 临场生物（§180.6 前半）
+
+Status: ready-for-agent（等第 1 期合入）
+
+- `apply npc` 新增 `creature` 字段：walk-on 铸造与之后补钉。
+- `world.table_creatures`、`ModuleGraph.addTableCreature`，加载时重装。
+- 规则目录的 creature 族同时读 `monsters.json` 与 `beasts.json`。
+- 数据卡构建：有掷骰式就用种子骰掷，否则用平均值；书面写明的值保留；武器、`sanity_loss` 照 §180.6；钉进 `npc_profiles`，权威标 `table_pinned`。
+- 拒绝情况：未知条目时 `details.options` 列出可选项；已有数据卡时 `stat_block_exists`。
+
+## CK-F 起始包数据（§180.12）
+
+Status: needs-triage（等第 2 期合入）
 
 - the-haunting、the-haunting-rulebook、mystery-house 三个起始包；
-- 重新盖 guidance 包的指纹；
-- 更新钉住 `npc-rat-pack` 的测试。
+- 更新钉住 `npc-rat-pack` 的测试；
+- 重新盖 guidance 包的指纹。
 
-只写书里写明的内容：
-- the-haunting 编造的 fear、secret、agenda、voice 不迁；
-- Corbitt 的 `weaknesses` 每条都要能指到原书页码（第 451、456–457、461 页）。
+只写书里写明的内容；Corbitt 的每条弱点都要能指到原书页码。
 
-## CK-05 验收
+## CK-G 验收（§180.15）
 
 Status: needs-triage
 
-按 spec「验收」三步：
-
-1. 盒子全量（amax 优先）；
-2. 真产品路径：新开一局 the-haunting，在开局、发现匕首线索后、拿到匕首后各读一次真实胶囊；
-3. 真桌：the-haunting 从开局跑到地下室，找线索、拿匕首、打老鼠、对上 Corbitt，结局预先写死。
+1. 盒子上跑全量；
+2. 真产品路径：新开一局，读三次胶囊，再声明一条看门狗；
+3. 真桌，结局预先写死。
 
 真桌发现的缺陷归类后一批修完，再决定要不要开下一桌。
 
