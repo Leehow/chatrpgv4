@@ -322,14 +322,22 @@ export function fitPresent(rows: Row[], budget: number): boolean {
     // `fitBudget` takes whole rows only from the end, so the people cut are the ones past what is left. By position:
     // two people the book gives one name (book-4's two Robert Taylor nodes) made a cut one look kept by name, and it vanished.
     const all = [...rows];
+    // §176.8: the name path rides outside the budget. Rows are fitted as they were before it -- the untold block without
+    // its token, a stub as its name -- and the tokens and the stubs' blocks are put back after. Counted, they cost the
+    // nine-person bench its fourth dossier.
+    const tokens = new Map<Row, unknown>();
+    for (const entry of all) {
+        const untold = entry.untold;
+        if (untold && typeof untold === "object" && "say_name" in untold) { tokens.set(entry, untold.say_name); delete untold.say_name; }
+    }
     const cut = fitBudget(rows, budget);
-    if (!cut)
-        return false;
-    const stubs: Row[] = all.slice(rows.length).map(presentStub);
-    while (rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubs])).length > budget)
-        stubs.unshift(presentStub(rows.pop()!));
-    rows.push(...stubs);
-    return true;
+    const stubbed: Row[] = cut ? all.slice(rows.length) : [];
+    const bare = (entry: Row): Row => ({ name: string(entry.name), truncated: true });
+    while (cut && rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubbed.map(bare)])).length > budget)
+        stubbed.unshift(rows.pop()!);
+    for (const [entry, token] of tokens) entry.untold.say_name = token;
+    rows.push(...stubbed.map(presentStub));
+    return cut;
 }
 /**
  * §176.8: a person cut to their name keeps their untold block, without its line. Whether they are untold, and the

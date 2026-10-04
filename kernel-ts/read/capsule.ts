@@ -152,7 +152,7 @@ export function untoldBlock(graph: ModuleGraph, world: Row, journal: Row, node: 
         // line's length (the nine-person bench keeps four full dossiers only while they do). The Keeper's own copy replaces
         // this line with the fuller one in extensions/kernel/untold-view.ts (§103.5).
         // §176: the label is this table's word for them from before the meeting (the epithet lane's), so there is nothing to apply.
-        use: "Untold: by look; label is the table's word for them; say token and who use it; say_name says their name.",
+        use: "Untold: by look; label is the table's word for them; say token and who use it.",
     };
 }
 /**
