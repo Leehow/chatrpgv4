@@ -148,7 +148,9 @@ export async function sourceRevision(campaign: CampaignSnapshot, module: LoadedM
             register: campaign.meta.register ?? null,
             play_language: campaign.meta.play_language ?? null
         };
-        const {reading: _readerBookkeeping, updated_at: _bookkeepingClock, ...taskMeta} = module.meta;
+        // §179.1: `library_sync` is the fork's record of what the library adopted from it, written after the fork's own
+        // publication (and after that publication's exact source advance was measured); it is no source a task reads.
+        const {reading: _readerBookkeeping, updated_at: _bookkeepingClock, library_sync: _librarySync, ...taskMeta} = module.meta;
         return { source_revision: jsonDigest({...common, meta: module.meta}), task_source_revision: jsonDigest({...common, meta: taskMeta}) };
     }
     catch (error) {

@@ -499,7 +499,7 @@ export class ReadingService implements ReadingBridge {
 		try{const known=await this.call('module.reference.status',{module_id:mid,focus:params.focus||''},campaign);
 			const result=await runSourceReference({runtime:this.runtime(),source:{...source,cache:join(dirname(source.pdf),'cache','pages')},moduleId:mid,kind:'lookup',materializePlace:params.materialize_place===true,
 			focus:params.focus||'',question:params.question||'Read the requested physical place and its necessary conditions.',knownNodes:known.known_nodes,model:this.deps.model(),signal,record:this.deps.record});
-			let material:Row|undefined;if(params.materialize_place){if(!result.packet.places?.length)return;material=await this.call('module.reference.materialize',{module_id:mid,work_dir:result.workDir},campaign);if(material.state!=='ready')return;void this.call('module.read.ahead',{module_id:mid,focus:material.scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-place');return this.pump(mid,campaign);}).catch(()=>undefined);}
+			let material:Row|undefined;if(params.materialize_place){if(!result.packet.places?.length)return;material=await this.call('module.reference.materialize',{module_id:mid,work_dir:result.workDir},campaign);this.recordLibrarySync(material,{module_id:mid,campaign});if(material.state!=='ready')return;void this.call('module.read.ahead',{module_id:mid,focus:material.scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-place');return this.pump(mid,campaign);}).catch(()=>undefined);}
 			return {state:'ready',...(material?{material}:{}),source_answer:{status:'excerpts',authority:'original-source-excerpts',prepared:!!material,...(material?{scene:material.scene,scene_name:material.name,material_scope:'source-place-identity-only'}:{}),source_sha256:result.packet.source_sha256,
 				answer:result.packet.excerpts.map(span=>`[Original physical page ${span.page}]\n${span.text}`).join('\n\n'),excerpts:result.packet.excerpts,
 				source_refs:[...new Set(result.packet.excerpts.map(span=>span.page))].map(page=>({source_id:'pdf:'+mid,pdf_index:page-1})),
@@ -682,6 +682,16 @@ export class ReadingService implements ReadingBridge {
 			source: { pdf: job.source.path, cache: context.cache, file_sha256: job.source.file_sha256 }, run: context.run,
 			record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", campaign: context.campaign,
 				...(context.round !== undefined ? { round: context.round } : {}), ...row }) });
+	}
+
+	/**
+	 * Contract §179.1: one `library_sync` row per campaign publication, with the library's answer to it as the kernel gave
+	 * it (`state`, and `reason`, `library_generation` or `detail`). A library-scoped publication carries none and writes none.
+	 */
+	private recordLibrarySync(published: Row | undefined, fields: Row): void {
+		const sync = published?.library_sync;
+		if (!sync || typeof sync !== "object" || Array.isArray(sync)) return;
+		this.deps.record({ lane: "reading", event: "library_sync", ...fields, ...sync });
 	}
 
 	/**
@@ -935,6 +945,7 @@ export class ReadingService implements ReadingBridge {
 			const published = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, outcome: "completed",
 				...(path ? { identity_review_path: path } : {}) }, campaign);
 			this.deps.record({ lane: "reading", event: "visual_identity_published", module_id: job.module_id, job_id: job.job_id, campaign, ...(published?.visual_identity ?? {}) });
+			this.recordLibrarySync(published, { module_id: job.module_id, campaign, job_id: job.job_id });
 			// The next page's pairs are queued by the read-ahead, one identity job at a time.
 			await this.call("module.read.ahead", { module_id: job.module_id }, campaign).catch(() => undefined);
 			return;
@@ -1404,6 +1415,7 @@ export class ReadingService implements ReadingBridge {
 						}
 					}
 					publishing = false;
+					this.recordLibrarySync(published, { module_id: job.module_id, campaign, job_id: job.job_id });
 					if(published?.public_fields)publicProgress('confirmed',validatePublicGuidance(published.public_fields,job.source.page_count));
 					if (travel?.entries.length) this.deps.record({ lane: "travel-fill", event: "published", module_id: job.module_id, job_id: job.job_id, campaign,
 						filled: published?.travel?.filled ?? 0, skipped: published?.travel?.skipped ?? [] });
