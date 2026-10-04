@@ -27,7 +27,7 @@ const STATUSES: readonly string[] = ['setting_up', 'ready_for_table', 'active'];
 export function epithetInstruction(language: string): string {
     return [
         `Give each person below the word this table will call them by until someone says their name, written in the play language ${language}.`,
-        'Build it from the one visible thing only they have here -- something they carry or wear, a mark, a habit, the job they are doing -- with at most one word for who they are, like a nickname, not a sentence.',
+        'It names who they are (the owner, the trucker, the cook, the old soldier) together with the one visible thing only they have here -- something they carry or wear, a mark, a habit -- joined the way a person would say it aloud, like a nickname: \'the owner with the oily rag\', \'the bad-teeth trucker\'. Never a run of nouns with nothing joining them, never without who they are, and never a sentence.',
         'Use only what a stranger sees on first meeting (looks, role); never a secret, a motive or anything the book says is hidden.',
         'No name, nickname or part of a name of anyone; never age, height, build or sex alone; no word listed under taken, and no word you give another person here.',
         'Each word must tell this person from everyone else at the table.',
