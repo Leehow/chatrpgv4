@@ -263,11 +263,12 @@ for (const engine of ['legacy','hybrid-v1']) test(`§160.4 on the ${engine} engi
 
 const SETUP = LIST.setup.messages;
 const reply = (text, extra = {}) => ({role:'assistant', stopReason:'stop', content:[{type:'thinking',thinking:'…'},{type:'text',text}], ...extra});
+const active = name => name === 'setup';
 
 test('§160.4.1: each recorded setup reply is restored as its one setup call, arguments unchanged, no text left', () => {
     for (const recorded of SETUP) {
         const written = JSON.parse(recorded.text.replace(/^```json\n|\n```$/g,''));
-        const out = restoreTextCallList(reply(recorded.text));
+        const out = restoreTextCallList(reply(recorded.text),active);
         assert.deepEqual(out.restored,['setup']);
         assert.deepEqual(out.forms,[{label:null,array:false,key:'arguments'}]);
         assert.equal(out.message.stopReason,'toolUse');
@@ -277,26 +278,28 @@ test('§160.4.1: each recorded setup reply is restored as its one setup call, ar
     }
 });
 
-test('§160.4.1: a labelled array restores in order; an inactive tool and string arguments are restored for Pi to answer', () => {
+test('§160.4.1: a labelled array restores in order; string arguments are restored as {} for Pi to answer', () => {
     const list = 'calls:['+named2('setup',{step:'start'},'parameters')+','+JSON.stringify({setup:{step:'note',slot:'name',value:'Ada'}})+']';
-    const out = restoreTextCallList(reply(list));
+    const out = restoreTextCallList(reply(list),active);
     assert.deepEqual(out.message.content.filter(block=>block.type==='toolCall').map(block=>[block.name,block.arguments]),
         [['setup',{step:'start'}],['setup',{step:'note',slot:'name',value:'Ada'}]]);
-    const odd = restoreTextCallList(reply('['+named2('rm_rf',{path:'/'})+','+named2('setup',JSON.stringify({step:'start'}))+']'));
-    assert.deepEqual(odd.message.content.filter(block=>block.type==='toolCall').map(block=>[block.name,block.arguments]),
-        [['rm_rf',{path:'/'}],['setup',{}]]);
+    const odd = restoreTextCallList(reply(named2('setup',JSON.stringify({step:'start'}))),active);
+    assert.deepEqual(odd.message.content.filter(block=>block.type==='toolCall').map(block=>[block.name,block.arguments]),[['setup',{}]]);
 });
 
-test('§160.4.1: prose around the JSON, a message with a call already, and a failed message are left as they were', () => {
+test('§160.4.1: an inactive name, prose around the JSON, a message with a call already, and a failed message are left as they were', () => {
     const fenced = SETUP[0].text;
     for (const message of [
+        reply('['+named2('rm_rf',{path:'/'})+','+named2('setup',{step:'start'})+']'),
+        // The driven setup engine's bind step refuses bare arguments itself and keeps them as evidence (§160.4.1).
+        reply(JSON.stringify({profile:{name:{generated:'Alan'},sex:'male'}})),
         reply('I start the setup.\n'+fenced),
         reply(fenced+'\nDone.'),
         {...reply(fenced), content:[...reply(fenced).content,{type:'toolCall',id:'c1',name:'setup',arguments:{step:'start'}}]},
         reply(fenced,{stopReason:'error'}), reply(fenced,{stopReason:'aborted'}), reply(fenced,{stopReason:'length'}),
         {role:'user',content:[{type:'text',text:fenced}]},
         reply('我先问问玩家想玩哪一本。'),
-    ]) assert.equal(restoreTextCallList(message),undefined,JSON.stringify(message).slice(0,120));
+    ]) assert.equal(restoreTextCallList(message,active),undefined,JSON.stringify(message).slice(0,120));
 });
 
 test('§160.4.1 through a real setup process: the recorded reply runs setup start, and the player never reads the fence', async t => {

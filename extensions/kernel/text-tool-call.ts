@@ -133,19 +133,21 @@ export function textToolCallFix(envelopes: Array<{tool: string; error?: string}>
 type Block = {type: string; text?: string; [key: string]: unknown};
 
 /**
- * Setup's reading (§160.4.1): a message whose whole text is a call list, with no call of its own, carries those calls in
- * written order in place of its text, and `stop` becomes `toolUse`, as §160.3 restores its calls. Nothing is validated
- * here: Pi answers each restored call as it answers a native one. `undefined` when the message is not such a list.
+ * Setup's reading (§160.4.1): a message whose whole text is a call list naming only active tools, with no call of its
+ * own, carries those calls in written order in place of its text, and `stop` becomes `toolUse`, as §160.3 restores its
+ * calls. The arguments are not validated here: Pi answers each restored call as it answers a native one. `undefined`
+ * when the message is not such a list. A name that is not an active tool (a bare arguments object such as
+ * `{"profile": {...}}` reads as one) leaves the message as it was, as §160.3 does.
  */
-export function restoreTextCallList<T extends {role?: string; content?: unknown; stopReason?: string}>(message: T):
-    {message: T; restored: string[]; forms: TextCallForm[]} | undefined {
+export function restoreTextCallList<T extends {role?: string; content?: unknown; stopReason?: string}>(message: T,
+    isTool: (name: string) => boolean): {message: T; restored: string[]; forms: TextCallForm[]} | undefined {
     if (message?.role !== 'assistant' || !Array.isArray(message.content)) return;
     if (['error', 'aborted', 'length'].includes(String(message.stopReason))) return;
     const blocks = message.content as Block[];
     if (blocks.some(block => block?.type === 'toolCall')) return;
     const text = blocks.filter(block => block?.type === 'text').map(block => String(block.text ?? '')).join('');
     const found = text.trim() ? textCallList(text) : undefined;
-    if (!found) return;
+    if (!found || !found.every(item => isTool(item.name))) return;
     const calls = found.map(item => ({type: 'toolCall', id: `textcall_${randomUUID().replace(/-/g, '').slice(0, 24)}`, name: item.name,
         arguments: isObject(item.args) ? item.args : {}}));
     return {
