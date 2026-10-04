@@ -33208,6 +33208,41 @@ Tests:
   - the client running the hook inside its queue with a direct call to a real kernel;
   - a getter, a malformed place or a lease that throws returning the dropped params, telemetry that throws deciding nothing, and a client whose hook throws dropping the host-only params (an echoing fake kernel).
 
+### 177.16 One upgrade: no window, no public figures, the renderings already in use (owner ruling 2026-10-04 after table 28; `CAST_VERSION` 5)
+
+**Evidence.** Table 28 (App `a0ff7f0f6`):
+- The v3-to-v4 upgrade re-read Blood Road's cast in the background for about five minutes. In that time no unread person was in the rename.
+- The v4 table lists real public figures the book only mentions (a president's portrait, singers on records), whose names need no hiding and only cause false hits.
+- The page reader's English `source_needs` called the station owner "Lars", a rendering no cast row held (the reader wrote "Russ").
+
+The owner ruled to fix all three in one upgrade. The paid re-read itself runs with the final package's acceptance.
+
+**The rule.**
+- **Staging.** A read in progress keeps its ranges in `cast.next.json` (`CAST_NEXT_FILE`). The complete table replaces `cast.json` atomically, and the staging file is removed. `cast.job`, `cast.source`, `cast.range` and `cast.submit` resume from the staging file, or from a current-version `cast.json` still partial (written before staging existed).
+- **What the checks read** (`readServedCast`, `kernel-ts/read/cast.ts`; `loadModule`, `Reading.castNames`), over the campaign's fork and then the library, in this order:
+  1. a current-version `cast.json`;
+  2. else an older version's table of the same file (`olderCast`: version 3 or later, same `source_sha256`, complete or partial), which keeps serving while the new one is read;
+  3. else the staging table, which is all a first read has.
+
+  A table of another file never serves.
+- **Public figures.** The reader leaves out real people the book mentions only as public figures of the world outside the story (`content/setup/module-cast.md`). It lists them when the scenario has them take part. This is the reader's judgement; there is no list of names.
+- **Renderings in use.** `cast.range` puts `notes_in_use` in the task: the graph's `question`, `reason`, `trigger` and `book` strings (the fields the page reader writes in the instructions' language) whose nearest `source_refs` cite a page of the range. They come once each, in page order, within 16 000 bytes (`notesInUse`, `kernel-ts/cast/draft.ts`). The reader adds a form those sentences use for an individual of its pages to that person's `notes`, and takes no book form or page from them.
+
+**Versions.**
+- v5 code serves a v3 or v4 `cast.json` of the same file until the v5 table is complete. v3 rows have no `notes`.
+- `cast-source.json` is kept across versions, so the re-read extracts no text again.
+- Code older than v5 reads a v5 `cast.json` as absent and would read v4 again, writing each range straight into `cast.json`. Going back to an older App therefore replaces the v5 table.
+
+**Not measured here.** Whether the reader leaves out the public figures and takes "Lars" into the station owner's `notes` is model behaviour. It is measured on the final package's re-read, not by these tests.
+
+Tests: `tests/extension/module-cast.test.mjs`:
+- a long book's ranges in `cast.next.json`, and `cast.json` written once, complete;
+- a v4 table serving through a half-done v5 read and replaced when complete, a v3 table serving, and another file's table never serving;
+- `notesInUse` by page range, once each and within the byte limit;
+- the range task carrying a note the library's graph wrote about its pages.
+
+Five mutations each turn a case red: no older pass, partial written to `cast.json`, no range filter, no `notes_in_use` in the task, and an older table of another file accepted.
+
 ### 177.9 Writers, readers, actor (§31)
 
 - **Writers:** the cast readers (`cast.json`, range by range through `cast.submit`), the host (`cast-source.json`, through `cast.source`), the epithet lane (row-id words), the gate's landing (`cast_id`).

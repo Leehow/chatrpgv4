@@ -19,6 +19,7 @@ import type { ModuleGraph } from './module-graph.js';
 import { bookNames, namePieces, occurs } from '../journal/naming.js';
 import { array, integer, normalize, number, row, string, type Row } from './values.js';
 import { isJsonObject } from '../json.js';
+import { join } from 'node:path';
 
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
 
@@ -27,10 +28,15 @@ export const CAST_FILE = 'cast.json';
 /** The native text the cast reader was handed, kept by the kernel so `cast.submit` checks against its own copy. */
 export const CAST_SOURCE_FILE = 'cast-source.json';
 /**
- * 4 since table 27: rows carry `notes`, the names as this game's own notes write them (§177.14); a version-3 file has none and is
- * read again. 3 since table 24: versions 1 and 2 folded rows that shared a bare first name into one person.
+ * 5 since table 28: the reader leaves out real public figures and takes renderings from the notes the game already wrote about
+ * its pages (§177.16). 4 since table 27: rows carry `notes`, the names as this game's own notes write them (§177.14). 3 since
+ * table 24: versions 1 and 2 folded rows that shared a bare first name into one person.
  */
-export const CAST_VERSION = 4;
+export const CAST_VERSION = 5;
+/** §177.16: the oldest version whose rows still serve the checks while a newer one is read (3: one row per person, no notes). */
+export const CAST_READABLE_FROM = 3;
+/** §177.16: the table a re-read writes range by range; it replaces `cast.json` only when complete. */
+export const CAST_NEXT_FILE = 'cast.next.json';
 
 /** One person of the book (§177.1). */
 export interface CastPerson {
@@ -56,6 +62,29 @@ export const moduleSourceSha = (meta: Row): string => text(row(meta.source_docum
 export function storedCast(value: unknown, sourceSha: string): Row | null {
     if (!isJsonObject(value) || value.version !== CAST_VERSION || !sourceSha || value.source_sha256 !== sourceSha) return null;
     return value as Row;
+}
+
+/** An older version's table of this very file, still read while a newer one is read (§177.16); null otherwise. */
+export function olderCast(value: unknown, sourceSha: string): Row | null {
+    if (!isJsonObject(value) || !sourceSha || value.source_sha256 !== sourceSha || !Number.isSafeInteger(value.version)) return null;
+    const version = Number(value.version);
+    return version >= CAST_READABLE_FROM && version < CAST_VERSION && ['complete', 'partial'].includes(string(value.state)) ? value as Row : null;
+}
+
+/**
+ * §177.16: the table the checks read for a book, from its directories in order (a campaign's fork, then the shared library).
+ * The current version's `cast.json` first, from any of them; else an older version's table of the same file, which keeps
+ * serving while the new one is read into `cast.next.json` (table 27's upgrade left about five minutes with no unread people in
+ * the rename); else that partial new table, which is all a first read has.
+ */
+export async function readServedCast(snapshots: { pathExists(path: string): Promise<boolean>; readJson(path: string): Promise<unknown> },
+    dirs: readonly string[], sourceSha: string): Promise<Row | null> {
+    const read = async (path: string): Promise<unknown> => { try { return await snapshots.pathExists(path) ? await snapshots.readJson(path) : null; } catch { return null; } };
+    const files = await Promise.all(dirs.map(async dir => ({ current: await read(join(dir, CAST_FILE)), next: await read(join(dir, CAST_NEXT_FILE)) })));
+    for (const file of files) { const served = storedCast(file.current, sourceSha); if (served) return served; }
+    for (const file of files) { const served = olderCast(file.current, sourceSha); if (served) return served; }
+    for (const file of files) { const served = storedCast(file.next, sourceSha); if (served) return served; }
+    return null;
 }
 
 /**

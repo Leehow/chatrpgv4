@@ -27,8 +27,8 @@ export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';
 export {createKernelRuntime} from './kernel-ts/registry.ts';
 export {ModuleGraph} from './kernel-ts/read/module-graph.ts';
 export {replacePassagePeople} from './kernel-ts/read/table-people.ts';
-export {bookCast, newcomerRefusal} from './kernel-ts/read/cast.ts';
-export {checkCastDraft, mergeCastRows} from './kernel-ts/cast/draft.ts';
+export {bookCast, newcomerRefusal, readServedCast} from './kernel-ts/read/cast.ts';
+export {checkCastDraft, mergeCastRows, notesInUse} from './kernel-ts/cast/draft.ts';
 export {untoldRoster} from './kernel-ts/read/capsule.ts';
 export {foldPersonWords} from './kernel-ts/read/person-words.ts';
 export {checkModuleCast} from './kernel-ts/check.ts';`, resolveDir: root},
@@ -146,8 +146,10 @@ test('§177.2: a long book is read in ranges; a later range joins a known person
 	const first = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, index: 0});
 	await writeFile(join(first.cwd, 'draft.json'), JSON.stringify({people: [{book: ['Silas Marsh'], play: ['Silas Marsh'], notes: ['Silas Marsh'], pages: [2]}]}));
 	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, index: 0})).state, 'partial');
-	const castPath = join(k.home, '.coc', 'modules', mid, 'cast.json');
-	const firstId = JSON.parse(await readFile(castPath, 'utf8')).people[0].id;
+	const castPath = join(k.home, '.coc', 'modules', mid, 'cast.json'), nextPath = join(k.home, '.coc', 'modules', mid, 'cast.next.json');
+	// §177.16: a read in progress keeps its ranges in cast.next.json; cast.json is written once, complete.
+	await assert.rejects(readFile(castPath, 'utf8'), {code: 'ENOENT'}, 'no cast.json before the table is complete');
+	const firstId = JSON.parse(await readFile(nextPath, 'utf8')).people[0].id;
 	const resumed = await k.raw('cast.job', {module_id: mid});
 	assert.deepEqual([resumed.source, resumed.ranges.map(range => range.done)], ['kept', [true, false]], 'the text is kept; the next run starts at the range not read');
 	const second = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, index: 1});
@@ -162,6 +164,67 @@ test('§177.2: a long book is read in ranges; a later range joins a known person
 	const stored = JSON.parse(await readFile(castPath, 'utf8'));
 	assert.deepEqual(stored.people.map(row => [row.id, row.book, row.pages]), [[firstId, ['Silas Marsh', 'Silas'], [2, 43]]],
 		'one person across both ranges, under the id the first range gave (a word the lane gave under it stays theirs)');
+	assert.equal(stored.version, 5);
+	await assert.rejects(readFile(nextPath, 'utf8'), {code: 'ENOENT'}, 'the staging file is gone once the table replaced cast.json');
+});
+
+test('§177.16: while a newer cast is read, the older table of the same file serves; the complete new one replaces it', async t => {
+	const k = await kernel(t, 'module-cast-upgrade');
+	const pdf = join(k.home, 'long.pdf');
+	await writeFile(pdf, '%PDF-1.7\n% an upgraded book\n%%EOF\n');
+	const sha = createHash('sha256').update(await readFile(pdf)).digest('hex');
+	const {module_id: mid} = await k.raw('module.source.bind', {source: {path: pdf, page_count: 45, file_sha256: sha}});
+	const dir = join(k.home, '.coc', 'modules', mid), castPath = join(dir, 'cast.json');
+	const text = page => page === 2 ? 'Its keeper, Silas Marsh, trims the lamp.' : page === 43 ? 'At dusk Silas lights the lamp again.' : '';
+	const served = async () => (await api.readServedCast({pathExists: async path => { try { await readFile(path); return true; } catch { return false; } },
+		readJson: async path => JSON.parse(await readFile(path, 'utf8'))}, [dir], sha));
+	// Table 27's upgrade (v3 to v4) left the book with no cast for about five minutes; the old table is the same book's.
+	const old = {version: 4, source_sha256: sha, state: 'complete', ranges_done: [0, 1], ranges_total: 2,
+		people: [{id: 'cast-aaaaaaaaaa', book: ['Silas Marsh'], play: ['Silas Marsh'], notes: ['Silas Marsh'], pages: [2]}]};
+	await writeFile(castPath, JSON.stringify(old));
+	assert.equal((await served())?.version, 4, 'an older version of this file serves');
+	const job = await k.raw('cast.job', {module_id: mid});
+	assert.ok(job.job_id, 'and the newer version is still read');
+	await k.raw('cast.source', {module_id: mid, job_id: job.job_id, pages: Array.from({length: 45}, (_, index) => ({page: index + 1, text: text(index + 1)}))});
+	const first = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, index: 0});
+	await writeFile(join(first.cwd, 'draft.json'), JSON.stringify({people: [{book: ['Silas Marsh'], play: ['Silas Marsh'], notes: ['Silas Marsh'], pages: [2]}]}));
+	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, index: 0})).state, 'partial');
+	assert.equal((await served())?.version, 4, 'half read, the old table still serves: no window');
+	assert.equal(JSON.parse(await readFile(castPath, 'utf8')).version, 4, 'cast.json untouched');
+	const second = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, index: 1});
+	await writeFile(join(second.cwd, 'draft.json'), JSON.stringify({people: [{book: ['Silas Marsh', 'Silas'], play: ['Silas Marsh', 'Silas'], notes: ['Silas Marsh', 'Silas'], pages: [43]}]}));
+	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, index: 1})).state, 'complete');
+	assert.deepEqual([(await served())?.version, (await served())?.people[0].book], [5, ['Silas Marsh', 'Silas']], 'complete, the new table replaced it');
+	assert.equal((await k.raw('cast.job', {module_id: mid})).job_id, null, 'and nothing is left to read');
+	// A version-3 table (no notes) serves too; a table of another file never does.
+	await writeFile(castPath, JSON.stringify({...old, version: 3, people: [{id: 'cast-bbbbbbbbbb', book: ['Silas Marsh'], play: ['Silas Marsh'], pages: [2]}]}));
+	assert.equal((await served())?.version, 3);
+	await writeFile(castPath, JSON.stringify({...old, source_sha256: 'f'.repeat(64)}));
+	assert.equal(await served(), null, 'another file\'s cast is not this book\'s');
+});
+
+test('§177.16: the reader of a range gets the sentences the game\'s own notes wrote about its pages', async t => {
+	// Table 28: the page reader's source_needs called the station owner "Lars"; the cast's notes held "Russ".
+	const graph = {nodes: [{node_id: 'npc-x', source_refs: [{pdf_index: 16}],
+		source_needs: [{question: 'Playable profile for Lars if a fight occurs at the station', trigger: 'PC attacks Lars', source_refs: [{pdf_index: 16}]}],
+		properties: {mechanics: {check: {book: 'Lars repairs the car in an hour'}}}}],
+		claims: [{reason: 'page 60 says the sheriff is away', source_refs: [{pdf_index: 59}]}, {reason: 'PC attacks Lars', source_refs: [{pdf_index: 12}]}]};
+	assert.deepEqual(api.notesInUse(graph, 1, 40), ['PC attacks Lars', 'Playable profile for Lars if a fight occurs at the station', 'Lars repairs the car in an hour'],
+		'the range\'s sentences in page order, once each');
+	assert.deepEqual(api.notesInUse(graph, 41, 80), ['page 60 says the sheriff is away']);
+	assert.deepEqual(api.notesInUse(graph, 1, 40, 20), ['PC attacks Lars'], 'within the byte limit');
+	const h = await harbor(t);
+	// The library's graph as the page reader left it, with one note in English about page 1.
+	const dir = join(h.home, '.coc', 'modules', h.mid), meta = JSON.parse(await readFile(join(dir, 'module.json'), 'utf8'));
+	const file = join(dir, meta.graph_file), published = JSON.parse(await readFile(file, 'utf8'));
+	published.nodes[0].source_needs = [{kind: 'deferred', question: 'What does Maisie mend for the boats', source_refs: [{source_id: `pdf:${h.mid}`, pdf_index: 0}]}];
+	await writeFile(file, JSON.stringify(published));
+	const job = await h.raw('cast.job', {module_id: h.mid});
+	await h.raw('cast.source', {module_id: h.mid, job_id: job.job_id, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	const range = await h.raw('cast.range', {module_id: h.mid, job_id: job.job_id, index: 0});
+	const task = JSON.parse(await readFile(join(range.cwd, 'task.json'), 'utf8'));
+	assert.ok(task.notes_in_use?.includes('What does Maisie mend for the boats'), `the range's task carries the note: ${JSON.stringify(task.notes_in_use)}`);
+	assert.equal(range.notes_in_use, task.notes_in_use.length);
 });
 
 test('§177.2: a row is one person as the reader wrote it, though two rows share a form; across ranges only a form one row carries joins', () => {

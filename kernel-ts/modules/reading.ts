@@ -25,7 +25,7 @@ import { applyOpeningChoice, assembleVisual, attachMapCandidates, checkDraft, ch
 import { CLAIM_SUPPORT_FILE, JEV_REVIEWER } from './claim-support.js';
 import { pageSpans } from './transcription.js';
 import { passageKey } from '../read/table-people.js';
-import { CAST_FILE, castPersonNamed, moduleSourceSha, storedCast, type CastPerson } from '../read/cast.js';
+import { castPersonNamed, moduleSourceSha, readServedCast, type CastPerson } from '../read/cast.js';
 const object = (value: any): boolean => isJsonObject(value);
 import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, checkSourceAnswerReview, sourceAnswerResult } from './source-answer.js';
 import { ROUTE_TRAVEL_FIELD, applyTravelFill, type TravelRow } from './route-travel.js';
@@ -772,11 +772,7 @@ export class Reading {
     /** §177.8: the cast reader's rows for this file, as the reader's packet carries them: what the book prints and the renderings. */
     async castNames(mid: string, meta: Row): Promise<Row[]> {
         // A campaign's fork reads the library's cast when its own copy has none (§177.2).
-        const read = async (path: string): Promise<Row | null> => {
-            if (!await this.store.context.snapshots.pathExists(path)) return null;
-            try { return storedCast(await this.store.context.snapshots.readJson(path), moduleSourceSha(meta)); } catch { return null; }
-        };
-        const stored = await read(join(this.store.moduleDir(mid), CAST_FILE)) ?? await read(join(this.store.context.stateRoot, 'modules', mid, CAST_FILE));
+        const stored = await readServedCast(this.store.context.snapshots, [this.store.moduleDir(mid), join(this.store.context.stateRoot, 'modules', mid)], moduleSourceSha(meta));
         if (!stored || !['complete', 'partial'].includes(string(stored.state))) return [];
         return array(stored.people).map(person => ({ book: array(row(person).book), play: array(row(person).play) }));
     }

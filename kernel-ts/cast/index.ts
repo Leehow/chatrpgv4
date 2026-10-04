@@ -15,7 +15,7 @@
  * An authored module has no job: its cast is its graph's people, derived at load (§177.1).
  */
 import { join } from 'node:path';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import type { HandlerGroup } from '../handlers.js';
@@ -24,10 +24,10 @@ import { scopedModuleRoot } from '../modules/campaign-scope.js';
 import { validateModuleId } from '../modules/store.js';
 import { playsFromReading } from '../modules/bound-source.js';
 import { playLanguageOf } from '../read/languages.js';
-import { CAST_FILE, CAST_SOURCE_FILE, CAST_VERSION, moduleSourceSha, storedCast } from '../read/cast.js';
+import { CAST_FILE, CAST_NEXT_FILE, CAST_SOURCE_FILE, CAST_VERSION, moduleSourceSha, storedCast } from '../read/cast.js';
 import { passageKey } from '../read/table-people.js';
 import { array, integer, number, repr, row, string, type Row } from '../read/values.js';
-import { castPageFile, checkCastDraft, mergeCastRows, pageTexts, type CastRowStored } from './draft.js';
+import { castPageFile, checkCastDraft, mergeCastRows, notesInUse, pageTexts, type CastRowStored } from './draft.js';
 import { nowIso } from '../write/store.js';
 
 /** Pages one reader child reads (§177.2). */
@@ -65,6 +65,12 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
         try { return await context.snapshots.readJson(path); } catch { return null; }
     }
     const stored = async (dir: string, sha: string): Promise<Row | null> => storedCast(await readOptional(join(dir, CAST_FILE)), sha);
+    // §177.16: what a read in progress has kept -- `cast.next.json` (an older `cast.json` keeps serving the checks meanwhile), or
+    // a current-version `cast.json` still partial (written before the staging file existed).
+    const inProgress = async (dir: string, sha: string): Promise<Row | null> => {
+        const current = await stored(dir, sha);
+        return current?.state === 'partial' ? current : storedCast(await readOptional(join(dir, CAST_NEXT_FILE)), sha);
+    };
     async function source(dir: string, sha: string): Promise<Map<number, string> | null> {
         const kept = row(await readOptional(join(dir, CAST_SOURCE_FILE)));
         return kept.source_sha256 === sha ? pageTexts(kept.pages) : null;
@@ -85,7 +91,7 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
     async function rangeOf(dir: string, sha: string, meta: Row, params: Row): Promise<{ pages: Map<number, string>; range: CastRange; kept: Row | null }> {
         const pages = await source(dir, sha);
         if (!pages) throw new RpcError('invalid_params', 'the kernel keeps no text of this book yet', { fix: 'send cast.source first' });
-        const kept = await stored(dir, sha);
+        const kept = await inProgress(dir, sha);
         const range = castRanges(pages, pageCount(meta), doneOf(kept)).find(value => value.index === params.index);
         if (!range) throw new RpcError('invalid_params', `range ${repr(params.index)} is not one of this book's`, { fix: 'use an index cast.job or cast.source listed' });
         return { pages, range, kept };
@@ -96,8 +102,9 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
             if (!Object.keys(meta).length) return { job_id: null, reason: 'no_module' };
             // A starter plays from its authored graph even when a PDF is bound beside it (owner's Q4: out of scope).
             if (!sha || !pageCount(meta) || !playsFromReading(meta)) return { job_id: null, reason: 'authored' };
-            const kept = await stored(dir, sha);
-            if (kept && kept.state !== 'partial') return { job_id: null, state: string(kept.state) };
+            const settled = await stored(dir, sha);
+            if (settled && settled.state !== 'partial') return { job_id: null, state: string(settled.state) };
+            const kept = await inProgress(dir, sha);
             const pages = await source(dir, sha);
             return { job_id: jobIdOf(sha), module_id: id, page_count: pageCount(meta), play_language: await languageOf(campaign),
                 ...(pages ? { source: 'kept', ranges: castRanges(pages, pageCount(meta), doneOf(kept)) as unknown as Row[] } : { source: 'needed' }) };
@@ -118,7 +125,7 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
                 return { state: 'unavailable', reason: 'no_text_layer' };
             }
             await writeJsonAtomic(join(dir, CAST_SOURCE_FILE), { version: CAST_VERSION, source_sha256: sha, pages });
-            return { state: 'ready', ranges: castRanges(pageTexts(pages), count, doneOf(await stored(dir, sha))) as unknown as Row[] };
+            return { state: 'ready', ranges: castRanges(pageTexts(pages), count, doneOf(await inProgress(dir, sha))) as unknown as Row[] };
         },
         'cast.range': async (params): Promise<Row> => {
             const { dir, meta, sha, campaign } = await locate(params);
@@ -134,10 +141,13 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
                 written.push(page);
             }
             const known = array(kept?.people).map(person => ({ book: array(row(person).book), play: array(row(person).play), notes: array(row(person).notes) }));
+            // §177.16: what the game's own notes already wrote about these pages, so a rendering they use joins `notes`.
+            const graphFile = string(meta.graph_file), notes = graphFile ? notesInUse(await readOptional(join(dir, graphFile)), range.first, range.last) : [];
             await writeJsonAtomic(join(cwd, 'task.json'), { job_id: jobIdOf(sha), purpose: 'cast', page_count: pageCount(meta), play_language: await languageOf(campaign),
                 range: { index: range.index, first: range.first, last: range.last }, pages_with_text: written, known_cast: known,
+                ...(notes.length ? { notes_in_use: notes } : {}),
                 page_files: 'pages/page-NNNN.txt (zero-padded to four digits)', draft: 'draft.json' });
-            return { cwd, index: range.index, first: range.first, last: range.last, pages_with_text: written.length, known: known.length };
+            return { cwd, index: range.index, first: range.first, last: range.last, pages_with_text: written.length, known: known.length, notes_in_use: notes.length };
         },
         'cast.submit': async (params): Promise<Row> => {
             const { dir, meta, sha } = await locate(params);
@@ -154,8 +164,13 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
             const done = [...new Set([...doneOf(kept), range.index])].sort((a, b) => a - b);
             const all = castRanges(pages, pageCount(meta)).map(value => value.index);
             const state = all.every(index => done.includes(index)) ? 'complete' : 'partial';
-            await writeJsonAtomic(join(dir, CAST_FILE), { version: CAST_VERSION, source_sha256: sha, state, people: people as unknown as Row[],
-                ranges_done: done, ranges_total: all.length, at: nowIso() });
+            // §177.16: a range of a read in progress goes to `cast.next.json`; the complete table replaces `cast.json` at once, so an
+            // older table of this file serves the checks until then.
+            const table = { version: CAST_VERSION, source_sha256: sha, state, people: people as unknown as Row[], ranges_done: done, ranges_total: all.length, at: nowIso() };
+            if (state === 'complete') {
+                await writeJsonAtomic(join(dir, CAST_FILE), table);
+                await rm(join(dir, CAST_NEXT_FILE), { force: true });
+            } else await writeJsonAtomic(join(dir, CAST_NEXT_FILE), table);
             return { state, people: people.length, accepted: checked.people.length, refused: checked.refused as unknown as Row[], ranges_done: done.length, ranges_total: all.length };
         },
     });

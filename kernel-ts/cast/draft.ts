@@ -194,3 +194,40 @@ export function pageTexts(rows: unknown): Map<number, string> {
     }
     return out;
 }
+
+/** §177.16: at most this many bytes of the notes in use go to one range's reader. */
+export const CAST_NOTES_IN_USE_BYTES = 16_000;
+/** The graph's fields the page reader writes in the language of its instructions (content/setup/visual-reader.md). */
+const NOTE_FIELDS = new Set(['question', 'reason', 'trigger', 'book']);
+
+/**
+ * §177.16: the sentences the game's own notes wrote about pages `first`..`last`: the graph's `question`, `reason`, `trigger` and
+ * `book` strings whose nearest `source_refs` cite a page of the range, once each, in page order, within `limit` bytes. Table 28:
+ * the reader's `source_needs` called the station owner "Lars", a rendering the cast's own notes ("Russ") did not hold.
+ */
+export function notesInUse(graph: unknown, first: number, last: number, limit = CAST_NOTES_IN_USE_BYTES): string[] {
+    const found: Array<{ page: number; text: string }> = [];
+    const pagesOf = (value: Row): number[] => (Array.isArray(value.source_refs) ? value.source_refs : [])
+        .flatMap(ref => isJsonObject(ref) && Number.isSafeInteger(ref.pdf_index) ? [Number(ref.pdf_index) + 1] : []);
+    const walk = (value: unknown, cited: number[]): void => {
+        if (Array.isArray(value)) { for (const item of value) walk(item, cited); return; }
+        if (!isJsonObject(value)) return;
+        const own = pagesOf(value), pages = own.length ? own : cited;
+        for (const [key, item] of Object.entries(value)) {
+            if (NOTE_FIELDS.has(key) && typeof item === 'string' && item.trim()) {
+                const page = pages.filter(at => at >= first && at <= last).sort((a, b) => a - b)[0];
+                if (page !== undefined) found.push({ page, text: item.trim() });
+            } else walk(item, pages);
+        }
+    };
+    walk(graph, []);
+    const out: string[] = [], seen = new Set<string>();
+    let bytes = 0;
+    for (const { text } of found.sort((a, b) => a.page - b.page)) {
+        if (seen.has(text)) continue;
+        const size = Buffer.byteLength(text, 'utf8');
+        if (bytes + size > limit) break;
+        seen.add(text); out.push(text); bytes += size;
+    }
+    return out;
+}
