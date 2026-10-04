@@ -93,40 +93,73 @@ const DRAFT = {people: [
 	{book: ['Harbormaster Quill'], play: ['Harbormaster Quill'], pages: [1]},
 ]};
 
-/** The host's three calls (extensions/module/reading-service.ts `readCast`), with the reader child's draft written by hand. */
+/** The host's calls (extensions/module/reading-service.ts `readCast`), with the reader child's draft written by hand. */
 async function readCast(h, draft = DRAFT) {
 	const job = await h.call('cast.job', {module_id: h.mid});
-	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, play_language: job.play_language, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
-	await writeFile(join(staged.cwd, 'draft.json'), JSON.stringify(draft));
-	return {job, staged, submitted: await h.call('cast.submit', {module_id: h.mid, job_id: job.job_id})};
+	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	const place = await h.call('cast.range', {module_id: h.mid, job_id: job.job_id, index: staged.ranges[0].index});
+	await writeFile(join(place.cwd, 'draft.json'), JSON.stringify(draft));
+	return {job, staged, place, submitted: await h.call('cast.submit', {module_id: h.mid, job_id: job.job_id, index: place.index})};
 }
 
 test('§177.2: the cast reader works on the book\'s own text; a row no cited page prints is refused alone; the reader\'s check agrees', async t => {
 	const h = await harbor(t);
 	const job = await h.call('cast.job', {module_id: h.mid});
 	assert.match(job.job_id, /^cast:/);
-	assert.deepEqual([job.page_count, job.play_language], [3, 'en']);
-	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, play_language: 'en', pages: PAGES.map((text, index) => ({page: index + 1, text}))});
-	assert.deepEqual([staged.state, staged.pages_with_text], ['ready', 3]);
-	assert.equal(await readFile(join(staged.cwd, 'pages', 'page-0002.txt'), 'utf8'), PAGES[1], 'one file per physical page, as the text layer has it');
-	assert.equal(JSON.parse(await readFile(join(staged.cwd, 'task.json'), 'utf8')).purpose, 'cast');
+	assert.deepEqual([job.page_count, job.play_language, job.source], [3, 'en', 'needed']);
+	const staged = await h.call('cast.source', {module_id: h.mid, job_id: job.job_id, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	assert.deepEqual(staged, {state: 'ready', ranges: [{index: 0, first: 1, last: 3, done: false}]});
+	const place = await h.call('cast.range', {module_id: h.mid, job_id: job.job_id, index: 0});
+	assert.deepEqual([place.first, place.last, place.pages_with_text, place.known], [1, 3, 3, 0]);
+	assert.equal(await readFile(join(place.cwd, 'pages', 'page-0002.txt'), 'utf8'), PAGES[1], 'one file per physical page, as the text layer has it');
+	assert.deepEqual(JSON.parse(await readFile(join(place.cwd, 'task.json'), 'utf8')).range, {index: 0, first: 1, last: 3});
 
-	await writeFile(join(staged.cwd, 'draft.json'), JSON.stringify(DRAFT));
-	const checked = await api.checkModuleCast(join(staged.cwd, 'draft.json'));
+	await writeFile(join(place.cwd, 'draft.json'), JSON.stringify(DRAFT));
+	const checked = await api.checkModuleCast(join(place.cwd, 'draft.json'));
 	assert.equal(checked.ok, false);
 	assert.deepEqual(checked.refused.map(row => [row.index, row.reason]), [[3, 'not_on_page']], 'the reader\'s own check names the row it refuses');
 	assert.match(checked.refused[0].fix, /add the page/);
 
-	const submitted = await h.call('cast.submit', {module_id: h.mid, job_id: job.job_id});
+	const submitted = await h.call('cast.submit', {module_id: h.mid, job_id: job.job_id, index: 0});
 	assert.deepEqual([submitted.state, submitted.people, submitted.refused.map(row => row.index)], ['complete', 3, [3]], 'the other rows stand');
-	const stored = JSON.parse(await readFile(join(dirname(dirname(staged.cwd)), 'cast.json'), 'utf8'));
+	const stored = JSON.parse(await readFile(join(dirname(dirname(dirname(place.cwd))), 'cast.json'), 'utf8'));
 	assert.equal(stored.source_sha256, h.sha);
 	const jonah = stored.people.find(row => row.book.includes('Jonah'));
 	assert.match(jonah.id, /^cast-[0-9a-f]{10}$/, 'an opaque id: no slug of the name');
 	assert.deepEqual(jonah.first, {page: 3, sentence: "Mae's boy Jonah drowned there last spring."}, 'the first mention, cut by machine');
 	assert.deepEqual(await h.call('cast.job', {module_id: h.mid}), {job_id: null, state: 'complete'}, 'a book reads its cast once');
-	const wrong = await h.attempt('cast.submit', {module_id: h.mid, job_id: 'cast:000000000000'});
-	assert.equal(wrong.ok, false);
+	assert.equal((await h.attempt('cast.submit', {module_id: h.mid, job_id: 'cast:000000000000', index: 0})).ok, false);
+});
+
+test('§177.2: a long book is read in ranges; a later range joins a known person by a known form, keeps the row\'s id, and resumes where it stopped', async t => {
+	const k = await kernel(t, 'module-cast-ranges');
+	const pdf = join(k.home, 'long.pdf');
+	await writeFile(pdf, '%PDF-1.7\n% a long book\n%%EOF\n');
+	const sha = createHash('sha256').update(await readFile(pdf)).digest('hex');
+	const {module_id: mid} = await k.raw('module.source.bind', {source: {path: pdf, page_count: 45, file_sha256: sha}});
+	const text = page => page === 2 ? 'Its keeper, Silas Marsh, trims the lamp.' : page === 43 ? 'At dusk Silas lights the lamp again.' : page % 7 === 0 ? 'Rain on the harbor.' : '';
+	const job = await k.raw('cast.job', {module_id: mid});
+	const staged = await k.raw('cast.source', {module_id: mid, job_id: job.job_id, pages: Array.from({length: 45}, (_, index) => ({page: index + 1, text: text(index + 1)}))});
+	assert.deepEqual(staged.ranges.map(range => [range.index, range.first, range.last]), [[0, 1, 40], [1, 41, 45]]);
+	const first = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, index: 0});
+	await writeFile(join(first.cwd, 'draft.json'), JSON.stringify({people: [{book: ['Silas Marsh'], play: ['Silas Marsh'], pages: [2]}]}));
+	assert.equal((await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, index: 0})).state, 'partial');
+	const castPath = join(k.home, '.coc', 'modules', mid, 'cast.json');
+	const firstId = JSON.parse(await readFile(castPath, 'utf8')).people[0].id;
+	const resumed = await k.raw('cast.job', {module_id: mid});
+	assert.deepEqual([resumed.source, resumed.ranges.map(range => range.done)], ['kept', [true, false]], 'the text is kept; the next run starts at the range not read');
+	const second = await k.raw('cast.range', {module_id: mid, job_id: job.job_id, index: 1});
+	const task = JSON.parse(await readFile(join(second.cwd, 'task.json'), 'utf8'));
+	assert.deepEqual(task.known_cast, [{book: ['Silas Marsh'], play: ['Silas Marsh']}], 'the reader of the next range sees who earlier ranges found');
+	await writeFile(join(second.cwd, 'draft.json'), JSON.stringify({people: [{book: ['Silas Marsh', 'Silas'], play: ['Silas Marsh', 'Silas'], pages: [43]},
+		{book: ['Silas Marsh'], play: ['Silas Marsh'], pages: [2]}]}));
+	const checked = await api.checkModuleCast(join(second.cwd, 'draft.json'));
+	assert.deepEqual(checked.refused.map(row => [row.index, row.reason]), [[1, 'shape']], 'a page outside the range is not this reader\'s to cite');
+	const done = await k.raw('cast.submit', {module_id: mid, job_id: job.job_id, index: 1});
+	assert.deepEqual([done.state, done.people, done.ranges_done, done.ranges_total], ['complete', 1, 2, 2]);
+	const stored = JSON.parse(await readFile(castPath, 'utf8'));
+	assert.deepEqual(stored.people.map(row => [row.id, row.book, row.pages]), [[firstId, ['Silas Marsh', 'Silas'], [2, 43]]],
+		'one person across both ranges, under the id the first range gave (a word the lane gave under it stays theirs)');
 });
 
 test('§177.2: rows sharing a printed name are one person; the shape is closed', () => {

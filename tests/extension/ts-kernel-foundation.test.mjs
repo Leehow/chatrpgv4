@@ -46,7 +46,7 @@ function decode(value) { return JSON.parse(api.pythonJsonDumps(value)); }
 test("the public vocabulary and error frames match the locked Python reference", async () => {
   assert.equal(reference.python, "3.14.6");
   const currentOnly = new Set(["table.release", "table.switch", "table.workspace.read", "table.maps", "setup.override", "mods.queued", "mods.review.status", "setup.note", "setup.templates", "setup.template", "journal.job", "journal.submit", "journal.fail",
-    "voice.job", "voice.submit", "voice.fail", "speech.job", "speech.edit", "epithets.job", "epithets.submit", "cast.job", "cast.source", "cast.submit",
+    "voice.job", "voice.submit", "voice.fail", "speech.job", "speech.edit", "epithets.job", "epithets.submit", "cast.job", "cast.source", "cast.range", "cast.submit",
     "npc.job", "npc.submit", "npc.fail", "npc.perspective", "npc.perspectives", "npc.situation", "npc.stakes", "npc.act.options", "npc.threads",
     "adaptation.prepare", "adaptation.status", "adaptation.draft", "adaptation.review", "adaptation.fail", "adaptation.cancel",
     "mods.prefetch.accept", "mods.prefetch.targets", "mods.identity.plan", "mods.expression", "module.read.unwait", "module.read.yield",

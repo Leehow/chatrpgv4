@@ -32888,35 +32888,54 @@ A stored row joins the graph person who carries one of its names exactly (normal
 
 Nothing reads what a name means. Rows join on equal strings, and the only judgment that a string is a name is the reader's.
 
-### 177.2 The cast reader (`cast.job`, `cast.source`, `cast.submit`)
+### 177.2 The cast reader (`cast.job`, `cast.source`, `cast.range`, `cast.submit`)
 
-A module that plays from reading (`playsFromReading`) gets its cast once per bound file, in the background, from a reader child over the native text layer (owner's Q1). The text is a few hundred kilobytes and the output is names and page numbers, so it runs as a Pi agent with tools, not a lane completion.
+A module that plays from reading (`playsFromReading`) gets its cast once per bound file, in the background, from reader children over the native text layer (owner's Q1).
 
+**Pages and runs.** The text is read in ranges of 40 pages (`CAST_PAGES_PER_RUN`), one child per range.
+- An agent re-sends its whole context every round. A 669-page book (the library holds one) read by a single child would outgrow any context window long before the end.
+- Book-4's 111 Chinese pages are already about 150,000 tokens.
+- The work is text in, names out, so each range runs as a Pi agent with tools, not a lane completion.
+
+**The four methods.**
 - **`cast.job {module_id, campaign?}`** returns one of:
   - `{job_id: null, reason: "no_module" | "authored"}`;
-  - `{job_id: null, state}` once `cast.json` for this file exists;
-  - `{job_id: "cast:<sha12>", module_id, page_count, play_language, cwd}`.
+  - `{job_id: null, state}` once `cast.json` for this file is `complete` or `unavailable`;
+  - `{job_id: "cast:<sha12>", module_id, page_count, play_language, source: "needed"}`;
+  - `{job_id, ..., source: "kept", ranges: [{index, first, last, done}]}` when the kernel already keeps the text. A run that stopped resumes at the first range not done.
 
   The module directory is the campaign's private one when it has forked, else the shared library's, which is the root `loadModule` reads.
-- **`cast.source {module_id, campaign?, job_id, play_language?, pages: [{page, text}]}`** keeps the host-extracted text as the kernel's own copy, in `cast-source.json`, and writes the reader's `task.json` and `pages/page-NNNN.txt`.
-  - It answers `{state: "ready", cwd, pages_with_text}`.
-  - A book with no text on any page gets `cast.json` `{state: "unavailable", reason: "no_text_layer"}`, and every check falls back to the graph's people (owner's Q2).
-- **`cast.submit {module_id, campaign?, job_id}`** checks the reader's `draft.json` against the kernel's copy (`checkCastDraft`, `kernel-ts/cast/draft.ts`) and writes `cast.json` `{version: 1, source_sha256, state: "complete", people: [{id, book, play, pages, first?}]}`. It answers `{state, people, refused}`.
+- **`cast.source {module_id, campaign?, job_id, pages: [{page, text}]}`** keeps the host-extracted text as the kernel's own copy, in `cast-source.json`, and answers `{state: "ready", ranges}`. A book with no text on any page gets `cast.json` `{state: "unavailable", reason: "no_text_layer"}`, and every check falls back to the graph's people (owner's Q2).
+- **`cast.range {module_id, campaign?, job_id, index}`** writes that range's working directory:
+  - `pages/page-NNNN.txt`, the range's pages that have text;
+  - `task.json`, with `range`, `pages_with_text`, `play_language`, and `known_cast` (the rows earlier ranges kept, `{book, play}`).
+
+  It answers `{cwd, index, first, last, pages_with_text, known}`.
+- **`cast.submit {module_id, campaign?, job_id, index}`** checks that range's `draft.json` against the kernel's copy (`checkCastDraft`, `kernel-ts/cast/draft.ts`) and folds the accepted rows into `cast.json` (`mergeCastRows`).
+  - The file is `{version: 1, source_sha256, state: "partial" | "complete", people: [{id, book, play, pages, first?}], ranges_done, ranges_total}`.
+  - It answers `{state, people, accepted, refused, ranges_done, ranges_total}`.
+  - A partial cast is as true as a complete one, only shorter: `bookCast` and the reader packets use it.
 
 **The draft.** It is `{people: [{book, play, pages}]}`, with no other keys.
 - `book` and `play` are each a non-empty list of names of 2–60 characters on one line, with no `{{`, at most 16 together.
-- `pages` are distinct physical pages.
+- `pages` are distinct pages of the range.
 
 **The check.**
 - Every `book` form must stand on one of the row's pages under `passageKey`, the same comparison as §11.5.4.
+- A form an earlier range already printed (`known_cast`) needs no page here, so one individual joins up across ranges. A row of known forms only must still stand on one of its pages.
 - A failing row is refused alone, with reason `shape` or `not_on_page` and a fix naming what to add (§90.3). The other rows stand.
-- Rows that share a printed form are one person.
-- Each accepted row keeps `first`, the sentence of its first mention, cut by machine as §11.5.4 cuts one.
+- Rows that share a printed form are one person. A row folded into a kept row keeps that row's id, so a word the epithet lane gave under it stays theirs.
+- Each row keeps `first`, the sentence of its first mention, cut by machine as §11.5.4 cuts one.
 
-**The reader** reads under `content/setup/module-cast.md` with `read,write,edit,bash`, at background priority.
-- Its own check is `coc-read-check --kind module-cast --draft draft.json`, which runs the same function against the page files it was handed.
-- The host (`ReadingService.cast`, `extensions/module/reading-service.ts`) extracts text 32 pages a call. It runs the child once, plus once more with the refusal when a submit is refused; a cast that still failed is not read again until the next session. It records `lane: "cast"` rows (`published`, `refused`, `unavailable`, `failed`) and emits `coc:cast-published`.
-- It is asked after every preparation of a book (`ReadingService.prepare`), whether a PDF's ingest or character creation preparing a book already read, so the cast can land before the opening. The module extension asks again at every `table-open` of a reading module. One run per scope and module at a time.
+**The reader** reads under `content/setup/module-cast.md` with `read,write,edit,bash`, at background priority, about ten pages per tool call. Its own check is `coc-read-check --kind module-cast --draft draft.json`, which runs the same function against the page files and `known_cast` it was handed.
+
+**The host** (`ReadingService.cast`, `extensions/module/reading-service.ts`):
+- extracts text 32 pages a call, only when the kernel keeps none;
+- runs the ranges in the book's order, and runs a range's child once more with the refusal when its submit is refused;
+- stops at a range refused twice; that cast is not read again until the next session, which resumes there;
+- records `lane: "cast"` rows (`range`, `published`, `refused`, `unavailable`, `failed`) and emits `coc:cast-published` after every range.
+
+It is asked after every preparation of a book (`ReadingService.prepare`), whether a PDF's ingest or character creation preparing a book already read, so the cast can land before the opening. The module extension asks again at every `table-open` of a reading module. One run per scope and module at a time.
 
 ### 177.3 A newcomer may not take a name the book gives anyone
 
@@ -32964,7 +32983,7 @@ Every reader packet except the index and identity jobs carries `cast_names: [{bo
 
 ### 177.9 Writers, readers, actor (§31)
 
-- **Writers:** the cast reader (`cast.json`, through `cast.submit`), the host (`cast-source.json`, through `cast.source`), the epithet lane (row-id words), the gate's landing (`cast_id`).
+- **Writers:** the cast readers (`cast.json`, range by range through `cast.submit`), the host (`cast-source.json`, through `cast.source`), the epithet lane (row-id words), the gate's landing (`cast_id`).
 - **Readers:** `bookCast` and everything above: `newcomerRefusal`, `untoldRoster`, `untoldPieces`, the journal check, `epithets.job`, `foldPersonWords`, the material gate, `replacePassagePeople`, lookup, the reader packets.
 - **Actor:** the Keeper, whose newcomers take words of their own, who meets unread people by a word, and whose writes on them land on the book's text.
 
@@ -32987,5 +33006,6 @@ Tests:
   - the replacement by cast id;
   - no text layer;
   - an authored module, and the abbreviation.
-- `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, the one background child under `module-cast.md`, the submit, record and announcement, the second run after a refusal, no child without text, one run at a time, and a preparation queueing the cast.
+- `tests/extension/module-cast.test.mjs` also: a 45-page book in two ranges, the second joining a known person by a known form under the first range's id, refusing a page outside its range, and resuming from the kept text.
+- `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, one background child per range under `module-cast.md`, each range's submit, record and announcement, resuming at the first range not read, the second run after a refusal, no child without text, one run at a time, and a preparation queueing the cast.
 - `tests/extension/npc-epithets-lane.test.mjs`: a published cast asks again, and another campaign's does not.

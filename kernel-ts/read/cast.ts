@@ -64,7 +64,8 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         .map(node => ({ id: graph.handle(node), names: bookNames(graph, node), pages: pagesOf(graph, node), node, castIds: [] }));
     const owners = new Map<string, Set<number>>();
     people.forEach((person, index) => { for (const name of person.names) owners.set(normalize(name), (owners.get(normalize(name)) ?? new Set()).add(index)); });
-    const stored = graph.castStore && graph.castStore.state === 'complete' ? array(graph.castStore.people) : [];
+    // A partial cast (some ranges read, §177.2) is as true as a complete one, only shorter.
+    const stored = graph.castStore && ['complete', 'partial'].includes(string(graph.castStore.state)) ? array(graph.castStore.people) : [];
     for (const raw of stored) {
         const entry = row(raw), id = text(entry.id);
         const names = [...new Set([...array(entry.book), ...array(entry.play)].map(text).filter(Boolean))];

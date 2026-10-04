@@ -650,7 +650,7 @@ export class Reading {
         if (!await this.store.context.snapshots.pathExists(path)) return [];
         let stored: Row | null = null;
         try { stored = storedCast(await this.store.context.snapshots.readJson(path), moduleSourceSha(meta)); } catch { stored = null; }
-        if (!stored || stored.state !== 'complete') return [];
+        if (!stored || !['complete', 'partial'].includes(string(stored.state))) return [];
         return array(stored.people).map(person => ({ book: array(row(person).book), play: array(row(person).play) }));
     }
     /** §22.3.3 (SL-57): the unusable settlement of a text focus (not a map), if any. */

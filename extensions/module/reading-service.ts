@@ -181,7 +181,7 @@ const STALL_WINDOW_MS = 600_000;
 const STALL_SWEEP_MS = 30_000;
 /** §177.2: native text is extracted this many pages a call (`sourceText` takes at most 32). */
 const CAST_TEXT_BATCH = 32;
-/** §177.2: a cast reader run, and a second when the first left no checkable draft. */
+/** §177.2: a range's reader run, and a second when the kernel refused the first's submit. */
 const CAST_ATTEMPTS = 2;
 const CAST_TIMEOUT_MS = 20 * 60_000;
 function stallWindow(): number {
@@ -644,36 +644,47 @@ export class ReadingService implements ReadingBridge {
 		this.controllers.set(key, controller);
 		const record = (row: Row) => this.note({ lane: 'cast', module_id: mid, ...(campaign ? { campaign } : {}), job_id: job.job_id, ...row });
 		try {
-			const pages: SourcePageText[] = [];
-			for (let first = 1; first <= job.page_count; first += CAST_TEXT_BATCH) {
-				const batch = Array.from({ length: Math.min(CAST_TEXT_BATCH, job.page_count - first + 1) }, (_, index) => first + index);
-				pages.push(...await this.sourcePages(mid, batch, campaign === undefined ? { campaign: null } : { campaign }, signal));
+			let ranges: Row[] = Array.isArray(job.ranges) ? job.ranges : [];
+			if (job.source !== 'kept') {
+				const pages: SourcePageText[] = [];
+				for (let first = 1; first <= job.page_count; first += CAST_TEXT_BATCH) {
+					const batch = Array.from({ length: Math.min(CAST_TEXT_BATCH, job.page_count - first + 1) }, (_, index) => first + index);
+					pages.push(...await this.sourcePages(mid, batch, campaign === undefined ? { campaign: null } : { campaign }, signal));
+				}
+				const staged = await this.call('cast.source', { module_id: mid, job_id: job.job_id, pages: pages.map(({ page, text }) => ({ page, text })) }, campaign);
+				if (staged.state !== 'ready') { record({ event: 'unavailable', reason: staged.reason, ms: Date.now() - started }); return staged; }
+				ranges = Array.isArray(staged.ranges) ? staged.ranges : [];
 			}
-			const staged = await this.call('cast.source', { module_id: mid, job_id: job.job_id, play_language: job.play_language,
-				pages: pages.map(({ page, text }) => ({ page, text })) }, campaign);
-			if (staged.state !== 'ready') { record({ event: 'unavailable', reason: staged.reason, ms: Date.now() - started }); return staged; }
 			const systemPrompt = await readFile(join(this.runtime().contentRoot, 'setup', 'module-cast.md'), 'utf8');
 			const model = this.deps.model();
-			let lastError: unknown;
-			for (let attempt = 1; attempt <= CAST_ATTEMPTS; attempt++) {
-				if (signal.aborted || this.stopped) return { state: 'stopped' };
-				const run = await this.runtime().runTask({ kind: 'reader', request: { cwd: staged.cwd, model: model.id, thinking: model.thinking, priority: 'background',
-					systemPrompt, tools: 'read,write,edit,bash', timeoutMs: CAST_TIMEOUT_MS, eventLog: join(staged.cwd, `cast-${attempt}.jsonl`),
-					brief: `${readerInput({ task: { job_id: job.job_id, purpose: 'cast', page_count: job.page_count, play_language: job.play_language, pages_with_text: staged.pages_with_text } })} `
-						+ 'Read task.json, then every page file under pages/ in order, and write draft.json as your instructions say. '
-						+ (attempt > 1 && lastError ? `The previous attempt was refused: ${lastError instanceof Error ? lastError.message : String(lastError)}. ` : '')
-						+ 'Run coc-read-check --kind module-cast --draft draft.json before you stop, and repair what it refuses.' } }, signal);
-				try {
-					const result = await this.call('cast.submit', { module_id: mid, job_id: job.job_id }, campaign);
-					record({ event: 'published', people: result.people, refused: Array.isArray(result.refused) ? result.refused.length : 0, attempt, ok: run.ok, ms: Date.now() - started });
-					this.deps.published?.({ campaign, module_id: mid, people: result.people });
-					return result;
-				} catch (error) {
-					lastError = error;
-					record({ event: 'refused', attempt, ok: run.ok, reason: isKernelError(error) ? error.details?.reason ?? error.code : 'error', message: error instanceof Error ? error.message : String(error) });
+			let result: Row = { state: 'partial' };
+			// One child per range, in the book's order; a range refused twice stops the run, and the next session resumes there.
+			for (const range of ranges.filter(value => value?.done !== true)) {
+				const place = await this.call('cast.range', { module_id: mid, job_id: job.job_id, index: range.index }, campaign);
+				let lastError: unknown, submitted: Row | undefined;
+				for (let attempt = 1; attempt <= CAST_ATTEMPTS && !submitted; attempt++) {
+					if (signal.aborted || this.stopped) return { state: 'stopped' };
+					const run = await this.runtime().runTask({ kind: 'reader', request: { cwd: place.cwd, model: model.id, thinking: model.thinking, priority: 'background',
+						systemPrompt, tools: 'read,write,edit,bash', timeoutMs: CAST_TIMEOUT_MS, eventLog: join(place.cwd, `cast-${attempt}.jsonl`),
+						brief: `${readerInput({ task: { job_id: job.job_id, purpose: 'cast', play_language: job.play_language, range: { first: place.first, last: place.last }, pages_with_text: place.pages_with_text, known_cast: place.known } })} `
+							+ `Read task.json, then every page file under pages/ (pages ${place.first}-${place.last}), and write draft.json as your instructions say. `
+							+ (attempt > 1 && lastError ? `The previous attempt was refused: ${lastError instanceof Error ? lastError.message : String(lastError)}. ` : '')
+							+ 'Run coc-read-check --kind module-cast --draft draft.json before you stop, and repair what it refuses.' } }, signal);
+					try {
+						submitted = await this.call('cast.submit', { module_id: mid, job_id: job.job_id, index: range.index }, campaign);
+						record({ event: submitted.state === 'complete' ? 'published' : 'range', range: range.index, people: submitted.people, accepted: submitted.accepted,
+							refused: Array.isArray(submitted.refused) ? submitted.refused.length : 0, attempt, ok: run.ok, ms: Date.now() - started });
+					} catch (error) {
+						lastError = error;
+						record({ event: 'refused', range: range.index, attempt, ok: run.ok, reason: isKernelError(error) ? error.details?.reason ?? error.code : 'error', message: error instanceof Error ? error.message : String(error) });
+					}
 				}
+				if (!submitted) return { state: 'failed', range: range.index };
+				result = submitted;
+				// Each range's rows are true already: the lanes that name people can use them before the book is done.
+				this.deps.published?.({ campaign, module_id: mid, people: submitted.people, state: submitted.state });
 			}
-			return { state: 'failed' };
+			return result;
 		} catch (error) {
 			if (!signal.aborted) record({ event: 'failed', message: error instanceof Error ? error.message : String(error), ms: Date.now() - started });
 			return { state: signal.aborted ? 'stopped' : 'failed' };

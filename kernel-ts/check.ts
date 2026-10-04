@@ -2,6 +2,7 @@
 import { dirname, join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { castPageFile, checkCastDraft } from './cast/draft.js';
+import { passageKey } from './read/table-people.js';
 import { snapshots } from './snapshots.js';
 import { RpcError, internalError } from './errors.js';
 import { loadModuleContract } from './modules/contract.js';
@@ -26,7 +27,9 @@ export async function checkModuleCast(path: string): Promise<{ok: boolean; [key:
             const file = join(folder, 'pages', castPageFile(number(page)));
             if (await snapshots.pathExists(file)) pages.set(number(page), await readFile(file, 'utf8'));
         }
-        const checked = checkCastDraft(await snapshots.readJson(path), pages, count);
+        const range = row(task.range), known = new Set(array(task.known_cast).flatMap(person => array(row(person).book).map(name => passageKey(name))));
+        const checked = checkCastDraft(await snapshots.readJson(path), pages, count,
+            Number.isSafeInteger(range.first) && Number.isSafeInteger(range.last) ? { range: { first: range.first, last: range.last }, known } : { known });
         if (checked.error) return {ok: false, error: checked.error};
         return {ok: !checked.refused.length, people: checked.people.length, refused: checked.refused as unknown as Row[],
             ...(checked.refused.length ? {fix: 'repair each refused row as its fix says, keep every other row as it is, write draft.json again and run this check again'} : {})};
