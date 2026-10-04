@@ -37,7 +37,8 @@ test('§177.15: the question names the marked span and its text; the bar is the 
 	assert.deepEqual(batch.state.items.s1, {text: `寄到达⟦${NICK}⟧的信`, marked: NICK});
 	assert.equal(batch.questions[0].type, 'noul');
 	assert.match(batch.questions[0].instructions, /piece of a longer word or of the name of a place/);
-	assert.equal(NAME_SPAN_AT, 0.75);
+	assert.match(batch.questions[0].instructions, /with a title/, 'a name with a title is a name (table 28: Dr. Brenner in Chinese scored 0.73 without it)');
+	assert.equal(NAME_SPAN_AT, 0.5);
 });
 
 test('§177.15: a delivery goes to the kernel with the places Jev judged part of another word cleared, and only those', async () => {

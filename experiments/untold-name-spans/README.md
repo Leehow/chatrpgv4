@@ -9,3 +9,7 @@ word (Chinese has no word boundaries). Cases come from Blood Road's own text and
 Run (reads `EXT_JEV_APIKEY` from the App vault, never prints it): `T=0.75 CASES=./cases-round2.json node probe.mjs 2`.
 - `probe-product.mjs`: both sets through the product's own `nameSpanBatch` and `markSpan` (40-character windows, the
   product's policy text): 38 of 38 right at 0.75; the lowest name 0.87, the highest other word 0.68 ("Camp David" in Chinese).
+- `cases-round3.json` (table 28): the request kept 「布伦纳医生」 at 0.73 under the old question. With "with a title" in the question
+  and the bar at 0.5 (pre-registered, lower because a kept name is a leak), all 49 cases: names 0.88-0.98, none kept; three other
+  words above 0.5 are renamed (the modal "Will" 0.60, Camp David 0.50, a shop's family name inside a person's line 0.91).
+  Run: `T=0.5 node probe-product.mjs`.

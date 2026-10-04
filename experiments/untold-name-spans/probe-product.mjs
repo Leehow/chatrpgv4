@@ -5,7 +5,7 @@ import {nameSpanBatch, markSpan, NAME_SPAN_AT} from '../../runtime/jev/untold-na
 const key = process.env.EXT_JEV_APIKEY || readVaultSecret('EXT_JEV_APIKEY');
 if (!key) { console.log('no key'); process.exit(2); }
 let wrong = 0, lowName = 1, highOther = 0;
-for (const file of ['./cases-round1.json', './cases-round2.json']) {
+for (const file of (process.env.FILES || './cases-round1.json,./cases-round2.json,./cases-round3.json').split(',')) {
   const cases = JSON.parse(readFileSync(new URL(file, import.meta.url)));
   const spans = cases.map(c => { const at = c.text.indexOf(c.name); return {name: c.name, text: markSpan(c.text, at, at + c.name.length)}; });
   const batch = nameSpanBatch(spans, 'probe');
@@ -15,7 +15,7 @@ for (const file of ['./cases-round1.json', './cases-round2.json']) {
   const json = await res.json();
   if (!res.ok) { console.log('status', res.status); process.exit(1); }
   cases.forEach((c, i) => {
-    const p = json.answers[`names_s${i + 1}`]?.noul, verdict = p >= NAME_SPAN_AT ? 'yes' : 'no';
+    const p = json.answers[`names_s${i + 1}`]?.noul, verdict = p >= Number(process.env.T || NAME_SPAN_AT) ? 'yes' : 'no';
     if (c.expect === 'yes') lowName = Math.min(lowName, p); if (c.expect === 'no') highOther = Math.max(highOther, p);
     const ok = c.expect === 'any' || verdict === c.expect; if (!ok) wrong++;
     console.log(c.id.padEnd(4), c.expect.padEnd(3), p?.toFixed(2), ok ? '' : '<-- WRONG');

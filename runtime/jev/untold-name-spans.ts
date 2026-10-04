@@ -10,8 +10,9 @@ import {JEV_MODEL,packDecisionBatch} from './question-packing.ts';
 
 export const NAME_SPANS_FAMILY='untold-name-spans';
 export const NAME_SPANS_VERSION='1';
-/** At or above this a place is the name. Measured 2026-10-04: other words 0.03-0.65, names 0.85-0.98 (§177.15). */
-export const NAME_SPAN_AT=0.75;
+/** At or above this a place is the name. The bar sits low because keeping a name is a leak and renaming another word only
+ *  reads oddly: measured 2026-10-04 on 49 cases, names 0.88-0.98, other words 0.03-0.91 (§177.15). */
+export const NAME_SPAN_AT=0.5;
 /** One request judges at most this many places; the rest are left as names. */
 export const NAME_SPANS_PER_BATCH=120;
 /** Characters of text kept on each side of a place. */
@@ -44,7 +45,7 @@ export function nameSpanBatch(spans:readonly NameSpan[],campaign?:string):Decisi
   state:{purpose:'whether each marked span is used as a person\'s name',items,policy:POLICY} as unknown as Json,
   questions:spans.map((_span,i)=>({key:`names_s${i+1}`,target:`s${i+1}`,type:'noul' as const,
    instructions:`In \`items.s${i+1}.text\`, the part between ⟦ and ⟧ is \`items.s${i+1}.marked\`. Is that marked part used there as the name of a person: `
-    +'a given name, a surname, a full name or a nickname, alone or as part of that person\'s full name? Answer no when it is only a piece of a longer '
+    +'a given name, a surname, a full name or a nickname, alone, with a title, or as part of that person\'s full name? Answer no when it is only a piece of a longer '
     +'word or of the name of a place, a brand, a shop or a work, even when that longer name contains a person\'s name.'}))};
 }
 export type NameSpanJudgement={status:'scored';names:number[];usage?:unknown}|{status:'unavailable';reason:string};

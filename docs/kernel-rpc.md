@@ -33167,9 +33167,11 @@ Tests: `tests/extension/module-cast.test.mjs`: a row's notes rendering joins the
 
 Book-4 prints 「达拉斯」 five times and 「拉斯维加斯」 once, and the cast has 74 printed forms of two or three characters. Whether a place is a person's name or part of another word is a semantic question: no boundary rule or word list answers it in Chinese.
 
-**Measured** (`experiments/untold-name-spans/`, 2026-10-04): one Jev Noul per place over the product's own batch, 38 cases from the book's text and the table.
-- At 0.75 every case was right; names scored 0.87–0.98 and other words 0.03–0.68.
-- The pre-registered first round used 0.5 and missed one case: the English modal "Will" at 0.55. The 0.75 bar was then fixed before a held-out second round, which scored 16 of 16.
+**Measured** (`experiments/untold-name-spans/`, 2026-10-04): one Jev Noul per place over the product's own batch, from the book's text and the tables.
+- Rounds 1–2 (38 cases) set the bar at 0.75: names 0.87–0.98, other words 0.03–0.68.
+- Table 28 (App `a0ff7f0f6`, turn 1) then showed the leak direction: the request kept 「布伦纳医生」 (Dr. Brenner, surname and title) at 0.73. That was a name shown to the Keeper as written.
+- The question now says a name may come "with a title", and the bar is **0.5**, low because keeping a name is a leak while renaming another word only reads oddly. Round 3 adds that place, the table's other kept places and titled names: 49 cases, names 0.88–0.98, none kept.
+- Three other words score above 0.5 and are renamed, the safe direction: the modal "Will" 0.60, Camp David in Chinese 0.50, and 「马瑟」 inside 「马瑟综合商店第三代老板」 in a person's line 0.91.
 - One request takes 0.3–1.3 s.
 
 **The rule.**
@@ -33177,7 +33179,7 @@ Book-4 prints 「达拉斯」 five times and 「拉斯维加斯」 once, and the
 - **`table.untold_spans {campaign, text}`**, read-only, returns `{spans: [{name, nth, start, end}]}`: the places of the untold printed names §177.11 would find.
 - **The host asks** (`extensions/kernel/untold-spans.ts`, `KernelClientOptions.prepareCall`):
   - Before every `table.narrate` and `table.ask` reaches the kernel, it asks for the places, then asks Jev about each (family `untold-name-spans`, `runtime/jev/untold-name-spans.ts`; the text ±40 characters with the place marked ⟦…⟧).
-  - It sends the places below 0.75 as **`untold_cleared: [{name, nth}]`**. The field is the host's: a value in the Keeper's arguments is dropped first.
+  - It sends the places below 0.5 as **`untold_cleared: [{name, nth}]`**. The field is the host's: a value in the Keeper's arguments is dropped first.
   - Jev unconfigured, failed or later than 2.5 s clears nothing.
   - Telemetry: `lane: "untold-spans"`, `event: "judged"` (places, cleared, scores, ms) or `"fallback"` (reason).
 - **The gate holds the rest.** A cleared place is neither refused nor replaced. A refusal never quotes a name: it gives `details.places` and up to three `excerpts`, the words around each place with the name blanked (▢), so the request has nothing to rename in it. The second delivery replaces only the places not cleared. A name said only where no prose stands (inside an unresolved name token) is gated as before. Telemetry adds `cleared`, and `outcome: "cleared"` when every place was.
@@ -33209,7 +33211,7 @@ Tests:
 - A starter's names that appear only in prose are not in its cast (owner's Q4).
 - A newcomer named only in prose, with no `apply npc`, was first left ungated (owner's Q5). After table 25 the owner ruled to refuse a whole printed name in prose (§177.11), and the journal label check above still holds.
 - An unread person is not in `present[]` and has no record. `apply person` cannot give them a word until the graph has them; the lane can.
-- §177.15's judgement has a direction. A name Jev scores under 0.75 is kept as written: in the request, the Keeper reads it; in a delivery, the player does, and the person stays untold (`told_text`). Measured on 38 cases with no miss, the margin is 0.07 above the bar (the highest other word, 0.68) and 0.12 below the lowest name (0.87). Chinese is a weaker language for Jev than English.
+- §177.15's judgement has a direction. A name Jev scores under 0.5 is kept as written: in the request, the Keeper reads it; in a delivery, the player does, and the person stays untold (`told_text`). On 49 cases the lowest name scored 0.88. A name with a title scored 0.73 before the question named titles. Chinese is a weaker language for Jev than English.
 - §177.15 asks at most 120 places in one request; the rest are renamed. The rename's decisions last the session: after a restart the first request asks the history's places again, and an answer that differs from before changes that request's prefix once.
 - The told check of a graph person reads the graph's names (`toldTurn`), not the cast's: a form only the cast prints ("Mae" for Old Mae), said in a delivery, does not tell her. §177.11 refuses such a form in the Keeper's own words, so it reaches a delivery only through a cleared place.
 
