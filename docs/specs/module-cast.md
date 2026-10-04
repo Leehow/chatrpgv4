@@ -190,4 +190,22 @@ Observed, not filed:
 
 The table notes are in `.coc/playtests/speech-replay-20260930/newplayer-20261002/turns.md` (not tracked).
 
+## 8. Table 28 and what remains (2026-10-04)
+
+Table 28 ran on App `a0ff7f0f6` (the packaging line: this branch's §177.13–§177.15 at `f990b311c`, plus the cache-traffic work), campaign `game-d78dd9ec`, KP `grok-build/grok-4.5` low, ten player turns. Notes in `.coc/playtests/speech-replay-20260930/newplayer-20261002/turns.md` and `preregistration-28.md`.
+
+- A held on the player's path: the Keeper wrote Dallas twice, Jev judged the place 0.07 and 0.04, both deliveries went out as written, `told_text` blanked it, and the station owner stayed untold.
+- A failed once in the leak direction, on the request side: Dr. Brenner (Chinese, with his title) was kept at 0.73. Fixed on the branch: the question names titles and the bar is 0.5 (47cb3d684).
+- Two requests of 120 places were refused by Jev's packer and fell back to renamed. Fixed: requests of 40, split on refusal (66d69f441).
+- B: the 15 notes renderings in the table's host messages and tool results were all renamed. "Russell" and "Mather" alone were not; fixed by the words rule (468855ab3).
+- C was not exercised by the Keeper; on the installed kernel over the campaign's copy, `table.recall` by the trucker's word resolved him.
+- Zero book names were delivered before being told.
+
+Remaining, not fixed here:
+- "Lars", a transliteration the reader wrote into `source_needs` before the new reader sentence, stays until the book's graph is read again.
+- A surname said in the fiction ("马瑟", whose cast forms are 丹尼尔·马瑟 and 丹·马瑟) does not tell the person, and the Keeper's `apply person` is then refused as a book name.
+- The cast lists real public figures (President Ford), whose names need no hiding and cause false hits.
+- The v3-to-v4 re-read leaves a window of about 5 minutes on a book's first table open, when unread people's names are not in the rename.
+- The title/bar fix (47cb3d684), the chunking fix (66d69f441) and the words rule (468855ab3) are verified by tests, mutations and replays, not yet on a real table.
+
 ## Comments
