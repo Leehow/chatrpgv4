@@ -102,6 +102,14 @@ Status: needs-triage
 
 **2026-10-04 收尾。** 用户要求尽快收尾，Mod 系统要重构，之后按重构后的系统实现剩下的部分。
 
+**全量测试（leehow-pc，`d167ef3ca` 之后）。**
+
+- `test:ext`：4535 个用例只剩 1 个失败，是 `npc-mood.test.mjs` 钉着 narration-craft 2.2.3，而主线已在 `0d7334861` 升到 2.2.4，属于主线基线。§176.8 的两条在 `untold-name-path.test.mjs` 退回原样后通过。
+- pytest：2085 个用例只剩 `tests/kernel/test_jev_resolve.py` 的 2 个失败，也是主线基线：主线 `ae8dd5d93`（10-01）让没有数据卡的人也成为先手目标并进入 preparation，测试没跟着改。
+- 第一轮全量暴露的 7 个回归已在 `d167ef3ca` 修复：
+  - person 行不再带 `kind`；
+  - 简报的 `creatures` 名册只用 parity 裁剪剩下的预算。
+
 CK-A 交回时留下的未决点，接手时一并处理：
 
 - `table.look focus=npc name=<creature>` 仍走只认人的查找，会拒绝 creature。留给 CK-D 的单生物读数。
