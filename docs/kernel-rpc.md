@@ -26297,6 +26297,17 @@ Writer: package author. Reader: kernel/style projection and host context. Actor:
 The view guidance is conditional: distinguish a source/book or narrator identity from an observer's recognition. Where recognition is unestablished, use only supplied source evidence, material form, and relations; do not turn attribution into perception. This contract makes no claim of universal source fidelity, novel matching, or proven speed. Evidence is limited to the supplied source-selected observations and study contexts, and live quality remains unmeasured.
 
 
+### 137.12 Sensory passage closure after sectioned instructions (2026-10-04)
+
+**Writer (package author):** The author of this Narration Craft package writes only the approved environment refinement: the body of **Scene and detail**, plus the existing `place-the-eye` full and brief style values if changed. The writer preserves every other section, directive, beat, floor, voice lane, setting, capability, state, section definition, delivery mode, and one-pass policy. The writer does not repair or certify runtime state, receipts, NPC placement, source content, or host behavior.
+
+**Reader:** The reader is the CURRENT whole or indexed instruction projection together with the host context supplied for the turn. The reader treats this addendum as an instruction to be applied in that projection, not as a replacement for omitted sections or a license to infer facts. Source visibility, knowledge, agency, route, settled results, and actual receipts remain authoritative.
+
+**Actor (Keeper):** The Keeper is the actor who renders the passage for the player. The Keeper writes the player's act in the scene, follows the actual viewpoint and route, and carries supplied visible detail through connected spatial, material, causal, temporal, or perceptual relations. The Keeper stops at the first settled result, obstacle, risk, fork, or real visible limit; quiet may remain quiet. The Keeper does not append a verdict about what a place means, invent a cause or recognition, repeat unchanged return detail, or turn style guidance into a state change.
+
+**Shared contract:** Writer, reader, and actor retain the same state, settings, capabilities, sections, current whole/indexed projection, and one-pass operation as the approved package. This addendum changes no producer, kernel, host, selector, classifier, receipt, review, source, or experiment. It refines continuity within the existing environment passage only: let the present look, settled movement, or listening lead from one supplied detail to the next, and let the last concrete relation complete that observation. It does not certify any baseline state path or prose outcome beyond this bounded authoring change.
+
+
 ## 138. Band then roll: a rules row named instead of a number, rolled by the kernel (2026-09-26, BR-01 of `docs/specs/band-then-roll.md`; amends §135.28 and §136.22, extends §5's `table.apply` `time` and `damage`)
 
 §136.22 lets the Keeper name the book's amount instead of writing its own. Where the book prints only a scale — how

@@ -22,7 +22,7 @@ A package contributes text and declarations through closed slots in `mod.json`; 
 
 The index concerns the first two slots. Everything else already reaches its consumer when that consumer runs; it never competes for the Keeper's context.
 
-## 1. Narration Craft (`narration-craft` 2.2.5, default on, conflicts with npc-voice)
+## 1. Narration Craft (`narration-craft` 2.2.6, default on, conflicts with npc-voice)
 
 **What it is.** The one prose package: how the Keeper writes. The base keeps only interfaces; every sentence about voice, rhythm, description and the people's speech lives here (prose-mod §6, §170).
 

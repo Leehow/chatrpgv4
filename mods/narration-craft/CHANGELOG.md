@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.2.6
+- Centers the existing environment passage on looking, chosen movement or listening. Supplied physical and sensory relations carry detail and complete the observation. All original first-visible, source, return and quiet-scene duties remain; NPC prose, voice lane, sections, style, state, settings and capabilities are unchanged. No new selector, online review/rewrite or runtime repair. Contract137.12.
+
 ## 2.2.5
 - Declares the sections of `agent.md` (`sections.json`, `instructions.sections.v1`, contract §183): which ride every turn and which a turn loads by its topics, the table's state or the Keeper's calls, for a table whose instructions exceed the instruction budget. Under the budget, as every table is today, the whole text goes as before.
 - `brief.md` is gone. A 2026-10-04 probe of real provider requests found the Keeper received the full `agent.md` every turn; the brief existed only in the capsule (§183, evidence).
