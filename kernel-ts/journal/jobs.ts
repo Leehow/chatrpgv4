@@ -251,7 +251,7 @@ export async function openJob(campaign: CampaignWriter, packet: Row): Promise<Ro
  * §177.12: whether `quote` says a name, or a punctuation piece of one, that the book or the cast gives the person `id`.
  * Only a person the cast has rows for is checked: the cast carries the play-language renderings, so a name said in the
  * table's language can be found as a string. Without a cast (an authored module played in another language) the name may
- * stand in any spelling, and §103.6 keeps the lane's word ("诺特自报了姓名" for Steven Knott).
+ * stand in any spelling, and §103.6 keeps the lane's word (Steven Knott's surname transliterated in Chinese prose).
  */
 function quoteNamesPerson(graph: ModuleGraph, id: string, quote: string): boolean {
     const person = bookCast(graph).find(entry => entry.node && string(entry.node.node_id) === id);
