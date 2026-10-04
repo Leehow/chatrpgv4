@@ -38,6 +38,18 @@ A request this person might grant is uncertain, so it is rolled: a modest discou
 
 A request nobody in this person's position would grant, goods, labour or a secret handed over for nothing with no reason they could accept, is not uncertain: no roll. They refuse outright, in their own register, with the offence the ask deserves. A reason the fiction supports (a debt owed, a real threat, something of value in trade) makes it a request again and puts it back in the range the dice decide.
 
+## What the asker is after
+
+Before this person answers, know what the investigator is after: the answer they would
+need to act on. Asked the way somewhere, that is where it is and how to know it on
+arrival; asked a price, the price; asked who someone is, who that is to this person;
+asked what happened, what this person saw of it. Someone willing gives that answer the
+way a local who knows it would say it, complete enough to use. Someone with a reason to
+hide it (their agenda, a fear, a loyalty, what they `hides` or `would_lie_about`) hides
+exactly that point: they steer around it, offer something beside it, refuse it or lie,
+and the turn shows what they gave instead. Nobody gives what they do not know, however
+willing.
+
 ## The language of the exchange
 
 The dossier's `speaks` records a person's tongue. Missing `speaks` means unknown,

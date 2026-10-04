@@ -155,3 +155,29 @@ test('§158.6: the Keeper is told the delivered turn is canon, the ledger follow
   assert.doesNotMatch(prompt, /say that the table cannot settle actions/);
   assert.match(prompt, /keep the review, the service and its failure out of the fiction and the prose/);
 });
+
+test('§179.1: consulting what the investigator carries is the base\'s; the answer an asker wants is Natural NPC\'s', async () => {
+  // App table game-8e41c325 (2026-10-04): turn 6 opened the notes and wrote the room; turn 3 gave a place's name and no
+  // way to know it. Owner: consulting items belongs to the base system, reading an asker's intent to the NPC package.
+  const prompt = await readFile(new URL('../../prompts/keeper.md', import.meta.url), 'utf8');
+  assert.match(prompt, /When the investigator reads, checks or calls to mind what they carry or already know/);
+  assert.match(prompt, /the turn shows what is there, not only the gesture of looking/);
+  // Arm C of the replay: three of four named the notes' headings with a particular inside them, not the contents.
+  assert.match(prompt, /the particulars themselves, as written or remembered, not a list of the kinds of things the page holds/);
+  assert.match(prompt, /`own` holds what their card says and the player's own earlier words/);
+  assert.match(prompt, /never against what the player has said/);
+  const npc = await readFile(new URL('../../mods/natural-npc/agent.md', import.meta.url), 'utf8');
+  const at = npc.indexOf('\n## What the asker is after\n');
+  assert.ok(at >= 0, 'Natural NPC carries the section');
+  const section = npc.slice(at, npc.indexOf('\n## ', at + 1));
+  assert.match(section, /know what the investigator is after/);
+  assert.match(section, /where it is and how to know it on\s+arrival/);
+  assert.match(section, /complete enough to use/);
+  assert.match(section, /hides\s+exactly that point/);
+  const brief = await readFile(new URL('../../mods/natural-npc/brief.md', import.meta.url), 'utf8');
+  assert.match(brief, /Give or hide the answer\./);
+  // The prose package is not where either lives (owner, 2026-10-04): narration-craft stays as 0.9.6a shipped it.
+  const craft = await readFile(new URL('../../mods/narration-craft/agent.md', import.meta.url), 'utf8');
+  assert.equal(craft.includes('what the asker is after'), false);
+  assert.equal(craft.includes('`own`'), false);
+});
