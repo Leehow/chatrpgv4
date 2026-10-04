@@ -283,7 +283,7 @@ function validateEntries(job: Row, entries: any, stored: Row, selectedIds?:strin
     const unnamed = sorted(new Set(named.filter(([, id]) => !isNamed(id)).map(([name]) => name)));
     const carries = (text: string, id: string) => array(words[id]).map(string).some(word => word && occurs(normalize(text), word));
     // §177.12: the person's names are the cast's -- their graph names and the forms the book prints for their row -- so a
-    // nickname the book prints only in the cast (book-4's station owner, also printed as 「拉斯」 alone) is their name too.
+    // nickname the book prints only in the cast (book-4's station owner, also printed by his nickname alone) is their name too.
     const carriesBookName = (text: string, id: string) => {
         const node = graph?.nodes.get(id);
         if (!node) return false;
