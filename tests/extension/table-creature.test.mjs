@@ -19,6 +19,8 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {validateToolArguments} from '@earendil-works/pi-ai';
+import {COC_TOOLS, DOSSIER_VALUE_MAX} from '../../extensions/kernel/tools.ts';
 
 const root = resolve(import.meta.dirname, '../..');
 const scratch = await mkdtemp(join(tmpdir(), 'table-creature-'));
@@ -510,4 +512,41 @@ test('§180.6: on a book played from its reading, a declared creature is never h
   const checked = await call('table.resolve', {call_id: `t${turn}-c4`, action: {intent: 'investigate', goal: 'size it up', method: 'watch it a while',
     skill: 'Spot Hidden', decision: 'core-check:ordinary-check', target: DOCK_DOG}});
   assert.ok(checked.receipts?.length, JSON.stringify(checked));
+});
+
+// ---------------------------------------------------------------------------------------------------
+// The Keeper's tool: `creature` on the npc effect, and the dossier effect (§28.7's table door).
+// ---------------------------------------------------------------------------------------------------
+
+const APPLY = COC_TOOLS.find(spec => spec.name === 'apply');
+const validApply = effects => validateToolArguments({name: 'apply', description: '', parameters: APPLY.parameters}, {type: 'toolCall', id: 't1', name: 'apply', arguments: {effects}});
+
+test('§180.6: the apply tool takes creature as a catalog name or true, and true reaches the kernel as true', () => {
+  const sent = creature => validApply([{kind: 'npc', name: DOG, walk_on: true, creature, why: 'a yard dog'}]).effects[0].creature;
+  assert.equal(sent('Dog'), 'Dog');
+  assert.equal(sent(true), true, 'not the string "true", which the kernel would read as an unknown catalog entry');
+  // The validator coerces a stray scalar to a string (the kernel then refuses it as an unknown entry, with the options);
+  // a list or an object is no creature at all.
+  for (const creature of [[1], {name: 'Dog'}])
+    assert.throws(() => sent(creature), JSON.stringify(creature));
+});
+
+test('§28.7: the apply tool carries the dossier effect, bounded as the kernel bounds it, and it lands through table.apply', async t => {
+  const speaks = {kind: 'dossier', name: WARDEN, values: {language: 'Irish, and English with a heavy brogue'}, why: 'he swore at the rats in Irish'};
+  assert.doesNotThrow(() => validApply([speaks]));
+  assert.doesNotThrow(() => validApply([{kind: 'dossier', name: DOG, values: {weaknesses: [{book: 'It flees from fire.'}]}, why: 'the torch drove it off'}]));
+  // What the kernel refuses the schema refuses: no words, a word that is no line, a line over the bound.
+  for (const values of [{}, {language: ''}, {language: '   '}, {language: 'x'.repeat(DOSSIER_VALUE_MAX + 1)}, {weaknesses: []}, {weaknesses: [{needs: []}]}])
+    assert.throws(() => validApply([{...speaks, values}]), JSON.stringify(values).slice(0, 40));
+  assert.throws(() => validApply([{kind: 'dossier', values: speaks.values}]), 'the actor is named');
+  // A line at the bound is the kernel's too; one over it is the kernel's refusal as well as the schema's.
+  const game = await table(t);
+  const [validated] = validApply([{...speaks, values: {language: 'y'.repeat(DOSSIER_VALUE_MAX)}}]).effects;
+  await game.call('table.apply', {call_id: game.id(), effects: [validated]});
+  await rejects(game.apply({...speaks, values: {language: 'z'.repeat(DOSSIER_VALUE_MAX + 1)}}), error => assert.equal(error.details.field, 'dossier.values.language'));
+  // natural-npc's `speaks` (key `language`) on a person: the call the schema admits lands, in the package's namespace.
+  const landed = await game.call('table.apply', {call_id: game.id(), effects: validApply([speaks]).effects});
+  const receipt = (await game.call('table.status')).receipts.find(row => row.id === landed.receipts[0]);
+  assert.deepEqual([receipt.kind, receipt.keys, receipt.values], ['dossier', ['language'], {language: speaks.values.language}]);
+  assert.equal((await game.world()).mods.state['natural-npc'].dossier['npc-old-warden'].language.value, speaks.values.language);
 });

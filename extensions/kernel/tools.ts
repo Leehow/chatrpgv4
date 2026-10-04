@@ -330,6 +330,23 @@ const NoteEffect = Type.Object({
 	closes: Type.Optional(Type.String({ description: "an exact manual open-note name from the capsule; give it alone to close, or with text to replace. Memory record IDs are not note names. Background memory maintenance owns remembered-plan status; do not close memory references through this effect" })),
 });
 
+/**
+ * Contract §28.7: the table door for a package's own dossier words (`graph.vocabulary.table.v1`). The kernel writes the
+ * value into the package's namespace, never the book, and refuses a word no active package contributes, a value the
+ * source already gives and a lane-written word (`kernel-ts/mods/stage.ts`); a value is one line of at most 200 characters.
+ * §180.9's `weaknesses` is a list of `{book, needs?}`.
+ */
+export const DOSSIER_VALUE_MAX = 200;
+const DossierEffect = Type.Object({
+	kind: StringEnum(["dossier"] as const, { description: "record, for a person or creature, a value of a package's word the book does not give, as the table established it" }),
+	name: Type.String({ description: "the person or creature, by the name you already use" }),
+	values: Type.Record(Type.String(), Type.Union([
+		Type.String({ minLength: 1, maxLength: DOSSIER_VALUE_MAX, pattern: "\\S" }),
+		Type.Array(Type.Object({ book: Type.String({ minLength: 1 }), needs: Type.Optional(Type.Array(Type.String())) }), { minItems: 1 }),
+	]), { minProperties: 1, description: "the package's words (mods.vocabulary) and what the table established: one line each; weaknesses is a list of {book, needs?}" }),
+	why: Type.Optional(Sentence("what in the fiction established it")),
+});
+
 const RulingEffect = Type.Object({
 	kind: StringEnum(["ruling"] as const, {
 		description: "record how you ruled something at this table, so the same judgement comes back to you next time it arises",
@@ -816,7 +833,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		parameters: Type.Object({
 			using_skill: UsingSkill,
 			effects: Type.Array(
-				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
+				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, DossierEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 			narrate: Type.Optional(Type.String({ description: withPlainProse("this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead") })),
