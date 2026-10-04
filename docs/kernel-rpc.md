@@ -26149,6 +26149,21 @@ builds the two-argument `TextGraph`.
 - **Size.** The table fit the old 2048/1536 budgets and still does; `tests/kernel/test_capsule_nine.py` asserts no `truncated: style` for a legacy lock in both forms.
 
 
+### 137.10 Environment craft and pacing (2026-10-03)
+
+**Scope.** This is a craft-only upgrade to PipiCOC Narration Craft: environment description and sentence/paragraph pacing. It is informed by the completed [local prose study](</Users/haoli/Documents/TRPG/小说/文笔研究-20261003/文笔与环境张力总报告.md>). It does not add a lane, template bank, stylistic gate, review/rewrite step, runtime schema, imitation rule, or source-story fact.
+
+Version 2.2.1. This version-frozen package is authored by the craft writer. The reader is the kernel `buildCapsule/styleSection` plus context policy: it carries full instruction/style on entry, then the compact reminder plus axes, directives and floor. The actor is the live Keeper, writing and delivering through ordinary narrate/ask/apply under the one-pass policy. No receipt proves literary quality. Existing campaign locks stay frozen; explicit upgrade uses ordinary `mods.configure`. Core/host/state/settings/capabilities remain unchanged; only this versioned craft package text changes.
+
+**Boundaries and adoption.** The existing package, state model, tools, receipts, interfaces and read-only sources are unchanged. This is a versioned author draft/addendum: adopt it only as the corresponding package version, with existing validation and deployment controls. It guides positive craft rather than enforcing metre, quotas, adjective bans, dramatic endings, hidden information, or a fixed scene recipe.
+
+**Evidence separation.** Wiring checks establish only that the package is connected and within its declared limits. Real live play is separate evidence about actual turns and agency. An installed App is a further deployment state, not proof of either. No claim about literary improvement is made here.
+
+**Rationale and limits.** The local study’s 54 sampled scenes (48 distributed source windows plus 6 opening supplements) are a bounded reading sample, not exhaustive or statistically representative; the report also notes that reader interpretation was not a measured audience response and NPC live-play acceptance was not performed. Its useful transfer is conditional: let station, material, movement, sensory contact and environmental feedback connect; keep public actionable evidence available; allow ordinary detail and waiting without compulsory omen; let sentence and paragraph turns follow linked action, inspection, waiting and release. The study does not establish sentence-length causality.
+
+The primary precedents already read by root are Ursula K. Le Guin’s authorized chapter on rhythm as physical movement (https://lithub.com/a-writing-lesson-from-ursula-k-leguin/) and Delatorre et al.’s experiment (https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2018.01392/full). They support avoiding rigid metre and treating suspense as more than concealed outcomes; they do not validate this Mod or prove sentence-length causality. No novel quotation is copied into runtime instructions.
+
+
 ## 138. Band then roll: a rules row named instead of a number, rolled by the kernel (2026-09-26, BR-01 of `docs/specs/band-then-roll.md`; amends §135.28 and §136.22, extends §5's `table.apply` `time` and `damage`)
 
 §136.22 lets the Keeper name the book's amount instead of writing its own. Where the book prints only a scale — how
