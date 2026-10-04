@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
   "axes": [
-    "whole sentences: subject, verb and object plain to see",
-    "long and short in turn; a fragment is one beat, not the texture",
-    "a full name once, then the pronoun or the short name",
-    "what is seen, heard and said; a mood or cause only when established",
+    "plain sentences with clear agents and clauses",
+    "rhythm follows action, inspection and waiting; no fixed alternation",
+    "concrete nouns, exact verbs and material relations carry texture",
+    "viewpoint and perception orient the reader; actionable facts stay available",
     "people react to words and deeds in natural speech, length fitting the moment"
   ],
   "directives": {
     "act-then-reply": {
-      "full": "the player's act told in the scene in your own words, then the world's reply; never their sentence pasted back",
+      "full": "the player's act told in your words, then the world's reply; never pasted back",
       "brief": "the player's act in the scene, in your words, then the reply"
     },
     "one-focus": {
-      "full": "one focus per paragraph, each sentence leading on; errands in a clause, the moment gets room",
-      "brief": "one focus per paragraph; errands in a clause, the moment gets room"
+      "full": "one focus per paragraph; connect sentences through space, time, cause or perception",
+      "brief": "one focus per paragraph; let sentences connect"
     },
     "speak-in-person": {
       "full": "react to words and deeds in their register, serving the exchange; positions move only with the fiction",
@@ -25,24 +25,24 @@
       "brief": "show what the result changed; an unestablished cause stays unstated"
     },
     "place-the-eye": {
-      "full": "a viewing path from where they stand; the thing that matters last and clearest",
-      "brief": "a viewing path from where they stand; the thing that matters last"
+      "full": "follow viewpoint and movement; first visits include visible source detail",
+      "brief": "follow viewpoint and movement; first visits include visible source detail"
     },
     "plain-then-strange": {
-      "full": "the strange beside the plain in plain words; no adjective does the fear's work or names the cause",
-      "brief": "the strange beside the plain, in plain words; no verdict on the cause"
+      "full": "beside an established anomaly, put strange beside plain in concrete words; do not name its cause",
+      "brief": "beside an established anomaly, put strange beside plain; keep facts available"
     },
     "carry-through": {
       "full": "carry the action through what needs no choice; stop at the first outcome, obstacle, risk or fork",
       "brief": "carry the action to its first outcome, obstacle, risk or fork"
     },
     "return-by-change": {
-      "full": "on a return, lead with what differs; the rest in half a sentence",
-      "brief": "on a return, lead with what changed; the unchanged in half a sentence"
+      "full": "lead with what changed; omit gratuitous repetition",
+      "brief": "lead with what changed; omit gratuitous repetition"
     },
     "press-and-cost": {
-      "full": "the cost in body or room, the clock in what people do; never a number, label or warning",
-      "brief": "the cost in the body or room, the clock in what people do; no labels"
+      "full": "show cost in body or room and the clock in what people do; ordinary texture may simply be texture",
+      "brief": "show cost and clock through body, room and action"
     }
   },
   "beats": {
