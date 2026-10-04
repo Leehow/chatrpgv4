@@ -118,7 +118,8 @@ test('a check lands: shown leaves for good, what the prose left out stays as mis
   assert.match(next.first_sight.people[1].described, /前清秀才/, 'a check that could not quote leaves the item owed in full');
 
   // A later check shows the rest; with nothing owed the section and its head sentence are gone.
-  await game.call('table.narrate', {call_id: game.next(1), text: '王铁柱赤着膊，腰里别着麻绳。周敬之摇着扇子。'});
+  // §177.11: neither has been named to the investigator, so the prose calls them by what is seen.
+  await game.call('table.narrate', {call_id: game.next(1), text: '扛包的汉子赤着膊，腰里别着麻绳。穿长衫的先生摇着扇子。'});
   await game.call('table.first_sight', {turn: 1, items: [{id: 'wang-tiezhu', kind: 'person', missing: []}, {id: '周敬之', kind: 'person', missing: []}]});
   const settled = await game.call('table.capsule');
   assert.equal(settled.first_sight, undefined);

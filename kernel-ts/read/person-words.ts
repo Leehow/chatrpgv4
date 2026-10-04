@@ -14,6 +14,7 @@
  */
 import type { ModuleGraph } from './module-graph.js';
 import { array, entries, integer, length, normalize, repr, row, string, type Row } from './values.js';
+import { isJsonObject } from '../json.js';
 
 /** A string field, or '' when absent: `values.string` renders absence as "None". */
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
@@ -81,8 +82,13 @@ export function untoldWholeNames(graph: ModuleGraph, journal: Row, records: Row[
     const isUntold = (person: CastPerson) => person.node ? untold.has(string(person.node.node_id)) : unread.has(person.id);
     const cast = bookCast(graph);
     const known = new Set(namePieces(cast.filter(person => !isUntold(person)).flatMap(person => person.names)).map(normalize));
+    // A module whose cast is read names its people by what the reader printed; a graph person it did not list is a group or
+    // a role ("the harbor clerk"), not a name. Only a module with no cast falls back to the graph's own names. A person this
+    // campaign's adaptation added is the table's, not the book's.
+    const read = !!graph.castStore && ['complete', 'partial'].includes(string(graph.castStore.state));
     const forms = (person: CastPerson): string[] => person.printed.length ? person.printed
-        : person.node ? [person.node.name, graph.displayName(person.node)].filter((value): value is string => typeof value === 'string') : [];
+        : person.node && !read && !isJsonObject(person.node.campaign_origin)
+            ? [person.node.name, graph.displayName(person.node)].filter((value): value is string => typeof value === 'string') : [];
     return [...new Set(cast.filter(isUntold).flatMap(forms).map(name => name.trim())
         .filter(name => [...name].length >= 2 && !known.has(normalize(name))))];
 }

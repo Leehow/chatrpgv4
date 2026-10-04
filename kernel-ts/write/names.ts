@@ -36,7 +36,7 @@ export function withNames(text: string, speakers: SpeakerResolver, graph: Module
 /**
  * §177.11: the words of `text` that are the Keeper's own -- every resolved `{{name:<who>}}` taken out (the delivery puts the
  * book's name there on purpose) and an unresolved one left as the word it carries -- checked for an untold person's printed
- * name. Table 25 (turn 8): asked his name, the toothless trucker said 「叫我厄尼就行」, the name of another man of the book
+ * name. Table 25 (turn 8): asked his name, the toothless trucker said "call me Ernie", the name of another man of the book
  * the investigator had not met; delivered, it would also have counted that man as told from then on.
  */
 export function untoldNamesSaid(text: string, speakers: SpeakerResolver, graph: ModuleGraph, names: readonly string[]): string[] {
