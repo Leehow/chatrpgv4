@@ -38,6 +38,15 @@ def share_one_word(client):
     path.write_text(json.dumps(world, ensure_ascii=False), encoding="utf-8")
 
 
+def give_directly(client, handle, word):
+    """A word put on the record directly: since §176.3 `apply person` refuses a word carrying any untold person's book name,
+    so a table word that collides with Knott's name exists only on a table written before that (or by hand)."""
+    path = campaign_dir(client.workspace) / "world.json"
+    world = read_json(path)
+    world.setdefault("person_labels", {}).setdefault(handle, {})["name"] = word
+    path.write_text(json.dumps(world, ensure_ascii=False), encoding="utf-8")
+
+
 def receipts(client, kind):
     return [r for r in client.table("status")["receipts"] if r["kind"] == kind]
 
@@ -98,7 +107,7 @@ def test_an_obligation_claimed_against_the_table_word_is_that_persons(morgue):
 def test_a_seat_the_graph_answers_is_the_graphs_person_whatever_the_table_called_someone_else(kernel):
     """The first layer with exactly one answer is the person: the book's name beats a table word that collides with it."""
     open_turn(kernel)
-    name(kernel, CORBITT, KNOTT)
+    give_directly(kernel, "walter-corbitt", KNOTT)
     settled = kernel.table("resolve", call_id="t1-c2", action={**SOCIAL, "target": KNOTT})
     assert settled["outcome"]["npc"] == "steven-knott"
     assert kernel.table("look", focus="npc", name=KNOTT)["id"] == "steven-knott"

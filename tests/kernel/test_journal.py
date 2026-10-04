@@ -427,7 +427,8 @@ def test_untold_starts_at_opening_without_a_journal(kernel):
     capsule = kernel.table("capsule")
     person = next(p for p in capsule["present"] if p["name"] == KNOTT)
     assert "untold" in person and "label" not in person["untold"]
-    assert "apply person" in person["untold"]["use"] and "called.name" in person["untold"]["use"]
+    # §176: the label is the table's word from before the meeting (the epithet lane's), so the line no longer asks to apply one.
+    assert "label is the table's word" in person["untold"]["use"] and "apply person" not in person["untold"]["use"]
     assert not journal_path(kernel.workspace).exists()
     assert kernel.table("look", focus="npc", name=KNOTT)["untold"] == person["untold"]
     assert kernel.table("look", focus="npc")["present"][0]["untold"] == person["untold"]
