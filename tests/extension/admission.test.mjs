@@ -638,3 +638,60 @@ test("the review reads the setup prologue the player was shown, and not its Keep
 	assert.ok(requests[0].includes(opening), "the reviewer is given what the guide asked the player in the prologue");
 	assert.ok(!requests[0].includes(handoff), "the Keeper-facing handoff is not what the player was told, and stays out");
 });
+
+test("a proposed representation can be corrected without asking the player to choose the declared act again", async t => {
+ const misplaced = {kind: "object", name: "House key", from: "Thomas Hayes", to: "Steven Knott", handover: "given"};
+ const placed = {kind: "object", name: "House key", from: "Thomas Hayes", to: "Knott's office"};
+ const table = await openTable({responses: [
+  fauxAssistantMessage([fauxToolCall("apply", {effects: [misplaced]})]),
+  fauxAssistantMessage([fauxToolCall("apply", {effects: [placed]})]),
+  fauxAssistantMessage([fauxToolCall("narrate", {text: "You leave the key on the desk."})]),
+ ], laneResponses: {admission: [
+  verdict({verdict: "not_authorized", recovery: "correct_proposal", grounds: "The player chose desk placement; the proposed recipient differs."}),
+  verdict({verdict: "authorized", grounds: "The player chose this exact desk placement."}),
+ ]}});
+ t.after(() => table.dispose());
+ await table.session.prompt("I put the house key back on Knott's desk.");
+ const errors = toolResultTexts(table.session, "apply");
+ assert.equal(admissionRows(table)[0].recovery, "correct_proposal", "representation failure is distinct from an unmade player choice");
+ assert.equal(admissionRows(table)[0].correction_allowed, true, "one reviewed correction is available");
+ assert.ok(errors.some(text => text.includes("do not ask them to choose it again")), "the model is not told to reopen a chosen act");
+ const applied = kernelCalls(table, "table.apply");
+ assert.equal(applied.length, 1);
+ assert.deepEqual(applied[0].params.effects, [placed]);
+});
+
+test("a failed correction cannot start another state-changing correction in the same turn", async t => {
+ const effect = to => ({kind:"object",name:"House key",from:"Thomas Hayes",to});
+ const table=await openTable({responses:[
+  fauxAssistantMessage([fauxToolCall("apply",{effects:[effect("Another person")]})]),
+  fauxAssistantMessage([fauxToolCall("apply",{effects:[effect("Another room")]})]),
+  fauxAssistantMessage([fauxToolCall("apply",{effects:[effect("Knott's office")]})]),
+  fauxAssistantMessage([fauxToolCall("narrate",{text:"The return remains unsettled."})]),
+ ],laneResponses:{admission:[
+  verdict({verdict:"not_authorized",recovery:"correct_proposal",grounds:"The player chose desk placement."}),
+  verdict({verdict:"not_authorized",recovery:"correct_proposal",grounds:"The corrected location still differs."}),
+  verdict({verdict:"authorized",grounds:"This location now matches."}),
+ ]}});
+ t.after(()=>table.dispose());
+ await table.session.prompt("I put the key back on Knott's desk.");
+ assert.equal(kernelCalls(table,"table.apply").length,0,"a failed correction ends state-writing recovery for this turn");
+ assert.ok(toolResultTexts(table.session,"apply").some(text=>text.includes("correction allowance")));
+});
+
+test("genuine NPC information remains admissible after investigator correction recovery is exhausted", async t => {
+ const wrong=to=>({kind:"object",name:"House key",from:"Thomas Hayes",to});
+ const information={kind:"clue",clue:"house-address",from:"Steven Knott"};
+ const table=await openTable({responses:[
+  fauxAssistantMessage([fauxToolCall("apply",{effects:[wrong("Another person")]})]),
+  fauxAssistantMessage([fauxToolCall("apply",{effects:[wrong("Another room")]})]),
+  fauxAssistantMessage([fauxToolCall("apply",{effects:[information]})]),
+  fauxAssistantMessage([fauxToolCall("narrate",{text:"Knott repeats the address."})]),
+ ],laneResponses:{admission:[
+  verdict({verdict:"not_authorized",recovery:"correct_proposal",grounds:"The player chose desk placement."}),
+  verdict({verdict:"not_authorized",recovery:"correct_proposal",grounds:"The corrected location still differs."}),
+  verdict({verdict:"not_player_action",grounds:"Knott offers information on his own."}),
+ ]}});
+ t.after(()=>table.dispose());await table.session.prompt("I put the key on Knott's desk.");
+ assert.deepEqual(kernelCalls(table,"table.apply").map(c=>c.params.effects),[[information]]);
+});

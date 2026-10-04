@@ -180,6 +180,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | `extensions/mods/index.ts` | `warm.runner` | 739 | `owner.runTask` | mods ext: document presentation warmup | app-play | not observed | Runner handed to presentDocument (child kind mod). |
 | `extensions/npc-journal/index.ts` | `attempt` | 240 | `runLane` | npc-journal ext | app-play | observed: 4 journal rows | Background journal lane after commit. |
 | `extensions/npc-voice/index.ts` | `attempt` | 303 | `runLane` | npc-voice ext: voice check | app-play | observed: 3 voice lane-calls | Voice mask check lane; background. |
+| `extensions/npc-voice/index.ts` | `attempt` | 296 | `createDecisionAdapter` | source-bound background NPC voice-card reviewer | app-play-gated | leaf | An existing voice preparation job and captured Jev availability; not a foreground prose reviewer. |
 | `extensions/npc-voice/writer.ts` | `writeVoice` | 25 | `runtime.runTask` | npc-voice ext: voice mask author | app-play | observed: voice job rows | Background tool-enabled author child; not awaited by the turn. |
 | `extensions/npc/writer.ts` | `authorNpc` | 14 | `runtime.runTask` | npc ext: NPC author | app-play | observed: npc personality/responses x3 | Background tool-enabled author child. |
 
@@ -231,6 +232,7 @@ Tables are generated from `inventory-SL-00.json` (lines are at `0b729e8fb`, info
 | `extensions/image-gen/agent/vendors.js` | `geminiAdapter` | 252 | `fetch` | image-gen | app-ui | not observed | Per-vendor image model transport (one request, or create+poll for DashScope async). |
 | `extensions/image-gen/agent/vendors.js` | `dashScopeSyncAdapter` | 288 | `fetch` | image-gen | app-ui | not observed | Per-vendor image model transport (one request, or create+poll for DashScope async). |
 | `extensions/image-gen/agent/vendors.js` | `dashScopeAsyncAdapter` | 321 | `fetch` | image-gen | app-ui | not observed | Per-vendor image model transport (one request, or create+poll for DashScope async). |
+| `extensions/image-gen/agent/vendors.js` | `codexAdapter` | 445 | `fetch` | image-gen | app-ui | not observed | Codex image transport on the player's ChatGPT subscription (contract §172.4): one synchronous JSON request to chatgpt.com/backend-api. |
 | `extensions/mods/document-presentation.ts` | `documentPresentationStatus` | 40 | `presentDocument` | mods ext: document presentation | app-ui | not observed | Opens a paper's reading (presenter child, tool-enabled) on demand; not part of a turn. |
 | `pipicoc/illustration.ts` | `defaultImageGenerator` | 81 | `generateImage` | pipicoc illustration | app-ui | not observed | Image model call. |
 | `pipicoc/illustration.ts` | `writePrompt` | 176 | `runtime.runTask` | pipicoc illustration | app-ui | not observed | Two-round prompt-writer child for an illustration. |

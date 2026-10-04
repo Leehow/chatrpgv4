@@ -10,6 +10,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
+import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -134,6 +135,55 @@ test("a Mod child accepts a provider defined only in a commented models.json", a
   const outcome = await runtimeCapabilities.runTask(context, { kind: "mod", request: { cwd, brief: "capture", model: TABLE, thinking: "high" } }, new AbortController().signal);
   assert.equal(outcome.ok, true, JSON.stringify(outcome));
   assert.deepEqual(await launched(cwd), { model: "custom/only", thinking: LANE_THINKING_DEFAULT });
+});
+
+/**
+ * §135.27.1.2: the lane child is Pi, so its catalog is what Pi's grammar parses. A trailing comma or a
+ * BOM is Pi's and the child resolves the provider; a `/* *\/` comment fails Pi's parse, the child has none of
+ * the file's models, and the lane is refused by name here instead of dying in the child.
+ */
+const CUSTOM_ONLY = `"custom": {"baseUrl": "http://127.0.0.1:1/v1", "api": "openai-completions", "models": [{"id": "only"}]}`;
+const VENDORED_PI_INDEX = join(ROOT, "build/node_modules/@earendil-works/pi-coding-agent/dist/index.js");
+
+/** What the vendored Pi itself resolves from this agent home: the same answer the lane child would get. */
+async function piResolves(agent, provider, id) {
+  const { ModelRuntime, ModelRegistry } = await import(VENDORED_PI_INDEX);
+  return Boolean(new ModelRegistry(await ModelRuntime.create({ modelsPath: join(agent, "models.json"), refreshOnCreate: false })).find(provider, id));
+}
+
+test("a Mod child accepts a provider defined only in a models.json with trailing commas or a BOM", async t => {
+  const shapes = {
+    "trailing commas": `{"providers": {"custom": {"baseUrl": "http://127.0.0.1:1/v1", "api": "openai-completions", "models": [{"id": "only"},],},},}\n`,
+    BOM: `\uFEFF{"providers": {${CUSTOM_ONLY}}}\n`,
+  };
+  for (const [shape, text] of Object.entries(shapes)) await t.test(shape, async t => {
+    const agent = await agentHome(t, "custom/only");
+    await writeFile(join(agent, "models.json"), text);
+    const { home, context } = await childContext(t, agent);
+    const cwd = join(home, "mod");
+    await mkdir(cwd);
+    const outcome = await runtimeCapabilities.runTask(context, { kind: "mod", request: { cwd, brief: "capture", model: TABLE, thinking: "high" } }, new AbortController().signal);
+    assert.equal(outcome.ok, true, JSON.stringify(outcome));
+    assert.deepEqual(await launched(cwd), { model: "custom/only", thinking: LANE_THINKING_DEFAULT });
+    if (existsSync(VENDORED_PI_INDEX)) assert.equal(await piResolves(agent, "custom", "only"), true, "and Pi resolves it from the same file");
+  });
+});
+
+test("a Mod child refuses a provider defined only in a /* */-commented models.json, which Pi does not load", async t => {
+  const agent = await agentHome(t, "custom/only");
+  await writeFile(join(agent, "models.json"), `/* the operator's relay */\n{"providers": {${CUSTOM_ONLY}}}\n`);
+  const { home, context } = await childContext(t, agent);
+  const cwd = join(home, "mod");
+  await mkdir(cwd);
+  await assert.rejects(
+    runtimeCapabilities.runTask(context, { kind: "mod", request: { cwd, brief: "capture", model: TABLE, thinking: "high" } }, new AbortController().signal),
+    error => {
+      assert.equal(error.details?.reason, "lane_model_unavailable");
+      assert.equal(error.details?.model, "custom/only");
+      return true;
+    });
+  assert.equal(existsSync(join(cwd, "launch-argv.json")), false, "no child was started");
+  if (existsSync(VENDORED_PI_INDEX)) assert.equal(await piResolves(agent, "custom", "only"), false, "Pi has none of the file's models either");
 });
 
 /**

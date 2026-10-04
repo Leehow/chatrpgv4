@@ -7,7 +7,7 @@ import { KernelClient, KernelError, type KernelClientOptions } from "../extensio
 import type { ReaderOutcome, ReaderRequest } from "../extensions/module/reader.ts";
 import { runtimeCapabilities } from "./tasks.ts";
 import {readJevApiKey} from '../extensions/jev/agent/config.js';
-import { stripJsonComments } from "./json-comments.ts";
+import { parseModelsJson, stripLineComments } from "./json-comments.ts";
 import { assertWritableLocation, compiledEnvironment, readDeployment, resourcePath, resourceRootFrom,
   runtimeEntrypoints, type RuntimeEntrypoints, type RuntimeLayout } from "./deployment.mjs";
 
@@ -384,7 +384,7 @@ function modelOverrideOf(config: unknown, { provider, model }: ProviderModelCorr
 
 export type ProviderModelCorrectionsOutcome =
   | { readonly status: "written" | "unchanged" | "no_corrections_file" }
-  | { readonly status: "left_untouched"; readonly reason: "unparsable" }
+  | { readonly status: "left_untouched"; readonly reason: "unparsable"; readonly error: string }
   | { readonly status: "left_untouched"; readonly reason: "operator_comments"; readonly missing: readonly ProviderModelCorrectionEntry[] };
 
 /**
@@ -393,13 +393,15 @@ export type ProviderModelCorrectionsOutcome =
  * `piLaunch`; idempotent, so calling it on every launch is correct. A missing corrections file (a
  * fixture repo, a deployment that predates this file) is one correction fewer, never a failure,
  * matching `childCatalog`'s tolerance for `models-store.json`/`models.json` in `runtime/tasks.ts`.
- * A `models.json` that fails to parse even after stripping comments is left untouched rather than
- * blocking the table: Pi's own loader degrades the same way (`ModelConfig.load` disables custom
- * models and records `getError()`, but still starts).
+ * The file is read in Pi's own grammar (§135.27.1.2, `parseModelsJson`). A `models.json` that does
+ * not parse in it is left untouched rather than blocking the table: Pi's own loader fails on the same
+ * text and degrades the same way (`ModelConfig.load` disables custom models and records `getError()`,
+ * but still starts).
  *
  * The file written is strict JSON (§135.27.1.1): the note is `PRODUCT_NOTE_KEY`, the header the
- * merge used to write is dropped, and a file that still carries comments after that is an
- * operator's, left byte for byte as it was, with the corrections that did not land reported.
+ * merge used to write is dropped, and a file that still carries `//` comments after that is an
+ * operator's, left byte for byte as it was, with the corrections that did not land reported. A
+ * trailing comma or a BOM is not a comment: nothing is lost when the rewrite drops it.
  */
 export async function applyProviderModelCorrections(agentHome: string, correctionsPath: string): Promise<ProviderModelCorrectionsOutcome> {
   let correctionsText: string;
@@ -418,11 +420,14 @@ export async function applyProviderModelCorrections(agentHome: string, correctio
   const source = withoutLegacyHeader(existingText);
   let existing: unknown = {};
   if (source.trim()) {
-    try { existing = JSON.parse(stripJsonComments(source)); }
-    catch { return { status: "left_untouched", reason: "unparsable" }; } // the operator's; Pi's own loader will also flag it
+    try { existing = parseModelsJson(source); }
+    catch (error) {
+      // The operator's; Pi's own loader fails on the same text, with this message (§135.27.1.2).
+      return { status: "left_untouched", reason: "unparsable", error: error instanceof Error ? error.message : String(error) };
+    }
   }
   const { config, entries } = mergeProviderModelCorrections(existing, corrections);
-  if (stripJsonComments(source) !== source) {
+  if (stripLineComments(source) !== source) {
     // An operator wrote these comments; no strict-JSON rewrite could keep them.
     const missing = entries.filter(entry =>
       JSON.stringify(modelOverrideOf(existing, entry)) !== JSON.stringify(modelOverrideOf(config, entry)));

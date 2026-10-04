@@ -72,7 +72,7 @@ const answering = (line, p, extra = {}) => (question) => {
 
 // ---- the measured request ------------------------------------------------------------------------------------------------
 
-test("§32.12.3.2: the product sends the request revision 2a.3 was measured with -- the same state and questions, byte for byte", () => {
+test("§32.12.3.2: the product preserves measured questions and arithmetic while carrying explicit transaction semantics", () => {
 	const cases = [
 		input(),
 		input({ proposal: ['apply time: minutes=10; why="search"'] }),
@@ -88,12 +88,15 @@ test("§32.12.3.2: the product sends the request revision 2a.3 was measured with
 		const experiment = rolesBatches(measured, undefined, { revision: "2a.3" });
 		assert.equal(product.batches.length, experiment.batches.length);
 		for (const [index, batch] of product.batches.entries()) {
-			assert.deepEqual(packDecisionBatch(batch).request, packDecisionBatch(experiment.batches[index]).request);
-			assert.deepEqual([batch.family, batch.familyVersion], [experiment.batches[index].family, experiment.batches[index].familyVersion]);
+			const actual = structuredClone(packDecisionBatch(batch).request);
+			assert.ok(actual.state.fieldNotes.handover.includes("consent ground"));
+			delete actual.state.fieldNotes.handover;
+			assert.deepEqual(actual, packDecisionBatch(experiment.batches[index]).request);
+			assert.deepEqual([batch.family, batch.familyVersion], [experiment.batches[index].family, "2a.4"]);
 		}
 		assert.deepEqual([...product.passages.keys()], [...experiment.passages.keys()]);
 	}
-	assert.deepEqual([ADMISSION_ROLES_FAMILY, ADMISSION_ROLES_VERSION], ["action-admission-roles", "2a.3"]);
+	assert.deepEqual([ADMISSION_ROLES_FAMILY, ADMISSION_ROLES_VERSION], ["action-admission-roles", "2a.4"]);
 });
 
 test("§32.12.3.2: per line the design asks role, choice, result, span, target, gate, order, missing and basis; each line carries its closed kind", () => {

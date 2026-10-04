@@ -1,0 +1,16 @@
+{
+  "questions": {
+    "unsupported_facts": "Is state.candidate affirmatively asserting a person, object, place, event, relationship, resource, authority, commitment, discovery, or other fact that state.source does not support?",
+    "disclosed_secrets": "Is state.candidate affirmatively disclosing a secret or hidden fact that state.source keeps undisclosed to this listener?",
+    "listener_conflict": "Does state.candidate affirmatively contradict the listener's identity, visible presentation, established address, knowledge, relationship, or agency in state.source?",
+    "language_mismatch": "Does state.candidate use a language or writing system inconsistent with state.source.play_language? The source descriptions may be English; their description language is not the requested output language.",
+    "silence_conflict": "Does state.candidate affirmatively make a person speak when state.source explicitly establishes that the person does not speak, or make an explicitly speaking source silent without support?",
+    "fixed_agenda": "Does state.candidate affirmatively turn flexible voice or source desire into a compulsory topic, task, refusal, agreement, question, or conversation agenda unsupported by the present exchange in state.source?",
+    "translation_description": "Does state.candidate.voice.mask affirmatively substitute scenery, room or location atmosphere, or translation imagery for meaningful heard word choice, register, attitude, address, or interaction habit, treating that non-speech material as a vocal quality?",
+    "nonresponsive_exchange": "Does state.candidate affirmatively fail to respond to the stranger's words in its own supplied example exchanges, rather than giving the uncertainty, evasion, silence, refusal, courtesy, or longer answer that the encounter supports?",
+    "repetitive_range": "Does state.candidate affirmatively collapse the demonstrated range into materially repetitive wording, stance, or response function across the supplied exchanges and current context in state.source, beyond a justified repeated topic or response?",
+    "coarse_conflict": "Does state.candidate affirmatively use coarse, insulting, or profane speech contrary to the source's established voice, permission, listener, or present situation in state.source?",
+    "mandated_rhythm": "Does state.candidate.voice.mask affirmatively prescribe sentence length or cadence as a compulsory voice rule instead of letting length follow the present encounter, including by turning a source's short or clipped manner into a length or cadence prescription? Do not flag a mask merely for describing sparse or formal speech when it does not prescribe length or cadence.",
+    "source_voice_conflict": "Does the candidate mask or its example replies contradict the established speaker register in state.source.npc.voice? Context may change emotion and length; do not require a fixed tone or cadence."
+  }
+}

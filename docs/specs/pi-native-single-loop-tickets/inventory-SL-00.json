@@ -671,6 +671,21 @@
       ]
     },
     {
+      "file": "extensions/image-gen/agent/vendors.js",
+      "symbol": "codexAdapter",
+      "kind": "network",
+      "callee": "fetch",
+      "count": 1,
+      "owner": "image-gen",
+      "path": "app-ui",
+      "role": "leaf",
+      "trace": "not observed",
+      "note": "Codex image transport on the player's ChatGPT subscription (contract §172.4): one synchronous JSON request to chatgpt.com/backend-api.",
+      "lines_at_70f8937c6": [
+        445
+      ]
+    },
+    {
       "file": "extensions/kernel/adaptation-submit.ts",
       "symbol": "adaptationSubmit.on(agent_end)",
       "kind": "trigger-turn",
@@ -945,7 +960,7 @@
       "path": "app-play",
       "role": "driver",
       "trace": "observed: coc-host kind=speech at turn 2 followed by two more Keeper provider calls",
-      "note": "The host's own continuation policy: preparation wait, reading wait, kernel delivery fix (incl. the speech steer), pending choice, \"turn not closed\". Each steer is agent.steer on a streaming run, and _handlePostAgentRun continues the same run: one more provider request. 2026-09-23 (contract §135.11): the five sends became one, the steer chosen by takeTurnCloseSteer; legacy only. On the driven engine agent_end sends none, and the run's policy-origin turn_close operation takes the same steer as one more infer step.",
+      "note": "The host's own continuation policy: preparation wait, reading wait, kernel delivery fix (incl. the speech steer), pending choice, \"turn not closed\". Each steer is agent.steer on a streaming run, and _handlePostAgentRun continues the same run: one more provider request. 2026-09-23 (contract \u00a7135.11): the five sends became one, the steer chosen by takeTurnCloseSteer; legacy only. On the driven engine agent_end sends none, and the run's policy-origin turn_close operation takes the same steer as one more infer step.",
       "lines_at_0b729e8fb": [
         4582,
         4589,
@@ -1234,7 +1249,7 @@
       "path": "app-setup",
       "role": "driver",
       "trace": "n/a (setup)",
-      "note": "Setup-mode guidance reader child. SL-103 (§98 addendum 10): the same site runs a second preparation at once when the reviewer refused the first draft, at most once, inside the one single-flight preparation and under the step's abort signal; no new site.",
+      "note": "Setup-mode guidance reader child. SL-103 (\u00a798 addendum 10): the same site runs a second preparation at once when the reviewer refused the first draft, at most once, inside the one single-flight preparation and under the step's abort signal; no new site.",
       "lines_at_0b729e8fb": [
         157
       ]
@@ -1605,7 +1620,7 @@
       "path": "child-process",
       "role": "leaf",
       "trace": "source-driver.jsonl in the source attempt directory",
-      "note": "JPDF-03/05/10: readerCommand selects runtime/pi-source-reader.ts for checked answer, guidance, opening and detail tasks with a mounted Jev key. The same Pi child owns inference and tools. This adapter ranks bounded source scopes/pages and provisionally distinguishes authored source gaps, live inputs and later uses under TaskLease. Independent review and the kernel retain publication authority. Assigned review pages skip Jev. Missing keys keep the tool-enabled fallback; source candidates never count as player delivery. §151.4 (ticket 04): the same adapter asks family source-need-answered v1 (owner runtime/jev/source-need-reads.ts; one Noul over a background need read's accepted material; gate and lease are data, source_need_answered.min_noul/timeout_ms in content/rulesets/coc7/host-budgets.json; fallback: an outage, packing refusal or low answer continues to the locate) and adds one source_need facet to the locate; the child then finishes without inference when the need is answered, unlocated or carried, and the reading service settles it through module.read.finish outcome settled.",
+      "note": "JPDF-03/05/10: readerCommand selects runtime/pi-source-reader.ts for checked answer, guidance, opening and detail tasks with a mounted Jev key. The same Pi child owns inference and tools. This adapter ranks bounded source scopes/pages and provisionally distinguishes authored source gaps, live inputs and later uses under TaskLease. Independent review and the kernel retain publication authority. Assigned review pages skip Jev. Missing keys keep the tool-enabled fallback; source candidates never count as player delivery. \u00a7151.4 (ticket 04): the same adapter asks family source-need-answered v1 (owner runtime/jev/source-need-reads.ts; one Noul over a background need read's accepted material; gate and lease are data, source_need_answered.min_noul/timeout_ms in content/rulesets/coc7/host-budgets.json; fallback: an outage, packing refusal or low answer continues to the locate) and adds one source_need facet to the locate; the child then finishes without inference when the need is answered, unlocated or carried, and the reading service settles it through module.read.finish outcome settled.",
       "lines_at_0b729e8fb": []
     },
     {
@@ -2020,7 +2035,7 @@
       "kind": "reader-task",
       "callee": "runtime.runTask",
       "count": 1,
-      "owner": "Original PDF reference host (§148)",
+      "owner": "Original PDF reference host (\u00a7148)",
       "path": "app-play-gated",
       "role": "driver",
       "trace": ".pi/prototypes/source-fragments/integration-2026-09-28T12-59-07-235Z",
@@ -2032,7 +2047,7 @@
       "kind": "jev-adapter",
       "callee": "createDecisionAdapter",
       "count": 1,
-      "owner": "Setup source preflight (§149)",
+      "owner": "Setup source preflight (\u00a7149)",
       "path": "app-setup",
       "role": "leaf",
       "trace": "source-intake tests; live setup acceptance pending",
@@ -2068,10 +2083,10 @@
       "kind": "lane",
       "callee": "runLane",
       "count": 1,
-      "owner": "speech-edit ext: NPC speech edit lane (§165)",
+      "owner": "speech-edit ext: NPC speech edit lane (\u00a7165)",
       "path": "app-play-gated",
       "role": "leaf",
-      "trace": "n/a (added at §165)",
+      "trace": "n/a (added at \u00a7165)",
       "note": "Gate: exactly one enabled package contributes speech_edit_lane (zh-optimize 1.1.0 on a zh table) and a Jev key. After a narrate delivery with an NPC line, off the player's path: one zero-tool completion (the owner's 2026-10-01 exception), timeout 60 s, effort low, model PI_COC_SPEECH_EDIT_MODEL then the fast-model setting then the table. Its lines pass the shape, quotation-mark and Jev fact gates before speech.edit and one card patch; a failure drops the edit and the player keeps the Keeper's lines. Never drives a model run."
     },
     {
@@ -2080,11 +2095,22 @@
       "kind": "jev-adapter",
       "callee": "createDecisionAdapter",
       "count": 1,
-      "owner": "speech-edit ext: facts gate, family speech-edit-facts v1 (§165.4)",
+      "owner": "speech-edit ext: facts gate, family speech-edit-facts v1 (\u00a7165.4)",
       "path": "app-play-gated",
       "role": "leaf",
-      "trace": "n/a (added at §165)",
+      "trace": "n/a (added at \u00a7165)",
       "note": "Gate: the speech edit lane ran and changed at least one line. One fanned-out request: a Noul per changed line over {original, edited}. Budget: its own lease, 15 s, token bound from the packed batch, one retry on a dropped connection. Gate: noul >= 0.5 keeps that line's original (code constant SPEECH_EDIT_FACT_GATE). Fallback: unavailable (no key, error, timeout, incomplete answer) drops the whole edit."
+    },
+    {
+      "file": "extensions/npc-voice/index.ts",
+      "symbol": "attempt",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "source-bound background NPC voice-card reviewer",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "gate": "An existing voice preparation job and captured Jev availability; not a foreground prose reviewer."
     }
   ]
 }

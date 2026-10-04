@@ -12,6 +12,8 @@
   "kernel_table_open": "COC table open: {title} | turn {turn} ({state}) | {scene}",
   "look_budget_notice": "This turn already spent its look/lookup/recall budget. It already carries: {carried}. Write the turn with what is already here; ask the player directly if something is truly missing.",
   "mechanics_turn": "t{turn}",
+  "models_json_comments_notice": "The model settings file {path} has comments of your own, so it was left as it is and the product's corrections for {models} were not added. Add those overrides yourself, or remove the comments and reopen the table.",
+  "models_json_unparsable_notice": "The model settings file {path} could not be read ({error}). Every custom provider, model and override in it is ignored, and the product's model corrections were not added. Beyond plain data, the file accepts only // comments and trailing commas (no /* */ comments); fix it and reopen the table.",
   "parse_done": "parse   done  {module}",
   "parse_failed": "parse   failed  {reason}",
   "parse_opening_not_ready": "opening not ready",

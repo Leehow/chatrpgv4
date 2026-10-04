@@ -1,5 +1,12 @@
 # Chinese Optimization (zh-optimize)
 
+## 1.3.9
+- Integration evidence records mixed live behavior: one real key-return path succeeded, while another actor ignored/misrepresented the chosen correction at ending. Chinese realization must keep the strict source mask and unknown-factual rule: do not turn procedural repetition, agenda, unsupported past/negative claims, or missing exchanges into invented facts or style proof. Observed wording is not server acknowledgement, and this record does not add runtime/state behavior.
+
+
+## 1.3.8
+- Aligns Chinese realization with the speech-recovery clarification: an argument-mismatch correction preserves the player's already chosen act, is reviewed afresh, and is limited to the active turn rather than surviving process restart. Jev background card checks are identified as `Jev1.13.0` with clear `<=0.1`, defect `>=0.9`, 2,000 ms/review, 24,000 state bytes, and 12 independent questions; unknown/incomplete/unavailable evidence falls back to `flapcode/gpt-6-luna low`. The questions address candidate example request/reply context. Input metaphor/image is not identity evidence; declared acts remain distinct from actual receipts, with forward-only reconciliation and no retcon of prior deliveries. Flap/Luna is a scoped test/author choice, not a hardcoded product model. No defaults, migrations, or contribution shapes change.
+
 ## 1.3.7
 - Aligns the Chinese realization package with selector family 8 and the repaired contextual-example/conditional-reaction fixture binding. `zh-optimize` owns linguistic realization and original references only; source facts, agency, owner/version identity, cancellation, and source-authored/established voice guards remain binding. This is an implementation record, not a claim of final-full, fresh-live, quality, or App acceptance.
 

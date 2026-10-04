@@ -1,13 +1,17 @@
 /**
- * Unit tests for extensions/image-gen: closed model-id routing, the vendor
- * adapters (with a stubbed fetch — no network), and the dispatch (an explicit
- * model choice wins, grok-build is the default, with the grok host library
- * injected).
+ * Unit tests for extensions/image-gen: provider-aware routing, the vendor and
+ * Codex adapters (with a stubbed fetch — no network), and the dispatch (an
+ * explicit model choice wins, then Codex, then grok-build, with the grok host
+ * library injected and a fake model registry for the Codex token).
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { routeByModelId, VENDOR_ADAPTERS } from "../../extensions/image-gen/agent/vendors.js";
-import { createImageGenExtension } from "../../extensions/image-gen/agent/index.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { arch, platform, release, tmpdir } from "node:os";
+import { join } from "node:path";
+import { routeByModelId, routeImageModel, VENDOR_ADAPTERS } from "../../extensions/image-gen/agent/vendors.js";
+import { createImageGenExtension, generateImage } from "../../extensions/image-gen/agent/index.js";
+import { createComponent as createSettingsComponent } from "../../extensions/image-gen/app/settings-model.js";
 
 const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 const PNG_B64 = PNG_BYTES.toString("base64");
@@ -221,12 +225,14 @@ function fakePi() {
 	};
 }
 
-function fakeCtx({ apiKey = "sk-test", models = [] } = {}) {
+// openai-codex answers only when the test hands it a token: a key for "any provider" would
+// otherwise leak into the Codex usability check and hide which route a test exercises.
+function fakeCtx({ apiKey = "sk-test", models = [], codexToken } = {}) {
 	return {
 		modelRegistry: {
 			find: (provider, id) => models.find((m) => m.provider === provider && m.id === id),
 			getAll: () => models,
-			getApiKeyForProvider: async () => apiKey,
+			getApiKeyForProvider: async (provider) => (provider === "openai-codex" ? codexToken : apiKey),
 		},
 	};
 }
@@ -432,4 +438,425 @@ test("commands: image-gen:model validates, persists and reports", async () => {
 	assert.ok(notices.at(-1).includes("gemini"));
 	await commands.get("image-gen:model").handler("acme/random-model", ctx);
 	assert.deepEqual(written, ["gemini/gemini-2.5-flash-image"], "an unroutable model is not persisted");
+});
+
+// ---------------------------------------------------------------------------
+// Codex route (contract §172): the player's ChatGPT subscription through Pi's
+// built-in openai-codex login. Tokens are fake JWTs built here; nothing leaves
+// the process.
+// ---------------------------------------------------------------------------
+
+function fakeJwt(authClaim) {
+	const part = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+	return `${part({ alg: "RS256", typ: "JWT" })}.${part({ exp: 4102444800, "https://api.openai.com/auth": authClaim })}.c2lnbmF0dXJl`;
+}
+
+const CODEX_TOKEN = fakeJwt({ chatgpt_account_id: "acct-123", chatgpt_plan_type: "plus" });
+const CODEX_FREE_TOKEN = fakeJwt({ chatgpt_account_id: "acct-123", chatgpt_plan_type: "free" });
+const CODEX_NO_ACCOUNT_TOKEN = fakeJwt({ chatgpt_plan_type: "pro" });
+const CODEX_CREDS = { apiKey: CODEX_TOKEN, accountId: "acct-123" };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function codexResponse(bytes = PNG_BYTES) {
+	return jsonResponse({ created: 1, data: [{ b64_json: bytes.toString("base64") }] });
+}
+
+function errorResponse(status, body, headers = {}) {
+	const raw = typeof body === "string" ? body : JSON.stringify(body);
+	return {
+		ok: false,
+		status,
+		json: async () => JSON.parse(raw),
+		text: async () => raw,
+		headers: { get: (name) => headers[String(name).toLowerCase()] ?? null },
+	};
+}
+
+function codexGen(fields = {}) {
+	return { kind: "gen", prompt: "a brass key", images: [], model: "gpt-image-2", ...fields };
+}
+
+const grokThatMustNotRun = {
+	usable: async () => true,
+	generate: async () => { throw new Error("grok must not run on this route"); },
+	edit: async () => { throw new Error("grok must not run on this route"); },
+};
+
+const savingWriter = () => ({ save: async () => ({ path: "/tmp/img/codex.png", mime: "image/png" }) });
+
+test("routeImageModel: provider openai-codex is the Codex adapter; other providers keep the model-id map", () => {
+	assert.equal(routeImageModel("openai-codex", "gpt-image-2"), "codex");
+	assert.equal(routeImageModel("openai", "gpt-image-2"), "openai", "gpt-image still means the OpenAI Images API");
+	assert.equal(routeImageModel(undefined, "gpt-image-2"), "openai", "a bare id never reaches Codex");
+	assert.equal(routeImageModel("gemini", "gemini-2.5-flash-image"), "gemini");
+	assert.throws(() => routeImageModel("acme", "random-model"), /no image-generation adapter knows the model/);
+});
+
+test("codex adapter: generation request shape — URL, every header, fixed body, nothing else", async () => {
+	const { calls, fetchImpl } = recordingFetch(codexResponse(), codexResponse());
+	await VENDOR_ADAPTERS.codex(codexGen(), CODEX_CREDS, { fetchImpl });
+	await VENDOR_ADAPTERS.codex(codexGen(), CODEX_CREDS, { fetchImpl });
+	assert.equal(calls[0].url, "https://chatgpt.com/backend-api/codex/images/generations");
+	assert.equal(calls[0].init.method, "POST");
+	const headers = calls[0].init.headers;
+	assert.deepEqual(Object.keys(headers).sort(), [
+		"Authorization", "ChatGPT-Account-ID", "Content-Type", "User-Agent", "originator", "x-codex-image-turn-id",
+	].sort());
+	assert.equal(headers.Authorization, `Bearer ${CODEX_TOKEN}`);
+	assert.equal(headers["ChatGPT-Account-ID"], "acct-123");
+	assert.equal(headers.originator, "pi");
+	assert.equal(headers["User-Agent"], `pi (${platform()} ${release()}; ${arch()})`);
+	assert.match(headers["x-codex-image-turn-id"], UUID);
+	assert.notEqual(headers["x-codex-image-turn-id"], calls[1].init.headers["x-codex-image-turn-id"], "a fresh turn id per call");
+	assert.equal(headers["Content-Type"], "application/json");
+	assert.deepEqual(bodyOf(calls[0]), {
+		prompt: "a brass key", model: "gpt-image-2", background: "auto", quality: "auto", size: "auto",
+	}, "the fixed values Codex CLI sends; never n or response_format");
+	// The token rides in Authorization and nowhere else.
+	const { Authorization: _auth, ...rest } = headers;
+	assert.equal(JSON.stringify(rest).includes(CODEX_TOKEN), false);
+	assert.equal(calls[0].init.body.includes(CODEX_TOKEN), false);
+});
+
+test("codex adapter: the aspect ratio travels as a fixed sentence at the head of the prompt", async () => {
+	const cases = [
+		["3:4", "Vertical portrait-orientation image, 3:4 aspect ratio, taller than wide. a brass key"],
+		["9:16", "Vertical portrait-orientation image, 9:16 aspect ratio, taller than wide. a brass key"],
+		["16:9", "Horizontal landscape-orientation image, 16:9 aspect ratio, wider than tall. a brass key"],
+		["1:1", "Square image, 1:1 aspect ratio. a brass key"],
+		["5:4", "Square image, 1:1 aspect ratio. a brass key"],
+		["auto", "a brass key"],
+		[undefined, "a brass key"],
+	];
+	for (const [aspectRatio, prompt] of cases) {
+		const { calls, fetchImpl } = recordingFetch(codexResponse());
+		await VENDOR_ADAPTERS.codex(codexGen({ aspectRatio }), CODEX_CREDS, { fetchImpl });
+		const body = bodyOf(calls[0]);
+		assert.equal(body.prompt, prompt, `aspect ratio ${aspectRatio}`);
+		assert.equal(body.size, "auto", "size stays auto: the server ignores it");
+	}
+	const edit = recordingFetch(codexResponse());
+	await VENDOR_ADAPTERS.codex(
+		{ kind: "edit", prompt: "same face", aspectRatio: "3:4", images: [`data:image/png;base64,${PNG_B64}`], model: "gpt-image-2" },
+		CODEX_CREDS, { fetchImpl: edit.fetchImpl },
+	);
+	assert.equal(bodyOf(edit.calls[0]).prompt, "Vertical portrait-orientation image, 3:4 aspect ratio, taller than wide. same face");
+});
+
+test("codex adapter: edits are JSON with data-URL references, between 1 and 5", async () => {
+	const refs = [`data:image/png;base64,${PNG_B64}`, `data:image/jpeg;base64,${JPEG_B64}`];
+	const { calls, fetchImpl } = recordingFetch(codexResponse());
+	await VENDOR_ADAPTERS.codex({ kind: "edit", prompt: "remix", images: refs, model: "gpt-image-2" }, CODEX_CREDS, { fetchImpl });
+	assert.equal(calls[0].url, "https://chatgpt.com/backend-api/codex/images/edits");
+	assert.equal(typeof calls[0].init.body, "string", "JSON, never multipart");
+	assert.equal(calls[0].init.headers["Content-Type"], "application/json");
+	const body = bodyOf(calls[0]);
+	assert.deepEqual(body.images, refs.map((image_url) => ({ image_url })));
+	assert.equal(body.n, undefined);
+	assert.equal(body.response_format, undefined);
+	const five = recordingFetch(codexResponse());
+	await VENDOR_ADAPTERS.codex({ kind: "edit", prompt: "x", images: Array(5).fill(refs[0]), model: "gpt-image-2" }, CODEX_CREDS, { fetchImpl: five.fetchImpl });
+	assert.equal(bodyOf(five.calls[0]).images.length, 5);
+	const never = async () => { throw new Error("must not be called"); };
+	await assert.rejects(
+		VENDOR_ADAPTERS.codex({ kind: "edit", prompt: "x", images: Array(6).fill(refs[0]), model: "gpt-image-2" }, CODEX_CREDS, { fetchImpl: never }),
+		/at most 5 reference images/,
+	);
+	await assert.rejects(
+		VENDOR_ADAPTERS.codex({ kind: "edit", prompt: "x", images: [], model: "gpt-image-2" }, CODEX_CREDS, { fetchImpl: never }),
+		/at least one reference image/,
+	);
+});
+
+test("codex adapter: data[0].b64_json decodes to bytes with a sniffed mime; missing data is an error", async () => {
+	const ok = recordingFetch(codexResponse(JPEG_BYTES));
+	const out = await VENDOR_ADAPTERS.codex(codexGen(), CODEX_CREDS, { fetchImpl: ok.fetchImpl });
+	assert.deepEqual(out.bytes, JPEG_BYTES);
+	assert.equal(out.mime, "image/jpeg");
+	assert.equal(out.model, "gpt-image-2");
+	for (const body of [{}, { data: [] }, { data: [{ url: "https://cdn.example.com/x.png" }] }]) {
+		const missing = recordingFetch(jsonResponse(body));
+		await assert.rejects(VENDOR_ADAPTERS.codex(codexGen(), CODEX_CREDS, { fetchImpl: missing.fetchImpl }), /missing data\[0\]\.b64_json/);
+		assert.equal(missing.calls.length, 1, "a url result is not fetched: the Codex result is b64 only");
+	}
+});
+
+test("codex adapter: a 429 usage_limit_reached is image_quota_exhausted with resets_at and the limit id verbatim", async () => {
+	const { fetchImpl } = recordingFetch(errorResponse(429,
+		{ error: { type: "usage_limit_reached", message: "limit", resets_at: 1791158400 } },
+		{ "x-codex-active-limit": "imagegen_premium" }));
+	await assert.rejects(VENDOR_ADAPTERS.codex(codexGen(), CODEX_CREDS, { fetchImpl }), (error) => {
+		assert.equal(error.code, "image_quota_exhausted");
+		assert.equal(error.resets_at, 1791158400);
+		assert.equal(error.limit, "imagegen_premium");
+		assert.match(error.message, /imagegen_premium/);
+		assert.match(error.message, new RegExp(new Date(1791158400 * 1000).toISOString().replace(/[.]/g, "\\.")));
+		assert.equal(error.message.includes(CODEX_TOKEN), false);
+		return true;
+	});
+	// Another limit id is reported the same way: nothing is matched against a list.
+	const other = recordingFetch(errorResponse(429, { error: { type: "usage_limit_reached" } }, { "x-codex-active-limit": "some_future_limit" }));
+	await assert.rejects(VENDOR_ADAPTERS.codex(codexGen(), CODEX_CREDS, { fetchImpl: other.fetchImpl }), (error) => {
+		assert.equal(error.code, "image_quota_exhausted");
+		assert.equal(error.limit, "some_future_limit");
+		assert.equal("resets_at" in error, false);
+		return true;
+	});
+});
+
+test("codex adapter: any other non-2xx keeps the generic shape, with the token redacted", async () => {
+	const rateLimited = recordingFetch(errorResponse(429, { error: { type: "rate_limit_exceeded" } }));
+	await assert.rejects(VENDOR_ADAPTERS.codex(codexGen(), CODEX_CREDS, { fetchImpl: rateLimited.fetchImpl }), (error) => {
+		assert.equal(error.code, undefined);
+		assert.match(error.message, /^image request failed HTTP 429: /);
+		return true;
+	});
+	const echoed = recordingFetch(errorResponse(500, `bad token ${CODEX_TOKEN.slice(0, 40)}`));
+	await assert.rejects(VENDOR_ADAPTERS.codex(codexGen(), { apiKey: CODEX_TOKEN.slice(0, 40), accountId: "acct-123" }, { fetchImpl: echoed.fetchImpl }), (error) => {
+		assert.match(error.message, /^image request failed HTTP 500: bad token \[redacted\]$/);
+		return true;
+	});
+});
+
+test("dispatch: Codex usable beats a usable grok when nothing is chosen; the token stays out of the result", async () => {
+	const { tools, api } = fakePi();
+	const { calls, fetchImpl } = recordingFetch(codexResponse());
+	createImageGenExtension({ grok: grokThatMustNotRun, readConfiguredModel: () => undefined, makeWriter: savingWriter, fetchImpl })(api);
+	const result = await tools.get("image_gen").execute("call-1", { prompt: "a cat", aspect_ratio: "3:4" }, undefined, undefined, fakeCtx({ codexToken: CODEX_TOKEN }));
+	assert.equal(calls.length, 1);
+	assert.equal(calls[0].url, "https://chatgpt.com/backend-api/codex/images/generations");
+	assert.equal(calls[0].init.headers["ChatGPT-Account-ID"], "acct-123");
+	assert.match(bodyOf(calls[0]).prompt, /^Vertical portrait-orientation image, 3:4 aspect ratio/);
+	assert.equal(result.details.backend, "codex");
+	assert.equal(result.details.model, "gpt-image-2");
+	assert.equal(JSON.stringify(result).includes(CODEX_TOKEN), false);
+});
+
+test("dispatch: image_edit on the Codex route sends the references as data URLs", async () => {
+	const { tools, api } = fakePi();
+	const { calls, fetchImpl } = recordingFetch(codexResponse());
+	createImageGenExtension({ grok: grokThatMustNotRun, readConfiguredModel: () => undefined, makeWriter: savingWriter, fetchImpl })(api);
+	const ref = `data:image/png;base64,${PNG_B64}`;
+	await tools.get("image_edit").execute("call-1", { prompt: "same face", image: [ref] }, undefined, undefined, fakeCtx({ codexToken: CODEX_TOKEN }));
+	assert.equal(calls[0].url, "https://chatgpt.com/backend-api/codex/images/edits");
+	assert.deepEqual(bodyOf(calls[0]).images, [{ image_url: ref }]);
+});
+
+test("dispatch: a configured model and the tool model parameter both beat a usable Codex", async () => {
+	const ctx = fakeCtx({ codexToken: CODEX_TOKEN, models: [{ provider: "openai", id: "gpt-image-1", baseUrl: "https://api.openai.com" }] });
+	const configured = fakePi();
+	const first = recordingFetch(jsonResponse({ data: [{ b64_json: PNG_B64 }] }));
+	createImageGenExtension({ grok: grokThatMustNotRun, readConfiguredModel: () => ({ model: "openai/gpt-image-1" }), makeWriter: savingWriter, fetchImpl: first.fetchImpl })(configured.api);
+	const one = await configured.tools.get("image_gen").execute("call-1", { prompt: "a cat" }, undefined, undefined, ctx);
+	assert.equal(first.calls[0].url, "https://api.openai.com/v1/images/generations");
+	assert.equal(one.details.backend, "openai");
+	const param = fakePi();
+	const second = recordingFetch(jsonResponse({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: PNG_B64 } }] } }] }));
+	createImageGenExtension({ grok: grokThatMustNotRun, readConfiguredModel: () => undefined, makeWriter: savingWriter, fetchImpl: second.fetchImpl })(param.api);
+	const two = await param.tools.get("image_gen").execute("call-1", { prompt: "a cat", model: "gemini/gemini-2.5-flash-image" }, undefined, undefined, ctx);
+	assert.ok(second.calls[0].url.includes(":generateContent"));
+	assert.equal(two.details.backend, "gemini");
+});
+
+test("dispatch: a bare gpt-image-2 keeps the registry lookup and never reaches Codex", async () => {
+	const { tools, api } = fakePi();
+	const { calls, fetchImpl } = recordingFetch(jsonResponse({ data: [{ b64_json: PNG_B64 }] }));
+	createImageGenExtension({ grok: grokThatMustNotRun, readConfiguredModel: () => ({ model: "gpt-image-2" }), makeWriter: savingWriter, fetchImpl })(api);
+	const ctx = fakeCtx({ codexToken: CODEX_TOKEN, models: [{ provider: "openai", id: "gpt-image-2", baseUrl: "https://api.openai.com" }] });
+	const result = await tools.get("image_gen").execute("call-1", { prompt: "a cat" }, undefined, undefined, ctx);
+	assert.equal(calls[0].url, "https://api.openai.com/v1/images/generations");
+	assert.equal(result.details.backend, "openai");
+});
+
+test("dispatch: an explicit openai-codex/gpt-image-2 pins Codex even when grok is usable", async () => {
+	const { tools, api } = fakePi();
+	const { calls, fetchImpl } = recordingFetch(codexResponse());
+	createImageGenExtension({ grok: grokThatMustNotRun, readConfiguredModel: () => ({ model: "openai-codex/gpt-image-2" }), makeWriter: savingWriter, fetchImpl })(api);
+	const result = await tools.get("image_gen").execute("call-1", { prompt: "a cat" }, undefined, undefined, fakeCtx({ codexToken: CODEX_TOKEN }));
+	assert.equal(calls[0].url, "https://chatgpt.com/backend-api/codex/images/generations");
+	assert.equal(result.details.backend, "codex");
+});
+
+test("dispatch: an unusable Codex falls to grok automatically — free plan, no account claim, no token, a throwing registry, no context", async () => {
+	const throwing = { modelRegistry: { getApiKeyForProvider: async () => { throw new Error("refresh failed"); } } };
+	for (const ctx of [
+		fakeCtx({ codexToken: CODEX_FREE_TOKEN }),
+		fakeCtx({ codexToken: CODEX_NO_ACCOUNT_TOKEN }),
+		fakeCtx({ codexToken: "not-a-jwt" }),
+		fakeCtx(),
+		throwing,
+		undefined,
+	]) {
+		const { tools, api } = fakePi();
+		let grokCalls = 0;
+		createImageGenExtension({
+			grok: {
+				usable: async () => true,
+				generate: async () => { grokCalls++; return { path: "/tmp/grok/1.jpg", mime: "image/jpeg", b64: JPEG_B64, model: "grok-imagine-image", backend: "grok-build" }; },
+			},
+			readConfiguredModel: () => undefined,
+			fetchImpl: async () => { throw new Error("the Codex endpoint must not be called"); },
+		})(api);
+		const result = await tools.get("image_gen").execute("call-1", { prompt: "a cat" }, undefined, undefined, ctx);
+		assert.equal(result.details.backend, "grok-build");
+		assert.equal(grokCalls, 1);
+	}
+});
+
+test("dispatch: neither Codex nor grok usable refuses with image_model_unconfigured", async () => {
+	const { tools, api } = fakePi();
+	createImageGenExtension({ grok: { usable: async () => false }, readConfiguredModel: () => undefined, fetchImpl: async () => { throw new Error("no fetch"); } })(api);
+	await assert.rejects(
+		tools.get("image_gen").execute("call-1", { prompt: "a cat" }, undefined, undefined, fakeCtx({ codexToken: CODEX_FREE_TOKEN })),
+		(error) => error.code === "image_model_unconfigured",
+	);
+});
+
+test("dispatch: an explicit Codex choice that cannot run fails with its own code and never tries another lane", async () => {
+	const cases = [
+		[fakeCtx({ codexToken: CODEX_FREE_TOKEN }), "codex_plan_excluded"],
+		[fakeCtx(), "codex_not_signed_in"],
+		[fakeCtx({ codexToken: "   " }), "codex_not_signed_in"],
+		[undefined, "codex_not_signed_in"],
+		[fakeCtx({ codexToken: CODEX_NO_ACCOUNT_TOKEN }), "codex_account_missing"],
+	];
+	for (const [ctx, code] of cases) {
+		const { tools, api } = fakePi();
+		createImageGenExtension({
+			grok: grokThatMustNotRun,
+			readConfiguredModel: () => undefined,
+			fetchImpl: async () => { throw new Error("no request may leave"); },
+		})(api);
+		await assert.rejects(
+			tools.get("image_gen").execute("call-1", { prompt: "a cat", model: "openai-codex/gpt-image-2" }, undefined, undefined, ctx),
+			(error) => {
+				assert.equal(error.code, code);
+				return true;
+			},
+		);
+	}
+});
+
+test("dispatch: a Codex failure on the automatic route never falls through — 429 quota or 500", async () => {
+	for (const response of [
+		errorResponse(429, { error: { type: "usage_limit_reached", resets_at: 1791158400 } }, { "x-codex-active-limit": "imagegen_premium" }),
+		errorResponse(500, "upstream exploded"),
+	]) {
+		const { tools, api } = fakePi();
+		const { calls, fetchImpl } = recordingFetch(response);
+		createImageGenExtension({ grok: grokThatMustNotRun, readConfiguredModel: () => undefined, fetchImpl })(api);
+		await assert.rejects(
+			tools.get("image_gen").execute("call-1", { prompt: "a cat" }, undefined, undefined, fakeCtx({ codexToken: CODEX_TOKEN })),
+			response.status === 429 ? /quota is exhausted/ : /image request failed HTTP 500/,
+		);
+		assert.equal(calls.length, 1);
+	}
+});
+
+test("generateImage (the host-lane entry) takes the Codex route too", async (t) => {
+	// The host entry reads the configured model from the agent home; point it at an empty one.
+	const home = mkdtempSync(join(tmpdir(), "image-gen-home-"));
+	t.after(() => rmSync(home, { recursive: true, force: true }));
+	const prior = process.env.PI_COC_AGENT_DIR;
+	process.env.PI_COC_AGENT_DIR = home;
+	t.after(() => { if (prior === undefined) delete process.env.PI_COC_AGENT_DIR; else process.env.PI_COC_AGENT_DIR = prior; });
+	const realFetch = globalThis.fetch;
+	const { calls, fetchImpl } = recordingFetch(codexResponse());
+	globalThis.fetch = fetchImpl;
+	t.after(() => { globalThis.fetch = realFetch; });
+	const out = await generateImage(fakeCtx({ codexToken: CODEX_TOKEN }), { kind: "gen", prompt: "portrait", aspectRatio: "3:4" });
+	assert.equal(calls[0].url, "https://chatgpt.com/backend-api/codex/images/generations");
+	assert.equal(out.backend, "codex");
+	assert.deepEqual(out.bytes, PNG_BYTES);
+});
+
+test("commands: /image-gen:model openai-codex/gpt-image-2 persists and names the Codex adapter", async () => {
+	const { commands, api } = fakePi();
+	const written = [];
+	const notices = [];
+	createImageGenExtension({ grok: { usable: async () => false }, readConfiguredModel: () => undefined, writeConfiguredModel: (model) => written.push(model) })(api);
+	await commands.get("image-gen:model").handler("openai-codex/gpt-image-2", { ui: { notify: (msg) => notices.push(msg) } });
+	assert.deepEqual(written, ["openai-codex/gpt-image-2"]);
+	assert.match(notices.at(-1), /adapter: codex/);
+});
+
+test("commands: /image-gen:status reports the Codex state beside grok-build and the configured model", async () => {
+	async function status({ codexToken, configured, grok = true }) {
+		const { commands, api } = fakePi();
+		const notices = [];
+		createImageGenExtension({ grok: { usable: async () => grok }, readConfiguredModel: () => (configured ? { model: configured } : undefined) })(api);
+		await commands.get("image-gen:status").handler("", { ...fakeCtx({ codexToken }), ui: { notify: (msg) => notices.push(msg) } });
+		return notices.at(-1);
+	}
+	const auto = await status({ codexToken: CODEX_TOKEN });
+	assert.match(auto, /OpenAI Codex: signed in \(plan plus\) — the default while no model is configured/);
+	assert.match(auto, /grok-build: logged in, idle while OpenAI Codex is usable/);
+	assert.equal(auto.includes(CODEX_TOKEN), false);
+	const pinned = await status({ codexToken: CODEX_TOKEN, configured: "openai-codex/gpt-image-2" });
+	assert.match(pinned, /adapter: codex/);
+	assert.match(pinned, /OpenAI Codex: signed in \(plan plus\) — active as the configured model/);
+	const other = await status({ codexToken: CODEX_TOKEN, configured: "openai/gpt-image-1" });
+	assert.match(other, /OpenAI Codex: signed in \(plan plus\), idle while another model is configured/);
+	const free = await status({ codexToken: CODEX_FREE_TOKEN });
+	assert.match(free, /OpenAI Codex: signed in \(plan free\), but the plan does not include image generation/);
+	assert.match(free, /grok-build: logged in — the default while no model is configured and OpenAI Codex is not usable/);
+	assert.match(await status({}), /OpenAI Codex: not signed in/);
+});
+
+test("the image_gen / image_edit descriptions name the Codex backend", () => {
+	const { tools, api } = fakePi();
+	createImageGenExtension({ grok: { usable: async () => false } })(api);
+	for (const name of ["image_gen", "image_edit"]) {
+		assert.match(tools.get(name).description, /OpenAI Codex/);
+		assert.equal("quality" in tools.get(name).parameters.properties, false, "the tools expose no quality parameter");
+	}
+	assert.match(tools.get("image_gen").description, /openai-codex\/gpt-image-2/);
+});
+
+// The settings section is a data: module with React passed in; a hook-less stand-in renders it
+// once with a given model-invoke answer, which is all the Codex row and the subtitle depend on.
+function renderSettings(data, catalog = []) {
+	const invokes = [];
+	const states = [data, null];
+	const React = {
+		useState: () => [states.shift(), () => {}],
+		useEffect: () => {},
+		useCallback: (fn) => fn,
+		createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat() }),
+	};
+	const Section = createSettingsComponent(React);
+	const tree = Section({
+		api: { invoke: async (method, params) => { invokes.push({ method, params }); return { ok: true, data }; } },
+		ctx: { visibility: { models: catalog } },
+	});
+	const rows = [];
+	const walk = (node) => {
+		if (!node || typeof node !== "object") return;
+		if (node.props?.["data-testid"]?.startsWith("image-model-row-")) rows.push(node);
+		for (const child of node.children ?? []) walk(child);
+	};
+	walk(tree);
+	const text = (node) => (typeof node === "string" ? node : (node?.children ?? []).map(text).join(" "));
+	return { rows: rows.map((row) => ({ key: row.props["data-testid"].slice("image-model-row-".length), text: text(row), click: row.props.onClick })), invokes };
+}
+
+test("settings section: a Codex row whenever codexSignedIn, and the Automatic subtitle names autoRoute", async () => {
+	const signedIn = renderSettings({ current: null, grokDefault: true, codexSignedIn: true, autoRoute: "codex" },
+		[{ provider: "openai", id: "gpt-image-1", name: "GPT Image 1" }]);
+	assert.deepEqual(signedIn.rows.map((row) => row.key), ["auto", "openai-codex/gpt-image-2", "openai/gpt-image-1"]);
+	assert.match(signedIn.rows[0].text, /OpenAI Codex/);
+	assert.match(signedIn.rows[1].text, /Codex \(gpt-image-2\)/);
+	signedIn.rows[1].click();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(signedIn.invokes.at(-1), { method: "model", params: { op: "set", model: "openai-codex/gpt-image-2" } });
+
+	const grokOnly = renderSettings({ current: null, grokDefault: true, codexSignedIn: false, autoRoute: "grok-build" },
+		[{ provider: "openai", id: "gpt-image-1" }]);
+	assert.deepEqual(grokOnly.rows.map((row) => row.key), ["auto", "openai/gpt-image-1"], "no Codex row without the login");
+	assert.match(grokOnly.rows[0].text, /grok-build is signed in/);
+
+	const freePlan = renderSettings({ current: "openai-codex/gpt-image-2", grokDefault: false, codexSignedIn: true, autoRoute: "none" });
+	assert.deepEqual(freePlan.rows.map((row) => row.key), ["auto", "openai-codex/gpt-image-2"]);
+	assert.match(freePlan.rows[0].text, /No model selected/);
+	assert.match(freePlan.rows[1].text, /Current/, "the pinned Codex ref shows as current");
 });
