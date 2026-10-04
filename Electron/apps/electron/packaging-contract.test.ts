@@ -134,6 +134,13 @@ syncBuiltinESMExports();
   return { root, home, target, result, events }
 }
 
+// Staging lives under the build home's .staging (cab4d475e), never inside a checkout, and every
+// exit path -- success, injected failure, refusal of a running App -- leaves it empty.
+function expectStagingGone(root: string, home: string) {
+  expect(readdirSync(join(home, '.staging'))).toEqual([])
+  expect(existsSync(join(root, '.build.noindex/pipicoc'))).toBe(false)
+}
+
 // Both require("x") and createRequire(<nested expr>)("x") escape electron-vite.
 // Keep the latter's resolution root: an explicitly installed extension is not the app asar.
 const createRequireSpecifiers = (source: string): { base: string; specifier: string }[] => {
@@ -270,7 +277,7 @@ describe('standalone PipiCOC packaging contract', () => {
     expect(events.indexOf(copied)).toBeGreaterThan(events.indexOf(built))
     expect(copied.destination).toBe(join(expected.app, 'Contents/Resources/pi-coc'))
     expect(existsSync(stage)).toBe(false)
-    expect(readdirSync(join(root, '.build.noindex/pipicoc'))).toEqual([])
+    expectStagingGone(root, home)
     const receipt = readJson(join(home, 'pipicoc-package.json'))
     expect(receipt.app).toBe(target)
     expect(receipt.sourcePackageSha256).toBe('package-hash')
@@ -325,7 +332,7 @@ describe('standalone PipiCOC packaging contract', () => {
       expect(readFileSync(join(target, 'prior-version'), 'utf8')).toBe('preserve until verified')
       expect(existsSync(join(home, 'pipicoc-package.json'))).toBe(false)
       expect(events.some(event => event.kind === 'register')).toBe(false)
-      expect(readdirSync(join(root, '.build.noindex/pipicoc'))).toEqual([])
+      expectStagingGone(root, home)
       if (mode.startsWith('tampered-') || mode === 'builder-failure') expect(events.some(event => event.command === '/usr/bin/codesign')).toBe(false)
       const renames = events.filter(event => event.kind === 'rename')
       if (mode === 'install-failure') {
@@ -338,12 +345,12 @@ describe('standalone PipiCOC packaging contract', () => {
 
   for (const mode of ['running-target', 'running-link']) {
     it(`${mode} is refused before build work without stopping the running App`, () => {
-      const { root, target, result, events } = runPackager(mode)
+      const { root, home, target, result, events } = runPackager(mode)
       expect(result.status, result.stderr).toBe(1)
       expect(result.stderr).toContain('Quit the running canonical PipiCOC App before replacing it.')
       expect(events).toEqual([{ kind: 'command', command: '/bin/ps', args: ['-axo', 'command='] }])
       expect(readFileSync(join(target, 'prior-version'), 'utf8')).toBe('preserve until verified')
-      expect(readdirSync(join(root, '.build.noindex/pipicoc'))).toEqual([])
+      expectStagingGone(root, home)
     })
   }
 })
