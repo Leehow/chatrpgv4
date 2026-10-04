@@ -560,8 +560,6 @@ export function npcEntry(graph: ModuleGraph, world: Row, node: Row, ledger: Row,
     const ledgerRow = row(ledger[node.node_id]), now = state || truth(ledgerRow.dead) ? null : moodNow(ledgerRow);
     const entry: Row = {
         name: graph.displayName(node),
-        // §180.4: the row says what it is, so the host can tell a person from a creature (the expression roster reads it).
-        kind: "npc",
         ...(graph.sourceNeeds(node,true).length?{runtime_inputs:graph.sourceNeeds(node,true)}:{}),
         // What this table calls them (§79), before the dossier for the same reason `state` is: the
         // Keeper writes a name into every line about this person, and the record that decides it has
@@ -947,8 +945,6 @@ export function moduleSection(graph: ModuleGraph, size = 120): Row {
         factions: roster(["faction", "organization"]),
         places: roster(["location"]),
         people: roster(["npc"]),
-        // §180.4: the book's creatures, in the same roster form as its people.
-        creatures: roster(["creature"]),
         endings: graph.kind("ending").map(n => graph.displayName(n)),
         conclusions: graph.kind("conclusion").map(n => graph.displayName(n)),
         structure_type: structureType(graph)
@@ -959,12 +955,29 @@ export function fittedModuleSection(graph: ModuleGraph, budget = 2048): [
     boolean
 ] {
     let section = moduleSection(graph),
-        cut = false;
+        cut = false,
+        lineSize = 120;
     for (const size of [80, 40, 20, 0]) {
         if (jsonSize(section) <= budget)
             break;
         section = moduleSection(graph, size);
+        lineSize = size;
         cut = true;
     }
-    return [section, fitBudget(section, budget, "last") || cut];
+    cut = fitBudget(section, budget, "last") || cut;
+    // §180.4: the book's creatures, in the same roster form as its people, ride only on what the fit above leaves. They
+    // are cut first and never cost a person, a place or an ending its line, and the roster is absent when the book has
+    // none or none fits.
+    const creatures: Row[] = [];
+    for (const node of graph.kind("creature")) {
+        const entry = { name: graph.displayName(node), line: oneLine(graph, node, lineSize) };
+        if (jsonSize({ ...section, creatures: [...creatures, entry] }) > budget) {
+            cut = true;
+            break;
+        }
+        creatures.push(entry);
+    }
+    if (creatures.length)
+        section.creatures = creatures;
+    return [section, cut];
 }

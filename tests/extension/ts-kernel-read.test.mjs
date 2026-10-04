@@ -477,7 +477,19 @@ test('capsule budget cuts match Python for nested lists, Unicode and module rost
   ];
   await rows(t,cases,oracle('budget',{cases}),c=>{const section=clone(c.section);return {section,cut:api.fitBudget(section,c.budget,c.drop)};});
   const budgets=[2048,900,400,120],expected=oracle('module_budget',{budgets});
-  for(const [index,budget] of budgets.entries())await t.test(`module budget ${budget}`,()=>same(api.fittedModuleSection(graph,budget),expected[index],`module ${budget}`));
+  // §180.4: `creatures` is the TS kernel's own roster, which Python never had. It rides only on what the parity fit leaves,
+  // so every other field must still match Python exactly; the roster itself is asserted against the fixture graph below.
+  for(const [index,budget] of budgets.entries())await t.test(`module budget ${budget}`,()=>{
+    const [section,cut]=api.fittedModuleSection(graph,budget),{creatures:_creatures,...rest}=section;
+    same([rest,cut],expected[index],`module ${budget}`);
+  });
+  await t.test('the creatures roster takes only the budget the rest leaves',()=>{
+    const creatures=graph.kind('creature').map(node=>graph.displayName(node));
+    assert.ok(creatures.length,'the fixture graph has a creature');
+    assert.deepEqual(api.fittedModuleSection(graph,1e6)[0].creatures?.map(entry=>entry.name),creatures,'with room left, every creature is listed');
+    assert.equal(Object.hasOwn(api.fittedModuleSection(graph,2048)[0],'creatures'),false,'this book fills 2048 before the creatures: they are cut first');
+    assert.equal(Object.hasOwn(api.fittedModuleSection(graph,120)[0],'creatures'),false,'nothing left at 120: the roster is absent');
+  });
 });
 
 test('saved session views match Python without constructing engine writers',async t=>{

@@ -135,7 +135,7 @@ const rejects = (promise, check) => assert.rejects(promise, error => { check(err
 test('§180.4: a person row says kind npc; the creature row is a body -- what, the Keeper\'s note -- after the people, with no person field', async t => {
   const {opened} = await table(t);
   const present = opened.capsule.present;
-  assert.deepEqual(present.map(row => [row.name, row.kind]), [[WARDEN, 'npc'], [RATS, 'creature']], 'the moth cloud has no stat block: no actor, no row');
+  assert.deepEqual(present.map(row => [row.name, row.kind]), [[WARDEN, undefined], [RATS, 'creature']], 'a person row carries no kind; the moth cloud has no stat block: no actor, no row');
   const warden = present[0];
   assert.ok(warden.untold?.say_name, 'the person keeps the name path');
   assert.deepEqual(present[1], {name: RATS, kind: 'creature', what: RAT_SUMMARY, keeper_note: RAT_NOTE});

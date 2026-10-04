@@ -33125,9 +33125,9 @@ A creature in `present[]`:
 ```
 
 - **Fields.** `kind` is always present; every other field appears only when there is a value. `state` and `toward_party` are read exactly as for a person. `habits`, `weaknesses` and `false_leads` come from 180.8–180.9.
-- **What it never carries.** A creature row carries no `called`, `untold`, `now`, `personality`, `knows`, `believes`, `would_lie_about`, `ties`, `history`, `relationships`, `recent_speech`, `commitments`, `reunion` or `from_other_lines`. A person row gains `kind: "npc"` so the host can tell them apart.
+- **What it never carries.** A creature row carries no `called`, `untold`, `now`, `personality`, `knows`, `believes`, `would_lie_about`, `ties`, `history`, `relationships`, `recent_speech`, `commitments`, `reunion` or `from_other_lines`. A person row carries no `kind`: its absence means a person, so no existing person row changes shape, and the host tells the two apart by `kind === "creature"`.
 - **Order.** Creature rows follow person rows and are cut first under the budget. `kind` rides outside the budget, as §176.8's name path does, and a cut row's stub keeps it.
-- **The brief's roster.** `moduleSection` gains `creatures`, the same roster form as `people`, over `node_kind === "creature"`.
+- **The brief's roster.** `fittedModuleSection` gains `creatures`, the same roster form as `people`, over `node_kind === "creature"`. It rides only on the budget the existing fit leaves, so every other field is cut exactly as before (the Python parity test still holds for them), and it is absent when the book has no creature or none fits. A book that fills the brief's 2048 bytes, the haunting among them, therefore shows no creature roster; the creature rows of `present[]` are what reach the Keeper at the encounter.
 
 ### 180.5 `apply npc` on a creature; acts; offers
 
