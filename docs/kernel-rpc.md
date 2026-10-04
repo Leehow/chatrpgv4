@@ -33009,6 +33009,14 @@ sections still sit inside the stable span, so the sub-order does not carry a dis
 (16,144); placing `mods` and `known` after `style` would share 12,031 on the same two capsules, and reaching `where`
 would need the moving keys outside those sections.
 
+*Decision (lead, 2026-10-04).* The section order stays as written. The faux table's style never changes, so there
+moving `mods` and `known` after `style` looks better; on the four live tables `style` changed on 86% of the turns,
+`voices` on 71%, `known` on 57%, `warnings` on 28% and `mods` on about 10% (a clue discovery), so the order above is the
+one by measured change frequency, and `mods` ahead of `known`, `voices` and `style` keeps about 2.3 KB in the prefix on
+most live turns. `head` stays first by convention although its first-sight sentence changed it on 29–67% of the live
+turns; moving that sentence into a section of its own next to `present` is a change to the kernel's capsule
+composition (§168) and needs a live table before it is made.
+
 ### 179.3 The context lane fingerprints its request (amends the rows of §19.2)
 
 The `lane: "context", event: "request"` row gains `at` (ISO time), `system_digest` and `segments`: one
