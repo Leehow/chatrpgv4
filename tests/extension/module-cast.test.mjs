@@ -464,12 +464,18 @@ test('§177.15: a place the host judged part of another word is no name: not ref
 	const whole = await h.call('table.narrate', {call_id: 't2-c1', text: 'They still call that skiff a Jonah.', untold_cleared: cleared});
 	assert.equal(whole.rendered_text, 'They still call that skiff a Jonah.', 'every place cleared: delivered as written');
 	assert.ok((await h.call('table.untold')).people.some(row => row.id === jonahId), 'and still told nobody');
+	// Two refused places within one excerpt's window: neither is quoted (the final package's copy, 2026-10-04).
+	await h.call('table.player_input', {text: 'Who saw it?'});
+	const close = await h.attempt('table.narrate', {call_id: 't3-c0', text: 'My boy Jonah saw Jonah go down.'});
+	assert.deepEqual(close.error?.details?.excerpts, ['My boy \u25a2\u25a2\u25a2\u25a2\u25a2 saw \u25a2\u25a2\u25a2\u25a2\u25a2 go down.', 'My boy \u25a2\u25a2\u25a2\u25a2\u25a2 saw \u25a2\u25a2\u25a2\u25a2\u25a2 go down.']);
+	assert.ok(!(close.error.message + JSON.stringify(close.error.details)).includes('Jonah'), 'no name in the refusal, though two stood close');
+	await h.call('table.narrate', {call_id: 't3-c0', text: 'Nobody saw it.'});
 	await h.call('table.player_input', {text: 'Anything for the boat?'});
 	// A graph person's whole name, cleared too: an inn named after her is not her name said to the investigator.
-	await h.call('table.narrate', {call_id: 't3-c1', text: 'She points you to the Old Mae Inn for a bed.', untold_cleared: [{name: 'Old Mae', nth: 0}]});
+	await h.call('table.narrate', {call_id: 't4-c1', text: 'She points you to the Old Mae Inn for a bed.', untold_cleared: [{name: 'Old Mae', nth: 0}]});
 	assert.ok((await h.call('table.untold')).people.some(row => row.name === 'Old Mae'), 'an inn told nobody her name');
 	await h.call('table.player_input', {text: 'Anything else?'});
-	await assert.rejects(h.call('table.narrate', {call_id: 't4-c1', text: 'x', untold_cleared: [{name: 'Jonah'}]}),
+	await assert.rejects(h.call('table.narrate', {call_id: 't5-c1', text: 'x', untold_cleared: [{name: 'Jonah'}]}),
 		error => error?.details?.field === 'untold_cleared', 'the host\'s list has a shape');
 });
 

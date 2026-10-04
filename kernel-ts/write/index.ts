@@ -195,9 +195,19 @@ async function untoldPlaces(snapshot: CampaignSnapshot, graph: ModuleGraph, text
     return { said, places: said.length ? prosePlaces(text, said) : [] };
 }
 /** §177.15: a refusal shows a place by the words around it with the name blanked, so the request's rename has nothing to rewrite. */
-function blankedPlace(text: string, place: ProsePlace): string {
-    const before = text.slice(Math.max(0, place.start - 24), place.start), after = text.slice(place.end, place.end + 24);
-    return (before + '\u25a2'.repeat([...place.name].length) + after).replace(/\s+/gu, ' ').trim();
+function blankedPlace(text: string, place: ProsePlace, refused: readonly ProsePlace[]): string {
+    // Every refused place inside the window is blanked, not only this one: on the final package's copy (2026-10-04) two
+    // places within 24 characters left the other name verbatim in the refusal, which the request then renamed.
+    const from = Math.max(0, place.start - 24), to = Math.min(text.length, place.end + 24);
+    const inside = refused.filter(other => other.start < to && other.end > from).sort((a, b) => a.start - b.start);
+    let out = '', at = from;
+    for (const other of inside) {
+        const start = Math.max(other.start, from), end = Math.min(other.end, to);
+        if (start < at) continue;
+        out += text.slice(at, start) + '\u25a2'.repeat([...text.slice(start, end)].length);
+        at = end;
+    }
+    return (out + text.slice(at, to)).replace(/\s+/gu, ' ').trim();
 }
 /** §177.15: `untold_cleared` as the host sends it, the keys of the places it judged to be part of another word. */
 function clearedPlaces(value: unknown): Set<string> {
@@ -230,7 +240,7 @@ async function untoldNamesGate(snapshot: CampaignSnapshot, campaign: CampaignWri
             words: left.length, cleared: places.length - open.length }).catch(() => undefined);
         // §177.15: the refusal never quotes the name. Table 27 (turn 8): it quoted one, the request's rename turned it into the
         // station owner's word, and the Keeper was told it had written words it never wrote.
-        const excerpts = open.slice(0, 3).map(place => blankedPlace(text, place));
+        const excerpts = open.slice(0, 3).map(place => blankedPlace(text, place, open));
         throw new RpcError('invalid_params', `the text says ${open.length || left.length} time(s) a name the book gives someone the investigator has not been told about`
             + (excerpts.length ? `, where \u25a2 stands: ${excerpts.map(excerpt => `"${excerpt}"`).join('; ')}` : ''), {
             fix: 'where the fiction has that person\'s name said, write their say_name from present[] there instead; otherwise call them by the word present[] shows, and give a newcomer a word that carries nobody\'s name. Change only those words and deliver again',
