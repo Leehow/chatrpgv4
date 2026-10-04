@@ -32787,3 +32787,68 @@ This costs a few seconds of thinking on a step that follows only reads, which is
 
 - `tests/extension/thinking-schedule.test.mjs`: reads keep the table's level, a read beside a write lowers it, and the earlier cases now lower on a write.
 - `tests/extension/first-step-thinking.test.mjs`: the step after a look keeps thinking, the step after a write is rewritten off, the reset still holds, and the unsupported-format case now follows a write.
+
+## 176. Epithets from the graph (owner ruling 2026-10-04, "按你推荐的做" on `docs/specs/graph-epithets.md` Q1–Q4; amends §79, §103.5, §103.7, §103.8 and §135.26)
+
+Every book person gets the table's word in the play language when they enter the graph, before anyone meets them. The kernel validates the word, stores it, and every reader takes it from one place. Every tool that takes a person resolves it. Only a person the book never had (`apply npc` with `walk_on: true`) is named at the table, as before. The Keeper never sees an untold person's handle, and says their name only by copying a token.
+
+The evidence is the spec's §1. On table 21 (flapcode gpt-6-luna, then grok-build grok-4.5) the Keeper made up a name from the handle twice. Five of six refusals were the word it had been shown failing to resolve.
+
+### 176.1 Where the word lives
+
+- **`epithets.json`**, a campaign file, holds what the epithet lane wrote: `{people: {<handle>: {word, at}}}`. It is the lane's own file, for the reason `first-sight.json` is (§168.5): the lane writes while a turn may be open, and a `world.json` write there would stale that turn's world revision.
+- **`world.person_epithets[<handle>] = {word, by}`** is what every reader uses. `by` is `graph` (from `epithets.json`) or `journal` (the journal lane's label, item 176.4). The kernel folds both in at two safe moments:
+  - `table.open`, when no turn is open;
+  - `table.player_input`, before the turn's capsule is built.
+
+  It writes the world only when something changed (`foldPersonWords`, `kernel-ts/read/person-words.ts`).
+- **A person's table word** (`tableWord`): their `world.person_labels[<handle>].name` (what the fiction established through `apply person` or an introduction, §79/§103.8), else their `world.person_epithets[<handle>].word`. `person_labels` still alone means met: `called`, the clerk's meeting and the roster read it, not the epithet.
+
+### 176.2 Every tool resolves the word
+
+`calledOwners` (`kernel-ts/read/capsule.ts`) matches a word against `person_labels` names and, for people with no such name, against their epithet. Every junction that takes a person already goes through it (`calledPerson`, `personNode`, `npcNode`: about forty entrances, including `apply person`, `apply npc`, say tokens, resolve targets and `{{name:}}`). So the word the Keeper is shown resolves everywhere, the same way. Two people answering to one word are still refused, never picked (§87.8).
+
+### 176.3 The lane: `epithets.job` and `epithets.submit`
+
+- **`epithets.job {campaign}`** answers while the campaign is `setting_up` or `active`. It returns `{job_id: null}` when every book person who is still untold has a word, and otherwise `{job_id, play_language, people, taken, budget, instruction}`:
+  - `people[]` is each such person as `{id: <handle>, role, looks}`. `looks` is the §168 first-sight description (`personDescribed`), what a stranger sees. `role` is the profile's `relationship_to_investigators`. No secret, agenda or fear goes in.
+  - `taken` is every word already in use: table words, stored epithets and journal labels.
+- **`epithets.submit {campaign, entries: [{id, word}]}`** checks each entry on its own and writes the accepted ones to `epithets.json`. It returns `{written: [{id, word}], refused: [{id, word, reason, message}]}`. An entry is refused when:
+  - `id` is not a book person of this graph (`unknown_entity`);
+  - the person is told, or already has a word (`settled`);
+  - the word breaks `apply person`'s shape (one line, at most `LABEL_LIMIT`, no marker: `shape`);
+  - the word is a handle (`handle`, §103.7);
+  - the word carries any book name, alias or punctuation piece of **any** untold person, not only this one's (`untold_name`). A piece that a told person also carries does not count, the same rule as the roster's;
+  - the word is the same, normalized, as another person's word or as another entry of the batch (`taken`).
+- **The lane** (`extensions/npc-epithets/index.ts`) runs in both modes: during character creation, so the opening already has the words, and at a table. It asks once when the bridge and session are both up (`initialJob`), and again after every committed turn, which catches people a PDF reading lands later.
+  - Zero tools, on the fast model (`PI_COC_EPITHETS_MODEL`, else the fast-model setting, else the table's model).
+  - One retry carries the refusals verbatim. Anything still refused stays unworded and is offered on the next job.
+  - It is mounted in `COC_EXTENSIONS` and emitted by `build:runtime` (§135.27's lesson).
+
+### 176.4 The journal lane's label becomes a word (spec Q3)
+
+`untoldBlock`'s label is `tableWord`, else the journal entry's label. The fold also copies a journal label into `world.person_epithets` with `by: "journal"`, for an untold person who has neither a table word nor a graph epithet. So the label the Keeper is shown resolves from the next turn on. A graph epithet replaces a journal one. A journal label never replaces a graph epithet. The journal lane's `epithets` map (what it must call people, §103.7) now reads `tableWord`, so its labels repeat the graph epithet.
+
+### 176.5 The Keeper's view hides the handle and carries the name token (spec Q2, Q4)
+
+- `table.untold` (`untoldRoster`) adds two rows per untold person whose shown word is not their handle: the handle and the node id, each renamed to the shown word. The request-wide rename (§103.5) then removes the handle from everything the host and the kernel wrote into the request. The rename runs longest first, so the node id goes before the handle it contains.
+- Each untold row in the Keeper's copy carries `say_name: "{{name:<shown word>}}"`. The untold line now says to put `say_name`, exactly, where the fiction has the name said. Neither model wrote `{{name:}}` on table 21 when it had to compose the token.
+- A person with no word keeps the handle as their shown word, a known residual (176.7).
+
+### 176.6 Writers, readers, actor (§31)
+
+- **Writers:** the epithet lane (`epithets.json`), the fold (`world.person_epithets`), `apply person` and introductions (`person_labels`).
+- **Readers:** `calledOwners` and every junction, `untoldBlock`, `untoldRoster`, the untold view, the journal job's `epithets`, the clerk's stated meeting and the roster candidate (through `untold.label`).
+- **Actor:** the Keeper calls people by the shown word and copies `say_name`. The player sees the same word in the prose, on the sidebar and in hover labels.
+
+### 176.7 Limits
+
+- Existing campaigns are compile snapshots. The lane fills their untold people on the next session, and nothing is backfilled into history.
+- A person the lane could not word keeps the handle as their shown word, so the handle can still reach the Keeper for them.
+- Whether an epithet spoils is the lane's to get right from its instruction. The kernel checks strings it holds, never meanings.
+
+Tests:
+- `tests/extension/graph-epithets.test.mjs`, on the real kernel with The Haunting: the job's people and taken words; every refusal reason; another person's name piece refused; the fold at `table.player_input`; `apply person` and a say token resolving an epithet; the journal label folded and resolved; the roster's handle rows.
+- `tests/extension/untold-view.test.mjs`: `say_name`, and no handle in the Keeper's request.
+- `tests/extension/npc-epithets-lane.test.mjs`: the prompt names the play language; the shape is closed; refusals are retried once.
+- `tests/extension/scene-obligation-candidates.test.mjs`: the clerk's meeting carried under a graph epithet.
