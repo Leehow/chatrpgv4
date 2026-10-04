@@ -342,6 +342,8 @@ export class ReadingService implements ReadingBridge {
 	private stallNotified = false;
 	/** Per scoped module, the reason of the most recent wake no claim has answered yet: the claim row names it (contract §22, #65). */
 	private wakes = new Map<string, string>();
+	/** §182.4: per scoped module, the last reading window a read-ahead reported, so `read_window` is written only on a change. */
+	private windows = new Map<string, string>();
 	private readonly deps: Dependencies;
 	/**
 	 * The unwrapped recorder, for rows the *host* writes about a job rather than rows the job writes
@@ -493,13 +495,13 @@ export class ReadingService implements ReadingBridge {
 	async reference(mid:string,params:Row,signal?:AbortSignal):Promise<Row|undefined>{
 		if(!this.deps.runtime?.sourceReferences)return;
 		const campaign=this.campaign(params);
-		if(params.materialize_place)await this.call('module.read.ahead',{module_id:mid,focus:params.focus||''},campaign);
+		if(params.materialize_place)await this.readAhead({module_id:mid,focus:params.focus||''},campaign);
 		const source=await this.call('module.source.snapshot',{module_id:mid},campaign);
 		if(source.window)return;
 		try{const known=await this.call('module.reference.status',{module_id:mid,focus:params.focus||''},campaign);
 			const result=await runSourceReference({runtime:this.runtime(),source:{...source,cache:join(dirname(source.pdf),'cache','pages')},moduleId:mid,kind:'lookup',materializePlace:params.materialize_place===true,
 			focus:params.focus||'',question:params.question||'Read the requested physical place and its necessary conditions.',knownNodes:known.known_nodes,model:this.deps.model(),signal,record:this.deps.record});
-			let material:Row|undefined;if(params.materialize_place){if(!result.packet.places?.length)return;material=await this.call('module.reference.materialize',{module_id:mid,work_dir:result.workDir},campaign);this.recordLibrarySync(material,{module_id:mid,campaign});if(material.state!=='ready')return;void this.call('module.read.ahead',{module_id:mid,focus:material.scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-place');return this.pump(mid,campaign);}).catch(()=>undefined);}
+			let material:Row|undefined;if(params.materialize_place){if(!result.packet.places?.length)return;material=await this.call('module.reference.materialize',{module_id:mid,work_dir:result.workDir},campaign);this.recordLibrarySync(material,{module_id:mid,campaign});if(material.state!=='ready')return;void this.readAhead({module_id:mid,focus:material.scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-place');return this.pump(mid,campaign);}).catch(()=>undefined);}
 			return {state:'ready',...(material?{material}:{}),source_answer:{status:'excerpts',authority:'original-source-excerpts',prepared:!!material,...(material?{scene:material.scene,scene_name:material.name,material_scope:'source-place-identity-only'}:{}),source_sha256:result.packet.source_sha256,
 				answer:result.packet.excerpts.map(span=>`[Original physical page ${span.page}]\n${span.text}`).join('\n\n'),excerpts:result.packet.excerpts,
 				source_refs:[...new Set(result.packet.excerpts.map(span=>span.page))].map(page=>({source_id:'pdf:'+mid,pdf_index:page-1})),
@@ -548,7 +550,7 @@ export class ReadingService implements ReadingBridge {
 		}
 		if (params.start_scene && params.targeted === true) {
 			if(this.deps.runtime?.sourceReferences){const reference=await this.call('module.reference.status',{module_id:mid,focus:params.start_scene},campaign);
-				if(reference.ready){void this.call('module.read.ahead',{module_id:mid,focus:params.start_scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-ready');return this.pump(mid,campaign);}).catch(()=>undefined);
+				if(reference.ready){void this.readAhead({module_id:mid,focus:params.start_scene},campaign).then(()=>{this.wakes.set(JSON.stringify([campaign,mid]),'reference-ready');return this.pump(mid,campaign);}).catch(()=>undefined);
 					return {ok:true,module_id:mid,opening_ready:true,readiness:'source-reference',graph_complete:false};}}
 			await this.ensure(mid, {purpose:"opening", campaign:campaign ?? null, focus:params.start_scene,
 				opening_scope:'first_interaction',foreground:params.background!==true, retry:params.retry===true}, signal, options);
@@ -682,6 +684,48 @@ export class ReadingService implements ReadingBridge {
 			source: { pdf: job.source.path, cache: context.cache, file_sha256: job.source.file_sha256 }, run: context.run,
 			record: row => this.deps.record({ module_id: job.module_id, job_id: job.job_id, purpose: job.purpose, focus: job.focus ?? "", campaign: context.campaign,
 				...(context.round !== undefined ? { round: context.round } : {}), ...row }) });
+	}
+
+	/**
+	 * The read-ahead (§22.4, §182), as every caller in this service asks it. A `window` that differs from the last one this
+	 * host saw for the campaign and module is one `read_window` row; a short book's completion in a fork carries the library's
+	 * answer, which is its `library_sync` row (§179.1).
+	 */
+	private async readAhead(params: Row, campaign: string | undefined): Promise<Row | undefined> {
+		const result = await this.call("module.read.ahead", params, campaign);
+		const window = result?.window;
+		if (window && typeof window === "object" && !Array.isArray(window)) {
+			const scope = JSON.stringify([campaign, params.module_id]), seen = JSON.stringify(window);
+			if (this.windows.get(scope) !== seen) {
+				this.windows.set(scope, seen);
+				this.note({ lane: "reading", event: "read_window", module_id: params.module_id, campaign, ...window });
+			}
+		}
+		this.recordLibrarySync(result, { module_id: params.module_id, campaign });
+		return result;
+	}
+
+	/**
+	 * §182.1: a book bound before binding kept its bookmarks gets them when a table opens on it. `module.status` says whether
+	 * an outline was ever recorded; the host reads the bound PDF's bookmarks (the kernel never parses it) and hands them to
+	 * `module.source.outline`, which writes the library and the campaign's fork. A failure is one row and nothing else.
+	 */
+	async backfillOutline(mid: string, signal?: AbortSignal): Promise<void> {
+		const campaign = this.deps.campaign?.();
+		try {
+			const status = await this.call("module.status", { module_id: mid }, campaign);
+			if (!status || status.outline !== null) return;
+			const snapshot = await this.call("module.source.snapshot", { module_id: mid }, campaign);
+			const info = await this.runtime().sourceInfo({ pdf: snapshot.pdf, cache: this.deps.home }, signal) as Row;
+			if (info.file_sha256 !== snapshot.file_sha256) throw new Error("the bound PDF is not the bytes its module was bound to");
+			const written = await this.call("module.source.outline", { module_id: mid, file_sha256: snapshot.file_sha256,
+				outline: Array.isArray(info.bookmarks) ? info.bookmarks : [] }, campaign);
+			this.note({ lane: "reading", event: "outline_backfill", module_id: mid, campaign, state: "written", entries: written?.entries ?? null,
+				library: written?.library ?? null, ...(written?.campaign ? { fork: written.campaign } : {}) });
+		} catch (failure) {
+			this.note({ lane: "reading", event: "outline_backfill", module_id: mid, campaign, state: "failed",
+				detail: (failure instanceof Error ? failure.message : String(failure)).slice(0, 500) });
+		}
 	}
 
 	/**
@@ -947,7 +991,7 @@ export class ReadingService implements ReadingBridge {
 			this.deps.record({ lane: "reading", event: "visual_identity_published", module_id: job.module_id, job_id: job.job_id, campaign, ...(published?.visual_identity ?? {}) });
 			this.recordLibrarySync(published, { module_id: job.module_id, campaign, job_id: job.job_id });
 			// The next page's pairs are queued by the read-ahead, one identity job at a time.
-			await this.call("module.read.ahead", { module_id: job.module_id }, campaign).catch(() => undefined);
+			await this.readAhead({ module_id: job.module_id }, campaign).catch(() => undefined);
 			return;
 		}
 		const commands = { page: `coc-source --pdf ${quote(job.source.path)} --cache ${quote(cache)} page`,
@@ -1302,7 +1346,7 @@ export class ReadingService implements ReadingBridge {
 							if (need.disposition !== "read") {
 								await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease, outcome: "settled",
 									need: { ...decided, material_digest: need.material_digest } }, campaign);
-								await this.call("module.read.ahead", { module_id: job.module_id }, campaign).catch(() => undefined);
+								await this.readAhead({ module_id: job.module_id }, campaign).catch(() => undefined);
 								return;
 							}
 						}
@@ -1424,7 +1468,7 @@ export class ReadingService implements ReadingBridge {
 					if (published?.requeued) this.note({ lane: "reading", event: "requeued", module_id: job.module_id, campaign, job_id: job.job_id,
 						purpose: job.purpose, focus: job.focus ?? "", reason: published.requeued, from_generation: published.from_generation, generation: published.generation });
 					// The book turns its own pages next (spec thin-book-play B); never on the critical path, never a failure.
-					if (["index","opening","detail"].includes(job.purpose)) await this.call("module.read.ahead", { module_id: job.module_id, ...(["opening","detail"].includes(job.purpose) && job.focus ? { focus: job.focus } : {}) }, campaign).catch(() => undefined);
+					if (["index","opening","detail"].includes(job.purpose)) await this.readAhead({ module_id: job.module_id, ...(["opening","detail"].includes(job.purpose) && job.focus ? { focus: job.focus } : {}) }, campaign).catch(() => undefined);
 					return;
 				} catch (failure) {
 					if (isKernelError(failure) && failure.details?.reason === 'source_context_changed') throw failure;
@@ -1491,8 +1535,9 @@ export class ReadingService implements ReadingBridge {
 			const outcome = this.jobOutcome(key, signal.aborted, detail);
 			const finished = await this.call("module.read.finish", { module_id: job.module_id, job_id: job.job_id, lease: job.lease,
 				...outcome, ...(outcome.outcome === "failed" && refusal ? { refusal } : {}) }, campaign).catch(() => undefined);
-			if(job.source_unit&&finished&&!this.stopped&&!signal.aborted&&outcome.outcome==='failed')
-				await this.call('module.read.ahead',{module_id:job.module_id},campaign).catch(()=>undefined);
+			// The stream goes on past a failed ask of the read-ahead's own; on a short book the last one may be what completes it (§182.2).
+			if((job.source_unit||job.visual_scan||job.visual_asset||job.visual_identity||job.map_scope||job.source_need)&&finished&&!this.stopped&&!signal.aborted&&outcome.outcome==='failed')
+				await this.readAhead({module_id:job.module_id},campaign).catch(()=>undefined);
 			// §22.3.3 (SL-57): the refused read is queued once more, in the background, with the reviewer's reasons.
 			if (finished?.requeued) this.note({ lane: "reading", event: "requeued", module_id: job.module_id, campaign, job_id: finished.requeued.job_id,
 				of: job.job_id, purpose: job.purpose, focus: job.focus ?? "", reason: finished.requeued.reason });

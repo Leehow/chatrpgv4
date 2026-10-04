@@ -31,7 +31,7 @@ import { ROUTE_TRAVEL_FIELD, applyTravelFill, type TravelRow } from './route-tra
 import { bandRows } from '../rules/bands.js';
 import {validatePublicGuidance} from './public-guidance.js';
 import {sourceNeedKey} from './source-needs.js';
-import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needEligible,needPacket,retainedNeed,settledNeed,unitJobs,unreadUnits} from './need-reads.js';
+import {READABLE_NEED_KINDS,carriedNeeds,needDispositionRecord,needDone,needEligible,needMaterial,needPacket,retainedNeed,settledNeed,unitJobs,unreadUnits} from './need-reads.js';
 import {MODULE_LOGIC_REVIEW,moduleGuidanceApproved} from './module-review-policy.js';
 import {backgroundSourceUnits,referenceSourceUnits,sourceUnitKey,sourceUnitPages,type SourceUnit} from './background-source.js';
 import {publishReferencePlace,publishReferenceContext,referenceReady as sourceReferenceReady} from './reference.js';
@@ -40,6 +40,7 @@ import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,vis
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
 import {MAP_SCOPE_FAILURES,MAP_SCOPE_QUESTION,mapScopeFocus,mapsLackingScope} from './map-scope.js';
+import {cleanOutline,indexChapters,outlineChapters,pageInside,rangeMeets,readingBudget,readingWindow,wholeWindow,type Chapter,type ReadingWindow} from './chapters.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
  * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
@@ -67,6 +68,8 @@ const REFUSED_FIELDS = 8;
  * and its owner binds the retry by requesting the identity again (§22.4).
  */
 const JOB_MARKERS = ['source_unit', 'review_scope_pages', 'reference_fragment', 'visual_scan', 'visual_asset', 'visual_identity', 'map_scope', 'source_need'];
+/** §182.2: the markers of the read-ahead's own background asks; a live job carrying one keeps a short book's build open. */
+const STREAMED_MARKERS = ['source_unit', 'visual_scan', 'visual_asset', 'visual_identity', 'map_scope', 'source_need'];
 /** §22.2.1: the purposes that read graph material of a named focus, one reading of a focus at a time. */
 const FOCUSED = ['opening', 'detail'];
 /** §22.4.3 (SL-36): at most this many memoised answers (and index rows) travel with one consultation reply. */
@@ -231,14 +234,36 @@ export class Reading {
     private closePromise?: Promise<void>;
     constructor(readonly store: ModuleStore) { }
     private key(mid: string, job: string): string { return `${mid}/${job}`; }
-    private ensureIndexJob(meta: Row, queue: Row[]): boolean {
+    private async ensureIndexJob(meta: Row, queue: Row[]): Promise<boolean> {
         // Any module with a bound original document gets its reading index, a starter bound to its
-        // window included (§14.16.5): the index is what the capsule's `reading` section lists.
+        // window included (§14.16.5): the index is what the capsule's `reading` section lists. §182.4: not a book whose
+        // background reads no whole-book index.
         if (!object(meta.source_document) || !truth(meta.reading_version) || truth(row(meta.reading).index_complete)
-            || queue.some(job => job.purpose === 'index')) return false;
+            || queue.some(job => job.purpose === 'index') || !await this.backgroundIndex(meta)) return false;
         const source = row(meta.source_document), key = jsonDigest([source.file_sha256, 'index', '', '', '', []]);
         queue.push({ job_id: `read-${queue.length + 1}`, key, purpose: 'index', focus: '', question: '', pages: [], foreground: false, state: 'queued', attempts: 0, at: nowIso() });
         return true;
+    }
+    /**
+     * §182.4: whether the background asks this book's whole-book index. Not of a book that reads by reference units, nor of a
+     * long book whose own bookmarks give its chapters; a short book streams as before §182, and a long book without
+     * bookmarks needs the index's sections for its chapters. A foreground request may always ask it.
+     */
+    private async backgroundIndex(meta: Row): Promise<boolean> {
+        if (meta.source_reference) return false;
+        const pageCount = number(meta.page_count);
+        return pageCount <= (await readingBudget(this.store.context)).wholeBookMaxPages || !outlineChapters(row(meta.source_document).outline, pageCount).length;
+    }
+    /** §182.1: the book's chapters -- its bookmarks, else the model index's sections once the index is complete, else none. */
+    private async chaptersOf(mid: string, meta: Row): Promise<Chapter[]> {
+        const pageCount = number(meta.page_count), outline = outlineChapters(row(meta.source_document).outline, pageCount);
+        if (outline.length || !truth(row(meta.reading).index_complete)) return outline;
+        return indexChapters(await this.store.indexRows(mid, meta), pageCount);
+    }
+    /** §182.2: whether this module's build completed on the source bound now. */
+    static built(meta: Row): boolean {
+        const sha = row(meta.source_document).file_sha256;
+        return typeof sha === 'string' && sha.length > 0 && row(row(meta.reading).build_complete).source_sha256 === sha;
     }
     private owned(): void { if (this.closed)
         throw new RpcError('invalid_params', 'this reading attempt no longer owns publication'); }
@@ -301,6 +326,8 @@ export class Reading {
         const naming = await starterDeclarationsForBook(this.store.context, source.file_sha256);
         if (naming.length) return this.bindNamedBook(naming);
         const title = string(truth(params.title) ? params.title : basename(path, extname(path)));
+        // §182.1: the book's top-level bookmarks with a page, as the host read them; absent when the host sent none.
+        const outline = Array.isArray(source.bookmarks) ? cleanOutline(source.bookmarks, number(source.page_count)) : undefined;
         return withExclusiveLock(this.store.context.locks, join(this.store.root, '.registry.lock'), async () => {
             this.owned();
             for (const mid of await this.store.ids()) {
@@ -309,6 +336,7 @@ export class Reading {
                 return this.mutex(mid, async () => {
                     const meta = await this.store.module(mid), destination = join(this.store.moduleDir(mid), 'source.pdf');
                     const exists = await this.store.context.snapshots.isFile(destination), corrupted = exists && await sha256File(destination) !== source.file_sha256;
+                    const kept = Array.isArray(row(meta.source_document).outline) ? row(meta.source_document).outline : outline;
                     if (!truth(meta.source_document) || !exists || corrupted) {
                         if (path !== await resolvedPath(destination)) {
                             const temporary = join(dirname(destination), `source-copy-${uuid()}.pdf`);
@@ -326,8 +354,14 @@ export class Reading {
                             await this.store.writeQueue(mid, []);
                             meta.reading = boundReadingState(truth(graph) ? graph! : null, meta.generation ?? 0);
                         }
-                        Object.assign(meta, { reading_version: 1, source_document: { path: 'source.pdf', file_sha256: source.file_sha256, page_count: source.page_count } });
+                        Object.assign(meta, { reading_version: 1, source_document: { path: 'source.pdf', file_sha256: source.file_sha256, page_count: source.page_count,
+                            ...(kept ? { outline: kept } : {}) } });
                         meta.page_count = source.page_count;
+                        await this.store.writeModule(meta);
+                    }
+                    // §182.1: a book bound before binding kept its bookmarks gets them on its next binding.
+                    else if (outline && !Array.isArray(row(meta.source_document).outline)) {
+                        meta.source_document = { ...row(meta.source_document), outline };
                         await this.store.writeModule(meta);
                     }
                     return { module_id: mid, replayed: true };
@@ -353,7 +387,7 @@ export class Reading {
                 throw new RpcError('invalid_params', 'source changed during registration');
             const meta = {
                 id: mid, title, source: 'pdf', reading_version: 1,
-                source_document: { path: 'source.pdf', file_sha256: source.file_sha256, page_count: source.page_count },
+                source_document: { path: 'source.pdf', file_sha256: source.file_sha256, page_count: source.page_count, ...(outline ? { outline } : {}) },
                 file_sha256: source.file_sha256, page_count: source.page_count, languages: truth(params.language) ? [params.language] : [],
                 generation: 0, status: 'registered', created_at: nowIso(), opening_ready: false, reading: Reading.initialState(),
             };
@@ -400,6 +434,28 @@ export class Reading {
                 { path, file_sha256: source.file_sha256, page_count: number(source.page_count) }, await this.store.readGraph(id));
             await this.store.writeModule(meta);
             return { module_id: id, replayed: false, window: windowOf(declaration) };
+        });
+    }
+    /**
+     * §182.1: `module.source.outline` for one workspace -- the bound book's top-level bookmarks, for a book bound before
+     * binding kept them. The digest must be the bound source's; the outline is cleaned as binding cleans it. Idempotent.
+     * Source metadata, not graph: no generation is written.
+     */
+    async writeOutline(params: Row): Promise<Row> {
+        const mid = validateModuleId(params.module_id);
+        if (typeof params.file_sha256 !== 'string' || !params.file_sha256 || !Array.isArray(params.outline))
+            throw new RpcError('invalid_params', 'module.source.outline needs module_id, the bound file_sha256 and the outline list');
+        return this.mutex(mid, async () => {
+            const meta = await this.store.module(mid), source = row(meta.source_document);
+            if (typeof source.file_sha256 !== 'string' || source.file_sha256 !== params.file_sha256)
+                throw new RpcError('invalid_params', 'this outline belongs to another source than the one bound to this module', {
+                    fix: 'read the bookmarks of the PDF this module is bound to', details: { reason: 'source_mismatch' } });
+            const outline = cleanOutline(params.outline, number(source.page_count));
+            if (equal(source.outline, outline)) return { state: 'unchanged', entries: outline.length };
+            meta.source_document = { ...source, outline };
+            this.owned();
+            await this.store.writeModule(meta);
+            return { state: 'written', entries: outline.length };
         });
     }
     async source(meta: Row): Promise<Row> {
@@ -778,16 +834,26 @@ export class Reading {
         return [];
     }
     /**
-     * §151.4: the retained needs' background reads, asked after this pass's streamed units. A deferred need waits until no
-     * streamed unit remains unqueued (coverage first, speculative links second); a settled need waits for its eligibility.
+     * §151.4 × §182.4: the retained needs the read-ahead may ask in `window`, before its two-per-pass bound. A deferred need
+     * waits until no streamed unit of the window remains unqueued (coverage first, speculative links second); a need whose
+     * reading completed or failed is not asked again (`needDone`); a settled need waits for its eligibility, which inside the
+     * window re-opens an unlocated need only for material added there; a long book asks only the needs whose entity cites a
+     * page of its window.
      */
-    private async queueNeedReads(mid: string, graph: ModuleGraph, ask: (request: Row) => Promise<Row | null>): Promise<void> {
-        const meta = await this.store.module(mid), queue = await this.store.queue(mid), units = await this.streamedUnits(mid, meta), rows = unitRows(meta, units);
-        const jobs = unitJobs(queue, rows), unqueued = units.filter(unit => !jobs.has(sourceUnitKey(unit))).length;
-        const dispositions = row(row(meta.reading).source_need_dispositions);
-        const needs = array(graph.raw.source_needs).filter(need => READABLE_NEED_KINDS.includes(need.kind) && need.source_sha256 === meta.file_sha256
-            && (need.kind !== 'deferred' || unqueued === 0) && needEligible(dispositions, graph.raw, need, queue, mid, rows));
-        for (const need of needs.slice(0, 2)) {
+    private async needsToAsk(mid: string, meta: Row, raw: Row, queue: Row[], window: ReadingWindow): Promise<Row[]> {
+        const units = await this.streamedUnits(mid, meta), rows = unitRows(meta, units), jobs = unitJobs(queue, rows);
+        const unqueued = units.filter(unit => rangeMeets(window, unit.first, unit.last) && !jobs.has(sourceUnitKey(unit))).length;
+        const dispositions = row(row(meta.reading).source_need_dispositions), nodes = new Set(array(raw.nodes).map(node => row(node).node_id));
+        return array(raw.source_needs).filter(need => READABLE_NEED_KINDS.includes(need.kind) && need.source_sha256 === meta.file_sha256
+            && typeof need.node_id === 'string' && nodes.has(need.node_id) && (need.kind !== 'deferred' || unqueued === 0)
+            && !needDone(dispositions, need, queue)
+            && (window.mode === 'whole' || needMaterial(raw, need.node_id, mid).pages.some(page => pageInside(window, page)))
+            && needEligible(dispositions, raw, need, queue, mid, rows, window));
+    }
+    /** §151.4: the retained needs' background reads (`needsToAsk`), asked after this pass's streamed units, two per pass. */
+    private async queueNeedReads(mid: string, graph: ModuleGraph, ask: (request: Row) => Promise<Row | null>, window: ReadingWindow): Promise<void> {
+        const meta = await this.store.module(mid), queue = await this.store.queue(mid);
+        for (const need of (await this.needsToAsk(mid, meta, graph.raw, queue, window)).slice(0, 2)) {
             const node = graph.nodes.get(string(need.node_id));
             if (node) await ask({ purpose: 'detail', focus: graph.handle(node), question: need.question, source_need: sourceNeedKey(need) });
         }
@@ -795,12 +861,12 @@ export class Reading {
     /**
      * §39.4 (2026-09-30): a published map whose kind no reader has written is asked about in the background, one map at a
      * time per module, lowest page first. A map whose job failed `MAP_SCOPE_FAILURES` times is not asked again; a map
-     * whose request queues nothing gives way to the next.
+     * whose request queues nothing gives way to the next. §182.3: only the maps with a page inside the reading window.
      */
-    private async queueMapScope(mid: string, ask: (request: Row) => Promise<Row | null>): Promise<void> {
+    private async queueMapScope(mid: string, ask: (request: Row) => Promise<Row | null>, window: ReadingWindow): Promise<void> {
         const queue = await this.store.queue(mid);
         if (queue.some(job => job.map_scope && ['queued', 'running'].includes(job.state))) return;
-        for (const map of mapsLackingScope(await this.store.readGraph(mid), mid)) {
+        for (const map of mapsLackingScope(await this.store.readGraph(mid), mid).filter(map => map.pages.some(page => pageInside(window, page)))) {
             const asked = queue.filter(job => row(job.map_scope).node === map.node);
             if (asked.filter(job => job.state === 'failed').length >= MAP_SCOPE_FAILURES) continue;
             const reply = await ask({ purpose: 'detail', focus: mapScopeFocus(map.node), question: MAP_SCOPE_QUESTION, map_scope: { node: map.node },
@@ -808,7 +874,86 @@ export class Reading {
             if (['queued', 'reading'].includes(string(reply?.state))) return;
         }
     }
-    /** Maintain source-backed routes without interpreting page order or the scene's prose. */
+    /**
+     * §182.3: the page a long book's window is anchored on -- the first page the current scene cites (`focus`, which a
+     * campaign's read-ahead sets to its active scene), else the start scene's, else the book's first page.
+     */
+    private static anchorPage(graph: ModuleGraph, focus: unknown, pageCount: number): number {
+        const first = (node: Row | null): number | undefined => {
+            const pages = array(node?.source_refs).filter(ref => integer(row(ref).pdf_index)).map(ref => number(ref.pdf_index) + 1).filter(page => page >= 1 && page <= pageCount);
+            return pages.length ? Math.min(...pages) : undefined;
+        };
+        const scene = truth(focus) ? graph.find(string(focus), ['scene']) : null;
+        let start: Row | null = null;
+        try { start = graph.startScene(); } catch (error) { if (!(error instanceof RpcError)) throw error; }
+        return first(scene) ?? first(start) ?? 1;
+    }
+    /**
+     * §182.2: what the whole-book read-ahead still has to ask or to finish on this source, or null when every streamed unit,
+     * contact sheet, nominated picture page, identity check, map scope and need has a terminal state (a material row, a
+     * terminal job, or a settled disposition). A book that streams no units has no build to complete.
+     */
+    private async buildPending(mid: string, meta: Row): Promise<string | null> {
+        const units = await this.streamedUnits(mid, meta);
+        if (!units.length) return 'not_streamed';
+        const queue = await this.store.queue(mid), reading = row(meta.reading), pageCount = number(meta.page_count);
+        if (queue.some(job => ['queued', 'running'].includes(job.state) && STREAMED_MARKERS.some(marker => job[marker] !== undefined))) return 'active';
+        const terminal = (job: Row | undefined): boolean => job?.state === 'completed' || job?.state === 'failed';
+        const latest = (match: (job: Row) => boolean): Row | undefined => [...queue].reverse().find(job => job.state !== 'cancelled' && match(job));
+        const jobs = unitJobs(queue, unitRows(meta, units));
+        if (units.some(unit => !terminal(jobs.get(sourceUnitKey(unit))))) return 'source_units';
+        // Visual discovery streams on reference books only (the read-ahead's `queueVisual`).
+        if (meta.source_reference) {
+            const sha = row(meta.source_document).file_sha256;
+            for (const range of visualScanRanges(pageCount)) {
+                const record = row(row(reading.visual_scans)[visualScanKey(range)]);
+                if (!(record.source_sha256 === sha && record.status === 'overviewed')
+                    && !terminal(latest(job => isJsonObject(job.visual_scan) && visualScanKey(job.visual_scan as VisualScan) === visualScanKey(range)))) return 'visual_scans';
+            }
+            const done = new Set(array(reading.materials).map(material => row(row(material).visual_asset).page).filter(integer));
+            for (const candidate of array(reading.visual_candidates)) {
+                const page = row(candidate).page;
+                if (!done.has(page) && !terminal(latest(job => row(job.visual_asset).page === page))) return 'visual_assets';
+            }
+        }
+        const raw = await this.store.readGraph(mid) ?? {};
+        // An identity page or a map is settled by a completed ask, or by the failures after which the read-ahead stops asking.
+        const settled = (match: (job: Row) => boolean, failures: number): boolean => {
+            const asked = queue.filter(match);
+            return asked.some(job => job.state === 'completed') || asked.filter(job => job.state === 'failed').length >= failures;
+        };
+        const pairs = publishedIdentityPairs(raw, meta);
+        for (const page of new Set(pairs.map(pair => pair.page))) {
+            const keys = pairs.filter(pair => pair.page === page).map(pair => pair.key).sort();
+            if (!settled(job => row(job.visual_identity).page === page && equal(row(job.visual_identity).keys, keys), IDENTITY_FAILURES)) return 'visual_identity';
+        }
+        for (const map of mapsLackingScope(raw, mid))
+            if (!settled(job => row(job.map_scope).node === map.node, MAP_SCOPE_FAILURES)) return 'map_scope';
+        if ((await this.needsToAsk(mid, meta, raw, queue, wholeWindow(pageCount, []))).length) return 'source_needs';
+        return null;
+    }
+    /**
+     * §182.2: a short book's build completes when nothing the whole-book read-ahead streams is left to ask or to finish on
+     * this source (`buildPending`). The record is written once, under this module's metadata lock; a fork offers it to the
+     * library at once (§179.1), since no publication follows it. Null while the build is not complete.
+     */
+    private async completeBuild(mid: string): Promise<Row | null> {
+        return this.mutex(mid, async () => {
+            const meta = await this.store.module(mid);
+            if (Reading.built(meta)) return {};
+            if (await this.buildPending(mid, meta) !== null) return null;
+            if (!isJsonObject(meta.reading)) meta.reading = Reading.initialState();
+            meta.reading.build_complete = { source_sha256: row(meta.source_document).file_sha256, at: nowIso() };
+            this.owned();
+            await this.store.writeModule(meta);
+            return this.libraryFollows(mid, {});
+        });
+    }
+    /**
+     * Maintain source-backed routes without interpreting page order or the scene's prose. §182: a short book streams the whole
+     * book once and then asks nothing more; a long book's background asks are limited to its reading window (the chapter in
+     * play and the next one, or a page window); the adjacent-scene reads of §22.4 are unchanged. The result carries `window`.
+     */
     async queueAheadReading(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id), queued: string[] = [];
         if (!await this.store.exists(mid)) return { queued };
@@ -816,6 +961,7 @@ export class Reading {
         if (!playsFromReading(meta)) return { queued };
         const recovered = await this.recoverOrphans(mid);
         queued.push(...recovered.filter(job => job.to === 'queued').map(job => string(job.job_id)));
+        const recovery = recovered.length ? { recovered } : {};
         const ask = async (request: Row): Promise<Row | null> => {
             try {
                 const reply = await this.request({ module_id: mid, foreground: false, ...request });
@@ -828,16 +974,25 @@ export class Reading {
                 return null;
             }
         };
-        if (!truth(reading.index_complete)) await ask({ purpose: 'index', focus: '' });
-        if (!await this.store.readGraph(mid)) return { queued, reason: 'index' };
-        const graph = await this.store.graph(mid);
+        const pageCount = number(meta.page_count), budget = await readingBudget(this.store.context), short = pageCount <= budget.wholeBookMaxPages;
+        // §182.2: a short book built once queues nothing more for its source; only a foreground request reads it after that.
+        if (short && Reading.built(meta))
+            return { queued: [...new Set(queued)], window: { ...wholeWindow(pageCount, await this.chaptersOf(mid, meta)), complete: true }, ...recovery };
+        // §182.4: the whole-book index is asked only of a book that needs its sections.
+        const indexAsked = !truth(reading.index_complete) && await this.backgroundIndex(meta);
+        if (indexAsked) await ask({ purpose: 'index', focus: '' });
+        if (!await this.store.readGraph(mid)) return { queued, reason: indexAsked ? 'index' : 'no_graph' };
+        const graph = await this.store.graph(mid), chapters = await this.chaptersOf(mid, meta);
+        const window: ReadingWindow = short ? wholeWindow(pageCount, chapters)
+            : readingWindow(pageCount, chapters, Reading.anchorPage(graph, params.focus, pageCount), budget.fallbackWindowPages);
+        const inside = (page: number): boolean => pageInside(window, page);
         // §152.4: published pairs that collide and have no verdict are asked, one page at a time, in the background; a
-        // page whose job failed `IDENTITY_FAILURES` times is not asked again by the read-ahead.
+        // page whose job failed `IDENTITY_FAILURES` times is not asked again by the read-ahead. §182.3: pages in the window.
         {
             const queue = await this.store.queue(mid);
             if (!queue.some(job => job.visual_identity && ['queued', 'running'].includes(job.state))) {
                 const pairs = publishedIdentityPairs(graph.raw, await this.store.module(mid));
-                for (const page of [...new Set(pairs.map(pair => pair.page))]) {
+                for (const page of [...new Set(pairs.map(pair => pair.page))].filter(inside)) {
                     const keys = pairs.filter(pair => pair.page === page).map(pair => pair.key).sort();
                     const asked = queue.filter(job => row(job.visual_identity).page === page && equal(row(job.visual_identity).keys, keys));
                     if (asked.filter(job => job.state === 'failed').length >= IDENTITY_FAILURES) continue;
@@ -847,17 +1002,18 @@ export class Reading {
                 }
             }
         }
-        await this.queueMapScope(mid, ask);
+        await this.queueMapScope(mid, ask, window);
         const queueVisual = async () => {
             const visualJobs=(await this.store.queue(mid)).filter(job=>job.visual_scan);
             if(!visualJobs.some(job=>['queued','running'].includes(job.state))){
                 const seen=new Set(visualJobs.filter(job=>job.state!=='cancelled').map(job=>visualScanKey(job.visual_scan)));
                 for(const value of Object.values(row(reading.visual_scans))){
                     const record=row(value),range={first:record.first,last:record.last};
-                    if(record.source_sha256===meta.source_document?.file_sha256&&record.status==='overviewed'&&validVisualScan(range,number(meta.page_count)))
+                    if(record.source_sha256===meta.source_document?.file_sha256&&record.status==='overviewed'&&validVisualScan(range,pageCount))
                         seen.add(visualScanKey(range));
                 }
-                const next=visualScanRanges(number(meta.page_count)).find(range=>!seen.has(visualScanKey(range)));
+                // §182.3: the contact sheets that meet the window.
+                const next=visualScanRanges(pageCount).filter(range=>rangeMeets(window,range.first,range.last)).find(range=>!seen.has(visualScanKey(range)));
                 if(next)await ask({purpose:'detail',focus:`Visual assets pages ${next.first}-${next.last}`,visual_scan:next,
                     retry:visualJobs.some(job=>job.state==='cancelled'&&visualScanKey(job.visual_scan)===visualScanKey(next)),
                     question:'Inspect the assigned contact sheet and nominate candidate pages only. Submit visual_candidates with page, kind and a short navigation label. Do not crop, transcribe, segment, or read scene dossiers; independent asset tasks will reopen the originals.'});
@@ -869,24 +1025,35 @@ export class Reading {
             const current=await this.store.module(mid);
             const priority=['map','handout','uncertain','illustration'];
             const candidates=array(row(current.reading).visual_candidates).sort((a,b)=>priority.indexOf(a.kind)-priority.indexOf(b.kind)||a.page-b.page);
-            for(const page of [...new Set(candidates.map(candidate=>number(candidate.page)))].filter(page=>!done.has(page)).slice(0,Math.max(0,2-active)))
+            // §182.3: the nominated pages inside the window.
+            for(const page of [...new Set(candidates.map(candidate=>number(candidate.page)))].filter(page=>!done.has(page)&&inside(page)).slice(0,Math.max(0,2-active)))
                 await ask({purpose:'detail',focus:`Visual assets on physical page ${page}`,visual_asset:{page},
                     retry:assetJobs.some(job=>job.state==='cancelled'&&job.visual_asset.page===page),
                     question:'Prepare the visual assets on this nominated original page and their necessary identity links. Use safe crops and existing map regions; leave unresolved geometry explicit. Do not prepare unrelated pages or story dossiers.'});
         };
+        // §182.2: the read-ahead's own outcome -- the window, and on a short book whether its build completed (a fork's
+        // completion carries the library's answer, §179.1).
+        const outcome = async (): Promise<Row> => {
+            if (!short) return { window };
+            const built = await this.completeBuild(mid);
+            return { window: { ...window, complete: built !== null }, ...(built?.library_sync ? { library_sync: built.library_sync } : {}) };
+        };
         if(meta.source_reference){
             const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit),active=work.filter(job=>['queued','running'].includes(job.state)).length;
             // §151.4: a unit is seen when its job is in this queue or its reading has a material row (read here, or in the library before this fork).
-            const seen=unitJobs(queue,unitRows(meta,referenceSourceUnits(number(meta.page_count))));
+            const seen=unitJobs(queue,unitRows(meta,referenceSourceUnits(pageCount)));
             let anchor=truth(params.focus)?graph.find(string(params.focus)):null;
             if(!anchor)try{anchor=graph.startScene();}catch{}
-            const first=Math.min(...array(anchor?.source_refs).map(ref=>number(ref.pdf_index)+1).filter(page=>page>0),number(meta.page_count));
-            const units=referenceSourceUnits(number(meta.page_count)).sort((a,b)=>Number(a.last<first)-Number(b.last<first)||a.first-b.first);
+            const first=Math.min(...array(anchor?.source_refs).map(ref=>number(ref.pdf_index)+1).filter(page=>page>0),pageCount);
+            // §182.3: the units that meet the window, those from the anchor on first.
+            const units=referenceSourceUnits(pageCount).filter(unit=>rangeMeets(window,unit.first,unit.last)).sort((a,b)=>Number(a.last<first)-Number(b.last<first)||a.first-b.first);
+            // A unit whose every job was cancelled (a host that stopped) is read again, as the indexed stream below does.
             for(const unit of units.filter(unit=>!seen.has(sourceUnitKey(unit))).slice(0,Math.max(0,2-active)))
-                await ask({purpose:'detail',focus:unit.section,source_unit:unit,question:unitQuestion(meta,unit)});
-            await this.queueNeedReads(mid,graph,ask);
+                await ask({purpose:'detail',focus:unit.section,source_unit:unit,question:unitQuestion(meta,unit),
+                    ...(work.some(job=>job.state==='cancelled'&&sourceUnitKey(job.source_unit as SourceUnit)===sourceUnitKey(unit))?{retry:true}:{})});
+            await this.queueNeedReads(mid,graph,ask,window);
             await queueVisual();
-            return {queued:[...new Set(queued)],reference_context:true,graph_complete:false,...(recovered.length?{recovered}:{})};
+            return {queued:[...new Set(queued)],reference_context:true,graph_complete:false,...await outcome(),...recovery};
         }
         if(reading.opening_scope==='first_interaction'&&truth(reading.index_complete)&&Object.values(row(meta.prepared_openings)).some(value=>truth(row(value).opening_ready))){
             const queue=await this.store.queue(mid),work=queue.filter(job=>job.source_unit);
@@ -896,7 +1063,8 @@ export class Reading {
                 const interactionId=row(row(meta.prepared_openings)[anchorNode?.node_id]).interaction_scene;
                 if(typeof interactionId==='string')anchorNode=graph.nodes.get(interactionId)??anchorNode;
                 const after=Math.max(0,...array(anchorNode?.source_refs).map(ref=>number(ref.pdf_index)+1));
-                const units=backgroundSourceUnits(await this.store.indexRows(mid,meta),number(meta.page_count));
+                // §182.3: the indexed units that meet the window.
+                const units=backgroundSourceUnits(await this.store.indexRows(mid,meta),pageCount).filter(unit=>rangeMeets(window,unit.first,unit.last));
                 // §151.4: a unit is seen when its job is in this queue or its reading has a material row (read here, or in the library before this fork).
                 const seen=unitJobs(queue,unitRows(meta,units));
                 units.sort((a,b)=>Number(a.first<=after)-Number(b.first<=after)||a.first-b.first);
@@ -906,10 +1074,11 @@ export class Reading {
                     question:unitQuestion(meta,next)});
             }
         }
-        await this.queueNeedReads(mid, graph, ask);
+        await this.queueNeedReads(mid, graph, ask, window);
+        const settled = await outcome();
         let scene: Row;
         try { scene = truth(params.focus) ? graph.scene(string(params.focus)) : graph.startScene(); }
-        catch (error) { if (!(error instanceof RpcError)) throw error; return { queued, reason: 'no_scene' }; }
+        catch (error) { if (!(error instanceof RpcError)) throw error; return { queued, reason: 'no_scene', ...settled }; }
         const exits = graph.sceneExits(scene);
         const isEntrance = (await this.store.candidates(graph.raw)).some(candidate => candidate.node_id === scene.node_id || candidate.scene_id === graph.handle(scene));
         let wayOn: Row | null = null;
@@ -922,7 +1091,7 @@ export class Reading {
         const interaction=typeof interactionId==='string'?graph.nodes.get(interactionId):undefined;
         if(interaction?.node_kind==='scene'&&interaction.node_id!==scene.node_id)
             queued.push(...await this.queueAdjacentReading(graph,interaction));
-        return { queued: [...new Set(queued)], scene: scene.node_id, ...(wayOn ? { way_on: wayOn } : {}), ...(recovered.length ? { recovered } : {}) };
+        return { queued: [...new Set(queued)], scene: scene.node_id, ...(wayOn ? { way_on: wayOn } : {}), ...recovery, ...settled };
     }
     async peekAnswer(params: Row): Promise<Row> {
         const mid = validateModuleId(params.module_id), meta = await this.store.module(mid);
@@ -1460,7 +1629,8 @@ export class Reading {
         const mid = validateModuleId(params.module_id), directory = this.store.moduleDir(mid);
         return this.mutex(mid, async () => {
             const meta = await this.store.module(mid), source = await this.source(meta), queue = await this.store.queue(mid), active: Row[] = [];
-            this.ensureIndexJob(meta, queue);
+            await this.ensureIndexJob(meta, queue);
+            const indexInBackground = await this.backgroundIndex(meta);
             for (const stale of queue) {
                 const committed = row(row(meta.reading).completed)[stale.job_id];
                 if (truth(committed)) {
@@ -1485,6 +1655,10 @@ export class Reading {
                     stale.purpose === 'detail' && !truth(stale.question) && await this.materialReady(mid, stale.focus))) {
                     Object.assign(stale, { state: 'completed', finished_at: nowIso(), reused_generation: meta.generation ?? 0, result: { state: 'ready', generation: meta.generation ?? 0, opening_ready: truth(meta.opening_ready) } });
                 }
+                // §182.4: a background index queued before this book stopped reading its index in the background is not read;
+                // a foreground request for it is.
+                if (stale.state === 'queued' && stale.purpose === 'index' && !truth(stale.foreground) && !indexInBackground)
+                    Object.assign(stale, { state: 'cancelled', detail: 'the background does not read the whole-book index of this book (§182.4)', finished_at: nowIso() });
             }
             const purposePriority = (job: Row): number => job.purpose === 'opening' ? 0 : job.reference_fragment ? 1 : job.source_unit ? 3 : job.purpose === 'index' ? 2 : 1;
             const pending = queue.filter(job => job.state === 'queued').sort((a, b) =>

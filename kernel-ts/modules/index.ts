@@ -23,6 +23,7 @@ function required(params: Row, key: string): string {
 function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
     return Object.freeze({
         'module.source.bind': params => reading.bind(params),
+        'module.source.outline': params => reading.writeOutline(params),
         'module.source.answer.peek': params => reading.peekAnswer(params),
         'module.source.materials.snapshot': params => reading.materialSnapshot(params),
         'module.reference.materialize': params => reading.publishReferencePlace(params),
@@ -38,8 +39,10 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
             if (source.path !== 'source.pdf' || typeof source.file_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(source.file_sha256)
                 || !Number.isSafeInteger(source.page_count) || source.page_count < 1)
                 throw new RpcError('needs', 'This module has no valid bound original PDF', {details: {reason: 'source_unavailable'}});
+            // §182.1: the outline is metadata read from the same bytes, not part of the source's identity.
+            const {outline: _outline, ...identity} = source;
             return { version: 1, module_id: id, generation: meta.generation ?? 0,
-                revision: jsonDigest({source, generation: meta.generation ?? 0, graph_digest: meta.graph_digest ?? null}),
+                revision: jsonDigest({source: identity, generation: meta.generation ?? 0, graph_digest: meta.graph_digest ?? null}),
                 pdf: join(store.moduleDir(id), 'source.pdf'), file_sha256: source.file_sha256, page_count: source.page_count,
                 ...(source.window ? { window: source.window } : {}) };
         },
@@ -66,6 +69,8 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
                 return {
                     module_id: id, title: meta.title ?? null, source: 'pdf', status: meta.status ?? null,
                     generation: meta.generation ?? 0, page_count: meta.page_count ?? null, languages: meta.languages ?? [],
+                    // §182.1: how many bookmark entries binding kept, or null when none was ever recorded (the host backfills).
+                    outline: Array.isArray(row(meta.source_document).outline) ? row(meta.source_document).outline.length : null,
                     opening_ready: truth(meta.opening_ready), opening: meta.opening ?? {},
                     reading: { ...row(meta.reading), opening_ready: truth(meta.opening_ready), queued: queue.filter(job => job.state === 'queued').length, active: queue.find(job => job.state === 'running')?.job_id ?? null },
                     opening_candidates: await store.candidates(await store.readGraph(id) || {}),
@@ -160,8 +165,26 @@ export function createModuleRuntime(context: KernelContext) {
         (await value.store.queue(id)).some(job => jobId === undefined
             ? job.state === 'queued'
             : job.job_id === jobId && (lease === undefined || job.lease === lease));
+    /**
+     * §182.1: the outline is source metadata, not a publication. It is written to the library and, when the campaign already
+     * has a fork, to the fork as well; it never forks a campaign. A library that no longer exists is skipped.
+     */
+    const outline = async (params: Row): Promise<Row> => {
+        const id = required(params, 'module_id'), campaign = params.campaign;
+        const result: Row = { module_id: id, library: 'missing' };
+        const write = async (value: typeof library): Promise<string> => {
+            const written = row(await value.handlers['module.source.outline'](params));
+            result.entries = written.entries;
+            return string(written.state);
+        };
+        if (await library.store.exists(id)) result.library = await write(library);
+        if (campaign !== undefined)
+            result.campaign = await scopedModuleRoot(context, campaign, id) !== null ? await write(scopedRuntime(campaign)) : 'no_fork';
+        return result;
+    };
     const dispatch = async (method: string, params: Row): Promise<Row> => {
         if (method === 'module.read.ahead') return ahead(params);
+        if (method === 'module.source.outline') return outline(params);
         if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')
             return library.handlers[method](params);
         const id = required(params, 'module_id'), campaign = params.campaign;
