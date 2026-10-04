@@ -43,6 +43,23 @@ handler registered beside the other private `module.*` methods, `kernel-ts/handl
 (`extensions/module/index.ts` table-open backfill, `extensions/module/reading-service.ts` `read_window` row), data
 (`content/rulesets/coc7/host-budgets.json` `reading.whole_book_max_pages` 60, `reading.fallback_window_pages` 24), tests.
 
+## CT-05 A fork that is not the library's lineage gives back its readings one by one
+
+Status: landed 2026-10-04 (cb0226b3b on `claude/cache-traffic-lineage-20261004`; decisions in the contract)
+
+Contract §179.5 (implementation decisions CT-05). Kernel (`kernel-ts/modules/library-merge.ts` new: selection,
+classification, replay through the library's own `finish` / `module.reference.materialize`; `reading.ts`
+`libraryFollows` merges on `library_advanced`, the claim fails an interrupted replay and never offers one, a refused
+replay is not one of the library's own asks; `reference.ts` `placeScene`), tests
+(`tests/extension/library-follows-fork.test.mjs` two new cases and the first one amended,
+`campaign-module-isolation.test.mjs` amended, `map-publication.test.mjs` the merged host row). The host's
+`recordLibrarySync` already passes the merged shape through unchanged.
+
+- Not measured: the cost of one replay on a large book. A fork that diverged long ago merges every reading the library
+  lacks in its next publication, inside one kernel request (host timeout 30 s).
+- Not carried by a merge: readings that write no material row (visual scans, the whole-book index, identity jobs' verdicts,
+  `build_complete`) and road bands (`travel` is not replayed).
+
 ## Comments
 
 - 2026-10-04 (lead): CT-02's follow-up ordered the keys of `mods` and `known`; moving the two sections after `style`

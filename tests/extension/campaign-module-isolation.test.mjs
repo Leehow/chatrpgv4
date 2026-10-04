@@ -390,8 +390,8 @@ test('two kernel processes isolate one source module per campaign in the same ho
   assert.deepEqual(await treeDigest(store()), rootBytes);
   // §179.1 / §179.4: B forked from the same library generation as A. A published first, so the library follows A and B is
   // another lineage. §179.5: B's reading the library lacks is replayed through the library's own finish, as one library
-  // job and one library generation; the library keeps the value A published for the field B read differently (§22.3.2's
-  // preserved value under the module-logic review), and B's graph keeps B's reading.
+  // job and one library generation; the library keeps the value A published for the field B read differently (§147.8: a
+  // later reading preserves an accepted value and records the source mapping), and B's graph keeps B's reading.
   const ledgerB = await claim(second, B, { purpose: 'detail', focus: 'Cellar', question: 'Read the ledger for this table.' });
   const publishedB = await finish(second, B, ledgerB, shard([{ ...scene('Cellar'), summary: 'Cellar contains a ledger, read for the tower table.' }], ['scene-cellar']));
   assert.deepEqual(publishedB.library_sync, { state: 'merged', merged: 1, skipped: [], library_generation: followed.meta.generation + 1 });

@@ -33049,6 +33049,77 @@ readiness, and the single atomic generation write. No model is called; it costs 
 - **Three ends (§31).** Writer: the fork's publication. Reader: `ensureCampaignModule` for the next campaign and the
   campaigns that still follow the library. Actor: the next campaign's read-ahead, which asks no unit either fork read.
 
+**Implementation decisions (2026-10-04, CT-05).** `mergeForkReadings` in `kernel-ts/modules/library-merge.ts`, called
+from `Reading.libraryFollows` (`reading.ts`) when `syncLibraryFromCampaign` answers `library_advanced`, with the key of
+the reading the publication wrote (`job.key`; `source-place:<scene>` for a materialization; none for a build completion).
+
+- **The library's own publication.** The replay runs through a second `Reading` over the library store in the fork's
+  kernel process. The library module's `.metadata.lock` is a descriptor lock polled non-blocking (`native-locks.ts`), so
+  two descriptors of one process contend for it as two processes do, and `withExclusiveLock` is not reentrant: the
+  merge takes the lock for its selection, for staging each reading and for marking a refusal, and never holds it across
+  the library's `finish` or `publishReferencePlace`, which take it themselves. Lock order: the fork's metadata (held by
+  the fork's publication), then the library's; nothing here takes a fork lock.
+- **Which rows are the fork's.** A material row is one of the fork's readings when the fork's queue has a job with its
+  key, or its `generation` is above `source_generation` (every row a fork publishes is numbered in the fork generation
+  its publication wrote). A row the fork was seeded with is the library's even after the library dropped it (a published
+  reading replaces an unusable settlement). One row per key, ordered by that generation: each publication writes one
+  fork generation under the fork's lock, so it is the finish order, which `finished_at` (one-second precision) cannot
+  always tell apart. Selection re-reads the library inside its lock; each reading's staging re-checks its key.
+- **Which job.** The fork's `completed` jobs of the key that published (no `reused_generation`, result not `settled`),
+  earliest first, whose attempt directory lies in the fork and still has `packet.json`, `draft.json`, `review.json` and
+  `observations.json`. Reasons a row is not replayed: `settled` (an unusable row, or only settled completions),
+  `consultation_private`, `guidance_private` (a guidance row, or a `reference-context` row that is not a place: the
+  reference guidance of `module.reference.publish`), `identity_review`, `artifacts_missing`; and, per reading,
+  `refused` (with `detail`) and `already_present`. Consultations never have material rows, so `consultation_private` is
+  defensive; identity, visual-scan and index jobs write no material row either.
+- **The library job.** `{job_id: "read-<n>", key, purpose, material?, focus, question, pages, opening_scope?, <JOB_MARKERS>,
+  foreground: false, state: "running", owner: "merge", attempts: 1, lease, lock_version: 2, work_dir, at, class_at,
+  claimed_at, merged_from: {campaign, job_id}}` (`Reading.replayIdentity`; `material` and `opening_scope` travel because
+  the finish reads them). `<n>` is the queue's next ordinal, skipping one the queue or `reading.completed` already holds.
+  The job's `.job-<id>.lock` is held from before the queue write until the finish answers, so a library claim's probe
+  counts it as a live attempt. The whole attempt directory (regular files; links are skipped) is copied with reflinks
+  where supported to `work/merged/<campaign>/<fork job id>/`; `work_dir` is that copy.
+- **The finish's inputs.** `draft.json` and `review.json` of the copy; the newest `identity/<round>/identity-review.json`
+  of the fork's attempt (by modification time, the last one its finish was given), mapped into the copy; `assets`: each
+  node of the draft whose node in the fork graph has `asset_ref` and `asset_digest`, at its copy when the PNG lies in
+  the attempt, else copied to `graph-assets/<node_id>.png` in the copy. `travel` is not passed: a road the replay
+  publishes stays unbanded in the library until a later publication fills it (§138.9).
+- **Refusal and interruption.** A finish that throws fails its library job (`detail`, `refusal: {message, path?, rule?,
+  reason?}`), kept as evidence; a finish that committed before it threw (its job is in `reading.completed`) counts as
+  merged. A refusal is final: a later merge reports `refused` with the stored detail and copies nothing. A `running`
+  merged job whose job lock nobody holds was left by a killed kernel: a library claim fails it with rule
+  `merge_interrupted` instead of re-queueing it, and never offers a merged job; the next merge of that reading (under the
+  fork's lock, a running replay of it can only be an interrupted one) fails it the same way and replays it again. Only
+  `merge_interrupted` is replayed again.
+- **The library's own asks.** A failed merged job is not the library's attempt at that reading: `ownAsks` leaves it out
+  of what the read-ahead (units, visual scans and assets, map scope, needs), the build's completion (§182.2) and a
+  claim's need packet count, and `request` does not answer a key from it, so a library request for that key queues a
+  reading instead of reporting it blocked.
+- **Places.** A `source-place:<scene>` row's attempt is the fork's `work/*` directory whose `materialize_place` task and
+  `excerpts` receipt name the digest in the row's `packet_file` (`source-references/<digest>/packet.json`); it is
+  copied to `work/merged/<campaign>/<that directory>/` and replayed through `module.reference.materialize`. A place the
+  library already has with material under its own scene (`placeScene`: name, alias or id, now shared with
+  `publishReferencePlace`) is not a candidate. A refused place writes `merge-refusal.json` in its copy and is final.
+- **Result.** `{state: "skipped", reason: "already_present"}` when no reading of the fork is missing from the library and
+  the reading this publication wrote is one the library holds; `nothing_new` otherwise. Any missing row gives `{state:
+  "merged", merged, skipped, library_generation}` (`merged` may be 0), the publication's own `already_present` first in
+  `skipped`; at most 64 rows are listed, the rest counted in `skipped_truncated`. Before the selection the merge
+  re-checks `not_a_fork`, `library_missing`, `starter` and `source_mismatch`. The fork's `library_sync` is not written.
+- **A merge ends the lineage it did not follow.** A merge is a library publication of its own: it advances the
+  library's generation and leaves `synced_from` as it was, so the fork the library last followed is no longer its
+  lineage and from then on merges too. Keeping that lineage would let its next fast-forward replace the library's
+  materials and graph with its own and drop what was merged (`library-follows-fork.test.mjs` checks it).
+- **What a merge does not carry.** Only material rows travel: visual scans (contact sheets), the whole-book index and
+  its map candidates, identity verdicts of identity jobs and `build_complete` reach the library only by §179.1's
+  fast-forward. A later fork reads those again unless the library has them.
+- **Not measured.** A fork that diverged long ago merges every reading it has that the library lacks in the one
+  publication that first finds them, each a library publication (one immutable generation directory with the whole
+  graph). The host's kernel request timeout is 30 s (`extensions/kernel/client.ts`); the cost per replay on a large
+  book was not measured.
+- Tests: `tests/extension/library-follows-fork.test.mjs` (two §179.5 cases; the §179.1 case's other-lineage publications
+  now answer `already_present`), `campaign-module-isolation.test.mjs` (two kernel processes: the other lineage's reading
+  is merged, the published summary is kept under §147.8), `map-publication.test.mjs` (the host row of a merge).
+
 ### 179.2 The Keeper's request keeps its prefix across turns (amends §135.23)
 
 On the single-loop engine the projection's fixed part after the brief is, in order: the turn's capsule, then
@@ -33111,7 +33182,8 @@ describe the recorded prompt, not the one sent (the `prompt` lane's `stale_promp
   library follows. *Amended by §179.5: the other one's readings the library lacks are merged one by one through the
   library's own publication.* Adopting a deeper library into a running fork is not done.
 - A library that reads on its own after a fork (setup guidance, a library-scoped opening read) moves its head and
-  ends the forks' lineage; those forks publish nothing to it.
+  ends the forks' lineage; those forks publish nothing to it. *Amended by §179.5: they give back their readings one by
+  one; a merge is such a library publication and ends the lineage of the fork the library last followed.*
 - Source consultations (`purpose: answer`) stay private to their campaign.
 - The first reading of a book still reads the whole book (`coc-module-parsing-redesign`, 2026-08-03: nine of eleven
   surveyed modules keep NPC stat blocks where no location edge reaches). The read-ahead is not narrowed to the player's
