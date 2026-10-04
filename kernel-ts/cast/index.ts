@@ -142,12 +142,14 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
             }
             const known = array(kept?.people).map(person => ({ book: array(row(person).book), play: array(row(person).play), notes: array(row(person).notes) }));
             // §177.16: what the game's own notes already wrote about these pages, so a rendering they use joins `notes`.
-            const graphFile = string(meta.graph_file), notes = graphFile ? notesInUse(await readOptional(join(dir, graphFile)), range.first, range.last) : [];
+            const graphFile = string(meta.graph_file), graph = graphFile ? await readOptional(join(dir, graphFile)) : null;
+            const notes = graph ? notesInUse(graph, range.first, range.last) : [], cut = graph ? notesInUse(graph, range.first, range.last, Infinity).length - notes.length : 0;
             await writeJsonAtomic(join(cwd, 'task.json'), { job_id: jobIdOf(sha), purpose: 'cast', page_count: pageCount(meta), play_language: await languageOf(campaign),
                 range: { index: range.index, first: range.first, last: range.last }, pages_with_text: written, known_cast: known,
                 ...(notes.length ? { notes_in_use: notes } : {}),
                 page_files: 'pages/page-NNNN.txt (zero-padded to four digits)', draft: 'draft.json' });
-            return { cwd, index: range.index, first: range.first, last: range.last, pages_with_text: written.length, known: known.length, notes_in_use: notes.length };
+            return { cwd, index: range.index, first: range.first, last: range.last, pages_with_text: written.length, known: known.length, notes_in_use: notes.length,
+                ...(cut ? { notes_in_use_cut: cut } : {}) };
         },
         'cast.submit': async (params): Promise<Row> => {
             const { dir, meta, sha } = await locate(params);

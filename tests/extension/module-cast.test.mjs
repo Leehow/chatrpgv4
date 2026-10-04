@@ -213,6 +213,9 @@ test('§177.16: the reader of a range gets the sentences the game\'s own notes w
 		'the range\'s sentences in page order, once each');
 	assert.deepEqual(api.notesInUse(graph, 41, 80), ['page 60 says the sheriff is away']);
 	assert.deepEqual(api.notesInUse(graph, 1, 40, 20), ['PC attacks Lars'], 'within the byte limit');
+	// The final package's copy: range 1-40 of Blood Road holds 32 477 bytes of such sentences; the default limit sends them all.
+	const many = {nodes: Array.from({length: 400}, (_, i) => ({source_refs: [{pdf_index: 1}], source_needs: [{question: `Question ${i} about Lars and the station, page two, kept whole`}]}))};
+	assert.equal(api.notesInUse(many, 1, 40).length, 400, 'a range of some thirty kilobytes goes whole');
 	const h = await harbor(t);
 	// The library's graph as the page reader left it, with one note in English about page 1.
 	const dir = join(h.home, '.coc', 'modules', h.mid), meta = JSON.parse(await readFile(join(dir, 'module.json'), 'utf8'));

@@ -33383,7 +33383,7 @@ The owner ruled to fix all three in one upgrade. The paid re-read itself runs wi
 
   A table of another file never serves.
 - **Public figures.** The reader leaves out real people the book mentions only as public figures of the world outside the story (`content/setup/module-cast.md`). It lists them when the scenario has them take part. This is the reader's judgement; there is no list of names.
-- **Renderings in use.** `cast.range` puts `notes_in_use` in the task: the graph's `question`, `reason`, `trigger` and `book` strings (the fields the page reader writes in the instructions' language) whose nearest `source_refs` cite a page of the range. They come once each, in page order, within 16 000 bytes (`notesInUse`, `kernel-ts/cast/draft.ts`). The reader adds a form those sentences use for an individual of its pages to that person's `notes`, and takes no book form or page from them.
+- **Renderings in use.** `cast.range` puts `notes_in_use` in the task: the graph's `question`, `reason`, `trigger` and `book` strings (the fields the page reader writes in the instructions' language) whose nearest `source_refs` cite a page of the range. They come once each, in page order, within 96 000 bytes, a guard only (`notesInUse`, `kernel-ts/cast/draft.ts`). On the final package's copy, Blood Road's range 1–40 held 397 sentences (32 477 bytes); the first limit of 16 000 sent 178 of them. `cast.range` reports any sentences still cut as `notes_in_use_cut`. The reader adds a form those sentences use for an individual of its pages to that person's `notes`, and takes no book form or page from them.
 
 **Versions.**
 - v5 code serves a v3 or v4 `cast.json` of the same file until the v5 table is complete. v3 rows have no `notes`.

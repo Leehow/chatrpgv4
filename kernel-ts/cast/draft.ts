@@ -195,8 +195,9 @@ export function pageTexts(rows: unknown): Map<number, string> {
     return out;
 }
 
-/** §177.16: at most this many bytes of the notes in use go to one range's reader. */
-export const CAST_NOTES_IN_USE_BYTES = 16_000;
+/** §177.16: at most this many bytes of the notes in use go to one range's reader, a guard only: the final package's copy of
+ *  Blood Road had 32 477 bytes in range 1-40, and 16 000 sent 178 of its 397 sentences. */
+export const CAST_NOTES_IN_USE_BYTES = 96_000;
 /** The graph's fields the page reader writes in the language of its instructions (content/setup/visual-reader.md). */
 const NOTE_FIELDS = new Set(['question', 'reason', 'trigger', 'book']);
 
