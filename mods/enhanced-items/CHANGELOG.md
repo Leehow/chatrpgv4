@@ -1,3 +1,8 @@
+# 1.3.2
+- Declares the sections of `agent.md` (`sections.json`, `instructions.sections.v1`, contract §183): which ride every turn and which a turn loads by its topics, the table's state or the Keeper's calls, for a table whose instructions exceed the instruction budget. Under the budget, as every table is today, the whole text goes as before.
+- `brief.md` is gone. A 2026-10-04 probe of real provider requests found the Keeper received the full `agent.md` every turn; the brief existed only in the capsule (§183, evidence).
+- `agent.md` gains six `## ` headings, one over each paragraph block; no sentence changes.
+
 # 1.3.1
 
 Weapons on the sheet are still registered before the opening is delivered; every other

@@ -19,11 +19,12 @@
     "context.npc.v1",
     "graph.vocabulary.v1",
     "graph.vocabulary.table.v1",
-    "mods.package-files.v1"
+    "mods.package-files.v1",
+    "instructions.sections.v1"
   ],
   "package_files": [
     "agent.md",
-    "brief.md",
+    "sections.json",
     "auditor.md"
   ],
   "dependencies": {},
@@ -42,7 +43,7 @@
   },
   "contributes": {
     "instructions": "agent.md",
-    "brief": "brief.md",
+    "sections": "sections.json",
     "auditor": "auditor.md",
     "vocabulary": {
       "actor_profile_keys": [

@@ -1,0 +1,9 @@
+{"schema_version": 1, "sections": [
+  {"heading": null, "kind": "resident"},
+  {"heading": "This turn", "kind": "resident"},
+  {"heading": "Sentences and paragraphs", "kind": "resident"},
+  {"heading": "The people here", "kind": "resident"},
+  {"heading": "Scene and detail", "kind": "resident"},
+  {"heading": "Opening the table", "kind": "situational", "triggers": ["state:opening"]},
+  {"heading": "Settings", "kind": "resident"}
+]}

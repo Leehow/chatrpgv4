@@ -1,0 +1,7 @@
+{"schema_version": 1, "sections": [
+  {"heading": "First impression", "kind": "situational", "topics": ["speaks_to_person"], "gates": ["present_without_history"]},
+  {"heading": "The impression in play", "kind": "resident"},
+  {"heading": "Asking for something", "kind": "situational", "topics": ["asks_favour"]},
+  {"heading": "What the asker is after", "kind": "situational", "topics": ["asks_question"]},
+  {"heading": "The language of the exchange", "kind": "situational", "topics": ["speaks_to_person", "asks_question", "asks_favour"]}
+]}

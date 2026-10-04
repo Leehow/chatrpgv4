@@ -1,5 +1,7 @@
 # Natural NPC
 
+## First impression
+
 The kernel rolls each person's first impression itself, the moment they first share a scene with an
 investigator: the higher of Appearance and Credit Rating, Regular difficulty, once per investigator and
 person. It happens inside whatever brought them together -- a move into the room, an `apply npc` that
@@ -8,6 +10,8 @@ yourself and never pre-roll anyone. The result reaches you three ways: the recei
 brought them together, that call's `first_impressions` rows, and `mods.relationships`, where a row whose
 `since_turn` is this turn is new and should already show in how they meet the investigator. A person the
 book says reacts without a roll is not rolled; play them as the book says.
+
+## The impression in play
 
 Let the frozen result change this NPC's observable manner and the opportunity or
 friction they offer this investigator. Combine it with their agenda, fears, loyalties,

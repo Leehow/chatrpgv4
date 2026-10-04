@@ -6,7 +6,8 @@
  * with, never with text. Three things follow from the declaration, and all of them live here:
  *
  * - a fresh world enables the package by default only for a campaign whose declared tag it names (§153.2);
- * - its per-turn instruction is measured against its own ceiling, outside the shared one over every other brief (§153.4);
+ * - `brief_budget_bytes` keeps its shape check, since frozen versions declare it; the ceiling it set measured the brief,
+ *   which no request carried, and is retired with it (§183.3);
  * - independently of the declaration, a package requiring `npc.voice.language-addendum.v1` may add a Markdown file to
  *   the voice lane's instruction, after the lane owner's own words (§153.3).
  */
@@ -15,12 +16,9 @@ import { validSourceLanguage } from "../modules/contract.js";
 import { array, row, string, integer, number, type Row } from "./values.js";
 
 export const LANGUAGE_ADDENDUM_CAPABILITY = "npc.voice.language-addendum.v1";
-/** Contract §153.4: the UTF-8 bytes one language-scoped package may add to every later turn's capsule. */
-export const LANGUAGE_BRIEF_BYTES = 400;
+/** Contract §153.4, retired by §183.3: a frozen version may still declare `brief_budget_bytes`; nothing measures against it. */
 export const LANGUAGE_BRIEF_BUDGET_CAPABILITY = "mods.language-brief-budget.v1";
 export const MAX_LANGUAGE_BRIEF_BYTES = 1200;
-export const languageBriefBudget = (manifest: Row): number => Object.hasOwn(manifest, "brief_budget_bytes")
-    ? number(manifest.brief_budget_bytes) : LANGUAGE_BRIEF_BYTES;
 
 const label = (manifest: Row): string => `${string(manifest.id ?? "?")} ${string(manifest.version ?? "?")}`;
 function refuse(manifest: Row, field: string, reason: string, message: string, fix: string, details: Row = {}): never {
@@ -55,7 +53,7 @@ export function languageAdmits(mod: Row | null | undefined, tag: string | null):
 
 /**
  * Checked with the rest of the manifest (`manifestFrom`), after the contribution paths are known to name package files:
- * the shape of `play_languages`, the addendum's capability and text, and a language-scoped package's per-turn bytes.
+ * the shape of `play_languages` and of `brief_budget_bytes`, the addendum's capability and text.
  */
 export function validateLanguageDeclaration(manifest: Row, files: ReadonlyMap<string, Uint8Array>): void {
     const contributes = row(manifest.contributes);
@@ -94,21 +92,6 @@ export function validateLanguageDeclaration(manifest: Row, files: ReadonlyMap<st
                 "contributes.voice_lane_addendum must name non-empty UTF-8 Markdown",
                 "write the addendum's lines into the named file, or remove contributes.voice_lane_addendum");
     }
-    if (!declaresLanguages(manifest))
-        return;
-    // §30.7: a later turn carries the brief when there is one, the full instruction otherwise; that is what rides every turn.
-    const field = contributes.brief != null ? "brief" : contributes.instructions != null ? "instructions" : null;
-    if (field == null)
-        return;
-    const path = string(contributes[field]), bytes = files.get(path)?.length ?? 0;
-    const limit = languageBriefBudget(manifest);
-    if (bytes > limit)
-        refuse(manifest, `contributes.${field}`, "language_brief_over_budget",
-            `the per-turn instruction ${path} is ${bytes} UTF-8 bytes; this scoped package carries at most ${limit} bytes each turn`,
-            field === "brief"
-                ? `shorten ${path} to ${limit} bytes or fewer; the full instruction still rides the first turn`
-                : `add a contributes.brief of ${limit} bytes or fewer, or shorten ${path} to that size`,
-            { path, bytes, limit });
 }
 
 /**

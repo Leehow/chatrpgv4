@@ -93,7 +93,8 @@ def test_narration_audit_joins_the_shared_audit_job(kernel):
     assert not job["enabled"] or "# Campaign continuity review" not in Path(job["system_prompt"]).read_text()
 
 
-def test_instructions_are_full_on_the_first_turn_and_brief_after(kernel):
+def test_instructions_are_whole_on_every_turn_within_the_budget(kernel):
+    # Contract §183.3: the brief is retired; the built-in packages together stay within the instruction budget.
     open_turn(kernel)
     first = {row["mod"]: row for row in kernel.table("capsule")["mods"]["instructions"]}
     assert all(row["form"] == "full" for row in first.values())
@@ -101,14 +102,8 @@ def test_instructions_are_full_on_the_first_turn_and_brief_after(kernel):
     narrate(kernel, "t1-c1", "诺特点头。")
     kernel.table("player_input", text="我继续问。")
     later = {row["mod"]: row for row in kernel.table("capsule")["mods"]["instructions"]}
-    assert set(later) == set(first)
-    assert all(row["form"] == "brief" for row in later.values()), "every built-in package with instructions carries a brief"
-    assert later["story-thread"]["instruction"].startswith("# Story Thread (reminder)")
-    assert len(later["enhanced-items"]["instruction"]) < len(first["enhanced-items"]["instruction"]) / 3
-    # Contract §40.6 raised §30.7 from 4000; §153.4 measures a package that declares play_languages against its own 400.
-    scoped = {row["id"]: row.get("brief_budget_bytes", 400) for row in kernel.ok("mods.list", {})["mods"] if "play_languages" in row}
-    assert sum(len(row["instruction"].encode()) for mod, row in later.items() if mod not in scoped) < 5000
-    assert all(len(row["instruction"].encode()) <= scoped[mod] for mod, row in later.items() if mod in scoped)
+    assert later == first
+    assert sum(len(row["instruction"].encode()) for row in later.values()) <= 65536
     host = {row["mod"]: row for row in kernel.ok("mods.context", {"campaign": CAMPAIGN})["instructions"]}
     assert all(row["form"] == "full" for row in host.values()), "the host-facing context is always the full text"
 

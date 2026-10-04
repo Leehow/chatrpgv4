@@ -27,11 +27,9 @@ def test_the_package_is_on_where_it_names_the_tag_and_extends_the_voice_lane_the
     assert kernel.ok("voice.job", {"campaign": "en", "backfill": True})["instruction"] == owner
 
 
-def test_an_over_budget_language_brief_is_refused_by_name(kernel, tmp_path):
+def test_a_long_language_brief_installs_now_that_nothing_reads_it(kernel, tmp_path):
+    # Contract §183.3 retired §153.4's ceiling with the brief it measured.
     package = tmp_path / "language-zh"
     shutil.copytree(FIXTURE, package)
     (package / "brief.md").write_text("x" * 401, encoding="utf-8")
-    error = kernel.err("mods.install", {"path": str(package)})
-    assert error["code"] == "invalid_params" and error["details"]["reason"] == "language_brief_over_budget"
-    assert (error["details"]["bytes"], error["details"]["limit"], error["details"]["field"]) == (401, 400, "contributes.brief")
-    assert error["fix"] and error["message"].startswith("language-zh 1.0.0: ")
+    assert kernel.ok("mods.install", {"path": str(package)})["id"] == ID

@@ -236,10 +236,12 @@ def test_an_opening_published_ready_stays_ready_under_a_later_rule(kernel, tmp_p
     assert private_queue[0]["resume_from"]
     shared_queue = json.loads((module_dir / "deepen-queue.json").read_text())
     assert not [row for row in shared_queue if row["state"] == "queued"]
+    # Contract 182.4: the read-ahead reports its reading window; this two-page book is read whole and streams no units.
     assert done["reading"]["ahead"] == {
         "queued": [private_queue[0]["job_id"]],
         "scene": "scene-dock",
         "way_on": done["reading"]["way_on"],
+        "window": {"mode": "whole", "first": 1, "last": 2, "chapters": [], "complete": False},
     }
     kernel.ok("table.open", {"campaign": "installed"})
     reading = kernel.ok("table.capsule", {"campaign": "installed"})["reading"]

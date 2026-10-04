@@ -1,6 +1,6 @@
 {
   "id": "story-thread",
-  "version": "1.2.10",
+  "version": "1.2.11",
   "game_api": "pipicoc.game.v1",
   "state_version": 1,
   "author": "PipiCOC",
@@ -15,17 +15,18 @@
   "default_enabled": true,
   "requires": [
     "context.thread.v1",
-    "mods.package-files.v1"
+    "mods.package-files.v1",
+    "instructions.sections.v1"
   ],
   "package_files": [
     "agent.md",
-    "brief.md"
+    "sections.json"
   ],
   "dependencies": {},
   "conflicts": [],
   "settings": {},
   "contributes": {
     "instructions": "agent.md",
-    "brief": "brief.md"
+    "sections": "sections.json"
   }
 }

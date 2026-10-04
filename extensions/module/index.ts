@@ -33,6 +33,15 @@ export default function (pi: ExtensionAPI) {
         if (setupMode || stopped || !visualModule || !moduleId || !reading) return;
         void reading.prefetch(moduleId,reason).catch(()=>undefined);
     }
+    /** §182.1: once per table and module, a bound book with no recorded outline is given its bookmarks. */
+    const outlined = new Set<string>();
+    function backfillOutline() {
+        if (setupMode || stopped || !visualModule || !moduleId || !reading) return;
+        const key = JSON.stringify([campaign, moduleId]);
+        if (outlined.has(key)) return;
+        outlined.add(key);
+        void reading.backfillOutline(moduleId).catch(() => undefined);
+    }
     function shareReader() {
         if (!ctx || !bridge) return;
         retireReader();
@@ -74,6 +83,7 @@ export default function (pi: ExtensionAPI) {
         });
         pi.events.emit("coc:reading-bridge", reading);
         wake("reader-ready");
+        backfillOutline();
     }
 
     pi.events.on("coc:kernel-bridge", data => {
@@ -91,6 +101,7 @@ export default function (pi: ExtensionAPI) {
         moduleId = typeof open.campaign?.module_id === "string" ? open.campaign.module_id : undefined;
         visualModule = open.module_reading === true;
         wake("table-open");
+        backfillOutline();
     });
     pi.events.on("coc:turn-committed", data => {if(record(data).campaign === campaign)wake("turn-committed");});
     pi.events.on("coc:source-work-queued", data => {

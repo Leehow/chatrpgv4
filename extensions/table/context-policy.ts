@@ -38,6 +38,38 @@ export function capsuleUpdate(first: Row, current: Row): Row | undefined {
     if (!Object.keys(changed).length && !removed.length) return undefined;
     return {kind: 'capsule_update', head: CAPSULE_UPDATE_HEAD, sections: changed, ...(removed.length ? {removed} : {})};
 }
+/**
+ * Contract §184.2: the capsule the Keeper is sent on the single-loop engine carries its sections in one fixed order, the
+ * ones stable across turns first and the ones that change every turn last, so the next turn's first request shares the
+ * capsule's stable head with this turn's as a token prefix. A closed enumeration of the capsule's own section names.
+ */
+export const CAPSULE_STABLE_SECTIONS: readonly string[] = ['head', 'historical_setting', 'worldlines', 'mods', 'reading', 'pressures',
+    'obligations', 'situations', 'rulings', 'owed', 'unrecorded', 'untold', 'warnings', 'known', 'voices', 'style'];
+export const CAPSULE_VOLATILE_SECTIONS: readonly string[] = ['where', 'present', 'director', 'memory', 'recent', 'turn'];
+/**
+ * Two stable sections carry parts that move with play (a discovered clue changes `mods.thread` and `known.clues_here`), so
+ * their own keys are ordered the same way: what play moves goes last. Only these two; nothing else nested is reordered.
+ */
+export const CAPSULE_NESTED_ORDER: Readonly<Record<string, readonly [readonly string[], readonly string[]]>> = {
+    mods: [['active', 'authority', 'providers', 'vocabulary', 'unregistered_equipment', 'relationships', 'pacing'],
+        ['objects', 'pending_contacts', 'thread']],
+    known: [['investigator', 'flags'], ['clues_here', 'discovered_clues']],
+};
+/** The row's keys: `first` in that order, then any key neither list names in the order given, then `last`. Values untouched. */
+function orderedKeys(row: Row, first: readonly string[], last: readonly string[], value = (key: string): unknown => row[key]): Row {
+    const named = new Set([...first, ...last]), result: Row = {};
+    for (const key of first) if (Object.hasOwn(row, key)) result[key] = value(key);
+    for (const key of Object.keys(row)) if (!named.has(key)) result[key] = value(key);
+    for (const key of last) if (Object.hasOwn(row, key)) result[key] = value(key);
+    return result;
+}
+/** The same sections, the stable ones first, then any section neither list names in the order given, then the volatile ones. */
+export function stableFirst(capsule: Row): Row {
+    return orderedKeys(capsule, CAPSULE_STABLE_SECTIONS, CAPSULE_VOLATILE_SECTIONS, key => {
+        const value = capsule[key], nested = Object.hasOwn(CAPSULE_NESTED_ORDER, key) ? CAPSULE_NESTED_ORDER[key] : undefined;
+        return nested && value && typeof value === 'object' && !Array.isArray(value) ? orderedKeys(value, ...nested) : value;
+    });
+}
 export const POLICY_VERSION = 2;
 export type Row = Record<string, any>;
 export interface ContextBinding {
@@ -227,6 +259,8 @@ export interface Projection {
 export function projectedMessages(input: {
     messages: Row[]; binding: ContextBinding; history: Row; brief?: Row; answering?: string[]; budget?: number;
     workspace?: Row; prescreen?: Row;
+    /** Contract §184.2 (single-loop engine): the turn's capsule leads the fixed part after the brief, ahead of `coc-history`. */
+    capsuleFirst?: boolean;
 }): Projection {
     const {messages, binding} = input, budget = input.budget ?? requestBudget();
     const fallback = (degraded: string): Projection => {
@@ -248,9 +282,13 @@ export function projectedMessages(input: {
     // the turn has since accumulated is, and the kernel stays authoritative for what it drops.
     const capsule = tail.findIndex(message => message.role === 'custom' && message.customType === 'coc-capsule');
     const opening = tail.slice(0, capsule < 0 ? 1 : capsule + 1), working = tail.slice(opening.length);
+    // §184.2: on the single-loop engine the capsule moves ahead of the history, which is rebuilt every turn, so the
+    // capsule's stable head stays in the prefix the next turn's first request shares; the rest of the opening keeps its order.
+    const lead = input.capsuleFirst && capsule >= 0 ? opening.slice(-1) : [];
+    const rest = lead.length ? opening.slice(0, -1) : opening;
     // Retained pre-boundary material is unclassified, not authoritative: the ceiling takes it first.
     let droppedUnknown = 0;
-    const fixed = (extra: Row[]): Row[] => [...unknown, ...brief, history, ...opening, ...extra];
+    const fixed = (extra: Row[]): Row[] => [...unknown, ...brief, ...lead, history, ...rest, ...extra];
     const room = (extra: Row[]): number => Math.max(0, budget - requestSize(fixed(extra)));
     while (unknown.length && requestSize(unknown) > Math.min(UNCLASSIFIED_BYTES, budget)) {unknown = unknown.slice(1); droppedUnknown++;}
     let cut = boundedTail(working, room([]));

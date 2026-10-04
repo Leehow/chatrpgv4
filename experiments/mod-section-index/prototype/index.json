@@ -1,0 +1,431 @@
+{
+  "_": "The section index of the seven packages that contribute Keeper instructions (docs/mods-catalogue.md). `kind`: resident (every turn) | situational. A situational section loads when any of its `topics` fires in the topic lane and every `gate` holds, or when a `trigger` fires in code (state: a capsule fact; host: a Keeper call or host event). `blocks`/`heading` cut the text from the shipped agent.md as sections.mjs does. Gate and trigger names are the closed list select.mjs implements; `before_apply:*` and `host_event:*` are host triggers the offline replay cannot fire (they are reported as such).",
+  "sections": [
+    {
+      "id": "nc/this-turn",
+      "mod": "narration-craft",
+      "heading": "This turn",
+      "kind": "resident"
+    },
+    {
+      "id": "nc/sentences",
+      "mod": "narration-craft",
+      "heading": "Sentences and paragraphs",
+      "kind": "resident"
+    },
+    {
+      "id": "nc/people",
+      "mod": "narration-craft",
+      "heading": "The people here",
+      "kind": "resident"
+    },
+    {
+      "id": "nc/scene",
+      "mod": "narration-craft",
+      "heading": "Scene and detail",
+      "kind": "resident"
+    },
+    {
+      "id": "nc/opening",
+      "mod": "narration-craft",
+      "heading": "Opening the table",
+      "kind": "situational",
+      "triggers": [
+        "state:opening"
+      ]
+    },
+    {
+      "id": "nc/settings",
+      "mod": "narration-craft",
+      "heading": "Settings",
+      "kind": "resident"
+    },
+    {
+      "id": "nn/impression",
+      "mod": "natural-npc",
+      "heading": "start",
+      "kind": "situational",
+      "topics": [
+        "speaks_to_person"
+      ],
+      "gates": [
+        "present_without_history"
+      ]
+    },
+    {
+      "id": "nn/asking",
+      "mod": "natural-npc",
+      "heading": "Asking for something",
+      "kind": "situational",
+      "topics": [
+        "asks_favour"
+      ]
+    },
+    {
+      "id": "nn/asker",
+      "mod": "natural-npc",
+      "heading": "What the asker is after",
+      "kind": "situational",
+      "topics": [
+        "asks_question"
+      ]
+    },
+    {
+      "id": "nn/language",
+      "mod": "natural-npc",
+      "heading": "The language of the exchange",
+      "kind": "situational",
+      "topics": [
+        "speaks_to_person"
+      ],
+      "gates": [
+        "language_gap"
+      ]
+    },
+    {
+      "id": "ei/documents",
+      "mod": "enhanced-items",
+      "blocks": [
+        1,
+        1
+      ],
+      "kind": "situational",
+      "topics": [
+        "readable"
+      ],
+      "triggers": [
+        "before_apply:document"
+      ]
+    },
+    {
+      "id": "ei/register",
+      "mod": "enhanced-items",
+      "blocks": [
+        2,
+        2
+      ],
+      "kind": "situational",
+      "topics": [
+        "carried_item"
+      ],
+      "gates": [
+        "unregistered_equipment"
+      ],
+      "triggers": [
+        "state:opening"
+      ],
+      "topic_threshold": 0.7
+    },
+    {
+      "id": "ei/define",
+      "mod": "enhanced-items",
+      "blocks": [
+        3,
+        3
+      ],
+      "kind": "situational",
+      "topics": [
+        "new_thing"
+      ],
+      "triggers": [
+        "before_apply:define",
+        "before_apply:object",
+        "before_apply:item"
+      ]
+    },
+    {
+      "id": "ei/manage",
+      "mod": "enhanced-items",
+      "blocks": [
+        4,
+        4
+      ],
+      "kind": "situational",
+      "topics": [
+        "new_thing",
+        "spell"
+      ],
+      "gates": [
+        "registered_instances"
+      ],
+      "triggers": [
+        "before_apply:object",
+        "before_resolve:objects",
+        "before_resolve:magic"
+      ]
+    },
+    {
+      "id": "ei/usage",
+      "mod": "enhanced-items",
+      "blocks": [
+        5,
+        5
+      ],
+      "kind": "situational",
+      "topics": [
+        "force_object"
+      ]
+    },
+    {
+      "id": "ei/refusal",
+      "mod": "enhanced-items",
+      "blocks": [
+        6,
+        6
+      ],
+      "kind": "situational",
+      "triggers": [
+        "host_event:refusal"
+      ]
+    },
+    {
+      "id": "kp/carry",
+      "mod": "keeper-pacing",
+      "blocks": [
+        1,
+        2
+      ],
+      "kind": "resident"
+    },
+    {
+      "id": "kp/lethal",
+      "mod": "keeper-pacing",
+      "blocks": [
+        3,
+        3
+      ],
+      "kind": "situational",
+      "topics": [
+        "lethal_risk"
+      ]
+    },
+    {
+      "id": "kp/clocks",
+      "mod": "keeper-pacing",
+      "blocks": [
+        4,
+        4
+      ],
+      "kind": "situational",
+      "topics": [
+        "time_passes"
+      ],
+      "gates": [
+        "threat_clock"
+      ]
+    },
+    {
+      "id": "kp/stuck",
+      "mod": "keeper-pacing",
+      "blocks": [
+        5,
+        5
+      ],
+      "kind": "situational",
+      "gates": [
+        "stall",
+        "no_topic"
+      ],
+      "topics": [
+        "*"
+      ]
+    },
+    {
+      "id": "kp/ooc",
+      "mod": "keeper-pacing",
+      "blocks": [
+        6,
+        6
+      ],
+      "kind": "situational",
+      "topics": [
+        "out_of_character"
+      ]
+    },
+    {
+      "id": "kp/recover",
+      "mod": "keeper-pacing",
+      "blocks": [
+        7,
+        7
+      ],
+      "kind": "situational",
+      "gates": [
+        "recover",
+        "no_topic"
+      ],
+      "topics": [
+        "*"
+      ]
+    },
+    {
+      "id": "kp/no-ladder",
+      "mod": "keeper-pacing",
+      "blocks": [
+        8,
+        8
+      ],
+      "kind": "resident"
+    },
+    {
+      "id": "st/clues",
+      "mod": "story-thread",
+      "blocks": [
+        1,
+        2
+      ],
+      "kind": "situational",
+      "triggers": [
+        "state:clue_here"
+      ],
+      "topics": [
+        "clue_search"
+      ]
+    },
+    {
+      "id": "st/reentry",
+      "mod": "story-thread",
+      "blocks": [
+        3,
+        7
+      ],
+      "kind": "situational",
+      "triggers": [
+        "state:reentry"
+      ]
+    },
+    {
+      "id": "st/handed",
+      "mod": "story-thread",
+      "blocks": [
+        8,
+        8
+      ],
+      "kind": "situational",
+      "triggers": [
+        "state:handed_clue_here"
+      ]
+    },
+    {
+      "id": "st/conclude",
+      "mod": "story-thread",
+      "blocks": [
+        9,
+        10
+      ],
+      "kind": "situational",
+      "topics": [
+        "conclusion"
+      ]
+    },
+    {
+      "id": "hr/lookup",
+      "mod": "historical-reference",
+      "blocks": [
+        0,
+        1
+      ],
+      "kind": "situational",
+      "triggers": [
+        "host_event:historical_materials"
+      ]
+    },
+    {
+      "id": "hr/bounds",
+      "mod": "historical-reference",
+      "blocks": [
+        2,
+        3
+      ],
+      "kind": "resident"
+    },
+    {
+      "id": "hr/prices",
+      "mod": "historical-reference",
+      "blocks": [
+        4,
+        4
+      ],
+      "kind": "situational",
+      "topics": [
+        "money"
+      ],
+      "triggers": [
+        "before_apply:cash"
+      ]
+    },
+    {
+      "id": "hr/dispute",
+      "mod": "historical-reference",
+      "blocks": [
+        5,
+        5
+      ],
+      "kind": "situational",
+      "topics": [
+        "price_dispute"
+      ]
+    },
+    {
+      "id": "hr/closure",
+      "mod": "historical-reference",
+      "blocks": [
+        6,
+        6
+      ],
+      "kind": "situational",
+      "triggers": [
+        "host_event:retrieval_closed"
+      ]
+    },
+    {
+      "id": "zh/speech",
+      "mod": "zh-optimize",
+      "blocks": [
+        1,
+        1
+      ],
+      "kind": "resident",
+      "language": "zh"
+    },
+    {
+      "id": "kc/workspace",
+      "mod": "keeper-context",
+      "blocks": [
+        1,
+        4
+      ],
+      "kind": "situational",
+      "triggers": [
+        "host_event:workspace"
+      ]
+    }
+  ],
+  "topics_file": "../topics.json",
+  "extra_topics": [
+    {
+      "id": "spell",
+      "trigger": "jev",
+      "what": "A spell, ritual or incantation is cast, learned, studied, attempted or discussed as something the investigator might do.",
+      "not_for": "A Mythos book merely carried or opened; a rite seen performed by others.",
+      "examples": [
+        "我试着念出那页上的咒文",
+        "照书上说的画一个圆",
+        "我想学这个法术"
+      ]
+    },
+    {
+      "id": "time_passes",
+      "trigger": "jev",
+      "what": "The declared action spends real time or draws attention: waiting, resting, sleeping, a long search or job, travel, working through records, making noise, lighting a fire, being seen or heard.",
+      "not_for": "A quick exchange of words; a glance; a single immediate act.",
+      "examples": [
+        "我在旅馆睡一晚",
+        "把整个档案室翻一遍",
+        "在棚下等到天黑",
+        "开车去下一个镇"
+      ]
+    }
+  ],
+  "_notes_20261004": "After the first full replay (59 turns): st/clues gains the clue_search topic (the section also carries 'where next'); ei/manage drops carried_item (14 false loads, 2 needed); kp/clocks becomes topic time_passes gated on a running clock (21 loads, 1 needed when state-only); the first-impression gate reads last_spoke_turn (met_turns already counts the opening scene). After the third replay: the stall and recover sections load only when their counter is up AND the words involve no topic (the stuck case: a stalled counter with nothing to do), halving the loads at equal recall; the register section asks carried_item at 0.7."
+}

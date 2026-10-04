@@ -1,0 +1,9 @@
+{"schema_version": 1, "sections": [
+  {"heading": "Carrying the selected goal", "kind": "resident"},
+  {"heading": "Close calls", "kind": "situational", "topics": ["lethal_risk"]},
+  {"heading": "Threat clocks", "kind": "situational", "topics": ["time_passes"], "gates": ["threat_clock"]},
+  {"heading": "Stalled turns", "kind": "situational", "topics": ["*"], "gates": ["stall", "no_topic"]},
+  {"heading": "A stuck or confused player", "kind": "situational", "topics": ["out_of_character"]},
+  {"heading": "Empty and repeated turns", "kind": "situational", "topics": ["*"], "gates": ["recover", "no_topic"]},
+  {"heading": "No escalation ladder", "kind": "resident"}
+]}

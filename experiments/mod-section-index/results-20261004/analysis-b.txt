@@ -1,0 +1,56 @@
+labelled inputs 110, cards 18, positive pairs 262 / 1980
+
+== rows-bJ.jsonl {'state': 'context', 'card': 'structured', 'lang': 'en', 'decoys': False, 'shape': 'noul', 'cards': 'cards.v2.json', 'ask': 'situation'}  judged cards=9 n=110 errors=0  ms p50=316 p95=503  input_tokens p50=2612  state_bytes p50=5820
+  thr 0.35: P 0.53 R 0.86 F1 0.66  (tp 85 fp 75 fn 14)
+  thr 0.50: P 0.59 R 0.79 F1 0.68  (tp 78 fp 54 fn 21)
+  thr 0.60: P 0.65 R 0.77 F1 0.70  (tp 76 fp 41 fn 23)
+  thr 0.70: P 0.70 R 0.74 F1 0.72  (tp 73 fp 31 fn 26)
+  all gold cards within top-2: 63/73 = 0.86
+  all gold cards within top-3: 69/73 = 0.95
+  all gold cards within top-4: 69/73 = 0.95
+  per card (gold yes: recall@0.5 / fp@0.5):
+    ei/define      yes= 12 recall=0.00 fp=0
+    ei/documents   yes= 27 recall=0.00 fp=0
+    ei/manage      yes=  4 recall=0.00 fp=0
+    ei/register    yes=  7 recall=0.86 fp=33
+    ei/usage       yes=  0 recall=nan fp=1
+    hr/dispute     yes=  1 recall=1.00 fp=0
+    hr/prices      yes= 30 recall=0.60 fp=8
+    kp/clocks      yes=  4 recall=0.00 fp=0
+    kp/lethal      yes=  1 recall=0.00 fp=2
+    kp/ooc         yes=  4 recall=0.50 fp=2
+    kp/stuck       yes=  2 recall=0.00 fp=0
+    nn/asker       yes= 45 recall=0.98 fp=4
+    nn/asking      yes= 10 recall=0.60 fp=4
+    nn/impression  yes= 38 recall=0.00 fp=0
+    st/clues       yes= 47 recall=0.00 fp=0
+    st/conclude    yes=  1 recall=1.00 fp=0
+    st/handed      yes= 29 recall=0.00 fp=0
+
+== rows-bL.jsonl {'state': 'context', 'card': 'structured', 'lang': 'en', 'decoys': True, 'shape': 'noul', 'cards': 'cards.v2.json', 'ask': 'situation'}  judged cards=9 n=109 errors=1  ms p50=371 p95=602  input_tokens p50=9343  state_bytes p50=14404
+  thr 0.35: P 0.53 R 0.88 F1 0.66  (tp 87 fp 78 fn 12)
+  thr 0.50: P 0.59 R 0.79 F1 0.67  (tp 78 fp 55 fn 21)
+  thr 0.60: P 0.64 R 0.77 F1 0.70  (tp 76 fp 43 fn 23)
+  thr 0.70: P 0.70 R 0.74 F1 0.72  (tp 73 fp 31 fn 26)
+  all gold cards within top-2: 50/73 = 0.68
+  all gold cards within top-3: 59/73 = 0.81
+  all gold cards within top-4: 62/73 = 0.85
+  per card (gold yes: recall@0.5 / fp@0.5):
+    ei/define      yes= 12 recall=0.00 fp=0
+    ei/documents   yes= 27 recall=0.00 fp=0
+    ei/manage      yes=  4 recall=0.00 fp=0
+    ei/register    yes=  7 recall=0.86 fp=33
+    ei/usage       yes=  0 recall=nan fp=1
+    hr/dispute     yes=  1 recall=1.00 fp=0
+    hr/prices      yes= 30 recall=0.60 fp=6
+    kp/clocks      yes=  4 recall=0.00 fp=0
+    kp/lethal      yes=  1 recall=0.00 fp=3
+    kp/ooc         yes=  4 recall=0.50 fp=2
+    kp/stuck       yes=  2 recall=0.00 fp=0
+    nn/asker       yes= 45 recall=0.98 fp=4
+    nn/asking      yes= 10 recall=0.60 fp=5
+    nn/impression  yes= 38 recall=0.00 fp=0
+    st/clues       yes= 46 recall=0.00 fp=0
+    st/conclude    yes=  1 recall=1.00 fp=1
+    st/handed      yes= 28 recall=0.00 fp=0
+  decoys firing >=0.5: 104 pairs over 109 inputs; top [('x/auto-refuel', 18), ('x/servants', 16), ('x/press-archive', 11), ('x/library-research', 9), ('x/religion-church', 7), ('x/drink-bar', 6)]

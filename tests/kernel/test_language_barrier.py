@@ -9,7 +9,7 @@ from test_mod_vocabulary import (
 )
 
 
-def test_unknown_language_policy_reaches_both_instruction_forms_and_ordinary_audit(tmp_path):
+def test_unknown_language_policy_reaches_every_turn_and_ordinary_audit(tmp_path):
     client = emitted_client(tmp_path / "ws")
     try:
         mid, _ = built_module(client, tmp_path, {"agenda": "Sell fuel."})
@@ -54,12 +54,11 @@ def test_unknown_language_policy_reaches_both_instruction_forms_and_ordinary_aud
         client.ok("table.narrate", {"campaign": campaign, "call_id": "t1-c1",
                                     "text": "The tenant points to the pump."})
         open_turn(client, campaign)
-        brief = next(row for row in client.ok("table.capsule", {"campaign": campaign})["mods"]["instructions"]
+        # §183: the brief is retired; a later turn carries the same whole instruction.
+        later = next(row for row in client.ok("table.capsule", {"campaign": campaign})["mods"]["instructions"]
                      if row["mod"] == "natural-npc")
-        assert brief["form"] == "brief"
-        assert "Missing `speaks` is unknown, not shared fluency" in brief["instruction"]
-        assert "Player words are intent, not fluent speech" in brief["instruction"]
-        assert "Language values limit both directions" in brief["instruction"]
+        assert later["form"] == "full"
+        assert later["instruction"] == full["instruction"]
     finally:
         client.close()
 

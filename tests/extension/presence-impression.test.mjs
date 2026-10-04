@@ -178,8 +178,8 @@ test('a contact check still pends and is never rolled by the kernel', async t =>
 });
 
 test('a package that declares a presence check must require checks.presence.v1', async () => {
-  const files = new Map();
-  for (const name of ['mod.json', 'agent.md', 'brief.md', 'auditor.md']) files.set(name, await readFile(join(root, 'mods/natural-npc', name)));
+  const files = new Map([['mod.json', await readFile(join(root, 'mods/natural-npc/mod.json'))]]);
+  for (const name of JSON.parse(files.get('mod.json').toString('utf8')).package_files) files.set(name, await readFile(join(root, 'mods/natural-npc', name)));
   assert.equal(api.manifestFrom(files).version, '1.5.0');
   const manifest = JSON.parse(files.get('mod.json').toString('utf8'));
   manifest.requires = manifest.requires.filter(value => value !== 'checks.presence.v1');

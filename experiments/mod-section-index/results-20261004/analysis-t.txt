@@ -1,0 +1,25 @@
+judge agreement on packet 1: 356/364 = 0.978 (yes counts 90 vs 82)
+labelled inputs 110, cards 13, positive pairs 299 / 1430
+
+== rows-T.jsonl {'state': 'context', 'card': 'structured', 'lang': 'en', 'decoys': False, 'shape': 'noul', 'cards': 'topics.json', 'ask': 'situation'}  judged cards=13 n=110 errors=0  ms p50=334 p95=577  input_tokens p50=3456  state_bytes p50=7628
+  thr 0.35: P 0.84 R 0.90 F1 0.87  (tp 270 fp 50 fn 29)
+  thr 0.50: P 0.92 R 0.87 F1 0.89  (tp 259 fp 22 fn 40)
+  thr 0.60: P 0.95 R 0.83 F1 0.88  (tp 247 fp 13 fn 52)
+  thr 0.70: P 0.97 R 0.75 F1 0.84  (tp 224 fp 8 fn 75)
+  all gold cards within top-2: 39/102 = 0.38
+  all gold cards within top-3: 61/102 = 0.60
+  all gold cards within top-4: 77/102 = 0.75
+  per card (gold yes: recall@0.5 / fp@0.5):
+    asks_favour    yes= 15 recall=0.87 fp=2
+    asks_question  yes= 48 recall=0.98 fp=1
+    carried_item   yes= 30 recall=1.00 fp=8
+    clue_search    yes= 40 recall=0.55 fp=4
+    conclusion     yes=  2 recall=0.00 fp=0
+    force_object   yes=  1 recall=1.00 fp=0
+    lethal_risk    yes=  1 recall=1.00 fp=0
+    money          yes= 32 recall=0.91 fp=0
+    new_thing      yes= 21 recall=0.81 fp=4
+    out_of_character yes=  8 recall=0.88 fp=1
+    price_dispute  yes=  1 recall=1.00 fp=0
+    readable       yes= 28 recall=0.82 fp=1
+    speaks_to_person yes= 72 recall=0.94 fp=1
