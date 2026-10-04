@@ -26981,8 +26981,10 @@ schema change.
 within this section as written. No row was shorter than speaking briefly (`[0, 3]`), and time is charged once a turn, so the
 Keeper could not settle it lower afterwards.
 
-**The rule.** `time-costs.categories` gains `momentary` `{min 0, default 0, max 1}`. It is the table's first row; the order is
-only the order of the band question's options. It reaches the clerk the way every row does:
+**The rule.** `time-costs.categories` gains `momentary` `{min 0, default 0, max 1}` as its **last** row. The sixteen rows before it keep
+their handles, values and positions: each position still equals that row's `time-cost-category` ordinal in the director graph.
+The table order is otherwise only the order of the band question's options; the choice is by row, not by position. It reaches the
+clerk the way every row does:
 - `rules.bands` lists it;
 - the declared-time candidate offers it in its closed band choice, labelled by the row's own handle and range;
 - the Keeper may name it on `apply time {band}`;
@@ -26999,8 +27001,11 @@ only the order of the band question's options. It reaches the clerk the way ever
 - the other rows, the gates, and when the clerk lands a band;
 - the road rows (§138.9), whose fill reads only `local_travel` and `long_travel`;
 - `content/director/director-graph.json`, whose `time-cost-category` vocabulary nodes the TS kernel never reads (§13.10), so
-  `momentary` has no node there;
-- `rule-index.json`'s `category_count`, which no one reads (it already said 15 against 16).
+  `momentary` has no node there; the graph is digest-guarded by its manifest, and the sixteen nodes it has still match the
+  table's first sixteen rows by name and ordinal;
+- `rule-index.json`'s `core.time.cost_categories` row. `lookup kind=rule` returns its `numeric.category_count` (15, stale before
+  this row since the table already had 16) and its `source_note`, an older description. Correcting them is a separate data
+  edit, not made here.
 
 **Tests.** `tests/extension/time-band-momentary.test.mjs`:
 - **On the emitted kernel.** `rules.bands` lists the row with its range and default. `apply time {band: "momentary"}` rolls 0
@@ -27008,7 +27013,7 @@ only the order of the band question's options. It reaches the clerk the way ever
 - **Through the hybrid engine over the haunting with a stub Jev.** The band question offers `momentary` beside the kernel's
   other rows. Naming it charges one time receipt of 0 or 1 minute.
 
-`tests/extension/band-shadow.test.mjs` pins the shipped rows, and now pins `momentary` first. Three mutations of the data row
+`tests/extension/band-shadow.test.mjs` pins the shipped rows, and now pins `momentary` last. Three mutations of the data row
 (dropped, `max` 5, `default` 1) each turn a case red.
 
 ## 139. An excerpt a model copied out of delivered text is located with quotation marks as one class (2026-09-26; amends §12.5's `table.warn` anchoring and the continuity-review rows)

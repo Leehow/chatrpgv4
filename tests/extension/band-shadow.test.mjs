@@ -20,9 +20,9 @@ const PLAYER = "我把书房的每个抽屉都拉开，一格一格地翻。";
 // A sentence and numbers only the Keeper's own call carries: none of them may reach the question.
 const WHY = "SENTINEL-WHY the Keeper's own account of the minutes";
 const ENV = { EXT_JEV_APIKEY: "test-jev-key" };
-const TIME_ROWS = ["momentary", "speak_briefly", "quick_observation", "single_room_search", "careful_house_search", "library_research",
+const TIME_ROWS = ["speak_briefly", "quick_observation", "single_room_search", "careful_house_search", "library_research",
 	"first_aid", "medicine_treatment", "short_rest", "sleep_night", "therapy_week", "therapy_month", "spell_learning",
-	"tome_study", "investigation_recovery"];
+	"tome_study", "investigation_recovery", "momentary"];
 const RUNGS = ["minor", "moderate", "severe", "deadly", "terminal", "splat"];
 
 const isShadow = (body) => Object.hasOwn(body.questions, "time_cost") || Object.hasOwn(body.questions, "severity");
