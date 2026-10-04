@@ -26,14 +26,17 @@ const text = (value: unknown): string => typeof value === 'string' ? value.trim(
 export const CAST_FILE = 'cast.json';
 /** The native text the cast reader was handed, kept by the kernel so `cast.submit` checks against its own copy. */
 export const CAST_SOURCE_FILE = 'cast-source.json';
-/** 3 since table 24: versions 1 and 2 folded rows that shared a bare first name into one person, so their files are read again. */
-export const CAST_VERSION = 3;
+/**
+ * 4 since table 27: rows carry `notes`, the names as this game's own notes write them (§177.14); a version-3 file has none and is
+ * read again. 3 since table 24: versions 1 and 2 folded rows that shared a bare first name into one person.
+ */
+export const CAST_VERSION = 4;
 
 /** One person of the book (§177.1). */
 export interface CastPerson {
     /** The graph handle when the graph has them; else the stored row's opaque id (`cast-<hex>`). */
     id: string;
-    /** Every name: the graph's (name, display name, aliases) and the stored rows' book names and play renderings. */
+    /** Every name: the graph's (name, display name, aliases) and the stored rows' book names, play renderings and notes renderings. */
     names: string[];
     /** Physical pages, 1-based. */
     pages: number[];
@@ -73,17 +76,19 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
     const fullName = (node: Row) => [node.name, graph.displayName(node)].filter((value): value is string => typeof value === 'string' && !!value.trim()).map(normalize);
     for (const raw of stored) {
         const entry = row(raw), id = text(entry.id);
-        const names = [...new Set([...array(entry.book), ...array(entry.play)].map(text).filter(Boolean))];
+        // §177.14: the notes renderings are names to hide and to refuse, never forms a delivery is checked for (`printed`).
+        const shown = [...new Set([...array(entry.book), ...array(entry.play)].map(text).filter(Boolean))];
+        const names = [...new Set([...shown, ...array(entry.notes).map(text).filter(Boolean)])];
         if (!id || !names.length) continue;
         const pages = array(entry.pages).filter(page => Number.isSafeInteger(page) && page >= 1);
-        const forms = new Set(names.map(normalize));
+        const forms = new Set(shown.map(normalize));
         const fullest = [...array(entry.book).map(text).filter(Boolean)].sort((a, b) => [...b].length - [...a].length)[0];
         const hits = new Set(people.flatMap((person, index) => person.node && (fullName(person.node).some(name => forms.has(name))
             || (fullest && person.names.some(name => normalize(name) === normalize(fullest)))) ? [index] : []));
         if (hits.size === 1) {
             const person = people[[...hits][0]!]!;
             for (const name of names) if (!person.names.some(other => normalize(other) === normalize(name))) person.names.push(name);
-            for (const name of names) if (!person.printed.some(other => normalize(other) === normalize(name))) person.printed.push(name);
+            for (const name of shown) if (!person.printed.some(other => normalize(other) === normalize(name))) person.printed.push(name);
             person.pages = [...new Set([...person.pages, ...pages])].sort((a, b) => a - b);
             person.castIds.push(id);
             continue;
@@ -93,7 +98,7 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         const own = names;
         const first = isJsonObject(entry.first) && Number.isSafeInteger(entry.first.page) && typeof entry.first.sentence === 'string'
             ? { page: Number(entry.first.page), sentence: entry.first.sentence } : undefined;
-        people.push({ id, names: own, pages, node: null, castIds: [id], printed: own, ...(first ? { first } : {}) });
+        people.push({ id, names: own, pages, node: null, castIds: [id], printed: shown, ...(first ? { first } : {}) });
     }
     memo.set(graph, people);
     return people;

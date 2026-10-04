@@ -32992,7 +32992,7 @@ All seven were minted as new table people:
 
 The cast is one row per individual the book names (`bookCast`, `kernel-ts/read/cast.ts`):
 - **The graph's people.** Every `npc` node that is not a table person, with every name the book gives them (`bookNames`).
-- **The cast reader's rows** for a PDF book (§177.2), each with the forms the book prints and their play-language renderings.
+- **The cast reader's rows** for a PDF book (§177.2), each with the forms the book prints, their play-language renderings and their notes renderings (§177.14).
 
 A stored row joins a graph person only by a whole identity (normalized): the person's own name or display name is one of the row's forms, or the row's fullest printed form is one of the person's names. The person then carries every name of both, and the row's id rides along as one of their `castIds`.
 
@@ -33027,16 +33027,16 @@ A module that plays from reading (`playsFromReading`) gets its cast once per bou
 - **`cast.source {module_id, campaign?, job_id, pages: [{page, text}]}`** keeps the host-extracted text as the kernel's own copy, in `cast-source.json`, and answers `{state: "ready", ranges}`. A book with no text on any page gets `cast.json` `{state: "unavailable", reason: "no_text_layer"}`, and every check falls back to the graph's people (owner's Q2).
 - **`cast.range {module_id, campaign?, job_id, index}`** writes that range's working directory:
   - `pages/page-NNNN.txt`, the range's pages that have text;
-  - `task.json`, with `range`, `pages_with_text`, `play_language`, and `known_cast` (the rows earlier ranges kept, `{book, play}`).
+  - `task.json`, with `range`, `pages_with_text`, `play_language`, and `known_cast` (the rows earlier ranges kept, `{book, play, notes}`).
 
   It answers `{cwd, index, first, last, pages_with_text, known}`.
 - **`cast.submit {module_id, campaign?, job_id, index}`** checks that range's `draft.json` against the kernel's copy (`checkCastDraft`, `kernel-ts/cast/draft.ts`) and folds the accepted rows into `cast.json` (`mergeCastRows`).
-  - The file is `{version: 1, source_sha256, state: "partial" | "complete", people: [{id, book, play, pages, first?}], ranges_done, ranges_total}`.
+  - The file is `{version: 1, source_sha256, state: "partial" | "complete", people: [{id, book, play, notes, pages, first?}], ranges_done, ranges_total}` (`version` is `CAST_VERSION`, 4 since §177.14).
   - It answers `{state, people, accepted, refused, ranges_done, ranges_total}`.
   - A partial cast is as true as a complete one, only shorter: `bookCast` and the reader packets use it.
 
-**The draft.** It is `{people: [{book, play, pages}]}`, with no other keys.
-- `book` and `play` are each a non-empty list of names of 2–60 characters on one line, with no `{{`, at most 16 together.
+**The draft.** It is `{people: [{book, play, notes, pages}]}`, with no other keys.
+- `book`, `play` and `notes` are each a non-empty list of names of 2–60 characters on one line, with no `{{`, at most 24 together (16 for `book` and `play` before §177.14).
 - `pages` are distinct pages of the range.
 
 **The check.**
@@ -33146,6 +33146,17 @@ Tests: `tests/extension/module-cast.test.mjs`: a made-up name refused with `not_
 **The rule** (`kernel-ts/memory/recall.ts`). A name in `about` that neither the index nor its loose match finds goes through the person junction (`personNode`, §87.8): the graph's actor, then the word this table calls someone (§79, §176.2). Found, it stands for that person's npc key, so memory rows (which name people by the book's name) match it. Two owners of one word are refused as the junction refuses them; a word nobody carries is refused as before.
 
 Tests: `tests/extension/module-cast.test.mjs`: recall by an epithet resolves to the person; an unknown word is still refused.
+
+### 177.14 The names the game's own notes use (table 27; `CAST_VERSION` 4)
+
+**Evidence.** Table 27 (App `e634c3eb0`, Blood Road), turn 6. The reader writes some of the graph's fields in the system language (`source_needs[].question` and `trigger`; also its drafts and the character guidance), and there it called the station owner "Lars": "Playable numeric profile … for Lars if a roll or fight occurs at the station". The book is the Chinese edition and the cast held only its forms (拉斯, 拉斯·威廉姆斯), so the request's rename (§103.5) left "Lars" in place. The Keeper reasoned that the owner "is likely named Lars". Nothing reached a delivery.
+
+**The rule.**
+- Each cast row carries **`notes`**: every form as the language of the reader's instructions writes it. The game keeps its own notes about the book in that language. For a book written in it, `notes` repeats the printed forms; otherwise it is the rendering a translator into that language would use, for a translated book the original edition's names when the reader knows them. `content/setup/module-cast.md` asks for it; the draft refuses a row without it (`shape`), and `mergeCastRows` keeps it like `play`.
+- `bookCast` adds the notes renderings to the person's `names`: the request's rename, the newcomer refusal, the journal's label and named checks, and the epithet withdrawal all read them. They are never `printed`: §177.11's delivery check reads only the book's forms and the play language's renderings, and a stored row joins a graph person only by those.
+- `CAST_VERSION` is 4. A version-3 file has no `notes`, so `storedCast` reads it as absent and the book's cast is read again once, in the background (§177.2).
+
+Tests: `tests/extension/module-cast.test.mjs`: a row's notes rendering joins the person's names, is renamed by the roster and refused for a newcomer, and is not printed; a draft row without `notes` is refused.
 
 ### 177.9 Writers, readers, actor (§31)
 

@@ -15,8 +15,8 @@ import { normalize, type Row } from '../read/values.js';
 
 /** The longest name, as §40.1's name text is (`WORD_LIMIT`). */
 export const CAST_NAME_LIMIT = 60;
-/** Names one person may carry, book and play together. */
-export const CAST_NAMES_PER_PERSON = 16;
+/** Names one person may carry, book, play and notes together. */
+export const CAST_NAMES_PER_PERSON = 24;
 /** People one draft may list. */
 export const CAST_PEOPLE_LIMIT = 600;
 /** The first mention's sentence is cut to this many characters around the name (§11.5.4's `PASSAGE_SENTENCE_CHARS`). */
@@ -26,10 +26,10 @@ export const CAST_SENTENCE_CHARS = 300;
 export const castPageFile = (page: number): string => `page-${String(page).padStart(4, '0')}.txt`;
 
 /** One accepted row as `cast.json` keeps it. */
-export interface CastRowStored { id: string; book: string[]; play: string[]; pages: number[]; first?: { page: number; sentence: string } }
+export interface CastRowStored { id: string; book: string[]; play: string[]; notes: string[]; pages: number[]; first?: { page: number; sentence: string } }
 export interface CastRefusal { index: number; reason: string; message: string; fix: string }
 
-const KEYS = ['book', 'play', 'pages'];
+const KEYS = ['book', 'play', 'notes', 'pages'];
 
 /** `text` compacted the way `passageKey` compacts a name, with each kept unit's index in `text`. */
 function compacted(text: string): { key: string; at: number[] } {
@@ -84,7 +84,7 @@ const nameShape = (value: unknown): value is string => typeof value === 'string'
     && !value.includes('\n') && !value.includes('{{') && [...passageKey(value)].length >= 2;
 
 /**
- * Check a draft `{people: [{book, play, pages}]}` against `pages` (1-based page number to its native text). Accepted rows that
+ * Check a draft `{people: [{book, play, notes, pages}]}` against `pages` (1-based page number to its native text). Accepted rows that
  * share a book name are one person (`passageKey` equality, nothing by meaning), merged in the draft's order.
  */
 export interface CastCheckScope {
@@ -95,22 +95,25 @@ export interface CastCheckScope {
 }
 export function checkCastDraft(draft: unknown, pages: ReadonlyMap<number, string>, pageCount: number, scope: CastCheckScope = {}): { people: CastRowStored[]; refused: CastRefusal[]; error?: string } {
     if (!isJsonObject(draft) || !Array.isArray(draft.people) || Object.keys(draft).some(key => key !== 'people'))
-        return { people: [], refused: [], error: 'the draft is {"people": [{"book": [...], "play": [...], "pages": [...]}]} and nothing else' };
+        return { people: [], refused: [], error: 'the draft is {"people": [{"book": [...], "play": [...], "notes": [...], "pages": [...]}]} and nothing else' };
     if (draft.people.length > CAST_PEOPLE_LIMIT)
         return { people: [], refused: [], error: `a draft lists at most ${CAST_PEOPLE_LIMIT} people` };
-    const accepted: Array<{ book: string[]; play: string[]; pages: number[]; first: { page: number; sentence: string } | null }> = [], refused: CastRefusal[] = [];
+    const accepted: Array<{ book: string[]; play: string[]; notes: string[]; pages: number[]; first: { page: number; sentence: string } | null }> = [], refused: CastRefusal[] = [];
     draft.people.forEach((raw: unknown, index: number) => {
         const refuse = (reason: string, message: string, fix: string) => { refused.push({ index, reason, message, fix }); };
         if (!isJsonObject(raw) || Object.keys(raw).some(key => !KEYS.includes(key)))
-            return refuse('shape', `people[${index}] must be {"book", "play", "pages"} and nothing else`, 'write the row with exactly those three keys');
-        const book = Array.isArray(raw.book) ? raw.book : [], play = Array.isArray(raw.play) ? raw.play : [], cited = Array.isArray(raw.pages) ? raw.pages : [];
-        if (!book.length || !book.every(nameShape) || !play.length || !play.every(nameShape) || book.length + play.length > CAST_NAMES_PER_PERSON)
-            return refuse('shape', `people[${index}]: book and play are each a non-empty list of names of 2-${CAST_NAME_LIMIT} characters on one line, at most ${CAST_NAMES_PER_PERSON} together`,
-                'keep each name as the book prints it in book and as the play language writes it in play');
+            return refuse('shape', `people[${index}] must be {"book", "play", "notes", "pages"} and nothing else`, 'write the row with exactly those four keys');
+        const book = Array.isArray(raw.book) ? raw.book : [], play = Array.isArray(raw.play) ? raw.play : [], notes = Array.isArray(raw.notes) ? raw.notes : [];
+        const cited = Array.isArray(raw.pages) ? raw.pages : [];
+        if (!book.length || !book.every(nameShape) || !play.length || !play.every(nameShape) || !notes.length || !notes.every(nameShape)
+            || book.length + play.length + notes.length > CAST_NAMES_PER_PERSON)
+            return refuse('shape', `people[${index}]: book, play and notes are each a non-empty list of names of 2-${CAST_NAME_LIMIT} characters on one line, at most ${CAST_NAMES_PER_PERSON} together`,
+                'keep each name as the book prints it in book, as the play language writes it in play, and as these instructions\' language writes it in notes');
         const first = scope.range?.first ?? 1, last = scope.range?.last ?? pageCount;
         if (!cited.length || cited.some((page: unknown) => !Number.isSafeInteger(page) || Number(page) < first || Number(page) > last) || new Set(cited).size !== cited.length)
             return refuse('shape', `people[${index}].pages must be distinct physical page numbers from ${first} to ${last}`, 'cite only the page files you were given, and each once');
         const names = [...new Set(book.map((name: string) => name.trim()))], renderings = [...new Set(play.map((name: string) => name.trim()))];
+        const noted = [...new Set(notes.map((name: string) => name.trim()))];
         const sorted = [...cited as number[]].sort((a, b) => a - b);
         let firstSeen: { page: number; sentence: string } | null = null;
         const missing: string[] = [];
@@ -130,12 +133,12 @@ export function checkCastDraft(draft: unknown, pages: ReadonlyMap<number, string
         }
         if (missing.length)
             return refuse('not_on_page', `people[${index}]: ${missing.map(name => JSON.stringify(name)).join(', ')} does not stand on any of pages ${sorted.join(', ')} as the text layer has it`,
-                `add the page where the book prints ${missing.length > 1 ? 'each of them' : 'it'} to pages, or move a name the book never prints to play`);
+                `add the page where the book prints ${missing.length > 1 ? 'each of them' : 'it'} to pages, or move a name the book never prints to play or notes`);
         if (!firstSeen) for (const name of names) for (const page of sorted) {
             const sentence = sentenceNaming(pages.get(page) ?? '', name);
             if (sentence && (!firstSeen || page < firstSeen.page)) firstSeen = { page, sentence };
         }
-        accepted.push({ book: names, play: renderings, pages: sorted, first: firstSeen });
+        accepted.push({ book: names, play: renderings, notes: noted, pages: sorted, first: firstSeen });
     });
     // One row is one person, as the reader wrote it: two rows that share a printed form are two people who share it (table
     // 24: the reader gave a bare first name to the bar owner and to the doctor, and folding on it made them one person).
@@ -144,7 +147,7 @@ export function checkCastDraft(draft: unknown, pages: ReadonlyMap<number, string
         let id = castRowId(row.book);
         for (let n = 2; ids.has(id); n++) id = `${castRowId(row.book)}-${n}`;
         ids.add(id);
-        return { id, book: row.book.slice(0, CAST_NAMES_PER_PERSON), play: row.play.slice(0, CAST_NAMES_PER_PERSON), pages: row.pages, ...(row.first ? { first: row.first } : {}) };
+        return { id, book: row.book.slice(0, CAST_NAMES_PER_PERSON), play: row.play.slice(0, CAST_NAMES_PER_PERSON), notes: row.notes.slice(0, CAST_NAMES_PER_PERSON), pages: row.pages, ...(row.first ? { first: row.first } : {}) };
     });
     return { people, refused };
 }
@@ -157,7 +160,7 @@ export function checkCastDraft(draft: unknown, pages: ReadonlyMap<number, string
  * reader gave the bar owner and the doctor one bare first name. Nothing joins by meaning.
  */
 export function mergeCastRows(stored: readonly CastRowStored[], incoming: readonly CastRowStored[]): CastRowStored[] {
-    const kept = stored.map(row => ({ ...row, book: [...row.book], play: [...row.play], pages: [...row.pages] }));
+    const kept = stored.map(row => ({ ...row, book: [...row.book], play: [...row.play], notes: [...row.notes], pages: [...row.pages] }));
     const out = [...kept];
     const fullest = (row: CastRowStored) => [...row.book].sort((a, b) => [...b].length - [...a].length)[0] ?? '';
     const carries = (row: CastRowStored, name: string) => row.book.some(other => passageKey(other) === passageKey(name));
@@ -169,11 +172,13 @@ export function mergeCastRows(stored: readonly CastRowStored[], incoming: readon
             let id = row.id;
             for (let n = 2; ids.has(id); n++) id = `${row.id}-${n}`;
             ids.add(id);
-            out.push({ ...row, id, book: [...row.book], play: [...row.play], pages: [...row.pages] });
+            out.push({ ...row, id, book: [...row.book], play: [...row.play], notes: [...row.notes], pages: [...row.pages] });
             continue;
         }
-        for (const name of row.book) if (into.book.length + into.play.length < CAST_NAMES_PER_PERSON && !carries(into, name)) into.book.push(name);
-        for (const name of row.play) if (into.book.length + into.play.length < CAST_NAMES_PER_PERSON && !into.play.some(other => normalize(other) === normalize(name))) into.play.push(name);
+        const room = () => into.book.length + into.play.length + into.notes.length < CAST_NAMES_PER_PERSON;
+        for (const name of row.book) if (room() && !carries(into, name)) into.book.push(name);
+        for (const name of row.play) if (room() && !into.play.some(other => normalize(other) === normalize(name))) into.play.push(name);
+        for (const name of row.notes) if (room() && !into.notes.some(other => normalize(other) === normalize(name))) into.notes.push(name);
         into.pages = [...new Set([...into.pages, ...row.pages])].sort((a, b) => a - b);
         if (row.first && (!into.first || row.first.page < into.first.page)) into.first = row.first;
     }

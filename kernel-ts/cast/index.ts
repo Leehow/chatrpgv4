@@ -133,7 +133,7 @@ export function createCastHandlers(context: KernelContext): HandlerGroup {
                 await writeFile(join(folder, castPageFile(page)), text);
                 written.push(page);
             }
-            const known = array(kept?.people).map(person => ({ book: array(row(person).book), play: array(row(person).play) }));
+            const known = array(kept?.people).map(person => ({ book: array(row(person).book), play: array(row(person).play), notes: array(row(person).notes) }));
             await writeJsonAtomic(join(cwd, 'task.json'), { job_id: jobIdOf(sha), purpose: 'cast', page_count: pageCount(meta), play_language: await languageOf(campaign),
                 range: { index: range.index, first: range.first, last: range.last }, pages_with_text: written, known_cast: known,
                 page_files: 'pages/page-NNNN.txt (zero-padded to four digits)', draft: 'draft.json' });
