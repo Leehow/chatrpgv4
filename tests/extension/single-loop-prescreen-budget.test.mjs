@@ -30,6 +30,7 @@ import { BIND_FAMILY, createStepPolicy, ROUTE_FAMILY } from "../../runtime/jev/s
 import { COMPILE_FAMILY } from "../../runtime/jev/route-compile.ts";
 import { isRunEvent } from "./pi-agent-core.mjs";
 import { PRESELECT_ALLOWANCE_DEFAULT_MS } from "../../extensions/jev/agent/config.js";
+import { pinContactImpression } from "./natural-npc-contact.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -160,11 +161,12 @@ function kernelSteps(workspace, campaign, requests) {
 	return frames;
 }
 // The table has been told where to dig (turn 1's lead clue), so the kernel issues the Globe as a move.
-const toldWhereToDig = (workspace) => kernelSteps(workspace, "test-camp", [
-	["table.open", {}], ["table.player_input", { text: "I listen" }],
+const told = [["table.open", {}], ["table.player_input", { text: "I listen" }],
 	["table.apply", { call_id: "t1-c1", effects: [{ kind: "clue", clue: "knott-research-leads", how: "he said so" }] }],
-	["table.narrate", { call_id: "t1-c2", text: "He hands you a paper with the places on it." }],
-]);
+	["table.narrate", { call_id: "t1-c2", text: "He hands you a paper with the places on it." }]];
+const toldWhereToDig = (workspace) => kernelSteps(workspace, "test-camp", told);
+/** The same table locked to natural-npc 1.4.4 (§178.5): Knott's first impression is still a check nobody has judged. */
+const toldWhereToDigBeforePresence = (workspace) => kernelSteps(workspace, "test-camp", [...pinContactImpression(), ...told]);
 
 /**
  * SL-87: a manual clock (the `TaskClock` shape: `now` and `schedule`) for a test whose subject is a wall-clock budget. Time moves
@@ -381,7 +383,9 @@ test("at the extension seam the one jev_budget compose tells the Keeper why, the
 	const look = fauxAssistantMessage([fauxToolCall("look", {})], { stopReason: "toolUse" });
 	const events = [];
 	const engine = createHybridEngine({ env: { ...process.env, PI_COC_JEV_PRESELECT: "0", EXT_JEV_APIKEY: "mechanical-test-key", PI_COC_JEV_PRESELECT_ALLOWANCE_MS: "2000" }, decision: port });
-	const table = await openTable({ realKernel: true, prepareWorkspace: toldWhereToDig, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver,
+	// The spent budget has to leave a check unjudged: on 1.5.0 Knott's first impression is rolled when the turn opens, so the
+	// table is the one locked to 1.4.4, where it is still pending.
+	const table = await openTable({ realKernel: true, prepareWorkspace: toldWhereToDigBeforePresence, env: { PI_COC_LOOP_ENGINE: "hybrid-v1" }, runDriver: engine.runDriver,
 		extraExtensions: [{ name: "coc-hybrid-engine", factory: engine.extension }],
 		responses: [look, look, look, narrate("Knott shrugs.")].map((response) => (context) => { requests.push(context); return response; }) });
 	t.after(() => table.dispose());

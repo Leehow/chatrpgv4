@@ -14,6 +14,7 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {pinContactImpression} from './natural-npc-contact.mjs';
 
 const root = resolve(import.meta.dirname, '../..'), content = join(root, 'content');
 const scratch = await mkdtemp(join(tmpdir(), 'scene-obligations-'));
@@ -55,13 +56,15 @@ async function contentWith(edit = () => {}) {
     return dir;
 }
 
-/** A fresh haunting campaign over `contentRoot`, standing in the morgue with Arty introduced. */
-async function atMorgue(contentRoot) {
+/** A fresh haunting campaign over `contentRoot`, standing in the morgue with Arty introduced. `contact`: locked to
+ *  natural-npc 1.4.4 (§178.5), where walking in rolls nothing and the first impression waits for a resolve. */
+async function atMorgue(contentRoot, {contact = false} = {}) {
     const home = await mkdtemp(join(scratch, 'home-'));
     const context = await api.createKernelContext({workspace: home, content: contentRoot, seed: 'scene-obligations',
         locks: api.nativeAdvisoryLocks(), env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
     const runtime = api.createKernelRuntime(context), call = (method, params = {}) => runtime.handlers[method]({campaign: 'c1', ...params});
     await runtime.handlers['campaign.create']({id: 'c1', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+    if (contact) for (const [method, params] of pinContactImpression()) await call(method, params);
     await call('table.narrate', {call_id: 't0-c1', text: 'The opening.'});
     await call('table.player_input', {text: 'I go to the Globe.'});
     await call('table.apply', {call_id: 't1-c1', effects: [{kind: 'move', to: 'newspaper-morgue'}]});
@@ -95,7 +98,7 @@ test('a check with the Mod recipe is served by the Mod check and settles on its 
 });
 
 test('a claim on a served step with no frozen result rolls the Mod check once, and it is then frozen', async () => {
-    const table = await atMorgue(await contentWith());
+    const table = await atMorgue(await contentWith(), {contact: true});
     try {
         const claimed = await table.call('table.resolve', {call_id: 't1-c3', action: {intent: 'social', obligation: HANDLE}});
         assert.equal(claimed.decision, MOD_CHECK);
@@ -104,6 +107,20 @@ test('a claim on a served step with no frozen result rolls the Mod check once, a
         const again = await table.call('table.resolve', {call_id: 't1-c4', action: {intent: 'social', decision: MOD_CHECK, target: 'Arty Wilmot'}});
         assert.equal(again.reused, true);
         assert.equal(again.outcome.level, claimed.outcome.level);
+    } finally { await table.runtime.close(); }
+});
+
+test('§178.3: on natural-npc 1.5.0 walking in rolled the impression, and a claim on the served step settles on it', async () => {
+    const table = await atMorgue(await contentWith());
+    try {
+        const rolled = (await table.call('table.status')).receipts.filter(receipt => receipt.decision === MOD_CHECK && receipt.npc === 'arty-wilmot');
+        assert.equal(rolled.length, 1, 'his first impression was rolled by the move');
+        assert.equal(rolled[0].trigger, 'presence');
+        const claimed = await table.call('table.resolve', {call_id: 't1-c3', action: {intent: 'social', obligation: HANDLE}});
+        assert.equal(claimed.decision, MOD_CHECK);
+        assert.equal(claimed.reused, true);
+        assert.equal(claimed.outcome.level, rolled[0].level);
+        assert.equal(claimed.obligation.settled, settling(rolled[0].level));
     } finally { await table.runtime.close(); }
 });
 

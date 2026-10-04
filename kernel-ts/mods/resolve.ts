@@ -12,6 +12,8 @@ import { enrichActorRefusal } from '../read/handlers.js';
 import type { ModuleGraph } from '../read/module-graph.js';
 import { array, clone, entries, equal, integer, normalize, repr, row, string, truth, values, type Row } from '../read/values.js';
 import type { SettleContext } from '../resolve/context.js';
+import type { CheckArithmetic } from '../resolve/arithmetic.js';
+import type { PythonRandom } from '../random.js';
 import type { CampaignWritePort } from '../transactions.js';
 import { nowIso } from '../write/store.js';
 import { objectOwner } from './stage.js';
@@ -41,29 +43,75 @@ export async function requireChoiceSettled(kernel: KernelContext, input: ModReso
     if (truth(pending)) throw new RpcError('turn_state', 'Settle the existing choice before a Mod action', {
         fix: "use the pending choice's ordinary rule action first", details: {pending_choice: pending}});
 }
-async function legacyImpression(kernel: KernelContext, input: ModResolveInput, actor: Row, target: Row, recipe: Row): Promise<Row | null> {
+async function legacyImpression(kernel: KernelContext, directory: string, graph: ModuleGraph, actor: Row, target: Row, recipe: Row): Promise<Row | null> {
     const legacy = recipe.legacy;
     if (legacy.format !== 'npc-first-impression') throw new RpcError('invalid_params', 'Unknown legacy check format');
     const pathText = string(field(legacy, 'file', '')), parts = pathText.split('/').filter(part => part && part !== '.');
     if (isAbsolute(pathText) || parts.includes('..') || !parts.length || parts[0] !== 'save') throw new RpcError('invalid_params', 'Legacy check source must be a campaign save path');
-    const path = join(input.campaign.directory, ...parts);
+    const path = join(directory, ...parts);
     if (!await kernel.snapshots.pathExists(path)) return null;
     const stat = await lstat(path);
     if (stat.isSymbolicLink() || stat.size > 16000000) throw new RpcError('invalid_params', 'Invalid legacy check document');
-    const document = row(await kernel.snapshots.readJson(path)), targetNames = new Set([target.node_id, input.graph.handle(target), input.graph.displayName(target)].map(normalize));
+    const document = row(await kernel.snapshots.readJson(path)), targetNames = new Set([target.node_id, graph.handle(target), graph.displayName(target)].map(normalize));
     for (const raw of values(document.receipts)) {
         if (raw.investigator_id !== actor.id || !targetNames.has(normalize(string(raw.npc_id)))) continue;
         const schema = raw.schema_version, expected = 'sha256:' + jsonDigest(Object.fromEntries(entries(raw).filter(([key]) => key !== 'integrity_digest')));
         if (!equal(schema, 1) && !equal(schema, 2) || raw.integrity_digest !== expected)
             throw new RpcError('campaign_not_ready', 'The existing first-impression receipt failed integrity validation; it will not be rerolled');
         const outcome: Row = {kind: 'check', legacy: true, status: 'recorded', impression: {reaction: field(raw, 'reaction_tier', raw.disposition ?? null), disposition: raw.disposition ?? null},
-            actor: actor.name, target_npc: input.graph.displayName(target)};
+            actor: actor.name, target_npc: graph.displayName(target)};
         if (equal(schema, 2)) Object.assign(outcome, {roll: row(raw.roll_record).roll ?? null, target: raw.governing_value ?? null, level: raw.achieved_level ?? null, passed: raw.passed ?? null});
         const result = {outcome, decision: recipe.name, family: 'mod', receipts: [], effects: [], continuations: [], rule_refs: [raw.rule_ref ?? null],
             note: 'An existing first impression was retained. Do not reroll or disclose legacy hidden dice.'};
         return {turn: -1, actor: actor.id, target: target.node_id, result, receipt: {id: raw.receipt_id ?? null, kind: 'legacy-impression', visibility: 'keeper'}};
     }
     return null;
+}
+/**
+ * The pair's earlier result (§26): the one recorded in the state, else one adopted from the legacy file the check declares.
+ * An adopted result is written into the state here, so it is read from there next time. `adopted` says whether the world changed.
+ */
+export async function priorCheck(kernel: KernelContext, directory: string, graph: ModuleGraph, world: Row, modId: string, recipe: Row, actor: Row, target: Row):
+    Promise<{prior: Row | null; adopted: boolean}> {
+    const pair = checkPair(recipe.name, actor.id, target.node_id), recorded = recordedCheck(world, pair);
+    if (recorded || !truth(recipe.legacy)) return {prior: recorded, adopted: false};
+    const legacy = await legacyImpression(kernel, directory, graph, actor, target, recipe);
+    if (!legacy) return {prior: null, adopted: false};
+    checkState(world, modId)[pair] = legacy;
+    return {prior: legacy, adopted: true};
+}
+function checkState(world: Row, modId: string): Row {
+    const namespaces = world.mods.state;
+    if (!Object.hasOwn(namespaces, modId)) namespaces[modId] = {};
+    if (!Object.hasOwn(namespaces[modId], 'checks')) namespaces[modId].checks = {};
+    return namespaces[modId].checks;
+}
+/**
+ * One roll of a contributed actor-target check, recorded under its pair (§26). `resolve` calls it for a check it is asked
+ * to settle; `presenceRolls` (§178.3) for a `presence` check the people's meeting owes. The world is changed, not written.
+ */
+export function rollModCheck(args: {world: Row; graph: ModuleGraph; modId: string; recipe: Row; actor: Row; target: Row; turn: number;
+    receiptId: string; callId: string; arithmetic: CheckArithmetic; rng: PythonRandom; extra?: Row; orientedFrom?: Row | null}): {receipt: Row; result: Row} {
+    const {world, graph, modId, recipe, actor, target, orientedFrom = null} = args;
+    const choices: Array<[number, string]> = [];
+    for (const spec of recipe.values) {
+        const dot = spec.path.indexOf('.'), group = spec.path.slice(0, dot), key = spec.path.slice(dot + 1), value = row(actor[group])[key];
+        if (!integer(value) || value < 0 || value > 100) throw new RpcError('invalid_params', `Actor has no valid ${spec.label} value`);
+        choices.push([Number(value), spec.label]);
+    }
+    const [value, label] = choices.reduce((best, current) => current[0] > best[0] ? current : best), check = args.arithmetic.check(value, recipe.difficulty, 0, 0, args.rng);
+    const impression = clone(recipe.results[check.level]);
+    const receipt: Row = {id: args.receiptId, kind: 'roll', call_id: args.callId, roll_kind: 'mod_check', family: 'mod', mod: modId, decision: recipe.name,
+        actor: actor.id, actor_label: actor.name, npc: graph.handle(target), skill: label, target: value, roll: check.roll, level: check.level, difficulty: recipe.difficulty,
+        check, visibility: 'public', at: nowIso(), passed: check.passed, threshold: check.threshold, actor_is_investigator: true, impression,
+        ...(orientedFrom ? {oriented_from: orientedFrom} : {}), ...(args.extra ?? {})};
+    const result = {receipt: receipt.id, receipts: [receipt.id], decision: recipe.name, family: 'mod', outcome: {kind: 'check', ...check, skill: label,
+        actor: actor.name, target_npc: graph.displayName(target), impression, attribute_snapshot: orderedObject(choices.map(([value, label]) => [label, value])),
+        ...(orientedFrom ? {oriented_from: orientedFrom} : {})},
+        effects: [], continuations: [], rule_refs: field(recipe, 'rule_refs', []),
+        note: "Realize this impression through the NPC's actual manner and opportunity/friction, preserving their motives and boundaries."};
+    checkState(world, modId)[checkPair(recipe.name, actor.id, target.node_id)] = {turn: args.turn, actor: actor.id, target: target.node_id, receipt, result};
+    return {receipt, result};
 }
 export async function resolveBeforeMain(kernel: KernelContext, runtime: ModRuntime, input: ModResolveInput): Promise<ModResolveResult | null> {
     const {campaign, graph, world, turn, action, callId} = input;
@@ -129,36 +177,14 @@ export async function resolveBeforeMain(kernel: KernelContext, runtime: ModRunti
             fix: `stage them first with apply {kind: "npc", name: ${repr(graph.displayName(target))}, to: "here", why: "<what puts them in this room>"}, then resolve this impression; or roll against one of details.present`,
             details: {field: 'target', npc: graph.handle(target), scene: graph.handle(scene), present: present.map(node => graph.displayName(node)).sort()}
         });
-    const pair = checkPair(recipe.name, actor.id, target.node_id), namespaces = world.mods.state;
-    if (!Object.hasOwn(namespaces, modId)) namespaces[modId] = {};
-    if (!Object.hasOwn(namespaces[modId], 'checks')) namespaces[modId].checks = {};
-    const state = namespaces[modId].checks;
-    let prior = recordedCheck(world, pair);
-    if (!prior && truth(recipe.legacy)) {
-        prior = await legacyImpression(kernel, input, actor, target, recipe);
-        if (prior) { state[pair] = prior; await campaign.writeWorld(world); }
-    }
+    const {prior, adopted} = await priorCheck(kernel, campaign.directory, graph, world, modId, recipe, actor, target);
+    if (adopted) await campaign.writeWorld(world);
     if (prior) {
         const orphan = equal(prior.turn, turn.turn) && !array(turn.receipts).some(receipt => receipt.id === prior!.receipt.id);
         return {result: {...prior.result, reused: true}, receipts: orphan ? [prior.receipt] : []};
     }
-    const choices: Array<[number, string]> = [];
-    for (const spec of recipe.values) {
-        const dot = spec.path.indexOf('.'), group = spec.path.slice(0, dot), key = spec.path.slice(dot + 1), value = row(actor[group])[key];
-        if (!integer(value) || value < 0 || value > 100) throw new RpcError('invalid_params', `Actor has no valid ${spec.label} value`);
-        choices.push([Number(value), spec.label]);
-    }
-    const [value, label] = choices.reduce((best, current) => current[0] > best[0] ? current : best), check = context.arithmetic.check(value, recipe.difficulty, 0, 0, context.rng);
-    const impression = clone(recipe.results[check.level]);
-    const receipt: Row = {id: `roll:mod-${modId}-${callId}`, kind: 'roll', call_id: callId, roll_kind: 'mod_check', family: 'mod', mod: modId, decision: recipe.name,
-        actor: actor.id, actor_label: actor.name, npc: graph.handle(target), skill: label, target: value, roll: check.roll, level: check.level, difficulty: recipe.difficulty,
-        check, visibility: 'public', at: nowIso(), passed: check.passed, threshold: check.threshold, actor_is_investigator: true, impression,
-        ...(orientedFrom ? {oriented_from: orientedFrom} : {})};
-    const result = {receipt: receipt.id, receipts: [receipt.id], decision: recipe.name, family: 'mod', outcome: {kind: 'check', ...check, skill: label,
-        actor: actor.name, target_npc: graph.displayName(target), impression, attribute_snapshot: orderedObject(choices.map(([value, label]) => [label, value])),
-        ...(orientedFrom ? {oriented_from: orientedFrom} : {})},
-        effects: [], continuations: [], rule_refs: field(recipe, 'rule_refs', []),
-        note: "Realize this impression through the NPC's actual manner and opportunity/friction, preserving their motives and boundaries."};
-    state[pair] = {turn: turn.turn, actor: actor.id, target: target.node_id, receipt, result}; await campaign.writeWorld(world);
+    const {receipt, result} = rollModCheck({world, graph, modId, recipe, actor, target, turn: turn.turn, receiptId: `roll:mod-${modId}-${callId}`, callId,
+        arithmetic: context.arithmetic, rng: context.rng, orientedFrom});
+    await campaign.writeWorld(world);
     return {result, receipts: [receipt]};
 }

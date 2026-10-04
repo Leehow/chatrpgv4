@@ -145,7 +145,8 @@ test("§22.4.7.1 on the emitted kernel: a table person is not held; a book perso
 	assert.equal(elsewhere.error?.details?.reason, "material_pending", "a sentence that does not hold the name is no passage");
 	const passage = { scene: null, page: 2, label: null, sentence: "Its keeper, Silas Marsh, trims the lamp." };
 	const [named] = ok(workspace, [place("Silas Marsh", "t1-c7", { _land_on_text: [{ key: "Silas Marsh", passage }] })]);
-	assert.equal(named.receipts.length, 1);
+	assert.equal(named.receipts.filter((id) => id.startsWith("npc:")).length, 1);
+	assert.deepEqual(named.first_impressions?.map((row) => row.target), ["Silas Marsh"], "placed here, he meets the investigator (§178.3)");
 	assert.deepEqual(named.person_text, [{ person: "Silas Marsh", focus: "Silas Marsh", pages: [1, 2, 3], passage }]);
 	const entry = world(workspace).table_people.find((row) => row.name === "Silas Marsh");
 	assert.deepEqual(entry?.from_passage, passage, "registered provisionally from the passage (§11.5.4)");

@@ -68,7 +68,8 @@ def test_canonical_events_end_to_end(tmp_path):
 def test_travel_advances_the_clock_as_an_event(kernel):
     open_turn(kernel)
     kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "hall-of-records", "travel_minutes": 20}])
-    events = read_jsonl(campaign_dir(kernel.workspace) / "events.jsonl")[-2:]
+    # The move's own events (§178.3: meeting the clerk there adds a first impression's events after them).
+    events = [e for e in read_jsonl(campaign_dir(kernel.workspace) / "events.jsonl") if e.get("receipt") == "move:hall-of-records-t1-c1"]
     assert [e["type"] for e in events] == ["scene-moved", "time-advanced"]
     assert events[1]["receipt"] == "move:hall-of-records-t1-c1"
     assert events[1]["data"] == {"minutes": 20, "why": "travel", "clock": {"minutes": 20}}

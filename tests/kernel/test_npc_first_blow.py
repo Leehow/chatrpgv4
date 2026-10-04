@@ -7,7 +7,7 @@ order; a target who saw it coming may dodge or fight back, one who did not neith
 attacker gains one bonus die (the Harvey example); then the rounds run in DEX order.
 """
 
-from conftest import RpcClient, open_turn, read_json, campaign_dir
+from conftest import RpcClient, open_turn, read_json, campaign_dir, written
 from test_rules_families import walk_to_confrontation
 
 CORBITT, HAYES = "walter-corbitt", "thomas-hayes"
@@ -31,7 +31,7 @@ def test_a_first_blow_nobody_saw_coming_is_unopposed_with_a_bonus_die(tmp_path):
         assert opened["decision"].endswith("combat:attack")
         roll = next(r for r in client.table("status")["receipts"] if r["kind"] == "roll" and r.get("actor") == CORBITT and r.get("combat_action") == "attack")
         assert roll["bonus"] == 1 and len(roll["tens_values"]) == 2, "one bonus die for the attacker"
-        defended = [r for r in client.table("status")["receipts"] if r["kind"] == "roll" and r.get("actor") == HAYES]
+        defended = [r for r in written(client.table("status")["receipts"]) if r["kind"] == "roll" and r.get("actor") == HAYES]
         assert defended == [], "no dodge and no fighting back"
         session = client.table("look", focus="session")["session"]
         assert session["pending_defense"] is None and session["round"] == 1

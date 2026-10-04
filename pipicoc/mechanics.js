@@ -1083,7 +1083,10 @@ export function createComponent(React) {
     const family = text(row.family) || undefined;
     switch (row.kind) {
       case "roll": {
-        const who = combatWho(row, "actor_label", "target_label", t) || (row.actor_is_investigator === true ? text(row.actor_label || row.actor) : "");
+        const self = row.actor_is_investigator === true ? text(row.actor_label || row.actor) : "";
+        // A roll about someone else outside a fight (a first impression, §178.4) names them; a fight draws its own pair.
+        const toward = row.public_combat === true ? "" : text(row.target_label);
+        const who = combatWho(row, "actor_label", "target_label", t) || (self && toward ? `${self} ${t("arrow")} ${toward}` : self);
         const skill = term(text(row.skill));
         // The die is the keeper's; the attempt is the player's. Nothing numeric is drawn — no
         // figure, no target, no grade, no pass/fail stamp — because each of those is the very

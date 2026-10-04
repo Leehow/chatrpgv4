@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CONTENT_DIR, OPENING_SCENE, campaign_dir, create_campaign, narrate_opening, read_json, read_jsonl
+from conftest import CONTENT_DIR, OPENING_SCENE, campaign_dir, create_campaign, narrate_opening, read_json, read_jsonl, written
 from module_helpers import claim, finish, indexed, observed, opening, request, write
 
 STARTERS = ["the-haunting", "mystery-house", "voice-bench", "the-haunting-rulebook"]
@@ -75,7 +75,7 @@ def test_a_move_to_a_filled_exit_lands_with_the_roads_minutes(kernel):
     assert exits["hall-of-records"]["travel_minutes"] == minutes
     moved = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "hall-of-records"}])
     assert moved["world"]["clock"] == {"minutes": minutes}
-    receipts = read_json(campaign_dir(kernel.workspace) / "turn.json")["receipts"]
+    receipts = written(read_json(campaign_dir(kernel.workspace) / "turn.json")["receipts"])  # without the clerk's first impression
     assert [r["kind"] for r in receipts] == ["move"] and receipts[0]["minutes"] == minutes
     event = [e for e in read_jsonl(campaign_dir(kernel.workspace) / "events.jsonl") if e["type"] == "scene-moved"][-1]
     assert event["data"]["minutes"] == minutes

@@ -25,6 +25,7 @@ import { COMPILE_FAMILY, compileBatch } from "../../runtime/jev/route-compile.ts
 import { compileRows } from "../../runtime/jev/compile-rows.ts";
 import { BIND_FAMILY, CLERK_AUTHORITY, ROUTE_FAMILY, bindBatch, bindingOf, initialView, interpretBind, interpretRoute, next, routeBatch, settleCompile, settleExecute, settleRead, startStep } from "../../runtime/jev/step-policy.ts";
 import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
+import { pinContactImpression } from "./natural-npc-contact.mjs";
 import { issuedSection, readCandidateBodies } from "../../runtime/jev/candidate-bodies.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -71,8 +72,10 @@ async function reads(call) {
 	const [capsule, applyOptions, resolveOptions] = await Promise.all([call("table.capsule"), call("table.apply.options"), call("table.resolve.options")]);
 	return { capsule, applyOptions, resolveOptions };
 }
-/** Turn 1 at the morgue: the party has just walked in. */
-async function atMorgue(call) {
+/** Turn 1 at the morgue: the party has just walked in. `contact`: the table is locked to natural-npc 1.4.4 (§178.5), so the
+ *  first impressions there are still pending `contact` checks rather than rolled as the party walks in. */
+async function atMorgue(call, { contact = false } = {}) {
+	if (contact) for (const [method, params] of pinContactImpression()) await call(method, params);
 	await call("table.open");
 	const opened = await call("table.player_input", { text: INPUT });
 	await call("table.apply", { call_id: `t${opened.turn}-c1`, effects: [{ kind: "move", to: MORGUE }] });
@@ -114,7 +117,7 @@ function variant(state, change) {
 
 test("at the morgue the gate's check carries its meeting in place of the roster candidate, the archivist issues nothing, the guarded clues and Arty's Mod check are withheld", async (t) => {
 	const { call } = kernel(t);
-	await atMorgue(call);
+	await atMorgue(call, { contact: true });
 	const bare = await reads(call);
 	// §103.8 (owner, 2026-10-03): without the table's own label, no word for Arty is the clerk's -- the book's name is refused
 	// as the word for someone untold -- so neither his meeting nor the check it leads to is issued: both are the Keeper's.
@@ -331,7 +334,7 @@ test("the approach binder: one available approach is bound, a stated minimum the
 
 test("no candidate for a step the Mod serves, a step the page leaves unstated, or a target not here; hazards and non-open states issue nothing", async (t) => {
 	const { call } = kernel(t);
-	const turn = await atMorgue(call);
+	const turn = await atMorgue(call, { contact: true });
 	await call("table.apply", { call_id: `t${turn}-c2`, effects: [{ kind: "person", who: "Arty Wilmot", name: "Arty" }] });
 	const state = await reads(call);
 	const obligationSteps = (reads) => buildCandidates(reads, INPUT).filter((candidate) => candidate.clerk === "stated_obligation");

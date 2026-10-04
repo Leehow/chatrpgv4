@@ -1,6 +1,6 @@
 import json
 
-from conftest import CONTENT_DIR, OPENING_SCENE, campaign_dir, narrate, open_turn, read_json, read_jsonl
+from conftest import CONTENT_DIR, OPENING_SCENE, campaign_dir, narrate, open_turn, read_json, read_jsonl, written
 
 
 def world(client):
@@ -22,7 +22,9 @@ def test_move_reachable_and_unreachable(kernel):
 
     moved = kernel.table("apply", call_id="t1-c1", effects=[{"kind": "move", "to": "Hall of Records",
                                                               "travel_minutes": 30}])
-    assert moved["receipts"] == ["move:hall-of-records-t1-c1"]
+    # §178.3: the move, then the first impression of the clerk the party meets there.
+    assert moved["receipts"] == ["move:hall-of-records-t1-c1", "roll:mod-natural-npc-t1-c1"]
+    assert [row["handle"] for row in moved["first_impressions"]] == ["records-clerk"]
     assert moved["world"] == {"active_scene": "hall-of-records", "clock": {"minutes": 30}}
     assert moved["material_ready"] is True
     state = world(kernel)
@@ -39,7 +41,7 @@ def test_move_reachable_and_unreachable(kernel):
     assert edge > 0
     back = kernel.table("apply", call_id="t1-c2", effects=[{"kind": "move", "to": "scene-newspaper-morgue"}])
     assert back["world"]["clock"] == {"minutes": 30 + edge}
-    assert kernel.table("status")["receipts"][-1]["minutes"] == edge
+    assert written(kernel.table("status")["receipts"])[-1]["minutes"] == edge  # the move's (Ruth Blake's first impression follows it)
 
 
 def test_a_route_the_keeper_made_lands_and_says_it_was_off_the_graph(kernel):
@@ -210,7 +212,8 @@ def test_batch_is_atomic(kernel):
         {"kind": "time", "minutes": 15, "beyond_travel": True},  # §156: time spent after arriving
     ])
     assert result["receipts"] == ["clue:knott-research-leads-t1", "move:hall-of-records-t1-c1",
-                                  "clue:chapel-closed-1912-t1", "time:t1-c1"]
+                                  "clue:chapel-closed-1912-t1", "time:t1-c1", "roll:mod-natural-npc-t1-c1"], \
+        "the batch's own receipts, then the clerk's first impression (§178.3)"
     assert world(kernel)["discovered_clues"] == ["knott-research-leads", "chapel-closed-1912"]
 
 

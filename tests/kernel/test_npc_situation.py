@@ -16,7 +16,7 @@ import shutil
 
 import pytest
 
-from conftest import CONTENT_DIR, RpcClient, campaign_dir, narrate, open_turn, read_json
+from conftest import CONTENT_DIR, RpcClient, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, pin_contact_impression, read_json
 from test_npc_holdings import give_corbitt_a_weapon
 from test_rules_families import resolve, walk_to_confrontation
 
@@ -113,9 +113,11 @@ def test_an_intention_under_way_is_in_done_and_not_in_happened(knott):
     # intentsView's own row shape (the card's, §142.3).
     assert first == {"ref": ref, "intent": line, "status": "attempted", "since_turn": 1, "turn": 1}, "under way first"
     assert second["intent"] == settled and second["status"] == "failed"
-    [declared] = packet["happened"]
+    *earlier, declared = packet["happened"]
     assert declared.endswith('(investigator) declared: "I tell Knott I will not take the job."'), \
         "an intention-only receipt is in done, not in happened"
+    # §178.3: what happened before is the opening's meeting (his first impression); neither intention is in it.
+    assert all(line not in sentence and settled not in sentence for sentence in earlier)
 
 
 def test_an_intention_given_up_is_said_in_happened_the_next_turn(knott):
@@ -198,7 +200,11 @@ def test_a_name_is_required_and_must_be_someone(kernel):
 
 
 def test_constraints_are_the_capsules_rows_that_name_him(knott):
-    open_turn(knott, "I look Knott over.")
+    # A table locked to natural-npc 1.4.4 (§178.5), where the first impression is a pending `contact` row.
+    create_campaign(knott)
+    pin_contact_impression(knott)
+    narrate_opening(knott)
+    knott.table("player_input", text="I look Knott over.")
     constraints = situation(knott)["constraints"]
     capsule = knott.table("capsule")
     scene_rows = [row for row in capsule["obligations"] if row.get("kind") == "scene" and row.get("who") == "Steven Knott"]

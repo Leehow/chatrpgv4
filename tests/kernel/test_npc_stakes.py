@@ -29,7 +29,7 @@ import shutil
 
 import pytest
 
-from conftest import CONTENT_DIR, RpcClient, campaign_dir, narrate, open_turn, read_json
+from conftest import CONTENT_DIR, RpcClient, campaign_dir, create_campaign, narrate, narrate_opening, open_turn, pin_contact_impression, read_json
 from test_npc_standing_action import content_with, edit_fight
 from test_rules_families import resolve, walk_to_confrontation
 
@@ -130,8 +130,10 @@ def test_after_a_landed_blow_the_rung_is_one_above_his_base_and_only_the_keeper_
     client = client_for(tmp_path, seed)
     try:
         hit_corbitt(client)
+        # §178.3: the Mod's first impression of him was rolled when the party met him, so no first-contact row is pending;
+        # a settled impression prepares no reaction either -- the die below still rolls.
         contact = [line for line in situation(client)["constraints"] if line.startswith("Mod check natural-npc:first-impression")]
-        assert contact, "the Mod's first contact with him is still to come: a row for the generator, not a prepared reaction"
+        assert not contact, "met on arrival: nothing is still to come"
         receipts = client.table("status")["receipts"]
         attack = next(r for r in receipts if r["kind"] == "roll" and r.get("combat_action") == "attack")
         assert attack["actor"] == INVESTIGATOR and attack["npc"] == CORBITT
@@ -242,7 +244,11 @@ def test_a_first_contact_row_and_an_open_obligation_do_not_prepare_him(tmp_path)
     prepared, so the die rolls."""
     client = client_for(tmp_path, 7)
     try:
-        open_turn(client, "I tell Knott I will not take the job.")
+        # A table locked to natural-npc 1.4.4 (§178.5): the first impression is a `contact` check still to come.
+        create_campaign(client)
+        pin_contact_impression(client)
+        narrate_opening(client)
+        client.table("player_input", text="I tell Knott I will not take the job.")
         constraints = situation(client, "Steven Knott")["constraints"]
         obligation = [line for line in constraints if line.startswith("scene obligation knott-accept-commission (open)")]
         contact = [line for line in constraints if line.startswith("Mod check natural-npc:first-impression")]
