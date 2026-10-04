@@ -179,7 +179,7 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
     // §177.4 (table 24): a name or piece two untold people share was left alone, as naming neither for certain; with the
     // whole cast read, the bar owner and the doctor shared a first name, and it reached the Keeper as printed. A name two
     // untold people share is still a name: it is shown as both their words, "A / B", which hides it and blames nobody.
-    const owners = new Map<string, { name: string; shown: string[]; id: string }>();
+    const owners = new Map<string, { name: string; shown: string[]; id: string; handle: boolean }>();
     for (const { person, untold } of people) {
         if (!untold) continue;
         const node = person.node, id = person.id;
@@ -192,12 +192,13 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
             // Keyed by the exact string the rename replaces: a handle normalizes to its name ("steven-knott") and is its own row.
             const key = name.trim();
             if (!key || known.has(normalize(name))) continue;
-            const entry = owners.get(key) ?? { name, shown: [], id };
+            // §177.15: a handle row is machine text, renamed wherever it stands; only a name's places are asked about.
+            const entry = owners.get(key) ?? { name, shown: [], id, handle: slugs.includes(name) };
             if (!entry.shown.includes(shown)) entry.shown.push(shown);
             owners.set(key, entry);
         }
     }
-    return [...owners.values()].map(entry => ({ name: entry.name, id: entry.id, shown: entry.shown.join(" / ") }));
+    return [...owners.values()].map(entry => ({ name: entry.name, id: entry.id, shown: entry.shown.join(" / "), ...(entry.handle ? { handle: true } : {}) }));
 }
 export function clueLabel(graph: ModuleGraph, world: Row, handle: string): string {
     const label = row(world.clue_labels)[handle];

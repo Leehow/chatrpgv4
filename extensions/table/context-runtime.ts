@@ -10,6 +10,7 @@ import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-age
 import {getCurrentSystemMessage} from '@earendil-works/pi-ai';
 import {compactAt} from './fold.ts';
 import {renameUntold, untoldPeople, untoldView, type UntoldPerson} from '../kernel/untold-view.ts';
+import {createRenameJudge} from './untold-rename-judge.ts';
 import {createWorkpadStore, type WorkpadView} from './workspace/workpad-store.ts';
 import {selectWorkspace, workspaceBudgetOf, workspaceModeOf, workspaceSettingsOf, workspaceCandidates, type WorkspaceMode} from './workspace/projection.ts';
 import {reuseEvidence, dormantEvidence} from './workspace/evidence.ts';
@@ -92,6 +93,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     let pendingExpression:Row|undefined;
     // Contract §183.5: the indexed packages' sections this turn needs; the calls so far this turn are what triggers read.
     const modSections=createModSections({read:async(method,params)=>call?call(method,params):undefined,decision,record});
+    // Contract §177.15: the places the rename would rewrite are asked once each, name or part of another word.
+    const renameJudge=createRenameJudge({decision,record});
     let turnCalls=emptyCalls(),pendingSections:Row|undefined;
     const resetPreparation=()=>{inputLifetime.abort();inputLifetime=new AbortController();sharedBudget?.close();sharedBudget=undefined;};
     pi.events.on('coc:task-provider-budget',value=>{foregroundBudget=typeof value==='function'?value as typeof foregroundBudget:undefined;});
@@ -204,10 +207,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         if (!sourceChanged && !captured && !(stateChanged && (observedWorkspaceMode !== 'off' || prescreenEnabled() || expressionRefresh))) return;
         capsule = undefined; rawBinding = undefined; brief = undefined; briefKey = undefined; invalidate();
     });
-    pi.on('session_start', async () => {expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=[];turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
+    pi.on('session_start', async () => {expression.clear();renameJudge.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=[];turnMaterial=undefined;sessionEnv={...process.env};sharedAdapter=undefined;invalidate(); observedWorkspaceMode = 'off'; inputPending = false; brief = undefined; briefKey = undefined; lastFold = undefined;
         lastAttempt = undefined; sourceCalls.clear(); stateCalls.clear();prescreenDeadlineAt=0;prescreenMemo=undefined;reusablePrescreen=undefined;
         prescreenProviderBudget=preparationProviderBudget();});
-    pi.on('session_shutdown', async () => {expression.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=[];sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
+    pi.on('session_shutdown', async () => {expression.clear();renameJudge.clear();pendingExpression=undefined;modSections.clear();pendingSections=undefined;turnCalls=emptyCalls();resetPreparation();untoldRoster=[];sharedAdapter=undefined;call=undefined;capsule=undefined;rawBinding=undefined;sourceRuntime=undefined;moduleId=undefined;observedWorkspaceMode='off';
         prescreenMemo=undefined;reusablePrescreen=undefined;pendingProvider=undefined;prescreenDeadlineAt=0;
         prescreenProviderBudget={actions:0,inputTokens:0,outputTokens:0,costUsd:0};invalidate();});
 
@@ -443,6 +446,8 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // A concurrent input may replace a generation while its optional work is awaiting I/O.
         // Try the current accepted binding once; an unaccepted input uses the normal fallback.
         if (!snapshot && ticket !== generation && !inputPending) snapshot = await prepare();
+        // §177.15: before anything is renamed, the places not decided yet are judged (or fall back to renamed).
+        await renameJudge.prepare(requestMessages, untoldRoster).catch(() => undefined);
         // Pi 0.87 restores the canonical system/tool checkpoint after this hook. Reserve its
         // serialized size on every exit, including degraded turns, without treating it as history.
         let systemBytes = 0, systemDigest: string | null = null;
@@ -462,10 +467,10 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             // No capsule means no projection, never an unbounded request: a long campaign's whole
             // stored branch is exactly what must not reach the provider on a degraded turn.
             // §176.8: renamed before the cut, so the ceiling measures the names and notes that go out.
-            const rest = renameUntold((requestMessages as unknown as Row[]).filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType))), untoldRoster);
+            const rest = renameUntold((requestMessages as unknown as Row[]).filter(message => !(message.role === 'custom' && [DIAGNOSTIC_TYPE, PRESCREEN_TYPE].includes(message.customType))), untoldRoster, renameJudge.keep);
             const notice = diagnostic(lastReason);
             const cut = boundedTail(rest, Math.max(0, budget - requestSize([notice])));
-            const outgoing = renameUntold([notice, ...cut.messages], untoldRoster);
+            const outgoing = renameUntold([notice, ...cut.messages],untoldRoster,renameJudge.keep);
             record({lane: 'context', event: 'request', at: new Date().toISOString(), version: POLICY_VERSION, reason: lastReason,
                 request_bytes: requestSize(outgoing) + systemBytes, system_bytes: systemBytes, system_digest: systemDigest, ...requestSegments(outgoing),
                 local_token_estimate: Math.ceil((requestSize(outgoing) + systemBytes) / BYTES_PER_TOKEN),
@@ -514,7 +519,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // §176.8: the request's rename runs before the projection fits the budget, not after it. A renamed tool result
         // ends with the untold note, and a word is often longer than the name it replaces: renamed after the fit, a busy
         // turn went out 553 B over its ceiling (long-campaign-context). The rename on the way out stays; it changes nothing twice.
-        selected.splice(0, selected.length, ...renameUntold(selected, untoldRoster));
+        selected.splice(0, selected.length, ...renameUntold(selected,untoldRoster,renameJudge.keep));
         if (!seen && !messages.some(message => message.role === 'custom' && message.customType === 'coc-capsule')) {
             // A new opening/recovery may have only a host prompt; this ephemeral capsule is not persisted.
             selected.push({...customMessage('coc-capsule', capsuleSent), details: {coc_host: true, turn: snapshot.binding.turn, context: snapshot.binding}});
@@ -561,7 +566,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
             const reused=prescreen,needsReassessment=object(object(reused?.details).prescreen).needs_reassessment===true;
             if(!prescreen||needsReassessment&&prescreenProviderBudget.actions>0&&Date.now()<prescreenDeadlineAt){
                 let refreshOutcome='unknown';
-                if(preparationSignal.aborted||ticket!==generation)return {messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
+                if(preparationSignal.aborted||ticket!==generation)return {messages:renameUntold(baseline.messages,untoldRoster,renameJudge.keep) as typeof requestMessages};
                 const refreshed=await preparePrescreen({call:preparationCall,campaign:preparationCampaign,binding:snapshot.binding,capsule:snapshot.capsule,
                     signal:preparationSignal,record:event=>{record(event);if(event.event==='prepared')refreshOutcome='prepared';
                         else if(event.event==='fallback')refreshOutcome='fallback';else if(event.event==='skipped')refreshOutcome=String(event.reason??'skipped');},
@@ -570,11 +575,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
                     providerBudget:prescreenProviderBudget,...(sourceRuntime&&moduleId?{source:{moduleId,runtime:sourceRuntime}}:{})});
                 prescreen=refreshed??(needsReassessment&&['prepared','empty_catalog'].includes(refreshOutcome)?undefined:reused);
             }
-            if(ticket!==generation||preparationSignal.aborted)return {messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
+            if(ticket!==generation||preparationSignal.aborted)return {messages:renameUntold(baseline.messages,untoldRoster,renameJudge.keep) as typeof requestMessages};
             prescreenMemo={key:memoKey,message:prescreen};
             if(prescreen)reusablePrescreen=prescreen;
         }
-        if(ticket!==generation||preparationSignal.aborted)return {messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return {messages:renameUntold(baseline.messages,untoldRoster,renameJudge.keep) as typeof requestMessages};
         let result=prescreen?project(messageBudget,{workspace,prescreen}):baseline;
         const window = ctx.model?.contextWindow, available = typeof window === 'number' ? window - Math.min(16384, Math.floor(window / 4)) : Infinity;
         const reason = result.degraded ?? (Math.ceil((requestSize(result.messages) + systemBytes) / BYTES_PER_TOKEN) > available ? 'request_window_estimate' : undefined);
@@ -582,14 +587,14 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         // displaced by a hypothetical notice on an otherwise healthy, within-budget request.
         if (reason) result = project(Math.max(0,messageBudget-requestSize([diagnostic(reason)])),{workspace,prescreen});
         const outgoing = renameUntold([...(reason ? [diagnostic(reason), ...result.messages.filter(message => !(message.role === 'custom' && message.customType === DIAGNOSTIC_TYPE))] : result.messages), ...turnTail]
-            .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE].includes(message.customType))), untoldRoster);
+            .filter(message=>!(message.role==='custom'&&[EXPRESSION_MESSAGE,MOD_SECTIONS_MESSAGE].includes(message.customType))), untoldRoster, renameJudge.keep);
         // Contract §183.5: package sections this turn needs, at the end; nothing on a table whose instructions all go whole.
         pendingSections=undefined;
         modSections.observe(snapshot.capsule,snapshot.binding,inputLifetime.signal);
         await modSections.waitForFirst(preparationSignal);
-        if(ticket!==generation||preparationSignal.aborted)return{messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return{messages:renameUntold(baseline.messages,untoldRoster,renameJudge.keep) as typeof requestMessages};
         const sectionsMessage=await modSections.message(snapshot.capsule,snapshot.binding,turnCalls);
-        if(ticket!==generation||preparationSignal.aborted)return{messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return{messages:renameUntold(baseline.messages,untoldRoster,renameJudge.keep) as typeof requestMessages};
         if(sectionsMessage&&requestSize([...outgoing,sectionsMessage])+systemBytes<=ceiling
             &&Math.ceil((requestSize([...outgoing,sectionsMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
             outgoing.push(sectionsMessage);pendingSections=sectionsMessage;
@@ -598,11 +603,11 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const expressionView={...snapshot.capsule,expression_exchange:snapshot.history};
         expression.observe(expressionView,snapshot.binding,inputLifetime.signal);
         await expression.waitForFirst(expressionView,snapshot.binding,preparationSignal);
-        if(ticket!==generation||preparationSignal.aborted)return{messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
+        if(ticket!==generation||preparationSignal.aborted)return{messages:renameUntold(baseline.messages,untoldRoster,renameJudge.keep) as typeof requestMessages};
         // §103.5: the expression packet is host-written too; it reaches the Keeper by the same names.
         const projectedExpression=expression.project(expressionView,snapshot.binding);
-        const expressionMessage=projectedExpression&&renameUntold([projectedExpression],untoldRoster)[0];
-        if(ticket!==generation||preparationSignal.aborted)return{messages:renameUntold(baseline.messages,untoldRoster) as typeof requestMessages};
+        const expressionMessage=projectedExpression&&renameUntold([projectedExpression],untoldRoster,renameJudge.keep)[0];
+        if(ticket!==generation||preparationSignal.aborted)return{messages:renameUntold(baseline.messages,untoldRoster,renameJudge.keep) as typeof requestMessages};
         if(expressionMessage&&requestSize([...outgoing,expressionMessage])+systemBytes<=ceiling
             &&Math.ceil((requestSize([...outgoing,expressionMessage])+systemBytes)/BYTES_PER_TOKEN)<=available){
             outgoing.push(expressionMessage);pendingExpression=expressionMessage;
@@ -610,7 +615,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
         const bytes = requestSize(outgoing) + systemBytes, estimatedTokens = Math.ceil(bytes / BYTES_PER_TOKEN);
         const requestId=`prescreen:${snapshot.binding.turn}:${++providerSequence}`;
         if(pendingExpression)pendingExpression.details.expression.request_id=requestId;
-        pendingProvider=prescreen?{requestId,prepared:renameUntold([prescreen],untoldRoster)[0],outgoingDigest:fingerprint(outgoing)}:undefined;
+        pendingProvider=prescreen?{requestId,prepared:renameUntold([prescreen],untoldRoster,renameJudge.keep)[0],outgoingDigest:fingerprint(outgoing)}:undefined;
         record({lane: 'context', event: 'request', at: new Date().toISOString(), version: POLICY_VERSION, turn: snapshot.binding.turn,request_id:requestId,
             history_bytes: sizeOf(snapshot.history), protected_bytes: result.protectedBytes, unknown_bytes: result.unknownBytes,
             ...(pendingExpression?{expression_injected:true,expression_bytes:requestSize([pendingExpression])}:{}),

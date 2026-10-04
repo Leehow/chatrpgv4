@@ -113,7 +113,7 @@ export function castToldTurn(person: CastPerson, records: Iterable<Row>): number
     const committed = [...records].filter(record => record.closed_by === 'narrate' && record.commit && integer(record.turn))
         .sort((a, b) => number(a.turn) - number(b.turn));
     for (const record of committed)
-        if (words.some(word => occurs(normalize(string(record.rendered_text ?? '')), word))) return number(record.turn);
+        if (words.some(word => occurs(normalize(string(record.told_text ?? record.rendered_text ?? '')), word))) return number(record.turn);
     return null;
 }
 

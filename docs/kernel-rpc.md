@@ -33158,6 +33158,45 @@ Tests: `tests/extension/module-cast.test.mjs`: recall by an epithet resolves to 
 
 Tests: `tests/extension/module-cast.test.mjs`: a row's notes rendering joins the person's names, is renamed by the roster and refused for a newcomer, and is not printed; a draft row without `notes` is refused.
 
+### 177.15 A name inside another word (table 27; amends §177.11 and §103.5)
+
+**Evidence.** Table 27 (App `e634c3eb0`, Blood Road, `grok-4.5` low), turn 8. The player mailed a letter to Dallas; the Keeper wrote 「达拉斯」. Its last two characters are 「拉斯」, a nickname the book prints alone for the station owner, so a whole printed name of an untold person by the string test. Three things followed:
+- §177.11 refused the delivery, quoting 「拉斯」.
+- The request's rename (§103.5) turned the quote into the owner's word, so the Keeper read that it had written 「油布口袋的加油站老板」, which it had not.
+- The second delivery replaced the name as §177.11 designed, and the player read 「你把要寄到达油布口袋的加油站老板的信递过去」.
+
+Book-4 prints 「达拉斯」 five times and 「拉斯维加斯」 once, and the cast has 74 printed forms of two or three characters. Whether a place is a person's name or part of another word is a semantic question: no boundary rule or word list answers it in Chinese.
+
+**Measured** (`experiments/untold-name-spans/`, 2026-10-04): one Jev Noul per place over the product's own batch, 38 cases from the book's text and the table.
+- At 0.75 every case was right; names scored 0.87–0.98 and other words 0.03–0.68.
+- The pre-registered first round used 0.5 and missed one case: the English modal "Will" at 0.55. The 0.75 bar was then fixed before a held-out second round, which scored 16 of 16.
+- One request takes 0.3–1.3 s.
+
+**The rule.**
+- **Places** (`prosePlaces`, `kernel-ts/write/names.ts`). Where a text writes a name, outside every marker: longer names first, a Latin name only between non-letters. `nth` counts each name's places in order. A name inside a longer name's place goes with that place.
+- **`table.untold_spans {campaign, text}`**, read-only, returns `{spans: [{name, nth, start, end}]}`: the places of the untold printed names §177.11 would find.
+- **The host asks** (`extensions/kernel/untold-spans.ts`, `KernelClientOptions.prepareCall`):
+  - Before every `table.narrate` and `table.ask` reaches the kernel, it asks for the places, then asks Jev about each (family `untold-name-spans`, `runtime/jev/untold-name-spans.ts`; the text ±40 characters with the place marked ⟦…⟧).
+  - It sends the places below 0.75 as **`untold_cleared: [{name, nth}]`**. The field is the host's: a value in the Keeper's arguments is dropped first.
+  - Jev unconfigured, failed or later than 2.5 s clears nothing.
+  - Telemetry: `lane: "untold-spans"`, `event: "judged"` (places, cleared, scores, ms) or `"fallback"` (reason).
+- **The gate holds the rest.** A cleared place is neither refused nor replaced. A refusal never quotes a name: it gives `details.places` and up to three `excerpts`, the words around each place with the name blanked (▢), so the request has nothing to rename in it. The second delivery replaces only the places not cleared. A name said only where no prose stands (inside an unresolved name token) is gated as before. Telemetry adds `cleared`, and `outcome: "cleared"` when every place was.
+- **A cleared place tells nobody.** The narrate record carries **`told_text`** when a place was cleared: the delivery rendered with those places blanked. `toldTurn` and `castToldTurn` read `told_text` before `rendered_text`, so Dallas never makes the station owner told.
+- **The request's rename asks too** (`extensions/table/untold-rename-judge.ts`):
+  - Before a request is renamed, every place in a host message or tool result not decided yet is asked, under the same bar and wait.
+  - A place judged another word is kept as written; every other place, and every place Jev did not answer in time, is renamed.
+  - A decision is kept for the session, so a request's prefix does not change under the provider's cache (§184.2).
+  - Handle rows (`table.untold` rows with `handle: true`, the person's handle and node id) are machine text, renamed wherever they stand and never asked about: an answer of "not a name" there would hand the Keeper the book's name as a slug.
+  - `untoldNote` (§176.8) is added only when something was renamed.
+
+Tests:
+- `tests/extension/module-cast.test.mjs`, on the real kernel: `table.untold_spans`; a cleared place neither refused nor replaced, the refusal blanking the name and counting the rest; the second delivery replacing only the place not cleared; a cleared place of an unread person and of a graph person's whole name telling nobody; the shape of `untold_cleared`.
+- `tests/extension/untold-name-spans.test.mjs`:
+  - the batch's question and bar;
+  - the host hook clearing only the places under the bar, dropping the Keeper's own list, and falling back unconfigured;
+  - the request keeping a judged place, renaming the name and the handle without asking about the handle, deciding each place once, adding no note when nothing was renamed, and renaming everything without an answer;
+  - the client running the hook inside its queue with a direct call to a real kernel.
+
 ### 177.9 Writers, readers, actor (§31)
 
 - **Writers:** the cast readers (`cast.json`, range by range through `cast.submit`), the host (`cast-source.json`, through `cast.source`), the epithet lane (row-id words), the gate's landing (`cast_id`).
@@ -33170,6 +33209,9 @@ Tests: `tests/extension/module-cast.test.mjs`: a row's notes rendering joins the
 - A starter's names that appear only in prose are not in its cast (owner's Q4).
 - A newcomer named only in prose, with no `apply npc`, was first left ungated (owner's Q5). After table 25 the owner ruled to refuse a whole printed name in prose (§177.11), and the journal label check above still holds.
 - An unread person is not in `present[]` and has no record. `apply person` cannot give them a word until the graph has them; the lane can.
+- §177.15's judgement has a direction. A name Jev scores under 0.75 is kept as written: in the request, the Keeper reads it; in a delivery, the player does, and the person stays untold (`told_text`). Measured on 38 cases with no miss, the margin is 0.07 above the bar (the highest other word, 0.68) and 0.12 below the lowest name (0.87). Chinese is a weaker language for Jev than English.
+- §177.15 asks at most 120 places in one request; the rest are renamed. The rename's decisions last the session: after a restart the first request asks the history's places again, and an answer that differs from before changes that request's prefix once.
+- The told check of a graph person reads the graph's names (`toldTurn`), not the cast's: a form only the cast prints ("Mae" for Old Mae), said in a delivery, does not tell her. §177.11 refuses such a form in the Keeper's own words, so it reaches a delivery only through a cleared place.
 
 Tests:
 - `tests/extension/module-cast.test.mjs`, on the real kernel over a bound three-page PDF:

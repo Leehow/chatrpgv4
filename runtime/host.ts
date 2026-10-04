@@ -68,7 +68,7 @@ export interface RuntimeCapabilities {
 	sourceWindow?(context: RuntimeContext, request: RuntimeSourceWindow, signal: AbortSignal): Promise<SourceWindow>;
 }
 
-type ConnectionOptions = Pick<KernelClientOptions, "timeoutMs" | "onDiagnostic" | "onRestart">;
+type ConnectionOptions = Pick<KernelClientOptions, "timeoutMs" | "onDiagnostic" | "onRestart" | "prepareCall">;
 
 export interface HostRuntime {
 	readonly sourceReferences?: boolean;

@@ -372,6 +372,36 @@ test('§177.2 (owner Q2): a book with no text layer has no cast, and the checks 
 	assert.equal(answer.ok, false, 'the graph\'s own person still refuses a newcomer under her name');
 });
 
+test('§177.15: a place the host judged part of another word is no name: not refused, not replaced, and it tells nobody', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	const jonahId = (await h.call('table.untold')).people.find(row => row.name === 'Jonah')?.id;
+	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}, {id: jonahId, word: 'the drowned boy'}]});
+	await h.call('table.player_input', {text: 'I ask the net mender about the boats.'});
+	// Table 27 (turn 8): Dallas, written in Chinese, holds the station owner's printed nickname. Here a jinx is "a Jonah".
+	const text = 'The crews called that skiff a Jonah. My boy Jonah went down to the cellar.';
+	const {spans} = await h.call('table.untold_spans', {text});
+	assert.deepEqual(spans.map(span => [span.name, span.nth, text.slice(span.start, span.end)]), [['Jonah', 0, 'Jonah'], ['Jonah', 1, 'Jonah']]);
+	const cleared = [{name: 'Jonah', nth: 0}];
+	const first = await h.attempt('table.narrate', {call_id: 't1-c1', text, untold_cleared: cleared});
+	assert.equal(first.error?.details?.places, 1, 'only the place the host did not clear is refused');
+	assert.match(first.error.details.excerpts[0], /a Jonah\. My boy \u25a2{5} went/, 'the cleared place shows as written, the name blanked');
+	const again = await h.call('table.narrate', {call_id: 't1-c1', text, untold_cleared: cleared});
+	assert.match(again.rendered_text, /a Jonah\. My boy the drowned boy went down/, 'the cleared place stands; the name is replaced');
+	assert.ok((await h.call('table.untold')).people.some(row => row.id === jonahId), 'a Jonah of the crews told nobody his name');
+	await h.call('table.player_input', {text: 'And the skiff?'});
+	const whole = await h.call('table.narrate', {call_id: 't2-c1', text: 'They still call that skiff a Jonah.', untold_cleared: cleared});
+	assert.equal(whole.rendered_text, 'They still call that skiff a Jonah.', 'every place cleared: delivered as written');
+	assert.ok((await h.call('table.untold')).people.some(row => row.id === jonahId), 'and still told nobody');
+	await h.call('table.player_input', {text: 'Anything for the boat?'});
+	// A graph person's whole name, cleared too: an inn named after her is not her name said to the investigator.
+	await h.call('table.narrate', {call_id: 't3-c1', text: 'She points you to the Old Mae Inn for a bed.', untold_cleared: [{name: 'Old Mae', nth: 0}]});
+	assert.ok((await h.call('table.untold')).people.some(row => row.name === 'Old Mae'), 'an inn told nobody her name');
+	await h.call('table.player_input', {text: 'Anything else?'});
+	await assert.rejects(h.call('table.narrate', {call_id: 't4-c1', text: 'x', untold_cleared: [{name: 'Jonah'}]}),
+		error => error?.details?.field === 'untold_cleared', 'the host\'s list has a shape');
+});
+
 test('§177.1: an authored module has no cast job; its cast is its graph, and an abbreviation is no name piece', async t => {
 	const k = await kernel(t, 'module-cast-authored');
 	const call = (method, params = {}) => k.raw(method, {campaign: 'c1', ...params});
@@ -395,14 +425,16 @@ test('§177.11: a delivery that says an untold printed name in its own words is 
 	// Table 25 (turn 8): the toothless trucker said 「叫我厄尼就行」, the name of another man of the book nobody had met.
 	const unread = await h.attempt('table.narrate', {call_id: 't1-c1', text: 'She sighs. "My boy Jonah went down to the cellar."'});
 	assert.equal(unread.ok, false);
-	assert.deepEqual([unread.error.details?.reason, unread.error.details?.words], ['untold_name', ['Jonah']], 'someone the reader has not reached');
+	assert.deepEqual([unread.error.details?.reason, unread.error.details?.places], ['untold_name', 1], 'someone the reader has not reached');
+	assert.deepEqual(unread.error.details?.excerpts, ['She sighs. "My boy \u25a2\u25a2\u25a2\u25a2\u25a2 went down to the cellar'], 'shown blanked, with the words around it');
+	assert.ok(!(unread.error.message + JSON.stringify(unread.error.details)).includes('Jonah'), 'the refusal never quotes the name: the request would rename it');
 	// The same names again in the turn: delivered, the name replaced by the word this table calls him -- never the name, never a stuck turn.
 	const again = await h.call('table.narrate', {call_id: 't1-c1', text: 'She sighs. "My boy Jonah went down to the cellar."'});
 	assert.match(again.rendered_text, /My boy the drowned boy went down/);
 	assert.ok(!again.rendered_text.includes('Jonah'));
 	await h.call('table.player_input', {text: 'And what do people call you?'});
 	const graphPerson = await h.attempt('table.narrate', {call_id: 't2-c1', text: 'She says, "Call me Mae."'});
-	assert.deepEqual(graphPerson.error?.details?.words, ['Mae'], 'a printed form of an untold graph person');
+	assert.deepEqual(graphPerson.error?.details?.excerpts, ['She says, "Call me \u25a2\u25a2\u25a2."'], 'a printed form of an untold graph person');
 	const token = await h.call('table.narrate', {call_id: 't2-c1', text: 'She wipes her hands. {{say:the net mender}}"Everyone calls me {{name:the net mender}}."{{/say}}'});
 	assert.match(token.rendered_text, /Old Mae/, 'the token puts the book\'s name in on purpose');
 	await h.call('table.player_input', {text: 'And your boy?'});

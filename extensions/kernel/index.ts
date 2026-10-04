@@ -88,6 +88,9 @@ import {
 } from "../../runtime/jev/keeper-line-purpose.ts";
 import { npcActBudget } from "../../runtime/jev/host-budgets.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
+import { createUntoldSpanJudge } from "./untold-spans.ts";
+import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
+import { NAME_SPANS_FAMILY } from "../../runtime/jev/untold-name-spans.ts";
 import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs } from "./source-answers.ts";
 import { PERSON_TEXT_NOTE, SceneReadings, SCENE_TEXT_NOTE } from "./scene-readings.ts";
 import { bookText, CarriedText, findPassage } from "./carried-text.ts";
@@ -1610,6 +1613,14 @@ export default function (pi: ExtensionAPI) {
 	const leanApply = leanApplyEnabled(process.env);
 	// Contract §168.5: the check of a delivery against the book's descriptions, on the fast model, after the delivery.
 	const firstSightLane = createFirstSightLane(pi, { ctx: () => sessionCtx, campaign: () => table?.campaign });
+
+	// Contract §177.15: the places a delivery writes an untold person's name are asked of Jev before the kernel's gate reads them.
+	let untoldSpanPort: DecisionPort | undefined;
+	const untoldSpanJudge = createUntoldSpanJudge({ record: (row) => void record(row), decision: () => {
+		if (!readJevApiKey(process.env)) return undefined;
+		return untoldSpanPort ??= createDecisionAdapter({ env: process.env, maxConcurrency: 4, retryPolicies: {
+			[NAME_SPANS_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } });
+	} });
 
 	// ---- Telemetry --------------------------------------------------------
 
@@ -5568,6 +5579,7 @@ export default function (pi: ExtensionAPI) {
 			runtime = createRuntime({ owner: "session", home: cocHome(ctx.cwd),
 				campaign: process.env.PI_COC_CAMPAIGN?.trim() || undefined });
 			const kernel = runtime.openKernel({
+				prepareCall: untoldSpanJudge,
 				onDiagnostic: (message) => {
 					// The kernel's stderr and restart notices can arrive after the session is disposed (the user
 					// quits pi while a lane is still flying), and after that every ctx getter throws
