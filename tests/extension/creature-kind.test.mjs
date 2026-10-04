@@ -214,9 +214,11 @@ test('§180.3: a say span naming the creature stays a label; one naming the pers
 
 test('§180.3: the first impression is a person\'s -- no pending contact with the creature, and not_here lists only persons', async t => {
   const {call, id, opened} = await table(t);
-  const contacts = opened.capsule.mods?.pending_contacts ?? [];
+  // §178 rolls the warden's impression when the people meet, so he is owed (pending) or already met (relationships);
+  // the rats are in neither, whichever way the meeting went.
+  const contacts = [...(opened.capsule.mods?.pending_contacts ?? []), ...(opened.capsule.mods?.relationships ?? [])];
   assert.ok(contacts.some(row => row.target === WARDEN), JSON.stringify(contacts));
-  assert.ok(!contacts.some(row => row.target === RATS), 'no first impression is owed with the rats');
+  assert.ok(!contacts.some(row => row.target === RATS), 'no first impression is owed or rolled with the rats');
   await rejects(call('table.resolve', {call_id: id(), action: {intent: 'social', goal: 'meet him', method: 'greet', decision: 'natural-npc:first-impression',
     actor: 'Thomas Hayes', target: GARDENER}}), error => {
     assert.equal(error.code, 'not_here');
