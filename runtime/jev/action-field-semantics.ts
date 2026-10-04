@@ -1,0 +1,2 @@
+/** Closed transaction metadata, shared by the existing action reviewers. No action is inferred here. */
+export const HANDOVER_GROUND_NOTE = 'handover states the consent ground of an ownership transfer: given means both sides were willing and no dice were asked; taken means one side\'s leave was neither sought nor needed; check cites an already-settled roll. It does not specify a physical gesture. Putting a thing down is distinct from transferring ownership; judge the declared actor, recipient or place and consent, not an invented hand-to-hand requirement.';

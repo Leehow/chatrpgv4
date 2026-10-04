@@ -271,7 +271,7 @@ it('conversation binding is idempotent and never creates an investigator',async(
   expect(accepted.play_language).toBe('en');
   const {readdir:files}=await import('node:fs/promises');
   expect((await files(join(home,'.coc/campaigns',first.campaign,'party'))).filter(x=>x.endsWith('.json'))).toHaveLength(0);
-  // §173.5: with the setting off nothing is seated and the conversation is the one it was.
+  // §174.5: with the setting off nothing is seated and the conversation is the one it was.
   expect(campaign.setup?.receipts).toBeUndefined();
   expect(first.character.state).toBe('conversing');expect(first.canHandoff).toBe(false);
   await expect(host.invoke({action:'create',id:job.id,character:{name:'Forbidden',occupation:'Journalist'}},'one',model)).rejects.toThrow('Unknown onboarding action');
@@ -285,7 +285,7 @@ async function readyStarter(host:CocOnboardingHost,session:string){
   return job;
 }
 /**
- * Contract §173.5: with the host's auto-investigator choice on the converse request, the real worker
+ * Contract §174.5: with the host's auto-investigator choice on the converse request, the real worker
  * seats the template and completes setup on the real kernel, before any session exists -- so no setup
  * guide turn can run -- and the snapshot says the card is confirmed and the table may be handed off.
  */

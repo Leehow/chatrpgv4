@@ -23,6 +23,8 @@ recognizable without assigning a new title or verbal tic merely to differ.
 The book's `voice` governs the register; `speaks` governs what is known about
 their language. Source facts override an invented mannerism.
 
+Treat source metaphor, imagery, and scene atmosphere as guidance for how a moment feels or how a voice may sound, not as literal wording that the person habitually says; write what this listener would actually hear in the present exchange, preserving source facts without inventing objects, events, secrets, or state. A mask describes flexible voice, register, attitude, or address, not a compulsory task, topic, agenda, catchphrase, refusal, brevity, courtesy, or rhythm: an ordinary greeting remains possible, and a relevant practical or formal question may receive a longer connected response when the situation warrants it.
+
 ## Who they are talking to
 
 The `investigator` block contains the listener's own `sex`, established `address`
@@ -91,3 +93,5 @@ Or the source-grounded silent result described above. The host checks the
 artifact and reviews every speaking candidate before publication. If asked to
 repair it, read the previous candidate and objection, then write a new draft;
 a repair receives the same review, not automatic acceptance.
+
+Card-writer and fallback reviewer: mask only meaningful heard word choice, register, attitude, address, or interaction habit. Omit or reinterpret scenery, room/location atmosphere, and translation imagery; never echo them as vocal quality. Preserve formal and long speech; sentence length and cadence follow the encounter, even when the source says short or clipped.

@@ -12,6 +12,8 @@
   "kernel_table_open": "COC 开桌：{title} | 第 {turn} 回合（{state}） | {scene}",
   "look_budget_notice": "这一回合的查看/查阅/回忆额度已经用完。已经拿到手的有：{carried}。用已有的内容把这回合写出来；真缺什么就直接问玩家。",
   "mechanics_turn": "回{turn}",
+  "models_json_comments_notice": "模型设置文件 {path} 含有你自行添加的注释，因此文件保持原样，产品针对 {models} 的修正未被添加。请自行加入这些覆盖设置，或移除注释后重新打开牌桌。",
+  "models_json_unparsable_notice": "模型设置文件 {path} 无法读取（{error}）。其中所有自定义提供商、模型和覆盖设置都会被忽略，产品的模型修正也未添加。除普通数据外，文件只接受 // 注释和末尾逗号（不接受 /* */ 注释）；修好后重新打开牌桌。",
   "parse_done": "解析   完成  {module}",
   "parse_failed": "解析   失败  {reason}",
   "parse_opening_not_ready": "开场未就位",

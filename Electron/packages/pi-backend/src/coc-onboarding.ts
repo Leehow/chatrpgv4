@@ -72,7 +72,7 @@ export function bookTitle(name: unknown): unknown {
   return stem || name;
 }
 /**
- * Whether the campaign's card was seated from a shipped template (contract §173.5): every investigator
+ * Whether the campaign's card was seated from a shipped template (contract §174.5): every investigator
  * receipt says `source: "template"`. Such a card has no draft to confirm, so it counts as confirmed and
  * the preparation panel may hand off once the opening is ready.
  */
@@ -565,7 +565,7 @@ export class CocOnboardingHost {
         // The host injects the extension's difficulty setting (contract §33.1); it is not a
         // player-editable import field, so only the converse run input carries it, never the job.
         const difficulty=params.difficulty&&typeof params.difficulty==='object'&&!Array.isArray(params.difficulty)?{difficulty:params.difficulty}:{};
-        // Contract §173.5: the auto-investigator choice is the host's, injected like difficulty, and
+        // Contract §174.5: the auto-investigator choice is the host's, injected like difficulty, and
         // like it rides only this run's input -- the import job never records it.
         const auto=params.auto_investigator&&typeof params.auto_investigator==='object'&&!Array.isArray(params.auto_investigator)
           ?{auto_investigator:{template:typeof params.auto_investigator.template==='string'&&params.auto_investigator.template?params.auto_investigator.template:null}}:{};

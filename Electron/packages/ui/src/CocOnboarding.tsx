@@ -36,7 +36,7 @@ const MAX_UPLOAD_MB = 128
 const UPLOAD_ATTEMPTS = 4
 /** A pause between attempts, growing, so a chunk still being written has time to land. */
 const UPLOAD_RETRY_MS = 500
-/** The host's settings key for auto-create investigator (contract §173.4); the host reads it, never this screen alone. */
+/** The host's settings key for auto-create investigator (contract §174.4); the host reads it, never this screen alone. */
 const AUTO_INVESTIGATOR_KEY = 'ext.coc-keeper.autoInvestigator'
 
 /** A caption from the answer's `ui` block, or `fallback` -- the key by default, so a gap is
@@ -114,7 +114,7 @@ export function CocOnboarding({host, sessionId}: Props) {
   // host for a catalog in a language nobody named. The tag is committed when it is a whole one.
   const [typedLanguage,setTypedLanguage] = useState<string>(playLanguages.default)
   const [ui,setUi] = useState<Ui | null>(null)
-  // Contract §173.6: the player's own toggle and card choice, over the host's stored reading of them.
+  // Contract §174.6: the player's own toggle and card choice, over the host's stored reading of them.
   const [autoChoice,setAutoChoice] = useState<{enabled:boolean; template:string|null} | null>(null)
   const starting=useRef(false), restored=useRef(false)
   const chooser = useRef<HTMLInputElement>(null), cancelled = useRef(false), uploadRunning = useRef(false)

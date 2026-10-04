@@ -268,7 +268,7 @@ it('continues a restored upload from the acknowledged prefix when the file is ch
 },20000)
 
 /**
- * Contract §173.6: the auto-create toggle and its template cards. The setting is the host's
+ * Contract §174.6: the auto-create toggle and its template cards. The setting is the host's
  * (`ext.coc-keeper.autoInvestigator`), so the screen writes it where the settings sections write
  * theirs; with it off the converse request is exactly what it always was.
  */

@@ -274,7 +274,7 @@ it('the converse worker input carries only the stored difficulty, never a render
 });
 
 it('auto-investigator is off unless the player stored it: no environment and no renderer field turns it on',async()=>{
-  // A transport seam fixture for contract §173.4: the host is the only authority, and its default is off
+  // A transport seam fixture for contract §174.4: the host is the only authority, and its default is off
   // everywhere so ordinary runs keep exercising character creation.
   const {cp}=await import('node:fs/promises');
   const {createPiHostBackend}=await import('../src/index.js');

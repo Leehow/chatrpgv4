@@ -13,6 +13,15 @@ const sessionPath = (() => {
   const at = process.argv.indexOf("--session");
   return at >= 0 ? process.argv[at + 1] ?? "" : "";
 })();
+/**
+ * Rows real Pi appends while its extensions handle `session_start`, before it answers any command and without
+ * emitting them: RPC mode subscribes to session events only after `bindExtensions` (dist/modes/rpc/rpc-mode.js).
+ * `{path, rows}`; the path is the transcript's, which this fake is not always handed as `--session`.
+ */
+if (process.env.FAKE_PI_STARTUP_ROWS) {
+  const startup = JSON.parse(process.env.FAKE_PI_STARTUP_ROWS);
+  for (const row of startup.rows) appendFileSync(startup.path || sessionPath, JSON.stringify(row) + "\n");
+}
 let prompted = false;
 /** When set, later emitTurn cycles must not end the long-running background agent. */
 let durableAgent = false;

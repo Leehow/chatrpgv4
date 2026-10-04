@@ -194,7 +194,7 @@ async function main() {
     const presets = await starterCatalog(input.play_language);
     const library = await call('module.list');
     const occupations = await call('setup.occupations');
-    // The template cards the start screen offers when auto-create is on (contract §173.5).
+    // The template cards the start screen offers when auto-create is on (contract §174.5).
     const templates = (await call('setup.templates')).templates;
     return {presets, modules: library.modules.filter((row: any) => row.source !== 'starter' && (row.status === 'installed'||row.setup_ready)), occupations: occupations.occupations,
       templates: Array.isArray(templates) ? templates : []};
@@ -268,7 +268,7 @@ async function main() {
     const difficulty=input.difficulty&&typeof input.difficulty==='object'&&!Array.isArray(input.difficulty)?{difficulty:input.difficulty}:{};
     if(!existing)await call('campaign.create',{id:campaign,module:input.module_id,title:input.title,play_language:input.play_language,
       start_scene:input.start_scene,guidance_key:input.guidance_key,...difficulty});
-    // Contract §173.5: the host put `auto_investigator` here only when its own setting is on. The card
+    // Contract §174.5: the host put `auto_investigator` here only when its own setting is on. The card
     // is seated and setup completed before the session exists, so no setup guide ever speaks; an
     // opening still preparing leaves `waiting_for_opening` for the existing handoff to finish.
     const auto=input.auto_investigator&&typeof input.auto_investigator==='object'&&!Array.isArray(input.auto_investigator)?input.auto_investigator:undefined;

@@ -1,5 +1,5 @@
 /**
- * Contract §173: shipped investigator templates seat a `setting_up` table without a setup
+ * Contract §174: shipped investigator templates seat a `setting_up` table without a setup
  * conversation. Every case runs the emitted TypeScript kernel (`build/kernel/rpc.mjs`) over a fresh
  * workspace, so what is asserted is what the onboarding worker gets back.
  */
@@ -47,7 +47,7 @@ test("setup.templates lists every shipped template in id order, from the sheets 
 		assert.deepEqual(row, { id: row.id, name: sheet.name, occupation: sheet.occupation, era: sheet.era, age: sheet.age, sex: sheet.sex });
 		// A template is a whole sheet the table can play: the kernel's own numbers, not a seed.
 		for (const field of ["characteristics", "derived", "skills"]) assert.equal(typeof sheet[field], "object", `${row.id}.${field}`);
-		// It belongs to no book (§173.1).
+		// It belongs to no book (§174.1).
 		assert.equal(sheet.backstory?.scenario_id, undefined, `${row.id} carries no book id`);
 	}
 });

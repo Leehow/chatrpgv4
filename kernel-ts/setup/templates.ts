@@ -1,4 +1,4 @@
-/** Shipped investigator templates (contract §173): fixed sheets a host seats without a setup conversation. */
+/** Shipped investigator templates (contract §174): fixed sheets a host seats without a setup conversation. */
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
@@ -74,7 +74,7 @@ export class InvestigatorTemplates {
     await campaign.writeCampaign(meta);
     return {receipt: `investigator:${id}`, investigator: investigatorRow(sheet), sheet, template: requested, era_mismatch: mismatch};
   }
-  /** A campaign that already seated a template answers with that card and writes nothing (§173.2). */
+  /** A campaign that already seated a template answers with that card and writes nothing (§174.2). */
   private async replay(params: Row): Promise<Row | null> {
     const campaign = await this.writer.campaign(params, {requireTurn: false, requireWorld: false}), meta = await campaign.readCampaign();
     const receipt = templateReceipt(meta);
