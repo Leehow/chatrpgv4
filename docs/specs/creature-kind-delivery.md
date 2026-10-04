@@ -3,7 +3,7 @@
 Status: ready-for-review（集成分支已兼容公共头 `66aedd44a`；按协调要求，不自行合主线、不打包）
 
 - **分支** `claude/creature-kind-20261004`，worktree `~/leehow/code/chatrpgv4-wt-creature-kind`。
-- **最终 ready 提交**：交付记录本身所在的提交。它的父提交 `8f67b9d53` 是公共头 `66aedd44a` 合入后的代码头。
+- **最终 ready 提交**：交付记录本身所在的提交。代码最后一次变动是 `c4ba0872c`（合入 CK-F2 审查跟进），之后的提交只改文档。公共头 `66aedd44a` 在 `8f67b9d53` 合入。
 - **历史**：此前已兼容公共头 `1b17590e8`（代码头 `930a3a36f`）。`66aedd44a` 合入时没有冲突；它与本切片唯一重叠的代码文件是 `runtime/jev/hybrid-engine.ts`，但那处改动来自之前合入的主线 §178.3，本切片自己没改。
 - **规范**：契约 `docs/kernel-rpc.md` §180（开头有 Status），spec [creature-kind.md](creature-kind.md)，工单 [creature-kind-tickets.md](creature-kind-tickets.md)，模组库调查 [creature-kind-survey.md](creature-kind-survey.md)。
 
@@ -39,6 +39,18 @@ Status: ready-for-review（集成分支已兼容公共头 `66aedd44a`；按协�
 ## 测试
 
 正式验收的位置以协调方的统一 LAN 全套为准。下面按「位置」和「日志」分开记录，本机 pytest 只算诊断。
+
+### 头 `bd52d0980`（含 CK-F2 审查跟进；代码与 `c4ba0872c` 相同）
+
+- **构建**：leehow-pc，`remote-test.sh build-fetch`。
+- **pytest 单文件，在测试盒 leehow-pc 上跑**：17 个文件 269 通过、1 跳过，退出码 0。
+  - 盒子日志 `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-creature-kind/remote-py.log`，本地副本 `.coc/playtests/creature-kind-20261004/pytest-box-bd52d0980.log`。
+  - 文件：下一节列出的 14 个，加上 engines/test_chase、test_npc_first_blow、engines/test_combat。
+- **node 单文件，在本机跑**：33 个文件 544/544 通过，日志 `.coc/playtests/creature-kind-20261004/node-single-files-bd52d0980.log`。
+  - 下一节的 23 个文件；
+  - 加上先手准备与追逐：attack-preparation、check-preparation-host、check-selection、check-catalog、chase-roster-selection、chase-vehicle-gateway；
+  - 加上单循环：single-loop-binding、single-loop-candidates、single-loop-compile、single-loop-domain-policy。
+- **生产内核路径验收**：`head-bd52d0980-default`、`head-bd52d0980-indexed` 各 12/12。
 
 ### 代码头 `8f67b9d53`（已兼容 `66aedd44a`）
 
