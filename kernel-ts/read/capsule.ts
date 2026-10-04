@@ -184,8 +184,9 @@ export function untoldRoster(graph: ModuleGraph, world: Row, journal: Row, recor
         const slugs = !node || shown === id ? [] : [string(node.node_id), id].filter((value, at, all) => value && all.indexOf(value) === at);
         const names = person.names;
         for (const name of [...names, ...namePieces(names).filter(piece => !names.includes(piece)), ...slugs]) {
-            const key = normalize(name);
-            if (!key || known.has(key)) continue;
+            // Keyed by the exact string the rename replaces: a handle normalizes to its name ("steven-knott") and is its own row.
+            const key = name.trim();
+            if (!key || known.has(normalize(name))) continue;
             const entry = owners.get(key) ?? { name, shown: [], id };
             if (!entry.shown.includes(shown)) entry.shown.push(shown);
             owners.set(key, entry);
