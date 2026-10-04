@@ -1,9 +1,10 @@
 # 人与生物分开 + 敌对生物 Mod：交付记录（handoff）
 
-Status: ready-for-review（集成分支已兼容公共头 `1b17590e8`；按协调要求，不自行合主线、不打包）
+Status: ready-for-review（集成分支已兼容公共头 `66aedd44a`；按协调要求，不自行合主线、不打包）
 
 - **分支** `claude/creature-kind-20261004`，worktree `~/leehow/code/chatrpgv4-wt-creature-kind`。
-- **最终 ready 提交**：交付记录本身所在的提交。它的父提交 `930a3a36f` 是公共头 `1b17590e8` 合入后的代码头。
+- **最终 ready 提交**：交付记录本身所在的提交。它的父提交 `8f67b9d53` 是公共头 `66aedd44a` 合入后的代码头。
+- **历史**：此前已兼容公共头 `1b17590e8`（代码头 `930a3a36f`）。`66aedd44a` 合入时没有冲突；它与本切片唯一重叠的代码文件是 `runtime/jev/hybrid-engine.ts`，但那处改动来自之前合入的主线 §178.3，本切片自己没改。
 - **规范**：契约 `docs/kernel-rpc.md` §180（开头有 Status），spec [creature-kind.md](creature-kind.md)，工单 [creature-kind-tickets.md](creature-kind-tickets.md)，模组库调查 [creature-kind-survey.md](creature-kind-survey.md)。
 
 ## 证据的性质
@@ -34,28 +35,33 @@ Status: ready-for-review（集成分支已兼容公共头 `1b17590e8`；按协�
 | 与 §178 初遇的交界：初见接触的待处理和已掷结果都不含 creature | `19745b326` | `creature-kind.test.mjs`；验收 basement |
 | 与名字 v5 / §177 的交界：名表只取书里的 `npc`；按外号查找时 creature 被种类过滤挡住；walk-on 拒绝用本桌叫法 | 合并 `930a3a36f` | 名字相关测试文件全过（见下） |
 
-## 测试（最终代码头 `930a3a36f`）
+## 测试
 
-**构建**：leehow-pc（`remote-test.sh build-fetch`，amax 不在线），产物拉回本机。
+正式验收的位置以协调方的统一 LAN 全套为准。下面按「位置」和「日志」分开记录，本机 pytest 只算诊断。
 
-**本机单文件，全部通过：**
+### 代码头 `8f67b9d53`（已兼容 `66aedd44a`）
 
-- node：28 个文件 410/410。
+- **构建**：leehow-pc（`remote-test.sh build-fetch`，盒子日志 `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-creature-kind/remote-build.log`；amax 不在线），产物拉回本机。
+- **pytest 单文件，在测试盒 leehow-pc 上跑**（`remote-test.sh run … py <14 个文件>`）：132 通过、1 跳过，退出码 0。
+  - 盒子日志 `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-creature-kind/remote-py.log`，本地副本 `.coc/playtests/creature-kind-20261004/pytest-box-66aedd44a.log`。
+  - 这 14 个文件：test_jev_resolve、test_starters、test_setup_laws、test_npc_situation、test_npc_act_options、test_voice_bench、test_mod_vocabulary、test_mod_packages、test_mod_director_text、test_rules_tables_register、test_chase_npc_quarry、test_npc_archetype、test_module_playability、test_haunting_shapes。
+  - 主线原来的两条 `test_jev_resolve` 基线失败已经不再出现。
+- **node 单文件，在本机跑**（`node --test --test-concurrency=2`）：23 个文件 394/394 通过，日志 `.coc/playtests/creature-kind-20261004/node-single-files-66aedd44a.log`。这 23 个文件包括：
   - 本切片：creature-kind、creature-reader、hostile-creatures、table-creature、table-creature-merge、starter-creatures、partial-stat-block、mod-section-index；
   - 读取与形状：ts-kernel-read、ts-kernel-rules、haunting-shapes、mechanics-readers、mechanics-shape；
-  - 名字 v5：module-cast、module-cast-reader、graph-epithets、npc-epithets-lane、untold-name-path、untold-view、untold-names-held、untold-request、a-person-has-a-name-here、name-resolution；
-  - §178：presence-impression、presence-impression-clerk；
+  - 名字与初遇：module-cast、graph-epithets、untold-name-path、presence-impression；
+  - 主线新增：single-loop-one-destination、time-band-momentary、band-shadow；
   - 守卫：world-state-seams、system-language、contract-section-numbers。
-- pytest（`uv run --frozen`）：14 个文件 133 个用例通过。
-  - test_jev_resolve、test_starters、test_setup_laws、test_npc_situation、test_npc_act_options、test_voice_bench；
-  - test_mod_vocabulary、test_mod_packages、test_mod_director_text；
-  - test_rules_tables_register、test_chase_npc_quarry、test_npc_archetype、test_module_playability、test_haunting_shapes。
-  - `test_jev_resolve` 原来的两条主线基线失败，在新头上已经消失（主线已对齐）。
+- **生产内核路径验收**（本机 node 驱动 `build/kernel/rpc.mjs`，不调用模型）：
+  - `head-66aedd44a-default` 12/12；
+  - `head-66aedd44a-indexed`（`COC_INSTRUCTION_BUDGET=1`）12/12，章节加载与下表一致；
+  - 证据目录 `.coc/playtests/creature-kind-20261004/`，脚本 `accept.mjs`，头记录在 `HEAD-66aedd44a.txt`。
 
-**产品路径验收**（证据在 `.coc/playtests/creature-kind-20261004/`，脚本 `accept.mjs`，最终头记录在 `HEAD-final.txt`）：
+### 代码头 `930a3a36f`（兼容 `1b17590e8` 时）
 
-- `final-default` 12/12。
-- `final-indexed`（`COC_INSTRUCTION_BUDGET=1`）12/12。章节加载如下：
+- **node 单文件，本机**：28 个文件 410/410。
+- **pytest，本机**：14 个文件 133 通过。**只算诊断，不计正式 LAN 验收。** 按全局规则，pytest 单文件也要走测试盒，之后不再在本机跑。
+- **生产内核路径验收**：`final-default`、`final-indexed` 各 12/12。章节加载如下：
 
   | 时点 | 「Playing a creature」 | 「Weaknesses」 |
   | --- | --- | --- |
@@ -64,11 +70,13 @@ Status: ready-for-review（集成分支已兼容公共头 `1b17590e8`；按协�
   | 对峙（Corbitt） | 不加载 | 加载 |
   | 狗进场后 | 加载 | 加载 |
 
-**全量套件。** 最终头没有跑全量：协调方会在最终公共头上统一串行跑一次。此前在同步基线 `b7825a94e`/`48f1ec97c` 上跑过：
+### 全量套件
+
+本切片的任何最终头都没有跑全量：协调方会在最终公共头上统一串行跑一次。此前在同步基线 `b7825a94e`/`48f1ec97c` 上，leehow-pc 跑过：
 
 - ext 4568/4568；
 - single-loop 通过；
-- pytest 2083 通过，只有 `test_jev_resolve` 那两条当时的主线基线失败。
+- pytest 2083 通过，只有当时 `test_jev_resolve` 的两条主线基线失败。
 
 ## 实际 build 与 Mod 锁（最终头新开的战役）
 
