@@ -2,6 +2,7 @@
 import type { KernelContext } from '../context.js';
 import type { HandlerGroup } from '../handlers.js';
 import { isJsonObject } from '../json.js';
+import { RpcError } from '../errors.js';
 import { readCampaign } from '../read/handlers.js';
 import { declaredPlayLanguage, playLanguageOf } from '../read/languages.js';
 import { CampaignSnapshot, loadCampaignModule } from '../read/campaign.js';
@@ -19,6 +20,7 @@ import { stageModEffect } from './stage.js';
 import { resolveBeforeMain, type ModResolveInput } from './resolve.js';
 import { magicEffects } from './effects.js';
 import {expressionCatalog} from '../read/expression-reference.js';
+import { packageSections, sectioned, sectionKey } from '../read/sections.js';
 export { validateDefinition, validateDocumentSeed, definitionExpression } from './definition.js';
 export { projectInventory, projectSheet, weaponRows } from './projection.js';
 export { magicEffects, effectTarget, applyObjectEffects, saveEffectTarget, useItem, repairItem, castNpc } from './effects.js';
@@ -107,6 +109,21 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
         const campaign=await writer.campaign(params),meta=await campaign.readCampaign(),world=await campaign.readWorld();
         return expressionCatalog(await runtime.active(world),await playLanguageOf(context,meta));
       },
+      // Contract §183.4: the text of indexed sections, by the keys the capsule lists. Read-only, outside the turn.
+      'mods.sections': async params => {
+        const keys = params.keys;
+        if (!Array.isArray(keys) || !keys.length || keys.length > 256 || keys.some(key => typeof key !== 'string'))
+          throw new RpcError('invalid_params', 'mods.sections takes keys: a non-empty list of section keys');
+        const campaign = await writer.campaign(params), world = await campaign.readWorld(), known = new Map<string, Row>();
+        for (const mod of await runtime.active(world))
+          if (sectioned(mod))
+            packageSections(mod).forEach((section, ordinal) => known.set(sectionKey(mod, ordinal),
+              {key: sectionKey(mod, ordinal), mod: mod.id, version: mod.version, heading: section.heading, text: section.text}));
+        const unknown = (keys as string[]).filter(key => !known.has(key));
+        if (unknown.length)
+          throw new RpcError('invalid_params', `No active package section ${unknown[0]}`, {details: {keys: unknown}});
+        return {sections: (keys as string[]).map(key => known.get(key)!)} as Row;
+      },
       'mods.context': async params => {
         // A campaign still being set up has no capsule: it gets the setup shape (§26) from the same lock mods.configure writes.
         const settingUp = await writer.campaign(params, {requireWorld: false}), meta = await settingUp.readCampaign();
@@ -115,7 +132,7 @@ export function createModRuntime(context: KernelContext, sources: ModSources = {
           return setupModContext(context, row(lock));
         }
         const {campaign, module} = await readCampaign(context, params, false, false, writer.read);
-        return modContext(context, module.graph, campaign.world, campaign.party, campaign.records, true, {
+        return modContext(context, module.graph, campaign.world, campaign.party, campaign.records, {
           memory: campaign.logs.get('memory/candidates.jsonl') ?? [], story: campaign.logs.get('memory/story.jsonl') ?? [],play_language:await playLanguageOf(context,campaign.meta),
           worldline: string(campaign.meta.active_worldline || 'main'),
           loop: number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline || 'main')]).loop)

@@ -1,0 +1,67 @@
+{"campaigns":40,"turns":110,"done":105,"failed":5}
+turns 110, replayed 105, failed 5
+  failures: {'Error: no commit for turn 9': 1, 'Error: no commit for turn 0': 1, 'KernelError: FileNotFoundError: [Errno 2] No such file or di': 3}
+sections scored: ['nn/impression', 'nn/asking', 'nn/asker', 'nn/language', 'ei/documents', 'ei/register', 'ei/define', 'ei/manage', 'ei/usage', 'kp/lethal', 'kp/clocks', 'kp/stuck', 'kp/ooc', 'st/clues', 'st/handed', 'st/conclude', 'hr/prices', 'hr/dispute']
+host-only (not decidable offline): ['ei/refusal', 'hr/lookup', 'hr/closure', 'kc/workspace']
+
+overall vs rule labels: P 0.50 R 0.69 F1 0.58 (tp 178 fp 176 fn 79)
+  topic-decided  16 sections: P 0.57 R 0.74 (tp 167 fp 128 fn 59)
+  state-decided  2 sections: P 0.19 R 0.35 (tp 11 fp 48 fn 20)
+  ei/define      gold= 12 recall=0.50 fp=13
+  ei/documents   gold= 27 recall=0.78 fp=9
+  ei/manage      gold=  3 recall=0.33 fp=11
+  ei/register    gold=  6 recall=0.33 fp=24
+  ei/usage       gold=  0 recall=nan fp=1
+  hr/dispute     gold=  1 recall=1.00 fp=0
+  hr/prices      gold= 30 recall=0.77 fp=8
+  kp/clocks      gold=  4 recall=0.25 fp=7
+  kp/lethal      gold=  1 recall=1.00 fp=0
+  kp/ooc         gold=  2 recall=1.00 fp=3
+  kp/stuck       gold=  2 recall=0.00 fp=34
+  nn/asker       gold= 45 recall=0.96 fp=3
+  nn/asking      gold= 10 recall=0.70 fp=5
+  nn/impression  gold= 37 recall=0.62 fp=21
+  st/clues       gold= 47 recall=0.74 fp=23
+  st/conclude    gold=  1 recall=1.00 fp=0
+  st/handed      gold= 29 recall=0.38 fp=14
+gold pairs on host-only sections (decided at the Keeper's call in the product): 0
+
+loaded sections/turn mean 3.68 p95 6; bytes/turn p50 4275 p95 8611 max 10393
+topic lane ms p50 499 p95 766; jev unavailable 0
+gate hits over turns: {'opening': 0, 'present_without_history': 51, 'language_gap': 0, 'unregistered_equipment': 87, 'registered_instances': 53, 'threat_clock': 28, 'stall': 34, 'recover': 32, 'clue_here': 48, 'handed_clue_here': 25, 'reentry': 0}
+why loaded: {'state:clue_here': 48, 'topic:asks_question': 46, 'topic:speaks_to_person': 44, 'state:stall': 34, 'state:recover': 32, 'topic:new_thing': 31, 'topic:money': 31, 'topic:readable': 30, 'topic:clue_search': 27, 'topic:carried_item': 26, 'state:handed_clue_here': 25, 'topic:asks_favour': 12, 'topic:time_passes': 8, 'topic:out_of_character': 5, 'topic:force_object': 1, 'topic:lethal_risk': 1, 'topic:price_dispute': 1, 'topic:conclusion': 1}
+
+today: briefs 4999 B every turn; resident briefs of the resident packages (narration-craft 904 + keeper-pacing 913 + historical 60 + zh 586) 2463 B
+===== SAMPLE A
+{"campaigns":41,"turns":120,"done":109,"failed":11}
+turns 120, replayed 109, failed 11
+  failures: {'Error: no commit for turn 7': 1, 'Error: no commit for turn 4': 1, 'Error: no commit for turn 8': 1, 'Error: no commit for turn 6': 1, 'Error: no commit for turn 5': 3, 'Error: no commit for turn 0': 2, 'KernelError: FileNotFoundError: [Errno 2] No such file or di': 2}
+sections scored: ['nn/impression', 'nn/asking', 'nn/asker', 'nn/language', 'ei/documents', 'ei/register', 'ei/define', 'ei/manage', 'ei/usage', 'kp/lethal', 'kp/clocks', 'kp/stuck', 'kp/ooc', 'st/clues', 'st/handed', 'st/conclude', 'hr/prices', 'hr/dispute']
+host-only (not decidable offline): ['ei/refusal', 'hr/lookup', 'hr/closure', 'kc/workspace']
+
+overall vs rule labels: P 0.57 R 0.71 F1 0.63 (tp 183 fp 138 fn 73)
+  topic-decided  16 sections: P 0.61 R 0.73 (tp 171 fp 110 fn 62)
+  state-decided  2 sections: P 0.30 R 0.52 (tp 12 fp 28 fn 11)
+  ei/define      gold= 10 recall=0.30 fp=7
+  ei/documents   gold= 22 recall=0.64 fp=13
+  ei/manage      gold=  3 recall=0.00 fp=5
+  ei/register    gold=  9 recall=0.89 fp=20
+  hr/prices      gold= 30 recall=0.83 fp=12
+  kp/clocks      gold=  6 recall=0.17 fp=8
+  kp/ooc         gold=  7 recall=0.71 fp=5
+  kp/stuck       gold=  6 recall=0.67 fp=21
+  nn/asker       gold= 47 recall=0.96 fp=0
+  nn/asking      gold= 10 recall=1.00 fp=3
+  nn/impression  gold= 31 recall=0.71 fp=20
+  nn/language    gold=  1 recall=0.00 fp=0
+  st/clues       gold= 55 recall=0.67 fp=16
+  st/conclude    gold=  2 recall=0.50 fp=1
+  st/handed      gold= 17 recall=0.47 fp=7
+gold pairs on host-only sections (decided at the Keeper's call in the product): 0
+
+loaded sections/turn mean 3.16 p95 6; bytes/turn p50 3504 p95 7175 max 10390
+topic lane ms p50 487 p95 796; jev unavailable 0
+gate hits over turns: {'opening': 0, 'present_without_history': 56, 'language_gap': 0, 'unregistered_equipment': 96, 'registered_instances': 55, 'threat_clock': 27, 'stall': 25, 'recover': 23, 'clue_here': 45, 'handed_clue_here': 15, 'reentry': 0}
+why loaded: {'state:clue_here': 45, 'topic:asks_question': 45, 'topic:speaks_to_person': 42, 'topic:money': 37, 'topic:clue_search': 33, 'topic:carried_item': 28, 'topic:readable': 27, 'state:stall': 25, 'state:recover': 23, 'state:handed_clue_here': 15, 'topic:new_thing': 15, 'topic:asks_favour': 13, 'topic:out_of_character': 10, 'topic:time_passes': 9, 'topic:conclusion': 2}
+
+today: briefs 4999 B every turn; resident briefs of the resident packages (narration-craft 904 + keeper-pacing 913 + historical 60 + zh 586) 2463 B

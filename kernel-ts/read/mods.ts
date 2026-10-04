@@ -8,7 +8,7 @@ import { compareUnicode, jsonDigest, parsePythonJson } from "../json.js";
 import { ModuleGraph } from "./module-graph.js";
 import { npcsPresent } from "./capsule.js";
 import { threadSection } from "./thread.js";
-import { pacingSection } from "./pacing.js";
+import { pacingSection, threatSymptoms } from "./pacing.js";
 import { entries, values, array, row, truth, string, number, integer, numeric, normalize, sorted, chars, length, clone, pick, repr, type Row } from "./values.js";
 import { claimedEquipment, queuedDefinition, queuedRegistrations } from "../mods/queue.js";
 import { publicDefinition, publicUsage } from "../mods/public-definition.js";
@@ -24,6 +24,7 @@ import { SPEECH_EDIT_LANE_CAPABILITY, validateSpeechEditLaneDeclaration } from "
 import {HISTORY_CAPABILITY, validHostSettings} from '../mods/host-settings.js';
 import {MOOD_CAPABILITY} from '../npc/mood.js';
 import {EXPRESSION_REFERENCE_CAPABILITY,expressionCards,expressionCatalogRevision} from './expression-reference.js';
+import { SECTIONS_CAPABILITY, validateSectionsDeclaration, validateSectionsContribution, packageSections, sectioned, sectionKey, instructionBudget, residentText, topicList, annotateGates, sceneFacts, type TurnFacts } from "./sections.js";
 export const MOD_CAPABILITIES = new Set(["audit.source.v1", "checks.percentile.v1", "context.npc.v1", "definitions.v1", "objects.v1", "objects.state.v2", "objects.adopt.v1", "objects.documents.v1", "mods.order.v1", "mods.package-files.v1", "ui.documents.v1", "ui.documents.language.v1", "agents.tools.v1", "weapons.v1", "weapons.profile.v2", "spells.v1", "item-effects.v1", "setup.guidance.v1", "setup.aptitude.v1", "graph.vocabulary.v1", "graph.vocabulary.table.v1", "context.thread.v1", "context.pacing.v1", "context.workspace.v1"]);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT);
 MOD_CAPABILITIES.add(CONTINUITY_AUDIT_V2);
@@ -47,6 +48,8 @@ MOD_CAPABILITIES.add(SPEECH_EDIT_LANE_CAPABILITY);
 MOD_CAPABILITIES.add(HISTORY_CAPABILITY);
 /** Contract §161.6: the kernel writes and projects what a person feels right now (`apply npc mood`, `present[].now`). */
 MOD_CAPABILITIES.add(MOOD_CAPABILITY);
+/** Contract §183.1: a package declares the sections of its instruction, so a table over the instruction budget can index it. */
+MOD_CAPABILITIES.add(SECTIONS_CAPABILITY);
 const invalid = (message: string): never => {
     throw new RpcError("invalid_params", message);
 };
@@ -270,7 +273,7 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
         invalid("Game interface v1 settings are scalar values");
     if (!plain(manifest.settings_schema ?? {}))
         invalid("settings_schema must be an object");
-    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "expression_cards"].includes(k)))
+    if (Object.keys(manifest.contributes).some(k => !["instructions", "setup_instructions", "setup_slots", "checks", "materializer", "auditor", "audit_on_decisions", "audit_slot", "brief", "document_editor", "vocabulary", "craft_reference", "style", "voice_lane", "voice_lane_addendum", "speech_edit_lane", "expression_cards", "sections"].includes(k)))
         invalid("Unknown Mod contribution in game interface v1");
     // Contract §28.9. A name this build does not know is recorded on the manifest and makes the
     // package incompatible -- exactly what an unknown capability in `requires` already does five
@@ -314,6 +317,8 @@ export function manifestFrom(files: ReadonlyMap<string, Buffer>): Row {
     validateSetupSlots(manifest, files);
     // Contract §137.2: the pairing and the path here; the file's lines are checked where the catalog loads.
     validateStyleDeclaration(manifest, files);
+    // Contract §183.1: the sections of the instruction, against its own headings.
+    validateSectionsDeclaration(manifest, files);
     const checks = array(manifest.contributes.checks);
     for (const check of checks) {
         if (!plain(check) || !/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(string(check.name ?? "")))
@@ -419,8 +424,11 @@ export async function readModCatalog(context: KernelContext): Promise<ModCatalog
             digest = packageDigest(files);
             // Contract §137.2: a style contribution is measured here, when the catalog loads, never during a
             // turn; a version whose lines would not fit the capsule refuses itself like any other bad bytes.
-            if (compatibleManifest(manifest))
+            if (compatibleManifest(manifest)) {
                 await validateStyleContribution(context, manifest, files, digest);
+                // Contract §183.1: the topics a package's sections name are on the product's list.
+                await validateSectionsContribution(context, manifest, files);
+            }
         }
         catch (error) {
             // Contract 41.2: one package's bytes are that package's own problem. This read is on the path of
@@ -705,10 +713,10 @@ export function objectContext(world: Row): Row {
     };
 }
 /** `records` are the campaign's closed turns; only a package requiring `context.pacing.v1` reads them.
- *  `full` is the §13.6 condition: the first turn this process opens for the campaign carries every package's
- *  `instructions`; later turns carry its `brief` when it has one (§30.7). */
-export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[], records: Row[] = [], full = true,
-    evidence: {memory?: Row[]; story?: Row[]; worldline?: string; loop?: number; play_language?:string} = {}): Promise<Row> {
+ *  `turn` is the open turn's state for the §183 gates, which only the capsule has; without it an indexed row's
+ *  sections carry no `gates_open`/`due`. */
+export async function modContext(context: KernelContext, graph: ModuleGraph, world: Row, party: Row[], records: Row[] = [],
+    evidence: {memory?: Row[]; story?: Row[]; worldline?: string; loop?: number; play_language?:string; turn?: TurnState} = {}): Promise<Row> {
     const active = await activeMods(context, world),
         providers = modProviders(active);
     const present = npcsPresent(graph, world, graph.scene(world.active_scene)),
@@ -726,16 +734,7 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
         authority: "Only this active Mod set applies. Earlier instructions from disabled or replaced versions are inactive.",
         expression_reference: {enabled:active.some(mod=>!!row(mod.contributes).expression_cards),play_language:evidence.play_language??null,
             revision:expressionCatalogRevision(active,evidence.play_language??null)},
-        instructions: effective.filter(mod => truth(mod.contributes.instructions)).map(mod => {
-            const brief = !full && truth(mod.contributes.brief);
-            return {
-                mod: mod.id,
-                version: mod.version,
-                settings: world.mods.active[mod.id].settings,
-                form: brief ? "brief" : "full",
-                instruction: new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(brief ? mod.contributes.brief : mod.contributes.instructions))
-            };
-        }),
+        instructions: instructionRows(effective, world),
         pending_contacts: contacts.slice(0, 12),
         relationships: relationships.slice(0, 12),
         objects: objectContext(world),
@@ -753,7 +752,40 @@ export async function modContext(context: KernelContext, graph: ModuleGraph, wor
         result.thread = threadSection(graph, world, scene, present, records, evidence.memory ?? [], evidence.story ?? [], evidence.worldline ?? 'main', evidence.loop ?? 0);
     if (required.has("context.pacing.v1"))
         result.pacing = pacingSection(graph, world, scene, present, party, records);
+    // Contract §183.3: what an indexed row's topics mean, and which of its sections this turn's state opens.
+    const indexed = array(result.instructions).filter(instruction => instruction.form === "indexed");
+    if (indexed.length) {
+        const topics = await topicList(context), named = new Set(indexed.flatMap(instruction => array(instruction.sections).flatMap(section => array(section.topics))));
+        result.topics = [...topics.values()].filter(topic => named.has(topic.id) || named.has("*"));
+        if (evidence.turn)
+            annotateGates(result, { ...evidence.turn, ...sceneFacts(graph, world, scene, present),
+                threat_clocks: threatSymptoms(graph, world, scene, present).length });
+    }
     return result;
+}
+/** The open turn's state the §183 gates read that only the capsule's assembly has. */
+export type TurnState = Pick<TurnFacts, "opening" | "present" | "stalled_turns" | "stall_threshold" | "beat" | "repeat_input">;
+/** Contract §183.3: each package's instruction row, in the effective order. An unsectioned package is whole; a sectioned
+ *  one is whole while the running total of the bytes the rows carry stays within the instruction budget, and indexed
+ *  (its resident text, its sections listed) once it would not. */
+function instructionRows(effective: Row[], world: Row): Row[] {
+    const budget = instructionBudget();
+    let total = 0;
+    return effective.filter(mod => truth(mod.contributes.instructions)).map(mod => {
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(mod.files.get(mod.contributes.instructions)),
+            bytes = Buffer.byteLength(text, "utf8"),
+            base = { mod: mod.id, version: mod.version, settings: world.mods.active[mod.id].settings };
+        if (!sectioned(mod) || total + bytes <= budget) {
+            total += bytes;
+            return { ...base, form: "full", instruction: text };
+        }
+        const sections = packageSections(mod), resident = residentText(sections);
+        total += Buffer.byteLength(resident, "utf8");
+        return { ...base, form: "indexed", instruction: resident,
+            sections: sections.flatMap((section, ordinal) => section.kind === "resident" ? [] : [{ key: sectionKey(mod, ordinal), heading: section.heading,
+                topics: [...section.topics], gates: [...section.gates], triggers: [...section.triggers], topic_threshold: section.topic_threshold,
+                bytes: Buffer.byteLength(section.text, "utf8") }]) };
+    });
 }
 /**
  * The capsule's `mods.pending_contacts` and `mods.relationships` rows before their cap: for every check an active Mod

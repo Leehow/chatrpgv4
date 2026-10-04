@@ -12,7 +12,7 @@ import { incapacitationClocks } from "./incapacitation.js";
 import { evidenceAcquired, evidenceDeliveryRecords } from "./continuity.js";
 import { worldlineSection, crossLineReader, loopObligation, worldlineSignals } from "./worldline.js";
 import { offerObligations } from "../mods/object-offer.js";
-import { modContext, activeMods } from "./mods.js";
+import { modContext, activeMods, type TurnState } from "./mods.js";
 import { STYLE_BUDGET, styleProvider, styleSection, legacyStyle, legacyStyleLock } from "./style.js";
 import { obligationNodes, sceneObligations, capsuleRow } from "./obligations.js";
 import { mechanicsOf } from "./mechanics.js";
@@ -515,6 +515,9 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
             ...unrecordedTime(campaign.records, number(turn.turn), clockSection(graph, world))],
         untold: untoldReceipts(campaign.records, number(turn.turn))
     });
+    // Contract §183.3: the gates read the turn as assembled, before any section budget below cuts it.
+    const gateTurn: TurnState = { opening: number(turn.turn) === 0, present: clone(array(sections.present)), stalled_turns: number(sig.stalled_turns),
+        stall_threshold: number(dg.threshold("pressure-stalled-turns")), beat: string(director.beat), repeat_input: truth(sig.repeat_input) };
     const truncated: string[] = [];
     // §168.5: its own budget, fitted on its own; no other section's budget cuts it.
     if (sections.first_sight && fitFirstSight(sections.first_sight, FIRST_SIGHT_BUDGET))
@@ -582,8 +585,8 @@ export async function buildCapsule(campaign: CampaignSnapshot, module: LoadedMod
     if (truncated.length)
         capsule.truncated = truncated;
     const activeLine = string(meta.active_worldline || 'main');
-    capsule.mods = await modContext(context, graph, world, party, campaign.records, full,
-        {memory, story, worldline: activeLine, loop: number(row(row(meta.worldlines)[activeLine]).loop),play_language:language});
+    capsule.mods = await modContext(context, graph, world, party, campaign.records,
+        {memory, story, worldline: activeLine, loop: number(row(row(meta.worldlines)[activeLine]).loop),play_language:language, turn: gateTurn});
     // The Director's offer (docs/specs/turn-floor.md D2) is drawn after the thread and pacing sections exist,
     // from material the capsule already carries, and the director section is refitted to its budget with it.
     row(capsule.director).offer = directorOffer(string(row(capsule.director).beat), {

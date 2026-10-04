@@ -1,0 +1,34 @@
+{"campaigns":40,"turns":110,"done":106,"failed":4}
+turns 110, replayed 106, failed 4
+  failures: {'Error: no commit for turn 9': 1, 'Error: no commit for turn 0': 1, 'KernelError: FileNotFoundError: [Errno 2] No such file or di': 2}
+sections scored: ['nn/impression', 'nn/asking', 'nn/asker', 'nn/language', 'ei/documents', 'ei/register', 'ei/define', 'ei/manage', 'ei/usage', 'kp/lethal', 'kp/clocks', 'kp/stuck', 'kp/ooc', 'st/clues', 'st/handed', 'st/conclude', 'hr/prices', 'hr/dispute']
+host-only (not decidable offline): ['ei/refusal', 'hr/lookup', 'hr/closure', 'kc/workspace']
+
+overall vs rule labels: P 0.56 R 0.69 F1 0.62 (tp 179 fp 140 fn 79)
+  topic-decided  17 sections: P 0.57 R 0.73 (tp 168 fp 126 fn 61)
+  state-decided  1 sections: P 0.44 R 0.38 (tp 11 fp 14 fn 18)
+  ei/define      gold= 12 recall=0.50 fp=13
+  ei/documents   gold= 27 recall=0.78 fp=10
+  ei/manage      gold=  3 recall=0.33 fp=11
+  ei/register    gold=  6 recall=0.33 fp=17
+  ei/usage       gold=  0 recall=nan fp=1
+  hr/dispute     gold=  1 recall=1.00 fp=0
+  hr/prices      gold= 30 recall=0.77 fp=8
+  kp/clocks      gold=  4 recall=0.25 fp=7
+  kp/lethal      gold=  1 recall=1.00 fp=0
+  kp/ooc         gold=  3 recall=1.00 fp=3
+  kp/stuck       gold=  2 recall=0.00 fp=1
+  nn/asker       gold= 45 recall=0.96 fp=4
+  nn/asking      gold= 10 recall=0.70 fp=7
+  nn/impression  gold= 37 recall=0.62 fp=21
+  st/clues       gold= 47 recall=0.74 fp=23
+  st/conclude    gold=  1 recall=1.00 fp=0
+  st/handed      gold= 29 recall=0.38 fp=14
+gold pairs on host-only sections (decided at the Keeper's call in the product): 0
+
+loaded sections/turn mean 3.01 p95 6; bytes/turn p50 3333 p95 7322 max 9371
+topic lane ms p50 304 p95 682; jev unavailable 0
+gate hits over turns: {'opening': 0, 'present_without_history': 51, 'language_gap': 0, 'unregistered_equipment': 88, 'registered_instances': 53, 'threat_clock': 28, 'stall': 35, 'recover': 33, 'clue_here': 48, 'handed_clue_here': 25, 'reentry': 0, 'no_topic': 2}
+why loaded: {'state:clue_here': 48, 'topic:asks_question': 47, 'topic:speaks_to_person': 44, 'topic:new_thing': 31, 'topic:readable': 31, 'topic:money': 31, 'topic:clue_search': 27, 'state:handed_clue_here': 25, 'topic:carried_item': 19, 'topic:asks_favour': 14, 'topic:time_passes': 8, 'topic:out_of_character': 6, 'topic:force_object': 1, 'topic:lethal_risk': 1, 'topic:price_dispute': 1, 'topic:*': 1, 'topic:conclusion': 1}
+
+today: briefs 4999 B every turn; resident briefs of the resident packages (narration-craft 904 + keeper-pacing 913 + historical 60 + zh 586) 2463 B

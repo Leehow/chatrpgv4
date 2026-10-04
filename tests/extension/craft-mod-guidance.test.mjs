@@ -11,7 +11,6 @@ import {createHybridEngine} from './hybrid-engine-fixture.mjs';
 const root = resolve(import.meta.dirname, '../..');
 const manifest = JSON.parse(await readFile(join(root, 'mods/narration-craft/mod.json'), 'utf8'));
 const full = await readFile(join(root, 'mods/narration-craft/agent.md'), 'utf8');
-const brief = await readFile(join(root, 'mods/narration-craft/brief.md'), 'utf8');
 const style = JSON.parse(await readFile(join(root, 'mods/narration-craft/style.json'), 'utf8'));
 const messageText = message => typeof message.content === 'string' ? message.content
   : (message.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n');
@@ -40,6 +39,7 @@ for (const engine of ['legacy', 'hybrid-v1']) test(`craft guidance follows activ
         settings_schema: {density_guide: {enum: ['off', 'on']}},
       }));
       await writeFile(join(oldPath, 'agent.md'), oldText);
+      // A frozen version may still declare a brief (§183.3): it installs, and nothing reads it.
       await writeFile(join(oldPath, 'brief.md'), 'Legacy craft reminder.');
       const steps = [['mods.install', {path: oldPath}], ['table.open', {}],
         ['table.player_input', {text: 'Fixture opening.'}], ['table.narrate', {call_id: 't1-c1', text: 'The office is quiet.'}]];
@@ -91,14 +91,19 @@ for (const engine of ['legacy', 'hybrid-v1']) test(`craft guidance follows activ
 
   await table.session.prompt('I ask the same simple question.');
   assert.equal(craftOf(requests[1]).settings.density_guide, 'on', 'pending settings refresh the briefing without a source change');
+  // §183: the brief is retired. A later turn's actual request carries the whole instruction, as the first one did.
   const later = capsules.at(-1).mods.instructions.find(row => row.mod === manifest.id);
-  assert.equal(later.form, 'brief');
-  assert.equal(later.instruction, brief);
+  assert.equal(later.form, 'full');
+  assert.equal(craftOf(requests[1]).form, 'full');
+  assert.equal(craftOf(requests[1]).instruction, full, 'the later request carries the whole instruction');
   const laterRequest = requests[1].messages.map(messageText).join('\n');
   for (const axis of style.axes) assert.ok(laterRequest.includes(axis), 'the every-turn axes remain in the actual request');
   for (const directive of capsules.at(-1).style.directives)
     assert.ok(laterRequest.includes(directive.line) || laterRequest.includes(style.directives[directive.id].full),
       'the selected directive reaches the later request in its brief or retained full form');
+  for (const request of requests.slice(0, 2))
+    assert.ok(!request.messages.map(messageText).join('\n').includes('"customType":"coc-mod-sections"') && !request.messages.some(message => message.customType === 'coc-mod-sections'),
+      'a table within the instruction budget sends no section message');
 
   await configure({enabled: false});
   await table.session.prompt('I remain in the office.');

@@ -1,0 +1,15 @@
+sections scored (jev, no gate): ['ei/usage', 'kp/lethal', 'kp/ooc', 'nn/asking', 'nn/asker', 'st/conclude', 'hr/dispute']
+
+against rule labels, held-out 110:
+  topic only >= 0.35                     P 0.75 R 0.92 F1 0.83  loaded/turn 0.69  (tp 57 fp 19 fn 5)
+  topic only >= 0.5                      P 0.77 R 0.92 F1 0.84  loaded/turn 0.67  (tp 57 fp 17 fn 5)
+  topic >= 0.35 then verify >= 0.35      P 0.76 R 0.89 F1 0.82  loaded/turn 0.65  (tp 55 fp 17 fn 7)
+  topic >= 0.35 then verify >= 0.5       P 0.83 R 0.89 F1 0.86  loaded/turn 0.60  (tp 55 fp 11 fn 7)
+  topic >= 0.35 then verify >= 0.6       P 0.86 R 0.89 F1 0.87  loaded/turn 0.58  (tp 55 fp 9 fn 7)
+  topic >= 0.5 then verify >= 0.35       P 0.77 R 0.89 F1 0.83  loaded/turn 0.65  (tp 55 fp 16 fn 7)
+  topic >= 0.5 then verify >= 0.5        P 0.83 R 0.89 F1 0.86  loaded/turn 0.60  (tp 55 fp 11 fn 7)
+  topic >= 0.5 then verify >= 0.6        P 0.86 R 0.89 F1 0.87  loaded/turn 0.58  (tp 55 fp 9 fn 7)
+  round-2 section cards >= 0.35          P 0.74 R 0.94 F1 0.83  loaded/turn 0.71  (tp 58 fp 20 fn 4)
+  round-2 section cards >= 0.5           P 0.81 R 0.87 F1 0.84  loaded/turn 0.61  (tp 54 fp 13 fn 8)
+
+stage 2: calls 105/110 turns, candidates/turn 4.73, ms p50 283
