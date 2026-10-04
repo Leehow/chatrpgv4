@@ -97,7 +97,8 @@ export function createSpeechHandlers(context: KernelContext, writer: ReturnType<
                 speech,
                 lines: rows.map(({ index, line }) => {
                     // A label row's speaker is the label, and nobody's dossier is theirs yet, so it carries no mask.
-                    const who = row(line.who), node = filled(who.npc) ? graph.actor(string(who.npc)) : null;
+                    // §180.3: a speaker is a person; a row written before creatures were told apart may name one, and it has no mask.
+                    const who = row(line.who), node = filled(who.npc) ? graph.find(string(who.npc), ['npc']) : null;
                     const mask = node ? voiceMaskOf(graph, world, node) : undefined;
                     return { index, speaker: filled(who.npc) ? string(who.name || who.npc) : string(who.label), ...(mask ? { voice_mask: mask } : {}), text: string(line.text) };
                 }),

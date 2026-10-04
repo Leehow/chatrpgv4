@@ -12,7 +12,7 @@ import {fauxAssistantMessage,fauxToolCall} from "@earendil-works/pi-ai";
 import {openTable} from "./harness.mjs";
 
 const ROOT=resolve(import.meta.dirname,"../..");
-const SECTIONED=["narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference"];
+const SECTIONED=["narration-craft","natural-npc","enhanced-items","keeper-pacing","story-thread","historical-reference","hostile-creatures"];
 const temporary=await mkdtemp(join(tmpdir(),"mod-section-index-"));
 await symlink(join(ROOT,"node_modules"),join(temporary,"node_modules"),"dir");
 await build({stdin:{contents:[

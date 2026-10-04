@@ -28,8 +28,8 @@ export function dossierLabels(dossier: Row): Array<[string, string]> {
 /** The module's own recorded vocabulary merged onto the current contract. A package can only add
  *  a word, never rename or take away a core one, and a key the module was not built with stays
  *  absent -- the same absence as a book that does not say (contract 28.2). */
-export function dossierWith(dossier: Row, recorded: Row | null | undefined): Row {
-    const core = new Set(array(dossier.profile_keys).map(key => string(key))),
+export function dossierWith(dossier: Row, recorded: Row | null | undefined, creature: Row | null = null): Row {
+    const core = new Set([...array(dossier.profile_keys), ...array(row(creature).profile_keys)].map(key => string(key))),
         seen = new Set<string>(),
         contributed = array(row(recorded).actor_profile_keys).flatMap(entry => {
             const key = string(row(entry).key);
@@ -38,8 +38,26 @@ export function dossierWith(dossier: Row, recorded: Row | null | undefined): Row
             seen.add(key);
             // A `shape: "lines"` word (contract §40.7) is carried so the capsule can seat it in `voices`.
             return [{ key, label: string(row(entry).label) || key, ...(row(entry).shape === "lines" ? { shape: "lines" } : {}) }];
+        }),
+        // §180.8: the creature's words, through the same rule. One key belongs to one spine, so a key the actor spine
+        // already carries (or either spine's core names) is not a creature word as well.
+        creatureWords = array(row(recorded).creature_profile_keys).flatMap(entry => {
+            const key = string(row(entry).key);
+            if (!key || core.has(key) || seen.has(key))
+                return [];
+            seen.add(key);
+            return [{ key, label: string(row(entry).label) || key }];
         });
-    return contributed.length ? { ...dossier, contributed } : dossier;
+    if (!contributed.length && !(creature && creatureWords.length) && !truth(row(recorded).actor_weaknesses))
+        return dossier;
+    return {
+        ...dossier,
+        ...(contributed.length ? { contributed } : {}),
+        // Carried beside the actor spine, so every graph built from a module's provenance has both and no constructor changes.
+        ...(creature && creatureWords.length ? { creature_dossier: { ...creature, contributed: creatureWords } } : {}),
+        // §180.9: the module was built with the weakness shape bound; its authored `weaknesses` reach the table (§28.5).
+        ...(truth(row(recorded).actor_weaknesses) ? { actor_weaknesses: true } : {}),
+    };
 }
 const lines = (value: any): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 4 && value.every(line => typeof line === "string" && line.trim());
 export function recordOf(node: Row | null | undefined): Row {
@@ -223,6 +241,10 @@ export class ModuleGraph {
     readonly names = new Map<string, Set<string>>();
     /** Handles for the people this table established; see `addTablePerson`. */
     readonly tableNames = new Map<string, string>();
+    /** Handles for the creatures this table declared (contract §180.6); see `addTableCreature`. Never a person's. */
+    readonly tableCreatureNames = new Map<string, string>();
+    /** Creatures whose stat block this table pinned from the rules catalog (contract §180.6); see `pinBody`. */
+    readonly pinnedBodies = new Set<string>();
     readonly tableEntityNames = new Map<string, string>();
     readonly sourcePlaceNames = new Map<string, string>();
     readonly moduleNode: Row | null;
@@ -332,6 +354,7 @@ export class ModuleGraph {
         if (this.sourcePlaceNames.has(node.node_id)) return this.sourcePlaceNames.get(node.node_id)!;
         if (this.tableEntityNames.has(node.node_id)) return this.tableEntityNames.get(node.node_id)!;
         if (this.tableNames.has(node.node_id)) return this.tableNames.get(node.node_id)!;
+        if (this.tableCreatureNames.has(node.node_id)) return this.tableCreatureNames.get(node.node_id)!;
         if (this.semanticNames.has(node.node_id)) return this.semanticNames.get(node.node_id)!;
         return node.node_kind === "scene" && typeof recordOf(node).scene_id === "string" ? recordOf(node).scene_id : stripPrefix(node.node_id, node.node_kind);
     }
@@ -409,6 +432,43 @@ export class ModuleGraph {
     /** True for a person `apply npc` established at the table rather than the book or a reviewed adaptation. */
     isTablePerson(node: Row | null | undefined): boolean {
         return !!node && this.tableNames.has(string(node.node_id));
+    }
+    /**
+     * Contract §180.6: an animal or monster this table has and the book does not -- the Keeper's yard dog, a mule, a swarm
+     * in the cellar. The record is `world.table_creatures`, written by `apply npc` with `walk_on` and `creature` and
+     * reinstalled on every load (`read/table-creatures.ts`); this is its projection, exactly as `addTablePerson` is a table
+     * person's, except that the node is a `creature`, so no person consumer (`isPerson`, `kind("npc")`) ever meets it.
+     * `id` is kernel-minted (`creature-table-<digest>`); the handle is the word the Keeper used.
+     */
+    addTableCreature(id: string, name: string, origin: Row = {}): Row {
+        const existing = this.nodes.get(id);
+        if (existing) return existing;
+        const node: Row = {
+            node_id: id, node_kind: "creature", name, aliases: [], summary: null, visibility: "keeper-only",
+            properties: { name, semantic_name: name, facts: [] },
+            campaign_origin: { ...origin, kind: "table" }
+        };
+        this.nodes.set(id, node);
+        this.tableCreatureNames.set(id, name);
+        this.byKind.set("creature", [...this.kind("creature"), node]);
+        for (const key of this.nameKeys(node)) {
+            const normalized = normalize(key);
+            this.names.set(normalized, new Set([...(this.names.get(normalized) ?? []), id]));
+        }
+        return node;
+    }
+    /** True for a creature `apply npc` declared at the table (contract §180.6). */
+    isTableCreature(node: Row | null | undefined): boolean {
+        return !!node && this.tableCreatureNames.has(string(node.node_id));
+    }
+    /**
+     * Contract §180.6: this creature's stat block is the one the table pinned from the rules catalog
+     * (`world.npc_profiles[<handle>]`), so it is an actor (`isActor`) although its node states none. Called where the
+     * pin is written (`apply npc creature`) and on every load for a pin already written (`read/table-creatures.ts`).
+     */
+    pinBody(node: Row | null | undefined): void {
+        if (node && node.node_kind === "creature")
+            this.pinnedBodies.add(string(node.node_id));
     }
     /**
      * §11.5.8 (SL-67): every person this campaign has established -- table-invented and `from_passage` alike,
@@ -794,9 +854,21 @@ export class ModuleGraph {
         if (!node)
             return false;
         const profile = node.node_kind === "creature" ? this.mechanicsOf(node).profile : null;
-        return node.node_kind === "npc" || !!profile;
+        // §180.6: a creature whose stat block this table pinned from the rules catalog is one too.
+        return node.node_kind === "npc" || !!profile || this.pinnedBodies.has(string(node.node_id));
     }
-    /** The actor of that name: the `npc` first, so a creature never shadows a person of the same handle. */
+    /**
+     * Contract §180.3: a being the Keeper plays as a person -- an `npc` node, the book's or the table's. Every person
+     * feature (an epithet, the untold block, a voice, the journal, social offers, a personality) selects by this, never
+     * by `isActor`: a creature with a stat block is an actor and no person. Read from `node_kind` alone (§180.2).
+     */
+    isPerson(node: Row | null | undefined): boolean {
+        return !!node && node.node_kind === "npc";
+    }
+    /**
+     * The actor of that name: the `npc` first, so a creature never shadows a person of the same handle. Since §180.7 the
+     * npc-first order is only the tie-break for a compile snapshot that carries one being as both kinds.
+     */
     actor(name: string): Row | null {
         const person = this.find(name, ["npc"]);
         if (person)
@@ -873,6 +945,52 @@ export class ModuleGraph {
                 profile[key] = value.map((line: string) => line.trim());
         }
         return profile;
+    }
+    /** Contract §180.8: the creature's spine, the counterpart of `dossier` -- empty when the module bound no creature word. */
+    creatureDossier(): Row {
+        return row(this.dossier.creature_dossier);
+    }
+    /** Contract §180.8: what the book says of a creature under the words its module was built with, read as `npcProfile`
+     *  reads a person's: the authored property, else the record's, one line each. A key the module never bound is absent. */
+    creatureProfile(node: Row): Row {
+        const profile: Row = {};
+        for (const key of dossierKeys(this.creatureDossier())) {
+            let value = row(node.properties)[key];
+            if (!(typeof value === "string" && value.trim()))
+                value = recordOf(node)[key];
+            if (typeof value === "string" && value.trim())
+                profile[key] = value.trim();
+        }
+        return profile;
+    }
+    /** Contract §180.9: whether this module was built with `actor.weaknesses.v1` bound (its provenance says so). */
+    weaknessesBound(): boolean {
+        return this.dossier.actor_weaknesses === true;
+    }
+    /** Contract §180.9: the stated weakness entries of an npc or creature, as authored (`properties.weaknesses`, else the
+     *  record's), only when the module bound the shape; each an object with a `book` line. */
+    authoredWeaknesses(node: Row): Row[] {
+        if (!this.weaknessesBound() || !["npc", "creature"].includes(string(node.node_kind)))
+            return [];
+        const value = Array.isArray(row(node.properties).weaknesses) ? node.properties.weaknesses : recordOf(node).weaknesses;
+        return array(value).filter(entry => isJsonObject(entry) && typeof entry.book === "string" && entry.book.trim()).map(row);
+    }
+    /** Contract §180.9: the clues whose belief about this being is false (`clue --misleads--> npc|creature`). */
+    misleadingClues(node: Row): Row[] {
+        const seen = new Set<string>();
+        return (this.incoming.get(node.node_id) ?? []).flatMap(rel => {
+            const clue = this.nodes.get(rel.from_node_id);
+            if (rel.relation_kind !== "misleads" || clue?.node_kind !== "clue" || seen.has(clue.node_id))
+                return [];
+            seen.add(clue.node_id);
+            return [clue];
+        });
+    }
+    /** The clues that support a conclusion (`clue --supports--> conclusion`), the reading `thread.ts` counts. */
+    supportingClues(conclusion: Row): Row[] {
+        return (this.incoming.get(conclusion.node_id) ?? [])
+            .filter(rel => rel.relation_kind === "supports" && this.nodes.get(rel.from_node_id)?.node_kind === "clue")
+            .map(rel => this.nodes.get(rel.from_node_id)!);
     }
     npcClaims(node: Row, predicate: string): Row[] {
         return (this.claimsBySubject.get(node.node_id) ?? []).filter(c => c.predicate === predicate);

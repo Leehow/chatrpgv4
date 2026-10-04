@@ -83,7 +83,8 @@ export interface ActOption {value: string; label: string; write?: Row; price_id?
 export interface ActWay {way: string; params: Record<string, ActOption[]>}
 /** `npc.act.options`'s answer (§143.3). */
 export interface ActOptions {
-  npc: {handle: string; name: string};
+  /** §180.5: `kind` is `npc` for a person, `creature` for a creature with a stat block. */
+  npc: {handle: string; name: string; kind?: 'npc' | 'creature'};
   play_language: string;
   place: string | null;
   in_session: boolean;
@@ -568,6 +569,11 @@ export interface NpcActOutcome {
   passedTurn?: boolean; reason?: string;
 }
 
+/** §180.5: a creature's situation with its stakes die's surprise taken away (a creature brings nothing out). */
+export function withoutSurprise(packet: Row): Row {
+  const stakes = object(packet.stakes);
+  return packet.stakes && typeof packet.stakes === 'object' ? {...packet, stakes: {...stakes, surprise: false, surprise_line: null}} : packet;
+}
 async function stakesOf(deps: NpcActDeps, name: string): Promise<Row | null> {
   // §143.8 (ticket 09): rolled once per person per turn before the situation is read; this line may not have it yet.
   try { await deps.call('npc.stakes', {name}); } catch { /* no stakes method, or none rolled: the packet says so */ }
@@ -626,6 +632,10 @@ export async function runNpcAct(deps: NpcActDeps, name: string, trigger: NpcActT
   }
   base.handle = text(object(packet.npc).handle) || text(first.npc?.handle) || null;
   if (array(packet.truncated).includes('constraints')) return done({...base, status: 'unavailable', reason: 'binding_constraints_truncated'});
+  // §180.5: a creature brings nothing out (`_draws`, `_produces` are a person's), so its stakes die allows no surprise
+  // here: the generator is not offered one, and a `produces` it names anyway is dropped like any unallowed one.
+  const creature = text(object(packet.npc).kind) === 'creature' || first.npc?.kind === 'creature';
+  if (creature) packet = withoutSurprise(packet);
   const generate = async (situation: Row): Promise<NpcActResult> =>
     deps.generate({packet: situation as NpcSituation, play_language: first.play_language, ...(deps.providerBudget ? {providerBudget: deps.providerBudget} : {})}, deps.signal);
   /**

@@ -3,6 +3,7 @@ import { RpcError } from '../errors.js';
 import { isJsonObject } from '../json.js';
 import { Catalog } from '../rules/catalog.js';
 import { npcCombatParticipant } from '../combat/profiles.js';
+import { requireParticipantBlock } from '../combat/stat-block.js';
 import { damageConditions, mirrorInvestigator, recordWound } from '../healing/resources.js';
 import { castSpell } from '../magic/engine.js';
 import type { MagicEffects } from '../magic/index.js';
@@ -15,8 +16,12 @@ import { objectInstance, objectRegistry } from './objects.js';
 export async function effectTarget(context: SettleContext, name?: string): Promise<Row> {
     name = name || string(context.action.target || context.actorId);
     for (const sheet of context.party()) if ([normalize(sheet.id), normalize(sheet.name)].includes(normalize(name))) return {id: sheet.id, kind: 'investigator', state: clone(sheet)};
-    const node = context.graph.npc(name), handle = context.graph.handle(node), profile = context.npcProfile(handle);
+    // §180.3: a resource effect lands on a body -- a person's, or a creature's that states a stat block; a name that is
+    // neither keeps the person refusal and its candidates.
+    const node = context.graph.actor(name) ?? context.graph.npc(name), handle = context.graph.handle(node), profile = context.npcProfile(handle);
     if (profile === null) throw new RpcError('needs', 'This NPC has no numeric profile for a resource effect');
+    // §180.6 (CK-F2): a block that lacks what the participant is built from is refused with its completion.
+    await requireParticipantBlock(context.kernel, context.graph, node, handle, profile, `a resource effect on ${context.graph.displayName(node)}`);
     const spec = await npcCombatParticipant(context.tables, handle, profile), characteristics = row(profile.characteristics), derived = row(profile.derived);
     const state: Row = {id: handle, name: context.graph.displayName(node), characteristics: profile.characteristics ?? {},
         derived: {HP: spec.hp_max, MP: int(Object.hasOwn(derived, 'MP') ? derived.MP : Math.floor(int(characteristics.POW ?? 0) / 5))},

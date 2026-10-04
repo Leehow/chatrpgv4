@@ -330,6 +330,23 @@ const NoteEffect = Type.Object({
 	closes: Type.Optional(Type.String({ description: "an exact manual open-note name from the capsule; give it alone to close, or with text to replace. Memory record IDs are not note names. Background memory maintenance owns remembered-plan status; do not close memory references through this effect" })),
 });
 
+/**
+ * Contract §28.7: the table door for a package's own dossier words (`graph.vocabulary.table.v1`). The kernel writes the
+ * value into the package's namespace, never the book, and refuses a word no active package contributes, a value the
+ * source already gives and a lane-written word (`kernel-ts/mods/stage.ts`); a value is one line of at most 200 characters.
+ * §180.9's `weaknesses` is a list of `{book, needs?}`.
+ */
+export const DOSSIER_VALUE_MAX = 200;
+const DossierEffect = Type.Object({
+	kind: StringEnum(["dossier"] as const, { description: "record, for a person or creature, a value of a package's word the book does not give, as the table established it" }),
+	name: Type.String({ description: "the person or creature, by the name you already use" }),
+	values: Type.Record(Type.String(), Type.Union([
+		Type.String({ minLength: 1, maxLength: DOSSIER_VALUE_MAX, pattern: "\\S" }),
+		Type.Array(Type.Object({ book: Type.String({ minLength: 1 }), needs: Type.Optional(Type.Array(Type.String())) }), { minItems: 1 }),
+	]), { minProperties: 1, description: "the package's words (mods.vocabulary) and what the table established: one line each; weaknesses is a list of {book, needs?}" }),
+	why: Type.Optional(Sentence("what in the fiction established it")),
+});
+
 const RulingEffect = Type.Object({
 	kind: StringEnum(["ruling"] as const, {
 		description: "record how you ruled something at this table, so the same judgement comes back to you next time it arises",
@@ -362,6 +379,7 @@ const NpcEffect = Type.Object({
 	kind: StringEnum(["npc"] as const, { description: "move someone on or off the stage, set where they stand with the party, record a rules condition, record that they died, change how they defend, or what they do in a fight; report what they set out to do and how it went; or write what they feel right now (mood)" }),
 	name: Type.String({ description: "what you are calling this person: a name from the book, the word apply person gave them at this table, or -- for someone the book never had -- whatever you are already calling them, a description like \"the clerk at the archive window\" included, with walk_on. A person this table mints is named in play_language; apply person is what decides the word the player sees. Reuse the exact word you used before: two spellings make two people, and a refusal lists who is here and the ones this table already has" }),
 	walk_on: Type.Optional(Type.Boolean({ description: "true only on the effect that brings in someone the book never had -- a porter called up the stairs, a passer-by, a constable arriving -- establishing them at this table under name. Leave it out for anyone the book has, even one the player has not been introduced to yet: give that person a word with apply person first, then write to them by it. A word nobody here carries is refused without it, and the refusal hands back both calls ready to send" })),
+	creature: Type.Optional(Type.Union([Type.String(), Type.Literal(true)], { description: "an animal or monster, not a person: a rules-catalog creature's name (lookup kind=catalog kinds=[\"creature\"]), whose stat block the kernel pins once, or true for one with no stat block yet. With walk_on it brings the creature in; alone it pins a block on a creature that has none, or completes a block that lacks what a fight reads (the refusal names what is missing; every number the block states is kept)" })),
 	reunion: Type.Optional(Type.Object({
 		background:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
 		reports:Type.Optional(Type.Array(Type.String(),{maxItems:4})),
@@ -379,7 +397,7 @@ const NpcEffect = Type.Object({
 		description: "a number the book never printed for this person. Books rarely give a minor NPC a skill list, so when one of them does something on the party's behalf — a doctor stitching a wound, a locksmith on a lock — say what they have and it is theirs for the rest of the campaign. Pin it once; every later roll uses it",
 	})),
 	archetype: Type.Optional(Type.String({
-		description: "a stat block for a person the book never gave one, so that they can be fought, chased or resisted: name one of the rulebook's NPC stat archetypes (the refusal lists them in details.needs.options — ordinary_adult, capable_adult, dangerous_actor) from who this person is, and the kernel rolls characteristics and skills inside that archetype's ranges with the turn's dice, once, for the rest of the campaign. Refused for anyone whose numbers the book prints; read those with lookup kind=source first when the module has a book",
+		description: "a stat block for a person the book never gave one, so that they can be fought, chased or resisted: name one of the rulebook's NPC stat archetypes (the refusal lists them in details.needs.options — ordinary_adult, capable_adult, dangerous_actor) from who this person is, and the kernel rolls characteristics and skills inside that archetype's ranges with the turn's dice, once, for the rest of the campaign. Refused for anyone whose numbers the book prints in full; a printed block that lacks what a fight reads is completed, every printed number kept. Read the book with lookup kind=source first when the module has one",
 	})),
 	dead: Type.Optional(Type.Boolean({
 		description: "true on the turn they died. Say it for every death the dice did not settle — killed outside a fight, destroyed by a ruling, dead of what the story did to them — or the table goes on treating them as someone the party can still meet",
@@ -815,7 +833,7 @@ export const COC_TOOLS: readonly CocToolSpec[] = [
 		parameters: Type.Object({
 			using_skill: UsingSkill,
 			effects: Type.Array(
-				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
+				Type.Union([EndingEffect, AdaptationEffect, MoveEffect, ClueEffect, ClockEffect, TimeEffect, DamageEffect, ItemEffect, DefineEffect, UsageEffect, ObjectEffect, AbilityEffect, CashEffect, FlagEffect, NoteEffect, RulingEffect, DossierEffect, NpcEffect, PersonEffect, ThreatEffect, ForkEffect, SwitchEffect, MergeEffect, HandoutEffect, MapEffect]),
 				{ minItems: 1, description: "the changes to land this turn, in the order they happened" },
 			),
 			narrate: Type.Optional(Type.String({ description: withPlainProse("this turn's complete closing prose, delivered only once every effect above lands (same rules as the narrate tool's text: play_language, {{marker}}/{{kind:handle}} placement, {{say:Name}}…{{/say}} spans); omit it when you will narrate separately instead — a short stand-in here is refused as under the floor; if any effect is refused, or this text is refused on delivery, nothing here is shown to the player and the effects above still stand — call narrate on your next step instead") })),

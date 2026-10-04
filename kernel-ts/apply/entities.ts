@@ -13,7 +13,9 @@ import {stanceTable} from '../write/contributions.js';
 import {required,nowIso} from '../write/store.js';
 import {effectId,type StagedEffect} from './bookkeeping.js';
 import {archetypeIds,rollArchetypeProfile} from './archetype.js';
+import {creatureDeclaration,establishCreature,rollCreatureProfile,type CreatureDeclaration} from './creature.js';
 import {VALID_CONDITIONS} from '../combat/engine.js';
+import {statBlockGaps} from '../combat/profiles.js';
 import {DEFENSE_WORDS,DISPOSITION_WORDS,OVERRIDE_ACTION_WORDS,authoredDisposition} from '../combat/standing.js';
 import {incapacitatedBy} from '../healing/conditions.js';
 import {npcProfileOf} from '../resolve/context.js';
@@ -113,7 +115,7 @@ export async function stageClue(context:ApplyContext,effect:Row):Promise<StagedE
  * typo §87.2 guarded against is a Keeper reaching for someone the book has, and a Keeper who
  * declared a newcomer is not doing that. A reunion stays refused on a word nobody carries.
  */
-async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|null):Promise<{node:Row;established:false|'table'|'passage';from_passage?:Row}>{
+async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:string|null,declared:CreatureDeclaration|null=null):Promise<{node:Row;established:false|'table'|'passage';from_passage?:Row}>{
     const {graph,world}=context,walkOn=effect.walk_on??null;
     if(walkOn!==null&&typeof walkOn!=='boolean')throw new RpcError('invalid_params','npc.walk_on must be true or false',{fix:'walk_on: true on the effect that brings in someone the book never had; leave it out for anyone this table already has',details:{field:'npc.walk_on'}});
     let node:Row|null=null,refusal:unknown=null;
@@ -121,11 +123,19 @@ async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:st
     // A creature that states a stat block is the book's body, not a new person (contract §136.12); then the word this
     // table gave someone, through the one junction every person entrance reads (§87.8), which refuses two owners.
     node??=personNode(graph,world,name);
+    // §180.6: then a creature of that name with no stat block -- the book's, or one this table declared. Its word is
+    // taken: a walk-on under it would be one being on two nodes (§180.7).
+    node??=creatureNamed(graph,name);
     if(node){
+        if(declared&&graph.isPerson(node))throw notACreature(graph,node);
+        if(walkOn===true&&!graph.isPerson(node)&&!declared)throw new RpcError('invalid_params',`${graph.displayName(node)} is a creature, not a person: npc.walk_on brings in a person`,{
+            fix:`leave walk_on out to write to ${graph.displayName(node)}; an animal or monster this table brings in is declared with walk_on and creature`,
+            details:{reason:'not_a_person',field:'npc.walk_on',name:graph.displayName(node)}});
         // §177.3: the person by this table's word for them -- their epithet while untold -- never by the book's name, which
-        // only the request's rename kept out of the Keeper's copy before.
+        // only the request's rename kept out of the Keeper's copy before. §180.6: a table person, or a creature this table
+        // declared, is accepted again idempotently.
         const shown=tableWord(world,graph.handle(node))||graph.displayName(node);
-        if(walkOn===true&&!graph.isTablePerson(node))throw new RpcError('invalid_params',`${repr(name)} is ${shown}, whom this table already has; walk_on brings in someone it does not`,{fix:`leave walk_on out to write to ${shown}; call a newcomer by a word that carries nobody's name`,details:{field:'npc.walk_on',query:name,person:shown}});
+        if(walkOn===true&&!graph.isTablePerson(node)&&!graph.isTableCreature(node))throw new RpcError('invalid_params',`${repr(name)} is ${shown}, whom this table already has; walk_on brings in someone it does not`,{fix:`leave walk_on out to write to ${shown}; call a newcomer by a word that carries nobody's name`,details:{field:'npc.walk_on',query:name,person:shown}});
         return{node,established:false};
     }
     // A word that already names more than one person -- by an exact key or as a run inside two names
@@ -138,9 +148,25 @@ async function personOfEffect(context:ApplyContext,effect:Row,name:string,why:st
     const other=notAPerson(name,graph,party,refusal instanceof RpcError?refusal.message:`no npc named ${repr(name)}`);
     if(other)throw other;
     const passage=passageOf(effect,name),pinned=['skill','archetype','conditions'].some(key=>effect[key]!=null);
-    if(walkOn!==true&&(!passage||pinned))throw await notAtThisTable(context,effect,name,refusal);
+    // A creature is declared, never vouched for by a passage: without walk_on it is the same refusal, carrying the call.
+    if(walkOn!==true&&(!passage||pinned||declared))throw await notAtThisTable(context,effect,name,refusal);
+    if(declared)return{node:establishCreature(context,name,why??leanOrigin(context,null),declared),established:'table'};
     const established=establishPerson(context,name,why??leanOrigin(context,passage),passage);
     return{node:established,established:passage?'passage':'table',...(passage?{from_passage:passage}:{})};
+}
+/**
+ * Contract §180.6: the creature a word names, a stat block or none (the actor junction has already answered for one with
+ * a block). Two creatures under one word are the graph's ambiguity, refused as a person's is; a miss is null.
+ */
+function creatureNamed(graph:ModuleGraph,name:string):Row|null{
+    try{return graph.resolve(name,['creature'],'creature');}
+    catch(error){if(!(error instanceof RpcError)||isAmbiguity(error))throw error;return null;}
+}
+/** Contract §180.6: `creature` declares or pins an animal or monster; a person's numbers are an archetype. */
+function notACreature(graph:ModuleGraph,node:Row):RpcError{
+    return new RpcError('invalid_params',`${graph.displayName(node)} is a person, not a creature: npc.creature is an animal's or a monster's`,{
+        fix:`leave creature out to write to ${graph.displayName(node)}; a person the book gave no numbers takes archetype`,
+        details:{reason:'not_a_creature',field:'npc.creature',name:graph.displayName(node)}});
 }
 /**
  * The refusal for a word nobody at this table carries, sent without `walk_on` (contract §87.7). A
@@ -207,15 +233,39 @@ async function ownTurn(context:ApplyContext,node:Row,handle:string,field:string)
     if(fight.turn_of!==handle)throw new RpcError('turn_state',`it is ${string(fight.turn_of)}'s turn, not ${who}'s`,{fix:`record it without spend_turn, or wait until it is ${who}'s turn`,details:{field,turn_of:fight.turn_of}});
     return {combat_id:fight.combat_id,round:fight.round};
 }
+/**
+ * Contract §180.5: what `apply npc` refuses on a creature -- the person tiers. Each `fix` names the body-side way, because a
+ * fix is executed literally: how it fights is `disposition`, how it behaves belongs in prose, and its numbers are a stat
+ * block. Every other variant (`to`, `stance`, `dead`, `conditions`, `defense`, `action`, `disposition`, an intention,
+ * `spend_turn`, `skill`) is a body's and stages as it does for a person.
+ */
+const NOT_A_PERSON:Readonly<Record<string,string>>=Object.freeze({
+    mood:'drop mood: a creature has no line of feeling. How it fights is disposition (apply npc {name, disposition}); how it behaves belongs in your prose',
+    reunion:'drop reunion: a creature is never met again as someone. Where it is is to; how it behaves belongs in your prose',
+    archetype:'drop archetype: the archetypes are person tiers. A creature\'s numbers are its stat block (the book\'s, or one pinned from the rules catalog with creature: "<catalog creature>"); resolve against the one it has',
+});
+function refuseNotAPerson(graph:ApplyContext['graph'],node:Row,effect:Row):void{
+    const field=Object.keys(NOT_A_PERSON).find(key=>effect[key]!=null);
+    if(!field)return;
+    throw new RpcError('invalid_params',`${graph.displayName(node)} is a creature, not a person: npc.${field} is a person's`,{
+        fix:NOT_A_PERSON[field],details:{reason:'not_a_person',field:`npc.${field}`,name:graph.displayName(node)}});
+}
 export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEffect>{
     const {graph,world}=context;
     const why=typeof effect.why==='string'&&effect.why.trim()?effect.why:null;
-    const {node,established,from_passage:fromPassage}=await personOfEffect(context,effect,string(required(effect,'name')),why);
+    // §180.6: what `creature` declares, read against the rules catalog before anyone is found or established.
+    const declared=await creatureDeclaration(context.kernel,effect);
+    const {node,established,from_passage:fromPassage}=await personOfEffect(context,effect,string(required(effect,'name')),why,declared);
+    // A declaration that pins nothing (`true`, or an entry that prints no stat block) is part of the walk-on, as walk_on
+    // is, and stands beside any variant. A catalog block is a pin, as an archetype is, and stands only where one does.
+    if(declared&&!declared.block){const {creature:_declared,...rest}=effect;effect=rest;}
     // §11.5.6 (SL-62): the host's `_resolved_from` -- the name the Keeper wrote, once a fan-out question against the
     // scene's known people cleared it to this person's handle and the host rewrote `name` before the retry. Host-only:
     // the model never sends it, and it never changes who the effect is about, only what the receipt says about it.
     const resolvedFrom=typeof effect._resolved_from==='string'&&effect._resolved_from.trim()?effect._resolved_from.trim():undefined;
     const handle=graph.handle(node),{to,stance,dead}=effect;
+    // §180.5: a creature takes the body's variants; a person's tier is refused before any of them stages.
+    if(!graph.isPerson(node))refuseNotAPerson(graph,node,effect);
     // Contract §161.1: what this person feels right now. Its own variant, like the intention: one line in the play
     // language, an ordinary keeper-only receipt, no world value. `previous` is the line the committed ledger holds --
     // the one this replaces when the turn closes (§161.2: within a turn the newest wins) -- or null.
@@ -235,7 +285,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // is a result of (the porter comes up the stairs because Knott shouted), stamped by the batch (`apply/index.ts`).
     // With nothing else beside it, `{intent_ref, intent_outcome}` is this variant: it is how a Keeper writes "that one
     // failed" (live gate A2, 2026-09-26: refused eight times as an npc effect with no change, turn 8 lost to it).
-    const others=['to','stance','dead','skill','archetype','conditions','defense','action','disposition','reunion','mood','_draws','_produces'];
+    const others=['to','stance','dead','skill','archetype','creature','conditions','defense','action','disposition','reunion','mood','_draws','_produces'];
     const settling=effect.intends==null&&effect.outcome==null&&effect.intent_ref!=null&&effect.intent_outcome!=null&&others.every(key=>effect[key]==null);
     if(settling)effect={...effect,outcome:effect.intent_outcome};
     if(effect.intends!=null||effect.outcome!=null){
@@ -266,7 +316,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     if(effect._draws!=null)return stageDraw(context,effect,node,handle);
     if(effect._produces!=null)return stageProduce(context,effect,node,handle);
     if(effect.reunion!=null){
-        if(['to','stance','dead','skill','archetype','conditions','defense','action','disposition'].some(key=>effect[key]!=null))
+        if(['to','stance','dead','skill','archetype','creature','conditions','defense','action','disposition'].some(key=>effect[key]!=null))
             throw new RpcError('invalid_params','Reunion continuity is separate from mechanical or positional NPC effects');
         const meta=await context.campaign.readCampaign(),worldline=string(meta.active_worldline||'main');
         const scope={worldline,loop:number(row(row(meta.worldlines)[worldline]).loop)};
@@ -279,7 +329,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // §11.5.2: the Keeper's override of this person's standing defence. Its own variant, like conditions: one
     // closed word and the reason, an ordinary keeper-side receipt, and the world key the session view reads.
     if(effect.defense!=null){
-        const combined=['to','stance','dead','skill','archetype','conditions','action','disposition'].filter(key=>effect[key]!=null);
+        const combined=['to','stance','dead','skill','archetype','creature','conditions','action','disposition'].filter(key=>effect[key]!=null);
         if(combined.length)throw new RpcError('invalid_params','npc.defense is its own state-changing effect',{fix:'put the standing defence and the other npc change in two effects in the same atomic batch',details:{field:'npc.defense',conflicts:combined}});
         if(typeof effect.defense!=='string'||!DEFENSE_WORDS.includes(effect.defense))unsupported('npc.defense',effect.defense,[...DEFENSE_WORDS],`npc.defense ${repr(effect.defense)} is not a defence`);
         if(!why)throw new RpcError('invalid_params','npc.defense needs a why',{fix:'say in one sentence what in the fiction changed how this person defends',details:{field:'npc.why'}});
@@ -293,7 +343,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
     // world key the session view reads. A `hold` holds for the round it is written in, so it names that fight and round.
     if(effect.action!=null||effect.disposition!=null){
         const field=effect.action!=null?'action':'disposition',words=field==='action'?OVERRIDE_ACTION_WORDS:DISPOSITION_WORDS;
-        const combined=['to','stance','dead','skill','archetype','conditions','defense',field==='action'?'disposition':'action'].filter(key=>effect[key]!=null);
+        const combined=['to','stance','dead','skill','archetype','creature','conditions','defense',field==='action'?'disposition':'action'].filter(key=>effect[key]!=null);
         if(combined.length)throw new RpcError('invalid_params',`npc.${field} is its own state-changing effect`,{fix:`put the ${field} and the other npc change in two effects in the same atomic batch`,details:{field:`npc.${field}`,conflicts:combined}});
         const word=effect[field];
         if(typeof word!=='string'||!words.includes(word))unsupported(`npc.${field}`,word,[...words],`npc.${field} ${repr(word)} is not one of the closed words`);
@@ -327,7 +377,7 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
         return {receipt,event:{type:'npc-changed',data:{npc:handle,[field]:word,why}}};
     }
     if(effect.conditions!=null){
-        const combined=['to','stance','dead','skill','archetype'].filter(key=>effect[key]!=null);
+        const combined=['to','stance','dead','skill','archetype','creature'].filter(key=>effect[key]!=null);
         if(combined.length)throw new RpcError('invalid_params','npc.conditions is its own state-changing effect',{fix:'put the condition change and the other npc change in two effects in the same atomic batch',details:{field:'npc.conditions',conflicts:combined}});
         if(!isJsonObject(effect.conditions)||Object.keys(effect.conditions).some(key=>!['gained','lost'].includes(key)))throw new RpcError('invalid_params','npc.conditions must be {gained?: string[], lost?: string[]}',{fix:'name the rules conditions that became true or stopped being true',details:{field:'npc.conditions'}});
         for(const key of ['gained','lost'])if(Object.hasOwn(effect.conditions,key)&&!Array.isArray(effect.conditions[key]))throw new RpcError('invalid_params',`npc.conditions.${key} must be a list`,{fix:'use a list of rules condition names',details:{field:`npc.conditions.${key}`}});
@@ -365,24 +415,49 @@ export async function stageNpc(context:ApplyContext,effect:Row):Promise<StagedEf
             if(existing.archetype!==archetype.trim())throw new RpcError('invalid_params',`${graph.displayName(node)} already has a pinned ${string(existing.archetype)} profile from turn ${string(existing.pinned_turn)}`,{fix:'resolve against it; a pin is made once for the campaign',details:{field:'npc.archetype',actor:handle,archetype:existing.archetype,pinned_turn:existing.pinned_turn??null}});
             profile=structuredClone(existing);
         }else{
-            if(isJsonObject(graph.mechanicsOf(node).profile))throw new RpcError('invalid_params',`the source prints ${graph.displayName(node)}'s numbers; an archetype cannot replace them`,{fix:'resolve against the printed profile; no pin is needed',details:{field:'npc.archetype',actor:handle,authority:'source_authored'}});
-            profile=await rollArchetypeProfile(context.kernel,archetype.trim(),why,number(context.turn.turn));
+            // §180.6 (CK-F2): a printed block that lacks what the engine reads is completed -- the archetype fills only the gaps.
+            const authored=graph.mechanicsOf(node).profile,partial=isJsonObject(authored)&&statBlockGaps(authored).length>0;
+            if(isJsonObject(authored)&&!partial)throw new RpcError('invalid_params',`the source prints ${graph.displayName(node)}'s numbers; an archetype cannot replace them`,{fix:'resolve against the printed profile; no pin is needed',details:{field:'npc.archetype',actor:handle,authority:'source_authored'}});
+            profile=await rollArchetypeProfile(context.kernel,archetype.trim(),why,number(context.turn.turn),partial?authored:null);
         }
     }
-    if(to==null&&stance==null&&dead==null&&pinned==null&&profile==null)throw new RpcError('invalid_params','an npc effect needs `to`, `stance`, `conditions`, `dead`, `skill`, `archetype`, an intention, a mood, or a combination',{fix:`move them with to: here/away/<scene>, set stance to one of ${repr(words)}, change an explicit condition, say dead: true, pin a skill they have, name an archetype for a person the book gave no numbers, report an intention: intends (a new one) or intent_ref (one on the card) with outcome attempted, done, failed or abandoned, or write what they feel right now with mood`});
+    // §180.6: a creature's stat block from the rules catalog, pinned once -- on the call that declares it, or later on a
+    // creature (the table's, or a book creature the book gave no numbers) that has none. One with a block keeps it.
+    // §180.6 (CK-F2): a creature's own block that lacks what the engine reads is completed -- the entry fills only the gaps.
+    if(declared?.block){
+        const existing=row(world.npc_profiles)[handle],own=graph.mechanicsOf(node).profile,authored=isJsonObject(own),partial=authored&&statBlockGaps(own).length>0;
+        if((authored&&!partial)||isJsonObject(existing))throw new RpcError('invalid_params',`${graph.displayName(node)} already has a stat block; a catalog creature pins one only where there is none, or completes one that lacks what the engine reads`,{
+            fix:`leave creature out and resolve against the block ${graph.displayName(node)} has`,
+            details:{reason:'stat_block_exists',field:'npc.creature',name:graph.displayName(node),authority:isJsonObject(existing)?string(row(existing).authority||'table_pinned'):'source_authored',
+                ...(typeof row(existing).catalog==='string'?{catalog:row(existing).catalog}:{})}});
+        profile=await rollCreatureProfile(context.kernel,declared,why,number(context.turn.turn),partial?own:null);
+    }
+    // A creature this call declared is itself the change, with or without a block.
+    const declaredHere=!!declared&&established==='table';
+    if(to==null&&stance==null&&dead==null&&pinned==null&&profile==null&&!declaredHere)throw new RpcError('invalid_params','an npc effect needs `to`, `stance`, `conditions`, `dead`, `skill`, `archetype`, an intention, a mood, or a combination',{fix:`move them with to: here/away/<scene>, set stance to one of ${repr(words)}, change an explicit condition, say dead: true, pin a skill they have, name an archetype for a person the book gave no numbers or a rules-catalog creature (creature) for a creature with no stat block, report an intention: intends (a new one) or intent_ref (one on the card) with outcome attempted, done, failed or abandoned, or write what they feel right now with mood`});
     const presence=world.npc_presence??={};let moved:string|null=null;
     if(to!=null){
         if(typeof to!=='string'||!to.trim())throw new RpcError('invalid_params',"npc.to must be a scene name, 'here' or 'away'",{fix:'a scene name on the graph, or here / away',details:{field:'npc.to',options:['here','away']}});
         if(to.trim()==='away'){delete presence[handle];moved='away';}else{moved=graph.handle(graph.scene(to.trim()==='here'?world.active_scene:to));presence[handle]=moved;}
     }
     if(stance!=null&&(typeof stance!=='string'||!words.includes(stance)))unsupported('npc.stance',stance,words,`npc.stance ${repr(stance)} is not one of the ledger's words`);
-    if(profile!=null)(world.npc_profiles??={})[handle]=profile;
-    const pinnedProfile=profile?{archetype:profile.archetype,characteristics:profile.characteristics,derived:profile.derived,skills:profile.skills}:null;
+    if(profile!=null){
+        (world.npc_profiles??={})[handle]=profile;
+        // §180.6: with its catalog block pinned the creature is an actor for the rest of this batch, as on every load.
+        if(typeof profile.catalog==='string')graph.pinBody(node);
+    }
+    // A completed block (CK-F2) says what its source filled; everything else in it is the block's own.
+    const completion=profile&&typeof profile.completed_from==='string'?{completed_from:profile.completed_from,filled:profile.filled}:{};
+    const pinnedProfile=!profile?null:typeof profile.catalog==='string'
+        ?{catalog:profile.catalog,characteristics:profile.characteristics,derived:profile.derived,skills:profile.skills,weapons:array(profile.weapons).map(weapon=>string(row(weapon).name||row(weapon).weapon_id)),...completion}
+        :{archetype:profile.archetype,characteristics:profile.characteristics,derived:profile.derived,skills:profile.skills,...completion};
+    // What `creature` declared: the catalog entry, or true; an entry that prints no block says so.
+    const creatureNote=declared?{creature:declared.name??true,...(declared.name&&!declared.block?{no_stat_block:true}:{})}:{};
     // `established` rides on the receipt and the event so that a person this table just invented is
     // never indistinguishable from one the book printed -- for the Keeper reading the result, and for
     // anything that folds receipts later (the ledger, a worldline rebuild, the KPI).
-    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),why,at:nowIso()};
-    return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...(pinnedProfile?{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}};
+    const receipt={id:effectId(context,'npc',handle),kind:'npc',call_id:context.callId,npc:node.node_id,handle,name:graph.displayName(node),label:personLabel(world,handle,graph.displayName(node)),to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?{profile:pinnedProfile}:{}),...establishedOf(established,fromPassage,resolvedFrom),why,at:nowIso()};
+    return {receipt,event:{type:'npc-changed',data:{npc:handle,to:moved,stance:stance??null,dead:dead??null,skill:pinned,...creatureNote,...(pinnedProfile?typeof profile!.catalog==='string'?{catalog:profile!.catalog}:{archetype:profile!.archetype}:{}),...establishedOf(established,fromPassage,resolvedFrom),why}}};
 }
 /**
  * Contract §152.4: the handout a name reaches, read through its survivor -- a printed visual the reviewer found to be the

@@ -40,7 +40,8 @@ export const isNpcPatient = (patient: Row): boolean => patient.is_npc === true;
  * for a missing skill, and for the same reason -- the fix names the call that makes it settle.
  */
 export function npcPatient(graph: LoadedModule['graph'], world: Row, name: string): Row | null {
-    const node = graph.find(name, ['npc']);
+    // §180.3: a patient is a body -- a person, or a creature that states a stat block (an actor).
+    const node = graph.actor(name);
     if (!node)
         return null;
     const handle = graph.handle(node), who = graph.displayName(node);

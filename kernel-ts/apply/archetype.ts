@@ -7,6 +7,7 @@ import { RpcError } from "../errors.js";
 import type { KernelContext } from "../context.js";
 import { RuleTables } from "../rules/tables.js";
 import { array, row, entries, number, integer, string, truth, type Row } from "../read/values.js";
+import { completeBlock, statedCharacteristics } from "./completion.js";
 const TABLE = "npc-stat-archetypes";
 export interface Archetype { id: string; characteristics: Record<string, [number, number]>; skills: Record<string, [number, number]> }
 const range = (value: any): [number, number] | null => Array.isArray(value) && value.length === 2 && integer(value[0]) && integer(value[1]) && number(value[0]) <= number(value[1]) ? [number(value[0]), number(value[1])] : null;
@@ -21,7 +22,8 @@ export async function archetypes(kernel: KernelContext): Promise<Archetype[]> {
     }));
 }
 export const archetypeIds = async (kernel: KernelContext): Promise<string[]> => (await archetypes(kernel)).map(a => a.id);
-async function movement(tables: RuleTables, characteristics: Row): Promise<number> {
+/** MOV from the rulebook's `movement-rate` rules (STR and DEX against SIZ); a table creature's block reads it too (§180.6). */
+export async function movement(tables: RuleTables, characteristics: Row): Promise<number> {
     const table = row(await tables.load("movement-rate")), siz = number(characteristics.SIZ);
     const relation = (value: number): string => value < siz ? "less_than" : value > siz ? "greater_than" : "equal";
     for (const item of array(table.rules))
@@ -29,8 +31,13 @@ async function movement(tables: RuleTables, characteristics: Row): Promise<numbe
             return number(item.base_mov);
     return 8;
 }
-/** Roll a profile inside the archetype's ranges; the result has everything `npcCombatParticipant` reads. */
-export async function rollArchetypeProfile(kernel: KernelContext, id: string, why: string | null, turn: number): Promise<Row> {
+/**
+ * Roll a profile inside the archetype's ranges; the result has everything `npcCombatParticipant` reads. With `authored`
+ * (CK-F2: the book's own block for this person, which lacks what the engine reads), the archetype completes it: every
+ * range is rolled as for a fresh pin, the characteristics the book states stand in for the rolled ones before anything
+ * is derived, and every value the book states wins (`completeBlock`).
+ */
+export async function rollArchetypeProfile(kernel: KernelContext, id: string, why: string | null, turn: number, authored: Row | null = null): Promise<Row> {
     const found = (await archetypes(kernel)).find(a => a.id === id);
     if (!found)
         throw new RpcError("invalid_params", `${JSON.stringify(id)} is not an NPC stat archetype`, {
@@ -45,6 +52,7 @@ export async function rollArchetypeProfile(kernel: KernelContext, id: string, wh
     for (const key of ["STR", "CON", "SIZ", "DEX", "POW"])
         if (!Object.hasOwn(characteristics, key))
             throw new RpcError("campaign_not_ready", `archetype ${id} declares no ${key} range`, { fix: `restore content/rulesets/coc7/rules-json/${TABLE}.json`, details: { archetype: id, missing: key } });
+    Object.assign(characteristics, statedCharacteristics(authored));
     const derivedRules = row(await tables.load("derived-attributes")), hp = row(derivedRules.hit_points), mp = row(derivedRules.magic_points), san = row(derivedRules.sanity);
     const damage = await tables.damageBonusBuild(number(characteristics.STR), number(characteristics.SIZ));
     const derived: Row = {
@@ -55,9 +63,10 @@ export async function rollArchetypeProfile(kernel: KernelContext, id: string, wh
         DB: damage.damage_bonus,
         Build: damage.build
     };
-    return {
+    const block: Row = {
         profile_kind: "actor", characteristic_scale: "percentile", authority: "table_pinned", archetype: id,
         characteristics, derived, skills, weapons: [],
         ...(truth(why) ? { why } : {}), pinned_turn: turn
     };
+    return authored ? completeBlock(block, authored, id) : block;
 }

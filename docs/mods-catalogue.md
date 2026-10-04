@@ -1,6 +1,6 @@
 # The built-in packages: what each one does, and where its text goes
 
-Written 2026-10-04 from the shipped files under `mods/` (before §183 sectioned six of them: the blank-line blocks below are now `## ` headings, and the briefs are gone) (manifests, instructions, briefs, lane files) and the contract sections they cite, for the instruction index (`docs/specs/mod-section-index.md`). Ten packages. The byte counts are the shipped files'.
+Written 2026-10-04 from the shipped files under `mods/` (before §183 sectioned six of them: the blank-line blocks below are now `## ` headings, and the briefs are gone) (manifests, instructions, briefs, lane files) and the contract sections they cite, for the instruction index (`docs/specs/mod-section-index.md`). Ten packages, and an eleventh, Hostile Creatures (§11), added the same day for contract §180.11. The byte counts are the shipped files'.
 
 ## How a package reaches the table
 
@@ -15,7 +15,7 @@ A package contributes text and declarations through closed slots in `mod.json`; 
 | `auditor` (`auditor.md`) | the pre-delivery audit lane (a tool-enabled Pi task) | before a delivery, when the host runs the audit |
 | `materializer` (`creator.md`) | the definition/usage creator (a tool-enabled Pi task) | when the Keeper's `apply define` / `usage` needs parameters |
 | `checks` | the kernel | declares a contributed check, its trigger, values and result table (§26, §134.2) |
-| `vocabulary` | the graph reader | asks the book for these profile keys per person (`speaks`, `mask`, `in exchange`) |
+| `vocabulary` | the graph reader | asks the book for these profile keys per person (`speaks`, `mask`, `in exchange`) and per creature (`habits`, §180.8) |
 | `voice_lane`, `voice_lane_addendum` | the NPC voice writer (a tool-enabled Pi task) | when a person's voice card is generated (§40.7, §153.3) |
 | `expression_cards`, `speech_edit_lane` | the expression selector and the speech editor lanes | per turn on a Chinese table (§165, §172) |
 | `setup_instructions`, `setup_slots` | the setup guide | character creation only |
@@ -140,6 +140,19 @@ The index concerns the first two slots. Everything else already reaches its cons
 
 - *Keeper Context*: guidance for a host-owned workspace of verified source bodies and a workpad (settings: mode off/shadow/on, bytes, candidate limits, rerank). `instructions` 1.6 KB, `brief` 0.3 KB. Due when a workspace was provided (state).
 - *NPC Voice*: the earlier voice package; its register rules now live in Narration Craft's "The people here". `instructions` 2.9 KB, `brief` 0.2 KB. Kept for campaigns locked to it.
+
+## 11. Hostile Creatures (`hostile-creatures` 1.0.0, default on)
+
+**What it is.** How a hostile creature is played (contract §180.1): a creature as a body, by the habits the book gives it, and the weaknesses that end a being carried to the Keeper as a chain the investigators can work through. What a being is, and which machinery may treat it as a person, stays the base's: disabling this package does not make a rat a person again.
+
+**Contributes.** `instructions` 2.7 KB, `sections`, `vocabulary.creature_profile_keys` (`habits`: where it lairs, how it hunts or attacks, what draws it, when it breaks off or flees). Requires `actor.weaknesses.v1`, so a build with it enabled asks the reader for `weaknesses` on npc and creature nodes and the checker holds them (§180.9); and `graph.vocabulary.table.v1`, so the Keeper may establish `habits` and append `weaknesses` with `apply dossier` where nothing authored says (those go when the package does; the build-bound words stay, §28.5). No brief, no settings.
+
+**Sections.**
+- *Preamble* (0.7 KB, resident) — what the package reads (creature rows, the weakness chain, `habits`); an animal the Keeper brings in is declared with `apply npc walk_on` and `creature`, its habits written with `apply dossier`.
+- *Playing a creature* (0.5 KB) — a body by its `what` and `habits`: sound, motion, behaviour, no lines and no name to learn; its disposition decides how it fights and when it breaks; its acts settle through `resolve` and `apply npc`. Due on `state:creature_present`.
+- *Weaknesses* (1.4 KB) — a weakness without `learned_by` is found in play, never announced; a learnable one's `found`/`of` and the thread line say what is missing; `needs` with `held_by` / `known_by` / `taught_by`; a false lead is believed until tested; exploiting a weakness settles through ordinary receipts; table entries are appended. Due on `state:weakness_here` and `before_resolve:combat`.
+
+**Reads.** `present[]` creature rows (`kind`, `what`, `habits`), `weaknesses` and `false_leads` on actor rows, `look focus=npc` for the whole chain, `mods.thread` lines. **Writes.** `apply npc` (walk-on with `creature`, `disposition`, `action`, `conditions`), `apply dossier` (`habits`, `weaknesses`), ordinary `resolve` and damage.
 
 ## What the index sees
 

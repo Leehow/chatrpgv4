@@ -15,6 +15,7 @@ import { RuleObservations } from '../read/rule-facts.js';
 import { CheckArithmetic } from '../resolve/arithmetic.js';
 import { SettleContext } from '../resolve/context.js';
 import { npcPatient } from '../healing/patient.js';
+import { requirePatientBlock } from '../combat/stat-block.js';
 import { markersOf, modResolveEvents } from '../resolve/projection.js';
 import { FIRST_IMPRESSIONS_NOTE, presenceRolls } from '../mods/presence.js';
 import { createWriteRuntime, turnSeed } from '../write/index.js';
@@ -196,6 +197,9 @@ export function createApplyHandlers(kernel: KernelContext, writer: ReturnType<ty
                     // arrangement `resolveActor` already makes when an NPC acts inside a session.
                     // Before this, `selectActor` refused every name but a party member's, which is
                     // why a settled check about an NPC had nowhere to put its result.
+                    // §180.6 (CK-F2): a body whose block lacks what its hit points are read from is refused with its completion.
+                    if (typeof subject === 'string' && snapshot.party.length)
+                        await requirePatientBlock(kernel, graph, staged, subject);
                     const patient = typeof subject === 'string' && snapshot.party.length ? npcPatient(graph, staged, subject) : null;
                     const sheet = patient ? snapshot.party[0] : selectActor(snapshot.party, subject);
                     return new SettleContext(kernel, { ...transaction, world: staged }, snapshot, module, tables, await CheckArithmetic.create(tables), await RuleObservations.load(kernel), started.callId, started.ordinal, sheet, patient ?? sheet, {});

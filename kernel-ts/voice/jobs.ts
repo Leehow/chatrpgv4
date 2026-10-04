@@ -107,8 +107,9 @@ export function needsLines(graph: ModuleGraph, world: Row, owner: VoiceOwner, no
 function npcNode(graph: ModuleGraph, value: any): Row | null {
     if (typeof value !== 'string' || !value.trim())
         return null;
+    // §180.3: a person's (a voice, a journal entry); a creature is never one.
     const node = graph.nodes.get(value) || graph.find(value, ['npc']);
-    return node?.node_kind === 'npc' ? node : null;
+    return graph.isPerson(node) ? node! : null;
 }
 /** The next person needing a voice, in §40.5/§40.7 order: on stage right now (so the opening's drain writes
  *  the start scene's people before the first player turn -- on the real module the employer's first two

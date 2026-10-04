@@ -83,7 +83,7 @@ function bookWords(graph: ModuleGraph, node: Row, property: string): string | nu
 export const placeDescribed = (graph: ModuleGraph, scene: Row): string | null => bookWords(graph, scene, 'description');
 /** What the book describes of a person: `properties.biography`, else the summary. */
 export const personDescribed = (graph: ModuleGraph, node: Row): string | null => bookWords(graph, node, 'biography');
-/** A book person the player may see on arrival: an `npc` node the book marks `player-safe`. */
+/** A book person the player may see on arrival: an `npc` node the book marks `player-safe` (§180.3: never a creature). */
 export const seenPerson = (node: Row): boolean => node.node_kind === 'npc' && node.visibility === 'player-safe';
 
 /**

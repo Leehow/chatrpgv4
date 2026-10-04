@@ -17,11 +17,11 @@ import type {CampaignSnapshot} from '../read/campaign.js';
 import type {HandlerGroup} from '../handlers.js';
 import {RpcError} from '../errors.js';
 import {isJsonObject} from '../json.js';
-import {jsonSize, npcNode, npcsPresent, personLabel, sceneLabel} from '../read/capsule.js';
+import {actorNode, creatureWhat, creatureWords, jsonSize, npcsPresent, personLabel, sceneLabel} from '../read/capsule.js';
 import {readCampaign} from '../read/handlers.js';
 import {canonicalMemoryReceipts, withPromiseFulfillment} from '../read/memory.js';
 import {committedOnLine, stillWhereItClosed} from '../read/exchange.js';
-import type {ModuleGraph} from '../read/module-graph.js';
+import {recordOf, type ModuleGraph} from '../read/module-graph.js';
 import {activeMods, contactRows} from '../read/mods.js';
 import {capsuleRow, obligationNodes, sceneObligations} from '../read/obligations.js';
 import {SessionView} from '../read/session-view.js';
@@ -439,6 +439,14 @@ async function situationBudget(context: KernelContext): Promise<number> {
     }
 }
 
+/** §180.3, §180.5: what the act author reads of a creature -- what the book says it is, its words (`habits`, §180.8:
+ *  the book's under the words its module bound, else what an enabled package established at the table) and the Keeper's
+ *  note, each when stated. Its personality is never read: a creature has none. */
+function creatureMaterial(graph: ModuleGraph, world: Row, node: Row): Row {
+    const what = creatureWhat(node), note = recordOf(node).keeper_note;
+    return {...(what ? {what} : {}), ...creatureWords(graph, world, node), ...(typeof note === 'string' && note.trim() ? {keeper_note: note} : {})};
+}
+
 export function createSituationHandlers(context: KernelContext): HandlerGroup {
     return {
         'npc.situation': async params => {
@@ -454,15 +462,18 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             const {campaign, module} = await readCampaign(context, params, false, false, {}, true);
             // §87.8: the book's names, then the table's word (§79), then the graph's refusal -- the junction every entrance
             // that takes a person's name reads, as `npc.perspective` and `npc.job` do.
-            const {graph} = module, {world, turn, party} = campaign, node = npcNode(graph, world, params.name);
-            const me = personOf(graph, world, node);
+            // §180.5: a creature that states a stat block acts too; its material is a body's (`who` below).
+            const {graph} = module, {world, turn, party} = campaign, node = actorNode(graph, world, params.name);
+            const me = personOf(graph, world, node), person = graph.isPerson(node);
             const {scope, records, previous} = committedOnLine(campaign);
             let ledger: Row = {};
             try { ledger = row(await campaign.optional('npc-ledger.json')); } catch { /* A missing or unreadable ledger is an empty one here, as for look. */ }
             const table = await stanceTable(context);
             const memory = withPromiseFulfillment(await campaign.log('memory/candidates.jsonl'),
                 {campaign: campaign.id, world, receipts: canonicalMemoryReceipts(records, array(turn.receipts))});
-            const view = row(npcPerspective(graph, world, node, memory, records, scope).view);
+            // §180.3: a person's perspective (personality, goals, fears, commitments, relationships, speech) is a person's;
+            // a creature has none of it.
+            const view = person ? row(npcPerspective(graph, world, node, memory, records, scope).view) : {};
             const session = new SessionView(campaign, graph, party, world).activeSession();
             const {place, constraints} = await placedConstraints(context, campaign, graph, me);
             const happened = happenedSentences(me, world, party, turn, previous, heard);
@@ -472,14 +483,16 @@ export function createSituationHandlers(context: KernelContext): HandlerGroup {
             // §143.30: what anyone at this table has brought out, present only when there is something.
             const seen = tableBroughtOut(graph, world);
             const packet: Row = {
-                npc: {handle: me.handle, name: graph.displayName(node)},
+                npc: {handle: me.handle, name: graph.displayName(node), kind: person ? 'npc' : 'creature'},
                 canonical_context: {
                     scene: place ? chars(graph.summary(place), 1600) : '',
                     previous_narration: chars(string(previous?.rendered_text ?? ''), 2000),
                     player_declaration: string(row(turn.player_input).text ?? turn.player_text ?? ''),
                 },
-                who: {personality: view.personality ?? null, goals: view.goals ?? null, fears: view.fears ?? null,
-                    commitments: view.commitments ?? [], relationships: view.relationships ?? []},
+                // §180.3: the act author's material -- a person's personality and the rest of their perspective; for a
+                // creature, what the book says it is, its habits and the Keeper's note.
+                who: person ? {personality: view.personality ?? null, goals: view.goals ?? null, fears: view.fears ?? null,
+                    commitments: view.commitments ?? [], relationships: view.relationships ?? []} : creatureMaterial(graph, world, node),
                 happened,
                 state: stateOf(graph, world, me, session, stanceNow(graph, ledger, table, turn, me.handle)),
                 at_hand: {...atHand(graph, world, party, me, place), ...(brought.length ? {brought_out: brought} : {})},

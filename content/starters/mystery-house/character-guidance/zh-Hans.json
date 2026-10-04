@@ -1,8 +1,8 @@
 {
   "module_id": "mystery-house",
   "play_language": "zh-Hans",
-  "graph_sha256": "7761bb71a618ee60c77ce7bf36ff63579af98a4f244d3f32b02beb3f45ffca99",
-  "fingerprint": "25d981e0dc3d93d5d5760651af7a8b155a00d0b9d7f7b0326cd53e48f75b793b",
+  "graph_sha256": "a2d89be64e3a33be7edb035a1375df15c63143fef04dbc44ce38f05ab96232bd",
+  "fingerprint": "0cfb0ab5488cffe0c552166c6860091dea7bd566ec883df558cb40ce501a2fa0",
   "approved": true,
   "guidance": {
     "opening": "一九二〇年秋天，你坐在波士顿一间房东的办公室里。你是他约来的外人，为的是一处眼下租不出去的房子。桌上有一盏台灯，光落在纸堆上。\n\n房东霍华德·克兰把烟掐了，朝你点点头：「上一户科斯塔一家走得急，听说进了疗养院。街坊不肯再住，我得有人帮我弄清楚屋子里到底怎么了，再把名声扳回来。按天付工钱，细节回头再说。」\n\n他往前倾了倾身子，看着你：「你是谁？平时靠什么吃饭？随便说说就行。」",

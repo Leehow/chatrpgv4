@@ -149,7 +149,19 @@ function npcId(graph: ModuleGraph, value: any): string | null {
     if (typeof value !== 'string' || !value.trim())
         return null;
     const node = graph.nodes.get(value) || graph.find(value, ['npc']);
-    return node?.node_kind === 'npc' ? node.node_id : null;
+    return graph.isPerson(node) ? node!.node_id : null;
+}
+/**
+ * Contract §180.3–§180.5: the ledger key of an actor -- a person, or a creature that states a stat block -- for what is
+ * a body's: how it stands toward the party (the Keeper's stance, a fight), its death, a pinned skill, an intention.
+ * `toward_party` on a creature's row and `stanceNow` read these. What is a person's (social deltas, disclosures,
+ * exchanges, speech, meetings) keeps `npcId`.
+ */
+function actorId(graph: ModuleGraph, value: any): string | null {
+    if (typeof value !== 'string' || !value.trim())
+        return null;
+    const node = graph.nodes.get(value) || graph.actor(value);
+    return graph.isActor(node) ? node!.node_id : null;
 }
 const intLike = (value: any): boolean => integer(value) || typeof value === 'boolean';
 export async function stanceTable(context: KernelContext): Promise<Row> {
@@ -189,14 +201,15 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
         // opened is marked `generated`.
         const intent = row(receipt.intent);
         if (typeof intent.ref === 'string') {
-            const id = npcId(graph, intent.npc);
+            const id = actorId(graph, intent.npc);
             if (id)
                 foldIntent(entry(ledger, id), intent, turn, receipt.id, receiptGenerated(receipt));
         }
         // §143.8: the stakes die names its person as `actor` but is no interaction with anyone. §178.4: nor is a first
         // impression -- it observes the meeting, and with one on every meeting it would say "tried social" of everyone met.
+        // §180.3: the ledger keys an actor, so a creature's fight and death are recorded; its social deltas are gated below.
         if (kind === 'roll' && !isStakesRoll(receipt) && !isImpressionRoll(receipt)) {
-            const against = npcId(graph, receipt.npc), actor = npcId(graph, receipt.actor);
+            const against = actorId(graph, receipt.npc), actor = actorId(graph, receipt.actor);
             const family = ['social', 'combat', 'chase', 'psychology'].includes(receipt.family || receipt.roll_kind) ? receipt.family || receipt.roll_kind : null;
             for (const [id, target] of [[against, true], [actor, false]] as const) {
                 if (!id || id === against && !target)
@@ -219,6 +232,9 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                     });
                     continue;
                 }
+                // §180.3: the stance ledger's social deltas are a person's; a creature is not talked round.
+                if (!graph.isPerson(graph.nodes.get(id)))
+                    continue;
                 if (family !== 'social' && !(typeof approach === 'string' && Object.hasOwn(row(table.social), approach)))
                     continue;
                 const raw = row(row(table.social)[string(approach || '')])[string(receipt.level || '')];
@@ -265,7 +281,7 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
             }
         }
         else if (kind === 'npc') {
-            const id = npcId(graph, receipt.npc || receipt.name);
+            const id = actorId(graph, receipt.npc || receipt.name);
             if (!id)
                 continue;
             const item = entry(ledger, id), levels = array(table.levels);
@@ -306,7 +322,7 @@ export function foldNpcTurn(ledger: Row, graph: ModuleGraph, record: Row, table:
                 foldMood(item, receipt.mood, turn, receipt.id, receipt.why);
         }
         else if (kind === 'delta' && receipt.resource === 'hp' && intLike(receipt.after) && number(receipt.after) <= 0) {
-            const id = npcId(graph, receipt.subject);
+            const id = actorId(graph, receipt.subject);
             if (id) {
                 const item = entry(ledger, id);
                 if (!Object.hasOwn(item, 'dead'))

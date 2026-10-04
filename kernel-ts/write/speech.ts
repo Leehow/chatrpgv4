@@ -51,7 +51,8 @@ export function speakerResolver(graph: ModuleGraph, world: Row, party: Row[], un
         const key = normalize(name);
         if (!key) return { label: name };
         if (!present) {
-            try { present = npcsPresent(graph, world, graph.scene(world.active_scene)); } catch { present = []; }
+            // §180.3: only a person speaks; a span naming a creature present stays a label, as one naming nobody does.
+            try { present = npcsPresent(graph, world, graph.scene(world.active_scene)).filter(node => graph.isPerson(node)); } catch { present = []; }
         }
         const here = only(present, key);
         if (here) return npc(here, name);

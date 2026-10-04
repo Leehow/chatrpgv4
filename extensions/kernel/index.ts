@@ -53,6 +53,7 @@ import { deliveryProse, isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, say
 import { createDecisionAdapter } from "../../runtime/jev/decision-adapter.ts";
 import { FORCED_CHOICE_CUE_MIN, FORCED_CHOICE_OUTCOME_MAX, type ForcedChoiceCueReview, type ForcedPlayerChoice } from "../../runtime/jev/forced-resolution.ts";
 import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
+import { speechRoster, type RosterPerson } from "./speech-roster.ts";
 import { bandShadowGate, readBandRows, shadowRow, shadowTargets, skippedRow, unaskedRow } from "./band-shadow.ts";
 import { SHADOW_FIELDS, type ShadowKind } from "../../runtime/jev/band-shadow-domain.ts";
 import type { BandResult } from "../../runtime/jev/band-recovery-domain.ts";
@@ -325,12 +326,6 @@ interface CampaignRow {
 	turn?: number;
 }
 
-/**
- * A person on stage as the capsule gives them (§128.3): `name` is `present[].name`; `called` and
- * `address` are the table's own name and form of address (§79); `untold` says the player has not been
- * told the book's name (§103), and `label` is the epithet the table uses meanwhile.
- */
-interface RosterPerson { name: string; called?: string; address?: string; untold: boolean; label?: string }
 
 interface ForcedPlayerChoiceCue {
 	turn: number;
@@ -2305,15 +2300,8 @@ export default function (pi: ExtensionAPI) {
 				const name = asString((row as Record<string, unknown> | null)?.name);
 				return name ? [name] : [];
 			});
-			state.roster = view.present.flatMap((row): RosterPerson[] => {
-				const entry = (row ?? {}) as Record<string, unknown>;
-				const name = asString(entry.name);
-				if (!name) return [];
-				const called = (entry.called ?? {}) as Record<string, unknown>, untold = entry.untold as Record<string, unknown> | undefined;
-				const calledName = asString(called.name), address = asString(called.address), label = asString(untold?.label);
-				return [{ name, untold: !!untold && typeof untold === "object", ...(calledName ? { called: calledName } : {}),
-					...(address ? { address } : {}), ...(label ? { label } : {}) }];
-			});
+			// §128.3, §180.3: the people attribution may name; a creature's row is left out.
+			state.roster = speechRoster(view.present);
 		}
 		const sheet = view.known?.investigator;
 		const name = asString(sheet?.name), id = asString(sheet?.id);

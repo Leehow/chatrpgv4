@@ -3014,18 +3014,69 @@
       "visibility": "keeper-only",
       "aliases": [],
       "summary": "A swarm of rats nesting in the basement crawl space that may overwhelm an investigator.",
-      "evidence_span_ids": [],
+      "evidence_span_ids": [
+        "span-page-455-anchor-2"
+      ],
       "properties": {
-        "runtime_rule_ref": "coc7 rat pack"
+        "runtime_rule_ref": "coc7 rat pack",
+        "habits": "Nest in the crawl space behind the cellar's boards, about ten rats to a pack. Given no room to escape, they attack whoever explores the space, swarming one investigator with their Overwhelm attack (a fighting maneuver with one bonus die for their numbers). Once one rat is killed the rest flee; a successful attack kills one or two rats and usually chases the rest of the pack away.",
+        "combat": {
+          "disposition": "fights_then_flees"
+        },
+        "mechanics": {
+          "profile": {
+            "profile_kind": "actor",
+            "characteristic_scale": "percentile",
+            "authority": "source_authored",
+            "characteristics": {
+              "STR": 35,
+              "CON": 55,
+              "SIZ": 35,
+              "POW": 50,
+              "DEX": 70
+            },
+            "derived": {
+              "HP": 9,
+              "MOV": 9,
+              "Build": -1,
+              "DB": "-1"
+            },
+            "skills": {
+              "Fighting": 40,
+              "Dodge": 42
+            },
+            "weapons": [
+              {
+                "weapon_id": "claws",
+                "extends": "claws",
+                "name": "Teeth and claws",
+                "damage": "1D3",
+                "uses_per_round": 1,
+                "book": "The rats attack with teeth and claws."
+              },
+              {
+                "weapon_id": "overwhelm",
+                "name": "Overwhelm (fighting maneuver)",
+                "skill": "Fighting",
+                "damage": "2D6",
+                "uses_per_round": 1,
+                "impale_unstated": true,
+                "book": "As a pack they swarm a single target, gaining one bonus die on the attack because of their numbers."
+              }
+            ]
+          }
+        }
       },
       "source_refs": [
         {
           "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 456
+          "pdf_index": 456,
+          "grep_anchor": "A pack of rats live in the wall"
         },
         {
           "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 457
+          "pdf_index": 457,
+          "grep_anchor": "RAT PACK"
         }
       ]
     },
@@ -3576,8 +3627,7 @@
                     "npc-gabriela-macario",
                     "npc-vittorio-macario",
                     "npc-kim-debrun",
-                    "npc-walter-corbitt",
-                    "npc-rat-pack"
+                    "npc-walter-corbitt"
                   ]
                 }
               ]
@@ -4143,89 +4193,6 @@
       ]
     },
     {
-      "node_id": "npc-rat-pack",
-      "node_kind": "npc",
-      "name": "Rat Pack",
-      "visibility": "keeper-only",
-      "aliases": [],
-      "summary": "Rat Pack",
-      "evidence_span_ids": [
-        "span-page-455-anchor-2"
-      ],
-      "properties": {
-        "runtime_projection": {
-          "document": "npc-agendas.json",
-          "collection": "npcs",
-          "record": {
-            "npc_id": "npc-rat-pack",
-            "name": "Rat Pack",
-            "origin": "source",
-            "agenda": "Defend the crawl space nest; swarm whoever breaks into it.",
-            "fear": "Fire and open flame in the confined crawl space.",
-            "secret": "They nest in Corbitt's hidden crawl space and their filth marks the wall carved 'Chapel of Contemplation'.",
-            "voice": "No speech — squealing, scrabbling claws, and the press of bodies in the dark.",
-            "relationship_to_investigators": "adversary",
-            "keeper_note": "Printed encounter in the cellar crawl space (page 457). As a pack they may Overwhelm a single investigator with the Fighting maneuver rules, gaining one bonus die for their numbers.",
-            "mechanics": {
-              "profile": {
-                "profile_kind": "actor",
-                "characteristic_scale": "percentile",
-                "authority": "source_authored",
-                "characteristics": {
-                  "STR": 35,
-                  "CON": 55,
-                  "SIZ": 35,
-                  "POW": 50,
-                  "DEX": 70
-                },
-                "derived": {
-                  "HP": 9,
-                  "MOV": 9,
-                  "Build": -1,
-                  "DB": "-1"
-                },
-                "skills": {
-                  "Fighting": 40,
-                  "Dodge": 42
-                },
-                "weapons": [
-                  {
-                    "weapon_id": "claws",
-                    "extends": "claws",
-                    "name": "Teeth and claws",
-                    "damage": "1D3",
-                    "uses_per_round": 1,
-                    "book": "The rats attack with teeth and claws."
-                  },
-                  {
-                    "weapon_id": "overwhelm",
-                    "name": "Overwhelm (fighting maneuver)",
-                    "skill": "Fighting",
-                    "damage": "2D6",
-                    "uses_per_round": 1,
-                    "impale_unstated": true,
-                    "book": "As a pack they swarm a single target, gaining one bonus die on the attack because of their numbers."
-                  }
-                ]
-              }
-            }
-          }
-        },
-        "agenda": "Defend the crawl space nest; swarm whoever breaks into it.",
-        "fear": "Fire and open flame in the confined crawl space.",
-        "secret": "They nest in Corbitt's hidden crawl space and their filth marks the wall carved 'Chapel of Contemplation'.",
-        "voice": "No speech — squealing, scrabbling claws, and the press of bodies in the dark.",
-        "relationship_to_investigators": "adversary"
-      },
-      "source_refs": [
-        {
-          "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-          "pdf_index": 457,
-          "grep_anchor": "RAT PACK"
-        }
-      ]
-    },
-    {
       "node_id": "npc-records-clerk",
       "node_kind": "npc",
       "name": "the Hall of Records clerk",
@@ -4750,7 +4717,19 @@
         "fear": "His own ritual dagger in an enemy's hand; prolonged daylight exposure of his lair; being reduced below the point where Flesh Ward and Dominate can buy rounds.",
         "secret": "He is an undead sorcerer animating his own corpse in the sealed basement; presentation data lives under monsters.json 'Walter Corbitt'.",
         "voice": "Rarely speaks. Acts through knocks, blood, flying furniture, floating knife, and finally claws.",
-        "relationship_to_investigators": "adversary"
+        "relationship_to_investigators": "adversary",
+        "weaknesses": [
+          {
+            "book": "If the investigators wrest his floating dagger from his control and stab him with it, he quickly turns to ashes and dust, regardless of any spells.",
+            "needs": [
+              "artifact-corbitt-ritual-dagger"
+            ],
+            "learned_by": "conclusion-own-dagger-ends-corbitt"
+          },
+          {
+            "book": "Sunlight pains him and is too bright for him to see comfortably; it might kill him, but whether it does is for the Keeper to determine."
+          }
+        ]
       },
       "source_refs": [
         {
@@ -12406,83 +12385,6 @@
       "truth_status": "authored-fact",
       "visibility": "keeper-only",
       "evidence_span_ids": [],
-      "asserted_by_ids": [],
-      "known_by_ids": [],
-      "validity": null,
-      "confidence": 1.0,
-      "reason": "Structured curated starter projection."
-    },
-    {
-      "claim_id": "claim-contains-28",
-      "subject_id": "module-the-haunting",
-      "predicate": "contains",
-      "object": {
-        "node_id": "npc-rat-pack"
-      },
-      "truth_status": "authored-fact",
-      "visibility": "keeper-only",
-      "evidence_span_ids": [
-        "span-page-446-anchor-1",
-        "span-page-446-anchor-2",
-        "span-page-446-anchor-3",
-        "span-page-446-anchor-4",
-        "span-page-446-anchor-5",
-        "span-page-446-anchor-6",
-        "span-page-446-anchor-7",
-        "span-page-446-anchor-8",
-        "span-page-446-anchor-9",
-        "span-page-447-anchor-1",
-        "span-page-447-anchor-2",
-        "span-page-448-anchor-1",
-        "span-page-448-anchor-2",
-        "span-page-448-anchor-3",
-        "span-page-448-anchor-4",
-        "span-page-448-anchor-5",
-        "span-page-448-anchor-6",
-        "span-page-448-anchor-7",
-        "span-page-448-anchor-8",
-        "span-page-448-anchor-9",
-        "span-page-449-anchor-1",
-        "span-page-449-anchor-2",
-        "span-page-449-anchor-3",
-        "span-page-449-anchor-4",
-        "span-page-449-anchor-5",
-        "span-page-449-anchor-6",
-        "span-page-449-anchor-7",
-        "span-page-450-anchor-1",
-        "span-page-450-anchor-10",
-        "span-page-450-anchor-11",
-        "span-page-450-anchor-2",
-        "span-page-450-anchor-3",
-        "span-page-450-anchor-4",
-        "span-page-450-anchor-5",
-        "span-page-450-anchor-6",
-        "span-page-450-anchor-7",
-        "span-page-450-anchor-8",
-        "span-page-450-anchor-9",
-        "span-page-451-anchor-1",
-        "span-page-451-anchor-2",
-        "span-page-451-anchor-3",
-        "span-page-451-anchor-4",
-        "span-page-451-anchor-5",
-        "span-page-451-anchor-6",
-        "span-page-453-anchor-1",
-        "span-page-453-anchor-2",
-        "span-page-453-anchor-3",
-        "span-page-454-anchor-1",
-        "span-page-454-anchor-2",
-        "span-page-454-anchor-3",
-        "span-page-454-anchor-4",
-        "span-page-455-anchor-1",
-        "span-page-455-anchor-2",
-        "span-page-455-anchor-3",
-        "span-page-455-anchor-4",
-        "span-page-455-anchor-5",
-        "span-page-456-anchor-1",
-        "span-page-456-anchor-2",
-        "span-page-459-anchor-1",
-        "span-page-460-anchor-1"
-      ],
       "asserted_by_ids": [],
       "known_by_ids": [],
       "validity": null,
@@ -22047,16 +21949,6 @@
       "from_node_id": "source-document-keeper-rulebook-40th-the-haunting",
       "to_node_id": "handout-the-haunting-handout-6-second-lawsuit-unrecorded",
       "claim_id": "claim-contains-277",
-      "properties": {
-        "context_traversal": false
-      }
-    },
-    {
-      "relation_id": "relation-contains-28",
-      "relation_kind": "contains",
-      "from_node_id": "module-the-haunting",
-      "to_node_id": "npc-rat-pack",
-      "claim_id": "claim-contains-28",
       "properties": {
         "context_traversal": false
       }

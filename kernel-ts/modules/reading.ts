@@ -803,7 +803,8 @@ export class Reading {
                 continue;
             const node = graph.find(name);
             // §22.4.7.1 (SL-56): a person this table established is not book material; nothing is read for them (§87).
-            if (graph.isTablePerson(node) || graph.isTableEntity(node))
+            // Nor is a creature it declared (§180.6).
+            if (graph.isTablePerson(node) || graph.isTableCreature(node) || graph.isTableEntity(node))
                 continue;
             // §177.6: a word in a person's seat that names someone the book names and the graph does not have yet is such a
             // person too, though no index row lists them: the cast has their names and the pages they stand on.
@@ -1805,12 +1806,19 @@ export class Reading {
                     // Contract 28.2: the reader is asked for what the installed packages contribute now, and
                     // the module keeps the union of every key it was ever asked for -- a key extracted under
                     // an earlier package must still be readable when that package is gone.
-                    const recorded = new Map(array(row(meta.vocabulary).actor_profile_keys).map(entry => [string(row(entry).key), row(entry)]));
-                    const added = array(contributed.actor_profile_keys).filter(entry => !recorded.has(string(entry.key)));
-                    if (added.length && job.purpose !== 'answer') {
+                    // §180.8–§180.9: the creature's words by the same union, and the weakness shape once any build bound it.
+                    const previous = row(meta.vocabulary), weaknesses = previous.actor_weaknesses ?? contributed.actor_weaknesses;
+                    const union = (spine: string): { recorded: Row[]; added: number } => {
+                        const recorded = new Map(array(previous[spine]).map(entry => [string(row(entry).key), row(entry)]));
+                        const added = array(contributed[spine]).filter(entry => !recorded.has(string(entry.key)));
                         for (const entry of added)
                             recorded.set(string(entry.key), entry);
-                        meta.vocabulary = { actor_profile_keys: [...recorded.values()] };
+                        return { recorded: [...recorded.values()], added: added.length };
+                    };
+                    const actor = union('actor_profile_keys'), creature = union('creature_profile_keys');
+                    if ((actor.added || creature.added || weaknesses && !previous.actor_weaknesses) && job.purpose !== 'answer') {
+                        meta.vocabulary = { actor_profile_keys: actor.recorded, ...(creature.recorded.length ? { creature_profile_keys: creature.recorded } : {}),
+                            ...(weaknesses ? { actor_weaknesses: weaknesses } : {}) };
                         await this.store.writeModule(meta);
                         if(preparation) {preparation.currentRevision=(await sourcePreparationSnapshot(this.store.context,preparation.request.authority.campaign,mid)).revision;await this.store.writeQueue(mid,queue);}
                     }

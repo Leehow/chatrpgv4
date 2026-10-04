@@ -13,11 +13,15 @@ import { objectTransferReceipt } from '../mods/object-transfer.js';
 import { selectObjectWeapon } from '../mods/usages.js';
 import { CombatSession, VALID_OUTCOMES } from './engine.js';
 import { UnknownWeaponError } from './catalog.js';
-import { combatOperationDestinations, combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
+import { combatOperationDestinations, combatOperationFor, investigatorCombatParticipant, moduleWeapons, npcCombatParticipant, participantGaps, resolveInvestigatorWeapon, sheetSkillValue, weaponOptions } from './profiles.js';
+import { requireParticipantBlock } from './stat-block.js';
 import { syncCombatants } from './resources.js';
 import { archetypeIds } from '../apply/archetype.js';
 const SELF_RESOLVING = ['aim', 'reload', 'maneuver', 'flee'];
 export { presentOpponents } from '../resolve/context.js';
+/** The present opponents a fight can be built against: a block that lacks nothing a participant reads (§180.6, CK-F2). */
+export const fightableOpponents = (context: SettleContext): string[] =>
+    sorted(presentOpponents(context).filter(([, , profile]) => truth(profile) && !participantGaps(profile!).length).map(([handle]) => handle));
 const turnState = (message: string, fix?: string, details?: Row): never => { throw new RpcError('turn_state', message, { ...(fix ? { fix } : {}), ...(details && Object.keys(details).length ? { details } : {}) }); };
 /**
  * Contract §143.18 (ticket 19 of docs/specs/npc-acts-first-tickets/, live table C4 turn 8): a refusal's `fix` is executed
@@ -119,8 +123,10 @@ export async function startCombat(context: SettleContext, args: Row): Promise<[
     if (profile === null)
         throw new RpcError('needs', `${context.graph.displayName(node)} has no stat block in the module`, {
             fix: 'pin a stat block first: apply npc with archetype (one of details.needs.options, chosen from who this person is — ordinary_adult, capable_adult or dangerous_actor), then resolve again; when the module has a book that prints their numbers, read them with lookup kind=source instead. Or resolve it as an uncontested attempt against someone who cannot fight back. Nothing without a receipt has happened: do not narrate a blow as landed',
-            details: { needs: { field: 'archetype', options: await archetypeIds(context.kernel), fightable: sorted([...present].filter(([, [, profile]]) => truth(profile)).map(([handle]) => handle)) } },
+            details: { needs: { field: 'archetype', options: await archetypeIds(context.kernel), fightable: fightableOpponents(context) } },
         });
+    // §180.6 (CK-F2): a block that lacks what the participant is built from is refused with its completion.
+    await requireParticipantBlock(context.kernel, context.graph, node, target, profile, `a fight against ${context.graph.displayName(node)}`);
     const sheet = context.actor, weaponId = args.weapon_id, weapon = truth(weaponId) ? await resolveInvestigatorWeapon(context.tables, sheet, string(weaponId)) : null;
     if (truth(weaponId) && weapon === null)
         throw new RpcError('needs', `${repr(weaponId)} is not a weapon the investigator carries`, {

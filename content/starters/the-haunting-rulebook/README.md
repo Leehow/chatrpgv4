@@ -12,7 +12,7 @@ itself supports, and every node in it cites the page it came from.
 | --- | --- | --- |
 | scenes / clues | 12 / 39 | 13 / 19 |
 | endings / rules | 1 / 0 | 3 / 12 |
-| playability | 2 findings (`actor_in_no_scene`) | none |
+| playability | 1 finding (`actor_in_no_scene`) | none |
 | NPC dossier | agenda, fear, secret, voice | those plus `believes` / `hides` / `asserts` / ties, each cited to a span |
 | pregens | two | none — build an investigator in setup |
 

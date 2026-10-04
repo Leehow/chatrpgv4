@@ -21,7 +21,9 @@ def test_the_haunting_is_one_walkable_piece_with_its_own_gaps_reported():
     report = check(starter_graph())
     assert report["status"] == "findings"
     assert set(report["finding_counts"]) == {"actor_in_no_scene", "node_without_page"}
-    assert report["finding_counts"]["actor_in_no_scene"] == 2
+    # Michael Thomas, who is in no scene; the second was the rats' npc twin, which §180.12 retired (the creature is in the
+    # basement).
+    assert {f["subject"] for f in report["findings"] if f["code"] == "actor_in_no_scene"} == {"npc-michael-thomas"}
     measures = report["measures"]
     assert measures["scenes"] == 12 and measures["scene_components"] == 1 and measures["largest_component"] == 12
     assert measures["endings"] == 1, "is_final on the confrontation scene is the declared ending"

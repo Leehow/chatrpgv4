@@ -8,6 +8,7 @@ import { CLAIM_KEYS, NODE_KEYS, SHARD_KEYS, VISUAL_CONTRACT_ID, validSemanticId,
 import { obligationRefusals, type Refusal } from './obligation-shape.js';
 import { obligationReviewPaths, statesObligation } from './obligation-review.js';
 import { carriesMechanics, mechanicsRefusals } from './mechanics-shape.js';
+import { beingPairs, endpointRefusals, weaknessRefusals, weaknessesBound, type BeingRefusal } from './being-shape.js';
 import { shapeReviewPaths, statesMechanics } from './shape-review.js';
 import {validateSourceNeeds,sourceNeedKey} from './source-needs.js';
 import {moduleLogicReview,moduleReviewRoot,advisoryModuleFinding,blockingModuleFindings} from './module-review-policy.js';
@@ -398,6 +399,7 @@ export function checkDraft(draft: any, packet: Row, contract: ModuleContract, se
                 required.add(path);
     }
     checkMechanics(filled, packet, contract);
+    checkBeings(filled, packet, contract);
     if(!moduleLogicReview(packet))for (const [i, node] of nodes.entries())
         for (const path of shapeReviewPaths(node, `/nodes/${i}`))
             required.add(path);
@@ -549,6 +551,59 @@ function checkMechanics(filled: Row, packet: Row, contract: ModuleContract): voi
     const located = locate(refusals, drafted);
     refuseMechanics(located, located.some(refusal => refusal.rule === 'shape_unknown_skill')
         ? { ruleset: { skills: [...contract.rules.skills], characteristics: [...contract.rules.characteristics], specialization_groups: Object.keys(contract.rules.groups) } } : {});
+}
+/** Contract §180.7: the literal repair for two nodes of one being. */
+const ONE_BEING_FIX = 'one being is one node (contract 180.7): keep the single node whose kind contract 180.2 decides from how the book treats the being in this encounter -- '
+    + 'npc when the book lets the investigators deal with it as someone (talk, bargain, persuade, argue it down, call its name), creature when the book presents it only as a body -- '
+    + 'put both nodes\' sourced facts, numbers and claims on the node you keep, and delete the other node and its claims from the draft; '
+    + 'when the other node is already published (details.pairs[].published), keep the published node and add your facts to it instead of drafting a second one';
+/**
+ * Contract §180.7, §180.9: one being, one node; the weakness entry when the build bound it; the listed relations'
+ * endpoints. Each runs over the graph this draft would publish into, and, as for a mechanical shape, only what the
+ * draft introduces refuses it: a published pair or entry is a compile snapshot the draft cannot remove (§180.7).
+ */
+function checkBeings(filled: Row, packet: Row, contract: ModuleContract): void {
+    const view = overlayGraph(filled, packet, contract, true), known = overlayGraph(null, packet, contract, true);
+    const drafted = new Map<string, number>((filled.nodes as Row[]).map((node, i) => [string(node.node_id), i]));
+    const published = new Set(beingPairs(known).map(pair => canonicalJson([pair.npc, pair.creature])));
+    const pairs = beingPairs(view).filter(pair => !published.has(canonicalJson([pair.npc, pair.creature])));
+    if (pairs.length) {
+        const located = pairs.map(pair => {
+            const at = [pair.creature, pair.npc].map(id => drafted.get(id)).find(index => index !== undefined)!;
+            return { ...pair, path: `/nodes/${at}`, ...(drafted.has(pair.npc) && drafted.has(pair.creature) ? {} : { published: drafted.has(pair.npc) ? pair.creature : pair.npc }) };
+        });
+        const first = located[0];
+        throw new RpcError('invalid_params', `one being, two nodes: ${first.npc} and ${first.creature} share the name ${repr(first.shared)}`, {
+            fix: ONE_BEING_FIX,
+            details: { reason: 'one_being_two_nodes', rule: 'one_being_two_nodes', path: first.path, pairs: located },
+        });
+    }
+    const law = contract.graph, bound = weaknessesBound(packet);
+    if (bound && !object(law.actor_weaknesses))
+        throw new Error('the task binds actor.weaknesses.v1 but the graph contract carries no actor_weaknesses law to check it against');
+    const earned = (graph: ModuleGraph): BeingRefusal[] => [
+        ...(bound ? weaknessRefusals(graph, row(law.actor_weaknesses)) : []),
+        ...(object(law.relation_endpoints) ? endpointRefusals(graph, row(law.relation_endpoints)) : [])];
+    const identity = (refusal: BeingRefusal): string => canonicalJson([string(refusal.node), string(refusal.claim ?? ''), refusal.rule, refusal.claim ? '' : refusal.path]);
+    const before = new Set(earned(known).map(identity)), refusals = earned(view).filter(refusal => !before.has(identity(refusal)));
+    if (!refusals.length) return;
+    const claimed = new Map<string, number>((filled.claims as Row[]).map((claim, i) => [string(claim.claim_id), i]));
+    const located = [...locate(refusals.filter(refusal => !refusal.claim), drafted),
+        ...refusals.filter(refusal => refusal.claim).map(refusal => claimed.has(refusal.claim!) ? { ...refusal, path: `/claims/${claimed.get(refusal.claim!)}` } : { ...refusal })];
+    const first = located[0], rules = new Set(located.map(refusal => refusal.rule));
+    throw new RpcError('invalid_params', `${first.claim ? `claim ${first.claim}` : `node ${first.node}`}: ${first.path}: ${first.message}`, {
+        fix: [
+            ...(rules.has('relation_endpoints') ? ['connect each refused claim only between the node kinds task.vocabulary.relation_endpoints lists for its predicate (contract 180.9): '
+                + 'misleads runs from the clue to the npc or creature its false belief is about; a false lead against a weakness the book also states truly is contradicts from that clue to the weakness\'s conclusion; '
+                + 'if the book supports neither, delete the claim'] : []),
+            ...(located.some(refusal => !refusal.claim) ? ['correct each weaknesses entry against the page it cites (contract 180.9): '
+                + 'every entry is an object with book, one English line in the book\'s terms saying what harms, repels, binds, banishes or ends the being, with its conditions and degree (a stat-line resistance too); '
+                + 'needs lists node_ids of the means the book names, each a node this draft or the published graph defines, of a kind task.vocabulary.actor_weaknesses.node_refs.needs.kinds lists -- draft the means as its own node when it has none; '
+                + 'learned_by is the node_id of the conclusion the investigators reach that states the weakness, supported by the clues that teach it, and is left out when the book gives no route; '
+                + 'never write an entry, a means or a route the book does not give'] : []),
+        ].join('; also '),
+        details: { reason: 'reading_failed', path: first.path, rule: first.rule, refusals: located },
+    });
 }
 /** Contract §22.3.2: what a review judged, per draft pointer: the paths it supported and the classification fields it contested. */
 export interface ReviewJudgement { supported: Set<string>; contested: Row[] }

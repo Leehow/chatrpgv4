@@ -1,4 +1,4 @@
-import {expected as outcome, withoutPostFreezeIdentity, withoutPostFreezeNodes, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
+import {expected as outcome, withFreezeTimeBeings, withoutPostFreezeIdentity, withoutPostFreezeNodes, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -38,8 +38,10 @@ const api=await import(pathToFileURL(join(temporary,'api.mjs')).href);
 const clone=value=>api.parsePythonJson(api.pythonJsonDumps(value));
 const json=async path=>api.parsePythonJson(await readFile(path,'utf8'));
 const graphPath=join(temporary,'module-graph.json');
-// The freeze-time graph: nodes authored after the reference was captured are not in its answers (POST_FREEZE_NODES).
-const raw=withoutPostFreezeNodes(await json(join(CONTENT,'starters/the-haunting/module-graph.json')));
+// The freeze-time graph: nodes authored after the reference was captured are not in its answers (POST_FREEZE_NODES), and
+// the beings are the ones it answered (§180.12 retired the rat swarm's npc twin; withFreezeTimeBeings).
+const raw=withFreezeTimeBeings(withoutPostFreezeNodes(await json(join(CONTENT,'starters/the-haunting/module-graph.json'))),
+  await json(join(import.meta.dirname,'fixtures/haunting-freeze-time-beings.json')));
 // Contract §138.9 (BR-05): the shipped roads now carry the minutes the build filled. The captures answered the graph
 // before that data change, so the roads are read here as they were then; the minutes and their projection into
 // `sceneExits` are asserted where they belong, in tests/kernel/test_route_travel.py, and the captures stay as printed.
@@ -477,7 +479,19 @@ test('capsule budget cuts match Python for nested lists, Unicode and module rost
   ];
   await rows(t,cases,oracle('budget',{cases}),c=>{const section=clone(c.section);return {section,cut:api.fitBudget(section,c.budget,c.drop)};});
   const budgets=[2048,900,400,120],expected=oracle('module_budget',{budgets});
-  for(const [index,budget] of budgets.entries())await t.test(`module budget ${budget}`,()=>same(api.fittedModuleSection(graph,budget),expected[index],`module ${budget}`));
+  // §180.4: `creatures` is the TS kernel's own roster, which Python never had. It rides only on what the parity fit leaves,
+  // so every other field must still match Python exactly; the roster itself is asserted against the fixture graph below.
+  for(const [index,budget] of budgets.entries())await t.test(`module budget ${budget}`,()=>{
+    const [section,cut]=api.fittedModuleSection(graph,budget),{creatures:_creatures,...rest}=section;
+    same([rest,cut],expected[index],`module ${budget}`);
+  });
+  await t.test('the creatures roster takes only the budget the rest leaves',()=>{
+    const creatures=graph.kind('creature').map(node=>graph.displayName(node));
+    assert.ok(creatures.length,'the fixture graph has a creature');
+    assert.deepEqual(api.fittedModuleSection(graph,1e6)[0].creatures?.map(entry=>entry.name),creatures,'with room left, every creature is listed');
+    assert.equal(Object.hasOwn(api.fittedModuleSection(graph,2048)[0],'creatures'),false,'this book fills 2048 before the creatures: they are cut first');
+    assert.equal(Object.hasOwn(api.fittedModuleSection(graph,120)[0],'creatures'),false,'nothing left at 120: the roster is absent');
+  });
 });
 
 test('saved session views match Python without constructing engine writers',async t=>{

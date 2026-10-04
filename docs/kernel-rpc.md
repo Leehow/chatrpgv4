@@ -28360,10 +28360,14 @@ anything is rolled or filed:
 - a number missing: `needs`, message `<name>'s stat block has no <paths>: a chase of <name> reads them, and none is
   assumed`, `details: {reason: "quarry_numbers_missing", npc, missing: [<paths in that order>], needs: {field:
   <the first>, options: []}}`, fix: `lookup kind=source` when the module has a book, otherwise narrate the pursuit
-  without dice (a book-printed stat block cannot be replaced by an archetype, §34.10).
+  without dice (a book-printed stat block cannot be replaced by an archetype, §34.10). *Amended by §180.6 CK-F2: `needs` is
+  now the completion (`archetype` for a person, `creature` for a creature, with their options) and the fix names that call;
+  `reason`, message and `missing` are unchanged.*
 
 A person pursuing still gets the reader's MOV 8 when their stat block omits it; that is the existing pursuer shape and
-this ticket does not change it (reported to the lead, not fixed here).
+this ticket does not change it (reported to the lead, not fixed here). *Amended by §180.6 (CK-F2 review follow-up, 2026-10-04):
+a pursuer who runs on foot now needs their own MOV, completed as a fight's missing numbers are. A driver's speed is the
+vehicle's, and a passenger follows the driver; neither needs a body MOV.*
 
 **Intents.** The rule graph's `chase:start` carries one intent condition, `flee`, while every other chase decision
 answers `flee`, `move` and `combat`, the three `restrict` admits while a chase runs (§11.5, `CHASE_INTENTS`). The
@@ -33583,6 +33587,377 @@ A sandbox replay of `game-8e41c325` turns 3–6, from the `turn 2:` commit, with
 - **Blinding.** A and B1–B2 were scored blind; B3–B4, C and D were not.
 - **Evidence lost.** The C homes' sandbox campaign state was deleted while D's homes were being built: `make_home.sh` began with `rm -rf`, and now refuses an existing home. C's delivered prose and driver runs are kept.
 
+## 180. Persons and creatures; the Hostile Creatures package (owner rulings 2026-10-04: animals and monsters are separated from npcs "以免各类npc优化误用到怪物身上"; "creature加上这个习性吧，毕竟很多怪物应该都有弱点，玩家有任务可以获取弱点"; "按照你的推荐来做吧，做一个敌对生物优化mod"; the Keeper's walk-on animal joins the slice; amends §136.12, §17.2, §28.3, §28.7, §87.7, §143.3)
+
+**Status.**
+- **Paused on 2026-10-04.** The owner said: "你这边尽快收尾，我们的mod系统要进行重构，到时候再根据重构后的系统来实现". By then the base was landed on `claude/creature-kind-20261004`:
+  - 180.2–180.5 (CK-A);
+  - 180.7, 180.9's checker and 180.13 (CK-C);
+  - the beasts data of 180.6 (CK-B).
+- **Resumed on 2026-10-04,** after §183 merged into 0.9.6a@7b83acc22.
+  - The branch was synced to that head.
+  - 180.10 and 180.11 were rewritten for §183.
+  - 180.8 and 180.9 stand as written, since §28's vocabulary binding is unchanged.
+  - CK-D, CK-E, CK-F and CK-G proceed.
+- **Merge boundary:** the branch merges into the mainline only on the owner's word.
+
+**Evidence.**
+- **The twin.** The haunting carries the rat swarm twice: `npc-rat-pack` (stat block, agenda, fear, secret, voice) and `creature-rat-pack` (`present-in scene-basement-rites`, no stat block). `ModuleGraph.actor` takes the npc first (§136.12), so the swarm is found as a person.
+- **The person layer reached it.** Its epithet, `untold`/`say_name`, voice job, social and Psychology offers, coercion act and personality job (`npc.job`, which `npc.submit` then refuses for a non-npc) all fire. Some of these select `node_kind === "npc"` and some ride `npcsPresent`, which is `actor`.
+- **The book does not say what the starter says.** The book states only the Overwhelm attack and that the rest flee once one rat dies (Keeper Rulebook, PDF p. 457–458). The starter's `fear: "Fire and open flame"`, `agenda` and `secret` are not in the book, though the record says `origin: "source"`.
+- **The owner's library.** `docs/specs/creature-kind-survey.md` reads the whole library: eleven translated modules, Masks, Horror on the Orient Express, A Time to Harvest and two rulebook scenarios, about 230 beings in all.
+  - Most stated weaknesses are stat-line resistances with no in-fiction route.
+  - An authored route almost always pairs knowledge with a means: an object, spell, ritual, place or controller. One means often serves many beings.
+  - The books author false leads on purpose.
+  - Books classify a being by the encounter, not the species.
+- **What reaches the table today.**
+  - No module built from a PDF has a single `quest` node.
+  - The Masks reader put its creatures' weaknesses into `keeper_note` prose.
+  - No clue or conclusion points at any creature.
+
+### 180.1 Who carries what
+
+The split follows §179.1. **What a being is, and which machinery may treat it as a person, is the base's.** It is a correctness rule, and disabling a package must not give a rat an epithet again. **How a hostile creature is played is the Hostile Creatures package's (`mods/hostile-creatures`).** That covers its habits and weaknesses as words the reader is asked for, the chain that carries a weakness to the table, and the Keeper's instructions.
+
+| base (kernel, always on) | package (`hostile-creatures` 1.0.0, default enabled) |
+| --- | --- |
+| the boundary (180.2), `isPerson`/`isActor` and every consumer (180.3) | `habits`, a creature word (180.8) |
+| the creature row and the brief's `creatures` roster (180.4) | `weaknesses`, an actor shape with its chain (180.9) |
+| `apply npc` on a creature, NPC acts, offers (180.5) | the table door for both words (180.8, 180.9) |
+| table creatures and the beasts catalog (180.6); the persons-only and creature gates of §183 (180.10) | instructions sectioned on those gates (180.10, 180.11) |
+| one being, one node (180.7); the starters' kinds (180.12) | Corbitt's weakness in the haunting starter (180.12) |
+
+### 180.2 The boundary
+
+`npc` is a being the Keeper plays as a person. The book gives the investigators a way to deal with it as someone: talk, bargain, persuade, argue it down, call its name. It has a name to learn and motives of its own. It is a person even when it is a monster: Fenalik, the Jigsaw Prince, Fynche's ghost, Corbitt, a captive mi-go that answers questions.
+
+`creature` is a being the book presents only as a body. That covers animals, swarms, mindless monsters, and minds that never deal with anyone: a lloigor, a Tehihan hunting party.
+
+The rule is applied per node and per encounter, never per species. De Mendoza is an npc and the feral kharisiri are a creature. A life stage the book gives separate numbers is its own node. A parasite with its own body and numbers is a creature node beside its host. A being with a human and a monstrous form is one npc.
+
+The reader decides, from how the book treats the being (180.13). The kernel reads `node_kind` and nothing else: no species table, no keyword (Agents.md, semantic questions). A person who does not speak stays an npc (§40, `does_not_speak`).
+
+### 180.3 `isPerson` and `isActor`
+
+`ModuleGraph.isPerson(node)` is `node_kind === "npc"`, book or table. `isActor` is unchanged: an npc, or a creature that states a stat block. `npcsPresent` still lists the actors present, since the Keeper must know the rats are in the room. A person feature filters it by `isPerson`. The table is the authority; a consumer not listed keeps its selection.
+
+| consumer | selects |
+| --- | --- |
+| `npcsPresent`, `sceneNpcIds` presence seeding, combat and chase opponents, `npcProfileOf`, standing defence, disposition and action, resolve target and acting NPC | actor (unchanged) |
+| `presentSection`: a person gets `npcEntry`, a creature the creature row (180.4) | split |
+| `untoldBlock`, `untoldRoster`, `say_name`, epithets (`epithets.job`, person words) | person |
+| voice (`voice.job`), journal, memory knowers and entities, the stance ledger's social deltas | person |
+| first sight, the first impression (§26 checks with trigger `contact`, and §178's `presence` once landed) | person |
+| `social:adjudicate-difficulty`, `psychology:observe-concealed` offers | person |
+| `core-check:opposed-check` offers | actor (unchanged) |
+| `npc.job` enumeration (it now matches `npc.submit`) | person |
+| act ways `coercion`, `walk_on`; the stakes die's `_draws`/`_produces` | person |
+| the act author's material: personality for a person, `habits` (180.8) for a creature | split |
+| the expression-card roster (`extensions/table`) | person; the host reads `kind` on the present row |
+| the speech-attribution lane's present roster (`state.roster`, `extensions/kernel/speech-roster.ts`; §128.3) | person; the host reads `kind`, so a creature row, a stub included, is not a speaker (CK-D) |
+| say-span speaker resolution | person; a span naming a creature stays a label, as one naming nobody does |
+| `npc.perspectives` without a name (the present roster of perspectives) | person (CK-D); with a name it was already the person junction |
+| `table.look focus=npc name=<being>` | split (CK-D): a person by `npcNode` gets the person card; else any creature, stat block or not, gets the creature card (`creatureView`), with its words and its whole chain |
+| cash counterparty, promise payer, obligation `who` and `people` guards | person (unchanged) |
+| Sanity-on-sight once-only dedupe, combat label, First Aid patient | actor (was npc-only) |
+
+`resolve/projection.ts`'s `npc` tag on a roll receipt selects the **actor**. It names the body a roll was made against, and the resolve target it falls back from (`npcTarget`, the combat defence's `outcome.target`) is already an actor. The consumers of the tag that are a person's (the journal, the stance ledger's social deltas) select persons themselves. `mods/effects.ts`'s resource-effect target (`effectTarget`, an object's use and an NPC's cast) selects the **actor**: the effect lands on hit points, magic points and conditions, which a creature with a stat block has; a name that is neither keeps the person refusal and its candidates.
+
+The stance ledger's fold (`foldNpcTurn`) keys an actor for what is a body's: the Keeper's stance, a fight, death, a pinned skill and an intention. A creature row's `toward_party` and `stanceNow` read these. Its social deltas, disclosures, exchanges, speech and meetings stay a person's.
+
+### 180.4 The creature row and the brief's roster
+
+A creature in `present[]`:
+
+```json
+{"name": "Rat Pack", "kind": "creature", "what": "<summary, at most 160 characters>",
+ "state": "...", "habits": "...", "weaknesses": [...], "false_leads": [...],
+ "keeper_note": "...", "toward_party": {...}}
+```
+
+- **Fields.** `kind` is always present; every other field appears only when there is a value. `state` and `toward_party` are read exactly as for a person. `habits`, `weaknesses` and `false_leads` come from 180.8–180.9.
+- **What it never carries.** A creature row carries no `called`, `untold`, `now`, `personality`, `knows`, `believes`, `would_lie_about`, `ties`, `history`, `relationships`, `recent_speech`, `commitments`, `reunion` or `from_other_lines`. A person row carries no `kind`: its absence means a person, so no existing person row changes shape, and the host tells the two apart by `kind === "creature"`.
+- **Order.** Creature rows follow person rows and are cut first under the budget. `kind` rides outside the budget, as §176.8's name path does, and a cut row's stub keeps it.
+- **The brief's roster.** `fittedModuleSection` gains `creatures`, the same roster form as `people`, over `node_kind === "creature"`. It rides only on the budget the existing fit leaves, so every other field is cut exactly as before (the Python parity test still holds for them), and it is absent when the book has no creature or none fits. A book that fills the brief's 2048 bytes therefore shows no creature roster; the creature rows of `present[]` are what reach the Keeper at the encounter. (The haunting filled it until 180.12 retired its npc twin; its brief at 2048 now lists the rats.)
+
+### 180.5 `apply npc` on a creature; acts; offers
+
+- **Accepted on a creature:** `to`, `stance`, `dead`, `conditions`, `defense`, `action`, `disposition`, `intends`/`outcome`, `spend_turn`, `skill`, and `creature` (180.6).
+- **Refused on a creature:** `mood`, `reunion`, `archetype` (person tiers), `apply person`, and `walk_on` without `creature`. The refusal is `invalid_params` with `details.reason: "not_a_person"`, and its `fix` names the body-side way. For example, how it fights is `disposition`; how it behaves belongs in prose; a stat block is `creature: "<catalog creature>"`.
+- **Act ways (amends §143.3).** A creature's options are `attack`, `flee`, `first_blow`, `pursue`, `check`, `clock`, `stance`, `leave` and `intention_only`. `coercion` and `walk_on` are never offered to it. The host strips `_draws`/`_produces` from a creature's act.
+- **The act's reads.** `npc.situation`, `npc.act.options` and `npc.stakes` take a creature that states a stat block by name (`actorNode`: a person first, then that creature). Their `npc` carries `kind` (`npc` or `creature`). The host reads it and takes the stakes die's surprise away from a creature's situation, so nothing is brought out. A creature's `who` is its `what` and `keeper_note`.
+
+### 180.6 Table creatures and the beasts catalog (amends §87.7)
+
+The Keeper's own animal, such as a yard dog, a mule, a swarm in the cellar, is declared as a creature:
+
+```
+apply {"kind": "npc", "name": "the yard dog", "walk_on": true, "creature": "Dog", "why": "..."}
+```
+
+**Declaring one.**
+- `creature` is the name of a rules-catalog creature (`table.lookup kind=catalog kinds=["creature"]`), or `true` for a creature with no stat block yet. Which entry fits is the Keeper's judgement; the kernel never maps a word to an entry.
+- An unknown name is refused, with `details.options` listing the catalog's creature names.
+- The creature is recorded in `world.table_creatures[]` as `{name, turn, why, established_at, catalog?}`. It never enters `world.table_people`, so no person consumer meets it.
+- The graph gains it through `ModuleGraph.addTableCreature`: `node_kind: "creature"`, a kernel-minted id `creature-table-<digest>`, and `campaign_origin.kind: "table"`. It is reinstalled on load exactly as table persons are.
+
+**Its stat block.**
+- The kernel builds it from the catalog entry and pins it in `world.npc_profiles[handle]` (§147.8) with `authority: "table_pinned"` and `catalog: <entry>`.
+- A characteristic the entry gives as a roll expression (the beasts' `2D6×5`) is rolled with the turn's seeded dice. Otherwise the entry's average is used.
+- Derived values come from the same tables as §34.10 archetypes, except that a value the entry states (HP, armor, Move) is kept as stated.
+- The entry's attacks become weapons through `engineWeapon`. Its `san_loss` becomes `sanity_loss`.
+- With the block pinned, the creature is an actor and can fight.
+
+**Pinning later.** `apply npc {"name": <a creature without a stat block>, "creature": "<entry>"}` pins one later. This works for a table creature and for a book creature the book gave no numbers. A creature that has a block is refused (`details.reason: "stat_block_exists"`).
+
+**The beasts catalog.**
+- `content/rulesets/coc7/rules-json/beasts.json` transcribes the Keeper Rulebook's Beasts section (Chapter 14, PDF p. 347 onward): bear, crocodile, dog, horse, lion, rat pack, shark, snake, wolf, and every other beast the section prints.
+- Each entry carries its averages and roll expressions, HP, damage bonus, build, Move, attacks, skills, armor, habitat and `source_page`. The catalog's `creature` family reads both `monsters.json` and `beasts.json`.
+- Nothing is filled from habit. A value the page does not print is `_unstated`.
+
+**The kernel's decisions on 180.6** (CK-E, `bf4678b88`, `71298389e`; integration 2026-10-04):
+- **Rolled and printed values.** A rolled characteristic varies only that characteristic. HP, damage bonus, build, Move and armor stay as printed, as the entry states them, even where the rolled STR+SIZ would read differently on the table. The Bear's printed values disagree with the table in the book itself.
+- **MP and SAN.** MP comes from POW/5 by the derived-attributes table. No SAN is made for a creature.
+- **Monster entries.** A monster entry's damage string is read by the dice grammar with the `DB` mark. A weapon that cannot be read keeps only `damage_printed`. A missing skill percentage takes the engine's default. The catalog's non-name spell values are not carried.
+- **Refusals.**
+  - `creature` on a person is refused with `details.reason: "not_a_creature"`.
+  - `walk_on` without `creature` on an existing creature is refused with `not_a_person`.
+- **Records.**
+  - `table_creatures[].catalog` records the entry named at declaration, a no-block entry included; a later pin leaves it.
+  - On reload, `world.npc_profiles` entries that carry `catalog` are re-pinned onto the creature of that name. Only `apply npc creature` writes such an entry.
+- **The dossier effect.** The `apply` tool now carries the dossier effect, which §28.7 specified but no tool offered. Natural NPC's `speaks` and this package's words become writable by the Keeper for the first time.
+- **Worldline merges** (amends §87.1). A merge unions `table_creatures` by name, the way it unions `table_people`, and the first line to declare a name keeps its record. A creature's catalog block (`npc_profiles[name]` with `catalog`) comes from the line that declared it unless the merged line already holds one. A person's pins are not carried by this rule.
+
+**CK-F2: a stat block stated in part** (2026-10-04, `claude/creature-kind-20261004-partial`; closes 180.17's open point "the familiar is not fightable"; amends §34.10, §66 and §143.12's `quarry_numbers_missing`):
+- **Complete and partial.** A block is *complete* when it states `characteristics.STR`, `SIZ`, `DEX`, `CON` (what `npcCombatParticipant` builds every participant from, `participantGaps`) and `derived.MOV` (what a quarry reads, `statBlockGaps`); otherwise it is *partial*. Nothing is assumed for a missing one.
+- **The refusal.** Every engine entry that builds a participant from a block refuses a partial one before anything is rolled or filed: a fight (the attack binding and `startCombat`), a chase (the quarry, the pursuers, the roster) and a resource effect (`effectTarget`). So does settling a body (§66's patient: `apply damage` on an NPC, First Aid and Medicine on one) when the block states no `derived.HP` and lacks the CON or SIZ it is read from (`hitPointGaps`); the check catalog offers no such patient. No `NpcProfileError` reaches the RPC boundary from these paths. The shape follows the no-stat-block refusal, `needs`:
+  - message `<name>'s stat block has no <paths>: <use> reads them, and none is assumed` (`<use>`: "a fight against <name>", "a chase of <name>", "a chase by <name>", "a resource effect on <name>", "settling <name>'s body");
+  - `details: {reason: "stat_block_incomplete", npc: <handle>, name, kind: "npc" | "creature", missing: [<paths>], needs: {field, options}, options}`. For a creature `field` is `creature` and `options` the catalog's creature names (as CK-E's unknown-entry refusal gives them); for a person `field` is `archetype` and `options` the archetype ids, so the host's band recovery (§138.6) answers it as it answers the no-stat-block refusal. `details.options` repeats `needs.options`;
+  - `fix`: `complete the block first with apply npc {name: "<name>", creature: <the rules-catalog creature it is, one of details.needs.options>, why: <one sentence>}` (for a person `archetype: <one of details.needs.options, chosen from who this person is>`), saying the source fills only `details.missing` and every stated number is kept, with the book read (`lookup kind=source`) as the alternative, then "resolve again".
+  - The quarry keeps its own `reason: "quarry_numbers_missing"`, message and paths (§143.12), and now carries the same `needs`, `options` and `fix`: its old fix (read the book, else narrate without dice) was a dead end for a block no book prints.
+  - The no-stat-block refusal's `details.needs.fightable` lists only present actors whose block is complete.
+- **The completion.** `apply npc {name, creature: "<entry>"}` on a creature whose own block is partial completes it, and `apply npc {name, archetype}` on a person whose printed block is partial does the same (§34.10's "a book-printed block cannot be replaced" now holds for a complete block only). The source builds its block exactly as for a fresh pin: every characteristic and skill range is rolled with the turn's seeded dice, so the dice run as they would. The characteristics the authored block states then stand in for the rolled ones *before* anything is derived from them, so HP, MP, MOV, damage bonus and build that the source does not print are derived from the authored numbers. Then every value the authored block states wins: characteristics, derived values and skills key by key, weapons by `weapon_id` (else name; the authored ones first, in the engine's spelling through `engineWeapon`), and any other key whole. An authored `<key>_unstated` gives way to a value the source supplies.
+- **`stat_block_exists`** stays for a creature whose own block is complete, and for any creature the table already pinned, a completed one included: the completion is made once. An archetype on a person whose printed block is complete keeps its refusal.
+- **Pinning and provenance.** The completed block is pinned like any table pin: `world.npc_profiles[<handle>]`, `authority: "table_pinned"`, `why`, `pinned_turn`, and `catalog: <entry>` (creature) or `archetype: <id>` (person). It records `completed_from: <entry or id>` and `filled: [<paths the source supplied>]` (`characteristics.STR`, `derived.MOV`, `skills.Fighting`, `weapons.<id>`; also a whole key such as `armor` or `sanity_loss`); every other value in it is the authored block's. A characteristic the authored block states is not listed in `rolled`. The `npc` receipt's `profile` carries `completed_from` and `filled`. Because a pinned block wins over the authored one (§147.8), every reader -- combat, chase, the patient, `look` -- reads the completed block.
+- **Data.** Of the shipped starters only Mystery House's chapel familiar is partial (skills only); the haunting's and Mystery House's other blocks are complete.
+- **Limits.** A catalog entry that prints no STR, SIZ or DEX (Azathoth, Yog-Sothoth) completes a block that stays partial, and a fight against it is still refused; its pin is made once, as before.
+
+**CK-F2 review follow-up** (2026-10-04, from the Jev owner's read-only review of the first-blow and profile junction). Both items close CK-F2's own scope.
+
+1. **A first attack on an incomplete block is prepared, not lost.**
+   - **The finding.** `firstBlow` (`kernel-ts/runtime/resolve-operation.ts`) listed in `preparation.targets` only the actors with no profile at all. An actor with a partial profile was offered as fightable, so the selected first attack went straight to combat dispatch and failed there with `stat_block_incomplete`. `check_preparation` was never raised, `preparingAttacks` never held the attack, and it was not replayed.
+   - **The rule.** `preparation.targets` lists every present actor the fight cannot read: one with no profile, or one whose profile lacks any of STR, SIZ, DEX or CON. A fight does not read MOV, so a block complete in those four is never listed and never refused for MOV.
+   - **What the row says.** The row says, for each listed target, which completion it takes, as `preparation.completions: {<target's display name>: "creature" | "archetype"}`: a creature takes `creature` (a rules-catalog creature, from `lookup kind=catalog kinds=["creature"]`), a person takes `archetype`. The host's preparation need (`runtime/jev/attack-preparation.ts`) names that call. It never names a person tier for a creature, and never supplies a number.
+   - **What then happens.** The existing chain then runs unchanged: `check_preparation`, then retention in `preparingAttacks` with the chosen target, method and weapon, then the refreshed row, then the attack replayed through `resolve`.
+2. **A foot pursuer's MOV** (amends §143.12's pursuer-default note).
+   - **Before.** A chase's pursuers and roster checked only the fight's characteristics (`requireParticipantBlock`), and `npcCombatParticipant` then read a missing MOV as 8.
+   - **Now.** Every chase path that reads an actor's own MOV — a pursuer or a quarry on foot — refuses a block without MOV with `needs`, whose `field` is the completion (`creature` or `archetype`, with its options) and whose fix is that call. The quarry's refusal (`quarry_numbers_missing`) keeps its shape.
+   - **What stays.** A roster driver's speed is the vehicle's MOV from the rules, and a passenger follows the driver; neither is asked for a body MOV. Investigators, combat, the vehicle sources and the frozen oracle are unchanged.
+   - **Implementation** (`d51d23156`). The check is `requireRunnerBlock` (`kernel-ts/combat/stat-block.ts`): the four characteristics plus `derived.MOV`. It applies to an investigator's pursuers and to a roster member whose role is `foot`; a roster's driver and passenger keep `requireParticipantBlock`.
+   - **Out of this follow-up, recorded:**
+     - The chase roster's own selection reads `profile_available` (any profile counts), so an incomplete runner is refused at the start with its completion rather than prepared beforehand.
+     - An NPC's own act options still offer `first_blow` to an NPC whose block is incomplete; it is refused at `startCombat` with its completion.
+     - A roster with a passenger fails at start for a reason older than this slice (the passenger's `movement_actions` against the snapshot check), whatever its block. This is filed separately.
+
+### 180.7 One being, one node
+
+- **The reader's checker** refuses a draft in which an npc and a creature share a normalized name or handle. The refusal's `rule` and `details.reason` are both `one_being_two_nodes`, with `details.pairs[]`. Its `fix` is to keep one node of the kind 180.2 decides.
+- **What it refuses.** It refuses only what the draft introduces, including a new node that pairs with a published one. A pair already published is a compile snapshot's matter (below) and is not refused.
+- **Limit.** A draft cannot delete a published node. When the published half is the wrong kind by 180.2, the reader can only add the facts to it; correcting its kind needs a module rebuild.
+- **The starter test** asserts that no shipped starter carries such a pair.
+- **Loading a graph does not refuse a pair.** A campaign is a compile snapshot, and an old haunting campaign carries the twin. `actor`'s npc-first order (§136.12) is kept only as the tie-break for such snapshots.
+
+### 180.8 Creature words (amends §28.3, §28.7)
+
+`content/modules/module-graph-contract-v3.json` gains `creature_dossier`. It mirrors `actor_dossier` and has no core keys: `profile_keys: []`, plus `profile_labels`, `why` and `law`.
+
+- **The contribution.** A package requiring `graph.vocabulary.v1` may contribute `vocabulary.creature_profile_keys`, in the same shape as `actor_profile_keys` (`key`, `label`, `ask`). The same collision rule applies across both spines.
+- **Where the word goes.** The key enters `creature_dossier.profile_keys`. The reader asks it of creature nodes, it binds at build (§28.2), and the creature row reads it through the spine (§28.4).
+- **The table door.** `graph.vocabulary.table.v1`'s door (§28.7) accepts a contributed creature word on a creature node. The Keeper may establish `habits` for the yard dog where nothing authored says. That write dies with the package, as §28.7 says.
+
+### 180.9 `actor.weaknesses.v1`: the weakness shape
+
+A package requiring `actor.weaknesses.v1` binds, at build, the actor property `weaknesses` on npc and creature nodes:
+
+```json
+"weaknesses": [{
+  "book": "Struck with his own ritual dagger, his wards fail and he turns to ash and dust.",
+  "needs": ["artifact-corbitt-ritual-dagger"],
+  "learned_by": "conclusion-own-dagger-ends-corbitt"
+}]
+```
+
+**The entry.**
+- `book` (required): one English line in the book's terms, saying what harms, repels, binds, banishes or ends the being, with its conditions and degree. Stat-line resistances belong here too ("only fire, magic and electricity harm it; firearms do nothing"), not in `keeper_note`.
+- `needs`: the means the book names, as node ids of kind `object`, `artifact`, `spell`, `tome`, `location`, `scene`, `npc`, `creature`, `hazard`, `rule` or `procedure`. A controller whose end ends the being is an npc here. One means may appear on many beings.
+- `learned_by`: the `conclusion` the investigators can reach that states it. It is absent when the book gives no route. Such a weakness is the Keeper's alone and is found in play.
+- The accounting law holds: what the book does not give is absent, never invented.
+
+**The checker.** It refuses a missing `book`, an id that does not resolve, and a kind outside the list (`shape_unresolved`, with the path). A value that is not a list, an entry that is not an object, or an unknown key in an entry gets the mechanics refusals `shape_prose` and `shape_unknown_key`.
+- **When it applies.** Only when the build bound `actor.weaknesses.v1`: `task.vocabulary.actor_weaknesses` is present (`kernel-ts/modules/being-shape.ts`, `weaknessesBound`). The rules are always read from the contract JSON's `actor_weaknesses` block, never from the packet's copy.
+- **Review.** Entries are reviewed through the reader's verify instructions and the coverage unit. They are not added to `required_review`.
+
+**False leads.** `clue --misleads--> npc|creature` (an existing relation kind, until now without readers) marks a clue whose belief about the being is false. The checker refuses any other endpoints under rule `relation_endpoints`, the contract JSON block of that name. This check is base: it applies whether or not weaknesses are bound. A false lead against a true weakness is the existing `clue --contradicts--> conclusion`.
+
+**The chain** (§31: the reader end). An actor row carries `weaknesses` in this form:
+
+```json
+"weaknesses": [{"book": "...",
+  "needs": [{"name": "the ritual dagger", "kind": "artifact", "held_by": "the investigators"}],
+  "learned_by": {"conclusion": "...", "found": 1, "of": 3}}],
+"false_leads": [{"clue": "...", "discovered": false}]
+```
+
+- **`held_by`** comes from the existing ownership reads (`objectOwner`/`rootObjectOwner`). A spell need says `known_by` (who at the table knows it) and `taught_by` (a tome that teaches it). A place or person need gives the name only.
+- **`found`/`of`** counts the conclusion's `supports` clues in `world.discovered_clues`, the same reading as `thread.ts`. The thread lines already tell the Keeper where the missing clues are.
+- **Budget.** The present row carries at most three entries, the `book` cut to 160 characters. The single-person and creature reads carry them all.
+- **Words bound at build.** These reach the table whether the package is enabled or not (§28.5).
+
+**The table door.** With `graph.vocabulary.table.v1`, `apply dossier {"name", "values": {"weaknesses": [{"book", "needs"?}]}}` appends table-established entries after the authored ones, and only while the package is enabled. It never edits an authored entry, and it carries no `learned_by`: a conclusion is book material.
+
+### 180.10 Creature instructions under §183 (rewritten 2026-10-04 after §183 merged; replaces the creature-scoped brief and `context.creature.v1`, which were never built)
+
+§183 retired the brief and the shared 5000-byte ceiling. A package's instruction now rides whole while the table's instructions fit 64 KiB, and beyond that a sectioned package sends its resident sections and loads the rest by gate, topic or call. The first draft of this section invented a creature-scoped brief to get around the old ceiling. There is no ceiling to get around now, so there is no new capability. The package declares `contributes.sections` (§183.1) and requires `instructions.sections.v1`.
+
+The base gains what §183's gates need to tell persons from creatures (amends §183.1's kernel-gate list and §183.3):
+
+- **`people_present`** holds when a present row is a person, meaning it carries no `kind`. A creature row does not count. Before this, rats alone in a room loaded every "people here" section.
+- **`present_without_history`** considers only person rows. A creature row has no `history`, so it would otherwise always hold.
+- **`creature_present`** (new) holds when a present row has `kind: "creature"`.
+- **`weakness_here`** (new) holds when a present row, person or creature, carries `weaknesses` or `false_leads`.
+
+The two new names join `KERNEL_GATES` (`kernel-ts/read/sections.ts`). Like every kernel gate, they serve as a `gates` entry or a `state:` trigger.
+
+### 180.11 The Hostile Creatures package 1.0.0 (rewritten 2026-10-04 for §183)
+
+`mods/hostile-creatures`: id `hostile-creatures`, `default_enabled: true`, name 「敌对生物」 / "Hostile Creatures".
+
+**Manifest.**
+- **Requires:** `graph.vocabulary.v1`, `graph.vocabulary.table.v1`, `actor.weaknesses.v1`, `instructions.sections.v1` and `mods.package-files.v1`.
+- **Contributes:** `instructions` (`agent.md`), `sections` (`sections.json`), and `vocabulary.creature_profile_keys: [{"key": "habits", "label": "habits", "ask": "how this creature lives and acts as the book states: where it lairs, how it hunts or attacks, what draws it, when it breaks off or flees"}]`.
+- No `brief`. All package text is in English.
+
+**`agent.md` and its sections.** The text is at most 4 KB.
+- **The preamble** (resident) says what the package serves: creature rows, actors' weakness chains, and the habits word. It also carries the walk-on line. An animal the Keeper brings in is declared with `apply npc walk_on` and `creature` (180.6), and its habits are written with `apply dossier` when nothing authored says. That line is needed before the first such call, so it cannot wait for a `before_apply` trigger.
+- **`## Playing a creature`** (situational, `triggers: ["state:creature_present"]`):
+  - Play it as a body, by its `habits`: sound, motion and behaviour, never dialogue or a name to learn.
+  - Its `disposition` decides how it fights and when it breaks.
+- **`## Weaknesses`** (situational, `triggers: ["state:weakness_here", "before_resolve:combat"]`):
+  - A weakness without `learned_by` is found in play. Show what happens when the investigators try (a bullet that does not bite, a swarm that parts before the torch). Never announce the rule.
+  - A learnable weakness's chain shows what is still missing. Deliver its clues the ordinary way.
+  - A false lead is believed until it is tested.
+  - Exploiting a weakness settles through ordinary receipts: bonus or penalty dice, `disposition`, `action`, `conditions`, damage, objects changing hands.
+
+**Size.** The default-on packages total about 52 KB (§183.6), so this one stays within the budget and rides whole on every table today. That is the owner's §183 rule while it fits. The sections decide what loads only on a table that indexes.
+
+**The catalogue.** `docs/mods-catalogue.md` gains its entry in the same form as the others.
+
+### 180.12 Starter data
+
+**The haunting.**
+- `npc-rat-pack` is removed: the node, its claims, its relations and its npc-agendas projection record.
+- `creature-rat-pack` takes the stat block and weapons as `mechanics.profile`, `combat.disposition: "fights_then_flees"`, and `habits` from the book. The habits are: lair in the crawl space behind the cellar boards, Overwhelm one investigator, the rest flee once one is killed.
+- The invented fear, secret, agenda and voice are not carried over.
+- `npc-walter-corbitt` gains `weaknesses`. The first entry names his own dagger, with `needs: ["artifact-corbitt-ritual-dagger"]` and `learned_by: "conclusion-own-dagger-ends-corbitt"`, whose supporting clues already exist; there are four, two of them on p. 456 (book PDF p. 451, 456–457, 461). The second is sunlight hurting him and perhaps destroying him, which the book leaves to the Keeper; it is `book` only.
+- **How a starter binds words** (decided 2026-10-04 when CK-D found `registerStarter` writes no `meta.vocabulary`). A starter is authored, so what its graph carries is what its author asked. Nothing new is declared; the binding is derived from the data, because the machine fills what it can derive.
+  - `registerStarter` binds every contributed word, actor or creature, that some actor in the starter's graph carries. The label comes from the installed package that contributes the word, or is the key itself when no installed package does.
+  - It binds `actor.weaknesses.v1` when any actor carries `weaknesses`. The bound shape is then held to the same checker as a reader's draft (`kernel-ts/modules/being-shape.ts`) before any byte of the generation is written, exactly as obligations (§134.3) and mechanics (§136.8) are.
+  - A starter that carries no such word binds none, as before.
+- The guidance bundles are re-stamped.
+
+**The haunting rulebook twin.** `creature-rat-pack`'s flat numbers become a typed `mechanics.profile`, and it gains `combat` and `habits`.
+
+**Mystery House.** `npc-rat-swarm` becomes `creature-rat-swarm`, and `npc-chapel-familiar` becomes `creature-chapel-familiar`. The prefix follows the kind (`node_id_law`); the handles are unchanged. The person-only fields are dropped.
+
+### 180.13 The reader
+
+**`content/setup/visual-reader.md` gains:**
+- the boundary of 180.2, applied per node and per encounter;
+- the creature ask for bound creature words;
+- the `weaknesses` entry, when bound, with the accounting law and the instruction that stat-line resistances go into `book`, not `keeper_note`;
+- `learned_by` as a conclusion supported by the clues that teach it;
+- `misleads` and `contradicts` for false leads.
+
+`task.vocabulary` carries `creature_dossier` and, when bound, the weakness shape. The review's coverage counts a stated habit, weakness and route as material. On-demand reading (`reading.ts`, persons and creatures alike) is unchanged.
+
+### 180.14 Three ends, limits, out of scope
+
+**§31's three ends.**
+- **Writers:** the reader, from the book; the starters; the Keeper, through `apply npc creature` and the table door.
+- **Readers:** the creature row, the brief's roster, the chain on actor rows, and the single-actor reads.
+- **Actors:** the Keeper, through ordinary receipts. `lane: "offers"` counts creature rows as it counts present rows. It counts and never urges.
+
+**Limits.**
+- Whether the Keeper plays a creature as a body and lets a weakness be found rather than announced is the model's. Only the table shows it.
+- A weakness's `book` line is prose for the Keeper. The engine applies no immunity or vulnerability from it.
+
+**Out of scope (needs-triage).**
+- **Reader-produced quests.** The survey counts about thirty means that books frame as pursued goals, and no built module has a quest. This belongs to the wider gap of imported modules having no director signals.
+- **Typed resistances.** Immunity, halving, minimum damage from impales, head-only damage and "only X harms it" cover about forty beings in the survey. This is the next rules-as-data shape.
+- **`mainLineComplete`** counts any fully supported conclusion as the main line. Learnable weaknesses add conclusions; the defect is filed separately.
+
+**Coordination.**
+- §178 (presence impression, uncommitted): its presence roll selects persons. Whichever lands second carries the filter.
+- §177 (module cast): its roster selects persons.
+
+### 180.15 Acceptance
+
+1. **Suites.** The suites run on the LAN box. Every new case must be killable by mutation, over a fixture graph with a stat-block creature present beside a person who has `weaknesses`. They must not depend on the shipped starters or on a helper that fills input.
+2. **The product path.** Open a new haunting campaign and read the real capsule three times: at the opening, after a dagger clue is found, and after the investigators hold the dagger. Then declare a yard dog with `creature: "Dog"` and read its row and pinned block.
+3. **A real table.** `tests/play/driver.py`, with the current default Keeper and this session as the only player, from the opening to the cellar: clues, the dagger, the rats, Corbitt. Pre-registered:
+   - The rats' row is `kind: "creature"` with no person fields.
+   - No epithet, voice or personality job ever lists them.
+   - No social or Psychology offer targets them.
+   - The fight uses their block, and they break after one dies.
+   - The journal has no rat entry.
+   - Corbitt's chain moves as the clues and the dagger move.
+   - Using the dagger settles through ordinary receipts.
+
+### 180.16 The implementation's decisions (CK-D, 2026-10-04, `claude/creature-kind-20261004-mod`)
+
+**Binding and provenance (180.8, 180.9).**
+- `buildVocabulary` returns `creature_profile_keys` beside `actor_profile_keys`, collected with one claim map across both spines in load order (a key a later package contributes to either spine is `displaced`), and `actor_weaknesses: {mod, version}`, the first enabled package in load order that requires `actor.weaknesses.v1` (now in `MOD_CAPABILITIES`).
+- The build records both in the module's provenance as it records actor words: `meta.vocabulary` gains `creature_profile_keys` (the union of every creature word the module was asked) and `actor_weaknesses` (kept once any build bound it).
+- The read side carries both on the graph's dossier (`dossierWith`): `creature_dossier` (the contract's spine with the bound words as `contributed`) and `actor_weaknesses: true`. A creature word must not equal a core key of either spine or a bound actor word. `ModuleGraph.creatureProfile` reads a creature's words as `npcProfile` reads a person's; `authoredWeaknesses` reads `properties.weaknesses` (else the record's) only while `actor_weaknesses` is bound.
+- A creature word is `key`, `label` and `ask`; `shape` (a person's voice words, §40.5) is refused on it. One key appears once in a package across both spines.
+- `vocabularyContext` (§28.6) reports a creature word in the same row shape as an actor word.
+
+**The chain (180.9).**
+- `held_by`: the root owner (`rootObjectOwner`, moved to `kernel-ts/read/object-owner.ts`) of the most recently changed object instance whose name or definition name is one of the need's names; else the investigator whose sheet equipment names it (legacy `apply item`), as the check catalog finds a tome at hand. Absent when nothing at the table holds it. The book's own placement (`located-in`) is not projected: the contract names the ownership reads only.
+- `known_by` and `taught_by` are lists of names: the investigators whose magic state (`knownSpells`) knows the spell, and the book's tomes (`bookSpellSources`) that teach it. `known_by` reads the investigators only. The capsule preloads each investigator's magic state (`CampaignSnapshot.magic`, `chainReads`).
+- `learned_by.conclusion` is the conclusion's handle, the name its story-thread line carries; `found`/`of` count `ModuleGraph.supportingClues`, which `thread.ts` now shares.
+- `false_leads` reads `clue --misleads--> being` whatever was bound: it is a relation, read by the base like `contradicts`. A present row carries at most three false leads too.
+- The present rows (person and creature) carry the budgeted chain; `look focus=npc` carries it whole, and the person card's `properties` drops the raw `weaknesses` (node ids) when the chain carries them by name.
+
+**The table door (180.8, 180.9).** `kernel-ts/mods/dossier-door.ts`. `apply dossier` resolves a person (`graph.npc`), else any creature. A person takes person words, a creature creature words; the wrong spine is refused naming the words that fit. `weaknesses` belongs to the first active package requiring both `graph.vocabulary.table.v1` and `actor.weaknesses.v1`; its entries are `{book, needs?}` (`book` one line of at most 200 characters, `needs` names resolved to nodes of the contract's `needs` kinds and stored as node ids, `learned_by` refused) and append to `world.mods.state[<id>].weaknesses[<node_id>]`. Every value of the effect is checked before any is written.
+
+**The act author (180.5).** A creature's `who` is `{what, <its words under their labels>, keeper_note}`; `content/setup/npc-act.md` names the habits.
+
+**Open points handed back.**
+- *Starters.* `registerStarter` records no `meta.vocabulary`, so a starter binds no word and no weakness shape today: 180.12's Corbitt weaknesses and rat habits would not reach the table. 180.12 says the starter's provenance records the bound words "as a built module's does" but names no mechanism (bind the registering kernel's `buildVocabulary`, or a vocabulary the starter's own data declares). Undecided here; CK-F needs it.
+- *The Keeper's tool.* The `apply` tool schema (`extensions/kernel/tools.ts`) has no `dossier` effect, so the door of §28.7 and of 180.8–180.9 is not offered to the Keeper's typed tool. CK-E owns that file.
+
+### 180.17 The implementation's decisions (CK-F, 2026-10-04, `claude/creature-kind-20261004-starters`)
+
+**How a starter binds (180.12).**
+- `registerStarter` derives the binding when it writes a generation, as it writes the rest of `meta` (`starterVocabulary`, `kernel-ts/write/source.ts`). Nothing is declared in the starter.
+- **The words offered.** `installedVocabulary` (`kernel-ts/read/mods.ts`) makes the same claims as `buildVocabulary` (one key, one spine, load order) over every compatible installed package: the default-enabled ones first, then the rest. A package the defaults leave off still names the words it contributes, because the binding is the data's, not the defaults'.
+- **The words bound.** A word is carried when the table's own read returns it: `npcProfile` on an npc for a person's word, `creatureProfile` on a creature for a creature's word, from the property or the record. A creature's word on a person, a person's word on a creature, and a key no installed package contributes bind nothing.
+- **The weakness shape** is bound when any node of the contract's `on_kinds` has the `weaknesses` property at all, in either seat, so a malformed value is checked rather than left unbound. Its value is the first such package's `{mod, version}`, else `true`.
+- **The entry** is `buildVocabulary`'s (`key`, `label`, `ask`, `shape?`, `mod`, `version`). The label falls back to the key when a package gives none; the manifest check requires a label, so no current package reaches that branch.
+- **The check.** `starterBeingRefusals` holds the starter to the reader's checker as a draft is held: one being, one node, and `relation_endpoints` always (they are the base's), and the weakness entries when the shape is bound. It runs after the obligation and mechanics refusals and before any byte of the generation is written. The refusal is `invalid_params` with `details.reason: "beings_invalid"` and `details.refusals[]` of `{node, rule, path, message, claim?}`; a pair is `rule: "one_being_two_nodes"`, `node` the creature, `path: "node_id"`.
+
+**The data.**
+- **The haunting.** `creature-rat-pack` carries RD-04's typed weapons from the retired npc record, verbatim, and cites `span-page-455-anchor-2`, RD-04's span for the rat pack (no span of the starter is on page 457), with source refs on PDF indices 456 and 457. The npc record's `keeper_note` is not carried: its content is the Overwhelm weapon's `book` line and the habits.
+- **Corbitt's route.** `conclusion-own-dagger-ends-corbitt` has four supporting clues, not three: two are on PDF p. 456 (the rusted dagger, and that it is his). The chain reads `of: 4`.
+- **Mystery House.** Its `npc-agendas.json` keeps the two records it was projected from, because the retired projector makes an npc of every npc-agendas record and writes no creature node. The shipped graph differs from that projection by exactly the renamed beings, the rows that name them and the projection listing (`CKF_PROJECTION_CHANGES`, `tests/kernel/test_starters.py`); `story-graph.json` names the familiar by its new id.
+  - The rat swarm keeps its legacy mechanics container (the mystery-house allowance, §136.1) and its note. Its agenda, fear, secret and voice were the haunting twin's lines under `origin: "source"`, which the book does not state, and are dropped.
+  - The familiar (`origin: "authored-gym"`): its agenda became `habits`, its fear a `book`-only weakness, its skills a typed profile.
+
+**Open points handed back.**
+- **The familiar is not fightable.** The gym authored its skills and no characteristics. With a stat block it is an actor and present at the chapel, but combat and the chase refuse it: `npcCombatParticipant` throws `NpcProfileError` on the missing STR, SIZ, DEX and CON, and nothing turns that into a refusal. An archetype is a person's, and the catalog pin refuses a creature that has a block (`stat_block_exists`). A partial authored profile has no completion path. *Closed by CK-F2 (180.6's decisions): a partial block is refused with its completion, and `apply npc creature` (or a person's `archetype`) completes it.*
+- **Corbitt's `fear`** still says "being reduced below the point where Flesh Ward and Dominate can buy rounds", which the book does not state. Person fields were outside this ticket.
+
 ## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
 
 Owner, 2026-10-04, after the ten-hour measurement of §184 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
@@ -33735,7 +34110,7 @@ A package declares its instruction's sections with `contributes.sections`, a pac
 - `kind` is `resident` (on every turn the package is indexed) or `situational`. A resident entry carries nothing else.
 - A situational entry has `topics`, `triggers` or both:
   - `topics`: ids of the topic list (§183.2), or `"*"` alone (any turn whose gates hold);
-  - `gates`: all must hold for a topic to load the section; they qualify topics and need them. Kernel gates: `opening`, `people_present`, `present_without_history`, `unregistered_equipment`, `registered_instances`, `threat_clock`, `stall`, `recover`, `clue_here`, `handed_clue_here`, `reentry`. Host gate: `no_topic` (no topic of the list scored 0.5 or more this turn);
+  - `gates`: all must hold for a topic to load the section; they qualify topics and need them. Kernel gates: `opening`, `people_present`, `present_without_history`, `unregistered_equipment`, `registered_instances`, `threat_clock`, `stall`, `recover`, `clue_here`, `handed_clue_here`, `reentry`, and (amended by §180.10) `creature_present`, `weakness_here`. Host gate: `no_topic` (no topic of the list scored 0.5 or more this turn);
   - `triggers`: `state:<kernel gate>` loads the section whenever that gate holds; `before_apply:<effect kind>` (a kind `table.apply` accepts, `kernel-ts/apply/kinds.ts`) and `before_resolve:<decision family>` (`chase`, `combat`, `core-check`, `development`, `healing`, `magic`, `objects`, `psychology`, `push-luck`, `sanity`, `social`: the ruleset's `decision:coc7:<family>:` prefixes and the kernel's `objects:` decisions) load it once the Keeper has made such a call this turn;
   - `topic_threshold` (0 < t < 1, default 0.5): the section's own bar; it qualifies topics and needs them.
 - Refusals are `invalid_params` with `details.field: "contributes.sections"` and the offending entry: invalid JSON; an unknown topic (checked where the catalog loads and at install, against `content/mods/topics.json`), gate, trigger kind or name; a heading not in `agent.md`; a `## ` heading with no entry or two, or appearing twice in `agent.md`; preamble text with no `null` entry; a resident entry with topics, gates, triggers or a threshold; a situational entry with neither topics nor triggers; gates or a threshold without topics; `"*"` beside another topic; a threshold outside (0, 1); the contribution without the capability or without `contributes.instructions`; the file missing from `package_files`. Requiring the capability without contributing is allowed (the package goes whole): what the pairing protects is a kernel that lacks the capability meeting an unknown field.
@@ -33756,7 +34131,8 @@ Rows of `capsule.mods.instructions`:
 - `indexed`: `{mod, version, settings, form: "indexed", instruction, sections}`. `instruction` is "Further sections of this package arrive in coc-mod-sections when a turn needs them." and the resident sections' text, joined by blank lines. `sections[]` lists the situational sections, `{key, heading, topics, gates, triggers, topic_threshold, bytes, gates_open, due}`, where `key` is `<mod>@<version>#<ordinal>` (the ordinal counts every entry of `sections.json`), `gates_open` says every kernel gate of the section holds this turn and `due` says a `state:` trigger holds. Only the capsule evaluates gates: `mods.context` and the package jobs read the same rows without `gates_open` and `due`.
 
 When any row is indexed, `capsule.mods.topics` carries the definitions of the topics those rows name (all of them when one names `"*"`). The kernel evaluates its gates while it assembles the capsule, from the turn as assembled, before any section budget cuts it (`kernel-ts/read/sections.ts`):
-- `opening`: turn 0. `people_present`: `present` is not empty. `present_without_history`: a present person whose `history.last_spoke_turn` is absent;
+- `opening`: turn 0. `people_present`: `present` holds a person row, one without `kind` (amended by §180.10; a creature row does not count). `present_without_history`: a present person row whose `history.last_spoke_turn` is absent (amended by §180.10: creature rows are not considered);
+- `creature_present` (§180.10): a present row has `kind: "creature"`. `weakness_here` (§180.10): a present row, person or creature, carries `weaknesses` or `false_leads`;
 - `unregistered_equipment`, `registered_instances`: `mods.unregistered_equipment`, `mods.objects.instances` are not empty;
 - `threat_clock`: a threat clock is related to this scene or scoped to the scenario, or the table minted one (the rows `mods.pacing.threat_clocks` shows);
 - `stall`: the Director's `stalled_turns` has reached the package's own integer `stall_turns` setting when it has one, else the Director's `pressure-stalled-turns` threshold;

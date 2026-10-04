@@ -46,6 +46,14 @@ async function personOf(context: ApplyContext, who: any, effect: Row = {}): Prom
     const node = context.graph.find(who, ['npc']) ?? calledPerson(context.graph, context.world, who);
     if (node)
         return { id: context.graph.handle(node), name: context.graph.displayName(node), is_investigator: false };
+    // §180.5: a creature has no name to learn and is spoken to by nobody, so nothing here is its; refused, never minted
+    // as a person of the same name.
+    const creature = context.graph.find(who, ['creature']);
+    if (creature)
+        throw new RpcError('invalid_params', `${context.graph.displayName(creature)} is a creature, not a person: apply person is a person's`, {
+            fix: 'drop this person effect: a creature carries no table name or form of address. Say what it is in your prose; how it fights is disposition (apply npc {name, disposition})',
+            details: { reason: 'not_a_person', field: 'person.who', name: context.graph.displayName(creature) },
+        });
     // §11.5.4 (SL-51): a person the source text carried this turn names is not invented. Established from that passage
     // exactly as `apply npc` establishes one (§87's record with `from_passage`), so the label is written on them.
     const passage = passageOf(effect, who);

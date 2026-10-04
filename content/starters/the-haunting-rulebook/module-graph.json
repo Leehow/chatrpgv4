@@ -863,19 +863,53 @@
         "span-p11-4"
       ],
       "properties": {
-        "SIZ": 35,
-        "POW": 50,
-        "DEX": 70,
-        "STR": 35,
-        "CON": 55,
-        "HP": 9,
-        "damage_bonus": "-1",
-        "Build": -1,
-        "Move": 9,
-        "attacks_per_round": 1,
-        "Fighting": "40% (Hard 20/Extreme 8), damage 1D3",
-        "Overwhelm": "fighting maneuver damage 2D6; bonus die from numbers",
-        "Dodge": "42% (Hard 21/Extreme 8)"
+        "habits": "Nest in the crawl space behind the cellar's boards, about ten rats to a pack. Given no room to escape, they attack whoever explores the space, swarming one investigator with their Overwhelm attack (a fighting maneuver with one bonus die for their numbers). Once one rat is killed the rest flee; a successful attack kills one or two rats and usually chases the rest of the pack away.",
+        "combat": {
+          "disposition": "fights_then_flees"
+        },
+        "mechanics": {
+          "profile": {
+            "profile_kind": "actor",
+            "characteristic_scale": "percentile",
+            "authority": "source_authored",
+            "characteristics": {
+              "STR": 35,
+              "CON": 55,
+              "SIZ": 35,
+              "POW": 50,
+              "DEX": 70
+            },
+            "derived": {
+              "HP": 9,
+              "MOV": 9,
+              "Build": -1,
+              "DB": "-1"
+            },
+            "skills": {
+              "Fighting": 40,
+              "Dodge": 42
+            },
+            "weapons": [
+              {
+                "weapon_id": "claws",
+                "extends": "claws",
+                "name": "Teeth and claws",
+                "damage": "1D3",
+                "uses_per_round": 1,
+                "book": "The rats attack with teeth and claws."
+              },
+              {
+                "weapon_id": "overwhelm",
+                "name": "Overwhelm (fighting maneuver)",
+                "skill": "Fighting",
+                "damage": "2D6",
+                "uses_per_round": 1,
+                "impale_unstated": true,
+                "book": "As a pack they swarm a single target, gaining one bonus die on the attack because of their numbers."
+              }
+            ]
+          }
+        }
       },
       "source_refs": [
         {

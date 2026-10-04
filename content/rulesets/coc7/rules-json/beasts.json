@@ -1,0 +1,1088 @@
+{
+  "source_note": "Call of Cthulhu Keeper Rulebook (40th Anniversary), Chapter 14 'Monsters, Beasts, and Alien Gods', Section Four: Beasts (printed pp. 336-340; PDF pp. 348-352). Printed folio = PDF page - 12 (the contents list gives the section as p. 335; the heading sits on folio 336). Page convention: source_page is the 1-based PDF page number (the page of the stat block's header line) and source_pages lists every PDF page the entry spans; this is the same convention monsters.json's source_page values follow (PDF page numbers, not printed folios; a few of its values are off by one). Each key is the stat block's printed header in title case (the Latin or descriptive tail kept in printed_header); section_heading is the heading the block sits under. Every number was checked against the page image. str/con/siz/dex/pow are the printed averages, taken as printed (the book rounds its own averages; they are not recomputed from the dice). rolls holds the printed roll expression for each characteristic as {dice, times}: the characteristic is the result of the dice expression multiplied by times, so the printed '(2D6+6 ×5)' is {dice: '2D6+6', times: 5}, i.e. (2D6+6) x 5. Beasts print no INT, Sanity loss, magic points or spells, so int and san_loss are int_unstated and san_loss_unstated. A field the page does not print is '<field>_unstated: true' with no value. hp, build and mov are integers; damage_bonus is the printed text ('-2', '+1D6', 'none'). mov is the first number printed after 'Move:'; move_printed is the exact printed text, in which a second number is labelled with its mode (flying or swimming), and a single labelled number (shark, '12 swimming') is recorded as mov without the label. armor is an integer when the page states one ('N-point ...' or 'None' = 0); armor_printed is the printed text; where the page prints 'N/A', armor is armor_unstated. dodge and each attack skill carry the printed percentage with its printed half and fifth values. Each attack's damage is the printed text; damage_dice, adds_damage_bonus (full, half or none) and poison are structured readings of that printed text, and the printed text is authoritative. A maneuver's own skill is not printed, so its skill is skill_unstated. The Bird heading has no block of its own (it sends small birds to the bat values) and prints one block, CONDOR, for large birds. The Wasp and Bee Swarms heading prints rules text and no stat block, so its entry carries no_stat_block and only notes. attack_description and notes paraphrase the printed text. Where the page contradicts itself (a printed average far from the mean of its own roll, a damage bonus off the STR+SIZ table), the printed value is kept and the entry's notes say so.",
+  "beasts": {
+    "Bat, Large": {
+      "section_heading": "Bat, Large",
+      "printed_header": "BAT, Large",
+      "description": "Giant fruit bats roost in dozens or hundreds; the smaller cave bats gather in flocks of up to 50,000. The Bird section sends an individual smaller bird here for its values.",
+      "str": 25,
+      "con": 35,
+      "siz": 15,
+      "dex": 105,
+      "pow": 35,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "2D4",
+          "times": 5
+        },
+        "con": {
+          "dice": "2D6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "2D4",
+          "times": 5
+        },
+        "dex": {
+          "dice": "1D6+18",
+          "times": 5
+        },
+        "pow": {
+          "dice": "2D6",
+          "times": 5
+        }
+      },
+      "hp": 5,
+      "damage_bonus": "-2",
+      "build": -2,
+      "mov": 1,
+      "move_printed": "1 / 12 flying",
+      "attacks_per_round": 1,
+      "attack_description": "Attacks with teeth and claws.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 40,
+          "half": 20,
+          "fifth": 8,
+          "damage": "1D2 (+1 to dice size per extra bat in group)",
+          "damage_dice": "1D2",
+          "adds_damage_bonus": "none",
+          "maneuver": false,
+          "note": "As a group, damage die size rises by 1 for each additional bat in the group."
+        }
+      ],
+      "dodge": {
+        "skill": 52,
+        "half": 26,
+        "fifth": 10
+      },
+      "armor": 0,
+      "armor_printed": "None",
+      "skills": [
+        {
+          "name": "Spot Hidden",
+          "pct": 75,
+          "note": "echo-locate"
+        }
+      ],
+      "skills_printed": "Spot Hidden (echo-locate) 75%",
+      "habitat": "Warm and temperate climates worldwide",
+      "san_loss_unstated": true,
+      "notes": [
+        "Group rule: when attacking as a group, the characteristics above represent the whole group; SIZ rises by 10 and the damage die size by 1 for each additional bat.",
+        "Each time the target beats the bats in a Fighting roll, the number of bats in the group falls by one.",
+        "Printed example: a group of 6 bats has SIZ 65 and inflicts 1D6 damage (there is no D7).",
+        "The Bird section says to use these bat values for an individual smaller bird.",
+        "Printed inconsistency, kept as printed: the SIZ average is 15 but its roll expression (2D4 x5) has a mean of 25."
+      ],
+      "source_page": 348,
+      "source_pages": [
+        348
+      ]
+    },
+    "Condor": {
+      "section_heading": "Bird",
+      "printed_header": "CONDOR, Vulture gryphus",
+      "description": "Large bird of the higher hills and mountains of the western hemisphere. The Bird section gives these statistics for a giant eagle or any other large bird; only the largest birds attack humans, though vultures attack helpless prey of any sort.",
+      "str": 110,
+      "con": 50,
+      "siz": 80,
+      "dex": 95,
+      "pow": 65,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "3D6+12",
+          "times": 5
+        },
+        "con": {
+          "dice": "3D6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "3D6+6",
+          "times": 5
+        },
+        "dex": {
+          "dice": "2D6+12",
+          "times": 5
+        },
+        "pow": {
+          "dice": "2D6+6",
+          "times": 5
+        }
+      },
+      "hp": 13,
+      "damage_bonus": "+1D6",
+      "build": 2,
+      "mov": 5,
+      "move_printed": "5 / 12 flying",
+      "attacks_per_round": 1,
+      "attack_description": "Razor sharp beaks and vicious claws.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 45,
+          "half": 22,
+          "fifth": 9,
+          "damage": "1D6 + damage bonus",
+          "damage_dice": "1D6",
+          "adds_damage_bonus": "full",
+          "maneuver": false
+        }
+      ],
+      "dodge": {
+        "skill": 47,
+        "half": 23,
+        "fifth": 9
+      },
+      "armor": 1,
+      "armor_printed": "1-point feathers",
+      "skills": [
+        {
+          "name": "Spot Hidden",
+          "pct": 90
+        }
+      ],
+      "skills_printed": "Spot Hidden 90%",
+      "habitat": "North and South America",
+      "san_loss_unstated": true,
+      "notes": [
+        "All birds can cut an attacker's chance to hit in half (one penalty die to hit) while they are flying."
+      ],
+      "source_page": 348,
+      "source_pages": [
+        348
+      ]
+    },
+    "Bear, Black": {
+      "section_heading": "Bear",
+      "printed_header": "BEAR, BLACK",
+      "description": "The most common bear in North America and the only one likely to be met in the eastern United States.",
+      "str": 100,
+      "con": 65,
+      "siz": 100,
+      "dex": 50,
+      "pow": 50,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "3D6+10",
+          "times": 5
+        },
+        "con": {
+          "dice": "2D6+6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "3D6+10",
+          "times": 5
+        },
+        "dex": {
+          "dice": "3D6",
+          "times": 5
+        },
+        "pow": {
+          "dice": "3D6",
+          "times": 5
+        }
+      },
+      "hp": 16,
+      "damage_bonus": "+2D6",
+      "build": 3,
+      "mov": 12,
+      "move_printed": "12",
+      "attacks_per_round": 2,
+      "attack_description": "Large strong creatures with big paws, claws and teeth.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 40,
+          "half": 20,
+          "fifth": 8,
+          "damage": "1D6 + damage bonus",
+          "damage_dice": "1D6",
+          "adds_damage_bonus": "full",
+          "maneuver": false
+        }
+      ],
+      "dodge": {
+        "skill": 25,
+        "half": 12,
+        "fifth": 5
+      },
+      "armor": 3,
+      "armor_printed": "3-point fur and gristle",
+      "skills": [
+        {
+          "name": "Climb",
+          "pct": 30
+        },
+        {
+          "name": "Listen",
+          "pct": 75
+        },
+        {
+          "name": "Scent Prey",
+          "pct": 70
+        }
+      ],
+      "skills_printed": "Climb 30%, Listen 75%, Scent Prey 70%",
+      "habitat": "Southern Canada to Southern Mexico",
+      "san_loss_unstated": true,
+      "notes": [
+        "Printed inconsistency, kept as printed: STR 100 + SIZ 100 totals 200, which the damage bonus and build table puts at +1D6 and build 2, while the page prints +2D6 and build 3."
+      ],
+      "source_page": 348,
+      "source_pages": [
+        348,
+        349
+      ]
+    },
+    "Crocodile, Nile": {
+      "section_heading": "Crocodile",
+      "printed_header": "CROCODILE, NILE",
+      "description": "The Nile crocodile; similar statistics may be used for any crocodilian (alligators, caimans, gavials). Crocodiles eat anything they can catch and come in great numbers to feed communally at a kill.",
+      "str": 130,
+      "con": 90,
+      "siz": 130,
+      "dex": 35,
+      "pow": 50,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "4D6+12",
+          "times": 5
+        },
+        "con": {
+          "dice": "3D6+8",
+          "times": 5
+        },
+        "siz": {
+          "dice": "4D6+12",
+          "times": 5
+        },
+        "dex": {
+          "dice": "2D6",
+          "times": 5
+        },
+        "pow": {
+          "dice": "3D6",
+          "times": 5
+        }
+      },
+      "hp": 22,
+      "damage_bonus": "+2D6",
+      "build": 3,
+      "mov": 6,
+      "move_printed": "6 / 8 swimming",
+      "attacks_per_round": 1,
+      "attack_description": "The main danger is the bite, but a large one can thrash around and cause impact damage.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 50,
+          "half": 25,
+          "fifth": 10,
+          "damage": "damage bonus",
+          "adds_damage_bonus": "full",
+          "maneuver": false
+        },
+        {
+          "weapon": "Bite and hold (mnvr)",
+          "skill_unstated": true,
+          "damage": "1D10 + damage bonus, followed by damage bonus each round while held (or drowning)",
+          "damage_dice": "1D10",
+          "adds_damage_bonus": "full",
+          "maneuver": true,
+          "note": "Vicious jaws; once they have hold they are unlikely to let go and may drag the victim underwater to drown. After the first round, damage bonus is inflicted each round while held (or drowning)."
+        }
+      ],
+      "dodge": {
+        "skill": 17,
+        "half": 8,
+        "fifth": 3
+      },
+      "armor": 5,
+      "armor_printed": "5-point hide",
+      "skills": [
+        {
+          "name": "Stealth",
+          "pct": 60,
+          "note": "in water 80%"
+        }
+      ],
+      "skills_printed": "Stealth 60% (in water 80%)",
+      "habitat": "Tropics, especially jungle marshes worldwide",
+      "san_loss_unstated": true,
+      "notes": [
+        "Usually will not attack a boat."
+      ],
+      "source_page": 349,
+      "source_pages": [
+        349
+      ]
+    },
+    "Dog": {
+      "section_heading": "Dog",
+      "printed_header": "DOG",
+      "description": "The domestic dog. Dogs come in a variety of sizes, and the average values should be adapted accordingly. As hunters they prefer to gather in packs of 1D8+3 animals minimum.",
+      "str": 35,
+      "con": 50,
+      "siz": 35,
+      "dex": 70,
+      "pow": 35,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "2D6",
+          "times": 5
+        },
+        "con": {
+          "dice": "3D6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "2D6",
+          "times": 5
+        },
+        "dex": {
+          "dice": "4D6",
+          "times": 5
+        },
+        "pow": {
+          "dice": "2D6",
+          "times": 5
+        }
+      },
+      "hp": 8,
+      "damage_bonus": "-1",
+      "build": -1,
+      "mov": 12,
+      "move_printed": "12",
+      "attacks_per_round": 1,
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 50,
+          "half": 25,
+          "fifth": 10,
+          "damage": "1D6",
+          "damage_dice": "1D6",
+          "adds_damage_bonus": "none",
+          "maneuver": false
+        }
+      ],
+      "attack_description_unstated": true,
+      "dodge": {
+        "skill": 42,
+        "half": 21,
+        "fifth": 8
+      },
+      "armor_unstated": true,
+      "armor_printed": "N/A",
+      "skills": [
+        {
+          "name": "Listen",
+          "pct": 75
+        },
+        {
+          "name": "Scent Something Interesting",
+          "pct": 90
+        }
+      ],
+      "skills_printed": "Listen 75%, Scent Something Interesting 90%",
+      "habitat": "Where humans live",
+      "san_loss_unstated": true,
+      "notes": [
+        "Values are an average dog; adapt them to the size of the dog in play.",
+        "Hunting packs number at least 1D8+3 animals."
+      ],
+      "source_page": 349,
+      "source_pages": [
+        349
+      ]
+    },
+    "Horse": {
+      "section_heading": "Horse",
+      "printed_header": "HORSE",
+      "description": "One block serves riding horses, draught horses, donkeys and mules; the page prints no separate numbers for them.",
+      "str": 140,
+      "con": 65,
+      "siz": 165,
+      "dex": 50,
+      "pow": 50,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "3D6+18",
+          "times": 5
+        },
+        "con": {
+          "dice": "2D6+6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "6D6+12",
+          "times": 5
+        },
+        "dex": {
+          "dice": "3D6",
+          "times": 5
+        },
+        "pow": {
+          "dice": "3D6",
+          "times": 5
+        }
+      },
+      "hp": 23,
+      "damage_bonus": "+3D6",
+      "build": 4,
+      "mov": 12,
+      "move_printed": "12",
+      "attacks_per_round": 1,
+      "attack_description": "Large animals that can kick and bite as well as buffet a lesser opponent to the ground; can rise on its hind legs and plunge down with its forelegs. A horse requires training to trample people.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 25,
+          "half": 12,
+          "fifth": 5,
+          "damage": "1D8 + damage bonus",
+          "damage_dice": "1D8",
+          "adds_damage_bonus": "full",
+          "maneuver": false
+        }
+      ],
+      "dodge": {
+        "skill": 25,
+        "half": 12,
+        "fifth": 5
+      },
+      "armor": 0,
+      "armor_printed": "None",
+      "skills_unstated": true,
+      "habitat": "Grasslands and high deserts, or where humans are",
+      "san_loss_unstated": true,
+      "notes": [
+        "Riding horses are covered by the Ride skill. Single riders and small groups can easily cover forty miles in a day given water and fodder.",
+        "Riding horses may spar with other horses but do not fight unless cornered; even cavalry-trained horses only stay their ground and control their nervousness. Nearly all horses panic at the presence of something supernatural.",
+        "Draught horses are the largest, usually broken to ride but not much ridden; hitching them to wagons may call for a Drive Horses or similar roll; saddles and girths large enough may not exist, and bareback riding takes one penalty die to the Ride skill.",
+        "Donkeys and mules mostly carry burdens or draw wagons and carts, and stereotypically ignore commands when it pleases them.",
+        "Among all horses the tendency toward bloody events, gunfire, monsters and angry crowds is to flee."
+      ],
+      "source_page": 350,
+      "source_pages": [
+        349,
+        350
+      ]
+    },
+    "Lion": {
+      "section_heading": "Lion",
+      "printed_header": "LION",
+      "description": "Covers lions, tigers, mountain lions, pumas and cougars; the lion values can serve all big cats with minor variations. A tiger is a little stronger while cheetahs are lighter and faster.",
+      "str": 95,
+      "con": 50,
+      "siz": 80,
+      "dex": 95,
+      "pow": 65,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "2D6+12",
+          "times": 5
+        },
+        "con": {
+          "dice": "3D6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "3D6+6",
+          "times": 5
+        },
+        "dex": {
+          "dice": "2D6+12",
+          "times": 5
+        },
+        "pow": {
+          "dice": "2D6+6",
+          "times": 5
+        }
+      },
+      "hp": 13,
+      "damage_bonus": "+1D6",
+      "build": 2,
+      "mov": 10,
+      "move_printed": "10",
+      "attacks_per_round": 2,
+      "attack_description": "Sharp claws and teeth. May use a maneuver to wrestle and pin its opponent.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 60,
+          "half": 30,
+          "fifth": 12,
+          "damage": "2D6 + damage bonus",
+          "damage_dice": "2D6",
+          "adds_damage_bonus": "full",
+          "maneuver": false
+        }
+      ],
+      "dodge": {
+        "skill": 25,
+        "half": 12,
+        "fifth": 5
+      },
+      "armor": 2,
+      "armor_printed": "2-point fur and skin",
+      "skills": [
+        {
+          "name": "Stealth",
+          "pct": 30
+        },
+        {
+          "name": "Track",
+          "pct": 25
+        }
+      ],
+      "skills_printed": "Stealth 30%, Track 25%",
+      "habitat": "Africa and Near East",
+      "san_loss_unstated": true,
+      "notes": [],
+      "source_page": 350,
+      "source_pages": [
+        350
+      ]
+    },
+    "Rat Pack": {
+      "section_heading": "Rat",
+      "printed_header": "RAT PACK",
+      "description": "Individual rats are not worthy opponents but an infestation can be daunting. Assume ten rats per pack. A successful attack by an investigator kills one or two rats and usually chases away the rest of that pack.",
+      "str": 35,
+      "con": 55,
+      "siz": 35,
+      "dex": 70,
+      "pow": 50,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "1D6+4",
+          "times": 5
+        },
+        "con": {
+          "dice": "2D6+4",
+          "times": 5
+        },
+        "siz": {
+          "dice": "1D6+4",
+          "times": 5
+        },
+        "dex": {
+          "dice": "4D6",
+          "times": 5
+        },
+        "pow": {
+          "dice": "3D6",
+          "times": 5
+        }
+      },
+      "hp": 9,
+      "damage_bonus": "-1",
+      "build": -1,
+      "mov": 9,
+      "move_printed": "9",
+      "attacks_per_round": 1,
+      "attack_description": "Rats attack with teeth and claws.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 40,
+          "half": 20,
+          "fifth": 8,
+          "damage": "1D3",
+          "damage_dice": "1D3",
+          "adds_damage_bonus": "none",
+          "maneuver": false
+        },
+        {
+          "weapon": "Overwhelm (mnvr)",
+          "skill_unstated": true,
+          "damage": "2D6",
+          "damage_dice": "2D6",
+          "adds_damage_bonus": "none",
+          "maneuver": true,
+          "note": "As a pack they may assault and overwhelm an individual using the maneuver rules; because of their numbers they gain one bonus die on the attack. Such an attack involves swarming over the target, biting and scratching."
+        }
+      ],
+      "dodge": {
+        "skill": 42,
+        "half": 21,
+        "fifth": 8
+      },
+      "armor_unstated": true,
+      "armor_printed": "N/A",
+      "skills_unstated": true,
+      "habitat": "Not far from where you are sitting right now",
+      "san_loss_unstated": true,
+      "notes": [
+        "The block represents a pack of ten rats, not one rat."
+      ],
+      "source_page": 350,
+      "source_pages": [
+        350
+      ]
+    },
+    "Shark": {
+      "section_heading": "Shark",
+      "printed_header": "SHARK",
+      "description": "A generic example shark; for a larger shark increase SIZ, STR and CON. The common types are bull, great white and hammerhead, which vary greatly in size, temperament and appearance.",
+      "str": 90,
+      "con": 90,
+      "siz": 90,
+      "dex": 50,
+      "pow": 50,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "5D6",
+          "times": 5
+        },
+        "con": {
+          "dice": "5D6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "5D6",
+          "times": 5
+        },
+        "dex": {
+          "dice": "3D6",
+          "times": 5
+        },
+        "pow": {
+          "dice": "3D6",
+          "times": 5
+        }
+      },
+      "hp": 18,
+      "damage_bonus": "+1D6",
+      "build": 2,
+      "mov": 12,
+      "move_printed": "12 swimming",
+      "attacks_per_round": 2,
+      "attacks_per_round_note": "can only grab and hold one victim",
+      "attack_description": "Biting, thrashing and slashing with its fins.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 75,
+          "half": 37,
+          "fifth": 15,
+          "damage": "2D3 + half damage bonus",
+          "damage_dice": "2D3",
+          "adds_damage_bonus": "half",
+          "maneuver": false
+        },
+        {
+          "weapon": "Bite and hold (mnvr)",
+          "skill_unstated": true,
+          "damage": "2D6 + damage bonus for each round held",
+          "damage_dice": "2D6",
+          "adds_damage_bonus": "full",
+          "maneuver": true,
+          "note": "A shark may bite and hold onto its victim, inflicting automatic damage on following rounds until it can be dislodged by an opposed STR roll."
+        }
+      ],
+      "dodge": {
+        "skill": 25,
+        "half": 12,
+        "fifth": 5
+      },
+      "armor": 5,
+      "armor_printed": "5-point tough skin",
+      "skills": [
+        {
+          "name": "Sense Life",
+          "pct": 95
+        }
+      ],
+      "skills_printed": "Sense Life 95%",
+      "habitat": "Oceans, down to 2000-3000 meters",
+      "san_loss_unstated": true,
+      "notes": [],
+      "source_page": 350,
+      "source_pages": [
+        350,
+        351
+      ]
+    },
+    "Snake, Constrictor": {
+      "section_heading": "Snake",
+      "printed_header": "SNAKE, CONSTRICTOR, Pythons and other giant snakes",
+      "description": "Constrictors use their attack to grapple and constrict their prey (use the maneuver rules).",
+      "str": 110,
+      "con": 65,
+      "siz": 70,
+      "dex": 65,
+      "pow": 50,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "3D6+12",
+          "times": 5
+        },
+        "con": {
+          "dice": "2D6+6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "4D6",
+          "times": 5
+        },
+        "dex": {
+          "dice": "2D6+6",
+          "times": 5
+        },
+        "pow": {
+          "dice": "3D6",
+          "times": 5
+        }
+      },
+      "hp": 13,
+      "damage_bonus": "+1D6",
+      "build": 2,
+      "mov": 6,
+      "move_printed": "6",
+      "attacks_per_round": 1,
+      "attack_description": "Can bite, but mostly relies on crushing its prey.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 40,
+          "half": 20,
+          "fifth": 8,
+          "damage": "1D3",
+          "damage_dice": "1D3",
+          "adds_damage_bonus": "none",
+          "maneuver": false
+        },
+        {
+          "weapon": "Constrict (mnvr)",
+          "skill_unstated": true,
+          "damage": "1D6 + damage bonus",
+          "damage_dice": "1D6",
+          "adds_damage_bonus": "full",
+          "maneuver": true,
+          "note": "Seeks to wrap around its prey, then crush and swallow it whole. After a successful attack the victim is at a disadvantage (penalty die) and automatic damage is applied each round unless the snake is killed or dislodged by an opposed STR roll."
+        }
+      ],
+      "dodge": {
+        "skill": 25,
+        "half": 12,
+        "fifth": 5
+      },
+      "armor": 2,
+      "armor_printed": "2-point glistening skin",
+      "skills": [
+        {
+          "name": "Stealth",
+          "pct": 90
+        }
+      ],
+      "skills_printed": "Stealth 90%",
+      "habitat": "Tropical forests",
+      "san_loss_unstated": true,
+      "notes": [],
+      "source_page": 351,
+      "source_pages": [
+        351
+      ]
+    },
+    "Snake, Venomous": {
+      "section_heading": "Snake",
+      "printed_header": "SNAKE, VENOMOUS, Cobra, adder, etc.",
+      "description": "Venomous snakes use their attack to bite.",
+      "str": 35,
+      "con": 35,
+      "siz": 15,
+      "dex": 90,
+      "pow": 50,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "2D6",
+          "times": 5
+        },
+        "con": {
+          "dice": "2D6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "1D6",
+          "times": 5
+        },
+        "dex": {
+          "dice": "5D6",
+          "times": 5
+        },
+        "pow": {
+          "dice": "3D6",
+          "times": 5
+        }
+      },
+      "hp": 5,
+      "damage_bonus": "-2",
+      "build": -2,
+      "mov": 8,
+      "move_printed": "8",
+      "attacks_per_round": 1,
+      "attacks_per_round_note": "can use Bite to fight-back numerous times per round",
+      "attack_description": "Bite.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 40,
+          "half": 20,
+          "fifth": 8,
+          "damage": "1D4 + damage bonus + poison",
+          "damage_dice": "1D4",
+          "adds_damage_bonus": "full",
+          "poison": true,
+          "maneuver": false,
+          "note": "The toxicity of snake venom can vary. Victims must make an Extreme CON roll to resist the full effect of the poison; a successful roll indicates a lesser effect. Unless antivenin or suitable medical treatment is found within a few hours, the victim of a bite may die (see Poisons, page 128)."
+        }
+      ],
+      "dodge": {
+        "skill": 42,
+        "half": 21,
+        "fifth": 8
+      },
+      "armor_unstated": true,
+      "armor_printed": "N/A",
+      "skills": [
+        {
+          "name": "Stealth",
+          "pct": 90
+        }
+      ],
+      "skills_printed": "Stealth 90%",
+      "habitat": "Tropical forests",
+      "san_loss_unstated": true,
+      "notes": [],
+      "source_page": 351,
+      "source_pages": [
+        351
+      ]
+    },
+    "Squid, Giant": {
+      "section_heading": "Squid, Giant",
+      "printed_header": "SQUID, GIANT",
+      "description": "The average size of the species is a body about twelve feet long with tentacles up to an additional sixty feet; the statistics reflect a squid of this size.",
+      "str": 105,
+      "con": 65,
+      "siz": 105,
+      "dex": 95,
+      "pow": 50,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "6D6",
+          "times": 5
+        },
+        "con": {
+          "dice": "2D6+6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "6D6",
+          "times": 5
+        },
+        "dex": {
+          "dice": "2D6+12",
+          "times": 5
+        },
+        "pow": {
+          "dice": "3D6",
+          "times": 5
+        }
+      },
+      "hp": 17,
+      "damage_bonus": "+2D6",
+      "build": 3,
+      "mov": 4,
+      "move_printed": "4 / 10 swimming",
+      "attacks_per_round": 4,
+      "attack_description": "Thrashing tentacles bash anything nearby. It will use maneuvers to seize and bite its prey.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 45,
+          "half": 22,
+          "fifth": 9,
+          "damage": "1D6 + damage bonus",
+          "damage_dice": "1D6",
+          "adds_damage_bonus": "full",
+          "maneuver": false
+        },
+        {
+          "weapon": "Seize (mnvr)",
+          "skill_unstated": true,
+          "damage": "1D6 per round + held",
+          "damage_dice": "1D6",
+          "adds_damage_bonus": "none",
+          "maneuver": true,
+          "note": "Can seize a victim with one of its eight tentacles. The first tentacle striking a foe hangs on; when a second connects, the two constrict the target and each does its damage each round."
+        },
+        {
+          "weapon": "Bite (must be seized)",
+          "skill": 45,
+          "half": 22,
+          "fifth": 9,
+          "damage": "1D10 + poison",
+          "damage_dice": "1D10",
+          "adds_damage_bonus": "none",
+          "poison": true,
+          "maneuver": false,
+          "note": "Once seized by a tentacle the victim may be bitten by the poisonous beak. Victims must make an Extreme CON roll to resist the full effect of the poison (see Poisons, page 128). If not resisted, the poison causes 1D6 damage and a penalty die on all future actions for several hours."
+        }
+      ],
+      "dodge": {
+        "skill": 47,
+        "half": 23,
+        "fifth": 9
+      },
+      "armor": 2,
+      "armor_printed": "2-point hide",
+      "skills": [
+        {
+          "name": "Stealth",
+          "pct": 70
+        }
+      ],
+      "skills_printed": "Stealth 70%",
+      "habitat": "Deep oceans, preferably cool polar waters",
+      "san_loss_unstated": true,
+      "notes": [
+        "To make a whale-battler, add 3D10 of SIZ and STR for every two feet of increased span from tentacle tip to tentacle tip."
+      ],
+      "source_page": 351,
+      "source_pages": [
+        351,
+        352
+      ]
+    },
+    "Wolf": {
+      "section_heading": "Wolf",
+      "printed_header": "WOLF",
+      "description": "Wolves may hunt in packs when dogging herds of elk or caribou, and as often hunt singly or in family pairings. They are normally shy, and verified attacks on healthy humans are said to be rare or non-existent.",
+      "str": 65,
+      "con": 50,
+      "siz": 40,
+      "dex": 65,
+      "pow": 50,
+      "int_unstated": true,
+      "rolls": {
+        "str": {
+          "dice": "2D6+6",
+          "times": 5
+        },
+        "con": {
+          "dice": "3D6",
+          "times": 5
+        },
+        "siz": {
+          "dice": "2D6+1",
+          "times": 5
+        },
+        "dex": {
+          "dice": "2D6+6",
+          "times": 5
+        },
+        "pow": {
+          "dice": "3D6",
+          "times": 5
+        }
+      },
+      "hp": 9,
+      "damage_bonus": "none",
+      "build": 0,
+      "mov": 12,
+      "move_printed": "12",
+      "attacks_per_round": 1,
+      "attack_description": "Teeth, claws and mauling.",
+      "attacks": [
+        {
+          "weapon": "Fighting",
+          "skill": 50,
+          "half": 25,
+          "fifth": 10,
+          "damage": "1D8 + damage bonus",
+          "damage_dice": "1D8",
+          "adds_damage_bonus": "full",
+          "maneuver": false
+        }
+      ],
+      "dodge": {
+        "skill": 32,
+        "half": 16,
+        "fifth": 6
+      },
+      "armor": 1,
+      "armor_printed": "1-point fur",
+      "skills": [
+        {
+          "name": "Track",
+          "pct": 90,
+          "note": "by smell"
+        },
+        {
+          "name": "Spot Hidden",
+          "pct": 60
+        }
+      ],
+      "skills_printed": "Track (by smell) 90%, Spot Hidden 60%",
+      "habitat": "Approximately the same ranges as larger cold and temperate climate ruminants and herbivores",
+      "san_loss_unstated": true,
+      "notes": [],
+      "source_page": 352,
+      "source_pages": [
+        352
+      ]
+    },
+    "Wasp and Bee Swarms": {
+      "section_heading": "Wasp and Bee Swarms",
+      "printed_header": "Wasp and Bee Swarms",
+      "no_stat_block": true,
+      "description": "A cloud of stinger-equipped, flying insects.",
+      "str_unstated": true,
+      "con_unstated": true,
+      "siz_unstated": true,
+      "dex_unstated": true,
+      "int_unstated": true,
+      "pow_unstated": true,
+      "hp_unstated": true,
+      "damage_bonus_unstated": true,
+      "build_unstated": true,
+      "mov_unstated": true,
+      "attacks_per_round_unstated": true,
+      "attacks_unstated": true,
+      "dodge_unstated": true,
+      "armor_unstated": true,
+      "skills_unstated": true,
+      "habitat_unstated": true,
+      "san_loss_unstated": true,
+      "notes": [
+        "The swarm attacks for 2D6 combat rounds before halting pursuit.",
+        "Unless the victims are completely covered (netting, being enclosed in an automobile, diving underwater) there is no protection against them.",
+        "An investigator who is stung extensively and whose player fails a CON roll may experience profound immune system shock, fall seriously ill and (rarely) die.",
+        "Africanized bees are more intent in their pursuit than honey bees or wasps, attacking for up to 3D6 minutes; each minute of such an attack might cost as much as 1D6 hit points, and serious stings occasionally result in death."
+      ],
+      "source_page": 352,
+      "source_pages": [
+        352
+      ]
+    }
+  }
+}

@@ -50,7 +50,7 @@ NON_KERNEL_OP_EXCEPTIONS = frozenset({"module.prepare"})
 #: pre-existing facts in the projected IR, not defects this ticket's pipeline
 #: introduced. Keep in sync if that file's set changes.
 KNOWN_STARTER_IR_FINDINGS = {
-    "mystery-house": {("actor_in_no_scene", "npc-rat-swarm")},
+    "mystery-house": {("actor_in_no_scene", "creature-rat-swarm")},
     # #29: built from the Rulebook by the §14.5 lane rather than projected from IR, so it
     # carries no inherited IR facts and every node cites the page it came from.
     "the-haunting-rulebook": set(),
@@ -361,7 +361,7 @@ def test_new_starter_creates_a_campaign_opens_and_passes_the_ten_invariants(star
     `node_without_page` fires on every node for a starter with no source document
     (the checker has no "no pages to cite" concept yet, and the reference starter
     the-haunting gets it too), and mystery-house carries a small, named set of
-    pre-existing IR facts (`npc-rat-swarm` genuinely present in no scene) that
+    pre-existing IR facts (`creature-rat-swarm` genuinely present in no scene) that
     K5b's test already pins by name. What must never appear is one of the seven *hard* invariants --
     dangling relations, no declared entrance/ending, a fragmented or unreachable
     scene graph, or a conclusion/clue with no support between them."""

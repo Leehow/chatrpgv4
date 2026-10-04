@@ -227,7 +227,7 @@
     ]
   },
   "actor_dossier": {
-    "why": "A stat block is not a person (contract §17.2). These are the words the extraction vocabulary uses for what a book says about someone as a person, so the reader prompt, the starter projector, the playability brief and the table all read one list instead of each keeping their own.",
+    "why": "An npc is a being the Keeper plays as a person: the book gives the investigators a way to deal with it as someone (talk, bargain, persuade, argue it down, call its name), and it has a name to learn and motives of its own. It stays an npc when it is a monster, a ghost or a captive alien that answers questions, and when it does not speak. A being the book presents only as a body is a creature (creature_dossier). The kind is decided per node and per encounter from how the book treats the being, never per species (contract §180.2). A stat block is not a person (contract §17.2). These are the words the extraction vocabulary uses for what a book says about someone as a person, so the reader prompt, the starter projector, the playability brief and the table all read one list instead of each keeping their own.",
     "profile_keys": [
       "agenda",
       "fear",
@@ -266,5 +266,71 @@
       "located-in"
     ],
     "law": "Every name here already exists in `relation_kinds`; this block groups them by what they are for and adds no vocabulary. A key a book does not give is absent, never invented -- an actor with none is reported by the measure `npcs_without_material` and fails nothing."
+  },
+  "creature_dossier": {
+    "why": "A creature is a being the book presents only as a body: an animal, a swarm, a mindless monster, or a mind that never deals with anyone. A being the book lets the investigators deal with as someone is an npc (actor_dossier), even when it is a monster. The kind is decided per node and per encounter from how the book treats the being, never per species: one species can be an npc in one encounter and a creature in another; a life stage the book gives its own numbers is its own node; a parasite with its own body and numbers is a creature beside its host; a being with a human and a monstrous form is one npc (contract §180.2). These are the words for what a book says about a creature, the counterpart of actor_dossier. It has no core keys; a package adds its words here (contract §180.8).",
+    "profile_keys": [],
+    "profile_labels": {},
+    "law": "A key a book does not give is absent, never invented. The person words of actor_dossier are not asked of a creature (contract §180.4). One being is one node: an npc and a creature never share a normalized name or handle (contract §180.7)."
+  },
+  "actor_weaknesses": {
+    "why": "Contract §180.9: what the book says harms, repels, binds, banishes or ends an npc or creature, the means it names, and the conclusion through which the investigators can learn it. A build binds it only when an enabled package requires `actor.weaknesses.v1`; the reader's task then carries this block, and the draft check holds every entry to it.",
+    "capability": "actor.weaknesses.v1",
+    "property": "weaknesses",
+    "on_kinds": [
+      "npc",
+      "creature"
+    ],
+    "entry_keys": [
+      "book",
+      "needs",
+      "learned_by"
+    ],
+    "required_keys": [
+      "book"
+    ],
+    "text_keys": [
+      "book"
+    ],
+    "node_refs": {
+      "needs": {
+        "list": true,
+        "kinds": [
+          "object",
+          "artifact",
+          "spell",
+          "tome",
+          "location",
+          "scene",
+          "npc",
+          "creature",
+          "hazard",
+          "rule",
+          "procedure"
+        ]
+      },
+      "learned_by": {
+        "list": false,
+        "kinds": [
+          "conclusion"
+        ]
+      }
+    },
+    "law": "`book` (required) is one English line in the book's terms saying what harms, repels, binds, banishes or ends the being, with its conditions and degree; a stat-line resistance belongs here too, never in keeper_note. `needs` lists the node ids of the means the book names; a controller whose end ends the being is an npc here, and one means may appear on many beings. `learned_by` is the id of the conclusion the investigators can reach that states the weakness, supported by the clues that teach it; it is absent when the book gives no route, and such a weakness is the Keeper's alone, found in play. What the book does not give is absent, never invented."
+  },
+  "relation_endpoints": {
+    "why": "Contract §180.9: a relation kind whose meaning holds only between certain node kinds. A claim of a kind listed here connects only the kinds listed for it.",
+    "kinds": {
+      "misleads": {
+        "from": [
+          "clue"
+        ],
+        "to": [
+          "npc",
+          "creature"
+        ]
+      }
+    },
+    "law": "`misleads` marks a clue whose belief about an npc or creature is false. A false lead against a weakness the book also states truly is the existing clue --contradicts--> that weakness's conclusion."
   }
 }

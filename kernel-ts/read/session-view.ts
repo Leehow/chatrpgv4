@@ -29,7 +29,8 @@ export class SessionView {
         const sheet = this.party.find(s => string(s.id) === id);
         if (sheet)
             return string(sheet.name || id);
-        const node = this.graph.find(id, ["npc"]);
+        // §180.3: a creature in the fight is labelled by its name, as a person is.
+        const node = this.graph.actor(id);
         return node ? this.graph.displayName(node) : id;
     }
     isInvestigator(id: string): boolean {

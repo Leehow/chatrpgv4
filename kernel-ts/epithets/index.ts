@@ -63,7 +63,7 @@ export function createEpithetHandlers(context: KernelContext, writer: ReturnType
             // Who is in the room first: the active scene's people, else the opening scene's, then the book's order.
             const sceneId = text(world.active_scene || meta.opening_scene || '');
             let first = new Set<string>();
-            try { if (sceneId) first = new Set(npcsPresent(graph, world, graph.scene(sceneId)).map(node => graph.handle(node))); }
+            try { if (sceneId) first = new Set(npcsPresent(graph, world, graph.scene(sceneId)).filter(node => graph.isPerson(node)).map(node => graph.handle(node))); }
             catch { first = new Set(); }
             const ordered = [...wanting.filter(node => first.has(graph.handle(node))), ...wanting.filter(node => !first.has(graph.handle(node)))]
                 .slice(0, EPITHETS_PER_JOB);

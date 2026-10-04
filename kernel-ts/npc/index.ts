@@ -69,7 +69,9 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
         },
         'npc.job':async params=>{
             const {campaign,meta,world,graph,scope}=await load(params);
-            const nodes=params.name!=null?[npcNode(graph,world,required(params,'name')!)]:npcsPresent(graph,world,graph.scene(world.active_scene));
+            // §180.3: a personality is a person's, the same selection `npc.submit` accepts; a creature present is never
+            // offered, or its job would stay open forever.
+            const nodes=params.name!=null?[npcNode(graph,world,required(params,'name')!)]:npcsPresent(graph,world,graph.scene(world.active_scene)).filter(node=>graph.isPerson(node));
             const node=nodes.find(node=>!personalityView(graph,world,node));
             if(!node)return {job_id:null};
             const source_revision=personalitySourceRevision(graph,node),id=jsonDigest({campaign:campaign.id,npc:node.node_id,scope,source_revision});
@@ -88,7 +90,7 @@ export function createNpcHandlers(context:KernelContext,writer:ReturnType<typeof
             if(typeof params.claim!=='string'||params.claim!==job.claim)
                 throw new RpcError('invalid_params','NPC publication claim is no longer current',{details:{reason:'npc_claim_stale'}});
             const node=graph.nodes.get(string(job.npc));
-            if(!node||node.node_kind!=='npc'||jsonDigest(scope)!==jsonDigest(job.scope)
+            if(!node||!graph.isPerson(node)||jsonDigest(scope)!==jsonDigest(job.scope)
                 ||personalitySourceRevision(graph,node)!==job.source_revision)
                 throw new RpcError('invalid_params','NPC preparation is stale for its source or campaign scope',{details:{reason:'npc_job_stale'}});
             const personality=checkedPersonality(params.personality),digest=jsonDigest(personality);

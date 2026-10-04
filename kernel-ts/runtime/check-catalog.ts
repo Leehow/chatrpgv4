@@ -17,6 +17,7 @@ import {ENDING_KINDS} from '../development/plan.js';
 import {loadChaseRules} from '../chase/model.js';
 import {magicLearningSources} from '../magic/facts.js';
 import {npcPatient} from '../healing/patient.js';
+import {hitPointGaps} from '../combat/profiles.js';
 import {healingStatePath} from '../healing/session.js';
 import {evaluateCondition, factsFromState, RuleObservations} from '../read/rule-facts.js';
 
@@ -140,7 +141,7 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
     const patients: Row[] = [];
     const observations = await RuleObservations.load(campaign.context);
     const now = Number(row(campaign.world.clock).minutes ?? 0);
-    for (const patient of [...campaign.party, ...people.filter(person => person.profile !== null).map(person => npcPatient(graph, campaign.world, person.name)).filter((patient): patient is Row => patient !== null)]) {
+    for (const patient of [...campaign.party, ...people.filter(person => person.profile !== null && !hitPointGaps(person.profile).length).map(person => npcPatient(graph, campaign.world, person.name)).filter((patient): patient is Row => patient !== null)]) {
         const healing = row(await campaign.optional(`save/${healingStatePath(string(patient.id))}`));
         const conditions = Array.isArray(healing.conditions) ? healing.conditions : array(patient.conditions);
         const facts = factsFromState({...patient, investigator_id: patient.id, conditions,
@@ -197,13 +198,17 @@ export async function checkCatalog(campaign: CampaignSnapshot, graph: ModuleGrap
             }
         }
         for (const person of people) {
-            const skills = own.map(profile => profile.skill).filter(skill => Object.values(SOCIAL_APPROACH_SKILLS).includes(skill));
-            add('social:adjudicate-difficulty', `${actor}: influence ${person.name} with a social approach`, {actor, target: person.name, intent: 'social'},
-                [parameter('skill', 'Which social skill implements the player-chosen approach?', skills), ...modifiers()], [], 'declaration',
-                {stage: 'difficulty_adjudication', actor_role: campaign.party.some(sheet => sheet.name === actor) ? 'investigator'
-                    : people.some(person => person.name === actor) ? 'npc' : 'unknown', target_role: 'npc'});
-            if (own.some(profile => profile.skill === 'Psychology'))
-                add('psychology:observe-concealed', `${actor}: observe ${person.name} with Psychology`, {actor, target: person.name, skill: 'Psychology'});
+            // §180.3: talking a being round and reading what it hides are offered against a person only; a creature
+            // present is still a body to contest (`core-check:opposed-check`) and to perceive (`sanity:check`).
+            if (graph.isPerson(person.node)) {
+                const skills = own.map(profile => profile.skill).filter(skill => Object.values(SOCIAL_APPROACH_SKILLS).includes(skill));
+                add('social:adjudicate-difficulty', `${actor}: influence ${person.name} with a social approach`, {actor, target: person.name, intent: 'social'},
+                    [parameter('skill', 'Which social skill implements the player-chosen approach?', skills), ...modifiers()], [], 'declaration',
+                    {stage: 'difficulty_adjudication', actor_role: campaign.party.some(sheet => sheet.name === actor) ? 'investigator'
+                        : people.some(person => person.name === actor) ? 'npc' : 'unknown', target_role: 'npc'});
+                if (own.some(profile => profile.skill === 'Psychology'))
+                    add('psychology:observe-concealed', `${actor}: observe ${person.name} with Psychology`, {actor, target: person.name, skill: 'Psychology'});
+            }
             const opposing = [...Object.keys(row(row(person.profile).skills)), ...Object.keys(row(row(person.profile).characteristics))];
             const shared = own.map(profile => profile.skill).filter(skill => opposing.includes(skill));
             if (shared.length) add('core-check:opposed-check', `${actor}: opposed noncombat check against ${person.name}`, {actor, target: person.name},

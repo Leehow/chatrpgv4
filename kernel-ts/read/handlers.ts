@@ -16,7 +16,7 @@ import { buildCapsule } from "./assemble.js";
 import { lastExchange, lastInteraction } from "./exchange.js";
 import { contextBinding } from "./context.js";
 import { workspaceRead } from "./workspace.js";
-import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, personNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
+import { clockSection, sceneLabel, personLabel, clueLabel, npcNode, personNode, npcsPresent, cluesHere, whereSection, presentSection, npcView, creatureView, investigatorView, fittedModuleSection, untoldRoster, personRecord } from "./capsule.js";
 import { castPersonNamed } from './cast.js';
 import { tableWord } from './person-words.js';
 import { incapacitatedBy } from "../healing/conditions.js";
@@ -215,7 +215,25 @@ async function requireNoTransition(campaign: CampaignSnapshot, contributions: Re
 async function present(campaign: CampaignSnapshot, module: LoadedModule): Promise<Row[]> {
     const { graph } = module,
         scene = graph.scene(campaign.world.active_scene);
-    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { campaign:campaign.id, currentReceipts:array(campaign.turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: await campaign.files("turns"), scope:{worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)} });
+    return presentSection(graph, campaign.world, scene, row(campaign.jsonFiles.get("npc-ledger.json")), campaign.logs.get("memory/candidates.jsonl") ?? [], () => [], { campaign:campaign.id, currentReceipts:array(campaign.turn.receipts), journal: row(campaign.jsonFiles.get("npc-journal.json")), records: await campaign.files("turns"), scope:{worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)}, chain: campaign.chainReads() });
+}
+/**
+ * The being `look focus=npc name=` reads (§180.4): a person by the book's names, then this table's word (`npcNode`);
+ * else a creature, any (§180.9: a creature without a stat block still has words and a weakness chain); else the person
+ * refusal unchanged, whose candidates are the Keeper's next step.
+ */
+function beingNode(graph: ModuleGraph, world: Row, name: string): Row {
+    try {
+        return npcNode(graph, world, name);
+    }
+    catch (error) {
+        if (!(error instanceof RpcError) || error.code !== "unknown_entity")
+            throw error;
+        const creature = graph.find(name, ["creature"]);
+        if (creature)
+            return creature;
+        throw error;
+    }
 }
 /** The player's NPC notebook: newest-seen first, at most six exchanges each, newest first. The journal never
  *  stores death; `dead_since_turn` is merged from the ledger, the sole truth, at projection time. */
@@ -419,8 +437,13 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                 }
                 catch { /* A derived cache that cannot be read says nothing about what the player was told. */
                 }
-                return npcView(graph, world, npcNode(graph, world, required(params, "name")), ledger, journal, await campaign.files("turns"), await campaign.log("memory/candidates.jsonl"), {worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)},
-                    row(await campaign.optional("save/combat.json")), await dispositionTable(context));
+                const node = beingNode(graph, world, required(params, "name"));
+                // §180.9: the chain reads the investigators and what spells they know.
+                await campaign.preload("people");
+                if (!graph.isPerson(node))
+                    return creatureView(graph, world, node, ledger, row(await campaign.optional("save/combat.json")), await dispositionTable(context), campaign.chainReads());
+                return npcView(graph, world, node, ledger, journal, await campaign.files("turns"), await campaign.log("memory/candidates.jsonl"), {worldline:campaign.meta.active_worldline??'main',loop:number(row(row(campaign.meta.worldlines)[string(campaign.meta.active_worldline||'main')]).loop)},
+                    row(await campaign.optional("save/combat.json")), await dispositionTable(context), campaign.chainReads());
             }
             if (focus === "investigator") {
                 campaign.party = await campaign.files("party");
@@ -485,7 +508,7 @@ export function readHandlers(context: KernelContext, contributions: ReadContribu
                     if (person) found = [person];
                 }
                 const entities: Row[] = found.filter(node => !expected || node.node_kind === expected).slice(0, 8).map(node => ({...graph.entityView(node),
-                    ...(sourceScope?{material:graph.isTableEntity(node)||graph.isTablePerson(node)?'ready':graph.materialOverride?graph.materialOverride(node.node_id):prepared.has(node.node_id)?'ready':'unprepared',
+                    ...(sourceScope?{material:graph.isTableEntity(node)||graph.isTablePerson(node)||graph.isTableCreature(node)?'ready':graph.materialOverride?graph.materialOverride(node.node_id):prepared.has(node.node_id)?'ready':'unprepared',
                         original_pages:[...new Set(array(node.source_refs).filter(ref=>ref.source_id===`pdf:${graph.moduleId}`&&integer(ref.pdf_index)).map(ref=>number(ref.pdf_index)+1))]}:{})}));
                 // §177.7: someone the book names whom the reader has not reached answers as such, by the word this table calls
                 // them, with the pages that name them, instead of not_found: a write naming them lands on those pages (§22.4.7.1).

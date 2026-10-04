@@ -10,7 +10,8 @@ import { MANEUVER_ALIASES, MANEUVER_GOALS, VALID_OUTCOMES } from './engine.js';
 import { combatOperationFor, resolveInvestigatorWeapon, weaponOptions } from './profiles.js';
 import { archetypeIds } from '../apply/archetype.js';
 import {selectObjectWeapon, usageObject} from '../mods/usages.js';
-import { executeCombatEnd, executeCombatResolve, presentOpponents, MANEUVER_ONLY_WHEN_DECLARED, NOTHING_TO_ANSWER } from './execution.js';
+import { executeCombatEnd, executeCombatResolve, fightableOpponents, MANEUVER_ONLY_WHEN_DECLARED, NOTHING_TO_ANSWER } from './execution.js';
+import { requireParticipantBlock } from './stat-block.js';
 export { CombatSession, combatAttack, resolveOpposed, CLOCK_SAVE_PATHS, rebaseClock } from './engine.js';
 export type { CombatAttackPort, CombatTurnOptions, ParticipantOptions } from './engine.js';
 const DECISIONS: Readonly<Record<string, string>> = Object.freeze({
@@ -110,11 +111,14 @@ export function createCombatResolveContribution(): FixedFamilyBinding {
                     }
                     else {
                         handle = context.graph.handle(targets.npc);
-                        if (context.npcProfile(handle) === null)
+                        const profile = context.npcProfile(handle);
+                        if (profile === null)
                             throw new RpcError('needs', `${context.graph.displayName(targets.npc)} has no stat block in the module`, {
                                 fix: 'pin a stat block first: apply npc with archetype (one of details.needs.options, chosen from who this person is — ordinary_adult, capable_adult or dangerous_actor), then resolve again; when the module has a book that prints their numbers, read them with lookup kind=source instead. Or resolve it as an uncontested attempt against someone who cannot fight back. Nothing without a receipt has happened: do not narrate a blow as landed',
-                                details: { needs: { field: 'archetype', options: await archetypeIds(context.kernel), fightable: sorted(presentOpponents(context).filter(([, , profile]) => truth(profile)).map(([handle]) => handle)) } },
+                                details: { needs: { field: 'archetype', options: await archetypeIds(context.kernel), fightable: fightableOpponents(context) } },
                             });
+                        // §180.6 (CK-F2): a block that lacks what the fight is built from is refused with its completion.
+                        await requireParticipantBlock(context.kernel, context.graph, targets.npc, handle, profile, `a fight against ${context.graph.displayName(targets.npc)}`);
                     }
                     semantic.candidate_ref = `attack:${handle}`;
                     binding.target_npc_id = handle;

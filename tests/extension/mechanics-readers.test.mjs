@@ -184,11 +184,26 @@ test('a rules row whose node states no shape has no mech key', async () => {
 test('a creature with a stat block is an actor: present at its scene, and the book\'s numbers are its profile', async () => {
     const capsule = await opened.call('table.capsule');
     assert.ok(capsule.present.some(person => person.name === 'Cellar hound'), JSON.stringify(capsule.present.map(p => p.name)));
-    // The shipped creature without a stat block stays scenery (behaviour moves only with data).
     const graph = new api.ModuleGraph('the-haunting', GRAPH, 'digest', {});
     assert.equal(graph.actor('cellar-hound')?.node_id, 'creature-cellar-hound');
+    // §180.12: the shipped rats are one creature node that states the book's stat block, so it is the actor of its handle.
+    assert.equal(graph.actor('rat-pack')?.node_id, 'creature-rat-pack');
+    assert.equal(graph.isActor(graph.nodes.get('creature-rat-pack')), true);
+});
+
+test('§180.7: a compile snapshot that carries one being twice is read person first, and a creature without numbers is scenery', () => {
+    // The haunting before §180.12, as an old campaign's snapshot still carries it: the same handle as an npc and as a
+    // creature. The npc-first order is kept only as this tie-break; a creature of another handle is never shadowed.
+    const being = (node_id, node_kind, name, properties = {}) => ({node_id, node_kind, name, visibility: 'keeper-only', aliases: [], summary: name, properties});
+    const block = {mechanics: {profile: {characteristics: {STR: 35, CON: 55, SIZ: 35, DEX: 70}}}};
+    const snapshot = {nodes: [being('creature-rat-pack', 'creature', 'Rat pack', block), being('npc-rat-pack', 'npc', 'Rat Pack', {agenda: 'Swarm.'}),
+        being('creature-moth-cloud', 'creature', 'Moth cloud'), being('creature-cellar-hound', 'creature', 'Cellar hound', block)], relations: []};
+    const graph = new api.ModuleGraph('snapshot', snapshot, 'digest', {});
     assert.equal(graph.actor('rat-pack')?.node_id, 'npc-rat-pack', 'a person of the same handle comes first');
-    assert.equal(graph.isActor(graph.nodes.get('creature-rat-pack')), false);
+    assert.equal(graph.actor('Rat pack')?.node_id, 'npc-rat-pack');
+    assert.equal(graph.actor('cellar-hound')?.node_id, 'creature-cellar-hound', 'a creature with numbers and no twin is its own actor');
+    assert.equal(graph.isActor(graph.nodes.get('creature-moth-cloud')), false, 'without a stat block a creature stays scenery');
+    assert.equal(graph.actor('moth-cloud'), null);
 });
 
 test('the module lookup\'s endings carry the reward shapes of the rules a conclusion scene or an ending links', async () => {

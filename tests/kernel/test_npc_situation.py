@@ -67,7 +67,7 @@ def knott(tmp_path):
 def test_a_landed_blow_last_turn_and_a_purse_taken_this_turn_are_two_sentences_and_nothing_else(knott):
     hit, cash = knott_hit_then_robbed(knott)
     packet = situation(knott)
-    assert packet["npc"] == {"handle": KNOTT, "name": "Steven Knott"}
+    assert packet["npc"] == {"handle": KNOTT, "name": "Steven Knott", "kind": "npc"}
     happened = packet["happened"]
     # Two sentences from receipts -- last turn's blow, this turn's cash -- then the player's declaration of this turn.
     # The archetype pin (turn 1) is outside the window, and bookkeeping besides.
