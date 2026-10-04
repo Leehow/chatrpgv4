@@ -15,7 +15,7 @@ import {projectSheet} from '../mods/projection.js';
 import {npcsPresent} from '../read/capsule.js';
 import {npcProfileOf} from '../resolve/context.js';
 import {incapacitatedBy} from '../healing/conditions.js';
-import {weaponOptions} from '../combat/profiles.js';
+import {participantGaps, weaponOptions} from '../combat/profiles.js';
 import {VALID_OUTCOMES} from '../combat/engine.js';
 import type {ModuleGraph} from '../read/module-graph.js';
 import {checkCatalog} from './check-catalog.js';
@@ -40,8 +40,16 @@ function firstBlow(graph: ModuleGraph, world: Row, party: Row[], session: Row | 
     const ready = weaponOptions(sheet), owned = values(row(row(world.objects).instances)).filter(item => item.owner.id === sheet.id).map(item => string(item.name));
     const inventory = array(sheet.equipment).map(item => typeof item === 'string' ? item : string(row(item).name)).filter(Boolean);
     const weapons = [...new Set([...ready, ...owned, ...inventory])];
+    // §180.6 (CK-F2 review follow-up): a target the fight cannot read -- no block, or one lacking any of STR, SIZ, DEX or
+    // CON (a fight never reads MOV) -- is prepared first, and the row says which completion it takes: a person an
+    // archetype, a creature a rules-catalog creature. Otherwise the chosen first attack would be refused at dispatch.
+    const unready = people.filter(node => {
+        const profile = npcProfileOf(graph, world, graph.handle(node));
+        return profile === null || participantGaps(profile).length > 0;
+    });
     return targets.length ? {decision: 'combat:attack', intent: 'combat', actor: string(sheet.name), targets, weapons,
-        preparation: {targets: people.filter(node => npcProfileOf(graph, world, graph.handle(node)) === null).map(node => graph.displayName(node)),
+        preparation: {targets: unready.map(node => graph.displayName(node)),
+            completions: Object.fromEntries(unready.map(node => [graph.displayName(node), graph.isPerson(node) ? 'archetype' : 'creature'])),
             weapons: weapons.filter(name => !ready.includes(name))}} : null;
 }
 

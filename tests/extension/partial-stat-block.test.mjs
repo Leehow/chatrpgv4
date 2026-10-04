@@ -21,6 +21,9 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {attackPreparationNeeds} from '../../runtime/jev/attack-preparation.ts';
+import {initialView, settleExecute} from '../../runtime/jev/step-policy.ts';
+import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 
 const root = resolve(import.meta.dirname, '../..');
 const scratch = await mkdtemp(join(tmpdir(), 'partial-stat-block-'));
@@ -43,6 +46,12 @@ const CATALOG = [...Object.keys(MONSTERS), ...Object.keys(BEASTS)];
 
 const MODULE = 'module-partial-bench', CELLAR = 'scene-cellar';
 const HOUND = 'Belfry hound', WARDEN = 'Old warden', RATS = 'Cellar rats', PORTER = 'Night porter';
+// Complete in the four characteristics a fight reads, and no MOV: fightable, but a runner on foot reads its own MOV.
+const MULE = 'Yard mule', CARTER = 'Coal carter';
+const MULE_BLOCK = {profile_kind: 'actor', characteristic_scale: 'percentile', characteristics: {STR: 110, CON: 70, SIZ: 120, DEX: 40}, derived: {HP: 19},
+  skills: {'Fighting (Brawl)': 35, Dodge: 20}};
+const CARTER_BLOCK = {profile_kind: 'actor', characteristic_scale: 'percentile', characteristics: {STR: 70, CON: 65, SIZ: 70, DEX: 50},
+  skills: {'Fighting (Brawl)': 45, Dodge: 25, 'Drive Auto': 40}};
 // What each partial block states. Every value lies outside what its completion would give, so a value that survives is
 // the authored one: no Rat Pack rolls a DEX of 85 or prints HP 14, no capable_adult rolls STR 95 or Dodge 10.
 const HOUND_BLOCK = {profile_kind: 'actor', characteristic_scale: 'percentile', characteristics: {DEX: 85}, derived: {HP: 14},
@@ -86,12 +95,15 @@ function bench() {
     cellar, cited(warden, 1),
     cited(node('creature-belfry-hound', 'creature', HOUND, 'A lean hound that sleeps in the belfry.', {origin: 'authored-gym', mechanics: {profile: HOUND_BLOCK}}), 2),
     node('npc-night-porter', 'npc', PORTER, 'A porter who sleeps by the furnace; the book gives him no numbers.', {}, 'player-safe'),
+    cited(node('creature-yard-mule', 'creature', MULE, 'A broad mule tethered in the cellar yard.', {mechanics: {profile: MULE_BLOCK}}), 4),
+    cited(node('npc-coal-carter', 'npc', CARTER, 'A carter who brings the coal in a truck.', {mechanics: {profile: CARTER_BLOCK}}, 'player-safe'), 5),
     cited(node('creature-cellar-rats', 'creature', RATS, 'A swarm of rats behind the cellar boards.', {mechanics: {profile: {
       characteristics: {STR: 35, CON: 55, SIZ: 35, DEX: 70, POW: 30}, derived: {HP: 9, MOV: 9},
       skills: {'Fighting (Brawl)': 40, Dodge: 42}, weapons: [{weapon_id: 'bite', skill: 'Fighting (Brawl)', damage: '1D3', uses_per_round: 1, impale: false}]}}}), 3),
   ];
   for (const id of nodes.slice(1).map(entry => entry.node_id)) relate('contains', MODULE, id);
-  for (const id of ['npc-old-warden', 'npc-night-porter', 'creature-belfry-hound', 'creature-cellar-rats']) relate('present-in', id, CELLAR);
+  for (const id of ['npc-old-warden', 'npc-night-porter', 'creature-belfry-hound', 'creature-cellar-rats', 'creature-yard-mule', 'npc-coal-carter'])
+    relate('present-in', id, CELLAR);
   const coverage = Object.fromEntries(['structure', 'world', 'actors', 'relationships', 'events', 'knowledge', 'causal', 'mechanics', 'assets', 'direction'].map(key => [key, 'accepted']));
   return {contract_id: 'coc.module-graph.v3', schema_version: 3, module_id: MODULE, source_languages: ['en'], section_ids: ['section-bench'], coverage,
     coverage_by_section: {'section-bench': coverage}, node_refs_by_section: {'section-bench': nodes.map(entry => entry.node_id)}, nodes, claims, relations, source_refs: []};
@@ -129,7 +141,7 @@ async function table(t, module = 'partial-bench', seed = 'partial') {
   const apply = (...effects) => call('table.apply', {call_id: id(), effects});
   const resolveAction = action => call('table.resolve', {call_id: id(), action});
   const receipts = async () => (await call('table.status')).receipts;
-  return {call, world, saved, apply, resolve: resolveAction, receipts};
+  return {call, world, saved, apply, resolve: resolveAction, receipts, id};
 }
 const fight = target => ({intent: 'combat', goal: 'drive it off', method: 'fists', target, weapon: 'unarmed'});
 /** The refusal an entry gives; it must be the kernel's own `needs`, never an internal error. */
@@ -191,7 +203,8 @@ test('CK-F2: a fight against a person whose block lacks characteristics is refus
   // The no-stat-block refusal's list of who can be fought counts only a block that lacks nothing.
   const none = await refusal(game.resolve(fight(PORTER)));
   assert.match(none.message, /has no stat block/);
-  assert.deepEqual(none.details.needs.fightable, ['cellar-rats'], 'the hound and the warden have a block, but no fight can be built on it');
+  assert.deepEqual(none.details.needs.fightable, ['cellar-rats', 'coal-carter', 'yard-mule'],
+    'the hound and the warden have a block, but no fight can be built on it; a fight never reads MOV');
 });
 
 // ---------------------------------------------------------------------------------------------------
@@ -307,4 +320,146 @@ test('CK-F2: once completed, the familiar\'s body takes damage from its complete
   await game.apply({kind: 'damage', subject: 'Chapel familiar', dice: '1D3', why: 'a thrown stone'});
   const hp = (await game.world()).npc_resources['chapel-familiar'].current_hp;
   assert.ok(hp >= BEASTS.Dog.hp - 3 && hp <= BEASTS.Dog.hp - 1, `hit points ${hp} come off the completed ${BEASTS.Dog.hp}`);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// CK-F2 review follow-up 1: the first blow prepares an incomplete block instead of losing the attack.
+// ---------------------------------------------------------------------------------------------------
+
+test('CK-F2 follow-up: the first-blow row lists every target a fight cannot read, with the completion each takes', async t => {
+  const game = await table(t);
+  const row = (await game.call('table.resolve.options')).context.first_blow;
+  assert.deepEqual([...row.targets].sort(), [CARTER, RATS, HOUND, PORTER, WARDEN, MULE].sort());
+  assert.deepEqual([...row.preparation.targets].sort(), [HOUND, PORTER, WARDEN].sort(),
+    'no block, or a block lacking STR, SIZ, DEX or CON; the mule and the carter lack only MOV, which a fight never reads');
+  assert.deepEqual(row.preparation.completions, {[HOUND]: 'creature', [PORTER]: 'archetype', [WARDEN]: 'archetype'});
+  // The host's preparation need names the completion call for a creature, never a person tier and never a number.
+  const action = target => ({decision: 'combat:attack', intent: 'combat', target, weapon: 'unarmed'});
+  const [hound] = attackPreparationNeeds(row, action(HOUND));
+  assert.equal(hound, `Prepare ${HOUND}'s combat profile through apply npc {name: "${HOUND}", creature: <a rules-catalog creature from lookup kind=catalog kinds=["creature"]>}; the catalog completes only what its stat block lacks.`);
+  assert.doesNotMatch(hound, /archetype|\d/);
+  assert.match(attackPreparationNeeds(row, action(WARDEN))[0], /through apply npc with a source-supported archetype/);
+  assert.deepEqual(attackPreparationNeeds(row, action(MULE)), [], 'a block complete in four is ready');
+  // A block complete in four with no MOV opens a fight.
+  const started = await game.resolve(fight(MULE));
+  assert.ok(started.session.participants.some(entry => entry.name === 'yard-mule'), JSON.stringify(started.session));
+  // Completion takes the target off the list.
+  const other = await table(t);
+  await other.apply({kind: 'npc', name: HOUND, creature: 'Rat Pack', why: 'it fights like a cornered rat'});
+  const ready = (await other.call('table.resolve.options')).context.first_blow;
+  assert.deepEqual([...ready.preparation.targets].sort(), [PORTER, WARDEN].sort());
+  assert.deepEqual(ready.preparation.completions, {[PORTER]: 'archetype', [WARDEN]: 'archetype'});
+});
+
+test('CK-F2 follow-up: the real first-blow path -- check_preparation retains the attack on the familiar, the completion readies the row, the attack replays', async t => {
+  const game = await table(t, 'mystery-house');
+  await game.apply({kind: 'npc', name: 'Chapel familiar', to: 'here', why: 'it drops from the rafters'});
+  const INPUT = 'I punch the chapel familiar.', TARGET = 'Chapel familiar';
+  const handlers = new Map(), dispatched = [], trace = [];
+  const pi = {events: {on: (name, fn) => handlers.set(name, fn), emit: (name, value) => handlers.get(name)?.(value)}, on: () => {}, registerTool: () => {}};
+  const engine = createHybridEngine({npcAct: null, decision: null, env: process.env});
+  engine.extension(pi);
+  pi.events.emit('coc:kernel-bridge', {campaign: 'c1', call: (method, args) => game.call(method, args)});
+  // The gateway's stand-in: the clerk's write goes to the real kernel under a minted call id.
+  pi.events.emit('coc:operation-dispatcher', {dispatch: async operation => {
+    dispatched.push(structuredClone(operation.args));
+    const result = await game.call(`table.${operation.operation}`, {...operation.args, call_id: game.id()});
+    return {status: 'succeeded', receipts: result.receipts ?? [], result};
+  }});
+  const plan = engine.runDriver.prepare({runId: 'blow', inputRevision: 'input', rawInput: INPUT, session: {}});
+  const signal = new AbortController().signal;
+  const invocation = step => ({runId: 'blow', stepId: step, operationId: step, origin: 'policy', inputRevision: 'input', scopeId: 'root', signal});
+  const read = (step) => plan.ports.read.read({origin: 'policy', operation: 'read', readOnly: true}, invocation(step));
+  const first = (await read('read')).artifact.fresh;
+  const candidate = first.candidates.find(item => item.clerk === 'first_blow');
+  assert.ok(candidate, 'the first blow is offered');
+  assert.deepEqual(candidate.basis.row.preparation.completions[TARGET], 'creature');
+  // 1. The selected attack is refused for preparation before any dispatch.
+  const refused = await plan.ports.operations.execute({origin: 'policy', operation: 'execute', params: {candidate, extra: {target: TARGET, weapon: 'unarmed'}}}, invocation('blow'));
+  const summary = refused.artifact.executed.summary;
+  trace.push({step: 'execute', refusal: summary.refusal, needs: summary.preparation.needs, action: summary.action});
+  assert.equal(summary.refusal, 'check_preparation');
+  assert.equal(dispatched.length, 0, 'the unprepared attack never reached combat dispatch');
+  assert.deepEqual(summary.preparation.needs, [`Prepare ${TARGET}'s combat profile through apply npc {name: "${TARGET}", creature: <a rules-catalog creature from lookup kind=catalog kinds=["creature"]>}; the catalog completes only what its stat block lacks.`]);
+  // 2. The step policy retains it with the chosen target, method and weapon.
+  const view = initialView({runId: 'blow', rawInput: INPUT, context: first.context, candidates: first.candidates});
+  settleExecute(view, 1, {kind: 'direct', purpose: 'execute', candidate}, refused.artifact.executed, refused.artifact.fresh, 1);
+  assert.equal(view.preparingAttacks.length, 1);
+  const kept = view.preparingAttacks[0].bound;
+  trace.push({step: 'retained', target: kept.target, method: kept.method, weapon: kept.weapon});
+  assert.deepEqual([kept.target, kept.method, kept.weapon], [TARGET, INPUT, 'unarmed']);
+  // 3. The completion the need names, then the refreshed row is ready.
+  const completion = {kind: 'npc', name: TARGET, creature: 'Dog', why: 'the familiar is the size and temper of a dog'};
+  await game.apply(completion);
+  const fresh = (await read('reread')).artifact.fresh;
+  const row = fresh.candidates.find(item => item.clerk === 'first_blow').basis.row;
+  trace.push({step: 'refreshed', preparation_targets: row.preparation.targets});
+  assert.equal(row.preparation.targets.includes(TARGET), false);
+  settleExecute(view, 2, {kind: 'direct', purpose: 'execute', call: {method: 'apply', params: {effects: [completion]}}}, {ok: true, summary: {}}, fresh, 1);
+  assert.equal(view.preparingAttacks.length, 0, 'released by the ready row');
+  const resumed = view.pending[0];
+  assert.equal(resumed.reason, 'attack_prepared');
+  assert.deepEqual([resumed.candidate.bound.target, resumed.candidate.bound.method, resumed.candidate.bound.weapon], [TARGET, INPUT, 'unarmed']);
+  // 4. The replay resolves the same attack and opens the fight.
+  const replayed = await plan.ports.operations.execute({origin: 'policy', operation: 'execute', params: {candidate: resumed.candidate, extra: {}}}, invocation('replay'));
+  assert.equal(replayed.artifact.executed.ok, true, JSON.stringify(replayed.artifact.executed.summary));
+  assert.equal(dispatched.length, 1);
+  const action = dispatched[0].action;
+  trace.push({step: 'replayed', target: action.target, method: action.method, weapon: action.weapon, decision: action.decision});
+  assert.deepEqual([action.target, action.method, action.weapon, action.decision], [TARGET, INPUT, 'unarmed', 'combat:attack']);
+  const fighter = (await game.saved('combat.json')).participants.find(entry => entry.actor_id === 'chapel-familiar');
+  assert.deepEqual([fighter.combat_skill, fighter.dodge_skill, fighter.hp_max], [50, 40, BEASTS.Dog.hp]);
+  t.diagnostic(`retained-attack trace: ${JSON.stringify(trace)}`);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// CK-F2 review follow-up 2: a runner on foot reads its own MOV; a driver and a passenger do not.
+// ---------------------------------------------------------------------------------------------------
+
+test('CK-F2 follow-up: a foot pursuer without MOV is refused with its completion, and the chase starts once it is completed', async t => {
+  const game = await table(t);
+  const flee = {decision: 'chase:start', intent: 'flee', goal: 'get away', method: 'up the stairs', target: MULE};
+  const error = await refusal(game.resolve(flee));
+  assert.equal(error.message, `${MULE}'s stat block has no derived.MOV: a chase by ${MULE} reads it, and none is assumed`);
+  assert.equal(error.details.reason, 'stat_block_incomplete');
+  assert.deepEqual(error.details.missing, ['derived.MOV']);
+  assert.deepEqual(error.details.needs, {field: 'creature', options: CATALOG});
+  assert.match(error.fix, /^complete the block first with apply npc \{name: "Yard mule", creature: <the rules-catalog creature it is/);
+  assert.equal(await game.saved('chase.json'), null, 'nothing was filed');
+  // A person pursuing on foot takes the archetype.
+  const person = await refusal(game.resolve({...flee, target: CARTER}));
+  assert.deepEqual([person.details.missing, person.details.needs.field], [['derived.MOV'], 'archetype']);
+  // Completed: the block lacks only MOV, so the catalog fills it (and nothing the block states).
+  await game.apply({kind: 'npc', name: MULE, creature: 'Horse', why: 'a draught animal'});
+  const profile = (await game.world()).npc_profiles['yard-mule'];
+  assert.equal(profile.derived.MOV, BEASTS.Horse.mov);
+  assert.deepEqual(profile.characteristics, {...profile.characteristics, ...MULE_BLOCK.characteristics});
+  assert.ok(profile.filled.includes('derived.MOV') && !profile.filled.some(path => /STR|CON|SIZ|DEX|derived\.HP/.test(path)), JSON.stringify(profile.filled));
+  const started = await game.resolve(flee);
+  assert.equal(started.session.kind, 'chase', JSON.stringify(started.session));
+  const pursuer = (await game.saved('chase.json')).participants.find(entry => entry.actor_id === 'yard-mule');
+  assert.equal(pursuer.mov_base, BEASTS.Horse.mov, 'the completed MOV, not a reader default');
+});
+
+test('CK-F2 follow-up: a roster driver and passenger need no body MOV; a roster runner on foot does', async t => {
+  const game = await table(t);
+  const me = 'thomas-hayes';
+  // A driver's speed is the vehicle's: the carter states no MOV and drives.
+  const vehicles = await game.resolve({decision: 'chase:start', intent: 'flee', goal: 'drive off', method: 'floor it', chase_roster: [
+    {actor: me, role: 'driver', vehicle: 'car_standard'}, {actor: CARTER, role: 'driver', vehicle: 'pickup_truck'}]});
+  assert.equal(vehicles.session.kind, 'chase', JSON.stringify(vehicles.session));
+  const carter = (await game.saved('chase.json')).participants.find(entry => entry.actor_id === 'coal-carter');
+  assert.equal(carter.mov_base, 14, 'the pickup truck\'s MOV from the rules');
+  // A passenger follows the driver: the mule (no MOV) riding with the carter is not refused for MOV. (A roster passenger
+  // then fails the chase snapshot's own passenger check at start whatever its block -- a defect of the engine outside
+  // CK-F2, reported to the lead -- so this asserts only that the binding asked nothing of its MOV.)
+  const rider = await table(t);
+  const ride = await rider.resolve({decision: 'chase:start', intent: 'flee', goal: 'drive off', method: 'floor it', chase_roster: [
+    {actor: me, role: 'driver', vehicle: 'car_standard'}, {actor: CARTER, role: 'driver', vehicle: 'pickup_truck'},
+    {actor: MULE, role: 'passenger', riding_with: CARTER}]}).then(() => null, error => error);
+  assert.notEqual(ride?.details?.reason, 'stat_block_incomplete', ride?.message);
+  const other = await table(t);
+  const foot = await refusal(other.resolve({decision: 'chase:start', intent: 'flee', goal: 'run', method: 'out the door', chase_roster: [
+    {actor: me, role: 'foot'}, {actor: MULE, role: 'foot'}]}));
+  assert.deepEqual([foot.details.reason, foot.details.missing, foot.details.needs.field], ['stat_block_incomplete', ['derived.MOV'], 'creature']);
 });

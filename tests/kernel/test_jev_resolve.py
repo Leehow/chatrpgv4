@@ -63,6 +63,8 @@ def test_options_is_read_only_and_uses_canonical_sheet_and_rule_vocabulary(kerne
             ],
             "preparation": {
                 "targets": ["Steven Knott"],
+                # §180.6 (CK-F2 review follow-up): the completion each listed target takes.
+                "completions": {"Steven Knott": "archetype"},
                 "weapons": [
                     "notebook and stub pencil",
                     "set of lockpicks",
@@ -167,6 +169,7 @@ def test_first_blow_names_target_and_preparations_until_the_fight_opens(kernel):
         ],
         "preparation": {
             "targets": ["Steven Knott"],
+            "completions": {"Steven Knott": "archetype"},
             "weapons": [
                 "notebook and stub pencil", "set of lockpicks", "flashlight", "badge that impresses clerks more than cops",
             ],
@@ -185,6 +188,7 @@ def test_first_blow_names_target_and_preparations_until_the_fight_opens(kernel):
         ],
         "preparation": {
             "targets": [],
+            "completions": {},
             "weapons": [
                 "notebook and stub pencil", "set of lockpicks", "flashlight", "badge that impresses clerks more than cops",
             ],

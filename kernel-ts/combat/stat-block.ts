@@ -16,7 +16,7 @@ import type { Row } from '../read/values.js';
 import { archetypeIds } from '../apply/archetype.js';
 import { catalogCreatureNames } from '../apply/creature.js';
 import { npcProfileOf } from '../resolve/context.js';
-import { hitPointGaps, participantGaps } from './profiles.js';
+import { hitPointGaps, participantGaps, statBlockGaps } from './profiles.js';
 
 /**
  * The refusal for `node`'s block, which lacks `missing` (paths, `characteristics.STR`). `use` says what reads them
@@ -40,6 +40,18 @@ export async function incompleteStatBlock(kernel: KernelContext, graph: ModuleGr
 /** Refuse `use` when `profile` lacks what a participant is built from; the block is returned when it lacks nothing. */
 export async function requireParticipantBlock(kernel: KernelContext, graph: ModuleGraph, node: Row, handle: string, profile: Row, use: string): Promise<Row> {
     const missing = participantGaps(profile);
+    if (missing.length)
+        throw await incompleteStatBlock(kernel, graph, node, handle, missing, use);
+    return profile;
+}
+
+/**
+ * Refuse `use` when `profile` lacks what a runner on foot is read from (§143.12, §180.6 CK-F2 review follow-up): the
+ * participant's characteristics and the runner's own `derived.MOV`, which nothing assumes. A driver's speed is the
+ * vehicle's and a passenger follows the driver, so neither is held to this.
+ */
+export async function requireRunnerBlock(kernel: KernelContext, graph: ModuleGraph, node: Row, handle: string, profile: Row, use: string): Promise<Row> {
+    const missing = statBlockGaps(profile);
     if (missing.length)
         throw await incompleteStatBlock(kernel, graph, node, handle, missing, use);
     return profile;
