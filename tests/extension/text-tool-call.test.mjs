@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
-import {readTextToolCalls, textToolCallFix, textToolCalls} from '../../extensions/kernel/text-tool-call.ts';
+import {readTextToolCalls, restoreTextCallList, textToolCallFix, textToolCalls} from '../../extensions/kernel/text-tool-call.ts';
 import {COC_TOOLS} from '../../extensions/kernel/tools.ts';
 import {openTable, waitForIdle, customMessages, assistantTexts} from './harness.mjs';
 import {createHybridEngine} from './hybrid-engine-fixture.mjs';
@@ -254,3 +254,70 @@ for (const engine of ['legacy','hybrid-v1']) test(`§160.4 on the ${engine} engi
     // The driven run names the fix its spent steer could not carry (§135.11 addendum).
     if (engine==='hybrid-v1') assert.ok(table.telemetry().some(row=>row.lane==='turn'&&row.event==='turn_close'&&row.unsent_fix==='text-tool-call'));
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// §160.4.1: setup has no table, so a reply whose whole text is a call list is restored as those calls at the first
+// message_end, as §160.3 restores `to=functions`, and Pi answers each one. The recorded replies are gc-11's two setup
+// turns (xai/grok-4.5, 2026-09-11), verbatim: each one fenced `{name, arguments}` envelope the player read as the reply.
+// ---------------------------------------------------------------------------------------------------------
+
+const SETUP = LIST.setup.messages;
+const reply = (text, extra = {}) => ({role:'assistant', stopReason:'stop', content:[{type:'thinking',thinking:'…'},{type:'text',text}], ...extra});
+
+test('§160.4.1: each recorded setup reply is restored as its one setup call, arguments unchanged, no text left', () => {
+    for (const recorded of SETUP) {
+        const written = JSON.parse(recorded.text.replace(/^```json\n|\n```$/g,''));
+        const out = restoreTextCallList(reply(recorded.text));
+        assert.deepEqual(out.restored,['setup']);
+        assert.deepEqual(out.forms,[{label:null,array:false,key:'arguments'}]);
+        assert.equal(out.message.stopReason,'toolUse');
+        assert.deepEqual(out.message.content.map(block=>block.type),['thinking','toolCall']);
+        assert.deepEqual(out.message.content[1].arguments,written.arguments);
+        assert.match(out.message.content[1].id,/^textcall_[0-9a-f]{24}$/);
+    }
+});
+
+test('§160.4.1: a labelled array restores in order; an inactive tool and string arguments are restored for Pi to answer', () => {
+    const list = 'calls:['+named2('setup',{step:'start'},'parameters')+','+JSON.stringify({setup:{step:'note',slot:'name',value:'Ada'}})+']';
+    const out = restoreTextCallList(reply(list));
+    assert.deepEqual(out.message.content.filter(block=>block.type==='toolCall').map(block=>[block.name,block.arguments]),
+        [['setup',{step:'start'}],['setup',{step:'note',slot:'name',value:'Ada'}]]);
+    const odd = restoreTextCallList(reply('['+named2('rm_rf',{path:'/'})+','+named2('setup',JSON.stringify({step:'start'}))+']'));
+    assert.deepEqual(odd.message.content.filter(block=>block.type==='toolCall').map(block=>[block.name,block.arguments]),
+        [['rm_rf',{path:'/'}],['setup',{}]]);
+});
+
+test('§160.4.1: prose around the JSON, a message with a call already, and a failed message are left as they were', () => {
+    const fenced = SETUP[0].text;
+    for (const message of [
+        reply('I start the setup.\n'+fenced),
+        reply(fenced+'\nDone.'),
+        {...reply(fenced), content:[...reply(fenced).content,{type:'toolCall',id:'c1',name:'setup',arguments:{step:'start'}}]},
+        reply(fenced,{stopReason:'error'}), reply(fenced,{stopReason:'aborted'}), reply(fenced,{stopReason:'length'}),
+        {role:'user',content:[{type:'text',text:fenced}]},
+        reply('我先问问玩家想玩哪一本。'),
+    ]) assert.equal(restoreTextCallList(message),undefined,JSON.stringify(message).slice(0,120));
+});
+
+test('§160.4.1 through a real setup process: the recorded reply runs setup start, and the player never reads the fence', async t => {
+    const table = await openTable({mode:'setup', campaign:null, responses:[
+        fauxAssistantMessage([{type:'thinking',thinking:'Start the setup.'},{type:'text',text:SETUP[0].text}]),
+        fauxAssistantMessage('Which book would you like to play?'),
+    ]});
+    t.after(() => table.dispose());
+    assert.deepEqual(table.activeTools(),['setup']);
+    await table.session.prompt(SETUP[0].player_text);
+    await waitForIdle(table.session,{timeoutMs:60000});
+    const first = table.session.messages.find(message=>message.role==='assistant');
+    assert.deepEqual(first.content.filter(block=>block.type==='toolCall').map(block=>[block.name,block.arguments.step]),[['setup','start']]);
+    // The setup tool itself executed the step and answered with its own result: the guide reads that the table's
+    // first step is choose-source, as it would after a native call.
+    const results = table.session.messages.filter(message=>message.role==='toolResult'&&message.toolName==='setup')
+        .map(message=>JSON.parse(message.content.map(block=>block.text).join('')));
+    assert.deepEqual(results.map(result=>result.step),['start']);
+    assert.match(results[0].rejected,/Next step: choose-source/);
+    assert.equal(/```|"name"/.test(shown(table)),false,shown(table));
+    assert.ok(shown(table).includes('Which book would you like to play?'));
+    assert.deepEqual(table.entries('coc-telemetry').filter(row=>row.event==='text_call_list').map(row=>row.restored),[['setup']]);
+});
+

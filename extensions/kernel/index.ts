@@ -9,7 +9,7 @@ import {permitsReferenceOperation} from '../../runtime/jev/interaction-scope.ts'
  * docs/kernel-rpc.md §8.
  */
 
-import { readTextToolCalls, textToolCallFix } from "./text-tool-call.ts";
+import { readTextToolCalls, restoreTextCallList, textToolCallFix } from "./text-tool-call.ts";
 import {narrationTransport} from './narration-transport.ts';
 import {HistoricalReference, historyEnabled, historyContext, historyBindingMatches, type HistoryInput, type HistoryResult} from '../../runtime/historical-reference.ts';
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -1365,8 +1365,15 @@ export default function (pi: ExtensionAPI) {
 		let active: string[] = [];
 		try { active = typeof pi.getActiveTools === "function" ? pi.getActiveTools() : []; } catch { active = []; }
 		const restored = restoreTextualToolCalls(event.message as any, name => active.includes(name));
-		if (!restored) return undefined;
 		const message = event.message as any;
+		if (!restored) {
+			// §160.4.1: setup has no table, so a reply whose whole text is a call list is restored here, and Pi answers each call.
+			const list = cocMode() === "setup" ? restoreTextCallList(message) : undefined;
+			if (!list) return undefined;
+			void record({ lane: "model-output", event: "text_call_list", restored: list.restored, forms: list.forms,
+				provider: message?.provider ?? null, model: message?.model ?? null, stop_reason: message?.stopReason ?? null });
+			return { message: list.message };
+		}
 		void record({ lane: "model-output", event: "textual_tool_calls", restored: restored.restored,
 			provider: message?.provider ?? null, model: message?.model ?? null, stop_reason: message?.stopReason ?? null });
 		return { message: restored.message };
