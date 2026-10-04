@@ -26966,6 +26966,47 @@ once, the roll on the bind row, the note's line); `tests/extension/single-loop-b
 over both band shapes); `tests/extension/single-loop-run-driver.test.mjs` (the fake kernel's opening turn now routes the
 time band's fact beside the exit).
 
+#### 138.10.1 Addendum (2026-10-04, environment acceptance): the `momentary` row -- an act of a moment costs 0 or 1 whole minute
+
+The coordinator chose option a of the environment acceptance's turn-4 finding: a data row, with no new question and no
+schema change.
+
+**Evidence.** On the table `environment-v225-baseline-20261004`, at turn 4, the player said
+"我在街边安静停留半分钟，只听听周围的声音，不碰门窗。" (stay half a minute and listen). The clerk's band question named
+`quick_observation` (0.99), and the kernel rolled 3 minutes inside its `[0, 5]` (`time:t4-c1`, `basis: banded`). That is
+within this section as written. No row was shorter than speaking briefly (`[0, 3]`), and time is charged once a turn, so the
+Keeper could not settle it lower afterwards.
+
+**The rule.** `time-costs.categories` gains `momentary` `{min 0, default 0, max 1}`. It is the table's first row; the order is
+only the order of the band question's options. It reaches the clerk the way every row does:
+- `rules.bands` lists it;
+- the declared-time candidate offers it in its closed band choice, labelled by the row's own handle and range;
+- the Keeper may name it on `apply time {band}`;
+- the kernel rolls 0 or 1 with its seeded dice and records `basis: banded`.
+
+**What it is not:**
+- **Seconds.** Clock minutes stay whole: a half-minute act is charged 0 or 1 minute, an integer approximation, never 30
+  seconds. Seconds would be a clock schema change, and none is made.
+- **A reading of the player's words.** No duration is parsed out of the declaration; Jev's existing band choice picks the row.
+- **A change to the route's fact.** The time candidate's fact question still decides whether the declaration costs table
+  time at all. Its `none` already covers a glance or a word that takes no time worth the clock.
+
+**Not changed:**
+- the other rows, the gates, and when the clerk lands a band;
+- the road rows (§138.9), whose fill reads only `local_travel` and `long_travel`;
+- `content/director/director-graph.json`, whose `time-cost-category` vocabulary nodes the TS kernel never reads (§13.10), so
+  `momentary` has no node there;
+- `rule-index.json`'s `category_count`, which no one reads (it already said 15 against 16).
+
+**Tests.** `tests/extension/time-band-momentary.test.mjs`:
+- **On the emitted kernel.** `rules.bands` lists the row with its range and default. `apply time {band: "momentary"}` rolls 0
+  or 1, both across eight seeds, with the receipt's `band_roll`.
+- **Through the hybrid engine over the haunting with a stub Jev.** The band question offers `momentary` beside the kernel's
+  other rows. Naming it charges one time receipt of 0 or 1 minute.
+
+`tests/extension/band-shadow.test.mjs` pins the shipped rows, and now pins `momentary` first. Three mutations of the data row
+(dropped, `max` 5, `default` 1) each turn a case red.
+
 ## 139. An excerpt a model copied out of delivered text is located with quotation marks as one class (2026-09-26; amends §12.5's `table.warn` anchoring and the continuity-review rows)
 
 **Evidence.** `table.warn` kept a verifier finding only if its `quote` was an exact substring of the turn's `rendered_text`. The verifier answers in JSON; a prose line in ASCII double quotes has to be escaped inside a JSON string, and the model retypes the marks as curly ones instead. Across about 700 verified turns (playtests, the long gates, the App's own campaigns) the findings on turns whose prose used ASCII `"` were dropped 44% of the time (36 findings, 16 dropped; 5 of 16 turns lost every finding, among them temper-b t8, where three speakers talked with no speech markers and all seven findings were dropped), against 1% with corner brackets, 0% with curly quotes and 4% with no quotation marks. A dropped finding is a warning the next capsule never shows the Keeper.

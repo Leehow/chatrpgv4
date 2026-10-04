@@ -1,7 +1,14 @@
 # Environment acceptance turn 2/4 state findings (§135.30.10): handoff
 
-Status: fix ready for integration on branch `claude/declared-move-once-20261004`, based on `1e5d64e52` (the 0.9.6a head accepted
-at 19:01 UTC). Not merged, not packaged, not pushed.
+Status: ready for the coordinator's review, on branch `claude/declared-move-once-20261004` based on `1e5d64e52` (the 0.9.6a
+head accepted at 19:01 UTC). Not merged, not packaged, not pushed.
+
+**Coordinator decisions (2026-10-04):**
+- The clerk selects one destination per declaration; the Keeper's own `apply` carries a compound second place.
+- NPC movement and owed moves are not part of the clerk's record.
+- Knott stays a model error on the 1.4.6 lock, with no special case. The 1.5.0 cue removal is to be verified in the final
+  package.
+- Time takes option a: the `momentary` row, along the existing closed band choice.
 
 What was not done or touched:
 - no paid model call;
@@ -23,7 +30,7 @@ What was not done or touched:
 | 2 | Turn 2: `npc:steven-knott-t2-c4`, Knott `to: here` (the neighbourhood), and no narration of him | **The Keeper's own `apply`** | **Model error**, not a kernel bug |
 | 3 | Turn 4: "我在街边安静停留半分钟…" charged 3 minutes (`time:t4-c1`) | Jev chose the band `quick_observation` (0.99), and the kernel rolled 3 inside `[0, 5]` | **Time-granularity contract gap**, not a bug |
 
-## 1. The double move, and the fix (`a9936a4fa` plus the narrowing commit)
+## 1. The double move, and the fix (`a9936a4fa`, narrowed in `b1b7bd99d`)
 
 **Facts.** The turn-2 sentence was "我接下委托，收好诺特给我的钥匙和地址，先去那栋住宅，站在街边查看外观。"
 1. The compiles at the office left `destination` split: s3 had the house 0.52 against the neighbourhood 0.46; s6 had 0.37
@@ -95,7 +102,7 @@ loses this cue. A campaign locked to ≤1.4.6 keeps it.
 - (b) After review, add "nor a `pending_contacts` handle" to the `owed_unknown` note. This is model-specific note wording, so
   it is not proposed now.
 
-## 3. Turn-4 time granularity (decision, not built)
+## 3. Turn-4 time granularity: option a, built (contract §138.10.1)
 
 **Facts.**
 - Jev chose `quick_observation` with confidence 0.99.
@@ -115,6 +122,22 @@ loses this cue. A campaign locked to ≤1.4.6 keeps it.
 | a (narrowest) | One data row in `content/rulesets/coc7/rules-json/time-costs.json`, e.g. `momentary` `{min 0, default 0, max 1}`, offered to Jev's existing band choice | "听半分钟", "看一眼": rolls 0–1 | No code or schema. The kernel reads `rules-json` from `content/` at runtime (`context.content`), not from the campaign, so existing campaigns get it with the app. Jev picks by row name only. |
 | b | A closed Jev question in the time bind asking whether the player stated a duration, as a rung of a fixed ladder mapped to minutes, used instead of the roll | any stated duration | A new question and a §138.10 amendment. Wider. |
 | c | No change | — | A momentary act can still cost up to 5 minutes. |
+
+**Built (option a).** `time-costs.categories` gains `momentary` `{min 0, default 0, max 1}` as its first row.
+- It reaches Jev through the existing declared-time band choice (`rules.bands` → the candidate's closed options). There is no
+  new question, no keyword and no inferred seconds.
+- **Integer approximation:** the kernel rolls 0 or 1 whole minute. "半分钟" is never 30 seconds.
+- The route's fact question is unchanged; its `none` already covers a glance that costs no clock time.
+- Not touched:
+  - `director-graph.json`'s unread `time-cost-category` nodes (no `momentary` node; §13.10, digest-guarded);
+  - `rule-index.json`'s unread `category_count`.
+
+Tests:
+- `tests/extension/time-band-momentary.test.mjs`. On the emitted kernel, `rules.bands` lists the row, and a banded time rolls
+  0 or 1, both across eight seeds. Through the hybrid engine over the haunting, the band question offers `momentary` beside the
+  other rows, and naming it charges one receipt of 0 or 1 minute.
+- `band-shadow.test.mjs`'s pinned shipped rows were updated.
+- Three data mutations (row dropped, `max` 5, `default` 1) each turn a case red.
 
 ## Reproduction and verification (no model call)
 
@@ -145,12 +168,30 @@ loses this cue. A campaign locked to ≤1.4.6 keeps it.
 | destination-rows | 6/6 |
 | candidates | 18/18 |
 
-**Box suites** (leehow-pc WSL, on `a9936a4fa`, before the narrowing):
+**Box suites.** Both ran on leehow-pc WSL, on source `a9936a4fa`, against the emitted kernel built on the box from that tree.
+They cover only `a9936a4fa`.
 
-| suite | result | wall | log |
-| --- | --- | --- | --- |
-| loop | 306/306, exit 0 | 243 s | `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-declared-move/remote-loop.log` |
-| ext | 4560/4560, exit 0 | 649 s | `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-declared-move/remote-ext.log` |
+| suite | result | wall | task | log |
+| --- | --- | --- | --- | --- |
+| loop | 306/306, exit 0 | 243 s | `bh3v20srm` | `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-declared-move/remote-loop.log` |
+| ext | 4560/4560, exit 0 | 649 s | `brvem6xuq` | `/home/box/chatrpgv4-testbox/wt/chatrpgv4-wt-declared-move/remote-ext.log` |
 
-The narrowing commit has not had a box suite run on it; it waits for the coordinator's queue. Its own file passes 7/7, and the
-mutation set was re-run on it.
+**Not covered by any full suite:**
+- the narrowing (`b1b7bd99d`);
+- the `momentary` row (the commit after it).
+
+By the coordinator's rule, no further full suite was started. Those two were verified by their own files and the related single
+files.
+
+Narrowing:
+- `single-loop-one-destination` 7/7;
+- compile 17, one-check 6, guard-unlock 7, ask-fanout 18, destination-rows 6, candidates 18;
+- 14/14 mutations killed.
+
+Momentary:
+- `time-band-momentary` 2/2;
+- band-shadow 7, single-loop-band-clerk 6, jev-band-shadow-domain 9, owed-state 12, travel-fill 8,
+  admission-effect-signature 9;
+- pytest, single files on the Mac (`uv run --frozen`): `test_rules_bands.py` 6, `test_band_operations.py` 12,
+  `test_route_travel.py` 11;
+- 3/3 data mutations killed.
