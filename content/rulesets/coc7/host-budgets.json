@@ -33,7 +33,10 @@
     "min_prose_chars": 40
   },
   "reading": {
-    "idle_ms": 180000
+    "idle_ms": 180000,
+    "whole_book_max_pages": 60,
+    "fallback_window_pages": 24,
+    "merge_budget_ms": 2000
   },
   "after_delivery_lanes": {
     "thinking_floor": "low"

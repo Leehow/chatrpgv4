@@ -33044,6 +33044,131 @@ A sandbox replay of `game-8e41c325` turns 3–6, from the `turn 2:` commit, with
 - **Blinding.** A and B1–B2 were scored blind; B3–B4, C and D were not.
 - **Evidence lost.** The C homes' sandbox campaign state was deleted while D's homes were being built: `make_home.sh` began with `rm -rf`, and now refuses an existing home. C's delivered prose and driver runs are kept.
 
+## 182. Reading follows the book's chapters: a short book is built once, a long book reads the chapter in play and the next; nothing is read that publishes nothing (owner ruling 2026-10-04; amends §148.3, §151.4's background units, §22.4 read-ahead and §184.4)
+
+Owner, 2026-10-04, after the ten-hour measurement of §184 and the stop of two idle tables: 「读书的目的是为了构建图谱和续后续剧情，如果没有产出一直读书不是浪费tokens么」, then 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
+
+**Evidence.** Four tables of the 111-page 血色公路 each added 174–707 nodes to their fork's graph through the background
+reading while their player played 5–10 turns in 2–4 scenes; at most 7–17% of those nodes ever appeared in a message the
+Keeper received. One fork queued 125 jobs, 34 of which failed; every fork had 4–17 completed readings that published no
+node. No fork ever finished: the background read-ahead streams every two-page unit of the whole book (§148.3,
+`referenceSourceUnits`), every 20-page contact sheet and every nominated picture page, then the source needs and a
+whole-book index job that yields to everything and never completed (the library's own index job failed). Nothing in the
+read-ahead looks at where the table is. Since §148 the Keeper reads original excerpts on demand and a material gate
+(`requireMaterial`) starts a foreground read when an operation needs typed material, so the background graph is a
+latency prefetch, not a precondition of play.
+
+### 182.1 The book's chapters come from the book
+
+- **Producer.** The host already reads the PDF's bookmarks (`sourceInfo`, `extensions/module/source.ts`) and passes them
+  in `module.source.bind`'s `source`; the kernel dropped them. The kernel now keeps the top-level bookmarks that carry a
+  page as `source_document.outline: [{name, page}]` (1-based physical pages, sorted by page, at most 200 entries, names
+  at most 200 characters, pages within `page_count`; malformed rows are dropped, not refused). A bound book that predates
+  this gets its outline from a new private host method `module.source.outline {module_id, file_sha256, outline, campaign?}`:
+  the file digest must equal the bound source's, the kernel writes the library's `module.json` and, when `campaign` names
+  a campaign whose fork exists, that fork's too (source metadata, not graph: §22.6's isolation is about generations).
+  Idempotent. The host calls it when a table opens on a visual module whose `module.status` reports no outline.
+- **Chapters.** Chapter *i* is the page range from top-level entry *i*'s page to the page before the next entry with a
+  greater page (the last chapter runs to `page_count`); entries sharing a page collapse to the last of them. A book whose
+  outline yields fewer than two chapters has none; it falls back to the model index's sections when
+  `reading.index_complete`, else to a page window (182.3).
+
+### 182.2 A short book is built once
+
+`page_count <= reading.whole_book_max_pages` (data, `content/rulesets/coc7/host-budgets.json`, shipped 60) is a short
+book. Its read-ahead streams the whole book as today. When every streamed unit, contact sheet, nominated picture page,
+identity check and need has a terminal state on the source (a material row, a terminal job, or a settled disposition),
+the module records `reading.build_complete: {source_sha256, at}` and the read-ahead queues nothing more for that source;
+§184.1 carries the record to the library, and every later fork starts complete. Only a foreground request (a material
+gate, a source consultation) reads after that.
+
+### 182.3 A long book reads the chapter in play and the next one
+
+A book above the threshold has a **reading window**: the chapter that holds the table's current scene and the chapter
+after it in book order. The current scene's page is the first page of its `source_refs` (the anchor the read-ahead already
+computes: `params.focus`, else the start scene); a scene with no page uses the start scene's. Without chapters the window
+is the anchor page through `reading.fallback_window_pages` (data, shipped 24) pages after it. Every background ask of the
+read-ahead is limited to the window: source units whose pages intersect it, contact-sheet ranges that intersect it,
+nominated picture pages, identity pages and map scopes inside it, and need reads whose entity cites a page inside it.
+The adjacent-scene reads of §22.4 (`queueAdjacentReading`) are unchanged: they are the scenes the player can reach next.
+When the player's scene moves into another chapter the next pass of the read-ahead works on the new window; the window
+it left is not read further. Foreground requests are never limited by the window.
+
+### 182.4 Nothing is read that publishes nothing
+
+- The read-ahead does not ask the whole-book `index` job of a book that reads by reference units (`source_reference`)
+  or that has chapters; the index stays available to a foreground request and to books that need its sections.
+- A unit, page or need whose reading completed or settled on the current source is never asked again by the read-ahead,
+  whatever it published; an `unlocated` need becomes eligible again only when a publication added a page or claim for
+  its entity *inside the reading window* (refines §151.4's eligibility).
+- With the window bounded, a table whose window is read has nothing queued and the pump stops; an idle table reads at most
+  the rest of its window.
+- **Telemetry.** The read-ahead's result gains `window: {mode: "whole" | "chapters" | "pages", first, last, chapters:
+  [names], complete?}` and the host writes one `lane: "reading", event: "read_window"` row when the window changes.
+
+### 182.5 Three ends (§31)
+
+Writer: `module.source.bind` and `module.source.outline` write the outline; the read-ahead writes `build_complete`.
+Reader: `queueAheadReading` reads both and the current scene. Actor: the reading pump, which claims only what the window
+queued. Limits: chapters are the book's own bookmarks or the model index; a book with neither reads by page window. The
+chapter that holds the Keeper's background and the endings is read by the opening and guidance reads as today.
+
+**Implementation decisions (2026-10-04, CT-04).** `kernel-ts/modules/chapters.ts` (outline cleaning, chapters, the window,
+the two `reading` budgets with coded fallbacks 60 and 24); `Reading.queueAheadReading`, `buildPending`, `completeBuild` and
+`writeOutline` in `reading.ts`; `needsToAsk`, `needDone` and the window-aware `needEligible` in `need-reads.ts`.
+
+- **Outline.** `source_document.outline` is written only when the host sent `bookmarks`; an empty list is kept (a PDF
+  without bookmarks), so the host does not backfill it again. `module.status` reports `outline`: the entry count, or `null`
+  when none was ever recorded. A replayed `module.source.bind` fills a missing outline. `module.source.outline` is dispatched
+  apart from the scoped methods: it writes the library, and the fork only when `scopedModuleRoot` finds one (never
+  `ensureCampaignModule`); its result is `{module_id, library: written | unchanged | missing, entries, campaign?: written |
+  unchanged | no_fork}`; a digest that is not the bound source's is `invalid_params` with `details.reason: source_mismatch`.
+  The outline is left out of `task_source_revision` and of `module.source.snapshot`'s `revision`, so the backfill at table
+  open neither stales a pending operation nor a navigation cache. The host backfills through
+  `ReadingService.backfillOutline` on `coc:table-open` and when its reader is ready, once per campaign and module per
+  session, and writes `lane: "reading", event: "outline_backfill"` with `state: written | failed`. `table.open`'s own
+  read-ahead runs before that backfill, so the first pass after an upgrade uses the page window and the next one chapters.
+- **Chapters.** An index section starts at the first page it names; an `unreadable` section is no chapter. The anchor is the
+  scene `focus` names (scenes only; a campaign's read-ahead passes its active scene), else the start scene, else page 1; an
+  anchor in the front matter before the first chapter reads from the anchor through the first chapter. The window's
+  `chapters` lists names; in `whole` mode it lists every chapter and carries `complete`.
+- **Which books skip the index (decision).** A short book streams "as today", and for a book that does not read by
+  reference units today includes the index, because its streamed units are cut from the index's sections. The skip for a
+  book with chapters therefore applies to long books. A long non-reference book with bookmarks streams no index units in the
+  background: its window limits needs, identity checks and map scopes, and the adjacent reads go on. Both index producers
+  obey the rule: the read-ahead's ask and `claim`'s `ensureIndexJob`. A background index already queued for such a book is
+  cancelled at the next claim (`state: cancelled`, its detail names §182.4); a foreground request still reads the index.
+- **`build_complete`.** Only a book that streams units (a reference book, or an indexed book under `first_interaction`)
+  can complete. Terminal means: a unit's row or its latest non-cancelled job completed or failed; a contact sheet overviewed
+  or its job terminal; a nominated page with its asset row or a terminal job; an identity page or a map scope with a
+  completed job or the failures after which the read-ahead stops asking; no need that `needsToAsk` would still ask over the
+  whole book; and no live job carrying a read-ahead marker. The record is written under the module's metadata lock, and a
+  fork offers it to the library at once through `syncLibraryFromCampaign` (no publication follows it), the outcome riding on
+  the read-ahead's result as `library_sync`. After it the read-ahead only recovers orphans: no index, no streamed ask, no
+  way-on repair and no adjacent read of its own; the kernel's adjacent reads on a move (§22.4) and foreground reads are
+  unchanged. A long book never records it.
+- **The window.** Units and contact sheets that meet it; nominated pages and identity pages inside it; map scopes with a page
+  inside it; needs whose entity (its node and the claims about it) cites a page inside it, and a deferred need waits for
+  the window's units only. Asks already queued from a window the table left are not cancelled; they drain (at most two per
+  kind) and nothing more is asked there.
+- **Never asked again.** `needDone` (a `read` disposition, or a marked job that completed without settling or failed) is
+  applied before the two-per-pass bound; before, such a need answered `ready` or `blocked` and still used up one of the two
+  asks. `carried` keeps §151.4's re-check once its units are read: it is a deferral to those units, not a settlement.
+  `unlocated` re-opens in the read-ahead only for a page inside the window that the decision did not accept, or a claim
+  citing a page inside it whose digest the decision did not hold (`claim_digests`, recorded at the settlement when the
+  material then is the material decided on, at most 256); a decision without them falls back to "the changed material
+  cites a page inside the window". A request keeps the digest rule. A reference unit whose only jobs were cancelled (a host
+  that stopped) is asked again with `retry`, as the indexed stream and the visual asks already did; before, it answered
+  `blocked` on every pass and used up its ask.
+- **Host.** Every read-ahead call of the reading service goes through `readAhead`, which writes `read_window` when the window
+  differs from the last one seen for the campaign and module, and a `library_sync` row when the result carries one. A failed
+  background ask of any read-ahead kind now calls the read-ahead (before, units only), so a short book whose last ask fails
+  completes without waiting for the next table open.
+- **Tests.** `tests/extension/read-window.test.mjs`; amended for the new `window` field in exact read-ahead results:
+  `tests/kernel/test_visual_reading.py::test_read_ahead_follows_authored_exits_not_index_page_order` and
+  `tests/kernel/test_fast_guidance.py::test_an_opening_published_ready_stays_ready_under_a_later_rule`;
+  `ts-kernel-foundation.test.mjs` lists the new method.
+
 ## 183. Package instructions: whole within a budget, an index beyond it (owner ruling 2026-10-04, option "c" of `docs/specs/mod-section-index.md`; retires §30.7's brief and §40.6's shared brief ceiling)
 
 **Evidence.** A probe of `craft-mod-guidance`'s real provider requests (2026-10-04) found that on every turn after the first the Keeper received every package's **full** `agent.md`, in both engines; narration-craft 13 788 B, its brief 884 B. `context-runtime.ts` deletes `capsule.mods.instructions` before the request and sends the instructions in `coc-context-brief`, which it builds from a `table.capsule {rehydrate: true}` read and caches by package, version and settings. The brief form existed only in the capsule. The App's game-8e41c325 turn-6 request agrees: 107.7 KB protected, of which the capsule without instructions is 26 KB and the seven packages' full texts about 61 KB. So the brief and its 5000-byte ceiling constrained nothing the Keeper read.
@@ -33134,3 +33259,312 @@ Sectioned, with `brief.md` removed and no sentence changed: narration-craft 2.2.
 
 - `tests/extension/mod-section-index.test.mjs`: every refusal of §183.1 by field; the shipped sectioned packages parse against their own `agent.md` and cover it; the trigger lists against `table.apply`'s kinds and the ruleset's families; the form decision under a budget that splits the packages (greedy, unsectioned always whole, the topic list); gates on the opening turn and after it, equipment and people; `mods.sections` text, order and refusals; the kernel gates (a package's `stall_turns`, recover); the selection rule (bar, own threshold, `no_topic`, due, calls, fallback); the message ceiling and `omitted`; and the Keeper's actual provider requests with `COC_INSTRUCTION_BUDGET=1`: resident text in the brief without the section list, the section message last, a cash call this turn loading the price section for the next request, delivered telemetry; Jev unavailable loads by fallback. Nine mutations (no call triggers, the brief keeping the list, no call noting, never indexed, no due, no `no_topic`, no own threshold, unknown topics accepted, the stall setting ignored) each turn a case red.
 - Updated for the retired brief: `craft-mod-guidance` (the later request carries the whole instruction and no section message), `jev-pacing-mod-alignment`, `language-scoped-mods`, `keeper-prose-contract`, `npc-mood`, `context-policy`, `mod-package-boundary`, `tests/kernel/test_mod_director_text.py`, `test_language_barrier.py`, `test_language_mods.py`.
+
+## 184. Provider traffic: the library follows the leading fork, and the Keeper's request keeps its prefix (owner ruling 2026-10-04, `docs/specs/cache-traffic.md`; amends §22.6, §151.4's fork note, §135.23 and the context rows of §19.2)
+
+*Numbered §179 on its work branch; renumbered §184 before it reached 0.9.6a, where §179 is "A turn serves what the act is after" and §183 is taken by the package-instructions branch.*
+
+**Evidence (2026-10-04, installed App, five tables of one 111-page PDF book, Keeper grok-4.5 low, ten hours).** The
+module reading lane spent 27.4 M uncached input tokens in its `read` children (82% of their input cached) and 24.8 M in
+its `verify` units (58%); the Keeper's own channel spent 1.84 M (52%). The reading lane was 96.6% of the uncached
+tokens, because every campaign forked the shared library and read the whole book again in its private workspace:
+§22.6 sends every post-fork publication to the fork and none back, so the library kept the 8 material rows it had on
+2026-09-28 while each finished fork held 108. On the Keeper's side a turn's first call shared only the system prompt
+and tool declarations (25,728 tokens) on most turns, and the brief as well (40,064) on turns where no reading had
+published since the last; after the brief the rebuilt `coc-history` and the new capsule shared nothing. Direct probes
+of `api.x.ai` with the App's credential: the cache matches a token prefix in 128-token blocks, inside a message as
+well as across messages; 384 cached tokens is xAI's own preamble and means nothing of ours matched; a different
+`reasoning.effort` is a different cache; tool declarations are outside the cached prefix.
+
+### 184.1 The library follows the leading fork (amends §22.6)
+
+A fork's accepted reading is source material, never campaign canon. §22.6 keeps its direction -- a library publication
+never changes a forked campaign's graph -- and gains the reverse one:
+
+- **When.** After a campaign-scoped publication that changed the fork's reading state: a `module.read.finish` with
+  outcome `completed` (a graph write, a visual scan, an index, an identity verdict, a guidance acceptance) and a
+  `module.reference.materialize` that published. The kernel does it, inside the same call, after the fork's own
+  writes are durable; the result carries `library_sync: {state: "published", library_generation}` or
+  `{state: "skipped", reason}` or `{state: "failed", detail}`. A sync failure never fails the publication.
+- **Eligibility (the lineage test).** The library module exists, names the same `id` and the same
+  `source_document.file_sha256`, is not a starter (`playsFromReading`), and its current head is this fork's lineage:
+  either `library.generation` equals the fork's `source_generation` (the fork was seeded from the head and nobody,
+  fork or library, has published since), or `library.synced_from.campaign` is this campaign and
+  `synced_from.library_generation` is the library's current `generation` (this fork wrote the head). Which campaign
+  the library followed before does not matter: a campaign created after another's publication forks the deeper library
+  and leads from it. *Amended 2026-10-04: the first wording let only the first campaign that ever published lead, so a
+  later campaign that read further could never give it back.* Anything else is skipped
+  with its reason: `not_a_fork`, `starter`, `library_missing`, `source_mismatch`, `library_advanced` (another
+  campaign's lineage, or the library read on its own after the fork), `nothing_new`.
+- **What the library adopts.** The fork's current graph, published through `ModuleStore.writeGraph` as a new library
+  generation (so ordering, manifest, `assets.json` and digest come from the one writer), with the campaign's opening
+  choice removed: `entry_scene_ids` and every scene record's `is_start` keep the library's own current values, and a
+  scene the library did not have gets `is_start: false`. Asset bytes the graph references and the library lacks are
+  copied. From `module.json`: `reading.materials`, `scene_index`, `visual_scans`, `visual_candidates`,
+  `visual_identity`, `missing`, `retranscriptions`, `resolved_source_needs`, `source_need_dispositions`,
+  `viewed_pages`, `index_complete`, `index_file` (and the file), `prepared_openings`, `character_guidance` (and
+  `character-guidance/<key>/accepted.json`, `public.json`), `source_reference` (and its packet file), `vocabulary`,
+  `languages`, and `status`, `opening`, `opening_ready` recomputed from the adopted graph with `ModuleStore.opening`.
+  Every material `packet_file` named is copied. The library records `synced_from: {campaign, fork_generation,
+  library_generation, at}`.
+- **What stays private.** `opening_choice`, `campaign_scope`, `source_generation`, `library_sync`,
+  `reading.completed` (job ids are the workspace's), `reading.answers` and `answer_seed`, the fork's queue, leases and
+  work directories. The library's own `deepen-queue.json` is not touched.
+- **The fork's record.** After the library commit the fork's `module.json` gets `library_sync: {library_generation,
+  fork_generation, at}`. The lineage test reads `synced_from` on the library, so a crash between the two writes leaves
+  the lineage intact.
+- **Locks.** The library module's `.metadata.lock` (the lock `ensureCampaignModule` seeds under and the library's own
+  reading mutex), eligibility re-checked inside it; the generation directory and `module.json` are published the way
+  every library publication is (an immutable generation directory, one atomic metadata write).
+- **Effect on the next campaign.** `ensureCampaignModule` is unchanged: it copies the library's reading state, so the
+  next fork starts with the material rows, and §151.4's `unitRows` tells its read-ahead that those units are read; a
+  detail request for one of them answers `ready` from the row; the visual-asset pages in `materials` are done.
+- **Telemetry.** The host writes one `lane: "reading", event: "library_sync"` row per publication with the fields of
+  the result (`state`, `reason`, `library_generation`, `module_id`, `campaign`, `job_id`).
+- **Three ends (§31).** Writer: the fork's publication. Reader: `ensureCampaignModule` for the next campaign, and every
+  un-forked campaign that still follows the library (§22.6: "a book whose reading finishes after the campaign exists
+  still reaches it"). Actor: the next campaign's `module.read.ahead`, which queues no unit the rows already answer.
+
+**Implementation decisions (2026-10-04, CT-01).** `syncLibraryFromCampaign` in `kernel-ts/modules/campaign-scope.ts`,
+called from `Reading.finish` and `Reading.publishReferencePlace` under the fork's metadata lock (lock order: fork
+metadata, then library metadata; a seeding holds the campaign's seed lock, then library metadata; nothing that holds the
+library's lock waits on a fork's, so there is no cycle).
+
+- Which finishes: outcome `completed`, not a replay, not an answer put back in the queue, and not `purpose: answer`
+  (§184.4). `settled` and `held` are not publications here; what they wrote travels with the fork's next one. A
+  library-scoped publication carries no `library_sync` field.
+- The lineage test also requires `synced_from.library_generation` to equal the library's generation, so a library
+  publication of its own after a sync ends the lineage, as §184.4 says. A fork seeded from the current head is eligible
+  whoever the library followed before (fixed 2026-10-04 with a case in `library-follows-fork.test.mjs`: a campaign
+  created after the first one's publications reads a unit beyond it and the library adopts it). `nothing_new` is decided on content: the adopted
+  graph and fields equal the library's current ones.
+- Every adoption writes a new library generation, even when the graph bytes are unchanged (a visual scan, an empty
+  unit), so each material row new to the library gets that generation as its `generation`; a row the library already
+  holds (equal but for `generation`) keeps its own. `focusTouched` and the identity order compare rows with the module's
+  own generation, and a fork's numbering is not the library's.
+- Artifacts: a path the library references now is the library's own bytes (the fork copied them at its seed) and is
+  kept; every other artifact is copied to `synced/<campaign>/<the fork's relative path>` and the pointer (`asset_ref`,
+  `index_file`, `packet_file`) rewritten, because `work/read-N/attempt-M` ordinals collide between the library and every
+  fork. Guidance files are found by key and are replaced atomically in place.
+- `reading.map_candidates` travels with the index: it is the index finish's own output, read beside `index_file`.
+  `index_file`/`index_complete` are adopted only from a fork whose index is complete. A field the fork lacks never
+  unsets the library's.
+- `is_start` is restored on `properties.runtime_projection.record`, the only place `applyOpeningChoice`'s write
+  persists; the `is_entrance` it adds to every candidate is the book's declaration and stays.
+- `library_sync` is left out of `task_source_revision` (beside `reading` and `updated_at`): it is written after the
+  fork's publication, whose exact source advance (§22.4 ownership) was measured before it.
+- The host's row: `{lane: "reading", event: "library_sync", module_id, campaign, job_id, ...library_sync}` after both
+  completed-finish call sites, and after `module.reference.materialize` (no `job_id`).
+- Tests: `tests/extension/library-follows-fork.test.mjs`, `campaign-module-isolation.test.mjs` (amended),
+  `map-publication.test.mjs` (the host row).
+
+### 184.5 A fork that is not the library's lineage gives back its readings one by one (owner ruling 2026-10-04, 「点头」; amends §184.1 and §184.4)
+
+Owner, 2026-10-04: 「如果重开的话应该能做到复制一份共享图谱，如果有比共享图谱解析更多的内容可以回去添加共享图谱对吧？」, and after the
+lead described the reading-level merge, 「点头」. §184.1's fast-forward stays the first choice. When the lineage test fails
+(`library_advanced`: two campaigns forked the same head and the other one published first, or the library moved after
+this fork's base), the fork's readings the library lacks are published into the library **one at a time, through the
+library's own reading publication** -- the same `module.read.finish` (or `module.reference.materialize`) checks a library
+reading passes: the draft against the contract, the independent review, the merge into the current library graph
+(`assembleVisual`: a re-transcription of a published span is recorded, a conflicting value refuses), identity, opening
+readiness, and the single atomic generation write. No model is called; it costs no tokens.
+
+- **Which readings.** Every material row of the fork whose `key` the library's `reading.materials` does not hold, whose
+  fork job completed (not settled, not failed, not cancelled) with its attempt directory still holding the artifacts its
+  finish read (`packet.json`, `draft.json`, `review.json`, `observations.json`, and the identity review and rendered
+  assets when its finish had them), in the order the fork finished them. Source places (`module.reference.materialize`,
+  key `source-place:<scene>`) replay through `module.reference.materialize`. Not merged: source consultations
+  (`purpose: answer`, §184.4), guidance, identity-review jobs and settled needs; they are counted as skipped with their
+  reason.
+- **How.** For each reading, under the library module's metadata lock: the fork's attempt directory is copied to
+  `work/merged/<campaign>/<fork job id>/` in the library (never a `work/read-N` ordinal, which collide), a library queue
+  job is written with the fork job's identity (`key`, `purpose`, `focus`, `question`, `pages` and its JOB_MARKERS), state
+  `running`, a fresh lease and that work directory, and the library's own finish runs on it with the fork's draft, review,
+  identity review and assets (the rendered PNGs named by the fork graph's `asset_ref` for the draft's nodes, copied into
+  the merged directory with their digests). A refusal ends that reading's merge only: its library job is marked failed
+  with the refusal, and the next reading goes on (a later reading that needs an earlier refused one is refused too).
+- **Result.** The fork's publication result carries `library_sync: {state: "merged", merged: n, skipped: [{key, reason}],
+  library_generation}` (or `nothing_new` when the library already holds every reading). The fork's `library_sync` record
+  is not written: the fork is still not the library's lineage, and every later publication of it merges again, idempotent
+  by `key`.
+- **Bounded per call** (lead, 2026-10-04, after measuring the first implementation). One merge call starts a replay only
+  while it has run less than `reading.merge_budget_ms` (`content/rulesets/coc7/host-budgets.json`, shipped 2000; the
+  kernel accepts 0 to 60000 and falls back to 2000), and always starts the first one. The result gains `remaining`, the
+  readings it selected and did not start (0 when done), and `partial: true` when `remaining` is above 0; `state` stays
+  `merged`. The backlog continues from the campaign's `module.read.ahead`: for a campaign whose fork exists and whose
+  lineage test answers `library_advanced`, the read-ahead first runs one merge batch, with the same budget and locks as a
+  publication (the fork's metadata lock for the selection, never the library's lock across a library finish), and returns
+  its outcome as `library_sync`, which the host records as it records a publication's. A read-ahead whose fork is the
+  lineage or has nothing to merge, and a library-scoped read-ahead, add no field. Measured (lead, the App's own data
+  cloned into a scratch home, the `24bb66cb` fork with 100 readings the library lacked, `mergeForkReadings` called
+  directly): 100 merged, 0 refused, 111.6 s in one call; per library finish median 1008 ms, p90 1587 ms, max 3486 ms,
+  growing with the graph. Unbounded, that ran inside one `module.read.finish` request (the host's timeout is 30 s,
+  `extensions/kernel/client.ts`) and held the table's kernel the whole time.
+- **What it does not do.** The running fork does not take the library's newer readings (§184.4 unchanged). Two forks that
+  read the same unit keep the first one's in the library; the second is `already_present`.
+- **Three ends (§31).** Writer: the fork's publication. Reader: `ensureCampaignModule` for the next campaign and the
+  campaigns that still follow the library. Actor: the next campaign's read-ahead, which asks no unit either fork read.
+
+**Implementation decisions (2026-10-04, CT-05).** `mergeForkReadings` in `kernel-ts/modules/library-merge.ts`, called
+from `Reading.libraryFollows` (`reading.ts`) when `syncLibraryFromCampaign` answers `library_advanced`, with the key of
+the reading the publication wrote (`job.key`; `source-place:<scene>` for a materialization; none for a build completion).
+
+- **The library's own publication.** The replay runs through a second `Reading` over the library store in the fork's
+  kernel process. The library module's `.metadata.lock` is a descriptor lock polled non-blocking (`native-locks.ts`), so
+  two descriptors of one process contend for it as two processes do, and `withExclusiveLock` is not reentrant: the
+  merge takes the lock for its selection, for staging each reading and for marking a refusal, and never holds it across
+  the library's `finish` or `publishReferencePlace`, which take it themselves. Lock order: the fork's metadata (held by
+  the fork's publication), then the library's; nothing here takes a fork lock.
+- **Which rows are the fork's.** A material row is one of the fork's readings when the fork's queue has a job with its
+  key, or its `generation` is above `source_generation` (every row a fork publishes is numbered in the fork generation
+  its publication wrote). A row the fork was seeded with is the library's even after the library dropped it (a published
+  reading replaces an unusable settlement). One row per key, ordered by that generation: each publication writes one
+  fork generation under the fork's lock, so it is the finish order, which `finished_at` (one-second precision) cannot
+  always tell apart. Selection re-reads the library inside its lock; each reading's staging re-checks its key.
+- **Which job.** The fork's `completed` jobs of the key that published (no `reused_generation`, result not `settled`),
+  earliest first, whose attempt directory lies in the fork and still has `packet.json`, `draft.json`, `review.json` and
+  `observations.json`. Reasons a row is not replayed: `settled` (an unusable row, or only settled completions),
+  `consultation_private`, `guidance_private` (a guidance row, or a `reference-context` row that is not a place: the
+  reference guidance of `module.reference.publish`), `identity_review`, `artifacts_missing`; and, per reading,
+  `refused` (with `detail`) and `already_present`. Consultations never have material rows, so `consultation_private` is
+  defensive; identity, visual-scan and index jobs write no material row either.
+- **The library job.** `{job_id: "read-<n>", key, purpose, material?, focus, question, pages, opening_scope?, <JOB_MARKERS>,
+  foreground: false, state: "running", owner: "merge", attempts: 1, lease, lock_version: 2, work_dir, at, class_at,
+  claimed_at, merged_from: {campaign, job_id}}` (`Reading.replayIdentity`; `material` and `opening_scope` travel because
+  the finish reads them). `<n>` is the queue's next ordinal, skipping one the queue or `reading.completed` already holds.
+  The job's `.job-<id>.lock` is held from before the queue write until the finish answers, so a library claim's probe
+  counts it as a live attempt. The whole attempt directory (regular files; links are skipped) is copied with reflinks
+  where supported to `work/merged/<campaign>/<fork job id>/`; `work_dir` is that copy.
+- **The finish's inputs.** `draft.json` and `review.json` of the copy; the newest `identity/<round>/identity-review.json`
+  of the fork's attempt (by modification time, the last one its finish was given), mapped into the copy; `assets`: each
+  node of the draft whose node in the fork graph has `asset_ref` and `asset_digest`, at its copy when the PNG lies in
+  the attempt, else copied to `graph-assets/<node_id>.png` in the copy. `travel` is not passed: a road the replay
+  publishes stays unbanded in the library until a later publication fills it (§138.9).
+- **Refusal and interruption.** A finish that throws fails its library job (`detail`, `refusal: {message, path?, rule?,
+  reason?}`), kept as evidence; a finish that committed before it threw (its job is in `reading.completed`) counts as
+  merged. A refusal is final: a later merge reports `refused` with the stored detail and copies nothing. A `running`
+  merged job whose job lock nobody holds was left by a killed kernel: a library claim fails it with rule
+  `merge_interrupted` instead of re-queueing it, and never offers a merged job; the next merge of that reading (under the
+  fork's lock, a running replay of it can only be an interrupted one) fails it the same way and replays it again. Only
+  `merge_interrupted` is replayed again.
+- **The library's own asks.** A failed merged job is not the library's attempt at that reading: `ownAsks` leaves it out
+  of what the read-ahead (units, visual scans and assets, map scope, needs), the build's completion (§182.2) and a
+  claim's need packet count, and `request` does not answer a key from it, so a library request for that key queues a
+  reading instead of reporting it blocked.
+- **Places.** A `source-place:<scene>` row's attempt is the fork's `work/*` directory whose `materialize_place` task and
+  `excerpts` receipt name the digest in the row's `packet_file` (`source-references/<digest>/packet.json`); it is
+  copied to `work/merged/<campaign>/<that directory>/` and replayed through `module.reference.materialize`. A place the
+  library already has with material under its own scene (`placeScene`: name, alias or id, now shared with
+  `publishReferencePlace`) is not a candidate. A refused place writes `merge-refusal.json` in its copy and is final.
+- **Result.** `{state: "skipped", reason: "already_present"}` when no reading of the fork is missing from the library and
+  the reading this publication wrote is one the library holds; `nothing_new` otherwise. Any missing row gives `{state:
+  "merged", merged, skipped, library_generation, remaining, partial?}` (`merged` may be 0), the publication's own
+  `already_present` first in `skipped`; at most 64 rows are listed, the rest counted in `skipped_truncated`. A reading not
+  started for the budget is counted in `remaining`, not listed. Before the selection the merge
+  re-checks `not_a_fork`, `library_missing`, `starter` and `source_mismatch`. The fork's `library_sync` is not written.
+- **A merge ends the lineage it did not follow.** A merge is a library publication of its own: it advances the
+  library's generation and leaves `synced_from` as it was, so the fork the library last followed is no longer its
+  lineage and from then on merges too. Keeping that lineage would let its next fast-forward replace the library's
+  materials and graph with its own and drop what was merged (`library-follows-fork.test.mjs` checks it).
+- **What a merge does not carry.** Only material rows travel: visual scans (contact sheets), the whole-book index and
+  its map candidates, identity verdicts of identity jobs and `build_complete` reach the library only by §184.1's
+  fast-forward. A later fork reads those again unless the library has them.
+- **Not measured** (first implementation; *superseded*: the lead measured it on the App's data, see "Bounded per call"
+  above). A fork that diverged long ago merged every reading the library lacked in the one publication that first found
+  them, each a library publication (one immutable generation directory with the whole graph).
+- **Bounded per call: the budget.** `readingBudget(context).mergeBudgetMs` (`kernel-ts/modules/chapters.ts`, beside the
+  §182 page budgets), read from the content on every call. Elapsed time counts from the start of the merge call, its
+  selection included. A reading started counts against the budget whatever its staging finds (a race that made it
+  `already_present`, a refusal written meanwhile).
+- **Bounded per call: refusals are decided in the selection.** A reading the library refused before (its merged library
+  job failed with a rule other than `merge_interrupted`, or a place's `merge-refusal.json`) is reported `refused` by the
+  selection and is no candidate; otherwise a refusal at the head of the backlog would take every call's one replay and
+  the rest would never start. The staging keeps the same check as a race guard.
+- **Bounded per call: the read-ahead's batch.** `Reading.mergeBacklog`, called by `modules/index.ts` `ahead(params,
+  true)` for the `module.read.ahead` request alone, after the campaign's fork exists and before the read-ahead's own
+  asks; the kernel's own read-aheads (a table opening, setup's way-on repair, through `source.ahead`) run no batch, so a
+  table opening does not wait on one. It takes the fork's metadata lock (the fork Reading's mutex) and asks
+  `libraryLineage` (`campaign-scope.ts`): §184.1's test (`lineageRefusal`, shared with `followFork`) read under the
+  library's metadata lock without publishing. Only `library_advanced` runs a batch; a batch that answers `merged` or
+  `failed` rides on the result, one that answers `skipped` adds nothing. A library-scoped read-ahead never calls it, and
+  it answers null for a store that is not a campaign fork. When the same pass completes a short book's build (§182.2),
+  that completion's own, later `library_sync` is the one returned.
+- Tests: `tests/extension/library-follows-fork.test.mjs` (two §184.5 cases; the §184.1 case's other-lineage publications
+  now answer `already_present`; two bounded cases with `merge_budget_ms` 0 through a content-root overlay: one reading per
+  call across a publication and two read-ahead passes, `remaining` 2, 1, 0, no field on a lineage read-ahead, on one
+  with nothing left and on a library-scoped one; a refused reading at the head of the backlog does not stall it),
+  `campaign-module-isolation.test.mjs` (two kernel processes: the other lineage's reading is merged, the published
+  summary is kept under §147.8), `map-publication.test.mjs` (the host row of a publication's merge),
+  `read-window.test.mjs` (the host row of a read-ahead's batch).
+
+### 184.2 The Keeper's request keeps its prefix across turns (amends §135.23)
+
+On the single-loop engine the projection's fixed part after the brief is, in order: the turn's capsule, then
+`coc-history`, then the player's words and the rest of the opening, then the optional packets, then the turn's
+traffic. The capsule the Keeper is sent -- the turn's first copy of §135.23, and the ephemeral one of an opening -- is
+rendered with its sections in one fixed order, the stable ones first: `head`, `historical_setting`, `worldlines`,
+`mods`, `reading`, `pressures`, `obligations`, `situations`, `rulings`, `owed`, `unrecorded`, `untold`, `warnings`,
+`known`, `voices`, `style`; then any section not in this list, in the order the kernel gave it; then the ones that
+change every turn: `where`, `present`, `director`, `memory`, `recent`, `turn`. Nothing is dropped or rewritten; the
+persisted `coc-capsule` entry, the `coc-capsule-update` tail and the legacy engine are unchanged. Measured on the
+four tables, the stable head is about 9 KB of a 16–26 KB sent capsule; the next turn's first call therefore shares the
+system prompt, the brief and that head, instead of ending at the brief.
+
+*Implementation (CT-02, 2026-10-04).* `stableFirst` and `projectedMessages({capsuleFirst})` in
+`extensions/table/context-policy.ts`; `context-runtime.ts` passes `capsuleFirst` when the run owns the prescreen (the
+`coc:loop-engine` announcement, so the single-loop engine only) and renders the turn's first capsule through
+`stableFirst` once per input epoch. The `coc-capsule-update` is still computed against the kernel-ordered first copy,
+so its `sections` and `removed` keep the kernel's order. The capsule that moves is the one that ends the opening; with
+an answered ask (§19.2's `answering`) that is the older exchange's, as the opening ends with it today. Measured on the
+faux replay of `tests/extension/single-loop-model-call-diet.test.mjs` (a 22.4 K-character sent capsule): after a turn
+that only delivered, the next turn's capsule shares 20,323 characters with the previous one (past `style`, into
+`present`); after a turn that revealed a clue the share ended inside `mods` at 8,332 characters, because `mods.thread`
+(about 2.7 K: the thread's `next` rows lose the clue's lock) and `known` changed. So `stableFirst` also orders the keys
+of `mods` (`active`, `authority`, `providers`, `vocabulary`, `unregistered_equipment`, `relationships`, `pacing`, then
+any key not named, then `objects`, `pending_contacts`, `thread`) and of `known` (`investigator`, `flags`, then any key not
+named, then `clues_here`, `discovered_clues`): what play moves goes last; nothing else nested is reordered. Measured
+with it, the clue turn shares 8,974 characters, up to `mods.thread`. A prefix ends at its first difference and both
+sections still sit inside the stable span, so the sub-order does not carry a discovery turn past them to `where`
+(16,144); placing `mods` and `known` after `style` would share 12,031 on the same two capsules, and reaching `where`
+would need the moving keys outside those sections.
+
+*Decision (lead, 2026-10-04).* The section order stays as written. The faux table's style never changes, so there
+moving `mods` and `known` after `style` looks better; on the four live tables `style` changed on 86% of the turns,
+`voices` on 71%, `known` on 57%, `warnings` on 28% and `mods` on about 10% (a clue discovery), so the order above is the
+one by measured change frequency, and `mods` ahead of `known`, `voices` and `style` keeps about 2.3 KB in the prefix on
+most live turns. `head` stays first by convention although its first-sight sentence changed it on 29–67% of the live
+turns; moving that sentence into a section of its own next to `present` is a change to the kernel's capsule
+composition (§168) and needs a live table before it is made.
+
+### 184.3 The context lane fingerprints its request (amends the rows of §19.2)
+
+The `lane: "context", event: "request"` row gains `at` (ISO time), `system_digest` and `segments`: one
+`{kind, bytes, digest}` per outgoing message in request order, `kind` the custom type or the role, `digest` the first
+12 hex characters of the SHA-256 of the message's `role`, `customType` and `content`. At most 64 segments are listed,
+the rest counted in `segments_truncated`. A cache miss in the token ledger is joined to its request by time and
+attributed to the first segment whose digest differs from the previous request's.
+
+*Implementation (CT-03, 2026-10-04).* `system_digest` covers the current system message's `content`, `sections` and
+`toolsAdded` (its transcript timestamp is never sent and is left out); without a session projection it covers the
+`{system, tools}` that `system_bytes` measures. A segment's `bytes` is `requestSize([message])`, so the segments plus
+`system_bytes` exceed `request_bytes` by `segments.length - 1`, the list's separators. The degraded `request` row carries
+the same three fields. The segments are this hook's output; the kernel extension's host-notice filter (§135.27.1.3) runs
+before it. The system message is the transcript's: on a host-started run whose transcript still records another prompt,
+§128.1's `context_with_system` swaps the head after this hook, so that request's `system_digest` and `system_bytes`
+describe the recorded prompt, not the one sent (the `prompt` lane's `stale_prompt_replaced` row marks such a request).
+
+### 184.4 Limits
+
+- Two campaigns forked from the same library generation are two lineages; the one that publishes first is the one the
+  library follows. *Amended by §184.5: the other one's readings the library lacks are merged one by one through the
+  library's own publication.* Adopting a deeper library into a running fork is not done.
+- A library that reads on its own after a fork (setup guidance, a library-scoped opening read) moves its head and
+  ends the forks' lineage; those forks publish nothing to it. *Amended by §184.5: they give back their readings one by
+  one; a merge is such a library publication and ends the lineage of the fork the library last followed.*
+- Source consultations (`purpose: answer`) stay private to their campaign.
+- The first reading of a book still reads the whole book (`coc-module-parsing-redesign`, 2026-08-03: nine of eleven
+  surveyed modules keep NPC stat blocks where no location edge reaches). The read-ahead is not narrowed to the player's
+  reach. *Superseded by §182 (owner ruling the same day): that 2026-08-03 reason asks for a whole-book index, not a
+  detailed read of every page; a short book is built once and a long book reads the chapter in play and the next.*
+- Eviction on the provider's side is not ours. `thinking-schedule` is a no-op on grok-4.5 and grok-4.7, whose catalogs
+  expose no `off`; on a model that does, it would cost a whole prompt per turn on an xAI endpoint (184's probes).

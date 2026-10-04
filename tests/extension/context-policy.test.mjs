@@ -1,13 +1,14 @@
 import {playtestScratch} from './playtest-scratch.mjs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import {createHash} from 'node:crypto';
 import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {convertToLlm} from './pi.mjs';
-import {openTable, waitForIdle} from './harness.mjs';
+import {openTable, waitFor, waitForIdle} from './harness.mjs';
 import {hostNoticeMessage} from '../../extensions/kernel/host-notices.ts';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -223,6 +224,71 @@ test('the optional workspace rides after the current capsule and yields before a
     assert.equal(broken.messages.some(message => message.customType === 'coc-workspace'), false);
 });
 
+test('§184.2: stableFirst puts the stable sections first, then sections it does not name, then the volatile ones; nothing else changes', () => {
+    const kernel = {head: 'h', turn: {number: 3, player_text: 'Input'}, where: {scene: 'office'}, historical_setting: {era: '1920s'},
+        first_sight: {place: 'x'}, present: [{name: 'Arty'}], voices: [], known: {clues_here: []}, pressures: [{name: 'clock'}],
+        obligations: [], director: {beat: 'b'}, situations: [], worldlines: {active: 'main'}, rulings: [], memory: [], style: {floor: ['f']},
+        recent: [{turn: 2}], owed: [], warnings: [], unrecorded: [], untold: [], reading: {sections: []}, resume: {kind: 'r'},
+        truncated: ['present'],
+        // The kernel's own order of these two (read off a capsule), with one key neither list names in each.
+        mods: {active: [], authority: 'a', expression_reference: {enabled: false}, pending_contacts: [], relationships: [], objects: [],
+            providers: {}, vocabulary: {}, unregistered_equipment: [], thread: {next: [{scene: 's', locked: 'l'}]}, pacing: {}},
+        known: {discovered_clues: [], clues_here: [{name: 'c'}], flags: [], investigator: {}, hunch: 'h'}};
+    kernel.style.mods = 'not a section';
+    const before = structuredClone(kernel), sent = api.stableFirst(kernel);
+    assert.deepEqual(Object.keys(sent), ['head', 'historical_setting', 'worldlines', 'mods', 'reading', 'pressures', 'obligations', 'situations',
+        'rulings', 'owed', 'unrecorded', 'untold', 'warnings', 'known', 'voices', 'style',
+        'first_sight', 'resume', 'truncated',
+        'where', 'present', 'director', 'memory', 'recent', 'turn']);
+    // Inside mods and known, what play moves goes last; a key neither list names keeps its place between.
+    assert.deepEqual(Object.keys(sent.mods), ['active', 'authority', 'providers', 'vocabulary', 'unregistered_equipment', 'relationships', 'pacing',
+        'expression_reference', 'objects', 'pending_contacts', 'thread']);
+    assert.deepEqual(Object.keys(sent.known), ['investigator', 'flags', 'hunch', 'clues_here', 'discovered_clues']);
+    assert.deepEqual(sent, kernel, 'every key and value is kept');
+    for (const key of Object.keys(kernel)) {
+        if (key === 'mods' || key === 'known') for (const inner of Object.keys(kernel[key])) assert.equal(sent[key][inner], kernel[key][inner], `${key}.${inner} is the same value`);
+        else assert.equal(sent[key], kernel[key], `${key} is the same value, not a copy`);
+    }
+    assert.deepEqual(Object.keys(sent.style), ['floor', 'mods'], 'nothing else nested is reordered');
+    assert.deepEqual(kernel, before, 'the input is not mutated');
+    assert.deepEqual(Object.keys(kernel), Object.keys(before), 'nor reordered');
+    assert.deepEqual(Object.keys(kernel.mods), Object.keys(before.mods));
+    // A mods or known that is not an object is passed through as it is.
+    const odd = {known: ['clue'], mods: null};
+    assert.equal(api.stableFirst(odd).known, odd.known);
+    assert.equal(api.stableFirst(odd).mods, null);
+    // A section the input lacks is absent, not null; an input of unnamed sections keeps its own order.
+    assert.deepEqual(Object.keys(api.stableFirst({turn: {}, zeta: 1, alpha: 2, head: 'h'})), ['head', 'zeta', 'alpha', 'turn']);
+    assert.deepEqual(api.stableFirst({}), {});
+});
+
+test('§184.2: capsuleFirst puts the turn\'s capsule right after the brief, then the history, then the player\'s words; without it the order is today\'s', () => {
+    const history = api.historyView(binding(2), []), brief = {kind: 'context_brief', module: {title: 'Book'}};
+    const host = {role: 'custom', customType: 'coc-host', content: 'Turn note', details: {}};
+    const base = [...group(1), ...group(2)];
+    base.splice(5, 0, host);
+    const kinds = projection => projection.messages.map(message => message.customType ?? message.role);
+    const legacy = api.projectedMessages({messages: base, binding: binding(2), history, brief});
+    assert.deepEqual(kinds(legacy), ['coc-context-brief', 'coc-history', 'user', 'coc-host', 'coc-capsule', 'assistant', 'toolResult']);
+    const hybrid = api.projectedMessages({messages: base, binding: binding(2), history, brief, capsuleFirst: true});
+    assert.deepEqual(kinds(hybrid), ['coc-context-brief', 'coc-capsule', 'coc-history', 'user', 'coc-host', 'assistant', 'toolResult']);
+    assert.equal(hybrid.messages[1], base[6], 'the capsule itself is moved, not rewritten');
+    assert.equal(hybrid.protectedBytes, legacy.protectedBytes, 'the same material is protected');
+    assert.ok(api.pairedTools(hybrid.messages));
+    // The optional packets still ride after the opening and before the turn's traffic.
+    const workspace = api.customMessage('coc-workspace', {kind: 'coc_workspace', evidence: ['a'.repeat(200)]});
+    const prescreen = api.customMessage('coc-prescreen', {kind: 'prescreen'});
+    const packed = api.projectedMessages({messages: base, binding: binding(2), history, brief, workspace, prescreen, capsuleFirst: true});
+    assert.deepEqual(kinds(packed), ['coc-context-brief', 'coc-capsule', 'coc-history', 'user', 'coc-host', 'coc-workspace', 'coc-prescreen', 'assistant', 'toolResult']);
+    // Unclassified material still leads; an answered ask's older exchange keeps its own order after the history.
+    const unknown = {role: 'custom', customType: 'external-instruction', content: 'Unknown scope', details: {}};
+    const retained = api.projectedMessages({messages: [unknown, ...base], binding: binding(2), history, brief, capsuleFirst: true});
+    assert.deepEqual(kinds(retained).slice(0, 4), ['external-instruction', 'coc-context-brief', 'coc-capsule', 'coc-history']);
+    const asked = api.projectedMessages({messages: [...group(1), ...group(2), ...group(3)], binding: binding(3), history, answering: ['dodge'], capsuleFirst: true});
+    assert.deepEqual(kinds(asked), ['coc-capsule', 'coc-history', 'user', 'assistant', 'toolResult', 'user', 'coc-capsule', 'assistant', 'toolResult']);
+    assert.equal(JSON.parse(asked.messages[0].content).turn.number, 2, 'the opening\'s capsule leads, as it ends the opening today');
+});
+
 test('a coc-workspace carrying workpad entries is the same transport-only closed noise', () => {
     const history = api.historyView(binding(2), []);
     // KIC-04: the message now also carries the Keeper's own workpad section; the policy classifies
@@ -273,6 +339,49 @@ function runtimeFixture(turn = 0, branch = [], records = []) {
         sessionManager: {getBranch: () => branch}, compact: options => {state.compacts++; options.onComplete();}};
     return {hooks, bus, rows, state, messages, ctx, cap};
 }
+
+test('§184.2 and §184.3 on the hook: the single-loop engine sends the capsule after the brief with its stable sections first; every request row is fingerprinted', async () => {
+    const short = value => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 12);
+    for (const engine of ['legacy', 'hybrid-v1']) {
+        const t = runtimeFixture(2);
+        if (engine === 'hybrid-v1') t.bus.get('coc:loop-engine')({engine: 'hybrid-v1', prescreen: 'run'});
+        const before = structuredClone(t.messages);
+        const projected = await t.hooks.get('context')({messages: t.messages}, t.ctx);
+        assert.deepEqual(t.messages, before, `${engine}: the session's own messages are not touched`);
+        const kinds = projected.messages.map(message => message.customType ?? message.role);
+        const capsule = JSON.parse(projected.messages.find(message => message.customType === 'coc-capsule').content);
+        if (engine === 'legacy') {
+            assert.deepEqual(kinds, [api.BRIEF_TYPE, api.HISTORY_TYPE, 'user', 'coc-capsule', 'assistant', 'toolResult'], 'legacy keeps today\'s order');
+            assert.deepEqual(Object.keys(capsule), ['turn', 'recent', 'style', 'mods'], 'and the kernel\'s section order');
+        } else {
+            assert.deepEqual(kinds, [api.BRIEF_TYPE, 'coc-capsule', api.HISTORY_TYPE, 'user', 'assistant', 'toolResult']);
+            assert.deepEqual(Object.keys(capsule), ['mods', 'style', 'recent', 'turn'], 'the stable sections first');
+        }
+        const row = t.rows.findLast(entry => entry.lane === 'context' && entry.event === 'request');
+        assert.equal(row.at, new Date(row.at).toISOString(), `${engine}: at is an ISO time`);
+        assert.match(row.system_digest, /^[a-f0-9]{12}$/);
+        assert.equal(row.system_digest, short({system: '', tools: []}), 'the digest of what system_bytes measures');
+        assert.deepEqual(row.segments.map(segment => segment.kind), kinds, 'one segment per outgoing message, in order');
+        assert.deepEqual(row.segments.map(segment => segment.digest),
+            projected.messages.map(message => short({role: message.role, customType: message.customType, content: message.content})));
+        assert.deepEqual(row.segments.map(segment => segment.bytes), projected.messages.map(message => api.requestSize([message])));
+        // Each segment is measured as a one-message list; the request is one list: the sums differ by the separators only.
+        const total = row.segments.reduce((sum, segment) => sum + segment.bytes, 0) + row.system_bytes;
+        assert.equal(total - row.request_bytes, row.segments.length - 1);
+        assert.equal(row.segments_truncated, undefined);
+    }
+    // At most 64 segments are listed; the rest are counted.
+    const t = runtimeFixture(2);
+    t.bus.get('coc:loop-engine')({engine: 'hybrid-v1', prescreen: 'run'});
+    const busy = [...t.messages, ...Array.from({length: 40}, (_, index) => [
+        {role: 'assistant', content: [{type: 'toolCall', id: `busy-${index}`, name: 'look', arguments: {}}], timestamp: 100 + index},
+        {role: 'toolResult', toolCallId: `busy-${index}`, toolName: 'look', content: [{type: 'text', text: `Busy ${index}`}], timestamp: 100 + index}]).flat()];
+    const projected = await t.hooks.get('context')({messages: busy}, t.ctx);
+    const row = t.rows.findLast(entry => entry.lane === 'context' && entry.event === 'request');
+    assert.ok(projected.messages.length > 64);
+    assert.equal(row.segments.length, 64);
+    assert.equal(row.segments_truncated, projected.messages.length - 64);
+});
 
 test('known source-changing tools invalidate the cached full briefing without changing archived messages', async () => {
     const t = runtimeFixture();
@@ -360,6 +469,12 @@ test('unavailable binding cancels compaction rather than falling back to a model
     const projected = await t.hooks.get('context')({messages: t.messages}, t.ctx);
     assert.equal(projected.messages[0].customType, api.DIAGNOSTIC_TYPE);
     assert.ok(api.sizeOf(projected.messages[0]) < 1024);
+    // §184.3: the degraded request row is fingerprinted like any other.
+    const degraded = t.rows.findLast(row => row.lane === 'context' && row.event === 'request');
+    assert.equal(degraded.reason, 'context_binding_unavailable');
+    assert.ok(!Number.isNaN(Date.parse(degraded.at)) && degraded.at === new Date(degraded.at).toISOString());
+    assert.match(degraded.system_digest, /^[a-f0-9]{12}$/);
+    assert.deepEqual(degraded.segments.map(segment => segment.kind), [api.DIAGNOSTIC_TYPE, 'user', 'coc-capsule', 'assistant', 'toolResult']);
     assert.deepEqual(projected.messages.slice(1), before);
     assert.deepEqual(t.messages, before);
     const folded = await t.hooks.get('session_before_compact')({branchEntries: entries(t.messages), reason: 'overflow', preparation: {tokensBefore: 100}});
@@ -436,6 +551,22 @@ test('actual Pi outbound context has bounded canonical history and a stable brie
         assert.ok(!JSON.stringify(request.context).includes('"_snapshot"'));
         assert.ok(!JSON.stringify(request.context).includes('"source_revision"'));
     }
+    // §184.3: every request row carries its time and its fingerprints. This table runs the legacy engine, so a prepared
+    // request leads with the brief and the history, as before §184.2.
+    await waitFor(() => table.telemetry().filter(row => row.lane === 'context' && row.event === 'request' && row.turn === 4).length >= 2,
+        {label: 'the turn 4 request rows'});
+    const rows = table.telemetry().filter(row => row.lane === 'context' && row.event === 'request');
+    for (const row of rows) {
+        assert.equal(row.at, new Date(row.at).toISOString(), 'at is an ISO time');
+        assert.match(row.system_digest, /^[a-f0-9]{12}$/);
+        assert.ok(row.segments.length > 0 && row.segments.length <= 64);
+        assert.ok(row.segments.every(segment => typeof segment.kind === 'string' && Number.isSafeInteger(segment.bytes) && /^[a-f0-9]{12}$/.test(segment.digest)));
+        if (!row.reason) assert.deepEqual(row.segments.slice(0, 2).map(segment => segment.kind), [api.BRIEF_TYPE, api.HISTORY_TYPE]);
+        if (row.segments_truncated) continue;
+        const total = row.segments.reduce((sum, segment) => sum + segment.bytes, 0) + row.system_bytes;
+        assert.equal(total - row.request_bytes, row.segments.length - 1, 'the segments and the system message make up the request');
+    }
+    assert.equal(new Set(rows.filter(row => row.turn === 4).map(row => row.system_digest)).size, 1, 'one system prompt within a turn');
     const record1 = JSON.parse(await readFile(join(table.workspace, '.coc/campaigns/bounded-context-request/turns/0001.json'), 'utf8'));
     assert.ok(table.rawEntries().some(entry => entry.type === 'custom_message' && entry.customType === 'coc-delivery' && entry.content === record1.rendered_text
         || entry.type === 'message' && entry.message.role === 'assistant' && entry.message.content.some(block => block.text === record1.rendered_text)));

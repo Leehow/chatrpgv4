@@ -21,16 +21,27 @@ export function retainedNeed(raw: Row, key: unknown): Row | undefined {
     return typeof key === 'string' ? array(raw.source_needs).find(need => sourceNeedKey(need) === key) : undefined;
 }
 
+/** The claims about an entity (as subject or object), in digest order. */
+function entityClaims(raw: Row, nodeId: string): Row[] {
+    return array(raw.claims).filter(claim => row(claim).subject_id === nodeId || row(row(claim).object).node_id === nodeId)
+        .map(claim => [jsonDigest(claim), claim] as const).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, claim]) => claim);
+}
+/** The bound-PDF pages (1-based) the given source references cite. */
+function citedPages(refs: unknown[], moduleId: string): number[] {
+    const pages = new Set<number>();
+    for (const ref of refs)
+        if (row(ref).source_id === `pdf:${moduleId}` && integer(row(ref).pdf_index)) pages.add(number(row(ref).pdf_index) + 1);
+    return [...pages].sort((a, b) => a - b);
+}
+
 /** The entity's accepted material: the bound-PDF pages its node and every claim about it cite, and a digest of both. */
 export function needMaterial(raw: Row, nodeId: string, moduleId: string): { pages: number[]; digest: string } {
     const node = array(raw.nodes).find(value => row(value).node_id === nodeId) ?? null;
-    const claims = array(raw.claims).filter(claim => row(claim).subject_id === nodeId || row(row(claim).object).node_id === nodeId)
-        .map(claim => [jsonDigest(claim), claim] as const).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, claim]) => claim);
-    const pages = new Set<number>();
-    for (const ref of [...array(row(node).source_refs), ...claims.flatMap(claim => array(claim.source_refs))])
-        if (row(ref).source_id === `pdf:${moduleId}` && integer(row(ref).pdf_index)) pages.add(number(ref.pdf_index) + 1);
-    return { pages: [...pages].sort((a, b) => a - b), digest: jsonDigest([node, claims]) };
+    const claims = entityClaims(raw, nodeId);
+    return { pages: citedPages([...array(row(node).source_refs), ...claims.flatMap(claim => array(claim.source_refs))], moduleId), digest: jsonDigest([node, claims]) };
 }
+/** §182.4: at most this many claim digests are kept with an unlocated decision; an entity with more is judged by its pages alone. */
+const DECIDED_CLAIMS = 256;
 
 /**
  * The latest reading of each source unit: its latest job in this queue (a cancelled job never counts), else the state of its
@@ -56,16 +67,51 @@ export function unreadUnits(units: SourceUnit[], queue: Row[], rows: Map<string,
  * Whether a need may be asked again. `unlocated` re-opens when the entity's accepted material changes (the same cached
  * locate against the same pages would decide the same way); `carried` re-opens once every carrying unit has settled, so
  * the next pass's answered check can close what the unit read.
+ *
+ * §182.4: the read-ahead passes its reading `window`, and there an `unlocated` need re-opens only when a publication added
+ * a page or a claim for its entity inside the window. Without a window (a request) the §151.4 rule above stands.
  */
-export function needEligible(dispositions: Row, raw: Row, need: Row, queue: Row[], moduleId: string, rows: Map<string, string>): boolean {
+export function needEligible(dispositions: Row, raw: Row, need: Row, queue: Row[], moduleId: string, rows: Map<string, string>,
+    window?: { first: number; last: number }): boolean {
     const record = row(dispositions[sourceNeedKey(need)]);
-    if (record.disposition === 'unlocated')
-        return typeof need.node_id !== 'string' || needMaterial(raw, need.node_id, moduleId).digest !== record.material_digest;
+    if (record.disposition === 'unlocated') {
+        if (typeof need.node_id !== 'string') return true;
+        const material = needMaterial(raw, need.node_id, moduleId);
+        if (material.digest === record.material_digest) return false;
+        return !window || addedInside(record, raw, need.node_id, moduleId, material.pages, window);
+    }
     if (record.disposition === 'carried') {
         const jobs = unitJobs(queue, rows);
         return array(record.units).every(key => ['completed', 'failed'].includes(jobs.get(String(key))?.state));
     }
     return true;
+}
+
+/**
+ * §182.4: whether the entity's material gained, since the unlocated decision, a page inside the window (a page the decision
+ * did not accept) or a claim citing a page inside it (a claim whose digest the decision did not hold). A decision recorded
+ * before the claim digests were kept, or about an entity with more than `DECIDED_CLAIMS`, is judged by whether the changed
+ * material cites a page inside the window at all.
+ */
+function addedInside(record: Row, raw: Row, nodeId: string, moduleId: string, pages: number[], window: { first: number; last: number }): boolean {
+    const inside = (page: number) => page >= window.first && page <= window.last;
+    const accepted = new Set(array(row(record.evidence).accepted_pages).filter(integer).map(number));
+    if (pages.some(page => inside(page) && !accepted.has(page))) return true;
+    if (!Array.isArray(record.claim_digests)) return pages.some(inside);
+    const decided = new Set(record.claim_digests);
+    return entityClaims(raw, nodeId).some(claim => !decided.has(jsonDigest(claim)) && citedPages(array(claim.source_refs), moduleId).some(inside));
+}
+
+/**
+ * §182.4: a need whose reading completed on this source -- its `read` disposition, or a marked job that completed without
+ * settling -- or whose marked job failed is not asked again by the read-ahead, whatever it published. A settled attempt
+ * (answered, unlocated, carried) re-opens only through `needEligible`.
+ */
+export function needDone(dispositions: Row, need: Row, queue: Row[]): boolean {
+    const key = sourceNeedKey(need);
+    if (row(dispositions[key]).disposition === 'read') return true;
+    const job = [...queue].reverse().find(value => row(value.source_need).key === key && value.state !== 'cancelled');
+    return !!job && (job.state === 'failed' || job.state === 'completed' && !settledNeed(job));
 }
 
 /** A background marked job's packet field: the need as the reader writes it, with what the disposition is decided on. */
@@ -136,6 +182,12 @@ export function needDispositionRecord(value: unknown, marker: Row, raw: Row, mod
         // The digest the decision was made on (the claim packet's); a publication since then re-opens the need at once.
         record.material_digest = typeof report.material_digest === 'string' && /^[a-f0-9]{64}$/.test(report.material_digest) ? report.material_digest
             : typeof marker.node_id === 'string' ? needMaterial(raw, marker.node_id, moduleId).digest : null;
+        // §182.4: the claims the decision was made on, so the read-ahead can tell a claim added inside its window. Kept only
+        // when the material now is the material decided on; otherwise the window rule falls back to the pages.
+        if (typeof marker.node_id === 'string' && needMaterial(raw, marker.node_id, moduleId).digest === record.material_digest) {
+            const claims = entityClaims(raw, marker.node_id);
+            if (claims.length <= DECIDED_CLAIMS) record.claim_digests = claims.map(claim => jsonDigest(claim));
+        }
     }
     if (disposition === 'carried') {
         const streamed = new Map(units.map(unit => [sourceUnitKey(unit), unit]));
