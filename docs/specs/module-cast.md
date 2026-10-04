@@ -4,6 +4,8 @@ Status: decided 2026-10-04 (owner: 「按你推荐的做」, Q1–Q5 as recommen
 - 「对了，创建模组图谱的时候是不是应该建立一个模组npc名表，这样索引名称也方便，而且临时刷出来的新npc也可以避开模组已有角色名称」
 - Asked whether to build it: 「先写 spec 给我看」
 - On this spec: 「按你推荐的做」
+- After table 25 (a whole book name the Keeper wrote in prose): 「拦，只拦整名」 (Q5 revisited: §177.11) and 「先不合，修完正文书名再说」 (not merged into 0.9.6a).
+- After table 27: 「我们之后会在mod系统做一个比较大的重构，你先尽快收尾然后提交，等重构之后你再按照重构后的协同来修」. The three defects in §7 wait for that refactor; the branch is still not merged.
 
 Two departures from the text below, both recorded in §177:
 - Creature nodes are not in the cast (§177.1). A creature node is as often a kind (a deep one) as someone.
@@ -160,5 +162,31 @@ If the owner agrees (Q3), cast rows with no node join the untold rename:
 - CAST-04: the other consumers over the cast: the lanes' refusals, landing pages, and the reader's known identities (§2.3 items 2, 4 and 5).
 - CAST-05, if Q3 is yes: the rename and epithets for cast rows (§2.4).
 - CAST-06: the real-table acceptance (§4).
+
+## 7. Real tables and open defects (tables 24–27, 2026-10-04)
+
+Tables 24–26 found eight gaps, fixed on the branch (§177.3–§177.12). Table 27 (App `e634c3eb0`, Blood Road, `grok-4.5` low, eight turns): the cast was complete at the opening and not read again; every request carried the rename (287–300 rows, no failed read); a book person who gave an invented nickname stayed untold (§177.12 held); no book name was delivered before it was told. It was stopped on turn 8, when the gate refused an ordinary word, and three defects remain open. Each needs a decision about the mod system's refactor before it is fixed.
+
+- **A. A name matched inside another word.**
+  - Matching is by substring, and Chinese has no word boundaries. 「拉斯」 is a nickname the book prints alone, so it is a whole name, and it is also part of 「达拉斯」 (Dallas).
+  - On turn 8 the Keeper wrote 「达拉斯」, and §177.11 refused it. The refusal quoted 「拉斯」, which the request exit (§103.5) renamed to the station owner's word, so the Keeper was shown a word it had not written.
+  - The second delivery replaced the name as designed, and the player read 「你把要寄到达油布口袋的加油站老板的信递过去」.
+  - Book-4 prints 「达拉斯」 five times and 「拉斯维加斯」 once. The cast has 74 printed forms of two or three characters. The request-exit rename mangles the same occurrences in source excerpts.
+  - Whether an occurrence is the person's name is a semantic question, not one for a boundary rule or a word list. Candidates:
+    - the Keeper judges its own sentence, quoted back unrenamed, and a resubmission is delivered as written;
+    - a fast-model or Jev yes/no on each match.
+- **B. English renderings in the pipeline's own fields.**
+  - The reader writes some fields in English (`source_needs.question`/`trigger`, drafts, character guidance) and calls people by English renderings ("Lars"). The cast holds only the book's printed forms and the play language's renderings, so the request exit does not rename them.
+  - On turn 6 the Keeper reasoned that the station owner "is likely named Lars". Nothing reached a delivery.
+  - Candidate fix: the cast also records each person's rendering in the language the pipeline writes its notes in.
+- **C. `recall` does not take the table's word.**
+  - `recallMemory` (kernel-ts/memory/recall.ts) resolves `about` through `EntityIndex` only, not the person junction (§87.8). For an untold person the Keeper holds only the table's word.
+  - On turn 5, `recall about: ["烂牙的退休卡车司机"]` was refused `unknown_entity`, and the lookup and look in the same batch did not run.
+
+Observed, not filed:
+- The Keeper had three NPCs in a row decline to give their real names; on tables 25 and 26 the bar owner gave his.
+- Every new session starts with a 0.3 s `model_change` to `flapcode/gpt-6-luna` before the App sets the table's model; no request used it.
+
+The table notes are in `.coc/playtests/speech-replay-20260930/newplayer-20261002/turns.md` (not tracked).
 
 ## Comments
