@@ -4,15 +4,14 @@ import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { test, after } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
+import { playtestScratch } from './playtest-scratch.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
-const evidenceRoot = join(ROOT, '.coc/playtests/runtime-consolidation/rule-queries');
-await mkdir(evidenceRoot, { recursive: true });
-const evidence = await mkdtemp(join(evidenceRoot, 'direct-'));
+const evidence = playtestScratch('runtime-consolidation/rule-queries', 'direct-');
 const modules = [
   ['json', ['parsePythonJson', 'pythonJsonDumps', 'jsonDigest']],
   ['context', ['createKernelContext']],

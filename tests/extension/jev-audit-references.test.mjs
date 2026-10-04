@@ -5,6 +5,7 @@ import {mkdtemp, mkdir, readFile, writeFile, rm, cp} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {playtestScratch} from './playtest-scratch.mjs';
 const root=resolve(import.meta.dirname,'../..');
 let api,bundle;
 before(async()=>{
@@ -124,8 +125,7 @@ test('v1 remains unchanged and both package capabilities are advertised',()=>{
     assert.ok(api.materializeAuditReferences(v1,api.buildAuditReferences({input:{text:'A quiet room.'}},{})).errors.length);
 });
 test('real kernel v2 jobs retain selectors, materialize acceptance, replay and reject stale evidence',async()=>{
-    const base=join(root,'.coc/playtests/jev-audit-reference-contracts');await mkdir(base,{recursive:true});
-    const home=await mkdtemp(join(base,'suite-'));
+    const home=playtestScratch('jev-audit-reference-contracts');
     await writeFile(join(home,'classification.json'),JSON.stringify({kind:'contract-fixture',live_play:false,model_calls:0}));
     const context=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'audit-source-selectors',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}});
     const runtime=api.createKernelRuntime(context);

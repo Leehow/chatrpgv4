@@ -67,6 +67,12 @@ npm run check:kernel                  # TS 内核严格类型检查
 npm run test:electron        # 复制进来的 PipiUI 套件，比对已记录的失败基线
 ```
 
+Contract-test scratch uses a fresh owned run under `.tmp/test-scratch/`, apart from real `.coc/playtests` evidence.
+Passing Node test processes remove only their allocations; failures, SIGINT/SIGTERM and explicit `KEEP_*_EVIDENCE`
+retain an owner record and reason. SIGKILL cannot run cleanup; the guard reports the unfinished allocation and preserves it.
+`npm run test:ext` scopes the existing Node runner; it also works without Node 24's global-setup flag. Python contract fixtures default to pytest's `tmp_path`;
+`COC_RPC_EVIDENCE_DIR` deliberately retains their output. Earlier evidence is never deleted by these test helpers.
+
 `Electron/` 是整包复制进来的（§23），它自带的上游套件在本检出里本来就是红的：packs、workflow
 文件与内置运行时是故意不带的，产品身份换成了 PipiCOC，PipiCOC 的接线又改掉了几处上游用例仍按
 旧样子断言的接缝。这些不逐条修，但也不能就这么红着——一片红里看不出真回归。所以失败按用例记在

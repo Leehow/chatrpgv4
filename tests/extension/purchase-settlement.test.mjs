@@ -1,3 +1,4 @@
+import {playtestScratch} from './playtest-scratch.mjs';
 import assert from 'node:assert/strict';
 import {mkdir, mkdtemp, readFile, symlink, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
@@ -6,9 +7,7 @@ import {build} from 'esbuild';
 import {KernelClient} from '../../extensions/kernel/client.ts';
 
 const ROOT=resolve(import.meta.dirname,'../..'),CONTENT=join(ROOT,'content');
-const evidence=join(ROOT,'.coc/playtests/purchase-settlement-contracts');
-await mkdir(evidence,{recursive:true});
-const suite=await mkdtemp(join(evidence,'suite-'));
+const suite=playtestScratch('purchase-settlement-contracts');
 await writeFile(join(suite,'classification.json'),JSON.stringify({kind:'contract-fixture',live_play:false,model_calls:0}));
 const rpc=join(suite,'rpc.mjs');
 await build({entryPoints:[join(ROOT,'kernel-ts/rpc.ts')],outfile:rpc,bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});

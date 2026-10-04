@@ -9,6 +9,7 @@ import {build} from 'esbuild';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import {runOwnedSourcePreparation} from '../../runtime/jev/source-preparation.ts';
 import {advanceSourceReadSet} from '../../runtime/jev/read-set.ts';
+import {playtestScratch} from './playtest-scratch.mjs';
 const root=resolve(import.meta.dirname,'../..'),scope={owner:'session:source-preparation-contract',campaign:'c1',worldline:'main',loop:0,audience:'keeper'};
 const budget=()=>({deadlineAt:Date.now()+120000,remainingInputTokens:10000,remainingOutputTokens:10000,remainingCostUsd:10,remainingActions:30});
 const sets=from=>[{kind:'source',resource:'c1',revision:from},{kind:'world',resource:'c1',revision:'unchanged-world'}];
@@ -61,7 +62,7 @@ test('host preparation borrows only a tracked mutation and persists after exact 
 });
 const write=(path,value)=>writeFile(path,JSON.stringify(value));
 async function visualFixture(){
- const base=join(root,'.coc/playtests/jev-source-preparation-contracts');await mkdir(base,{recursive:true});const home=await mkdtemp(join(base,'suite-'));
+ const home=playtestScratch('jev-source-preparation-contracts');
  await write(join(home,'classification.json'),{kind:'contract-fixture',live_play:false,model_calls:0});
  const kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'source-preparation',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
  const call=(method,params={})=>runtime.handlers[method](params),bytes=Buffer.from('%PDF-1.7\nSynthetic deterministic source-owner contract fixture, not PDF or play acceptance.\n'),path=join(home,'source.pdf');await writeFile(path,bytes);

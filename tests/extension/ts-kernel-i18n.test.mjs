@@ -13,11 +13,11 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { KernelClient } from '../../extensions/kernel/client.ts';
+import { playtestScratch } from './playtest-scratch.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..'), CONTENT = join(ROOT, 'content'), RPC = join(ROOT, 'build/kernel/rpc.mjs');
 const RULES = join(CONTENT, 'rulesets/coc7/rules-json');
-const evidence = join(ROOT, '.coc/playtests/ts-i18n-node');
-await mkdir(evidence, { recursive: true });
+const evidence = playtestScratch('ts-i18n-node', 'run-');
 const output = await mkdtemp(join(evidence, 'entry-'));
 await symlink(join(ROOT, 'node_modules'), join(output, 'node_modules'), 'dir');
 await build({ stdin: { contents: [

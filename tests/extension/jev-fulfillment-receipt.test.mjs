@@ -5,6 +5,7 @@ import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {playtestScratch} from './playtest-scratch.mjs';
 const root=resolve(import.meta.dirname,'../..');let api,bundle,fixture;
 before(async()=>{
     await mkdir(join(root,'.tmp'),{recursive:true});bundle=await mkdtemp(join(root,'.tmp/fulfillment-test-'));
@@ -26,8 +27,7 @@ before(async()=>{
 });
 after(async()=>{await fixture?.runtime.close();if(bundle)await rm(bundle,{recursive:true,force:true});});
 async function createFixture(){
-    const base=join(root,'.coc/playtests/jev-fulfillment-contracts');await mkdir(base,{recursive:true});
-    const home=await mkdtemp(join(base,'suite-'));await writeFile(join(home,'classification.json'),JSON.stringify({kind:'contract-fixture',live_play:false,model_calls:0}));
+    const home=playtestScratch('jev-fulfillment-contracts');await writeFile(join(home,'classification.json'),JSON.stringify({kind:'contract-fixture',live_play:false,model_calls:0}));
     const kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'finite-fulfillment',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}});
     const runtime=api.createKernelRuntime(kernel),call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});
     await call('campaign.create',{id:'c1',module:'the-haunting',pregen:'thomas-hayes',play_language:'en'});await call('table.open');

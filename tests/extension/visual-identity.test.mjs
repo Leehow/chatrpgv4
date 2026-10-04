@@ -1,3 +1,4 @@
+import {playtestScratch} from './playtest-scratch.mjs';
 /**
  * Contract §152.4: one printed visual is one node.
  *
@@ -21,9 +22,7 @@ import {createCanvas, loadImage} from '@napi-rs/canvas';
 import {collision, identityVerdicts} from '../../kernel-ts/modules/visual-identity-shape.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..'), CONTENT = join(ROOT, 'content');
-const evidence = join(ROOT, '.coc/playtests/visual-identity');
-await mkdir(evidence, {recursive: true});
-const directory = await mkdtemp(join(evidence, 'suite-'));
+const directory = playtestScratch('visual-identity', 'suite-', {retain: Boolean(process.env.KEEP_IDENTITY_EVIDENCE)});
 await build({stdin: {contents: [
 	`export {createKernelContext} from './kernel-ts/context.ts';`,
 	`export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';`,
@@ -37,7 +36,7 @@ await build({stdin: {contents: [
 	outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
 const closers = [];
-after(async () => { for (const close of closers.reverse()) await close(); await closeSourceDocuments(); if (!process.env.KEEP_IDENTITY_EVIDENCE) await rm(directory, {recursive: true, force: true}); });
+after(async () => { for (const close of closers.reverse()) await close(); await closeSourceDocuments(); });
 
 /** A two-page renderable PDF: red and blue halves, then green with a yellow square. */
 function pdf() {

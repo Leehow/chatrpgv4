@@ -4,11 +4,10 @@ import {cp, mkdtemp, mkdir, readdir, readFile, symlink, writeFile} from 'node:fs
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {playtestScratch} from './playtest-scratch.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
-const evidence = join(root, '.coc/playtests/continuity-contracts');
-await mkdir(evidence, {recursive: true});
-const directory = await mkdtemp(join(evidence, 'suite-'));
+const directory = playtestScratch('continuity-contracts');
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
 await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts'; export {ModuleGraph} from './kernel-ts/read/module-graph.ts'; export {ModuleStore} from './kernel-ts/modules/store.ts'; export {ensureCampaignModule,moduleContext} from './kernel-ts/modules/campaign-scope.ts'; export {loadModule,loadCampaignModule} from './kernel-ts/read/campaign.ts'; export {report as mergeReport} from './kernel-ts/worldline/confluence-plan.ts'; export {continuityView} from './kernel-ts/read/continuity.ts'; export {storyAssessmentContext,storyReentry} from './kernel-ts/read/story.ts'; export {threadSection} from './kernel-ts/read/thread.ts'; export {normalizeChanges,adaptedGraph} from './kernel-ts/adaptation/graph.ts'; export {auditSourceEvidence} from './kernel-ts/mods/audit-source.ts'; export {CONTINUITY_AUDIT} from './kernel-ts/mods/audit-result.ts';`, resolveDir: root, sourcefile: 'test-api.ts'},
     outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});

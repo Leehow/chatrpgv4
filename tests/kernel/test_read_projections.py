@@ -3,22 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
-import tempfile
 from pathlib import Path
 
 import pytest
 
-from conftest import CAMPAIGN, MODULE, PREGEN, RpcClient, WORKTREE, campaign_dir
+from conftest import CAMPAIGN, MODULE, PREGEN, RpcClient, campaign_dir
 from rpc_support import snapshot
-
-
-def retained(case: str) -> Path:
-    base = Path(os.environ.get("COC_RPC_EVIDENCE_DIR", str(
-        WORKTREE / ".coc" / "playtests" / "runtime-consolidation" / "read-projections")))
-    base.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix=case + "-", dir=base))
 
 
 def state_bytes(workspace: Path) -> dict[str, str]:
@@ -85,7 +76,7 @@ def read(root: Path, reads: list[tuple[str, dict]] = READS, content: Path | None
 
 
 @pytest.mark.parametrize("language", ["en", "zh-Hans"])
-def test_reads_on_an_existing_acting_campaign_answer_without_writing(language):
+def test_reads_on_an_existing_acting_campaign_answer_without_writing(language, retained):
     root = retained("basic-" + language)
     prepare(root / "workspace", language=language)
     actual = read(root)
@@ -93,7 +84,7 @@ def test_reads_on_an_existing_acting_campaign_answer_without_writing(language):
     assert actual["exchanges"][1]["response"]["result"]["clues"] == {"discovered": []}
 
 
-def test_rich_capsule_preserves_budgets_memory_warnings_and_live_combat():
+def test_rich_capsule_preserves_budgets_memory_warnings_and_live_combat(retained):
     root = retained("rich-capsule")
     prepare(root / "workspace", rich=True)
     actual = read(root)
@@ -104,7 +95,7 @@ def test_rich_capsule_preserves_budgets_memory_warnings_and_live_combat():
     assert "truncated" in capsule
 
 
-def test_legacy_table_view_reads_without_persisting_the_scene_trail():
+def test_legacy_table_view_reads_without_persisting_the_scene_trail(retained):
     root = retained("legacy-view")
     prepare(root / "workspace")
     path = campaign_dir(root / "workspace") / "world.json"
@@ -117,7 +108,7 @@ def test_legacy_table_view_reads_without_persisting_the_scene_trail():
 
 
 @pytest.mark.parametrize("boundary", ["open-turn", "legacy-trail"])
-def test_read_side_transitions_at_a_writer_boundary(boundary):
+def test_read_side_transitions_at_a_writer_boundary(boundary, retained):
     root = retained("writer-boundary-" + boundary)
     workspace = root / "workspace"
     prepare(workspace)
@@ -142,7 +133,7 @@ def test_read_side_transitions_at_a_writer_boundary(boundary):
     (0, ["major_wound", "dying"], 30, 5, "healing:dying-round-clock"),
     (5, ["major_wound"], 15000, 11000, "healing:weekly-major-wound-recovery"),
 ])
-def test_saved_healing_facts_drive_real_situations_and_clock_pressure(hp, conditions, elapsed, age, decision):
+def test_saved_healing_facts_drive_real_situations_and_clock_pressure(hp, conditions, elapsed, age, decision, retained):
     from conftest import open_turn
     from test_rules_families import seed_wound
     root = retained("healing-situations")
@@ -160,7 +151,7 @@ def test_saved_healing_facts_drive_real_situations_and_clock_pressure(hp, condit
     assert any(value["kind"] == "clock" for value in capsule["pressures"])
 
 
-def test_active_mod_relationships_and_saved_document_objects_read_back():
+def test_active_mod_relationships_and_saved_document_objects_read_back(retained):
     from test_mod_documents import owned_paper, view, edit
     root = retained("mod-objects")
     workspace = root / "workspace"
@@ -181,7 +172,7 @@ def test_active_mod_relationships_and_saved_document_objects_read_back():
 
 
 @pytest.mark.parametrize("remembers", [True, False])
-def test_saved_worldline_memory_is_read_only_and_visible_only_to_declared_npcs(remembers):
+def test_saved_worldline_memory_is_read_only_and_visible_only_to_declared_npcs(remembers, retained):
     from test_worldline import rewound_with_a_memory
     root = retained("worldline-memory")
     client = rewound_with_a_memory(root, "workspace", remembers=remembers)
@@ -198,7 +189,7 @@ def test_saved_worldline_memory_is_read_only_and_visible_only_to_declared_npcs(r
     assert any("from_other_lines" in value for value in capsule["present"]) is remembers
 
 
-def test_simple_views_do_not_read_unrelated_broken_memory_or_npc_ledgers():
+def test_simple_views_do_not_read_unrelated_broken_memory_or_npc_ledgers(retained):
     root = retained("unrelated-ledgers")
     workspace = root / "workspace"
     prepare(workspace)
@@ -211,7 +202,7 @@ def test_simple_views_do_not_read_unrelated_broken_memory_or_npc_ledgers():
                    ("table.look", {"focus": "npc", "name": "Steven Knott"})])
 
 
-def test_setup_sheet_view_does_not_require_a_world_or_turn():
+def test_setup_sheet_view_does_not_require_a_world_or_turn(retained):
     root = retained("setup-view")
     client = RpcClient(root / "workspace", frozen_clock=True)
     try:

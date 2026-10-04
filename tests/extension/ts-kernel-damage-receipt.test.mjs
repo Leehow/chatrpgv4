@@ -13,15 +13,13 @@
  */
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { mkdir, mkdtemp } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
+import { playtestScratch } from './playtest-scratch.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
-const parent = join(ROOT, '.coc/playtests/runtime-consolidation/checks');
-await mkdir(parent, { recursive: true });
-const evidence = await mkdtemp(join(parent, 'damage-receipt-'));
+const evidence = playtestScratch('runtime-consolidation/checks', 'damage-receipt-');
 await build({
   stdin: {
     contents: `export {damageEvidenceRows, externalDamageReceipt} from ${JSON.stringify(join(ROOT, 'kernel-ts/combat/evidence.ts'))};`,

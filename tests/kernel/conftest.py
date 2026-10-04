@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -192,6 +193,21 @@ def seeded_kernel(tmp_path: Path):
     client = RpcClient(tmp_path / "ws", env={"COC_KERNEL_SEED": "7"})
     yield client
     client.close()
+
+
+@pytest.fixture
+def retained(tmp_path: Path):
+    """Use pytest's temporary workspace by default; explicit evidence remains deliberately retained."""
+    explicit = os.environ.get("COC_RPC_EVIDENCE_DIR")
+    base = Path(explicit) if explicit else tmp_path
+
+    def make(case: str) -> Path:
+        if not case or "/" in case or "\\" in case or case in {".", ".."}:
+            raise ValueError("invalid retained test case name")
+        base.mkdir(parents=True, exist_ok=True)
+        return Path(tempfile.mkdtemp(prefix=case + "-", dir=base))
+
+    return make
 
 
 @pytest.fixture(scope="session", autouse=True)

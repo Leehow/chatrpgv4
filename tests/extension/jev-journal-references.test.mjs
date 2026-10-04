@@ -5,6 +5,7 @@ import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {playtestScratch} from './playtest-scratch.mjs';
 const root=resolve(import.meta.dirname,'../..');let api,bundle;
 before(async()=>{
     await mkdir(join(root,'.tmp'),{recursive:true});bundle=await mkdtemp(join(root,'.tmp/journal-reference-'));
@@ -21,7 +22,7 @@ before(async()=>{
 });
 after(async()=>{if(bundle)await rm(bundle,{recursive:true,force:true});});
 async function fixture(t,{secondPerson=false}={}){
-    const base=join(root,'.coc/playtests/jev-journal-reference-contracts');await mkdir(base,{recursive:true});const home=await mkdtemp(join(base,'suite-'));
+    const home=playtestScratch('jev-journal-reference-contracts');
     await writeFile(join(home,'classification.json'),JSON.stringify({kind:'contract-fixture',live_play:false,model_calls:0}));
     const kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'journal-reference',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
     t.after(()=>runtime.close());const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});

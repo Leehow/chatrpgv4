@@ -16,15 +16,14 @@
  */
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdir, mkdtemp, readFile, readdir, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, readdir, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {playtestScratch} from './playtest-scratch.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
-const evidence = join(root, '.coc/playtests/narrated-clue-accounting');
-await mkdir(evidence, {recursive: true});
-const directory = await mkdtemp(join(evidence, 'suite-'));
+const directory = playtestScratch('narrated-clue-accounting');
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
 await build({
     stdin: {

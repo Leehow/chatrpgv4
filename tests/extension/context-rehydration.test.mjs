@@ -5,10 +5,10 @@ import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
+import {playtestScratch} from './playtest-scratch.mjs';
 
-const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/playtests/context-rehydration');
-await mkdir(evidence, { recursive: true });
-const directory = await mkdtemp(join(evidence, 'suite-'));
+const root = resolve(import.meta.dirname, '../..');
+const directory = playtestScratch('context-rehydration');
 await writeFile(join(directory, 'classification.json'), JSON.stringify({ kind: 'contract-fixture', live_play: false, model_calls: 0 }));
 await build({ stdin: { contents: `
 export {createKernelContext} from './kernel-ts/context.ts';

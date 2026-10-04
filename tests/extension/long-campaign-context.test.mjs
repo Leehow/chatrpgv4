@@ -1,3 +1,4 @@
+import {playtestScratch} from './playtest-scratch.mjs';
 /**
  * The request ceiling of a long campaign (contract §19.2).
  *
@@ -19,9 +20,8 @@ import {fauxAssistantMessage, fauxToolCall, getCurrentTools} from '@earendil-wor
 import {openTable, waitFor, waitForIdle} from './harness.mjs';
 import {convertToLlm} from './pi.mjs';
 
-const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/playtests/long-campaign-context');
-await mkdir(evidence, {recursive: true});
-const directory = await mkdtemp(join(evidence, 'suite-'));
+const root = resolve(import.meta.dirname, '../..');
+const directory = playtestScratch('long-campaign-context');
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
 await build({stdin: {contents: `export * from './extensions/table/context-policy.ts';`, resolveDir: root, sourcefile: 'context-policy-api.ts'},
     outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
