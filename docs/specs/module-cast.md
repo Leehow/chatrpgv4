@@ -206,6 +206,8 @@ Remaining, not fixed here:
 - A surname said in the fiction ("马瑟", whose cast forms are 丹尼尔·马瑟 and 丹·马瑟) does not tell the person, and the Keeper's `apply person` is then refused as a book name.
 - The cast lists real public figures (President Ford), whose names need no hiding and cause false hits.
 - The v3-to-v4 re-read leaves a window of about 5 minutes on a book's first table open, when unread people's names are not in the rename.
+
+Owner ruling after the table: fix the window, the public figures and "Lars" in one upgrade (§177.16, 6fe8a2b72, CAST_VERSION 5). Code and offline checks are done. On a copy of the library, v5 code serves the v4 table (110 people) until the new one is complete. Range 1–40 of book-4 gets 178 English sentences, the four naming "Lars" among them. Whether the reader then leaves out the public figures and takes "Lars" into notes is measured on the final package's paid re-read. The surname said in the fiction is a separate identity-disclosure question from before this series, left to the owner; no name piece in a spoken line tells anyone automatically (it could be another person or a town).
 - The title/bar fix (47cb3d684), the chunking fix (66d69f441) and the words rule (468855ab3) are verified by tests, mutations and replays, not yet on a real table.
 
 ## Comments
