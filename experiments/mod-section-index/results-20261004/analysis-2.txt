@@ -1,0 +1,153 @@
+judge agreement on packet 1: 531/540 = 0.983 (yes counts 69 vs 70)
+labelled inputs 120, cards 18, positive pairs 275 / 2160
+
+== rows-H.jsonl {'state': 'context', 'card': 'when', 'lang': 'en', 'decoys': False, 'shape': 'noul', 'cards': 'cards.v2.json', 'ask': 'change'}  judged cards=9 n=120 errors=0  ms p50=300 p95=497  input_tokens p50=1477  state_bytes p50=2574
+  thr 0.35: P 0.51 R 0.91 F1 0.66  (tp 104 fp 99 fn 10)
+  thr 0.50: P 0.62 R 0.89 F1 0.73  (tp 102 fp 63 fn 12)
+  thr 0.60: P 0.66 R 0.86 F1 0.75  (tp 98 fp 50 fn 16)
+  thr 0.70: P 0.73 R 0.80 F1 0.76  (tp 91 fp 34 fn 23)
+  all gold cards within top-2: 63/75 = 0.84
+  all gold cards within top-3: 70/75 = 0.93
+  all gold cards within top-4: 71/75 = 0.95
+  per card (gold yes: recall@0.5 / fp@0.5):
+    ei/define      yes= 12 recall=0.00 fp=0
+    ei/documents   yes= 23 recall=0.00 fp=0
+    ei/manage      yes=  3 recall=0.00 fp=0
+    ei/register    yes= 10 recall=0.90 fp=33
+    hr/prices      yes= 32 recall=0.81 fp=9
+    kp/clocks      yes=  6 recall=0.00 fp=0
+    kp/ooc         yes= 10 recall=0.70 fp=2
+    kp/stuck       yes=  7 recall=0.00 fp=0
+    nn/asker       yes= 49 recall=0.96 fp=5
+    nn/asking      yes= 11 recall=1.00 fp=7
+    nn/impression  yes= 32 recall=0.00 fp=0
+    nn/language    yes=  1 recall=0.00 fp=0
+    st/clues       yes= 58 recall=0.00 fp=0
+    st/conclude    yes=  2 recall=1.00 fp=7
+    st/handed      yes= 19 recall=0.00 fp=0
+
+== rows-I.jsonl {'state': 'context', 'card': 'structured', 'lang': 'en', 'decoys': False, 'shape': 'noul', 'cards': 'cards.v2.json', 'ask': 'change'}  judged cards=9 n=120 errors=0  ms p50=308 p95=491  input_tokens p50=2542  state_bytes p50=5818
+  thr 0.35: P 0.55 R 0.93 F1 0.69  (tp 106 fp 88 fn 8)
+  thr 0.50: P 0.67 R 0.89 F1 0.76  (tp 102 fp 51 fn 12)
+  thr 0.60: P 0.74 R 0.88 F1 0.80  (tp 100 fp 36 fn 14)
+  thr 0.70: P 0.78 R 0.83 F1 0.81  (tp 95 fp 27 fn 19)
+  all gold cards within top-2: 65/75 = 0.87
+  all gold cards within top-3: 70/75 = 0.93
+  all gold cards within top-4: 71/75 = 0.95
+  per card (gold yes: recall@0.5 / fp@0.5):
+    ei/define      yes= 12 recall=0.00 fp=0
+    ei/documents   yes= 23 recall=0.00 fp=0
+    ei/manage      yes=  3 recall=0.00 fp=0
+    ei/register    yes= 10 recall=0.90 fp=35
+    hr/prices      yes= 32 recall=0.81 fp=10
+    kp/clocks      yes=  6 recall=0.00 fp=0
+    kp/ooc         yes= 10 recall=0.90 fp=3
+    kp/stuck       yes=  7 recall=0.00 fp=0
+    nn/asker       yes= 49 recall=0.96 fp=0
+    nn/asking      yes= 11 recall=0.82 fp=2
+    nn/impression  yes= 32 recall=0.00 fp=0
+    nn/language    yes=  1 recall=0.00 fp=0
+    st/clues       yes= 58 recall=0.00 fp=0
+    st/conclude    yes=  2 recall=1.00 fp=1
+    st/handed      yes= 19 recall=0.00 fp=0
+
+== rows-J.jsonl {'state': 'context', 'card': 'structured', 'lang': 'en', 'decoys': False, 'shape': 'noul', 'cards': 'cards.v2.json', 'ask': 'situation'}  judged cards=9 n=120 errors=0  ms p50=310 p95=552  input_tokens p50=2614  state_bytes p50=5818
+  thr 0.35: P 0.58 R 0.89 F1 0.70  (tp 102 fp 74 fn 12)
+  thr 0.50: P 0.71 R 0.89 F1 0.79  (tp 101 fp 42 fn 13)
+  thr 0.60: P 0.75 R 0.87 F1 0.80  (tp 99 fp 33 fn 15)
+  thr 0.70: P 0.77 R 0.84 F1 0.81  (tp 96 fp 28 fn 18)
+  all gold cards within top-2: 67/75 = 0.89
+  all gold cards within top-3: 69/75 = 0.92
+  all gold cards within top-4: 71/75 = 0.95
+  per card (gold yes: recall@0.5 / fp@0.5):
+    ei/define      yes= 12 recall=0.00 fp=0
+    ei/documents   yes= 23 recall=0.00 fp=0
+    ei/manage      yes=  3 recall=0.00 fp=0
+    ei/register    yes= 10 recall=0.90 fp=25
+    hr/prices      yes= 32 recall=0.78 fp=10
+    kp/clocks      yes=  6 recall=0.00 fp=0
+    kp/ooc         yes= 10 recall=0.90 fp=5
+    kp/stuck       yes=  7 recall=0.00 fp=0
+    nn/asker       yes= 49 recall=0.96 fp=0
+    nn/asking      yes= 11 recall=0.82 fp=1
+    nn/impression  yes= 32 recall=0.00 fp=0
+    nn/language    yes=  1 recall=0.00 fp=0
+    st/clues       yes= 58 recall=0.00 fp=0
+    st/conclude    yes=  2 recall=1.00 fp=1
+    st/handed      yes= 19 recall=0.00 fp=0
+
+== rows-K.jsonl {'state': 'features', 'card': 'structured', 'lang': 'en', 'decoys': False, 'shape': 'noul', 'cards': 'cards.v2.json', 'ask': 'situation'}  judged cards=9 n=120 errors=0  ms p50=310 p95=543  input_tokens p50=2649  state_bytes p50=5888
+  thr 0.35: P 0.61 R 0.89 F1 0.73  (tp 102 fp 65 fn 12)
+  thr 0.50: P 0.71 R 0.89 F1 0.79  (tp 101 fp 42 fn 13)
+  thr 0.60: P 0.74 R 0.86 F1 0.80  (tp 98 fp 34 fn 16)
+  thr 0.70: P 0.80 R 0.82 F1 0.81  (tp 94 fp 23 fn 20)
+  all gold cards within top-2: 67/75 = 0.89
+  all gold cards within top-3: 69/75 = 0.92
+  all gold cards within top-4: 71/75 = 0.95
+  per card (gold yes: recall@0.5 / fp@0.5):
+    ei/define      yes= 12 recall=0.00 fp=0
+    ei/documents   yes= 23 recall=0.00 fp=0
+    ei/manage      yes=  3 recall=0.00 fp=0
+    ei/register    yes= 10 recall=0.90 fp=27
+    hr/prices      yes= 32 recall=0.78 fp=9
+    kp/clocks      yes=  6 recall=0.00 fp=0
+    kp/ooc         yes= 10 recall=0.90 fp=4
+    kp/stuck       yes=  7 recall=0.00 fp=0
+    nn/asker       yes= 49 recall=0.96 fp=0
+    nn/asking      yes= 11 recall=0.82 fp=1
+    nn/impression  yes= 32 recall=0.00 fp=0
+    nn/language    yes=  1 recall=0.00 fp=0
+    st/clues       yes= 58 recall=0.00 fp=0
+    st/conclude    yes=  2 recall=1.00 fp=1
+    st/handed      yes= 19 recall=0.00 fp=0
+
+== rows-L.jsonl {'state': 'context', 'card': 'structured', 'lang': 'en', 'decoys': True, 'shape': 'noul', 'cards': 'cards.v2.json', 'ask': 'situation'}  judged cards=9 n=119 errors=1  ms p50=388 p95=662  input_tokens p50=9344  state_bytes p50=14401
+  thr 0.35: P 0.56 R 0.93 F1 0.70  (tp 105 fp 82 fn 8)
+  thr 0.50: P 0.66 R 0.89 F1 0.76  (tp 101 fp 51 fn 12)
+  thr 0.60: P 0.74 R 0.87 F1 0.80  (tp 98 fp 34 fn 15)
+  thr 0.70: P 0.77 R 0.84 F1 0.80  (tp 95 fp 29 fn 18)
+  all gold cards within top-2: 58/74 = 0.78
+  all gold cards within top-3: 65/74 = 0.88
+  all gold cards within top-4: 67/74 = 0.91
+  per card (gold yes: recall@0.5 / fp@0.5):
+    ei/define      yes= 12 recall=0.00 fp=0
+    ei/documents   yes= 23 recall=0.00 fp=0
+    ei/manage      yes=  3 recall=0.00 fp=0
+    ei/register    yes= 10 recall=0.90 fp=27
+    hr/prices      yes= 32 recall=0.81 fp=13
+    kp/clocks      yes=  6 recall=0.00 fp=0
+    kp/ooc         yes= 10 recall=0.90 fp=6
+    kp/stuck       yes=  7 recall=0.00 fp=0
+    nn/asker       yes= 49 recall=0.96 fp=1
+    nn/asking      yes= 10 recall=0.80 fp=3
+    nn/impression  yes= 32 recall=0.00 fp=0
+    nn/language    yes=  1 recall=0.00 fp=0
+    st/clues       yes= 58 recall=0.00 fp=0
+    st/conclude    yes=  2 recall=1.00 fp=1
+    st/handed      yes= 19 recall=0.00 fp=0
+  decoys firing >=0.5: 112 pairs over 119 inputs; top [('x/auto-refuel', 25), ('x/servants', 21), ('x/press-archive', 9), ('x/photo-camera', 9), ('x/religion-church', 5), ('x/trade-pawn', 5)]
+
+== rows-M.jsonl {'state': 'context', 'card': 'structured', 'lang': 'zh', 'decoys': False, 'shape': 'noul', 'cards': 'cards.v2.json', 'ask': 'situation'}  judged cards=9 n=119 errors=1  ms p50=318 p95=462  input_tokens p50=2614  state_bytes p50=5817
+  thr 0.35: P 0.59 R 0.91 F1 0.72  (tp 103 fp 71 fn 10)
+  thr 0.50: P 0.70 R 0.88 F1 0.78  (tp 100 fp 43 fn 13)
+  thr 0.60: P 0.75 R 0.88 F1 0.81  (tp 99 fp 33 fn 14)
+  thr 0.70: P 0.79 R 0.83 F1 0.81  (tp 94 fp 25 fn 19)
+  all gold cards within top-2: 66/74 = 0.89
+  all gold cards within top-3: 68/74 = 0.92
+  all gold cards within top-4: 70/74 = 0.95
+  per card (gold yes: recall@0.5 / fp@0.5):
+    ei/define      yes= 12 recall=0.00 fp=0
+    ei/documents   yes= 23 recall=0.00 fp=0
+    ei/manage      yes=  3 recall=0.00 fp=0
+    ei/register    yes= 10 recall=0.90 fp=25
+    hr/prices      yes= 31 recall=0.77 fp=12
+    kp/clocks      yes=  6 recall=0.00 fp=0
+    kp/ooc         yes= 10 recall=0.90 fp=4
+    kp/stuck       yes=  7 recall=0.00 fp=0
+    nn/asker       yes= 49 recall=0.96 fp=0
+    nn/asking      yes= 11 recall=0.82 fp=2
+    nn/impression  yes= 32 recall=0.00 fp=0
+    nn/language    yes=  1 recall=0.00 fp=0
+    st/clues       yes= 58 recall=0.00 fp=0
+    st/conclude    yes=  2 recall=1.00 fp=0
+    st/handed      yes= 19 recall=0.00 fp=0
