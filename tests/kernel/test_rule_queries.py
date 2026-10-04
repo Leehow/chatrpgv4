@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -14,18 +12,11 @@ from conftest import CAMPAIGN, CONTENT_DIR, MODULE, RpcClient, WORKTREE, campaig
 from test_read_projections import prepare, read
 
 
-def retained(case: str) -> Path:
-    base = Path(os.environ.get("COC_RPC_EVIDENCE_DIR", str(
-        WORKTREE / ".coc" / "playtests" / "runtime-consolidation" / "rule-queries")))
-    base.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix=case + "-", dir=base))
-
-
 def queries(cases: list[dict]) -> list[tuple[str, dict]]:
     return [("table.lookup", case) for case in cases]
 
 
-def test_rule_lookup_keeps_actual_rule_graph_rows_and_fixed_rpc_limit():
+def test_rule_lookup_keeps_actual_rule_graph_rows_and_fixed_rpc_limit(retained):
     root = retained("rule-rpc")
     prepare(root / "workspace")
     actual = read(root, queries([
@@ -39,7 +30,7 @@ def test_rule_lookup_keeps_actual_rule_graph_rows_and_fixed_rpc_limit():
     assert actual["exchanges"][0]["response"]["result"]["rules"]
 
 
-def test_catalog_rpc_keeps_candidates_prices_parameterized_families_and_labels():
+def test_catalog_rpc_keeps_candidates_prices_parameterized_families_and_labels(retained):
     root = retained("catalog-rpc")
     prepare(root / "workspace")
     skills = json.loads((WORKTREE / "content/rulesets/coc7/rules-json/skills.json").read_text())["skills"]
@@ -62,7 +53,7 @@ def test_catalog_rpc_keeps_candidates_prices_parameterized_families_and_labels()
     assert actual["exchanges"][4]["response"]["result"]["unresolved_family_parameters"]
 
 
-def test_public_catalog_refusals_keep_closed_error_shapes_without_writes():
+def test_public_catalog_refusals_keep_closed_error_shapes_without_writes(retained):
     root = retained("query-errors")
     prepare(root / "workspace")
     actual = read(root, queries([
@@ -79,7 +70,7 @@ def test_public_catalog_refusals_keep_closed_error_shapes_without_writes():
     assert all(not row["response"]["ok"] and row["response"]["error"]["code"] == "invalid_params" for row in actual["exchanges"])
 
 
-def test_module_spell_authority_aliases_and_generated_definitions_reach_catalog_rpc():
+def test_module_spell_authority_aliases_and_generated_definitions_reach_catalog_rpc(retained):
     from test_mods import prepared
     root = retained("module-spell-rpc")
     workspace = root / "workspace"

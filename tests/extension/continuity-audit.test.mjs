@@ -14,12 +14,12 @@ import {EventEmitter} from 'node:events';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable, assistantTexts, customMessages, waitForIdle} from './harness.mjs';
 import {extensionWords} from '../../extensions/ui/words.ts';
+import {playtestScratch} from './playtest-scratch.mjs';
 // These cases pin the pre-delivery gate (§36.14, §26.1, §91), which §130 keeps whole as the `pre` mode.
 process.env.PI_COC_CONTINUITY_GATE = 'pre';
 
-const root = resolve(import.meta.dirname, '../..'), base = join(root, '.coc/playtests/continuity-audit-contracts');
-await mkdir(base, {recursive: true});
-const directory = await mkdtemp(join(base, 'suite-'));
+const root = resolve(import.meta.dirname, '../..');
+const directory = playtestScratch('continuity-audit-contracts');
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
 const pass = () => ({missing: [], findings: [], continuity_review: {verdict: 'pass', summary: 'Compatible campaign detail.', conflicts: []}});
 const conflict = () => ({missing: [], findings: [], continuity_review: {verdict: 'revise', summary: 'The prior statement was withdrawn.', conflicts: [

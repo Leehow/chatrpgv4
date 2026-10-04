@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
 import {createHash} from 'node:crypto';
-import {mkdir, mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, rm} from 'node:fs/promises';
 import {mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
@@ -15,10 +15,10 @@ import {build} from 'esbuild';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {convertToLlm} from './pi.mjs';
 import {openTable, waitForIdle} from './harness.mjs';
+import {playtestScratch} from './playtest-scratch.mjs';
 
-const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/playtests/bounded-context-contracts');
-await mkdir(evidence, {recursive: true});
-const directory = await mkdtemp(join(evidence, 'workspace-suite-'));
+const root = resolve(import.meta.dirname, '../..');
+const directory = playtestScratch('bounded-context-contracts', 'workspace-suite-');
 await build({stdin: {contents: `export * from './extensions/table/context-policy.ts'; export {installContextPolicy} from './extensions/table/context-runtime.ts';
 export * from './extensions/table/workspace/projection.ts'; export * from './extensions/table/workspace/workpad-store.ts';
 export * from './extensions/table/workspace/evidence.ts';`,

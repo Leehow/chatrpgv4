@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdtemp, mkdir, readFile, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {fauxAssistantMessage} from '@earendil-works/pi-ai';
 import {openTable, waitFor} from './harness.mjs';
-const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/playtests/memory-correction-contracts');
-await mkdir(evidence, {recursive: true});
-const directory = await mkdtemp(join(evidence, 'suite-'));
+import {playtestScratch} from './playtest-scratch.mjs';
+const root = resolve(import.meta.dirname, '../..');
+const directory = playtestScratch('memory-correction-contracts');
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
 await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts';`, resolveDir: root, sourcefile: 'memory-correction-api.ts'}, outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href), closers = [];

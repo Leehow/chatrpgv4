@@ -3,14 +3,14 @@ import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
+import { playtestScratch } from './playtest-scratch.mjs';
 
-const ROOT = resolve(import.meta.dirname, '../..'), parent = join(ROOT, '.coc/playtests/runtime-consolidation/healing');
-await mkdir(parent, { recursive: true });
-const evidence = await mkdtemp(join(parent, 'direct-'));
+const ROOT = resolve(import.meta.dirname, '../..');
+const evidence = playtestScratch('runtime-consolidation/healing', 'direct-');
 const modules = [
   ['json', ['parsePythonJson', 'pythonJsonDumps', 'canonicalJson']], ['random', ['PythonRandom']], ['context', ['createKernelContext']],
   ['rules/tables', ['RuleTables']], ['resolve/arithmetic', ['CheckArithmetic']],

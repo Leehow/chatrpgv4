@@ -1,3 +1,4 @@
+import {playtestScratch} from './playtest-scratch.mjs';
 import {expected as outcome, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
@@ -12,9 +13,7 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 
 const ROOT = resolve(import.meta.dirname, '../..');
-const evidenceRoot = join(ROOT, '.coc/playtests/ts-modules-check');
-await mkdir(evidenceRoot, { recursive: true });
-const evidence = await mkdtemp(join(evidenceRoot, 'direct-'));
+const evidence = playtestScratch('ts-modules-check', 'direct-');
 const exports = [
   ['json', ['parsePythonJson', 'pythonJsonDumps', 'canonicalJson']],
   ['modules/visual', ['checkDraft', 'checkReview', 'requiredViewPages', 'assembleVisual', 'attachMapCandidates','recordContested']],

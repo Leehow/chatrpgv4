@@ -7,15 +7,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-EVIDENCE = ROOT / ".coc/playtests/ts-mod-management"
-
-
-def retained(name):
-    EVIDENCE.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix=name + "-", dir=EVIDENCE))
 
 
 def write_json(path, value):
@@ -23,7 +16,7 @@ def write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def test_emitted_mod_checker_reuses_validation_without_kernel_or_state_writes():
+def test_emitted_mod_checker_reuses_validation_without_kernel_or_state_writes(retained):
     from test_mods import weapon
     root = retained("host-check")
     home = root / "home"

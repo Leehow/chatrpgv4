@@ -7,6 +7,7 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {setupUserTextFields,buildSetupInputCatalog,materializeSetupInputs,validateSetupInputs,SETUP_INPUT_LIMITS} from '../../runtime/jev/setup-input-references.ts';
+import {playtestScratch} from './playtest-scratch.mjs';
 const root=resolve(import.meta.dirname,'../..');let api,bundle;
 before(async()=>{await mkdir(join(root,'.tmp'),{recursive:true});bundle=await mkdtemp(join(root,'.tmp/setup-input-'));
     await build({stdin:{contents:["export {createKernelContext} from './kernel-ts/context.ts';","export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';","export {createKernelRuntime} from './kernel-ts/registry.ts';"].join('\n'),resolveDir:root,sourcefile:'setup-input-entry.ts'},outfile:join(bundle,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',logLevel:'silent'});
@@ -141,7 +142,7 @@ function profile(name){return {name,occupation:'Journalist',age:29,sex:'female',
     occupation_skills:['Art and Craft (Photography)','History','Language (Own)','Library Use','Psychology','Persuade','Spot Hidden','Listen'],interest_skills:['Accounting','Law','First Aid','Drive Auto'],
     backstory:{personal_description:'A practical coat',ideology_beliefs:'Evidence before rumors',significant_people:'An editor friend',scenario_bound:'Meeting Knott about the house'},
     key_connection:{backstory_field:'significant_people',summary:'The editor friend'},equipment:['Notebook','Camera']};}
-async function kernelFixture(t){const base=join(root,'.coc/playtests/jev-setup-input-contracts');await mkdir(base,{recursive:true});const home=await mkdtemp(join(base,'suite-'));
+async function kernelFixture(t){const home=playtestScratch('jev-setup-input-contracts');
     await writeFile(join(home,'classification.json'),JSON.stringify({kind:'contract-fixture',live_play:false,model_calls:0}));
     const context=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'setup-input',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(context);
     t.after(()=>runtime.close());const call=(method,params={})=>runtime.handlers[method]({campaign:'c1',...params});await call('campaign.create',{id:'c1',module:'the-haunting',play_language:'en'});

@@ -6,11 +6,10 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable, waitForIdle} from './harness.mjs';
+import {playtestScratch} from './playtest-scratch.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
-const evidence = join(root, '.coc/playtests/bounded-recall-contracts');
-await mkdir(evidence, {recursive: true});
-const directory = await mkdtemp(join(evidence, 'suite-'));
+const directory = playtestScratch('bounded-recall-contracts');
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
 await build({stdin: {contents: [
     `export {createKernelContext} from './kernel-ts/context.ts';`,

@@ -5,6 +5,7 @@ import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
+import {playtestScratch} from './playtest-scratch.mjs';
 const root=resolve(import.meta.dirname,'../..');let api,bundle;
 before(async()=>{
     await mkdir(join(root,'.tmp'),{recursive:true});bundle=await mkdtemp(join(root,'.tmp/fulfillment-views-'));
@@ -55,7 +56,7 @@ test('malformed links stay explicitly unavailable and foreign scope cannot compl
     assert.equal(api.memoryEvidenceView(api.withPromiseFulfillment([{kind:'promise',id:'legacy',statement:'An old promise.'}],{receipts:[]})[0]).fulfillment.status,'open');
 });
 test('actual private apply reaches capsule, NPC history, recall, adaptive evidence and stranded-close accounting',async()=>{
-    const base=join(root,'.coc/playtests/jev-fulfillment-view-contracts');await mkdir(base,{recursive:true});const home=await mkdtemp(join(base,'suite-'));
+    const home=playtestScratch('jev-fulfillment-view-contracts');
     await writeFile(join(home,'classification.json'),JSON.stringify({kind:'contract-fixture',live_play:false,model_calls:0}));
     const kernel=await api.createKernelContext({workspace:home,content:join(root,'content'),seed:'fulfillment-readers',locks:api.nativeAdvisoryLocks(),env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}),runtime=api.createKernelRuntime(kernel);
     try {

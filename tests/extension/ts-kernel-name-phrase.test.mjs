@@ -15,11 +15,11 @@ import { test } from 'node:test';
 import { mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { KernelClient } from '../../extensions/kernel/client.ts';
+import { playtestScratch } from './playtest-scratch.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..'), CONTENT = join(ROOT, 'content'), RPC = join(ROOT, 'build/kernel/rpc.mjs');
 const STARTER = 'the-haunting';
-const evidence = join(ROOT, '.coc/playtests/ts-name-phrase-node');
-await mkdir(evidence, { recursive: true });
+const evidence = playtestScratch('ts-name-phrase-node', 'run-');
 
 const node = (node_kind, node_id, name, aliases = []) => ({ node_id, node_kind, name, aliases, visibility: 'keeper', summary: name, evidence_span_ids: [], properties: {} });
 const npc = (node_id, name, aliases = []) => node('npc', node_id, name, aliases);

@@ -19,13 +19,13 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { KernelClient } from '../../extensions/kernel/client.ts';
+import { playtestScratch } from './playtest-scratch.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..'), CONTENT = join(ROOT, 'content'), RPC = join(ROOT, 'build/kernel/rpc.mjs');
-const evidence = join(ROOT, '.coc/playtests/untold-turn-receipts');
-await mkdir(evidence, { recursive: true });
+const evidence = playtestScratch('untold-turn-receipts', 'run-');
 
 function environment() {
 	return {

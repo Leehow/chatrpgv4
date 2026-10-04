@@ -1,3 +1,4 @@
+import {playtestScratch} from './playtest-scratch.mjs';
 /**
  * Contract §151.4 against §22.3.3 and the campaign fork: the read-ahead streams a book's source units in the background,
  * at most two in flight, and it must know which units are already read. A campaign's fork starts with an empty queue and
@@ -22,9 +23,7 @@ import {build} from 'esbuild';
 import {KernelError} from '../../extensions/kernel/client.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..'), CONTENT = join(ROOT, 'content');
-const evidence = join(ROOT, '.coc/playtests/fork-read-ahead');
-await mkdir(evidence, {recursive: true});
-const directory = await mkdtemp(join(evidence, 'suite-'));
+const directory = playtestScratch('fork-read-ahead', 'suite-', {retain: Boolean(process.env.KEEP_FORK_READ_AHEAD_EVIDENCE)});
 await build({stdin: {contents: [
 	`export {createKernelContext} from './kernel-ts/context.ts';`,
 	`export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts';`,
@@ -36,7 +35,7 @@ await build({stdin: {contents: [
 	outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', target: 'node22', logLevel: 'silent'});
 const api = await import(pathToFileURL(join(directory, 'api.mjs')).href);
 const closers = [];
-after(async () => { for (const close of closers.reverse()) await close(); if (!process.env.KEEP_FORK_READ_AHEAD_EVIDENCE) await rm(directory, {recursive: true, force: true}); });
+after(async () => { for (const close of closers.reverse()) await close(); });
 
 const save = (path, value) => writeFile(path, JSON.stringify(value));
 const REFS = [{page: 1}];

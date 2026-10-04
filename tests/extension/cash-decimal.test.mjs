@@ -1,16 +1,15 @@
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {mkdtemp, mkdir, readFile, symlink, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, symlink, writeFile} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import test from 'node:test';
 import {build} from 'esbuild';
 import {KernelClient} from '../../extensions/kernel/client.ts';
+import {playtestScratch} from './playtest-scratch.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..'), CONTENT = join(ROOT, 'content');
-const evidence = join(ROOT, '.coc/playtests/cash-decimal-contracts');
-await mkdir(evidence, {recursive: true});
-const suite = await mkdtemp(join(evidence, 'suite-'));
+const suite = playtestScratch('cash-decimal-contracts');
 await writeFile(join(suite, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
 const environment = () => ({...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
   GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_COUNT: '0', GIT_AUTHOR_DATE: '2000-01-02T03:04:05Z', GIT_COMMITTER_DATE: '2000-01-02T03:04:05Z',

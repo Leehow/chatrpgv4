@@ -1,3 +1,4 @@
+import {playtestScratch} from './playtest-scratch.mjs';
 /**
  * Contract §144: a Keeper tool argument that carries the model's own tool-call markup is unwrapped where the model's
  * arguments enter the host, and a parameter the markup swallowed is recovered as its own argument.
@@ -90,9 +91,7 @@ for (const engine of ["legacy", "hybrid-v1"]) {
 }
 
 test("§144: a workpad patch swallowed into the text is filed as the Keeper's patch, and the player sees neither", async (t) => {
-	const evidence = join(root, ".coc/playtests/bounded-context-contracts");
-	await mkdir(evidence, { recursive: true });
-	const directory = await mkdtemp(join(evidence, "markup-suite-"));
+	const directory = playtestScratch("bounded-context-contracts", "markup-suite-");
 	const leaked = `The letter sits where you left it.</text>\n<parameter name="workpad_patch">${JSON.stringify(PATCH)}`;
 	const table = await openTable({
 		campaign: "markup-live", realKernel: false, retainAt: directory, env: { FAKE_KERNEL_WORKSPACE: "1" },

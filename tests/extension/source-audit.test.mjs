@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {after, test} from 'node:test';
-import {mkdir, mkdtemp, readFile, writeFile, chmod} from 'node:fs/promises';
+import {mkdtemp, readFile, writeFile, chmod} from 'node:fs/promises';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {EventEmitter} from 'node:events';
@@ -9,12 +9,12 @@ import {fauxAssistantMessage, fauxToolCall} from '@earendil-works/pi-ai';
 import {openTable, assistantTexts, waitForIdle} from './harness.mjs';
 import modsExtension from '../../extensions/mods/index.ts';
 import {KernelError} from '../../extensions/kernel/client.ts';
+import {playtestScratch} from './playtest-scratch.mjs';
 // These cases pin the pre-delivery gate (§36.14, §26.1, §91), which §130 keeps whole as the `pre` mode.
 process.env.PI_COC_CONTINUITY_GATE = 'pre';
 
-const root = resolve(import.meta.dirname, '../..'), evidence = join(root, '.coc/playtests/source-audit-contracts');
-await mkdir(evidence, {recursive: true});
-const directory = await mkdtemp(join(evidence, 'suite-'));
+const root = resolve(import.meta.dirname, '../..');
+const directory = playtestScratch('source-audit-contracts');
 await writeFile(join(directory, 'classification.json'), JSON.stringify({kind: 'contract-fixture', live_play: false, model_calls: 0}));
 await build({stdin: {contents: `export {createKernelContext} from './kernel-ts/context.ts'; export {nativeAdvisoryLocks} from './kernel-ts/native-locks.ts'; export {createKernelRuntime} from './kernel-ts/registry.ts';`, resolveDir: root, sourcefile: 'source-audit-api.ts'},
     outfile: join(directory, 'api.mjs'), bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent'});
