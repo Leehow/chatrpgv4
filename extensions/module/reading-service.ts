@@ -531,7 +531,9 @@ export class ReadingService implements ReadingBridge {
 	async prepare(params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
 		const result = await this.prepareBook(params, signal, options);
 		const mid = typeof result?.module_id === 'string' ? result.module_id : typeof params.module_id === 'string' ? params.module_id : undefined;
-		if (mid && !this.stopped) void this.cast(mid, params).catch(() => undefined);
+		// Binding returns before any read (the guidance or opening preparation that follows asks); the cast is queued after
+		// this call has returned, never inside it.
+		if (mid && params.purpose !== 'bind') setImmediate(() => { if (!this.stopped) void this.cast(mid, params).catch(() => undefined); });
 		return result;
 	}
 	private async prepareBook(params: Row, signal?: AbortSignal, options: ReadingOptions = {}): Promise<Row> {
@@ -623,7 +625,7 @@ export class ReadingService implements ReadingBridge {
 	 * One run per scope and module at a time; the kernel answers `job_id: null` once the book has its cast.
 	 */
 	cast(mid: string, params: Row = {}): Promise<Row> {
-		const campaign = this.campaign(params), key = JSON.stringify(['cast', campaign, mid]);
+		const campaign = this.campaign(params), key = JSON.stringify(['cast', mid]);
 		const running = this.casting.get(key);
 		if (running) return running;
 		// A cast that failed this session is not read again until the next one: every preparation and table open asks, and a
@@ -636,9 +638,13 @@ export class ReadingService implements ReadingBridge {
 	}
 	private casting = new Map<string, Promise<Row>>();
 	private castFailed = new Set<string>();
-	private async readCast(mid: string, campaign: string | undefined, key: string): Promise<Row> {
+	private async readCast(mid: string, bound: string | undefined, key: string): Promise<Row> {
 		if (this.stopped) return { state: 'stopped' };
-		const job = await this.call('cast.job', { module_id: mid }, campaign);
+		// The cast belongs to the book: it is read once in the shared library, which every campaign's fork falls back to
+		// (`loadModule`); only a module that exists in a campaign's scope alone is read there.
+		let campaign: string | undefined = undefined;
+		let job = await this.call('cast.job', { module_id: mid }, undefined);
+		if (job?.reason === 'no_module' && bound !== undefined) { campaign = bound; job = await this.call('cast.job', { module_id: mid }, campaign); }
 		if (!job?.job_id) return job ?? {};
 		const controller = new AbortController(), signal = controller.signal, started = Date.now();
 		this.controllers.set(key, controller);
@@ -682,7 +688,7 @@ export class ReadingService implements ReadingBridge {
 				if (!submitted) return { state: 'failed', range: range.index };
 				result = submitted;
 				// Each range's rows are true already: the lanes that name people can use them before the book is done.
-				this.deps.published?.({ campaign, module_id: mid, people: submitted.people, state: submitted.state });
+				this.deps.published?.({ ...(campaign ? { campaign } : {}), module_id: mid, people: submitted.people, state: submitted.state });
 			}
 			return result;
 		} catch (error) {

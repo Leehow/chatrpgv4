@@ -32904,7 +32904,7 @@ A module that plays from reading (`playsFromReading`) gets its cast once per bou
   - `{job_id: "cast:<sha12>", module_id, page_count, play_language, source: "needed"}`;
   - `{job_id, ..., source: "kept", ranges: [{index, first, last, done}]}` when the kernel already keeps the text. A run that stopped resumes at the first range not done.
 
-  The module directory is the campaign's private one when it has forked, else the shared library's, which is the root `loadModule` reads.
+  The cast belongs to the book. The host reads it in the shared library's module directory, and `loadModule` and the reader packets fall back to the library's `cast.json` when a campaign's forked copy has none. Only a module that exists in a campaign's scope alone is read there.
 - **`cast.source {module_id, campaign?, job_id, pages: [{page, text}]}`** keeps the host-extracted text as the kernel's own copy, in `cast-source.json`, and answers `{state: "ready", ranges}`. A book with no text on any page gets `cast.json` `{state: "unavailable", reason: "no_text_layer"}`, and every check falls back to the graph's people (owner's Q2).
 - **`cast.range {module_id, campaign?, job_id, index}`** writes that range's working directory:
   - `pages/page-NNNN.txt`, the range's pages that have text;
@@ -32935,7 +32935,7 @@ A module that plays from reading (`playsFromReading`) gets its cast once per bou
 - stops at a range refused twice; that cast is not read again until the next session, which resumes there;
 - records `lane: "cast"` rows (`range`, `published`, `refused`, `unavailable`, `failed`) and emits `coc:cast-published` after every range.
 
-It is asked after every preparation of a book (`ReadingService.prepare`), whether a PDF's ingest or character creation preparing a book already read, so the cast can land before the opening. The module extension asks again at every `table-open` of a reading module. One run per scope and module at a time.
+It is asked after every preparation of a book except a bare binding (`ReadingService.prepare`), whether a PDF's ingest or character creation preparing a book already read, so the cast can land before the opening. It is queued after that call returns, never inside it. The module extension asks again at every `table-open` of a reading module. One run per scope and module at a time.
 
 ### 177.3 A newcomer may not take a name the book gives anyone
 
@@ -33006,6 +33006,6 @@ Tests:
   - the replacement by cast id;
   - no text layer;
   - an authored module, and the abbreviation.
-- `tests/extension/module-cast.test.mjs` also: a 45-page book in two ranges, the second joining a known person by a known form under the first range's id, refusing a page outside its range, and resuming from the kept text.
-- `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, one background child per range under `module-cast.md`, each range's submit, record and announcement, resuming at the first range not read, the second run after a refusal, no child without text, one run at a time, and a preparation queueing the cast.
+- `tests/extension/module-cast.test.mjs` also: the library's cast read by a campaign's fork; a 45-page book in two ranges, the second joining a known person by a known form under the first range's id, refusing a page outside its range, and resuming from the kept text.
+- `tests/extension/module-cast-reader.test.mjs`: the host's batches, source, one background child per range under `module-cast.md`, each range's submit, record and announcement, all in the library scope, resuming at the first range not read, the second run after a refusal, no child without text, one run at a time, a preparation queueing the cast, and a campaign-only module read in its scope.
 - `tests/extension/npc-epithets-lane.test.mjs`: a published cast asks again, and another campaign's does not.

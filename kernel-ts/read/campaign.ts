@@ -213,10 +213,11 @@ export async function loadModule(context: KernelContext, id: string, campaign?: 
     const asset = store ? (name: string) => store.asset(id, name) : undefined;
     if (asset) graph.assetOverride = asset;
     // §177.2: the cast reader's rows for this very file; a cast of another file (a re-bound PDF) is not this book's.
+    // The cast belongs to the book and is read in the shared library; a campaign's fork reads the library's when its own
+    // copy has none (§177.2).
     if (registered) {
-        const castPath = join(moduleRoot, CAST_FILE);
-        try { graph.castStore = await context.snapshots.pathExists(castPath) ? storedCast(await context.snapshots.readJson(castPath), moduleSourceSha(meta)) : null; }
-        catch { graph.castStore = null; }
+        const read = async (path: string) => { try { return await context.snapshots.pathExists(path) ? storedCast(await context.snapshots.readJson(path), moduleSourceSha(meta)) : null; } catch { return null; } };
+        graph.castStore = await read(join(moduleRoot, CAST_FILE)) ?? (inScope ? await read(join(context.stateRoot, 'modules', id, CAST_FILE)) : null);
     }
     const material = (name: string) => {
         if (!registered || !playsFromReading(meta))

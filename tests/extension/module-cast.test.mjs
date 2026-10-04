@@ -171,6 +171,20 @@ test('§177.2: rows sharing a printed name are one person; the shape is closed',
 	assert.deepEqual(shapes.refused.map(row => row.reason), ['shape', 'shape', 'shape']);
 });
 
+test('§177.2: the cast is the book\'s, read in the shared library; the campaign\'s fork reads it', async t => {
+	const h = await harbor(t);
+	const forked = await readFile(join(h.home, '.coc', 'module-campaigns', CAMPAIGN, 'modules', h.mid, 'module.json'), 'utf8').then(() => true, () => false);
+	assert.equal(forked, true, 'the fixture\'s campaign has its own copy of the module');
+	const job = await h.raw('cast.job', {module_id: h.mid});
+	const staged = await h.raw('cast.source', {module_id: h.mid, job_id: job.job_id, pages: PAGES.map((text, index) => ({page: index + 1, text}))});
+	const place = await h.raw('cast.range', {module_id: h.mid, job_id: job.job_id, index: staged.ranges[0].index});
+	assert.ok(place.cwd.startsWith(join(h.home, '.coc', 'modules', h.mid)), place.cwd);
+	await writeFile(join(place.cwd, 'draft.json'), JSON.stringify(DRAFT));
+	await h.raw('cast.submit', {module_id: h.mid, job_id: job.job_id, index: place.index});
+	const roster = (await h.call('table.untold')).people;
+	assert.match(roster.find(row => row.name === 'Jonah')?.id ?? '', /^cast-/, 'the fork has no cast of its own and reads the library\'s');
+});
+
 test('§177.1/§177.4/§177.5: stored rows join the graph\'s person or stand unread; the rename and the epithet lane cover the whole cast', async t => {
 	const h = await harbor(t);
 	await readCast(h);

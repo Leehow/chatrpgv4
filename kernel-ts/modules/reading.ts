@@ -646,10 +646,12 @@ export class Reading {
     }
     /** §177.8: the cast reader's rows for this file, as the reader's packet carries them: what the book prints and the renderings. */
     async castNames(mid: string, meta: Row): Promise<Row[]> {
-        const path = join(this.store.moduleDir(mid), CAST_FILE);
-        if (!await this.store.context.snapshots.pathExists(path)) return [];
-        let stored: Row | null = null;
-        try { stored = storedCast(await this.store.context.snapshots.readJson(path), moduleSourceSha(meta)); } catch { stored = null; }
+        // A campaign's fork reads the library's cast when its own copy has none (§177.2).
+        const read = async (path: string): Promise<Row | null> => {
+            if (!await this.store.context.snapshots.pathExists(path)) return null;
+            try { return storedCast(await this.store.context.snapshots.readJson(path), moduleSourceSha(meta)); } catch { return null; }
+        };
+        const stored = await read(join(this.store.moduleDir(mid), CAST_FILE)) ?? await read(join(this.store.context.stateRoot, 'modules', mid, CAST_FILE));
         if (!stored || !['complete', 'partial'].includes(string(stored.state))) return [];
         return array(stored.people).map(person => ({ book: array(row(person).book), play: array(row(person).play) }));
     }

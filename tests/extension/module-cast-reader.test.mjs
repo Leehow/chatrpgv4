@@ -64,7 +64,9 @@ test('§177.2: job, text in batches, source, one background child per range unde
 	const batches = h.calls.filter(([name]) => name === 'sourceText').map(([, pages]) => pages);
 	assert.deepEqual(batches.map(pages => [pages[0], pages.length]), [[1, 32], [33, 32], [65, 6]], 'every page, at most 32 a call');
 	const source = h.calls.find(([name]) => name === 'cast.source')[1];
-	assert.deepEqual([source.campaign, source.job_id, source.pages.length, source.pages[69]], ['camp', 'cast:aaaaaaaaaaaa', 70, {page: 70, text: 'Page 70 names Jonah.'}]);
+	assert.deepEqual([source.campaign, source.job_id, source.pages.length, source.pages[69]], [undefined, 'cast:aaaaaaaaaaaa', 70, {page: 70, text: 'Page 70 names Jonah.'}],
+		'the cast is the book\'s: read in the shared library, which every campaign\'s fork falls back to');
+	assert.ok(h.calls.filter(([name]) => name.startsWith('cast.')).every(([, params]) => !Object.hasOwn(params, 'campaign')));
 	assert.deepEqual(h.calls.filter(([name]) => name === 'cast.range' || name === 'cast.submit').map(([name, params]) => [name, params.index]),
 		[['cast.range', 0], ['cast.submit', 0], ['cast.range', 1], ['cast.submit', 1]], 'one range after another, in the book\'s order');
 	assert.equal(h.runs.length, 2);
@@ -77,7 +79,7 @@ test('§177.2: job, text in batches, source, one background child per range unde
 	assert.match(next.brief, /pages 41-70/);
 	assert.match(run.brief, /"play_language":"zh-Hans"/);
 	assert.deepEqual(h.rows.filter(row => row.lane === 'cast').map(row => [row.event, row.range]), [['range', 0], ['published', 1]]);
-	assert.deepEqual(h.published, [{campaign: 'camp', module_id: 'book-4', people: 1, state: 'partial'}, {campaign: 'camp', module_id: 'book-4', people: 2, state: 'complete'}],
+	assert.deepEqual(h.published, [{module_id: 'book-4', people: 1, state: 'partial'}, {module_id: 'book-4', people: 2, state: 'complete'}],
 		'each range announces its rows: the lanes can use them before the book is done');
 	assert.deepEqual(await h.reading.cast('book-4'), {job_id: null, state: 'complete'}, 'the kernel says when the book has its cast');
 });
@@ -130,4 +132,18 @@ test('§177.2: preparing a book, by whichever road, queues its cast in the backg
 	await Promise.all([...h.reading.casting.values()]);
 	assert.ok(h.calls.some(([name, params]) => name === 'cast.job' && params.module_id === 'book-4'), 'the cast was asked for');
 	assert.equal(h.runs.length, 2);
+});
+
+test('§177.2: a module that exists only in a campaign\'s scope is read there', async t => {
+	const h = host(t);
+	await h.setup();
+	const original = h.reading.deps.call;
+	let libraryAsked = 0;
+	h.reading.deps.call = async (method, params) => {
+		if (method === 'cast.job' && !params.campaign) { libraryAsked += 1; return {job_id: null, reason: 'no_module'}; }
+		return original(method, params);
+	};
+	assert.equal((await h.reading.cast('book-4')).state, 'complete');
+	assert.equal(libraryAsked, 1);
+	assert.ok(h.calls.filter(([name]) => name.startsWith('cast.')).every(([, params]) => params.campaign === 'camp'), 'every later call names the campaign');
 });
