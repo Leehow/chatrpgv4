@@ -34,6 +34,15 @@ Status: landed 2026-10-04 (b0f8aee75)
 `extensions/table/context-runtime.ts` `record({lane: 'context', event: 'request', …})` gains `at`, `segments`,
 `system_digest` (§179.3); a test asserts the shape. Same worker as CT-02.
 
+## CT-04 Reading follows the book's chapters
+
+Status: ready-for-agent
+
+Contract §182. Kernel (`kernel-ts/modules/reading.ts` `queueAheadReading` and `bind`, a new `module.source.outline`
+handler registered beside the other private `module.*` methods, `kernel-ts/handlers.ts` method list), host
+(`extensions/module/index.ts` table-open backfill, `extensions/module/reading-service.ts` `read_window` row), data
+(`content/rulesets/coc7/host-budgets.json` `reading.whole_book_max_pages` 60, `reading.fallback_window_pages` 24), tests.
+
 ## Comments
 
 - 2026-10-04 (lead): CT-02's follow-up ordered the keys of `mods` and `known`; moving the two sections after `style`

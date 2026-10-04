@@ -79,7 +79,8 @@ are unchanged.
 Expected effect: the second and later tables of a book read nothing the first table read. On today's numbers that is
 four of the five books' worth, about 75 M of the 77 M uncached reading tokens.
 
-Not done, and why: throttling the read-ahead to pages near the player was recommended and is withdrawn after reading the
+Superseded the same day by §182 (see 2.4). The paragraph below was the first reading of the design record:
+throttling the read-ahead to pages near the player was recommended and is withdrawn after reading the
 design record (`coc-module-parsing-redesign`, 2026-08-03): 9 of 11 surveyed modules keep NPC stat blocks in sections no
 location edge reaches, which is why the whole book is read. With the library deepening, the whole-book read is paid once
 per book, not once per table.
@@ -99,6 +100,22 @@ The context lane's `request` row gains `at` and `segments`: one `{kind, bytes, d
 plus `system_digest`. A cache miss in the token ledger can then be joined by time and attributed to the first segment
 whose digest changed. Today the row has sizes but no fingerprints and no timestamp.
 
+### 2.4 Reading follows the book's chapters (§182, owner ruling 2026-10-04)
+
+Owner: 「其实整本书构建图谱我的意图是一些短模组是可以一次性构建完，但是构建完之后就不需要来回读，还有就是长模组按需读的话也不需要按需读啊，只需要读当前所在章节和接下来的章节，写图谱和取后续文本，根本没必要来回空读，不输出就别读」.
+
+Evidence added after the stop of two idle tables (13:24Z): each table's background reading added 174–707 graph nodes,
+the table played 5–10 turns in 2–4 scenes, and at most 7–17% of the added nodes ever reached the Keeper. The PDFs carry
+their chapters as bookmarks (血色公路: 21 top-level entries, e.g. the town at page 17, the base at 43, the old mine at
+57; Masks: one per chapter; 冰冷的收获: 14), which the host reads at binding and the kernel dropped.
+
+- A short book (at most 60 pages, data) is built once; after `build_complete` nothing reads in the background.
+- A long book reads the chapter that holds the current scene and the next chapter; the window moves with the player.
+- The read-ahead never asks again what completed or settled, and does not ask the whole-book index of a reference-read
+  book; an idle table reads at most the rest of its window.
+
+Ticket CT-04.
+
 ## 3. Acceptance
 
 - CT-01: `tests/extension/campaign-module-isolation.test.mjs` (amended: the library equals the leading fork's reading
@@ -109,6 +126,7 @@ whose digest changed. Today the row has sizes but no fingerprints and no timesta
   legacy engine.
 - CT-03: `context-policy.test.mjs` / `long-campaign-context.test.mjs`: every `request` row carries `at`, `segments`,
   `system_digest`.
+- CT-04: kernel tests for the outline, the short-book completion and the long-book window (below in the tickets).
 - Live: after packaging, two consecutive tables of the same PDF book; the second table's `reading-telemetry.jsonl`
   shows no `detail` read of a unit the first table read, and the Keeper's turn-start `cacheRead` is at or above the
   system prompt plus brief plus capsule head.
