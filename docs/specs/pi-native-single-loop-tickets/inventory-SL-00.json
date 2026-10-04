@@ -846,6 +846,21 @@
     },
     {
       "file": "extensions/kernel/index.ts",
+      "symbol": "decision",
+      "kind": "jev-adapter",
+      "callee": "createDecisionAdapter",
+      "count": 1,
+      "owner": "kernel ext: untold-name places before a delivery (177.15, KernelClientOptions.prepareCall)",
+      "path": "app-play-gated",
+      "role": "leaf",
+      "trace": "observed: table 28 (App a0ff7f0f6, game-d78dd9ec), three narrate judgements of 1 place each, 260-472 ms",
+      "note": "Gate: a Jev key, and a table.narrate or table.ask whose text writes an untold person's printed name (table.untold_spans finds the places). One Noul per place in requests of at most 40 (NAME_SPANS_PER_BATCH), in parallel under one 2.5 s wait (NAME_SPANS_WAIT_MS), maxRetries 0, at most 400 places a call (NAME_SPANS_PER_CALL); a place it judges another word goes to the kernel as untold_cleared, and a failure or a late answer clears nothing. The request rename's own judgement reuses extensions/table/context-runtime.ts decision and adds no site.",
+      "lines_at_fd073fc4f": [
+        1616
+      ]
+    },
+    {
+      "file": "extensions/kernel/index.ts",
       "symbol": "emitProviderNotice",
       "kind": "trigger-turn",
       "callee": "pi.sendMessage{steer-when-streaming}",
