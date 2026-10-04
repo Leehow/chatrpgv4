@@ -1,0 +1,184 @@
+{
+  "why": "Contract 180.12 (CK-F) retired the haunting's npc twin of its rat swarm after the reference outcomes were captured. These are the rows the reference answered, exactly as the starter shipped them, each with the row it stood before, so a comparison can read the freeze-time graph (tests/extension/oracle-fixture.mjs, withFreezeTimeBeings).",
+  "insert": {
+    "nodes": {
+      "before": "npc-records-clerk",
+      "value": {
+        "node_id": "npc-rat-pack",
+        "node_kind": "npc",
+        "name": "Rat Pack",
+        "visibility": "keeper-only",
+        "aliases": [],
+        "summary": "Rat Pack",
+        "evidence_span_ids": [
+          "span-page-455-anchor-2"
+        ],
+        "properties": {
+          "runtime_projection": {
+            "document": "npc-agendas.json",
+            "collection": "npcs",
+            "record": {
+              "npc_id": "npc-rat-pack",
+              "name": "Rat Pack",
+              "origin": "source",
+              "agenda": "Defend the crawl space nest; swarm whoever breaks into it.",
+              "fear": "Fire and open flame in the confined crawl space.",
+              "secret": "They nest in Corbitt's hidden crawl space and their filth marks the wall carved 'Chapel of Contemplation'.",
+              "voice": "No speech — squealing, scrabbling claws, and the press of bodies in the dark.",
+              "relationship_to_investigators": "adversary",
+              "keeper_note": "Printed encounter in the cellar crawl space (page 457). As a pack they may Overwhelm a single investigator with the Fighting maneuver rules, gaining one bonus die for their numbers.",
+              "mechanics": {
+                "profile": {
+                  "profile_kind": "actor",
+                  "characteristic_scale": "percentile",
+                  "authority": "source_authored",
+                  "characteristics": {
+                    "STR": 35,
+                    "CON": 55,
+                    "SIZ": 35,
+                    "POW": 50,
+                    "DEX": 70
+                  },
+                  "derived": {
+                    "HP": 9,
+                    "MOV": 9,
+                    "Build": -1,
+                    "DB": "-1"
+                  },
+                  "skills": {
+                    "Fighting": 40,
+                    "Dodge": 42
+                  },
+                  "weapons": [
+                    {
+                      "weapon_id": "claws",
+                      "extends": "claws",
+                      "name": "Teeth and claws",
+                      "damage": "1D3",
+                      "uses_per_round": 1,
+                      "book": "The rats attack with teeth and claws."
+                    },
+                    {
+                      "weapon_id": "overwhelm",
+                      "name": "Overwhelm (fighting maneuver)",
+                      "skill": "Fighting",
+                      "damage": "2D6",
+                      "uses_per_round": 1,
+                      "impale_unstated": true,
+                      "book": "As a pack they swarm a single target, gaining one bonus die on the attack because of their numbers."
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "agenda": "Defend the crawl space nest; swarm whoever breaks into it.",
+          "fear": "Fire and open flame in the confined crawl space.",
+          "secret": "They nest in Corbitt's hidden crawl space and their filth marks the wall carved 'Chapel of Contemplation'.",
+          "voice": "No speech — squealing, scrabbling claws, and the press of bodies in the dark.",
+          "relationship_to_investigators": "adversary"
+        },
+        "source_refs": [
+          {
+            "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+            "pdf_index": 457,
+            "grep_anchor": "RAT PACK"
+          }
+        ]
+      }
+    },
+    "claims": {
+      "before": "claim-contains-280",
+      "value": {
+        "claim_id": "claim-contains-28",
+        "subject_id": "module-the-haunting",
+        "predicate": "contains",
+        "object": {
+          "node_id": "npc-rat-pack"
+        },
+        "truth_status": "authored-fact",
+        "visibility": "keeper-only",
+        "evidence_span_ids": [
+          "span-page-446-anchor-1",
+          "span-page-446-anchor-2",
+          "span-page-446-anchor-3",
+          "span-page-446-anchor-4",
+          "span-page-446-anchor-5",
+          "span-page-446-anchor-6",
+          "span-page-446-anchor-7",
+          "span-page-446-anchor-8",
+          "span-page-446-anchor-9",
+          "span-page-447-anchor-1",
+          "span-page-447-anchor-2",
+          "span-page-448-anchor-1",
+          "span-page-448-anchor-2",
+          "span-page-448-anchor-3",
+          "span-page-448-anchor-4",
+          "span-page-448-anchor-5",
+          "span-page-448-anchor-6",
+          "span-page-448-anchor-7",
+          "span-page-448-anchor-8",
+          "span-page-448-anchor-9",
+          "span-page-449-anchor-1",
+          "span-page-449-anchor-2",
+          "span-page-449-anchor-3",
+          "span-page-449-anchor-4",
+          "span-page-449-anchor-5",
+          "span-page-449-anchor-6",
+          "span-page-449-anchor-7",
+          "span-page-450-anchor-1",
+          "span-page-450-anchor-10",
+          "span-page-450-anchor-11",
+          "span-page-450-anchor-2",
+          "span-page-450-anchor-3",
+          "span-page-450-anchor-4",
+          "span-page-450-anchor-5",
+          "span-page-450-anchor-6",
+          "span-page-450-anchor-7",
+          "span-page-450-anchor-8",
+          "span-page-450-anchor-9",
+          "span-page-451-anchor-1",
+          "span-page-451-anchor-2",
+          "span-page-451-anchor-3",
+          "span-page-451-anchor-4",
+          "span-page-451-anchor-5",
+          "span-page-451-anchor-6",
+          "span-page-453-anchor-1",
+          "span-page-453-anchor-2",
+          "span-page-453-anchor-3",
+          "span-page-454-anchor-1",
+          "span-page-454-anchor-2",
+          "span-page-454-anchor-3",
+          "span-page-454-anchor-4",
+          "span-page-455-anchor-1",
+          "span-page-455-anchor-2",
+          "span-page-455-anchor-3",
+          "span-page-455-anchor-4",
+          "span-page-455-anchor-5",
+          "span-page-456-anchor-1",
+          "span-page-456-anchor-2",
+          "span-page-459-anchor-1",
+          "span-page-460-anchor-1"
+        ],
+        "asserted_by_ids": [],
+        "known_by_ids": [],
+        "validity": null,
+        "confidence": 1.0,
+        "reason": "Structured curated starter projection."
+      }
+    },
+    "relations": {
+      "before": "relation-contains-280",
+      "value": {
+        "relation_id": "relation-contains-28",
+        "relation_kind": "contains",
+        "from_node_id": "module-the-haunting",
+        "to_node_id": "npc-rat-pack",
+        "claim_id": "claim-contains-28",
+        "properties": {
+          "context_traversal": false
+        }
+      }
+    }
+  }
+}

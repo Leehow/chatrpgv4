@@ -1,4 +1,4 @@
-import {expected as outcome, withoutPostFreezeIdentity, withoutPostFreezeNodes, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
+import {expected as outcome, withFreezeTimeBeings, withoutPostFreezeIdentity, withoutPostFreezeNodes, withoutPostFreezeRecovery} from "./oracle-fixture.mjs";
 import {pythonOracleRoot} from "../python-oracle.mjs";
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
@@ -38,8 +38,10 @@ const api=await import(pathToFileURL(join(temporary,'api.mjs')).href);
 const clone=value=>api.parsePythonJson(api.pythonJsonDumps(value));
 const json=async path=>api.parsePythonJson(await readFile(path,'utf8'));
 const graphPath=join(temporary,'module-graph.json');
-// The freeze-time graph: nodes authored after the reference was captured are not in its answers (POST_FREEZE_NODES).
-const raw=withoutPostFreezeNodes(await json(join(CONTENT,'starters/the-haunting/module-graph.json')));
+// The freeze-time graph: nodes authored after the reference was captured are not in its answers (POST_FREEZE_NODES), and
+// the beings are the ones it answered (§180.12 retired the rat swarm's npc twin; withFreezeTimeBeings).
+const raw=withFreezeTimeBeings(withoutPostFreezeNodes(await json(join(CONTENT,'starters/the-haunting/module-graph.json'))),
+  await json(join(import.meta.dirname,'fixtures/haunting-freeze-time-beings.json')));
 // Contract §138.9 (BR-05): the shipped roads now carry the minutes the build filled. The captures answered the graph
 // before that data change, so the roads are read here as they were then; the minutes and their projection into
 // `sceneExits` are asserted where they belong, in tests/kernel/test_route_travel.py, and the captures stay as printed.

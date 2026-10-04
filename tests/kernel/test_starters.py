@@ -48,7 +48,7 @@ STARTERS = {
 #: without a source document has no page to cite; the reference starter the-haunting
 #: gets the same finding on 32 nodes). These are IR facts, listed so a fix is noticed.
 KNOWN_IR_FINDINGS = {
-    "mystery-house": {("actor_in_no_scene", "npc-rat-swarm")},
+    "mystery-house": {("actor_in_no_scene", "creature-rat-swarm")},
 }
 
 
@@ -102,17 +102,35 @@ def without_road_travel(graph: dict) -> tuple[dict, list[str]]:
     return stripped, removed
 
 
+#: Contract §180.12 (CK-F): mystery-house's rat swarm and chapel familiar are creatures. The retired projector makes an
+#: `npc` of every npc-agendas.json record and cannot write a creature node, so npc-agendas.json keeps the two records it
+#: was projected from, and the shipped graph differs from their projection by exactly the renamed beings, the rows that
+#: name them and the projection document that listed them. The beings' own data is asserted in
+#: tests/extension/starter-creatures.test.mjs.
+CKF_PROJECTION_CHANGES = {
+    "mystery-house": sorted(
+        [f"/nodes[{old}]: removed" for old in ("npc-rat-swarm", "npc-chapel-familiar")]
+        + [f"/nodes[{new}]: added" for new in ("creature-rat-swarm", "creature-chapel-familiar")]
+        + [f"/claims[claim-contains-{n}]/object/node_id: changed" for n in (35, 39)]
+        + [f"/relations[relation-contains-{n}]/to_node_id: changed" for n in (35, 39)]
+        + ["/claims[claim-present-in-237]/subject_id: changed", "/relations[relation-present-in-237]/from_node_id: changed",
+           "/nodes[module-mystery-house]/properties/runtime_projection/documents: changed"]),
+}
+
+
 @pytest.mark.parametrize("module_id", sorted(STARTERS))
 def test_reprojection_reproduces_the_committed_graph(module_id, tmp_path):
-    committed = read_json(CONTENT_DIR / "starters" / module_id / "module-graph.json")
+    path = CONTENT_DIR / "starters" / module_id / "module-graph.json"
+    text = path.read_text(encoding="utf-8")
+    committed = json.loads(text)
+    assert json.dumps(committed, indent=2, ensure_ascii=False) + "\n" == text, "the graph keeps the projector's own formatting"
     stripped, removed = without_road_travel(committed)
     assert removed, "the shipped roads carry the minutes the build step filled"
-    against = tmp_path / "module-graph.json"
-    against.write_text(json.dumps(stripped, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    args = ["diff", "--starter-dir", str(CONTENT_DIR / "starters" / module_id), "--against", str(against)]
-    result = run_script(*args)
+    projected = tmp_path / "projected.json"
+    result = run_script("build", "--starter-dir", str(CONTENT_DIR / "starters" / module_id), "--output", str(projected),
+                        "--manifest", str(tmp_path / "projected-manifest.json"))
     assert result.returncode == 0, result.stdout + result.stderr
-    assert json.loads(result.stdout)["identical"] is True
+    assert sorted(_paths(read_json(projected), stripped)) == CKF_PROJECTION_CHANGES.get(module_id, [])
 
 
 #: Contract §134.6: the two stated obligations authored into the haunting after the old projection.
@@ -248,6 +266,17 @@ RD04_CHANGES = sorted(
 SL25_CHANGES = sorted(f"/nodes[scene-{scene}]/properties/runtime_projection/record/destination_identity: added" for scene in (
     "basement-rites", "corbitt-confrontation", "corbitt-house-ground", "neighborhood-gossip", "previous-tenants", "upper-floor-bedroom"))
 
+#: Contract §180.12 (CK-F): the rat swarm is one creature node -- the npc twin, its contains claim and relation and its
+#: projection listing gone, the creature stating the book's numbers, disposition and habits -- and Corbitt states his
+#: weaknesses. RD-04's edits to the twin's record went with the twin.
+CKF_CHANGES = sorted(
+    ["/nodes[npc-rat-pack]: removed", "/claims[claim-contains-28]: removed", "/relations[relation-contains-28]: removed",
+     "/nodes[module-the-haunting]/properties/runtime_projection/documents: changed",
+     "/nodes[creature-rat-pack]/evidence_span_ids: changed", "/nodes[creature-rat-pack]/source_refs: changed",
+     "/nodes[npc-walter-corbitt]/properties/weaknesses: added"]
+    + [f"/nodes[creature-rat-pack]/properties/{key}: added" for key in ("combat", "habits", "mechanics")])
+RETIRED_WITH_THE_TWIN = "/nodes[npc-rat-pack]/"
+
 # §134.18 (SL-52 stage 3): the commission as an accept obligation at Knott's office.
 SL52_CHANGES = sorted([
     "/claims[claim-has-requirement-knott-accept-commission]: added",
@@ -265,7 +294,8 @@ def test_the_haunting_differs_from_its_pre_rd04_graph_only_by_the_migration():
     roads = sorted(f"/relations[{r['relation_id']}]/properties/{key}: added" for r in after["relations"]
                    if r["relation_kind"] == "route-to" and "travel_minutes" in (r.get("properties") or {}) for key in ROAD_TRAVEL)
     assert roads and set(roads) <= set(changes)
-    assert sorted(set(changes) - set(roads)) == sorted(RD04_CHANGES + SL25_CHANGES + SL52_CHANGES)
+    rd04 = [change for change in RD04_CHANGES if not change.startswith(RETIRED_WITH_THE_TWIN)]
+    assert sorted(set(changes) - set(roads)) == sorted(rd04 + SL25_CHANGES + SL52_CHANGES + CKF_CHANGES)
 
 
 @pytest.mark.parametrize("module_id", sorted(STARTERS))
