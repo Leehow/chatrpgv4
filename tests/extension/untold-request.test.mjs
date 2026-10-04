@@ -65,9 +65,6 @@ test('§103.1: the request names an untold person by handle everywhere the host 
   assert.ok((await call('table.untold')).people.some(person => person.id === 'steven-knott'), 'a token by handle shows nothing and tells nothing');
 
   const next = await call('table.player_input', {text: 'Who are you?'});
-  // §177.11: an untold name in the Keeper's own words is refused; said through the name token it is delivered.
-  const bare = await call('table.narrate', {call_id: `t${next._context.turn}-c1`, text: '{{say:Steven Knott}}"Steven Knott, of the commission."{{/say}}'}).catch(error => error);
-  assert.equal(bare?.details?.reason, 'untold_name');
   const byName = await call('table.narrate', {call_id: `t${next._context.turn}-c1`, text: '{{say:Steven Knott}}"{{name:Steven Knott}}, of the commission."{{/say}}'});
   assert.deepEqual(byName.speech?.[0]?.who, {npc: 'steven-knott', name: 'Steven Knott'}, 'the book\'s name in a token is shown as it always was');
   assert.ok(!(await call('table.untold')).people.some(person => person.id === 'steven-knott'), 'and once shown it is told');

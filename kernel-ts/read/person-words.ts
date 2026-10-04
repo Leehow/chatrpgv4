@@ -70,11 +70,11 @@ export function untoldPieces(graph: ModuleGraph, journal: Row, records: Row[]): 
 }
 
 /**
- * §177.11 (owner ruling 2026-10-04 after table 25): the names a delivery may not say in its own words -- every printed
- * form of everyone the investigator has not been told about, graph people and the unread alike, minus any name a told
- * person also carries. A person the cast has rows for is named by what the cast reader printed (it lists individuals'
- * names, never a group's description); a graph person with none, by their own name and display name, not their aliases,
- * which for a group are often ordinary words. A one-character name is no name here.
+ * §177.11 (owner ruling 2026-10-04 after table 25): the names a delivery may not say in its own words -- every form the cast
+ * reader printed for someone the investigator has not been told about, graph people and the unread alike, minus any name a
+ * told person also carries. Only the cast says which strings are names (the reader's judgment): a graph's own names and
+ * aliases are as often roles and groups ("Tenant", "the kids"), so a module without a cast has nothing here. A
+ * one-character name is no name here.
  */
 export function untoldWholeNames(graph: ModuleGraph, journal: Row, records: Row[]): string[] {
     const untold = new Set(untoldBookPeople(graph, journal, records).map(node => string(node.node_id)));
@@ -82,15 +82,8 @@ export function untoldWholeNames(graph: ModuleGraph, journal: Row, records: Row[
     const isUntold = (person: CastPerson) => person.node ? untold.has(string(person.node.node_id)) : unread.has(person.id);
     const cast = bookCast(graph);
     const known = new Set(namePieces(cast.filter(person => !isUntold(person)).flatMap(person => person.names)).map(normalize));
-    // A module whose cast is read names its people by what the reader printed; a graph person it did not list is a group or
-    // a role ("the harbor clerk"), not a name. Only a module with no cast falls back to the graph's own names. A person this
-    // campaign's adaptation added is the table's, not the book's.
-    const read = !!graph.castStore && ['complete', 'partial'].includes(string(graph.castStore.state));
-    const forms = (person: CastPerson): string[] => person.printed.length ? person.printed
-        : person.node && !read && !isJsonObject(person.node.campaign_origin)
-            ? [person.node.name, graph.displayName(person.node)].filter((value): value is string => typeof value === 'string') : [];
-    return [...new Set(cast.filter(isUntold).flatMap(forms).map(name => name.trim())
-        .filter(name => [...name].length >= 2 && !known.has(normalize(name))))];
+    return [...new Set(cast.filter(person => isUntold(person) && !isJsonObject(person.node?.campaign_origin)).flatMap(person => person.printed)
+        .map(name => name.trim()).filter(name => [...name].length >= 2 && !known.has(normalize(name))))];
 }
 
 /** Every word already in use for someone other than `handle`: table words, folded epithets, stored epithets, journal labels. */

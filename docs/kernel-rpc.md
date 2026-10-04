@@ -32996,11 +32996,9 @@ Every reader packet except the index and identity jobs carries `cast_names: [{bo
 
 **The rule** (`untoldNamesGate`, `kernel-ts/write/index.ts`; `untoldWholeNames`, `kernel-ts/read/person-words.ts`; `untoldNamesSaid`, `kernel-ts/write/names.ts`):
 - **Which words.** The Keeper's own words of a `table.narrate` or `table.ask` text. A resolved `{{name:}}` token is taken out, because the delivery puts the book's name there on purpose. An unresolved one is left as the word it carries. Every other marker is stripped as machine text: a say token's or a map's handle normalizes to the name it was made from.
-- **Which names.** Every printed form of everyone untold, graph people and the unread, minus any name a told person also carries.
-  - A person with cast rows is named by what the cast reader printed, since it lists individuals' names and never a group's description.
-  - In a module whose cast is read, a graph person the cast did not list is a group or a role, not a name, and does not count.
-  - Only a module with no cast falls back to a graph person's own name and display name, never their aliases: a group's aliases are often ordinary words ("the kids", 「沙痞」).
-  - A person this campaign's adaptation added (`campaign_origin`) is the table's, not the book's ("Harbor clerk" in the adaptation tests).
+- **Which names.** Every form the cast reader printed for someone untold, graph people and the unread alike, minus any name a told person also carries.
+  - Only the cast says which strings are names; that is the reader's judgment. A graph's own names and aliases are as often roles and groups: the test modules have people called "Tenant", "Harbor clerk" and "the kids". So a module without a cast (an authored starter, owner's Q4) refuses nothing here.
+  - A person this campaign's adaptation added (`campaign_origin`) is the table's, not the book's.
   - A one-character name is no name here.
   - Comparison is `occurs`, with Latin word boundaries.
 - **First time.** The first delivery of the turn that says such names is refused `invalid_params`, `details.reason: "untold_name"`, naming the words found (the Keeper wrote them). The fix: put the person's `say_name` where the fiction has the name said, otherwise use the word `present[]` shows, and give a newcomer a word that carries nobody's name. The turn keeps `untold_gate: {words}`.
@@ -33012,9 +33010,9 @@ Tests: `tests/extension/module-cast.test.mjs`:
 - the same names the second time delivered with the table's word in their place;
 - the name token delivered;
 - the name the Keeper's to write once told;
-- in an authored module, a group's alias let through and an untold person's own name refused.
+- a module without a cast refusing nothing.
 
-`tests/extension/untold-request.test.mjs`: the bare name refused, the token delivered. `tests/extension/first-sight-kernel.test.mjs` and `tests/extension/continuity-adaptation.test.mjs` keep passing: a fixture's prose no longer names the untold, and an adaptation's person is the table's.
+`tests/extension/first-sight-kernel.test.mjs`: a fixture's prose no longer names the untold.
 
 ### 177.9 Writers, readers, actor (§31)
 

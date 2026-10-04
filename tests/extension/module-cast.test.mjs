@@ -392,7 +392,7 @@ test('§177.11: a delivery that says an untold printed name in its own words is 
 	assert.equal(told.ok, true, `told, her name is the Keeper's to write: ${told.error?.message}`);
 });
 
-test('§177.11: in an authored module, a group\'s ordinary alias is no name to refuse; an untold person\'s own name is', async t => {
+test('§177.11: a module without a cast has no names to refuse: a graph\'s names are as often roles and groups', async t => {
 	const k = await kernel(t, 'module-cast-delivery-authored');
 	const call = (method, params = {}) => k.raw(method, {campaign: 'c1', ...params});
 	await k.raw('campaign.create', {id: 'card-source', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
@@ -402,9 +402,6 @@ test('§177.11: in an authored module, a group\'s ordinary alias is no name to r
 	await call('setup.complete');
 	await call('table.open');
 	await call('table.player_input', {text: 'I look around the street.'});
-	const group = await k.attempt('table.narrate', {campaign: 'c1', call_id: 't1-c1', text: 'Down the street the kids are kicking a can.'});
+	const group = await k.attempt('table.narrate', {campaign: 'c1', call_id: 't1-c1', text: 'Down the street the kids are kicking a can past the newsstand.'});
 	assert.equal(group.ok, true, `"the kids" is the Macario boys' alias, an ordinary phrase: ${group.error?.message}`);
-	await call('table.player_input', {text: 'Who runs the stand?'});
-	const named = await k.attempt('table.narrate', {campaign: 'c1', call_id: 't2-c1', text: 'Mr. Dooley waves from the newsstand.'});
-	assert.equal(named.error?.details?.reason, 'untold_name');
 });
