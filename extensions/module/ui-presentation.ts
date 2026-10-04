@@ -66,6 +66,11 @@ export interface UiPresentationOptions {
 	thinking?: string;
 	signal?: AbortSignal;
 	runner?: (request: ReaderRequest) => Promise<ReaderOutcome>;
+	/**
+	 * Told once before the first ask (`done: 0`) and once after each ask lands (contract §23.3.1). The
+	 * onboarding host bounds this job by silence, so a report is what keeps a long projection alive.
+	 */
+	onProgress?: (progress: { asks: number; done: number }) => void;
 }
 
 /**
@@ -223,6 +228,7 @@ export async function prepareUiWords(options: UiPresentationOptions): Promise<Ui
 	const projection = randomUUID();
 	const projected: Record<string, string> = {};
 	const asks = uiAsks(gap);
+	options.onProgress?.({ asks: asks.length, done: 0 });
 	for (const [index, asked] of asks.entries()) {
 		const attempt = join(options.home, ".coc/ui-words/attempts", `${projection}-${index + 1}`);
 		// Handed once, before the ask's first round: the seed and what the earlier asks accepted,
@@ -265,6 +271,7 @@ export async function prepareUiWords(options: UiPresentationOptions): Promise<Ui
 			const unprojected = missing.length + asks.slice(index + 1).reduce((sum, later) => sum + later.length, 0);
 			throw coded("preparation_failed", `Incomplete UI word projection: ${unprojected} caption${unprojected === 1 ? "" : "s"} were not projected`);
 		}
+		options.onProgress?.({ asks: asks.length, done: index + 1 });
 	}
 
 	const cache: UiWordsCache = { play_language: tag, digest, texts: assembleUiWords(gap, projected) };

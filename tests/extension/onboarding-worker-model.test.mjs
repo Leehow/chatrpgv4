@@ -43,9 +43,11 @@ async function projected(f, input, env = {}) {
 	const child = spawn(process.execPath, [join(root, 'build/pipicoc/onboarding-worker.mjs'), 'presentation',
 		JSON.stringify({ ui: true, play_language: 'yy', home: f.home, ...input }), JSON.stringify(configuration)],
 		{ env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
-	let stderr = '';
+	let stderr = '', stdout = '';
 	child.stderr.on('data', chunk => { stderr += chunk; });
+	child.stdout.on('data', chunk => { stdout += chunk; });
 	await new Promise(done => child.once('close', done));
+	f.stdout = stdout;
 	const attempts = join(f.home, '.coc/ui-words/attempts');
 	assert.ok(existsSync(attempts), `the lane never launched a child:\n${stderr}`);
 	const argv = readdirSync(attempts).map(id => join(attempts, id, 'launch-argv.json')).filter(existsSync)
@@ -74,4 +76,13 @@ test('a caller\'s model does not outrank the lane setting; it is only the fallba
 test('the operator\'s environment override still outranks the setting', async t => {
 	assert.deepEqual(await projected(fixture(t, SETTING), {}, { PI_COC_MOD_MODEL: 'operator/override', PI_COC_MOD_THINKING: 'minimal' }),
 		{ model: 'operator/override', thinking: 'minimal' });
+});
+
+test('the worker reports the projection before its first ask, on the progress channel the host reads (§23.3.1)', async t => {
+	// The onboarding host's UI-words job is bounded by silence: these lines are what it hears.
+	const f = fixture(t, SETTING);
+	await projected(f, {});
+	const progress = f.stdout.split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(event => event.type === 'progress');
+	assert.deepEqual(progress[0], { type: 'progress', data: { stage: 'ui_words', asks: 1, done: 0 } });
+	assert.equal(progress.some(event => event.data.done > 0), false, 'an ask whose child wrote nothing has not landed');
 });

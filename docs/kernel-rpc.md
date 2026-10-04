@@ -5315,10 +5315,11 @@ a limit may stop what has hung, never what is slow.
 window; one that reports nothing for 360 s has a hung worker or a hung child. The window is unchanged; what it measures
 changed.
 
-**Retries.** Count and backoff are §72's: after a failure the job retries while the window has room. A stall exhausts
-the window, so it is not retried. A failure that arrives after progress is retried, and the new attempt starts its own
-window. It starts the projection again from its first ask: accepted asks are still not kept across attempts (§23.3,
-"Not done here").
+**Retries.** A stall is not retried: when an attempt fails after its window passed with nothing heard, the job fails
+with it. Any other failure (a worker that died, a provider error, an ask still short after its rounds) is retried with
+§72's count and backoff, and each new attempt starts its own window; the fixed job's "while the deadline has room" test
+does not apply, because no total deadline is left to measure against. A retry starts the projection again from its
+first ask: accepted asks are still not kept across attempts (§23.3, "Not done here").
 
 **Unchanged.** Card presentations (every request without `ui: true`) keep the fixed job deadline: a player is waiting on
 that card, and its workers report no progress. The in-session path (`pipicoc/ui-words.ts`) has no job deadline.
@@ -5333,8 +5334,8 @@ that card, and its workers report no progress. The in-session path (`pipicoc/ui-
 - `Electron/packages/pi-backend/test/coc-onboarding.test.ts` (window shortened through `PI_COC_PRESENTATION_DEADLINE_MS`):
   a `ui` job that reports progress more often than the window and finishes after several windows resolves and is never
   aborted; one that reports and then goes silent is aborted once the window passes, and is not retried; one that fails
-  after progress is retried, and the retry's own window lets it finish; a card job with the same timing still times out
-  at its fixed deadline.
+  inside its window is retried, and the retry's own window lets it finish; a card job is handed no progress callback
+  and still times out at its fixed deadline.
 
 ### Host decision: the identity card is a passport-style page (2026-09-11)
 

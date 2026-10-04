@@ -499,3 +499,32 @@ test("every refusal of the run's checker reaches check.mjs with its own reason (
 	}
 	assert.equal(new Set(reasons.values()).size, reasons.size, "each kind of refusal says something of its own");
 });
+
+test("the projection reports before its first ask and after each ask lands (§23.3.1)", async () => {
+	// The cold path's job is bounded by silence: a report is what keeps a long projection alive.
+	const answering = (stubborn = []) => {
+		const run = async request => {
+			run.calls++;
+			const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
+			await writeFile(join(request.cwd, "presentation.json"), JSON.stringify(response(packet, stubborn)));
+			return { ok: true };
+		};
+		run.calls = 0;
+		return run;
+	};
+	const wide = await wideFixture(2 * ASK + 6);
+	const reports = [], whole = answering();
+	await prepareUiWords({ ...wide, play_language: "cc", runner: whole,
+		onProgress: progress => reports.push({ ...progress, children: whole.calls }) });
+	assert.deepEqual(reports, [0, 1, 2, 3].map(done => ({ asks: 3, done, children: done })),
+		"once before the first child, then once per ask that landed, never before it landed");
+
+	const short = await wideFixture(2 * ASK + 6), stopped = [];
+	await assert.rejects(prepareUiWords({ ...short, play_language: "cc", runner: answering([label(ASK + 1)]),
+		onProgress: progress => stopped.push(progress.done) }));
+	assert.deepEqual(stopped, [0, 1], "an ask that never lands is never reported");
+
+	const seeded = await fixture(), silent = [];
+	await prepareUiWords({ ...seeded, play_language: "bb", runner: answering(), onProgress: progress => silent.push(progress) });
+	assert.deepEqual(silent, [], "a seed answers at once and reports nothing");
+});
