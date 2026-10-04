@@ -1,5 +1,10 @@
 # Story Thread
 
+## 1.2.11
+- Declares the sections of `agent.md` (`sections.json`, `instructions.sections.v1`, contract §183): which ride every turn and which a turn loads by its topics, the table's state or the Keeper's calls, for a table whose instructions exceed the instruction budget. Under the budget, as every table is today, the whole text goes as before.
+- `brief.md` is gone. A 2026-10-04 probe of real provider requests found the Keeper received the full `agent.md` every turn; the brief existed only in the capsule (§183, evidence).
+- `agent.md` gains four `## ` headings over its paragraph blocks; no sentence changes.
+
 ## 1.2.10
 
 - Adopts the §101 runtime-file allowlist; the engineering changelog and its retained table evidence remain in the source tree rather than being copied into campaign homes.

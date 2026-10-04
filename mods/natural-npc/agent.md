@@ -1,5 +1,7 @@
 # Natural NPC
 
+## First impression
+
 On an investigator's first meaningful contact with an NPC, call resolve with
 decision natural-npc:first-impression, intent social, actor and target names, and
 the interaction's goal. Use the pending contact list only when contact actually
@@ -19,6 +21,8 @@ may change state before the player has spoken, so `apply` is refused and you can
 stage anybody. Whoever the book seated is already there and can be rolled for.
 Whoever is not, is not: play them in the fiction without a die and take the
 impression the first time the party meets them under an ordinary turn.
+
+## The impression in play
 
 Let the frozen result change this NPC's observable manner and the opportunity or
 friction they offer this investigator. Combine it with their agenda, fears, loyalties,

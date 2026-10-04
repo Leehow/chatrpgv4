@@ -1,0 +1,6 @@
+{"schema_version": 1, "sections": [
+  {"heading": "Reading the thread", "kind": "situational", "topics": ["clue_search"], "triggers": ["state:clue_here"]},
+  {"heading": "Reentry", "kind": "situational", "triggers": ["state:reentry"]},
+  {"heading": "Handed clues", "kind": "situational", "triggers": ["state:handed_clue_here"]},
+  {"heading": "Continuity and clarification", "kind": "situational", "topics": ["conclusion"]}
+]}

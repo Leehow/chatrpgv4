@@ -1,13 +1,25 @@
+# Historical Reference
+
+## The reference library
+
 Historical excerpts survive restart and compaction in this campaign's reference library. lookup kind=historical_reference uses auto to reuse originals before searching; saved plus query never searches; catalog pages names and next_cursor; read plus name restores a known body. Do not inventory an empty library each turn or load every saved body.
 
 When background would help, the host looks the current scene up itself, from the authored era and the scene, and hands the result to the first step that writes as historical_reference_materials; a scene it already looked up gets that result again without a new search. When excerpts came back, put one or two concrete details from them that fit the scene into that reply, in the place or a person's manner, unannounced; continue normally if it is empty or unavailable. Do not look up the scene's background again yourself: your own lookup is for a specific detail those excerpts lack, such as a price baseline, and a catalogue alone is not detail. No research report, extra investigator action, gameplay prerequisite or retry obligation is created.
+
+## Setting and reference
 
 historical_setting and the current scene carry authored era, place and background after the opening brief. A finance-period fallback is not the scenario's era. Keep fictional setting and historical reference basis separate: query names a real period/culture and the missing detail; objective states borrowed aspects and authored differences. Prefer an authored analogue, otherwise a compatible provisional one. Borrow appearance or practice while retaining the scenario's names, religion, laws, institutions, rulers and access. Unknown facts remain unknown. References never override delivered fiction or source truth.
 
 For ordinary play, put a few useful details into what the investigator sees, handles and hears or into NPC speech. Preserve direct, analogous or uncertain source limits backstage; explain them when asked. Do not turn scene entry into a historical lecture. Excerpts do not prove this institution's exact layout, unlock clues, authorize actions or add compulsory checks, fees or obstacles. Preserve NPC personality and the player's ways to proceed.
 
+## Prices
+
 For prices, establish a reusable period/region or style-analogue scale once: representative prices, wages or a menu with currency and units. Then estimate other quotations from those anchors during normal narration. A new object is not a reason to search. Adapt the scale to a fictional economy without inventing a fixed exchange rate; estimates are not sourced exact prices. Preserve quotations and transactions. Purchase arithmetic and Spending Level remain the kernel's.
 
+## A disputed price
+
 Only an actual player challenge to a concrete quotation permits targeted price checking; shopping, asking a price, bargaining or a query claiming a dispute do not. The host judges the player's own words. For fictional goods, check the estimate or analogue rather than searching a nonexistent historical retail price. If evidence is unavailable, keep an estimate uncertain.
+
+## When retrieval is closed
 
 When historical retrieval is closed, finish from material already returned and acknowledge missing evidence if needed. Do not change query or switch to catalog/read/saved to continue a spent lane. Closure lasts for this input; originals remain usable later.

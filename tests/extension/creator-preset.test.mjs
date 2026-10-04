@@ -31,9 +31,10 @@ const api = await import(pathToFileURL(join(temporary, 'api.mjs')).href);
 const OLD_VERSION = join(root, 'tests/fixtures/mods/enhanced-items-v122');
 // Mod bytes are frozen per version (§26): 1.2.2 as shipped before this ticket (the retained copy under a live
 // `.coc/mods/packages` hashes the same), and the current package: 1.3.0 as this ticket shipped it
-// (681d03dd...), 1.3.1 since non-weapon gear waits until the fiction uses it.
+// (681d03dd...), 1.3.1 since non-weapon gear waits until the fiction uses it (1404ca86...), 1.3.2 since its instruction is
+// sectioned and its brief retired (§183).
 const DIGEST_122 = '7714ce10e86032ebf427e45c63e61d38a4dabb8f75dabb2d6182f7d3638f54af';
-const DIGEST_130 = '1404ca8637b4f8050e43cef61daf91c05ad28e99dba868ffe829e135f46d040a';
+const DIGEST_130 = 'a8002484c6c64be22e7b9ceabd5353726b15d66bef14bb47ca9222ea1ef7e5e2';
 const DECLARATION = 'I snatch the carving knife off the cellar shelf and go for Knott.';
 const KNIFE = {name: 'Cellar knife', category: 'weapon', description: 'A long carving knife with a chipped blade, left on the cellar shelf.'};
 // The rulebook's medium knife as the definition's parameters, the way the engine reads its row.
@@ -271,11 +272,11 @@ test('an action usage is offered the object as the thing and gated on its parame
 test('both package versions load at their digests, and a campaign locked to 1.2.2 is offered nothing', async t => {
   const fresh = await kernel(t);
   const current = await fresh.lock();
-  assert.equal(current.version, '1.3.1');
+  assert.equal(current.version, '1.3.2');
   assert.equal(current.digest, DIGEST_130);
   const old = await kernel(t, {version: '1.2.2'});
   const listed = (await old.call('mods.list', {})).mods.filter(mod => mod.id === 'enhanced-items').map(mod => [mod.version, mod.compatible]);
-  assert.deepEqual(listed, [['1.2.2', true], ['1.3.1', true]]);
+  assert.deepEqual(listed, [['1.2.2', true], ['1.3.2', true]]);
   const locked = await old.lock();
   assert.equal(locked.version, '1.2.2');
   assert.equal(locked.digest, DIGEST_122);

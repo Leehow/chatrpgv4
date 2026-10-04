@@ -1,6 +1,6 @@
 # The built-in packages: what each one does, and where its text goes
 
-Written 2026-10-04 from the shipped files under `mods/` (manifests, instructions, briefs, lane files) and the contract sections they cite, for the instruction index (`docs/specs/mod-section-index.md`). Ten packages. The byte counts are the shipped files'.
+Written 2026-10-04 from the shipped files under `mods/` (before §183 sectioned six of them: the blank-line blocks below are now `## ` headings, and the briefs are gone) (manifests, instructions, briefs, lane files) and the contract sections they cite, for the instruction index (`docs/specs/mod-section-index.md`). Ten packages. The byte counts are the shipped files'.
 
 ## How a package reaches the table
 
@@ -8,8 +8,9 @@ A package contributes text and declarations through closed slots in `mod.json`; 
 
 | slot | who reads it | when |
 | --- | --- | --- |
-| `instructions` (`agent.md`) | the Keeper, as `capsule.mods.instructions[]` | whole on the first turn a process opens for the campaign; after that replaced by the brief (§30.7) |
-| `brief` (`brief.md`) | the Keeper | every later turn; all briefs share a 5000-byte ceiling (§40.6), a language-scoped package has its own (§153.4) |
+| `instructions` (`agent.md`) | the Keeper, in the `coc-context-brief` message built from `capsule.mods.instructions[]` | whole on every turn while the table's instructions fit 64 KiB; beyond that a sectioned package sends its resident sections there and the rest by topic (§183) |
+| `sections` (`sections.json`) | the kernel and the host's section lane | which `## ` sections ride every turn and which a turn loads by topic, state or call (§183.1) |
+| `brief` (`brief.md`) | nobody | retired (§183): the probe of 2026-10-04 found it only ever reached the capsule; frozen versions still carry it |
 | `style` (`style.json`) | the Keeper, as `capsule.style` | every turn: axes, the beat's directives, the floor (§137) |
 | `auditor` (`auditor.md`) | the pre-delivery audit lane (a tool-enabled Pi task) | before a delivery, when the host runs the audit |
 | `materializer` (`creator.md`) | the definition/usage creator (a tool-enabled Pi task) | when the Keeper's `apply define` / `usage` needs parameters |
@@ -21,7 +22,7 @@ A package contributes text and declarations through closed slots in `mod.json`; 
 
 The index concerns the first two slots. Everything else already reaches its consumer when that consumer runs; it never competes for the Keeper's context.
 
-## 1. Narration Craft (`narration-craft` 2.2.4, default on, conflicts with npc-voice)
+## 1. Narration Craft (`narration-craft` 2.2.5, default on, conflicts with npc-voice)
 
 **What it is.** The one prose package: how the Keeper writes. The base keeps only interfaces; every sentence about voice, rhythm, description and the people's speech lives here (prose-mod §6, §170).
 
@@ -39,7 +40,7 @@ The index concerns the first two slots. Everything else already reaches its cons
 
 **Index note.** Resident by nature: all of it is "every turn". It is the one package the index does not help; its cost (13.8 KB full, 0.9 KB brief) is the prose contract's.
 
-## 2. Natural NPC (`natural-npc` 1.4.5, default on)
+## 2. Natural NPC (`natural-npc` 1.4.6, default on)
 
 **What it is.** People, not service desks: a first impression rolled once per pair, a request judged by whether this person would grant it, the answer an asker is after given or hidden, and a language the investigator may not share.
 
@@ -53,7 +54,7 @@ The index concerns the first two slots. Everything else already reaches its cons
 
 **Reads.** `present[].speaks`, `.wants/.fears/.hides`, the investigator's Language skills, `mods.pending_contacts`. **Writes.** `resolve` the impression check; `apply dossier` language; ordinary social checks.
 
-## 3. Enhanced Items (`enhanced-items` 1.3.1, default on)
+## 3. Enhanced Items (`enhanced-items` 1.3.2, default on)
 
 **What it is.** Executable item parameters from the story: definitions and instances with ownership, ammunition, condition, usages and readable documents; a creator agent prepares the numbers, an auditor catches undeclared mechanics before delivery.
 
@@ -69,7 +70,7 @@ The index concerns the first two slots. Everything else already reaches its cons
 
 **Reads.** `mods.objects` (definitions, instances, usages), `mods.unregistered_equipment`, `known_handouts`. **Writes.** `apply define / object / usage`, `resolve objects:* / magic:*`, `look focus object`.
 
-## 4. Keeper Pacing (`keeper-pacing` 1.3.0, default on)
+## 4. Keeper Pacing (`keeper-pacing` 1.3.1, default on)
 
 **What it is.** Carry the selected goal and stop before a new choice; fair warning before death; threat clocks the Keeper runs; a stall counter that asks what the player is doing; recovery that costs only what the book and rules charge.
 
@@ -86,7 +87,7 @@ The index concerns the first two slots. Everything else already reaches its cons
 
 **Reads.** `mods.pacing`, `director.because`, `director.offer`. **Writes.** `apply threat`; the Idea roll.
 
-## 5. Story Thread (`story-thread` 1.2.10, default on)
+## 5. Story Thread (`story-thread` 1.2.11, default on)
 
 **What it is.** The module reorganised by what the story still needs: per authored conclusion, the clues here with their gates, the scenes one move away, the book's own recovery; a reentry assessment when the player's frame has left the thread.
 
@@ -100,7 +101,7 @@ The index concerns the first two slots. Everything else already reaches its cons
 
 **Reads.** `mods.thread` (lines, connections, reentry), `known.clues_here`, `obligations` (quests), `where.endings`. **Writes.** `apply clue`, `apply flag` to waive a scene obligation, `lookup adaptation / continuity`, `apply adaptation`.
 
-## 6. Historical Reference (`historical-reference` 1.0.9, default on; host setting `exa_api_key`)
+## 6. Historical Reference (`historical-reference` 1.0.10, default on; host setting `exa_api_key`)
 
 **What it is.** Period background and prices for the Keeper, retrieved by the host for the scene and selected by Jev; the Keeper's own lookup only for a missing specific detail.
 

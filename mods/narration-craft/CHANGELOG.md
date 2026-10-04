@@ -1,5 +1,10 @@
 # Narration Craft
 
+## 2.2.5
+- Declares the sections of `agent.md` (`sections.json`, `instructions.sections.v1`, contract §183): which ride every turn and which a turn loads by its topics, the table's state or the Keeper's calls, for a table whose instructions exceed the instruction budget. Under the budget, as every table is today, the whole text goes as before.
+- `brief.md` is gone. A 2026-10-04 probe of real provider requests found the Keeper received the full `agent.md` every turn; the brief existed only in the capsule (§183, evidence).
+- Text unchanged.
+
 ## 2.2.4
 - Organizes environment passages around the current look or chosen movement, integrating required detail through one spatial, causal, temporal or perceptual thread and ending on the scene/result rather than a meta verdict.
 - Keeps source/narrator labels distinct from observer recognition, full visible first-visit/readout duties, historical-detail bounds, quiet/urgency handling and established-place continuity. NPC guidance, reminder, voice lane, state/settings/capabilities and delivery interfaces are unchanged. No new card selector or prose review pass. Contract section 137.11.

@@ -781,7 +781,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             session: new SessionView(snapshot, module.graph, snapshot.party, snapshot.world).activeSession(),
             opening_needed: opening,
             ...(modGaps.length ? { mods_unreadable: modGaps } : {}),
-            mod_context: await modContext(context, module.graph, snapshot.world, snapshot.party, snapshot.records, true, {
+            mod_context: await modContext(context, module.graph, snapshot.world, snapshot.party, snapshot.records, {
                 memory: snapshot.logs.get('memory/candidates.jsonl') ?? [], story: snapshot.logs.get('memory/story.jsonl') ?? [],
                 worldline: activeName(snapshot.meta), loop: number(line.loop)
             }),

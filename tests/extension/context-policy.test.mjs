@@ -250,7 +250,7 @@ test('a coc-workspace carrying workpad entries is the same transport-only closed
 function runtimeFixture(turn = 0, branch = [], records = []) {
     const hooks = new Map(), bus = new Map(), rows = [], state = {revision: 'a'.repeat(64), available: true, calls: 0, methods: [], compacts: 0};
     const cap = () => ({turn: {number: turn, player_text: 'Input'}, recent: [], module: {title: 'Book'}, style: {floor: ['World response']},
-        mods: {instructions: state.instructions ?? [{form: 'full', text: `rule-${state.revision[0]}`}]}});
+        mods: {instructions: state.instructions ?? [{form: 'full', instruction: `rule-${state.revision[0]}`}]}});
     const meta = () => ({...binding(turn), source_revision: state.available ? state.revision : null, unavailable: !state.available});
     const pi = {on: (name, handler) => hooks.set(name, handler), events: {on: (name, handler) => bus.set(name, handler)}, sendMessage() {}};
     api.installContextPolicy(pi, row => rows.push(row));
@@ -279,12 +279,12 @@ test('known source-changing tools invalidate the cached full briefing without ch
     const initial = await t.hooks.get('context')({messages: t.messages}, t.ctx), count = t.state.calls;
     await t.hooks.get('context')({messages: t.messages}, t.ctx);
     assert.equal(t.state.calls, count, 'stable tool rounds reuse the prepared prefix');
-    assert.equal(JSON.parse(initial.messages.find(message => message.customType === api.BRIEF_TYPE).content).instructions[0].text, 'rule-a');
+    assert.equal(JSON.parse(initial.messages.find(message => message.customType === api.BRIEF_TYPE).content).instructions[0].instruction, 'rule-a');
     t.state.revision = 'b'.repeat(64);
     await t.hooks.get('tool_call')({toolName: 'lookup', toolCallId: 'source-read', input: {kind: 'source'}});
     await t.hooks.get('tool_result')({toolName: 'lookup', toolCallId: 'source-read'});
     const changed = await t.hooks.get('context')({messages: t.messages}, t.ctx);
-    assert.equal(JSON.parse(changed.messages.find(message => message.customType === api.BRIEF_TYPE).content).instructions[0].text, 'rule-b');
+    assert.equal(JSON.parse(changed.messages.find(message => message.customType === api.BRIEF_TYPE).content).instructions[0].instruction, 'rule-b');
     assert.equal(t.messages[1].details.context.source_revision, 'a'.repeat(64));
 });
 
@@ -321,7 +321,8 @@ test('effective Mod locks and settings refresh a retained briefing even without 
     }
     assert.equal(t.state.methods.filter(method => method === 'table.capsule').length, states.length);
     const calls = t.state.methods.length;
-    t.bus.get('coc:capsule')({capsule: {...t.cap(), mods: {instructions: [{...states.at(-1)[0], form: 'brief', instruction: 'Short reminder'}]}}, context: binding(0), epoch: 'ordinary-next-input'});
+    // The key reads package, version, settings and form (§183.3), never the row's text.
+    t.bus.get('coc:capsule')({capsule: {...t.cap(), mods: {instructions: [{...states.at(-1)[0], instruction: 'Per-turn copy'}]}}, context: binding(0), epoch: 'ordinary-next-input'});
     const projected = await t.hooks.get('context')({messages: t.messages}, t.ctx);
     assert.deepEqual(JSON.parse(projected.messages.find(message => message.customType === api.BRIEF_TYPE).content).instructions, states.at(-1));
     // §103.5: a new input reads who is still untold; nothing else, so the briefing is the retained one.

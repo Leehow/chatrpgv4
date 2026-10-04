@@ -7951,6 +7951,8 @@ attack, before any close call and before the basement.
 
 ### 30.7 `contributes.brief`: the first turn long, the turns after short (2026-09-10 user decision)
 
+**Retired by §183 (2026-10-04).** The brief only ever reached the capsule; the Keeper's requests carried the full instruction on every turn. No row is `brief` any more; a package's `contributes.brief` is accepted and never read.
+
 **Approved 2026-09-15 amendment (implementation/integration pending):** the ordinary first-turn
 lifecycle below is retained, but host-only `table.capsule {rehydrate:true}` also forces `full` using
 these same builders without consuming the first-turn marker. See the capsule amendment and §19.2.
@@ -11623,6 +11625,8 @@ Nothing semantic is checked in code: no "generic" detector, no language detector
 **The host speech steer (§40, 2026-09-15).** On an implicit delivery with people in the capsule's `present[]` and no `{{say:` in the draft, the host drops the draft once and asks for the same turn with its lines wrapped (`coc-host` kind `speech`, telemetry `{lane: "speech", steered: true, present}`); the second leg is honoured however it comes and a second leg that brings nothing falls back to the dropped draft, exactly as the turn-floor steer of §34. The opening is exempt (§128.2 adds a second form, not exempt at the opening: a draft that wraps some lines and leaves passages in the same quotation marks outside every token), and `PI_COC_SPEECH_STEER=0` disables the steer for an experiment's control arm. Nothing reads the prose: a machine token is searched for. Reason: on `deepseek-flash` the Keeper wrapped 29% of lines and closed 17 of 20 turns implicitly; the token was a suggestion it forgot after the opening.
 
 ### 40.6 Prompt bytes
+
+**The 5000-byte shared ceiling over the active briefs is retired by §183.3 (2026-10-04)**; what bounds package instructions is §183's instruction budget.
 
 `prompts/keeper.md` Law 4 names two machine tokens; the Writing paragraph states the say rule beside the marker rule; the floor's voice clause names the token. `content/craft/beat-directives.json` `floor_lines[voice]` is unchanged — the `style` section's 1536-byte budget (`kernel-ts/read/assemble.ts`) has no room, and a longer voice line pushed a first-turn directive out (`test_capsule_nine`); the token rule lives in the base prompt and the tool descriptions; `narration-craft` 1.2.1's brief names it (a byte changed is a version bumped, §26). The `narrate` and `ask` tool descriptions gain one sentence. **The §30.7 per-turn brief ceiling rises from 4000 to 5000 bytes for all active briefs** (`tests/kernel/test_mod_director_text.py` pins it); §34.8's "4000" reads as this section's 5000. Old package versions keep their bytes and locks (§26).
 
@@ -30609,6 +30613,8 @@ which are written against a current owner's words.
 
 ### 153.4 Budgets
 
+**Retired by §183.3 (2026-10-04)**: the ceiling measured the brief, which no request carried. `brief_budget_bytes` keeps its shape check (frozen versions declare it) and is neither measured nor listed.
+
 A scoped package's per-turn instruction (its `brief`, or its `instructions` when it has no brief: the form every later
 turn carries, §30.7) is at most 400 UTF-8 bytes, checked at load: `details.reason: "language_brief_over_budget"` with
 `path`, `bytes` and `limit: 400`. Its first-turn full instruction is not bounded here. Scoped briefs are left out of the
@@ -33037,3 +33043,94 @@ A sandbox replay of `game-8e41c325` turns 3–6, from the `turn 2:` commit, with
 - **The path.** B1's repository reset to its `turn 5:` commit, with `table.capsule` on this kernel. On turn 6, `recent` held turns 4–5 and `own.said` turns 1–3 with both particulars. The driver runs Pi with `--no-session`, so the request itself is not kept.
 - **Blinding.** A and B1–B2 were scored blind; B3–B4, C and D were not.
 - **Evidence lost.** The C homes' sandbox campaign state was deleted while D's homes were being built: `make_home.sh` began with `rm -rf`, and now refuses an existing home. C's delivered prose and driver runs are kept.
+
+## 183. Package instructions: whole within a budget, an index beyond it (owner ruling 2026-10-04, option "c" of `docs/specs/mod-section-index.md`; retires §30.7's brief and §40.6's shared brief ceiling)
+
+**Evidence.** A probe of `craft-mod-guidance`'s real provider requests (2026-10-04) found that on every turn after the first the Keeper received every package's **full** `agent.md`, in both engines; narration-craft 13 788 B, its brief 884 B. `context-runtime.ts` deletes `capsule.mods.instructions` before the request and sends the instructions in `coc-context-brief`, which it builds from a `table.capsule {rehydrate: true}` read and caches by package, version and settings. The brief form existed only in the capsule. The App's game-8e41c325 turn-6 request agrees: 107.7 KB protected, of which the capsule without instructions is 26 KB and the seven packages' full texts about 61 KB. So the brief and its 5000-byte ceiling constrained nothing the Keeper read.
+
+The owner's ruling keeps that behaviour while it fits and adds an index for when it does not: hundreds of packages cannot all ride every request whole. An index loads only what a turn needs; the measured cost of that is coverage (`docs/specs/mod-section-index.md` §8.1: recall 0.69 of needed sections on real capsules), so it is the overflow path, not the default.
+
+### 183.1 Sections
+
+A package declares its instruction's sections with `contributes.sections`, a package JSON file listed in `package_files`, and requires `instructions.sections.v1`; it needs `contributes.instructions`. The file:
+
+```json
+{"schema_version": 1, "sections": [
+  {"heading": null, "kind": "resident"},
+  {"heading": "What the asker is after", "kind": "situational", "topics": ["asks_question"]},
+  {"heading": "First impression", "kind": "situational", "topics": ["speaks_to_person"], "gates": ["present_without_history"]},
+  {"heading": "Opening the table", "kind": "situational", "triggers": ["state:opening"]}
+]}
+```
+
+- `heading` is the exact text of a `## ` line of `agent.md`; `null` is the text before the first `## ` (less a leading `# ` title line). Every `## ` heading has exactly one entry, every entry names a heading that exists, and non-empty preamble text needs the `null` entry. A section's text is its `## ` line and body; the preamble has no heading line.
+- `kind` is `resident` (on every turn the package is indexed) or `situational`. A resident entry carries nothing else.
+- A situational entry has `topics`, `triggers` or both:
+  - `topics`: ids of the topic list (§183.2), or `"*"` alone (any turn whose gates hold);
+  - `gates`: all must hold for a topic to load the section; they qualify topics and need them. Kernel gates: `opening`, `people_present`, `present_without_history`, `unregistered_equipment`, `registered_instances`, `threat_clock`, `stall`, `recover`, `clue_here`, `handed_clue_here`, `reentry`. Host gate: `no_topic` (no topic of the list scored 0.5 or more this turn);
+  - `triggers`: `state:<kernel gate>` loads the section whenever that gate holds; `before_apply:<effect kind>` (a kind `table.apply` accepts, `kernel-ts/apply/kinds.ts`) and `before_resolve:<decision family>` (`chase`, `combat`, `core-check`, `development`, `healing`, `magic`, `objects`, `psychology`, `push-luck`, `sanity`, `social`: the ruleset's `decision:coc7:<family>:` prefixes and the kernel's `objects:` decisions) load it once the Keeper has made such a call this turn;
+  - `topic_threshold` (0 < t < 1, default 0.5): the section's own bar; it qualifies topics and needs them.
+- Refusals are `invalid_params` with `details.field: "contributes.sections"` and the offending entry: invalid JSON; an unknown topic (checked where the catalog loads and at install, against `content/mods/topics.json`), gate, trigger kind or name; a heading not in `agent.md`; a `## ` heading with no entry or two, or appearing twice in `agent.md`; preamble text with no `null` entry; a resident entry with topics, gates, triggers or a threshold; a situational entry with neither topics nor triggers; gates or a threshold without topics; `"*"` beside another topic; a threshold outside (0, 1); the contribution without the capability or without `contributes.instructions`; the file missing from `package_files`. Requiring the capability without contributing is allowed (the package goes whole): what the pairing protects is a kernel that lacks the capability meeting an unknown field.
+- Bytes are frozen per version (§26) like every package file.
+
+### 183.2 The topic list
+
+`content/mods/topics.json` (`{"schema_version": 1, "topics": [{id, what, not_for, examples}]}`, system language) is the product's; a package names topics from it and never adds one. Fifteen topics on 2026-10-04: `carried_item`, `new_thing`, `readable`, `force_object`, `money`, `price_dispute`, `asks_question`, `asks_favour`, `lethal_risk`, `out_of_character`, `conclusion`, `clue_search`, `speaks_to_person`, `spell`, `time_passes` (measured in the spec, §7.4–§7.5). Adding a topic is a product change with its own measurement.
+
+### 183.3 Whole or indexed
+
+`modContext` decides per package, in the effective order:
+- a package without `contributes.sections` is `full`, always;
+- a sectioned package is `full` while the running total of the bytes the rows carry stays within the **instruction budget** (65 536 bytes; a positive integer `COC_INSTRUCTION_BUDGET` in the kernel's environment overrides it, for tests and operators), and `indexed` once it would not. An indexed row adds its resident text to the total; a later sectioned package that still fits goes whole (greedy).
+
+Rows of `capsule.mods.instructions`:
+- `full`: `{mod, version, settings, form: "full", instruction}` as before;
+- `indexed`: `{mod, version, settings, form: "indexed", instruction, sections}`. `instruction` is "Further sections of this package arrive in coc-mod-sections when a turn needs them." and the resident sections' text, joined by blank lines. `sections[]` lists the situational sections, `{key, heading, topics, gates, triggers, topic_threshold, bytes, gates_open, due}`, where `key` is `<mod>@<version>#<ordinal>` (the ordinal counts every entry of `sections.json`), `gates_open` says every kernel gate of the section holds this turn and `due` says a `state:` trigger holds. Only the capsule evaluates gates: `mods.context` and the package jobs read the same rows without `gates_open` and `due`.
+
+When any row is indexed, `capsule.mods.topics` carries the definitions of the topics those rows name (all of them when one names `"*"`). The kernel evaluates its gates while it assembles the capsule, from the turn as assembled, before any section budget cuts it (`kernel-ts/read/sections.ts`):
+- `opening`: turn 0. `people_present`: `present` is not empty. `present_without_history`: a present person whose `history.last_spoke_turn` is absent;
+- `unregistered_equipment`, `registered_instances`: `mods.unregistered_equipment`, `mods.objects.instances` are not empty;
+- `threat_clock`: a threat clock is related to this scene or scoped to the scenario, or the table minted one (the rows `mods.pacing.threat_clocks` shows);
+- `stall`: the Director's `stalled_turns` has reached the package's own integer `stall_turns` setting when it has one, else the Director's `pressure-stalled-turns` threshold;
+- `recover`: the Director's beat is RECOVER, or the player repeated the last turn's words;
+- `clue_here`: an undiscovered clue is in this scene. `handed_clue_here`: one the scene hands over (delivery `obvious`) or a present person gives (`npc_dialogue`, with its source or someone who knows it present), the thread's own rule;
+- `reentry`: `mods.thread.reentry` exists.
+
+**The brief is retired.** No row is `brief`; `contributes.brief` is still accepted on a package (frozen versions carry it) and never read. §40.6's 5000-byte shared ceiling and §153.4's language-scoped ceiling are gone; `brief_budget_bytes` keeps its shape check and is neither measured nor listed by `mods.list`.
+
+### 183.4 `mods.sections`
+
+`mods.sections {campaign, keys: [...]}` (1 to 256 keys) returns `{sections: [{key, mod, version, heading, text}]}` in the order asked, for keys of the campaign's active locked packages; `invalid_params` with `details.keys` for keys it does not know. Read-only; outside the turn state machine like `mods.expression`. A key names frozen bytes, so the host caches the text by key.
+
+### 183.5 The host lane
+
+`extensions/table/mod-sections.ts`, installed with the context policy. It does nothing unless the turn's capsule has an indexed row; on today's packages it never runs.
+- **Topics.** Once per input (the declaration, its turn, the topic list), from the capsule the input publishes, it asks Jev (`runtime/jev/mod-section-topics.ts`, family `mod-section-topics`, `jev-1.13.0`): a Noul per topic in `mods.topics`, state `{purpose, request: the player's words, current_context: {scene, present (up to 16 names)}, cards: [{alias, topic, applies_when: {what, not_for, examples}}], policy}`, the shape the spec measured. Jev has 6 s; the first request of the input waits for it up to 2.5 s from when it was asked; later requests of the turn use the scores once they land.
+- **Calls.** The turn's calls are what the Keeper made since the input: every `apply` effect kind (at `tool_call`), and every `resolve`'s decision family (the one it named at `tool_call`; the settled `family` at `tool_result`). A new input clears them.
+- **Selection.** A section loads when `due`; or when one of its topics scored at least its threshold (`"*"`: always) and `gates_open` holds and its host gates hold; or when one of its `before_apply` / `before_resolve` triggers names a call this turn.
+- **Unavailable or late Jev.** Every section with `gates_open` and a topic loads, its host gates aside, recorded `fallback` (`unconfigured`, the decision's failure code, or `late`). Coverage over economy.
+- **Delivery.** The selected sections' text is read with `mods.sections` and sent as one `coc-mod-sections` message at the end of the request: `{authority, sections: [{package, section, text}], omitted?}`, at most 16 KiB in package order; what does not fit is named in `omitted`. A trigger that fires mid-turn adds its section to the next request of the turn. A message that would carry the request past its ceiling is left out, recorded `omitted` with reason `request_ceiling`. The section text is package text and is not renamed for untold people.
+- **Telemetry.** `lane: "mod-sections"`: `event: "topics"` (scores, ms, usage) or `fallback` (reason); `event: "selected"` once per changed selection (keys and why: `due`, `topic:<id>`, `fallback`, `call:<trigger>`), `bytes`, `omitted`; `event: "delivered"` with whether the provider payload carried it. The context lane's `request` row adds `mod_sections_bytes`.
+- The brief message (`coc-context-brief`) carries each row's `{mod, version, settings, form, instruction}`: full text for full rows, resident text for indexed rows. Per-turn gate facts never enter it, so it stays cached; its key reads package, version, settings and form. The capsule the Keeper is sent drops `mods.topics` with `mods.instructions`.
+
+### 183.6 The packages
+
+Sectioned, with `brief.md` removed and no sentence changed: narration-craft 2.2.5 (only "Opening the table" is situational), natural-npc 1.4.6 (two headings: "First impression" over the opening paragraphs, "The impression in play" over the frozen result's use), enhanced-items 1.3.2 (six headings), keeper-pacing 1.3.1 (seven), story-thread 1.2.11 (four), historical-reference 1.0.10 (a title and five). Each package's `sections.json` follows `docs/mods-catalogue.md`; a section about a host event (the library lookup, a refused narration, a closed retrieval) is resident (§183.8). Not sectioned (full, as before; their `brief.md` is never read): zh-optimize, keeper-context, npc-voice. The default-on texts together are about 52 KB, within the budget: every table today stays whole.
+
+### 183.7 Writers, readers, actor (§31)
+
+- **Writes:** the package author (`sections.json`, the headings), the product (`topics.json`), the kernel (mode, gates), the host (topic scores, the selection).
+- **Reads:** `modContext` and the capsule; the host lane; `mods.sections`.
+- **Acts:** the Keeper, on the sections in `coc-mod-sections` and the resident text in the brief. Nothing counts its use; the measure is a replay with the budget forced low (§183.9).
+
+### 183.8 Limits
+
+- The first `apply` or `resolve` of a kind in a turn runs before the section its trigger loads; the section arrives for the next request.
+- No `host_event` triggers in v1: a section about a host event (historical materials, a refused narration, a closed retrieval) is resident.
+- Index mode loses coverage by design (spec §8.1); on today's packages it never runs. A table that installs enough packages to cross the budget starts indexing the later ones in the effective order.
+- No gate compares languages: the language section loads on any exchange with a person (its topics), because an unknown `speaks` is exactly when it matters and comparing language names would be a semantic table.
+
+### 183.9 Tests
+
+- `tests/extension/mod-section-index.test.mjs`: every refusal of §183.1 by field; the shipped sectioned packages parse against their own `agent.md` and cover it; the trigger lists against `table.apply`'s kinds and the ruleset's families; the form decision under a budget that splits the packages (greedy, unsectioned always whole, the topic list); gates on the opening turn and after it, equipment and people; `mods.sections` text, order and refusals; the kernel gates (a package's `stall_turns`, recover); the selection rule (bar, own threshold, `no_topic`, due, calls, fallback); the message ceiling and `omitted`; and the Keeper's actual provider requests with `COC_INSTRUCTION_BUDGET=1`: resident text in the brief without the section list, the section message last, a cash call this turn loading the price section for the next request, delivered telemetry; Jev unavailable loads by fallback. Nine mutations (no call triggers, the brief keeping the list, no call noting, never indexed, no due, no `no_topic`, no own threshold, unknown topics accepted, the stall setting ignored) each turn a case red.
+- Updated for the retired brief: `craft-mod-guidance` (the later request carries the whole instruction and no section message), `jev-pacing-mod-alignment`, `language-scoped-mods`, `keeper-prose-contract`, `npc-mood`, `context-policy`, `mod-package-boundary`, `tests/kernel/test_mod_director_text.py`, `test_language_barrier.py`, `test_language_mods.py`.

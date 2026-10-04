@@ -1,6 +1,6 @@
 # Mod instructions as an index: resident lines, retrieved sections
 
-Status: needs-decision (design and offline measurement done 2026-10-04, three rounds; the recommended shape is §7.4–§8; no product code yet)
+Status: implemented as contract §183 (2026-10-04, owner's option "c"; see §10). Design and offline measurement: three rounds, §7.4–§8.
 Owner ruling, 2026-10-04: "我希望是类似 skill 一样索引，然后找到哪些需要的 mod，把上下文加进来 … 用 jev 来检索决定 … 未来可能会有成百上千个 mod … 限制那么小的话可能会描述不全。" Then: "你先设计怎么做，然后做一些测试看看效果，然后调试好最佳方案".
 
 ## 1. The problem
@@ -202,3 +202,13 @@ Bytes: 3.3 KB a turn against today's 5.0 KB brief, and the bytes are whole rules
 - Whether resident text keeps a shared ceiling or a per-package one.
 - `lookup kind=mod`: a Keeper-side way to read a section by name, as a backup. Not relied on (the Keeper does not fetch what is at hand).
 - The order of landing: shadow (lane records, nothing delivered) on live tables first; then delivered sections beside today's brief; then the brief retired for sectioned packages.
+
+## 10. What was built (2026-10-04)
+
+A request probe found that the brief never reached the Keeper: every turn's request carried each package's full `agent.md` (§183, evidence). So the premise of §1 was wrong, and the index would have reduced coverage against what the Keeper actually read. The owner chose option "c": keep the whole text while it fits, index only beyond a budget, retire the brief, no transition period.
+
+- Contract §183; kernel `kernel-ts/read/sections.ts` (declaration, form, gates), `mods.sections`; host `extensions/table/mod-sections.ts` and `runtime/jev/mod-section-topics.ts` (this spec's topic lane, as measured); the product's topic list `content/mods/topics.json`; six packages sectioned (§183.6).
+- The budget is 64 KiB; today's default-on packages are about 52 KB, so no table indexes yet. Index mode is reached in tests with `COC_INSTRUCTION_BUDGET`.
+- Changed from §8: no `language_gap` gate (the language section loads on any exchange, §183.8); no `host_event` triggers (those sections are resident); `before_apply:document` became `before_apply:handout` (`document` is not an apply kind; documents ride `object`).
+- §9's open points: resident text has no ceiling of its own (it counts toward the one budget); `lookup kind=mod` not built; the landing order became one step, by the owner's ruling.
+- Still unmeasured: a live replay with a Keeper model in index mode (§8.1's last paragraph).
