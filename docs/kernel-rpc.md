@@ -25012,6 +25012,91 @@ still runs last.
 
 The fan-out file's emitted cases now use the office's remaining clue rows.
 
+#### 135.30.10 Addendum (2026-10-04, environment acceptance): one declaration, one destination -- the run's move settles where it goes
+
+It applies §135.30.8's rule ("a declaration's act is settled once") to the place the declaration goes. It amends §135.30's
+`move` predicate, §135.30.1 (what a later compile can select), §135.30.4 (the guarded report) and §135.26's route, for
+`PI_COC_LOOP_ENGINE=hybrid-v1` only.
+
+**Evidence.** The environment acceptance table `environment-v225-baseline-20261004` (flapcode/gpt-6-luna low, source
+`7b83acc22`; `.coc/evaluations/environment-after-mod-refactor-20261004/`), turn 2, run `run-01a10820-dbd4-770b-b073-4d405953d9a7`.
+The player said "我接下委托，收好诺特给我的钥匙和地址，先去那栋住宅，站在街边查看外观。"
+1. The first two compiles at the office (s3, s6) left `destination` split, the house 0.52 against the neighbourhood 0.46, then
+   0.37 against 0.62, so neither cleared.
+2. The route moved the party to the house: `apply:move:corbitt-house-ground`, need `now` 0.84 (`t2-c2`, 30 minutes).
+3. The read there issued a new exit, so a compile was owed (§135.30.1).
+4. That compile (s10) read the same sentence from the house, where the house is no row. It cleared `destination` on the
+   neighbourhood at 0.92 ("站在街边"), and the clerk moved the party a second time (`t2-c3`, another 30 minutes).
+5. The next compile, at the neighbourhood (s13), read the house back at 0.84 (cleared). Only the house's move key, already
+   consumed, kept a third move from landing.
+
+The player declared one place. Two clerk moves and an hour were written, and the next turn spent a move walking back.
+
+**The rule.** The run keeps the moves that carried the declaration's destination (`RunView.moved`, by the builder's key
+`apply:move:<to>`). A move joins it two ways:
+1. **The clerk's.** When the clerk executes a declared move (family `move`, selected by a compile, the route, or a staged unlock
+   of §135.30.5), it joins whether the kernel took the write or refused it. A refused move is still the declaration's attempt,
+   and the clerk does not route around its own refusal by moving somewhere else (§135.26).
+2. **The Keeper's.** A `move` effect of the Keeper's own `apply` that the kernel took joins too. A move with `owed` does not:
+   it lands what an earlier turn told (§158.5), not this declaration. A Keeper move the kernel refused moved nobody.
+
+Once one stands:
+- **The `move` predicate (§135.30) fires on nothing.** It **decides** every move it reaches, whatever `destination` cleared on
+  or whether it cleared. The moves are consumed for the run and stay the Keeper's: a Keeper's own `apply move` still takes one.
+  The compile itself is still owed and asked as §135.30.1 says. The new scene's clues, checks and obligations reach their own
+  predicates as before. Only the destination is read as settled.
+- **The route selects no move.** A `move` candidate the route is offered after one is gated, the same way §143.16 gates a
+  fight step: its `need` question is still asked and recorded, it selects nothing whatever it answers, and after a complete
+  route it is the Keeper's for the run.
+- **No guarded destination is reported** (§135.30.4), and none is staged to unlock (§135.30.5). A later read of a held place is
+  the stale sentence, not the player's declaration of that place.
+
+What a declared destination is stays the compile's and the route's own reading, the closed Jev questions they already ask.
+Nothing reads the player's words for direction or count. A declaration that names two places in turn moves once by the
+clerk, and the Keeper carries the rest.
+
+**What is not a move of the declaration:**
+- an owed move (§158.4, family `owed`), which the builder issues as forced and which never joins `moved`;
+- a chase's or a fight's steps (families `chase`, `combat`).
+An owed move still runs after the run moved.
+
+**Telemetry:**
+- The compile row (`lane: "route"`, `purpose: "compile"`) gains `moved`, the run's moves before that compile, when there are
+  any. The moves it decided are in `decided`.
+- The route row gains `move_gated`, the moves offered after one, which selected nothing.
+- The engine re-reads both with the run's moves carried on the question (`moved`), so each row says what the policy did.
+
+**Three ends (§31):**
+- *Writer:* `settleExecute`, for the clerk's executed move and the Keeper's taken move effect (`movedByEffects`).
+- *Reader:* the `move` predicate and `interpretCompile` (the guarded report), `interpretRoute` and `settleRoute`
+  (`moveGated`).
+- *Actor:* the clerk, which moves the party once per declaration. The Keeper is told through `clerk_did` of the one move. The
+  operator sees it through the compile and route rows.
+
+**Not changed:**
+- the gates, and §32 admission;
+- which candidates the builders issue, and the destination rows;
+- when a compile is owed;
+- time (§138.10).
+
+*Tests.* `tests/extension/single-loop-one-destination.test.mjs`. At the policy seam over the kernel's row shapes:
+- after the route's move to the house, the compile at the house that reads the neighbourhood (0.92) selects nothing, decides
+  both exits and names `moved`; the same answer with no move this run selects the neighbourhood;
+- a refused move settles it the same way, and with the destination unclear the moves are decided at the compile;
+- after a move the route selects no move, with need `now` up to 0.97, holds it for the Keeper and records `move_gated`, while
+  the house's clue is still the clerk's;
+- a Keeper's taken move settles it, while an owed one or a refused one does not;
+- no guarded destination is reported after a move.
+
+On the emitted kernel over the haunting, through the hybrid engine with a stub Jev carrying the live turn's answers:
+- turn 2 lands one move, `commission-briefing → corbitt-house-ground`. The compile at the house reads the neighbourhood and
+  selects nothing, and the party stands at the house.
+- With the compile off, the route at the house says `now` to the neighbourhood, and the engine's route row selects nothing
+  and names it in `move_gated`.
+
+The same emitted case on `1e5d64e52` without this change lands `t2-c2` and `t2-c3` exactly as live, then reads the house back
+(0.86, cleared, nothing selected). Fifteen one-line mutations of the change each turn a case red.
+
 ### 135.31 The Keeper is shown what the run has read: the scene, the people its steps name, the session (2026-09-24, SL-15; extends §135.20; amends §135.7 and §135.8)
 
 SL-15 takes §135.31 (§135.30 is SL-13's; §-numbers are stable ids). The

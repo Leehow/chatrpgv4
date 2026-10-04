@@ -28,7 +28,7 @@ import {npcScanCandidate} from './npc-act-step.ts';
 import type {CheckSelection} from './resolve-selection.ts';
 import {forcedScope, type InteractionScope} from './interaction-scope.ts';
 import {forcedResolution, scoreText, type ForcedResolution} from './forced-resolution.ts';
-import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, FIGHT_FAMILIES, fightAct, interpretCompile, interpretReask, ORDINARY_CHECK,
+import {actGated, askIndex, carryCompile, COMPILE_FAMILY, compileBatch, compileDigest, compileOnly, compileReaches, FIGHT_FAMILIES, fightAct, interpretCompile, interpretReask, moveGated, ORDINARY_CHECK,
   reachable, REASK_FAMILY, reaskBatch, reaskOf, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput} from './route-compile.ts';
 
 type Row = Record<string, any>;
@@ -295,6 +295,13 @@ export interface RunView {
    */
   actsSettled?: string[];
   /**
+   * §135.30.10: the moves that carried the declaration's destination this run -- the clerk's declared moves it executed (family
+   * `move`, taken or refused) and the Keeper's own move effects the kernel took (not an owed one). Once one stands, no compile
+   * selects a move (the `move` predicate decides them all) and the route selects none (`moveGated`): one declaration, one
+   * destination.
+   */
+  moved?: string[];
+  /**
    * §135.11 addendum (SL-20): the declaration's own steps the clerk executed and that succeeded (the kernel took it; a
    * resolve's check did not fail) since the run's last model step. While one stands, the route's exit leans to `finish`;
    * the next model step clears it (once the Keeper is asked, it carries the run as before).
@@ -528,7 +535,8 @@ export function interpretRoute(view: RunView, offered: Candidate[], result: Deci
     // predicates. Its own question (§135.26's `seeks`) is still asked and recorded; its answer selects nothing.
     // §143.16 (NAF-17): the same for an investigator's fight step whose own act no compile of the run cleared -- a demand,
     // a question or an aside in a fight is never the clerk's punch, whatever `need` answered.
-    if (compileOnly(candidate) || actGated(candidate, view.declaredActs ?? [])) continue;
+    // §135.30.10: so for a move once the run moved -- the declaration's destination was carried.
+    if (compileOnly(candidate) || actGated(candidate, view.declaredActs ?? []) || moveGated(candidate, view.moved ?? [])) continue;
     const key = `need_${index + 1}`, {choice, confidence, probabilities} = answerOf(result, key);
     const selects = candidate.routeFact?.selects ?? 'now';
     const checkOwned = candidate.checkOwner === 'jev' && candidate.unbound.some(value => value.binder === 'resolve-selection');
@@ -900,7 +908,9 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
   // check family: §163 records its forced best-scored route or no-roll above. §135.30 addendum: so is a candidate only
   // the compile selects, whatever its route answer (it stays offered to the Keeper). §143.16: so is a gated fight step.
   const gated = offered.filter(candidate => actGated(candidate, view.declaredActs ?? [])).map(candidate => candidate.key);
-  if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate) || gated.includes(candidate.key)) && !(routed.selected ?? []).includes(candidate.key)) {
+  // §135.30.10: a move offered after the run moved is the Keeper's for the run the same way.
+  const moveHeld = offered.filter(candidate => moveGated(candidate, view.moved ?? [])).map(candidate => candidate.key);
+  if (result.status === 'complete') for (const candidate of offered) if ((candidate.routeFact || compileOnly(candidate) || gated.includes(candidate.key) || moveHeld.includes(candidate.key)) && !(routed.selected ?? []).includes(candidate.key)) {
     if (!view.consumed.includes(candidate.key)) view.consumed.push(candidate.key);
     view.candidates = view.candidates.filter(value => value.key !== candidate.key);
   }
@@ -909,7 +919,7 @@ export function settleRoute(view: RunView, step: number, batch: DecisionBatch, o
     value.status === 'answered' && value.type === 'choice' ? {choice: value.choice, confidence: value.confidence ?? null, probabilities: value.probabilities ?? null} : {status: value.status}])) : null;
   return {step, kind: 'decide', purpose: 'route', choice: routed.choice ?? null, confidence: routed.confidence ?? null, ms, jev_calls: 1,
     reason: routed.reason, offered: offered.length, detail: {selected: routed.selected ?? null, exit: routed.exit ?? null, answers, ...(gated.length ? {act_gated: gated} : {}),
-      offered_keys: offered.map(candidate => candidate.key), batch_state: batch.state as Json} as Json};
+      ...(moveHeld.length ? {move_gated: moveHeld} : {}), offered_keys: offered.map(candidate => candidate.key), batch_state: batch.state as Json} as Json};
 }
 
 /**
@@ -958,7 +968,7 @@ export function settleCompile(view: RunView, step: number, batch: DecisionBatch,
     detail: {features: outcome.features, fired: selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
       selected: keys, decided: outcome.decided, fell_through: outcome.fellThrough, ...(outcome.askCleared ? {ask_cleared: outcome.askCleared} : {}),
       ...(outcome.guarded ? {guarded: outcome.guarded} : {}), ...(view.actsSettled?.length ? {acts_settled: view.actsSettled} : {}),
-      ...(unlocked.length ? {unlocked: unlocked.map(unlockedRow)} : {}), ...(reask ? {reask: {settled_by: reask.settled.map(entry => entry.key), clues: reask.clues}} : {}),
+      ...(view.moved?.length ? {moved: view.moved} : {}), ...(unlocked.length ? {unlocked: unlocked.map(unlockedRow)} : {}), ...(reask ? {reask: {settled_by: reask.settled.map(entry => entry.key), clues: reask.clues}} : {}),
       family: batch.family} as unknown as Json};
 }
 
@@ -994,6 +1004,16 @@ function settleStagedClues(view: RunView, key: string, settled: boolean): void {
   }
 }
 
+/** §135.30.10: moves that carried the declaration's destination, added to the run's. */
+function settleMoves(view: RunView, keys: readonly string[]): void {
+  const fresh = keys.filter(key => key && !(view.moved ?? []).includes(key));
+  if (fresh.length) view.moved = [...(view.moved ?? []), ...fresh];
+}
+/** §135.30.10: the Keeper's own move effects, by the key the builder mints for the same move (an owed row's is not one). */
+export function movedByEffects(effects: Row[] | undefined): string[] {
+  return (effects ?? []).filter(effect => effect?.kind === 'move' && !(typeof effect.owed === 'string' && effect.owed) && typeof effect.to === 'string' && effect.to)
+    .map(effect => `apply:move:${String(effect.to)}`);
+}
 /** §135.30.8 (SL-43): acts an obligation step settled, added to the run's. */
 function settleActs(view: RunView, acts: readonly string[]): void {
   const fresh = acts.filter(act => act && !(view.actsSettled ?? []).includes(act));
@@ -1402,6 +1422,8 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     if (executed.ok) for (const key of [...consumedByEffects(item.call.params.effects as Row[] | undefined), ...consumedByClaim(item.call.params.action as Row | undefined),
       ...consumedByResolve(item.call.method)])
       if (!view.consumed.includes(key)) view.consumed.push(key);
+    // §135.30.10: the Keeper's own move the kernel took carried the destination too (an owed one lands what was told).
+    if (executed.ok) settleMoves(view, movedByEffects(item.call.params.effects as Row[] | undefined));
   } else if (item.scan) {
     // §143.4: the scan followed every step that had landed; the acts it ran are the people's own, never a refusal of the
     // declaration, so nothing is handed to the Keeper for it.
@@ -1418,6 +1440,9 @@ export function settleExecute(view: RunView, step: number, item: PendingItem, ex
     // §135.30.8 (SL-43): the act an obligation check was executed with is settled for the run, taken or refused.
     const act = obligationAct(item);
     if (act) settleActs(view, [act]);
+    // §135.30.10: a declared move the clerk executed carried the declaration's destination, taken or refused (§135.26: the
+    // clerk does not route around its own refusal by moving somewhere else).
+    if (item.candidate!.family === 'move') settleMoves(view, [item.candidate!.key]);
     // §135.11 addendum (SL-20): the declaration's own step (a compile selected it) that the kernel took and whose check did
     // not fail settles the declaration. A carried meeting has its own key; the check it hands on to carries the selected one.
     const key = item.candidate!.key;
@@ -1633,13 +1658,13 @@ export function createStepPolicy(options: StepPolicyOptions): RunPolicy<StepPoli
         if (!binding) return {kind: 'decide', purpose: 'route', question: unbound};
         const {batch, offered} = routeBatch(state, binding.scope, binding.readSet);
         return {kind: 'decide', purpose: 'route', question: {batch, offered, located: state.located, gate: driver.policyState.gate, settled: state.settled ?? [],
-          declaredActs: state.declaredActs ?? []}};
+          declaredActs: state.declaredActs ?? [], moved: state.moved ?? []}};
       }
       if (request.kind === 'decide' && request.purpose === 'compile') {
         if (!binding) return {kind: 'decide', purpose: 'compile', question: unbound};
         // The candidates and rows ride with the question so the engine can record which predicates fired (§135.30).
         return {kind: 'decide', purpose: 'compile', question: {batch: compileBatch(state, binding.scope, binding.readSet, doneThisTurn(state)),
-          candidates: state.candidates, rows: state.rows ?? null, gate: driver.policyState.gate, actsSettled: state.actsSettled ?? []}};
+          candidates: state.candidates, rows: state.rows ?? null, gate: driver.policyState.gate, actsSettled: state.actsSettled ?? [], moved: state.moved ?? []}};
       }
       if (request.kind === 'decide' && request.purpose === 'locate') return {kind: 'decide', purpose: 'locate', question: {rawInput: state.rawInput}};
       if (request.kind === 'decide' && request.purpose === 'reask') {

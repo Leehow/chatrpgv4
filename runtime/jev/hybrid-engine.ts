@@ -55,7 +55,7 @@ import { readJevApiKey, readJevPreselectAllowanceMs } from '../../extensions/jev
 import type { HostOperationContext, OperationIdentity } from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import { buildCandidates, buildConsequenceCandidates, keeperCall, NPC_REACTION_DECISION, type BandReads, type ConsequenceCandidate, type ConsequenceClass } from './candidates.ts';
 import { compileRows } from './compile-rows.ts';
-import { actGated, interpretCompile, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
+import { actGated, interpretCompile, moveGated, interpretReask, unlockedRow, type FeatureRows, type GuardedDestination, type ReaskInput } from './route-compile.ts';
 import { candidateWithConsequenceBasis, CONSEQUENCE_FAMILY, consequenceBatch, interpretConsequenceResult, type ConsequenceExistsRow, type ConsequenceRow, type ConsequenceView } from './consequence-route.ts';
 import { firstStepThinkingBudget, jevStepsBudget, narratorOnlyBudget, npcActBudget, thresholdsForClass } from './host-budgets.ts';
 import { catalogRefusal, NARRATOR_NOTE, narratorOnlySetting, offeredForPropose, offeredView, PROPOSE_NOTE, PROPOSE_PENDING_REFUSAL, PROPOSE_TOOL, PROPOSE_VERB,
@@ -1619,13 +1619,16 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
       const settled = array(question.settled).map(String);
       // §143.16 (NAF-17): the acts the run's compiles cleared, so the row's `selected` is the policy's (a gated fight step selects nothing).
       const declaredActs = array(question.declaredActs).map(String);
-      const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true, settled, declaredActs} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
+      // §135.30.10: the run's moves, so a move offered after one selects nothing in the row either.
+      const moved = array(question.moved).map(String);
+      const routed = request.purpose === 'route' ? interpretRoute({located: question.located === true, settled, declaredActs, moved} as RunView, offered, result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE) : undefined;
       const actGatedKeys = request.purpose === 'route' ? offered.filter(candidate => actGated(candidate, declaredActs)).map(candidate => candidate.key) : [];
+      const moveGatedKeys = request.purpose === 'route' ? offered.filter(candidate => moveGated(candidate, moved)).map(candidate => candidate.key) : [];
       // §135.30: the compile row carries each feature's distribution and which predicates fired, as the policy will read them.
       // §135.30.8 (SL-43): with the run's settled acts, so the row's `decided` is the policy's.
       const actsSettled = array(question.actsSettled).map(String);
       const compiled = request.purpose === 'compile'
-        ? interpretCompile({candidates: array(question.candidates) as Candidate[], rows: (question.rows ?? undefined) as FeatureRows | undefined, actsSettled},
+        ? interpretCompile({candidates: array(question.candidates) as Candidate[], rows: (question.rows ?? undefined) as FeatureRows | undefined, actsSettled, moved},
           result, Number(question.gate) || DEFAULT_CONFIDENCE_GATE)
         : undefined;
       // §135.30.9.2 (SL-52 stage 2): the re-ask row names the settling steps, each clue's answer and what it filed.
@@ -1642,12 +1645,14 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
         // SL-84: the last attempt's HTTP status or network/timeout code, so a `jev_service_error` reason is legible.
         ...(result.failure?.status !== undefined ? {jev_status: result.failure.status} : {}),
         ...(request.purpose === 'route' ? {offered: offered.map(candidate => candidate.key), selected: routed?.selected ?? [], exit: routed?.exit ?? null, reason: routed?.reason ?? null,
-          ...(settled.length ? {settled} : {}), ...(actGatedKeys.length ? {act_gated: actGatedKeys} : {})}
+          ...(settled.length ? {settled} : {}), ...(actGatedKeys.length ? {act_gated: actGatedKeys} : {}), ...(moveGatedKeys.length ? {move_gated: moveGatedKeys} : {})}
           : compiled ? {features: compiled.features, fired: compiled.selected.map(entry => ({predicate: entry.predicate, candidate: entry.candidate.key, features: entry.features})),
             selected: compiled.selected.map(entry => entry.candidate.key), decided: compiled.decided, fell_through: compiled.fellThrough, reason: compiled.reason,
             // §135.30.9 (SL-52): the sought `ask` rows, in row order.
             ...(compiled.askCleared ? {ask_cleared: compiled.askCleared} : {}),
             ...(actsSettled.length || compiled.actsSettled?.length ? {acts_settled: [...new Set([...actsSettled, ...(compiled.actsSettled ?? [])])]} : {}),
+            // §135.30.10: the run's moves before this compile (its `move` predicate then decided every move).
+            ...(moved.length ? {moved} : {}),
             ...(compiled.guarded ? {guarded: compiled.guarded} : {}), ...(compiled.unlocked ? {unlocked: compiled.unlocked.map(unlockedRow)} : {})}
             : {candidate: question.candidate ?? null}),
         ...(compiled ? {} : {answers})});
