@@ -7,7 +7,7 @@ import { array, integer, kebab, normalize, number, repr, row, string, truth, typ
 import { SkillResolver } from '../rules/skills.js';
 import { presentOpponents, type SettleContext } from '../resolve/context.js';
 import { investigatorCombatParticipant, npcCombatParticipant } from '../combat/profiles.js';
-import { incompleteStatBlock, requireParticipantBlock } from '../combat/stat-block.js';
+import { incompleteStatBlock, requireParticipantBlock, requireRunnerBlock } from '../combat/stat-block.js';
 import { archetypeIds } from '../apply/archetype.js';
 import { CHASE_OUTCOMES, DEFAULT_GAP, DEFAULT_LOCATION_COUNT, generateLocationChain, get, int, or, participantFromCombatSpec, loadChaseRules, vehicleStats } from './model.js';
 export { presentOpponents } from '../resolve/context.js';
@@ -286,8 +286,10 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
             if (!acting && (!opponent || !opponent[2])) throw new RpcError('needs', 'A chase participant needs present identity and a pinned profile.',
                 {details: {reason: 'chase_participant_unprepared', field: 'chase_roster'}});
             const id = acting ? context.actorId : opponent![0];
+            // §180.6 (CK-F2 review follow-up): a runner on foot reads their own MOV; a driver's is the vehicle's, a passenger's the driver's.
+            const requireBlock = entry.role === 'foot' ? requireRunnerBlock : requireParticipantBlock;
             const spec = acting ? await investigatorCombatParticipant(context.tables, context.actor, null)
-                : await npcCombatParticipant(context.tables, id, await requireParticipantBlock(context.kernel, context.graph, opponent![1], id, opponent![2]!, `a chase with ${context.graph.displayName(opponent![1])}`));
+                : await npcCombatParticipant(context.tables, id, await requireBlock(context.kernel, context.graph, opponent![1], id, opponent![2]!, `a chase with ${context.graph.displayName(opponent![1])}`));
             const side = entry.role === 'passenger' ? 'passenger' : (string(action.intent) === 'flee') === acting ? 'quarry' : 'pursuer';
             const participant = participantFromCombatSpec(spec, side, 0);
             names.set(normalize(entry.actor), id);
@@ -378,7 +380,7 @@ export async function chaseSlots(ref: string, context: SettleContext): Promise<{
         const participants = [participantFromCombatSpec(await investigatorCombatParticipant(context.tables, context.actor, null), 'quarry', 0)];
         for (const [handle, node, profile] of opponents)
             participants.push(participantFromCombatSpec(await npcCombatParticipant(context.tables, handle,
-                await requireParticipantBlock(context.kernel, context.graph, node, handle, profile, `a chase by ${context.graph.displayName(node)}`)), 'pursuer', 0));
+                await requireRunnerBlock(context.kernel, context.graph, node, handle, profile, `a chase by ${context.graph.displayName(node)}`)), 'pursuer', 0));
         const locations = chaseLocationChain(context);
         Object.assign(semantic, {
             pursuer_refs: opponents.map(([handle]) => `npc:${handle}`),
