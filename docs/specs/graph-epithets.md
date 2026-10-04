@@ -24,6 +24,14 @@ Table 21, turn 3 (App `4decd9ac8`, flapcode gpt-6-luna). The player asked the ow
    - But `apply person`'s `who` resolves only handles, book names and `world.person_labels` (`personOf`, `kernel-ts/apply/person.ts`). The Keeper wrote the word it was shown, 「手臂有海军纹身的老人」, and got `unknown_entity` twice.
    - `cash.with` accepted the same word.
 
+Turn 4, after the owner switched the Keeper to grok-build grok-4.5 low ("要不还是换grok4.5吧"). The player asked the thin man's name. Same two gaps, so they belong to the system, not to one model:
+
+- First step: `apply person` with `who` set to the journal label 「把香烟挂在油布旁的高瘦男人」 → `unknown_entity`.
+- Second step: `who` set to the handle `book-4-nate-patterson`, `name` 「内特」 → refused `untold_name`. He was still untold when the write ran, although the same response's prose has him say his name.
+- Third step: plain-text delivery, writing 「内特·帕特森」 itself, with no `{{name:}}`. This time it equals the book's name only because `nate-patterson` transliterates that way.
+
+Across both turns, 3 of 4 refusals were the shown word not resolving. Neither model wrote `{{name:}}` once, although the untold line and the narrate field both ask for it.
+
 ## 2. What changes
 
 Every person the graph has gets the table's word in the campaign's play language **when they enter the graph**, before anyone meets them. The kernel validates that word and stores it in the campaign. Every surface reads it, and every tool resolves it. Only a person the graph never had (a walk-on, `apply npc` with `walk_on: true`) is named at the table, as now.
@@ -74,6 +82,10 @@ Every reader takes it from one function. Today `untoldBlock`, the untold view, t
 
 The untold view already renames each untold person's book names to the shown word in the whole request. That covers host messages, tool results and look answers (`renameUntold`). The rename table gains a row for the handle and the node id. With a resolvable epithet for everyone, nothing is lost: the Keeper addresses people by the word it is shown, and the kernel resolves that word. A person with no epithet keeps today's handle fallback, a known residual.
 
+### 2.5 Saying a name is a token the Keeper copies, not a rule it remembers
+
+Both models ignored "write {{name:<who>}}". Each untold row in the Keeper's view carries the exact token, so saying the name is a copy, not a composition: `say_name: "{{name:<shown word>}}"`. The untold line then says only to put `say_name` where the fiction has the name said. With handles hidden (§2.4), the token is the only way the book's name can reach the prose. A name the Keeper invents is then visibly its own, not a guess from a slug.
+
 ## 3. Not changed
 
 - Walk-ons and people the book never had: named at the table by the Keeper (`apply npc`, `walk_on: true`).
@@ -96,6 +108,7 @@ The untold view already renames each untold person's book names to the shown wor
   - Recommended: its own lane step right after people enter the graph.
   - Alternative: one more field in the reader's extraction call. Rejected because the reader's output is module-scoped and in the book's language, whereas the epithet is the campaign's, in the play language. Extraction output is also already saturated, and the cost of a build is its rounds (memory notes on module builds). The owner's "at parse time" is kept as the moment it happens, not the call that does it.
 - **Q2. Should handles be hidden from the Keeper for untold people (§2.4)?** Recommended yes: it is what closes table 21's 「拉尔斯」. The cost is one more rename row per person.
+- **Q4. Should each untold row carry the name token to copy (§2.5)?** Recommended yes, together with Q2. Neither alone fixed turns 3 and 4: the token without hidden handles leaves the slug to transliterate, and hidden handles without the token leave the Keeper inventing a name.
 - **Q3. Should the turn-3 resolution gap be fixed now, before this spec lands?** That fix makes `who` resolve the journal label the Keeper is shown. It is small, and §2.3 subsumes it later.
 
 ## 6. Tickets (to file after the owner decides)
@@ -103,7 +116,7 @@ The untold view already renames each untold person's book names to the shown wor
 - GE-01: the kernel write, its validation and storage (§2.2); unit tests with the same refusal cases as `untold-names-held`.
 - GE-02: one reader for the table's word, and resolution everywhere (§2.3); includes Q3's gap.
 - GE-03: the epithet lane: starter trigger at `campaign.create`, PDF trigger after a reading lands new people (§2.1).
-- GE-04: the handle rename in the Keeper's request (§2.4).
+- GE-04: the handle rename in the Keeper's request (§2.4) and the `say_name` token (§2.5).
 - GE-05: the real-table acceptance (§4).
 
 ## Comments
