@@ -7,7 +7,7 @@ export const ROOT = new URL('../../', import.meta.url).pathname;
 export function loadCards(path = join(ROOT, 'experiments/mod-section-index/cards.json')) {
   const parsed = JSON.parse(readFileSync(path, 'utf8'));
   // A topics file (round 3) lists product-owned topics instead of package sections; each is a card with no text.
-  const cards = parsed.cards ?? parsed.topics;
+  const cards = parsed.cards ?? parsed.topics ?? parsed.sections;
   const files = new Map();
   const file = mod => {
     if (!files.has(mod)) files.set(mod, readFileSync(join(ROOT, 'mods', mod, 'agent.md'), 'utf8'));

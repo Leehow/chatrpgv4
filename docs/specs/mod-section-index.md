@@ -173,6 +173,30 @@ A section's front matter names `topics: [...]` from the list, and optionally a `
 
 **Cost.** 310 ms and $0.0003 per turn at today's catalogue; 390 ms and $0.0004 at 70 cards; linear in cards beyond that, batched 64 at a time.
 
+### 8.1 The prototype over real capsules (2026-10-04)
+
+`experiments/mod-section-index/prototype/`: `index.json` (every Keeper-instruction section of the seven packages, from `docs/mods-catalogue.md`, with topics, gates and triggers), `select.mjs` (the topic lane plus the closed gate list read from a capsule), `sandbox.sh` and `replay.mjs` (a copy-on-write home per App campaign; for each sampled turn the repository is reset to the commit of the turn before, the kernel opens the table and takes the player's words, and the capsule it hands back is what the selector reads), `score.py`, `policy.py` (re-applies a loading rule over stored rows without calling Jev again).
+
+Held-out sample B, 106 of 110 turns replayed (the four others have no commit for the turn before), against the rule labels, over the eighteen sections the replay can decide:
+
+| | P / R | sections per turn | bytes per turn p50 / p95 | topic lane |
+| --- | --- | --- | --- | --- |
+| final policy | 0.56 / 0.69 | 3.0 | 3.3 KB / 7.3 KB | 304 ms p50 |
+| today | the 4999-byte briefs, every turn; 55 KB of full text on the first turn | | | |
+
+Per section at 0.5: what the asker is after 0.96 recall, prices 0.77, documents 0.78, clue landing 0.74, asking 0.70, out-of-character 1.00; first impression 0.62 with 21 false loads; handed clues 0.38; register 0.33 with 17 false loads; define 0.50.
+
+What the replay taught, each a change in the index or the selector:
+- **A state counter alone is not a reason to load.** The stall and recover sections, loaded whenever `stalled_turns` reached the setting or the Director read RECOVER, fired on a third of turns and were needed on two. They now load only when the counter is up **and** the words involve no topic: a stalled counter with nothing to do is the stuck case. Loads halved at equal recall.
+- **`met_turns` already counts the opening scene**, so a first-impression gate on it never fired at the first exchange; the gate reads `last_spoke_turn`. And a person present who never spoke is not a meeting: the section loads on the topic (the investigator speaks to someone) and the gate together. Under natural-npc 1.5.0 the roll moves into the kernel and this section's trigger becomes the impression receipt itself.
+- **The register gate is nearly always open** (unregistered gear on 87% of turns), so the topic carries the decision; at 0.7 it loads on a fifth of turns. The precise signal is the compile's `item` feature against the registered instances, which the product has and the replay does not.
+- **The labels include what only the Keeper's own call decides**: the client's advance (prices), the keys and the note (define, documents), a transfer (manage). Offline these count as misses; in the product the `before_apply:*` triggers load the section at the call. That is most of the gap between the topic lane's own accuracy (§7.5) and this end-to-end figure.
+- **`git reset --hard` moves the branch**, so the first replay lost every turn after a reset in the same campaign (59 of 110); the sandbox keeps the original tip under `refs/replay/tip`.
+
+Bytes: 3.3 KB a turn against today's 5.0 KB brief, and the bytes are whole rules rather than compressions. The resident text of the resident packages would ride beside it as today's briefs do (2.5 KB).
+
+**What this prototype does not show**: whether the Keeper plays better with whole sections than with briefs. That is a live replay with a Keeper model (§179.4's shape), the next step if the design is adopted.
+
 ## 9. Open
 
 - Whether resident text keeps a shared ceiling or a per-package one.
