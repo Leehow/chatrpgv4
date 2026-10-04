@@ -5337,6 +5337,20 @@ that card, and its workers report no progress. The in-session path (`pipicoc/ui-
   inside its window is retried, and the retry's own window lets it finish; a card job is handed no progress callback
   and still times out at its fixed deadline.
 
+*Acceptance* (2026-10-03):
+
+- Live, on the real path: the onboarding host (`CocOnboardingHost`, built runtime, real worker) asked `projectUiWords`
+  for `ja`, a tag with no seed, with the window at its default 360 s and the agent home's lane setting
+  (`opencode-go/deepseek-v4.1-flash`, thinking off). One attempt, handed a progress callback; 47 reports (`done` 0 to
+  46); the longest silence between reports 33.3 s, the median 20 s; resolved after 990 s with no retry. The cache held
+  all 587 keys and the reader answered the tag projected. Before this change the same job was aborted at 360 s.
+- Mutations (one at a time, restored by copy), each failing at least one test above: progress that does not move the
+  window; a stall that is retried; a timer that never re-arms; a `ui` request sent the fixed way; the lane reporting
+  an ask before it lands.
+- `npm run test:ext` on leehow-pc at `ecb96ef56`: 4,453 of 4,453. `coc-onboarding.test.ts` on the Mac: 29 of 30; the
+  one red, "never shows a crashed worker's stderr", is red on the base (`4180ccdfb`) too: its `not.toContain('secret')`
+  matches the `secret*` keys of `content/ui/en/mods.json` in the answer's `ui` block.
+
 ### Host decision: the identity card is a passport-style page (2026-09-11)
 
 The right sidebar keeps the investigator's identity as live HTML text on a paper
