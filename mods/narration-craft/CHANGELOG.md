@@ -1,5 +1,8 @@
 # Narration Craft
 
+## 2.2.3
+- The first-meeting example no longer names anyone ("Robert, he runs the bar." became the name, then "he runs the bar."). Table 23 (Blood Road, 2026-10-04): the book's bartender is Robert, he was still untold, and the Keeper wrote 「罗伯特」 when asked his name instead of the name token (contract §176.5); an example's name reaches the Keeper in English, where the untold rename cannot follow it.
+
 ## 2.2.2
 - Joins 0.9.6a's 2.1.17, 2.1.18 and 2.2.1 with the mood wording that `claude/first-sight-20261002` had released as its own 2.1.17 (the App packaged from that branch carries it under that number):
   The mood is written in the same response as the narrate that carries the person's words, apply first, not as a step of its own (contract §175). 2.1.6 had allowed "its own apply" because grok double-serialized prose in `apply.narrate` beside structured effects (§162); a separate `narrate` call in the same response has neither problem. Installed App, 2026-10-03: with `flapcode/gpt-6-luna` as Keeper, 13 of 51 delivered turns spent a whole model step on bookkeeping that carried a mood before the prose (10 of them on the mood alone, 12 s at the median).
