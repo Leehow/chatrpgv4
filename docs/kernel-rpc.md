@@ -33186,6 +33186,7 @@ Book-4 prints 「达拉斯」 five times and 「拉斯维加斯」 once, and the
 - **The host asks** (`extensions/kernel/untold-spans.ts`, `KernelClientOptions.prepareCall`):
   - Before every `table.narrate` and `table.ask` reaches the kernel, it asks for the places, then asks Jev about each (family `untold-name-spans`, `runtime/jev/untold-name-spans.ts`; the text ±40 characters with the place marked ⟦…⟧).
   - It sends the places below 0.5 as **`untold_cleared: [{name, nth}]`**. The field is the host's: a value in the Keeper's arguments is dropped first.
+  - Every failure falls back to the params with that field dropped. A decision getter, a lease or a malformed answer that throws inside the hook returns them, and so does telemetry. A hook that throws anyway makes the client drop `KernelClientOptions.hostOnlyParams` (`UNTOLD_HOST_PARAMS`) from the caller's params, instead of sending them as written. This is an invariant from review (2026-10-04); no table has shown a forged list reaching the kernel.
   - Jev unconfigured, failed or later than 2.5 s clears nothing.
   - Places go to Jev in requests of at most 40 (`NAME_SPANS_PER_BATCH`), in parallel under the one wait; a request the packer still refuses is split in halves. Past 400 places in one call (`NAME_SPANS_PER_CALL`), and wherever a request failed, a place is not judged and is treated as the name. Table 28 (turn 2): one source excerpt brought 393 places, a single request of 120 was refused by the packer, and none was judged.
   - Telemetry: `lane: "untold-spans"`, `event: "judged"` (places, cleared, scores, ms) or `"fallback"` (reason).
@@ -33204,7 +33205,8 @@ Tests:
   - the batch's question and bar;
   - the host hook clearing only the places under the bar, dropping the Keeper's own list, and falling back unconfigured;
   - the request keeping a judged place, renaming the name and the handle without asking about the handle, deciding each place once, adding no note when nothing was renamed, and renaming everything without an answer;
-  - the client running the hook inside its queue with a direct call to a real kernel.
+  - the client running the hook inside its queue with a direct call to a real kernel;
+  - a getter, a malformed place or a lease that throws returning the dropped params, telemetry that throws deciding nothing, and a client whose hook throws dropping the host-only params (an echoing fake kernel).
 
 ### 177.9 Writers, readers, actor (§31)
 

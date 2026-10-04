@@ -88,7 +88,7 @@ import {
 } from "../../runtime/jev/keeper-line-purpose.ts";
 import { npcActBudget } from "../../runtime/jev/host-budgets.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
-import { createUntoldSpanJudge } from "./untold-spans.ts";
+import { createUntoldSpanJudge, UNTOLD_HOST_PARAMS } from "./untold-spans.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
 import { NAME_SPANS_FAMILY } from "../../runtime/jev/untold-name-spans.ts";
 import { PendingAnswers, memoAnswer, pendingAnswer, pendingPrepare, sourceAnswerAllowanceMs } from "./source-answers.ts";
@@ -5580,6 +5580,7 @@ export default function (pi: ExtensionAPI) {
 				campaign: process.env.PI_COC_CAMPAIGN?.trim() || undefined });
 			const kernel = runtime.openKernel({
 				prepareCall: untoldSpanJudge,
+				hostOnlyParams: UNTOLD_HOST_PARAMS,
 				onDiagnostic: (message) => {
 					// The kernel's stderr and restart notices can arrive after the session is disposed (the user
 					// quits pi while a lane is still flying), and after that every ctx getter throws

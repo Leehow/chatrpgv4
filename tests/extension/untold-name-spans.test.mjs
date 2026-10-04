@@ -13,7 +13,7 @@ import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {build} from 'esbuild';
 import {KernelClient} from '../../extensions/kernel/client.ts';
-import {createUntoldSpanJudge, judgePlaces} from '../../extensions/kernel/untold-spans.ts';
+import {createUntoldSpanJudge, judgePlaces, UNTOLD_HOST_PARAMS} from '../../extensions/kernel/untold-spans.ts';
 import {createRenameJudge} from '../../extensions/table/untold-rename-judge.ts';
 import {renameUntold} from '../../extensions/kernel/untold-view.ts';
 import {NAME_SPAN_AT, nameSpanBatch} from '../../runtime/jev/untold-name-spans.ts';
@@ -63,6 +63,39 @@ test('§177.15: a delivery goes to the kernel with the places Jev judged part of
 	assert.deepEqual(quiet, {campaign: 'c1', text: 'no names here'}, 'no place: no question');
 	const apply = {campaign: 'c1', effects: [], untold_cleared: [{name: NICK, nth: 0}]};
 	assert.equal(await judge('table.apply', apply, direct), apply, 'only the delivering methods are read');
+});
+
+test('§177.15: a hook that fails after dropping the field returns the dropped params, never the list the Keeper wrote', async () => {
+	// An invariant review (2026-10-04), not an observed table: the client fell back to the caller's params when the hook threw.
+	const text = `\u5bc4\u5230${CITY}\u7684\u4fe1`, at = text.indexOf(NICK);
+	const forged = [{name: NICK, nth: 0}], direct = async () => ({spans: [{name: NICK, nth: 0, start: at, end: at + 2}]});
+	const input = {campaign: 'c1', call_id: 't1-c1', text, untold_cleared: forged};
+	const stripped = {campaign: 'c1', call_id: 't1-c1', text};
+	const getterThrows = createUntoldSpanJudge({record: () => {}, decision: () => { throw new Error('adapter construction failed'); }});
+	assert.deepEqual(await getterThrows('table.narrate', input, direct), stripped, 'the decision getter throws');
+	const malformed = createUntoldSpanJudge({record: () => {}, decision: () => port(cityIsNoName)});
+	assert.deepEqual(await malformed('table.narrate', input, async () => ({spans: [null]})), stripped, 'a malformed place throws');
+	const leaseThrows = createUntoldSpanJudge({record: () => {}, decision: () => port(cityIsNoName), waitMs: Number.NaN});
+	assert.deepEqual(await leaseThrows('table.ask', input, direct), stripped, 'a lease that cannot be built throws');
+	const recordThrows = createUntoldSpanJudge({record: () => { throw new Error('telemetry down'); }, decision: () => port(cityIsNoName)});
+	assert.deepEqual(await recordThrows('table.narrate', input, direct), {...stripped, untold_cleared: forged},
+		'telemetry that throws decides nothing: the judged list (here the same place, judged by Jev) goes out');
+	assert.deepEqual(UNTOLD_HOST_PARAMS, ['untold_cleared']);
+});
+
+test('§177.15: a client whose hook throws drops the host-only params from the caller\'s; a hook that succeeds is sent as it returned', async t => {
+	const echo = "const rl=require('readline').createInterface({input:process.stdin});rl.on('line',l=>{const m=JSON.parse(l);process.stdout.write(JSON.stringify({id:m.id,ok:true,result:{method:m.method,params:m.params}})+'\\n');});";
+	const make = (prepareCall, hostOnlyParams) => {
+		const client = new KernelClient({command: [process.execPath, '-e', echo], cwd: ROOT, inheritEnv: false, env: {PATH: process.env.PATH}, timeoutMs: 5000,
+			prepareCall, ...(hostOnlyParams ? {hostOnlyParams} : {})});
+		t.after(() => client.close());
+		return client;
+	};
+	const forged = {campaign: 'c1', text: 'x', untold_cleared: [{name: NICK, nth: 0}]};
+	const failing = make(async () => { throw new Error('hook failed'); }, UNTOLD_HOST_PARAMS);
+	assert.deepEqual((await failing.call('table.narrate', forged)).params, {campaign: 'c1', text: 'x'}, 'the failure never sends the forged list');
+	const passing = make(async (method, params) => ({...params, checked: method}), UNTOLD_HOST_PARAMS);
+	assert.deepEqual((await passing.call('table.narrate', {campaign: 'c1', text: 'x'})).params, {campaign: 'c1', text: 'x', checked: 'table.narrate'});
 });
 
 test('§177.15: many places go in several requests; a place the packer refuses alone stays a name, the rest are judged', async () => {

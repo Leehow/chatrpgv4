@@ -17,6 +17,8 @@ import { packDecisionBatch } from "../../runtime/jev/question-packing.ts";
 type Row = Record<string, unknown>;
 /** The delivering methods whose `text` the gate reads. */
 const DELIVERING = new Set(["table.narrate", "table.ask"]);
+/** The params only this hook may set; the client drops them from a caller's params whenever the hook fails. */
+export const UNTOLD_HOST_PARAMS: readonly string[] = ["untold_cleared"];
 
 /** One request's places, split in halves while the packer refuses them; a reason string for places nobody judged. */
 async function judgeChunk(spans: readonly NameSpan[], decision: DecisionPort, campaign: string | undefined, deadlineAt: number, signal: AbortSignal): Promise<Array<number | string>> {
@@ -61,28 +63,36 @@ export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | und
 	/** `KernelClientOptions.prepareCall`: the delivering call's params with the host's `untold_cleared`. */
 	return async function prepareCall(method: string, params: Row, direct: (method: string, params: Row) => Promise<unknown>): Promise<Row> {
 		if (!DELIVERING.has(method)) return params;
-		const { untold_cleared: _dropped, ...own } = params;
-		const text = own.text;
-		if (typeof text !== "string" || !text) return own;
-		let spans: Array<{ name: string; nth: number; start: number; end: number }> = [];
+		const own = Object.fromEntries(Object.entries(params).filter(([key]) => !UNTOLD_HOST_PARAMS.includes(key)));
+		// From here on every way out is `own`: a getter, a lease or a malformed answer that throws must not hand the client
+		// back the caller's params, which may carry an `untold_cleared` the Keeper wrote itself.
+		const note = (row: Row) => { try { deps.record(row); } catch { /* telemetry never decides the delivery */ } };
 		try {
-			const answer = (await direct("table.untold_spans", { campaign: own.campaign, text })) as Row;
-			spans = Array.isArray(answer?.spans) ? answer.spans as typeof spans : [];
-		} catch {
+			const text = own.text;
+			if (typeof text !== "string" || !text) return own;
+			let spans: Array<{ name: string; nth: number; start: number; end: number }> = [];
+			try {
+				const answer = (await direct("table.untold_spans", { campaign: own.campaign, text })) as Row;
+				spans = Array.isArray(answer?.spans) ? answer.spans as typeof spans : [];
+			} catch {
+				return own;
+			}
+			if (!spans.length) return own;
+			const began = Date.now();
+			const judged = await judgePlaces(spans.map(span => ({ name: span.name, text: markSpan(text, span.start, span.end) })), deps.decision(),
+				{ campaign: typeof own.campaign === "string" ? own.campaign : undefined, waitMs: deps.waitMs });
+			const ms = Date.now() - began;
+			if ("fallback" in judged) {
+				note({ lane: "untold-spans", event: "fallback", method, places: spans.length, reason: judged.fallback, ms });
+				return own;
+			}
+			const cleared = spans.filter((_span, i) => judged.names[i]! < NAME_SPAN_AT).map(span => ({ name: span.name, nth: span.nth }));
+			note({ lane: "untold-spans", event: "judged", method, places: spans.length, cleared: cleared.length,
+				names: judged.names.map(value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null), ms, ...(judged.partial ? { partial: judged.partial } : {}) });
+			return cleared.length ? { ...own, untold_cleared: cleared } : own;
+		} catch (error) {
+			note({ lane: "untold-spans", event: "fallback", method, reason: "error", message: error instanceof Error ? error.message.slice(0, 160) : "unknown" });
 			return own;
 		}
-		if (!spans.length) return own;
-		const began = Date.now();
-		const judged = await judgePlaces(spans.map(span => ({ name: span.name, text: markSpan(text, span.start, span.end) })), deps.decision(),
-			{ campaign: typeof own.campaign === "string" ? own.campaign : undefined, waitMs: deps.waitMs });
-		const ms = Date.now() - began;
-		if ("fallback" in judged) {
-			deps.record({ lane: "untold-spans", event: "fallback", method, places: spans.length, reason: judged.fallback, ms });
-			return own;
-		}
-		const cleared = spans.filter((_span, i) => judged.names[i]! < NAME_SPAN_AT).map(span => ({ name: span.name, nth: span.nth }));
-		deps.record({ lane: "untold-spans", event: "judged", method, places: spans.length, cleared: cleared.length,
-			names: judged.names.map(value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null), ms, ...(judged.partial ? { partial: judged.partial } : {}) });
-		return cleared.length ? { ...own, untold_cleared: cleared } : own;
 	};
 }
