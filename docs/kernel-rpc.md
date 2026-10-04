@@ -33149,3 +33149,59 @@ Writer: `module.source.bind` and `module.source.outline` write the outline; the 
 Reader: `queueAheadReading` reads both and the current scene. Actor: the reading pump, which claims only what the window
 queued. Limits: chapters are the book's own bookmarks or the model index; a book with neither reads by page window. The
 chapter that holds the Keeper's background and the endings is read by the opening and guidance reads as today.
+
+**Implementation decisions (2026-10-04, CT-04).** `kernel-ts/modules/chapters.ts` (outline cleaning, chapters, the window,
+the two `reading` budgets with coded fallbacks 60 and 24); `Reading.queueAheadReading`, `buildPending`, `completeBuild` and
+`writeOutline` in `reading.ts`; `needsToAsk`, `needDone` and the window-aware `needEligible` in `need-reads.ts`.
+
+- **Outline.** `source_document.outline` is written only when the host sent `bookmarks`; an empty list is kept (a PDF
+  without bookmarks), so the host does not backfill it again. `module.status` reports `outline`: the entry count, or `null`
+  when none was ever recorded. A replayed `module.source.bind` fills a missing outline. `module.source.outline` is dispatched
+  apart from the scoped methods: it writes the library, and the fork only when `scopedModuleRoot` finds one (never
+  `ensureCampaignModule`); its result is `{module_id, library: written | unchanged | missing, entries, campaign?: written |
+  unchanged | no_fork}`; a digest that is not the bound source's is `invalid_params` with `details.reason: source_mismatch`.
+  The outline is left out of `task_source_revision` and of `module.source.snapshot`'s `revision`, so the backfill at table
+  open neither stales a pending operation nor a navigation cache. The host backfills through
+  `ReadingService.backfillOutline` on `coc:table-open` and when its reader is ready, once per campaign and module per
+  session, and writes `lane: "reading", event: "outline_backfill"` with `state: written | failed`. `table.open`'s own
+  read-ahead runs before that backfill, so the first pass after an upgrade uses the page window and the next one chapters.
+- **Chapters.** An index section starts at the first page it names; an `unreadable` section is no chapter. The anchor is the
+  scene `focus` names (scenes only; a campaign's read-ahead passes its active scene), else the start scene, else page 1; an
+  anchor in the front matter before the first chapter reads from the anchor through the first chapter. The window's
+  `chapters` lists names; in `whole` mode it lists every chapter and carries `complete`.
+- **Which books skip the index (decision).** A short book streams "as today", and for a book that does not read by
+  reference units today includes the index, because its streamed units are cut from the index's sections. The skip for a
+  book with chapters therefore applies to long books. A long non-reference book with bookmarks streams no index units in the
+  background: its window limits needs, identity checks and map scopes, and the adjacent reads go on. Both index producers
+  obey the rule: the read-ahead's ask and `claim`'s `ensureIndexJob`. A background index already queued for such a book is
+  cancelled at the next claim (`state: cancelled`, its detail names §182.4); a foreground request still reads the index.
+- **`build_complete`.** Only a book that streams units (a reference book, or an indexed book under `first_interaction`)
+  can complete. Terminal means: a unit's row or its latest non-cancelled job completed or failed; a contact sheet overviewed
+  or its job terminal; a nominated page with its asset row or a terminal job; an identity page or a map scope with a
+  completed job or the failures after which the read-ahead stops asking; no need that `needsToAsk` would still ask over the
+  whole book; and no live job carrying a read-ahead marker. The record is written under the module's metadata lock, and a
+  fork offers it to the library at once through `syncLibraryFromCampaign` (no publication follows it), the outcome riding on
+  the read-ahead's result as `library_sync`. After it the read-ahead only recovers orphans: no index, no streamed ask, no
+  way-on repair and no adjacent read of its own; the kernel's adjacent reads on a move (§22.4) and foreground reads are
+  unchanged. A long book never records it.
+- **The window.** Units and contact sheets that meet it; nominated pages and identity pages inside it; map scopes with a page
+  inside it; needs whose entity (its node and the claims about it) cites a page inside it, and a deferred need waits for
+  the window's units only. Asks already queued from a window the table left are not cancelled; they drain (at most two per
+  kind) and nothing more is asked there.
+- **Never asked again.** `needDone` (a `read` disposition, or a marked job that completed without settling or failed) is
+  applied before the two-per-pass bound; before, such a need answered `ready` or `blocked` and still used up one of the two
+  asks. `carried` keeps §151.4's re-check once its units are read: it is a deferral to those units, not a settlement.
+  `unlocated` re-opens in the read-ahead only for a page inside the window that the decision did not accept, or a claim
+  citing a page inside it whose digest the decision did not hold (`claim_digests`, recorded at the settlement when the
+  material then is the material decided on, at most 256); a decision without them falls back to "the changed material
+  cites a page inside the window". A request keeps the digest rule. A reference unit whose only jobs were cancelled (a host
+  that stopped) is asked again with `retry`, as the indexed stream and the visual asks already did; before, it answered
+  `blocked` on every pass and used up its ask.
+- **Host.** Every read-ahead call of the reading service goes through `readAhead`, which writes `read_window` when the window
+  differs from the last one seen for the campaign and module, and a `library_sync` row when the result carries one. A failed
+  background ask of any read-ahead kind now calls the read-ahead (before, units only), so a short book whose last ask fails
+  completes without waiting for the next table open.
+- **Tests.** `tests/extension/read-window.test.mjs`; amended for the new `window` field in exact read-ahead results:
+  `tests/kernel/test_visual_reading.py::test_read_ahead_follows_authored_exits_not_index_page_order` and
+  `tests/kernel/test_fast_guidance.py::test_an_opening_published_ready_stays_ready_under_a_later_rule`;
+  `ts-kernel-foundation.test.mjs` lists the new method.
