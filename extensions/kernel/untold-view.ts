@@ -27,7 +27,8 @@ export const UNTOLD_VIEW_USE = "Nobody has said this person's name to the invest
 
 /**
  * §176.5 (spec Q4): the token that says an untold person's name, ready to copy. Neither model on table 21 wrote
- * `{{name:<who>}}` when it had to compose it; each made up a name from the handle instead.
+ * `{{name:<who>}}` when it had to compose it; each made up a name from the handle instead. Since §176.8 the kernel's
+ * untold block carries it (`nameToken`); this builds the same token for a block written before that.
  */
 export const sayName = (shown: string): string => `{{name:${shown}}}`;
 
@@ -47,7 +48,9 @@ export function untoldView<T>(capsule: T): { capsule: T; names: UntoldNames } {
 		names.byName.set(name, shown);
 		if (id) names.byId.set(id, shown);
 		const { name: _book, untold: _untold, ...rest } = row;
-		return { name: shown, ...rest, untold: { ...(text(untold.label) ? { label: text(untold.label) } : {}), say_name: sayName(shown), use: UNTOLD_VIEW_USE } };
+		// §176.8: the kernel's block carries the token on every projection, a budget stub included; the view keeps it.
+		const token = text(untold.say_name) || sayName(shown);
+		return { name: shown, ...rest, untold: { ...(text(untold.label) ? { label: text(untold.label) } : {}), say_name: token, use: UNTOLD_VIEW_USE } };
 	});
 	if (!names.byName.size) return { capsule, names };
 	const view: Row = { ...source, present };
@@ -95,13 +98,27 @@ function replaceWord(text: string, word: string, by: string): string {
 	return out + text.slice(from);
 }
 
-function renameText(source: string, people: readonly UntoldPerson[]): string {
+function renameText(source: string, people: readonly UntoldPerson[], shown?: Set<string>): string {
 	let out = source;
 	for (const person of people) {
 		const name = escaped(person.name);
-		if (out.includes(name)) out = replaceWord(out, name, escaped(person.shown));
+		if (!out.includes(name)) continue;
+		const renamed = replaceWord(out, name, escaped(person.shown));
+		if (renamed !== out) shown?.add(person.shown);
+		out = renamed;
 	}
 	return out;
+}
+
+/**
+ * §176.8: what a renamed tool result says after its own text. Replay of game-24bb66cb (2026-10-04, sequence U3, turn 5):
+ * asked the veteran's name with his `say_name` in its capsule, the Keeper looked his name up in the book instead; the
+ * excerpt came back with his name renamed to his word, read as a book that never names him, and the Keeper made one up.
+ */
+export function untoldNote(shown: readonly string[]): string {
+	return "[untold names] People the investigator has not been told the name of are shown in this result by this table's word for them; "
+		+ "the book does name them, and you do not have it. Where the fiction has one of those names said, write that person's say_name there: "
+		+ `${shown.map(sayName).join(", ")}.`;
 }
 
 /**
@@ -120,21 +137,26 @@ export function renameUntold<T>(messages: readonly T[], people: readonly UntoldP
 	return messages.map((message) => {
 		const row = object(message);
 		if (row.role !== "custom" && row.role !== "toolResult") return message;
+		// §176.8: a tool result that had a name renamed says so, with the tokens; host messages are JSON the Keeper's view
+		// already carries the tokens in, and are renamed only.
+		const shown = row.role === "toolResult" ? new Set<string>() : undefined;
 		const content = row.content;
 		if (typeof content === "string") {
-			const renamed = renameText(content, ordered);
-			return renamed === content ? message : { ...row, content: renamed } as T;
+			const renamed = renameText(content, ordered, shown);
+			if (renamed === content) return message;
+			return { ...row, content: shown?.size ? `${renamed}\n\n${untoldNote([...shown])}` : renamed } as T;
 		}
 		if (!Array.isArray(content)) return message;
 		let changed = false;
 		const parts = content.map((part) => {
 			const piece = object(part);
 			if (piece.type !== "text" || typeof piece.text !== "string") return part;
-			const renamed = renameText(piece.text, ordered);
+			const renamed = renameText(piece.text, ordered, shown);
 			if (renamed === piece.text) return part;
 			changed = true;
 			return { ...piece, text: renamed };
 		});
-		return changed ? { ...row, content: parts } as T : message;
+		if (!changed) return message;
+		return { ...row, content: shown?.size ? [...parts, { type: "text", text: untoldNote([...shown]) }] : parts } as T;
 	});
 }

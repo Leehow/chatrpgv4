@@ -207,8 +207,38 @@ test("§103.6: the retry is told why the kernel refused the first answer, in the
 	assert.match(inputText(seen[1]), /needs named_quote/);
 	assert.match(inputText(seen[1]), /Fix: copy those words into named_quote/);
 	assert.match(promptOf(seen[0]), /named_quote, the exact words of the prose or spoken line that gave it/);
+	// §176.9: a made-up name ("call me Walter") was journaled as the veteran's name; the rule asks for their own name.
+	assert.match(promptOf(seen[0]), /that person's own name, the name recordable gives them, in any spelling, script or transliteration/);
+	assert.match(promptOf(seen[0]), /A different name \(one they go by, a nickname, any name that is not that one\) does not name them: leave named out/);
 	assert.equal(table.calls("journal.submit").length, 2);
 	assert.equal(table.calls("journal.fail").length, 0);
+});
+
+test("§176.9: asked whether a name not written as the book's is theirs, the lane's named_as reaches the kernel", async (t) => {
+	const seen = [];
+	let submissions = 0;
+	const table = await openLanes(t, {
+		responses: [
+			context => { seen.push(context); return answer([{ name: "Dooley", named: true, named_quote: "Call me Walt." }]); },
+			context => { seen.push(context); return answer([{ name: "Dooley", named: true, named_quote: "Call me Walt.", named_as: "Walt" }]); },
+		],
+		rpc: async (method, params) => {
+			if (method === "journal.job") return packet(params.turn);
+			if (method === "journal.submit" && ++submissions === 1)
+				throw Object.assign(new Error("entries[0].named: true for 'Dooley': named_quote carries none of the names the book gives them as written"), {
+					code: "invalid_params", fix: "if these words give that same name in another spelling, script or transliteration, send the entry again with named: true, the same named_quote, and named_as: the exact words of the quote that are that name; if they give a different name (one they go by, a nickname, a name that is not theirs), leave named out" });
+			return {};
+		},
+	});
+	table.commit(1);
+	await completed(table);
+	assert.match(inputText(seen[1]), /named_quote carries none of the names the book gives them as written/);
+	assert.match(inputText(seen[1]), /Fix: if these words give that same name in another spelling/);
+	assert.match(promptOf(seen[0]), /and named_as, only when a refusal asks for it/);
+	const submitted = table.calls("journal.submit");
+	assert.equal(submitted.length, 2);
+	assert.equal(submitted[0].params.entries[0].named_as, undefined);
+	assert.equal(submitted[1].params.entries[0].named_as, "Walt", "the lane's answer to the narrow question goes to the kernel as given");
 });
 
 for (const reason of ["model_error", "invalid", "lane_error"]) {

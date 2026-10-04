@@ -18,10 +18,12 @@ def test_the_bench_opens_on_nine_people_and_the_capsule_keeps_every_name(kernel)
     assert capsule["where"]["scene"] == "sanyi-teahouse"
     present = capsule["present"]
     assert sorted(p["name"] for p in present) == sorted(CAST)
-    # Nine dossiers do not fit 3 KB; the people the cut would have dropped arrive as their name alone.
+    # Nine dossiers do not fit 3 KB; the people the cut would have dropped arrive as their name, and (§176.8) nobody
+    # has been named yet, so each keeps the untold block with the token that says their name.
     full = [p for p in present if not p.get("truncated")]
     stubs = [p for p in present if p.get("truncated")]
-    assert len(full) >= 4 and stubs and all(set(p) == {"name", "truncated"} for p in stubs)
+    assert len(full) >= 4 and stubs and all(set(p) == {"name", "truncated", "untold"} for p in stubs)
+    assert all(p["untold"]["say_name"].startswith("{{name:") and "use" not in p["untold"] for p in stubs)
     assert "present" in capsule["truncated"]
     assert capsule["voices"] == []
     # look focus=npc still has everyone in full.

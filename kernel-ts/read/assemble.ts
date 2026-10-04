@@ -315,22 +315,38 @@ export function untoldReceipts(records: Row[], turn: number): Row[] {
             }] : [];
         });
 }
-/** present[] under its budget with every name kept: full rows are cut from the end as `fitBudget` cuts
- *  them, and each person cut comes back as `{name, truncated: true}`; if the stubs themselves do not fit,
- *  more full rows give way to stubs until they do. Returns whether anything was cut. */
-function fitPresent(rows: Row[], budget: number): boolean {
-    const names = rows.map(entry => string(entry.name));
-    const cut = fitBudget(rows, budget);
-    if (!cut)
-        return false;
-    const kept = new Set(rows.map(entry => string(entry.name)));
-    const stubs: Row[] = names.filter(name => !kept.has(name)).map(name => ({ name, truncated: true }));
-    while (rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubs])).length > budget) {
-        const dropped = rows.pop()!;
-        stubs.unshift({ name: string(dropped.name), truncated: true });
+/** present[] under its budget with every person kept: full rows are cut from the end as `fitBudget` cuts
+ *  them, and each person cut comes back as a stub; if the stubs themselves do not fit, more full rows give
+ *  way to stubs until they do. Returns whether anything was cut. */
+export function fitPresent(rows: Row[], budget: number): boolean {
+    // `fitBudget` takes whole rows only from the end, so the people cut are the ones past what is left. By position:
+    // two people the book gives one name (book-4's two Robert Taylor nodes) made a cut one look kept by name, and it vanished.
+    const all = [...rows];
+    // §176.8: the name path rides outside the budget. Rows are fitted as they were before it -- the untold block without
+    // its token, a stub as its name -- and the tokens and the stubs' blocks are put back after. Counted, they cost the
+    // nine-person bench its fourth dossier.
+    const tokens = new Map<Row, unknown>();
+    for (const entry of all) {
+        const untold = entry.untold;
+        if (untold && typeof untold === "object" && "say_name" in untold) { tokens.set(entry, untold.say_name); delete untold.say_name; }
     }
-    rows.push(...stubs);
-    return true;
+    const cut = fitBudget(rows, budget);
+    const stubbed: Row[] = cut ? all.slice(rows.length) : [];
+    const bare = (entry: Row): Row => ({ name: string(entry.name), truncated: true });
+    while (cut && rows.length && utf8Bytes(pythonJsonDumps([...rows, ...stubbed.map(bare)])).length > budget)
+        stubbed.unshift(rows.pop()!);
+    for (const [entry, token] of tokens) entry.untold.say_name = token;
+    rows.push(...stubbed.map(presentStub));
+    return cut;
+}
+/**
+ * §176.8: a person cut to their name keeps their untold block, without its line. Whether they are untold, and the
+ * token that has their name said, is the next step for them, not payload: the replay of game-24bb66cb (2026-10-04)
+ * cut the navy veteran to `{name, truncated}` on every turn, and asked his name, three of four Keepers made one up.
+ */
+function presentStub(entry: Row): Row {
+    const { use: _line, ...untold } = row(entry.untold);
+    return { name: string(entry.name), truncated: true, ...(Object.keys(untold).length ? { untold } : {}) };
 }
 export function evidenceAnchors(graph: ModuleGraph, world: Row, records: Row[], limit = 4): string[] {
     return [...graph.kind("clue"), ...graph.kind("handout")]

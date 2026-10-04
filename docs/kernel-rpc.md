@@ -32897,3 +32897,64 @@ Tests:
 - `tests/extension/untold-request.test.mjs`: with the lane's word, the request carries neither the book name, the handle nor the node id (the clerk's note and a tool result renamed), and the copied `say_name` delivers the book's name.
 - `tests/extension/npc-epithets-lane.test.mjs`: the prompt names the play language; the shape is closed; refusals are retried once.
 - `tests/extension/scene-obligation-candidates.test.mjs`: the clerk's meeting carried under a graph epithet.
+
+### 176.8 Every untold row carries the name path, a stub included (2026-10-04; amends §176.5 and §40.7's stubs)
+
+**Evidence.** A sandbox replay of the App table `game-24bb66cb` (Blood Road), turns 2–8 with the table's own player lines, live Keeper grok-build/grok-4.5 low, four sequences (`chatrpgv4-wt-tableau-closer/.coc/playtests/tc-{A1,A2,B1,B2}-20261004`). On turn 5 the player asks the navy veteran his name.
+- In all four sequences, and on the original table, `present[]`'s 3 KB budget cut the veteran, the third of three people under the awning, to `{name, truncated: true}` (§40.7). The stub had no `untold`, so the Keeper's view gave him no `say_name` and no untold line, while the request rename (§103.5) still replaced his book name with his epithet. The Keeper had his word and nothing to say his name with. Three sequences made one up (厄尔, 哈珀, 沃尔特; one applied it with `apply person`), one deflected (「人叫我老兵就行」).
+- On turn 7 the bartender's row was whole and carried `say_name`. Three of four sequences copied it, and the delivery wrote 罗伯特·泰勒.
+- The original App table's 「史蒂夫」 on turn 5 was not the path working. That turn ran before the App was repackaged with §176.5's name pieces, and the scene summary's bare first name reached the Keeper.
+
+The token rode one projection: the extension's `untoldView`, on the capsule rows that still had their untold block. Now the block itself carries it.
+
+- **`untoldBlock`** (`kernel-ts/read/capsule.ts`) carries `say_name: "{{name:<w>}}"`, where `<w>` is the person's table word (§176.1) or, with none, their handle: the word the Keeper is shown for them. Every projection that carries the block carries the token: `present[]` rows and stubs, `look focus=npc`, the people of `look focus=scene`, and the clerk's notes that quote them. `nameToken` (`kernel-ts/write/names.ts`) is the one place the token's shape is written.
+- **A present stub keeps its person's block.** A person the budget cuts arrives as `{name, truncated: true, untold: {label?, id, say_name}}`. The block keeps no `use` line; the Keeper's view adds its own. A person who is told stays `{name, truncated: true}`. Who is untold, and how their name is said, is the next step for that person, not payload the budget may drop.
+- **The name path rides outside `present[]`'s budget.** `fitPresent` fits the rows as they were before this section: each untold block without its token, each stub as `{name, truncated}`. Then it puts the tokens and the stubs' blocks back. Counted against the 3 KB, they cost the nine-person bench its fourth full dossier (§40.7's floor is four). So the section can run over its budget by those bytes alone, about 40 B for each untold person and 55 B for each untold stub. The bench measured 3,540 B: four dossiers and five stubs. The request ceiling still binds, because it measures the renamed request (below).
+- **Stubs are cut by position, not by name.** `fitPresent` used to find the cut people by display name. Two people the book gives one name (book-4 holds two nodes named 罗伯特·泰勒) made the cut one look kept, and they vanished from `present[]`.
+- **The Keeper's view** (`untoldView`) keeps the kernel's `say_name` and replaces only `use`. A stub with an untold block is shown like any untold row: its word as `name`, the token and the line.
+- **A renamed tool result says a name was there.** The first replay of this change (`untold-name-20261004`, round 1) carried the token on the veteran's stub in all three sequences. One Keeper still made a name up (「叫我哈尔就行」, U3 turn 5). It had looked the name up in the book: `lookup kind=source` came back with his name renamed to his word (§103.5), which reads as a book that never names him. Now, when the request's rename replaces a name in a tool result, that result ends with a line (`untoldNote`, `extensions/kernel/untold-view.ts`):
+  - the people it shows by this table's word are people the investigator has not been told the name of;
+  - the book does name them, and the Keeper does not have the name;
+  - where the fiction has one of those names said, the Keeper writes that person's `say_name`, listed there.
+
+  The line rides as its own text part after the result's own parts, or after a blank line when the content is a string. Host messages (`custom`) are JSON whose people already carry the token, and are only renamed. A result that named nobody untold is unchanged.
+- **The rename runs before the request is fitted to its ceiling** (`context-runtime.ts`), as well as on the way out, where it now changes nothing. Renamed after the fit, the note and the words (often longer than the names they replace) went out unmeasured: a busy turn in `long-campaign-context` went 553 B over its 200 KiB ceiling.
+
+### 176.9 The journal names a person only by their own name (2026-10-04; amends §103.6)
+
+**Evidence.** The same replay, turn 5. The journal lane (`opencode-go/deepseek-v4.1-flash`, thinking off) gave `named: true` for the veteran with `named_quote` 「人叫我沃尔特就行。」 (B2), and likewise for 哈珀 (B1) and 厄尔 (A2). The words were in the delivery, so §103.6 took them.
+- `named_at: 5` made him told, and `table.untold` dropped him. From turn 6 the rename no longer hid 史蒂夫·布朗.
+- On turn 8 the Keeper of B2 wrote 「跟老史蒂夫隔壁」, three turns after the man had introduced himself as 沃尔特.
+- The bartender's made-up 埃德 on B2's turn 7 was journaled the same way.
+
+Whether words give a person's name is not a string test. The Haunting is played in Chinese, and its landlord "Steven Knott" is told as 诺特. So the judgment stays with the lane. What changes is the question it is asked, and when.
+
+A probe on the lane's own model and prompts, three runs per packet, settled this (`untold-name-20261004`, 2026-10-04):
+
+| case | asked once, in the instruction | asked as a refusal |
+| --- | --- | --- |
+| a made-up name taken as his (the three turn-5 packets) | 9/9 before the change, 6/9 after | 0/9 |
+| 诺特 for "Steven Knott" | 3/3 | 3/3 |
+
+The lane cannot tell the two cases apart while it also writes the turn's entries. Asked the narrow question alone, it can.
+
+- **The kernel asks once.** `named: true` for a person not yet named is taken, as before, when `named_quote` stands in the delivery. When graph names are known and the quote carries none of the person's book names, aliases or punctuation pieces as written (`carriesBookName`, the same string test the label refusal uses), it is taken only with **`named_as`**. That is 1–`max_label_chars` characters of the quote: the words the lane says are that name. Otherwise the answer is `invalid_params`, with `details: {index, field: "named_as", name, reason: "not_a_book_name"}` and this fix: if these words give that same name in another spelling, script or transliteration, send the entry again with `named_as`; if they give a different name (one they go by, a nickname, a name that is not theirs), leave `named` out. The lane's one retry carries that refusal verbatim (§103.6).
+- **What the kernel checks.** Only that `named_as` is words of the quote, never what they mean. `named_as` without `named: true` is refused (`field: "named_as"`). A quote that carries a book name needs nothing more: the record would have seen it anyway (`toldTurn`).
+- **The instruction and the lane's field rule** now also ask for this person's own name, the name `recordable` lists for them, and say that a different name does not name them. The field rule allows `named_as` only when a refusal asks for it. Asked in the first answer, the lane would fill it with the made-up name.
+- A person left unnamed this way stays untold. They keep their epithet or take a label, the rename keeps hiding the book's name, and their `say_name` still says it.
+
+### 176.10 Limits
+
+- The Keeper can still make up a name with the token in front of it: B2's bartender said 「叫我埃德就行」 on turn 7 with his row whole, and in round 1 (U3, turn 7) the bartender called the cook 「阿方索」 with the cook's row whole and carrying his token. On B1's turn 6, the turn the clerk moved the table into the bar, the same name was given to the cook; whether his token had reached that request was not established. Nothing reads the prose for names (§103.8 item 3, §166).
+- `lookup kind=module` does not resolve this table's word, and its entity rows carry no untold block. A query by the epithet answers `not_found`, with a note that a person the book never had is made with `walk_on`. That is §177.7's (`claude/module-cast-20261004`, not on this line yet), which makes lookup try the person junction.
+- The narrow question uses the lane's one retry (§103.6). In round 2 one job (V3, turn 6) was refused first for `named` beside a label and then for a quote without his name (「好嘞。热的有，冰水也有。稍等。」). The bartender stayed untold, as he should, but the job went to the backlog and that turn's entries were not written.
+- Round 2 (build 02300049e, three sequences) asked or had someone asked an untold person's name eleven times. No name was made up, and every name given went through the token. The veteran on turn 5 said 史蒂夫·布朗 in 3/3. Evidence: `chatrpgv4-wt-untold-reveal-live/.coc/playtests/untold-name-20261004/` (`results-round1.md`, `results-round2.md`, `lane-probe/`).
+- The book holding one bartender as two nodes (`book-4-robert-taylor`, `book-4-r-taylor`, each with its own epithet) is the reader's. §177.8 asks readers to keep one identity.
+
+Tests:
+- `tests/extension/untold-name-path.test.mjs`, on the real kernel with a crowded room: a cut person's stub keeps `untold` with `say_name`, a told stub stays bare, two people with one name both keep a row, `look focus=npc` carries the same block, and the Keeper's view shows the stub by their word with the token. Copying the stub's token delivers the book's name and makes them told.
+- `tests/extension/untold-view.test.mjs`: the view keeps the kernel's token and shows a stub that has a block; a renamed tool result ends with the note and the token, a host message and a result naming nobody untold do not.
+- `tests/extension/untold-name-path.test.mjs` also: a source excerpt naming the cut person, through the installed context hook, comes back renamed with the note carrying his token.
+- `tests/kernel/test_voice_bench.py`: the nine-person bench still keeps four full dossiers; its stubs are `{name, truncated}` plus the untold block.
+- `tests/kernel/test_journal.py`: a made-up name refused with `not_a_book_name` and the narrow question; `named_as` that is not words of the quote, or without `named`, refused; the person left untold until the book's name is delivered; 诺特 taken with `named_as`; the instruction asks for their own name.
+- `tests/extension/npc-journal-lane.test.mjs`: the field rule asks for their own name and allows `named_as` only on request; the refusal reaches the retry and the retry's `named_as` reaches the kernel.
