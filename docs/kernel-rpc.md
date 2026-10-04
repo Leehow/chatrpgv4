@@ -32918,3 +32918,97 @@ Tests:
 - `tests/kernel/test_voice_bench.py`: the nine-person bench still keeps four full dossiers; its stubs are `{name, truncated}` plus the untold block.
 - `tests/kernel/test_journal.py`: a made-up name refused with `not_a_book_name` and the narrow question; `named_as` that is not words of the quote, or without `named`, refused; the person left untold until the book's name is delivered; 诺特 taken with `named_as`; the instruction asks for their own name.
 - `tests/extension/npc-journal-lane.test.mjs`: the field rule asks for their own name and allows `named_as` only on request; the refusal reaches the retry and the retry's `named_as` reaches the kernel.
+
+## 179. Provider traffic: the library follows the leading fork, and the Keeper's request keeps its prefix (owner ruling 2026-10-04, `docs/specs/cache-traffic.md`; amends §22.6, §151.4's fork note, §135.23 and the context rows of §19.2)
+
+**Evidence (2026-10-04, installed App, five tables of one 111-page PDF book, Keeper grok-4.5 low, ten hours).** The
+module reading lane spent 27.4 M uncached input tokens in its `read` children (82% of their input cached) and 24.8 M in
+its `verify` units (58%); the Keeper's own channel spent 1.84 M (52%). The reading lane was 96.6% of the uncached
+tokens, because every campaign forked the shared library and read the whole book again in its private workspace:
+§22.6 sends every post-fork publication to the fork and none back, so the library kept the 8 material rows it had on
+2026-09-28 while each finished fork held 108. On the Keeper's side a turn's first call shared only the system prompt
+and tool declarations (25,728 tokens) on most turns, and the brief as well (40,064) on turns where no reading had
+published since the last; after the brief the rebuilt `coc-history` and the new capsule shared nothing. Direct probes
+of `api.x.ai` with the App's credential: the cache matches a token prefix in 128-token blocks, inside a message as
+well as across messages; 384 cached tokens is xAI's own preamble and means nothing of ours matched; a different
+`reasoning.effort` is a different cache; tool declarations are outside the cached prefix.
+
+### 179.1 The library follows the leading fork (amends §22.6)
+
+A fork's accepted reading is source material, never campaign canon. §22.6 keeps its direction -- a library publication
+never changes a forked campaign's graph -- and gains the reverse one:
+
+- **When.** After a campaign-scoped publication that changed the fork's reading state: a `module.read.finish` with
+  outcome `completed` (a graph write, a visual scan, an index, an identity verdict, a guidance acceptance) and a
+  `module.reference.materialize` that published. The kernel does it, inside the same call, after the fork's own
+  writes are durable; the result carries `library_sync: {state: "published", library_generation}` or
+  `{state: "skipped", reason}` or `{state: "failed", detail}`. A sync failure never fails the publication.
+- **Eligibility (the lineage test).** The library module exists, names the same `id` and the same
+  `source_document.file_sha256`, is not a starter (`playsFromReading`), and its current head is this fork's lineage:
+  either `library.synced_from.campaign` is this campaign, or the library has never been synced
+  (`synced_from` absent) and `library.generation` equals the fork's `source_generation`. Anything else is skipped
+  with its reason: `not_a_fork`, `starter`, `library_missing`, `source_mismatch`, `library_advanced` (another
+  campaign's lineage, or the library read on its own after the fork), `nothing_new`.
+- **What the library adopts.** The fork's current graph, published through `ModuleStore.writeGraph` as a new library
+  generation (so ordering, manifest, `assets.json` and digest come from the one writer), with the campaign's opening
+  choice removed: `entry_scene_ids` and every scene record's `is_start` keep the library's own current values, and a
+  scene the library did not have gets `is_start: false`. Asset bytes the graph references and the library lacks are
+  copied. From `module.json`: `reading.materials`, `scene_index`, `visual_scans`, `visual_candidates`,
+  `visual_identity`, `missing`, `retranscriptions`, `resolved_source_needs`, `source_need_dispositions`,
+  `viewed_pages`, `index_complete`, `index_file` (and the file), `prepared_openings`, `character_guidance` (and
+  `character-guidance/<key>/accepted.json`, `public.json`), `source_reference` (and its packet file), `vocabulary`,
+  `languages`, and `status`, `opening`, `opening_ready` recomputed from the adopted graph with `ModuleStore.opening`.
+  Every material `packet_file` named is copied. The library records `synced_from: {campaign, fork_generation,
+  library_generation, at}`.
+- **What stays private.** `opening_choice`, `campaign_scope`, `source_generation`, `library_sync`,
+  `reading.completed` (job ids are the workspace's), `reading.answers` and `answer_seed`, the fork's queue, leases and
+  work directories. The library's own `deepen-queue.json` is not touched.
+- **The fork's record.** After the library commit the fork's `module.json` gets `library_sync: {library_generation,
+  fork_generation, at}`. The lineage test reads `synced_from` on the library, so a crash between the two writes leaves
+  the lineage intact.
+- **Locks.** The library module's `.metadata.lock` (the lock `ensureCampaignModule` seeds under and the library's own
+  reading mutex), eligibility re-checked inside it; the generation directory and `module.json` are published the way
+  every library publication is (an immutable generation directory, one atomic metadata write).
+- **Effect on the next campaign.** `ensureCampaignModule` is unchanged: it copies the library's reading state, so the
+  next fork starts with the material rows, and §151.4's `unitRows` tells its read-ahead that those units are read; a
+  detail request for one of them answers `ready` from the row; the visual-asset pages in `materials` are done.
+- **Telemetry.** The host writes one `lane: "reading", event: "library_sync"` row per publication with the fields of
+  the result (`state`, `reason`, `library_generation`, `module_id`, `campaign`, `job_id`).
+- **Three ends (§31).** Writer: the fork's publication. Reader: `ensureCampaignModule` for the next campaign, and every
+  un-forked campaign that still follows the library (§22.6: "a book whose reading finishes after the campaign exists
+  still reaches it"). Actor: the next campaign's `module.read.ahead`, which queues no unit the rows already answer.
+
+### 179.2 The Keeper's request keeps its prefix across turns (amends §135.23)
+
+On the single-loop engine the projection's fixed part after the brief is, in order: the turn's capsule, then
+`coc-history`, then the player's words and the rest of the opening, then the optional packets, then the turn's
+traffic. The capsule the Keeper is sent -- the turn's first copy of §135.23, and the ephemeral one of an opening -- is
+rendered with its sections in one fixed order, the stable ones first: `head`, `historical_setting`, `worldlines`,
+`mods`, `reading`, `pressures`, `obligations`, `situations`, `rulings`, `owed`, `unrecorded`, `untold`, `warnings`,
+`known`, `voices`, `style`; then any section not in this list, in the order the kernel gave it; then the ones that
+change every turn: `where`, `present`, `director`, `memory`, `recent`, `turn`. Nothing is dropped or rewritten; the
+persisted `coc-capsule` entry, the `coc-capsule-update` tail and the legacy engine are unchanged. Measured on the
+four tables, the stable head is about 9 KB of a 16–26 KB sent capsule; the next turn's first call therefore shares the
+system prompt, the brief and that head, instead of ending at the brief.
+
+### 179.3 The context lane fingerprints its request (amends the rows of §19.2)
+
+The `lane: "context", event: "request"` row gains `at` (ISO time), `system_digest` and `segments`: one
+`{kind, bytes, digest}` per outgoing message in request order, `kind` the custom type or the role, `digest` the first
+12 hex characters of the SHA-256 of the message's `role`, `customType` and `content`. At most 64 segments are listed,
+the rest counted in `segments_truncated`. A cache miss in the token ledger is joined to its request by time and
+attributed to the first segment whose digest differs from the previous request's.
+
+### 179.4 Limits
+
+- Two campaigns forked from the same library generation are two lineages; the one that publishes first is the one the
+  library follows, and the other reads privately and publishes nothing to the library (counted as
+  `library_advanced`). Adopting a deeper library into a running fork is not done.
+- A library that reads on its own after a fork (setup guidance, a library-scoped opening read) moves its head and
+  ends the forks' lineage; those forks publish nothing to it.
+- Source consultations (`purpose: answer`) stay private to their campaign.
+- The first reading of a book still reads the whole book (`coc-module-parsing-redesign`, 2026-08-03: nine of eleven
+  surveyed modules keep NPC stat blocks where no location edge reaches). The read-ahead is not narrowed to the player's
+  reach.
+- Eviction on the provider's side is not ours. `thinking-schedule` is a no-op on grok-4.5 and grok-4.7, whose catalogs
+  expose no `off`; on a model that does, it would cost a whole prompt per turn on an xAI endpoint (179's probes).
