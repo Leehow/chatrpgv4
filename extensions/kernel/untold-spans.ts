@@ -11,33 +11,50 @@
  */
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import type { DecisionPort } from "../../runtime/jev/decision-port.ts";
-import { NAME_SPAN_AT, NAME_SPANS_FAMILY, NAME_SPANS_PER_BATCH, NAME_SPANS_WAIT_MS, judgeNameSpans, markSpan, nameSpanBindings, type NameSpan } from "../../runtime/jev/untold-name-spans.ts";
+import { NAME_SPAN_AT, NAME_SPANS_FAMILY, NAME_SPANS_PER_BATCH, NAME_SPANS_PER_CALL, NAME_SPANS_WAIT_MS, judgeNameSpans, markSpan, nameSpanBatch, nameSpanBindings, type NameSpan } from "../../runtime/jev/untold-name-spans.ts";
+import { packDecisionBatch } from "../../runtime/jev/question-packing.ts";
 
 type Row = Record<string, unknown>;
 /** The delivering methods whose `text` the gate reads. */
 const DELIVERING = new Set(["table.narrate", "table.ask"]);
 
-export interface PlaceJudgement { cleared: Array<{ name: string; nth: number }>; ms: number; asked: number; fallback?: string }
+/** One request's places, split in halves while the packer refuses them; a reason string for places nobody judged. */
+async function judgeChunk(spans: readonly NameSpan[], decision: DecisionPort, campaign: string | undefined, deadlineAt: number, signal: AbortSignal): Promise<Array<number | string>> {
+	try { packDecisionBatch(nameSpanBatch(spans, campaign)); }
+	catch {
+		if (spans.length < 2) return ["packing_limit"];
+		const half = Math.ceil(spans.length / 2);
+		return [...await judgeChunk(spans.slice(0, half), decision, campaign, deadlineAt, signal), ...await judgeChunk(spans.slice(half), decision, campaign, deadlineAt, signal)];
+	}
+	const lease = new TaskLease({ owner: NAME_SPANS_FAMILY, goal: "Judge whether each place a text writes an untold person's name is that name",
+		...nameSpanBindings(spans, campaign), capabilities: ["decision"], signal,
+		budget: { deadlineAt, remainingInputTokens: 200_000, remainingOutputTokens: 60_000, remainingCostUsd: 0.02, remainingActions: 1 } });
+	try {
+		const judged = await judgeNameSpans(spans, decision, lease, campaign);
+		return judged.status === "scored" ? judged.names : spans.map(() => judged.reason);
+	} catch (error) {
+		return spans.map(() => signal.aborted ? "late" : error instanceof Error ? error.message : "unavailable");
+	} finally {
+		lease.close();
+	}
+}
 
-/** One request for a list of places; `null` when no place was judged (unconfigured, failed, late). */
-export async function judgePlaces(spans: readonly NameSpan[], decision: DecisionPort | undefined, options: { campaign?: string; waitMs?: number; signal?: AbortSignal } = {}): Promise<{ names: number[] } | { fallback: string }> {
+/**
+ * The probability each place is the name, `NaN` for a place nobody judged (left as a name); `fallback` when none was judged.
+ * Places go in requests of `NAME_SPANS_PER_BATCH`, in parallel, under one wait; past `NAME_SPANS_PER_CALL` they are names.
+ */
+export async function judgePlaces(spans: readonly NameSpan[], decision: DecisionPort | undefined, options: { campaign?: string; waitMs?: number; signal?: AbortSignal } = {}): Promise<{ names: number[]; partial?: string } | { fallback: string }> {
 	if (!spans.length) return { names: [] };
 	if (!decision) return { fallback: "unconfigured" };
 	const startedAt = Date.now(), deadlineAt = startedAt + (options.waitMs ?? NAME_SPANS_WAIT_MS);
 	const signal = AbortSignal.any([AbortSignal.timeout(deadlineAt - startedAt), ...(options.signal ? [options.signal] : [])]);
-	const asked = spans.slice(0, NAME_SPANS_PER_BATCH);
-	const lease = new TaskLease({ owner: NAME_SPANS_FAMILY, goal: "Judge whether each place a text writes an untold person's name is that name",
-		...nameSpanBindings(asked, options.campaign), capabilities: ["decision"], signal,
-		budget: { deadlineAt, remainingInputTokens: 200_000, remainingOutputTokens: 60_000, remainingCostUsd: 0.02, remainingActions: 1 } });
-	try {
-		const judged = await judgeNameSpans(asked, decision, lease, options.campaign);
-		if (judged.status !== "scored") return { fallback: judged.reason };
-		return { names: [...judged.names, ...spans.slice(NAME_SPANS_PER_BATCH).map(() => 1)] };
-	} catch (error) {
-		return { fallback: signal.aborted ? "late" : error instanceof Error ? error.message : "unavailable" };
-	} finally {
-		lease.close();
-	}
+	const asked = spans.slice(0, NAME_SPANS_PER_CALL), chunks: NameSpan[][] = [];
+	for (let at = 0; at < asked.length; at += NAME_SPANS_PER_BATCH) chunks.push(asked.slice(at, at + NAME_SPANS_PER_BATCH));
+	const answers = (await Promise.all(chunks.map(chunk => judgeChunk(chunk, decision, options.campaign, deadlineAt, signal)))).flat();
+	const reasons = answers.filter((value): value is string => typeof value === "string");
+	if (reasons.length === answers.length) return { fallback: reasons[0] ?? "unavailable" };
+	const names = [...answers.map(value => typeof value === "number" ? value : NaN), ...spans.slice(NAME_SPANS_PER_CALL).map(() => NaN)];
+	return { names, ...(reasons.length || spans.length > NAME_SPANS_PER_CALL ? { partial: reasons[0] ?? "per_call_limit" } : {}) };
 }
 
 export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | undefined; record: (row: Row) => void; waitMs?: number }) {
@@ -65,7 +82,7 @@ export function createUntoldSpanJudge(deps: { decision: () => DecisionPort | und
 		}
 		const cleared = spans.filter((_span, i) => judged.names[i]! < NAME_SPAN_AT).map(span => ({ name: span.name, nth: span.nth }));
 		deps.record({ lane: "untold-spans", event: "judged", method, places: spans.length, cleared: cleared.length,
-			names: judged.names.map(value => Math.round(value * 100) / 100), ms });
+			names: judged.names.map(value => Number.isFinite(value) ? Math.round(value * 100) / 100 : null), ms, ...(judged.partial ? { partial: judged.partial } : {}) });
 		return cleared.length ? { ...own, untold_cleared: cleared } : own;
 	};
 }

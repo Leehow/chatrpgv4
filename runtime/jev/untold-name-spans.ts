@@ -13,8 +13,12 @@ export const NAME_SPANS_VERSION='1';
 /** At or above this a place is the name. The bar sits low because keeping a name is a leak and renaming another word only
  *  reads oddly: measured 2026-10-04 on 49 cases, names 0.88-0.98, other words 0.03-0.91 (§177.15). */
 export const NAME_SPAN_AT=0.5;
-/** One request judges at most this many places; the rest are left as names. */
-export const NAME_SPANS_PER_BATCH=120;
+/** One request asks at most this many places (a place is about 800 bytes against Jev's 32k/64k bounds); a request the packer
+ *  still refuses is split in halves. */
+export const NAME_SPANS_PER_BATCH=40;
+/** One call judges at most this many places, in parallel requests; the rest are left as names. Table 28 (turn 2): one source
+ *  excerpt brought 393 places, and a single request of 120 was refused by the packer, so none were judged. */
+export const NAME_SPANS_PER_CALL=400;
 /** Characters of text kept on each side of a place. */
 export const NAME_SPAN_CONTEXT=40;
 /** The first wait, from when the places were asked; a later answer is not waited for. */

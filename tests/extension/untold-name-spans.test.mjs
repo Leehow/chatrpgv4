@@ -13,7 +13,7 @@ import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {build} from 'esbuild';
 import {KernelClient} from '../../extensions/kernel/client.ts';
-import {createUntoldSpanJudge} from '../../extensions/kernel/untold-spans.ts';
+import {createUntoldSpanJudge, judgePlaces} from '../../extensions/kernel/untold-spans.ts';
 import {createRenameJudge} from '../../extensions/table/untold-rename-judge.ts';
 import {renameUntold} from '../../extensions/kernel/untold-view.ts';
 import {NAME_SPAN_AT, nameSpanBatch} from '../../runtime/jev/untold-name-spans.ts';
@@ -63,6 +63,18 @@ test('§177.15: a delivery goes to the kernel with the places Jev judged part of
 	assert.deepEqual(quiet, {campaign: 'c1', text: 'no names here'}, 'no place: no question');
 	const apply = {campaign: 'c1', effects: [], untold_cleared: [{name: NICK, nth: 0}]};
 	assert.equal(await judge('table.apply', apply, direct), apply, 'only the delivering methods are read');
+});
+
+test('§177.15: many places go in several requests; a place the packer refuses alone stays a name, the rest are judged', async () => {
+	// Table 28 (turn 2): one source excerpt brought 393 places; one request of 120 was refused by the packer and none was judged.
+	const seen = [];
+	const spans = Array.from({length: 95}, (_, i) => ({name: NICK, text: `${i} \u8fbe\u27e6${NICK}\u27e7\u7684\u4fe1`}));
+	spans[7] = {name: NICK, text: `${'x'.repeat(40000)}\u8fbe\u27e6${NICK}\u27e7`};
+	const judged = await judgePlaces(spans, port(cityIsNoName, seen));
+	assert.ok(seen.length >= 3 && seen.every(batch => batch.questions.length <= 40), `several requests of at most 40: ${seen.map(batch => batch.questions.length)}`);
+	assert.ok(Number.isNaN(judged.names[7]), 'the place nobody could ask about stays a name');
+	assert.equal(judged.names.filter(value => value < NAME_SPAN_AT).length, 94, 'every other place was judged');
+	assert.equal(judged.partial, 'packing_limit');
 });
 
 test('§177.15: the request keeps a place Jev judges part of another word, renames the name and every handle, and decides each place once', async () => {

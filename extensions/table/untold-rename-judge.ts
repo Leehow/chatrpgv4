@@ -44,9 +44,10 @@ export function createRenameJudge(deps: { decision: () => DecisionPort | undefin
 				deps.record({ lane: "untold-spans", event: "fallback", method: "request", places: places.length, reason: judged.fallback, ms: Date.now() - began });
 				return;
 			}
+			// A place nobody judged (NaN) is renamed.
 			places.forEach(([key], i) => decided.set(key, judged.names[i]! < NAME_SPAN_AT));
 			deps.record({ lane: "untold-spans", event: "judged", method: "request", places: places.length,
-				kept: judged.names.filter(value => value < NAME_SPAN_AT).length, ms: Date.now() - began });
+				kept: judged.names.filter(value => value < NAME_SPAN_AT).length, ms: Date.now() - began, ...(judged.partial ? { partial: judged.partial } : {}) });
 		},
 		/** Whether a place stays as written: only a place Jev judged to be part of another word. */
 		keep: (place: RenamePlace): boolean => !place.person.handle && decided.get(keyOf(place)) === true,
