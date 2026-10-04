@@ -32945,8 +32945,9 @@ never changes a forked campaign's graph -- and gains the reverse one:
   `{state: "skipped", reason}` or `{state: "failed", detail}`. A sync failure never fails the publication.
 - **Eligibility (the lineage test).** The library module exists, names the same `id` and the same
   `source_document.file_sha256`, is not a starter (`playsFromReading`), and its current head is this fork's lineage:
-  either `library.synced_from.campaign` is this campaign, or the library has never been synced
-  (`synced_from` absent) and `library.generation` equals the fork's `source_generation`. Anything else is skipped
+  either `library.synced_from.campaign` is this campaign and `synced_from.library_generation` is the library's
+  current `generation` (a publication of the library's own since then ends the lineage, §179.4), or the library has
+  never been synced (`synced_from` absent) and `library.generation` equals the fork's `source_generation`. Anything else is skipped
   with its reason: `not_a_fork`, `starter`, `library_missing`, `source_mismatch`, `library_advanced` (another
   campaign's lineage, or the library read on its own after the fork), `nothing_new`.
 - **What the library adopts.** The fork's current graph, published through `ModuleStore.writeGraph` as a new library
