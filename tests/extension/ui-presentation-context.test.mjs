@@ -64,4 +64,8 @@ test("the request file the lane reads carries both blocks beside the captions", 
 	assert.ok(Object.keys(packet.established_terms).length > 0, "the request carries no glossary");
 	assert.deepEqual(packet.established_words, seed, "the request's established words are not the shipped seed");
 	assert.equal(packet.established_words.mechanics[dropped], undefined, "a gap is asked fresh, not given a word");
+	// §23.3: the reader lays the seed over the cache, so the lane asks the one caption the seed lacks.
+	assert.deepEqual(packet.captions.map(row => [row.surface, row.key]), [["mechanics", dropped]],
+		"only the caption the seed lacks is asked");
+	assert.equal(packet.sources.length, 1);
 });

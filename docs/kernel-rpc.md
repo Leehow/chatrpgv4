@@ -5044,7 +5044,8 @@ answered at once with `ui.projected: false` and the host starts one background
 projection for the tag, after which the sheet, Mods and choice surfaces refresh
 (`sheet_changed`, `mods-changed`, and the bus event `coc:ui-words {tag}` for the
 extensions). The projection lane is the presenter: a tool-enabled run with
-`content/setup/ui-presentation.md` over every `en` caption, templates keeping
+`content/setup/ui-presentation.md` over every `en` caption (since §23.3: over the
+captions the tag's seed lacks, in asks of a bounded size), templates keeping
 their `{placeholders}` verbatim, answered as `{"texts": {source: projected}}`,
 validated complete, retried once, cached per tag for every campaign in the home
 (`extensions/module/ui-presentation.ts`, `prepareUiWords`). The extensions read
@@ -5084,9 +5085,11 @@ node build/pipicoc/onboarding-worker.mjs presentation \
     "agentHome":"<agent home holding pipiui-settings.json>","nodeExecutable":"<node>"}'
 ```
 
-The content root it is given should hold the whole surface being filled, not only the missing keys,
-so the lane projects a new caption beside its siblings; only the missing keys are harvested into the
-seed, and every existing seed line stays byte-identical.
+*Withdrawn 2026-10-03 by §23.3:* The content root it is given should hold the whole surface being
+filled, not only the missing keys, so the lane projects a new caption beside its siblings; only the
+missing keys are harvested into the seed, and every existing seed line stays byte-identical. (The
+lane now asks only the keys the seed lacks and sees their siblings through `established_words`; the
+worker runs on the build's own content root and its cache is harvested whole.)
 
 Test: `tests/extension/onboarding-worker-model.test.mjs` (the real worker bundle, an argv-recording
 child: the setting with no model named, the setting over a caller's model, the caller's model when
@@ -5119,6 +5122,171 @@ UI-words digest, so this change re-projects every home cache once.
 Test: `tests/extension/ui-presentation-context.test.mjs` (for zh-Hans the glossary block is non-empty
 and the established-words block equals the shipped seed; an unknown tag gets empty blocks; the
 `texts.json` the lane reads carries both, with a seed gap asked fresh).
+
+### 23.3 The UI-words lane asks for the gap, in asks one child can finish (2026-10-03; amends §23's "Words" paragraph, §23.1 and §23.2)
+
+**What was observed** (2026-10-03, projecting two new `extension` captions into the zh-Hans seed; §135.27.1.3 on
+`claude/models-json-pi-grammar-20261003` records the run). The seed lacked two keys, and the lane asked for every
+caption of every surface: 548 distinct sources, a 170,615-byte `texts.json` of about 7,600 lines. On the lane setting
+(`opencode-go/deepseek-v4.1-flash`, thinking off) the child spent four to six calls reading that file in pieces and
+another four or five reading the lane's own compiled source to learn what `check.mjs` wanted (the check said only
+"Incomplete UI word projection"), and was refused its seventeenth call, twice: a child with no owning task gets
+`remainingActions: 16` (`independentProviderBudget`). On `flapcode/gpt-6-luna` low (owner, for that one run) an attempt
+was cut at its 120 s (`runPresentationAttempt`) after four calls on 548 sources, and again after writing an answer for
+93. The same lane, prompt, checker and model on a content root holding 21 captions finished in four calls and 1,821
+output tokens, its requests sent at 0, 25.6, 94.4 and 107.3 s.
+
+**Both ends (§31).**
+
+- *Who writes the cache:* `prepareUiWords`, `<home>/.coc/ui-words/<tag>-<digest>.json`.
+- *Who reads it:* `resolveUiWords` and `resolveUiWordsSync`, nothing else. Both lay the seed over the cache
+  (`merge(cached, seed)`): every key the seed carries is answered by the seed, the cache answers only the keys the seed
+  lacks, and the tag is `projected` once the two cover every authored key.
+- *Who acts on it:* the panels and extensions that draw the words, and the operator harvesting a seed gap (§23.1), who
+  keeps only the keys the seed lacks.
+
+Every word the lane projected for a key the seed already carried was discarded by both. The whole-set ask was all
+cost.
+
+**1. The lane asks for the gap.** The gap is the authored captions with no established word (§23.2): those whose
+surface and key the tag's shipped seed does not answer with a non-blank word, which are exactly the keys the reader
+would otherwise draw in the authored language. The seed still rides whole as `established_words`, so a new caption is
+projected beside its siblings on every surface. A tag with no seed has every caption in its gap. The cache carries the
+gap's keys only; the reader is unchanged. `texts.json`'s `captions` lists gap rows only: a source text the seed answers
+at one key and the gap asks at another is asked for the gap's row, and the seed's word at the other key is in
+`established_words`.
+
+§23.1's advice to hand the worker a content root holding the whole surface is withdrawn: the siblings are in view
+through `established_words` whatever the content root holds. An operator filling a seed gap runs the worker on the
+build's own content root and harvests the cache whole; a seed line the seed did not lack is never asked, so it stays
+byte-identical.
+
+**2. An ask is sized to the ceilings, not the ceilings to the ask.** The gap alone does not bound the work. A tag with
+no seed (every tag but `en` and `zh-Hans` in this build) is asked every caption: 546 distinct sources today, 374 on
+2026-09-11, more with every caption added. The digest covers every caption, so editing any one asks all of them again.
+Three limits grow with an ask, and no single number moves all three:
+
+1. *The packet.* An ask's `texts.json` is read in pieces and re-sent with every later call: 548 sources took deepseek
+   four to six reads and its input to 723,163 tokens in 15 calls.
+2. *The per-call output bound.* A child under a lease writes at most 8,192 output tokens a call
+   (`boundProviderRequest`). An answer costs about 250 bytes of JSON a source (5,305 bytes for 21), so 546 sources are
+   some 40,000 tokens, written in pieces the model has to stitch together.
+3. *A provider that refuses an output limit.* `gpt-6-luna` declares `supportsMaxOutputTokens: false`, so each call
+   reserves its whole 128,000 against the lease's 131,072 output tokens: a child gets its next call only while
+   everything it has written so far is at most 3,072 tokens.
+
+Raising `remainingActions` or `timeoutMs` moves one of these and leaves the other two, with the Electron cold path's
+360 s job deadline on top. So the gap is split into **asks of at most `UI_ASK_SOURCES` = 12 distinct sources**,
+consecutive in caption order (surface, then key). Each ask is one attempt of its own: its own two rounds, its own
+attempt directory (`<projection id>-<ask number>`), its own provider lease, and the unchanged 120 s and 16 actions.
+Twelve comes from the one ask measured to finish on the slowest lane model tried: 21 sources on luna low used about
+115 s of the 120, some 47 s in the read, check and closing calls and 69 s in a write of 1,660 tokens, 3.3 s a source.
+Twelve sources put the same ask near 87 s, with room for one repair call, and near 1,100 output tokens against luna's
+3,072.
+
+- **One after another, each handed what the earlier ones accepted.** A later ask's `established_words` is the seed's
+  words merged with the words the earlier asks of this projection accepted, by surface and key, so a caption projected
+  in the tenth ask agrees with one projected in the first, which the whole-set ask got by seeing everything at once.
+  The instruction is unchanged: it is part of the digest, and an accepted word is an established sibling in its own
+  terms. No home cache is re-projected by this change.
+- **A source text shared by several gap captions is asked once,** in the ask where its first caption falls, and that
+  ask's `captions` lists every gap row that shows it.
+- **A failed ask fails the projection.** An ask whose second round still misses captions ends it: `preparation_failed`,
+  "Incomplete UI word projection: N captions were not projected", N counting the ask's remainder and every source of
+  the asks never run. An owner failure keeps its code and message. Later asks do not run and nothing is cached: a
+  partial projection is still not a cache (§23).
+- **Not done here.** Accepted asks are not kept across a failed projection (no resume file), and asks do not run
+  concurrently. A tag with no seed is 46 asks, 1,005 s on the lane setting (acceptance below). On the cold path the
+  Electron job deadline (`PRESENTATION_DEADLINE_MS`, 360 s for the whole job) ends that before it finishes; the
+  in-session path (`pipicoc/ui-words.ts`) has no job deadline and completes it.
+
+**3. A translation carries exactly its source's braces.** The lane issues its sources with protected syntax, whose
+notation rule makes any uppercase run a token. That part is right: `JSON`, `SAN`, `POW` stay verbatim. On 2026-10-03
+the model wrote the token for `JSON` back between two generated braces, giving `{JSON}`, which `fill` shows as an
+unfilled placeholder, and the checker passed it: no generated piece held a protected value, and the token was selected
+once. In a catalog issued with protected syntax every brace placeholder of a source is an issued token, so a brace in
+generated text can only wrap a token, invent a placeholder, or stray. The rule: counted over the materialized caption
+(generated pieces with the tokens restored), `{` and `}` each occur as often as in the source. A source's own brace
+outside any placeholder, which no caption has today, keeps its count.
+
+- Both checks apply it: the run's checker (`validatePresentationReferenceShape` with `protectedSyntax: true`, from
+  `validateUiPresentation`) and the host's acceptance (`acceptPresentationReferences`, from the catalog's
+  `protectedSyntax`, which `issuePresentationReferences` sets and `selectPresentationReferences` keeps).
+- The run's checker names it. The error carries the alias and the rule as its `detail`, and `validateUiPresentation`
+  puts that detail in the message `check.mjs` prints ("Incomplete UI word projection: text:3: generated text must not
+  add { or }: a brace belongs only to an issued placeholder token, so select token aliases without braces around
+  them"), where every failure used to print the same five words. The host's acceptance records the same rule as that
+  row's error.
+- Catalogs issued without protected syntax (map, character, document) are unchanged: a brace there is text.
+
+**4. The run's checker refuses what the host refuses, and says why.** Found by the first live run of this
+section (decision 2, a tag with no seed): ask 13 held `{family} {transition}` (`extension.receipt_session`), a caption
+made only of placeholders. The model answered it `translate` with the source's own pieces in the source's order.
+`check.mjs` printed "Presentation valid", the host's acceptance refused the row ("Use keep when the source needs no
+change"), the second round was told only the alias and gave the same answer, and the projection failed with 391
+captions unprojected. The run's checker already refused an unchanged `text` translation; it did not compare a pieces
+translation with its source. Now it materializes every pieces translation and refuses one equal to its source, with the
+detail "`<alias>`: the translation is its source unchanged: answer keep for it", which `check.mjs` prints. What the host
+refuses for a shape the checker can see, the checker refuses first, so a run is never told "valid" for an answer that
+will cost it the round. The host's acceptance is unchanged: an unchanged translation is still not accepted as `keep`.
+
+The second live run of the same tag failed in its first ask the other way. The model answered the source `…` with
+`translate` and the text `…`, which the checker already refused, but `check.mjs` printed only "Incomplete UI word
+projection"; the child spent about ten calls reading the lane's compiled source to find out why (as deepseek did on
+2026-10-03 against the whole-set ask) and was refused its seventeenth call. So every refusal of the run's checker
+(`validatePresentationReferenceShape`) now carries a `detail` naming what to repair, and the alias when there is one:
+the artifact's shape and protocol; the aliases missing, unknown or answered twice; `keep` with other keys; an action
+that is neither; an empty or unchanged `text`; a protected source answered without `pieces`; a piece that is neither
+`{text}` nor `{token}`; generated text that copies a protected value; a token alias the source did not issue; tokens not
+selected exactly once; an unchanged pieces translation; and the brace rule. The thrown message is unchanged
+(`Incomplete presentation reference artifact`), so the map, character and document lanes, which do not read `detail`,
+print what they printed before; `validateUiPresentation` prints the detail.
+
+*Tests* (each fails on the code before this change):
+
+- `tests/extension/ui-presentation.test.mjs`:
+  - a seed that lacks keys is asked those keys only, with the seed as `established_words`; the cache carries those
+    keys only, and the reader answers the tag projected, with the seed's words at the seed's keys. The 2026-09-09 test
+    it replaces asserted that a caption the seed answers is asked again.
+  - a gap of more than `UI_ASK_SOURCES` distinct sources is asked in consecutive asks of at most that many, one
+    attempt directory each, each later ask carrying the words the earlier ones accepted; a source shared by two gap
+    captions is asked once; the cache is written once, complete.
+  - an ask still incomplete after its second round ends the projection, N counting the sources never asked; later
+    asks never run, and nothing is cached.
+  - the checker refuses `{JSON}` (a notation token between generated braces), an invented `{n}` and a placeholder
+    token between generated braces, naming the alias in the message, and accepts a translation with its source's
+    braces; the host's acceptance refuses the same rows and leaves an unprotected catalog's braces alone.
+  - the checker refuses `{family} {transition}` answered `translate` with its own pieces, naming the alias and `keep`,
+    and accepts it answered `keep` or reordered.
+  - every refusal of the checker reaches `check.mjs`'s message with its own detail: one malformed answer per kind,
+    each refused with a message naming the alias it concerns (or the missing aliases); one kind says one thing (an
+    unchanged `text` and an unchanged `pieces` translation are one kind), and no two kinds say the same.
+- `tests/extension/ui-presentation-context.test.mjs`: this build's zh-Hans seed with one `mechanics` key dropped is
+  asked exactly that key's caption (it was asked every caption).
+
+*Acceptance* (2026-10-03, the worker `build/pipicoc/onboarding-worker.mjs presentation` on a scratch home whose agent
+files link the App's, naming no model, so on the lane setting: `opencode-go/deepseek-v4.1-flash`, thinking off):
+
+- **zh-Hans, the observed case.** A content root of this build with the two §135.27.1.3 notices added to `en`: one
+  ask of 2 sources and 2 caption rows, `established_words` the 585-word seed, 10 calls, 47 s. The cache held exactly
+  the two keys, the reader answered the tag projected from the cache, and harvested onto the seed the diff is two
+  added lines.
+- **ja, no seed, this build's 585 captions (546 sources).** The first run (`24c74176b`) failed in ask 13 and gave
+  decision 4's first paragraph; the second (`cb2859b18`) failed in ask 1 and gave its second. The third
+  (`a08ffeacc`): 46 asks, every one done in its first round, 4 to 11 calls and 7 to 39 s each, 1,005 s in all. The
+  cache held all 585 keys, the reader answered the tag projected, and no word's braces or placeholders differ from its
+  source's; 12 captions were kept as written (`→`, `{family} {transition}`). The checker refused 10 answers inside
+  their runs, each repaired in the same round. Eight asks still spent calls reading the lane's compiled source (21 in
+  all), none near the 16-action ceiling.
+- Mutations (one at a time, restored by copy), each failing at least one of the tests above: no gap filter; one
+  unbounded ask; no earlier words handed on; the cache over every caption; every caption row listed; the unprojected
+  count without the unasked sources; the run's brace rule off for pieces, and for text; the host's brace rule off;
+  `selectPresentationReferences` dropping the flag; `validateUiPresentation` dropping the detail; no unchanged-pieces
+  refusal; one kind of refusal reusing another kind's detail. A detail reworded to a meaningless string survives by
+  design: the tests hold the structure (the alias, one reason per kind), not the wording.
+- `npm run test:ext` on leehow-pc at `a08ffeacc`: 4,391 of 4,391. (The two runs before it, at `24c74176b` and
+  `cb2859b18` on a box running three other suites at load 40 to 65, each had two or three timing tests red, a
+  different set each time, in files that import nothing this section touches; all pass alone.)
 
 ### Host decision: the identity card is a passport-style page (2026-09-11)
 

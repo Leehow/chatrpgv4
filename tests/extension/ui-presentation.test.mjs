@@ -16,6 +16,9 @@ import { test } from "node:test";
 import {
 	acceptedUiTexts, assembleUiWords, prepareUiWords, uiCaptions, uiSourceTexts, validateUiPresentation,
 } from "../../extensions/module/ui-presentation.ts";
+// The ask size is read through the namespace so that a build without it fails the tests that use
+// it, not every test in this file at link time.
+import * as uiLane from "../../extensions/module/ui-presentation.ts";
 import { issuePresentationReferences, PRESENTATION_REFERENCE_PROTOCOL } from "../../runtime/jev/presentation-references.ts";
 import { resolveUiWords, uiWordsCachePath, uiWordsDigest } from "../../runtime/ui-words.ts";
 
@@ -93,8 +96,8 @@ test("a tag with nothing to read is projected once and cached in the shape the l
 	const result = await prepareUiWords({ home, contentRoot, play_language: "cc", runner: fake.run });
 
 	assert.equal(fake.rounds.length, 1, "one round is enough when the answer is complete");
-	assert.deepEqual(fake.rounds[0].sources.map(sourceText), ["Clues", "Name", "Refresh", "Something went wrong"],
-		"the distinct authored strings, asked once each");
+	assert.deepEqual(fake.rounds[0].sources.map(sourceText), ["Clues", "Something went wrong", "Name", "Refresh"],
+		"the distinct authored strings, asked once each, in caption order (surface, then key; §23.3)");
 	const cluesAlias = fake.rounds[0].sources.find(source => sourceText(source) === "Clues").alias;
 	assert.deepEqual(fake.rounds[0].captions.filter(row => row.source === cluesAlias),
 		[{ surface: "errors", key: "stale", source: cluesAlias }, { surface: "sheet", key: "clues", source: cluesAlias }],
@@ -189,20 +192,138 @@ async function attemptDir(home) {
 	return join(root, only);
 }
 
-test('partial seeds project from the authored source and fill newly added captions',async()=>{
- const {home,contentRoot}=await fixture();
- await writeFile(join(contentRoot,'ui/bb/sheet.json'),JSON.stringify({clues:'bb Clues'}));
- assert.equal((await resolveUiWords({home,contentRoot,tag:'bb'})).projected,false);
- const fake=runner();
- await prepareUiWords({home,contentRoot,play_language:'bb',runner:fake.run});
- assert.equal(fake.rounds.length,1);
-	 assert.ok(fake.rounds[0].sources.map(sourceText).includes('Refresh'));
-	 assert.ok(fake.rounds[0].sources.map(sourceText).includes('Clues'));
-	 assert.ok(!fake.rounds[0].sources.map(sourceText).includes('bb Clues'));
- const complete=await resolveUiWords({home,contentRoot,tag:'bb'});
- assert.equal(complete.projected,true);
- assert.equal(complete.words.sheet.clues,'bb Clues');
- assert.equal(complete.words.sheet.refresh,'<Refresh>');
+test("a seed that lacks keys is asked those keys only, beside the seed's own words (§23.3)", async () => {
+	const { home, contentRoot } = await fixture();
+	// `bb` keeps sheet.clues and errors.unknown. Its gap is sheet.refresh, sheet.item.name and
+	// errors.stale, whose English ("Clues") the seed already answers at sheet.clues.
+	await writeFile(join(contentRoot, "ui/bb/sheet.json"), JSON.stringify({ clues: "bb Clues" }));
+	await writeFile(join(contentRoot, "ui/bb/errors.json"), JSON.stringify({ unknown: "bb wrong" }));
+	assert.equal((await resolveUiWords({ home, contentRoot, tag: "bb" })).projected, false);
+	const fake = runner();
+	const result = await prepareUiWords({ home, contentRoot, play_language: "bb", runner: fake.run });
+
+	assert.equal(fake.rounds.length, 1);
+	const [packet] = fake.rounds;
+	assert.deepEqual(packet.sources.map(sourceText), ["Clues", "Name", "Refresh"],
+		"only the English of the captions the seed lacks; the reader would discard anything else");
+	assert.deepEqual(packet.captions.map(row => `${row.surface}.${row.key}`), ["errors.stale", "sheet.item.name", "sheet.refresh"],
+		"a text the seed answers at one key is asked for the gap's row only");
+	assert.deepEqual(packet.established_words, { errors: { unknown: "bb wrong" }, sheet: { clues: "bb Clues" } },
+		"the seed rides whole as context");
+
+	const digest = await uiWordsDigest(contentRoot);
+	const cached = JSON.parse(await readFile(uiWordsCachePath(home, "bb", digest), "utf8"));
+	assert.deepEqual(cached.texts, { errors: { stale: "<Clues>" }, sheet: { refresh: "<Refresh>", "item.name": "<Name>" } },
+		"the cache carries the gap's keys and nothing the seed answers");
+	assert.deepEqual(result, cached);
+	const complete = await resolveUiWords({ home, contentRoot, tag: "bb" });
+	assert.equal(complete.projected, true);
+	assert.equal(complete.source, "cache");
+	assert.deepEqual(complete.words, {
+		errors: { unknown: "bb wrong", stale: "<Clues>" },
+		sheet: { clues: "bb Clues", refresh: "<Refresh>", "item.name": "<Name>" },
+	});
+});
+
+/** A source tag with more distinct captions than one ask holds; `cc` ships no seed. */
+async function wideFixture(count) {
+	const contentRoot = await mkdtemp(join(tmpdir(), "ui-lane-wide-"));
+	await writeFile(join(contentRoot, "languages.json"), JSON.stringify({ source: "aa", default: "aa", suggested: ["aa"] }));
+	await mkdir(join(contentRoot, "ui/aa"), { recursive: true });
+	await mkdir(join(contentRoot, "setup"), { recursive: true });
+	await writeFile(join(contentRoot, "ui/aa/alpha.json"), JSON.stringify(Object.fromEntries(
+		Array.from({ length: count }, (_, index) => [`k${String(index).padStart(2, "0")}`, label(index)]))));
+	// The first caption's text again on a later surface: one question, asked where it first appears.
+	await writeFile(join(contentRoot, "ui/aa/zeta.json"), JSON.stringify({ again: label(0) }));
+	await writeFile(join(contentRoot, "setup/ui-presentation.md"), "Project the captions into play_language.");
+	return { contentRoot, home: await mkdtemp(join(tmpdir(), "ui-lane-home-")) };
+}
+const label = index => `Caption ${String(index).padStart(2, "0")}`;
+const labels = (from, count) => Array.from({ length: count }, (_, index) => label(from + index));
+
+/** §23.3's ask size, measured on the slowest lane model tried; the lane's constant must be this one. */
+const ASK = 12;
+
+test("the lane's ask size is the contract's (§23.3)", () => {
+	assert.equal(uiLane.UI_ASK_SOURCES, ASK);
+});
+
+test("a gap wider than one ask is asked in consecutive asks, each seeing what the earlier ones accepted (§23.3)", async () => {
+	const { contentRoot, home } = await wideFixture(2 * ASK + 6);
+	const cache = uiWordsCachePath(home, "cc", await uiWordsDigest(contentRoot));
+	const asks = [];
+	const result = await prepareUiWords({ home, contentRoot, play_language: "cc", runner: async request => {
+		await assert.rejects(readFile(cache), { code: "ENOENT" }, "nothing is cached before the last ask lands");
+		const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
+		asks.push({ cwd: request.cwd, packet });
+		await writeFile(join(request.cwd, "presentation.json"), JSON.stringify(response(packet)));
+		return { ok: true };
+	} });
+
+	assert.deepEqual(asks.map(ask => ask.packet.sources.map(sourceText)), [labels(0, ASK), labels(ASK, ASK), labels(2 * ASK, 6)],
+		"consecutive asks in caption order, none over the bound, every source once");
+	assert.equal(new Set(asks.map(ask => ask.cwd)).size, 3, "each ask is an attempt of its own");
+	const [first] = asks[0].packet.sources;
+	assert.deepEqual(asks[0].packet.captions.filter(row => row.source === first.alias).map(row => `${row.surface}.${row.key}`),
+		["alpha.k00", "zeta.again"], "a text shown twice is asked once, with both of its rows");
+	assert.deepEqual(asks[0].packet.established_words, {}, "a tag with no seed starts with no established word");
+	assert.equal(asks[1].packet.established_words.alpha.k00, `<${label(0)}>`, "a later ask is handed the earlier asks' words");
+	assert.equal(asks[1].packet.established_words.zeta.again, `<${label(0)}>`);
+	assert.equal(Object.keys(asks[2].packet.established_words.alpha).length, 2 * ASK);
+	assert.equal(asks[2].packet.established_words.alpha[`k${2 * ASK}`], undefined, "an ask is never handed a word for its own captions");
+
+	const cached = JSON.parse(await readFile(cache, "utf8"));
+	assert.equal(Object.keys(cached.texts.alpha).length, 2 * ASK + 6);
+	assert.equal(cached.texts.zeta.again, `<${label(0)}>`);
+	assert.deepEqual(result, cached);
+	assert.equal((await resolveUiWords({ contentRoot, home, tag: "cc" })).projected, true);
+});
+
+test("an ask still short after its second round ends the projection, and later asks never run (§23.3)", async () => {
+	const { contentRoot, home } = await wideFixture(2 * ASK + 6);
+	const stubborn = label(ASK + 1);
+	const packets = [];
+	await assert.rejects(prepareUiWords({ home, contentRoot, play_language: "cc", runner: async request => {
+		const packet = JSON.parse(await readFile(join(request.cwd, "texts.json"), "utf8"));
+		packets.push(packet);
+		await writeFile(join(request.cwd, "presentation.json"), JSON.stringify(response(packet, [stubborn])));
+		return { ok: true };
+	} }), error => error.code === "preparation_failed"
+		&& error.message === "Incomplete UI word projection: 7 captions were not projected",
+		"the second ask's remainder and the six sources of the ask that never ran");
+	assert.equal(packets.length, 3, "the first ask once, the second twice, the third never");
+	assert.deepEqual(packets[2].sources.map(sourceText), [stubborn]);
+	await assert.rejects(readFile(uiWordsCachePath(home, "cc", await uiWordsDigest(contentRoot))), { code: "ENOENT" },
+		"a partial projection is still not a cache");
+});
+
+test("a translation carries exactly its source's braces, and the run's checker names the alias (§23.3)", () => {
+	const catalog = issuePresentationReferences(["Beyond plain JSON", "Roll", "Turn {n}"], { protectSyntax: true });
+	const [json, roll, turn] = catalog.sources;
+	const token = source => source.pieces.find(piece => "token" in piece).token;
+	const rows = {
+		[json.alias]: { source: json.alias, action: "translate", pieces: [{ text: "Mas alla del simple " }, { token: token(json) }] },
+		[roll.alias]: { source: roll.alias, action: "translate", text: "Tirada" },
+		[turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno " }, { token: token(turn) }] },
+	};
+	const answer = changed => ({ protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: Object.values({ ...rows, ...changed }) });
+	assert.doesNotThrow(() => validateUiPresentation(answer({}), catalog.sources));
+	assert.deepEqual(acceptedUiTexts(answer({}), catalog),
+		{ "Beyond plain JSON": "Mas alla del simple JSON", Roll: "Tirada", "Turn {n}": "Turno {n}" });
+
+	for (const [alias, row, why] of [
+		[json.alias, { source: json.alias, action: "translate", pieces: [{ text: "Mas alla del simple {" }, { token: token(json) }, { text: "}" }] },
+			"a notation token between generated braces reads as an unfilled {JSON} placeholder"],
+		[roll.alias, { source: roll.alias, action: "translate", text: "Tirada {n}" }, "an invented placeholder"],
+		[turn.alias, { source: turn.alias, action: "translate", pieces: [{ text: "Turno {" }, { token: token(turn) }, { text: "}" }] },
+			"a placeholder token between generated braces"],
+	]) {
+		assert.throws(() => validateUiPresentation(answer({ [alias]: row }), catalog.sources),
+			error => error.code === "preparation_failed" && error.message.startsWith("Incomplete UI word projection: ")
+				&& error.message.includes(alias) && /brace/.test(error.message), why);
+		const accepted = acceptedUiTexts(answer({ [alias]: row }), catalog);
+		assert.equal(Object.keys(accepted).length, 2, `the host refuses the same row and keeps the others: ${why}`);
+	}
 });
 
 test('a projected caption must preserve every placeholder including repetition',()=>{
@@ -317,4 +438,64 @@ test("UI source, seed and cache bypasses require no runner or attempt directory"
 	const cached = await prepareUiWords({ home, contentRoot, play_language: "cc" });
 	assert.equal(cached.texts.sheet.refresh, "<Refresh>");
 	assert.deepEqual(await readdir(join(home, ".coc/ui-words/attempts")), attempts);
+});
+
+test("the run's checker refuses an unchanged pieces translation, as the host does (§23.3, decision 4)", () => {
+	// Ask 13 of the first live run: a caption made only of placeholders, answered `translate` with its
+	// own pieces. check.mjs said valid, the host refused the row, and the projection failed twice over.
+	const catalog = issuePresentationReferences(["{family} {transition}"], { protectSyntax: true });
+	const [session] = catalog.sources;
+	const [family, transition] = session.pieces.filter(piece => "token" in piece).map(piece => piece.token);
+	const answer = row => ({ protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: [row] });
+	const unchanged = answer({ source: session.alias, action: "translate", pieces: [{ token: family }, { text: " " }, { token: transition }] });
+	assert.throws(() => validateUiPresentation(unchanged, catalog.sources), error => error.code === "preparation_failed"
+		&& error.message.includes(session.alias) && /\bkeep\b/.test(error.message));
+	assert.deepEqual(acceptedUiTexts(unchanged, catalog), {}, "the host refuses it too");
+	for (const row of [{ source: session.alias, action: "keep" },
+		{ source: session.alias, action: "translate", pieces: [{ token: transition }, { text: " / " }, { token: family }] }]) {
+		assert.doesNotThrow(() => validateUiPresentation(answer(row), catalog.sources));
+		assert.equal(Object.keys(acceptedUiTexts(answer(row), catalog)).length, 1);
+	}
+});
+
+test("every refusal of the run's checker reaches check.mjs with its own reason (§23.3, decision 4)", () => {
+	// The second live run lost an ask to "Incomplete UI word projection" alone: the child spent its
+	// action budget reading the lane's compiled source to learn which row was wrong, and why.
+	const catalog = issuePresentationReferences(["Roll", "Turn {n}"], { protectSyntax: true });
+	const [roll, turn] = catalog.sources;
+	const n = turn.pieces.find(piece => "token" in piece).token;
+	const good = { [roll.alias]: { source: roll.alias, action: "translate", text: "Tirada" },
+		[turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno " }, { token: n }] } };
+	const rows = changed => Object.values({ ...good, ...changed });
+	const answer = changed => ({ protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: rows(changed) });
+	assert.doesNotThrow(() => validateUiPresentation(answer({}), catalog.sources));
+	const cases = [
+		["the artifact's shape", "", { protocol: "presentation-reference-v0", texts: rows({}) }],
+		["a missing alias", roll.alias, { protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: [good[turn.alias]] }],
+		["an unknown alias", "text:99", { protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: [...rows({}), { source: "text:99", action: "keep" }] }],
+		["an alias answered twice", roll.alias, { protocol: PRESENTATION_REFERENCE_PROTOCOL, texts: [...rows({}), good[roll.alias]] }],
+		["keep with other keys", roll.alias, answer({ [roll.alias]: { source: roll.alias, action: "keep", text: "Tirada" } })],
+		["an unknown action", roll.alias, answer({ [roll.alias]: { source: roll.alias, action: "rewrite", text: "Tirada" } })],
+		["an empty text", roll.alias, answer({ [roll.alias]: { source: roll.alias, action: "translate", text: " " } })],
+		["an unchanged translation", roll.alias, answer({ [roll.alias]: { source: roll.alias, action: "translate", text: "Roll" } })],
+		["a protected source answered with text", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", text: "Turno" } })],
+		["a piece of neither kind", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno ", note: "x" }, { token: n }] } })],
+		["a copied protected value", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno {n}" }, { token: n }] } })],
+		["a token the source did not issue", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno " }, { token: "token:99" }] } })],
+		["a token selected twice", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno " }, { token: n }, { token: n }] } })],
+		["an unchanged translation", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turn " }, { token: n }] } })],
+		["a brace generated text adds", turn.alias, answer({ [turn.alias]: { source: turn.alias, action: "translate", pieces: [{ text: "Turno {" }, { token: n }, { text: "}" }] } })],
+	];
+	const reasons = new Map();
+	for (const [kind, alias, value] of cases) {
+		let message;
+		assert.throws(() => validateUiPresentation(value, catalog.sources), error => {
+			message = error.message;
+			return error.code === "preparation_failed" && message.startsWith("Incomplete UI word projection: ") && message.includes(alias);
+		}, `${kind} is refused with its alias in the message`);
+		const reason = alias ? message.replaceAll(alias, "<alias>") : message;
+		assert.equal(reasons.get(kind) ?? reason, reason, `${kind} says the same thing for a text and a pieces answer`);
+		reasons.set(kind, reason);
+	}
+	assert.equal(new Set(reasons.values()).size, reasons.size, "each kind of refusal says something of its own");
 });
