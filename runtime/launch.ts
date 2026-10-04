@@ -4,6 +4,7 @@ import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSy
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyProviderModelCorrections, composeRuntimeContext, type RuntimeHostOptions } from './host.ts';
+import { hostNoticeText, withHostNotices, type HostNotice } from './host-notices.ts';
 import { extensionArgs, resourceRootFrom, sessionExtensionPaths } from './deployment.mjs';
 import { selectLoopEngine } from './loop-engine.ts';
 
@@ -123,11 +124,16 @@ export async function piLaunch(input: string[], options: RuntimeHostOptions = {}
   // to be wrong (e.g. an omitted thinking level the endpoint actually supports), merged the same
   // way settings.json is above -- a user's own override for the same provider+model always wins.
   const corrections = await applyProviderModelCorrections(context.agentHome, join(context.contentRoot, 'providers', 'model-corrections.json'));
-  // §135.27.1.1: an operator's comments keep the file untouched; Pi loads it fine, so nothing else would say so.
+  const modelsPath = join(context.agentHome, 'models.json');
+  // §135.27.1.1 / §135.27.1.2: what the merge left undone that nothing else would report. Each notice is printed for a
+  // terminal and the launch log, and handed to the Pi child, whose kernel extension places it in the transcript
+  // (§135.27.1.3): the App never shows this process's stderr while the session is healthy.
+  const notices: HostNotice[] = [];
   if (corrections.status === 'left_untouched' && corrections.reason === 'operator_comments' && corrections.missing.length)
-    process.stderr.write(`${join(context.agentHome, 'models.json')} carries your own comments, so the product left it untouched `
-      + `and did not merge its provider model corrections for ${corrections.missing.map(({provider, model}) => `${provider}/${model}`).join(', ')} `
-      + `(contract §135.27.1.1). Add those overrides yourself, or remove the comments and launch again.\n`);
+    notices.push({notice: 'models_json_operator_comments', path: modelsPath, missing: corrections.missing.map(({provider, model}) => `${provider}/${model}`)});
+  if (corrections.status === 'left_untouched' && corrections.reason === 'unparsable')
+    notices.push({notice: 'models_json_unparsable', path: modelsPath, error: corrections.error});
+  for (const notice of notices) process.stderr.write(`${hostNoticeText(notice)}\n`);
   const hostSession = forwarded.some(arg => arg === '--session' || arg.startsWith('--session='));
   const session = campaign && !hostSession ? ['--session-id', `coc-${mode === 'setup' ? 'setup-' : ''}${campaign}`] : [];
   // Provider extensions come from the shared list every lane child mounts too, so a model this
@@ -141,7 +147,7 @@ export async function piLaunch(input: string[], options: RuntimeHostOptions = {}
   return {command: context.nodeExecutable,
     args: [engine === 'hybrid-v1' ? context.entrypoints.piHybrid : context.entrypoints.pi, '--no-builtin-tools', '--no-context-files', '--system-prompt', prompt, ...session, ...mounts, ...forwarded],
     // image-gen owns image_gen/image_edit; Pi refuses duplicate tool names, so grok-build-oauth is told not to register its own.
-    cwd: context.resourceRoot, env: {...context.env, PI_COC_MODE: mode, PI_GROK_BUILD_IMAGE_TOOLS: '0', PI_COC_LOOP_ENGINE: engine}};
+    cwd: context.resourceRoot, env: withHostNotices({...context.env, PI_COC_MODE: mode, PI_GROK_BUILD_IMAGE_TOOLS: '0', PI_COC_LOOP_ENGINE: engine}, notices)};
 }
 
 export async function launchMain(args: string[]): Promise<number> {

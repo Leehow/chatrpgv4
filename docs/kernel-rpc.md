@@ -13204,6 +13204,27 @@ preserving the same card and playback state during these updates.
 
 ### 58.9 Unified purchases and exact quotations (owner request, 2026-10-02)
 
+**Chosen covered services continue in the same turn (owner ruling, 2026-10-03).**
+When the player already chose an ordinary service/item and living-standard coverage or
+kernel-computed daily Spending Level coverage applies, settle its complete priced quantity
+and dependent effects, then narrate completion in that turn. No preliminary quote-only stop,
+price acceptance or repeat of the chosen service question is required. Incidental price
+speech during fulfillment creates no fresh unaccepted offer. A price-only enquiry still
+chooses no purchase. Extras, meaningful new scope, explicit limits and actual cash debits
+retain ordinary admission; coverage and affordability do not authorize those.
+
+Coverage uses the full expense and daily aggregate, never a unit price. A one-gallon quote
+is not a full-tank bill. The Keeper supplies actual billed quantity under ordinary fiction
+authority; the kernel multiplies and previews it. Only genuinely unresolved player-owned
+scope or cash terms need another decision. Host-owned preview context carries this consent
+policy beside the actual delta to both typed Jev and the fallback lane. Neither reviewer
+adds prices or infers coverage. Existing arithmetic and debit ceilings remain unchanged.
+
+Writer: the Keeper proposes the complete chosen expense and the kernel previews its debit.
+Reader: Keeper guidance, the native carried-source/clerk note, and both reviewers read
+coverage policy; reviewers also receive the computed preview.
+Actor: the Keeper settles and narrates completion; the player answers only an unmade choice.
+
 The Keeper decides the open semantic question, using `category: living|purchase|transfer` on a
 cash effect. `living` means ordinary accommodation, food or incidental travel within this
 investigator's established living standard; admission judges this claim in context. It leaves
@@ -18265,11 +18286,11 @@ The Keeper's own epithets that turn (白衬衫老板, 啤酒肚卡车司机, 海
 
 ### 103.8 The Keeper does not hold an untold person's name (owner ruling 2026-10-03; amends §103.5 and §103.7)
 
-**Evidence.** Table 20 of the installed App (Blood Road, `game-48858a0b`, §173) leaked on its first turn. The owner's words: 「除了烂牙司机其他名字还是全漏出来了」.
+**Evidence.** Table 20 of the installed App (Blood Road, `game-48858a0b`, §174) leaked on its first turn. The owner's words: 「除了烂牙司机其他名字还是全漏出来了」.
 
 - The Keeper's first step looked at the trucker. His biography mentions his neighbour 史蒂夫·布朗 and says he pretends to help 拉斯 with the cars. 拉斯 is an alias the graph records for the owner (`aliases: ["拉斯", "拉索"]`), and the request's rename (§103.5) replaced only each person's display name.
 - §103.5 also kept each untold person's book name in the Keeper's copy as `untold.name`, "for the moment someone says it".
-- The next step ran without thinking (§173.1). It wrote "史蒂夫·布朗" and "拉斯·威廉姆斯" as epithets, the sidebar showed them, the prose said 「年近七十的史蒂夫」, and the next turn 「拉斯看了眼油泵」. Only the trucker got a real epithet, 烂牙司机.
+- The next step ran without thinking (§174.1). It wrote "史蒂夫·布朗" and "拉斯·威廉姆斯" as epithets, the sidebar showed them, the prose said 「年近七十的史蒂夫」, and the next turn 「拉斯看了眼油泵」. Only the trucker got a real epithet, 烂牙司机.
 
 The owner had asked for this order in the first place: the name stays in the data, and the Keeper gets it once it has been said (「真实姓名在剧情里被人说出来就同步，直接在生成前告诉kp」).
 
@@ -22979,7 +23000,7 @@ ticket, not a retirement). So it is mounted:
 
 **What changes at a table.** On the default Keeper model (`grok-build/grok-4.7-build-fast`) nothing: the follow-up
 `off` is clamped to `low`, the level the table already runs at (§135.24). On a model whose catalog exposes a lower
-level, the requests after the first non-delivery tool batch of an input (since §173.1, the first that writes) run at that level and the table's own level
+level, the requests after the first non-delivery tool batch of an input (since §174.1, the first that writes) run at that level and the table's own level
 returns for the next input, exactly as §3.7 states. The turn's first request, the lanes and the §32 review keep their
 own levels.
 
@@ -23158,7 +23179,8 @@ not when the App starts.
 **A known divergence, not fixed here.** `runtime/json-comments.ts` does not follow Pi's grammar. It accepts `/* */`,
 which Pi rejects, and rejects trailing commas, which Pi accepts. So an operator's trailing comma makes this merge leave
 the file untouched as hand-broken, and makes `childCatalog` drop the operator's custom models for lane children, while
-the Keeper, reading through Pi, still has them.
+the Keeper, reading through Pi, still has them. (Settled 2026-10-03 by §135.27.1.2: both readers now parse the file in
+exactly Pi's grammar.)
 
 *Tests.* In `tests/extension/provider-model-corrections.test.mjs`:
 
@@ -23188,6 +23210,251 @@ Mutations:
 - Drop the operator-comment guard: the two operator-comment node tests fail.
 - Drop the idempotency check: the `unchanged` assertions fail, 2 in each file.
 - Put the note after `providers`: the node key-order test fails.
+
+##### 135.27.1.2 Amendment (2026-10-03): the product reads `models.json` in Pi's grammar, exactly
+
+**The divergence §135.27.1.1 recorded.** `runtime/json-comments.ts` had a grammar of its own: a character scanner
+that dropped `//` and `/* */` comments outside single- or double-quoted strings, and nothing else. Against the vendored
+Pi's own `ModelConfig.load` on the same bytes (Pi 1.0.0, probed 2026-10-03):
+
+| `models.json` | Pi | the product's readers before |
+| --- | --- | --- |
+| strict JSON, or with `//` comments | reads | reads |
+| trailing commas | reads | refuses |
+| a leading BOM | reads | refuses |
+| a `/* */` comment | refuses (`Failed to parse models.json`; every custom model and override disabled) | reads |
+| empty | refuses | the merge treats it as no file; `childCatalog` refuses |
+
+The BOM row is new: `ModelConfig.load` runs `JSON.parse(stripJsonComments(stripBom(content)))`, and the product never
+stripped a BOM.
+
+What the wrong rows did (read from the code):
+
+- **A trailing comma or a BOM.** The merge returned `left_untouched`/`unparsable`, so no correction landed and
+  `piLaunch` said nothing (it prints only for `operator_comments`), while the Keeper, through Pi, loaded the file.
+  `childCatalog` dropped the file; with `models-store.json` readable, a lane on a provider defined only in `models.json`
+  was refused `lane_model_unavailable`, although its child, which is Pi, would have run it.
+- **A `/* */` comment.** The merge returned `operator_comments`, and `piLaunch` advised adding the missing overrides by
+  hand -- to a file Pi ignores whole. `childCatalog` listed the file's providers, so a lane on one of them was spawned and
+  died in the child with `Model not found` and no events: the failure `ensureChildRunnableModel` exists to prevent.
+
+**Both ends (§31), read 2026-10-03.**
+
+- **Who writes it.** Operators by hand, and the machine writers §135.27.1.1 lists, every one of which serializes with
+  `JSON.stringify`. Pi never writes it. So any syntax beyond strict JSON in this file is an operator's.
+- **Who reads it.** Pi: the Keeper's `ModelRuntime`, and every lane and reader child (`pi -p --no-extensions` on the same
+  agent home, the vendored copy of ADR-0006). The product's two readers. PipiUI's strict readers (§135.27.1.1; not
+  changed here).
+- **Who acts on it.** Only Pi resolves a model from it. The product's two readers act on predictions of Pi: the merge
+  exists only to change what Pi resolves, and `childCatalog` exists only to predict whether a child Pi can resolve its
+  `--model`. A prediction made in a grammar other than the reader's it predicts is wrong in both directions, as the table
+  shows. The grammar is therefore not the product's to choose.
+
+**The ruling: exactly Pi's grammar.** `runtime/json-comments.ts` `parseModelsJson` does what `ModelConfig.load` does:
+drop a leading BOM (`dist/utils/text.js` `stripBom`), apply Pi's `stripJsonComments` (`dist/utils/json.js`: `//` line
+comments, then trailing commas, both outside double-quoted strings), then `JSON.parse`. Pi's two patterns are copied
+verbatim, with the source cited in the file. The function is identical in the 0.87.0 the installed App vendors and the
+1.0.0 this tree vendors, in the unbundled `dist` and in the `dist/bundle` chunk alike.
+
+It is copied, not imported. The package's `exports` (`.`, `./rpc-entry`, `./client`, `./experimental/plugin`) expose
+neither `stripJsonComments` nor `ModelConfig`, and importing a private path from `build/node_modules` at run time would
+bind the product to Pi's file layout. A test holds the copy to Pi instead (below); it fails on the Pi upgrade that
+changes the grammar. `docs/pi-host-contract.md`'s "no fork, no patch" is untouched: nothing in Pi changes.
+
+**What the readers do now.**
+
+1. **The merge** parses in Pi's grammar. Text Pi cannot parse is `left_untouched`/`unparsable`, a `/* */` comment
+   included: Pi applies none of that file, so there is no `missing` list worth reporting. For the `operator_comments`
+   rule, a comment is what Pi's first pass removes, a `//` line comment outside a string (`stripLineComments(source) !==
+   source`). A trailing comma or a BOM is not a comment. The strict rewrite drops it and loses nothing, so the
+   corrections land, and the rewritten file is also one PipiUI's strict readers can read.
+2. **`childCatalog`** parses in Pi's grammar. A file with trailing commas or a BOM contributes its providers. A file Pi
+   cannot parse contributes none, because the child will have none of it, so a lane on a provider defined only there is
+   refused before any child starts (`lane_model_unavailable`). When `models-store.json` does not read either, the
+   catalog is unknown and the model passes unjudged, as before.
+3. **`piLaunch` names a file Pi cannot parse** (owner, 2026-10-03: "加上 unparsable 时的提示"). Pi records
+   `Failed to parse models.json: <error>` in `getError()`, but only its interactive TUI shows it; RPC mode, which the
+   Keeper runs in, does not. Before this amendment a `/* */` file fell into the `operator_comments` notice by accident,
+   with half-wrong advice, and every other file Pi cannot parse was reported by nothing. Now `unparsable` carries the
+   parse error (`{status: "left_untouched", reason: "unparsable", error}`; the same message Pi records, since the
+   grammar is the same), and `piLaunch` prints one stderr line: the file, that error, that Pi ignores every custom
+   provider, model and override in it and the product merged no correction, what Pi's grammar accepts, and to fix the
+   file and launch again. A file Pi parses gets no such line; an operator's `//` comments keep the §135.27.1.1 line.
+
+**Boundaries this amendment does not move.**
+
+- **Neither stderr notice reaches the operator in the App during play.** `pipicoc/rpc` runs `bin/pi-coc` with
+  `stdio: 'inherit'`, and pi-backend keeps that process's stderr only in a 16 KB tail that it shows when Pi exits
+  (`PiExitedError`). So this notice and the §135.27.1.1 one are read in a terminal (`bin/pi-coc`) and in the play
+  driver's logs, not in a healthy App session. Routing host notices into the App is a separate change.
+- **An empty file.** Pi refuses it. The merge treats it as no file and writes the corrections: there is nothing to keep,
+  and the result is a file Pi reads. That is the merge's policy, not a grammar: `parseModelsJson("")` throws, and
+  `childCatalog` takes nothing from an empty file, as Pi does.
+- **Pi's schema.** After parsing, `ModelConfig.load` checks `ModelsConfigSchema`; a file that fails it (`Invalid
+  models.json schema`) also loses every custom model. Neither product reader checks the schema, so `childCatalog` can
+  still list providers from a file that parses but fails Pi's schema. This amendment settles the grammar only.
+- **The refusal's wording.** A lane refused because `models.json` failed Pi's parse is told `no provider "<id>" is
+  registered for lane children`. The message names the provider, not the file that failed to parse.
+
+*Tests.*
+
+- `tests/extension/models-json-grammar.test.mjs` (new), over a corpus of fifteen shapes (strict; `//` as a header,
+  after a value, under CRLF, after an escaped quote and inside a string; trailing commas, alone, before a `//` comment,
+  and as characters inside a string; a BOM, alone and with a trailing comma; `/* */`, alone and holding a `//`; a
+  single-quoted key; empty):
+  - without a build, the decisions themselves: trailing commas and a BOM read, `/* */`, single quotes and an empty file
+    do not, and only a `//` comment changes `stripLineComments`;
+  - the copy's `stripJsonComments` equals the vendored Pi's own `dist/utils/json.js` on every shape;
+  - `parseModelsJson` parses exactly the shapes the vendored Pi's `ModelConfig.load` parses, to the same providers.
+- `tests/extension/provider-model-corrections.test.mjs`:
+  - an operator's file with trailing commas comes out `written`: strict JSON, the operator's provider kept as read,
+    both corrections in, and the next launch `unchanged`;
+  - a file with a BOM comes out `written`, without the BOM;
+  - a file with a `/* */` comment is `unparsable` and stays byte for byte;
+  - with the vendored Pi: Pi reads the trailing-comma file before the merge and the corrected file after it, and refuses
+    the `/* */` file the merge left (neither side reads it);
+  - every `unparsable` outcome carries a non-empty parse error;
+  - `piLaunch` itself, on a source-layout root with the shipped corrections (it returns the launch and spawns nothing),
+    stderr captured: a `/* */` file and a hand-broken one each get exactly one line, naming the file and carrying the
+    parse error, and the file stays byte for byte; with the vendored Pi, that error is the one Pi's `getError()`
+    records for the same file. A strict file, one with trailing commas, one with a BOM and an empty one get no line; one
+    with a `//` comment gets only the §135.27.1.1 line.
+- `tests/extension/fast-model-resolution.test.mjs`: a Mod child runs a provider defined only in a `models.json` with
+  trailing commas, or one with a BOM; a provider defined only in a `/* */` file is refused `lane_model_unavailable`
+  before any child starts. With the vendored Pi, Pi resolves the provider from the first two agent homes and not from
+  the third.
+
+Mutations (one at a time, the three files run against each; restored by copy):
+
+- Drop Pi's trailing-comma pass: all 3 grammar tests, the trailing-comma merge test and its Pi twin, and the lane
+  trailing-comma case fail.
+- Accept `/* */` again: grammar tests 1 and 3, the `/* */` merge test and its Pi twin, and the lane `/* */` case fail.
+- Let the merge's comment test use the whole of `stripJsonComments` (so a trailing comma counts as a comment): the
+  trailing-comma merge test and its Pi twin fail.
+- Drop the BOM strip: grammar tests 1 and 3 and the BOM merge test fail.
+- Give `childCatalog` its own parse without the BOM strip: the lane BOM case fails.
+- Restore the three runtime files as they were before this amendment: the grammar file fails to load, 5 merge tests
+  and both lane cases fail.
+- Drop the `unparsable` notice, or print it without the error: the `piLaunch` naming test fails on both shapes.
+- Return an empty `error`: that test and the two `unparsable` merge tests fail. Return a fixed non-empty one: the
+  naming test fails on both shapes.
+- Print the notice for every `left_untouched`: the `// comment` case of the no-notice test fails.
+
+##### 135.27.1.3 Amendment (2026-10-03): the launcher's notices reach the App as §55 service notices
+
+**The gap.** The §135.27.1.1 and §135.27.1.2 notices are stderr lines from `piLaunch`. In the App nobody reads them:
+`pipicoc/rpc` runs `bin/pi-coc` with `stdio: 'inherit'`, and pi-backend keeps that process's stderr only in a 16 KB
+tail it shows when Pi exits (`PiExitedError`). A healthy session never shows it. The owner asked for the notices in the
+App (2026-10-03: "把提示接进 App").
+
+**Both ends (§31).**
+
+- **Who writes it.** `piLaunch`, from the merge's outcome, before Pi starts. It cannot reach Pi's UI: no Pi session
+  exists yet.
+- **Who reads it.** The kernel extension, at `session_start`, inside the Pi process `piLaunch` starts.
+- **Who acts on it.** The operator, who reads it in the App's transcript and fixes `models.json`.
+
+**The channel.** No new one. A host-placed line in front of the person at the table is a §55 service notice: a
+`coc-delivery` custom message, sent with `pi.sendMessage`, that the App already projects live and on every re-read
+(§55, §83), and that pi-backend tells from prose by its `details` carrying a subject flag (`first-prose.ts`). A toast
+(`ctx.ui.notify`) was not chosen: the App shows it for five seconds and keeps no record, and a session starts while the
+person is still looking for the table.
+
+1. **Hand-off.** `piLaunch` turns the outcome into notices (`runtime/host-notices.ts`): `{notice:
+   "models_json_unparsable", path, error}` and `{notice: "models_json_operator_comments", path, missing}`, where
+   `missing` holds `provider/model` strings. It still prints each one's stderr line, which is now also the English
+   fallback below. It hands the list to the Pi child as `PI_COC_HOST_NOTICES` (JSON) in the launch environment. With no
+   notice the variable is absent, and a value inherited from the parent environment is not passed on.
+2. **Taken once.** The kernel extension reads the variable at the first `session_start` and deletes it from
+   `process.env`, as it already does with `PI_COC_WATCHDOG_RECOVERY`. A reload or a replaced session in the same
+   process does not repeat the notices, and lane children do not inherit them. An entry that is not one of the two
+   shapes is dropped. A new process is a new launch, a watchdog replacement included: while the file is still wrong,
+   each launch places its notice again; once it is fixed, nothing is placed.
+3. **Placed.** One `coc-delivery` per notice: `display: true`, `details: {coc_delivery: true, turn, host_notice:
+   <notice>}`, sent with `{triggerTurn: false}`. It never steers a run or starts one. When Pi is idle, as at session
+   start, it is appended at once. Mid-run, Pi holds it to the run's end. A send with no options would be steered into
+   a streaming run, and the SL-00 control-flow inventory counts such a send as run-driving.
+   - In play, it goes after the table opens and before any recovery or opening run is sent, with `turn` the table's.
+     So it sits before the next turn's boundary, where the context policy already drops a `coc-delivery` with an
+     integer turn as closed noise (§19.2, `closedNoise`), the fold hook included.
+   - In setup, it goes once the kernel bridge is up, with `turn: 0`.
+   - A details-recovery process (`PI_COC_DETAILS_RECOVERY`) places nothing; it is not the session's own process.
+4. **Words.** The text is `content/ui/en/extension.json` `models_json_unparsable_notice` (`{path}`, `{error}`) or
+   `models_json_comments_notice` (`{path}`, `{models}`), read through the extension's words surface in the table's play
+   language. If the content root cannot be read, the English stderr line is placed instead.
+   - **How the zh-Hans seed got its two keys (§23: projected, never hand-written).** The presentation lane's own worker
+     (`build/pipicoc/onboarding-worker.mjs presentation`, `ui: true`) ran in a scratch home. Two attempts on the lane
+     setting (`opencode-go/deepseek-v4.1-flash`, thinking off) and one on `flapcode/gpt-6-luna` low (owner,
+     2026-10-03, for this one run) failed. With the seed incomplete, the lane re-projects every caption of every
+     surface (about 500). deepseek was cut off at its seventeenth call: a standalone lane gets 16
+     (`independentProviderBudget`, `remainingActions: 16`). luna was cut off at an attempt's 120 s
+     (`runPresentationAttempt`, `timeoutMs: 120000`) while still writing. Both limits are the lane's, not this change's.
+     The same lane, prompt, checker and model then ran on a content root that held only the extension surface's
+     `*_notice` captions (21, these two among them, the rest giving the register). Only the two new keys were taken,
+     in the authored key order: the seed's diff is two added lines.
+   - **The English avoids an uppercase acronym.** The first wording said "plain JSON". The lane's protected syntax
+     makes any uppercase run a `notation` token, and the model wrote the token back wrapped in braces, giving
+     `{JSON}`, which `fill` would have shown as an unfilled placeholder. It now reads "Beyond plain data, the file
+     accepts only // comments and trailing commas". Its only protected tokens are its placeholders.
+5. **How it reaches the screen: the startup catch-up, not the live stream.** Pi's RPC mode runs `bindExtensions`,
+   and with it `session_start`, before it subscribes to session events (`dist/modes/rpc/rpc-mode.js`). So a message
+   placed during `session_start` is written to the transcript and emits nothing on stdout. The App projects it
+   through pi-backend's startup catch-up: after a COC session's process initializes, `projectHostDeliveries` reads
+   the transcript from the size it had at spawn and projects every host-delivered row (§55's registry). Pi appends
+   the row at once only because the transcript already exists when it starts: pi-backend writes the file and its COC
+   binding first, and Pi's `SessionManager` holds a missing file in memory until the first user message. Probed
+   2026-10-03 with the real launcher (`bin/pi-coc setup --mode rpc --session <existing file>`, a `/* */`
+   `models.json` in the source agent home). The transcript gained the `coc-delivery` row with `host_notice`, in the
+   default play language's projected words, and stdout carried no event for it.
+6. **Never the model's.** The kernel extension registers a `context` handler, in setup and in play alike, that removes
+   every `coc-delivery` whose `details.host_notice` is set. In play the table's projection already drops it as closed
+   noise, so this handler matters where that projection does not run: in setup mode, where no table policy is
+   installed, and on a degraded request with no capsule, which keeps a bounded tail. A notice to the operator is
+   never an instruction to the Keeper or the setup guide.
+
+*Tests.*
+
+- `tests/extension/provider-model-corrections.test.mjs`: `piLaunch`'s returned environment carries the structured
+  notice for a `/* */` file and for an operator's `//` comments; it carries none for a file Pi parses; and it does not
+  pass on an inherited value.
+- `tests/extension/host-notices.test.mjs`, on a real Pi session with the real extensions (`harness.mjs`):
+  - a play table places both notices, with their flag and an integer turn, before the player's first input, with the
+    variable consumed;
+  - the Keeper's request on the next turn does not contain the notice. That request is a degraded one: the fake kernel
+    gives no binding (`context_binding_unavailable`, the bounded tail), so this case pins the handler.
+  - a setup session places it with `turn: 0`, and the setup guide's request does not contain it;
+  - an absent, unreadable or malformed value places nothing.
+  - Each "does not contain" is searched for by a marker that has no quotes, beside a positive control: the player's
+    own words must be found in the same serialized request. The first version searched for an error message that held
+    quotes, which serialization escapes, so it could never have matched; the mutation that drops the handler passed it.
+- `tests/extension/context-policy.test.mjs`: on a healthy binding, the notice as `hostNoticeMessage` builds it, placed
+  after turn 1 and before turn 2, is not in the request, is not counted as unknown material, does not veto the fold,
+  and its text is not carried into the fold summary.
+- `Electron/packages/pi-backend/test/a-notice-reaches-the-screen.test.ts`:
+  - The message the extension builds (`hostNoticeMessage`, imported, not re-typed) is written to the transcript by
+    the fake Pi as it starts, before it answers any command and with no event (`FAKE_PI_STARTUP_ROWS`, the shape
+    the probe above showed). Through the real `ensure` startup, it becomes one `presentation` on the Keeper's side,
+    and `isServiceNoticeRow` counts it as a service notice, not prose.
+  - A second case pins the premise to the installed Pi: in `rpc-mode.js`, `session.bindExtensions(` comes before
+    `session.subscribe(`.
+  - `turn-telemetry-first-prose.test.ts` lists `host_notice` with the other notice flags.
+
+Mutations (one at a time; restored by copy):
+
+- `piLaunch` hands off nothing: the hand-off assertions fail, on both unparsable shapes and on the `//` case.
+- An inherited value is passed on: the inherited-value test fails.
+- Play mode places nothing: the play test fails, and so do the unreadable and malformed cases, because the variable
+  stays set.
+  Not consuming the variable fails the same tests.
+- Setup mode places nothing: the setup test fails.
+- The `context` handler removes nothing: both the play request (degraded) and the setup request fail.
+- The subject flag is dropped: both placement tests fail, and the pi-backend projection test fails (not a service
+  notice).
+- A malformed entry is accepted: the malformed-value case fails.
+- The turn is not an integer: the context-policy test fails (the notice is retained as unknown material).
+- pi-backend's startup catch-up is not run: the startup projection test fails.
+- The send loses `{triggerTurn: false}`: `control-flow-inventory.test.mjs` fails on an unlisted
+  `pi.sendMessage{steer-when-streaming}` site. The first full run on the box found exactly this.
 
 ### 135.28 Binding never goes to the LLM: rules defaults, stated and composed parameters, and the Keeper's turn (2026-09-23, SL-12; amends §135.2, §135.4, §135.25, §135.26)
 
@@ -31380,7 +31647,7 @@ was ever written, so a card with none is byte-identical to before. `look` on the
 (`mood`, `mood_earlier`). The capsule `head` gains one line: `present[].now` is what that person feels right now and
 carries their next line more than any fact does; when it is missing or no longer true, write it with `apply npc mood`
 (one short line in the play language) before they speak, in the same turn; its own `apply` is fine and it need not ride with
-their words (amended 2026-10-01, see 161.10; amended again 2026-10-03: the same response as the narrate, apply first, §173). The projection reads the committed
+their words (amended 2026-10-01, see 161.10; amended again 2026-10-03: the same response as the narrate, apply first, §174). The projection reads the committed
 ledger, so a mood written this turn shows from the next turn; within the turn the Keeper has just written it.
 
 **161.4 Visibility.** Keeper only. §16.2's `mechanics` has no `npc` row, so no card is drawn; the transcript, the
@@ -32152,9 +32419,19 @@ Owner-run probes on 2026-10-03 (owner's ChatGPT Pro account, `experiments/codex-
 
 **The Codex endpoint ignores both `quality` and `size`.** The server answers `low` at a size of its own choosing, and Codex CLI itself always sends `auto`. The orientation is steered only by the prompt, hence the prompt prefix in §172.4. A quality setting was specified and then withdrawn for this reason (§172.5).
 
-## 173. What needs no result rides with the narrate (owner ruling, 2026-10-03; amends §161.3, §161.7, §161.10's wording note and §103.7)
+## 173. Speech recovery: action representation and source-bound voice review
 
-*Numbering.* Written as §172 on `claude/first-sight-20261002`, and narration-craft 2.1.17's CHANGELOG cites it under that number; §172 had meanwhile landed on 0.9.6a as the Codex image route, so this section is §173 from the merge on (§ numbers are stable once landed).
+**Producer.** The producer supplies the bounded packet through the existing `voice.job → background Tool-Pi author → review → voice.submit` interface and preserves the existing capsule/context, receipts, language, listener, source card, secrets, and recent exchange evidence. It does not migrate old cards, rewrite sources, duplicate state, reset budgets, or add a new authority path. It carries declared and settled information distinctly and records object changes only through existing transactions. It uses the existing admission and correction interfaces: five verdicts unchanged; at most one host-owned `correct_proposal` allowance per player turn, only for an already chosen act whose proposed arguments are wrong; fresh review is mandatory; repeat refusals do not retry. Handover metadata remains a stated ground, and `given` is not a gesture.
+
+**Reader.** Jev1.13.0 reads each bounded question as a direct source-grounded semantic judgment over `state.source` and `state.candidate`; it does not generate text or grant authority. The twelve questions are the closed review surface: unsupported facts, disclosed secrets, listener conflict, language mismatch, silence conflict, fixed agenda, translation/description confusion, nonresponsive exchange, repetitive range, coarse conflict, and mandated rhythm. High-confidence clean across all checks accepts; a high-confidence defect rejects; missing, uncertain, or unavailable evidence goes to the existing Luna semantic review. The reader must distinguish source metaphor and atmosphere from heard wording, and flexible voice from a compulsory task. It must permit an ordinary greeting, a relevant longer or formal response, direct answer, uncertainty, evasion, silence, protest, or refusal when the source and present encounter support it. It must not impose mandatory brevity, courtesy, refusal, language branches, keyword bans, wordlists, regexes, defaults, or name inference.
+
+**Actor.** Tool-Pi writes the candidate prose in the supplied play language and writing system; Jev never writes. The actor preserves identity, listener, source facts, agency, secrets, and current state, and invents none. A repeated subject is not automatically defective: the actor answers the actual present question rather than banning a topic because it appeared earlier. No card mask may force a catchphrase, topic, agenda, refusal, agreement, question, sentence length, or rhythm. Existing one-repair and cancellation/publication guards remain. All prose/live/fallback review uses the configured `flapcode/gpt-6-luna low`; bounded judgments use `Jev1.13.0`; Astra and Grok are never used. No model output alone authorizes an action or publishes a card.
+
+**Authority and single pass.** The turn is processed once through the existing interfaces; there is no migration, retry loop, post-prose judge, or hidden second pass that changes state. A structural pass proves only shape and wiring. Acceptance additionally requires the specified focused regressions, correction-budget and atomicity coverage, card clean/reject/uncertain/cancel coverage, actual provider payload inspection, and a real-driver table on final-source versions. Report each gate honestly and distinguish code, delivery, dialogue quality, and complete ending receipt; an unrun gate is not successful.
+
+## 174. What needs no result rides with the narrate (owner ruling, 2026-10-03; amends §161.3, §161.7, §161.10's wording note and §103.7)
+
+*Numbering.* Written as §172 on `claude/first-sight-20261002`, where narration-craft's own 2.1.17 cited it under that number (2.1.19 now cites §174). 0.9.6a meanwhile landed §172 (the Codex image route) and §173 (speech recovery), so this section is §174 from the merge on (§ numbers are stable once landed).
 
 **Why.** The owner asked why a turn takes so long, and then for the recommendation: 「按你推荐的做」. The installed App ran with `flapcode/gpt-6-luna` as Keeper, and each model step there costs 7–12 s before its first token (§171). Of 51 delivered turns across 34 sessions (2026-10-02 noon to 2026-10-03), 28 opened with a step that held only writes whose landing their own arguments fix, and the prose followed in a second step:
 
@@ -32185,21 +32462,21 @@ The feeling a person has is an author's choice that the input does not determine
 
 Tests: `tests/extension/npc-mood.test.mjs` and `tests/extension/jev-pacing-mod-alignment.test.mjs` move their narration-craft pin to 2.1.17. The wording itself has no test, because a test that pinned it would only pin a string.
 
-### 173.1 A step before the turn's first write keeps its thinking (owner ruling 2026-10-03, with §103.8)
+### 174.1 A step before the turn's first write keeps its thinking (owner ruling 2026-10-03, with §103.8)
 
 Two mechanisms lower thinking after a turn's first Keeper call, and both did it after a batch of reads alike:
 
 - `extensions/thinking-schedule` (§135.27), mounted at every table: the installed App's. After the first tool batch of an input that does not deliver, it asks Pi for the lowest level, which runs the rest of the input.
 - `COC_FIRST_STEP_THINKING=1` (§38.7.1): an env-gated experiment that rewrites each provider request after the first. No launch sets it; the App does not.
 
-Once §173 put what needs no result into the narrate's response, the step that wrote the epithets, the moods and the prose was often the second: on table 20 a look came first, and the step after it, its request at `none`, wrote the book's names (§103.8).
+Once §174 put what needs no result into the narrate's response, the step that wrote the epithets, the moods and the prose was often the second: on table 20 a look came first, and the step after it, its request at `none`, wrote the book's names (§103.8).
 
 The rule is now this, in both. A call keeps thinking until a Keeper call of this turn has written. Any call but `look`, `lookup` or `recall` counts as writing; the one set is `STEP_READS` in `extensions/kernel/first-step-thinking.ts`.
 
 - `thinking-schedule` skips a batch whose calls are all reads. A batch with one write among reads is a writing batch.
 - The env-gated path counts on `tool_call`. The host's own operations raise the same event; they are recognized by `dispatcher.hostOrigin` and do not count (the clerk's move before the first call is not the Keeper's writing). The counter resets on player input, with `roundTrips`. The provider-request row's `first_step_thinking` is `true` for every call before the first write.
 
-This costs a few seconds of thinking on a step that follows only reads, which is still one model step fewer than before §173. Tests:
+This costs a few seconds of thinking on a step that follows only reads, which is still one model step fewer than before §174. Tests:
 
 - `tests/extension/thinking-schedule.test.mjs`: reads keep the table's level, a read beside a write lowers it, and the earlier cases now lower on a write.
 - `tests/extension/first-step-thinking.test.mjs`: the step after a look keeps thinking, the step after a write is rewritten off, the reset still holds, and the unsupported-format case now follows a write.

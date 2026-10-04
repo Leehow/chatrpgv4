@@ -1,3 +1,4 @@
+import {CASH_CONSENT_POLICY} from "./admission.ts";
 import {createQuotationQueue} from "./quotes.ts";
 import {patchCard} from "../table/card-patch.ts";
 import { SINGLE_PASS_NARRATION } from '../../kernel-ts/runtime/narration-policy.ts';
@@ -17,13 +18,15 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createRuntime, type HostRuntime } from "../../runtime/host.ts";
+import { takeHostNotices } from "../../runtime/host-notices.ts";
+import { hostNoticeMessage, isHostNoticeMessage } from "./host-notices.ts";
 import { adaptationModel, adaptationService, adaptationWaitMs } from './adaptation.ts';
 import { fastLaneChoice } from '../lanes/subsession.ts';
 export { kernelCommand } from "../../runtime/host.ts";
 import { cocHome, cocMode } from "../lanes/host.ts";
 import { automaticDefense, isDefenseChoice, readDefensePreference } from '../../runtime/combat-defense.ts';
 import { agentHomeOf, openingHelp } from "../ui/hints.ts";
-import { extensionContentRoot, extensionSurface } from "../ui/words.ts";
+import { extensionContentRoot, extensionSurface, type ExtensionWords } from "../ui/words.ts";
 import { type KernelClient, KernelError, type KernelProgressFrame, isKernelError } from "./client.ts";
 import { progressPartial } from "./progress.ts";
 import { MAP_DOCUMENT_NONE, renderMapView, type MapAttachment } from './map-view.ts';
@@ -540,7 +543,7 @@ interface TableState {
 	 * finish it any more. The next player input releases it instead of being refused turn_state. */
 	strandedTurn?: boolean;
 	roundTrips: number;
-	/** §173.1: a Keeper call of this turn has written (anything but a read); steps after it may run without thinking. */
+	/** §174.1: a Keeper call of this turn has written (anything but a read); steps after it may run without thinking. */
 	wroteThisTurn?: boolean;
 	/** E0 measurements belong to one settled run, including its retries and queued continuations. */
 	skillRun?: SkillRun;
@@ -671,6 +674,9 @@ interface TableState {
 	 */
 	admissionSplit: Map<string, string[]>;
 	admissionRefused: string[];
+	/** One representation correction per player turn; never an authorization or a withdrawn declaration. */
+	admissionCorrections: string[];
+	admissionCorrectionBlocked: Set<string>;
 	/**
 	 * §143.18: what each run's compiles read the player's words as, for the fight acts they asked over (`act`), by run id --
 	 * noted from the engine's compile row as it passes the kernel bridge's `record`. Cleared with the next player input.
@@ -1827,6 +1833,8 @@ export default function (pi: ExtensionAPI) {
 		table.admissionPending = new Map();
 		table.admissionSplit = new Map();
 		table.admissionRefused = [];
+		table.admissionCorrections = [];
+		table.admissionCorrectionBlocked = new Set();
 		table.compileActs = new Map();
 		table.combatSceneMoves.clear();
 		// A cold recovered turn still owes the consequences already written by
@@ -2720,7 +2728,7 @@ export default function (pi: ExtensionAPI) {
 				if(typeof index==='number'&&typeof row.delta==='number'&&row.delta<=0&&payload.effects[index]?.kind==='cash')
 					payload.effects[index]._cash_debit_limit=-row.delta;
 			}
-			cashContext = {investigator: capsule.known?.investigator, quotes: capsule.known?.cash_quotes ?? [], previews:preview.cash_previews ?? []};
+			cashContext = {investigator: capsule.known?.investigator, quotes: capsule.known?.cash_quotes ?? [], previews:preview.cash_previews ?? [], consent_policy:CASH_CONSENT_POLICY};
 		}
 		if (tool === 'apply' && Array.isArray(payload.effects)) for (const effect of payload.effects as Array<Record<string, unknown>>) {
 			if (effect.kind !== 'move' || typeof effect.to !== 'string' || destinations.some(value => value.requested === effect.to)) continue;
@@ -2790,6 +2798,7 @@ export default function (pi: ExtensionAPI) {
 			],
 			landed: state.landed,
 			refused: state.admissionRefused,
+			corrections: state.admissionCorrections,
 			...(() => { const book = bookText(carriedText.of(state.campaign, state.turn)); return book.length ? { bookText: book } : {}; })(),
 		};
 	}
@@ -2872,6 +2881,8 @@ export default function (pi: ExtensionAPI) {
 		let proposal = admissionRequest(tool, payload, scopeFor(effectsOf()));
 		if (!proposal) return;
 		proposal = registeredContactProposal(proposal, payload, evidence);
+		if (state.admissionCorrectionBlocked.has(proposal.key)) throw new KernelError({code: "needs", message: "The correction allowance for this turn is exhausted",
+			fix: "Do not retry this voluntary state-changing proposal or turn its failure into a new player choice.", details: {reason: "action_correction_exhausted", correction_allowed: false}});
 		// §32.12.3: the whole batch again, after its typed-admitted lines landed and its remainder did not. Those lines are not
 		// applied twice: what is left is the remainder, which collects its own kept review (or reuses its verdict).
 		let alreadyLanded: string[] | undefined;
@@ -2928,11 +2939,19 @@ export default function (pi: ExtensionAPI) {
 			// §32.12.3.1: a line's own admission rows are held until its batch's verdict is known (`settleLines` flushes them).
 			const emit = async (row: Record<string, unknown>): Promise<void> => { if (part?.buffer) part.buffer.push(row); else await record(row); };
 			const settle = async (verdict: AdmissionVerdict, reused: boolean, ms: number, model?: string, meta: Record<string, unknown> = {}, keep = true): Promise<void> => {
+				if (!reused && ADMITTING_VERDICTS.has(verdict.verdict) && verdict.verdict !== "not_player_action" && state.admissionCorrections.length >= 2) {
+					state.admissionCorrectionBlocked.add(proposal.key);
+					throw new KernelError({code: "needs", message: "The correction allowance for this turn is exhausted",
+						fix: "Do not retry voluntary state-changing proposals this turn or narrate refused effects. Preserve the player's original declaration and existing receipts; do not invent a new player choice to explain an internal argument mismatch.",
+						details: {reason: "action_correction_exhausted", correction_allowed: false}});
+				}
 				if (keep) state.admission.set(proposal.key, verdict);
 				// §135.11.1 (SL-50): the verdict of this call's review, for the drop row of the step the call came from.
 				evidence.onVerdict?.(verdict.verdict);
 				const admitted = ADMITTING_VERDICTS.has(verdict.verdict);
 				const timedOut = verdict.verdict === REVIEW_TIMEOUT;
+				const correctable = verdict.recovery === "correct_proposal";
+				const correctionAvailable = correctable && !reused && state.admissionCorrections.length === 0;
 				// A refusal costs the player the whole batch, and until now the row said only which verdict
 				// came back: the reviewer's own reasons and the effects it was judging lived in the thrown
 				// KernelError (which the Keeper reads and nobody keeps) and in a turn record whose `calls`
@@ -2947,15 +2966,18 @@ export default function (pi: ExtensionAPI) {
 				await emit({ lane: "admission", verb: tool, ok: true, verdict: verdict.verdict, admitted, reused, ms, key: digest, ...(model ? { model } : {}),
 					...(verdict.reviewer ? { reviewer: verdict.reviewer } : {}), path: verdict.path ?? "lane",
 					...(timedOut ? { timed_out: true, cap_ms: verdict.capMs ?? null } : {}), ...meta, ...partRows, ...origin, ...who,
-					grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), proposed: proposal.lines });
+					grounds: verdict.grounds.slice(0, 200), ...(verdict.missing ? { missing: verdict.missing.slice(0, 160) } : {}), ...(correctable ? {recovery: verdict.recovery, correction_allowed: correctionAvailable} : {}), proposed: proposal.lines });
+
 				if (admitted) return;
 				// §32.12: a review cut at its cap judged nothing a rewording could repeat, so the reviewer is not told it refused.
 				if (timedOut) throw admissionTimedOut(proposal, verdict.capMs ?? 0, ms);
 				// §32.12.3.1.1: a line refused beside its batch is remembered with it, so a later review reads the refusal against
 				// the batch it belonged to, not as a bare line a resend beside other batch-mates would repeat in other words.
 				const beside = proposal.beside?.lines.length ? ` [beside: ${proposal.beside.lines.join(" | ")}]` : "";
-				state.admissionRefused.push(`${proposal.lines.join(" | ")}${beside} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
-				throw admissionRefusal(proposal, verdict);
+				if (correctable) {
+					if (!reused && state.admissionCorrections.length < 2) state.admissionCorrections.push(`${proposal.lines.join(" | ")}${beside}: ${verdict.grounds}`);
+				} else state.admissionRefused.push(`${proposal.lines.join(" | ")}${beside} -> ${verdict.verdict}${verdict.missing ? `: ${verdict.missing}` : ""}`);
+				throw admissionRefusal(proposal, verdict, correctionAvailable);
 			};
 			// §32.12.3.1: a line whose outcome is already in hand was not known when its batch's review began; it is settled as is.
 			const remembered = part?.outcome ? undefined : state.admission.get(proposal.key);
@@ -5577,6 +5599,8 @@ export default function (pi: ExtensionAPI) {
 					call: bridgeCall(kernel),
 					runtime,
 				});
+				// §135.27.1.3: no turn has been played in setup.
+				await placeHostNotices(0);
 				return;
 			}
 			const campaign = await pickCampaign(kernel, ctx);
@@ -5633,6 +5657,8 @@ export default function (pi: ExtensionAPI) {
 				admissionPending: new Map(),
 				admissionSplit: new Map(),
 				admissionRefused: [],
+				admissionCorrections: [],
+				admissionCorrectionBlocked: new Set(),
 				compileActs: new Map(),
 				combatSceneMoves: new Set(),
 				admissionOutage: 0,
@@ -5771,6 +5797,8 @@ export default function (pi: ExtensionAPI) {
 			// Opening a waiting item card starts its background owner, without replaying an opening
 			// or continuing an interrupted story. Real player input still uses the ordinary turn guard.
 			if (process.env.PI_COC_DETAILS_RECOVERY === '1') return;
+			// §135.27.1.3: before any recovery or opening run is sent, so the notices sit ahead of that turn's boundary.
+			await placeHostNotices(table.turn);
 			const pending = open.pending_turn;
 			if (pending) {
 				if (watchdogRecovery) {
@@ -5844,6 +5872,30 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(line, "error");
 			}
 		}
+	});
+
+	/**
+	 * Contract §135.27.1.3: the launcher's notices, taken once per process and placed as §55 service notices. Nothing
+	 * here may cost the session: a surface that cannot be read leaves the English line, a session that is gone takes none.
+	 */
+	async function placeHostNotices(turn: number): Promise<void> {
+		const notices = takeHostNotices();
+		if (!notices.length) return;
+		let words: ExtensionWords | undefined;
+		try { words = await surface.words(); }
+		catch { /* the English line stands */ }
+		for (const notice of notices) {
+			// Never a steer or a run: idle (as at session start) it is appended now, mid-run Pi holds it to the run's end.
+			try { pi.sendMessage(hostNoticeMessage(notice, words, turn), { triggerTurn: false }); }
+			catch { return; /* the session is gone */ }
+		}
+	}
+
+	// §135.27.1.3: a host notice is for the person at the table. Setup has no table context policy, and a degraded play
+	// request keeps a bounded tail, so the notices are removed here, in every mode, from every request.
+	pi.on("context", (event) => {
+		const kept = event.messages.filter((message) => !isHostNoticeMessage(message));
+		return kept.length === event.messages.length ? undefined : { messages: kept };
 	});
 
 	pi.on("session_shutdown", async () => {
@@ -6195,6 +6247,8 @@ export default function (pi: ExtensionAPI) {
 			state.admissionPending = new Map();
 			state.admissionSplit = new Map();
 			state.admissionRefused = [];
+			state.admissionCorrections = [];
+			state.admissionCorrectionBlocked = new Set();
 			state.compileActs = new Map();
 			state.combatSceneMoves.clear();
 			state.landed = [];
@@ -6324,7 +6378,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on('tool_call', (event, ctx) => {
-		// §173.1: a Keeper call that is not a read is this turn's writing; the steps after it can run without thinking. The
+		// §174.1: a Keeper call that is not a read is this turn's writing; the steps after it can run without thinking. The
 		// host's own operations (the clerk's move before the first call) raise the same event and are not the Keeper's.
 		if (table && !STEP_READS.has(event.toolName) && !dispatcher.hostOrigin(event.toolCallId)) table.wroteThisTurn = true;
 		return dispatcher.prepare(event, ctx);
@@ -7119,8 +7173,8 @@ export default function (pi: ExtensionAPI) {
 		let firstStepFields: { step: number; first_step_thinking: true | false | "unsupported_format" } | undefined;
 		if (table && process.env.COC_FIRST_STEP_THINKING === "1") {
 			const step = table.roundTrips;
-			// §173.1 (owner, 2026-10-03): until a call of this turn has written, the step still decides what lands. With what
-			// needs no result riding with the narrate (§173), that step is often the second: on table 20 a look came first,
+			// §174.1 (owner, 2026-10-03): until a call of this turn has written, the step still decides what lands. With what
+			// needs no result riding with the narrate (§174), that step is often the second: on table 20 a look came first,
 			// and the step that then wrote the epithets, the moods and the prose ran without thinking and wrote the book's names.
 			if (isFirstStepOfTurn(step) || !table.wroteThisTurn) {
 				firstStepFields = { step, first_step_thinking: true };

@@ -58,6 +58,8 @@ export interface AdmissionJevInput {
   delivered: Array<{turn: number | string; player?: string | null; keeper: string}>;
   landed: string[];
   refused: string[];
+  /** Rejected argument representations; these do not withdraw the chosen act. */
+  corrections?: string[];
   /** §11.5.4 (SL-51): the book's text the Keeper was shown this turn (Keeper-only), newest first; absent when none was carried. */
   bookText?: Array<{where: string; text: string}>;
 }

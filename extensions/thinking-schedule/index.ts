@@ -8,8 +8,8 @@ const FOLLOW_UP_LEVEL: ThinkingLevel = "off";
 
 /**
  * Keep the table's chosen thinking level until the Keeper's first writing tool batch, then ask Pi
- * for the lowest supported level. A batch of reads only (contract §173.1) buys no lower level: the
- * step after it is usually the one that writes the epithets, the moods and the prose (§173). Pi owns
+ * for the lowest supported level. A batch of reads only (contract §174.1) buys no lower level: the
+ * step after it is usually the one that writes the epithets, the moods and the prose (§174). Pi owns
  * capability clamping: requesting `off` becomes `minimal` or `low` when a model's catalog exposes no
  * true off level.
  */

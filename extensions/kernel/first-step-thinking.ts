@@ -17,7 +17,7 @@
  * inverted this way and is reported unsupported rather than guessed at.
  */
 
-/** §173.1: the Keeper's reads; any other call writes. A step that follows only these keeps its thinking. */
+/** §174.1: the Keeper's reads; any other call writes. A step that follows only these keeps its thinking. */
 export const STEP_READS: ReadonlySet<string> = new Set(["look", "lookup", "recall"]);
 
 /** One request body, as pi-ai hands it to `before_provider_request` before serialization. */

@@ -192,7 +192,7 @@ test("with the flag: a call before the turn's first write keeps thinking, a call
 
 	assert.equal(results.length, 3, "three provider rounds: the look, the write, then the implicit delivery");
 	assert.equal(results[0].thinking.type, "enabled", "first call of the turn keeps thinking");
-	// §173.1: a read wrote nothing, so the step after it still decides what lands (table 20, 2026-10-03).
+	// §174.1: a read wrote nothing, so the step after it still decides what lands (table 20, 2026-10-03).
 	assert.equal(results[1].thinking.type, "enabled", "the call after a read keeps thinking");
 	assert.equal(results[2].thinking.type, "disabled", "the call after the turn's first write is rewritten off");
 	assert.equal("reasoning_effort" in results[2], false);
