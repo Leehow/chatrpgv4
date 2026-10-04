@@ -5198,7 +5198,8 @@ Twelve sources put the same ask near 87 s, with room for one repair call, and ne
 - **Not done here.** Accepted asks are not kept across a failed projection (no resume file), and asks do not run
   concurrently. A tag with no seed is 46 asks, 1,005 s on the lane setting (acceptance below). On the cold path the
   Electron job deadline (`PRESENTATION_DEADLINE_MS`, 360 s for the whole job) ends that before it finishes; the
-  in-session path (`pipicoc/ui-words.ts`) has no job deadline and completes it.
+  in-session path (`pipicoc/ui-words.ts`) has no job deadline and completes it. *Amended by §23.3.1:* the cold path's
+  UI-words job is now bounded by silence, not by duration.
 
 **3. A translation carries exactly its source's braces.** The lane issues its sources with protected syntax, whose
 notation rule makes any uppercase run a token. That part is right: `JSON`, `SAN`, `POW` stay verbatim. On 2026-10-03
@@ -5287,6 +5288,68 @@ files link the App's, naming no model, so on the lane setting: `opencode-go/deep
 - `npm run test:ext` on leehow-pc at `a08ffeacc`: 4,391 of 4,391. (The two runs before it, at `24c74176b` and
   `cb2859b18` on a box running three other suites at load 40 to 65, each had two or three timing tests red, a
   different set each time, in files that import nothing this section touches; all pass alone.)
+
+#### 23.3.1 The cold path's UI-words job is bounded by silence, not by duration (2026-10-03; amends §23.3 and, for `ui` requests only, §72's presentation deadline)
+
+**The gap.** The App's onboarding host projects a tag's words on the cold path: `CocOnboardingHost.projectUiWords` →
+`presentation({ui: true})` → `runPresentation`, which gives the whole job, retries included, one deadline
+(`PRESENTATION_DEADLINE_MS`, 360 s) and aborts the worker when it passes. §23.3 measured a tag with no seed at 46 asks
+and 1,005 s on the lane setting, so on this path such a tag never finishes: each try is aborted while asks are still
+landing, and the next starts again from the first. The owner's rule for time limits (2026-10-02, "只防卡死，不掐慢"):
+a limit may stop what has hung, never what is slow.
+
+**Both ends (§31).**
+
+- *Who writes progress:* `prepareUiWords`, through a new `onProgress({asks, done})`: once before the first ask
+  (`done: 0`) and once after each ask lands (`done` = asks landed). The worker (`pipicoc/onboarding-worker.ts`) writes it
+  to stdout as `{"type": "progress", "data": {"stage": "ui_words", asks, done}}`, the channel guidance and handout
+  reading already use. A seed or a cache that already answers reports nothing: it answers at once.
+- *Who reads it:* `CocOnboardingHost.run` hands a progress event to its `onProgress`, as it does for a handout reading;
+  for a `ui` request `runPresentation` passes one that marks the job as heard from.
+- *Who acts on it:* the job's timer. For a `ui` request the deadline is the later of the attempt's start and its last
+  progress, plus `PRESENTATION_DEADLINE_MS`. When the timer fires it reads the deadline again: moved by progress, it
+  re-arms for the rest; passed, it aborts the worker with `presentation_timeout`, as before.
+
+**Why 360 s still covers a working projection.** One ask is at most two rounds of 120 s each (`runPresentationAttempt`'s
+`timeoutMs`, the child lease's deadline) plus two child starts, so a projection that is moving reports inside the
+window; one that reports nothing for 360 s has a hung worker or a hung child. The window is unchanged; what it measures
+changed.
+
+**Retries.** A stall is not retried: when an attempt fails after its window passed with nothing heard, the job fails
+with it. Any other failure (a worker that died, a provider error, an ask still short after its rounds) is retried with
+§72's count and backoff, and each new attempt starts its own window; the fixed job's "while the deadline has room" test
+does not apply, because no total deadline is left to measure against. A retry starts the projection again from its
+first ask: accepted asks are still not kept across attempts (§23.3, "Not done here").
+
+**Unchanged.** Card presentations (every request without `ui: true`) keep the fixed job deadline: a player is waiting on
+that card, and its workers report no progress. The in-session path (`pipicoc/ui-words.ts`) has no job deadline.
+
+*Tests* (each fails on the code before this change):
+
+- `tests/extension/ui-presentation.test.mjs`: a three-ask projection reports `{asks: 3, done: 0}` and then `done` 1, 2,
+  3, in that order, each after its ask's cache-free acceptance; a projection that stops in its second ask reports 0 and
+  1 only; a seeded tag reports nothing.
+- `tests/extension/onboarding-worker-model.test.mjs`: the built worker's stdout carries `{"stage": "ui_words", "done":
+  0}` with the ask count before its first child starts.
+- `Electron/packages/pi-backend/test/coc-onboarding.test.ts` (window shortened through `PI_COC_PRESENTATION_DEADLINE_MS`):
+  a `ui` job that reports progress more often than the window and finishes after several windows resolves and is never
+  aborted; one that reports and then goes silent is aborted once the window passes, and is not retried; one that fails
+  inside its window is retried, and the retry's own window lets it finish; a card job is handed no progress callback
+  and still times out at its fixed deadline.
+
+*Acceptance* (2026-10-03):
+
+- Live, on the real path: the onboarding host (`CocOnboardingHost`, built runtime, real worker) asked `projectUiWords`
+  for `ja`, a tag with no seed, with the window at its default 360 s and the agent home's lane setting
+  (`opencode-go/deepseek-v4.1-flash`, thinking off). One attempt, handed a progress callback; 47 reports (`done` 0 to
+  46); the longest silence between reports 33.3 s, the median 20 s; resolved after 990 s with no retry. The cache held
+  all 587 keys and the reader answered the tag projected. Before this change the same job was aborted at 360 s.
+- Mutations (one at a time, restored by copy), each failing at least one test above: progress that does not move the
+  window; a stall that is retried; a timer that never re-arms; a `ui` request sent the fixed way; the lane reporting
+  an ask before it lands.
+- `npm run test:ext` on leehow-pc at `ecb96ef56`: 4,453 of 4,453. `coc-onboarding.test.ts` on the Mac: 29 of 30; the
+  one red, "never shows a crashed worker's stderr", is red on the base (`4180ccdfb`) too: its `not.toContain('secret')`
+  matches the `secret*` keys of `content/ui/en/mods.json` in the answer's `ui` block.
 
 ### Host decision: the identity card is a passport-style page (2026-09-11)
 

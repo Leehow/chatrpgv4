@@ -448,6 +448,69 @@ it('a handouts request naming other titles never joins a run that was not given 
  expect(run.mock.calls.map(call=>(call[1] as any).handout_names)).toEqual([['Map'],['Clipping']]);
 });
 
+/**
+ * §23.3.1: the UI-words job is bounded by silence, not by duration. A tag with no seed takes 46 asks
+ * and about 1,005 s, and one 360 s deadline for the whole job aborted it every time. The window here
+ * is shortened; the gaps between reports leave it a wide margin, so a busy machine cannot fake a stall.
+ */
+const WINDOW=600;
+async function windowed(){
+  const home=await mkdtemp(join(tmpdir(),'coc-onboarding-'));
+  const repo=resolve(import.meta.dirname,'../../../..');
+  const host=new CocOnboardingHost({repo,home,agentDir:join(home,'agent'),
+    env:{...process.env,PI_COC_PRESENTATION_DEADLINE_MS:String(WINDOW)}});
+  services.push(host);return host;
+}
+const pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+const UI={ui:true,play_language:'fr-CA',home:'/nowhere'};
+it('a UI-words job that keeps reporting outlives several windows and is never aborted',async()=>{
+ const host=await windowed();let aborted=false;
+ const run=vi.spyOn(host as any,'run').mockImplementation(async(...args:any[])=>{
+  (args[5] as AbortController).signal.addEventListener('abort',()=>{aborted=true});
+  const progress=args[6] as (data:any)=>void;
+  for(let done=0;done<=8;done++){progress({stage:'ui_words',asks:8,done});await pause(WINDOW/4);}
+  return {play_language:'fr-CA',digest:'d',texts:{}};
+ });
+ const started=Date.now();
+ await expect(host.presentation(UI)).resolves.toEqual({play_language:'fr-CA',digest:'d',texts:{}});
+ expect(Date.now()-started).toBeGreaterThan(2*WINDOW);
+ expect(aborted).toBe(false);expect(run).toHaveBeenCalledTimes(1);
+});
+it('a UI-words job that goes silent is aborted once its window passes, and a stall is not retried',async()=>{
+ const host=await windowed();let aborted=false;
+ const run=vi.spyOn(host as any,'run').mockImplementation((...args:any[])=>{
+  (args[5] as AbortController).signal.addEventListener('abort',()=>{aborted=true});
+  const progress=args[6] as (data:any)=>void;
+  progress({stage:'ui_words',asks:8,done:0});
+  return pause(WINDOW/4).then(()=>{progress({stage:'ui_words',asks:8,done:1});return new Promise(()=>{});});
+ });
+ const started=Date.now();
+ await expect(host.presentation(UI)).rejects.toThrow(/did not finish in time/);
+ expect(Date.now()-started).toBeGreaterThanOrEqual(WINDOW+WINDOW/4-20);
+ expect(aborted).toBe(true);expect(run).toHaveBeenCalledTimes(1);
+});
+it('a UI-words job that fails inside its window is retried, and the retry has a window of its own',async()=>{
+ const host=await windowed();const attempts:number[]=[];
+ const run=vi.spyOn(host as any,'run').mockImplementation(async(...args:any[])=>{
+  attempts.push(Date.now());const progress=args[6] as (data:any)=>void;
+  progress({stage:'ui_words',asks:2,done:0});
+  if(attempts.length===1){await pause(WINDOW/4);throw new Error('Incomplete UI word projection: 7 captions were not projected');}
+  for(let done=1;done<=2;done++){await pause(WINDOW/2);progress({stage:'ui_words',asks:2,done});}
+  return {play_language:'fr-CA',digest:'d',texts:{}};
+ });
+ await expect(host.presentation(UI)).resolves.toEqual({play_language:'fr-CA',digest:'d',texts:{}});
+ expect(run).toHaveBeenCalledTimes(2);
+});
+it('a card job is handed no progress callback and keeps its fixed deadline',async()=>{
+ const host=await windowed();let aborted=false;
+ const run=vi.spyOn(host as any,'run').mockImplementation((...args:any[])=>{
+  expect(args[6]).toBeUndefined();
+  (args[5] as AbortController).signal.addEventListener('abort',()=>{aborted=true});
+  return new Promise(()=>{});
+ });
+ await expect(host.presentation({campaign:'stuck-card',revision:1,play_language:'en'})).rejects.toThrow(/did not finish in time/);
+ expect(aborted).toBe(true);expect(run).toHaveBeenCalledTimes(1);
+});
 it('keeps a failed UI projection rejected until the player explicitly retries',async()=>{
  const {host}=await service();
  const presentation=vi.spyOn(host,'presentation').mockRejectedValue(new Error('projection failed'));

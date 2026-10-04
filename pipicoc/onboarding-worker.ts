@@ -125,7 +125,9 @@ async function main() {
       // words, and redraws its panels when this returns.
       return prepareUiWords({home:input.home,contentRoot:context.contentRoot,
         play_language:await playLanguageTag(context.contentRoot,input.play_language),
-        model:input.model,thinking:input.thinking,signal:guidanceAbort.signal,runner:runTask});
+        model:input.model,thinking:input.thinking,signal:guidanceAbort.signal,runner:runTask,
+        // §23.3.1: the host bounds this job by silence, and these lines are what it hears.
+        onProgress:progress=>emit('progress',{stage:'ui_words',...progress})});
     }
     if(input.standing) {
       const view=await call('table.view',{campaign:input.campaign});

@@ -599,7 +599,7 @@ export class CocOnboardingHost {
    */
   private runPresentation(data:Row):Promise<Row> {
     const limit=Number(this.options.env.PI_COC_PRESENTATION_DEADLINE_MS)||PRESENTATION_DEADLINE_MS;
-    return this.attemptPresentation(data,Date.now()+limit,0);
+    return data.ui===true?this.attemptUiWords(data,limit,0):this.attemptPresentation(data,Date.now()+limit,0);
   }
   private async attemptPresentation(data:Row,deadline:number,attempt:number):Promise<Row> {
     try {return await this.boundedPresentation(data,deadline);}
@@ -613,15 +613,41 @@ export class CocOnboardingHost {
       return this.attemptPresentation(data,deadline,attempt+1);
     }
   }
-  private boundedPresentation(data:Row,deadline:number,action='presentation',onProgress?:(data:Row)=>void):Promise<Row> {
+  /**
+   * The product's own words for a tag, bounded by silence rather than by duration (§23.3.1).
+   *
+   * Nobody waits on this job -- the panels already show the authored words -- and a tag with no seed
+   * is 46 asks and about 1,005 s, so one deadline for the whole job aborted it every time. The window
+   * runs from the attempt's start or its last progress report, and the worker reports after every ask
+   * lands; one ask is at most two 120 s rounds, so only a hung worker or child goes a whole window
+   * unheard. A stall is not retried. Any other failure is retried with the same backoff, each attempt
+   * with a window of its own.
+   */
+  private async attemptUiWords(data:Row,limit:number,attempt:number):Promise<Row> {
+    let heard=Date.now();
+    try {return await this.boundedPresentation(data,()=>heard+limit,'presentation',()=>{heard=Date.now();});}
+    catch(error) {
+      const delay=PRESENTATION_RETRY_DELAYS_MS[attempt];
+      if(delay===undefined||Date.now()>=heard+limit)throw error;
+      await new Promise<void>(resolve=>{const timer=setTimeout(resolve,delay);timer?.unref?.();});
+      return this.attemptUiWords(data,limit,attempt+1);
+    }
+  }
+  private boundedPresentation(data:Row,deadline:number|(()=>number),action='presentation',onProgress?:(data:Row)=>void):Promise<Row> {
     const controller=new AbortController();
+    const due=typeof deadline==='number'?()=>deadline:deadline;
     let timer:ReturnType<typeof setTimeout>|undefined;
     const bounded=new Promise<never>((_resolve,reject)=>{
-      timer=setTimeout(()=>{
-        controller.abort();
-        reject(refuse('presentation_timeout', 'The card presentation did not finish in time; retry it'));
-      },Math.max(0,deadline-Date.now()));
-      timer?.unref?.();
+      // A deadline progress has moved (§23.3.1) is read again when the timer fires, and re-armed for the rest.
+      const arm=()=>{
+        timer=setTimeout(()=>{
+          if(Date.now()<due())return arm();
+          controller.abort();
+          reject(refuse('presentation_timeout', 'The card presentation did not finish in time; retry it'));
+        },Math.max(0,due()-Date.now()));
+        timer?.unref?.();
+      };
+      arm();
     });
     return Promise.race([this.run(action,data,undefined,undefined,undefined,controller,onProgress),bounded])
       .finally(()=>clearTimeout(timer));
