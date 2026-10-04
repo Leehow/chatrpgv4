@@ -83,7 +83,7 @@ Status: ready-for-agent（2026-10-04 恢复）
 
 ## CK-F 起始包数据（§180.12）
 
-Status: ready-for-agent（等 CK-D、CK-E 合入）
+Status: done（分支 `claude/creature-kind-20261004-starters`，待 lead 合入；实现决定与交回的未决点见契约 §180.17）
 
 - the-haunting、the-haunting-rulebook、mystery-house 三个起始包；
 - 更新钉住 `npc-rat-pack` 的测试；

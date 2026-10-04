@@ -81,6 +81,43 @@ export function withoutPostFreezeNodes(graph) {
     claims: (graph.claims ?? []).filter((claim) => !names(claim)), relations: (graph.relations ?? []).filter((relation) => !names(relation))};
 }
 
+/**
+ * The haunting's beings as the reference saw them (contract §180.12, CK-F). The starter carried its rat swarm twice, the
+ * stat block and an invented person dossier on `npc-rat-pack` and the presence on `creature-rat-pack`; it now carries one
+ * creature node with the book's numbers and habits, and Corbitt states his weaknesses. The reference answered the twin --
+ * a people roster cut to a budget lists it -- so a comparison reads the freeze-time beings: the retired rows put back where
+ * they stood (`frozen`, the parsed `fixtures/haunting-freeze-time-beings.json`, read with the caller's own JSON reader so
+ * its numbers stay what the starter shipped), the npc listed again in its projection document, and the properties the
+ * creature and Corbitt gained after the freeze set aside. The new data is asserted where it belongs
+ * (`starter-creatures.test.mjs`, `haunting-shapes.test.mjs`).
+ */
+export function withFreezeTimeBeings(graph, frozen) {
+  const restored = {...graph};
+  for (const [collection, key] of [["nodes", "node_id"], ["claims", "claim_id"], ["relations", "relation_id"]]) {
+    const {before, value} = frozen.insert[collection], rows = [...restored[collection]];
+    const at = rows.findIndex((entry) => entry[key] === before);
+    if (at < 0 || rows.some((entry) => entry[key] === value[key])) throw new Error(`the freeze-time ${collection} row ${value[key]} cannot be put back before ${before}`);
+    rows.splice(at, 0, value);
+    restored[collection] = rows;
+  }
+  const twin = frozen.insert.nodes.value.node_id;
+  restored.nodes = restored.nodes.map((node) => {
+    if (node.node_id === "creature-rat-pack")
+      return {...node, evidence_span_ids: [], properties: {runtime_rule_ref: node.properties.runtime_rule_ref},
+        source_refs: node.source_refs.map(({grep_anchor: _anchor, ...ref}) => ref)};
+    if (node.node_id === "npc-walter-corbitt") {
+      const {weaknesses: _weaknesses, ...properties} = node.properties;
+      return {...node, properties};
+    }
+    if (node.node_kind === "module")
+      return {...node, properties: {...node.properties, runtime_projection: {...node.properties.runtime_projection,
+        documents: node.properties.runtime_projection.documents.map((document) => document.filename !== "npc-agendas.json" ? document
+          : {...document, collections: document.collections.map((entry) => ({...entry, node_ids: [...entry.node_ids, twin]}))})}}};
+    return node;
+  });
+  return restored;
+}
+
 const FIXTURES = resolve(import.meta.dirname, 'fixtures/oracle');
 const digestOf = source => createHash('sha256').update(source).digest('hex').slice(0, 16);
 /**

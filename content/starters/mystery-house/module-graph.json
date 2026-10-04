@@ -1953,6 +1953,133 @@
       "source_refs": []
     },
     {
+      "node_id": "creature-chapel-familiar",
+      "node_kind": "creature",
+      "name": "Chapel familiar",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "Chapel familiar",
+      "evidence_span_ids": [],
+      "properties": {
+        "origin": "authored-gym",
+        "keeper_note": "Combat + optional chase into gym-chase-yard. Not Ke.",
+        "habits": "Drive living things out of the ruined chapel, then flee toward the yard.",
+        "weaknesses": [
+          {
+            "book": "Fears fire and loud groups."
+          }
+        ],
+        "mechanics": {
+          "profile": {
+            "profile_kind": "actor",
+            "characteristic_scale": "percentile",
+            "skills": {
+              "Fighting (Brawl)": 50,
+              "Dodge": 40,
+              "Stealth": 60
+            }
+          }
+        }
+      },
+      "source_refs": []
+    },
+    {
+      "node_id": "creature-rat-swarm",
+      "node_kind": "creature",
+      "name": "Rat swarm",
+      "visibility": "keeper-only",
+      "aliases": [],
+      "summary": "Rat swarm",
+      "evidence_span_ids": [],
+      "properties": {
+        "origin": "source",
+        "keeper_note": "Printed encounter in the cellar crawl space (page 457). As a pack they may Overwhelm a single investigator with the Fighting maneuver rules, gaining one bonus die for their numbers.",
+        "mechanics": {
+          "status": "authored",
+          "subject_kind": "npc",
+          "profile": {
+            "profile_kind": "actor",
+            "characteristic_scale": "percentile",
+            "authority": "source_authored",
+            "characteristics": {
+              "STR": 35,
+              "CON": 55,
+              "SIZ": 35,
+              "POW": 50,
+              "DEX": 70
+            },
+            "derived": {
+              "HP": 9,
+              "MOV": 9,
+              "Build": -1,
+              "DB": "-1"
+            },
+            "skills": {
+              "Fighting": 40,
+              "Dodge": 42
+            },
+            "attacks": [
+              "Fighting 40% (Hard 20/Extreme 8), damage 1D3 — rats attack with teeth and claws",
+              "Overwhelm (fighting maneuver) damage 2D6 — as a pack they swarm a single target, gaining one bonus die on the attack because of their numbers"
+            ],
+            "attacks_per_round": 1
+          },
+          "source_refs": [
+            {
+              "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
+              "pdf_index": 457,
+              "grep_anchor": "RAT PACK"
+            }
+          ],
+          "provenance": {
+            "authority": "source_authored",
+            "basis": "Stat block, combat lines and the Overwhelm maneuver are printed verbatim on page 457 (RAT PACK)."
+          },
+          "fields_observed": [
+            "attacks",
+            "attacks_per_round",
+            "characteristics.CON",
+            "characteristics.DEX",
+            "characteristics.POW",
+            "characteristics.SIZ",
+            "characteristics.STR",
+            "derived.Build",
+            "derived.DB",
+            "derived.HP",
+            "derived.MOV",
+            "skills"
+          ],
+          "fields_extracted": [
+            "attacks",
+            "attacks_per_round",
+            "characteristics.CON",
+            "characteristics.DEX",
+            "characteristics.POW",
+            "characteristics.SIZ",
+            "characteristics.STR",
+            "derived.Build",
+            "derived.DB",
+            "derived.HP",
+            "derived.MOV",
+            "skills"
+          ],
+          "fields_not_authored": [
+            "armor",
+            "armor_rule",
+            "characteristics.APP",
+            "characteristics.EDU",
+            "characteristics.INT",
+            "derived.MP",
+            "derived.SAN",
+            "san_loss_to_see",
+            "spells",
+            "weapons"
+          ]
+        }
+      },
+      "source_refs": []
+    },
+    {
       "node_id": "handout-globe-unpublished-1918",
       "node_kind": "handout",
       "name": "An original in-world newspaper prop written for this Apache-2.0 starter; it is not source-verbatim Chaosium text.",
@@ -2118,11 +2245,9 @@
                     "npc-vittorio-costa",
                     "npc-kim-debrun",
                     "npc-calvin-crowe",
-                    "npc-rat-swarm",
                     "npc-mrs-hale",
                     "npc-nurse-alvarez",
-                    "npc-dr-quade",
-                    "npc-chapel-familiar"
+                    "npc-dr-quade"
                   ]
                 }
               ]
@@ -2504,82 +2629,6 @@
         "fear": "His own ritual dagger in an enemy's hand; prolonged daylight exposure of his lair; being reduced below the point where Flesh Ward and Dominate can buy rounds.",
         "secret": "He is an undead sorcerer animating his own corpse in the sealed basement; presentation data lives under monsters.json 'Calvin Crowe'.",
         "voice": "Rarely speaks. Acts through knocks, blood, flying furniture, floating knife, and finally claws.",
-        "relationship_to_investigators": "adversary"
-      },
-      "source_refs": []
-    },
-    {
-      "node_id": "npc-chapel-familiar",
-      "node_kind": "npc",
-      "name": "Chapel familiar",
-      "visibility": "keeper-only",
-      "aliases": [],
-      "summary": "Chapel familiar",
-      "evidence_span_ids": [],
-      "properties": {
-        "runtime_projection": {
-          "document": "npc-agendas.json",
-          "collection": "npcs",
-          "record": {
-            "npc_id": "npc-chapel-familiar",
-            "name": "Chapel familiar",
-            "origin": "authored-gym",
-            "agenda": "Drive living things out of the ruined chapel, then flee toward the yard.",
-            "fear": "Fire and loud groups.",
-            "secret": "RULE GYM: SAN-on-sight plus a fightable body (DEX/HP/Fight) that can start a chase.",
-            "voice": "Hissing, no English.",
-            "relationship_to_investigators": "adversary",
-            "keeper_note": "Combat + optional chase into gym-chase-yard. Not Ke.",
-            "skills": {
-              "Fighting (Brawl)": 50,
-              "Dodge": 40,
-              "Stealth": 60
-            },
-            "schedule": [
-              {
-                "schedule_id": "gym-familiar-chapel",
-                "scene_ids": [
-                  "ruined-chapel"
-                ],
-                "status": "available"
-              }
-            ],
-            "availability": {
-              "status": "available"
-            },
-            "facts": [],
-            "known_fact_ids": [],
-            "revealable_fact_ids": [],
-            "lie_options": [],
-            "deflect_options": [],
-            "leverage_ids": [],
-            "active_reactions": [],
-            "social_role": {
-              "authority_scope": [
-                "scene_safety"
-              ],
-              "responsibility_domains": [
-                "group_survival"
-              ],
-              "chain_of_command": {
-                "to_pc": "none",
-                "to_group": "none"
-              },
-              "duty_pressure": [],
-              "initiative_style": "aggressive",
-              "delegation_policy": {
-                "keeps": [
-                  "scene_safety"
-                ],
-                "delegates": []
-              }
-            }
-          }
-        },
-        "agenda": "Drive living things out of the ruined chapel, then flee toward the yard.",
-        "fear": "Fire and loud groups.",
-        "secret": "RULE GYM: SAN-on-sight plus a fightable body (DEX/HP/Fight) that can start a chase.",
-        "voice": "Hissing, no English.",
         "relationship_to_investigators": "adversary"
       },
       "source_refs": []
@@ -3280,120 +3329,6 @@
         "secret": "RULE GYM: healing cards. She will not leave the clinic.",
         "voice": "Brisk, Spanish-accented English, no bedside poetry.",
         "relationship_to_investigators": "medic"
-      },
-      "source_refs": []
-    },
-    {
-      "node_id": "npc-rat-swarm",
-      "node_kind": "npc",
-      "name": "Rat swarm",
-      "visibility": "keeper-only",
-      "aliases": [],
-      "summary": "Rat swarm",
-      "evidence_span_ids": [],
-      "properties": {
-        "runtime_projection": {
-          "document": "npc-agendas.json",
-          "collection": "npcs",
-          "record": {
-            "npc_id": "npc-rat-swarm",
-            "name": "Rat swarm",
-            "origin": "source",
-            "agenda": "Defend the crawl space nest; swarm whoever breaks into it.",
-            "fear": "Fire and open flame in the confined crawl space.",
-            "secret": "They nest in Ke's hidden crawl space and their filth marks the wall carved 'Chapel of Contemplation'.",
-            "voice": "No speech — squealing, scrabbling claws, and the press of bodies in the dark.",
-            "relationship_to_investigators": "adversary",
-            "keeper_note": "Printed encounter in the cellar crawl space (page 457). As a pack they may Overwhelm a single investigator with the Fighting maneuver rules, gaining one bonus die for their numbers.",
-            "mechanics": {
-              "status": "authored",
-              "subject_kind": "npc",
-              "profile": {
-                "profile_kind": "actor",
-                "characteristic_scale": "percentile",
-                "authority": "source_authored",
-                "characteristics": {
-                  "STR": 35,
-                  "CON": 55,
-                  "SIZ": 35,
-                  "POW": 50,
-                  "DEX": 70
-                },
-                "derived": {
-                  "HP": 9,
-                  "MOV": 9,
-                  "Build": -1,
-                  "DB": "-1"
-                },
-                "skills": {
-                  "Fighting": 40,
-                  "Dodge": 42
-                },
-                "attacks": [
-                  "Fighting 40% (Hard 20/Extreme 8), damage 1D3 — rats attack with teeth and claws",
-                  "Overwhelm (fighting maneuver) damage 2D6 — as a pack they swarm a single target, gaining one bonus die on the attack because of their numbers"
-                ],
-                "attacks_per_round": 1
-              },
-              "source_refs": [
-                {
-                  "source_id": "pdf:call-of-cthulhu-keeper-rulebook-40th-the-haunting",
-                  "pdf_index": 457,
-                  "grep_anchor": "RAT PACK"
-                }
-              ],
-              "provenance": {
-                "authority": "source_authored",
-                "basis": "Stat block, combat lines and the Overwhelm maneuver are printed verbatim on page 457 (RAT PACK)."
-              },
-              "fields_observed": [
-                "attacks",
-                "attacks_per_round",
-                "characteristics.CON",
-                "characteristics.DEX",
-                "characteristics.POW",
-                "characteristics.SIZ",
-                "characteristics.STR",
-                "derived.Build",
-                "derived.DB",
-                "derived.HP",
-                "derived.MOV",
-                "skills"
-              ],
-              "fields_extracted": [
-                "attacks",
-                "attacks_per_round",
-                "characteristics.CON",
-                "characteristics.DEX",
-                "characteristics.POW",
-                "characteristics.SIZ",
-                "characteristics.STR",
-                "derived.Build",
-                "derived.DB",
-                "derived.HP",
-                "derived.MOV",
-                "skills"
-              ],
-              "fields_not_authored": [
-                "armor",
-                "armor_rule",
-                "characteristics.APP",
-                "characteristics.EDU",
-                "characteristics.INT",
-                "derived.MP",
-                "derived.SAN",
-                "san_loss_to_see",
-                "spells",
-                "weapons"
-              ]
-            }
-          }
-        },
-        "agenda": "Defend the crawl space nest; swarm whoever breaks into it.",
-        "fear": "Fire and open flame in the confined crawl space.",
-        "secret": "They nest in Ke's hidden crawl space and their filth marks the wall carved 'Chapel of Contemplation'.",
-        "voice": "No speech — squealing, scrabbling claws, and the press of bodies in the dark.",
-        "relationship_to_investigators": "adversary"
       },
       "source_refs": []
     },
@@ -6477,7 +6412,7 @@
               "clue-liber-ivonis-tome"
             ],
             "npc_ids": [
-              "npc-chapel-familiar"
+              "creature-chapel-familiar"
             ],
             "pressure_moves": [
               "Fresh white three-Y eye symbols make nearby foreheads prickle until investigators step away",
@@ -7865,7 +7800,7 @@
       "subject_id": "module-mystery-house",
       "predicate": "contains",
       "object": {
-        "node_id": "npc-rat-swarm"
+        "node_id": "creature-rat-swarm"
       },
       "truth_status": "authored-fact",
       "visibility": "keeper-only",
@@ -7929,7 +7864,7 @@
       "subject_id": "module-mystery-house",
       "predicate": "contains",
       "object": {
-        "node_id": "npc-chapel-familiar"
+        "node_id": "creature-chapel-familiar"
       },
       "truth_status": "authored-fact",
       "visibility": "keeper-only",
@@ -9174,7 +9109,7 @@
     },
     {
       "claim_id": "claim-present-in-237",
-      "subject_id": "npc-chapel-familiar",
+      "subject_id": "creature-chapel-familiar",
       "predicate": "present-in",
       "object": {
         "node_id": "scene-ruined-chapel"
@@ -11800,7 +11735,7 @@
       "relation_id": "relation-contains-35",
       "relation_kind": "contains",
       "from_node_id": "module-mystery-house",
-      "to_node_id": "npc-rat-swarm",
+      "to_node_id": "creature-rat-swarm",
       "claim_id": "claim-contains-35",
       "properties": {
         "context_traversal": false
@@ -11840,7 +11775,7 @@
       "relation_id": "relation-contains-39",
       "relation_kind": "contains",
       "from_node_id": "module-mystery-house",
-      "to_node_id": "npc-chapel-familiar",
+      "to_node_id": "creature-chapel-familiar",
       "claim_id": "claim-contains-39",
       "properties": {
         "context_traversal": false
@@ -12575,7 +12510,7 @@
     {
       "relation_id": "relation-present-in-237",
       "relation_kind": "present-in",
-      "from_node_id": "npc-chapel-familiar",
+      "from_node_id": "creature-chapel-familiar",
       "to_node_id": "scene-ruined-chapel",
       "claim_id": "claim-present-in-237",
       "properties": {}

@@ -104,7 +104,9 @@ const PLACED = {
         refs: [ref(446, 'Walter Corbitt'), ref(459, 'Walter Corbitt, Undead Fiend'), ref(456, 'Using a Fighting Maneuver to Grab the Knife')],
         spans: ['span-page-446-anchor-7']},
     // No span of the starter is on page 457; the node cites the span its neighbours cite for the basement (§136.28).
-    'npc-rat-pack': {shapes: ['profile'], from: [], refs: [ref(457, 'RAT PACK')], spans: ['span-page-455-anchor-2']},
+    // Since §180.12 the stat block is the creature's: the npc twin that carried it is gone.
+    'creature-rat-pack': {shapes: ['profile'], from: [],
+        refs: [ref(456, 'A pack of rats live in the wall'), ref(457, 'RAT PACK')], spans: ['span-page-455-anchor-2']},
 };
 
 test('each shape sits on the node that states it, linked from its scene and cited to the pages its neighbours cite', () => {

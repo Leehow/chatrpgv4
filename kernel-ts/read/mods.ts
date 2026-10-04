@@ -78,6 +78,18 @@ function version(value: any) {
  *  and reaching it through the runtime would pull the package installer -- and its zip reader -- into
  *  every bundle that reads a module. */
 export async function buildVocabulary(context: KernelContext): Promise<Row> {
+    return vocabularyOf(context, "enabled");
+}
+/**
+ * Contract §180.12: every word an installed package contributes, for a starter whose data -- not a reader's ask -- decides
+ * which words it carries. The same claims as `buildVocabulary` (one key, one spine, load order), over every compatible
+ * installed package: the ones the defaults enable first, so a word keeps the label a build would bind it under, then the
+ * rest. The weakness shape names the first such package that requires it.
+ */
+export async function installedVocabulary(context: KernelContext): Promise<Row> {
+    return vocabularyOf(context, "installed");
+}
+async function vocabularyOf(context: KernelContext, scope: "enabled" | "installed"): Promise<Row> {
     const catalog = await readModCatalog(context), root = join(context.stateRoot, "mods");
     const key = (value: string): bigint[] => string(value).split(".").map(part => BigInt(/^[0-9]+$/.test(part) ? part : 0));
     const newer = (left: string, right: string): boolean => {
@@ -97,12 +109,12 @@ export async function buildVocabulary(context: KernelContext): Promise<Row> {
     const defaults = row(await read("defaults.json")), preferred = array(await read("load-order.json")).map(name => string(name));
     const ids = new Set([...latest.values()].map(mod => string(mod.id)));
     const order = [...preferred.filter(name => ids.has(name)), ...sorted([...ids].filter(name => !preferred.includes(name)))];
-    const enabled = [...latest.values()]
-        .filter(mod => truth(newModDefault(mod, defaults, latest)))
-        .sort((a, b) => order.indexOf(string(a.id)) - order.indexOf(string(b.id)));
+    const inOrder = (mods: Row[]) => mods.sort((a, b) => order.indexOf(string(a.id)) - order.indexOf(string(b.id)));
+    const on = inOrder([...latest.values()].filter(mod => truth(newModDefault(mod, defaults, latest))));
+    const packages = scope === "enabled" ? on : [...on, ...inOrder([...latest.values()].filter(mod => !on.includes(mod)))];
     // §180.8: one claim per key across both spines, in load order -- a word is a person's or a creature's, never both.
     const keys: Row[] = [], creature: Row[] = [], displaced: Row[] = [], claimed = new Map<string, string>();
-    for (const mod of enabled)
+    for (const mod of packages)
         for (const [spine, into] of [["actor_profile_keys", keys], ["creature_profile_keys", creature]] as const)
             for (const entry of array(row(row(mod.contributes).vocabulary)[spine])) {
                 const name = string(entry.key), owner = claimed.get(name);
@@ -110,8 +122,9 @@ export async function buildVocabulary(context: KernelContext): Promise<Row> {
                 claimed.set(name, string(mod.id));
                 into.push({ key: name, label: string(entry.label), ask: string(entry.ask), ...(entry.shape === "lines" ? { shape: "lines" } : {}), mod: string(mod.id), version: string(mod.version) });
             }
-    // §180.9: the first enabled package in load order that requires the weakness shape binds it, and is named for it.
-    const weaknesses = enabled.find(mod => array(mod.requires).includes(WEAKNESSES_CAPABILITY));
+    // §180.9: the first package of that order (for a build, an enabled one in load order) that requires the weakness
+    // shape binds it, and is named for it.
+    const weaknesses = packages.find(mod => array(mod.requires).includes(WEAKNESSES_CAPABILITY));
     return { actor_profile_keys: keys, ...(creature.length ? { creature_profile_keys: creature } : {}),
         ...(weaknesses ? { actor_weaknesses: { mod: string(weaknesses.id), version: string(weaknesses.version) } } : {}),
         ...(displaced.length ? { displaced } : {}) };

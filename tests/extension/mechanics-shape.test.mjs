@@ -224,7 +224,7 @@ test('mechanics_unknown_shape: the container allowance is its starter\'s own, an
         assert.ok(refused.some(refusal => refusal.rule === 'mechanics_unknown_shape' && refusal.path.endsWith('mechanics.provenance')));
         assert.ok(refused.some(refusal => refusal.rule === 'shape_unknown_key' && refusal.path.endsWith('profile.attacks')));
         assert.ok(refused.some(refusal => refusal.rule === 'shape_unknown_key' && refusal.path.endsWith('weapons[0].note')));
-        assert.ok(refused.some(refusal => refusal.rule === 'mechanics_unsourced' && refusal.node === 'npc-rat-swarm'));
+        assert.ok(refused.some(refusal => refusal.rule === 'mechanics_unsourced' && refusal.node === 'creature-rat-swarm'));
     }
 });
 test('mechanics_wrong_kind: a damage shape on a person', () => refusedUnder('mechanics_wrong_kind', graph => {
@@ -240,10 +240,11 @@ test('mechanics_unsourced: a starter rule without evidence spans', () => refused
     stated(graph, 'rule', 'fall', {damage: {dice: '1D6'}}, {evidence_span_ids: []});
 }));
 test('mechanics_unsourced: a starter stat block that states more than its registered profile', () => refusedUnder('mechanics_unsourced', graph => {
-    graph.nodes.find(n => n.node_id === 'npc-rat-swarm').properties.runtime_projection.record.combat = {defense: 'dodge'};
+    // §180.12: the swarm is a creature node, its record the node's own properties.
+    node(graph, 'creature-rat-swarm').properties.combat = {defense: 'dodge'};
 }, 'mystery-house'));
 test('mechanics_unsourced: a stat block of a starter without an allowance row is held to its own citation', () => refusedUnder('mechanics_unsourced', graph => {
-    node(graph, 'npc-rat-pack').source_refs = [];
+    node(graph, 'creature-rat-pack').source_refs = [];
 }));
 test('shape_unknown_key: a severity preset the damage shape does not have', () => refusedUnder('shape_unknown_key', graph => {
     stated(graph, 'rule', 'fall', {damage: {dice: '1D6', severity: 'severe'}});

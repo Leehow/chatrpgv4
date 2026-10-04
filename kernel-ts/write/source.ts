@@ -4,9 +4,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import type { KernelContext } from '../context.js';
 import { writeJsonAtomic, sha256File } from '../fileio.js';
-import { jsonDigest, compareUnicode, parsePythonJson } from '../json.js';
+import { jsonDigest, compareUnicode, parsePythonJson, isJsonObject } from '../json.js';
 import { RpcError } from '../errors.js';
-import { ModuleGraph, recordOf } from '../read/module-graph.js';
+import { ModuleGraph, dossierWith, recordOf } from '../read/module-graph.js';
+import { installedVocabulary } from '../read/mods.js';
 import { loadModule } from '../read/campaign.js';
 import { readPublishedGraph } from '../read/published-graph.js';
 import { array, row, clone, entries, values, truth, number, string, repr, integer, sorted, equal, type Row } from '../read/values.js';
@@ -16,6 +17,7 @@ import { validSourceLanguage } from '../modules/contract.js';
 import { childPath, inside, resolvedPath } from '../modules/paths.js';
 import { obligationRefusals, statedObligations } from '../modules/obligation-shape.js';
 import { carriesMechanics, mechanicsRefusals, mechanicsRules } from '../modules/mechanics-shape.js';
+import { beingPairs, endpointRefusals, weaknessRefusals, type BeingRefusal } from '../modules/being-shape.js';
 import { ensureStarterSource } from '../modules/bound-source.js';
 import { RuleTables } from '../rules/tables.js';
 export function nodePages(node: Row): number[] {
@@ -463,6 +465,51 @@ async function publishStarterAssetsToCampaignScopes(context: KernelContext, id: 
     }
 }
 
+/**
+ * Contract §180.12: a starter is authored, so what its graph carries is what its author asked, and the words it binds are
+ * derived from that data -- the machine fills what it can derive -- in the shape a built module's provenance records
+ * (§180.16, `meta.vocabulary`). A word is bound when an installed package contributes it (`installedVocabulary`, under
+ * that package's label, the key when it gives none) and some being of the starter carries it, read exactly as the table
+ * reads it: a person's word through `npcProfile` on an npc, a creature's through `creatureProfile` on a creature. The
+ * weakness shape is bound when any being carries the contract's `weaknesses` property at all, so a malformed one is held
+ * to the checker rather than silently unbound. Null when the starter carries none, as before.
+ */
+export async function starterVocabulary(context: KernelContext, id: string, graph: Row, contract: Row): Promise<Row | null> {
+    const installed = await installedVocabulary(context);
+    const offered = (spine: string): Row[] => array(installed[spine]).map(entry => ({ ...entry, label: string(entry.label) || string(entry.key) }));
+    const actor = offered('actor_profile_keys'), creature = offered('creature_profile_keys');
+    const probe = new ModuleGraph(id, graph, '', dossierWith(row(contract.actor_dossier),
+        { actor_profile_keys: actor, creature_profile_keys: creature }, row(contract.creature_dossier)));
+    const carried = new Set<string>();
+    for (const node of probe.kind('npc'))
+        for (const key of Object.keys(probe.npcProfile(node))) carried.add(`actor_profile_keys:${key}`);
+    for (const node of probe.kind('creature'))
+        for (const key of Object.keys(probe.creatureProfile(node))) carried.add(`creature_profile_keys:${key}`);
+    const law = row(contract.actor_weaknesses), property = string(law.property);
+    const weaknesses = property !== '' && array(law.on_kinds).some(kind => probe.kind(string(kind))
+        .some(node => Object.hasOwn(row(node.properties), property) || Object.hasOwn(recordOf(node), property)));
+    const bound = (spine: string, words: Row[]): Row[] => words.filter(entry => carried.has(`${spine}:${string(entry.key)}`));
+    const actorWords = bound('actor_profile_keys', actor), creatureWords = bound('creature_profile_keys', creature);
+    if (!actorWords.length && !creatureWords.length && !weaknesses)
+        return null;
+    return { actor_profile_keys: actorWords, ...(creatureWords.length ? { creature_profile_keys: creatureWords } : {}),
+        ...(weaknesses ? { actor_weaknesses: installed.actor_weaknesses ?? true } : {}) };
+}
+/**
+ * Contract §180.7, §180.9: a starter's beings held to the reader's checker, as a draft is: one being, one node; the listed
+ * relations' endpoints (`misleads`); and the weakness entries when the starter binds the shape (`starterVocabulary`).
+ */
+export function starterBeingRefusals(view: ModuleGraph, contract: Row, vocabulary: Row | null): BeingRefusal[] {
+    const bound = truth(vocabulary?.actor_weaknesses);
+    if (bound && !isJsonObject(contract.actor_weaknesses))
+        throw new Error('the starter binds actor.weaknesses.v1 but the graph contract carries no actor_weaknesses law to check it against');
+    return [
+        ...beingPairs(view).map(pair => ({ node: pair.creature, rule: 'one_being_two_nodes', path: 'node_id',
+            message: `npc ${pair.npc} and creature ${pair.creature} share the name ${repr(pair.shared)}; one being is one node, of the kind its book treats it as (contract §180.7)` })),
+        ...(isJsonObject(contract.relation_endpoints) ? endpointRefusals(view, row(contract.relation_endpoints)) : []),
+        ...(bound ? weaknessRefusals(view, row(contract.actor_weaknesses)) : []),
+    ];
+}
 export async function registerStarter(context: KernelContext, id: string): Promise<Row> {
     // Every registration path shares this lock and re-reads the module inside it, so two first
     // registrations of one starter cannot race the exclusive graph write.
@@ -506,6 +553,17 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
                     details: {reason: 'mechanics_invalid', module: id, refusals},
                 });
         }
+        // Contract §180.12: the words its data carries, bound as a build binds them, and its beings held to the reader's
+        // checker (§180.7, §180.9) -- refused, like the shapes above, before any byte of the generation is written.
+        const vocabulary = await starterVocabulary(context, id, graph, contract);
+        {
+            const refusals = starterBeingRefusals(view, contract, vocabulary);
+            if (refusals.length)
+                throw new RpcError('invalid_params', `starter ${repr(id)} states a being this kernel refuses: ${refusals[0].node} ${refusals[0].path}: ${refusals[0].message}`, {
+                    fix: 'repair the being in the starter graph (contract §180.7, §180.9); every refusal is in details.refusals',
+                    details: {reason: 'beings_invalid', module: id, refusals},
+                });
+        }
         meta = {
             id,
             title: string(view.moduleNode?.name || id),
@@ -515,7 +573,8 @@ async function registerStarterLocked(context: KernelContext, id: string): Promis
             status: 'registered',
             starter_path: graphFile,
             created_at: string(existing?.created_at || nowIso()),
-            registered_at: nowIso()
+            registered_at: nowIso(),
+            ...(vocabulary ? { vocabulary } : {})
         };
         const report = playability(graph, view, template, dossier), opening = openingReport(graph, view, template, dossier);
         await mkdir(folder, {

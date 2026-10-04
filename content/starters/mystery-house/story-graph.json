@@ -1338,7 +1338,7 @@
         "clue-liber-ivonis-tome"
       ],
       "npc_ids": [
-        "npc-chapel-familiar"
+        "creature-chapel-familiar"
       ],
       "pressure_moves": [
         "Fresh white three-Y eye symbols make nearby foreheads prickle until investigators step away",
