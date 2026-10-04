@@ -1,5 +1,9 @@
 # Narration Craft
 
+## 2.2.4
+- Organizes environment passages around the current look or chosen movement, integrating required detail through one spatial, causal, temporal or perceptual thread and ending on the scene/result rather than a meta verdict.
+- Keeps source/narrator labels distinct from observer recognition, full visible first-visit/readout duties, historical-detail bounds, quiet/urgency handling and established-place continuity. NPC guidance, reminder, voice lane, state/settings/capabilities and delivery interfaces are unchanged. No new card selector or prose review pass. Contract section 137.11.
+
 ## 2.2.3
 - The first-meeting example no longer names anyone ("Robert, he runs the bar." became the name, then "he runs the bar."). Table 23 (Blood Road, 2026-10-04): the book's bartender is Robert, he was still untold, and the Keeper wrote 「罗伯特」 when asked his name instead of the name token (contract §176.5); an example's name reaches the Keeper in English, where the untold rename cannot follow it.
 
