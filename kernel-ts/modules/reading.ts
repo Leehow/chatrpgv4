@@ -41,7 +41,7 @@ import {visualScanRanges,visualScanKey,validVisualScan,requireVisualOverview,vis
 import {IDENTITY_FAILURES,IDENTITY_HOLDS,IDENTITY_QUESTION,draftIdentityPairs,identitySource,judgeDraftIdentity,publishedIdentityPairs,recordIdentityVerdicts,writeVariants,type IdentityPair} from './visual-identity.js';
 import {identityVerdicts} from './visual-identity-shape.js';
 import {MAP_SCOPE_FAILURES,MAP_SCOPE_QUESTION,mapScopeFocus,mapsLackingScope} from './map-scope.js';
-import {cleanOutline,indexChapters,outlineChapters,pageInside,rangeMeets,readingBudget,readingWindow,wholeWindow,type Chapter,type ReadingWindow} from './chapters.js';
+import {anchorPage,cleanOutline,indexChapters,outlineChapters,pageInside,rangeMeets,readingBudget,readingWindow,wholeWindow,type Chapter,type ReadingWindow} from './chapters.js';
 const PURPOSES = ['index', 'skeleton', 'guidance', 'opening', 'detail', 'answer'];
 /**
  * §22.3.1: what stopped a failed reading, as the host recorded it in findings.json -- the refused field's
@@ -925,10 +925,9 @@ export class Reading {
      * campaign's read-ahead sets to its active scene), else the start scene's, else the book's first page.
      */
     private static anchorPage(graph: ModuleGraph, focus: unknown, pageCount: number): number {
-        const first = (node: Row | null): number | undefined => {
-            const pages = array(node?.source_refs).filter(ref => integer(row(ref).pdf_index)).map(ref => number(ref.pdf_index) + 1).filter(page => page >= 1 && page <= pageCount);
-            return pages.length ? Math.min(...pages) : undefined;
-        };
+        // §182.3: the median of the pages the scene cites (`anchorPage`), not the first one.
+        const first = (node: Row | null): number | undefined =>
+            anchorPage(array(node?.source_refs).filter(ref => integer(row(ref).pdf_index)).map(ref => number(ref.pdf_index) + 1).filter(page => page >= 1 && page <= pageCount));
         const scene = truth(focus) ? graph.find(string(focus), ['scene']) : null;
         let start: Row | null = null;
         try { start = graph.startScene(); } catch (error) { if (!(error instanceof RpcError)) throw error; }

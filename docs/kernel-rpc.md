@@ -33169,8 +33169,12 @@ gate, a source consultation) reads after that.
 ### 182.3 A long book reads the chapter in play and the next one
 
 A book above the threshold has a **reading window**: the chapter that holds the table's current scene and the chapter
-after it in book order. The current scene's page is the first page of its `source_refs` (the anchor the read-ahead already
-computes: `params.focus`, else the start scene); a scene with no page uses the start scene's. Without chapters the window
+after it in book order. The current scene's page is the median of the distinct pages its `source_refs` cite, the upper one of an
+even count (`params.focus`, else the start scene); a scene with no page uses the start scene's. *Amended 2026-10-04 after
+the installed App's kernel ran on a clone of the 血色公路 data: the first page anchored the diner (pages 15, 28, 29) to the
+book's overview chapter, which names every place in passing, so the window was the overview and the prologue instead of
+the town chapter that describes it; the median puts the diner, the gas station (13, 17, 18, 20) and the prologue
+(13, 16, 17) in their own chapters.* Without chapters the window
 is the anchor page through `reading.fallback_window_pages` (data, shipped 24) pages after it. Every background ask of the
 read-ahead is limited to the window: source units whose pages intersect it, contact-sheet ranges that intersect it,
 nominated picture pages, identity pages and map scopes inside it, and need reads whose entity cites a page inside it.
