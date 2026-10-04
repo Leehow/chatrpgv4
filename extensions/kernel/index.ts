@@ -543,7 +543,7 @@ interface TableState {
 	 * finish it any more. The next player input releases it instead of being refused turn_state. */
 	strandedTurn?: boolean;
 	roundTrips: number;
-	/** §174.1: a Keeper call of this turn has written (anything but a read); steps after it may run without thinking. */
+	/** §175.1: a Keeper call of this turn has written (anything but a read); steps after it may run without thinking. */
 	wroteThisTurn?: boolean;
 	/** E0 measurements belong to one settled run, including its retries and queued continuations. */
 	skillRun?: SkillRun;
@@ -6378,7 +6378,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on('tool_call', (event, ctx) => {
-		// §174.1: a Keeper call that is not a read is this turn's writing; the steps after it can run without thinking. The
+		// §175.1: a Keeper call that is not a read is this turn's writing; the steps after it can run without thinking. The
 		// host's own operations (the clerk's move before the first call) raise the same event and are not the Keeper's.
 		if (table && !STEP_READS.has(event.toolName) && !dispatcher.hostOrigin(event.toolCallId)) table.wroteThisTurn = true;
 		return dispatcher.prepare(event, ctx);
@@ -7173,8 +7173,8 @@ export default function (pi: ExtensionAPI) {
 		let firstStepFields: { step: number; first_step_thinking: true | false | "unsupported_format" } | undefined;
 		if (table && process.env.COC_FIRST_STEP_THINKING === "1") {
 			const step = table.roundTrips;
-			// §174.1 (owner, 2026-10-03): until a call of this turn has written, the step still decides what lands. With what
-			// needs no result riding with the narrate (§174), that step is often the second: on table 20 a look came first,
+			// §175.1 (owner, 2026-10-03): until a call of this turn has written, the step still decides what lands. With what
+			// needs no result riding with the narrate (§175), that step is often the second: on table 20 a look came first,
 			// and the step that then wrote the epithets, the moods and the prose ran without thinking and wrote the book's names.
 			if (isFirstStepOfTurn(step) || !table.wroteThisTurn) {
 				firstStepFields = { step, first_step_thinking: true };

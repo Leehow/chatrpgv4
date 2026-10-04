@@ -18454,11 +18454,11 @@ The Keeper's own epithets that turn (白衬衫老板, 啤酒肚卡车司机, 海
 
 ### 103.8 The Keeper does not hold an untold person's name (owner ruling 2026-10-03; amends §103.5 and §103.7)
 
-**Evidence.** Table 20 of the installed App (Blood Road, `game-48858a0b`, §174) leaked on its first turn. The owner's words: 「除了烂牙司机其他名字还是全漏出来了」.
+**Evidence.** Table 20 of the installed App (Blood Road, `game-48858a0b`, §175) leaked on its first turn. The owner's words: 「除了烂牙司机其他名字还是全漏出来了」.
 
 - The Keeper's first step looked at the trucker. His biography mentions his neighbour 史蒂夫·布朗 and says he pretends to help 拉斯 with the cars. 拉斯 is an alias the graph records for the owner (`aliases: ["拉斯", "拉索"]`), and the request's rename (§103.5) replaced only each person's display name.
 - §103.5 also kept each untold person's book name in the Keeper's copy as `untold.name`, "for the moment someone says it".
-- The next step ran without thinking (§174.1). It wrote "史蒂夫·布朗" and "拉斯·威廉姆斯" as epithets, the sidebar showed them, the prose said 「年近七十的史蒂夫」, and the next turn 「拉斯看了眼油泵」. Only the trucker got a real epithet, 烂牙司机.
+- The next step ran without thinking (§175.1). It wrote "史蒂夫·布朗" and "拉斯·威廉姆斯" as epithets, the sidebar showed them, the prose said 「年近七十的史蒂夫」, and the next turn 「拉斯看了眼油泵」. Only the trucker got a real epithet, 烂牙司机.
 
 The owner had asked for this order in the first place: the name stays in the data, and the Keeper gets it once it has been said (「真实姓名在剧情里被人说出来就同步，直接在生成前告诉kp」).
 
@@ -23168,7 +23168,7 @@ ticket, not a retirement). So it is mounted:
 
 **What changes at a table.** On the default Keeper model (`grok-build/grok-4.7-build-fast`) nothing: the follow-up
 `off` is clamped to `low`, the level the table already runs at (§135.24). On a model whose catalog exposes a lower
-level, the requests after the first non-delivery tool batch of an input (since §174.1, the first that writes) run at that level and the table's own level
+level, the requests after the first non-delivery tool batch of an input (since §175.1, the first that writes) run at that level and the table's own level
 returns for the next input, exactly as §3.7 states. The turn's first request, the lanes and the §32 review keep their
 own levels.
 
@@ -31815,7 +31815,7 @@ was ever written, so a card with none is byte-identical to before. `look` on the
 (`mood`, `mood_earlier`). The capsule `head` gains one line: `present[].now` is what that person feels right now and
 carries their next line more than any fact does; when it is missing or no longer true, write it with `apply npc mood`
 (one short line in the play language) before they speak, in the same turn; its own `apply` is fine and it need not ride with
-their words (amended 2026-10-01, see 161.10; amended again 2026-10-03: the same response as the narrate, apply first, §174). The projection reads the committed
+their words (amended 2026-10-01, see 161.10; amended again 2026-10-03: the same response as the narrate, apply first, §175). The projection reads the committed
 ledger, so a mood written this turn shows from the next turn; within the turn the Keeper has just written it.
 
 **161.4 Visibility.** Keeper only. §16.2's `mechanics` has no `npc` row, so no card is drawn; the transcript, the
@@ -32597,9 +32597,70 @@ Owner-run probes on 2026-10-03 (owner's ChatGPT Pro account, `experiments/codex-
 
 **Authority and single pass.** The turn is processed once through the existing interfaces; there is no migration, retry loop, post-prose judge, or hidden second pass that changes state. A structural pass proves only shape and wiring. Acceptance additionally requires the specified focused regressions, correction-budget and atomicity coverage, card clean/reject/uncertain/cancel coverage, actual provider payload inspection, and a real-driver table on final-source versions. Report each gate honestly and distinguish code, delivery, dialogue quality, and complete ending receipt; an unrun gate is not successful.
 
-## 174. What needs no result rides with the narrate (owner ruling, 2026-10-03; amends §161.3, §161.7, §161.10's wording note and §103.7)
+## 174. Auto-create investigator: a template card seats the table without a setup conversation (owner request, 2026-10-03; amends §14.4's setup lane, §21.2's receipt sources and §23's start screen)
 
-*Numbering.* Written as §172 on `claude/first-sight-20261002`, where narration-craft's own 2.1.17 cited it under that number (2.1.19 now cites §174). 0.9.6a meanwhile landed §172 (the Codex image route) and §173 (speech recovery), so this section is §174 from the merge on (§ numbers are stable once landed).
+Creating a character on every test run is slow and spends a model conversation, which is a cost when the run is about play. With the auto-investigator setting on, the start screen ("Start from a scenario") lists a few shipped template cards; choosing a source then lands the session in play with the chosen card, without one setup-guide model turn. With the setting off nothing changes.
+
+**Off by default, everywhere** (owner ruling, 2026-10-03): the product, test boxes and drivers alike. Character creation still surfaces many bugs, and ordinary runs must keep walking through it so those bugs are found and fixed; a default that skipped it would hide them. A tester turns it on by hand on the start screen when a run is about play, and that choice is stored so it persists for the app.
+
+### 174.1 Templates are shipped content
+
+- `content/investigator-templates/<id>/character.json`: one fixed, complete sheet per folder, in the schema of the starter pregens (`content/starters/<id>/pregens/<id>/character.json`: `schema_version`, `name`, `occupation`, `era`, `age`, `sex`, `characteristics`, `derived`, `skills`, `weapons`, `equipment`, `backstory`, `credit_rating`, `cash`, …). `<id>` is a slug (`[a-z0-9][a-z0-9-]{0,63}`); a folder whose file is not a JSON object with a string `name` is not a template.
+- Templates are fixed sheets, not seeds generated per era (owner ruling). An era that differs from the module's is accepted and recorded exactly as `investigator.load` records it (§21.3: `campaign.json.era_mismatch: {sheet, module}`); there is no converter.
+- A template belongs to no book. A sheet copied from a starter's pregen drops `backstory.scenario_id` and `backstory.scenario_bound.description` (which names that book's hook); the personal fields that rode inside `scenario_bound` (`significant_people`, `meaningful_locations`) move up to `backstory` unchanged. No sentence is rewritten. A template made fresh is a kernel chargen result -- `setup.draft` then `setup.confirm` on a scratch campaign with no difficulty setting (rulebook standard) -- frozen into the file with its `creation` trace and seed; its numbers are never hand-written. Shipped: `eleanor-reed` and `thomas-hayes` (from The Haunting's pregens) and `margaret-winslow` (kernel-generated).
+- Names and occupations are authored content, like the pregens'. No language table, no per-language name list.
+
+### 174.2 Two kernel methods
+
+- `setup.templates {}` → `{templates: [{id, name, occupation, era, age, sex}], unreadable?: [<id>]}`, ordered by `id`. The first row is the default template.
+- `setup.template {campaign, template}` → `{receipt, investigator, sheet, template, era_mismatch, replayed?}`.
+  - The campaign must be `setting_up` (`campaign_not_ready` otherwise), except for the replay below.
+  - `template` that names no template → `unknown_entity`, `details: {query, candidates: [<ids>]}`, `fix: "call setup.templates and pass one of its ids"`.
+  - Replay: when the campaign already holds an investigator receipt with `source: "template"`, the call writes nothing and answers that card with `replayed: true`, whatever the campaign's status — a host that retries its converse never seats a second card.
+  - A party that already holds a card from another lane (a draft confirmed, a library load) → `invalid_params`, `code_detail: "party_not_empty"`. A template never stacks onto a card the player made.
+  - Effect: the sheet is copied whole into `<campaign>/party/<id>.json`; only `id` is minted (`defaultInvestigatorId(name, party size + 1)`, made unique), `current_hp/san/mp/luck` are filled from `derived`/`characteristics` when the sheet carries none, and `origin: {template: <id>}` is written. No `origin.library_id`, so §21.4's write-back never mirrors a template into the library. `campaign.json.investigators` is rewritten, `era_mismatch` recorded, and one setup receipt appended: `{id: "investigator:<id>", kind: "investigator", investigator, name, occupation, source: "template", template: <id>, at}`.
+
+### 174.3 What the receipt source changes in setup
+
+- `setup.complete`: a campaign whose investigator receipts are all `library` or `template` skips the completeness check and the draft-confirm check (as `library` alone did, §21). The opening gate is unchanged: when the opening is not ready, `waiting_for_opening` is set and `campaign_not_ready` / `opening_preparing` is thrown with the card retained.
+- `setup.steps`: a `template` receipt books the load-an-existing-sheet lane (`browse-library`, `load-investigator`), so the setup extension sees an investigator seated and `complete` reachable.
+
+### 174.4 The setting
+
+- Key `ext.coc-keeper.autoInvestigator` in the host's app-scope extension settings document, value `{enabled: boolean, template?: string}`. Declared in `pipiui-extension.json`'s schema; written by the start screen through the host's ordinary `updateExtensionSettings` (the same path the settings sections use).
+- Read by the host only. It is on only when the stored value says `enabled: true`; with nothing stored it is **off**. No environment variable, launcher flag or renderer field turns it on: only the player's own toggle does.
+- The renderer is not trusted for on/off: the host drops any `auto_investigator` the renderer put on a request and injects its own. The renderer may name `template` on `converse`; it reaches the kernel only as a template id, and the kernel refuses any id that is not shipped (`unknown_entity`). With no template named anywhere, the first listed template is used.
+
+### 174.5 Host and worker flow
+
+- `onboarding {action: "catalog"}` answers, beside `presets`/`modules`/`occupations`, `templates` (from `setup.templates`) and `auto_investigator: {enabled, template}` (the host's reading of §174.4; `template` is the stored choice or `null`).
+- `onboarding {action: "converse"}` with the setting on carries `auto_investigator: {template}` into the worker input (never into the import job file). After `campaign.create` (or on a campaign that already exists and is still `setting_up`), the worker calls `setup.template` and then `setup.complete`. `campaign_not_ready` with `details.reason: "opening_preparing"` is not a failure: `waiting_for_opening` stays set and the existing handoff polling finishes setup when the opening is ready. Any other refusal fails the converse the way any worker refusal does.
+- The host then binds the session exactly as before (`mode: "setup"`) and starts it. The setup extension's autostart either finds `complete` already booked (nothing is shown) or, while the opening prepares, shows the prepared prologue as a host message (`triggerTurn: false`). Neither path runs a guide model turn.
+- Handoff to play reuses the existing path and nothing parallel: the preparation panel (`pipicoc/preparation.js`) sees `canHandoff` and runs `onboarding {action:"start"}` → `setup-handoff` → `onboarding {action:"start"}`; `setup-handoff` calls `setup.complete` (a replay when it already completed), appends the play binding and exits the setup process; the play session's first turn is the Keeper's opening.
+- `CocOnboardingHost.snapshot()` reports `character.state: "confirmed"` when `confirmed_revision` or `handoff` is set (unchanged) **or** when the campaign's investigator receipts are non-empty and all `source: "template"`. That is what lets `canHandoff` fire for a template card waiting on its opening.
+- With the setting off, `converse` carries no `auto_investigator`, the worker never calls `setup.template`, and the campaign stays `setting_up` with an empty party: the setup conversation is the one it was.
+
+### 174.6 Start screen
+
+- Near the play-language field, a checkbox "auto-create investigator" whose state is the catalog's `auto_investigator.enabled`. Toggling writes the setting (§174.4) with the current template.
+- When on, the template cards are listed under it (name, occupation, era, age). The selected card is the stored `template` when it is still listed, else the first. Clicking a card selects it and writes the setting. Clicking a source card and choosing a scenario then starts as before; the `converse` request names the selected `template`.
+- Captions come from `content/ui/en/onboarding.json` (`autoInvestigator.*`); other languages are projected by the ui-words lane (§23), never hand-written.
+
+### 174.7 Three ends (§31)
+
+- **`setup.template` receipt** — *writer:* the onboarding worker's converse (`setup.template`). *Readers:* `setup.complete` (skips draft confirm), `setup.steps` (books the existing-sheet lane), `CocOnboardingHost.snapshot()` (`character: confirmed`). *Actor:* the preparation panel's handoff, which needs `canHandoff`, and the kernel's `setup:handoff` receipt that follows.
+- **`ext.coc-keeper.autoInvestigator`** — *writer:* the start screen's checkbox and template cards. *Reader:* the host's onboarding handler (catalog answer, converse injection). *Actor:* the worker's converse, whose `setup.template` / `setup.complete` calls land as the receipts above.
+- **`origin.template` on the sheet** — *writer:* `setup.template`. *Reader:* none in play; it is provenance for evidence and the reason §21.4's write-back skips the card (it reads only `origin.library_id`).
+
+### 174.8 Implementation decisions
+
+- The template is loaded by a new `setup.template`, not a `template` source on `investigator.load`: `investigator.load` reads library rows under the home, has a `turn_state` gate for mid-play joins and mints library forks; a content template has none of that, and a second reading lane inside that method would have to switch on its parameters.
+- `setup.steps` books the `library` lane for a template rather than adding a third investigator source to `content/setup/steps.json`: the setup guide never walks a template (the host does it before the session exists), and a third lane would add steps nobody can take.
+- The auto path records no prologue of its own. When setup completes inside the converse (the opening was already ready), the setup session finds `complete` booked and shows nothing, so `handoff.prologue` is `null` and the play opening treats it as "no setup meeting" (as for `--pregen`) -- the truth. When the opening is still preparing, the setup session's ordinary autostart shows the prologue and records it through `setup.prologue`, so the handoff carries a prologue the player really saw. Recording one the player never read would make the Keeper skip words nobody was shown.
+
+## 175. What needs no result rides with the narrate (owner ruling, 2026-10-03; amends §161.3, §161.7, §161.10's wording note and §103.7)
+
+*Numbering.* Written as §172 on `claude/first-sight-20261002`, where narration-craft's own 2.1.17 cited it under that number (2.1.19 cites §175). While the branch waited, 0.9.6a landed §172 (the Codex image route), §173 (speech recovery) and §174 (auto-created investigators), so this section is §175 from the merge on (§ numbers are stable once landed).
 
 **Why.** The owner asked why a turn takes so long, and then for the recommendation: 「按你推荐的做」. The installed App ran with `flapcode/gpt-6-luna` as Keeper, and each model step there costs 7–12 s before its first token (§171). Of 51 delivered turns across 34 sessions (2026-10-02 noon to 2026-10-03), 28 opened with a step that held only writes whose landing their own arguments fix, and the prose followed in a second step:
 
@@ -32630,21 +32691,21 @@ The feeling a person has is an author's choice that the input does not determine
 
 Tests: `tests/extension/npc-mood.test.mjs` and `tests/extension/jev-pacing-mod-alignment.test.mjs` move their narration-craft pin to 2.1.17. The wording itself has no test, because a test that pinned it would only pin a string.
 
-### 174.1 A step before the turn's first write keeps its thinking (owner ruling 2026-10-03, with §103.8)
+### 175.1 A step before the turn's first write keeps its thinking (owner ruling 2026-10-03, with §103.8)
 
 Two mechanisms lower thinking after a turn's first Keeper call, and both did it after a batch of reads alike:
 
 - `extensions/thinking-schedule` (§135.27), mounted at every table: the installed App's. After the first tool batch of an input that does not deliver, it asks Pi for the lowest level, which runs the rest of the input.
 - `COC_FIRST_STEP_THINKING=1` (§38.7.1): an env-gated experiment that rewrites each provider request after the first. No launch sets it; the App does not.
 
-Once §174 put what needs no result into the narrate's response, the step that wrote the epithets, the moods and the prose was often the second: on table 20 a look came first, and the step after it, its request at `none`, wrote the book's names (§103.8).
+Once §175 put what needs no result into the narrate's response, the step that wrote the epithets, the moods and the prose was often the second: on table 20 a look came first, and the step after it, its request at `none`, wrote the book's names (§103.8).
 
 The rule is now this, in both. A call keeps thinking until a Keeper call of this turn has written. Any call but `look`, `lookup` or `recall` counts as writing; the one set is `STEP_READS` in `extensions/kernel/first-step-thinking.ts`.
 
 - `thinking-schedule` skips a batch whose calls are all reads. A batch with one write among reads is a writing batch.
 - The env-gated path counts on `tool_call`. The host's own operations raise the same event; they are recognized by `dispatcher.hostOrigin` and do not count (the clerk's move before the first call is not the Keeper's writing). The counter resets on player input, with `roundTrips`. The provider-request row's `first_step_thinking` is `true` for every call before the first write.
 
-This costs a few seconds of thinking on a step that follows only reads, which is still one model step fewer than before §174. Tests:
+This costs a few seconds of thinking on a step that follows only reads, which is still one model step fewer than before §175. Tests:
 
 - `tests/extension/thinking-schedule.test.mjs`: reads keep the table's level, a read beside a write lowers it, and the earlier cases now lower on a write.
 - `tests/extension/first-step-thinking.test.mjs`: the step after a look keeps thinking, the step after a write is rewritten off, the reset still holds, and the unsupported-format case now follows a write.

@@ -36,6 +36,8 @@ const MAX_UPLOAD_MB = 128
 const UPLOAD_ATTEMPTS = 4
 /** A pause between attempts, growing, so a chunk still being written has time to land. */
 const UPLOAD_RETRY_MS = 500
+/** The host's settings key for auto-create investigator (contract §174.4); the host reads it, never this screen alone. */
+const AUTO_INVESTIGATOR_KEY = 'ext.coc-keeper.autoInvestigator'
 
 /** A caption from the answer's `ui` block, or `fallback` -- the key by default, so a gap is
  *  something a player can name rather than a word from a language they did not choose. */
@@ -112,6 +114,8 @@ export function CocOnboarding({host, sessionId}: Props) {
   // host for a catalog in a language nobody named. The tag is committed when it is a whole one.
   const [typedLanguage,setTypedLanguage] = useState<string>(playLanguages.default)
   const [ui,setUi] = useState<Ui | null>(null)
+  // Contract §174.6: the player's own toggle and card choice, over the host's stored reading of them.
+  const [autoChoice,setAutoChoice] = useState<{enabled:boolean; template:string|null} | null>(null)
   const starting=useRef(false), restored=useRef(false)
   const chooser = useRef<HTMLInputElement>(null), cancelled = useRef(false), uploadRunning = useRef(false)
   const chosen = useRef<File | null>(null)
@@ -235,12 +239,23 @@ export function CocOnboarding({host, sessionId}: Props) {
     void upload(file)
     return true
   }
+  const templates:Row[]=Array.isArray(catalog?.templates)?catalog!.templates:[]
+  const autoOn=templates.length>0&&(autoChoice?.enabled??catalog?.auto_investigator?.enabled===true)
+  const storedTemplate=autoChoice?.template??catalog?.auto_investigator?.template
+  const selectedTemplate:string|null=templates.some(item=>item.id===storedTemplate)?storedTemplate:templates[0]?.id??null
+  /** The toggle and the card are the setting itself: written where the settings sections write theirs. */
+  function chooseAuto(enabled:boolean, template:string|null) {
+    setAutoChoice({enabled,template})
+    void host.updateExtensionSettings?.('coc-keeper',{[AUTO_INVESTIGATOR_KEY]:{enabled,...(template?{template}:{})}})
+      .then(result=>{if(result&&result.ok===false)setError(failure(result.error))})
+      .catch(reason=>setError(failure(reason)))
+  }
   async function back(){setBusy(true);try{if(job)await call({action:'dismiss',id:job.id});setJob(null);setSection('home');setError(null);try{localStorage.removeItem(storageKey)}catch{}}catch(e){setError(failure(e))}finally{setBusy(false)}}
   const preparing=job && ['preparing','inspecting','uploading'].includes(job.state)
   useEffect(()=>{
     if(!job || !['ready','conversing'].includes(job.state) || starting.current)return
     starting.current=true
-    void act({action:'converse'}).finally(()=>{starting.current=false})
+    void act({action:'converse',...(autoOn&&selectedTemplate?{template:selectedTemplate}:{})}).finally(()=>{starting.current=false})
   },[job?.id,job?.state])
   const stageTitle=job?.state==='uploading'?t('state.uploading'):job?.state==='inspecting'?t('state.inspecting')
     :word(ui,'onboarding',`stage.${job?.stage}`,t('stage.default'))
@@ -262,6 +277,14 @@ export function CocOnboarding({host, sessionId}: Props) {
           onBlur={e=>commitLanguage(e.target.value)}
           onKeyDown={e=>{if(e.key==='Enter')commitLanguage((e.target as HTMLInputElement).value)}}/></label>
         <datalist id="coc-play-languages">{playLanguages.suggested.map(tag=><option key={tag} value={tag}>{languageName(tag)}</option>)}</datalist>
+        {templates.length>0&&<div className="coc-auto-investigator">
+          <label><input type="checkbox" checked={autoOn} onChange={e=>chooseAuto(e.target.checked,selectedTemplate)}/>{t('autoInvestigator.toggle')}</label>
+          <p className="coc-muted">{t('autoInvestigator.hint')}</p>
+          {autoOn&&<section className="coc-template-list" aria-label={t('autoInvestigator.list')}>
+            {templates.map(item=><button key={item.id} aria-pressed={item.id===selectedTemplate} className={item.id===selectedTemplate?'selected':''} onClick={()=>chooseAuto(true,item.id)}>
+              <strong>{item.name}</strong><span>{[item.occupation,item.era,typeof item.age==='number'?tf('autoInvestigator.age',{age:item.age}):null].filter(Boolean).join(' · ')}</span></button>)}
+          </section>}
+        </div>}
       <div className="coc-source-cards">
         <button className={section==='starter'?'selected':''} onClick={()=>setSection('starter')}><span className="coc-source-symbol">⌘</span><strong>{t('source.starter.title')}</strong><span>{t('source.starter.hint')}</span><b>{t('source.starter.action')}</b></button>
         <button className={section==='pdf'?'selected':''} onClick={()=>{setSection('pdf');chooser.current?.click()}}><span className="coc-source-symbol">↑</span><strong>{t('source.pdf.title')}</strong><span>{t('source.pdf.hint')}</span><b>{t('source.pdf.action')}</b></button>
@@ -287,7 +310,7 @@ export function CocOnboarding({host, sessionId}: Props) {
       {['failed','paused'].includes(job.state)&&<div><h2>{job.state==='paused'?t('pausedTitle'):t('failedTitle')}</h2><p>{t('keptNote')}</p>{/* The caption leads and the host's message follows it, never replaces it: a message is written
             in the system language, and a player who chose another reads only the caption (BUG-039, §46.3). */}
         {job.error&&<details><summary>{t('showReason')}</summary><p>{said(failure(job.error))}</p>{failure(job.error).message&&<p className="coc-muted">{failure(job.error).message}</p>}</details>}<div className="coc-actions"><button disabled={busy||job.stopping} onClick={()=>{if(!continueUpload())void act({action:'resume'})}}>{job.stopping?t('pausing'):t('resume')}</button><button className="coc-secondary" onClick={()=>chooser.current?.click()}>{t('choosePdfAgain')}</button></div></div>}
-      {['ready','conversing'].includes(job.state)&&<p role="status">{t('entering')}</p>}
+      {['ready','conversing'].includes(job.state)&&<p role="status">{autoOn?t('autoInvestigator.entering'):t('entering')}</p>}
       {!preparing&&!busy&&job.state!=='created'&&<button className="coc-back" onClick={back}>{t('back')}</button>}
     </section>}
     {error&&<div className="coc-error" role="alert"><strong>{t('errorTitle')}</strong><p>{said(error)}</p>{error.message&&<details><summary>{word(ui,'errors','details')}</summary><p>{error.message}</p></details>}<button onClick={()=>{setError(null)

@@ -4,7 +4,7 @@ Status: needs-triage (draft for the owner; nothing implemented). Owner, 2026-10-
 - 「对了，我发现这个外号是不是应该是图谱解析的时候就应该填的内容，解析图谱的时候能知道这个角色的很多信息，除非是一个图谱里没有的角色才现创建外号吧」
 - Asked whether to build it: 「先写 spec 给我看」
 
-Related contract: §79 (what the table calls a person), §103.5–§103.8 (untold names), §103.7 (one distinctive visible thing), §135.26 (the clerk's stated meeting), §168 (first sight), §174 (what needs no result rides with the narrate; numbered §172 on the work branch).
+Related contract: §79 (what the table calls a person), §103.5–§103.8 (untold names), §103.7 (one distinctive visible thing), §135.26 (the clerk's stated meeting), §168 (first sight), §175 (what needs no result rides with the narrate; numbered §172 on the work branch).
 
 ## 1. Evidence
 

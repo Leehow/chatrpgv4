@@ -64,6 +64,7 @@ createInterface({input:process.stdin}).on('line',line=>{
  let result={};
  if(request.method==='module.list')result={modules:[{id:'owned-module',status:'installed',source:'pdf'}]};
  if(request.method==='setup.occupations')result={occupations:[{name:'Journalist'}]};
+ if(request.method==='setup.templates')result={templates:[{id:'fixture-card',name:'Fixture'}]};
  if(request.method==='module.read.request')result={state:'ready',job_id:'opening-ready'};
  if(request.method==='campaign.list')result={campaigns:existsSync(join(home,'.coc/campaigns'))?readdirSync(join(home,'.coc/campaigns')).map(id=>({id})):[]};
  if(request.method==='campaign.create'){
@@ -133,6 +134,7 @@ test('the real catalog worker uses captured Node, data, Pi and relocated content
   assert.deepEqual(output.events.find(event => event.type === 'result').data, {
     presets: [{id: 'selected-story', title: 'Selected content', blurb: 'Relocated catalog'}],
     modules: [{id: 'owned-module', status: 'installed', source: 'pdf'}], occupations: [{name: 'Journalist'}],
+    templates: [{id: 'fixture-card', name: 'Fixture'}],
   });
   for (const event of kernelEvents(f.home)) {
     assert.equal(event.cwd, f.resourceRoot);

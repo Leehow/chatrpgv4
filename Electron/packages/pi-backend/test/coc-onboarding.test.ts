@@ -271,7 +271,81 @@ it('conversation binding is idempotent and never creates an investigator',async(
   expect(accepted.play_language).toBe('en');
   const {readdir:files}=await import('node:fs/promises');
   expect((await files(join(home,'.coc/campaigns',first.campaign,'party'))).filter(x=>x.endsWith('.json'))).toHaveLength(0);
+  // §174.5: with the setting off nothing is seated and the conversation is the one it was.
+  expect(campaign.setup?.receipts).toBeUndefined();
+  expect(first.character.state).toBe('conversing');expect(first.canHandoff).toBe(false);
   await expect(host.invoke({action:'create',id:job.id,character:{name:'Forbidden',occupation:'Journalist'}},'one',model)).rejects.toThrow('Unknown onboarding action');
+});
+/** A starter job prepared through the real worker and guidance fixture, ready to converse. */
+async function readyStarter(host:CocOnboardingHost,session:string){
+  let job=await host.invoke({action:'select',source:'starter',module_id:'the-haunting',name:'The Haunting',play_language:'en'},session,model);
+  const deadline=Date.now()+10000;
+  while(job.state==='preparing'&&Date.now()<deadline){await new Promise(r=>setTimeout(r,50));job=await host.invoke({action:'status',id:job.id},session,model)}
+  expect(job.state).toBe('ready');
+  return job;
+}
+/**
+ * Contract §174.5: with the host's auto-investigator choice on the converse request, the real worker
+ * seats the template and completes setup on the real kernel, before any session exists -- so no setup
+ * guide turn can run -- and the snapshot says the card is confirmed and the table may be handed off.
+ */
+it('a converse carrying the host\'s auto-investigator choice seats the template and completes setup without a draft',async()=>{
+  const {host,home}=await service();
+  const catalog=await host.invoke({action:'catalog'},'one',model);
+  const templates=catalog.templates.map((row:any)=>row.id);
+  expect(templates).toEqual([...templates].sort());
+  expect(templates.length).toBeGreaterThanOrEqual(3);
+  const job=await readyStarter(host,'one');
+  const chosen=templates[1];
+  const first=await host.invoke({action:'converse',id:job.id,auto_investigator:{template:chosen}},'one',model);
+  const campaign=JSON.parse(await readFile(join(home,'.coc/campaigns',first.campaign,'campaign.json'),'utf8'));
+  expect(campaign.status).toBe('ready_for_table');
+  expect(campaign.setup.draft_revision).toBeUndefined();
+  expect(campaign.setup.receipts.map((receipt:any)=>[receipt.kind,receipt.source,receipt.template])).toEqual([['investigator','template',chosen]]);
+  expect(campaign.setup.handoff.investigators).toEqual(campaign.investigators);
+  const {readdir}=await import('node:fs/promises');
+  const party=(await readdir(join(home,'.coc/campaigns',first.campaign,'party'))).filter(x=>x.endsWith('.json'));
+  expect(party).toHaveLength(1);
+  const sheet=JSON.parse(await readFile(join(home,'.coc/campaigns',first.campaign,'party',party[0]),'utf8'));
+  expect(sheet.origin).toEqual({template:chosen});
+  expect(first.character.state).toBe('confirmed');
+  expect(first.canHandoff).toBe(true);
+  // The choice rides the run, never the import job the player can restore.
+  const persisted=JSON.parse(await readFile(join(home,'.coc/imports',job.id,'job.json'),'utf8'));
+  expect(persisted).not.toHaveProperty('auto_investigator');
+  // A retried converse seats nothing new.
+  const replay=await host.invoke({action:'converse',id:job.id,auto_investigator:{template:chosen}},'one',model);
+  expect(replay.campaign).toBe(first.campaign);
+  expect((await readdir(join(home,'.coc/campaigns',first.campaign,'party'))).filter(x=>x.endsWith('.json'))).toHaveLength(1);
+});
+it('with no template named, the auto path seats the first listed template',async()=>{
+  const {host,home}=await service();
+  const catalog=await host.invoke({action:'catalog'},'one',model);
+  const job=await readyStarter(host,'one');
+  const first=await host.invoke({action:'converse',id:job.id,auto_investigator:{}},'one',model);
+  const campaign=JSON.parse(await readFile(join(home,'.coc/campaigns',first.campaign,'campaign.json'),'utf8'));
+  expect(campaign.setup.receipts[0].template).toBe(catalog.templates[0].id);
+});
+/**
+ * A template card whose opening is still preparing has no draft revision and no handoff yet; the
+ * receipts are what say it is confirmed, so the preparation panel's handoff can fire once the opening
+ * is ready. A card the conversation is still drafting must not read as confirmed.
+ */
+it('a template-seated campaign waiting for its opening reads as confirmed; a drafting one does not',async()=>{
+  const {host,home}=await service();
+  const job=await readyStarter(host,'one');
+  const first=await host.invoke({action:'converse',id:job.id,auto_investigator:{}},'one',model);
+  const path=join(home,'.coc/campaigns',first.campaign,'campaign.json');
+  const meta=JSON.parse(await readFile(path,'utf8'));
+  const waiting={...meta,status:'setting_up',setup:{receipts:meta.setup.receipts,waiting_for_opening:true}};
+  await writeFile(path,JSON.stringify(waiting));
+  let snapshot=await host.invoke({action:'status',id:job.id},'one',model);
+  expect(snapshot.character.state).toBe('confirmed');
+  expect(snapshot.canHandoff).toBe(true);
+  await writeFile(path,JSON.stringify({...waiting,setup:{...waiting.setup,receipts:[{...meta.setup.receipts[0],source:'new'}]}}));
+  snapshot=await host.invoke({action:'status',id:job.id},'one',model);
+  expect(snapshot.character.state).toBe('conversing');
+  expect(snapshot.canHandoff).toBe(false);
 });
 it('hides only a finished preparation, and a hidden job stays the current import',async()=>{
   const {host,home}=await service();

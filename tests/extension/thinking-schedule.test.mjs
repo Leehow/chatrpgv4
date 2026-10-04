@@ -98,7 +98,7 @@ test("the requested minimum is clamped by Pi and delivery-only batches do not ch
 	assert.equal(runtime.level(), "high");
 });
 
-// Contract §174.1 (owner ruling 2026-10-03): on table 20 a look came first, and the step after it, run without
+// Contract §175.1 (owner ruling 2026-10-03): on table 20 a look came first, and the step after it, run without
 // thinking, wrote the book's names as epithets. A step keeps the table's level until the Keeper has written.
 test("a batch of reads only keeps the table level for the next step; a batch that writes anything lowers it", async () => {
 	const runtime = fixture({ initial: "low", minimum: "minimal" });

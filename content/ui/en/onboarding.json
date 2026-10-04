@@ -1,5 +1,10 @@
 {
   "adviceNotice": "Character suggestions and warnings are advisory; your choices remain yours.",
+  "autoInvestigator.age": "age {age}",
+  "autoInvestigator.entering": "Seating your investigator; the table opens when the opening is ready.",
+  "autoInvestigator.hint": "Skips the character conversation: the chosen ready-made investigator is seated and play starts as soon as the opening is prepared.",
+  "autoInvestigator.list": "Ready-made investigators",
+  "autoInvestigator.toggle": "Auto-create investigator",
   "field.era": "Era",
   "field.starting_place": "Starting place",
   "field.public_premise": "Scenario premise",
