@@ -38,8 +38,10 @@ export interface CastPerson {
     /** Physical pages, 1-based. */
     pages: number[];
     node: Row | null;
-    /** The stored rows this person absorbed (their epithets, written before the node existed, follow the person). */
+    /** The stored rows this person absorbed. */
     castIds: string[];
+    /** The forms those rows print and render (§177.11): the cast reader lists names of individuals, never a group's description. */
+    printed: string[];
     /** A stored row's first mention, cut from the text layer by machine (§177.2). */
     first?: { page: number; sentence: string };
 }
@@ -62,7 +64,7 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
     const cached = memo.get(graph);
     if (cached) return cached;
     const people: CastPerson[] = graph.kind('npc').filter(node => !graph.isTablePerson(node))
-        .map(node => ({ id: graph.handle(node), names: bookNames(graph, node), pages: pagesOf(graph, node), node, castIds: [] }));
+        .map(node => ({ id: graph.handle(node), names: bookNames(graph, node), pages: pagesOf(graph, node), node, castIds: [] as string[], printed: [] as string[] }));
     // A partial cast (some ranges read, §177.2) is as true as a complete one, only shorter.
     const stored = graph.castStore && ['complete', 'partial'].includes(string(graph.castStore.state)) ? array(graph.castStore.people) : [];
     // A row joins a graph person by a whole identity, never by a shared short form: the person's own name is one of the row's
@@ -81,6 +83,7 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         if (hits.size === 1) {
             const person = people[[...hits][0]!]!;
             for (const name of names) if (!person.names.some(other => normalize(other) === normalize(name))) person.names.push(name);
+            for (const name of names) if (!person.printed.some(other => normalize(other) === normalize(name))) person.printed.push(name);
             person.pages = [...new Set([...person.pages, ...pages])].sort((a, b) => a - b);
             person.castIds.push(id);
             continue;
@@ -90,7 +93,7 @@ export function bookCast(graph: ModuleGraph): CastPerson[] {
         const own = names;
         const first = isJsonObject(entry.first) && Number.isSafeInteger(entry.first.page) && typeof entry.first.sentence === 'string'
             ? { page: Number(entry.first.page), sentence: entry.first.sentence } : undefined;
-        people.push({ id, names: own, pages, node: null, castIds: [id], ...(first ? { first } : {}) });
+        people.push({ id, names: own, pages, node: null, castIds: [id], printed: own, ...(first ? { first } : {}) });
     }
     memo.set(graph, people);
     return people;

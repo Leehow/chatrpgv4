@@ -367,3 +367,38 @@ test('§177.1: an authored module has no cast job; its cast is its graph, and an
 	const mister = await walkOn('Mr Smith', 2);
 	assert.equal(mister.ok, true, `"Mr" is written as an abbreviation in "Mr. Dooley", not as his name: ${mister.error?.message}`);
 });
+
+test('§177.11: a delivery that says an untold printed name in its own words is refused; the name token says it; once told it is the Keeper\'s', async t => {
+	const h = await harbor(t);
+	await readCast(h);
+	await h.call('epithets.submit', {entries: [{id: 'old-mae', word: 'the net mender'}]});
+	await h.call('table.player_input', {text: 'I ask the net mender about her family.'});
+	// Table 25 (turn 8): the toothless trucker said 「叫我厄尼就行」, the name of another man of the book nobody had met.
+	const unread = await h.attempt('table.narrate', {call_id: 't1-c1', text: 'She sighs. "My boy Jonah went down to the cellar."'});
+	assert.equal(unread.ok, false);
+	assert.deepEqual([unread.error.details?.reason, unread.error.details?.words], ['untold_name', ['Jonah']], 'someone the reader has not reached');
+	const graphPerson = await h.attempt('table.narrate', {call_id: 't1-c1', text: 'She says, "Call me Mae."'});
+	assert.deepEqual(graphPerson.error?.details?.words, ['Mae'], 'a printed form of an untold graph person');
+	const token = await h.call('table.narrate', {call_id: 't1-c1', text: 'She wipes her hands. {{say:the net mender}}"Everyone calls me {{name:the net mender}}."{{/say}}'});
+	assert.match(token.rendered_text, /Old Mae/, 'the token puts the book\'s name in on purpose');
+	await h.call('table.player_input', {text: 'And your boy?'});
+	const told = await h.attempt('table.narrate', {call_id: 't2-c1', text: 'Old Mae looks away.'});
+	assert.equal(told.ok, true, `told, her name is the Keeper's to write: ${told.error?.message}`);
+});
+
+test('§177.11: in an authored module, a group\'s ordinary alias is no name to refuse; an untold person\'s own name is', async t => {
+	const k = await kernel(t, 'module-cast-delivery-authored');
+	const call = (method, params = {}) => k.raw(method, {campaign: 'c1', ...params});
+	await k.raw('campaign.create', {id: 'card-source', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
+	const saved = await k.raw('investigator.save', {campaign: 'card-source'});
+	await call('campaign.create', {id: 'c1', module: 'the-haunting-rulebook', play_language: 'en'});
+	await call('investigator.load', {library_id: saved.library_id});
+	await call('setup.complete');
+	await call('table.open');
+	await call('table.player_input', {text: 'I look around the street.'});
+	const group = await k.attempt('table.narrate', {campaign: 'c1', call_id: 't1-c1', text: 'Down the street the kids are kicking a can.'});
+	assert.equal(group.ok, true, `"the kids" is the Macario boys' alias, an ordinary phrase: ${group.error?.message}`);
+	await call('table.player_input', {text: 'Who runs the stand?'});
+	const named = await k.attempt('table.narrate', {campaign: 'c1', call_id: 't2-c1', text: 'Mr. Dooley waves from the newsstand.'});
+	assert.equal(named.error?.details?.reason, 'untold_name');
+});

@@ -68,6 +68,25 @@ export function untoldPieces(graph: ModuleGraph, journal: Row, records: Row[]): 
         .map(normalize).filter(piece => piece && !known.has(piece)))];
 }
 
+/**
+ * §177.11 (owner ruling 2026-10-04 after table 25): the names a delivery may not say in its own words -- every printed
+ * form of everyone the investigator has not been told about, graph people and the unread alike, minus any name a told
+ * person also carries. A person the cast has rows for is named by what the cast reader printed (it lists individuals'
+ * names, never a group's description); a graph person with none, by their own name and display name, not their aliases,
+ * which for a group are often ordinary words. A one-character name is no name here.
+ */
+export function untoldWholeNames(graph: ModuleGraph, journal: Row, records: Row[]): string[] {
+    const untold = new Set(untoldBookPeople(graph, journal, records).map(node => string(node.node_id)));
+    const unread = new Set(untoldUnread(graph, records).map(person => person.id));
+    const isUntold = (person: CastPerson) => person.node ? untold.has(string(person.node.node_id)) : unread.has(person.id);
+    const cast = bookCast(graph);
+    const known = new Set(namePieces(cast.filter(person => !isUntold(person)).flatMap(person => person.names)).map(normalize));
+    const forms = (person: CastPerson): string[] => person.printed.length ? person.printed
+        : person.node ? [person.node.name, graph.displayName(person.node)].filter((value): value is string => typeof value === 'string') : [];
+    return [...new Set(cast.filter(isUntold).flatMap(forms).map(name => name.trim())
+        .filter(name => [...name].length >= 2 && !known.has(normalize(name))))];
+}
+
 /** Every word already in use for someone other than `handle`: table words, folded epithets, stored epithets, journal labels. */
 export function wordsInUse(world: Row, journal: Row, stored: Row, graph: ModuleGraph, except = ''): string[] {
     const handles = new Set<string>([...Object.keys(row(world.person_labels)), ...Object.keys(row(world.person_epithets)), ...Object.keys(row(stored.people))]);

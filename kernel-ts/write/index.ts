@@ -39,8 +39,9 @@ import { deliveryText, deliveryRecord, keeperReads } from './delivery.js';
 import { markupInProse, describeMarkup, bareWrapper, unwrap, MARKUP_STEER } from './markup.js';
 import { timeGap, timeReading, timeRefusal, timeWarning } from '../read/time-reading.js';
 import { speakerResolver, repeatedLine, repeatedLines } from './speech.js';
-import { foldPersonWords } from '../read/person-words.js';
-import { withNames } from './names.js';
+import { foldPersonWords, untoldWholeNames } from '../read/person-words.js';
+import { untoldNamesSaid, withNames } from './names.js';
+import type { SpeakerResolver } from './speech-pass.js';
 import { readableTurn, rebuildTurn, syncCheckpoint, resumeView, checkpointFromRecord, writeCheckpoint } from './continuation.js';
 import {activeName} from '../read/worldline.js';
 import {eventOf} from '../worldline/index.js';
@@ -157,6 +158,20 @@ function timeRow(gap: Row, turn: Row, callId: string, params: Row): Row {
  * returned, and the delivery carries them as findings instead.
  */
 /** §103.5: who is untold at this delivery, for the say token's `shown` (write/speech.ts). Table-established people never are. */
+/**
+ * §177.11 (owner ruling 2026-10-04): a narrate or ask whose own words say the printed name of someone the investigator has
+ * not been told about is refused; the name reaches the prose through that person's `{{name:}}` token, when the fiction has it
+ * said. The words found are named back: the Keeper wrote them.
+ */
+async function refuseUntoldNames(snapshot: CampaignSnapshot, graph: ModuleGraph, text: string, speakers: SpeakerResolver): Promise<void> {
+    const journal = row(await snapshot.optional('npc-journal.json')), records = snapshot.records.length ? snapshot.records : await snapshot.files('turns');
+    const said = untoldNamesSaid(text, speakers, graph, untoldWholeNames(graph, journal, records));
+    if (!said.length) return;
+    throw new RpcError('invalid_params', `the text says ${said.map(word => repr(word)).join(', ')}: a name the book gives someone the investigator has not been told about`, {
+        fix: 'where the fiction has that person\'s name said, write their say_name from present[] there instead; otherwise call them by the word present[] shows, and give a newcomer a word that carries nobody\'s name. Change only those words and deliver again',
+        details: { reason: 'untold_name', field: 'text', words: said },
+    });
+}
 async function untoldAt(snapshot: CampaignSnapshot, graph: ModuleGraph): Promise<(node: Row) => boolean> {
     const journal = row(await snapshot.optional('npc-journal.json')), records = snapshot.records.length ? snapshot.records : await snapshot.files('turns');
     return node => !graph.isTablePerson(node) && untoldBlock(graph, snapshot.world, journal, node, records) !== null;
@@ -1041,6 +1056,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const receipts = [...array(turn.receipts)];
         const askSpeakers = speakerResolver(module.graph, snapshot.world, snapshot.party, await untoldAt(snapshot, module.graph));
         // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
+        if (text) await refuseUntoldNames(snapshot, module.graph, text, askSpeakers);
         const asked = text ? withNames(text, askSpeakers, module.graph) : null;
         const { placed, ...delivery } = deliveryText(asked ? asked.text : text, receipts, askSpeakers);
         await refuseRepeatedLine(snapshot, campaign, delivery.speech);
@@ -1117,6 +1133,7 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
         const receipts = [...array(turn.receipts)], speakers = speakerResolver(module.graph, snapshot.world, snapshot.party, untold);
         // `let`: §143.17 may take a bare wrapper off the text on the turn's second delivery and render it again.
         // §103.8: a name the fiction says is the book's, put in here; the Keeper never held it.
+        await refuseUntoldNames(snapshot, module.graph, required(params, 'text')!, speakers);
         const naming = withNames(required(params, 'text')!, speakers, module.graph);
         let text = naming.text;
         // §103.8: someone untold is named in this delivery, so from now on the table calls them by the book's name -- the sync

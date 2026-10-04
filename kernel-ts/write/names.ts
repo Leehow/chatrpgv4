@@ -9,7 +9,8 @@
  * as the word written, with the token gone, and reported; nothing is refused (§34.14: a token is a rendering hint).
  */
 import type { ModuleGraph } from '../read/module-graph.js';
-import type { Row } from '../read/values.js';
+import { normalize, type Row } from '../read/values.js';
+import { occurs } from '../journal/naming.js';
 import type { SpeakerResolver } from './speech-pass.js';
 
 const NAME_TOKEN = /\{\{name:([^{}\n]{1,80})\}\}/g;
@@ -30,4 +31,21 @@ export function withNames(text: string, speakers: SpeakerResolver, graph: Module
         return graph.displayName(node);
     });
     return { text: out, named, unresolved };
+}
+
+/**
+ * §177.11: the words of `text` that are the Keeper's own -- every resolved `{{name:<who>}}` taken out (the delivery puts the
+ * book's name there on purpose) and an unresolved one left as the word it carries -- checked for an untold person's printed
+ * name. Table 25 (turn 8): asked his name, the toothless trucker said 「叫我厄尼就行」, the name of another man of the book
+ * the investigator had not met; delivered, it would also have counted that man as told from then on.
+ */
+export function untoldNamesSaid(text: string, speakers: SpeakerResolver, graph: ModuleGraph, names: readonly string[]): string[] {
+    if (!names.length) return [];
+    const own = text.replace(NAME_TOKEN, (_token, who: string) => {
+        const speaker = speakers(who.trim()) as Row, handle = typeof speaker.npc === 'string' ? speaker.npc : '';
+        return handle && graph.find(handle, ['npc']) ? ' ' : who.trim();
+    // Every other marker is machine text, not prose: a say token's or a map's handle normalizes to the name it was made from.
+    }).replace(/\{\{[^{}\n]*\}\}/g, ' ');
+    const said = normalize(own);
+    return names.filter(name => occurs(said, normalize(name)));
 }
