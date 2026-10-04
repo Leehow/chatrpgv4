@@ -17,6 +17,7 @@
     "therapy_month": { "min": 40320, "default": 43200, "max": 44640 },
     "spell_learning": { "min": 2016, "default": 18144, "max": 36288 },
     "tome_study": { "min": 168, "default": 1344, "max": 6720 },
-    "investigation_recovery": { "min": 5, "default": 30, "max": 60 }
+    "investigation_recovery": { "min": 5, "default": 30, "max": 60 },
+    "momentary": { "min": 0, "default": 0, "max": 1 }
   }
 }

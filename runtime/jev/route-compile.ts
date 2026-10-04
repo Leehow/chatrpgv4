@@ -133,9 +133,10 @@ export const soughtRows = (cleared: Cleared): string[] => Object.entries(cleared
 export interface Fired {bound?: Record<string, Json>; from?: Record<string, FeatureFamily>}
 /**
  * What the run already settled, as the predicates read it (§135.30.8, SL-43): the acts the run's obligation steps settled,
- * and the act an obligation check fired on in this same compile. A declaration's act is settled once.
+ * and the act an obligation check fired on in this same compile. A declaration's act is settled once. §135.30.10: so is its
+ * destination -- `moved`, the declaration's one selected move the clerk executed (`RunView.moved`).
  */
-export interface CompileRun {actsSettled: readonly string[]}
+export interface CompileRun {actsSettled: readonly string[]; moved: readonly string[]}
 export interface CompilePredicate {
   name: string;
   /**
@@ -219,6 +220,15 @@ export const FIGHT_FAMILIES: readonly string[] = Object.freeze(['combat', 'chase
 export function actGated(candidate: Candidate, acts: readonly string[]): boolean {
   return fightStep(candidate) && !acts.includes(String(candidate.bound.decision));
 }
+/**
+ * §135.30.10: the declaration's one selected move (`RunView.moved`) settles its destination. After it, the route may select no
+ * other party move the read issues (family `move`): its `need` question is asked and recorded, it selects nothing, and after a
+ * complete route it is the Keeper's for the run. An owed move (§158.4, family `owed`) and a person's own movement (an `npc`
+ * effect) are no party move of the declaration and are never gated.
+ */
+export function moveGated(candidate: Candidate, moved: readonly string[]): boolean {
+  return candidate.family === 'move' && moved.length > 0;
+}
 /** The attack's issued targets: the one the kernel bound, else the closed options it issued. */
 const attackTargets = (candidate: Candidate): string[] => typeof candidate.bound.target === 'string'
   ? [candidate.bound.target] : candidate.unbound.find(value => value.name === 'target')?.options ?? [];
@@ -239,10 +249,12 @@ const actSettled = (cleared: Cleared, run: CompileRun): boolean => !!cleared.act
 const guardObligation = (row: FeatureRow | undefined): string => text(object(row?.guard).obligation);
 
 export const COMPILE_PREDICATES: readonly CompilePredicate[] = Object.freeze([
+  // §135.30.10: one declaration, one destination. Once a move of the run carried it, a later compile's `destination` (read
+  // from wherever the party now stands) selects no second move: every move is decided, the Keeper's for the run.
   {name: 'move', features: ['destination'], askable: rows => has(rows, 'destination'),
     reads: candidate => candidate.family === 'move' && typeof candidate.bound.to === 'string',
-    decided: cleared => !!cleared.destination,
-    fires: (candidate, cleared) => cleared.destination?.row === candidate.bound.to ? {} : undefined},
+    decided: (cleared, _candidate, run) => !!cleared.destination || run.moved.length > 0,
+    fires: (candidate, cleared, _rows, run) => !run.moved.length && cleared.destination?.row === candidate.bound.to ? {} : undefined},
   // §135.30.9 (SL-52): the obligation's own `ask` row decides it (sought or not); another row sought does not.
   {name: 'obligation_check', features: ['ask', 'addressee', 'act'], askable: rows => has(rows, 'ask'), sole: true, askRow: obligationRow,
     reads: candidate => candidate.family === 'obligation_check' && !!text(basisOf(candidate).obligation),
@@ -370,7 +382,9 @@ export function compileOnly(candidate: Candidate): boolean {
 
 export interface CompileView {runId: string; rawInput: string; context: TurnContext; materials: Material[]; candidates: Candidate[]; rows?: FeatureRows; observations: unknown[];
   /** §135.30.8 (SL-43): the acts the run's obligation steps settled. */
-  actsSettled?: string[]}
+  actsSettled?: string[];
+  /** §135.30.10: the declaration's one selected move the clerk executed. */
+  moved?: string[]}
 
 /** The compile question: one choice per family with rows. Packing halves material previews until the Jev limits hold. */
 export function compileBatch(view: CompileView, scope: ScopeBinding, readSet: ReadSet, done: Json[]): DecisionBatch {
@@ -540,15 +554,15 @@ export function guardedDestinations(rows: FeatureRows | undefined, candidates: C
  * The predicates over the gated answers. A selected candidate carries `basis.compile` (the predicate and the cleared
  * rows it fired on; for a closed parameter the compile settled, its value with the answer's confidence and distribution).
  */
-export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows' | 'actsSettled'>, result: DecisionResult | undefined, gate: number): CompileOutcome {
+export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows' | 'actsSettled' | 'moved'>, result: DecisionResult | undefined, gate: number): CompileOutcome {
   const {features, cleared} = readFeatures(view.rows, result, gate);
   if (!result || result.status !== 'complete')
     return {selected: [], decided: [], fellThrough: view.candidates.map(candidate => candidate.key), features, ...(features.ask ? {askCleared: []} : {}),
       reason: `jev_${result?.failure?.code ?? result?.status ?? 'unavailable'}`};
   // §135.30.8 (SL-43): the act an obligation check fires on in this compile is settled for the compile's other candidates too.
-  const prior: CompileRun = {actsSettled: view.actsSettled ?? []};
+  const prior: CompileRun = {actsSettled: view.actsSettled ?? [], moved: view.moved ?? []};
   const settles = settledActs(view.candidates, view.rows, cleared, prior);
-  const run: CompileRun = {actsSettled: [...new Set([...prior.actsSettled, ...settles])]};
+  const run: CompileRun = {actsSettled: [...new Set([...prior.actsSettled, ...settles])], moved: prior.moved};
   const selected: CompileSelection[] = [], decided: string[] = [], fellThrough: string[] = [];
   for (const candidate of view.candidates) {
     // §135.30.9 (SL-52): every predicate that reads and reaches the candidate, in order; the first that fires selects it.
@@ -576,9 +590,10 @@ export function interpretCompile(view: Pick<CompileView, 'candidates' | 'rows' |
     else fellThrough.push(candidate.key);
   }
   // §135.30.5 (SL-38): a held destination a step of this batch unlocks is evaluated after that step (the policy stages the
-  // move); every other held destination is reported with its guard as §135.30.4 says.
+  // move); every other held destination is reported with its guard as §135.30.4 says. §135.30.10: not once the run moved --
+  // the destination was carried, and a later read of it is not the player's declaration of a held place.
   const guarded: GuardedDestination[] = [], unlocked: UnlockedDestination[] = [];
-  for (const entry of guardedDestinations(view.rows, view.candidates, cleared)) {
+  for (const entry of run.moved.length ? [] : guardedDestinations(view.rows, view.candidates, cleared)) {
     const step = unlockingStep(entry.guard, selected);
     if (!step) { guarded.push(entry); continue; }
     const read = readOf(cleared, undefined, step.candidate);
